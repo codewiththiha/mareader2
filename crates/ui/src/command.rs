@@ -3,6 +3,8 @@
 use mareader_appearance::Appearance;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
+use crate::app::Settings;
+use crate::settings_window::Tab;
 use crate::sidebar::Panel;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,7 +19,12 @@ pub enum Command {
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).
     ShowAppearance,
+    /// Opens the settings window where it was left.
     ShowSettings,
+    OpenSettings(Tab),
+    CloseSettings,
+    /// Every edit in the settings window; applies on the same frame.
+    SetSettings(Box<Settings>),
     Split(SplitAxis),
     FocusPane(PaneId),
     ClosePane(PaneId),

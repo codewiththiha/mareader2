@@ -1,6 +1,6 @@
 //! The few controls egui has no stock widget for.
 
-use egui::{Button, Color32, CornerRadius, Rect, Response, Sense, Ui, Vec2, vec2};
+use egui::{Button, Color32, CornerRadius, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
 
 use crate::command::WindowCommand;
 use crate::icons::Icon;
@@ -115,4 +115,49 @@ fn caption_colours(
 fn rgb(hex: u32) -> Color32 {
     let [_, r, g, b] = hex.to_be_bytes();
     Color32::from_rgb(r, g, b)
+}
+
+/// Stock selectable buttons, `cols` to a row, sharing the width.
+pub fn choices<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    value: &mut T,
+    all: &[T],
+    label: fn(T) -> &'static str,
+    cols: usize,
+) {
+    for row in all.chunks(cols) {
+        ui.columns(cols, |cols| {
+            for (ui, &v) in cols.iter_mut().zip(row) {
+                let button = egui::Button::selectable(*value == v, label(v));
+                if ui.add_sized([ui.available_width(), 28.0], button).clicked() {
+                    *value = v;
+                }
+            }
+        });
+    }
+}
+
+/// An on/off switch; `label` names it for screen readers and tests.
+pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(36.0, 20.0), Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let (enabled, value) = (ui.is_enabled(), *on);
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, value, label)
+    });
+    let how = ui.ctx().animate_bool_responsive(resp.id, value);
+    let mut track = t.line.lerp_to_gamma(t.accent, how);
+    if resp.hovered() {
+        track = track.lerp_to_gamma(t.ink, 0.08);
+    }
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(10), track);
+    let x = egui::lerp(rect.left() + 10.0..=rect.right() - 10.0, how);
+    ui.painter()
+        .circle_filled(pos2(x, rect.center().y), 8.0, Color32::WHITE);
+    resp
 }
