@@ -780,6 +780,17 @@ status = "planned"
 reference = ["crates/app-ui/src/components/menus/appearance_menu"]
 
 [[feature]]
+id = "appearance.instant"
+title = "Appearance controls restyle the whole window, pages included, as they move"
+area = "F"
+tier = "P0"
+milestone = "M1"
+status = "partial"
+evidence = ["crates/ui/tests/shell.rs::an_appearance_change_restyles_on_the_frame_it_lands"]
+reference = ["crates/app-ui/src/components/menus/appearance_menu/mod.rs", "crates/app-chrome/src/appearance_hooks.rs"]
+notes = "Command::SetAppearance restyles on the frame it lands; the controls (M1) and page uniforms (M3) are still to come"
+
+[[feature]]
 id = "appearance.cross-fade"
 title = "Theme changes without flashing"
 area = "F"
@@ -1055,7 +1066,7 @@ notes = "The title bar's grace schedules request_repaint_after; no frame-count t
 
 [[feature]]
 id = "perf.teardown"
-title = "Closing a pane releases its textures, jobs and document (measured)"
+title = "Closing the last pane on a book releases its textures, jobs and document (measured)"
 area = "L"
 tier = "P0"
 milestone = "M2"
@@ -1079,6 +1090,15 @@ tier = "P0"
 milestone = "M2"
 status = "planned"
 reference = ["crates/reader-runtime/src/services/document/session.rs"]
+
+[[feature]]
+id = "perf.shared-documents"
+title = "A book open in several panes is parsed once and shares one tile cache (ADR 0006)"
+area = "L"
+tier = "P1"
+milestone = "M3"
+status = "planned"
+notes = "Improves on mareader, where each pane's iframe loads its own copy"
 
 [[feature]]
 id = "perf.memory-audit"
