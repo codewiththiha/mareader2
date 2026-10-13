@@ -159,7 +159,9 @@ impl TitleBar {
         if fade <= 0.0 {
             return;
         }
+        // Our own fade below; egui's would stack on it.
         egui::Area::new(Id::new("titlebar"))
+            .fade_in(false)
             .order(Order::Foreground)
             .fixed_pos(band.min)
             .constrain(false)
