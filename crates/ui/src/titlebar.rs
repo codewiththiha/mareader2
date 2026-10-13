@@ -21,8 +21,10 @@ pub const APPEARANCE_POPOVER: &str = "appearance-popover";
 pub struct BarContext<'a> {
     pub title: &'a str,
     pub platform: Platform,
-    /// A docked sidebar's width: the band starts after it.
+    /// The sidebar's width: the band starts after it.
     pub left_inset: f32,
+    /// The bar's sidebar toggle; the rail's own header closes it.
+    pub sidebar_toggle: bool,
     pub maximized: bool,
     pub appearance: &'a Appearance,
 }
@@ -117,7 +119,12 @@ impl TitleBar {
                 }
                 let live = visible;
                 let mut row = band;
-                row.min.x += bar.platform.leading_inset();
+                // Over a rail, the macOS lights sit in the rail's header.
+                row.min.x += if bar.left_inset > 0.0 {
+                    8.0
+                } else {
+                    bar.platform.leading_inset()
+                };
                 if bar.platform.captions() != Some(CaptionStyle::Windows) {
                     row.max.x -= 8.0;
                 }
@@ -136,10 +143,12 @@ impl TitleBar {
         out: &mut Commands,
     ) {
         let pinned = self.pinned;
-        let ((lead_end, lead), (trail_start, trail)) = egui::Sides::new()
-            .height(TITLE_BAR_H)
-            .spacing(8.0)
-            .show(ui, leading, |ui| trailing(ui, bar, pinned));
+        let ((lead_end, lead), (trail_start, trail)) =
+            egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
+                ui,
+                |ui| leading(ui, bar.sidebar_toggle),
+                |ui| trailing(ui, bar, pinned),
+            );
         for c in lead.into_iter().chain(trail).filter(|_| live) {
             if let Command::SetTitlebarPinned(p) = c {
                 self.pinned = p;
@@ -155,11 +164,13 @@ fn clicked(r: egui::Response, c: Command) -> Option<Command> {
 }
 
 /// Returns its right edge and what was clicked.
-fn leading(ui: &mut egui::Ui) -> (f32, Commands) {
+fn leading(ui: &mut egui::Ui, sidebar_toggle: bool) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
-    let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
-    out.extend(clicked(r, Command::ToggleSidebar));
+    if sidebar_toggle {
+        let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
+        out.extend(clicked(r, Command::ToggleSidebar));
+    }
     let r = widgets::icon_button(ui, Icon::Library, "Library", false);
     out.extend(clicked(r, Command::ShowLibrary));
     (ui.min_rect().right(), out)

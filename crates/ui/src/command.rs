@@ -3,9 +3,16 @@
 use mareader_appearance::Appearance;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
+use crate::sidebar::Panel;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     ToggleSidebar,
+    /// Opens the rail on a panel, or on the last one shown.
+    OpenSidebar(Option<Panel>),
+    CloseSidebar,
+    /// Floating over the panes, or docked beside them.
+    SetSidebarOverlay(bool),
     ShowLibrary,
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).

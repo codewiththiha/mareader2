@@ -135,3 +135,102 @@ fn a_preset_swatch_applies_its_look() {
         .map(|p| p.appearance);
     assert_eq!(Some(h.state().settings().appearance), sepia);
 }
+
+fn with(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
+    let mut app = MareaderApp::default();
+    for (k, v) in options {
+        app.set_option(k, v).map_err(|e| e.to_string()).ok();
+    }
+    harness(app)
+}
+
+#[test]
+fn the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it() {
+    let mut h = harness(MareaderApp::default());
+    h.hover_at(egui::pos2(600.0, 20.0));
+    h.run_steps(8);
+    h.get_by_label("Toggle sidebar").click();
+    h.run_steps(30);
+    assert!(h.state().sidebar().is_open());
+    assert!(h.query_by_label("Toggle sidebar").is_none());
+    h.get_by_label("Close sidebar").click();
+    h.run_steps(30);
+    assert!(!h.state().sidebar().is_open());
+}
+
+#[test]
+fn the_bar_band_starts_after_a_docked_sidebar() {
+    let mut h = with(&[("sidebar", "outline")]);
+    h.hover_at(egui::pos2(150.0, 20.0));
+    h.run_steps(4);
+    assert!(
+        !h.state().titlebar().visible(),
+        "the rail's header is not the band"
+    );
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(4);
+    assert!(h.state().titlebar().visible());
+}
+
+#[test]
+fn the_switcher_changes_panel_and_a_reclick_keeps_it() {
+    use egui::accesskit::Role;
+    use mareader_ui::sidebar::Panel;
+    let mut h = with(&[("sidebar", "thumbnails")]);
+    h.get_by_role_and_label(Role::Button, "Outline").click();
+    h.run_steps(2);
+    assert_eq!(h.state().sidebar().panel(), Panel::Outline);
+    h.get_by_role_and_label(Role::Button, "Outline").click();
+    h.run_steps(2);
+    assert!(h.state().sidebar().is_open());
+    assert_eq!(h.state().sidebar().panel(), Panel::Outline);
+}
+
+#[test]
+fn a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace() {
+    let mut h = with(&[("float", "true")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    h.run_steps(8);
+    assert!(h.query_by_label("Toggle sidebar").is_none());
+    h.hover_at(egui::pos2(2.0, 400.0));
+    h.run_steps(4);
+    assert!(h.state().sidebar().is_open());
+    h.hover_at(egui::pos2(150.0, 400.0));
+    h.run_steps(30);
+    assert!(h.state().sidebar().is_open(), "on the rail it stays");
+    h.hover_at(egui::pos2(800.0, 400.0));
+    h.run_steps(4);
+    assert!(h.state().sidebar().is_open(), "the grace keeps it a moment");
+    h.run_steps(30);
+    assert!(!h.state().sidebar().is_open());
+}
+
+#[test]
+fn docking_a_floating_sidebar_keeps_it_open() {
+    let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
+    h.hover_at(egui::pos2(150.0, 400.0));
+    h.run_steps(4);
+    h.get_by_label("Dock sidebar").click();
+    h.run_steps(4);
+    assert!(!h.state().settings().sidebar_overlay);
+    assert!(h.state().sidebar().is_open());
+}
+
+#[test]
+fn escape_closes_the_sidebar() {
+    let mut h = with(&[("sidebar", "outline")]);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().sidebar().is_open());
+}
+
+#[test]
+fn a_command_schedules_the_frame_that_shows_it() {
+    let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
+    h.run_steps(2);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::CloseSidebar);
+    // `run` steps only while the app asks for frames, like a real window.
+    h.run();
+    assert!(h.query_by_label("Close sidebar").is_none(), "faded out");
+}
