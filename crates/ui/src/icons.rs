@@ -33,6 +33,14 @@ pub enum Icon {
     Light,
     Dark,
     Dim,
+    Menu,
+    Fullscreen,
+    ExitFullscreen,
+    Keyboard,
+    Alert,
+    Done,
+    ChevronDown,
+    ChevronRight,
 }
 
 impl Icon {
@@ -63,6 +71,14 @@ impl Icon {
             Self::Light => Lucide::Sun,
             Self::Dark => Lucide::Moon,
             Self::Dim => Lucide::SunMoon,
+            Self::Menu => Lucide::Menu,
+            Self::Fullscreen => Lucide::Maximize,
+            Self::ExitFullscreen => Lucide::Minimize,
+            Self::Keyboard => Lucide::Keyboard,
+            Self::Alert => Lucide::CircleAlert,
+            Self::Done => Lucide::CircleCheck,
+            Self::ChevronDown => Lucide::ChevronDown,
+            Self::ChevronRight => Lucide::ChevronRight,
         }
     }
 

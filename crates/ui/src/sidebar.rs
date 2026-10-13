@@ -303,7 +303,8 @@ impl Sidebar {
             let label = panel.label();
             r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
             // Re-clicking the active panel will reveal the reading place (M2).
-            if r.on_hover_text(label).clicked() && !on {
+            widgets::tip(&r, label, None);
+            if r.clicked() && !on {
                 out.push(Command::OpenSidebar(Some(panel)));
             }
         }

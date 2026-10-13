@@ -6,7 +6,7 @@ use eframe::Storage;
 use egui::{Context, ViewportCommand};
 use mareader_appearance::{Appearance, BaseMode, builtin_presets};
 use mareader_settings::Settings;
-use mareader_workspace::{Bounds, PaneId, PaneTree, Side, SplitAxis};
+use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::panes::{self, PaneView};
@@ -14,7 +14,8 @@ use crate::platform::Platform;
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::titlebar::{BarContext, TitleBar};
-use crate::{motion, resize, theme};
+use crate::toast::{Toast, Toasts};
+use crate::{keymap, motion, resize, theme};
 
 pub const SETTINGS_KEY: &str = "settings";
 
@@ -29,6 +30,7 @@ pub struct MareaderApp {
     active: PaneId,
     sidebar: Sidebar,
     settings_window: SettingsWindow,
+    toasts: Toasts,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
@@ -61,6 +63,7 @@ impl MareaderApp {
             active: PaneId(1),
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
+            toasts: Toasts::default(),
             styled: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
@@ -82,11 +85,21 @@ impl MareaderApp {
         for note in &loaded.notes {
             eprintln!("mareader: {note}");
         }
-        Self::with_settings(loaded.settings)
+        let repaired = !loaded.notes.is_empty();
+        let mut app = Self::with_settings(loaded.settings);
+        if repaired {
+            let note = "Some settings couldn't be read and were reset to defaults.";
+            app.toasts.push(Toast::error(note));
+        }
+        app
     }
 
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    pub fn toast(&self) -> Option<&Toast> {
+        self.toasts.current()
     }
 
     /// Applied at the end of the next frame, like a view's commands.
@@ -159,6 +172,10 @@ impl MareaderApp {
             "platform" => {
                 self.platform = Platform::parse(value).ok_or("platform: mac, windows or gnome")?
             }
+            "toast" => self.toasts.push(match value.strip_prefix("error:") {
+                Some(message) => Toast::error(message),
+                None => Toast::info(value),
+            }),
             "pinned" => self.titlebar.pinned = value == "true",
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
@@ -171,7 +188,8 @@ impl MareaderApp {
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
                 "settings" => self.settings_window.open(None),
-                _ => return Err("open: appearance or settings".into()),
+                "menu" => self.queue(Command::ShowViewMenu),
+                _ => return Err("open: appearance, settings or menu".into()),
             },
             "settings" => {
                 let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
@@ -206,8 +224,15 @@ impl MareaderApp {
             Command::Split(axis) => {
                 let r = ctx.content_rect();
                 let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
-                if let Ok(id) = self.tree.split(self.active, axis, Side::After, area) {
-                    self.active = id;
+                match self.tree.split(self.active, axis, Side::After, area) {
+                    Ok(id) => self.active = id,
+                    Err(TreeError::Full) => {
+                        let note = format!("A workspace holds {MAX_PANES} panes at most.");
+                        self.toasts.push(Toast::info(note));
+                    }
+                    Err(_) => self
+                        .toasts
+                        .push(Toast::info("This pane is too small to split.")),
                 }
             }
             Command::FocusPane(id) => self.active = id,
@@ -235,10 +260,20 @@ impl MareaderApp {
                 }
                 WindowCommand::Close => ViewportCommand::Close,
                 WindowCommand::StartDrag => ViewportCommand::StartDrag,
+                WindowCommand::ToggleFullscreen => {
+                    let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                    ViewportCommand::Fullscreen(!full)
+                }
             }),
+            Command::Notify(toast) => self.toasts.push(toast),
+            Command::DismissToast => self.toasts.dismiss(ctx.input(|i| i.time)),
             Command::ShowAppearance => {
                 self.titlebar.reveal();
                 egui::Popup::open_id(ctx, egui::Id::new(crate::titlebar::APPEARANCE_POPOVER));
+            }
+            Command::ShowViewMenu => {
+                self.titlebar.reveal();
+                egui::Popup::open_id(ctx, egui::Id::new(crate::view_menu::VIEW_MENU));
             }
             Command::ShowSettings => self.settings_window.open(None),
             Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
@@ -274,6 +309,7 @@ impl eframe::App for MareaderApp {
         }
         resize::edges(&ctx, self.platform.frameless());
         let mut commands = std::mem::take(&mut self.queued);
+        keymap::read(&ctx, self.platform, &mut commands);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
@@ -305,9 +341,13 @@ impl eframe::App for MareaderApp {
             left_inset: inset,
             sidebar_toggle: !overlay && !self.sidebar.is_open(),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
+            fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             appearance: &self.settings.appearance,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
+        let mut stage = ctx.content_rect();
+        stage.min.x += inset;
+        self.toasts.show(&ctx, stage, &mut commands);
         let window = self.window_context();
         self.settings_window
             .show(&ctx, &self.settings, &window, &mut commands);

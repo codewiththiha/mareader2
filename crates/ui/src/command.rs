@@ -5,6 +5,7 @@ use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
+use crate::toast::Toast;
 use mareader_settings::Settings;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +20,8 @@ pub enum Command {
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).
     ShowAppearance,
+    /// Opens the title bar's View & tools menu.
+    ShowViewMenu,
     /// Opens the settings window where it was left.
     ShowSettings,
     OpenSettings(Tab),
@@ -34,6 +37,9 @@ pub enum Command {
     SetAppearance(Appearance),
     SetTitlebarPinned(bool),
     Window(WindowCommand),
+    /// Shows a toast, replacing the one on screen.
+    Notify(Toast),
+    DismissToast,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +48,7 @@ pub enum WindowCommand {
     ToggleMaximize,
     Close,
     StartDrag,
+    ToggleFullscreen,
 }
 
 /// The frame's command queue, handed to every view.

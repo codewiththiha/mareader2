@@ -1,0 +1,117 @@
+//! The title bar's menu: crowded-out tools, full screen, the shortcut list.
+
+use egui::{Align, Button, Id, Layout, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
+
+use crate::command::{Command, Commands, WindowCommand};
+use crate::icons::Icon;
+use crate::keymap;
+use crate::platform::Platform;
+use crate::theme::Tokens;
+use crate::widgets;
+
+pub const VIEW_MENU: &str = "view-menu";
+const WIDTH: f32 = 272.0;
+const KEYS_OPEN: &str = "view-menu-keys";
+
+/// A title bar tool; folds into the menu when the bar runs out of room.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tool {
+    pub icon: Icon,
+    pub label: &'static str,
+    pub command: Command,
+}
+
+pub struct MenuContext<'a> {
+    /// Tools the bar had no room for, in bar order.
+    pub folded: &'a [Tool],
+    pub fullscreen: bool,
+    pub platform: Platform,
+}
+
+/// The menu button and its popup.
+pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
+    let id = Id::new(VIEW_MENU);
+    let open = Popup::is_id_open(ui.ctx(), id);
+    let r = widgets::icon_button(ui, Icon::Menu, "View & tools", open);
+    Popup::from_toggle_button_response(&r)
+        .id(id)
+        .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+        .align(RectAlign::BOTTOM_END)
+        .gap(6.0)
+        .width(WIDTH)
+        .show(|ui| contents(ui, cx, out));
+}
+
+fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
+    ui.set_width(WIDTH);
+    ui.spacing_mut().item_spacing.y = 2.0;
+    for tool in cx.folded {
+        let keys = keymap::hint(cx.platform, &tool.command);
+        if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
+            out.push(tool.command.clone());
+            ui.close();
+        }
+    }
+    if !cx.folded.is_empty() {
+        ui.separator();
+    }
+    let full = Command::Window(WindowCommand::ToggleFullscreen);
+    let (icon, label) = if cx.fullscreen {
+        (Icon::ExitFullscreen, "Exit full screen")
+    } else {
+        (Icon::Fullscreen, "Full screen")
+    };
+    let keys = keymap::hint(cx.platform, &full);
+    if widgets::menu_row(ui, icon, label, keys.as_deref(), false).clicked() {
+        out.push(full);
+        ui.close();
+    }
+    ui.separator();
+    shortcuts(ui, cx.platform);
+    ui.separator();
+    let t = Tokens::get(ui.ctx());
+    let version = format!("Mareader {}", env!("CARGO_PKG_VERSION"));
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        ui.label(RichText::new(version).size(t.text_small).color(t.muted));
+    });
+}
+
+/// A disclosure row; the list stays open between visits to the menu.
+fn shortcuts(ui: &mut Ui, platform: Platform) {
+    let t = Tokens::get(ui.ctx());
+    let id = Id::new(KEYS_OPEN);
+    let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let chevron = if open {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    };
+    let row = Button::image_and_text(Icon::Keyboard.image(16.0), "Keyboard shortcuts")
+        .right_text(chevron.image(14.0))
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .min_size(egui::vec2(ui.available_width(), 32.0));
+    let r = ui.add(row);
+    r.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, "Keyboard shortcuts")
+    });
+    if r.clicked() {
+        ui.data_mut(|d| d.insert_temp(id, !open));
+    }
+    if !open {
+        return;
+    }
+    for (label, keys) in keymap::reference(platform) {
+        ui.horizontal(|ui| {
+            ui.set_min_height(26.0);
+            ui.add_space(10.0);
+            ui.label(RichText::new(label).size(t.text_small));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(10.0);
+                ui.label(RichText::new(keys).size(t.text_small).color(t.muted));
+            });
+        });
+    }
+}

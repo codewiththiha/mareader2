@@ -24,6 +24,8 @@ pub struct Tokens {
     pub pressed: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
+    /// Errors: a toast's icon and edge.
+    pub danger: Color32,
     /// The title bar fill until the blur pass.
     pub glass: Color32,
     pub shadow: Color32,
@@ -61,6 +63,11 @@ impl Tokens {
             pressed: line.lerp_to_gamma(ink, 0.12),
             accent: color(t.accent),
             accent_soft: color(t.accent_soft),
+            danger: if dark {
+                Color32::from_rgb(0xf8, 0x71, 0x71)
+            } else {
+                Color32::from_rgb(0xdc, 0x26, 0x26)
+            },
             glass: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 245),
             shadow: Color32::from_black_alpha(if dark { 120 } else { 60 }),
             dark,
