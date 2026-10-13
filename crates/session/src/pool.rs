@@ -4,14 +4,19 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use mareader_pdf::{Document, OpenError, Raster, RenderError};
+use mareader_pdf::{Document, Raster, RenderError};
 
 use crate::key::PageKey;
+use crate::{OpenError, Source};
+
+/// Finished results wait here; past it, workers pause until a poll.
+const DONE_ITEMS: usize = 32;
+const DONE_BYTES: usize = 32 << 20;
 
 pub(crate) type Wake = Arc<dyn Fn() + Send + Sync>;
 
 pub(crate) enum Job {
-    Open { ticket: u64, bytes: Arc<Vec<u8>> },
+    Open { ticket: u64, source: Source },
     Render { key: PageKey, doc: Arc<Document> },
 }
 
@@ -41,7 +46,24 @@ struct State {
     running: HashSet<PageKey>,
     wanted: HashSet<PageKey>,
     done: VecDeque<Output>,
+    done_bytes: usize,
     quit: bool,
+}
+
+impl State {
+    fn full(&self) -> bool {
+        self.done.len() + self.running.len() >= DONE_ITEMS || self.done_bytes >= DONE_BYTES
+    }
+
+    /// The next job a worker may take: opens always, renders if room.
+    fn next(&mut self) -> Option<Job> {
+        let open = matches!(self.queue.front(), Some(Job::Open { .. }));
+        if open || !self.full() {
+            self.queue.pop_front()
+        } else {
+            None
+        }
+    }
 }
 
 struct Shared {
@@ -83,10 +105,10 @@ impl Pool {
         Self { shared, workers }
     }
 
-    pub(crate) fn open(&self, ticket: u64, bytes: Arc<Vec<u8>>) {
+    pub(crate) fn open(&self, ticket: u64, source: Source) {
         let mut s = self.shared.lock();
         // Opening outranks drawing: the reader is waiting on it.
-        s.queue.push_front(Job::Open { ticket, bytes });
+        s.queue.push_front(Job::Open { ticket, source });
         drop(s);
         self.shared.work.notify_one();
     }
@@ -101,6 +123,7 @@ impl Pool {
             Output::Rendered { key, .. } => s.wanted.contains(key),
             Output::Opened { .. } => true,
         });
+        s.done_bytes = s.done.iter().map(Output::bytes).sum();
         let ready: HashSet<PageKey> = s
             .done
             .iter()
@@ -135,17 +158,21 @@ impl Pool {
                 break;
             }
             bytes += size;
+            s.done_bytes -= size;
             out.extend(s.done.pop_front());
         }
         if !s.done.is_empty() {
             (self.shared.wake)();
         }
+        drop(s);
+        // Room again: workers paused on a full queue may continue.
+        self.shared.work.notify_all();
         out
     }
 
     /// Without threads: one job per poll keeps frames short.
     fn run_inline(&self) {
-        let job = self.shared.lock().queue.pop_front();
+        let job = self.shared.lock().next();
         if let Some(job) = job {
             finish(&self.shared, job);
         }
@@ -179,7 +206,7 @@ fn work(shared: &Shared) {
                 if s.quit {
                     return;
                 }
-                if let Some(job) = s.queue.pop_front() {
+                if let Some(job) = s.next() {
                     if let Job::Render { key, .. } = &job {
                         s.running.insert(*key);
                     }
@@ -194,9 +221,9 @@ fn work(shared: &Shared) {
 
 fn finish(shared: &Shared, job: Job) {
     let out = match job {
-        Job::Open { ticket, bytes } => Output::Opened {
+        Job::Open { ticket, source } => Output::Opened {
             ticket,
-            result: Document::open(bytes),
+            result: source.read().and_then(|b| Ok(Document::open(b)?)),
         },
         Job::Render { key, doc } => Output::Rendered {
             key,
@@ -212,6 +239,7 @@ fn finish(shared: &Shared, job: Job) {
         Output::Opened { .. } => true,
     };
     if keep {
+        s.done_bytes += out.bytes();
         s.done.push_back(out);
         drop(s);
         (shared.wake)();

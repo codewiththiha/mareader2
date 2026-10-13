@@ -13,12 +13,66 @@ mod key;
 mod pool;
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use key::{DocId, PageKey, Scale};
-pub use mareader_pdf::{Document, OpenError, PageSize, Raster, RenderError};
+pub use mareader_pdf::{Document, PageSize, Raster, RenderError};
 
 use pool::{Output, Pool};
+
+/// Where a document's bytes come from; workers read paths.
+#[derive(Clone)]
+pub enum Source {
+    Bytes(Arc<Vec<u8>>),
+    Path(PathBuf),
+}
+
+impl std::fmt::Debug for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bytes(b) => write!(f, "Bytes({} B)", b.len()),
+            Self::Path(p) => write!(f, "Path({})", p.display()),
+        }
+    }
+}
+
+impl PartialEq for Source {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Bytes(a), Self::Bytes(b)) => Arc::ptr_eq(a, b),
+            (Self::Path(a), Self::Path(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Source {
+    fn read(self) -> Result<Arc<Vec<u8>>, OpenError> {
+        match self {
+            Self::Bytes(b) => Ok(b),
+            Self::Path(p) => std::fs::read(p)
+                .map(Arc::new)
+                .map_err(|e| OpenError::Unreadable(e.kind().to_string())),
+        }
+    }
+
+    /// The path's text, for naming the document.
+    fn file_name(&self) -> Option<String> {
+        match self {
+            Self::Bytes(_) => None,
+            Self::Path(p) => Some(p.to_string_lossy().into_owned()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum OpenError {
+    #[error("the file couldn't be read ({0})")]
+    Unreadable(String),
+    #[error(transparent)]
+    Pdf(#[from] mareader_pdf::OpenError),
+}
 
 /// Names one `open` call, to match its `Event::Opened`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -79,11 +133,12 @@ impl Session {
         std::thread::available_parallelism().map_or(1, |n| n.get().clamp(2, 3) - 1)
     }
 
-    /// Starts opening `bytes`; `file_name` names it if the title won't.
-    pub fn open(&mut self, bytes: Arc<Vec<u8>>, file_name: Option<String>) -> Ticket {
+    /// Starts opening; `file_name` names it if its title won't.
+    pub fn open(&mut self, source: Source, file_name: Option<String>) -> Ticket {
         let ticket = self.bump();
-        self.opening.insert(ticket, file_name);
-        self.pool.open(ticket, bytes);
+        self.opening
+            .insert(ticket, file_name.or_else(|| source.file_name()));
+        self.pool.open(ticket, source);
         Ticket(ticket)
     }
 

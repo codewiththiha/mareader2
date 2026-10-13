@@ -33,7 +33,10 @@ fn until(s: &mut Session, mut pred: impl FnMut(&Event) -> bool) -> Vec<Event> {
 
 fn open_sample(s: &mut Session, pages: usize, title: &str) -> Result<DocId, String> {
     let bytes = Arc::new(sample::pdf(pages, title));
-    let ticket = s.open(bytes, Some("/books/fallback-name.pdf".into()));
+    let ticket = s.open(
+        Source::Bytes(bytes),
+        Some("/books/fallback-name.pdf".into()),
+    );
     let events = until(s, |e| matches!(e, Event::Opened { .. }));
     events
         .into_iter()
@@ -75,14 +78,24 @@ fn opening_names_the_document_by_title_or_file() -> Out {
 }
 
 #[test]
-fn a_broken_file_reports_why() {
+fn a_broken_or_missing_file_reports_why() {
     let mut s = inline();
-    let t = s.open(Arc::new(b"%PDF-garbage".to_vec()), None);
-    let events = until(&mut s, |_| true);
-    let failed = events.iter().any(
-        |e| matches!(e, Event::Opened { ticket, result: Err(OpenError::Invalid) } if *ticket == t),
-    );
-    assert!(failed, "{events:?}");
+    let t = s.open(Source::Bytes(Arc::new(b"%PDF-garbage".to_vec())), None);
+    let missing = s.open(Source::Path("/nowhere/at/all.pdf".into()), None);
+    let mut events = s.poll(ALL);
+    events.extend(s.poll(ALL));
+    let error = |want: Ticket| {
+        events.iter().find_map(|e| match e {
+            Event::Opened {
+                ticket,
+                result: Err(e),
+            } if *ticket == want => Some(e.clone()),
+            _ => None,
+        })
+    };
+    let invalid = OpenError::Pdf(mareader_pdf::OpenError::Invalid);
+    assert_eq!(error(t), Some(invalid));
+    assert!(matches!(error(missing), Some(OpenError::Unreadable(_))));
     assert!(s.is_empty());
 }
 
@@ -163,5 +176,46 @@ fn a_long_book_costs_only_what_is_on_screen() -> Out {
     s.want((5_000..5_004).map(|p| key(id, p)));
     assert_eq!(s.pending(), 4);
     assert!(opened < Duration::from_secs(10), "opened in {opened:?}");
+    Ok(())
+}
+
+#[test]
+fn a_path_opens_on_a_worker_and_names_the_document() -> Out {
+    let name = format!("mareader-session-{}", std::process::id());
+    let dir = std::env::temp_dir().join(name);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("Field Notes.pdf");
+    std::fs::write(&path, sample::pdf(1, "untitled"))?;
+    let mut s = Session::new(1, || {});
+    s.open(Source::Path(path), None);
+    let events = until(&mut s, |e| matches!(e, Event::Opened { .. }));
+    let id = events.iter().find_map(|e| match e {
+        Event::Opened { result: Ok(id), .. } => Some(*id),
+        _ => None,
+    });
+    let got = id.and_then(|id| s.get(id)).map(|e| e.name.clone());
+    assert_eq!(got.as_deref(), Some("Field Notes"));
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+fn finished_pages_wait_in_a_bounded_queue() -> Out {
+    let mut s = Session::new(2, || {});
+    let id = open_sample(&mut s, 60, "Many")?;
+    s.want((0..60).map(|p| key(id, p)));
+    let start = Instant::now();
+    // Workers stop at the cap until someone polls.
+    while s.pending() > 60 - 32 && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(s.pending(), 60 - 32);
+    let mut got = 0;
+    while got < 60 && start.elapsed() < Duration::from_secs(5) {
+        got += rendered(&s.poll(ALL)).len();
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(got, 60);
     Ok(())
 }
