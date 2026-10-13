@@ -85,6 +85,7 @@ pub struct TitleBar {
     pub chromeless: bool,
     shown: bool,
     left_at: Option<f64>,
+    opacity: f32,
 }
 
 impl TitleBar {
@@ -98,6 +99,11 @@ impl TitleBar {
     /// Shows the bar as if hovered; it hides after the usual grace.
     pub fn reveal(&mut self) {
         self.shown = true;
+    }
+
+    /// How much of the bar showed last frame, 0 to 1; native buttons follow it.
+    pub fn opacity(&self) -> f32 {
+        self.opacity
     }
 
     pub fn visible(&self) -> bool {
@@ -134,6 +140,7 @@ impl TitleBar {
     }
 
     pub fn show(&mut self, ctx: &Context, bar: &BarContext<'_>, out: &mut Commands) {
+        self.opacity = 0.0;
         if self.chromeless {
             return;
         }
@@ -146,6 +153,7 @@ impl TitleBar {
         let visible = self.visible();
         let fade =
             ctx.animate_bool_with_time(Id::new("titlebar"), visible, motion::secs(ctx, FADE));
+        self.opacity = fade;
         if fade <= 0.0 {
             return;
         }

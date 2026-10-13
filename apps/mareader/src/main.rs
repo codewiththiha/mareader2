@@ -1,8 +1,41 @@
 //! Mareader's desktop entry point: the window, then `mareader_ui` runs.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::time::Duration;
+
 use mareader_ui::MareaderApp;
+
+#[cfg(any(test, all(target_os = "macos", feature = "traffic-lights")))]
+mod traffic_lights;
+
+/// The app plus the window glue only a desktop binary can do.
+struct Desktop {
+    app: MareaderApp,
+}
+
+impl eframe::App for Desktop {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.app.logic(ctx, frame);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.app.ui(ui, frame);
+        #[cfg(all(target_os = "macos", feature = "traffic-lights"))]
+        {
+            let fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            traffic_lights::place(frame, self.app.titlebar().opacity(), fullscreen);
+        }
+    }
+
+    fn auto_save_interval(&self) -> Duration {
+        self.app.auto_save_interval()
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.app.save(storage);
+    }
+}
 
 fn viewport() -> egui::ViewportBuilder {
     let v = egui::ViewportBuilder::default()
@@ -30,6 +63,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "mareader",
         options,
-        Box::new(|cc| Ok(Box::new(MareaderApp::from_creation(cc)))),
+        Box::new(|cc| {
+            Ok(Box::new(Desktop {
+                app: MareaderApp::from_creation(cc),
+            }))
+        }),
     )
 }

@@ -27,7 +27,9 @@ egui-lucide = "0.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# `deny`, not `forbid`, so one audited module can allow it; `cargo xtask
+# unsafe` keeps that list to apps/mareader/src/traffic_lights.rs.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
