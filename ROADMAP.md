@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 in progress (slices 1 and 2 of 6 done).
+**Stage:** M1 in progress (slices 1 to 3 of 6 done).
 **Parity:** 17.0 of 111 features (15.3 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -40,16 +40,17 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 |---|---|---|---|
 | 1 | Appearance popover: presets, mode, tint, texture, grain; live restyle | **done** | palette button, or `?open=appearance` |
 | 2 | Sidebar rail: docked slide or floating with edge reveal; switcher; band inset | **done** | sidebar button, `?sidebar=outline`, `?float=true` then the left edge |
-| 3 | Settings window skeleton (`Modal`) with appearance and chrome pages | next | gear button |
-| 4 | Settings crate: every mareader setting in our schema, persisted | planned | settings survive a restart |
+| 3 | Settings window (`Modal`): tab strip; Layout, Theme, Animations, Workspace carry today's settings; later rows named with their milestone | **done** | gear button, `?settings=theme&panes=2` |
+| 4 | Settings crate: every mareader setting in our schema, persisted | next | settings survive a restart |
 | 5 | Tooltips and toasts styled; overflow menu at narrow widths | planned | narrow the window |
 | 6 | Glass blur behind the title bar (wgpu pass) | planned | pin the bar over a page |
 
 ## Next
 
-1. **Slice 3, the settings window** (`settings.modal`): `egui::Modal`, with
-   the sidebar's layout and slide switches among its first pages.
-2. **Slice 4, the settings crate**: mareader's schema, persisted.
+1. **Slice 4, the settings crate** (`crates/settings`, L2): mareader's schema
+   (`../mareader/crates/reader-core/src/settings/`), defaults, sanitising and
+   migration; the ui's `Settings` slice moves there.
+2. **Slice 5, tooltips, toasts and the overflow menu.**
 
 ## Open questions for the owner
 
@@ -68,4 +69,4 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2026-10-13 | Theme pipeline from ArtCraft: shape tokens, one apply, instant restyle (tested), live token file; dividers through commands; ADR 0006 shares documents and caches across panes |
 | 2026-10-13 | M1 slice 1: Appearance popover (presets, mode, hue strip, strength, texture, grain) restyles live; browser preview (`apps/mareader-web`, `tools/web.sh`); scrolling lessons from PdfCraft recorded |
 | 2026-10-13 | M1 slice 2: sidebar rail, docked (300 ms slide, panes give way) or floating (fade, 6 px edge reveal, 250 ms grace); header with close, search, settings and dock; panel switcher; Escape closes; the bar's band and macOS gutter start at the rail. The slide is our own eased width inside `egui::Panel::left`, because `show_collapsible` follows the global animation time and cannot honour the separate slide switch |
-
+| 2026-10-13 | M1 slice 3: settings window as an `egui::Modal` (620 × 640 at most; Escape and backdrop close it, and Escape no longer reaches the sidebar). Tab strip as in mareader (Animations only while the master is on, Fonts only for EPUB). Real rows: keep title bar shown, overlay sidebar, Animations, sidebar animation, split-pane look (outline thickness and colour, gap, corners, shadow). Every row of a later feature is a muted line naming its milestone, not a dead switch. Edits apply on the same frame |
