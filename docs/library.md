@@ -33,7 +33,7 @@ Read from mareader's README § Library and `Mareader.md`. A user can:
 |---|---|---|
 | A watched folder's tree *is* a set of editable shelves ("rungs" on "seats") | Moving a read-in-place book off its rung had to turn it into a copy ("departure"), with families, returns, moved-out logs and a copy-cost sheet | **Sources are read-only.** A watched folder is browsed as the disk's own tree; shelves are separate, user-made collections. Filing a book never touches a source, so departures don't exist. |
 | Names unique per level | Every drop, import and filing could collide: a conflict sheet with three answers per gesture | **Shelves hold book ids.** Two books may share a title; dropping a book on a shelf that has it is a no-op that highlights it. Only sibling *shelf* names must differ (rename refuses). |
-| Rows vs books: link rows, twin rows, `independent` rows | One file could be several rows; every writer had to fold twins | **One content, one book.** A book has a list of locations. A book on two shelves is two memberships. |
+| Rows vs books: link rows, twin rows, `independent` rows | One file could be several rows; every writer had to fold twins | **One content, one book, unless the reader asks for a twin.** A book has a list of locations; a book on two shelves is two memberships. A twin is a second book with its own id, and reading state is keyed by id, so nothing folds (§ Independent twins). |
 | Fingerprint = size + mtime + 8 KiB head hash; placeholders gating rescans | mtime changes on copy; migrated rows had no measurement | **Content identity:** size + hash of the first and last 64 KiB. A `(path, size, mtime)` cache skips re-hashing unchanged files, so a focus rescan stays cheap. |
 | Per-folder tombstones with names, addresses and shelves | To stop rescans re-adding removed books, and to offer them back | **`hidden` per source:** removing a source's book hides it there and keeps its record (with progress) for restore. |
 | A custom pointer-drag engine, DOM probes for crumbs, virtual-list crates | Browser limits | egui `dnd_*`, `Galley` measurement, `ScrollArea::show_rows`. |
@@ -48,7 +48,8 @@ fake disk.
 Library  { books: BTreeMap<BookId, Book>, shelves: BTreeMap<ShelfId, Shelf>,
            sources: BTreeMap<SourceId, Source> }
 Book     { id, content: ContentId, title, author, format: Pdf | Epub,
-           locations: Vec<Location>, added, opened, position, marks_key }
+           locations: Vec<Location>, added, opened, position, marks_key,
+           twin_of: Option<BookId> }
 Location { path, origin: Source(SourceId) | Store, present: bool, stamp: (size, mtime) }
 Shelf    { id, name, parent: Option<ShelfId>, books: Vec<BookId> }   // manual order
 Source   { id, root, formats, depth, hidden: BTreeSet<BookId> }
@@ -70,6 +71,26 @@ UI's toast and for undo later):
 - `record_position(book, position)`.
 - Queries: `query(text, sort, scope) -> Vec<(BookId, Spans)>` (one rule for
   the filter and the suggestions), `children(shelf)`, `path_to(shelf)`.
+
+### Independent twins
+
+Kept from mareader (owner decision, 2026-10-13): two books of one file, each
+with its own name, place, highlights and shelves. Read one to page 90 and the
+other stays where it was; removing one takes nothing from the other.
+
+- **Making one.** "Read separately" on a book, or "Add as a separate book" when
+  an import finds content the library already has. Both call
+  `twin(book) -> BookId`.
+- **What is its own:** id, title (the counter name, "Moby Dick (2)"),
+  position, marks, memberships. All of these are keyed by `BookId`, so a twin
+  needs no special case in any writer.
+- **What it shares:** the file's facts. Locations, `present`, relinks and the
+  cover belong to the content, so `scan` and `relink` update every book at
+  that location.
+- **Opening by path** (drop, file manager, recent) opens the original, the
+  book with `twin_of: None`.
+- **Removing** drops only that book's record. A store copy is deleted only
+  when no other book still lists the location.
 
 **Walk rules kept from mareader:** filter while walking (formats, depth,
 result cap), refuse symlinks, skip hidden directories, re-measure before any
@@ -109,7 +130,5 @@ If it grows past that, the model is probably carrying a case it shouldn't.
 
 ## Dropped on purpose
 
-- **Independent twins** (two reading states for one file). Rare; can return
-  as "duplicate as a separate copy" if the owner wants it.
 - **Shelves that mirror folders and are editable.** Replaced by read-only
   source trees plus user shelves.

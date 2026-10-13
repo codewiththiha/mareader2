@@ -52,9 +52,6 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 
 ## Open questions for the owner
 
-- **macOS traffic lights.** Moving them needs AppKit calls, and the workspace
-  forbids `unsafe`. Accept the default position (the bar leaves 80 pt), or allow
-  one audited `objc2` call?
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts).
 
@@ -70,3 +67,4 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2026-10-13 | M1 slice 3: settings window as an `egui::Modal` (620 × 640 at most; Escape and backdrop close it, and Escape no longer reaches the sidebar). Tab strip as in mareader (Animations only while the master is on, Fonts only for EPUB). Real rows: keep title bar shown, overlay sidebar, Animations, sidebar animation, split-pane look (outline thickness and colour, gap, corners, shadow). Every row of a later feature is a muted line naming its milestone, not a dead switch. Edits apply on the same frame |
 | 2026-10-13 | M1 slice 4: `crates/settings` (L2) holds every mareader setting, grouped by feature (chrome, layout, paper, motion, text, study, dictionary, workspace) with mareader's defaults and ranges. One schema `version` replaces mareader's one-shot gates; a migration step reads the shell's earlier blob. Loading never fails: a bad section resets alone, with a note. `import_mareader` maps mareader's JSON, halving pre-curve tints. Outline and gloss share one `Swatch` palette. Saved through eframe storage at most every 500 ms, on its persist thread, only when changed |
 | 2026-10-13 | M1 slice 5: tooltips are a themed chip (6 pt radius, small text) naming the shortcut when one exists. Toasts: one slot, bottom centre of the panes, 3.5 s, info or error tone, hover holds them, a dismiss button; used for refused splits and repaired settings. The View & tools menu at the end of the bar holds full screen (F11, ⌃⌘F on macOS), a shortcut list and the version; Settings, Search and the splits fold into it, leftmost first, when the bar lacks room. `keymap.rs` is the one table behind keys, tooltips and the list; ⌘, (Ctrl+,) opens settings |
+| 2026-10-13 | Owner decisions: independent twins stay (a second book id on the same file, `docs/library.md`); `unsafe` is allowed for the macOS traffic lights only. They now sit centred in the bar and fade with it (`apps/mareader/src/traffic_lights.rs`, feature `traffic-lights`); `cargo xtask unsafe` keeps every other file free of it |
