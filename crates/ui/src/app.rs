@@ -9,7 +9,9 @@ use mareader_settings::Settings;
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::command::{Command, Commands, WindowCommand};
+use crate::documents::{Documents, OpenRequest};
 use crate::panes::{self, PaneView};
+use crate::pdf_view::ViewContext;
 use crate::platform::{NativeLights, Platform};
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
@@ -32,6 +34,9 @@ pub struct MareaderApp {
     settings_window: SettingsWindow,
     toasts: Toasts,
     lights: NativeLights,
+    documents: Documents,
+    /// Last frame's pane rects, to aim a file drop.
+    pane_rects: Vec<(PaneId, egui::Rect)>,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
@@ -66,6 +71,8 @@ impl MareaderApp {
             settings_window: SettingsWindow::default(),
             toasts: Toasts::default(),
             lights: NativeLights::default(),
+            documents: Documents::default(),
+            pane_rects: Vec::new(),
             styled: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
@@ -161,6 +168,15 @@ impl MareaderApp {
         self.active
     }
 
+    pub fn documents(&self) -> &Documents {
+        &self.documents
+    }
+
+    /// The bar's title: the active pane's document, else the app.
+    pub fn title(&self) -> &str {
+        self.documents.title(self.active).unwrap_or("Mareader")
+    }
+
     /// Headless knobs for `examples/shot.rs` and tests.
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
         match key {
@@ -184,6 +200,19 @@ impl MareaderApp {
                 None => Toast::info(value),
             }),
             "pinned" => self.titlebar.pinned = value == "true",
+            "workers" => self.documents.set_workers(
+                value
+                    .parse()
+                    .map_err(|_| "workers: a count, 0 runs inline")?,
+            ),
+            "pdf" => self.queue(Command::Open(match value.strip_prefix("sample") {
+                Some(pages) => {
+                    let pages = pages.trim_start_matches(':').parse().unwrap_or(120);
+                    let pdf = mareader_pdf::sample::pdf(pages, "A Mareader Sample");
+                    OpenRequest::bytes(pdf, "sample.pdf")
+                }
+                None => OpenRequest::path(value.into()),
+            })),
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
@@ -244,8 +273,20 @@ impl MareaderApp {
             }
             Command::FocusPane(id) => self.active = id,
             Command::ClosePane(id) => {
-                if self.tree.close(id).is_ok() && self.active == id {
-                    self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
+                if self.tree.close(id).is_ok() {
+                    self.documents.close_pane(id);
+                    if self.active == id {
+                        self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
+                    }
+                }
+            }
+            Command::Open(request) => {
+                let pane = request.pane.unwrap_or(self.active);
+                if self.tree.panes().contains(&pane) {
+                    self.active = pane;
+                    if let Some(note) = self.documents.open(ctx, pane, request) {
+                        self.toasts.push(note);
+                    }
                 }
             }
             Command::SetRatio(path, ratio) => {
@@ -297,6 +338,25 @@ impl MareaderApp {
 }
 
 impl MareaderApp {
+    /// Drops open in the pane under the pointer; returns the hover target.
+    fn drops(&self, ctx: &Context, out: &mut Commands) -> Option<PaneId> {
+        let pointer = ctx.pointer_latest_pos();
+        let under = pointer
+            .and_then(|p| self.pane_rects.iter().find(|(_, r)| r.contains(p)))
+            .map_or(self.active, |(id, _)| *id);
+        let (hovering, dropped) = ctx.input(|i| {
+            let first = i.raw.dropped_files.first().map(|f| f.path().to_path_buf());
+            (!i.raw.hovered_files.is_empty(), first)
+        });
+        if let Some(path) = dropped {
+            out.push(Command::Open(OpenRequest {
+                pane: Some(under),
+                ..OpenRequest::path(path)
+            }));
+        }
+        hovering.then_some(under)
+    }
+
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
     fn place_lights(&self, ctx: &Context, overlay: bool) -> NativeLights {
         let bar_hosts = self.sidebar.offset().is_none() && !overlay;
@@ -353,7 +413,9 @@ impl eframe::App for MareaderApp {
         }
         resize::edges(&ctx, self.platform.frameless());
         let mut commands = std::mem::take(&mut self.queued);
+        self.documents.receive(&ctx, &mut commands);
         keymap::read(&ctx, self.platform, &mut commands);
+        let drop_target = self.drops(&ctx, &mut commands);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
@@ -375,13 +437,28 @@ impl eframe::App for MareaderApp {
             active: self.active,
             look: self.settings.workspace.look,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
+            drop_target,
         };
+        // A pinned bar covers the panes' top; documents start below it.
+        let pinned_bottom = if self.titlebar.pinned {
+            view.chrome_bottom
+        } else {
+            f32::NEG_INFINITY
+        };
+        let documents = &mut self.documents;
         egui::CentralPanel::no_frame().show(ui, |ui| {
-            panes::show(ui, &self.tree, &view, &mut commands);
+            self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
+                let cx = ViewContext {
+                    active: id == view.active,
+                    top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
+                };
+                documents.show(ui, id, &cx)
+            });
         });
+        self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let bar = BarContext {
-            title: "Mareader",
+            title: self.documents.title(self.active).unwrap_or("Mareader"),
             platform: self.platform,
             left_inset: inset,
             sidebar_toggle: !overlay && !self.sidebar.is_open(),

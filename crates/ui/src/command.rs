@@ -3,6 +3,7 @@
 use mareader_appearance::Appearance;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
+use crate::documents::OpenRequest;
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
 use crate::toast::Toast;
@@ -28,6 +29,8 @@ pub enum Command {
     CloseSettings,
     /// Every edit in the settings window; applies on the same frame.
     SetSettings(Box<Settings>),
+    /// Shows a file in a pane, replacing what it showed.
+    Open(OpenRequest),
     Split(SplitAxis),
     FocusPane(PaneId),
     ClosePane(PaneId),

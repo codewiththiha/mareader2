@@ -11,10 +11,13 @@
 pub mod app;
 pub mod appearance_menu;
 pub mod command;
+pub mod documents;
 pub mod icons;
 pub mod keymap;
 pub mod motion;
+pub mod pages;
 pub mod panes;
+pub mod pdf_view;
 pub mod platform;
 pub mod resize;
 pub mod settings_window;
@@ -26,3 +29,4 @@ pub mod view_menu;
 pub mod widgets;
 
 pub use app::MareaderApp;
+pub use documents::OpenRequest;

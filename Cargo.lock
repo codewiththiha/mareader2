@@ -1958,6 +1958,8 @@ dependencies = [
  "egui_kittest",
  "image",
  "mareader-appearance",
+ "mareader-pdf",
+ "mareader-session",
  "mareader-settings",
  "mareader-workspace",
  "serde",

@@ -14,6 +14,8 @@ pub struct PaneView {
     pub look: PaneLook,
     /// Bottom of the bar's hover band; pane controls stay below it.
     pub chrome_bottom: f32,
+    /// Where dragged files would land, outlined while they hover.
+    pub drop_target: Option<PaneId>,
 }
 
 const DIVIDER_HIT: f32 = 8.0;
@@ -26,22 +28,39 @@ fn to_rect(b: Bounds) -> Rect {
     Rect::from_min_size(pos2(b.x, b.y), vec2(b.w, b.h))
 }
 
-pub fn show(ui: &mut Ui, tree: &PaneTree, view: &PaneView, out: &mut Commands) {
+/// Draws every pane; `content` fills one and returns false if empty.
+pub fn show(
+    ui: &mut Ui,
+    tree: &PaneTree,
+    view: &PaneView,
+    out: &mut Commands,
+    mut content: impl FnMut(&mut Ui, PaneId) -> bool,
+) -> Vec<(PaneId, Rect)> {
     let area = ui.max_rect();
     let split = tree.len() > 1;
     let gap = if split { view.look.gap } else { 0.0 };
+    let mut rects = Vec::new();
     for (id, b) in tree.layout(to_bounds(area.shrink(gap / 2.0))) {
         let rect = to_rect(b).shrink(gap / 2.0);
         let builder = UiBuilder::new().max_rect(rect).id_salt(("pane", id.0));
         ui.scope_builder(builder, |ui| {
             ui.set_clip_rect(rect);
-            pane(ui, id, split, view, out);
+            pane(ui, id, split, view, out, &mut content);
         });
+        rects.push((id, rect));
     }
     dividers(ui, tree, area, out);
+    rects
 }
 
-fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Commands) {
+fn pane(
+    ui: &mut Ui,
+    id: PaneId,
+    split: bool,
+    view: &PaneView,
+    out: &mut Commands,
+    content: &mut impl FnMut(&mut Ui, PaneId) -> bool,
+) {
     let t = Tokens::get(ui.ctx());
     let rect = ui.max_rect();
     let radius = if split && view.look.rounded() {
@@ -63,7 +82,16 @@ fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Command
     if focus.clicked() && id != view.active {
         out.push(Command::FocusPane(id));
     }
-    empty_state(ui, rect, &t);
+    let mut inner = ui.new_child(UiBuilder::new().max_rect(rect));
+    inner.set_clip_rect(rect);
+    if !content(&mut inner, id) {
+        empty_state(ui, rect, &t);
+    }
+    if view.drop_target == Some(id) {
+        let stroke = Stroke::new(2.0, t.accent);
+        ui.painter()
+            .rect_stroke(rect.shrink(1.0), radius, stroke, StrokeKind::Inside);
+    }
     if !split {
         return;
     }
