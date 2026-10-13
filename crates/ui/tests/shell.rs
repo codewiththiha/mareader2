@@ -548,3 +548,29 @@ fn the_overlay_bar_leaves_no_gutter_for_lights() {
     wait(&mut h, 0.5);
     assert!(h.get_by_label("Toggle sidebar").rect().left() >= 80.0);
 }
+
+#[test]
+fn the_floating_rail_slides_in_solid_not_fading() {
+    let mut h = with(&[("float", "true"), ("platform", "gnome")]);
+    h.hover_at(egui::pos2(2.0, 400.0));
+    wait(&mut h, 0.15);
+    let shift = h.state().sidebar().offset().unwrap_or(0.0);
+    assert!(shift < -20.0, "still on its way in: {shift}");
+    let image = h.render().map_err(|e| e.to_string());
+    let Ok(image) = image else {
+        return;
+    };
+    // Inside the visible rail: its own surface, not blended with the page.
+    let x = (mareader_ui::sidebar::WIDTH + shift - 10.0) as u32;
+    let [r, g, b, _] = image.get_pixel(x, 400).0;
+    let [pr, pg, pb, _] = image.get_pixel(900, 400).0;
+    assert_ne!((r, g, b), (pr, pg, pb), "the rail shows");
+    let settled = {
+        h.hover_at(egui::pos2(100.0, 400.0));
+        wait(&mut h, 0.6);
+        h.render()
+            .map(|i| i.get_pixel(278, 400).0)
+            .unwrap_or([r, g, b, 255])
+    };
+    assert_eq!([r, g, b], settled[..3], "same colour mid-slide as at rest");
+}
