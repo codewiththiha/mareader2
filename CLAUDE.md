@@ -90,7 +90,8 @@ cargo run -p mareader-ui --example shot -- /tmp/a.png \
 | `platform` | `mac`, `windows`, `gnome` (chrome to draw) |
 | `pinned`, `chromeless`, `animations` | `true` / `false` |
 | `panes` | 1–4 (splits the newest pane, alternating right and down) |
-| `open` | `appearance` (the popover) |
+| `open` | `appearance` (the popover), `settings` |
+| `settings` | a tab: `layout`, `theme`, `animations`, `vocabulary`, `dictionary`, `workspace` |
 | `sidebar` | `thumbnails`, `outline`, `library`, `closed` |
 | `float` | `true`: the sidebar floats over the panes |
 | `hover` | `x,y` in points: where the pointer rests |
