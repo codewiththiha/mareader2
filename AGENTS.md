@@ -184,6 +184,24 @@ syntax (`docs/architecture.md` § How the app is built in egui).
 - **Never block the UI thread.** I/O, parsing, raster and scans run on workers
   that report over channels and call `request_repaint`.
 
+## Always checkable
+
+Phases are never "done before visible". The owner checks work while a phase
+is in progress, by looking and by using it.
+
+- **Slice vertically.** Each slice adds one thing a person can see or do,
+  end to end (model, view, command, test), and lands on `main` on its own.
+  Don't stack invisible plumbing for a whole phase and reveal it at the end.
+- **`main` always runs:** `cargo run -p mareader` on the desktop and
+  `tools/web.sh --serve 8080` in a browser. A slice that breaks either isn't
+  finished.
+- **Every state is reachable by name.** New views get a `set_option` key, so
+  the shot tool (`key=value`) and the browser preview (`?key=value`) can open
+  them directly.
+- **Be honest in the app.** A control whose effect lands in a later phase says
+  so in a muted line, and its parity entry stays `partial` with notes.
+- **Log each slice** in `ROADMAP.md` (what to try, where).
+
 ## UI work: look at the result
 
 - **Every UI change is looked at, not assumed.** Render it with

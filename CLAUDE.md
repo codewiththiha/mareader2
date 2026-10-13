@@ -59,6 +59,7 @@ milestone starts, not before.
 
 ```sh
 cargo run -p mareader                       # the app
+tools/web.sh --serve 8080                   # browser preview (?preset=sepia&panes=2)
 cargo test -p mareader-ui -j 2              # one crate's tests
 cargo clippy -p mareader-ui -j 2 --all-targets -- -D warnings
 cargo xtask parity                          # progress by area and tier

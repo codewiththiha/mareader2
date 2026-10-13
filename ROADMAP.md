@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M0 foundation complete. Next: M1 shell and chrome.
+**Stage:** M1 in progress (slice 1 of 6 done).
 **Parity:** 17.0 of 111 features (15.3 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -22,16 +22,34 @@ A milestone is done when every P0 entry for it is `shipped` and the P1 entries
 are `shipped` or explicitly deferred with notes. Parity means the capability,
 not mareader's pixels or code structure (ADR 0005).
 
+## Checking progress
+
+Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
+
+- **Desktop:** `cargo run -p mareader`.
+- **Browser:** `tools/web.sh --serve 8080`, then open the page. URL options
+  pick a state: `?preset=sepia`, `?theme=dark`, `?panes=3`,
+  `?platform=windows`, `?open=appearance`, `?pinned=true`.
+- **Screenshots:** `cargo run -p mareader-ui --example shot -- out.png` with the
+  same keys.
+
+## M1 slices
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | Appearance popover: presets, mode, tint, texture, grain; live restyle | **done** | palette button, or `?open=appearance` |
+| 2 | Sidebar rail (docked or overlay), band inset | next | sidebar button |
+| 3 | Settings window skeleton (`Modal`) with appearance and chrome pages | planned | gear button |
+| 4 | Settings crate: every mareader setting in our schema, persisted | planned | settings survive a restart |
+| 5 | Tooltips and toasts styled; overflow menu at narrow widths | planned | narrow the window |
+| 6 | Glass blur behind the title bar (wgpu pass) | planned | pin the bar over a page |
+
 ## Next
 
-1. **M1 settings crate** (`crates/settings`, L2): every mareader setting, in our
-   own schema with defaults (`../mareader/crates/reader-core/src/settings/` for
-   the list and ranges).
-2. **M1 sidebar** (`chrome.sidebar`): `egui::Panel::left(..).show_collapsible`,
-   docked or overlay; feeds the title bar's band inset.
-3. **M1 popovers and the settings window** (`chrome.popovers`,
-   `settings.modal`): `egui::Popup` and `egui::Modal`.
-4. **M1 glass blur** (`chrome.glass-blur`): a wgpu backdrop blur behind the bar.
+1. **Slice 2, the sidebar** (`chrome.sidebar`):
+   `egui::Panel::left(..).show_collapsible`, docked or overlay; feeds the title
+   bar's band inset.
+2. **Slice 3, the settings window** (`settings.modal`): `egui::Modal`.
 
 ## Open questions for the owner
 
@@ -48,3 +66,4 @@ not mareader's pixels or code structure (ADR 0005).
 | 2026-10-13 | M0: foundation repository — appearance and workspace crates, egui shell with the mareader title bar on three platforms, xtask gates, parity file (111 features), docs and ADRs |
 | 2026-10-13 | Functional parity (ADR 0005): `docs/design.md` replaces `look.md`; `Command` queue and egui-native widgets in the shell; one-hue tints with gamut mapping; library redesign; pane controls kept clear of the hover band |
 | 2026-10-13 | Theme pipeline from ArtCraft: shape tokens, one apply, instant restyle (tested), live token file; dividers through commands; ADR 0006 shares documents and caches across panes |
+| 2026-10-13 | M1 slice 1: Appearance popover (presets, mode, hue strip, strength, texture, grain) restyles live; browser preview (`apps/mareader-web`, `tools/web.sh`); scrolling lessons from PdfCraft recorded |
