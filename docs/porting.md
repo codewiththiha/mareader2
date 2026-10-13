@@ -37,6 +37,7 @@ rebuilt from its goal, as the smallest native design that delivers it.
 | `virtual-list`, `virtual-list-leptos` | DOM node counts | `ScrollArea::show_rows` / `show_viewport` |
 | The memory model's peaks, latches and floors (`docs/memory/*`) | pdf.js and canvas backing stores | Owned textures with byte-capped caches; measure in `docs/memory.md` |
 | Canvas release helpers, `WeakRef` registries | Garbage-collected DOM objects | `Drop` |
+| Per-pane document copies, per-pane caches and budgets | Each pane was an iframe with its own realm | One `Arc<Document>` per book, one tile cache, one worker pool (ADR 0006) |
 | Custom pointer-drag engine, hold/drag/tap arbitration | Browser drag-and-drop limits | egui `dnd_*`, `Response` drag and long-press state |
 | Hidden DOM probes, resize observers | Measuring layout in a browser | `Galley` sizes, `Ui::available_size` |
 | Focus-reclaim tricks for key repeat | DOM focus moving with unmounted nodes | egui input is global: a keymap reads `InputState` |
@@ -81,3 +82,4 @@ rebuilt from its goal, as the smallest native design that delivers it.
 |---|---|
 | 2026-10-13 | Created with the M0 foundation |
 | 2026-10-13 | Rebuild from goals, not ports (ADR 0005); what not to port |
+| 2026-10-13 | Per-pane isolation is not ported (ADR 0006) |

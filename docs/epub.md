@@ -17,7 +17,7 @@ formats can do, an EPUB page must do too. The choice of stack is in
           ▼  parley 0.12 + fontique            (crate: reflow, L1)
      lines → pages   (real line heights; never orphan a heading)
           │
-          ▼  vello_cpu 0.3
+          ▼  vello_cpu 0.3 (text as a coverage mask; colour in the page pass)
      page RGBA → texture → page pass (texture + grain; no filter)
 ```
 

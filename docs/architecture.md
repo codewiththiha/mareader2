@@ -29,7 +29,7 @@ the right place.
 | L1 | `study` | planned M6 | dictionary packs, CEFR levels, gloss requests and marks |
 | L2 | `epub` | planned M4 | rbook container, spine, ToC, XHTML+CSS subset → `reflow` blocks |
 | L2 | `settings` | planned M1 | the persisted schema and defaults; optional import of a mareader settings file |
-| L3 | `session` | planned M2 | a document open in a pane: render jobs, caches, cancellation, teardown |
+| L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
 | L7 | `ui` | **exists** | egui: theme, icons, title bar, panes, every view and popover |
 | — | `apps/mareader` | **exists** | the window and `main` |
 | — | `xtask` | **exists** | gates |
@@ -47,7 +47,7 @@ egui is immediate mode: every frame, the UI is a function of the state. Write
 it that way rather than as a web app in egui syntax.
 
 **State.** One owner, `MareaderApp`, holds plain structs: settings, the pane
-tree, open sessions, the library, which popover is open. Domain state lives in
+tree, the open documents, the library, which popover is open. Domain state lives in
 the L0–L3 crates and has methods and tests of its own. egui's `Memory` keeps
 only transient widget state (scroll offsets, hover animations, a text field's
 cursor). There are no signals, effects, observers or stores, and no state is
@@ -120,7 +120,8 @@ EPUB: parley → vello_cpu ┘                                    filter · blen
   takes `Appearance::page_filter()` as a ≤ 7-entry matrix uniform
   (`MAX_FILTER_OPS`) and `page_blend()`, and composites the texture tile and the
   grain. `apply_filter` in `crates/appearance` is its CPU reference, and tests
-  compare the two.
+  compare the two. Appearance values are uniforms, so dragging a control
+  re-renders no page (`docs/design.md` § How the theme works).
 - **Blend backdrop** (PDF): the dominant paper colour of the whole page or its
   edges is sampled from the raster, and the pane background takes that colour
   so the page melts into it.
@@ -143,9 +144,17 @@ has a parley equivalent.
   channels. Each result carries the document id and generation it was made
   for; a result for a closed pane, an old zoom or an old document is dropped
   before it is uploaded.
-- **Teardown is ownership.** A pane's `Session` owns its jobs, textures and
-  document; dropping it cancels the jobs, frees the textures and closes the
-  document. A test proves the texture count returns to the baseline.
+- **One document, many views** (ADR 0006). A book opens once into an
+  `Arc<Document>` held by the documents table; a pane holds only its view
+  (document handle, scroll, zoom, selection). Two panes on one book share the
+  parse, the glyph index and the tiles.
+- **One cache, one budget, one pool.** A single byte-capped tile cache keyed by
+  (document, page, scale, tile) serves every pane. One worker pool takes jobs
+  in priority order: visible tiles in the active pane, then other visible
+  tiles, then prefetch. Jobs carry a generation, so a superseded one is skipped.
+- **Teardown is ownership.** When the last view of a document closes, its
+  `Arc` drops, its pending jobs are cancelled and its tiles leave the cache. A
+  test proves the texture count returns to the baseline.
 - **Caps everywhere.** Tile cache capped by bytes, thumbnails by count, and the
   glyph index built on the first search, not at open.
 - **Memory claims need measurements:** what was measured, how, the workload,
@@ -170,6 +179,7 @@ has a parley equivalent.
 | [0003](adr/0003-pages-are-textures.md) | Both formats rasterise to textures; one GPU page pass applies the look |
 | [0004](adr/0004-lucide-icons.md) | Lucide via egui-lucide behind an `Icon` facade, tinted, never recoloured |
 | [0005](adr/0005-functional-parity.md) | Match mareader's features, not its pixels or its structure |
+| [0006](adr/0006-one-document-many-views.md) | A book opens once; panes are views sharing one cache and worker pool |
 
 ## Revision history
 
@@ -177,3 +187,4 @@ has a parley equivalent.
 |---|---|
 | 2026-10-13 | Created with the M0 foundation |
 | 2026-10-13 | Functional parity and the egui architecture section (ADR 0005) |
+| 2026-10-13 | Shared documents, cache and workers across panes (ADR 0006); appearance as uniforms |
