@@ -192,9 +192,14 @@ is in progress, by looking and by using it.
 - **Slice vertically.** Each slice adds one thing a person can see or do,
   end to end (model, view, command, test), and lands on `main` on its own.
   Don't stack invisible plumbing for a whole phase and reveal it at the end.
-- **`main` always runs:** `cargo run -p mareader` on the desktop and
-  `tools/web.sh --serve 8080` in a browser. A slice that breaks either isn't
-  finished.
+- **`main` always runs** on the desktop (`cargo run -p mareader`). This is a
+  desktop app; a slice that breaks it isn't finished.
+- **The browser preview is a viewer, not a target.** `tools/web.sh --serve 8080`
+  runs the same `App` so the owner can look and click from a sandbox. It is
+  best effort and has no CI job. Never shape desktop code for it: when a
+  desktop-only piece (threads, mmap, file watching, the library database)
+  doesn't build for wasm, stub it in `apps/mareader-web` or let the preview
+  lag.
 - **Every state is reachable by name.** New views get a `set_option` key, so
   the shot tool (`key=value`) and the browser preview (`?key=value`) can open
   them directly.
