@@ -85,3 +85,20 @@ Findings:
 - **Rasters dominate:** a fitted page at 2 px per pt is about 7.4 MiB, so the
   256 MiB cap holds about 34 such pages. A book under the cap stays whole once
   read, which is why "every page read" ends at 104 MiB of rasters.
+
+## Tiles (M2 slice 9)
+
+What was measured: the page cache's bytes in
+`a_deep_zoom_draws_tiles_once_the_view_rests`, a three-page sample at 500 %
+in a 900 × 700 pane without a GPU, where egui's texture side is 2048.
+
+- **Before tiles:** a page past the texture side rendered at the capped
+  scale and was stretched, so deep zoom was blurred.
+- **With tiles:** the page draws a backdrop of at most 2048 px under tiles
+  of 1024 to 2048 px. At rest the view held 2 tiles; after a pan, 4. The
+  cache stayed at 58 MiB with every page and scale counted.
+- **Bounds:** a tiled page is at most 16,384 px a side. Tiles share the
+  256 MiB cap and go cold like pages. A page drawn at another scale drops
+  its old tiles. A pan queues no tile until the view rests 0.25 s.
+- **Threadless runs:** inline work queued by a demand now asks for a frame.
+  Before, a test or the web preview could stop with jobs left queued.
