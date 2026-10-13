@@ -40,6 +40,7 @@ pub fn ci(_: &[String]) -> Result<(), String> {
     crate::layers::run(&[])?;
     crate::parity::run(&[])?;
     crate::assets::run(&[])?;
+    crate::unsafety::run(&[])?;
     comments(&[])
 }
 
