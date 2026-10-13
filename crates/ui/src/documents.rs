@@ -10,6 +10,7 @@ use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
 use crate::gpu::{Gpu, Quad};
+use crate::layout::{Arrow, ViewMode};
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
 use crate::theme::{self, Tokens};
@@ -271,6 +272,28 @@ impl Documents {
     pub fn zoom(&mut self, pane: PaneId, command: ZoomCommand, now: f64) {
         if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
             view.command(command, now);
+        }
+    }
+
+    /// `fit` fits the paged modes' width: the auto-scale setting.
+    pub fn set_mode(&mut self, pane: PaneId, mode: ViewMode, fit: bool, now: f64) {
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.set_mode(mode, fit, now);
+        }
+    }
+
+    pub fn arrow(&mut self, pane: PaneId, arrow: Arrow) {
+        let count = self.page_count(pane).unwrap_or(0);
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.arrow(arrow, count);
+        }
+    }
+
+    /// The mode `pane` shows its document in.
+    pub fn mode(&self, pane: PaneId) -> Option<ViewMode> {
+        match self.panes.get(&pane)? {
+            Content::Pdf(v) => Some(v.mode),
+            Content::Opening { .. } => None,
         }
     }
 

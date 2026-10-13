@@ -3,6 +3,7 @@
 use egui_kittest::Harness;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::layout::{Arrow, ViewMode};
 use mareader_ui::zoom::{Fit, Step, ZoomCommand};
 
 fn main() -> Result<(), String> {
@@ -12,6 +13,7 @@ fn main() -> Result<(), String> {
     let mut hover = None;
     let mut size = egui::vec2(1200.0, 800.0);
     let mut zooms = Vec::new();
+    let mut queued = Vec::new();
     let mut scroll = 0.0;
     for kv in args {
         let (k, v) = kv
@@ -39,6 +41,29 @@ fn main() -> Result<(), String> {
             }
             // Points to wheel the document down once open.
             "scroll" => scroll = v.parse().map_err(|_| "scroll=points")?,
+            // Also once open: `view=spread arrows=right,right`.
+            "view" => queued.push(Command::View(match v {
+                "single" => ViewMode::Single,
+                "spread" => ViewMode::Spread,
+                "vertical" => ViewMode::Vertical,
+                "horizontal" => ViewMode::Horizontal,
+                _ => {
+                    return Err(format!(
+                        "view: single, spread, vertical or horizontal, not {v}"
+                    ));
+                }
+            })),
+            "arrows" => {
+                for a in v.split(',') {
+                    queued.push(Command::Arrow(match a {
+                        "left" => Arrow::Left,
+                        "right" => Arrow::Right,
+                        "up" => Arrow::Up,
+                        "down" => Arrow::Down,
+                        _ => return Err(format!("arrows: left, right, up or down, not {a}")),
+                    }));
+                }
+            }
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -57,6 +82,10 @@ fn main() -> Result<(), String> {
         .with_max_steps(64)
         .build_eframe(|_| app);
     harness.run_steps(4);
+    for c in queued {
+        harness.state_mut().queue(c);
+        harness.run_steps(8);
+    }
     for z in zooms {
         harness.state_mut().queue(Command::Zoom(z));
         harness.run_steps(16);

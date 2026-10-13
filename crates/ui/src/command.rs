@@ -4,6 +4,7 @@ use mareader_appearance::Appearance;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
 use crate::documents::OpenRequest;
+use crate::layout::{Arrow, ViewMode};
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
 use crate::toast::Toast;
@@ -36,6 +37,10 @@ pub enum Command {
     },
     /// Zooms the active pane's document.
     Zoom(ZoomCommand),
+    /// The active pane's view mode, kept on the page read.
+    View(ViewMode),
+    /// An arrow key over the active document: a turn, or the scroll's.
+    Arrow(Arrow),
     /// Shows a file in a pane, replacing what it showed.
     Open(OpenRequest),
     Split(SplitAxis),

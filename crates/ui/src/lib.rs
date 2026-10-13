@@ -16,6 +16,7 @@ pub mod files;
 pub mod gpu;
 pub mod icons;
 pub mod keymap;
+pub mod layout;
 pub mod motion;
 pub mod pages;
 pub mod panes;
@@ -33,3 +34,26 @@ pub mod zoom;
 
 pub use app::MareaderApp;
 pub use documents::OpenRequest;
+
+#[cfg(test)]
+mod testing {
+    use mareader_session::{DocId, Session};
+
+    /// A real `DocId` comes only from opening; a tiny sample will do.
+    pub fn doc() -> Result<DocId, &'static str> {
+        let mut s = Session::new(0, || {});
+        let bytes = std::sync::Arc::new(mareader_pdf::sample::pdf(1, "t"));
+        s.open(mareader_session::Source::Bytes(bytes), None);
+        let budget = mareader_session::Budget {
+            items: 1,
+            bytes: usize::MAX,
+        };
+        s.poll(budget)
+            .into_iter()
+            .find_map(|e| match e {
+                mareader_session::Event::Opened { result: Ok(id), .. } => Some(id),
+                _ => None,
+            })
+            .ok_or("the sample didn't open")
+    }
+}

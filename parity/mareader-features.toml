@@ -528,8 +528,10 @@ title = "Single page view with a direction-aware page turn"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/modes.rs::a_single_page_shows_alone_and_every_arrow_turns_it"]
 reference = ["crates/reader-core/src/view.rs"]
+notes = "One page centred, scrolling once zoomed past the pane; every arrow and vim key turns it, as in mareader"
 
 [[feature]]
 id = "pdf.view-spread"
@@ -537,8 +539,10 @@ title = "Two-page spread"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/modes.rs::a_spread_pairs_pages_and_turns_by_two"]
 reference = ["crates/reader-core/src/view.rs"]
+notes = "Pages 1-2, 3-4 touching at the spine; entering fits both widths; turns step by two"
 
 [[feature]]
 id = "pdf.view-scroll-vertical"
@@ -556,8 +560,10 @@ title = "Horizontal strip that keeps its vertical position across zoom"
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/modes.rs::a_plain_wheel_runs_the_horizontal_strip_sideways"]
 reference = ["crates/reader-core/src/view.rs"]
+notes = "Zoom holds the point under its pivot on both axes; fit page fits the height; a plain wheel runs sideways"
 
 [[feature]]
 id = "pdf.zoom-presets"
@@ -1057,7 +1063,7 @@ tier = "P0"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
-notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width (Cmd/Ctrl and bare +/-). Find, view modes, page, scroll and vim keys pending"
+notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width (Cmd/Ctrl and bare +/-), view modes (Cmd/Ctrl+1, +2), page turns by arrows and h/j/k/l. Find, scroll glide and page keys pending"
 
 [[feature]]
 id = "keys.glide"

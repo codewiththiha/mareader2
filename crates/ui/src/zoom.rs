@@ -155,6 +155,11 @@ impl PaneZoom {
         self.settle_at = now;
     }
 
+    /// Keeps the zoom a fit reached, no longer following the pane.
+    pub fn unfit(&mut self) {
+        self.fit = None;
+    }
+
     /// A pinch or Ctrl+wheel: follows the fingers, pivots on the pointer.
     pub fn pinch(&mut self, factor: f32, at: Vec2, now: f64) {
         self.target = clamp(self.target * factor);

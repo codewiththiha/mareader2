@@ -3,6 +3,7 @@
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
 use crate::command::{Command, Commands, WindowCommand};
+use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
 use crate::zoom::{Fit, Step, ZoomCommand};
 
@@ -13,7 +14,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 10] {
+pub fn bindings(platform: Platform) -> [Binding; 20] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -33,6 +34,17 @@ pub fn bindings(platform: Platform) -> [Binding; 10] {
         zoom("Zoom in", Modifiers::NONE, Key::Plus, ZOOM_IN),
         zoom("Zoom in", Modifiers::NONE, Key::Equals, ZOOM_IN),
         zoom("Zoom out", Modifiers::NONE, Key::Minus, ZOOM_OUT),
+        view("Single page", Key::Num1, ViewMode::Single),
+        view("Vertical scroll", Key::Num2, ViewMode::Vertical),
+        // Arrows and vim's keys; the first of each names it.
+        arrow("Previous page", Key::ArrowLeft, Arrow::Left),
+        arrow("Next page", Key::ArrowRight, Arrow::Right),
+        arrow("Previous page", Key::ArrowUp, Arrow::Up),
+        arrow("Next page", Key::ArrowDown, Arrow::Down),
+        arrow("Previous page", Key::H, Arrow::Left),
+        arrow("Next page", Key::L, Arrow::Right),
+        arrow("Previous page", Key::K, Arrow::Up),
+        arrow("Next page", Key::J, Arrow::Down),
         Binding {
             label: "Settings",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma),
@@ -58,10 +70,35 @@ fn zoom(label: &'static str, modifiers: Modifiers, key: Key, z: ZoomCommand) -> 
     }
 }
 
-/// Bare keys that a focused text field would rather type.
+fn view(label: &'static str, key: Key, mode: ViewMode) -> Binding {
+    Binding {
+        label,
+        shortcut: KeyboardShortcut::new(Modifiers::COMMAND, key),
+        command: Command::View(mode),
+    }
+}
+
+fn arrow(label: &'static str, key: Key, arrow: Arrow) -> Binding {
+    Binding {
+        label,
+        shortcut: KeyboardShortcut::new(Modifiers::NONE, key),
+        command: Command::Arrow(arrow),
+    }
+}
+
+/// Bare keys that a focused text field types or moves its cursor by.
 fn types(shortcut: &KeyboardShortcut) -> bool {
+    use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Equals, H, J, K, L, Minus, Plus};
     shortcut.modifiers.is_none()
-        && matches!(shortcut.logical_key, Key::Plus | Key::Equals | Key::Minus)
+        && matches!(
+            shortcut.logical_key,
+            Plus | Equals | Minus | ArrowLeft | ArrowRight | ArrowUp | ArrowDown | H | J | K | L
+        )
+}
+
+/// Arrows move egui's focus between widgets; theirs while it's held.
+fn steers(command: &Command) -> bool {
+    matches!(command, Command::Arrow(_))
 }
 
 /// Keys handled elsewhere, listed so the reference is complete.
@@ -70,8 +107,9 @@ const LISTED: [(&str, &str); 1] = [("Close a popover, window or sidebar", "Esc")
 /// Consumes this frame's shortcuts and queues their commands.
 pub fn read(ctx: &Context, platform: Platform, out: &mut Commands) {
     let typing = ctx.egui_wants_keyboard_input();
+    let focused = ctx.memory(|m| m.focused().is_some()) || egui::Popup::is_any_open(ctx);
     for b in bindings(platform) {
-        if typing && types(&b.shortcut) {
+        if (typing && types(&b.shortcut)) || (focused && steers(&b.command)) {
             continue;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&b.shortcut)) {

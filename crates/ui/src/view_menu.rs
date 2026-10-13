@@ -5,6 +5,7 @@ use egui::{Align, Button, Id, Layout, Popup, PopupCloseBehavior, RectAlign, Rich
 use crate::command::{Command, Commands, WindowCommand};
 use crate::icons::Icon;
 use crate::keymap;
+use crate::layout::ViewMode;
 use crate::platform::Platform;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -27,8 +28,9 @@ pub struct MenuContext<'a> {
     pub folded: &'a [Tool],
     pub fullscreen: bool,
     pub platform: Platform,
-    /// The active document's zoom; no zoom row without one.
+    /// The active document's zoom and mode; no rows without one.
     pub zoom: Option<ZoomState>,
+    pub mode: Option<ViewMode>,
 }
 
 /// The menu button and its popup.
@@ -61,6 +63,9 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         }
     }
     ui.separator();
+    if let Some(mode) = cx.mode {
+        view_row(ui, mode, cx.platform, out);
+    }
     if let Some(zoom) = cx.zoom {
         zoom_row(ui, zoom, cx.platform, out);
         ui.separator();
@@ -95,6 +100,28 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.label(RichText::new(version).size(t.text_small).color(t.muted));
+    });
+}
+
+/// The four view modes, the current one pressed; the menu stays open.
+fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Commands) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.add_space(4.0);
+        for mode in ViewMode::ALL {
+            let icon = match mode {
+                ViewMode::Single => Icon::SinglePage,
+                ViewMode::Spread => Icon::Spread,
+                ViewMode::Vertical => Icon::ScrollVertical,
+                ViewMode::Horizontal => Icon::ScrollHorizontal,
+            };
+            let command = Command::View(mode);
+            let keys = keymap::hint(platform, &command);
+            let on = mode == current;
+            if widgets::icon_button_keyed(ui, icon, mode.label(), on, keys.as_deref()).clicked() {
+                out.push(command);
+            }
+        }
     });
 }
 
