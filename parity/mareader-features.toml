@@ -509,7 +509,7 @@ tier = "P0"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-runtime/src/services/document/open"]
-notes = "Command line and drag and drop (into the pane under the pointer); the open dialog and file association are later"
+notes = "Open dialog (rfd), Open beside, command line and drag and drop into the pane under the pointer; file association comes with packaging"
 
 [[feature]]
 id = "pdf.render"

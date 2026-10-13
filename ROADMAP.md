@@ -68,9 +68,6 @@ appearance effects to that same pass.
 
 ## Open questions for the owner
 
-- **Open dialog.** `rfd` gives native file dialogs but pulls in about fifty
-  crates (GTK portal or zbus on Linux). Until decided, files open from the
-  command line or by drag and drop.
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts).
 
@@ -89,3 +86,4 @@ appearance effects to that same pass.
 | 2026-10-13 | Owner decisions: independent twins stay (a second book id on the same file, `docs/library.md`); `unsafe` is allowed for the macOS traffic lights only. They now sit centred in the bar and fade with it (`apps/mareader/src/traffic_lights.rs`, feature `traffic-lights`); `cargo xtask unsafe` keeps every other file free of it |
 | 2026-10-13 | Traffic lights follow the sidebar: while a rail is drawn they sit in its header at full opacity and slide out with it; otherwise they come with the bar, and in overlay mode only with the rail (the bar then drops its gutter). The floating rail now slides like the docked one instead of fading. Off a Mac, `platform=mac` draws stand-in dots so this shows in shots and the preview |
 | 2026-10-13 | M1 closed; the glass moved into M2 (owner). M2 slice 1: `pdf` wraps hayro (open, page sizes, rasters, the title rule from mareader, a generated sample PDF); `session` shares documents across panes and runs a worker pool driven by per-frame demand, dropping stale jobs and results, capped at 32 finished items. Panes scroll a virtualised fit-width column with a 256 MiB texture cache; files open from the command line or by drop, `pdf=sample` in shots and the preview |
+| 2026-10-13 | Owner: the traffic lights work on a real Mac; "optional" meant optional to build, so the `traffic-lights` feature stays on with no in-app setting. `rfd` approved for native dialogs (imports will need it too): it added only `rfd` and `pollster` to the tree. ⌘O / Ctrl+O, the menu's Open… and Open beside… (split right, only once a file is picked) and the empty pane's button open the system dialog off the UI thread. In the browser, picks and drops arrive as bytes, so real PDFs open in the preview |
