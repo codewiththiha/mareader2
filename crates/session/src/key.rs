@@ -16,14 +16,28 @@ impl Scale {
 
     /// The smallest step at or above `pixels_per_point`.
     pub fn covering(pixels_per_point: f32) -> Self {
+        // Drop float noise so an exact step maps to itself.
+        Self::step(pixels_per_point, |s| (s - 1e-3).ceil())
+    }
+
+    /// The largest step at or below `pixels_per_point`, for hard caps.
+    pub fn within(pixels_per_point: f32) -> Self {
+        Self::step(pixels_per_point, |s| (s + 1e-3).floor())
+    }
+
+    fn step(pixels_per_point: f32, round: fn(f32) -> f32) -> Self {
         let s = if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
             pixels_per_point
         } else {
             1.0
         };
-        // Drop float noise so an exact step maps to itself.
-        let steps = (s.log2() * Self::STEPS_PER_OCTAVE - 1e-3).ceil();
+        let steps = round(s.log2() * Self::STEPS_PER_OCTAVE);
         Self((steps as i16).clamp(Self::MIN, Self::MAX))
+    }
+
+    /// Eighth octaves from one pixel per point, for nearness.
+    pub fn steps(self) -> i16 {
+        self.0
     }
 
     pub fn value(self) -> f32 {
@@ -51,6 +65,15 @@ mod tests {
         }
         assert_eq!(Scale::covering(1.0).value(), 1.0);
         assert_eq!(Scale::covering(2.0).value(), 2.0);
+    }
+
+    #[test]
+    fn a_cap_step_never_exceeds_its_cap() {
+        for s in [0.1_f32, 0.77, 1.0, 2.49, 6.0] {
+            let v = Scale::within(s).value();
+            assert!(v <= s * 1.0001 && v >= s / 1.091, "{s} -> {v}");
+        }
+        assert_eq!(Scale::within(2.0).value(), 2.0);
     }
 
     #[test]
