@@ -63,3 +63,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p mareader
+
+  commits:
+    name: Build / each commit
+    runs-on: ubuntu-latest
+    # Every commit builds alone, so `git bisect` never stops on a broken one.
+    # Warnings are the lint job's: a split commit may briefly leave dead code.
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check each new commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # A new branch has no "before": check its tip alone.
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || BASE="$HEAD~1"
+          for c in $(git rev-list --reverse "$BASE..$HEAD"); do
+            git checkout -q "$c"
+            echo "::group::$(git log -1 --format='%h %s')"
+            cargo check --workspace --all-targets --locked
+            echo "::endgroup::"
+          done

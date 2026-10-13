@@ -281,6 +281,9 @@ machine is free.
   `python3 tools/commit_check.py --range main..HEAD` audits history. The hook
   is per checkout, so a fresh clone installs it once; `--status` reports
   whether it is armed — git skips a non-executable hook in silence.
+- Every commit builds alone, so `git bisect` never stops on a broken one:
+  a change spanning crates lands in one commit, or in an order that builds.
+  CI's `Build / each commit` job runs `cargo check` on every pushed commit.
 - A squash merge makes the **PR title** the subject and appends ` (#NN)`, so a
   title must fit 50 characters *after* that suffix: 43 for a two-digit number.
   Check the merged form:
