@@ -27,7 +27,8 @@ not mareader's pixels or code structure (ADR 0005).
 Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 
 - **Desktop:** `cargo run -p mareader`.
-- **Browser:** `tools/web.sh --serve 8080`, then open the page. URL options
+- **Browser (best effort, a viewer for sandboxed sessions):**
+  `tools/web.sh --serve 8080`, then open the page. URL options
   pick a state: `?preset=sepia`, `?theme=dark`, `?panes=3`,
   `?platform=windows`, `?open=appearance`, `?pinned=true`.
 - **Screenshots:** `cargo run -p mareader-ui --example shot -- out.png` with the
