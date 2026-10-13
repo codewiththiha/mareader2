@@ -272,6 +272,18 @@ fn a_settings_switch_applies_on_the_frame_it_flips() {
 }
 
 #[test]
+fn the_glass_switch_starts_on_and_turns_it_off() {
+    use egui::accesskit::Role;
+    let mut h = with(&[("settings", "layout")]);
+    assert!(h.state().settings().chrome.glass);
+    h.get_by_role_and_label(Role::CheckBox, "Frosted glass")
+        .click();
+    h.step();
+    h.step();
+    assert!(!h.state().settings().chrome.glass);
+}
+
+#[test]
 fn the_animations_tab_leaves_with_its_master_switch() {
     use egui::accesskit::Role;
     use mareader_ui::settings_window::Tab;
@@ -343,6 +355,7 @@ fn the_pre_crate_settings_blob_still_loads() {
     let app = MareaderApp::from_storage(Some(&disk));
     assert!(app.titlebar().pinned && app.settings().chrome.sidebar_overlay);
     assert!(!app.settings().motion.enabled);
+    assert!(app.settings().chrome.glass, "glass is new, so it starts on");
 }
 
 #[test]

@@ -1,12 +1,13 @@
 //! The auto-hiding title bar, kept open by the pin or its popups.
 
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align, Context, CornerRadius, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
+use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::Appearance;
 use mareader_workspace::SplitAxis;
 
+use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, WindowCommand};
-use crate::gpu::Glass;
+use crate::gpu::{Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
@@ -43,8 +44,8 @@ pub struct BarContext<'a> {
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
-    /// The backdrop to blur; none draws the opaque fallback.
-    pub glass: Option<Glass>,
+    /// What shows behind the bar: glass, a tint or a solid fill.
+    pub backdrop: &'a Backdrop,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -177,15 +178,12 @@ impl TitleBar {
             .show(ctx, |ui| {
                 ui.set_opacity(fade);
                 ui.set_min_size(band.size());
-                let t = Tokens::get(ctx);
-                let fill = match &bar.glass {
-                    Some(glass) => {
-                        ui.painter().add(glass.shape(band, screen, fade));
-                        t.frost
-                    }
-                    None => t.glass,
+                let look = Look {
+                    slot: 0,
+                    reach: Reach::Below,
+                    opacity: fade,
                 };
-                ui.painter().rect_filled(band, CornerRadius::ZERO, fill);
+                bar.backdrop.paint(ui, band, look);
                 // Registered before the buttons so they win the pointer.
                 let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::click_and_drag());
                 if visible && drag.double_clicked() {
