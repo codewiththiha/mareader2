@@ -21,6 +21,9 @@ pub enum Icon {
     WindowMaximize,
     WindowRestore,
     Book,
+    Light,
+    Dark,
+    Dim,
 }
 
 impl Icon {
@@ -39,6 +42,9 @@ impl Icon {
             Self::WindowMaximize => Lucide::Square,
             Self::WindowRestore => Lucide::Copy,
             Self::Book => Lucide::BookOpen,
+            Self::Light => Lucide::Sun,
+            Self::Dark => Lucide::Moon,
+            Self::Dim => Lucide::SunMoon,
         }
     }
 

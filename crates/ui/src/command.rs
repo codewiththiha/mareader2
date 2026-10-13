@@ -8,6 +8,7 @@ pub enum Command {
     ToggleSidebar,
     ShowLibrary,
     ShowSearch,
+    /// Opens the Appearance popover (the keymap's route to it).
     ShowAppearance,
     ShowSettings,
     Split(SplitAxis),

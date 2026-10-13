@@ -143,6 +143,10 @@ impl MareaderApp {
             "pinned" => self.titlebar.pinned = value == "true",
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.animations = value == "true",
+            "open" => match value {
+                "appearance" => self.queue(Command::ShowAppearance),
+                _ => return Err("open: appearance".into()),
+            },
             "panes" => {
                 let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
                 let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
@@ -199,10 +203,11 @@ impl MareaderApp {
                 WindowCommand::Close => ViewportCommand::Close,
                 WindowCommand::StartDrag => ViewportCommand::StartDrag,
             }),
-            Command::ShowLibrary
-            | Command::ShowSearch
-            | Command::ShowAppearance
-            | Command::ShowSettings => {}
+            Command::ShowAppearance => {
+                self.titlebar.reveal();
+                egui::Popup::open_id(ctx, egui::Id::new(crate::titlebar::APPEARANCE_POPOVER));
+            }
+            Command::ShowLibrary | Command::ShowSearch | Command::ShowSettings => {}
         }
     }
 }
@@ -238,6 +243,7 @@ impl eframe::App for MareaderApp {
             platform: self.platform,
             left_inset: 0.0,
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
+            appearance: &self.settings.appearance,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
         for command in commands {

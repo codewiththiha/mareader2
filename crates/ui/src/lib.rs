@@ -9,6 +9,7 @@
 )]
 
 pub mod app;
+pub mod appearance_menu;
 pub mod command;
 pub mod icons;
 pub mod motion;

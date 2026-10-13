@@ -98,3 +98,40 @@ fn an_appearance_change_restyles_on_the_frame_it_lands() {
     assert_eq!(mareader_ui::theme::Tokens::get(&h.ctx), want);
     assert_eq!(h.ctx.global_style().visuals.panel_fill, want.surface);
 }
+
+fn open_appearance(h: &mut Harness<'static, MareaderApp>) {
+    h.hover_at(egui::pos2(600.0, 20.0));
+    h.run_steps(2);
+    h.get_by_label("Appearance").click();
+    h.run_steps(2);
+}
+
+#[test]
+fn the_appearance_popover_switches_mode_and_keeps_the_bar() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    h.get_by_label("Dark").click();
+    h.run_steps(2);
+    let base = h.state().settings().appearance.base;
+    assert_eq!(base, mareader_appearance::BaseMode::Dark);
+    assert!(mareader_ui::theme::Tokens::get(&h.ctx).dark);
+    h.hover_at(egui::pos2(600.0, 500.0));
+    h.run_steps(40);
+    assert!(
+        h.state().titlebar().visible(),
+        "an open popover holds the bar"
+    );
+}
+
+#[test]
+fn a_preset_swatch_applies_its_look() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    h.get_by_label("Sepia").click();
+    h.run_steps(2);
+    let sepia = mareader_appearance::builtin_presets()
+        .into_iter()
+        .find(|p| p.id == "sepia")
+        .map(|p| p.appearance);
+    assert_eq!(Some(h.state().settings().appearance), sepia);
+}
