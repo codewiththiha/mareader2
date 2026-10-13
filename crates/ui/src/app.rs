@@ -6,14 +6,13 @@ use mareader_appearance::{Appearance, BaseMode, builtin_presets};
 use mareader_workspace::{Bounds, PaneId, PaneTree, Side, SplitAxis};
 use serde::{Deserialize, Serialize};
 
-use crate::panes::{self, PaneAction, PaneLook};
+use crate::command::{Command, Commands, WindowCommand};
+use crate::panes::{self, PaneView, WorkspaceLook};
 use crate::platform::Platform;
-use crate::titlebar::{BarAction, BarContext, TitleBar};
-use crate::widgets::Caption;
+use crate::titlebar::{BarContext, TitleBar};
 use crate::{motion, resize, theme};
 
-/// mareader's settings key, so a migration can read the same name.
-pub const SETTINGS_KEY: &str = "mareader.settings.v1";
+pub const SETTINGS_KEY: &str = "settings";
 
 /// The persisted slice that exists so far; fields join as features land.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -22,6 +21,7 @@ pub struct Settings {
     pub appearance: Appearance,
     pub titlebar_pinned: bool,
     pub animations: bool,
+    pub workspace: WorkspaceLook,
 }
 
 pub struct MareaderApp {
@@ -30,7 +30,6 @@ pub struct MareaderApp {
     titlebar: TitleBar,
     tree: PaneTree,
     active: PaneId,
-    look: PaneLook,
     sidebar_open: bool,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
@@ -61,7 +60,6 @@ impl MareaderApp {
             platform: Platform::current(),
             tree: PaneTree::new(),
             active: PaneId(1),
-            look: PaneLook::default(),
             sidebar_open: false,
             styled: None,
             fonts: FontState::Missing,
@@ -129,33 +127,39 @@ impl MareaderApp {
         Ok(())
     }
 
-    fn split(&mut self, axis: SplitAxis, ctx: &Context) {
-        let r = ctx.content_rect();
-        let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
-        if let Ok(id) = self.tree.split(self.active, axis, Side::After, area) {
-            self.active = id;
-        }
-    }
-
-    fn apply_bar(&mut self, ctx: &Context, actions: Vec<BarAction>, maximized: bool) {
-        for a in actions {
-            match a {
-                BarAction::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
-                BarAction::SplitRight => self.split(SplitAxis::Horizontal, ctx),
-                BarAction::SplitDown => self.split(SplitAxis::Vertical, ctx),
-                BarAction::PinChanged(p) => self.settings.titlebar_pinned = p,
-                BarAction::Window(Caption::Minimize) => {
-                    ctx.send_viewport_cmd(ViewportCommand::Minimized(true))
+    fn apply(&mut self, ctx: &Context, command: Command) {
+        match command {
+            Command::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
+            Command::Split(axis) => {
+                let r = ctx.content_rect();
+                let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
+                if let Ok(id) = self.tree.split(self.active, axis, Side::After, area) {
+                    self.active = id;
                 }
-                BarAction::Window(Caption::ToggleMaximize) => {
-                    ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
-                }
-                BarAction::Window(Caption::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
-                BarAction::Library
-                | BarAction::Search
-                | BarAction::Appearance
-                | BarAction::Settings => {}
             }
+            Command::FocusPane(id) => self.active = id,
+            Command::ClosePane(id) => {
+                if self.tree.close(id).is_ok() && self.active == id {
+                    self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
+                }
+            }
+            Command::SetTitlebarPinned(p) => {
+                self.titlebar.pinned = p;
+                self.settings.titlebar_pinned = p;
+            }
+            Command::Window(w) => ctx.send_viewport_cmd(match w {
+                WindowCommand::Minimize => ViewportCommand::Minimized(true),
+                WindowCommand::ToggleMaximize => {
+                    let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                    ViewportCommand::Maximized(!maximized)
+                }
+                WindowCommand::Close => ViewportCommand::Close,
+                WindowCommand::StartDrag => ViewportCommand::StartDrag,
+            }),
+            Command::ShowLibrary
+            | Command::ShowSearch
+            | Command::ShowAppearance
+            | Command::ShowSettings => {}
         }
     }
 }
@@ -184,30 +188,23 @@ impl eframe::App for MareaderApp {
             return;
         }
         resize::edges(&ctx, self.platform.frameless());
-        let t = theme::Tokens::get(&ctx);
-        let area = ctx.content_rect();
-        ui.painter().rect_filled(area, 0.0, t.paper);
-        let under_bar = self.titlebar.pinned && !self.titlebar.chromeless;
-        for action in panes::show(ui, &mut self.tree, self.active, self.look, area, under_bar) {
-            match action {
-                PaneAction::Focus(id) => self.active = id,
-                PaneAction::Close(id) => {
-                    if self.tree.close(id).is_ok() && self.active == id {
-                        self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
-                    }
-                }
-            }
-        }
-        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        let mut commands = Commands::new();
+        let view = PaneView {
+            active: self.active,
+            look: self.settings.workspace,
+            chrome_bottom: self.titlebar.band_bottom(&ctx),
+        };
+        panes::show(ui, &mut self.tree, &view, &mut commands);
         let bar = BarContext {
             title: "Mareader",
             platform: self.platform,
-            sidebar_open: self.sidebar_open,
             left_inset: 0.0,
-            maximized,
+            maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
         };
-        let actions = self.titlebar.show(&ctx, &bar);
-        self.apply_bar(&ctx, actions, maximized);
+        self.titlebar.show(&ctx, &bar, &mut commands);
+        for command in commands {
+            self.apply(&ctx, command);
+        }
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {
