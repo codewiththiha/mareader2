@@ -14,15 +14,52 @@ in light, dark and one tint, at desktop and narrow sizes.
 
 - **The page is the app.** Chrome is translucent, auto-hiding and quiet; the
   pane's paper colour fills everything the page doesn't.
-- **One theme source.** Colours come from the appearance (`crates/appearance`
-  → `Tokens` → egui `Visuals`). Stock widgets get them from the theme; custom
-  widgets read `Tokens`. No colour literals in views except platform caption
-  conventions.
+- **One theme source.** Colours and shape come from the appearance
+  (`crates/appearance` → `Tokens` → egui `Visuals` and `Style`). Stock widgets
+  get them from the theme; custom widgets read `Tokens`. No colour or size
+  literals in views except platform caption conventions.
+- **Instant.** Moving an appearance control restyles the whole window, pages
+  included, on the next frame.
 - **Native over imitation.** Use egui's widgets, containers and interaction
   states. Hover responds at once, as egui does; animate only motion that
   explains something (the bar fading, the sidebar sliding, a zoom easing).
 - **Nothing interactive under the hover band.** The top 48 pt reveals the title
   bar, so pane controls sit below it.
+
+## How the theme works
+
+Several looks, plus accent, contrast, brightness or text-size knobs, all
+come from one small mechanism:
+
+1. **Tokens are the only source.** `theme::Tokens` holds colours *and* shape:
+   radii, control and icon size, text sizes, gap. Views and widgets read
+   `Tokens::get(ctx)`; a theme can change shape, not just colour.
+2. **Tokens are a pure function of settings:** `Tokens::new(&Appearance)`.
+   A new knob is a small pure modifier on top (a `with_brightness`, a
+   `with_appearance(accent, contrast)`), with a test.
+3. **One apply.** `theme::apply(ctx, &tokens)` writes egui's `Visuals` and
+   `Style`, covering all five widget states (noninteractive, inactive, hovered,
+   active, open), and stores the tokens in egui's context data. Stock widgets
+   follow with no per-call styling.
+4. **Applied on change, at once.** `MareaderApp::restyle` compares the settings
+   with what it last applied. An appearance `Command` restyles at the end of
+   the frame it lands in and asks for one repaint, so the next frame shows it.
+   A slider sends `Command::SetAppearance` on every tick; only disk writes are
+   debounced. Test: `an_appearance_change_restyles_on_the_frame_it_lands`.
+5. **Pages follow without re-rendering.** Filter, blend, texture, grain and the
+   EPUB ink and paper colours are uniforms of the page pass (ADR 0003). A tint
+   or brightness drag re-rasterises nothing; only typography (font, size,
+   spacing) re-lays out EPUB text.
+6. **Tune it live.** Debug builds read `MAREADER_TOKENS=tokens.json` (keys are
+   token field names; values `"#rrggbb[aa]"` or numbers) and re-apply when the
+   file changes. Unset, it costs nothing.
+
+**Knobs this makes cheap** (not mareader features; the owner decides): interface
+text size, a contrast boost, roundness, density. Each is one modifier.
+
+**Not done:** per-app grammar flags (`pro`, `bevel`); mareader2 has one
+design. A brightness knob would go through OKLCH like the tints, not per sRGB
+channel.
 
 ## Colour
 
@@ -65,9 +102,10 @@ went magenta).
 | Thing | Value | Where |
 |---|---|---|
 | Title bar | 48 pt | `theme::TITLE_BAR_H` |
-| Toolbar button | 36 pt square, 18 pt icon, radius 8 | `theme::ICON_BUTTON`, `theme::ICON` |
-| Popover, window | radius 12, shadow 0 8 24 black 30 % | `theme::apply` |
-| Spacing | items 8 × 6, button padding 10 × 6; toolbar clusters 4 | `theme::apply`, `titlebar.rs` |
+| Toolbar button | 36 pt square, 18 pt icon, radius 8 | `Tokens::{control, icon, radius}` |
+| Popover, window | radius 12, shadow 0 8 24 (black 24 % light, 47 % dark) | `Tokens::{radius_lg, shadow}` |
+| Spacing | gap 8: items 8 × 6, button padding 10 × 6; toolbar clusters 4 | `Tokens::gap`, `titlebar.rs` |
+| Body, small text | 14 pt, 12 pt | `Tokens::{text, text_small}` |
 | Sidebar (M1) | ~288 pt, slides 300 ms | — |
 | Toast (M1) | 3.5 s | — |
 
@@ -108,14 +146,17 @@ owner decides whether one audited `objc2` call is worth it.
 
 ## Panes
 
-Model `crates/workspace`, view `crates/ui/src/panes.rs`. Each pane is a child
-`Ui` clipped to its rect.
+Model `crates/workspace`, view `crates/ui/src/panes.rs`. Each pane is drawn in
+a scoped `Ui` region (`Ui::scope_builder` with a `max_rect`), the way
+egui_tiles lays out tiles. That is layout only: panes share the app's
+documents, caches and workers (ADR 0006).
 
 - Up to 4 panes; a split refuses below a 0.15 ratio or 200 pt per side.
 - Dividers: an 8 pt drag band with resize cursors.
 - The active pane (when split) has an accent outline, 2 pt by default.
-- Workspace look settings: gap, outline width, rounded corners (10 pt), shadow
-  (0 5 18 black 24 %).
+- Workspace look settings: gap, outline width, rounded corners
+  (`Tokens::radius_lg`), shadow (0 5 18, `Tokens::shadow`).
+- Dragging a divider sends `Command::SetRatio` every frame it moves.
 - A close button appears at the top right of a hovered pane, below the hover
   band.
 
@@ -154,3 +195,4 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 |---|---|
 | 2026-10-13 | Created with the M0 foundation as `look.md` |
 | 2026-10-13 | Became `design.md`: our own design system (ADR 0005); one-hue tints; egui-native controls |
+| 2026-10-13 | How the theme works: shape tokens, one apply, instant restyle, live token file |

@@ -173,8 +173,12 @@ syntax (`docs/architecture.md` § How the app is built in egui).
   `ScrollArea::show_rows`, `Sides`, `Button`, `Slider`, `TextEdit`, drag and
   drop via `dnd_*`. Write a custom widget only where egui has nothing close,
   and give it an AccessKit label.
-- **The theme is `Style` and `Visuals`,** set once per appearance change. Views
-  don't pick colours; custom widgets read `Tokens`.
+- **The theme is `Tokens` applied to `Style` and `Visuals`,** once per change
+  (`docs/design.md` § How the theme works). Views don't pick colours or sizes;
+  custom widgets read `Tokens`. Appearance changes show on the next frame and
+  never re-render pages: page looks are uniforms of the page pass.
+- **Don't recreate per-pane isolation.** A pane is a view over a shared
+  `Arc<Document>`, one tile cache and one worker pool (ADR 0006).
 - **Animate meaning, not decoration.** Hover is instant; motion goes through
   `motion::secs` so the Animations switch can turn it off.
 - **Never block the UI thread.** I/O, parsing, raster and scans run on workers

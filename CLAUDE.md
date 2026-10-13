@@ -48,7 +48,7 @@ Don't stop to ask unless the decision is on the owner's list below.
 | `docs/epub.md` | The EPUB pipeline and how mareader's typography maps onto it |
 | `docs/porting.md` | How to rebuild a feature, what not to port, crate and concept maps |
 | `docs/memory.md` | Measured memory, budgets |
-| `docs/adr/` | Decisions: egui+wgpu, EPUB via parley, page textures, Lucide, functional parity |
+| `docs/adr/` | Decisions: egui+wgpu, EPUB via parley, page textures, Lucide, functional parity, shared documents |
 | `tools/` | `commit_check.py`, `comment_check.py` (from mareader) |
 
 Planned crates (pdf, epub, reflow, library, settings, session, study) already
@@ -91,6 +91,10 @@ cargo run -p mareader-ui --example shot -- /tmp/a.png \
 | `panes` | 1–4 (splits the newest pane, alternating right and down) |
 | `hover` | `x,y` in points: where the pointer rests |
 | `size` | `WxH` in points; output is at 2× |
+
+To tune colours or sizes without recompiling, run a debug build with
+`MAREADER_TOKENS=tokens.json` (token names → `"#rrggbb"` or numbers); it
+re-applies when the file is saved, in the app and in `shot`.
 
 Open the PNG and check it against `docs/design.md`. If something looks worse
 than mareader, improve it and update the doc. Interactions belong in kittest tests (`crates/ui/tests/shell.rs`
