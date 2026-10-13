@@ -275,7 +275,7 @@ fn animations(ui: &mut Ui, s: &mut Settings) {
         switch_row(
             ui,
             "Sidebar animation",
-            "The docked sidebar slides; the floating one fades",
+            "The sidebar slides in and out, docked or floating",
             &mut s.motion.sidebar_slide,
         );
     });

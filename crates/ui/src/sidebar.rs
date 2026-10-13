@@ -15,9 +15,8 @@ use crate::theme::{self, TITLE_BAR_H, Tokens};
 use crate::widgets;
 
 pub const WIDTH: f32 = 288.0;
-/// The docked slide and the floating fade, in seconds.
+/// The rail's slide, docked or floating, in seconds.
 pub const SLIDE: f32 = 0.3;
-pub const FADE: f32 = 0.2;
 /// How long a floating rail waits for the pointer to come back.
 pub const HOVER_GRACE: f64 = 0.25;
 /// The floating rail's reveal strip at the window's left edge.
@@ -95,11 +94,18 @@ pub struct Sidebar {
     /// Floating only: the pointer has reached the rail since it opened.
     armed: bool,
     left_at: Option<f64>,
+    /// Last frame's rail edge left of its open place; `None` when not drawn.
+    offset: Option<f32>,
 }
 
 impl Sidebar {
     pub fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// The rail's shift last frame, `-WIDTH` to 0; `None` if not drawn.
+    pub fn offset(&self) -> Option<f32> {
+        self.offset
     }
 
     pub fn panel(&self) -> Panel {
@@ -130,18 +136,26 @@ impl Sidebar {
         }
     }
 
-    /// Takes a sliding strip from the left of `ui`; returns its width.
-    pub fn show_docked(&mut self, ui: &mut Ui, cx: &RailContext, out: &mut Commands) -> f32 {
+    /// How much of the rail shows, 0 to `WIDTH`, eased.
+    fn slide(&self, ctx: &Context, cx: &RailContext, id: &str) -> f32 {
         let secs = if cx.slide {
-            motion::secs(ui.ctx(), SLIDE)
+            motion::secs(ctx, SLIDE)
         } else {
             0.0
         };
-        let id = Id::new("sidebar-slide");
-        let t =
-            ui.ctx()
-                .animate_bool_with_time_and_easing(id, self.open, secs, easing::cubic_in_out);
-        let width = (WIDTH * t).round();
+        let t = ctx.animate_bool_with_time_and_easing(
+            Id::new(id),
+            self.open,
+            secs,
+            easing::cubic_in_out,
+        );
+        (WIDTH * t).round()
+    }
+
+    /// Takes a sliding strip from the left of `ui`; returns its width.
+    pub fn show_docked(&mut self, ui: &mut Ui, cx: &RailContext, out: &mut Commands) -> f32 {
+        let width = self.slide(ui.ctx(), cx, "sidebar-slide");
+        self.offset = (width >= 1.0).then_some(width - WIDTH);
         if width < 1.0 {
             return 0.0;
         }
@@ -170,27 +184,23 @@ impl Sidebar {
         width
     }
 
-    /// Floats over the panes from the left edge; returns the width it covers.
+    /// Slides over the panes from the left edge; returns the width it covers.
     pub fn show_floating(&mut self, ctx: &Context, cx: &RailContext, out: &mut Commands) -> f32 {
         let screen = ctx.content_rect();
-        let rail = Rect::from_min_size(screen.min, vec2(WIDTH, screen.height()));
-        self.track_hover(ctx, rail, screen, out);
-        let secs = if cx.slide {
-            motion::secs(ctx, FADE)
-        } else {
-            0.0
-        };
-        let fade = ctx.animate_bool_with_time(Id::new("sidebar-fade"), self.open, secs);
-        if fade <= 0.0 {
+        let home = Rect::from_min_size(screen.min, vec2(WIDTH, screen.height()));
+        self.track_hover(ctx, home, screen, out);
+        let width = self.slide(ctx, cx, "sidebar-float-slide");
+        self.offset = (width >= 1.0).then_some(width - WIDTH);
+        if width < 1.0 {
             return 0.0;
         }
+        let rail = home.translate(vec2(width - WIDTH, 0.0));
         Area::new(Id::new("sidebar-float"))
             .order(Order::Foreground)
             .fixed_pos(rail.min)
             .constrain(false)
             .interactable(self.open)
             .show(ctx, |ui| {
-                ui.set_opacity(fade);
                 ui.set_min_size(rail.size());
                 let t = Tokens::get(ctx);
                 let shadow = egui::Shadow {
@@ -206,7 +216,7 @@ impl Sidebar {
                 ui.painter()
                     .vline(rail.right() - 0.5, rail.y_range(), Stroke::new(1.0, t.line));
             });
-        WIDTH
+        width
     }
 
     /// The edge strip opens a closed rail; leaving an open one closes it.
