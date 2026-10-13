@@ -101,6 +101,8 @@ pub enum Event {
 pub struct Entry {
     pub doc: Arc<Document>,
     pub name: String,
+    /// The file it came from; none for bytes, such as a browser's drop.
+    pub path: Option<PathBuf>,
 }
 
 /// How much finished work one `poll` hands over.
@@ -113,7 +115,8 @@ pub struct Budget {
 pub struct Session {
     pool: Pool,
     docs: BTreeMap<DocId, Entry>,
-    opening: BTreeMap<u64, Option<String>>,
+    /// Each open in flight: the name it falls back on, and its file.
+    opening: BTreeMap<u64, (Option<String>, Option<PathBuf>)>,
     next: u64,
 }
 
@@ -142,8 +145,12 @@ impl Session {
     /// Starts opening; `file_name` names it if its title won't.
     pub fn open(&mut self, source: Source, file_name: Option<String>) -> Ticket {
         let ticket = self.bump();
-        self.opening
-            .insert(ticket, file_name.or_else(|| source.file_name()));
+        let path = match &source {
+            Source::Path(p) => Some(p.clone()),
+            Source::Bytes(_) => None,
+        };
+        let name = file_name.or_else(|| source.file_name());
+        self.opening.insert(ticket, (name, path));
         self.pool.open(ticket, source);
         Ticket(ticket)
     }
@@ -190,13 +197,13 @@ impl Session {
     fn accept(&mut self, out: Output) -> Option<Event> {
         match out {
             Output::Opened { ticket, result } => {
-                let file_name = self.opening.remove(&ticket)?;
+                let (file_name, path) = self.opening.remove(&ticket)?;
                 let result = result.map(|doc| {
                     let name = mareader_pdf::display_name(doc.raw_title(), file_name.as_deref())
                         .unwrap_or_else(|| "Untitled".to_string());
                     let id = DocId(self.bump());
                     let doc = Arc::new(doc);
-                    self.docs.insert(id, Entry { doc, name });
+                    self.docs.insert(id, Entry { doc, name, path });
                     id
                 });
                 Some(Event::Opened {

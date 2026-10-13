@@ -66,6 +66,15 @@ pub enum Arrow {
 }
 
 impl Arrow {
+    /// One step forward, right or down; minus one back.
+    pub fn sign(self) -> f32 {
+        if matches!(self, Self::Right | Self::Down) {
+            1.0
+        } else {
+            -1.0
+        }
+    }
+
     /// mareader's rule: arrows turn, except along a strip's own axis.
     pub fn turns(self, mode: ViewMode) -> Option<bool> {
         let forward = matches!(self, Self::Right | Self::Down);

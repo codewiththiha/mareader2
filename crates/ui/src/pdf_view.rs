@@ -4,6 +4,7 @@ use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
 use std::sync::Arc;
 
+use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_pdf::{LinkTarget, web_address};
 use mareader_session::{DocId, Document, PageKey, Scale, Want};
@@ -15,9 +16,58 @@ use crate::selection::{self, Pages, Selection, Sheet};
 use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
+use crate::{keymap, motion};
 
 /// Pages drawn ahead of the viewport, each way, in turns.
 const PREFETCH: usize = 1;
+/// A held arrow waits this long, then glides at this speed (mareader's).
+const HOLD_DELAY: f64 = 0.35;
+const HOLD_SPEED: f32 = 1000.0;
+/// A slow frame moves a held glide no further than this one would.
+const MAX_FRAME: f64 = 0.05;
+
+/// A tap moves one reading line: 8 % of the view, 40 to 80 points.
+pub fn line_step(len: f32) -> f32 {
+    (len * 0.08).clamp(40.0, 80.0)
+}
+
+/// A page key moves nearly a screen, keeping a sliver to hold the place.
+pub fn screen_step(len: f32) -> f32 {
+    (len * 0.9).max(1.0)
+}
+
+/// A key's move along a strip, applied by the next frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Nudge {
+    Line(f32),
+    Screen(f32),
+}
+
+impl Nudge {
+    fn points(self, len: f32) -> f32 {
+        match self {
+            Self::Line(dir) => dir * line_step(len),
+            Self::Screen(dir) => dir * screen_step(len),
+        }
+    }
+}
+
+/// An arrow held along a strip, since `since`; `last` is the last frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Hold {
+    arrow: Arrow,
+    since: f64,
+    last: f64,
+}
+
+/// A page jump gliding to `to` (a [`Glide`]); only its pages render meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Jump {
+    to: Vec2,
+    started: bool,
+    /// Given up by then: a wheel or a drag took the scroll over.
+    until: f64,
+}
 
 /// How soon a page is needed; lower is sooner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,6 +107,13 @@ pub struct PdfView {
     pub selection: Option<Selection>,
     /// Pages on screen last frame, where they sat.
     pub sheets: Vec<Sheet>,
+    nudge: Option<Nudge>,
+    /// Where the last key's glide is heading along the strip, and until when.
+    aim: Option<Glide>,
+    hold: Option<Hold>,
+    jump: Option<Jump>,
+    /// Zoom steps ease, as of last frame's motion settings.
+    ease: bool,
 }
 
 impl PdfView {
@@ -76,11 +133,17 @@ impl PdfView {
             progress: 0.0,
             selection: None,
             sheets: Vec::new(),
+            nudge: None,
+            aim: None,
+            hold: None,
+            jump: None,
+            ease: true,
         }
     }
 
     pub fn command(&mut self, command: ZoomCommand, now: f64) {
         let shown = self.layout.as_ref().map(Layout::zoom);
+        let shown = shown.filter(|_| self.ease);
         self.zoom.command(command, shown, self.current, now);
     }
 
@@ -90,6 +153,7 @@ impl PdfView {
             return;
         }
         self.mode = mode;
+        self.hold = None;
         // As in mareader: a spread always fits its width, the strip never.
         if mode == ViewMode::Spread || (fit && mode.paged()) {
             self.zoom
@@ -100,11 +164,41 @@ impl PdfView {
         self.go(self.current);
     }
 
-    /// An arrow key: a turn, unless it runs along a strip.
-    pub fn arrow(&mut self, arrow: Arrow, count: usize) {
+    /// An arrow key: a turn, or along a strip a line and then a glide.
+    pub fn arrow(&mut self, arrow: Arrow, count: usize, now: f64) {
         if let Some(forward) = arrow.turns(self.mode) {
             self.go(self.mode.turn(self.current, forward, count));
+            return;
         }
+        // Up and down across the strip do nothing, as in mareader.
+        let sideways = matches!(arrow, Arrow::Left | Arrow::Right);
+        if sideways != (self.mode == ViewMode::Horizontal) {
+            return;
+        }
+        // The key repeating while held: the glide is already on its way.
+        if self.hold.is_some_and(|h| h.arrow == arrow) {
+            return;
+        }
+        self.hold = Some(Hold {
+            arrow,
+            since: now,
+            last: now,
+        });
+        self.nudge = Some(Nudge::Line(arrow.sign()));
+    }
+
+    /// A page key: nearly a screen along a strip, a turn when paged.
+    pub fn page_key(&mut self, forward: bool, count: usize) {
+        if self.mode.paged() {
+            self.turn(forward, count);
+        } else {
+            self.nudge = Some(Nudge::Screen(if forward { 1.0 } else { -1.0 }));
+        }
+    }
+
+    /// The scroll offset last frame.
+    pub fn offset(&self) -> Vec2 {
+        self.offset
     }
 
     /// A page turn from a button: it turns in every mode.
@@ -159,6 +253,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     } = io;
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time);
+    view.ease = motion::zoom(&ctx);
     let frame = ui.max_rect();
     let sizes = doc.page_sizes();
     if ui.rect_contains_pointer(frame) {
@@ -174,7 +269,13 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         room.x = f32::INFINITY;
     }
     let fit_box = layout::fit_box(view.mode, sizes, view.zoom.fit_page);
-    view.zoom.refit(fit_box, room, view.layout.is_some(), now);
+    let follow = motion::follow(&ctx);
+    if let Some(wait) = view
+        .zoom
+        .refit(fit_box, room, view.layout.is_some(), follow, now)
+    {
+        ctx.request_repaint_after_secs(wait);
+    }
     let (shown, gliding) = view.zoom.advance(now);
     if gliding {
         ctx.request_repaint();
@@ -187,7 +288,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         zoom: shown,
         focus: if view.mode.paged() { view.focus } else { 0 },
     };
-    if view.layout.as_ref().is_none_or(|l| l.inputs != inputs) {
+    let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
+    if rebuilt {
         let new = Layout::new(sizes, inputs);
         match view.layout.take() {
             // Zooms and resizes keep the reading spot in place.
@@ -210,11 +312,39 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     if let Some(page) = view.reveal.take()
         && let Some(to) = view.layout.as_ref().and_then(|l| l.reveal(page))
     {
-        view.scroll_to = Some((to, 2));
+        // A strip glides to the page; a new layout or a turn lands there.
+        let glide = motion::jump(&ctx);
+        if !rebuilt && !view.mode.paged() && glide.duration.max > 0.0 {
+            let until = now + f64::from(glide.duration.max) + 0.2;
+            let end = view.layout.as_ref().map_or(Vec2::ZERO, |l| l.size) - viewport;
+            let to = to.min(end.max(Vec2::ZERO));
+            // Along the strip it glides with the keys' glide; across, it lands.
+            let pick = |v: Vec2| {
+                if view.mode == ViewMode::Horizontal {
+                    v.x
+                } else {
+                    v.y
+                }
+            };
+            view.aim = Some(Glide::new(pick(view.offset), pick(to), now, glide));
+            view.jump = Some(Jump {
+                to,
+                started: false,
+                until,
+            });
+        } else {
+            view.scroll_to = Some((to, 2));
+            view.jump = None;
+        }
     }
     if let Some(wait) = view.zoom.sharpen(now) {
         ctx.request_repaint_after_secs(wait);
     }
+    // Keys move along the strip: sideways in the horizontal one.
+    let sideways = view.mode == ViewMode::Horizontal;
+    let along = |d: f32| if sideways { vec2(d, 0.0) } else { vec2(0.0, d) };
+    let len = if sideways { viewport.x } else { viewport.y };
+    let keyed = keyed_scroll(view, &ctx, len, now);
     let Some(layout) = &view.layout else {
         return;
     };
@@ -244,6 +374,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     if let Some((to, _)) = view.scroll_to {
         area = area.scroll_offset(to);
     }
+    let jump = view.jump;
+    let mut jump_started = false;
+    // While a jump glides, only the pages it lands on are worth drawing.
+    let landing = jump.map(|j| layout.visible(Rect::from_min_size(Pos2::ZERO + j.to, viewport)));
+    let wanted = |page: usize| landing.as_ref().is_none_or(|r| r.contains(&page));
     let mut shown_pages = 0..0;
     let mut sheets = Vec::new();
     let mut follow = None;
@@ -251,6 +386,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let selection = &mut view.selection;
     let out = area
         .auto_shrink(false)
+        // The view runs its own glides, so each delta lands this frame.
+        .animated(false)
         .content_margin(0.0)
         // Dragging will select text, not scroll.
         .scroll_source(ScrollSource {
@@ -259,6 +396,19 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         })
         .show_viewport(ui, |ui, viewport| {
             ui.set_min_size(layout.size);
+            if let Some(points) = keyed {
+                ui.scroll_with_delta_animation(-along(points), ScrollAnimation::none());
+            }
+            if let Some(j) = jump.filter(|j| !j.started) {
+                let d = viewport.min.to_vec2() - j.to;
+                let across = if sideways {
+                    vec2(0.0, d.y)
+                } else {
+                    vec2(d.x, 0.0)
+                };
+                ui.scroll_with_delta_animation(across, ScrollAnimation::none());
+                jump_started = true;
+            }
             let origin = ui.max_rect().min.to_vec2();
             let shown = layout.visible(viewport);
             shown_pages = shown.clone();
@@ -269,10 +419,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 };
                 let rect = rect.translate(origin).round_to_pixels(ppp);
                 let look = pages.lookup(key(page));
-                if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
+                if wanted(page) && !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
                     demand.push((urgency, key(page).into()));
                 }
-                if !texts.touch(doc_id, page) {
+                if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
                 paint_page(ui, rect, look, &t, &mut quads);
@@ -299,6 +449,15 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
             follow = selection::interact(ui, ui.clip_rect(), &text, selection).follow;
+            // A jump's landing renders while the glide is on its way.
+            if let Some(landing) = &landing {
+                for page in landing.clone().filter(|p| !shown.contains(p)) {
+                    if !matches!(pages.lookup(key(page)), Lookup::Sharp(_) | Lookup::Failed) {
+                        demand.push((urgency, key(page).into()));
+                    }
+                }
+                return;
+            }
             // The strips' neighbours, or the next and last turn's pages.
             let (near, count) = match view.mode {
                 ViewMode::Single | ViewMode::Spread => (layout.pages(), sizes.len()),
@@ -313,7 +472,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 }
             }
         });
-    if !view.mode.paged() && view.scroll_to.is_none() {
+    if let Some(j) = &mut view.jump {
+        j.started |= jump_started;
+        // Its glide ended, or a wheel or a key took over.
+        let arrived = (out.state.offset - j.to).length() < 1.0;
+        if arrived || view.aim.is_none() || now > j.until {
+            view.jump = None;
+        } else {
+            ctx.request_repaint();
+        }
+    }
+    // A jump keeps its page as the one read until it lands.
+    if !view.mode.paged() && view.scroll_to.is_none() && view.jump.is_none() {
         let centre = Pos2::ZERO + out.state.offset + viewport / 2.0;
         view.current = layout.locate(centre).map_or(0, |(page, _)| page);
     }
@@ -342,6 +512,89 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         }
         _ => {}
     }
+}
+
+/// A key's glide along the strip. The view runs it, so quick presses add up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Glide {
+    from: f32,
+    to: f32,
+    start: f64,
+    secs: f64,
+    /// Where it put the strip last frame.
+    at: f32,
+}
+
+impl Glide {
+    fn new(from: f32, to: f32, now: f64, a: ScrollAnimation) -> Self {
+        let secs = ((to - from).abs() / a.points_per_second).clamp(a.duration.min, a.duration.max);
+        Self {
+            from,
+            to,
+            start: now,
+            secs: f64::from(secs),
+            at: from,
+        }
+    }
+
+    /// This frame's position, and whether the glide is over.
+    fn step(&mut self, now: f64) -> (f32, bool) {
+        let t = ((now - self.start) / self.secs.max(1e-6)).clamp(0.0, 1.0) as f32;
+        self.at = self.from + (self.to - self.from) * egui::emath::ease_in_ease_out(t);
+        (self.at, t >= 1.0)
+    }
+}
+
+/// This frame's keyed scroll along the strip, in points.
+fn keyed_scroll(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
+    if view.mode.paged() {
+        view.hold = None;
+        view.nudge = None;
+        view.aim = None;
+        return None;
+    }
+    let here = if view.mode == ViewMode::Horizontal {
+        view.offset.x
+    } else {
+        view.offset.y
+    };
+    // A wheel or a drag moved the strip meanwhile: the reader wins.
+    if view.aim.is_some_and(|g| (g.at - here).abs() > 1.0) {
+        view.aim = None;
+    }
+    let mut keyed = None;
+    if let Some(n) = view.nudge.take() {
+        // A key pressed mid-glide adds to where that glide was going.
+        let to = view.aim.map_or(here, |g| g.to) + n.points(len);
+        let a = motion::jump(ctx);
+        view.aim = (a.duration.max > 0.0).then(|| Glide::new(here, to, now, a));
+        keyed = Some(to - here);
+    }
+    if let Some(g) = &mut view.aim {
+        let (at, done) = g.step(now);
+        keyed = Some(at - here);
+        if done {
+            view.aim = None;
+        } else {
+            ctx.request_repaint();
+        }
+    }
+    let Some(mut hold) = view.hold else {
+        return keyed;
+    };
+    if !ctx.input(|i| keymap::held(i, hold.arrow)) {
+        view.hold = None;
+        return keyed;
+    }
+    if now - hold.since >= HOLD_DELAY {
+        view.aim = None;
+        let dt = (now - hold.last).clamp(0.0, MAX_FRAME) as f32;
+        keyed = Some(hold.arrow.sign() * HOLD_SPEED * dt);
+    }
+    hold.last = now;
+    view.hold = Some(hold);
+    ctx.request_repaint();
+    keyed
 }
 
 /// ⌘C or Ctrl+C copies the selection, unless a text field has focus.
@@ -463,18 +716,18 @@ mod tests {
         view.set_mode(ViewMode::Spread, false, 0.0);
         assert_eq!((view.focus, view.current, view.reveal), (6, 7, Some(6)));
         assert_eq!(view.zoom.fit, Some(Fit::Width));
-        view.arrow(Arrow::Right, 20);
+        view.arrow(Arrow::Right, 20, 0.0);
         assert_eq!((view.focus, view.current), (8, 8));
         view.set_mode(ViewMode::Horizontal, true, 0.0);
         assert_eq!((view.zoom.fit, view.reveal), (None, Some(8)));
         // Along the strip, the arrow is the scroll's, not a turn.
-        view.arrow(Arrow::Right, 20);
+        view.arrow(Arrow::Right, 20, 0.0);
         assert_eq!(view.current, 8);
-        view.arrow(Arrow::Up, 20);
+        view.arrow(Arrow::Up, 20, 0.0);
         assert_eq!(view.current, 8);
         // Across the column, left and right still turn.
         view.set_mode(ViewMode::Vertical, true, 0.0);
-        view.arrow(Arrow::Left, 20);
+        view.arrow(Arrow::Left, 20, 0.0);
         assert_eq!((view.current, view.reveal), (7, Some(7)));
         Ok(())
     }

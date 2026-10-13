@@ -1,7 +1,9 @@
 //! Opening and scrolling PDFs, headless, with jobs run between frames.
 
+use eframe::{App as _, Storage as _};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_ui::app::LAST_DOCUMENT_KEY;
 use mareader_ui::command::Command;
 use mareader_ui::{MareaderApp, OpenRequest};
 
@@ -76,7 +78,9 @@ fn closing_the_last_pane_on_a_book_frees_its_textures() {
     h.state_mut().queue(Command::ClosePane(second));
     h.run();
     assert_eq!(h.state().active_pane(), first);
-    assert_eq!(h.state().documents().stats(), (0, 0));
+    // Nothing of it is left: no document, raster, text layer or job.
+    let empty = mareader_ui::documents::Meter::default();
+    assert_eq!(h.state().documents().meter(), empty);
     assert_eq!(textures(&h), baseline);
 }
 
@@ -272,4 +276,122 @@ fn a_resize_refits_and_keeps_the_page() {
     let z = zoom(&h);
     assert!((z.zoom - (600.0 - 32.0) / 612.0).abs() < 0.01, "{z:?}");
     assert_eq!(current(&h), page);
+}
+
+#[derive(Default)]
+struct Memory(std::collections::HashMap<String, String>);
+
+impl eframe::Storage for Memory {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.0.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+/// A sample PDF on disk, deleted when dropped.
+struct File(std::path::PathBuf);
+
+impl File {
+    fn sample(pages: usize, tag: &str) -> Result<Self, String> {
+        let name = format!("mareader-{tag}-{}.pdf", std::process::id());
+        let path = std::env::temp_dir().join(name);
+        let pdf = mareader_pdf::sample::pdf(pages, "Read Last Time");
+        std::fs::write(&path, pdf).map_err(|e| e.to_string())?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for File {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.0).ok();
+    }
+}
+
+fn launched(mut app: MareaderApp) -> Harness<'static, MareaderApp> {
+    app.set_option("workers", "0").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    h
+}
+
+#[test]
+fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
+    let file = File::sample(30, "resume")?;
+    let mut app = MareaderApp::default();
+    let request = OpenRequest {
+        page: 12,
+        ..OpenRequest::path(file.0.clone())
+    };
+    app.queue(Command::Open(request));
+    let mut h = launched(app);
+    let mut disk = Memory::default();
+    h.state_mut().save(&mut disk);
+    // The next launch, from what was saved.
+    let mut again = MareaderApp::from_storage(Some(&disk));
+    assert!(
+        again.resume(),
+        "saved {:?}",
+        disk.get_string(LAST_DOCUMENT_KEY)
+    );
+    let h = launched(again);
+    assert_eq!(h.state().title(), "Read Last Time");
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().documents().current(pane), Some(12));
+    // A file gone since then leaves the window empty, without a fuss.
+    drop(file);
+    let mut moved = MareaderApp::from_storage(Some(&disk));
+    assert!(!moved.resume());
+    Ok(())
+}
+
+#[test]
+fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() {
+    let mut h = reader(&[]);
+    let mut disk = Memory::default();
+    h.state_mut().save(&mut disk);
+    assert_eq!(disk.get_string(LAST_DOCUMENT_KEY).as_deref(), Some("null"));
+    // Bytes, such as a browser's drop, have no file to come back to.
+    h.state_mut().queue(Command::Open(sample(3)));
+    h.run();
+    assert_eq!(h.state().last_document(), None);
+    let mut app = MareaderApp::from_storage(Some(&disk));
+    assert!(!app.resume());
+}
+
+#[test]
+fn one_file_in_two_panes_is_read_once_and_drawn_once() -> Result<(), String> {
+    let file = File::sample(20, "twice")?;
+    let mut h = reader(&[("panes", "2")]);
+    let panes = h.state().panes();
+    for pane in &panes {
+        let request = OpenRequest {
+            pane: Some(*pane),
+            ..OpenRequest::path(file.0.clone())
+        };
+        h.state_mut().queue(Command::Open(request));
+        h.run();
+    }
+    let meter = h.state().documents().meter();
+    assert_eq!(meter.documents, 1, "one parse");
+    // Panes of one size want the same rasters, so they share them.
+    let shown = h.state().documents().visible(panes[0]).unwrap_or(0..0);
+    assert_eq!(meter.pages, shown.len() + 1, "one set of pages");
+    h.state_mut().queue(Command::ClosePane(panes[1]));
+    h.run();
+    assert_eq!(h.state().documents().meter().documents, 1, "still read");
+    Ok(())
 }

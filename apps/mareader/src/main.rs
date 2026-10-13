@@ -7,6 +7,7 @@ use std::time::Duration;
 use mareader_ui::command::Command;
 use mareader_ui::{MareaderApp, OpenRequest};
 
+mod reduced_motion;
 #[cfg(any(test, all(target_os = "macos", feature = "traffic-lights")))]
 mod traffic_lights;
 
@@ -66,10 +67,13 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
-            // `mareader book.pdf` opens it in the first pane.
+            // `mareader book.pdf` opens it; else what was read last time.
             if let Some(path) = std::env::args_os().nth(1) {
                 app.queue(Command::Open(OpenRequest::path(path.into())));
+            } else {
+                app.resume();
             }
+            reduced_motion::watch(app.reduced_motion(), cc.egui_ctx.clone());
             Ok(Box::new(Desktop { app }))
         }),
     )

@@ -11,6 +11,7 @@ use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
+use crate::motion;
 use crate::theme::{self, Tokens};
 
 const ROW_H: f32 = 28.0;
@@ -169,7 +170,7 @@ fn follow(
         return None;
     }
     state.followed = Some(here);
-    Some((None, ctx.global_style().scroll_animation))
+    Some((None, motion::jump(ctx)))
 }
 
 /// A file with no outline says so where the rows would be.

@@ -12,6 +12,7 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
 use crate::gpu::PagesCallback;
+use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
@@ -227,7 +228,7 @@ fn follow(
         }
     }
     state.followed = Some(here);
-    Some(ctx.global_style().scroll_animation)
+    Some(motion::jump(ctx))
 }
 
 /// The number band, and the accent ring and badge of the reading page.

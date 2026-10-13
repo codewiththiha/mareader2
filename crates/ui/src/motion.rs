@@ -1,18 +1,90 @@
-//! The Animations master. Off skips the in-between frames, never the end.
+//! What may animate. Off skips the in-between frames, never the end.
 
-const ID: &str = "mareader-motion-off";
+// Settings and the system's wish land here; views ask, not settings.
 
-pub fn set_enabled(ctx: &egui::Context, on: bool) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(ID), !on));
-    ctx.global_style_mut(|s| s.animation_time = if on { 1.0 / 12.0 } else { 0.0 });
+use egui::Context;
+use egui::style::ScrollAnimation;
+use mareader_settings::MotionSettings;
+
+const ID: &str = "mareader-motion";
+
+/// The frame's answer, kept in the context's data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Allowed {
+    all: bool,
+    zoom: bool,
+    jumps: bool,
+    follow: bool,
+    /// The system asks for less motion: everything stops, as off does.
+    reduced: bool,
 }
 
-pub fn enabled(ctx: &egui::Context) -> bool {
-    !ctx.data(|d| d.get_temp::<bool>(egui::Id::new(ID)))
-        .unwrap_or(false)
+impl Default for Allowed {
+    fn default() -> Self {
+        Self {
+            all: true,
+            zoom: true,
+            jumps: true,
+            follow: true,
+            reduced: false,
+        }
+    }
+}
+
+fn allowed(ctx: &Context) -> Allowed {
+    ctx.data(|d| d.get_temp::<Allowed>(egui::Id::new(ID)))
+        .unwrap_or_default()
+}
+
+/// Applies the Animations settings and the system's reduced-motion wish.
+pub fn set(ctx: &Context, m: &MotionSettings, reduced: bool) {
+    let a = Allowed {
+        all: m.enabled && !reduced,
+        zoom: m.zoom() && !reduced,
+        jumps: m.scroll_jumps() && !reduced,
+        follow: m.canvas_resize() && !reduced,
+        reduced,
+    };
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(ID), a));
+    ctx.global_style_mut(|s| {
+        s.animation_time = if a.all { 1.0 / 12.0 } else { 0.0 };
+        s.scroll_animation = if a.all {
+            ScrollAnimation::default()
+        } else {
+            ScrollAnimation::none()
+        };
+    });
+}
+
+pub fn enabled(ctx: &Context) -> bool {
+    allowed(ctx).all
 }
 
 /// `secs` while animations are on, zero while they are off.
-pub fn secs(ctx: &egui::Context, secs: f32) -> f32 {
+pub fn secs(ctx: &Context, secs: f32) -> f32 {
     if enabled(ctx) { secs } else { 0.0 }
+}
+
+/// A zoom step eases to its target instead of landing there.
+pub fn zoom(ctx: &Context) -> bool {
+    allowed(ctx).zoom
+}
+
+/// Pages re-fit on every frame of a resize, rather than once after.
+pub fn follow(ctx: &Context) -> bool {
+    allowed(ctx).follow
+}
+
+/// How a jump to a page, or a key's scroll, travels: glided or at once.
+pub fn jump(ctx: &Context) -> ScrollAnimation {
+    if allowed(ctx).jumps {
+        ctx.global_style().scroll_animation
+    } else {
+        ScrollAnimation::none()
+    }
+}
+
+/// The system asks for less motion; the loading mark fades instead.
+pub fn reduced(ctx: &Context) -> bool {
+    allowed(ctx).reduced
 }

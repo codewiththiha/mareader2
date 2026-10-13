@@ -310,11 +310,28 @@ fn animations(ui: &mut Ui, s: &mut Settings) {
             "The sidebar slides in and out, docked or floating",
             &mut s.motion.sidebar_slide,
         );
+        divider(ui);
+        switch_row(
+            ui,
+            "Canvas follows window",
+            "Re-fit the page while the window is dragged; off, once the drag ends",
+            &mut s.motion.canvas_resize,
+        );
+        divider(ui);
+        switch_row(
+            ui,
+            "Zoom in and out",
+            "Ease a zoom to its new scale; off, it lands on the first frame",
+            &mut s.motion.zoom,
+        );
+        divider(ui);
+        switch_row(
+            ui,
+            "Scroll to page",
+            "Glide to a page, and with the arrow and page keys; off, land there",
+            &mut s.motion.scroll_jumps,
+        );
     });
-    pending(
-        ui,
-        "Canvas follows window, zoom ease and scroll to page join with PDF viewing (M2).",
-    );
     note(
         ui,
         "Anything switched off still changes, in one frame. The master switch is in Layout.",

@@ -272,6 +272,21 @@ fn a_settings_switch_applies_on_the_frame_it_flips() {
 }
 
 #[test]
+fn the_system_asking_for_less_motion_stills_it_like_the_master() {
+    use mareader_ui::motion;
+    let mut h = with(&[]);
+    assert!(motion::enabled(&h.ctx) && !motion::reduced(&h.ctx));
+    h.state_mut().set_option("reduced", "true").ok();
+    h.run_steps(2);
+    assert!(!motion::enabled(&h.ctx) && motion::reduced(&h.ctx));
+    assert_eq!(h.ctx.global_style().animation_time, 0.0);
+    assert!(
+        h.state().settings().motion.enabled,
+        "the setting is the user's"
+    );
+}
+
+#[test]
 fn the_glass_switch_starts_on_and_turns_it_off() {
     use egui::accesskit::Role;
     let mut h = with(&[("settings", "layout")]);

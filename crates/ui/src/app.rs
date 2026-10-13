@@ -1,11 +1,14 @@
 //! The app state and its eframe loop.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
 use mareader_appearance::{Appearance, BaseMode, builtin_presets};
-use mareader_settings::Settings;
+use mareader_settings::{MotionSettings, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
@@ -26,6 +29,15 @@ use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
 
 pub const SETTINGS_KEY: &str = "settings";
+/// Kept apart from settings: it says what was read, not how to read.
+pub const LAST_DOCUMENT_KEY: &str = "last_document";
+
+/// What reopens at launch: the file read at exit, on its page.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LastDocument {
+    pub path: PathBuf,
+    pub page: usize,
+}
 
 /// Settings reach disk this long after a change, at most.
 pub const SAVE_EVERY: Duration = Duration::from_millis(500);
@@ -49,7 +61,11 @@ pub struct MareaderApp {
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
-    styled: Option<(Appearance, bool)>,
+    styled: Option<(Appearance, MotionSettings, bool)>,
+    /// The system asks for less motion; set off the UI thread at launch.
+    reduced_motion: Arc<AtomicBool>,
+    /// Read from storage; [`MareaderApp::resume`] opens it.
+    last: Option<LastDocument>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
     queued: Commands,
@@ -90,6 +106,8 @@ impl MareaderApp {
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
             styled: None,
+            reduced_motion: Arc::new(AtomicBool::new(false)),
+            last: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
             #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
@@ -103,6 +121,13 @@ impl MareaderApp {
 
     /// Unreadable settings repair section by section; the notes go to stderr.
     pub fn from_storage(storage: Option<&dyn Storage>) -> Self {
+        let mut app = Self::settings_from(storage);
+        let last = storage.and_then(|s| s.get_string(LAST_DOCUMENT_KEY));
+        app.last = last.and_then(|json| serde_json::from_str(&json).ok());
+        app
+    }
+
+    fn settings_from(storage: Option<&dyn Storage>) -> Self {
         let Some(json) = storage.and_then(|s| s.get_string(SETTINGS_KEY)) else {
             return Self::default();
         };
@@ -123,6 +148,26 @@ impl MareaderApp {
         &self.settings
     }
 
+    /// Reopens what was read at exit, if its file is still there.
+    pub fn resume(&mut self) -> bool {
+        let Some(last) = self.last.take().filter(|l| l.path.is_file()) else {
+            return false;
+        };
+        let request = OpenRequest {
+            page: last.page,
+            ..OpenRequest::path(last.path)
+        };
+        self.queue(Command::Open(request));
+        true
+    }
+
+    /// The file being read: the active pane's, else the first with one.
+    pub fn last_document(&self) -> Option<LastDocument> {
+        let panes = std::iter::once(self.active).chain(self.tree.panes());
+        let (path, page) = panes.into_iter().find_map(|p| self.documents.place(p))?;
+        Some(LastDocument { path, page })
+    }
+
     pub fn toast(&self) -> Option<&Toast> {
         self.toasts.current()
     }
@@ -138,8 +183,13 @@ impl MareaderApp {
         if self.live.poll(ctx) {
             self.styled = None;
         }
-        let want = (self.settings.appearance, self.settings.motion.enabled);
-        if self.styled == Some(want) {
+        let reduced = self.reduced_motion.load(Ordering::Relaxed);
+        let want = (
+            self.settings.appearance,
+            self.settings.motion.clone(),
+            reduced,
+        );
+        if self.styled.as_ref() == Some(&want) {
             return false;
         }
         #[allow(unused_mut)]
@@ -147,9 +197,14 @@ impl MareaderApp {
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         self.live.overlay(&mut tokens);
         theme::apply(ctx, &tokens);
-        motion::set_enabled(ctx, self.settings.motion.enabled);
+        motion::set(ctx, &self.settings.motion, reduced);
         self.styled = Some(want);
         true
+    }
+
+    /// Store true here, from any thread, when the system wants less motion.
+    pub fn reduced_motion(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.reduced_motion)
     }
 
     pub fn settings_window(&self) -> &SettingsWindow {
@@ -233,6 +288,9 @@ impl MareaderApp {
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
+            "reduced" => self
+                .reduced_motion
+                .store(value == "true", Ordering::Relaxed),
             "sidebar" => match Panel::parse(value) {
                 Some(p) => self.sidebar.open(Some(p)),
                 None if value == "closed" => self.sidebar.close(),
@@ -298,7 +356,13 @@ impl MareaderApp {
                 let fit = self.settings.layout.auto_scale;
                 self.documents.set_mode(self.active, mode, fit, now);
             }
-            Command::Arrow(arrow) => self.documents.arrow(self.active, arrow),
+            Command::Arrow(arrow) => {
+                let now = ctx.input(|i| i.time);
+                self.documents.arrow(self.active, arrow, now);
+            }
+            Command::Page { forward } => self.documents.page_key(self.active, forward),
+            Command::FirstPage => self.documents.go_to(self.active, 0),
+            Command::LastPage => self.documents.go_to(self.active, usize::MAX),
             Command::GoTo { pane, page } => self.documents.go_to(pane, page),
             Command::Turn { pane, forward } => self.documents.turn(pane, forward),
             Command::Open(request) => {
@@ -616,5 +680,8 @@ impl eframe::App for MareaderApp {
 
     fn save(&mut self, storage: &mut dyn Storage) {
         storage.set_string(SETTINGS_KEY, mareader_settings::to_json(&self.settings));
+        // Nothing open saves `null`: the next launch starts empty.
+        let last = serde_json::to_string(&self.last_document());
+        storage.set_string(LAST_DOCUMENT_KEY, last.unwrap_or_else(|_| "null".into()));
     }
 }
