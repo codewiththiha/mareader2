@@ -114,10 +114,10 @@ id = "chrome.glass-blur"
 title = "Frosted title bar: the page shows through, blurred"
 area = "A"
 tier = "P1"
-milestone = "M1"
+milestone = "M2"
 status = "partial"
 reference = ["styles/components/title_bar.css"]
-notes = "A 96 % translucent surface for now; the wgpu blur pass is M1"
+notes = "A 96 % translucent surface for now; the blur reuses the M2 page pass (slice 3)"
 
 [[feature]]
 id = "chrome.chromeless"
@@ -507,8 +507,9 @@ title = "Open PDFs from the dialog, drag and drop, file association and the comm
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-runtime/src/services/document/open"]
+notes = "Command line and drag and drop (into the pane under the pointer); the open dialog and file association are later"
 
 [[feature]]
 id = "pdf.render"
@@ -516,8 +517,9 @@ title = "Render pages with hayro off the UI thread, crisp at the device scale"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/pdf-engine"]
+notes = "Whole pages on worker threads at the device scale, capped by the GPU texture side; tiles for larger rasters come with zoom"
 
 [[feature]]
 id = "pdf.view-single"
@@ -543,8 +545,9 @@ title = "Virtualised continuous vertical scroll with reading progress"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-runtime/src/features/virtualizers.rs"]
+notes = "Virtualised from page sizes alone (tested at 10,000 pages); reading progress arrives with the page counter"
 
 [[feature]]
 id = "pdf.view-scroll-horizontal"
@@ -588,8 +591,9 @@ title = "Mixed page sizes fit by the page on screen; Auto Resize"
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-core/src/settings/layout.rs"]
+notes = "One zoom fitted to the page read when the fit was set; wider pages overflow evenly around the centred column. Auto Resize later"
 
 [[feature]]
 id = "pdf.text-selection"
@@ -615,8 +619,9 @@ title = "Use /Title only when it looks like a title, else the file stem"
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/filename.rs"]
+evidence = ["crates/pdf/src/title.rs::junk_titles_fall_back_to_the_file_name", "crates/session/src/tests.rs::opening_names_the_document_by_title_or_file"]
 
 [[feature]]
 id = "pdf.page-chrome"
@@ -1092,8 +1097,9 @@ title = "Closing the last pane on a book releases its textures, jobs and documen
 area = "L"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-runtime/src/services/document/close.rs"]
+notes = "A kittest proves textures and documents return to baseline on close; the RSS measurement comes at the memory audit"
 
 [[feature]]
 id = "perf.caches-capped"
@@ -1101,8 +1107,9 @@ title = "Tile cache capped by bytes, thumbnails LRU of 16"
 area = "L"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
+notes = "Page textures capped at 256 MiB and finished results at 32 items or 32 MiB; thumbnails come with the sidebar panel"
 
 [[feature]]
 id = "perf.stale-results"
@@ -1110,8 +1117,10 @@ title = "Results for a closed pane, an old zoom or an old document are dropped"
 area = "L"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-runtime/src/services/document/session.rs"]
+evidence = ["crates/session/src/tests.rs::only_the_latest_demand_is_drawn", "crates/session/src/tests.rs::closing_drops_the_document_and_its_late_pages"]
+notes = "The pool keeps only the latest demand: unwanted jobs and late results are dropped, as are pages of closed documents"
 
 [[feature]]
 id = "perf.shared-documents"
