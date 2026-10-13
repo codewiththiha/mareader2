@@ -96,7 +96,7 @@ tier = "P0"
 milestone = "M1"
 status = "partial"
 reference = ["src-tauri/src/macos/traffic_light.rs", "crates/app-chrome/src/window/traffic_lights.rs"]
-notes = "Full-size content view with room left for them; moving or hiding them with the bar needs AppKit (unsafe), an owner decision"
+notes = "Centred in the bar and fading with it (apps/mareader/src/traffic_lights.rs, feature traffic-lights). Type-checked for macOS; not yet run on a Mac"
 
 [[feature]]
 id = "chrome.frameless-resize"
@@ -497,9 +497,9 @@ title = "Two independent reading states for one file"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "dropped"
+status = "planned"
 reference = ["crates/library-core/src/book/mod.rs"]
-notes = "One content is one book; can return as 'duplicate as a separate copy' if wanted"
+notes = "Kept (owner, 2026-10-13): a twin is a second book with its own id; file facts stay shared (docs/library.md)"
 
 [[feature]]
 id = "pdf.open"

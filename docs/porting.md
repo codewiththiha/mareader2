@@ -41,7 +41,7 @@ rebuilt from its goal, as the smallest native design that delivers it.
 | Custom pointer-drag engine, hold/drag/tap arbitration | Browser drag-and-drop limits | egui `dnd_*`, `Response` drag and long-press state |
 | Hidden DOM probes, resize observers | Measuring layout in a browser | `Galley` sizes, `Ui::available_size` |
 | Focus-reclaim tricks for key repeat | DOM focus moving with unmounted nodes | egui input is global: a keymap reads `InputState` |
-| The library's departures, rungs, name-conflict sheets, link rows, twins | Editable folder-mirror shelves (`docs/library.md`) | Read-only sources plus id-based shelves |
+| The library's departures, rungs, name-conflict sheets, link rows, twin rows | Editable folder-mirror shelves (`docs/library.md`) | Read-only sources plus id-based shelves; a twin is a second book id |
 | The txt and md pipelines (`txt-core`, `md-core`) | Formats now replaced | EPUB (`docs/epub.md`) |
 | Visual quirks (the sepia magenta) | An arc through hue space | Our design (`docs/design.md`) |
 

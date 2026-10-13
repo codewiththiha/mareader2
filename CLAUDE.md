@@ -23,7 +23,7 @@ Don't stop to ask unless the decision is on the owner's list below.
 
 ## Owner decisions (ask, don't guess)
 
-- Allowing any `unsafe` (the macOS traffic-light placement is the open case).
+- Allowing any new `unsafe` (only `apps/mareader/src/traffic_lights.rs` has it).
 - Adding a dependency that is heavy (over ~50 transitive crates), copyleft, or
   replaces one named in an ADR (parley for EPUB is settled).
 - Dropping or changing a behaviour mareader users rely on. (Improving the
