@@ -967,9 +967,10 @@ title = "Every setting persists; a new field defaults to the old behaviour"
 area = "J"
 tier = "P0"
 milestone = "M0"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/mod.rs"]
-notes = "Appearance, the pin, animations and the workspace look persist through eframe storage; the full schema is the settings crate (M1)"
+notes = "Every mareader setting has a typed field with its default; one bad section resets alone. Rows join the window with their features"
+evidence = ["crates/ui/tests/shell.rs::settings_survive_a_save_and_relaunch", "crates/settings/src/load.rs::an_empty_object_is_all_defaults", "crates/settings/src/lib.rs::a_round_trip_keeps_every_field"]
 
 [[feature]]
 id = "settings.modal"
@@ -989,9 +990,9 @@ area = "J"
 tier = "P2"
 milestone = "M1"
 status = "partial"
-evidence = ["crates/appearance/src/model.rs::mareader_json_reads_unchanged"]
+evidence = ["crates/settings/src/mareader.rs::a_mareader_blob_maps_onto_every_section", "crates/settings/src/mareader.rs::halved_blobs_keep_their_strength", "crates/settings/src/load.rs::the_v0_shell_blob_migrates"]
 reference = ["crates/reader-core/src/settings/mod.rs"]
-notes = "Appearance already reads mareader's JSON; the rest comes with the settings crate"
+notes = "`import_mareader` maps every section and the old tint curve; choosing the file waits for file dialogs (M5)"
 
 [[feature]]
 id = "settings.debounce"
@@ -999,8 +1000,10 @@ title = "Settings writes are debounced and off the UI thread; sliders preview li
 area = "J"
 tier = "P2"
 milestone = "M1"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/mod.rs"]
+evidence = ["crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips", "crates/ui/tests/shell.rs::settings_survive_a_save_and_relaunch"]
+notes = "Edits apply on the frame; eframe writes at most every 500 ms on its persist thread, only when changed"
 
 [[feature]]
 id = "settings.last-document"

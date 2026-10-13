@@ -39,6 +39,7 @@ Don't stop to ask unless the decision is on the owner's list below.
 | `crates/ui` | The front layer: theme, icons, title bar, panes, shell (egui) |
 | `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
 | `crates/workspace` | The pane split tree and its layout (no egui) |
+| `crates/settings` | Every user setting: schema, defaults, ranges, migration, mareader import (no egui) |
 | `crates/ui/src/command.rs` | `Command`: every user intent, applied in `MareaderApp::apply` |
 | `xtask` | `layers`, `parity`, `assets`, `comments`, `ci` |
 | `parity/mareader-features.toml` | Every mareader feature, its status and evidence |
