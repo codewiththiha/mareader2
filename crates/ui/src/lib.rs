@@ -16,6 +16,7 @@ pub mod motion;
 pub mod panes;
 pub mod platform;
 pub mod resize;
+pub mod sidebar;
 pub mod theme;
 pub mod titlebar;
 pub mod widgets;

@@ -9,19 +9,36 @@ use serde::{Deserialize, Serialize};
 use crate::command::{Command, Commands, WindowCommand};
 use crate::panes::{self, PaneView, WorkspaceLook};
 use crate::platform::Platform;
+use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::titlebar::{BarContext, TitleBar};
 use crate::{motion, resize, theme};
 
 pub const SETTINGS_KEY: &str = "settings";
 
 /// The persisted slice that exists so far; fields join as features land.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub appearance: Appearance,
     pub titlebar_pinned: bool,
     pub animations: bool,
     pub workspace: WorkspaceLook,
+    /// The rail floats over the panes instead of docking beside them.
+    pub sidebar_overlay: bool,
+    pub sidebar_slide: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            appearance: Appearance::default(),
+            titlebar_pinned: false,
+            animations: true,
+            workspace: WorkspaceLook::default(),
+            sidebar_overlay: false,
+            sidebar_slide: true,
+        }
+    }
 }
 
 pub struct MareaderApp {
@@ -30,7 +47,7 @@ pub struct MareaderApp {
     titlebar: TitleBar,
     tree: PaneTree,
     active: PaneId,
-    sidebar_open: bool,
+    sidebar: Sidebar,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
@@ -48,10 +65,7 @@ enum FontState {
 
 impl Default for MareaderApp {
     fn default() -> Self {
-        Self::with_settings(Settings {
-            animations: true,
-            ..Settings::default()
-        })
+        Self::with_settings(Settings::default())
     }
 }
 
@@ -64,7 +78,7 @@ impl MareaderApp {
             platform: Platform::current(),
             tree: PaneTree::new(),
             active: PaneId(1),
-            sidebar_open: false,
+            sidebar: Sidebar::default(),
             styled: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
@@ -110,6 +124,10 @@ impl MareaderApp {
         true
     }
 
+    pub fn sidebar(&self) -> &Sidebar {
+        &self.sidebar
+    }
+
     pub fn titlebar(&self) -> &TitleBar {
         &self.titlebar
     }
@@ -143,6 +161,12 @@ impl MareaderApp {
             "pinned" => self.titlebar.pinned = value == "true",
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.animations = value == "true",
+            "float" => self.settings.sidebar_overlay = value == "true",
+            "sidebar" => match Panel::parse(value) {
+                Some(p) => self.sidebar.open(Some(p)),
+                None if value == "closed" => self.sidebar.close(),
+                None => return Err("sidebar: thumbnails, outline, library or closed".into()),
+            },
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
                 _ => return Err("open: appearance".into()),
@@ -169,7 +193,10 @@ impl MareaderApp {
 
     fn apply(&mut self, ctx: &Context, command: Command) {
         match command {
-            Command::ToggleSidebar => self.sidebar_open = !self.sidebar_open,
+            Command::ToggleSidebar => self.sidebar.toggle(),
+            Command::OpenSidebar(panel) => self.sidebar.open(panel),
+            Command::CloseSidebar => self.sidebar.close(),
+            Command::SetSidebarOverlay(on) => self.settings.sidebar_overlay = on,
             Command::Split(axis) => {
                 let r = ctx.content_rect();
                 let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
@@ -232,20 +259,43 @@ impl eframe::App for MareaderApp {
         }
         resize::edges(&ctx, self.platform.frameless());
         let mut commands = std::mem::take(&mut self.queued);
+        // An open popup takes Escape first.
+        let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        if escape && self.sidebar.is_open() && !egui::Popup::is_any_open(&ctx) {
+            commands.push(Command::CloseSidebar);
+        }
+        let overlay = self.settings.sidebar_overlay;
+        let rail = RailContext {
+            overlay,
+            slide: self.settings.sidebar_slide,
+            platform: self.platform,
+        };
+        let inset = if overlay {
+            self.sidebar.show_floating(&ctx, &rail, &mut commands)
+        } else {
+            self.sidebar.show_docked(ui, &rail, &mut commands)
+        };
         let view = PaneView {
             active: self.active,
             look: self.settings.workspace,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
         };
-        panes::show(ui, &self.tree, &view, &mut commands);
+        egui::CentralPanel::no_frame().show(ui, |ui| {
+            panes::show(ui, &self.tree, &view, &mut commands);
+        });
         let bar = BarContext {
             title: "Mareader",
             platform: self.platform,
-            left_inset: 0.0,
+            left_inset: inset,
+            sidebar_toggle: !overlay && !self.sidebar.is_open(),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             appearance: &self.settings.appearance,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
+        // Applied after drawing, so the next frame must show the result.
+        if !commands.is_empty() {
+            ctx.request_repaint();
+        }
         for command in commands {
             self.apply(&ctx, command);
         }

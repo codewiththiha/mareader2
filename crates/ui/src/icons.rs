@@ -9,6 +9,10 @@ pub const STROKE: f32 = 2.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Sidebar,
+    SidebarClose,
+    Thumbnails,
+    Outline,
+    Dictionary,
     Library,
     Search,
     Appearance,
@@ -30,6 +34,10 @@ impl Icon {
     pub fn lucide(self) -> Lucide {
         match self {
             Self::Sidebar => Lucide::PanelLeft,
+            Self::SidebarClose => Lucide::PanelLeftClose,
+            Self::Thumbnails => Lucide::LayoutGrid,
+            Self::Outline => Lucide::ListTree,
+            Self::Dictionary => Lucide::BookA,
             Self::Library => Lucide::LibraryBig,
             Self::Search => Lucide::Search,
             Self::Appearance => Lucide::Palette,
