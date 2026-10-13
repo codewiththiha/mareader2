@@ -1935,6 +1935,7 @@ name = "mareader-session"
 version = "0.0.1"
 dependencies = [
  "mareader-pdf",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

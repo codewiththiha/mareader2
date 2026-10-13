@@ -11,3 +11,4 @@ workspace = true
 
 [dependencies]
 mareader-pdf = { workspace = true }
+thiserror = { workspace = true }
