@@ -1,21 +1,18 @@
-//! `docs/design.md` as egui `Style` and `Visuals`, for stock widgets.
+//! Tokens derived from the appearance, applied to egui once per change.
 
-use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke};
+use egui::{
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke,
+};
 use mareader_appearance::{Appearance, Rgb};
 
+/// Chrome geometry, not a theme choice: the hover band follows it.
 pub const TITLE_BAR_H: f32 = 48.0;
-/// Controls and menu rows.
-pub const RADIUS_LG: u8 = 8;
-/// Popovers and windows.
-pub const RADIUS_XL: u8 = 12;
-/// Square toolbar button and the icon inside it.
-pub const ICON_BUTTON: f32 = 36.0;
-pub const ICON: f32 = 18.0;
 
 /// Named families; only usable from the frame after [`install_fonts`].
 pub const MEDIUM: &str = "inter-medium";
 pub const SEMIBOLD: &str = "inter-semibold";
 
+/// Everything a view or widget may ask the theme for.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     pub paper: Color32,
@@ -23,11 +20,24 @@ pub struct Tokens {
     pub muted: Color32,
     pub surface: Color32,
     pub line: Color32,
+    pub hover: Color32,
+    pub pressed: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
-    /// The title bar fill until the blur pass: surface at 96 %.
+    /// The title bar fill until the blur pass.
     pub glass: Color32,
+    pub shadow: Color32,
     pub dark: bool,
+    /// Buttons, fields, menu rows.
+    pub radius: f32,
+    /// Popovers, windows, cards.
+    pub radius_lg: f32,
+    /// Square toolbar button.
+    pub control: f32,
+    pub icon: f32,
+    pub text: f32,
+    pub text_small: f32,
+    pub gap: f32,
 }
 
 fn color(c: Rgb) -> Color32 {
@@ -35,26 +45,38 @@ fn color(c: Rgb) -> Color32 {
 }
 
 impl Tokens {
-    pub fn from_appearance(a: &Appearance) -> Self {
+    /// Pure: the same appearance always gives the same tokens.
+    pub fn new(a: &Appearance) -> Self {
         let t = a.ui_tokens();
-        let surface = color(t.surface);
+        let (surface, line, ink) = (color(t.surface), color(t.line), color(t.ink));
+        let dark = a.base.is_dark();
         Self {
             paper: color(t.paper),
-            ink: color(t.ink),
+            ink,
             muted: color(t.muted),
             surface,
-            line: color(t.line),
+            line,
+            hover: line,
+            pressed: line.lerp_to_gamma(ink, 0.12),
             accent: color(t.accent),
             accent_soft: color(t.accent_soft),
             glass: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 245),
-            dark: a.base.is_dark(),
+            shadow: Color32::from_black_alpha(if dark { 120 } else { 60 }),
+            dark,
+            radius: 8.0,
+            radius_lg: 12.0,
+            control: 36.0,
+            icon: 18.0,
+            text: 14.0,
+            text_small: 12.0,
+            gap: 8.0,
         }
     }
 
     /// The tokens [`apply`] last stored, or the default look's.
     pub fn get(ctx: &egui::Context) -> Self {
         ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new(TOKENS_ID)))
-            .unwrap_or_else(|| Self::from_appearance(&Appearance::default()))
+            .unwrap_or_else(|| Self::new(&Appearance::default()))
     }
 }
 
@@ -104,10 +126,13 @@ pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(MEDIUM.into()))
 }
 
-/// Restyles egui for `a` and stores its [`Tokens`] for [`Tokens::get`].
-pub fn apply(ctx: &egui::Context, a: &Appearance) {
-    let t = Tokens::from_appearance(a);
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_ID), t));
+fn radius(r: f32) -> CornerRadius {
+    CornerRadius::same(r.round().clamp(0.0, 255.0) as u8)
+}
+
+/// Restyles every stock widget from `t` and stores it for [`Tokens::get`].
+pub fn apply(ctx: &egui::Context, t: &Tokens) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_ID), *t));
     let mut v = if t.dark {
         egui::Visuals::dark()
     } else {
@@ -118,54 +143,200 @@ pub fn apply(ctx: &egui::Context, a: &Appearance) {
     v.window_stroke = Stroke::new(1.0, t.line);
     v.extreme_bg_color = t.surface;
     v.faint_bg_color = t.surface;
+    v.code_bg_color = t.surface;
     v.selection.bg_fill = t.accent_soft;
     v.selection.stroke = Stroke::new(1.0, t.accent);
     v.hyperlink_color = t.accent;
     v.override_text_color = Some(t.ink);
-    v.window_corner_radius = CornerRadius::same(RADIUS_XL);
-    v.menu_corner_radius = CornerRadius::same(RADIUS_XL);
-    let float = egui::Shadow {
+    v.window_corner_radius = radius(t.radius_lg);
+    v.menu_corner_radius = radius(t.radius_lg);
+    let float = Shadow {
         offset: [0, 8],
         blur: 24,
         spread: 0,
-        color: Color32::from_black_alpha(77),
+        color: t.shadow,
     };
     v.window_shadow = float;
     v.popup_shadow = float;
-    for w in [
-        &mut v.widgets.noninteractive,
-        &mut v.widgets.inactive,
-        &mut v.widgets.hovered,
-        &mut v.widgets.active,
-        &mut v.widgets.open,
-    ] {
-        w.corner_radius = CornerRadius::same(RADIUS_LG);
-        w.fg_stroke.color = t.ink;
-        w.bg_stroke = Stroke::NONE;
-    }
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, t.line);
-    v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-    v.widgets.inactive.bg_fill = t.surface;
-    for w in [
-        &mut v.widgets.hovered,
-        &mut v.widgets.active,
-        &mut v.widgets.open,
-    ] {
-        w.weak_bg_fill = t.line;
-        w.bg_fill = t.line;
-    }
+    v.slider_trailing_fill = true;
+    v.handle_shape = egui::style::HandleShape::Circle;
     v.text_options.subpixel_binning = false;
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = t.surface;
+    w.noninteractive.weak_bg_fill = t.surface;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, t.line);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, t.ink);
+    w.noninteractive.corner_radius = radius(t.radius);
+    // Inactive buttons stay frameless; fields and sliders use bg_fill.
+    for (state, bg, weak) in [
+        (&mut w.inactive, t.line, Color32::TRANSPARENT),
+        (&mut w.hovered, t.hover, t.hover),
+        (&mut w.active, t.pressed, t.pressed),
+        (&mut w.open, t.hover, t.hover),
+    ] {
+        state.bg_fill = bg;
+        state.weak_bg_fill = weak;
+        state.bg_stroke = Stroke::NONE;
+        state.fg_stroke = Stroke::new(1.5, t.ink);
+        state.corner_radius = radius(t.radius);
+        state.expansion = 0.0;
+    }
     ctx.set_visuals(v);
     ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        s.spacing.button_padding = egui::vec2(10.0, 6.0);
-        s.spacing.scroll.floating = true;
+        s.spacing.item_spacing = egui::vec2(t.gap, t.gap * 0.75);
+        s.spacing.button_padding = egui::vec2(t.gap + 2.0, t.gap * 0.75);
+        s.spacing.interact_size.y = (t.control * 0.75).round();
+        s.spacing.menu_margin = Margin::same((t.gap * 0.75) as i8);
+        s.spacing.window_margin = Margin::same((t.gap * 2.0) as i8);
+        s.spacing.scroll = egui::style::ScrollStyle::floating();
         s.text_styles
-            .insert(egui::TextStyle::Body, FontId::proportional(14.0));
+            .insert(egui::TextStyle::Body, FontId::proportional(t.text));
         s.text_styles
-            .insert(egui::TextStyle::Button, FontId::proportional(14.0));
+            .insert(egui::TextStyle::Button, FontId::proportional(t.text));
         s.text_styles
-            .insert(egui::TextStyle::Small, FontId::proportional(12.0));
+            .insert(egui::TextStyle::Small, FontId::proportional(t.text_small));
+        s.text_styles
+            .insert(egui::TextStyle::Heading, medium(t.text + 4.0));
         s.interaction.tooltip_delay = 0.35;
     });
+}
+
+/// Debug builds: `MAREADER_TOKENS=tokens.json` overrides tokens live.
+#[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+pub mod live {
+    use std::path::PathBuf;
+    use std::time::{Duration, SystemTime};
+
+    use egui::Color32;
+
+    use super::Tokens;
+
+    const POLL: Duration = Duration::from_millis(400);
+
+    /// Polls the file only when the variable is set, so idle stays idle.
+    #[derive(Default)]
+    pub struct LiveTokens {
+        path: Option<PathBuf>,
+        stamp: Option<SystemTime>,
+        overrides: serde_json::Map<String, serde_json::Value>,
+    }
+
+    impl LiveTokens {
+        pub fn from_env() -> Self {
+            Self {
+                path: std::env::var_os("MAREADER_TOKENS").map(PathBuf::from),
+                ..Self::default()
+            }
+        }
+
+        /// True when the file changed since the last call.
+        pub fn poll(&mut self, ctx: &egui::Context) -> bool {
+            let Some(path) = &self.path else {
+                return false;
+            };
+            ctx.request_repaint_after(POLL);
+            let stamp = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+            if stamp == self.stamp {
+                return false;
+            }
+            self.stamp = stamp;
+            let text = std::fs::read_to_string(path).unwrap_or_default();
+            match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(serde_json::Value::Object(map)) => self.overrides = map,
+                _ => eprintln!("MAREADER_TOKENS: expected a JSON object"),
+            }
+            true
+        }
+
+        pub fn overlay(&self, t: &mut Tokens) {
+            for name in overlay(t, &self.overrides) {
+                eprintln!("MAREADER_TOKENS: unknown or bad key {name}");
+            }
+        }
+    }
+
+    fn hex(v: &serde_json::Value) -> Option<Color32> {
+        let s = v.as_str()?.trim_start_matches('#');
+        let byte = |i: usize| u8::from_str_radix(s.get(i..i + 2)?, 16).ok();
+        match s.len() {
+            6 => Some(Color32::from_rgb(byte(0)?, byte(2)?, byte(4)?)),
+            8 => Some(Color32::from_rgba_unmultiplied(
+                byte(0)?,
+                byte(2)?,
+                byte(4)?,
+                byte(6)?,
+            )),
+            _ => None,
+        }
+    }
+
+    macro_rules! fields {
+        ($t:ident, $key:ident, $val:ident; colours: $($c:ident),*; numbers: $($n:ident),*) => {
+            match $key.as_str() {
+                $(stringify!($c) => hex($val).map(|c| $t.$c = c).is_some(),)*
+                $(stringify!($n) => $val.as_f64().map(|x| $t.$n = x as f32).is_some(),)*
+                _ => false,
+            }
+        };
+    }
+
+    /// Applies `map` onto `t`; returns the keys it could not use.
+    pub fn overlay(
+        t: &mut Tokens,
+        map: &serde_json::Map<String, serde_json::Value>,
+    ) -> Vec<String> {
+        let mut bad = Vec::new();
+        for (key, val) in map {
+            let used = fields!(t, key, val;
+                colours: paper, ink, muted, surface, line, hover, pressed, accent,
+                    accent_soft, glass, shadow;
+                numbers: radius, radius_lg, control, icon, text, text_small, gap);
+            if !used {
+                bad.push(key.clone());
+            }
+        }
+        bad
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_styles_every_widget_state_from_the_tokens() {
+        let ctx = egui::Context::default();
+        let mut t = Tokens::new(&Appearance::default());
+        t.radius = 3.0;
+        t.hover = Color32::from_rgb(1, 2, 3);
+        apply(&ctx, &t);
+        let v = ctx.global_style().visuals.clone();
+        assert_eq!(v.widgets.hovered.bg_fill, t.hover);
+        for w in [
+            v.widgets.noninteractive,
+            v.widgets.inactive,
+            v.widgets.hovered,
+            v.widgets.active,
+            v.widgets.open,
+        ] {
+            assert_eq!(w.corner_radius, CornerRadius::same(3));
+        }
+        assert_eq!(Tokens::get(&ctx), t);
+    }
+
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    #[test]
+    fn live_overrides_set_known_keys_and_report_the_rest() {
+        let mut t = Tokens::new(&Appearance::default());
+        let json = r##"{"accent": "#ff0000", "radius": 4, "nope": 1, "ink": "red"}"##;
+        let map = match serde_json::from_str(json) {
+            Ok(serde_json::Value::Object(map)) => map,
+            _ => serde_json::Map::new(),
+        };
+        let mut bad = live::overlay(&mut t, &map);
+        bad.sort();
+        assert_eq!(t.accent, Color32::from_rgb(255, 0, 0));
+        assert_eq!(t.radius, 4.0);
+        assert_eq!(bad, ["ink", "nope"]);
+    }
 }

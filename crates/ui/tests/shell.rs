@@ -1,4 +1,4 @@
-//! The whole app, headless: title-bar timing, the pin and splitting.
+//! The whole app, headless: title bar, pin, panes and restyling.
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
@@ -81,4 +81,20 @@ fn closing_a_pane_from_its_button_focuses_the_survivor() {
     h.run_steps(2);
     assert_eq!(h.state().panes(), vec![survivor]);
     assert_eq!(h.state().active_pane(), survivor);
+}
+
+#[test]
+fn an_appearance_change_restyles_on_the_frame_it_lands() {
+    let mut h = harness(MareaderApp::default());
+    let sepia = mareader_appearance::builtin_presets()
+        .into_iter()
+        .find(|p| p.id == "sepia")
+        .map(|p| p.appearance)
+        .unwrap_or_default();
+    let want = mareader_ui::theme::Tokens::new(&sepia);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::SetAppearance(sepia));
+    h.step();
+    assert_eq!(mareader_ui::theme::Tokens::get(&h.ctx), want);
+    assert_eq!(h.ctx.global_style().visuals.panel_fill, want.surface);
 }

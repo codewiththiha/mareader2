@@ -1,8 +1,6 @@
 //! The pane workspace; each pane draws in its own child `Ui`.
 
-use egui::{
-    Color32, CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
-};
+use egui::{CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +47,7 @@ fn to_rect(b: Bounds) -> Rect {
     Rect::from_min_size(pos2(b.x, b.y), vec2(b.w, b.h))
 }
 
-pub fn show(ui: &mut Ui, tree: &mut PaneTree, view: &PaneView, out: &mut Commands) {
+pub fn show(ui: &mut Ui, tree: &PaneTree, view: &PaneView, out: &mut Commands) {
     let area = ui.max_rect();
     let split = tree.len() > 1;
     let gap = if split { view.look.gap } else { 0.0 };
@@ -61,14 +59,14 @@ pub fn show(ui: &mut Ui, tree: &mut PaneTree, view: &PaneView, out: &mut Command
             pane(ui, id, split, view, out);
         });
     }
-    dividers(ui, tree, area);
+    dividers(ui, tree, area, out);
 }
 
 fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let rect = ui.max_rect();
     let radius = if split && view.look.rounded {
-        CornerRadius::same(10)
+        CornerRadius::same(t.radius_lg as u8)
     } else {
         CornerRadius::ZERO
     };
@@ -77,7 +75,7 @@ fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Command
             offset: [0, 5],
             blur: 18,
             spread: 0,
-            color: Color32::from_black_alpha(60),
+            color: t.shadow,
         };
         ui.painter().add(shadow.as_shape(rect, radius));
     }
@@ -96,7 +94,7 @@ fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Command
             .rect_stroke(rect, radius, stroke, StrokeKind::Inside);
     }
     if ui.rect_contains_pointer(rect) {
-        let size = theme::ICON_BUTTON;
+        let size = t.control;
         let top = rect.top().max(view.chrome_bottom) + 8.0;
         let at = pos2(rect.right() - 8.0 - size, top);
         let mut child =
@@ -107,7 +105,7 @@ fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Command
     }
 }
 
-fn dividers(ui: &mut Ui, tree: &mut PaneTree, area: Rect) {
+fn dividers(ui: &mut Ui, tree: &PaneTree, area: Rect, out: &mut Commands) {
     for d in tree.dividers(to_bounds(area)) {
         let strip = match d.axis {
             SplitAxis::Horizontal => Rect::from_center_size(
@@ -135,7 +133,7 @@ fn dividers(ui: &mut Ui, tree: &mut PaneTree, area: Rect) {
                 SplitAxis::Horizontal => (p.x - d.parent.x) / d.parent.w.max(1.0),
                 SplitAxis::Vertical => (p.y - d.parent.y) / d.parent.h.max(1.0),
             };
-            tree.set_ratio(&d.path, ratio);
+            out.push(Command::SetRatio(d.path, ratio));
         }
     }
 }
