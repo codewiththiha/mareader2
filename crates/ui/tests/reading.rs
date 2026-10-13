@@ -167,3 +167,109 @@ fn an_empty_pane_offers_the_open_dialog() {
     let h = reader(&[]);
     let _ = h.get_by_label("Open…");
 }
+
+fn zoom(h: &Harness<'static, MareaderApp>) -> mareader_ui::zoom::ZoomState {
+    let pane = h.state().active_pane();
+    let state = h.state().documents().zoom_state(pane);
+    state.unwrap_or(mareader_ui::zoom::ZoomState {
+        zoom: 0.0,
+        fit: None,
+    })
+}
+
+fn current(h: &Harness<'static, MareaderApp>) -> usize {
+    let pane = h.state().active_pane();
+    h.state().documents().current(pane).unwrap_or(usize::MAX)
+}
+
+/// Opens 60 pages and wheels down to somewhere in the middle.
+fn reading_page_twenty() -> Harness<'static, MareaderApp> {
+    let mut h = reader(&[("pdf", "sample:60")]);
+    h.hover_at(egui::pos2(450.0, 400.0));
+    for _ in 0..12 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -1000.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.step();
+    }
+    h.run();
+    h
+}
+
+#[test]
+fn zoom_keys_step_the_ladder_and_keep_the_page_in_view() {
+    use mareader_ui::zoom::{Fit, MAX};
+    let mut h = reading_page_twenty();
+    let before = zoom(&h);
+    assert_eq!(before.fit, Some(Fit::Width));
+    let page = current(&h);
+    assert!(page > 5, "reading page {page}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Equals);
+    h.run();
+    let after = zoom(&h);
+    assert_eq!(after.fit, None);
+    assert_eq!(
+        Some(after.zoom),
+        mareader_ui::zoom::next(before.zoom, mareader_ui::zoom::Step::In)
+    );
+    assert_eq!(current(&h), page, "the page under the centre stays");
+    // Bare minus steps back down; Cmd+0 returns to fit width.
+    h.key_press(egui::Key::Minus);
+    h.run();
+    assert!(zoom(&h).zoom < after.zoom);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num0);
+    h.run();
+    assert_eq!(zoom(&h), before);
+    assert_eq!(current(&h), page);
+    // Chained presses stop at the top of the ladder.
+    for _ in 0..20 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Plus);
+    }
+    h.run();
+    assert_eq!(zoom(&h).zoom, MAX);
+    assert_eq!(current(&h), page);
+}
+
+#[test]
+fn a_pinch_zooms_about_the_pointer() {
+    let mut h = reading_page_twenty();
+    let before = zoom(&h).zoom;
+    let page = current(&h);
+    h.hover_at(egui::pos2(450.0, 400.0));
+    h.event(egui::Event::Zoom(1.5));
+    h.run();
+    let after = zoom(&h);
+    assert_eq!(after.fit, None);
+    assert!((after.zoom - before * 1.5).abs() < 1e-3, "{after:?}");
+    assert_eq!(current(&h), page);
+}
+
+#[test]
+fn the_menu_fits_the_page() {
+    use mareader_ui::zoom::Fit;
+    let mut h = reader(&[("pdf", "sample:5")]);
+    h.state_mut().queue(Command::ShowViewMenu);
+    h.run();
+    h.get_by_label("Fit page").click();
+    h.run();
+    let z = zoom(&h);
+    assert_eq!(z.fit, Some(Fit::Page));
+    // A letter page 700 high, less margins, fits by its height.
+    let want = (700.0 - 32.0) / 792.0;
+    assert!((z.zoom - want).abs() < 0.01, "{z:?} want {want}");
+    let _ = h.get_by_label(&z.percent());
+}
+
+#[test]
+fn a_resize_refits_and_keeps_the_page() {
+    let mut h = reading_page_twenty();
+    let page = current(&h);
+    h.set_size(egui::vec2(600.0, 700.0));
+    h.run();
+    let z = zoom(&h);
+    assert!((z.zoom - (600.0 - 32.0) / 612.0).abs() < 0.01, "{z:?}");
+    assert_eq!(current(&h), page);
+}

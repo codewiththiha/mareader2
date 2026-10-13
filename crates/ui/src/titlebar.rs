@@ -13,6 +13,7 @@ use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
 use crate::view_menu::{self, MenuContext, Tool};
 use crate::widgets::{self, CaptionStyle};
+use crate::zoom::ZoomState;
 
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
@@ -37,6 +38,8 @@ pub struct BarContext<'a> {
     /// The row starts after the platform's leading room (macOS's lights).
     pub gutter: bool,
     pub appearance: &'a Appearance,
+    /// The active document's zoom, for the menu's zoom row.
+    pub zoom: Option<ZoomState>,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -262,6 +265,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -
         folded,
         fullscreen: bar.fullscreen,
         platform: bar.platform,
+        zoom: bar.zoom,
     };
     view_menu::button(ui, &menu, &mut out);
     let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);

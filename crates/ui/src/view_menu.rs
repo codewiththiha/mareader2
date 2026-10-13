@@ -8,6 +8,7 @@ use crate::keymap;
 use crate::platform::Platform;
 use crate::theme::Tokens;
 use crate::widgets;
+use crate::zoom::{Fit, Step, ZoomCommand, ZoomState};
 
 pub const VIEW_MENU: &str = "view-menu";
 const WIDTH: f32 = 272.0;
@@ -26,6 +27,8 @@ pub struct MenuContext<'a> {
     pub folded: &'a [Tool],
     pub fullscreen: bool,
     pub platform: Platform,
+    /// The active document's zoom; no zoom row without one.
+    pub zoom: Option<ZoomState>,
 }
 
 /// The menu button and its popup.
@@ -58,6 +61,10 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         }
     }
     ui.separator();
+    if let Some(zoom) = cx.zoom {
+        zoom_row(ui, zoom, cx.platform, out);
+        ui.separator();
+    }
     for tool in cx.folded {
         let keys = keymap::hint(cx.platform, &tool.command);
         if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
@@ -88,6 +95,48 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.label(RichText::new(version).size(t.text_small).color(t.muted));
+    });
+}
+
+/// Zoom steps, then the fits; the menu stays open so presses chain.
+fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.add_space(4.0);
+        let steps = [
+            (Step::Out, Icon::ZoomOut, "Zoom out"),
+            (Step::In, Icon::ZoomIn, "Zoom in"),
+        ];
+        for (i, (step, icon, label)) in steps.into_iter().enumerate() {
+            if i == 1 {
+                let percent = RichText::new(zoom.percent()).size(t.text_small);
+                ui.add_sized([52.0, 28.0], egui::Label::new(percent));
+            }
+            let command = Command::Zoom(ZoomCommand::Step(step));
+            let keys = keymap::hint(platform, &command);
+            let r = ui.add_enabled_ui(zoom.can_step(step), |ui| {
+                widgets::icon_button_keyed(ui, icon, label, false, keys.as_deref())
+            });
+            if r.inner.clicked() {
+                out.push(command);
+            }
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(4.0);
+            let fits = [
+                (Fit::Page, Icon::FitPage, "Fit page"),
+                (Fit::Width, Icon::FitWidth, "Fit width"),
+            ];
+            for (fit, icon, label) in fits {
+                let command = Command::Zoom(ZoomCommand::Fit(fit));
+                let keys = keymap::hint(platform, &command);
+                let on = zoom.fit == Some(fit);
+                if widgets::icon_button_keyed(ui, icon, label, on, keys.as_deref()).clicked() {
+                    out.push(command);
+                }
+            }
+        });
     });
 }
 

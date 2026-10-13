@@ -275,6 +275,10 @@ impl MareaderApp {
                 }
             }
             Command::ShowOpenDialog { beside } => self.files.pick(ctx, beside),
+            Command::Zoom(zoom) => {
+                let now = ctx.input(|i| i.time);
+                self.documents.zoom(self.active, zoom, now);
+            }
             Command::Open(request) => {
                 let mut pane = request.pane.unwrap_or(self.active);
                 // Open beside: a new pane to the right, as in mareader.
@@ -416,6 +420,8 @@ impl eframe::App for MareaderApp {
         if self.fonts == FontState::Missing {
             theme::install_fonts(ctx);
             egui_extras::install_image_loaders(ctx);
+            // Zoom keys zoom the document, not the interface.
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
             self.fonts = FontState::Installed;
         }
         self.restyle(ctx);
@@ -485,6 +491,7 @@ impl eframe::App for MareaderApp {
             fullscreen,
             gutter: !overlay && inset <= 0.0 && !fullscreen,
             appearance: &self.settings.appearance,
+            zoom: self.documents.zoom_state(self.active),
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
         self.lights = self.place_lights(&ctx, overlay);
