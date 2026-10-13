@@ -38,3 +38,30 @@ objc2 = { version = "0.6.4", optional = true }
 objc2-app-kit = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow", "objc2-core-foundation"] }
 objc2-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
 raw-window-handle = { version = "0.6", optional = true }
+
+# `cargo packager --release` (cargo install cargo-packager): installers that
+# register Mareader for PDFs. Files then arrive as an argument, or on macOS
+# as an Apple event (open_files.rs); see docs/packaging.md.
+[package.metadata.packager]
+product-name = "Mareader"
+identifier = "com.codewiththiha.mareader"
+authors = ["codewiththiha <codewiththiha@users.noreply.github.com>"]
+category = "Productivity"
+before-packaging-command = "cargo build --release -p mareader"
+icons = [
+    "icons/32x32.png",
+    "icons/128x128.png",
+    "icons/128x128@2x.png",
+    "icons/icon.icns",
+    "icons/icon.ico",
+]
+
+[[package.metadata.packager.file-associations]]
+extensions = ["pdf"]
+name = "PDF Document"
+description = "PDF document"
+mime-type = "application/pdf"
+role = "viewer"
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
