@@ -51,6 +51,18 @@ pub struct PageKey {
     pub doc: DocId,
     pub page: usize,
     pub scale: Scale,
+    pub part: Part,
+}
+
+/// The whole page, or one tile of its `Tiling` at the key's scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Part {
+    #[default]
+    Whole,
+    Tile {
+        col: u8,
+        row: u8,
+    },
 }
 
 /// Work a view asks the workers for.

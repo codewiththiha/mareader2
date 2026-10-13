@@ -164,3 +164,38 @@ fn the_progress_line_follows_the_scroll() {
     h.run();
     assert!(progress(&h) > 0.99, "{}", progress(&h));
 }
+
+fn tiles(h: &H) -> usize {
+    h.state().documents().meter().tiles
+}
+
+#[test]
+fn a_deep_zoom_draws_tiles_once_the_view_rests() {
+    let mut h = reader(&[("pdf", "sample:3")]);
+    assert_eq!(tiles(&h), 0, "a fitted page is one texture");
+    // At 500 %, a page is 3960 px high: past egui's 2048 texture side.
+    for _ in 0..12 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Equals);
+    }
+    h.run_steps(30);
+    h.run();
+    let rested = tiles(&h);
+    assert!((1..=6).contains(&rested), "{rested} tiles on screen");
+    // A pan asks for none until it stops.
+    h.hover_at(egui::pos2(450.0, 400.0));
+    for _ in 0..10 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -150.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.step();
+        assert!(tiles(&h) <= rested, "a tile arrived mid-pan");
+    }
+    h.run_steps(30);
+    h.run();
+    assert!(tiles(&h) > rested, "the new rows came once it rested");
+    let bytes = h.state().documents().meter().page_bytes;
+    assert!(bytes < mareader_ui::pages::CAP_BYTES, "{bytes}");
+}

@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub use key::{DocId, PageKey, Scale, Want};
-pub use mareader_pdf::{Document, PageSize, Raster, RenderError, TextLayer};
+pub use key::{DocId, PageKey, Part, Scale, Want};
+pub use mareader_pdf::{Document, PageSize, Raster, RenderError, TextLayer, Tiling};
 
 use pool::{Output, Pool};
 

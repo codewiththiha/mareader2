@@ -129,6 +129,8 @@ impl Reading {
 pub struct Meter {
     pub documents: usize,
     pub pages: usize,
+    /// Parts of pages too big for one texture.
+    pub tiles: usize,
     /// The rasters' bytes, as the cache counts them against its cap.
     pub page_bytes: usize,
     pub texts: usize,
@@ -551,6 +553,7 @@ impl Documents {
         Meter {
             documents: self.session.as_ref().map_or(0, Session::len),
             pages: self.pages.len(),
+            tiles: self.pages.tiles(),
             page_bytes: self.pages.bytes(),
             texts: self.texts.len(),
             jobs: self.session.as_ref().map_or(0, Session::pending),

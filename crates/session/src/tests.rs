@@ -53,6 +53,7 @@ fn key(doc: DocId, page: usize) -> PageKey {
         doc,
         page,
         scale: Scale::covering(0.25),
+        part: Part::Whole,
     }
 }
 
