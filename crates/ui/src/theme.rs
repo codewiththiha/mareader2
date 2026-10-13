@@ -40,7 +40,8 @@ pub struct Tokens {
     pub gap: f32,
 }
 
-fn color(c: Rgb) -> Color32 {
+/// An appearance colour as egui's type.
+pub fn color(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }
 

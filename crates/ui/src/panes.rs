@@ -1,108 +1,17 @@
 //! The pane workspace; each pane draws in its own child `Ui`.
 
-use egui::{
-    Color32, CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
-};
+use egui::{CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
+use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
-use serde::{Deserialize, Serialize};
 
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
-/// How split panes are told apart.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct WorkspaceLook {
-    pub gap: f32,
-    pub outline_width: f32,
-    pub outline_color: OutlineColor,
-    /// Used only when `outline_color` is `Custom`.
-    pub outline_custom: [u8; 3],
-    pub rounded: bool,
-    pub shadow: bool,
-}
-
-impl Default for WorkspaceLook {
-    fn default() -> Self {
-        Self {
-            gap: 0.0,
-            outline_width: 2.0,
-            outline_color: OutlineColor::Auto,
-            outline_custom: [0x6b, 0xa3, 0xf5],
-            rounded: false,
-            shadow: false,
-        }
-    }
-}
-
-impl WorkspaceLook {
-    pub const MAX_GAP: f32 = 24.0;
-    pub const MAX_OUTLINE: f32 = 8.0;
-
-    pub fn sanitize(&mut self) {
-        let clamp = |v: f32, max: f32| {
-            if v.is_finite() {
-                v.clamp(0.0, max)
-            } else {
-                0.0
-            }
-        };
-        self.gap = clamp(self.gap, Self::MAX_GAP);
-        self.outline_width = clamp(self.outline_width, Self::MAX_OUTLINE);
-    }
-}
-
-/// The focused pane's outline colour.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OutlineColor {
-    /// Follows the accent, so it tracks the tint.
-    #[default]
-    Auto,
-    Red,
-    Yellow,
-    Green,
-    Blue,
-    Custom,
-}
-
-impl OutlineColor {
-    pub const PALETTE: [OutlineColor; 5] = [
-        OutlineColor::Auto,
-        OutlineColor::Red,
-        OutlineColor::Yellow,
-        OutlineColor::Green,
-        OutlineColor::Blue,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            OutlineColor::Auto => "Auto",
-            OutlineColor::Red => "Red",
-            OutlineColor::Yellow => "Yellow",
-            OutlineColor::Green => "Green",
-            OutlineColor::Blue => "Blue",
-            OutlineColor::Custom => "Custom",
-        }
-    }
-
-    pub fn resolve(self, accent: Color32, custom: [u8; 3]) -> Color32 {
-        let [r, g, b] = match self {
-            OutlineColor::Auto => return accent,
-            OutlineColor::Red => [0xe5, 0x6b, 0x64],
-            OutlineColor::Yellow => [0xe8, 0xc4, 0x49],
-            OutlineColor::Green => [0x6f, 0xd5, 0x8c],
-            OutlineColor::Blue => [0x6b, 0xa3, 0xf5],
-            OutlineColor::Custom => custom,
-        };
-        Color32::from_rgb(r, g, b)
-    }
-}
-
 pub struct PaneView {
     pub active: PaneId,
-    pub look: WorkspaceLook,
+    pub look: PaneLook,
     /// Bottom of the bar's hover band; pane controls stay below it.
     pub chrome_bottom: f32,
 }
@@ -135,7 +44,7 @@ pub fn show(ui: &mut Ui, tree: &PaneTree, view: &PaneView, out: &mut Commands) {
 fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let rect = ui.max_rect();
-    let radius = if split && view.look.rounded {
+    let radius = if split && view.look.rounded() {
         CornerRadius::same(t.radius_lg as u8)
     } else {
         CornerRadius::ZERO
@@ -159,10 +68,7 @@ fn pane(ui: &mut Ui, id: PaneId, split: bool, view: &PaneView, out: &mut Command
         return;
     }
     if id == view.active && view.look.outline_width > 0.0 {
-        let colour = view
-            .look
-            .outline_color
-            .resolve(t.accent, view.look.outline_custom);
+        let colour = view.look.outline_rgb().map_or(t.accent, theme::color);
         let stroke = Stroke::new(view.look.outline_width, colour);
         ui.painter()
             .rect_stroke(rect, radius, stroke, StrokeKind::Inside);
