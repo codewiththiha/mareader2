@@ -20,6 +20,7 @@ pub enum Command {
     /// Floating over the panes, or docked beside them.
     SetSidebarOverlay(bool),
     ShowLibrary,
+    /// The Search buttons: the find bar on, or off if open.
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).
     ShowAppearance,
@@ -27,6 +28,8 @@ pub enum Command {
     ShowViewMenu,
     /// Opens the settings window where it was left.
     ShowSettings,
+    /// The find bar over the focused document; else the library.
+    ShowFind,
     OpenSettings(Tab),
     CloseSettings,
     /// Every edit in the settings window; applies on the same frame.

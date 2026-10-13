@@ -94,6 +94,8 @@ pub struct TitleBar {
     pub pinned: bool,
     /// Never shows, hover or pin (distraction-free reading).
     pub chromeless: bool,
+    /// Kept shown while set, as the find bar does, once shown.
+    pub hold: bool,
     shown: bool,
     left_at: Option<f64>,
     opacity: f32,
@@ -134,8 +136,9 @@ impl TitleBar {
     fn update_hover(&mut self, ctx: &Context, band: Rect) {
         let now = ctx.input(|i| i.time);
         let inside = ctx.pointer_hover_pos().is_some_and(|p| band.contains(p));
-        let held =
-            egui::Popup::is_any_open(ctx) || (self.shown && ctx.input(|i| i.pointer.any_down()));
+        let held = self.hold
+            || egui::Popup::is_any_open(ctx)
+            || (self.shown && ctx.input(|i| i.pointer.any_down()));
         if inside {
             self.shown = true;
             self.left_at = None;

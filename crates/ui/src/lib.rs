@@ -14,6 +14,7 @@ pub mod backdrop;
 pub mod command;
 pub mod documents;
 pub mod files;
+pub mod find_bar;
 pub mod floating_label;
 pub mod gpu;
 pub mod icons;

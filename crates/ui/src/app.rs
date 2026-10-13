@@ -15,6 +15,7 @@ use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
+use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
 use crate::gpu::{Glass, Gpu, Quad};
 use crate::layout::ViewMode;
@@ -52,6 +53,7 @@ pub struct MareaderApp {
     active: PaneId,
     sidebar: Sidebar,
     settings_window: SettingsWindow,
+    find: FindBar,
     toasts: Toasts,
     lights: NativeLights,
     documents: Documents,
@@ -99,6 +101,7 @@ impl MareaderApp {
             active: PaneId(1),
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
+            find: FindBar::default(),
             toasts: Toasts::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
@@ -214,6 +217,10 @@ impl MareaderApp {
         Arc::clone(&self.reduced_motion)
     }
 
+    pub fn find(&self) -> &FindBar {
+        &self.find
+    }
+
     pub fn settings_window(&self) -> &SettingsWindow {
         &self.settings_window
     }
@@ -324,7 +331,8 @@ impl MareaderApp {
                 "appearance" => self.queue(Command::ShowAppearance),
                 "settings" => self.settings_window.open(None),
                 "menu" => self.queue(Command::ShowViewMenu),
-                _ => return Err("open: appearance, settings or menu".into()),
+                "find" => self.queue(Command::ShowFind),
+                _ => return Err("open: appearance, settings, menu or find".into()),
             },
             "settings" => {
                 let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
@@ -440,6 +448,14 @@ impl MareaderApp {
                 egui::Popup::open_id(ctx, egui::Id::new(crate::view_menu::VIEW_MENU));
             }
             Command::ShowSettings => self.settings_window.open(None),
+            // mareader's find falls back to the library's search.
+            Command::ShowFind => match self.documents.reading(self.active) {
+                Some(_) => {
+                    self.find.open(self.active);
+                    self.titlebar.reveal();
+                }
+                None => self.sidebar.open(Some(Panel::Library)),
+            },
             Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
             Command::CloseSettings => self.settings_window.close(),
             Command::SetSettings(s) => {
@@ -448,7 +464,9 @@ impl MareaderApp {
                 self.titlebar.pinned = s.chrome.titlebar_pinned;
                 self.settings = s;
             }
-            Command::ShowLibrary | Command::ShowSearch => {}
+            Command::ShowSearch if self.find.is_open() => self.find.close(),
+            Command::ShowSearch => self.apply(ctx, Command::ShowFind),
+            Command::ShowLibrary => {}
         }
     }
 }
@@ -606,7 +624,11 @@ impl eframe::App for MareaderApp {
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
-        let free = escape && !modal && !egui::Popup::is_any_open(&ctx);
+        let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
+        if free && self.find.is_open() {
+            self.find.close();
+            free = false;
+        }
         // A selection takes Escape before the sidebar does.
         if free && !self.documents.clear_selection(self.active) && self.sidebar.is_open() {
             commands.push(Command::CloseSidebar);
@@ -662,6 +684,9 @@ impl eframe::App for MareaderApp {
         });
         let backdrop = self.backdrop(&ctx);
         self.page_bars(&ctx, &backdrop, &mut commands);
+        let top = self.titlebar.band_bottom(&ctx);
+        self.find.show(&ctx, &self.pane_rects, top);
+        self.titlebar.hold = self.find.is_open();
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let bar = BarContext {
