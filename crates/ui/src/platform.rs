@@ -54,3 +54,12 @@ impl Platform {
         !matches!(self, Self::Mac)
     }
 }
+
+/// Where macOS's window buttons go: with a drawn rail, else with the bar.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NativeLights {
+    /// Points left (negative) of their resting place.
+    pub shift: f32,
+    /// 0 hides them; they can't be clicked then.
+    pub opacity: f32,
+}

@@ -34,6 +34,8 @@ pub struct BarContext<'a> {
     pub maximized: bool,
     /// No captions or traffic lights in full screen.
     pub fullscreen: bool,
+    /// The row starts after the platform's leading room (macOS's lights).
+    pub gutter: bool,
     pub appearance: &'a Appearance,
 }
 
@@ -176,11 +178,11 @@ impl TitleBar {
                 }
                 let live = visible;
                 let mut row = band;
-                // Over a rail, the macOS lights sit in the rail's header.
-                row.min.x += if bar.left_inset > 0.0 || bar.fullscreen {
-                    8.0
-                } else {
+                // Over a rail or in overlay mode, the bar hosts no lights.
+                row.min.x += if bar.gutter {
                     bar.platform.leading_inset()
+                } else {
+                    8.0
                 };
                 if captions(bar) != Some(CaptionStyle::Windows) {
                     row.max.x -= 8.0;

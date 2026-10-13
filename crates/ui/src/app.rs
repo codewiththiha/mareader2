@@ -10,10 +10,10 @@ use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, T
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::panes::{self, PaneView};
-use crate::platform::Platform;
+use crate::platform::{NativeLights, Platform};
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
-use crate::titlebar::{BarContext, TitleBar};
+use crate::titlebar::{self, BarContext, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
 
@@ -31,6 +31,7 @@ pub struct MareaderApp {
     sidebar: Sidebar,
     settings_window: SettingsWindow,
     toasts: Toasts,
+    lights: NativeLights,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
@@ -64,6 +65,7 @@ impl MareaderApp {
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
             toasts: Toasts::default(),
+            lights: NativeLights::default(),
             styled: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
@@ -140,6 +142,11 @@ impl MareaderApp {
 
     pub fn sidebar(&self) -> &Sidebar {
         &self.sidebar
+    }
+
+    /// Where the macOS traffic lights go; the desktop binary moves them.
+    pub fn native_lights(&self) -> NativeLights {
+        self.lights
     }
 
     pub fn titlebar(&self) -> &TitleBar {
@@ -289,6 +296,43 @@ impl MareaderApp {
     }
 }
 
+impl MareaderApp {
+    /// The rail hosts the lights while drawn; then the bar, unless overlay.
+    fn place_lights(&self, ctx: &Context, overlay: bool) -> NativeLights {
+        let bar_hosts = self.sidebar.offset().is_none() && !overlay;
+        // Handing over from a rail, they fade in rather than pop.
+        let secs = motion::secs(ctx, titlebar::FADE);
+        let handoff = ctx.animate_bool_with_time(egui::Id::new("lights-bar"), bar_hosts, secs);
+        match self.sidebar.offset() {
+            Some(shift) => NativeLights {
+                shift,
+                opacity: 1.0,
+            },
+            None if bar_hosts => NativeLights {
+                shift: 0.0,
+                opacity: self.titlebar.opacity().min(handoff),
+            },
+            None => NativeLights::default(),
+        }
+    }
+}
+
+/// Three dots where AppKit would put its buttons, for checking off a Mac.
+fn stand_in_lights(ctx: &Context, lights: NativeLights) {
+    if lights.opacity <= 0.0 {
+        return;
+    }
+    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("stand-in-lights"));
+    let painter = ctx.layer_painter(layer);
+    let top = ctx.content_rect().left_top();
+    let colours = [(255, 95, 87), (254, 188, 46), (40, 200, 64)];
+    for (i, (r, g, b)) in colours.into_iter().enumerate() {
+        let x = 27.0 + lights.shift + 20.0 * i as f32;
+        let fill = egui::Color32::from_rgb(r, g, b).gamma_multiply(lights.opacity);
+        painter.circle_filled(top + egui::vec2(x, theme::TITLE_BAR_H / 2.0), 6.0, fill);
+    }
+}
+
 impl eframe::App for MareaderApp {
     fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         if self.fonts == FontState::Missing {
@@ -335,16 +379,23 @@ impl eframe::App for MareaderApp {
         egui::CentralPanel::no_frame().show(ui, |ui| {
             panes::show(ui, &self.tree, &view, &mut commands);
         });
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let bar = BarContext {
             title: "Mareader",
             platform: self.platform,
             left_inset: inset,
             sidebar_toggle: !overlay && !self.sidebar.is_open(),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
-            fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
+            fullscreen,
+            gutter: !overlay && inset <= 0.0 && !fullscreen,
             appearance: &self.settings.appearance,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
+        self.lights = self.place_lights(&ctx, overlay);
+        // Shots and the preview simulate macOS; draw where the lights go.
+        if self.platform == Platform::Mac && !cfg!(target_os = "macos") {
+            stand_in_lights(&ctx, self.lights);
+        }
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
         self.toasts.show(&ctx, stage, &mut commands);
