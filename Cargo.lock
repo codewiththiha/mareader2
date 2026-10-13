@@ -1778,6 +1778,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-web"
+version = "0.0.1"
+dependencies = [
+ "eframe",
+ "mareader-ui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "mareader-workspace"
 version = "0.0.1"
 dependencies = [
