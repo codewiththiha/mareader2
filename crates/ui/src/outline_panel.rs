@@ -199,19 +199,9 @@ fn empty(ui: &mut Ui, t: &Tokens) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     fn reading(current: usize) -> Result<Reading, String> {
-        let bytes = Arc::new(mareader_pdf::sample::pdf(12, "Outline"));
-        let document = mareader_session::Document::open(bytes).map_err(|e| e.to_string())?;
-        Ok(Reading {
-            pane: PaneId(1),
-            doc: crate::testing::doc()?,
-            document: Arc::new(document),
-            current,
-            mode: crate::layout::ViewMode::Vertical,
-            progress: 0.0,
-        })
+        crate::testing::reading(12, current)
     }
 
     #[test]

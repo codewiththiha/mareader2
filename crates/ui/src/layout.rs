@@ -5,7 +5,7 @@ use std::ops::Range;
 use egui::{Pos2, Rect, Vec2, pos2, vec2};
 use mareader_session::PageSize;
 
-/// Between pages in a strip, and around the content.
+/// Between pages in a strip unless No Gap; around the content.
 pub const GAP: f32 = 12.0;
 pub const MARGIN: f32 = 16.0;
 
@@ -108,6 +108,9 @@ pub struct Inputs {
     pub zoom: f32,
     /// The paged modes' first page shown.
     pub focus: usize,
+    /// Space between a strip's pages, and air beside the pages.
+    pub gap: f32,
+    pub margin: f32,
 }
 
 /// Page rects in content space, for the pages laid out.
@@ -129,36 +132,37 @@ impl Layout {
         let frame = inputs.frame;
         match inputs.mode {
             ViewMode::Vertical => {
+                let (gap, side) = (inputs.gap, inputs.margin);
                 let widest = sizes.iter().map(|s| scaled(s).x).fold(0.0, f32::max);
-                let width = frame.x.max(widest + 2.0 * MARGIN);
+                let width = frame.x.max(widest + 2.0 * side);
                 let mut y = top;
                 let rects = sizes
                     .iter()
                     .map(|s| {
                         let size = scaled(s);
                         let r = Rect::from_min_size(pos2((width - size.x) / 2.0, y), size);
-                        y += size.y + GAP;
+                        y += size.y + gap;
                         r
                     })
                     .collect();
-                let size = vec2(width, (y - GAP + MARGIN).max(top + MARGIN));
+                let size = vec2(width, (y - gap + MARGIN).max(top + MARGIN));
                 Self::with(inputs, 0, rects, size)
             }
             ViewMode::Horizontal => {
                 let tallest = sizes.iter().map(|s| scaled(s).y).fold(0.0, f32::max);
                 let height = frame.y.max(top + tallest + MARGIN);
-                let room = height - top - MARGIN;
+                let (gap, room) = (inputs.gap, height - top - MARGIN);
                 let mut x = MARGIN;
                 let rects = sizes
                     .iter()
                     .map(|s| {
                         let size = scaled(s);
                         let r = Rect::from_min_size(pos2(x, top + (room - size.y) / 2.0), size);
-                        x += size.x + GAP;
+                        x += size.x + gap;
                         r
                     })
                     .collect();
-                let size = vec2((x - GAP + MARGIN).max(2.0 * MARGIN), height);
+                let size = vec2((x - gap + MARGIN).max(2.0 * MARGIN), height);
                 Self::with(inputs, 0, rects, size)
             }
             ViewMode::Single | ViewMode::Spread => {
@@ -172,11 +176,11 @@ impl Layout {
                 let block = vec2(
                     shown.iter().map(|s| s.x).sum::<f32>(),
                     shown.iter().map(|s| s.y).fold(0.0, f32::max),
-                ) + Vec2::splat(2.0 * MARGIN);
+                ) + 2.0 * vec2(inputs.margin, MARGIN);
                 // Centred in what the bar leaves, scrolling once larger.
                 let room = vec2(frame.x, frame.y - inputs.inset);
                 let at = pos2(
-                    ((room.x - block.x) / 2.0).max(0.0) + MARGIN,
+                    ((room.x - block.x) / 2.0).max(0.0) + inputs.margin,
                     inputs.inset + ((room.y - block.y) / 2.0).max(0.0) + MARGIN,
                 );
                 let mut x = at.x;
@@ -243,9 +247,10 @@ impl Layout {
     /// The page at a content point, and the point in page units.
     pub fn locate(&self, p: Pos2) -> Option<(usize, Vec2)> {
         let last = self.rects.len().checked_sub(1)?;
+        let gap = self.inputs.gap;
         let i = match self.inputs.mode {
-            ViewMode::Vertical => self.rects.partition_point(|r| r.bottom() + GAP <= p.y),
-            ViewMode::Horizontal => self.rects.partition_point(|r| r.right() + GAP <= p.x),
+            ViewMode::Vertical => self.rects.partition_point(|r| r.bottom() + gap <= p.y),
+            ViewMode::Horizontal => self.rects.partition_point(|r| r.right() + gap <= p.x),
             // A spread's pages touch: the one nearer the point.
             ViewMode::Single | ViewMode::Spread => self
                 .rects
@@ -271,7 +276,7 @@ impl Layout {
         let frame = self.inputs.frame;
         let centred = ((self.size - frame) / 2.0).max(Vec2::ZERO);
         // Only the gap shows above a later page, not its neighbour.
-        let before = if page == 0 { MARGIN } else { GAP };
+        let before = if page == 0 { MARGIN } else { self.inputs.gap };
         let offset = match self.inputs.mode {
             ViewMode::Vertical => vec2(centred.x, rect.top() - self.inputs.inset - before),
             ViewMode::Horizontal => vec2(rect.left() - before, centred.y),
@@ -301,6 +306,8 @@ mod tests {
             inset: 0.0,
             zoom,
             focus,
+            gap: GAP,
+            margin: MARGIN,
         }
     }
 

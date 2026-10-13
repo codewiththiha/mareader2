@@ -15,11 +15,13 @@ use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
+use crate::floating_label::{self, LabelChrome};
 use crate::gpu::{Glass, Gpu, Quad};
+use crate::layout::ViewMode;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
 use crate::panes::{self, PaneView};
-use crate::pdf_view::ViewContext;
+use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
@@ -148,6 +150,11 @@ impl MareaderApp {
         &self.settings
     }
 
+    /// Changes apply next frame, as the settings window's do.
+    pub fn settings_mut(&mut self) -> &mut Settings {
+        &mut self.settings
+    }
+
     /// Reopens what was read at exit, if its file is still there.
     pub fn resume(&mut self) -> bool {
         let Some(last) = self.last.take().filter(|l| l.path.is_file()) else {
@@ -215,6 +222,10 @@ impl MareaderApp {
         WindowContext {
             split: self.tree.len() > 1,
             reflowable: false,
+            sideways: self
+                .documents
+                .reading(self.active)
+                .is_some_and(|r| r.mode == ViewMode::Horizontal),
         }
     }
 
@@ -288,6 +299,19 @@ impl MareaderApp {
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
+            "margin" => {
+                self.settings.layout.page_margin = value.parse().map_err(|_| "margin: points")?
+            }
+            "gap" => self.settings.layout.no_gap = value == "false",
+            "shadow" => self.settings.layout.page_shadow = value == "true",
+            "label" => {
+                let l = &mut self.settings.layout;
+                l.floating_label = value != "false";
+                l.floating_label_persist = value == "persist";
+                if value == "chapter" {
+                    l.floating_label_style = mareader_settings::FloatingLabelStyle::Chapter;
+                }
+            }
             "reduced" => self
                 .reduced_motion
                 .store(value == "true", Ordering::Relaxed),
@@ -470,6 +494,13 @@ impl MareaderApp {
         let rects = &self.pane_rects;
         self.page_bars
             .retain(|id, _| rects.iter().any(|(p, _)| p == id));
+        let label = LabelChrome {
+            bar: self
+                .titlebar
+                .visible()
+                .then(|| self.titlebar.band_bottom(ctx)),
+            sidebar_open: self.sidebar.offset().is_some(),
+        };
         // The title bar's glass takes slot 0.
         for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
@@ -480,6 +511,7 @@ impl MareaderApp {
                 };
                 let bar = self.page_bars.entry(*id).or_default();
                 page_bar::show(ctx, *rect, &reading, &look, bar, out);
+                floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
             }
         }
     }
@@ -617,11 +649,13 @@ impl eframe::App for MareaderApp {
             f32::NEG_INFINITY
         };
         let documents = &mut self.documents;
+        let page = PageLook::new(&self.settings.layout);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
                 let cx = ViewContext {
                     active: id == view.active,
                     top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
+                    page,
                 };
                 documents.show(ui, id, &cx)
             });

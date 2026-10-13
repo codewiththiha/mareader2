@@ -211,6 +211,33 @@ pub fn choices<T: Copy + PartialEq>(
     }
 }
 
+/// Minus, the value, plus; laid right to left, as rows place controls.
+pub fn stepper(
+    ui: &mut Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    show: impl Fn(f32) -> String,
+    label: &str,
+) {
+    let (lo, hi) = (*range.start(), *range.end());
+    let up = ui.add_enabled_ui(*value < hi, |ui| {
+        small_icon_button(ui, Icon::Plus, &format!("More {label}"))
+    });
+    let shown = egui::Label::new(show(*value));
+    ui.add_sized([44.0, 24.0], shown);
+    let down = ui.add_enabled_ui(*value > lo, |ui| {
+        small_icon_button(ui, Icon::Minus, &format!("Less {label}"))
+    });
+    // Off-grid values, as imported ones may be, snap to the grid.
+    if up.inner.clicked() {
+        *value = ((*value / step).floor() * step + step).min(hi);
+    }
+    if down.inner.clicked() {
+        *value = ((*value / step).ceil() * step - step).max(lo);
+    }
+}
+
 /// An on/off switch; `label` names it for screen readers and tests.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let t = Tokens::get(ui.ctx());

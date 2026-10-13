@@ -162,7 +162,7 @@ pub fn show(
                 if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
                     demand.push((Urgency::Thumbnail, key(page).into()));
                 }
-                paint_page(ui, rect, look, &t, &mut quads);
+                paint_page(ui, rect, look, &t, true, &mut quads);
                 let on = page == reading.current;
                 let r = ui.interact(cell, Id::new(("thumb", reading.pane, page)), Sense::click());
                 let label = format!("Page {}", page + 1);

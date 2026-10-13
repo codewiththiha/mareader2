@@ -227,20 +227,10 @@ fn contents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     #[test]
     fn the_counter_reads_as_pages_or_a_percentage() -> Result<(), String> {
-        let bytes = Arc::new(mareader_pdf::sample::pdf(20, "Counter"));
-        let document = mareader_session::Document::open(bytes).map_err(|e| e.to_string())?;
-        let reading = Reading {
-            pane: PaneId(1),
-            doc: crate::testing::doc()?,
-            document: Arc::new(document),
-            current: 2,
-            mode: crate::layout::ViewMode::Vertical,
-            progress: 0.1,
-        };
+        let reading = crate::testing::reading(20, 2)?;
         assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), "3 / 20");
         assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), "15%");
         Ok(())

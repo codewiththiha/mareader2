@@ -7,10 +7,11 @@ use std::sync::Arc;
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_pdf::{LinkTarget, web_address};
-use mareader_session::{DocId, Document, PageKey, Scale, Want};
+use mareader_session::{DocId, Document, PageKey, PageSize, Scale, Want};
+use mareader_settings::{LayoutSettings, StartupFit};
 
 use crate::gpu::{PagePass, PagesCallback, Quad};
-use crate::layout::{self, Arrow, Inputs, Layout, MARGIN, ViewMode};
+use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::selection::{self, Pages, Selection, Sheet};
 use crate::texts::TextLayers;
@@ -25,6 +26,8 @@ const HOLD_DELAY: f64 = 0.35;
 const HOLD_SPEED: f32 = 1000.0;
 /// A slow frame moves a held glide no further than this one would.
 const MAX_FRAME: f64 = 0.05;
+/// A page of another size refits once read this long (Auto Resize).
+const RESIZE_SETTLE: f64 = 0.25;
 
 /// A tap moves one reading line: 8 % of the view, 40 to 80 points.
 pub fn line_step(len: f32) -> f32 {
@@ -114,6 +117,10 @@ pub struct PdfView {
     jump: Option<Jump>,
     /// Zoom steps ease, as of last frame's motion settings.
     ease: bool,
+    /// Until first drawn: the default fit is still to apply.
+    fresh: bool,
+    /// A page of another size Auto Resize waits on, and since when.
+    resize: Option<(usize, f64)>,
 }
 
 impl PdfView {
@@ -133,6 +140,8 @@ impl PdfView {
             progress: 0.0,
             selection: None,
             sheets: Vec::new(),
+            fresh: true,
+            resize: None,
             nudge: None,
             aim: None,
             hold: None,
@@ -211,6 +220,34 @@ impl PdfView {
         self.go(page.min(count.saturating_sub(1)));
     }
 
+    /// Auto Resize: refits to a settled page; returns the wait left.
+    fn follow_size(&mut self, sizes: &[PageSize], on: bool, now: f64) -> Option<f64> {
+        let page = self.current;
+        let fit_box = |p| layout::fit_box(self.mode, sizes, p);
+        // A refit mid-glide would move the glide's end; it waits.
+        let gliding = self.jump.is_some() || self.aim.is_some();
+        if !on || gliding || self.zoom.fit.is_none() || fit_box(page) == fit_box(self.zoom.fit_page)
+        {
+            self.resize = None;
+            return None;
+        }
+        match self.resize {
+            Some((waiting, since)) if waiting == page => {
+                let left = RESIZE_SETTLE - (now - since);
+                if left > 0.0 {
+                    return Some(left);
+                }
+                self.zoom.fit_page = page;
+                self.resize = None;
+                None
+            }
+            _ => {
+                self.resize = Some((page, now));
+                Some(RESIZE_SETTLE)
+            }
+        }
+    }
+
     /// Shows `page` from its start.
     fn go(&mut self, page: usize) {
         self.focus = self.mode.start(page);
@@ -231,6 +268,41 @@ pub struct ViewContext {
     pub active: bool,
     /// Space a pinned title bar takes from the pane's top.
     pub top_inset: f32,
+    pub page: PageLook,
+}
+
+/// The Layout settings the pages follow.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageLook {
+    pub gap: f32,
+    /// Air beside the pages; the sideways strip has none to give.
+    pub margin: f32,
+    pub shadow: bool,
+    /// A fit follows the page read when its size differs.
+    pub auto_resize: bool,
+    /// The fit a document opens at.
+    pub fit: Fit,
+}
+
+impl PageLook {
+    pub fn new(layout: &LayoutSettings) -> Self {
+        Self {
+            gap: if layout.no_gap { 0.0 } else { GAP },
+            margin: layout.page_margin,
+            shadow: layout.page_shadow,
+            auto_resize: layout.auto_resize,
+            fit: match layout.startup_fit {
+                StartupFit::Page => Fit::Page,
+                StartupFit::Width => Fit::Width,
+            },
+        }
+    }
+}
+
+impl Default for PageLook {
+    fn default() -> Self {
+        Self::new(&LayoutSettings::default())
+    }
 }
 
 /// What drawing a pane reads and fills, shared across panes.
@@ -263,7 +335,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             view.zoom.pinch(factor, at, now);
         }
     }
-    let mut room = frame.size() - vec2(2.0 * MARGIN, 2.0 * MARGIN + cx.top_inset);
+    if std::mem::take(&mut view.fresh) && view.zoom.fit.is_some() {
+        view.zoom.fit = Some(cx.page.fit);
+    }
+    if let Some(wait) = view.follow_size(sizes, cx.page.auto_resize, now) {
+        ctx.request_repaint_after_secs(wait as f32);
+    }
+    let margin = if view.mode == ViewMode::Horizontal {
+        MARGIN
+    } else {
+        cx.page.margin
+    };
+    let mut room = frame.size() - vec2(2.0 * margin, 2.0 * MARGIN + cx.top_inset);
     // The strip fits a page's height alone: it scrolls sideways.
     if view.mode == ViewMode::Horizontal && view.zoom.fit == Some(Fit::Page) {
         room.x = f32::INFINITY;
@@ -287,6 +370,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         inset: cx.top_inset,
         zoom: shown,
         focus: if view.mode.paged() { view.focus } else { 0 },
+        gap: cx.page.gap,
+        margin,
     };
     let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
     if rebuilt {
@@ -425,7 +510,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
-                paint_page(ui, rect, look, &t, &mut quads);
+                paint_page(ui, rect, look, &t, cx.page.shadow, &mut quads);
                 let width = sizes.get(page).map_or(1.0, |s| s.width);
                 sheets.push(Sheet {
                     page,
@@ -634,15 +719,24 @@ fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usiz
 }
 
 /// Paints a page, or queues it for the page pass in `quads`.
-pub(crate) fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens, quads: &mut Vec<Quad>) {
+pub(crate) fn paint_page(
+    ui: &Ui,
+    rect: Rect,
+    look: Lookup,
+    t: &Tokens,
+    shadow: bool,
+    quads: &mut Vec<Quad>,
+) {
     let painter = ui.painter();
-    let shadow = egui::Shadow {
-        offset: [0, 1],
-        blur: 6,
-        spread: 0,
-        color: t.shadow.gamma_multiply(0.6),
-    };
-    painter.add(shadow.as_shape(rect, CornerRadius::ZERO));
+    if shadow {
+        let shadow = egui::Shadow {
+            offset: [0, 1],
+            blur: 6,
+            spread: 0,
+            color: t.shadow.gamma_multiply(0.6),
+        };
+        painter.add(shadow.as_shape(rect, CornerRadius::ZERO));
+    }
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
         Lookup::Sharp(PageTexture::Gpu(page)) | Lookup::Stale(PageTexture::Gpu(page)) => {
@@ -676,7 +770,6 @@ pub(crate) fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens, quads: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mareader_session::PageSize;
 
     const LETTER: PageSize = PageSize {
         width: 612.0,
@@ -690,6 +783,8 @@ mod tests {
             inset: 0.0,
             zoom,
             focus: 0,
+            gap: GAP,
+            margin: MARGIN,
         };
         Layout::new(&[LETTER; 20], inputs)
     }

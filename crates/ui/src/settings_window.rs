@@ -1,7 +1,9 @@
 //! The settings window: a modal with one tab per area of the app.
 
 use mareader_appearance::Rgb;
-use mareader_settings::{Corners, PageIndicatorStyle, Settings, Swatch};
+use mareader_settings::{
+    Corners, FloatingLabelStyle, PageIndicatorStyle, Settings, StartupFit, Swatch,
+};
 
 use egui::{
     Align, Button, Color32, Frame, Id, Layout, Margin, Modal, RichText, ScrollArea, Sense, Stroke,
@@ -84,6 +86,8 @@ impl Tab {
 pub struct WindowContext {
     pub split: bool,
     pub reflowable: bool,
+    /// The focused pane scrolls sideways, where pages have no margin.
+    pub sideways: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -220,7 +224,7 @@ impl SettingsWindow {
 
 fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &mut Commands) {
     match tab {
-        Tab::Layout => layout(ui, s),
+        Tab::Layout => layout(ui, s, cx),
         Tab::Theme => theme_tab(ui, s, cx, out),
         Tab::Animations => animations(ui, s),
         Tab::Fonts => pending(ui, "Typeface, size, spacing and margins for EPUBs (M4)."),
@@ -236,7 +240,7 @@ fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &m
     }
 }
 
-fn layout(ui: &mut Ui, s: &mut Settings) {
+fn layout(ui: &mut Ui, s: &mut Settings, cx: &WindowContext) {
     section(ui, "Reader chrome");
     group(ui, |ui| {
         switch_row(
@@ -278,6 +282,8 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             });
         });
         divider(ui);
+        label_rows(ui, s);
+        divider(ui);
         switch_row(
             ui,
             "Progress bar",
@@ -285,11 +291,8 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             &mut s.layout.progress_bar,
         );
     });
-    pending(
-        ui,
-        "Document label, default fit, page margin and page shadow join with \
-         PDF viewing (M2).",
-    );
+    section(ui, "Pages");
+    group(ui, |ui| page_rows(ui, s, cx));
     section(ui, "Motion");
     group(ui, |ui| {
         switch_row(
@@ -299,6 +302,100 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             &mut s.motion.enabled,
         );
     });
+}
+
+/// The floating document label and how it behaves.
+fn label_rows(ui: &mut Ui, s: &mut Settings) {
+    let l = &mut s.layout;
+    switch_row(
+        ui,
+        "Floating label",
+        "The document's name in each pane's corner while the title bar hides",
+        &mut l.floating_label,
+    );
+    let on = l.floating_label;
+    divider(ui);
+    row(ui, "Label shows", "", |ui| {
+        ui.add_enabled_ui(on, |ui| {
+            let style = &mut l.floating_label_style;
+            ui.selectable_value(style, FloatingLabelStyle::Chapter, "Chapter");
+            ui.selectable_value(style, FloatingLabelStyle::FileName, "File name");
+        });
+    });
+    divider(ui);
+    row(
+        ui,
+        "Always show label",
+        "Keep it while the title bar shows, however narrow the side",
+        |ui| {
+            ui.add_enabled_ui(on, |ui| {
+                widgets::switch(ui, &mut l.floating_label_persist, "Always show label");
+            });
+        },
+    );
+    divider(ui);
+    row(
+        ui,
+        "Label width limit",
+        "How much of the room beside the page the label may take",
+        |ui| {
+            ui.add_enabled_ui(on && !l.floating_label_persist, |ui| {
+                let pct = &mut l.floating_label_max_pct;
+                let show = |v: f32| format!("{v:.0}%");
+                widgets::stepper(ui, pct, 10.0..=100.0, 10.0, show, "label width");
+            });
+        },
+    );
+}
+
+/// How pages sit: the fit they open at, their spacing and shadow.
+fn page_rows(ui: &mut Ui, s: &mut Settings, cx: &WindowContext) {
+    let l = &mut s.layout;
+    row(ui, "Default fit", "How a document opens", |ui| {
+        ui.selectable_value(&mut l.startup_fit, StartupFit::Width, "Width");
+        ui.selectable_value(&mut l.startup_fit, StartupFit::Page, "Page");
+    });
+    divider(ui);
+    switch_row(
+        ui,
+        "No gap",
+        "Pages in the scrolling views touch",
+        &mut l.no_gap,
+    );
+    divider(ui);
+    let hint = if cx.sideways {
+        "Pages scrolling sideways have no margin"
+    } else {
+        "Space beside the pages"
+    };
+    row(ui, "Page margin", hint, |ui| {
+        ui.add_enabled_ui(!cx.sideways, |ui| {
+            let show = |v: f32| {
+                if v <= 0.0 {
+                    "Off".to_owned()
+                } else {
+                    format!("{v:.0} px")
+                }
+            };
+            widgets::stepper(ui, &mut l.page_margin, 0.0..=64.0, 4.0, show, "page margin");
+        });
+    });
+    divider(ui);
+    switch_row(
+        ui,
+        "Auto scale",
+        "Fit the width on switching to single or two pages",
+        &mut l.auto_scale,
+    );
+    divider(ui);
+    switch_row(
+        ui,
+        "Auto resize",
+        "Refit when a page of another size is read",
+        &mut l.auto_resize,
+    );
+    divider(ui);
+    switch_row(ui, "Page shadow", "", &mut l.page_shadow);
 }
 
 fn animations(ui: &mut Ui, s: &mut Settings) {
