@@ -529,9 +529,14 @@ title = "Render pages with hayro off the UI thread, crisp at the device scale"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/pdf-engine"]
-notes = "Whole pages on worker threads at the device scale, capped by the GPU texture side; tiles for larger rasters come with zoom"
+evidence = [
+    "crates/pdf/src/document.rs::a_tile_matches_its_part_of_the_whole_page",
+    "crates/pdf/src/tiles.rs::tiles_cover_the_page_once_and_stay_within_the_side",
+    "crates/ui/tests/pages.rs::a_deep_zoom_draws_tiles_once_the_view_rests",
+]
+notes = "Whole pages on worker threads at the device scale; past the GPU texture side or hayro's caps, a 2048 px backdrop under tiles of up to 2048 px, asked for once the view rests"
 
 [[feature]]
 id = "pdf.view-single"
@@ -1179,9 +1184,15 @@ title = "Tile cache capped by bytes, thumbnails LRU of 16"
 area = "L"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
-notes = "Page textures capped at 256 MiB, thumbnails included, and finished results at 32 items or 32 MiB"
+evidence = [
+    "crates/ui/src/pages.rs::the_cap_evicts_cold_pages_but_never_visible_ones",
+    "crates/ui/src/pages.rs::tiles_share_the_byte_cap_and_go_cold_first",
+    "crates/ui/src/pages.rs::a_page_drawn_at_another_scale_drops_its_old_tiles",
+    "crates/session/src/tests.rs::finished_pages_wait_in_a_bounded_queue",
+]
+notes = "One 256 MiB byte cap holds pages, tiles and thumbnails (ADR 0006 replaced the LRU of 16); finished results wait at 32 items or 32 MiB"
 
 [[feature]]
 id = "perf.stale-results"
