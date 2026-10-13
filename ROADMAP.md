@@ -1,7 +1,7 @@
 # Roadmap
 
-**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 6 done.
-**Parity:** 30.5 of 118 features (25.8 %, partial counts half). Run
+**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 7 done.
+**Parity:** 49.0 of 118 features (41.5 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -59,13 +59,21 @@ appearance effects to that same pass.
 | 4 | View modes: single page with page turn, spread, horizontal strip | **done** | the menu's view row, ⌘/Ctrl+1 and +2, arrows; `view=spread arrows=right` in shots |
 | 5 | Navigation: page counter with entry, outline, thumbnails, status bar | **done** | the sidebar's outline and thumbnails, hover a pane's bottom edge; `sidebar=outline goto=17 hover=x,y` in shots |
 | 6 | Text selection and copy; internal and external links | **done** | drag over text, double or triple click, ⌘C; click a link; `drag=x1,y1,x2,y2 hover=x,y` in shots |
-| 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | planned | `docs/memory.md` |
+| 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | **done** | hold ↓ or press Space; quit and relaunch; `cargo run -p mareader-ui --example memory -- BOOK.pdf`; `docs/memory.md` |
 
 ## Next
 
-1. **M2 slice 7, keys, glide, last document, teardown and memory.**
+1. **Close M2, or carry its partial entries.** Every M2 slice is done; see the
+   open question below.
+2. **M3 slice 1:** the page pass's filter chain (ADR 0003).
 
 ## Open questions for the owner
+
+- **Closing M2.** Seven M2 entries are `partial`. Five name their gap: file
+  associations (packaging, M8), tiles for rasters over the GPU's texture
+  side, mixed page sizes (Auto Resize), page shadow, margins and the floating
+  label, and find (M7). The vertical view and capped caches name none and may
+  only need evidence. Defer the gaps with notes and start M3, or finish some?
 
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts).
@@ -93,3 +101,4 @@ appearance effects to that same pass.
 | 2026-10-13 | M2 slice 6: each page on screen gets a text layer, read by a worker (3 to 5 ms a page on a real paper): characters with boxes from hayro's glyph runs, OCR text included, grouped into lines with gaps as spaces and ligatures split into letters, plus `/Link` annotations resolved through the outline's destination code. They are kept by count (96 pages) beside the rasters. A drag selects across pages and scrolls when held past an edge; double and triple clicks take a word and a line; ⌘C or Ctrl+C copies, Escape clears before it closes the sidebar. Text shows an I-beam, links a hand and a tooltip (the address, or "Go to page N"); a click turns only that pane or opens the browser, for http, https and mailto only. Layers are read for pages in view rather than on the first selection, as `docs/architecture.md` planned: the cursor and links need them before any selection, as pdf.js does |
 | 2026-10-13 | Owner: the wheel must scroll while text is being selected. egui's `ScrollArea` ignores the wheel during any drag, so a selection drag now takes the wheel and touchpad itself and scrolls the pane (sideways in the horizontal strip); the selection's end follows the text that scrolls under the pointer, across pages |
 | 2026-10-13 | Owner: the bottom page bar is glass like the title bar, and Settings can turn the glass off, which makes both bars solid (no blur, no translucency). egui-wgpu prepares every callback before painting any, so each glass now owns a slot (uniforms and strip textures; the title bar plus one per pane, 17 at most); a page bar's strip reaches up rather than down, since its content arrives from above. `Backdrop` (glass, the 96 % tint without a GPU, or solid) is chosen once a frame and painted by both bars. Settings, Layout, Reader chrome: "Frosted glass", on by default, so older settings load unchanged. Its GPU test fails if the page bar's blur is skipped |
+| 2026-10-13 | M2 slice 7. **Keys:** a tap moves 8 % of the pane (40 to 80 pt), PageUp/PageDown, Space and Shift+Space 90 %; held, an arrow glides at 1000 pt/s after 350 ms and stops on release or when the window loses focus; Home and End go to the first and last page; in paged modes the page keys turn pages, where mareader scrolled. The view runs its own glides (the pdf `ScrollArea` is no longer animated), so presses mid-glide add up and a wheel takes over. Page jumps glide too, and only the landing pages are rendered or prefetched meanwhile (2 pages cached instead of 22 for page 200 of 300). **Motion:** Settings, Animations has real switches for canvas follows window, zoom in and out and scroll to page; the system's reduced-motion setting (macOS `defaults`, Windows `MinAnimate`, GNOME `gsettings`, read at launch, no `unsafe`) stills the app like the master switch. **Loading mark:** mareader's three hopping dots while a book opens, a fade under reduced motion. **Last document:** the active pane's file and page are saved with the settings and reopened when launched without a file. **Memory:** `crates/ui/examples/memory.rs`; the M2 audit in `docs/memory.md` shows teardown to zero and no growth over twelve read-and-close rounds. Found by it: the same file in two panes was parsed twice; it is now opened by canonical path and shared. Found by the new key tests, since kittest turns scroll animation off: on the desktop the wheel and edge scroll during a selection lost most of their distance to egui's per-frame retargeting; they now land each frame's step directly |

@@ -204,8 +204,14 @@ title = "Loading mark; under reduced motion it fades instead of freezing"
 area = "A"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/animation.rs"]
+evidence = [
+    "crates/ui/src/loading_mark.rs::one_dot_moves_per_quarter",
+    "crates/ui/src/loading_mark.rs::the_fade_breathes_between_its_floor_and_full",
+    "crates/ui/tests/shell.rs::the_system_asking_for_less_motion_stills_it_like_the_master",
+]
+notes = "Three dots hop round a square while a book opens, and keep hopping with Animations off. The system's reduced-motion setting (macOS, Windows, GNOME), read at launch, makes it a fade and stills the app like the master switch"
 
 [[feature]]
 id = "chrome.boot-paper"
@@ -1047,8 +1053,13 @@ title = "Restore the last opened document on launch"
 area = "J"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/mod.rs"]
+evidence = [
+    "crates/ui/tests/reading.rs::the_book_read_at_exit_reopens_on_its_page",
+    "crates/ui/tests/reading.rs::a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen",
+]
+notes = "The active pane's book and page, saved with the settings; a launch without a file argument reopens it. A moved file or a dropped one (bytes) leaves the window empty"
 
 [[feature]]
 id = "motion.master"
@@ -1067,9 +1078,14 @@ title = "Sidebar slide, canvas follows window, zoom ease and scroll-to-page swit
 area = "K"
 tier = "P1"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/animation.rs"]
-notes = "Sidebar animation works (Settings, Animations); canvas, zoom and scroll switches join with M2"
+evidence = [
+    "crates/ui/src/zoom.rs::without_follow_a_fit_waits_for_the_resize_to_rest",
+    "crates/ui/tests/keys.rs::with_zoom_ease_off_a_step_lands_on_its_first_frame",
+    "crates/ui/tests/keys.rs::with_scroll_to_page_off_a_jump_lands_at_once",
+]
+notes = "Settings, Animations: sidebar animation, canvas follows window, zoom in and out, scroll to page. Off, each change lands in one frame"
 
 [[feature]]
 id = "keys.shortcuts"
@@ -1079,7 +1095,11 @@ tier = "P0"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
-notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width (Cmd/Ctrl and bare +/-), view modes (Cmd/Ctrl+1, +2), page turns by arrows and h/j/k/l. Find, scroll glide and page keys pending"
+evidence = [
+    "crates/ui/src/keymap.rs::the_reference_lists_each_action_once",
+    "crates/ui/tests/keys.rs::across_the_column_arrows_turn_and_paged_modes_turn_on_page_keys",
+]
+notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width, view modes, arrows and h/j/k/l, PageUp/PageDown, Space and Shift+Space, Home and End. Find waits for M7"
 
 [[feature]]
 id = "keys.glide"
@@ -1087,8 +1107,14 @@ title = "Held arrow keys scroll smoothly; taps and page keys move by sensible st
 area = "K"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
+evidence = [
+    "crates/ui/tests/keys.rs::a_tap_moves_a_line_and_page_keys_nearly_a_screen",
+    "crates/ui/tests/keys.rs::a_held_arrow_glides_after_a_beat_and_stops_on_release",
+    "crates/ui/tests/keys.rs::a_jump_glides_and_only_its_landing_is_drawn",
+]
+notes = "A tap moves 8 % of the pane (40 to 80 pt), a page key 90 %; a held arrow glides at 1000 pt/s after 350 ms and stops on release or blur. Page jumps glide too, drawing only where they land. In paged modes page keys turn pages, where mareader scrolled"
 
 [[feature]]
 id = "a11y.labels"
@@ -1123,9 +1149,12 @@ title = "Closing the last pane on a book releases its textures, jobs and documen
 area = "L"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-runtime/src/services/document/close.rs"]
-notes = "A kittest proves textures and documents return to baseline on close; the RSS measurement comes at the memory audit"
+evidence = [
+    "crates/ui/tests/reading.rs::closing_the_last_pane_on_a_book_frees_its_textures",
+]
+notes = "Documents, rasters, text layers and jobs reach zero on close; RSS levels off over twelve open, read and close rounds (docs/memory.md, 2026-10-13)"
 
 [[feature]]
 id = "perf.caches-capped"
@@ -1163,4 +1192,9 @@ title = "Memory measured and recorded in docs/memory.md at each milestone"
 area = "L"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/reading.rs::one_file_in_two_panes_is_read_once_and_drawn_once",
+    "crates/ui/tests/reading.rs::closing_the_last_pane_on_a_book_frees_its_textures",
+]
+notes = "`crates/ui/examples/memory.rs` measures; the M2 audit is in docs/memory.md. Each later milestone adds a dated section"
