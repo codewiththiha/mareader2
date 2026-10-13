@@ -1,7 +1,7 @@
 # Roadmap
 
-**Stage:** M1 in progress (slices 1 to 3 of 6 done).
-**Parity:** 17.0 of 111 features (15.3 %, partial counts half). Run
+**Stage:** M1 done (the glass moved to M2 slice 3); M2 slice 1 done.
+**Parity:** 30.5 of 118 features (25.8 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -43,15 +43,34 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 3 | Settings window (`Modal`): tab strip; Layout, Theme, Animations, Workspace carry today's settings; later rows named with their milestone | **done** | gear button, `?settings=theme&panes=2` |
 | 4 | Settings crate: every mareader setting in our schema, persisted | **done** | change a setting, quit, relaunch |
 | 5 | Tooltips and toasts styled; overflow menu at narrow widths | **done** | narrow the window, `?open=menu`, `?toast=Saved` |
-| 6 | Glass blur behind the title bar (wgpu pass) | planned | pin the bar over a page |
+| 6 | Glass blur behind the title bar (wgpu pass) | **moved to M2 slice 3** | it needs pages to blur and reuses the page pass |
+
+## M2 slices
+
+Owner decision (2026-10-13): the glass waits for pages. M2 draws pages through
+a minimal page pass from slice 3, which the glass reuses; M3 adds the
+appearance effects to that same pass.
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | Open a PDF and scroll it: `pdf` crate (hayro), `session` (shared documents, worker pool, generations), virtualised vertical scroll at fit width, capped texture cache, the title from the document | **done** | `cargo run -p mareader -- book.pdf`, drop a PDF, `?pdf=sample` |
+| 2 | Zoom: fifteen presets, fit width and page, centre anchor, stretch then one crisp render, refit on resize and sidebar slide | planned | Ctrl +/−, the menu's zoom row |
+| 3 | The page pass (a wgpu callback drawing page textures) and the glass bar blur | planned | pin the bar and scroll a page under it |
+| 4 | View modes: single page with page turn, spread, horizontal strip | planned | the menu's view row |
+| 5 | Navigation: page counter with entry, outline, thumbnails, status bar | planned | sidebar panels, the counter |
+| 6 | Text selection and copy; internal and external links | planned | drag over text, click a link |
+| 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | planned | `docs/memory.md` |
 
 ## Next
 
-1. **Slice 6, the glass blur pass.**
-2. **M2, PDF viewing.**
+1. **M2 slice 2, zoom.**
+2. **M2 slice 3, the page pass and the glass.**
 
 ## Open questions for the owner
 
+- **Open dialog.** `rfd` gives native file dialogs but pulls in about fifty
+  crates (GTK portal or zbus on Linux). Until decided, files open from the
+  command line or by drag and drop.
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts).
 
@@ -69,3 +88,4 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2026-10-13 | M1 slice 5: tooltips are a themed chip (6 pt radius, small text) naming the shortcut when one exists. Toasts: one slot, bottom centre of the panes, 3.5 s, info or error tone, hover holds them, a dismiss button; used for refused splits and repaired settings. The View & tools menu at the end of the bar holds full screen (F11, ⌃⌘F on macOS), a shortcut list and the version; Settings, Search and the splits fold into it, leftmost first, when the bar lacks room. `keymap.rs` is the one table behind keys, tooltips and the list; ⌘, (Ctrl+,) opens settings |
 | 2026-10-13 | Owner decisions: independent twins stay (a second book id on the same file, `docs/library.md`); `unsafe` is allowed for the macOS traffic lights only. They now sit centred in the bar and fade with it (`apps/mareader/src/traffic_lights.rs`, feature `traffic-lights`); `cargo xtask unsafe` keeps every other file free of it |
 | 2026-10-13 | Traffic lights follow the sidebar: while a rail is drawn they sit in its header at full opacity and slide out with it; otherwise they come with the bar, and in overlay mode only with the rail (the bar then drops its gutter). The floating rail now slides like the docked one instead of fading. Off a Mac, `platform=mac` draws stand-in dots so this shows in shots and the preview |
+| 2026-10-13 | M1 closed; the glass moved into M2 (owner). M2 slice 1: `pdf` wraps hayro (open, page sizes, rasters, the title rule from mareader, a generated sample PDF); `session` shares documents across panes and runs a worker pool driven by per-frame demand, dropping stale jobs and results, capped at 32 finished items. Panes scroll a virtualised fit-width column with a 256 MiB texture cache; files open from the command line or by drop, `pdf=sample` in shots and the preview |
