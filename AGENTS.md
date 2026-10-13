@@ -7,35 +7,40 @@ day-to-day working instructions; if the two disagree, **this file wins.**
 ## Project
 
 mareader2 is a native rewrite of [mareader](https://github.com/codewiththiha/mareader)
-(Tauri + Leptos + pdf.js) in Rust with egui and wgpu. The goal is mareader's
-look and every one of its features, with a native app's memory and speed. It
-reads PDF (hayro) and EPUB (parley); mareader's txt and md formats are replaced
-by EPUB.
+(Tauri + Leptos + pdf.js) in Rust with egui and wgpu. The goal is every one of
+mareader's capabilities — reading, panes, blend, appearance, library, study
+tools — in a codebase that is smaller, faster, leaner on memory and easier to
+maintain. It reads PDF (hayro) and EPUB (parley); EPUB replaces mareader's txt
+and md formats.
 
-- **Look:** the same as mareader, pixel for pixel where egui allows. The spec is
-  `docs/look.md`; mareader's source is the authority behind it.
-- **Feature parity:** every user-facing feature has an entry in
+- **Parity is functional** (ADR 0005). What a mareader user can do, they can
+  do here, with equivalent settings. Pixels, timings and code structure are
+  not part of parity.
+- **The look is ours:** `docs/design.md`, starting from mareader's and free to
+  improve.
+- **Feature tracking:** every capability has an entry in
   `parity/mareader-features.toml`, checked by `cargo xtask parity`.
-- **Architecture:** `docs/architecture.md`. Decisions: `docs/adr/`.
+- **Architecture:** `docs/architecture.md` (read § How the app is built in
+  egui before writing UI). Decisions: `docs/adr/`.
 
 ## The reference checkout
 
 mareader is checked out beside this repository as `../mareader` (or at
-`MAREADER_DIR`). It is read-only reference.
+`MAREADER_DIR`). It is read-only reference for *what* a feature does.
 
-- **Port behaviour, not code.** mareader's crates are written for Tauri, Leptos,
-  the DOM and pdf.js. Do not add them as dependencies or copy their modules.
-  Pure logic (zoom maths, settings fields, colour maths) may be re-typed when it
-  is the clearest statement of the behaviour; say so in the commit body.
-- **Never write a mareader value from memory.** Every colour, size, duration,
-  default and string comes from a grep of `../mareader`, cited in `docs/look.md`
-  or in the parity entry's `reference`. Guessed values have been wrong here
-  before (icon button size, hover colour, caption timings).
-- **Read the comments around a mareader path before porting it.** They record
-  the regressions it already paid for.
-- When mareader behaves oddly (for example the sepia tint's magenta surface),
-  match it and record the question in `docs/adr/`. Fix it in both apps or
-  neither.
+- **Rebuild from the goal, not the code.** For each feature, work out what the
+  user gets and which edge cases matter, then design the smallest native model
+  that delivers it (`docs/porting.md`). Don't port module layouts, workaround
+  layers or web-only mechanisms; `docs/porting.md` § What not to port lists
+  them. Don't add mareader's crates as dependencies.
+- **Check claims about mareader against its source.** When a doc, test or
+  parity note says "mareader does X", grep `../mareader` first. Memory has been
+  wrong here before.
+- **Read the comments and tests around a mareader feature.** They record the
+  regressions it paid for; keep the ones that still apply to a native app.
+- **Improve freely, drop deliberately.** A better design for the same outcome
+  needs no permission; note it in the feature's doc. Removing something users
+  rely on is the owner's decision.
 
 ## Assets
 
@@ -127,7 +132,7 @@ Wanted, at one to three lines next to the thing it governs:
 
 - An invariant another file owns, or an order a callback depends on.
 - A unit, precision or width trap: points against pixels, `ms` against seconds,
-  the mareader CSS class a constant mirrors (`h-9`, `gap-1`).
+  a sRGB hue against an OKLCH one.
 - A hazard that makes the obvious edit wrong: a texture another pane still
   shows, a job result for a closed document, a frame that must be skipped.
 
@@ -153,18 +158,38 @@ design and the commit message for the decision — and neither is a comment.
 - Memory claims need measurements: what, how, workload, before and after, and
   known limits. Record them in `docs/memory.md`.
 
+## egui, natively
+
+The UI is immediate mode. Write it as egui code, not as a web app in egui
+syntax (`docs/architecture.md` § How the app is built in egui).
+
+- **State lives in plain structs** owned by `MareaderApp` or by L0–L3 types.
+  No signals, stores, observers or effects; no state mirrored in two places.
+  egui `Memory` holds only transient widget state.
+- **Views are functions** that take the state they show and push `Command`s.
+  They never mutate app state directly; `MareaderApp::apply` is the one place
+  commands take effect. Buttons, menus, shortcuts and drops share commands.
+- **Use egui's containers and widgets:** `Panel`, `Popup`, `Modal`, `Area`,
+  `ScrollArea::show_rows`, `Sides`, `Button`, `Slider`, `TextEdit`, drag and
+  drop via `dnd_*`. Write a custom widget only where egui has nothing close,
+  and give it an AccessKit label.
+- **The theme is `Style` and `Visuals`,** set once per appearance change. Views
+  don't pick colours; custom widgets read `Tokens`.
+- **Animate meaning, not decoration.** Hover is instant; motion goes through
+  `motion::secs` so the Animations switch can turn it off.
+- **Never block the UI thread.** I/O, parsing, raster and scans run on workers
+  that report over channels and call `request_repaint`.
+
 ## UI work: look at the result
 
 - **Every UI change is looked at, not assumed.** Render it with
   `cargo run -p mareader-ui --example shot -- OUT.png key=value…` (see
-  `CLAUDE.md`), open the PNG, and compare it with `docs/look.md` and, when in
-  doubt, with mareader running or its CSS. Check light, dark and one tint, and
-  each platform's chrome the change touches. Say what was checked.
+  `CLAUDE.md`), open the PNG, and check it against `docs/design.md`: light,
+  dark and one tint, wide and narrow, and each platform's chrome the change
+  touches. Say what was checked.
 - **Behaviour is tested with egui_kittest** (`crates/ui/tests/`): hover, click
   and keyboard through AccessKit labels, at 60 fps steps
-  (`with_step_dt(1.0 / 60.0)`). Every control has an accessible label.
-- **Motion obeys the master switch.** Durations go through `motion::secs`;
-  animations off skips the in-between frames, never the end state.
+  (`with_step_dt(1.0 / 60.0)`).
 
 ## Review every update, at four zooms
 
@@ -176,8 +201,8 @@ Not an end-of-task pass: a habit per update, so a defect is never built on.
   malformed. Is the return type honest?
 - **File:** two sources of truth, dead code, is the public surface smallest,
   is the doc comment still true?
-- **Project:** layering, teardown, idle frames, the parity entry and
-  `docs/look.md` still true.
+- **Project:** layering, teardown, idle frames, egui idioms, the parity entry
+  and `docs/design.md` still true.
 
 ## Testing
 
@@ -190,8 +215,8 @@ Not an end-of-task pass: a habit per update, so a defect is never built on.
 - Document runtime changes cover open → use → close, close during a render,
   rapid open/close/reopen, reader ↔ library, several panes, and stale results
   after close.
-- Port mareader's own test cases where they apply; cite them in the test name
-  or the parity entry.
+- Reuse mareader's test cases where the behaviour is the same; cite them in
+  the parity entry.
 
 ## Parity, honestly
 
@@ -247,7 +272,7 @@ machine is free.
 
 1. The change is implemented, and looked at (shots) if it touches UI.
 2. The gates above pass and `CI` is green for the pushed SHA.
-3. Docs describe the current behaviour: `docs/look.md` for the look,
+3. Docs describe the current behaviour: `docs/design.md` for the look,
    `docs/architecture.md` for structure, `docs/memory.md` for memory, and the
    parity entry for status.
 4. Every added comment passes the diff-blind test (`### Comments`) and

@@ -1,6 +1,7 @@
 # ADR 0002: EPUB via rbook + an XHTML subset + parley
 
-- **Status:** accepted, 2026-10-13; spike in M4 confirms the open questions
+- **Status:** accepted; parley confirmed by the owner, 2026-10-13. The M4 spike
+  answers the open questions below, not the choice
 - **Context:** EPUB replaces txt/md. mareader's text formats give full
   typography control:
   - families, size and weight;
