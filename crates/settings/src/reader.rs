@@ -12,6 +12,8 @@ pub struct ChromeSettings {
     pub library_titlebar_pinned: bool,
     /// The sidebar floats over the page rather than pushing it aside.
     pub sidebar_overlay: bool,
+    /// The bars blur the page behind them; off, they are solid.
+    pub glass: bool,
 }
 
 impl Default for ChromeSettings {
@@ -20,6 +22,7 @@ impl Default for ChromeSettings {
             titlebar_pinned: false,
             library_titlebar_pinned: true,
             sidebar_overlay: false,
+            glass: true,
         }
     }
 }
