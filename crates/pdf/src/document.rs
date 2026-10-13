@@ -8,6 +8,8 @@ use hayro::hayro_syntax::{LoadPdfError, Pdf};
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 
+use crate::outline::{self, OutlineEntry};
+
 /// More pages than this is treated as a broken file.
 pub const MAX_PAGES: usize = 100_000;
 /// A raster's longest side; larger pages render at a lower scale.
@@ -87,6 +89,7 @@ pub struct Document {
     pdf: Pdf,
     sizes: Vec<PageSize>,
     title: Option<String>,
+    outline: Vec<OutlineEntry>,
 }
 
 impl std::fmt::Debug for Document {
@@ -121,7 +124,13 @@ impl Document {
             })
             .collect();
         let title = pdf.metadata().title.as_deref().map(decode_text);
-        Ok(Self { pdf, sizes, title })
+        let outline = outline::read(&pdf);
+        Ok(Self {
+            pdf,
+            sizes,
+            title,
+            outline,
+        })
     }
 
     pub fn page_count(&self) -> usize {
@@ -130,6 +139,11 @@ impl Document {
 
     pub fn page_sizes(&self) -> &[PageSize] {
         &self.sizes
+    }
+
+    /// Chapters in reading order; empty when the file has none.
+    pub fn outline(&self) -> &[OutlineEntry] {
+        &self.outline
     }
 
     /// The `/Title` as written; see `display_name` for what to show.
@@ -193,7 +207,7 @@ fn fit_scale(size: PageSize, scale: f32) -> f32 {
 }
 
 /// A PDF text string: UTF-16 with a BOM, UTF-8 with one, else Latin-1.
-fn decode_text(bytes: &[u8]) -> String {
+pub(crate) fn decode_text(bytes: &[u8]) -> String {
     match bytes {
         [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
         [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),

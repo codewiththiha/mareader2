@@ -15,16 +15,32 @@ const BODY: [&str; 12] = [
     "Sphinx of black quartz, judge my vow.",
 ];
 
-/// `pages` pages titled `title`, each saying which page it is.
+/// Numbered pages with a chapter every five, two sections in each.
 pub fn pdf(pages: usize, title: &str) -> Vec<u8> {
     let pages = pages.max(1);
+    let extra = outline(&chapters(pages));
+    build(pages, title, "/Outlines {E0}", &extra)
+}
+
+/// For tests: `catalog` joins the catalog; `{E0}` … name `extra`.
+pub fn with_objects(pages: usize, catalog: &str, extra: &[String]) -> Vec<u8> {
+    build(pages.max(1), "Test", catalog, extra)
+}
+
+fn build(pages: usize, title: &str, catalog: &str, extra: &[String]) -> Vec<u8> {
     // 1 catalog, 2 page tree, 3 and 4 fonts, 5 info, then page pairs.
     let first = 6;
+    let base = first + 2 * pages;
+    let refs = |text: &str| {
+        (0..extra.len()).fold(text.to_string(), |t, i| {
+            t.replace(&format!("{{E{i}}}"), &format!("{} 0 R", base + i))
+        })
+    };
     let kids: Vec<String> = (0..pages)
         .map(|i| format!("{} 0 R", first + 2 * i))
         .collect();
     let mut objs = vec![
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        format!("<< /Type /Catalog /Pages 2 0 R {} >>", refs(catalog)),
         format!(
             "<< /Type /Pages /Kids [{}] /Count {pages} >>",
             kids.join(" ")
@@ -48,7 +64,58 @@ pub fn pdf(pages: usize, title: &str) -> Vec<u8> {
             text.len()
         ));
     }
+    objs.extend(extra.iter().map(|e| refs(e)));
     assemble(&objs)
+}
+
+/// The sample's chapters: title, 0-based page and depth.
+fn chapters(pages: usize) -> Vec<(String, usize, usize)> {
+    const NAMES: [&str; 6] = [
+        "Opening", "Zooming", "Reading", "Turning", "Finding", "Closing",
+    ];
+    const SECTIONS: [&str; 2] = ["Scrolling", "Spreads"];
+    let mut out = Vec::new();
+    for (k, start) in (0..pages).step_by(5).enumerate() {
+        let name = NAMES.get(k % NAMES.len()).copied().unwrap_or("More");
+        out.push((format!("Chapter {}: {name}", k + 1), start, 0));
+        for (j, (section, at)) in SECTIONS.iter().zip([1, 3]).enumerate() {
+            if start + at < pages {
+                out.push((format!("{}.{} {section}", k + 1, j + 1), start + at, 1));
+            }
+        }
+    }
+    out
+}
+
+/// The root, then one object per entry, linked as a tree.
+fn outline(entries: &[(String, usize, usize)]) -> Vec<String> {
+    let at = |i: usize| format!("{{E{}}}", i + 1);
+    let depth = |i: usize| entries.get(i).map_or(0, |e| e.2);
+    let mut objs = vec![format!(
+        "<< /Type /Outlines /First {{E1}} /Count {} >>",
+        entries.len()
+    )];
+    for (i, (title, page, d)) in entries.iter().enumerate() {
+        let parent = (0..i)
+            .rev()
+            .find(|&j| depth(j) + 1 == *d)
+            .map_or("{E0}".to_string(), at);
+        let mut obj = format!(
+            "<< /Title ({}) /Parent {parent} /Dest [{} 0 R /Fit]",
+            escape(title),
+            6 + 2 * page
+        );
+        if i + 1 < entries.len() && depth(i + 1) == d + 1 {
+            obj += &format!(" /First {}", at(i + 1));
+        }
+        let rest = entries.iter().enumerate().skip(i + 1);
+        let next = rest.take_while(|(_, e)| e.2 >= *d).find(|(_, e)| e.2 == *d);
+        if let Some((j, _)) = next {
+            obj += &format!(" /Next {}", at(j));
+        }
+        objs.push(obj + " >>");
+    }
+    objs
 }
 
 fn page_text(n: usize, total: usize, w: u32, h: u32) -> String {
