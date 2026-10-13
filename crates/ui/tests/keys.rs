@@ -220,3 +220,73 @@ fn with_zoom_ease_off_a_step_lands_on_its_first_frame() {
     h.run_steps(2);
     assert!((scale(&h) - 1.75).abs() < 0.01, "landed: {}", scale(&h));
 }
+
+#[test]
+fn find_opens_the_bar_which_holds_the_title_bar_until_escape() {
+    use egui_kittest::kittest::Queryable as _;
+    use mareader_ui::find_bar::LATER;
+    let mut h = reader(&[("pdf", "sample:20")]);
+    h.hover_at(egui::pos2(450.0, 400.0));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::F);
+    h.run();
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().find().pane(), Some(pane));
+    let _ = h.get_by_label(LATER);
+    // Well past the bar's grace, the open search keeps it.
+    h.run_steps(60);
+    assert!(h.state().titlebar().visible());
+    // The field takes typing: a bare j scrolls nothing.
+    let before = offset(&h);
+    h.event(egui::Event::Text("j".into()));
+    h.key_press(Key::J);
+    h.run();
+    assert_eq!(offset(&h), before);
+    h.key_press(Key::Escape);
+    h.run_steps(60);
+    assert!(!h.state().find().is_open());
+    assert!(!h.state().titlebar().visible(), "it hides again");
+}
+
+#[test]
+fn find_without_a_document_opens_the_library() {
+    let mut h = reader(&[]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::F);
+    h.run();
+    assert!(!h.state().find().is_open());
+    let sidebar = h.state().sidebar();
+    assert!(sidebar.is_open());
+    assert_eq!(sidebar.panel(), mareader_ui::sidebar::Panel::Library);
+}
+
+#[test]
+fn a_press_outside_the_find_bar_closes_it() {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::F);
+    h.run();
+    assert!(h.state().find().is_open());
+    let at = egui::pos2(200.0, 500.0);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+    h.run();
+    assert!(!h.state().find().is_open());
+}
+
+#[test]
+fn the_search_button_toggles_the_find_bar() {
+    use egui_kittest::kittest::Queryable as _;
+    let mut h = reader(&[("pdf", "sample:5"), ("pinned", "true")]);
+    h.get_by_label("Search").click();
+    h.run();
+    assert!(h.state().find().is_open());
+    h.get_by_label("Search").click();
+    h.run();
+    assert!(!h.state().find().is_open(), "its own button closes it");
+}

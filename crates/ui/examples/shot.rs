@@ -81,6 +81,8 @@ fn main() -> Result<(), String> {
                     page: page.saturating_sub(1),
                 });
             }
+            // The find bar, once open: `find=true`.
+            "find" => queued.push(Command::ShowFind),
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
