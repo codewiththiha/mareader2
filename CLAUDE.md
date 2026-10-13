@@ -1,0 +1,108 @@
+# mareader2 — instructions for agents
+
+mareader2 rebuilds [mareader](https://github.com/codewiththiha/mareader) natively
+in Rust (egui + wgpu, hayro for PDF, parley for EPUB). `AGENTS.md` holds the
+binding rules and wins over this file.
+
+## Start every session here
+
+1. Read `ROADMAP.md`: the current milestone, the **Next** list and the progress
+   log.
+2. Pick work with `cargo xtask parity --list planned` (or `partial`): the lowest
+   milestone first, then the highest tier (P0 before P1).
+3. Read the entry's `reference` paths in `../mareader`, the relevant section of
+   `docs/architecture.md`, and `docs/look.md` if it is visible.
+4. Port it with the protocol in `docs/porting.md` § How to port one feature:
+   numbers from mareader → failing test → egui implementation → look at the
+   result → parity entry and `ROADMAP.md`.
+5. At the end of the session, add a line to the `ROADMAP.md` progress log and
+   update its **Next** list.
+
+Don't stop to ask unless the decision is on the owner's list below.
+
+## Owner decisions (ask, don't guess)
+
+- Allowing any `unsafe` (the macOS traffic-light placement is the open case).
+- Adding a dependency that is heavy (over ~50 transitive crates), copyleft, or
+  replaces one named in an ADR.
+- Changing mareader's look or behaviour on purpose, including fixing the sepia
+  tint's magenta surface.
+- Adding an asset whose licence is not on the `AGENTS.md` list.
+- Dropping a parity feature.
+
+## Where things are
+
+| Path | What |
+|---|---|
+| `apps/mareader` | The binary: opens the window, runs `MareaderApp` |
+| `crates/ui` | The front layer: theme, icons, title bar, panes, shell (egui) |
+| `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
+| `crates/workspace` | The pane split tree and its layout (no egui) |
+| `xtask` | `layers`, `parity`, `assets`, `comments`, `ci` |
+| `parity/mareader-features.toml` | Every mareader feature, its status and evidence |
+| `docs/look.md` | The visual spec, each value traced to mareader |
+| `docs/architecture.md` | Layers, frame model, page pipeline, threads |
+| `docs/epub.md` | The EPUB pipeline and how mareader's typography maps onto it |
+| `docs/porting.md` | mareader crate → mareader2 crate, concept map, protocol |
+| `docs/memory.md` | Measured memory, budgets |
+| `docs/adr/` | Decisions: egui+wgpu, EPUB via parley, page textures, Lucide |
+| `tools/` | `commit_check.py`, `comment_check.py` (from mareader) |
+
+Planned crates (pdf, epub, reflow, library, settings, session, study) already
+have rows in the layer table in `xtask/src/layers.rs`. Create each when its
+milestone starts, not before.
+
+## Commands
+
+```sh
+cargo run -p mareader                       # the app
+cargo test -p mareader-ui -j 2              # one crate's tests
+cargo clippy -p mareader-ui -j 2 --all-targets -- -D warnings
+cargo xtask parity                          # progress by area and tier
+cargo xtask parity --list planned           # what is left
+cargo xtask layers                          # dependency rules
+cargo xtask assets                          # ATTRIBUTION.toml check
+cargo xtask comments                        # comment rule on changed files
+cargo xtask ci                              # the full sweep (CI does this)
+python3 tools/commit_check.py --install     # once per clone
+```
+
+`cargo xtask parity` checks `reference` paths against `../mareader` (or
+`MAREADER_DIR`) when the checkout is there, and says so when it is not.
+
+## The look loop
+
+The shell renders headlessly, so a UI change can be seen without a display:
+
+```sh
+cargo run -p mareader-ui --example shot -- /tmp/a.png \
+  platform=windows theme=dark pinned=true panes=2 hover=1180,20 size=1240x720
+```
+
+| Key | Values |
+|---|---|
+| `theme` | `light`, `dark`, `dim` (base mode) |
+| `preset` | `sepia`, `green`, `night`, `parchment`, `cinema` |
+| `platform` | `mac`, `windows`, `gnome` (chrome to draw) |
+| `pinned`, `chromeless`, `animations` | `true` / `false` |
+| `panes` | 1–4 (splits the newest pane, alternating right and down) |
+| `hover` | `x,y` in points: where the pointer rests |
+| `size` | `WxH` in points; output is at 2× |
+
+Open the PNG and compare it with `docs/look.md`. When the spec is unclear, go
+to the source it cites in `../mareader` (CSS under `styles/`, Rust under
+`crates/`). Interactions belong in kittest tests (`crates/ui/tests/shell.rs`
+shows the pattern: `Harness::builder().with_step_dt(1.0 / 60.0)`, `hover_at`,
+`get_by_label(..).click()`).
+
+## Working environment
+
+- Builds are heavy: always pass `-j 2` (or what the machine allows) and a
+  `timeout`. Scope to `-p <crate>`.
+- Parallel agents use separate `CARGO_TARGET_DIR`s and git worktrees.
+- Headless wgpu renders need a Vulkan driver; on Linux install
+  `mesa-vulkan-drivers` (lavapipe), as CI does.
+- egui-lucide puts colour in the texture key: icons are rasterised white and
+  tinted (`Icon::paint`). Don't pass colours to egui-lucide.
+- egui's named font families exist only from the second frame;
+  `MareaderApp::ui` skips frame one for that reason.
