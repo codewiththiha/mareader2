@@ -115,6 +115,7 @@ impl Toasts {
         let rise = (1.0 - opacity as f32) * 8.0;
         let anchor = pos2(area.center().x, area.bottom() - MARGIN + rise);
         let response = egui::Area::new(Id::new(("toast", s.id)))
+            .fade_in(false)
             .order(Order::Tooltip)
             .pivot(Align2::CENTER_BOTTOM)
             .fixed_pos(anchor)

@@ -195,7 +195,9 @@ impl Sidebar {
             return 0.0;
         }
         let rail = home.translate(vec2(width - WIDTH, 0.0));
+        // egui fades new areas in by default; this rail only slides.
         Area::new(Id::new("sidebar-float"))
+            .fade_in(false)
             .order(Order::Foreground)
             .fixed_pos(rail.min)
             .constrain(false)
