@@ -26,7 +26,7 @@ const HOLD_DELAY: f64 = 0.35;
 const HOLD_SPEED: f32 = 1000.0;
 /// A slow frame moves a held glide no further than this one would.
 const MAX_FRAME: f64 = 0.05;
-/// A page of another size refits once read this long (Auto Resize).
+/// Along a strip, a page of another size refits once read this long.
 const RESIZE_SETTLE: f64 = 0.25;
 /// Tiles wait for the view to rest this long, so a pan queues none.
 const TILE_REST: f64 = 0.25;
@@ -232,7 +232,7 @@ impl PdfView {
         }
     }
 
-    /// The scroll offset last frame.
+    /// Last frame's scroll, in content points; narrower pages sit centred.
     pub fn offset(&self) -> Vec2 {
         self.offset
     }
@@ -247,7 +247,7 @@ impl PdfView {
         self.go(page.min(count.saturating_sub(1)));
     }
 
-    /// Auto Resize: refits to a settled page; returns the wait left.
+    /// Auto Resize: refits to the page read; returns any wait left.
     fn follow_size(&mut self, sizes: &[PageSize], on: bool, now: f64) -> Option<f64> {
         let page = self.current;
         let fit_box = |p| layout::fit_box(self.mode, sizes, p);
@@ -255,6 +255,12 @@ impl PdfView {
         let gliding = self.jump.is_some() || self.aim.is_some();
         if !on || gliding || self.zoom.fit.is_none() || fit_box(page) == fit_box(self.zoom.fit_page)
         {
+            self.resize = None;
+            return None;
+        }
+        // A turn lands at once, so it refits at once: no wrong size shows.
+        if self.mode.paged() {
+            self.zoom.fit_page = page;
             self.resize = None;
             return None;
         }
