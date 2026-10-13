@@ -42,13 +42,13 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2 | Sidebar rail: docked slide or floating with edge reveal; switcher; band inset | **done** | sidebar button, `?sidebar=outline`, `?float=true` then the left edge |
 | 3 | Settings window (`Modal`): tab strip; Layout, Theme, Animations, Workspace carry today's settings; later rows named with their milestone | **done** | gear button, `?settings=theme&panes=2` |
 | 4 | Settings crate: every mareader setting in our schema, persisted | **done** | change a setting, quit, relaunch |
-| 5 | Tooltips and toasts styled; overflow menu at narrow widths | planned | narrow the window |
+| 5 | Tooltips and toasts styled; overflow menu at narrow widths | **done** | narrow the window, `?open=menu`, `?toast=Saved` |
 | 6 | Glass blur behind the title bar (wgpu pass) | planned | pin the bar over a page |
 
 ## Next
 
-1. **Slice 5, tooltips, toasts and the overflow menu.**
-2. **Slice 6, the glass blur pass.**
+1. **Slice 6, the glass blur pass.**
+2. **M2, PDF viewing.**
 
 ## Open questions for the owner
 
@@ -69,3 +69,4 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2026-10-13 | M1 slice 2: sidebar rail, docked (300 ms slide, panes give way) or floating (fade, 6 px edge reveal, 250 ms grace); header with close, search, settings and dock; panel switcher; Escape closes; the bar's band and macOS gutter start at the rail. The slide is our own eased width inside `egui::Panel::left`, because `show_collapsible` follows the global animation time and cannot honour the separate slide switch |
 | 2026-10-13 | M1 slice 3: settings window as an `egui::Modal` (620 × 640 at most; Escape and backdrop close it, and Escape no longer reaches the sidebar). Tab strip as in mareader (Animations only while the master is on, Fonts only for EPUB). Real rows: keep title bar shown, overlay sidebar, Animations, sidebar animation, split-pane look (outline thickness and colour, gap, corners, shadow). Every row of a later feature is a muted line naming its milestone, not a dead switch. Edits apply on the same frame |
 | 2026-10-13 | M1 slice 4: `crates/settings` (L2) holds every mareader setting, grouped by feature (chrome, layout, paper, motion, text, study, dictionary, workspace) with mareader's defaults and ranges. One schema `version` replaces mareader's one-shot gates; a migration step reads the shell's earlier blob. Loading never fails: a bad section resets alone, with a note. `import_mareader` maps mareader's JSON, halving pre-curve tints. Outline and gloss share one `Swatch` palette. Saved through eframe storage at most every 500 ms, on its persist thread, only when changed |
+| 2026-10-13 | M1 slice 5: tooltips are a themed chip (6 pt radius, small text) naming the shortcut when one exists. Toasts: one slot, bottom centre of the panes, 3.5 s, info or error tone, hover holds them, a dismiss button; used for refused splits and repaired settings. The View & tools menu at the end of the bar holds full screen (F11, ⌃⌘F on macOS), a shortcut list and the version; Settings, Search and the splits fold into it, leftmost first, when the bar lacks room. `keymap.rs` is the one table behind keys, tooltips and the list; ⌘, (Ctrl+,) opens settings |

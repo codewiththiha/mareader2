@@ -156,9 +156,10 @@ title = "Tooltips on every icon control"
 area = "A"
 tier = "P1"
 milestone = "M0"
-status = "partial"
+status = "shipped"
 reference = ["crates/app-chrome/src/tooltip.rs"]
-notes = "icon_button always attaches its label as hover text; no test yet"
+notes = "Every icon control has a themed tooltip chip; bound commands show their shortcut"
+evidence = ["crates/ui/tests/shell.rs::a_toolbar_tooltip_names_the_control_and_its_shortcut"]
 
 [[feature]]
 id = "chrome.toasts"
@@ -166,8 +167,10 @@ title = "Toasts for errors and results, dismissing themselves"
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "planned"
+status = "shipped"
 reference = ["crates/app-ui/src/components/primitives/overlay/toast.rs"]
+evidence = ["crates/ui/tests/shell.rs::a_toast_leaves_by_itself", "crates/ui/tests/shell.rs::reading_a_toast_keeps_it_up", "crates/ui/tests/shell.rs::a_refused_split_says_why"]
+notes = "One slot as in mareader: 3.5 s, info or error, hover holds it, a dismiss button. Undo actions join with undo (M5, M6)"
 
 [[feature]]
 id = "chrome.status-bar"
@@ -184,8 +187,10 @@ title = "Overflow menu: full screen and the shortcut reference"
 area = "A"
 tier = "P1"
 milestone = "M1"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-runtime/src/components/menus/reader_menu.rs"]
+evidence = ["crates/ui/tests/shell.rs::a_narrow_bar_folds_tools_into_the_menu", "crates/ui/tests/shell.rs::the_menu_lists_the_shortcuts_that_exist"]
+notes = "View & tools menu: tools the bar has no room for, full screen, the shortcut list. Zoom, modes and fit join it with PDF viewing (M2)"
 
 [[feature]]
 id = "chrome.loading-mark"
@@ -1043,6 +1048,7 @@ tier = "P0"
 milestone = "M2"
 status = "planned"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
+notes = "`crates/ui/src/keymap.rs` drives keys, tooltips and the reference; Settings and full screen are bound. Document keys join in M2"
 
 [[feature]]
 id = "keys.glide"

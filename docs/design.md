@@ -160,6 +160,22 @@ documents, caches and workers (ADR 0006).
 - A close button appears at the top right of a hovered pane, below the hover
   band.
 
+## Tooltips, toasts and the menu
+
+- **Tooltips.** `widgets::tip`: a chip on `surface` with a `line` edge,
+  radius 6, 12 pt text, the shortcut beside it in `muted`. 350 ms delay.
+- **Toasts.** `crates/ui/src/toast.rs`. One at a time, a new one replaces it;
+  bottom centre of the panes, 24 pt up, at most 480 pt wide. Info shows a
+  check in the accent, error an alert in `danger` with a tinted edge. Up
+  3.5 s; hovering holds it, then 1.5 s more; 200 ms fade and rise.
+- **View & tools menu.** The last button in the bar (`view_menu.rs`). It
+  holds full screen, the keyboard shortcut list and the version. When the
+  bar is narrow, Settings, Search and the splits fold into it, leftmost
+  first, so the title keeps 160 pt.
+- **Shortcuts.** `keymap.rs` is the only table: the handler, tooltips and
+  the list all read it, so they cannot disagree. macOS shows symbols (⌘,),
+  other desktops words (Ctrl+,).
+
 ## Icons
 
 Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
