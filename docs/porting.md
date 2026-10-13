@@ -1,65 +1,83 @@
-# Porting from mareader
+# Rebuilding mareader's features
 
 > **Status:** living map · **Last updated:** 2026-10-13
 
-mareader (`../mareader`, read-only) is the behavioural reference: what a
-feature does, its numbers, its edge cases and its tests. It is **not** a code
-source. Its crates are built for Tauri, Leptos signals, iframes and pdf.js, so
-features are rebuilt for egui here. The pure-logic crates are the exception:
-they are ported when they have no web types, keeping their tests.
+mareader (`../mareader`, read-only) is the specification of *what* the app does:
+its features, settings, edge cases and the regressions its comments record. It
+is not a code source and not a structure to copy (ADR 0005). Each feature is
+rebuilt from its goal, as the smallest native design that delivers it.
+
+## How to rebuild one feature
+
+1. **Pick** a `planned` entry in `parity/mareader-features.toml`: lowest
+   milestone first, then highest tier.
+2. **Find the goal.** Read the entry's `reference` paths, the README section and
+   any `Mareader.md` or `docs/` notes. Write down, in a sentence or two, what
+   the user gets.
+3. **List the behaviour worth keeping:** the settings and their ranges, the
+   edge cases a user would notice, the regressions recorded in comments and
+   tests. Leave out what exists only because of the browser or because of an
+   earlier design (the table below).
+4. **Design natively.** The smallest model in an L0–L3 crate (no egui), a view
+   that pushes `Command`s, egui's own widgets and containers. If the design
+   differs from mareader in a way users would notice, write it in the feature's
+   doc or an ADR; if it drops something users rely on, ask the owner.
+5. **Test first.** Unit tests on the model (port mareader's cases where they
+   apply), a kittest for the interaction. Watch each fail before the fix.
+6. **Look at it** with the shot tool: light, dark, a tint; wide and narrow.
+7. **Record:** the parity entry's status, evidence and notes; `docs/design.md`
+   if the look changed; a line in the `ROADMAP.md` progress log.
+
+## What not to port
+
+| mareader has | Because of | mareader2 uses |
+|---|---|---|
+| `frame-transport`, `runtime-contract`, `tauri-bridge`, pane iframes, `docs/pane-runtimes.md`, `docs/session-ownership.md` | A JS realm per pane and a Rust↔JS bridge | One process: a pane owns a `Session` struct |
+| Leptos signals, memos, effects, `app-state` stores | Reactive DOM rendering | Fields on plain structs; the code that changes a value does its follow-up; `Command`s |
+| `virtual-list`, `virtual-list-leptos` | DOM node counts | `ScrollArea::show_rows` / `show_viewport` |
+| The memory model's peaks, latches and floors (`docs/memory/*`) | pdf.js and canvas backing stores | Owned textures with byte-capped caches; measure in `docs/memory.md` |
+| Canvas release helpers, `WeakRef` registries | Garbage-collected DOM objects | `Drop` |
+| Custom pointer-drag engine, hold/drag/tap arbitration | Browser drag-and-drop limits | egui `dnd_*`, `Response` drag and long-press state |
+| Hidden DOM probes, resize observers | Measuring layout in a browser | `Galley` sizes, `Ui::available_size` |
+| Focus-reclaim tricks for key repeat | DOM focus moving with unmounted nodes | egui input is global: a keymap reads `InputState` |
+| The library's departures, rungs, name-conflict sheets, link rows, twins | Editable folder-mirror shelves (`docs/library.md`) | Read-only sources plus id-based shelves |
+| The txt and md pipelines (`txt-core`, `md-core`) | Formats now replaced | EPUB (`docs/epub.md`) |
+| Visual quirks (the sepia magenta) | An arc through hue space | Our design (`docs/design.md`) |
 
 ## Crate map
 
 | mareader | mareader2 | How |
 |---|---|---|
-| `reader-core/src/appearance` | `crates/appearance` | **ported** (M0): model, tokens, tint, filter chain, presets |
-| `reader-core/src/settings` | `crates/settings` | port types, serde names and defaults; drop CSS-specific helpers |
-| `reader-runtime/src/host/{tree,drop_target}` | `crates/workspace` | **ported** (M0): split tree, ratio clamps, edges |
-| `library-core` | `crates/library` | port; storage moves from localStorage to files |
-| `dict-core`, `cefr-core`, `ai-core` | `crates/study` | port the pure logic; transports are new |
-| `download-core` | inside `study` (dictionary packs) | port |
-| `pdf-core`, `pdf-engine`, `pdf-paper`, `public/pdfEngine.ts` | `crates/pdf` | **rebuild** on hayro; behaviour from the tests |
-| `txt-core`, `md-core`, `reflow-core` | `crates/reflow` + `crates/epub` | **replace**: EPUB, not txt/md (`docs/epub.md`) |
-| `virtual-list`, `virtual-list-leptos` | `egui::ScrollArea::show_viewport` + our own row math | rebuild |
-| `app-chrome` | `crates/ui/src/{titlebar,widgets,resize,platform}.rs` | **rebuilt** (M0); spec in `docs/look.md` |
-| `app-ui`, `app-state`, `reader-runtime` (components) | `crates/ui` | rebuild view by view |
-| `frame-transport`, `runtime-contract`, `tauri-bridge`, `storage` | — | **dropped**: no realms or bridge in one process |
-| `src-tauri/src/{ai,cefr,dict,download.rs}` | `crates/study` + `crates/ui` | rebuild; the Apple Intelligence bridge needs a design (M6) |
-| `styles/*.css` | `crates/ui/src/theme.rs` + painters | tokens and metrics in `docs/look.md` |
+| `reader-core/src/appearance` | `crates/appearance` | **rebuilt** (M0): model, tokens, filter chain, presets |
+| `reader-core/src/settings` | `crates/settings` (M1) | the same settings, our schema; a mareader import is optional |
+| `reader-runtime/src/host/{tree,drop_target}` | `crates/workspace` | **rebuilt** (M0): split tree, limits, drop edges |
+| `library-core`, `library-runtime` | `crates/library` (M5) | **redesigned** (`docs/library.md`) |
+| `dict-core`, `cefr-core`, `ai-core`, `download-core` | `crates/study` (M6) | the behaviour; transports are new |
+| `pdf-core`, `pdf-engine`, `pdf-paper` | `crates/pdf` (M2) | on hayro; paper-colour detection for blend |
+| `reflow-core` (+ `txt-core`, `md-core`) | `crates/reflow` + `crates/epub` (M4) | EPUB via parley |
+| `app-chrome`, `app-ui`, `reader-runtime` components | `crates/ui` | view by view, egui-native |
+| `src-tauri/src/{ai,cefr,dict,download.rs}` | `crates/study` + `crates/ui` | the Apple Intelligence bridge needs a design (M6) |
+| `styles/*.css` | `crates/ui/src/theme.rs` | `docs/design.md` |
 
 ## Concept map
 
 | In mareader | In mareader2 |
 |---|---|
-| Leptos signal / memo | a field on the app or view struct; derived values computed in `ui` |
-| An effect that reacts | the code that changes the value also does the follow-up |
-| CSS `transition` | `ctx.animate_bool_with_time` / `animate_value_with_time` with `motion::secs` |
-| `backdrop-filter: blur` | a wgpu blur pass under the bar (M1); until then glass at 96 % |
-| CSS `filter` on the page | the page pass (ADR 0003) |
-| `mix-blend-mode` texture | the page pass blend family |
-| DOM text layer | glyph geometry plus painted selection rectangles |
-| `aria-*` | `Response::widget_info` (accesskit); kittest finds widgets by these labels |
-| iframe disposal + counters | `Drop` + job cancellation + a texture-count test |
-| localStorage `mareader.settings.v1` | eframe storage under the same key (JSON) |
-| `setTimeout` / rAF | `request_repaint_after` and frame time |
-| browser smoke tests | kittest + `examples/shot.rs` screenshots |
-
-## How to port one feature
-
-1. Pick a `planned` entry in `parity/mareader-features.toml` with the lowest
-   milestone and highest tier.
-2. Read its `reference` paths in `../mareader`: the code, the comments that
-   record past regressions, and the tests. Write down the numbers.
-3. Write the failing test in mareader2 first. Port mareader's test cases where
-   they apply.
-4. Implement for egui. Keep egui out of L0–L3.
-5. Look at the result: `shot` before and after, at desktop and narrow sizes, in
-   light, dark and a tint.
-6. Set the parity entry to `shipped` or `partial` with evidence and honest
-   notes, and update `ROADMAP.md`.
+| A component with props and signals | `fn show(ui, &state, &mut Commands)` |
+| An event handler that mutates a store | push a `Command`; `MareaderApp::apply` changes state |
+| CSS variables and classes | `Style` / `Visuals` from `theme::apply`, `Tokens` for custom widgets |
+| CSS `transition` | nothing (egui hover is instant), or `animate_*` where motion helps |
+| `backdrop-filter: blur` | a wgpu blur pass under the bar (M1) |
+| CSS `filter` / `mix-blend-mode` on the page | the page pass (ADR 0003) |
+| DOM text layer | glyph geometry and painted selection rectangles |
+| `aria-*` | AccessKit via `WidgetInfo`; kittest finds widgets by label |
+| `setTimeout`, rAF | `request_repaint_after`, frame time |
+| localStorage | serde files written atomically |
+| Browser smoke tests | kittest and the shot tool |
 
 ## Revision history
 
 | Date | Summary |
 |---|---|
 | 2026-10-13 | Created with the M0 foundation |
+| 2026-10-13 | Rebuild from goals, not ports (ADR 0005); what not to port |

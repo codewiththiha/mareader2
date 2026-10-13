@@ -1,14 +1,14 @@
 # mareader2
 
 A native rewrite of [mareader](https://github.com/codewiththiha/mareader), the
-calm PDF reader, in Rust with egui and wgpu. Same look, same features, a
-fraction of the memory: no webview, no JavaScript, pages rendered by
-[hayro](https://github.com/LaurenzV/hayro) and books laid out by
-[parley](https://github.com/linebender/parley).
+calm PDF reader, in Rust with egui and wgpu. Everything mareader does, in a
+smaller and cleaner codebase with a fraction of the memory: no webview, no
+JavaScript, pages rendered by [hayro](https://github.com/LaurenzV/hayro) and
+books laid out by [parley](https://github.com/linebender/parley).
 
 **Status:** foundation (M0). The shell runs: the hover-reveal title bar with
-pin, macOS, Windows and GNOME caption styles, frameless resizing, split panes and
-mareader's appearance model. Opening documents starts at M2. See
+pin, macOS, Windows and GNOME window controls, frameless resizing, split panes
+and the appearance model (light, dark, dim, tints, presets). Opening documents starts at M2. See
 [`ROADMAP.md`](ROADMAP.md).
 
 ## What it will read
@@ -45,14 +45,14 @@ crates/appearance  base modes, tints, filters, presets, tokens
 crates/workspace   the pane split tree
 xtask              layers, parity, assets, comments, ci
 parity/            every mareader feature and its status
-docs/              look, architecture, EPUB, porting, memory, ADRs
+docs/              design, architecture, library, EPUB, porting, memory, ADRs
 ```
 
 ## Contributing
 
 Read [`AGENTS.md`](AGENTS.md) (the rules) and [`CLAUDE.md`](CLAUDE.md) (how to
-work here). Work is ported one feature at a time from a mareader checkout at
-`../mareader`.
+work here). Features are rebuilt one at a time, using a mareader checkout at
+`../mareader` as the reference for what each one does.
 
 ## Licence
 

@@ -10,11 +10,12 @@ binding rules and wins over this file.
    log.
 2. Pick work with `cargo xtask parity --list planned` (or `partial`): the lowest
    milestone first, then the highest tier (P0 before P1).
-3. Read the entry's `reference` paths in `../mareader`, the relevant section of
-   `docs/architecture.md`, and `docs/look.md` if it is visible.
-4. Port it with the protocol in `docs/porting.md` § How to port one feature:
-   numbers from mareader → failing test → egui implementation → look at the
-   result → parity entry and `ROADMAP.md`.
+3. Read the entry's `reference` paths in `../mareader` to learn the goal and the
+   edge cases, `docs/architecture.md` § How the app is built in egui, and
+   `docs/design.md` if it is visible.
+4. Rebuild it with `docs/porting.md` § How to rebuild one feature: goal →
+   behaviour worth keeping → native design → failing test → implementation →
+   look at the result → parity entry and `ROADMAP.md`.
 5. At the end of the session, add a line to the `ROADMAP.md` progress log and
    update its **Next** list.
 
@@ -24,9 +25,9 @@ Don't stop to ask unless the decision is on the owner's list below.
 
 - Allowing any `unsafe` (the macOS traffic-light placement is the open case).
 - Adding a dependency that is heavy (over ~50 transitive crates), copyleft, or
-  replaces one named in an ADR.
-- Changing mareader's look or behaviour on purpose, including fixing the sepia
-  tint's magenta surface.
+  replaces one named in an ADR (parley for EPUB is settled).
+- Dropping or changing a behaviour mareader users rely on. (Improving the
+  look or the design for the same outcome needs no permission.)
 - Adding an asset whose licence is not on the `AGENTS.md` list.
 - Dropping a parity feature.
 
@@ -38,14 +39,16 @@ Don't stop to ask unless the decision is on the owner's list below.
 | `crates/ui` | The front layer: theme, icons, title bar, panes, shell (egui) |
 | `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
 | `crates/workspace` | The pane split tree and its layout (no egui) |
+| `crates/ui/src/command.rs` | `Command`: every user intent, applied in `MareaderApp::apply` |
 | `xtask` | `layers`, `parity`, `assets`, `comments`, `ci` |
 | `parity/mareader-features.toml` | Every mareader feature, its status and evidence |
-| `docs/look.md` | The visual spec, each value traced to mareader |
+| `docs/design.md` | The design system: colour, type, metrics, chrome, motion |
+| `docs/library.md` | The library redesign: goals, model, UI |
 | `docs/architecture.md` | Layers, frame model, page pipeline, threads |
 | `docs/epub.md` | The EPUB pipeline and how mareader's typography maps onto it |
-| `docs/porting.md` | mareader crate → mareader2 crate, concept map, protocol |
+| `docs/porting.md` | How to rebuild a feature, what not to port, crate and concept maps |
 | `docs/memory.md` | Measured memory, budgets |
-| `docs/adr/` | Decisions: egui+wgpu, EPUB via parley, page textures, Lucide |
+| `docs/adr/` | Decisions: egui+wgpu, EPUB via parley, page textures, Lucide, functional parity |
 | `tools/` | `commit_check.py`, `comment_check.py` (from mareader) |
 
 Planned crates (pdf, epub, reflow, library, settings, session, study) already
@@ -89,9 +92,8 @@ cargo run -p mareader-ui --example shot -- /tmp/a.png \
 | `hover` | `x,y` in points: where the pointer rests |
 | `size` | `WxH` in points; output is at 2× |
 
-Open the PNG and compare it with `docs/look.md`. When the spec is unclear, go
-to the source it cites in `../mareader` (CSS under `styles/`, Rust under
-`crates/`). Interactions belong in kittest tests (`crates/ui/tests/shell.rs`
+Open the PNG and check it against `docs/design.md`. If something looks worse
+than mareader, improve it and update the doc. Interactions belong in kittest tests (`crates/ui/tests/shell.rs`
 shows the pattern: `Harness::builder().with_step_dt(1.0 / 60.0)`, `hover_at`,
 `get_by_label(..).click()`).
 
