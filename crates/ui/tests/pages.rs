@@ -199,3 +199,49 @@ fn a_deep_zoom_draws_tiles_once_the_view_rests() {
     let bytes = h.state().documents().meter().page_bytes;
     assert!(bytes < mareader_ui::pages::CAP_BYTES, "{bytes}");
 }
+
+/// The leftmost and rightmost edges of the pages on screen.
+fn span(h: &H) -> (f32, f32) {
+    let rects = sheets(h);
+    let left = rects.iter().map(|r| r.min.x).fold(f32::MAX, f32::min);
+    let right = rects.iter().map(|r| r.max.x).fold(f32::MIN, f32::max);
+    (left, right)
+}
+
+#[test]
+fn a_turn_to_a_spread_of_other_sizes_fits_on_landing() {
+    let mut h = reader(&[("pdf", "sample:20")]);
+    h.state_mut()
+        .queue(Command::View(mareader_ui::layout::ViewMode::Spread));
+    h.run();
+    let pane = h.state().active_pane();
+    // Pages 7 and 8: one on its side, one upright. Then two upright.
+    for page in [6, 2, 13] {
+        h.state_mut().queue(Command::GoTo { pane, page });
+        h.run();
+        let (left, right) = span(&h);
+        assert!(
+            left.abs() < 0.5 && (right - 900.0).abs() < 0.5,
+            "{page}: {left}..{right}"
+        );
+    }
+}
+
+#[test]
+fn a_strip_centres_upright_pages_in_its_widest_column() {
+    let h = reader(&[("pdf", "sample:20")]);
+    let (z, _) = zoom(&h);
+    let pane = h.state().active_pane();
+    let offset = h.state().documents().offset(pane).unwrap_or_default();
+    // Page 7 lies on its side, so the column is 792 points wide.
+    let centred = (792.0 - 612.0) * z / 2.0;
+    assert!(
+        (offset.x - centred).abs() < 0.5,
+        "{offset:?} want {centred}"
+    );
+    let first = sheets(&h)[0];
+    assert!(
+        first.min.x.abs() < 0.5,
+        "fitted, the page fills the pane: {first:?}"
+    );
+}
