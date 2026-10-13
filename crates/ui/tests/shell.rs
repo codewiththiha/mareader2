@@ -478,3 +478,73 @@ fn repaired_settings_say_so() {
     let tone = app.toast().map(|t| t.tone);
     assert_eq!(tone, Some(mareader_ui::toast::Tone::Error));
 }
+
+fn lights(h: &Harness<'static, MareaderApp>) -> mareader_ui::platform::NativeLights {
+    h.state().native_lights()
+}
+
+#[test]
+fn an_open_sidebar_keeps_the_lights_while_the_bar_hides() {
+    let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
+    h.hover_at(egui::pos2(700.0, 500.0));
+    wait(&mut h, 1.0);
+    assert!(!h.state().titlebar().visible());
+    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
+}
+
+#[test]
+fn closing_the_sidebar_slides_the_lights_away() {
+    let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
+    h.hover_at(egui::pos2(700.0, 500.0));
+    wait(&mut h, 1.0);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::CloseSidebar);
+    wait(&mut h, 0.15);
+    let mid = lights(&h);
+    assert!(
+        mid.shift < 0.0 && mid.shift > -mareader_ui::sidebar::WIDTH,
+        "{mid:?}"
+    );
+    assert_eq!(mid.opacity, 1.0, "they ride the rail, no fade");
+    wait(&mut h, 0.5);
+    assert_eq!(lights(&h).opacity, 0.0, "gone with it; the bar is hidden");
+}
+
+#[test]
+fn without_a_sidebar_the_lights_come_with_the_bar() {
+    let mut h = with(&[("platform", "mac")]);
+    h.hover_at(egui::pos2(700.0, 500.0));
+    wait(&mut h, 1.0);
+    assert_eq!(lights(&h).opacity, 0.0);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
+}
+
+#[test]
+fn in_overlay_mode_the_lights_slide_in_with_the_rail_only() {
+    let mut h = with(&[("platform", "mac"), ("float", "true")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    assert!(h.state().titlebar().visible());
+    assert_eq!(lights(&h).opacity, 0.0, "the bar never hosts them here");
+    h.hover_at(egui::pos2(2.0, 400.0));
+    wait(&mut h, 0.12);
+    h.hover_at(egui::pos2(100.0, 400.0));
+    let mid = lights(&h);
+    assert!(mid.shift < 0.0 && mid.opacity == 1.0, "{mid:?}");
+    wait(&mut h, 0.5);
+    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
+}
+
+#[test]
+fn the_overlay_bar_leaves_no_gutter_for_lights() {
+    let mut h = with(&[("platform", "mac"), ("float", "true")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    assert!(h.get_by_label("Library").rect().left() < 20.0);
+    let mut h = with(&[("platform", "mac")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    assert!(h.get_by_label("Toggle sidebar").rect().left() >= 80.0);
+}
