@@ -49,6 +49,7 @@ jobs:
       - run: cargo xtask layers
       - run: cargo xtask parity
       - run: cargo xtask assets
+      - run: cargo xtask unsafe
 
   platforms:
     name: Build / ${{ matrix.os }}

@@ -7,6 +7,7 @@ mod assets;
 mod gates;
 mod layers;
 mod parity;
+mod unsafety;
 
 type Command = fn(&[String]) -> Result<(), String>;
 
@@ -27,13 +28,18 @@ const COMMANDS: &[(&str, &str, Command)] = &[
         assets::run,
     ),
     (
+        "unsafe",
+        "Keep `unsafe` to the audited module (apps/mareader/src/traffic_lights.rs)",
+        unsafety::run,
+    ),
+    (
         "comments",
         "Comment rule on Rust files changed from main (tools/comment_check.py)",
         gates::comments,
     ),
     (
         "ci",
-        "fmt, clippy -D warnings, tests, layers, parity, assets; stops at the first failure",
+        "fmt, clippy -D warnings, tests, layers, parity, assets, unsafe; stops at the first failure",
         gates::ci,
     ),
 ];
