@@ -1,0 +1,287 @@
+//! Selecting text across a pane's pages, and the links among it.
+
+use std::ops::Range;
+use std::sync::Arc;
+
+use egui::{Color32, CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2, vec2};
+use mareader_pdf::{Bounds, LinkTarget};
+use mareader_session::{DocId, TextLayer};
+
+use crate::texts::TextLayers;
+
+/// Fastest a drag past the pane's edge scrolls, in points per frame.
+const EDGE_SCROLL: f32 = 24.0;
+
+/// A spot between two characters of a page's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Caret {
+    pub page: usize,
+    pub index: usize,
+}
+
+/// Where a drag began and where it is now; either may come first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    pub anchor: Caret,
+    pub focus: Caret,
+}
+
+impl Selection {
+    /// Characters `range` of one page.
+    pub fn within(page: usize, range: Range<usize>) -> Self {
+        Self {
+            anchor: Caret {
+                page,
+                index: range.start,
+            },
+            focus: Caret {
+                page,
+                index: range.end,
+            },
+        }
+    }
+
+    pub fn ordered(self) -> (Caret, Caret) {
+        if self.anchor <= self.focus {
+            (self.anchor, self.focus)
+        } else {
+            (self.focus, self.anchor)
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.anchor == self.focus
+    }
+
+    /// The first and last page touched, for anything acting on them.
+    pub fn pages(self) -> Range<usize> {
+        let (a, b) = self.ordered();
+        a.page..b.page + 1
+    }
+
+    /// The characters selected on `page`, of its `len`; none if empty.
+    pub fn on_page(self, page: usize, len: usize) -> Option<Range<usize>> {
+        let (a, b) = self.ordered();
+        if !(a.page..=b.page).contains(&page) {
+            return None;
+        }
+        let start = if page == a.page { a.index.min(len) } else { 0 };
+        let end = if page == b.page {
+            b.index.min(len)
+        } else {
+            len
+        };
+        (start < end).then_some(start..end)
+    }
+
+    /// The selected text, pages joined by line breaks.
+    pub fn text(self, mut layer: impl FnMut(usize) -> Option<Arc<TextLayer>>) -> String {
+        let mut parts = Vec::new();
+        for page in self.pages() {
+            let Some(l) = layer(page) else { continue };
+            if let Some(range) = self.on_page(page, l.text.len()) {
+                parts.push(l.text.text(range));
+            }
+        }
+        parts.join("\n")
+    }
+}
+
+/// A page on screen: its rect and points-to-screen scale.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sheet {
+    pub page: usize,
+    pub rect: Rect,
+    pub scale: f32,
+}
+
+impl Sheet {
+    /// A screen point in page points, origin top left.
+    pub fn to_page(self, p: Pos2) -> (f32, f32) {
+        let at = (p - self.rect.min) / self.scale;
+        (at.x, at.y)
+    }
+
+    /// A box in page points, on screen.
+    pub fn to_screen(self, b: Bounds) -> Rect {
+        let at = |x: f32, y: f32| self.rect.min + vec2(x, y) * self.scale;
+        Rect::from_min_max(at(b.x0, b.y0), at(b.x1, b.y1))
+    }
+
+    fn distance(self, p: Pos2) -> f32 {
+        self.rect.distance_to_pos(p)
+    }
+}
+
+/// What the pointer did over a pane's pages this frame.
+#[derive(Debug, Default)]
+pub struct Outcome {
+    pub follow: Option<LinkTarget>,
+}
+
+/// The pages' texts as one pane sees them.
+pub struct Pages<'a> {
+    pub doc: DocId,
+    pub sheets: &'a [Sheet],
+    pub texts: &'a TextLayers,
+}
+
+impl Pages<'_> {
+    fn under(&self, p: Pos2) -> Option<(Sheet, Arc<TextLayer>)> {
+        let sheet = *self.sheets.iter().find(|s| s.rect.contains(p))?;
+        Some((sheet, self.texts.get(self.doc, sheet.page)?))
+    }
+
+    /// The caret a drag at `p` means: on the nearest page, held to it.
+    fn caret(&self, p: Pos2) -> Option<Caret> {
+        let sheet = self
+            .sheets
+            .iter()
+            .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))?;
+        let layer = self.texts.get(self.doc, sheet.page)?;
+        let (x, y) = sheet.to_page(p.clamp(sheet.rect.min, sheet.rect.max));
+        Some(Caret {
+            page: sheet.page,
+            index: layer.text.caret_at(x, y),
+        })
+    }
+
+    /// A double click's word, or a triple click's line.
+    fn unit(&self, p: Pos2, line: bool) -> Option<Selection> {
+        let (sheet, layer) = self.under(p)?;
+        let (x, y) = sheet.to_page(p);
+        let at = layer.text.char_at(x, y)?;
+        let range = if line {
+            layer.text.line_at(at)
+        } else {
+            layer.text.word_at(at)
+        };
+        Some(Selection::within(sheet.page, range))
+    }
+}
+
+/// Drags select, clicks pick words or lines, a link click is returned.
+pub fn interact(
+    ui: &Ui,
+    area: Rect,
+    pages: &Pages<'_>,
+    selection: &mut Option<Selection>,
+) -> Outcome {
+    let response = ui.interact(area, ui.id().with("text"), Sense::click_and_drag());
+    let mut out = Outcome::default();
+    let hovered = response
+        .hover_pos()
+        .and_then(|p| pages.under(p).map(|u| (p, u)));
+    let link = hovered.as_ref().and_then(|(p, (sheet, layer))| {
+        let (x, y) = sheet.to_page(*p);
+        let over_text = layer.text.char_at(x, y).is_some();
+        if over_text && !response.dragged() {
+            ui.ctx().set_cursor_icon(CursorIcon::Text);
+        }
+        layer.link_at(x, y).map(|l| l.target.clone())
+    });
+    if response.drag_started() {
+        let origin = ui.input(|i| i.pointer.press_origin());
+        *selection = origin.and_then(|p| pages.caret(p)).map(|c| Selection {
+            anchor: c,
+            focus: c,
+        });
+    }
+    if response.dragged() {
+        ui.ctx().set_cursor_icon(CursorIcon::Text);
+        if let Some(p) = response.interact_pointer_pos() {
+            if let (Some(sel), Some(c)) = (selection.as_mut(), pages.caret(p)) {
+                sel.focus = c;
+            }
+            edge_scroll(ui, area, p);
+        }
+    } else if let Some(target) = &link {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        tooltip(&response, target);
+    }
+    if response.clicked() {
+        let p = response.interact_pointer_pos();
+        let unit = |line| p.and_then(|p| pages.unit(p, line));
+        if response.triple_clicked() {
+            *selection = unit(true);
+        } else if response.double_clicked() {
+            *selection = unit(false);
+        } else {
+            *selection = None;
+            out.follow = link;
+        }
+    }
+    out
+}
+
+fn tooltip(response: &Response, target: &LinkTarget) {
+    let text = match target {
+        LinkTarget::Page(page) => format!("Go to page {}", page + 1),
+        LinkTarget::Web(url) => url.clone(),
+    };
+    response.clone().on_hover_text_at_pointer(text);
+}
+
+/// Dragging past an edge scrolls on, faster the further out.
+fn edge_scroll(ui: &Ui, area: Rect, p: Pos2) {
+    let past = |v: f32, lo: f32, hi: f32| {
+        let d = if v < lo {
+            lo - v
+        } else if v > hi {
+            hi - v
+        } else {
+            0.0
+        };
+        d.clamp(-EDGE_SCROLL, EDGE_SCROLL)
+    };
+    let delta = Vec2::new(
+        past(p.x, area.left(), area.right()),
+        past(p.y, area.top(), area.bottom()),
+    );
+    if delta != Vec2::ZERO {
+        ui.scroll_with_delta(delta);
+        ui.ctx().request_repaint();
+    }
+}
+
+/// Tints the selected characters, one band per line.
+pub fn paint(ui: &Ui, pages: &Pages<'_>, selection: Selection, tint: Color32) {
+    let painter = ui.painter();
+    for sheet in pages.sheets {
+        let Some(layer) = pages.texts.get(pages.doc, sheet.page) else {
+            continue;
+        };
+        let Some(range) = selection.on_page(sheet.page, layer.text.len()) else {
+            continue;
+        };
+        for b in layer.text.boxes(range) {
+            painter.rect_filled(sheet.to_screen(b).intersect(sheet.rect), 1.0, tint);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn caret(page: usize, index: usize) -> Caret {
+        Caret { page, index }
+    }
+
+    #[test]
+    fn a_selection_spans_pages_whichever_way_it_was_dragged() {
+        let up = Selection {
+            anchor: caret(3, 5),
+            focus: caret(1, 10),
+        };
+        assert_eq!(up.ordered(), (caret(1, 10), caret(3, 5)));
+        assert_eq!(up.pages(), 1..4);
+        assert_eq!(up.on_page(0, 50), None);
+        assert_eq!(up.on_page(1, 50), Some(10..50));
+        assert_eq!(up.on_page(2, 50), Some(0..50));
+        assert_eq!(up.on_page(3, 50), Some(0..5));
+        // A caret past a page's text holds to its end.
+        assert_eq!(up.on_page(1, 4), None);
+        assert!(Selection::within(2, 4..4).is_empty());
+    }
+}

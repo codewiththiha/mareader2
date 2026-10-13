@@ -496,7 +496,9 @@ impl eframe::App for MareaderApp {
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
-        if escape && self.sidebar.is_open() && !modal && !egui::Popup::is_any_open(&ctx) {
+        let free = escape && !modal && !egui::Popup::is_any_open(&ctx);
+        // A selection takes Escape before the sidebar does.
+        if free && !self.documents.clear_selection(self.active) && self.sidebar.is_open() {
             commands.push(Command::CloseSidebar);
         }
         let overlay = self.settings.chrome.sidebar_overlay;

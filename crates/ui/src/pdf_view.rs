@@ -2,12 +2,17 @@
 
 use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
+use std::sync::Arc;
+
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
-use mareader_session::{DocId, Document, PageKey, Scale};
+use mareader_pdf::{LinkTarget, web_address};
+use mareader_session::{DocId, Document, PageKey, Scale, Want};
 
 use crate::gpu::{PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, Inputs, Layout, MARGIN, ViewMode};
 use crate::pages::{Lookup, PageCache, PageTexture};
+use crate::selection::{self, Pages, Selection, Sheet};
+use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
 
@@ -19,12 +24,14 @@ const PREFETCH: usize = 1;
 pub enum Urgency {
     ActivePane,
     OtherPane,
+    /// Text under the pointer matters more than a thumbnail.
+    Text,
     Thumbnail,
     Prefetch,
 }
 
-/// The frame's page requests from every pane.
-pub type Demand = Vec<(Urgency, PageKey)>;
+/// The frame's requests from every pane.
+pub type Demand = Vec<(Urgency, Want)>;
 
 /// One pane's view of a document; the document itself is shared.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +54,9 @@ pub struct PdfView {
     pub current: usize,
     /// How far through the document, 0 to 1.
     pub progress: f32,
+    pub selection: Option<Selection>,
+    /// Pages on screen last frame, where they sat.
+    pub sheets: Vec<Sheet>,
 }
 
 impl PdfView {
@@ -64,6 +74,8 @@ impl PdfView {
             visible: 0..0,
             current: 0,
             progress: 0.0,
+            selection: None,
+            sheets: Vec::new(),
         }
     }
 
@@ -131,6 +143,7 @@ pub struct ViewContext {
 pub struct Sinks<'a> {
     pub pages: &'a mut PageCache,
     pub demand: &'a mut Demand,
+    pub texts: &'a mut TextLayers,
     /// GPU pages drawn this frame, for the glass to blur.
     pub drawn: &'a mut Vec<Quad>,
     pub pass: Option<&'a std::sync::Arc<PagePass>>,
@@ -140,6 +153,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let Sinks {
         pages,
         demand,
+        texts,
         drawn,
         pass,
     } = io;
@@ -231,6 +245,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         area = area.scroll_offset(to);
     }
     let mut shown_pages = 0..0;
+    let mut sheets = Vec::new();
+    let mut follow = None;
+    let doc_id = view.doc;
+    let selection = &mut view.selection;
     let out = area
         .auto_shrink(false)
         .content_margin(0.0)
@@ -252,9 +270,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 let rect = rect.translate(origin).round_to_pixels(ppp);
                 let look = pages.lookup(key(page));
                 if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
-                    demand.push((urgency, key(page)));
+                    demand.push((urgency, key(page).into()));
+                }
+                if !texts.touch(doc_id, page) {
+                    demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
                 paint_page(ui, rect, look, &t, &mut quads);
+                let width = sizes.get(page).map_or(1.0, |s| s.width);
+                sheets.push(Sheet {
+                    page,
+                    rect,
+                    scale: rect.width() / width,
+                });
             }
             // One callback draws every GPU page, over the shadows.
             if let (Some(pass), false) = (pass, quads.is_empty()) {
@@ -262,6 +289,15 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 ui.painter().add(shape);
                 drawn.extend(quads);
             }
+            let text = Pages {
+                doc: doc_id,
+                sheets: &sheets,
+                texts,
+            };
+            if let Some(sel) = selection.filter(|s| !s.is_empty()) {
+                selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
+            }
+            follow = selection::interact(ui, ui.clip_rect(), &text, selection).follow;
             // The strips' neighbours, or the next and last turn's pages.
             let (near, count) = match view.mode {
                 ViewMode::Single | ViewMode::Spread => (layout.pages(), sizes.len()),
@@ -272,7 +308,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             let after = near.end..(near.end + reach).min(count);
             for page in before.chain(after) {
                 if !pages.touch(key(page)) {
-                    demand.push((Urgency::Prefetch, key(page)));
+                    demand.push((Urgency::Prefetch, key(page).into()));
                 }
             }
         });
@@ -282,6 +318,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     }
     view.progress = progress(view, layout, &out, sizes.len());
     view.visible = shown_pages;
+    view.sheets = sheets;
     view.offset = out.state.offset;
     view.viewport = viewport;
     view.zoom.end_frame(gliding, now);
@@ -293,6 +330,35 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             ctx.request_repaint();
         }
     }
+    if cx.active {
+        copy(&ctx, view, doc, texts);
+    }
+    match follow {
+        Some(LinkTarget::Page(page)) => view.go_to(page, sizes.len()),
+        // Checked when read; checked again before leaving the app.
+        Some(LinkTarget::Web(url)) if web_address(url.as_bytes()).is_some() => {
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
+        _ => {}
+    }
+}
+
+/// ⌘C or Ctrl+C copies the selection, unless a text field has focus.
+fn copy(ctx: &egui::Context, view: &PdfView, doc: &Document, texts: &TextLayers) {
+    let Some(sel) = view.selection.filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let asked = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy)));
+    if !asked || ctx.egui_wants_keyboard_input() {
+        return;
+    }
+    // Pages scrolled out of the cache are read again, here.
+    let text = sel.text(|page| {
+        texts
+            .get(view.doc, page)
+            .or_else(|| doc.text_layer(page).ok().map(Arc::new))
+    });
+    ctx.copy_text(text);
 }
 
 /// The strips' scroll along their axis; the paged modes' page.

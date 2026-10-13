@@ -1,4 +1,4 @@
-//! What a page raster is keyed by: document, page and scale step.
+//! What work is keyed by: document, page and scale step.
 
 /// One opened document; never reused within a run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -51,6 +51,32 @@ pub struct PageKey {
     pub doc: DocId,
     pub page: usize,
     pub scale: Scale,
+}
+
+/// Work a view asks the workers for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Want {
+    Raster(PageKey),
+    /// A page's characters and links, for selection and clicks.
+    Text {
+        doc: DocId,
+        page: usize,
+    },
+}
+
+impl Want {
+    pub fn doc(self) -> DocId {
+        match self {
+            Self::Raster(k) => k.doc,
+            Self::Text { doc, .. } => doc,
+        }
+    }
+}
+
+impl From<PageKey> for Want {
+    fn from(key: PageKey) -> Self {
+        Self::Raster(key)
+    }
 }
 
 #[cfg(test)]
