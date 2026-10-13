@@ -13,3 +13,16 @@ workspace = true
 mareader-ui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence", "wayland", "x11"] }
 egui = { workspace = true }
+
+[features]
+default = ["traffic-lights"]
+# macOS: centre the traffic lights in the bar and fade them with it. This is
+# the workspace's only `unsafe` (AppKit calls); off keeps AppKit's position.
+traffic-lights = ["dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:raw-window-handle"]
+
+# The versions eframe already uses on macOS, so nothing new is built.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.4", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSButton", "NSControl", "NSResponder", "NSView", "NSWindow", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+raw-window-handle = { version = "0.6", optional = true }
