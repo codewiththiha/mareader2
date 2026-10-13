@@ -4,7 +4,8 @@
 
 use std::time::Duration;
 
-use mareader_ui::MareaderApp;
+use mareader_ui::command::Command;
+use mareader_ui::{MareaderApp, OpenRequest};
 
 #[cfg(any(test, all(target_os = "macos", feature = "traffic-lights")))]
 mod traffic_lights;
@@ -64,9 +65,12 @@ fn main() -> eframe::Result {
         "mareader",
         options,
         Box::new(|cc| {
-            Ok(Box::new(Desktop {
-                app: MareaderApp::from_creation(cc),
-            }))
+            let mut app = MareaderApp::from_creation(cc);
+            // `mareader book.pdf` opens it in the first pane.
+            if let Some(path) = std::env::args_os().nth(1) {
+                app.queue(Command::Open(OpenRequest::path(path.into())));
+            }
+            Ok(Box::new(Desktop { app }))
         }),
     )
 }
