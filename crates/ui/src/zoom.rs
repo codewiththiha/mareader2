@@ -111,6 +111,9 @@ pub struct PaneZoom {
     settle_at: f64,
     /// Where a pinch pivots, in the viewport; else its centre.
     pub pivot: Option<Vec2>,
+    /// The room a fit last measured, and when it last changed.
+    room: Vec2,
+    room_at: f64,
 }
 
 impl Default for PaneZoom {
@@ -123,6 +126,8 @@ impl Default for PaneZoom {
             sharp: 1.0,
             settle_at: 0.0,
             pivot: None,
+            room: Vec2::ZERO,
+            room_at: 0.0,
         }
     }
 }
@@ -169,16 +174,32 @@ impl PaneZoom {
         self.settle_at = now + SETTLE;
     }
 
-    /// A fit follows the pane; while a resize drags, pages stay stretched.
-    pub fn refit(&mut self, page: Option<PageSize>, room: Vec2, shown: bool, now: f64) {
+    /// A fit follows the pane; without `follow`, returns the wait for rest.
+    pub fn refit(
+        &mut self,
+        page: Option<PageSize>,
+        room: Vec2,
+        shown: bool,
+        follow: bool,
+        now: f64,
+    ) -> Option<f32> {
         let (Some(mode), Some(page)) = (self.fit, page) else {
-            return;
+            return None;
         };
+        if self.room != room {
+            self.room = room;
+            self.room_at = now;
+        }
+        let quiet = now - self.room_at;
+        if !follow && shown && quiet < SETTLE {
+            return Some((SETTLE - quiet) as f32);
+        }
         let fitted = fit(mode, room, page);
         if differs(fitted, self.target) && self.glide.is_none() && shown {
             self.settle_at = self.settle_at.max(now + SETTLE);
         }
         self.target = fitted;
+        None
     }
 
     /// This frame's zoom, advancing a glide; true while one runs.
@@ -315,11 +336,26 @@ mod tests {
     #[test]
     fn a_fit_follows_the_room() {
         let mut z = PaneZoom::default();
-        z.refit(Some(LETTER), Vec2::new(612.0, 900.0), false, 0.0);
+        z.refit(Some(LETTER), Vec2::new(612.0, 900.0), false, true, 0.0);
         assert!((z.state().zoom - 1.0).abs() < 1e-6);
         // A resize refits now and sharpens later.
-        z.refit(Some(LETTER), Vec2::new(1224.0, 900.0), true, 1.0);
+        z.refit(Some(LETTER), Vec2::new(1224.0, 900.0), true, true, 1.0);
         assert!((z.state().zoom - 2.0).abs() < 1e-6);
         assert!(z.sharpen(1.0).is_some());
+    }
+
+    #[test]
+    fn without_follow_a_fit_waits_for_the_resize_to_rest() {
+        let mut z = PaneZoom::default();
+        z.refit(Some(LETTER), Vec2::new(612.0, 900.0), false, false, 0.0);
+        let wide = Vec2::new(1224.0, 900.0);
+        // Still dragging: the zoom holds, and says how long to wait.
+        assert!(z.refit(Some(LETTER), wide, true, false, 1.0).is_some());
+        assert!((z.state().zoom - 1.0).abs() < 1e-6);
+        assert!(z.refit(Some(LETTER), wide, true, false, 1.1).is_some());
+        // At rest: one fit.
+        let rested = 1.01 + SETTLE;
+        assert_eq!(z.refit(Some(LETTER), wide, true, false, rested), None);
+        assert!((z.state().zoom - 2.0).abs() < 1e-6);
     }
 }

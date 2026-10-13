@@ -18,6 +18,7 @@ pub mod gpu;
 pub mod icons;
 pub mod keymap;
 pub mod layout;
+pub mod loading_mark;
 pub mod motion;
 pub mod outline_panel;
 pub mod page_bar;

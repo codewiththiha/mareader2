@@ -11,6 +11,7 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
+use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
 use crate::selection::{Selection, Sheet};
@@ -34,6 +35,8 @@ pub struct OpenRequest {
     pub pane: Option<PaneId>,
     /// Split that pane and open in the new half instead.
     pub beside: bool,
+    /// The page to show once open; past the end, the last.
+    pub page: usize,
 }
 
 impl OpenRequest {
@@ -43,6 +46,7 @@ impl OpenRequest {
             name: None,
             pane: None,
             beside: false,
+            page: 0,
         }
     }
 
@@ -52,6 +56,15 @@ impl OpenRequest {
             name: Some(name.into()),
             pane: None,
             beside: false,
+            page: 0,
+        }
+    }
+
+    /// The file it reads from, if it reads from one.
+    fn file(&self) -> Option<PathBuf> {
+        match &self.source {
+            Source::Path(p) => Some(p.clone()),
+            Source::Bytes(_) => None,
         }
     }
 
@@ -81,7 +94,13 @@ impl OpenRequest {
 
 #[derive(Debug)]
 enum Content {
-    Opening { ticket: Ticket, name: String },
+    /// Waiting for `ticket`; then it shows `page`.
+    Opening {
+        ticket: Ticket,
+        name: String,
+        file: Option<PathBuf>,
+        page: usize,
+    },
     Pdf(Box<PdfView>),
 }
 
@@ -100,6 +119,18 @@ impl Reading {
     pub fn count(&self) -> usize {
         self.document.page_count()
     }
+}
+
+/// A count of what the documents hold; see [`Documents::meter`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Meter {
+    pub documents: usize,
+    pub pages: usize,
+    /// The rasters' bytes, as the cache counts them against its cap.
+    pub page_bytes: usize,
+    pub texts: usize,
+    /// Jobs queued or running.
+    pub jobs: usize,
 }
 
 pub struct Documents {
@@ -157,9 +188,31 @@ impl Documents {
             let note = "EPUB books aren't supported yet; open a PDF for now.";
             return Some(Toast::info(note));
         }
+        let mut request = request;
+        // One spelling per file, so two panes on it share one parse.
+        if let Source::Path(p) = &request.source
+            && let Ok(real) = std::fs::canonicalize(p)
+        {
+            request.source = Source::Path(real);
+        }
+        let (file, page) = (request.file(), request.page);
+        if let Some(doc) = file.as_ref().and_then(|f| self.shown(f)) {
+            let count = self.session.as_ref().and_then(|s| s.get(doc));
+            let count = count.map_or(0, |e| e.doc.page_count());
+            let mut view = PdfView::new(doc);
+            view.go_to(page, count);
+            self.set(pane, Some(Content::Pdf(Box::new(view))));
+            return None;
+        }
         let name = request.label();
         let ticket = self.session(ctx).open(request.source, request.name);
-        self.set(pane, Some(Content::Opening { ticket, name }));
+        let opening = Content::Opening {
+            ticket,
+            name,
+            file,
+            page,
+        };
+        self.set(pane, Some(opening));
         None
     }
 
@@ -192,6 +245,18 @@ impl Documents {
         }
     }
 
+    /// The open document read from `file`, if a pane shows one.
+    fn shown(&self, file: &std::path::Path) -> Option<DocId> {
+        let session = self.session.as_ref()?;
+        self.panes.values().find_map(|c| match c {
+            Content::Pdf(v) => {
+                let entry = session.get(v.doc)?;
+                (entry.path.as_deref() == Some(file)).then_some(v.doc)
+            }
+            Content::Opening { .. } => None,
+        })
+    }
+
     /// Takes finished work: documents into their panes, pages to the GPU.
     pub fn receive(&mut self, ctx: &Context, out: &mut Commands) {
         let Some(session) = &mut self.session else {
@@ -215,17 +280,24 @@ impl Documents {
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
-                        Content::Opening { ticket: t, name } if *t == ticket => {
-                            Some((*id, name.clone()))
-                        }
+                        Content::Opening {
+                            ticket: t,
+                            name,
+                            page,
+                            ..
+                        } if *t == ticket => Some((*id, name.clone(), *page)),
                         _ => None,
                     });
                     match (waiting, result) {
-                        (Some((pane, _)), Ok(doc)) => {
-                            self.panes
-                                .insert(pane, Content::Pdf(Box::new(PdfView::new(doc))));
+                        (Some((pane, _, page)), Ok(doc)) => {
+                            let mut view = PdfView::new(doc);
+                            let count = session.get(doc).map_or(0, |e| e.doc.page_count());
+                            if page > 0 {
+                                view.go_to(page, count);
+                            }
+                            self.panes.insert(pane, Content::Pdf(Box::new(view)));
                         }
-                        (Some((pane, name)), Err(e)) => {
+                        (Some((pane, name, _)), Err(e)) => {
                             self.panes.remove(&pane);
                             let note = format!("Couldn't open {name}: {e}.");
                             out.push(Command::Notify(Toast::error(note)));
@@ -355,6 +427,11 @@ impl Documents {
         }
     }
 
+    /// How far the pane's document was scrolled last frame.
+    pub fn offset(&self, pane: PaneId) -> Option<egui::Vec2> {
+        self.view(pane).map(PdfView::offset)
+    }
+
     /// The pane's pages on screen last frame.
     pub fn sheets(&self, pane: PaneId) -> &[Sheet] {
         self.view(pane).map_or(&[], |v| v.sheets.as_slice())
@@ -378,10 +455,17 @@ impl Documents {
         }
     }
 
-    pub fn arrow(&mut self, pane: PaneId, arrow: Arrow) {
+    pub fn arrow(&mut self, pane: PaneId, arrow: Arrow, now: f64) {
         let count = self.page_count(pane).unwrap_or(0);
         if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
-            view.arrow(arrow, count);
+            view.arrow(arrow, count, now);
+        }
+    }
+
+    pub fn page_key(&mut self, pane: PaneId, forward: bool) {
+        let count = self.page_count(pane).unwrap_or(0);
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.page_key(forward, count);
         }
     }
 
@@ -442,6 +526,28 @@ impl Documents {
         }
     }
 
+    /// The file `pane` reads and its page, to reopen at the next launch.
+    pub fn place(&self, pane: PaneId) -> Option<(PathBuf, usize)> {
+        match self.panes.get(&pane)? {
+            Content::Opening { file, page, .. } => Some((file.clone()?, *page)),
+            Content::Pdf(v) => {
+                let entry = self.session.as_ref()?.get(v.doc)?;
+                Some((entry.path.clone()?, v.current))
+            }
+        }
+    }
+
+    /// What the documents hold right now, for meters and the memory audit.
+    pub fn meter(&self) -> Meter {
+        Meter {
+            documents: self.session.as_ref().map_or(0, Session::len),
+            pages: self.pages.len(),
+            page_bytes: self.pages.bytes(),
+            texts: self.texts.len(),
+            jobs: self.session.as_ref().map_or(0, Session::pending),
+        }
+    }
+
     /// Open documents and cached page textures, for tests and meters.
     pub fn stats(&self) -> (usize, usize) {
         (
@@ -454,10 +560,10 @@ impl Documents {
 fn opening(ui: &mut Ui, name: &str) {
     let t = Tokens::get(ui.ctx());
     let c = ui.max_rect().center();
-    let spinner = egui::Rect::from_center_size(c - egui::vec2(0.0, 14.0), egui::vec2(20.0, 20.0));
-    ui.put(spinner, egui::Spinner::new().size(20.0).color(t.muted));
+    let mark = egui::Rect::from_center_size(c - egui::vec2(0.0, 16.0), egui::vec2(22.0, 22.0));
+    loading_mark::paint(ui, mark, t.muted);
     ui.painter().text(
-        c + egui::vec2(0.0, 16.0),
+        c + egui::vec2(0.0, 18.0),
         egui::Align2::CENTER_CENTER,
         format!("Opening {name}…"),
         theme::medium(13.0),

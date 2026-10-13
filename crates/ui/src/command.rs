@@ -41,6 +41,13 @@ pub enum Command {
     View(ViewMode),
     /// An arrow key over the active document: a turn, or the scroll's.
     Arrow(Arrow),
+    /// A page key: nearly a screen along a strip, a turn when paged.
+    Page {
+        forward: bool,
+    },
+    /// Home and End: the active document's first or last page.
+    FirstPage,
+    LastPage,
     /// Shows `page` of the pane's document, from its start.
     GoTo {
         pane: PaneId,
