@@ -9,6 +9,7 @@ use crate::command::{Command, Commands, WindowCommand};
 use crate::gpu::Glass;
 use crate::icons::Icon;
 use crate::keymap;
+use crate::layout::ViewMode;
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
@@ -41,6 +42,7 @@ pub struct BarContext<'a> {
     pub appearance: &'a Appearance,
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
+    pub mode: Option<ViewMode>,
     /// The backdrop to blur; none draws the opaque fallback.
     pub glass: Option<Glass>,
 }
@@ -276,6 +278,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -
         fullscreen: bar.fullscreen,
         platform: bar.platform,
         zoom: bar.zoom,
+        mode: bar.mode,
     };
     view_menu::button(ui, &menu, &mut out);
     let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);

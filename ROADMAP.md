@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 3 done.
+**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 4 done.
 **Parity:** 30.5 of 118 features (25.8 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -56,15 +56,15 @@ appearance effects to that same pass.
 | 1 | Open a PDF and scroll it: `pdf` crate (hayro), `session` (shared documents, worker pool, generations), virtualised vertical scroll at fit width, capped texture cache, the title from the document | **done** | `cargo run -p mareader -- book.pdf`, drop a PDF, `?pdf=sample` |
 | 2 | Zoom: fifteen presets, fit width and page, centre anchor, stretch then one crisp render, refit on resize and sidebar slide | **done** | ⌘/Ctrl +/−/0, bare +/−, pinch, the menu's zoom row; `zoom=in,page` in shots |
 | 3 | The page pass (a wgpu callback drawing page textures) and the glass bar blur | **done** | pin the bar and scroll a page under it; `pinned=true scroll=300` in shots |
-| 4 | View modes: single page with page turn, spread, horizontal strip | planned | the menu's view row |
+| 4 | View modes: single page with page turn, spread, horizontal strip | **done** | the menu's view row, ⌘/Ctrl+1 and +2, arrows; `view=spread arrows=right` in shots |
 | 5 | Navigation: page counter with entry, outline, thumbnails, status bar | planned | sidebar panels, the counter |
 | 6 | Text selection and copy; internal and external links | planned | drag over text, click a link |
 | 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | planned | `docs/memory.md` |
 
 ## Next
 
-1. **M2 slice 4, view modes.**
-2. **M2 slice 5, navigation.**
+1. **M2 slice 5, navigation.**
+2. **M2 slice 6, selection and links.**
 
 ## Open questions for the owner
 
@@ -89,3 +89,4 @@ appearance effects to that same pass.
 | 2026-10-13 | Owner: the traffic lights work on a real Mac; "optional" meant optional to build, so the `traffic-lights` feature stays on with no in-app setting. `rfd` approved for native dialogs (imports will need it too): it added only `rfd` and `pollster` to the tree. ⌘O / Ctrl+O, the menu's Open… and Open beside… (split right, only once a file is picked) and the empty pane's button open the system dialog off the UI thread. In the browser, picks and drops arrive as bytes, so real PDFs open in the preview |
 | 2026-10-13 | M2 slice 2, zoom: mareader's fifteen presets (a step from 120 % goes to 125 %, not past it), fit width and fit page measured on the page read when chosen, refit as the pane resizes. Every relayout holds the point under the pivot: the window centre for keys and the menu, the pointer for pinch and Ctrl+wheel (new on desktop). Steps glide 120 ms and render sharp at once; pinches and resizes stretch, then render once after 180 ms of quiet. egui's own interface zoom keys are off |
 | 2026-10-13 | M2 slice 3: pages leave egui's texture manager for our page pass (`crates/ui/src/gpu`): rasters upload from the UI thread through egui's own device, and each pane draws its pages in one wgpu callback of instanced quads, which ADR 0003's filters will extend in M3. The glass redraws the strip under the bar and 60 pt below at about a tenth of the resolution, 4 × 4 supersampled so scrolled text doesn't shimmer, blurs it twice (σ 20 pt), and composites it at 180 % saturation under a 72 % surface, fading with the bar. Without a GPU (headless tests) pages fall back to egui textures and the bar to 96 %. Tested on pixels from a real wgpu device, including a check that fails if the blur is skipped |
+| 2026-10-13 | M2 slice 4, view modes (`crates/ui/src/layout.rs`): one `Layout` places pages for the vertical column, the horizontal strip, a single page and a two-page spread (1–2, 3–4, touching at the spine), so zoom anchoring, prefetch and the page pass work in all four. A switch keeps the page being read; entering a spread fits both widths, single page fits when auto-scale is on, and the strip stops fitting, as in mareader. mareader's arrow rule: every arrow and h/j/k/l turns, except along a strip's own axis (left for later glide). ⌘/Ctrl+1 single, ⌘/Ctrl+2 vertical; the menu has a view row. On the strip a plain wheel runs sideways while nothing overflows down. Not yet saved across launches (slice 7) |

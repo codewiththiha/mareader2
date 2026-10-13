@@ -280,6 +280,12 @@ impl MareaderApp {
                 let now = ctx.input(|i| i.time);
                 self.documents.zoom(self.active, zoom, now);
             }
+            Command::View(mode) => {
+                let now = ctx.input(|i| i.time);
+                let fit = self.settings.layout.auto_scale;
+                self.documents.set_mode(self.active, mode, fit, now);
+            }
+            Command::Arrow(arrow) => self.documents.arrow(self.active, arrow),
             Command::Open(request) => {
                 let mut pane = request.pane.unwrap_or(self.active);
                 // Open beside: a new pane to the right, as in mareader.
@@ -513,6 +519,7 @@ impl eframe::App for MareaderApp {
             gutter: !overlay && inset <= 0.0 && !fullscreen,
             appearance: &self.settings.appearance,
             zoom: self.documents.zoom_state(self.active),
+            mode: self.documents.mode(self.active),
             glass,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);

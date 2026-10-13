@@ -215,7 +215,6 @@ impl PageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mareader_session::Session;
 
     type Out = Result<(), &'static str>;
 
@@ -232,23 +231,7 @@ mod tests {
         c.insert(key, PageTexture::egui(ctx, key, &r), r.bytes());
     }
 
-    /// A real `DocId` comes only from opening; a tiny sample will do.
-    fn doc() -> Result<DocId, &'static str> {
-        let mut s = Session::new(0, || {});
-        let bytes = std::sync::Arc::new(mareader_pdf::sample::pdf(1, "t"));
-        s.open(mareader_session::Source::Bytes(bytes), None);
-        let budget = mareader_session::Budget {
-            items: 1,
-            bytes: usize::MAX,
-        };
-        s.poll(budget)
-            .into_iter()
-            .find_map(|e| match e {
-                mareader_session::Event::Opened { result: Ok(id), .. } => Some(id),
-                _ => None,
-            })
-            .ok_or("the sample didn't open")
-    }
+    use crate::testing::doc;
 
     fn key(doc: DocId, page: usize, scale: f32) -> PageKey {
         PageKey {
