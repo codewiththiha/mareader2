@@ -7,15 +7,21 @@ use mareader_workspace::SplitAxis;
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::icons::Icon;
+use crate::keymap;
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
+use crate::view_menu::{self, MenuContext, Tool};
 use crate::widgets::{self, CaptionStyle};
 
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
 pub const FADE: f32 = 0.2;
 pub const APPEARANCE_POPOVER: &str = "appearance-popover";
+/// A toolbar button and the gap after it.
+const TOOL_W: f32 = 40.0;
+/// Width the title keeps before tools fold into the menu.
+const TITLE_ROOM: f32 = 160.0;
 
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
@@ -26,7 +32,50 @@ pub struct BarContext<'a> {
     /// The bar's sidebar toggle; the rail's own header closes it.
     pub sidebar_toggle: bool,
     pub maximized: bool,
+    /// No captions or traffic lights in full screen.
+    pub fullscreen: bool,
     pub appearance: &'a Appearance,
+}
+
+/// The tools that may fold, rightmost first: the leftmost folds first.
+fn tools() -> [Tool; 4] {
+    let tool = |icon, label, command| Tool {
+        icon,
+        label,
+        command,
+    };
+    [
+        tool(Icon::Settings, "Settings", Command::ShowSettings),
+        tool(Icon::Search, "Search", Command::ShowSearch),
+        tool(
+            Icon::SplitDown,
+            "Split down",
+            Command::Split(SplitAxis::Vertical),
+        ),
+        tool(
+            Icon::SplitRight,
+            "Split right",
+            Command::Split(SplitAxis::Horizontal),
+        ),
+    ]
+}
+
+/// How many folding tools fit beside the fixed controls and the title.
+fn fitting(bar: &BarContext<'_>, row_width: f32) -> usize {
+    let lead = if bar.sidebar_toggle { 2.0 } else { 1.0 } * TOOL_W;
+    let captions = match captions(bar) {
+        Some(CaptionStyle::Windows) => 3.0 * 46.0 + 4.0,
+        Some(CaptionStyle::Gnome) => 3.0 * 24.0 + 2.0 * 8.0 + 4.0,
+        None => 0.0,
+    };
+    // Pin, Appearance and the menu never fold.
+    let fixed = 3.0 * TOOL_W + 8.0;
+    let room = row_width - lead - captions - fixed - TITLE_ROOM;
+    ((room / TOOL_W).floor().max(0.0) as usize).min(tools().len())
+}
+
+fn captions(bar: &BarContext<'_>) -> Option<CaptionStyle> {
+    bar.platform.captions().filter(|_| !bar.fullscreen)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -120,12 +169,12 @@ impl TitleBar {
                 let live = visible;
                 let mut row = band;
                 // Over a rail, the macOS lights sit in the rail's header.
-                row.min.x += if bar.left_inset > 0.0 {
+                row.min.x += if bar.left_inset > 0.0 || bar.fullscreen {
                     8.0
                 } else {
                     bar.platform.leading_inset()
                 };
-                if bar.platform.captions() != Some(CaptionStyle::Windows) {
+                if captions(bar) != Some(CaptionStyle::Windows) {
                     row.max.x -= 8.0;
                 }
                 let builder = UiBuilder::new()
@@ -143,11 +192,12 @@ impl TitleBar {
         out: &mut Commands,
     ) {
         let pinned = self.pinned;
+        let fit = fitting(bar, ui.max_rect().width());
         let ((lead_end, lead), (trail_start, trail)) =
             egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
                 ui,
                 |ui| leading(ui, bar.sidebar_toggle),
-                |ui| trailing(ui, bar, pinned),
+                |ui| trailing(ui, bar, pinned, fit),
             );
         for c in lead.into_iter().chain(trail).filter(|_| live) {
             if let Command::SetTitlebarPinned(p) = c {
@@ -177,10 +227,10 @@ fn leading(ui: &mut egui::Ui, sidebar_toggle: bool) -> (f32, Commands) {
 }
 
 /// Laid out right to left. Returns its left edge and what was clicked.
-fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool) -> (f32, Commands) {
+fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
-    if let Some(style) = bar.platform.captions() {
+    if let Some(style) = captions(bar) {
         let (w, gap) = match style {
             CaptionStyle::Windows => (3.0 * 46.0, 0.0),
             CaptionStyle::Gnome => (3.0 * 24.0 + 2.0 * 8.0, 8.0),
@@ -194,26 +244,21 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool) -> (f32, Comm
         out.extend(caption.inner.map(Command::Window));
         ui.add_space(4.0);
     }
+    let tools = tools();
+    let (shown, folded) = tools.split_at(fit);
+    let menu = MenuContext {
+        folded,
+        fullscreen: bar.fullscreen,
+        platform: bar.platform,
+    };
+    view_menu::button(ui, &menu, &mut out);
     let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);
     out.extend(clicked(r, Command::SetTitlebarPinned(!pinned)));
-    let buttons = [
-        (Icon::Settings, "Settings", Command::ShowSettings),
-        (Icon::Search, "Search", Command::ShowSearch),
-        (
-            Icon::SplitDown,
-            "Split down",
-            Command::Split(SplitAxis::Vertical),
-        ),
-        (
-            Icon::SplitRight,
-            "Split right",
-            Command::Split(SplitAxis::Horizontal),
-        ),
-    ];
     appearance_button(ui, bar.appearance, &mut out);
-    for (icon, label, command) in buttons {
-        let r = widgets::icon_button(ui, icon, label, false);
-        out.extend(clicked(r, command));
+    for tool in shown {
+        let keys = keymap::hint(bar.platform, &tool.command);
+        let r = widgets::icon_button_keyed(ui, tool.icon, tool.label, false, keys.as_deref());
+        out.extend(clicked(r, tool.command.clone()));
     }
     (ui.min_rect().left(), out)
 }

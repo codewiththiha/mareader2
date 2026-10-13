@@ -1,6 +1,9 @@
 //! The few controls egui has no stock widget for.
 
-use egui::{Button, Color32, CornerRadius, Rect, Response, Sense, Ui, Vec2, pos2, vec2};
+use egui::{
+    Button, Color32, CornerRadius, Frame, Margin, Rect, Response, RichText, Sense, Shadow, Stroke,
+    Ui, Vec2, pos2, vec2,
+};
 
 use crate::command::WindowCommand;
 use crate::icons::Icon;
@@ -8,6 +11,17 @@ use crate::theme::Tokens;
 
 /// A borderless icon button; `selected` marks a toggle that is on.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
+    icon_button_keyed(ui, icon, label, selected, None)
+}
+
+/// [`icon_button`] whose tooltip also names its shortcut.
+pub fn icon_button_keyed(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    selected: bool,
+    keys: Option<&str>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let button = Button::image(icon.image(t.icon))
         .image_tint_follows_text_color(true)
@@ -18,7 +32,65 @@ pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Resp
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
     });
-    resp.on_hover_text(label)
+    tip(&resp, label, keys);
+    resp
+}
+
+/// A 24 pt icon button for rows and toasts.
+pub fn small_icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    let button = Button::image(icon.image(14.0))
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .min_size(Vec2::splat(24.0));
+    let resp = ui.add(button);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    tip(&resp, label, None);
+    resp
+}
+
+/// One menu row: icon, label, and its shortcut on the right.
+pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let keys = RichText::new(keys.unwrap_or_default())
+        .size(t.text_small)
+        .color(t.muted);
+    let button = Button::image_and_text(icon.image(16.0), label)
+        .right_text(keys)
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .selected(on)
+        .min_size(vec2(ui.available_width(), 32.0));
+    let resp = ui.add(button);
+    // The label alone; the shortcut is not part of its name.
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+    resp
+}
+
+/// The app's tooltip: a small chip, the shortcut beside the words.
+pub fn tip(resp: &Response, label: &str, keys: Option<&str>) {
+    let t = Tokens::get(&resp.ctx);
+    let mut tooltip = egui::Tooltip::for_enabled(resp);
+    let frame = Frame::new()
+        .fill(t.surface)
+        .stroke(Stroke::new(1.0, t.line))
+        .corner_radius(6)
+        .inner_margin(Margin::symmetric(8, 4))
+        .shadow(Shadow {
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
+            color: t.shadow.gamma_multiply(0.6),
+        });
+    tooltip.popup = tooltip.popup.frame(frame).gap(6.0);
+    tooltip.show(|ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.label(RichText::new(label).size(t.text_small).color(t.ink));
+            if let Some(keys) = keys {
+                ui.label(RichText::new(keys).size(t.text_small).color(t.muted));
+            }
+        });
+    });
 }
 
 /// One window-caption button family per desktop convention.
@@ -76,7 +148,9 @@ fn caption_face(which: WindowCommand, maximized: bool) -> (Icon, &'static str) {
         WindowCommand::Minimize => (Icon::WindowMinimize, "Minimize"),
         WindowCommand::ToggleMaximize if maximized => (Icon::WindowRestore, "Restore"),
         WindowCommand::ToggleMaximize => (Icon::WindowMaximize, "Maximize"),
-        WindowCommand::Close | WindowCommand::StartDrag => (Icon::Close, "Close"),
+        WindowCommand::Close | WindowCommand::StartDrag | WindowCommand::ToggleFullscreen => {
+            (Icon::Close, "Close")
+        }
     }
 }
 

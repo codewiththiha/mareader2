@@ -204,7 +204,8 @@ impl SettingsWindow {
                 r.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label)
                 });
-                if r.on_hover_text(label).clicked() {
+                widgets::tip(&r, label, None);
+                if r.clicked() {
                     self.tab = tab;
                 }
             }
@@ -367,7 +368,7 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
         *custom = Rgb(srgb[0], srgb[1], srgb[2]);
         *choice = Swatch::Custom;
     }
-    picker.on_hover_text("Custom");
+    widgets::tip(&picker, "Custom", None);
     for c in Swatch::PALETTE.into_iter().rev() {
         let (rect, r) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
         let fill = c.rgb(*custom).map_or(t.accent, theme::color);
@@ -379,7 +380,8 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
         }
         let label = c.label();
         r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
-        if r.on_hover_text(label).clicked() {
+        widgets::tip(&r, label, None);
+        if r.clicked() {
             *choice = c;
         }
     }
@@ -439,7 +441,7 @@ fn row(ui: &mut Ui, label: &str, hint: &str, control: impl FnOnce(&mut Ui)) {
             ui.set_min_height(ROW_H);
             let r = ui.label(label);
             if !hint.is_empty() {
-                r.on_hover_text(hint);
+                widgets::tip(&r, hint, None);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), control);
         },

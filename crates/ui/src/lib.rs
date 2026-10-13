@@ -12,6 +12,7 @@ pub mod app;
 pub mod appearance_menu;
 pub mod command;
 pub mod icons;
+pub mod keymap;
 pub mod motion;
 pub mod panes;
 pub mod platform;
@@ -20,6 +21,8 @@ pub mod settings_window;
 pub mod sidebar;
 pub mod theme;
 pub mod titlebar;
+pub mod toast;
+pub mod view_menu;
 pub mod widgets;
 
 pub use app::MareaderApp;
