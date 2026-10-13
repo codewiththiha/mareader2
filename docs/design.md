@@ -133,14 +133,22 @@ over the panes, so content never moves when it appears.
 
 | Platform | Look |
 |---|---|
-| macOS | Native traffic lights, centred in the bar at x 20 and fading with it; the bar leaves 80 pt for them |
+| macOS | Native traffic lights at x 20, centred in the 48 pt row; the bar leaves 80 pt for them when it hosts them |
 | Windows | 46 pt full-height squares, flush right; hover `line`; close hover `#e81123`, pressed `#c50f1f`, white glyph; 14 pt glyphs |
 | GNOME/Linux | 24 pt circles, 8 pt apart; ink at 12 / 24 / 34 % for rest / hover / pressed; close `#e0524f` / `#c53a37`, white glyph; 12 pt glyphs |
 
 **macOS traffic lights** (owner decision, 2026-10-13). AppKit puts them at
 the top of a 28 pt strip; `apps/mareader/src/traffic_lights.rs` moves them to
-the middle of the 48 pt bar and sets their opacity to the bar's, hidden at 0
-so they can't take clicks. Full screen is left to AppKit. It is the
+the middle of the 48 pt row; `NativeLights` (`crates/ui/src/platform.rs`)
+says where, each frame:
+
+- **A drawn sidebar hosts them**, docked or floating: they sit in its header
+  at full opacity and slide with it, leaving past the window's left edge.
+- **Otherwise the bar does**, fading with it (and in after a rail's exit).
+- **Overlay mode, no rail:** hidden, and the bar keeps no gutter (mareader).
+
+Hidden lights can't take clicks. Full screen is left to AppKit. Off a Mac,
+shots and the preview draw three stand-in dots in their place. It is the
 workspace's one `unsafe` module and the `traffic-lights` feature (on by
 default); `--no-default-features` keeps AppKit's position.
 
