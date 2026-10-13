@@ -7,7 +7,7 @@ use std::sync::Arc;
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_pdf::{LinkTarget, web_address};
-use mareader_session::{DocId, Document, PageKey, PageSize, Scale, Want};
+use mareader_session::{DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{LayoutSettings, StartupFit};
 
 use crate::gpu::{PagePass, PagesCallback, Quad};
@@ -28,6 +28,30 @@ const HOLD_SPEED: f32 = 1000.0;
 const MAX_FRAME: f64 = 0.05;
 /// A page of another size refits once read this long (Auto Resize).
 const RESIZE_SETTLE: f64 = 0.25;
+/// Tiles wait for the view to rest this long, so a pan queues none.
+const TILE_REST: f64 = 0.25;
+/// A tiled page's whole raster, stretched under its tiles.
+const BACKDROP_SIDE: f32 = 2048.0;
+
+/// What a page is drawn from: one raster, or a backdrop under tiles.
+#[derive(Debug, Clone, Copy)]
+enum Plan {
+    Whole(PageKey),
+    Tiled {
+        backdrop: PageKey,
+        tiling: Tiling,
+        scale: Scale,
+    },
+}
+
+impl Plan {
+    /// The whole-page raster: the page itself, or its backdrop.
+    fn base(self) -> PageKey {
+        match self {
+            Self::Whole(key) | Self::Tiled { backdrop: key, .. } => key,
+        }
+    }
+}
 
 /// A tap moves one reading line: 8 % of the view, 40 to 80 points.
 pub fn line_step(len: f32) -> f32 {
@@ -121,6 +145,8 @@ pub struct PdfView {
     fresh: bool,
     /// A page of another size Auto Resize waits on, and since when.
     resize: Option<(usize, f64)>,
+    /// When the view last moved, for tiles to wait on.
+    moved_at: f64,
 }
 
 impl PdfView {
@@ -142,6 +168,7 @@ impl PdfView {
             sheets: Vec::new(),
             fresh: true,
             resize: None,
+            moved_at: 0.0,
             nudge: None,
             aim: None,
             hold: None,
@@ -436,16 +463,33 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let ppp = ctx.pixels_per_point();
     let wanted = Scale::covering(view.zoom.sharp() * ppp);
     let max_side = ctx.input(|i| i.max_texture_side) as f32;
-    // Big pages at high zoom stop at the GPU's and hayro's limits.
-    let key = |page: usize| {
-        let long = sizes.get(page).map_or(1.0, |s| s.width.max(s.height));
-        let cap = doc.fitted_scale(page, max_side / long).unwrap_or(1.0);
-        PageKey {
+    // Past the GPU's and hayro's limits, a page is drawn in tiles.
+    let plan = |page: usize| {
+        let size = sizes.get(page).copied().unwrap_or(PageSize {
+            width: 1.0,
+            height: 1.0,
+        });
+        let long = size.width.max(size.height);
+        let cap = Scale::within(doc.fitted_scale(page, max_side / long).unwrap_or(1.0));
+        let whole = |scale| PageKey {
             doc: view.doc,
             page,
-            scale: wanted.min(Scale::within(cap)),
+            scale,
+            part: Part::Whole,
+        };
+        if wanted <= cap {
+            return Plan::Whole(whole(wanted));
+        }
+        let backdrop = Scale::within((BACKDROP_SIDE / long).min(cap.value()));
+        let tiling = Tiling::new(size, wanted.value());
+        Plan::Tiled {
+            backdrop: whole(backdrop),
+            tiling,
+            scale: wanted,
         }
     };
+    let key = |page: usize| plan(page).base();
+    let resting = now - view.moved_at >= TILE_REST;
     let urgency = if cx.active {
         Urgency::ActivePane
     } else {
@@ -503,14 +547,35 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     continue;
                 };
                 let rect = rect.translate(origin).round_to_pixels(ppp);
-                let look = pages.lookup(key(page));
+                let plan = plan(page);
+                let look = pages.lookup(plan.base());
                 if wanted(page) && !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
-                    demand.push((urgency, key(page).into()));
+                    demand.push((urgency, plan.base().into()));
                 }
                 if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
                 paint_page(ui, rect, look, &t, cx.page.shadow, &mut quads);
+                if let Plan::Tiled {
+                    backdrop,
+                    tiling,
+                    scale,
+                } = plan
+                {
+                    let key = PageKey { scale, ..backdrop };
+                    let tiles = Tiles {
+                        page: rect,
+                        tiling,
+                        key,
+                    };
+                    let ask = resting && wanted(page);
+                    tiles.paint(
+                        ui,
+                        pages,
+                        ask.then_some((&mut *demand, urgency)),
+                        &mut quads,
+                    );
+                }
                 let width = sizes.get(page).map_or(1.0, |s| s.width);
                 sheets.push(Sheet {
                     page,
@@ -575,6 +640,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     view.progress = progress(view, layout, &out, sizes.len());
     view.visible = shown_pages;
     view.sheets = sheets;
+    if view.offset != out.state.offset || view.viewport != viewport {
+        view.moved_at = now;
+    }
+    if now - view.moved_at < TILE_REST {
+        ctx.request_repaint_after_secs((TILE_REST - (now - view.moved_at)) as f32 + 0.01);
+    }
     view.offset = out.state.offset;
     view.viewport = viewport;
     view.zoom.end_frame(gliding, now);
@@ -715,6 +786,69 @@ fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usiz
         1.0
     } else {
         (done / total).clamp(0.0, 1.0)
+    }
+}
+
+/// A tiled page's grid, drawn over its backdrop where tiles have arrived.
+struct Tiles {
+    page: Rect,
+    tiling: Tiling,
+    /// The tiles' scale; its part is set per tile.
+    key: PageKey,
+}
+
+impl Tiles {
+    /// Draws the tiles on screen, asking for missing ones if `ask`.
+    fn paint(
+        &self,
+        ui: &Ui,
+        pages: &mut PageCache,
+        mut ask: Option<(&mut Demand, Urgency)>,
+        quads: &mut Vec<Quad>,
+    ) {
+        let t = &self.tiling;
+        let size = vec2(t.width as f32, t.height as f32);
+        let to_screen = self.page.size() / size;
+        let clip = ui.clip_rect();
+        for row in 0..t.rows() {
+            for col in 0..t.cols() {
+                let Some([x, y, w, h]) = t.rect(col, row) else {
+                    continue;
+                };
+                let at = vec2(x as f32, y as f32) * to_screen;
+                let rect =
+                    Rect::from_min_size(self.page.min + at, vec2(w as f32, h as f32) * to_screen);
+                if !rect.intersects(clip) {
+                    continue;
+                }
+                let (Ok(col), Ok(row)) = (u8::try_from(col), u8::try_from(row)) else {
+                    continue;
+                };
+                let key = PageKey {
+                    part: Part::Tile { col, row },
+                    ..self.key
+                };
+                match pages.lookup_tile(key) {
+                    Some(PageTexture::Gpu(page)) => quads.push(Quad {
+                        rect,
+                        clip,
+                        tint: Color32::WHITE,
+                        texture: Some(page),
+                    }),
+                    Some(PageTexture::Egui(h)) => {
+                        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                        ui.painter().image(h.id(), rect, uv, Color32::WHITE);
+                    }
+                    None => {
+                        if let Some((demand, urgency)) = ask.as_mut()
+                            && !pages.touch(key)
+                        {
+                            demand.push((*urgency, key.into()));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

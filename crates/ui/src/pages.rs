@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
-use mareader_session::{DocId, PageKey, Raster, Scale};
+use mareader_session::{DocId, PageKey, Part, Raster, Scale};
 
 use crate::gpu::GpuPage;
 
@@ -23,7 +23,7 @@ impl PageTexture {
     pub fn egui(ctx: &Context, key: PageKey, raster: &Raster) -> Self {
         let size = [raster.width as usize, raster.height as usize];
         let image = ColorImage::from_rgba_premultiplied(size, &raster.pixels);
-        let name = format!("page-{:?}-{}", key.doc, key.page);
+        let name = format!("page-{:?}-{}-{:?}", key.doc, key.page, key.part);
         Self::Egui(ctx.load_texture(name, image, TextureOptions::LINEAR))
     }
 }
@@ -57,9 +57,26 @@ struct Slot {
     sharp: u64,
 }
 
+/// A tile of a page too big for one texture, at one exact scale.
+struct Tile {
+    texture: PageTexture,
+    bytes: usize,
+    used: u64,
+}
+
+/// A slot or a tile to evict, from cold to warm.
+enum Cold {
+    Slot((DocId, usize), Scale),
+    Tile(PageKey),
+}
+
 pub struct PageCache {
     pages: HashMap<(DocId, usize), Vec<Slot>>,
+    tiles: HashMap<PageKey, Tile>,
+    /// Pages drawn in tiles this frame, at the tiles' scale.
+    tiled: HashSet<(DocId, usize, Scale)>,
     failed: HashSet<(DocId, usize)>,
+    failed_tiles: HashSet<PageKey>,
     bytes: usize,
     cap: usize,
     frame: u64,
@@ -75,7 +92,10 @@ impl PageCache {
     pub fn new(cap: usize) -> Self {
         Self {
             pages: HashMap::new(),
+            tiles: HashMap::new(),
+            tiled: HashSet::new(),
             failed: HashSet::new(),
+            failed_tiles: HashSet::new(),
             bytes: 0,
             cap,
             frame: 1,
@@ -84,6 +104,19 @@ impl PageCache {
 
     /// Keeps an uploaded page; a slot at the same scale is replaced.
     pub fn insert(&mut self, key: PageKey, texture: PageTexture, bytes: usize) {
+        if key.part != Part::Whole {
+            let used = self.frame;
+            let tile = Tile {
+                texture,
+                bytes,
+                used,
+            };
+            self.bytes += bytes;
+            if let Some(old) = self.tiles.insert(key, tile) {
+                self.bytes -= old.bytes;
+            }
+            return;
+        }
         let slots = self.pages.entry((key.doc, key.page)).or_default();
         if let Some(i) = slots.iter().position(|s| s.scale == key.scale) {
             self.bytes -= slots.swap_remove(i).bytes;
@@ -100,7 +133,19 @@ impl PageCache {
     }
 
     pub fn fail(&mut self, key: PageKey) {
-        self.failed.insert((key.doc, key.page));
+        if key.part == Part::Whole {
+            self.failed.insert((key.doc, key.page));
+        } else {
+            self.failed_tiles.insert(key);
+        }
+    }
+
+    /// The tile `key` exactly, marked as drawn; else the backdrop shows.
+    pub fn lookup_tile(&mut self, key: PageKey) -> Option<PageTexture> {
+        self.tiled.insert((key.doc, key.page, key.scale));
+        let tile = self.tiles.get_mut(&key)?;
+        tile.used = self.frame;
+        Some(tile.texture.clone())
     }
 
     /// The best texture for `key`, marked as drawn this frame.
@@ -139,6 +184,10 @@ impl PageCache {
     /// Prefetched pages count as used, so eviction spares them.
     pub fn touch(&mut self, key: PageKey) -> bool {
         let frame = self.frame;
+        if key.part != Part::Whole {
+            let tile = self.tiles.get_mut(&key).map(|t| t.used = frame);
+            return tile.is_some() || self.failed_tiles.contains(&key);
+        }
         let slot = self
             .pages
             .get_mut(&(key.doc, key.page))
@@ -155,6 +204,13 @@ impl PageCache {
             *d != doc
         });
         self.failed.retain(|(d, _)| *d != doc);
+        self.tiles.retain(|k, t| {
+            if k.doc == doc {
+                self.bytes -= t.bytes;
+            }
+            k.doc != doc
+        });
+        self.failed_tiles.retain(|k| k.doc != doc);
     }
 
     /// Evicts superseded scales, then cold pages past the cap; never drawn.
@@ -171,6 +227,7 @@ impl PageCache {
             }
         }
         self.bytes -= freed;
+        self.drop_superseded_tiles();
         if self.bytes > self.cap {
             self.evict_cold();
         }
@@ -178,23 +235,52 @@ impl PageCache {
         self.frame += 1;
     }
 
+    /// A drawn page keeps only tiles at the scale it wants them at.
+    fn drop_superseded_tiles(&mut self) {
+        let frame = self.frame;
+        let tiled = std::mem::take(&mut self.tiled);
+        let pages = &self.pages;
+        let shown = |k: &PageKey| {
+            let sharp = pages.get(&(k.doc, k.page));
+            let whole = sharp.is_some_and(|s| s.iter().any(|s| s.sharp == frame));
+            whole || tiled.iter().any(|d| (d.0, d.1) == (k.doc, k.page))
+        };
+        let mut freed = 0;
+        self.tiles.retain(|k, t| {
+            let keep = t.used == frame || !shown(k) || tiled.contains(&(k.doc, k.page, k.scale));
+            freed += if keep { 0 } else { t.bytes };
+            keep
+        });
+        self.bytes -= freed;
+    }
+
     fn evict_cold(&mut self) {
         let frame = self.frame;
-        let mut cold: Vec<(u64, (DocId, usize), Scale)> = self
-            .pages
-            .iter()
-            .flat_map(|(page, slots)| slots.iter().map(move |s| (s.used, *page, s.scale)))
-            .filter(|(used, ..)| *used < frame)
-            .collect();
-        cold.sort_unstable_by_key(|(used, ..)| *used);
-        for (_, page, scale) in cold {
+        let slots = self.pages.iter().flat_map(|(page, slots)| {
+            slots
+                .iter()
+                .map(move |s| (s.used, Cold::Slot(*page, s.scale)))
+        });
+        let tiles = self.tiles.iter().map(|(k, t)| (t.used, Cold::Tile(*k)));
+        let mut cold: Vec<(u64, Cold)> = slots.chain(tiles).filter(|(u, _)| *u < frame).collect();
+        cold.sort_unstable_by_key(|(used, _)| *used);
+        for (_, item) in cold {
             if self.bytes <= self.cap {
                 break;
             }
-            if let Some(slots) = self.pages.get_mut(&page)
-                && let Some(i) = slots.iter().position(|s| s.scale == scale)
-            {
-                self.bytes -= slots.swap_remove(i).bytes;
+            match item {
+                Cold::Slot(page, scale) => {
+                    if let Some(slots) = self.pages.get_mut(&page)
+                        && let Some(i) = slots.iter().position(|s| s.scale == scale)
+                    {
+                        self.bytes -= slots.swap_remove(i).bytes;
+                    }
+                }
+                Cold::Tile(key) => {
+                    if let Some(t) = self.tiles.remove(&key) {
+                        self.bytes -= t.bytes;
+                    }
+                }
             }
         }
     }
@@ -203,12 +289,17 @@ impl PageCache {
         self.bytes
     }
 
+    /// Whole-page textures; tiles count apart, see [`Self::tiles`].
     pub fn len(&self) -> usize {
         self.pages.values().map(Vec::len).sum()
     }
 
+    pub fn tiles(&self) -> usize {
+        self.tiles.len()
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.pages.is_empty()
+        self.pages.is_empty() && self.tiles.is_empty()
     }
 }
 
@@ -238,6 +329,7 @@ mod tests {
             doc,
             page,
             scale: Scale::covering(scale),
+            part: Part::Whole,
         }
     }
 
@@ -294,6 +386,56 @@ mod tests {
         c.forget(d);
         assert!(c.is_empty() && c.bytes() == 0);
         assert!(matches!(c.lookup(key(d, 1, 1.0)), Lookup::Missing));
+        Ok(())
+    }
+
+    fn tile(doc: DocId, page: usize, scale: f32, col: u8) -> PageKey {
+        PageKey {
+            part: Part::Tile { col, row: 0 },
+            ..key(doc, page, scale)
+        }
+    }
+
+    #[test]
+    fn tiles_share_the_byte_cap_and_go_cold_first() -> Out {
+        let ctx = Context::default();
+        let one = 8 * 8 * 4;
+        let mut c = PageCache::new(3 * one);
+        let d = doc()?;
+        put(&mut c, &ctx, key(d, 0, 1.0), 8);
+        for col in 0..3 {
+            put(&mut c, &ctx, tile(d, 0, 4.0, col), 8);
+        }
+        assert_eq!((c.len(), c.tiles(), c.bytes()), (1, 3, 4 * one));
+        c.end_frame();
+        // The backdrop and one tile on screen; the cap takes cold tiles.
+        assert!(matches!(c.lookup(key(d, 0, 1.0)), Lookup::Sharp(_)));
+        assert!(c.lookup_tile(tile(d, 0, 4.0, 1)).is_some());
+        c.end_frame();
+        assert!(c.bytes() <= 3 * one, "{} bytes", c.bytes());
+        assert!(c.touch(tile(d, 0, 4.0, 1)), "the drawn tile stays");
+        Ok(())
+    }
+
+    #[test]
+    fn a_page_drawn_at_another_scale_drops_its_old_tiles() -> Out {
+        let ctx = Context::default();
+        let mut c = PageCache::default();
+        let d = doc()?;
+        put(&mut c, &ctx, tile(d, 0, 4.0, 0), 8);
+        put(&mut c, &ctx, tile(d, 0, 4.0, 1), 8);
+        put(&mut c, &ctx, tile(d, 0, 8.0, 0), 8);
+        c.end_frame();
+        // Zoomed to 8×, one tile shows: its neighbours at 8× would stay.
+        assert!(c.lookup_tile(tile(d, 0, 8.0, 0)).is_some());
+        c.end_frame();
+        assert_eq!(c.tiles(), 1);
+        // Zoomed out, the whole page is sharp and needs no tiles.
+        put(&mut c, &ctx, key(d, 0, 1.0), 8);
+        assert!(matches!(c.lookup(key(d, 0, 1.0)), Lookup::Sharp(_)));
+        c.end_frame();
+        assert_eq!(c.tiles(), 0);
+        assert!(!c.touch(tile(d, 0, 8.0, 0)));
         Ok(())
     }
 }

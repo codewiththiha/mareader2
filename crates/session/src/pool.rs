@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 
 use mareader_pdf::{Document, Raster, RenderError, TextLayer};
 
-use crate::key::{DocId, PageKey, Want};
+use crate::key::{DocId, PageKey, Part, Want};
 use crate::{OpenError, Source};
 
 /// Finished results wait here; past it, workers pause until a poll.
@@ -147,7 +147,10 @@ impl Pool {
         s.queue
             .extend(fresh.map(|(want, doc)| Job::Work { want, doc }));
         let more = !s.queue.is_empty();
-        if more {
+        if more && self.workers.is_empty() {
+            // Inline work runs from the next poll: ask for a frame.
+            (self.shared.wake)();
+        } else if more {
             self.shared.work.notify_all();
         }
     }
@@ -239,7 +242,13 @@ fn finish(shared: &Shared, job: Job) {
             doc,
         } => Output::Rendered {
             key,
-            result: doc.render(key.page, key.scale.value()),
+            result: match key.part {
+                Part::Whole => doc.render(key.page, key.scale.value()),
+                Part::Tile { col, row } => {
+                    let (col, row) = (u32::from(col), u32::from(row));
+                    doc.render_tile(key.page, key.scale.value(), col, row)
+                }
+            },
         },
         Job::Work {
             want: Want::Text { doc: id, page },

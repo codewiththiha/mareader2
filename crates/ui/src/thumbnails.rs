@@ -6,7 +6,7 @@ use egui::{
     Align, Align2, Color32, CornerRadius, FontId, Id, Rect, ScrollArea, Sense, Stroke, StrokeKind,
     Ui, Vec2, pos2, vec2,
 };
-use mareader_session::{DocId, PageKey, Scale};
+use mareader_session::{DocId, PageKey, Part, Scale};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -132,6 +132,7 @@ pub fn show(
             doc: reading.doc,
             page,
             scale: Scale::covering(shown.width() / w * ppp),
+            part: Part::Whole,
         }
     };
     if ui.rect_contains_pointer(panel) {
