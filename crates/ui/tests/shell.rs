@@ -212,7 +212,7 @@ fn docking_a_floating_sidebar_keeps_it_open() {
     h.run_steps(4);
     h.get_by_label("Dock sidebar").click();
     h.run_steps(4);
-    assert!(!h.state().settings().sidebar_overlay);
+    assert!(!h.state().settings().chrome.sidebar_overlay);
     assert!(h.state().sidebar().is_open());
 }
 
@@ -264,7 +264,7 @@ fn a_settings_switch_applies_on_the_frame_it_flips() {
         .click();
     h.step();
     h.step();
-    assert!(h.state().settings().sidebar_overlay);
+    assert!(h.state().settings().chrome.sidebar_overlay);
 }
 
 #[test]
@@ -292,12 +292,53 @@ fn the_animations_tab_leaves_with_its_master_switch() {
 
 #[test]
 fn split_pane_outline_colour_comes_from_the_theme_tab() {
-    use mareader_ui::panes::OutlineColor;
     let mut h = with(&[("panes", "2"), ("settings", "theme")]);
     h.get_by_label("Red").click();
     h.run_steps(2);
-    let look = h.state().settings().workspace;
-    assert_eq!(look.outline_color, OutlineColor::Red);
+    let look = h.state().settings().workspace.look;
+    assert_eq!(look.outline_color, mareader_settings::Swatch::Red);
+}
+
+/// eframe's storage, minus the disk.
+#[derive(Default)]
+struct Memory(std::collections::HashMap<String, String>);
+
+impl eframe::Storage for Memory {
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    fn set_string(&mut self, key: &str, value: String) {
+        self.0.insert(key.to_owned(), value);
+    }
+
+    fn remove_string(&mut self, key: &str) {
+        self.0.remove(key);
+    }
+
+    fn flush(&mut self) {}
+}
+
+#[test]
+fn settings_survive_a_save_and_relaunch() {
+    use eframe::App as _;
+    let mut h = with(&[("float", "true"), ("theme", "dim")]);
+    let mut disk = Memory::default();
+    h.state_mut().save(&mut disk);
+    let back = MareaderApp::from_storage(Some(&disk));
+    assert_eq!(back.settings(), h.state().settings());
+    assert!(back.settings().chrome.sidebar_overlay);
+}
+
+#[test]
+fn the_pre_crate_settings_blob_still_loads() {
+    let mut disk = Memory::default();
+    let v0 = r#"{"titlebar_pinned":true,"animations":false,"sidebar_overlay":true}"#;
+    disk.0
+        .insert(mareader_ui::app::SETTINGS_KEY.to_owned(), v0.to_owned());
+    let app = MareaderApp::from_storage(Some(&disk));
+    assert!(app.titlebar().pinned && app.settings().chrome.sidebar_overlay);
+    assert!(!app.settings().motion.enabled);
 }
 
 #[test]

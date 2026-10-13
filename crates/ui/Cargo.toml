@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 mareader-appearance = { workspace = true }
 mareader-workspace = { workspace = true }
+mareader-settings = { workspace = true }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 egui-lucide = { workspace = true }

@@ -1,13 +1,15 @@
 //! The app state and its eframe loop.
 
+use std::time::Duration;
+
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
 use mareader_appearance::{Appearance, BaseMode, builtin_presets};
+use mareader_settings::Settings;
 use mareader_workspace::{Bounds, PaneId, PaneTree, Side, SplitAxis};
-use serde::{Deserialize, Serialize};
 
 use crate::command::{Command, Commands, WindowCommand};
-use crate::panes::{self, PaneView, WorkspaceLook};
+use crate::panes::{self, PaneView};
 use crate::platform::Platform;
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
@@ -16,31 +18,8 @@ use crate::{motion, resize, theme};
 
 pub const SETTINGS_KEY: &str = "settings";
 
-/// The persisted slice that exists so far; fields join as features land.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    pub appearance: Appearance,
-    pub titlebar_pinned: bool,
-    pub animations: bool,
-    pub workspace: WorkspaceLook,
-    /// The rail floats over the panes instead of docking beside them.
-    pub sidebar_overlay: bool,
-    pub sidebar_slide: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            appearance: Appearance::default(),
-            titlebar_pinned: false,
-            animations: true,
-            workspace: WorkspaceLook::default(),
-            sidebar_overlay: false,
-            sidebar_slide: true,
-        }
-    }
-}
+/// Settings reach disk this long after a change, at most.
+pub const SAVE_EVERY: Duration = Duration::from_millis(500);
 
 pub struct MareaderApp {
     settings: Settings,
@@ -73,10 +52,9 @@ impl Default for MareaderApp {
 
 impl MareaderApp {
     pub fn with_settings(mut settings: Settings) -> Self {
-        settings.appearance.sanitize();
-        settings.workspace.sanitize();
+        settings.sanitize();
         Self {
-            titlebar: TitleBar::new(settings.titlebar_pinned),
+            titlebar: TitleBar::new(settings.chrome.titlebar_pinned),
             settings,
             platform: Platform::current(),
             tree: PaneTree::new(),
@@ -92,11 +70,19 @@ impl MareaderApp {
     }
 
     pub fn from_creation(cc: &eframe::CreationContext<'_>) -> Self {
-        let saved = cc
-            .storage
-            .and_then(|s| s.get_string(SETTINGS_KEY))
-            .and_then(|json| serde_json::from_str::<Settings>(&json).ok());
-        saved.map_or_else(Self::default, Self::with_settings)
+        Self::from_storage(cc.storage)
+    }
+
+    /// Unreadable settings repair section by section; the notes go to stderr.
+    pub fn from_storage(storage: Option<&dyn Storage>) -> Self {
+        let Some(json) = storage.and_then(|s| s.get_string(SETTINGS_KEY)) else {
+            return Self::default();
+        };
+        let loaded = mareader_settings::load(&json);
+        for note in &loaded.notes {
+            eprintln!("mareader: {note}");
+        }
+        Self::with_settings(loaded.settings)
     }
 
     pub fn settings(&self) -> &Settings {
@@ -114,7 +100,7 @@ impl MareaderApp {
         if self.live.poll(ctx) {
             self.styled = None;
         }
-        let want = (self.settings.appearance, self.settings.animations);
+        let want = (self.settings.appearance, self.settings.motion.enabled);
         if self.styled == Some(want) {
             return false;
         }
@@ -123,7 +109,7 @@ impl MareaderApp {
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         self.live.overlay(&mut tokens);
         theme::apply(ctx, &tokens);
-        motion::set_enabled(ctx, self.settings.animations);
+        motion::set_enabled(ctx, self.settings.motion.enabled);
         self.styled = Some(want);
         true
     }
@@ -175,8 +161,8 @@ impl MareaderApp {
             }
             "pinned" => self.titlebar.pinned = value == "true",
             "chromeless" => self.titlebar.chromeless = value == "true",
-            "animations" => self.settings.animations = value == "true",
-            "float" => self.settings.sidebar_overlay = value == "true",
+            "animations" => self.settings.motion.enabled = value == "true",
+            "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "sidebar" => match Panel::parse(value) {
                 Some(p) => self.sidebar.open(Some(p)),
                 None if value == "closed" => self.sidebar.close(),
@@ -216,7 +202,7 @@ impl MareaderApp {
             Command::ToggleSidebar => self.sidebar.toggle(),
             Command::OpenSidebar(panel) => self.sidebar.open(panel),
             Command::CloseSidebar => self.sidebar.close(),
-            Command::SetSidebarOverlay(on) => self.settings.sidebar_overlay = on,
+            Command::SetSidebarOverlay(on) => self.settings.chrome.sidebar_overlay = on,
             Command::Split(axis) => {
                 let r = ctx.content_rect();
                 let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
@@ -239,7 +225,7 @@ impl MareaderApp {
             }
             Command::SetTitlebarPinned(p) => {
                 self.titlebar.pinned = p;
-                self.settings.titlebar_pinned = p;
+                self.settings.chrome.titlebar_pinned = p;
             }
             Command::Window(w) => ctx.send_viewport_cmd(match w {
                 WindowCommand::Minimize => ViewportCommand::Minimized(true),
@@ -259,9 +245,8 @@ impl MareaderApp {
             Command::CloseSettings => self.settings_window.close(),
             Command::SetSettings(s) => {
                 let mut s = *s;
-                s.appearance.sanitize();
-                s.workspace.sanitize();
-                self.titlebar.pinned = s.titlebar_pinned;
+                s.sanitize();
+                self.titlebar.pinned = s.chrome.titlebar_pinned;
                 self.settings = s;
             }
             Command::ShowLibrary | Command::ShowSearch => {}
@@ -295,10 +280,10 @@ impl eframe::App for MareaderApp {
         if escape && self.sidebar.is_open() && !modal && !egui::Popup::is_any_open(&ctx) {
             commands.push(Command::CloseSidebar);
         }
-        let overlay = self.settings.sidebar_overlay;
+        let overlay = self.settings.chrome.sidebar_overlay;
         let rail = RailContext {
             overlay,
-            slide: self.settings.sidebar_slide,
+            slide: self.settings.motion.sidebar_slide,
             platform: self.platform,
         };
         let inset = if overlay {
@@ -308,7 +293,7 @@ impl eframe::App for MareaderApp {
         };
         let view = PaneView {
             active: self.active,
-            look: self.settings.workspace,
+            look: self.settings.workspace.look,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
         };
         egui::CentralPanel::no_frame().show(ui, |ui| {
@@ -329,9 +314,14 @@ impl eframe::App for MareaderApp {
         // Applied after drawing, so the next frame must show the result.
         if !commands.is_empty() {
             ctx.request_repaint();
-        }
-        for command in commands {
-            self.apply(&ctx, command);
+            let before = self.settings.clone();
+            for command in commands {
+                self.apply(&ctx, command);
+            }
+            // eframe autosaves only on a frame, so book one after the interval.
+            if self.settings != before {
+                ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
+            }
         }
         // This frame drew with the old look; show the new one next frame.
         if self.restyle(&ctx) {
@@ -339,9 +329,12 @@ impl eframe::App for MareaderApp {
         }
     }
 
+    /// Writes happen on eframe's persist thread, and only when changed.
+    fn auto_save_interval(&self) -> Duration {
+        SAVE_EVERY
+    }
+
     fn save(&mut self, storage: &mut dyn Storage) {
-        if let Ok(json) = serde_json::to_string(&self.settings) {
-            storage.set_string(SETTINGS_KEY, json);
-        }
+        storage.set_string(SETTINGS_KEY, mareader_settings::to_json(&self.settings));
     }
 }

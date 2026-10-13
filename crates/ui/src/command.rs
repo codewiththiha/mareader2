@@ -3,9 +3,9 @@
 use mareader_appearance::Appearance;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
-use crate::app::Settings;
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
+use mareader_settings::Settings;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {

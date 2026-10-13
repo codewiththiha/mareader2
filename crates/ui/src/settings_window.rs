@@ -1,14 +1,15 @@
 //! The settings window: a modal with one tab per area of the app.
 
+use mareader_appearance::Rgb;
+use mareader_settings::{Corners, Settings, Swatch};
+
 use egui::{
     Align, Button, Color32, Frame, Id, Layout, Margin, Modal, RichText, ScrollArea, Sense, Stroke,
     Ui, Vec2, vec2,
 };
 
-use crate::app::Settings;
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
-use crate::panes::OutlineColor;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
@@ -72,7 +73,7 @@ impl Tab {
 
     fn available(self, s: &Settings, cx: &WindowContext) -> bool {
         match self {
-            Tab::Animations => s.animations,
+            Tab::Animations => s.motion.enabled,
             Tab::Fonts => cx.reflowable,
             _ => true,
         }
@@ -241,14 +242,14 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             ui,
             "Keep title bar shown",
             "Pin the title bar so it never hides",
-            &mut s.titlebar_pinned,
+            &mut s.chrome.titlebar_pinned,
         );
         divider(ui);
         switch_row(
             ui,
             "Overlay sidebar",
             "The sidebar floats over pages and hides when the pointer leaves",
-            &mut s.sidebar_overlay,
+            &mut s.chrome.sidebar_overlay,
         );
     });
     pending(
@@ -262,7 +263,7 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             ui,
             "Animations",
             "Everything that moves. Off, a change lands as its end frame.",
-            &mut s.animations,
+            &mut s.motion.enabled,
         );
     });
 }
@@ -274,7 +275,7 @@ fn animations(ui: &mut Ui, s: &mut Settings) {
             ui,
             "Sidebar animation",
             "The docked sidebar slides; the floating one fades",
-            &mut s.sidebar_slide,
+            &mut s.motion.sidebar_slide,
         );
     });
     pending(
@@ -313,7 +314,7 @@ fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &WindowContext, out: &mut Comman
 }
 
 fn pane_look(ui: &mut Ui, s: &mut Settings) {
-    let w = &mut s.workspace;
+    let w = &mut s.workspace.look;
     group(ui, |ui| {
         row(ui, "Outline thickness", "Zero hides the outline", |ui| {
             ui.spacing_mut().slider_width = 140.0;
@@ -341,12 +342,12 @@ fn pane_look(ui: &mut Ui, s: &mut Settings) {
         divider(ui);
         row(ui, "Corners", "", |ui| {
             // Right to left: the last option is drawn first.
-            for (rounded, label) in [(true, "Rounded"), (false, "Square")] {
+            for (corners, label) in [(Corners::Rounded, "Rounded"), (Corners::Square, "Square")] {
                 if ui
-                    .add(Button::selectable(w.rounded == rounded, label))
+                    .add(Button::selectable(w.corners == corners, label))
                     .clicked()
                 {
-                    w.rounded = rounded;
+                    w.corners = corners;
                 }
             }
         });
@@ -356,19 +357,20 @@ fn pane_look(ui: &mut Ui, s: &mut Settings) {
 }
 
 /// Laid out right to left: the custom picker, then the palette.
-fn outline_colours(ui: &mut Ui, choice: &mut OutlineColor, custom: &mut [u8; 3]) {
+fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
     let t = Tokens::get(ui.ctx());
     ui.spacing_mut().item_spacing.x = 6.0;
-    let before = *custom;
+    let mut srgb = [custom.0, custom.1, custom.2];
     ui.spacing_mut().interact_size = Vec2::splat(20.0);
-    let picker = egui::color_picker::color_edit_button_srgb(ui, custom);
-    if picker.clicked() || *custom != before {
-        *choice = OutlineColor::Custom;
+    let picker = egui::color_picker::color_edit_button_srgb(ui, &mut srgb);
+    if picker.clicked() || srgb != [custom.0, custom.1, custom.2] {
+        *custom = Rgb(srgb[0], srgb[1], srgb[2]);
+        *choice = Swatch::Custom;
     }
     picker.on_hover_text("Custom");
-    for c in OutlineColor::PALETTE.into_iter().rev() {
+    for c in Swatch::PALETTE.into_iter().rev() {
         let (rect, r) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
-        let fill = c.resolve(t.accent, *custom);
+        let fill = c.rgb(*custom).map_or(t.accent, theme::color);
         let on = *choice == c;
         ui.painter().circle_filled(rect.center(), 9.0, fill);
         if on {
