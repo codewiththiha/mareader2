@@ -129,6 +129,40 @@ EPUB: parley → vello_cpu ┘                                    filter · blen
   rectangles from the page's glyph index (hayro text extraction or parley
   clusters), painted over the texture.
 
+### Scrolling long documents
+
+mareader2 scrolls 10,000-page files at low memory with no virtual-list
+crate. The rules:
+
+- **Layout from page sizes alone.** Page rects come from the document's page
+  boxes, never from rendering. `ScrollArea::show_viewport` allocates the full
+  content height; each frame draws and requests only the pages meeting the
+  viewport plus a small prefetch window. A test opens 10,000 pages and checks
+  that demand is the visible pages plus prefetch.
+- **Visible work is always admitted.** Byte and count caps limit prefetch and
+  what stays cached; the viewport already bounds what is on screen, so a
+  visible page is never left blank to honour a cap.
+- **Whole pages first, tiles only for huge rasters.** hayro interprets the
+  whole page for each tile, so a page renders as one
+  raster until its long side passes ~4096 px. Past that, a ≤ 2048 px backdrop
+  plus at most four tiles per side, the tile side growing with zoom.
+- **Hold tiles while panning.** New tiles are requested only after the scroll
+  offset rests for ~0.25 s; meanwhile the backdrop or older tiles show,
+  stretched. A drag never queues one interpret per frame.
+- **Demand first, results bounded.** Each frame publishes its demand before
+  receiving. A result no longer in demand is dropped before it becomes a
+  `ColorImage`. Finished results wait in a bounded queue (~32 MiB, 32 items).
+- **Upload budget per frame.** At most ~8 results, ~16 MiB or ~4 ms of texture
+  uploads per frame, so a burst of finished tiles never stalls scrolling.
+- **Stale stays until replaced.** Textures of an old zoom are drawn stretched
+  until the sharp ones cover the page, then evicted.
+- **Text layers are lazy.** Glyph data is extracted on the first selection or
+  search, cached by count separately from rasters.
+- **Touchpads scroll 1:1.** Precise wheel deltas bypass egui's easing
+  or the page lags the fingers on Windows.
+- **Colours never re-render.** Appearance is uniforms of the page pass, not
+  a recolour while rasterising, so a colour change re-renders nothing.
+
 ## EPUB
 
 EPUB replaces mareader's txt and md formats. `docs/epub.md` has the plan and
@@ -188,3 +222,4 @@ has a parley equivalent.
 | 2026-10-13 | Created with the M0 foundation |
 | 2026-10-13 | Functional parity and the egui architecture section (ADR 0005) |
 | 2026-10-13 | Shared documents, cache and workers across panes (ADR 0006); appearance as uniforms |
+| 2026-10-13 | Scrolling long documents: admission, tiling and upload rules |
