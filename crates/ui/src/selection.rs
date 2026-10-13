@@ -3,6 +3,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use egui::style::ScrollAnimation;
 use egui::{Color32, CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2, vec2};
 use mareader_pdf::{Bounds, LinkTarget};
 use mareader_session::{DocId, TextLayer};
@@ -233,8 +234,9 @@ fn wheel(ui: &Ui, sideways: bool) {
     } else {
         delta
     };
+    // egui has smoothed it already; animating again would drop most of it.
     if delta != Vec2::ZERO {
-        ui.scroll_with_delta(delta);
+        ui.scroll_with_delta_animation(delta, ScrollAnimation::none());
         ui.ctx().request_repaint();
     }
 }
@@ -255,8 +257,9 @@ fn edge_scroll(ui: &Ui, area: Rect, p: Pos2) {
         past(p.x, area.left(), area.right()),
         past(p.y, area.top(), area.bottom()),
     );
+    // Each frame's step lands now, or egui's glide would swallow it.
     if delta != Vec2::ZERO {
-        ui.scroll_with_delta(delta);
+        ui.scroll_with_delta_animation(delta, ScrollAnimation::none());
         ui.ctx().request_repaint();
     }
 }
