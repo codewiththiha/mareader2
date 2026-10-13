@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 in progress (slice 1 of 6 done).
+**Stage:** M1 in progress (slices 1 and 2 of 6 done).
 **Parity:** 17.0 of 111 features (15.3 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -39,18 +39,17 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | Appearance popover: presets, mode, tint, texture, grain; live restyle | **done** | palette button, or `?open=appearance` |
-| 2 | Sidebar rail (docked or overlay), band inset | next | sidebar button |
-| 3 | Settings window skeleton (`Modal`) with appearance and chrome pages | planned | gear button |
+| 2 | Sidebar rail: docked slide or floating with edge reveal; switcher; band inset | **done** | sidebar button, `?sidebar=outline`, `?float=true` then the left edge |
+| 3 | Settings window skeleton (`Modal`) with appearance and chrome pages | next | gear button |
 | 4 | Settings crate: every mareader setting in our schema, persisted | planned | settings survive a restart |
 | 5 | Tooltips and toasts styled; overflow menu at narrow widths | planned | narrow the window |
 | 6 | Glass blur behind the title bar (wgpu pass) | planned | pin the bar over a page |
 
 ## Next
 
-1. **Slice 2, the sidebar** (`chrome.sidebar`):
-   `egui::Panel::left(..).show_collapsible`, docked or overlay; feeds the title
-   bar's band inset.
-2. **Slice 3, the settings window** (`settings.modal`): `egui::Modal`.
+1. **Slice 3, the settings window** (`settings.modal`): `egui::Modal`, with
+   the sidebar's layout and slide switches among its first pages.
+2. **Slice 4, the settings crate**: mareader's schema, persisted.
 
 ## Open questions for the owner
 
@@ -68,3 +67,5 @@ Every slice is usable as soon as it lands (`AGENTS.md` § Always checkable):
 | 2026-10-13 | Functional parity (ADR 0005): `docs/design.md` replaces `look.md`; `Command` queue and egui-native widgets in the shell; one-hue tints with gamut mapping; library redesign; pane controls kept clear of the hover band |
 | 2026-10-13 | Theme pipeline: shape tokens, one apply, instant restyle (tested), live token file; dividers through commands; ADR 0006 shares documents and caches across panes |
 | 2026-10-13 | M1 slice 1: Appearance popover (presets, mode, hue strip, strength, texture, grain) restyles live; browser preview (`apps/mareader-web`, `tools/web.sh`); scrolling rules for long documents recorded |
+| 2026-10-13 | M1 slice 2: sidebar rail, docked (300 ms slide, panes give way) or floating (fade, 6 px edge reveal, 250 ms grace); header with close, search, settings and dock; panel switcher; Escape closes; the bar's band and macOS gutter start at the rail. The slide is our own eased width inside `egui::Panel::left`, because `show_collapsible` follows the global animation time and cannot honour the separate slide switch |
+
