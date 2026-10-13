@@ -15,27 +15,54 @@ const BODY: [&str; 12] = [
     "Sphinx of black quartz, judge my vow.",
 ];
 
+/// Where each page's links sit: one to the next chapter, one to the web.
+pub const LINK_Y: u32 = 290;
+pub const WEB_LINK: &str = "https://github.com/codewiththiha/mareader2";
+/// Helvetica's advance widths for ASCII 32 to 126, in em thousandths.
+const HELVETICA: [u16; 95] = [
+    278, 278, 355, 556, 556, 889, 667, 222, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556,
+    556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667,
+    611, 778, 722, 278, 500, 667, 556, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667,
+    667, 611, 278, 278, 278, 469, 556, 222, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500,
+    222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584,
+];
+
+/// How wide `text` sets in 12 point Helvetica, so links fit their labels.
+fn width(text: &str) -> f32 {
+    let em = |c: char| {
+        let i = (c as usize).wrapping_sub(32);
+        HELVETICA.get(i).copied().map_or(556.0, f32::from)
+    };
+    text.chars().map(em).sum::<f32>() * 12.0 / 1000.0
+}
+
 /// Numbered pages with a chapter every five, two sections in each.
 pub fn pdf(pages: usize, title: &str) -> Vec<u8> {
     let pages = pages.max(1);
     let extra = outline(&chapters(pages));
-    build(pages, title, "/Outlines {E0}", &extra)
+    build(pages, title, "/Outlines {E0}", &extra, &|i| {
+        sample_links(i, pages)
+    })
 }
 
 /// For tests: `catalog` joins the catalog; `{E0}` … name `extra`.
 pub fn with_objects(pages: usize, catalog: &str, extra: &[String]) -> Vec<u8> {
-    build(pages.max(1), "Test", catalog, extra)
+    build(pages.max(1), "Test", catalog, extra, &|_| Vec::new())
 }
 
-fn build(pages: usize, title: &str, catalog: &str, extra: &[String]) -> Vec<u8> {
+/// For tests: `annots` are written onto page `on`, as dictionaries.
+pub fn with_annots(pages: usize, on: usize, annots: &[String]) -> Vec<u8> {
+    let pick = |i: usize| if i == on { annots.to_vec() } else { Vec::new() };
+    build(pages.max(1), "Test", "", &[], &pick)
+}
+
+type Annots<'a> = &'a dyn Fn(usize) -> Vec<String>;
+
+fn build(pages: usize, title: &str, catalog: &str, extra: &[String], annots: Annots) -> Vec<u8> {
     // 1 catalog, 2 page tree, 3 and 4 fonts, 5 info, then page pairs.
     let first = 6;
     let base = first + 2 * pages;
-    let refs = |text: &str| {
-        (0..extra.len()).fold(text.to_string(), |t, i| {
-            t.replace(&format!("{{E{i}}}"), &format!("{} 0 R", base + i))
-        })
-    };
+    let refs = |text: &str| refs(text, base);
     let kids: Vec<String> = (0..pages)
         .map(|i| format!("{} 0 R", first + 2 * i))
         .collect();
@@ -50,13 +77,14 @@ fn build(pages: usize, title: &str, catalog: &str, extra: &[String]) -> Vec<u8> 
         format!("<< /Title ({}) /Producer (mareader) >>", escape(title)),
     ];
     for i in 0..pages {
-        let landscape = (i + 1) % 7 == 0;
-        let (w, h) = if landscape { (792, 612) } else { (612, 792) };
-        let text = page_text(i + 1, pages, w, h);
+        let (w, h) = page_size(i);
+        let text = page_text(i, pages, w, h);
+        let annots = annots(i).iter().map(|a| refs(a)).collect::<Vec<_>>();
         objs.push(format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] \
              /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> \
-             /Contents {} 0 R >>",
+             /Annots [{}] /Contents {} 0 R >>",
+            annots.join(" "),
             first + 2 * i + 1
         ));
         objs.push(format!(
@@ -66,6 +94,15 @@ fn build(pages: usize, title: &str, catalog: &str, extra: &[String]) -> Vec<u8> 
     }
     objs.extend(extra.iter().map(|e| refs(e)));
     assemble(&objs)
+}
+
+/// Letter in points; every seventh page turns sideways.
+fn page_size(page: usize) -> (u32, u32) {
+    if (page + 1).is_multiple_of(7) {
+        (792, 612)
+    } else {
+        (612, 792)
+    }
 }
 
 /// The sample's chapters: title, 0-based page and depth.
@@ -118,7 +155,46 @@ fn outline(entries: &[(String, usize, usize)]) -> Vec<String> {
     objs
 }
 
-fn page_text(n: usize, total: usize, w: u32, h: u32) -> String {
+/// The page a sample page's chapter link leads to, and its label.
+fn next_chapter(page: usize, pages: usize) -> (usize, String) {
+    let next = (page / 5 + 1) * 5;
+    if next < pages {
+        (next, format!("Next chapter, page {}", next + 1))
+    } else {
+        (0, "Back to page 1".to_string())
+    }
+}
+
+/// The web link's label: the address without its scheme.
+fn web_label() -> &'static str {
+    WEB_LINK.trim_start_matches("https://")
+}
+
+/// Link areas over the drawn labels.
+fn sample_links(page: usize, pages: usize) -> Vec<String> {
+    let y = page_size(page).1 - 96 - LINK_Y;
+    let area = |x: f32, label: &str, action: String| {
+        let x1 = x + width(label);
+        format!(
+            "<< /Type /Annot /Subtype /Link /Border [0 0 0] \
+             /Rect [{x} {} {x1:.1} {}] {action} >>",
+            y - 3,
+            y + 11
+        )
+    };
+    let (target, label) = next_chapter(page, pages);
+    vec![
+        area(72.0, &label, format!("/Dest [{} 0 R /Fit]", 6 + 2 * target)),
+        area(
+            300.0,
+            web_label(),
+            format!("/A << /S /URI /URI ({WEB_LINK}) >>"),
+        ),
+    ]
+}
+
+fn page_text(i: usize, total: usize, w: u32, h: u32) -> String {
+    let n = i + 1;
     let top = h - 96;
     let mut s = format!("BT /F1 30 Tf 72 {top} Td (Page {n} of {total}) Tj ET\n");
     s += &format!("0.85 0.45 0.2 rg 72 {} 96 4 re f 0 g\n", top - 18);
@@ -127,8 +203,33 @@ fn page_text(n: usize, total: usize, w: u32, h: u32) -> String {
         s += &format!("({}) '\n", escape(line));
     }
     s += "ET\n";
+    let y = top - LINK_Y;
+    let (_, label) = next_chapter(i, total);
+    s += "0.1 0.35 0.8 rg\n";
+    for (x, text) in [(72.0, label.as_str()), (300.0, web_label())] {
+        let width = width(text);
+        s += &format!("BT /F2 12 Tf {x} {y} Td ({}) Tj ET\n", escape(text));
+        s += &format!("{x} {} {width:.1} 0.6 re f\n", y - 2);
+    }
+    s += "0 g\n";
     s += &format!("BT /F2 10 Tf {} 40 Td ({n}) Tj ET", w / 2 - 6);
     s
+}
+
+/// Swaps each `{En}` for a reference to object `base + n`, in one pass.
+fn refs(text: &str, base: usize) -> String {
+    let mut parts = text.split("{E");
+    let mut out = parts.next().unwrap_or_default().to_string();
+    for part in parts {
+        match part.split_once('}') {
+            Some((n, tail)) if n.parse::<usize>().is_ok() => {
+                let n = n.parse::<usize>().unwrap_or_default();
+                out += &format!("{} 0 R{tail}", base + n);
+            }
+            _ => out += &format!("{{E{part}"),
+        }
+    }
+    out
 }
 
 /// Writes the objects with a valid cross-reference table.

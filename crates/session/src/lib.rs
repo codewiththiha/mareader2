@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub use key::{DocId, PageKey, Scale};
-pub use mareader_pdf::{Document, PageSize, Raster, RenderError};
+pub use key::{DocId, PageKey, Scale, Want};
+pub use mareader_pdf::{Document, PageSize, Raster, RenderError, TextLayer};
 
 use pool::{Output, Pool};
 
@@ -87,6 +87,12 @@ pub enum Event {
     Rendered {
         key: PageKey,
         result: Result<Raster, RenderError>,
+    },
+    /// A page's text and links, shared: views and copies read it.
+    Text {
+        doc: DocId,
+        page: usize,
+        result: Result<Arc<TextLayer>, RenderError>,
     },
 }
 
@@ -158,13 +164,14 @@ impl Session {
         self.docs.is_empty()
     }
 
-    /// Replaces the render demand, most urgent first.
+    /// Replaces the demand, most urgent first.
     ///
-    /// Keys of closed documents are ignored.
-    pub fn want(&mut self, keys: impl IntoIterator<Item = PageKey>) {
-        let jobs = keys
+    /// Work for closed documents is ignored.
+    pub fn want(&mut self, wants: impl IntoIterator<Item = impl Into<Want>>) {
+        let jobs = wants
             .into_iter()
-            .filter_map(|k| self.docs.get(&k.doc).map(|e| (k, Arc::clone(&e.doc))))
+            .map(Into::into)
+            .filter_map(|w: Want| self.docs.get(&w.doc()).map(|e| (w, Arc::clone(&e.doc))))
             .collect();
         self.pool.want(jobs);
     }
@@ -202,6 +209,13 @@ impl Session {
                 .docs
                 .contains_key(&key.doc)
                 .then_some(Event::Rendered { key, result }),
+            Output::Read { doc, page, result } => {
+                self.docs.contains_key(&doc).then(|| Event::Text {
+                    doc,
+                    page,
+                    result: result.map(Arc::new),
+                })
+            }
         }
     }
 

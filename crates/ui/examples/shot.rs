@@ -15,6 +15,7 @@ fn main() -> Result<(), String> {
     let mut zooms = Vec::new();
     let mut queued = Vec::new();
     let mut scroll = 0.0;
+    let mut drag = None;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -26,6 +27,14 @@ fn main() -> Result<(), String> {
                     x.parse().map_err(|_| "hover x")?,
                     y.parse().map_err(|_| "hover y")?,
                 ));
+            }
+            // A press, move and release once open: `drag=x1,y1,x2,y2`.
+            "drag" => {
+                let n: Vec<f32> = v.split(',').filter_map(|n| n.parse().ok()).collect();
+                let [x1, y1, x2, y2] = n.as_slice() else {
+                    return Err("drag=x1,y1,x2,y2".into());
+                };
+                drag = Some((egui::pos2(*x1, *y1), egui::pos2(*x2, *y2)));
             }
             // Applied once the document is open: `zoom=in,in,page`.
             "zoom" => {
@@ -108,9 +117,27 @@ fn main() -> Result<(), String> {
         });
         harness.run_steps(40);
     }
+    if let Some((from, to)) = drag {
+        let press = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        harness.hover_at(from);
+        harness.event(press(from, true));
+        harness.run_steps(2);
+        for k in 1..=8 {
+            harness.hover_at(from + (to - from) * (k as f32 / 8.0));
+            harness.run_steps(1);
+        }
+        harness.event(press(to, false));
+        harness.run_steps(4);
+    }
+    // Long enough for a tooltip to appear.
     if let Some(p) = hover {
         harness.hover_at(p);
-        harness.run_steps(30);
+        harness.run_steps(45);
     }
     let image = harness.render()?;
     image.save(&out).map_err(|e| e.to_string())?;

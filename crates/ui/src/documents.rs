@@ -13,6 +13,8 @@ use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
+use crate::selection::{Selection, Sheet};
+use crate::texts::TextLayers;
 use crate::theme::{self, Tokens};
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
@@ -80,7 +82,7 @@ impl OpenRequest {
 #[derive(Debug)]
 enum Content {
     Opening { ticket: Ticket, name: String },
-    Pdf(PdfView),
+    Pdf(Box<PdfView>),
 }
 
 /// One pane's document as navigation sees it, as of last frame.
@@ -104,6 +106,7 @@ pub struct Documents {
     session: Option<Session>,
     workers: usize,
     pages: PageCache,
+    texts: TextLayers,
     panes: BTreeMap<PaneId, Content>,
     demand: Demand,
     gpu: Option<Gpu>,
@@ -122,6 +125,7 @@ impl Default for Documents {
             session: None,
             workers,
             pages: PageCache::default(),
+            texts: TextLayers::default(),
             panes: BTreeMap::new(),
             demand: Demand::new(),
             gpu: None,
@@ -184,6 +188,7 @@ impl Documents {
                 s.close(doc);
             }
             self.pages.forget(doc);
+            self.texts.forget(doc);
         }
     }
 
@@ -207,6 +212,7 @@ impl Documents {
                     }
                     Err(_) => self.pages.fail(key),
                 },
+                Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
                         Content::Opening { ticket: t, name } if *t == ticket => {
@@ -216,7 +222,8 @@ impl Documents {
                     });
                     match (waiting, result) {
                         (Some((pane, _)), Ok(doc)) => {
-                            self.panes.insert(pane, Content::Pdf(PdfView::new(doc)));
+                            self.panes
+                                .insert(pane, Content::Pdf(Box::new(PdfView::new(doc))));
                         }
                         (Some((pane, name)), Err(e)) => {
                             self.panes.remove(&pane);
@@ -248,6 +255,7 @@ impl Documents {
         let io = Sinks {
             pages: &mut self.pages,
             demand: &mut self.demand,
+            texts: &mut self.texts,
             drawn: &mut self.drawn,
             pass: self.gpu.as_ref().map(|g| &g.pass),
         };
@@ -286,6 +294,7 @@ impl Documents {
         let io = Sinks {
             pages: &mut self.pages,
             demand: &mut self.demand,
+            texts: &mut self.texts,
             drawn: &mut Vec::new(),
             pass: self.gpu.as_ref().map(|g| &g.pass),
         };
@@ -312,9 +321,10 @@ impl Documents {
         let mut demand = std::mem::take(&mut self.demand);
         demand.sort_by_key(|(urgency, _)| *urgency);
         if let Some(s) = &mut self.session {
-            s.want(demand.into_iter().map(|(_, key)| key));
+            s.want(demand.into_iter().map(|(_, want)| want));
         }
         self.pages.end_frame();
+        self.texts.end_frame();
     }
 
     /// The name of what `pane` shows, for the title bar.
@@ -323,6 +333,36 @@ impl Documents {
             Content::Opening { name, .. } => Some(name),
             Content::Pdf(v) => self.session.as_ref()?.get(v.doc).map(|e| e.name.as_str()),
         }
+    }
+
+    fn view(&self, pane: PaneId) -> Option<&PdfView> {
+        match self.panes.get(&pane)? {
+            Content::Pdf(v) => Some(v.as_ref()),
+            Content::Opening { .. } => None,
+        }
+    }
+
+    /// The pane's selection, if any text is selected.
+    pub fn selection(&self, pane: PaneId) -> Option<Selection> {
+        self.view(pane)?.selection.filter(|s| !s.is_empty())
+    }
+
+    /// Clears the pane's selection; false if there was none.
+    pub fn clear_selection(&mut self, pane: PaneId) -> bool {
+        match self.panes.get_mut(&pane) {
+            Some(Content::Pdf(v)) => v.selection.take().is_some_and(|s| !s.is_empty()),
+            _ => false,
+        }
+    }
+
+    /// The pane's pages on screen last frame.
+    pub fn sheets(&self, pane: PaneId) -> &[Sheet] {
+        self.view(pane).map_or(&[], |v| v.sheets.as_slice())
+    }
+
+    /// Text layers held, for tests and meters.
+    pub fn text_layers(&self) -> usize {
+        self.texts.len()
     }
 
     pub fn zoom(&mut self, pane: PaneId, command: ZoomCommand, now: f64) {

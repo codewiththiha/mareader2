@@ -4,9 +4,9 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use mareader_pdf::{Document, Raster, RenderError};
+use mareader_pdf::{Document, Raster, RenderError, TextLayer};
 
-use crate::key::PageKey;
+use crate::key::{DocId, PageKey, Want};
 use crate::{OpenError, Source};
 
 /// Finished results wait here; past it, workers pause until a poll.
@@ -17,7 +17,7 @@ pub(crate) type Wake = Arc<dyn Fn() + Send + Sync>;
 
 pub(crate) enum Job {
     Open { ticket: u64, source: Source },
-    Render { key: PageKey, doc: Arc<Document> },
+    Work { want: Want, doc: Arc<Document> },
 }
 
 pub(crate) enum Output {
@@ -29,13 +29,31 @@ pub(crate) enum Output {
         key: PageKey,
         result: Result<Raster, RenderError>,
     },
+    Read {
+        doc: DocId,
+        page: usize,
+        result: Result<TextLayer, RenderError>,
+    },
 }
 
 impl Output {
     pub(crate) fn bytes(&self) -> usize {
         match self {
             Self::Rendered { result: Ok(r), .. } => r.bytes(),
+            Self::Read { result: Ok(t), .. } => t.bytes(),
             _ => 0,
+        }
+    }
+
+    /// The demand this answers; opens answer none.
+    fn want(&self) -> Option<Want> {
+        match self {
+            Self::Rendered { key, .. } => Some(Want::Raster(*key)),
+            Self::Read { doc, page, .. } => Some(Want::Text {
+                doc: *doc,
+                page: *page,
+            }),
+            Self::Opened { .. } => None,
         }
     }
 }
@@ -43,8 +61,8 @@ impl Output {
 #[derive(Default)]
 struct State {
     queue: VecDeque<Job>,
-    running: HashSet<PageKey>,
-    wanted: HashSet<PageKey>,
+    running: HashSet<Want>,
+    wanted: HashSet<Want>,
     done: VecDeque<Output>,
     done_bytes: usize,
     quit: bool,
@@ -55,7 +73,7 @@ impl State {
         self.done.len() + self.running.len() >= DONE_ITEMS || self.done_bytes >= DONE_BYTES
     }
 
-    /// The next job a worker may take: opens always, renders if room.
+    /// The next job a worker may take: opens always, the rest if room.
     fn next(&mut self) -> Option<Job> {
         let open = matches!(self.queue.front(), Some(Job::Open { .. }));
         if open || !self.full() {
@@ -113,30 +131,21 @@ impl Pool {
         self.shared.work.notify_one();
     }
 
-    /// Replaces the render demand; `jobs` come most urgent first.
-    pub(crate) fn want(&self, jobs: Vec<(PageKey, Arc<Document>)>) {
+    /// Replaces the demand; `jobs` come most urgent first.
+    pub(crate) fn want(&self, jobs: Vec<(Want, Arc<Document>)>) {
         let mut s = self.shared.lock();
         let s = &mut *s;
         s.wanted = jobs.iter().map(|(k, _)| *k).collect();
         s.queue.retain(|j| matches!(j, Job::Open { .. }));
-        s.done.retain(|o| match o {
-            Output::Rendered { key, .. } => s.wanted.contains(key),
-            Output::Opened { .. } => true,
-        });
+        s.done
+            .retain(|o| o.want().is_none_or(|w| s.wanted.contains(&w)));
         s.done_bytes = s.done.iter().map(Output::bytes).sum();
-        let ready: HashSet<PageKey> = s
-            .done
-            .iter()
-            .filter_map(|o| match o {
-                Output::Rendered { key, .. } => Some(*key),
-                Output::Opened { .. } => None,
-            })
-            .collect();
+        let ready: HashSet<Want> = s.done.iter().filter_map(Output::want).collect();
         let fresh = jobs
             .into_iter()
             .filter(|(k, _)| !s.running.contains(k) && !ready.contains(k));
         s.queue
-            .extend(fresh.map(|(key, doc)| Job::Render { key, doc }));
+            .extend(fresh.map(|(want, doc)| Job::Work { want, doc }));
         let more = !s.queue.is_empty();
         if more {
             self.shared.work.notify_all();
@@ -207,8 +216,8 @@ fn work(shared: &Shared) {
                     return;
                 }
                 if let Some(job) = s.next() {
-                    if let Job::Render { key, .. } = &job {
-                        s.running.insert(*key);
+                    if let Job::Work { want, .. } = &job {
+                        s.running.insert(*want);
                     }
                     break job;
                 }
@@ -225,18 +234,29 @@ fn finish(shared: &Shared, job: Job) {
             ticket,
             result: source.read().and_then(|b| Ok(Document::open(b)?)),
         },
-        Job::Render { key, doc } => Output::Rendered {
+        Job::Work {
+            want: Want::Raster(key),
+            doc,
+        } => Output::Rendered {
             key,
             result: doc.render(key.page, key.scale.value()),
         },
+        Job::Work {
+            want: Want::Text { doc: id, page },
+            doc,
+        } => Output::Read {
+            doc: id,
+            page,
+            result: doc.text_layer(page),
+        },
     };
     let mut s = shared.lock();
-    let keep = match &out {
-        Output::Rendered { key, .. } => {
-            s.running.remove(key);
-            s.wanted.contains(key)
+    let keep = match out.want() {
+        Some(want) => {
+            s.running.remove(&want);
+            s.wanted.contains(&want)
         }
-        Output::Opened { .. } => true,
+        None => true,
     };
     if keep {
         s.done_bytes += out.bytes();

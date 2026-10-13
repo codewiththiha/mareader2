@@ -159,7 +159,7 @@ pub fn show(
                 let rect = fitted(boxed, size(page)).round_to_pixels(ppp);
                 let look = pages.lookup(key(page));
                 if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
-                    demand.push((Urgency::Thumbnail, key(page)));
+                    demand.push((Urgency::Thumbnail, key(page).into()));
                 }
                 paint_page(ui, rect, look, &t, &mut quads);
                 let on = page == reading.current;
@@ -186,7 +186,7 @@ pub fn show(
             for row in behind.chain(ahead) {
                 for page in (row * COLUMNS..(row + 1) * COLUMNS).take_while(|&p| p < count) {
                     if !pages.touch(key(page)) {
-                        demand.push((Urgency::Prefetch, key(page)));
+                        demand.push((Urgency::Prefetch, key(page).into()));
                     }
                 }
             }

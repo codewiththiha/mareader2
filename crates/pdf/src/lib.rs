@@ -1,4 +1,4 @@
-//! PDF documents through hayro: open, measure and rasterise pages (L1).
+//! PDF documents through hayro: pages, rasters, text and links (L1).
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -9,14 +9,19 @@
     clippy::indexing_slicing
 )]
 
+mod dest;
 mod document;
+mod links;
 mod outline;
 pub mod sample;
+mod text;
 mod title;
 
 pub use document::{
     Document, MAX_PAGES, MAX_RASTER_PIXELS, MAX_RASTER_SIDE, OpenError, PageSize, Raster,
     RenderError,
 };
+pub use links::{Link, LinkTarget, MAX_LINKS, web_address};
 pub use outline::{MAX_DEPTH, OutlineEntry, active_entry};
+pub use text::{Bounds, MAX_CHARS, PageText, TextChar, TextLayer};
 pub use title::{display_name, file_stem, is_usable_title};

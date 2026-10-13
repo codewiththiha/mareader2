@@ -116,6 +116,35 @@ fn only_the_latest_demand_is_drawn() -> Out {
 }
 
 #[test]
+fn text_is_read_beside_rasters_and_dropped_when_unwanted() -> Out {
+    let mut s = inline();
+    let id = open_sample(&mut s, 6, "Text")?;
+    let text = |page| Want::Text { doc: id, page };
+    s.want([text(0), text(1)]);
+    // Scrolled on: page 1's text and a raster are wanted now.
+    s.want([Want::from(key(id, 4)), text(3)]);
+    let mut events = Vec::new();
+    for _ in 0..6 {
+        events.extend(s.poll(ALL));
+    }
+    let read: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Text {
+                page,
+                result: Ok(t),
+                ..
+            } => Some((*page, t.links.len())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(read, [(3, 2)]);
+    assert_eq!(rendered(&events), [4]);
+    assert_eq!(s.pending(), 0);
+    Ok(())
+}
+
+#[test]
 fn a_poll_hands_over_no_more_than_its_budget() -> Out {
     let mut s = Session::new(2, || {});
     let id = open_sample(&mut s, 4, "Pages")?;

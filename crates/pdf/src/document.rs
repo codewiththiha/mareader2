@@ -3,12 +3,18 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use hayro::hayro_interpret::InterpreterSettings;
+use hayro::hayro_interpret::{
+    Context, InterpreterCache, InterpreterSettings, TransformExt as _, interpret_page,
+};
 use hayro::hayro_syntax::{LoadPdfError, Pdf};
+use hayro::kurbo::Rect;
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 
+use crate::dest::{self, PageIds, Targets};
+use crate::links;
 use crate::outline::{self, OutlineEntry};
+use crate::text::{Collector, PageText, TextLayer};
 
 /// More pages than this is treated as a broken file.
 pub const MAX_PAGES: usize = 100_000;
@@ -90,6 +96,7 @@ pub struct Document {
     sizes: Vec<PageSize>,
     title: Option<String>,
     outline: Vec<OutlineEntry>,
+    page_ids: PageIds,
 }
 
 impl std::fmt::Debug for Document {
@@ -124,12 +131,14 @@ impl Document {
             })
             .collect();
         let title = pdf.metadata().title.as_deref().map(decode_text);
-        let outline = outline::read(&pdf);
+        let page_ids = dest::page_ids(&pdf);
+        let outline = outline::read(&pdf, &page_ids);
         Ok(Self {
             pdf,
             sizes,
             title,
             outline,
+            page_ids,
         })
     }
 
@@ -163,6 +172,38 @@ impl Document {
         let scale = fit_scale(size, scale);
         catch_unwind(AssertUnwindSafe(|| self.raster(page, scale)))
             .unwrap_or(Err(RenderError::Failed))
+    }
+
+    /// Page `page`'s characters and links; never panics.
+    pub fn text_layer(&self, page: usize) -> Result<TextLayer, RenderError> {
+        if page >= self.sizes.len() {
+            return Err(RenderError::NoPage(page));
+        }
+        catch_unwind(AssertUnwindSafe(|| self.read_layer(page))).unwrap_or(Err(RenderError::Failed))
+    }
+
+    fn read_layer(&self, index: usize) -> Result<TextLayer, RenderError> {
+        let pages = self.pdf.pages();
+        let page = pages.get(index).ok_or(RenderError::NoPage(index))?;
+        let (w, h) = page.render_dimensions();
+        // Form fields draw their values, but pdf.js doesn't select them.
+        let settings = InterpreterSettings {
+            render_annotations: false,
+            ..InterpreterSettings::default()
+        };
+        let cache = InterpreterCache::new();
+        let start = page.initial_transform(true).to_kurbo();
+        let bbox = Rect::new(0.0, 0.0, f64::from(w), f64::from(h));
+        let mut cx = Context::new(start, bbox, &cache, page.xref(), settings);
+        let mut collector = Collector::default();
+        interpret_page(page, &mut cx, &mut collector);
+        let links = Targets::new(&self.pdf, &self.page_ids)
+            .map(|t| links::read(page, index, &t))
+            .unwrap_or_default();
+        Ok(TextLayer {
+            text: PageText::from_glyphs(collector.glyphs),
+            links,
+        })
     }
 
     fn raster(&self, page: usize, scale: f32) -> Result<Raster, RenderError> {
@@ -270,6 +311,28 @@ mod tests {
         for bad in [f32::NAN, -1.0, 0.0, f32::INFINITY] {
             assert!(doc.render(0, bad).is_ok());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn a_page_reads_back_its_lines_words_and_links() -> Out {
+        let doc = sample_doc(12)?;
+        let layer = doc.text_layer(1)?;
+        let text = layer.text.text(0..layer.text.len());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.first(), Some(&"Page 2 of 12"));
+        assert!(lines.contains(&"Sphinx of black quartz, judge my vow."));
+        assert!(lines.contains(&"Next chapter, page 6 github.com/codewiththiha/mareader2"));
+        let targets: Vec<_> = layer.links.iter().map(|l| l.target.clone()).collect();
+        let web = crate::LinkTarget::Web(sample::WEB_LINK.into());
+        assert_eq!(targets, [crate::LinkTarget::Page(5), web]);
+        // Each link covers its label's first letter.
+        for link in &layer.links {
+            let b = link.bounds;
+            let hit = layer.text.char_at(b.x0 + 3.0, (b.y0 + b.y1) / 2.0);
+            assert!(hit.is_some(), "{b:?}");
+        }
+        assert_eq!(doc.text_layer(99).err(), Some(RenderError::NoPage(99)));
         Ok(())
     }
 
