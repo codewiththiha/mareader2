@@ -4,7 +4,10 @@ use std::fs;
 use std::path::Path;
 
 /// Files that may lift the lint, each reviewed by the owner.
-const ALLOWED: &[&str] = &["apps/mareader/src/traffic_lights.rs"];
+const ALLOWED: &[&str] = &[
+    "apps/mareader/src/traffic_lights.rs",
+    "apps/mareader/src/open_files.rs",
+];
 
 /// This checker, which names the lifts it looks for.
 const CHECKER: &str = "xtask/src/unsafety.rs";

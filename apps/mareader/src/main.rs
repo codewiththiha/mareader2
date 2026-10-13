@@ -2,22 +2,44 @@
 #![deny(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use mareader_ui::command::Command;
 use mareader_ui::{MareaderApp, OpenRequest};
 
+use inbox::Inbox;
+use single_instance::Claim;
+
+mod inbox;
+mod open_files;
 mod reduced_motion;
+mod single_instance;
 #[cfg(any(test, all(target_os = "macos", feature = "traffic-lights")))]
 mod traffic_lights;
 
 /// The app plus the window glue only a desktop binary can do.
 struct Desktop {
     app: MareaderApp,
+    inbox: Inbox,
+}
+
+/// Opens the newest of `paths`, as mareader does; false if none.
+fn open_latest(app: &mut MareaderApp, paths: Vec<PathBuf>) -> bool {
+    let Some(path) = paths.into_iter().last() else {
+        return false;
+    };
+    app.queue(Command::Open(OpenRequest::path(path)));
+    true
 }
 
 impl eframe::App for Desktop {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let mail = self.inbox.take();
+        if mail.raise {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        open_latest(&mut self.app, mail.paths);
         self.app.logic(ctx, frame);
     }
 
@@ -56,6 +78,21 @@ fn viewport() -> egui::ViewportBuilder {
 }
 
 fn main() -> eframe::Result {
+    let files: Vec<PathBuf> = std::env::args_os()
+        .skip(1)
+        .filter(|a| !open_files::is_launch_noise(a))
+        .map(PathBuf::from)
+        .collect();
+    let inbox = Inbox::default();
+    if let Some(dir) = eframe::storage_dir("mareader")
+        && single_instance::claim(&dir, &files, &inbox) == Claim::Forwarded
+    {
+        return Ok(());
+    }
+    // `mareader book.pdf` opens it; Finder's files join it before launch.
+    inbox.post(files, false);
+    #[cfg(all(target_os = "macos", feature = "open-files"))]
+    open_files::install(inbox.clone());
     let options = eframe::NativeOptions {
         viewport: viewport(),
         renderer: eframe::Renderer::Wgpu,
@@ -67,14 +104,13 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
-            // `mareader book.pdf` opens it; else what was read last time.
-            if let Some(path) = std::env::args_os().nth(1) {
-                app.queue(Command::Open(OpenRequest::path(path.into())));
-            } else {
+            inbox.wake_with(cc.egui_ctx.clone());
+            // A file asked for at launch, else what was read last time.
+            if !open_latest(&mut app, inbox.take().paths) {
                 app.resume();
             }
             reduced_motion::watch(app.reduced_motion(), cc.egui_ctx.clone());
-            Ok(Box::new(Desktop { app }))
+            Ok(Box::new(Desktop { app, inbox }))
         }),
     )
 }
