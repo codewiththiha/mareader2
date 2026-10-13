@@ -13,6 +13,7 @@ use crate::pages::PageCache;
 use crate::pdf_view::{self, Demand, PdfView, ViewContext};
 use crate::theme::{self, Tokens};
 use crate::toast::Toast;
+use crate::zoom::{ZoomCommand, ZoomState};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
 const UPLOADS: Budget = Budget {
@@ -230,6 +231,28 @@ impl Documents {
         match self.panes.get(&pane)? {
             Content::Opening { name, .. } => Some(name),
             Content::Pdf(v) => self.session.as_ref()?.get(v.doc).map(|e| e.name.as_str()),
+        }
+    }
+
+    pub fn zoom(&mut self, pane: PaneId, command: ZoomCommand, now: f64) {
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.command(command, now);
+        }
+    }
+
+    /// The zoom `pane` shows, if it shows a document.
+    pub fn zoom_state(&self, pane: PaneId) -> Option<ZoomState> {
+        match self.panes.get(&pane)? {
+            Content::Pdf(v) => Some(v.zoom.state()),
+            Content::Opening { .. } => None,
+        }
+    }
+
+    /// The page under `pane`'s centre last frame.
+    pub fn current(&self, pane: PaneId) -> Option<usize> {
+        match self.panes.get(&pane)? {
+            Content::Pdf(v) => Some(v.current),
+            Content::Opening { .. } => None,
         }
     }
 

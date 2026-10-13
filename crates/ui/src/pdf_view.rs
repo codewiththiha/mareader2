@@ -2,14 +2,13 @@
 
 use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollSource};
-use egui::{Color32, CornerRadius, Rect, ScrollArea, Ui, pos2, vec2};
+use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_session::{DocId, Document, PageKey, PageSize, Scale};
 
 use crate::pages::{Lookup, PageCache};
 use crate::theme::Tokens;
+use crate::zoom::{PaneZoom, ZoomCommand};
 
-pub const MIN_ZOOM: f32 = 0.25;
-pub const MAX_ZOOM: f32 = 5.0;
 /// Between pages, and around the column.
 const GAP: f32 = 12.0;
 const MARGIN: f32 = 16.0;
@@ -31,25 +30,43 @@ pub type Demand = Vec<(Urgency, PageKey)>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfView {
     pub doc: DocId,
-    /// Fit width sizes to this page: the one read when the fit was set.
-    pub fit_page: usize,
+    pub zoom: PaneZoom,
     layout: Option<Column>,
-    /// A horizontal offset to reach, kept until the area takes it.
-    recentre: Option<f32>,
+    /// An offset to reach, and the frames left to reach it.
+    scroll_to: Option<(Vec2, u8)>,
+    offset: Vec2,
+    viewport: Vec2,
     /// Pages on screen last frame.
     pub visible: std::ops::Range<usize>,
+    /// The page under the viewport's centre.
+    pub current: usize,
 }
 
 impl PdfView {
     pub fn new(doc: DocId) -> Self {
         Self {
             doc,
-            fit_page: 0,
+            zoom: PaneZoom::default(),
             layout: None,
-            recentre: None,
+            scroll_to: None,
+            offset: Vec2::ZERO,
+            viewport: Vec2::ZERO,
             visible: 0..0,
+            current: 0,
         }
     }
+
+    pub fn command(&mut self, command: ZoomCommand, now: f64) {
+        let shown = self.layout.as_ref().map(|c| c.zoom);
+        self.zoom.command(command, shown, self.current, now);
+    }
+}
+
+/// The offset keeping the point under the pivot there in `new`.
+fn hold(old: &Column, new: &Column, offset: Vec2, pivots: (Vec2, Vec2)) -> Option<Vec2> {
+    let (page, at) = old.locate(Pos2::ZERO + offset + pivots.0)?;
+    let p = new.place(page, at)?;
+    Some((p - pivots.1).to_vec2().max(Vec2::ZERO))
 }
 
 /// What the pane needs from the app this frame.
@@ -69,13 +86,8 @@ pub struct Column {
 }
 
 impl Column {
-    /// Fit width: one zoom for every page, so text stays one size.
-    pub fn fit_width(sizes: &[PageSize], fit_page: usize, width: f32, top: f32) -> Self {
-        let fit = sizes
-            .get(fit_page)
-            .or(sizes.first())
-            .map_or(612.0, |s| s.width);
-        let zoom = ((width - 2.0 * MARGIN) / fit).clamp(MIN_ZOOM, MAX_ZOOM);
+    /// One zoom for every page, so text stays one size; pages centre.
+    pub fn new(sizes: &[PageSize], zoom: f32, width: f32, top: f32) -> Self {
         let widest = sizes.iter().map(|s| s.width).fold(0.0, f32::max) * zoom;
         let content_w = width.max(widest + 2.0 * MARGIN);
         let mut y = top;
@@ -89,7 +101,7 @@ impl Column {
             })
             .collect();
         Self {
-            inputs: (width, top, fit),
+            inputs: (width, top, zoom),
             zoom,
             rects,
             size: vec2(content_w, y - GAP + MARGIN),
@@ -102,6 +114,20 @@ impl Column {
         let end = self.rects.partition_point(|r| r.top() < viewport.bottom());
         first..end.max(first)
     }
+
+    /// The page at a content point, and the point in page units.
+    pub fn locate(&self, p: Pos2) -> Option<(usize, Vec2)> {
+        let last = self.rects.len().checked_sub(1)?;
+        let page = self.rects.partition_point(|r| r.bottom() + GAP <= p.y);
+        let page = page.min(last);
+        let rect = self.rects.get(page)?;
+        Some((page, (p - rect.min) / self.zoom))
+    }
+
+    /// Where a point `locate` found sits in this layout.
+    pub fn place(&self, page: usize, at: Vec2) -> Option<Pos2> {
+        Some(self.rects.get(page)?.min + at * self.zoom)
+    }
 }
 
 pub fn show(
@@ -112,27 +138,58 @@ pub fn show(
     demand: &mut Demand,
     cx: &ViewContext,
 ) {
-    let width = ui.max_rect().width();
+    let ctx = ui.ctx().clone();
+    let now = ctx.input(|i| i.time);
+    let frame = ui.max_rect();
     let top = MARGIN + cx.top_inset;
     let sizes = doc.page_sizes();
-    let fit = sizes.get(view.fit_page).map_or(612.0, |s| s.width);
-    let stale = view
-        .layout
-        .as_ref()
-        .is_none_or(|c| c.inputs != (width, top, fit));
-    if stale {
-        view.layout = Some(Column::fit_width(sizes, view.fit_page, width, top));
+    if ui.rect_contains_pointer(frame) {
+        let (factor, pointer) = ctx.input(|i| (i.zoom_delta(), i.pointer.hover_pos()));
+        if let (Some(p), true) = (pointer, factor != 1.0) {
+            let at = p - frame.min - vec2(0.0, cx.top_inset);
+            view.zoom.pinch(factor, at, now);
+        }
+    }
+    let room = frame.size() - vec2(2.0 * MARGIN, 2.0 * MARGIN + cx.top_inset);
+    let fit_page = sizes.get(view.zoom.fit_page).or(sizes.first()).copied();
+    view.zoom.refit(fit_page, room, view.layout.is_some(), now);
+    let (shown, gliding) = view.zoom.advance(now);
+    if gliding {
+        ctx.request_repaint();
+    }
+    let viewport = frame.size() - vec2(0.0, cx.top_inset);
+    let inputs = (frame.width(), top, shown);
+    if view.layout.as_ref().is_none_or(|c| c.inputs != inputs) {
+        let new = Column::new(sizes, shown, frame.width(), top);
+        match view.layout.take() {
+            // Zooms and resizes keep the reading spot in place.
+            Some(old) => {
+                let pivot = view.zoom.pivot;
+                let pivots = (
+                    pivot.unwrap_or(view.viewport / 2.0),
+                    pivot.unwrap_or(viewport / 2.0),
+                );
+                if let Some(to) = hold(&old, &new, view.offset, pivots) {
+                    view.scroll_to = Some((to, 2));
+                }
+            }
+            // The first layout centres any overflow from wider pages.
+            None => {
+                let x = (new.size.x - frame.width()).max(0.0) / 2.0;
+                view.scroll_to = Some((vec2(x, 0.0), 2));
+            }
+        }
+        view.layout = Some(new);
+    }
+    if let Some(wait) = view.zoom.sharpen(now) {
+        ctx.request_repaint_after_secs(wait);
     }
     let Some(column) = &view.layout else {
         return;
     };
-    // A refit centres the column; wider pages overflow both sides evenly.
-    if stale {
-        view.recentre = Some((column.size.x - width).max(0.0) / 2.0);
-    }
-    let ppp = ui.ctx().pixels_per_point();
-    let wanted = Scale::covering(column.zoom * ppp);
-    let max_side = ui.ctx().input(|i| i.max_texture_side) as f32;
+    let ppp = ctx.pixels_per_point();
+    let wanted = Scale::covering(view.zoom.sharp() * ppp);
+    let max_side = ctx.input(|i| i.max_texture_side) as f32;
     // Big pages at high zoom stop at the GPU's and hayro's limits.
     let key = |page: usize| {
         let long = sizes.get(page).map_or(1.0, |s| s.width.max(s.height));
@@ -148,11 +205,12 @@ pub fn show(
     } else {
         Urgency::OtherPane
     };
-    let t = Tokens::get(ui.ctx());
+    let t = Tokens::get(&ctx);
     let mut area = ScrollArea::both().id_salt(("pdf", view.doc));
-    if let Some(x) = view.recentre {
-        area = area.horizontal_scroll_offset(x);
+    if let Some((to, _)) = view.scroll_to {
+        area = area.scroll_offset(to);
     }
+    let mut shown_pages = 0..0;
     let out = area
         .auto_shrink(false)
         .content_margin(0.0)
@@ -165,7 +223,7 @@ pub fn show(
             ui.set_min_size(column.size);
             let origin = ui.max_rect().min.to_vec2();
             let shown = column.visible(viewport);
-            view.visible = shown.clone();
+            shown_pages = shown.clone();
             for page in shown.clone() {
                 let Some(rect) = column.rects.get(page) else {
                     continue;
@@ -185,12 +243,18 @@ pub fn show(
                 }
             }
         });
+    let centre = Pos2::ZERO + out.state.offset + viewport / 2.0;
+    view.current = column.locate(centre).map_or(0, |(page, _)| page);
+    view.visible = shown_pages;
+    view.offset = out.state.offset;
+    view.viewport = viewport;
+    view.zoom.end_frame(gliding, now);
     // A new area clamps offsets to last frame's size, so retry once.
-    if let Some(x) = view.recentre {
-        if (out.state.offset.x - x).abs() < 0.5 {
-            view.recentre = None;
-        } else {
-            ui.ctx().request_repaint();
+    if let Some((to, tries)) = view.scroll_to {
+        let reached = (out.state.offset - to).length() < 0.5;
+        view.scroll_to = (!reached && tries > 1).then_some((to, tries - 1));
+        if view.scroll_to.is_some() {
+            ctx.request_repaint();
         }
     }
 }
@@ -239,13 +303,15 @@ mod tests {
         height: 612.0,
     };
 
+    fn first(c: &Column) -> Rect {
+        c.rects.first().copied().unwrap_or(Rect::NOTHING)
+    }
+
     #[test]
-    fn fit_width_fills_the_pane_less_its_margins() {
-        let c = Column::fit_width(&[LETTER; 3], 0, 644.0, 16.0);
-        assert!((c.zoom - 1.0).abs() < 1e-6);
-        let first = c.rects.first().copied().unwrap_or(Rect::NOTHING);
+    fn a_column_lays_pages_at_its_zoom() {
+        let c = Column::new(&[LETTER; 3], 1.0, 644.0, 16.0);
         assert_eq!(
-            first,
+            first(&c),
             Rect::from_min_size(pos2(16.0, 16.0), vec2(612.0, 792.0))
         );
         assert_eq!(c.size, vec2(644.0, 16.0 + 3.0 * 792.0 + 2.0 * GAP + MARGIN));
@@ -253,24 +319,17 @@ mod tests {
 
     #[test]
     fn wider_pages_keep_the_zoom_and_widen_the_content() {
-        let c = Column::fit_width(&[LETTER, PLATE], 0, 644.0, 16.0);
+        let c = Column::new(&[LETTER, PLATE], 1.0, 644.0, 16.0);
         let plate = c.rects.get(1).copied().unwrap_or(Rect::NOTHING);
         assert_eq!(plate.width(), 792.0);
         assert_eq!(c.size.x, 792.0 + 2.0 * MARGIN);
         // The narrower page is centred in the wider column.
-        let letter = c.rects.first().copied().unwrap_or(Rect::NOTHING);
-        assert_eq!(letter.center().x, plate.center().x);
-    }
-
-    #[test]
-    fn the_fit_follows_the_page_it_was_set_on() {
-        let c = Column::fit_width(&[LETTER, PLATE], 1, 824.0, 0.0);
-        assert!((c.zoom - 1.0).abs() < 1e-6);
+        assert_eq!(first(&c).center().x, plate.center().x);
     }
 
     #[test]
     fn only_pages_meeting_the_viewport_are_visible() {
-        let c = Column::fit_width(&[LETTER; 10_000], 0, 644.0, 16.0);
+        let c = Column::new(&[LETTER; 10_000], 1.0, 644.0, 16.0);
         let pitch = 792.0 + GAP;
         let at =
             |page: f32| Rect::from_min_size(pos2(0.0, 16.0 + page * pitch), vec2(644.0, 900.0));
@@ -282,8 +341,31 @@ mod tests {
     }
 
     #[test]
-    fn tiny_panes_clamp_the_zoom() {
-        let c = Column::fit_width(&[LETTER], 0, 40.0, 0.0);
-        assert_eq!(c.zoom, MIN_ZOOM);
+    fn a_point_on_a_page_survives_a_relayout() {
+        let old = Column::new(&[LETTER; 20], 1.0, 644.0, 16.0);
+        let new = Column::new(&[LETTER, PLATE].repeat(10), 2.5, 900.0, 64.0);
+        let spot = pos2(300.0, 16.0 + 7.0 * (792.0 + GAP) + 400.0);
+        let (page, at) = old.locate(spot).unwrap_or_default();
+        assert_eq!(page, 7);
+        let moved = new.place(page, at).unwrap_or(Pos2::ZERO);
+        let back = new.locate(moved).unwrap_or_default();
+        assert_eq!(back.0, 7);
+        assert!((back.1 - at).length() < 1e-3);
+    }
+
+    #[test]
+    fn zooming_holds_the_spot_under_the_pivot() {
+        let old = Column::new(&[LETTER; 20], 1.0, 644.0, 16.0);
+        let new = Column::new(&[LETTER; 20], 2.0, 644.0, 16.0);
+        let (offset, viewport) = (vec2(0.0, 5_000.0), vec2(644.0, 800.0));
+        let centre = viewport / 2.0;
+        let before = old.locate(Pos2::ZERO + offset + centre).unwrap_or_default();
+        let to = hold(&old, &new, offset, (centre, centre)).unwrap_or_default();
+        let after = new.locate(Pos2::ZERO + to + centre).unwrap_or_default();
+        assert_eq!(after.0, before.0);
+        assert!(
+            (after.1 - before.1).length() < 1e-3,
+            "{after:?} vs {before:?}"
+        );
     }
 }

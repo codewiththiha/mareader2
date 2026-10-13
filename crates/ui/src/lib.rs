@@ -28,6 +28,7 @@ pub mod titlebar;
 pub mod toast;
 pub mod view_menu;
 pub mod widgets;
+pub mod zoom;
 
 pub use app::MareaderApp;
 pub use documents::OpenRequest;

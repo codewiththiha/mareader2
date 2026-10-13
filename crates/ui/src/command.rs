@@ -7,6 +7,7 @@ use crate::documents::OpenRequest;
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
 use crate::toast::Toast;
+use crate::zoom::ZoomCommand;
 use mareader_settings::Settings;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +34,8 @@ pub enum Command {
     ShowOpenDialog {
         beside: bool,
     },
+    /// Zooms the active pane's document.
+    Zoom(ZoomCommand),
     /// Shows a file in a pane, replacing what it showed.
     Open(OpenRequest),
     Split(SplitAxis),
