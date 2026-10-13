@@ -29,6 +29,10 @@ pub enum Command {
     CloseSettings,
     /// Every edit in the settings window; applies on the same frame.
     SetSettings(Box<Settings>),
+    /// The system open dialog; `beside` opens the pick in a new split.
+    ShowOpenDialog {
+        beside: bool,
+    },
     /// Shows a file in a pane, replacing what it showed.
     Open(OpenRequest),
     Split(SplitAxis),

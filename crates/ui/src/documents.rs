@@ -26,6 +26,8 @@ pub struct OpenRequest {
     pub source: Source,
     pub name: Option<String>,
     pub pane: Option<PaneId>,
+    /// Split that pane and open in the new half instead.
+    pub beside: bool,
 }
 
 impl OpenRequest {
@@ -34,6 +36,7 @@ impl OpenRequest {
             source: Source::Path(path),
             name: None,
             pane: None,
+            beside: false,
         }
     }
 
@@ -42,6 +45,7 @@ impl OpenRequest {
             source: Source::Bytes(Arc::new(bytes)),
             name: Some(name.into()),
             pane: None,
+            beside: false,
         }
     }
 

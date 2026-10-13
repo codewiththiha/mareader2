@@ -10,6 +10,7 @@ use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, T
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
+use crate::files::Files;
 use crate::panes::{self, PaneView};
 use crate::pdf_view::ViewContext;
 use crate::platform::{NativeLights, Platform};
@@ -35,6 +36,7 @@ pub struct MareaderApp {
     toasts: Toasts,
     lights: NativeLights,
     documents: Documents,
+    files: Files,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
     styled: Option<(Appearance, bool)>,
@@ -72,6 +74,7 @@ impl MareaderApp {
             toasts: Toasts::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
+            files: Files::default(),
             pane_rects: Vec::new(),
             styled: None,
             fonts: FontState::Missing,
@@ -258,17 +261,8 @@ impl MareaderApp {
             Command::CloseSidebar => self.sidebar.close(),
             Command::SetSidebarOverlay(on) => self.settings.chrome.sidebar_overlay = on,
             Command::Split(axis) => {
-                let r = ctx.content_rect();
-                let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
-                match self.tree.split(self.active, axis, Side::After, area) {
-                    Ok(id) => self.active = id,
-                    Err(TreeError::Full) => {
-                        let note = format!("A workspace holds {MAX_PANES} panes at most.");
-                        self.toasts.push(Toast::info(note));
-                    }
-                    Err(_) => self
-                        .toasts
-                        .push(Toast::info("This pane is too small to split.")),
+                if let Some(id) = self.split(ctx, self.active, axis) {
+                    self.active = id;
                 }
             }
             Command::FocusPane(id) => self.active = id,
@@ -280,8 +274,16 @@ impl MareaderApp {
                     }
                 }
             }
+            Command::ShowOpenDialog { beside } => self.files.pick(ctx, beside),
             Command::Open(request) => {
-                let pane = request.pane.unwrap_or(self.active);
+                let mut pane = request.pane.unwrap_or(self.active);
+                // Open beside: a new pane to the right, as in mareader.
+                if request.beside {
+                    match self.split(ctx, pane, SplitAxis::Horizontal) {
+                        Some(new) => pane = new,
+                        None => return,
+                    }
+                }
                 if self.tree.panes().contains(&pane) {
                     self.active = pane;
                     if let Some(note) = self.documents.open(ctx, pane, request) {
@@ -338,21 +340,37 @@ impl MareaderApp {
 }
 
 impl MareaderApp {
+    /// Splits `pane`; a refusal is explained in a toast.
+    fn split(&mut self, ctx: &Context, pane: PaneId, axis: SplitAxis) -> Option<PaneId> {
+        let r = ctx.content_rect();
+        let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
+        match self.tree.split(pane, axis, Side::After, area) {
+            Ok(id) => Some(id),
+            Err(TreeError::Full) => {
+                let note = format!("A workspace holds {MAX_PANES} panes at most.");
+                self.toasts.push(Toast::info(note));
+                None
+            }
+            Err(_) => {
+                let note = "This pane is too small to split.";
+                self.toasts.push(Toast::info(note));
+                None
+            }
+        }
+    }
+
     /// Drops open in the pane under the pointer; returns the hover target.
-    fn drops(&self, ctx: &Context, out: &mut Commands) -> Option<PaneId> {
+    fn drops(&self, ctx: &Context) -> Option<PaneId> {
         let pointer = ctx.pointer_latest_pos();
         let under = pointer
             .and_then(|p| self.pane_rects.iter().find(|(_, r)| r.contains(p)))
             .map_or(self.active, |(id, _)| *id);
         let (hovering, dropped) = ctx.input(|i| {
-            let first = i.raw.dropped_files.first().map(|f| f.path().to_path_buf());
+            let first = i.raw.dropped_files.first().cloned();
             (!i.raw.hovered_files.is_empty(), first)
         });
-        if let Some(path) = dropped {
-            out.push(Command::Open(OpenRequest {
-                pane: Some(under),
-                ..OpenRequest::path(path)
-            }));
+        if let Some(file) = dropped {
+            self.files.dropped(ctx, &file, under);
         }
         hovering.then_some(under)
     }
@@ -414,8 +432,9 @@ impl eframe::App for MareaderApp {
         resize::edges(&ctx, self.platform.frameless());
         let mut commands = std::mem::take(&mut self.queued);
         self.documents.receive(&ctx, &mut commands);
+        self.files.collect(&mut commands);
         keymap::read(&ctx, self.platform, &mut commands);
-        let drop_target = self.drops(&ctx, &mut commands);
+        let drop_target = self.drops(&ctx);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();

@@ -12,6 +12,7 @@ pub mod app;
 pub mod appearance_menu;
 pub mod command;
 pub mod documents;
+pub mod files;
 pub mod icons;
 pub mod keymap;
 pub mod motion;

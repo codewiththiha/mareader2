@@ -1,6 +1,7 @@
 //! Opening and scrolling PDFs, headless, with jobs run between frames.
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable as _;
 use mareader_ui::command::Command;
 use mareader_ui::{MareaderApp, OpenRequest};
 
@@ -101,4 +102,68 @@ fn an_epub_is_turned_away_kindly_for_now() {
     h.run_steps(3);
     let toast = h.state().toast().map(|t| t.message.clone());
     assert!(toast.is_some_and(|t| t.contains("EPUB")));
+}
+
+fn sample(pages: usize) -> OpenRequest {
+    let pdf = mareader_pdf::sample::pdf(pages, "A Mareader Sample");
+    OpenRequest::bytes(pdf, "sample.pdf")
+}
+
+#[test]
+fn open_beside_splits_and_opens_in_the_new_pane() {
+    let mut h = reader(&[]);
+    let first = h.state().active_pane();
+    let request = OpenRequest {
+        beside: true,
+        ..sample(5)
+    };
+    h.state_mut().queue(Command::Open(request));
+    h.run();
+    let panes = h.state().panes();
+    assert_eq!(panes.len(), 2);
+    let new = h.state().active_pane();
+    assert_ne!(new, first);
+    let docs = h.state().documents();
+    assert_eq!(docs.page_count(new), Some(5));
+    assert_eq!(docs.page_count(first), None, "the first pane stays empty");
+}
+
+/// A file as the desktop hands it over: a path, read by a worker.
+#[derive(Debug)]
+struct Dropped(std::path::PathBuf);
+
+impl egui::DroppedFile for Dropped {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
+#[test]
+fn a_dropped_file_opens_in_the_pane_under_the_pointer() -> Result<(), String> {
+    let dir = std::env::temp_dir().join(format!("mareader-drop-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("Dropped Notes.pdf");
+    let pdf = mareader_pdf::sample::pdf(3, "untitled");
+    std::fs::write(&path, pdf).map_err(|e| e.to_string())?;
+    let mut h = reader(&[("panes", "2")]);
+    let right = h.state().panes()[1];
+    h.hover_at(egui::pos2(700.0, 350.0));
+    h.run_steps(2);
+    h.input_mut()
+        .dropped_files
+        .push(std::sync::Arc::new(Dropped(path)));
+    h.run();
+    assert_eq!(h.state().active_pane(), right);
+    assert_eq!(h.state().title(), "Dropped Notes");
+    std::fs::remove_dir_all(dir).map_err(|e| e.to_string())
+}
+
+#[test]
+fn an_empty_pane_offers_the_open_dialog() {
+    let h = reader(&[]);
+    let _ = h.get_by_label("Open…");
 }
