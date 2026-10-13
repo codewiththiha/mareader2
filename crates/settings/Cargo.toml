@@ -1,0 +1,15 @@
+[package]
+name = "mareader-settings"
+description = "Every user setting as typed data: schema, defaults, ranges, migration and mareader import"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mareader-appearance = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
