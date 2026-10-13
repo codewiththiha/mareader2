@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::command::{Command, Commands, WindowCommand};
 use crate::panes::{self, PaneView, WorkspaceLook};
 use crate::platform::Platform;
+use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::titlebar::{BarContext, TitleBar};
 use crate::{motion, resize, theme};
@@ -48,6 +49,7 @@ pub struct MareaderApp {
     tree: PaneTree,
     active: PaneId,
     sidebar: Sidebar,
+    settings_window: SettingsWindow,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
     /// Commands from outside a view: tests, OS drops, later the keymap.
@@ -72,6 +74,7 @@ impl Default for MareaderApp {
 impl MareaderApp {
     pub fn with_settings(mut settings: Settings) -> Self {
         settings.appearance.sanitize();
+        settings.workspace.sanitize();
         Self {
             titlebar: TitleBar::new(settings.titlebar_pinned),
             settings,
@@ -79,6 +82,7 @@ impl MareaderApp {
             tree: PaneTree::new(),
             active: PaneId(1),
             sidebar: Sidebar::default(),
+            settings_window: SettingsWindow::default(),
             styled: None,
             fonts: FontState::Missing,
             queued: Commands::new(),
@@ -122,6 +126,17 @@ impl MareaderApp {
         motion::set_enabled(ctx, self.settings.animations);
         self.styled = Some(want);
         true
+    }
+
+    pub fn settings_window(&self) -> &SettingsWindow {
+        &self.settings_window
+    }
+
+    pub fn window_context(&self) -> WindowContext {
+        WindowContext {
+            split: self.tree.len() > 1,
+            reflowable: false,
+        }
     }
 
     pub fn sidebar(&self) -> &Sidebar {
@@ -169,8 +184,13 @@ impl MareaderApp {
             },
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
-                _ => return Err("open: appearance".into()),
+                "settings" => self.settings_window.open(None),
+                _ => return Err("open: appearance or settings".into()),
             },
+            "settings" => {
+                let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
+                self.settings_window.open(Some(tab));
+            }
             "panes" => {
                 let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
                 let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
@@ -234,7 +254,17 @@ impl MareaderApp {
                 self.titlebar.reveal();
                 egui::Popup::open_id(ctx, egui::Id::new(crate::titlebar::APPEARANCE_POPOVER));
             }
-            Command::ShowLibrary | Command::ShowSearch | Command::ShowSettings => {}
+            Command::ShowSettings => self.settings_window.open(None),
+            Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
+            Command::CloseSettings => self.settings_window.close(),
+            Command::SetSettings(s) => {
+                let mut s = *s;
+                s.appearance.sanitize();
+                s.workspace.sanitize();
+                self.titlebar.pinned = s.titlebar_pinned;
+                self.settings = s;
+            }
+            Command::ShowLibrary | Command::ShowSearch => {}
         }
     }
 }
@@ -261,7 +291,8 @@ impl eframe::App for MareaderApp {
         let mut commands = std::mem::take(&mut self.queued);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        if escape && self.sidebar.is_open() && !egui::Popup::is_any_open(&ctx) {
+        let modal = self.settings_window.is_open();
+        if escape && self.sidebar.is_open() && !modal && !egui::Popup::is_any_open(&ctx) {
             commands.push(Command::CloseSidebar);
         }
         let overlay = self.settings.sidebar_overlay;
@@ -292,6 +323,9 @@ impl eframe::App for MareaderApp {
             appearance: &self.settings.appearance,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
+        let window = self.window_context();
+        self.settings_window
+            .show(&ctx, &self.settings, &window, &mut commands);
         // Applied after drawing, so the next frame must show the result.
         if !commands.is_empty() {
             ctx.request_repaint();

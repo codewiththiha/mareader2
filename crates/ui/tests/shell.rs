@@ -234,3 +234,80 @@ fn a_command_schedules_the_frame_that_shows_it() {
     h.run();
     assert!(h.query_by_label("Close sidebar").is_none(), "faded out");
 }
+
+fn open_settings(h: &mut Harness<'static, MareaderApp>) {
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    // The bar's gear; a docked sidebar's header has one too.
+    if let Some(gear) = h.query_all_by_label("Settings").last() {
+        gear.click();
+    }
+    h.run_steps(4);
+}
+
+#[test]
+fn the_gear_opens_settings_and_escape_closes_only_them() {
+    let mut h = with(&[("sidebar", "outline")]);
+    open_settings(&mut h);
+    assert!(h.state().settings_window().is_open());
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().settings_window().is_open());
+    assert!(h.state().sidebar().is_open(), "Escape was the window's");
+}
+
+#[test]
+fn a_settings_switch_applies_on_the_frame_it_flips() {
+    use egui::accesskit::Role;
+    let mut h = with(&[("settings", "layout")]);
+    h.get_by_role_and_label(Role::CheckBox, "Overlay sidebar")
+        .click();
+    h.step();
+    h.step();
+    assert!(h.state().settings().sidebar_overlay);
+}
+
+#[test]
+fn the_animations_tab_leaves_with_its_master_switch() {
+    use egui::accesskit::Role;
+    use mareader_ui::settings_window::Tab;
+    let mut h = with(&[("settings", "animations")]);
+    assert!(
+        h.query_by_role_and_label(Role::CheckBox, "Sidebar animation")
+            .is_some()
+    );
+    h.get_by_role_and_label(Role::Button, "Layout").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::CheckBox, "Animations")
+        .click();
+    h.run_steps(2);
+    assert!(
+        h.query_by_role_and_label(Role::Button, "Animations")
+            .is_none()
+    );
+    let cx = h.state().window_context();
+    let tab = h.state().settings_window().tab(h.state().settings(), &cx);
+    assert_eq!(tab, Tab::Layout);
+}
+
+#[test]
+fn split_pane_outline_colour_comes_from_the_theme_tab() {
+    use mareader_ui::panes::OutlineColor;
+    let mut h = with(&[("panes", "2"), ("settings", "theme")]);
+    h.get_by_label("Red").click();
+    h.run_steps(2);
+    let look = h.state().settings().workspace;
+    assert_eq!(look.outline_color, OutlineColor::Red);
+}
+
+#[test]
+fn open_appearance_from_settings_swaps_the_window_for_the_popover() {
+    let mut h = with(&[("settings", "theme")]);
+    h.get_by_label("Open Appearance").click();
+    h.run_steps(3);
+    assert!(!h.state().settings_window().is_open());
+    assert!(egui::Popup::is_id_open(
+        &h.ctx,
+        egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER)
+    ));
+}

@@ -9,6 +9,7 @@ use mareader_appearance::{Appearance, BaseMode, NoiseMode, TextureMode, builtin_
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::widgets;
 
 pub const WIDTH: f32 = 300.0;
 /// A hue picked at zero strength would show nothing.
@@ -32,14 +33,14 @@ pub fn show(ui: &mut Ui, current: &Appearance, out: &mut Commands) {
     }
     slider(ui, "Strength", &mut a.tint_strength, 0..=100);
     section(ui, "Texture");
-    choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
+    widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
     if a.texture != TextureMode::None {
         slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
         slider(ui, "Scale", &mut a.texture_scale, 25..=400);
     }
     section(ui, "Grain");
     let grain = [NoiseMode::Off, NoiseMode::Static, NoiseMode::Animated];
-    choices(ui, &mut a.noise, &grain, noise_label, 3);
+    widgets::choices(ui, &mut a.noise, &grain, noise_label, 3);
     if a.noise != NoiseMode::Off {
         slider(ui, "Intensity", &mut a.noise_intensity, 0..=100);
     }
@@ -77,26 +78,6 @@ fn noise_label(n: NoiseMode) -> &'static str {
         NoiseMode::Off => "Off",
         NoiseMode::Static => "Static",
         NoiseMode::Animated => "Animated",
-    }
-}
-
-/// Stock selectable buttons, `cols` to a row, sharing the width.
-fn choices<T: Copy + PartialEq>(
-    ui: &mut Ui,
-    value: &mut T,
-    all: &[T],
-    label: fn(T) -> &'static str,
-    cols: usize,
-) {
-    for row in all.chunks(cols) {
-        ui.columns(cols, |cols| {
-            for (ui, &v) in cols.iter_mut().zip(row) {
-                let button = egui::Button::selectable(*value == v, label(v));
-                if ui.add_sized([ui.available_width(), 28.0], button).clicked() {
-                    *value = v;
-                }
-            }
-        });
     }
 }
 
