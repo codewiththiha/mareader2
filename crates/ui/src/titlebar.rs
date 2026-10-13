@@ -6,6 +6,7 @@ use mareader_appearance::Appearance;
 use mareader_workspace::SplitAxis;
 
 use crate::command::{Command, Commands, WindowCommand};
+use crate::gpu::Glass;
 use crate::icons::Icon;
 use crate::keymap;
 use crate::motion;
@@ -40,6 +41,8 @@ pub struct BarContext<'a> {
     pub appearance: &'a Appearance,
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
+    /// The backdrop to blur; none draws the opaque fallback.
+    pub glass: Option<Glass>,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -172,8 +175,15 @@ impl TitleBar {
             .show(ctx, |ui| {
                 ui.set_opacity(fade);
                 ui.set_min_size(band.size());
-                ui.painter()
-                    .rect_filled(band, CornerRadius::ZERO, Tokens::get(ctx).glass);
+                let t = Tokens::get(ctx);
+                let fill = match &bar.glass {
+                    Some(glass) => {
+                        ui.painter().add(glass.shape(band, screen, fade));
+                        t.frost
+                    }
+                    None => t.glass,
+                };
+                ui.painter().rect_filled(band, CornerRadius::ZERO, fill);
                 // Registered before the buttons so they win the pointer.
                 let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::click_and_drag());
                 if visible && drag.double_clicked() {

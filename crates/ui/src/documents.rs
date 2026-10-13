@@ -9,8 +9,9 @@ use mareader_session::{Budget, DocId, Event, Session, Source, Ticket};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
-use crate::pages::PageCache;
-use crate::pdf_view::{self, Demand, PdfView, ViewContext};
+use crate::gpu::{Gpu, Quad};
+use crate::pages::{PageCache, PageTexture};
+use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
 use crate::theme::{self, Tokens};
 use crate::toast::Toast;
 use crate::zoom::{ZoomCommand, ZoomState};
@@ -86,6 +87,8 @@ pub struct Documents {
     pages: PageCache,
     panes: BTreeMap<PaneId, Content>,
     demand: Demand,
+    gpu: Option<Gpu>,
+    drawn: Vec<Quad>,
 }
 
 impl Default for Documents {
@@ -102,6 +105,8 @@ impl Default for Documents {
             pages: PageCache::default(),
             panes: BTreeMap::new(),
             demand: Demand::new(),
+            gpu: None,
+            drawn: Vec::new(),
         }
     }
 }
@@ -171,7 +176,16 @@ impl Documents {
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
-                    Ok(raster) => self.pages.insert(ctx, key, &raster),
+                    Ok(raster) => {
+                        let texture = match &self.gpu {
+                            Some(gpu) => gpu.upload(&raster).map(PageTexture::Gpu),
+                            None => Some(PageTexture::egui(ctx, key, &raster)),
+                        };
+                        match texture {
+                            Some(t) => self.pages.insert(key, t, raster.bytes()),
+                            None => self.pages.fail(key),
+                        }
+                    }
                     Err(_) => self.pages.fail(key),
                 },
                 Event::Opened { ticket, result } => {
@@ -212,8 +226,28 @@ impl Documents {
         let (Some(entry), Some(Content::Pdf(view))) = (entry, self.panes.get_mut(&pane)) else {
             return false;
         };
-        pdf_view::show(ui, view, &entry.doc, &mut self.pages, &mut self.demand, cx);
+        let io = Sinks {
+            pages: &mut self.pages,
+            demand: &mut self.demand,
+            drawn: &mut self.drawn,
+            pass: self.gpu.as_ref().map(|g| &g.pass),
+        };
+        pdf_view::show(ui, view, &entry.doc, io, cx);
         true
+    }
+
+    /// Pages go through our page pass once egui's renderer is known.
+    pub fn set_gpu(&mut self, gpu: Gpu) {
+        self.gpu = Some(gpu);
+    }
+
+    pub fn gpu(&self) -> Option<&Gpu> {
+        self.gpu.as_ref()
+    }
+
+    /// The GPU pages drawn this frame, leaving none for the next.
+    pub fn take_drawn(&mut self) -> Vec<Quad> {
+        std::mem::take(&mut self.drawn)
     }
 
     /// Publishes this frame's demand, most urgent first; trims the cache.

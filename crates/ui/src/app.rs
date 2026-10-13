@@ -11,6 +11,7 @@ use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, T
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
+use crate::gpu::{Glass, Gpu, Quad};
 use crate::panes::{self, PaneView};
 use crate::pdf_view::ViewContext;
 use crate::platform::{NativeLights, Platform};
@@ -379,6 +380,20 @@ impl MareaderApp {
         hovering.then_some(under)
     }
 
+    /// What the bar blurs: pane fills, then this frame's GPU pages.
+    fn glass(&mut self, ctx: &Context) -> Option<Glass> {
+        let pass = self.documents.gpu()?.pass.clone();
+        let t = theme::Tokens::get(ctx);
+        let fills = self.pane_rects.iter().map(|(_, r)| Quad::fill(*r, t.paper));
+        let mut quads: Vec<Quad> = fills.collect();
+        quads.extend(self.documents.take_drawn());
+        Some(Glass {
+            pass,
+            canvas: t.surface,
+            quads,
+        })
+    }
+
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
     fn place_lights(&self, ctx: &Context, overlay: bool) -> NativeLights {
         let bar_hosts = self.sidebar.offset().is_none() && !overlay;
@@ -427,8 +442,13 @@ impl eframe::App for MareaderApp {
         self.restyle(ctx);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if self.documents.gpu().is_none()
+            && let Some(render) = frame.wgpu_render_state()
+        {
+            self.documents.set_gpu(Gpu::new(render));
+        }
         // Fonts from set_fonts arrive next frame; named families panic before.
         if self.fonts != FontState::Ready {
             self.fonts = FontState::Ready;
@@ -481,6 +501,7 @@ impl eframe::App for MareaderApp {
             });
         });
         self.documents.end_frame();
+        let glass = self.glass(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let bar = BarContext {
             title: self.documents.title(self.active).unwrap_or("Mareader"),
@@ -492,6 +513,7 @@ impl eframe::App for MareaderApp {
             gutter: !overlay && inset <= 0.0 && !fullscreen,
             appearance: &self.settings.appearance,
             zoom: self.documents.zoom_state(self.active),
+            glass,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
         self.lights = self.place_lights(&ctx, overlay);

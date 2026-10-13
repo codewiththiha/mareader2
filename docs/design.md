@@ -88,7 +88,7 @@ went magenta).
 
 **Derived in `theme.rs`:**
 - hover fill = `line`; selected = `accent-soft` with an accent icon;
-- glass (the title bar) = surface at 96 % until the blur pass (M1) gives
+- glass (the title bar) = surface at 96 % until the blur pass (M2 slice 3) gives
   surface at 72 % with a 20 pt backdrop blur.
 
 ## Type

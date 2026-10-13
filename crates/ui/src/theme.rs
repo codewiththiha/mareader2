@@ -26,8 +26,10 @@ pub struct Tokens {
     pub accent_soft: Color32,
     /// Errors: a toast's icon and edge.
     pub danger: Color32,
-    /// The title bar fill until the blur pass.
+    /// The title bar fill without a blurred backdrop.
     pub glass: Color32,
+    /// The bar over its blurred backdrop: mareader's 72 % surface.
+    pub frost: Color32,
     pub shadow: Color32,
     pub dark: bool,
     /// Buttons, fields, menu rows.
@@ -69,6 +71,7 @@ impl Tokens {
                 Color32::from_rgb(0xdc, 0x26, 0x26)
             },
             glass: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 245),
+            frost: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 184),
             shadow: Color32::from_black_alpha(if dark { 120 } else { 60 }),
             dark,
             radius: 8.0,
@@ -297,7 +300,7 @@ pub mod live {
         for (key, val) in map {
             let used = fields!(t, key, val;
                 colours: paper, ink, muted, surface, line, hover, pressed, accent,
-                    accent_soft, glass, shadow;
+                    accent_soft, glass, frost, shadow;
                 numbers: radius, radius_lg, control, icon, text, text_small, gap);
             if !used {
                 bad.push(key.clone());

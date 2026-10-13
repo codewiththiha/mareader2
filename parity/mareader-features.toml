@@ -115,9 +115,10 @@ title = "Frosted title bar: the page shows through, blurred"
 area = "A"
 tier = "P1"
 milestone = "M2"
-status = "partial"
+status = "shipped"
+evidence = ["crates/ui/tests/gpu.rs::a_pinned_bar_blurs_the_page_scrolled_under_it"]
 reference = ["styles/components/title_bar.css"]
-notes = "A 96 % translucent surface for now; the blur reuses the M2 page pass (slice 3)"
+notes = "mareader's recipe: 72 % surface over a 20 pt blur, saturate 180 %; 96 % without a GPU"
 
 [[feature]]
 id = "chrome.chromeless"
