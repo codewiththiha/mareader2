@@ -15,6 +15,7 @@ mod links;
 mod outline;
 pub mod sample;
 mod text;
+mod tiles;
 mod title;
 
 pub use document::{
@@ -24,4 +25,5 @@ pub use document::{
 pub use links::{Link, LinkTarget, MAX_LINKS, web_address};
 pub use outline::{MAX_DEPTH, OutlineEntry, active_entry};
 pub use text::{Bounds, MAX_CHARS, PageText, TextChar, TextLayer};
+pub use tiles::{MAX_TILED_SIDE, TILE_SIDE, Tiling};
 pub use title::{display_name, file_stem, is_usable_title};
