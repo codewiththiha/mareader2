@@ -5,7 +5,8 @@ use egui::scroll_area::{DragScroll, ScrollSource};
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_session::{DocId, Document, PageKey, PageSize, Scale};
 
-use crate::pages::{Lookup, PageCache};
+use crate::gpu::{PagePass, PagesCallback, Quad};
+use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::theme::Tokens;
 use crate::zoom::{PaneZoom, ZoomCommand};
 
@@ -130,14 +131,22 @@ impl Column {
     }
 }
 
-pub fn show(
-    ui: &mut Ui,
-    view: &mut PdfView,
-    doc: &Document,
-    pages: &mut PageCache,
-    demand: &mut Demand,
-    cx: &ViewContext,
-) {
+/// What drawing a pane reads and fills, shared across panes.
+pub struct Sinks<'a> {
+    pub pages: &'a mut PageCache,
+    pub demand: &'a mut Demand,
+    /// GPU pages drawn this frame, for the glass to blur.
+    pub drawn: &'a mut Vec<Quad>,
+    pub pass: Option<&'a std::sync::Arc<PagePass>>,
+}
+
+pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: &ViewContext) {
+    let Sinks {
+        pages,
+        demand,
+        drawn,
+        pass,
+    } = io;
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time);
     let frame = ui.max_rect();
@@ -224,16 +233,23 @@ pub fn show(
             let origin = ui.max_rect().min.to_vec2();
             let shown = column.visible(viewport);
             shown_pages = shown.clone();
+            let mut quads = Vec::new();
             for page in shown.clone() {
                 let Some(rect) = column.rects.get(page) else {
                     continue;
                 };
                 let rect = rect.translate(origin).round_to_pixels(ppp);
                 let look = pages.lookup(key(page));
-                paint_page(ui, rect, look, &t);
                 if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
                     demand.push((urgency, key(page)));
                 }
+                paint_page(ui, rect, look, &t, &mut quads);
+            }
+            // One callback draws every GPU page, over the shadows.
+            if let (Some(pass), false) = (pass, quads.is_empty()) {
+                let shape = PagesCallback::shape(pass.clone(), ui.clip_rect(), quads.clone());
+                ui.painter().add(shape);
+                drawn.extend(quads);
             }
             let before = shown.start.saturating_sub(PREFETCH)..shown.start;
             let after = shown.end..(shown.end + PREFETCH).min(column.rects.len());
@@ -259,7 +275,8 @@ pub fn show(
     }
 }
 
-fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens) {
+/// Paints a page, or queues it for the page pass in `quads`.
+fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens, quads: &mut Vec<Quad>) {
     let painter = ui.painter();
     let shadow = egui::Shadow {
         offset: [0, 1],
@@ -270,8 +287,16 @@ fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens) {
     painter.add(shadow.as_shape(rect, CornerRadius::ZERO));
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
-        Lookup::Sharp(id) | Lookup::Stale(id) => {
-            painter.image(id, rect, uv, Color32::WHITE);
+        Lookup::Sharp(PageTexture::Gpu(page)) | Lookup::Stale(PageTexture::Gpu(page)) => {
+            quads.push(Quad {
+                rect,
+                clip: ui.clip_rect(),
+                tint: Color32::WHITE,
+                texture: Some(page),
+            });
+        }
+        Lookup::Sharp(PageTexture::Egui(h)) | Lookup::Stale(PageTexture::Egui(h)) => {
+            painter.image(h.id(), rect, uv, Color32::WHITE);
         }
         // Rasters are white under the ink, so the wait looks the same.
         Lookup::Missing => {

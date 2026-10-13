@@ -12,6 +12,7 @@ fn main() -> Result<(), String> {
     let mut hover = None;
     let mut size = egui::vec2(1200.0, 800.0);
     let mut zooms = Vec::new();
+    let mut scroll = 0.0;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -36,6 +37,8 @@ fn main() -> Result<(), String> {
                     });
                 }
             }
+            // Points to wheel the document down once open.
+            "scroll" => scroll = v.parse().map_err(|_| "scroll=points")?,
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -50,12 +53,23 @@ fn main() -> Result<(), String> {
         .with_size(size)
         .with_pixels_per_point(2.0)
         .with_step_dt(1.0 / 60.0)
+        .wgpu()
         .with_max_steps(64)
         .build_eframe(|_| app);
     harness.run_steps(4);
     for z in zooms {
         harness.state_mut().queue(Command::Zoom(z));
         harness.run_steps(16);
+    }
+    if scroll != 0.0 {
+        harness.hover_at((size / 2.0).to_pos2());
+        harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -scroll),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        harness.run_steps(40);
     }
     if let Some(p) = hover {
         harness.hover_at(p);
