@@ -12,6 +12,7 @@ repository = "https://github.com/codewiththiha/mareader2"
 [workspace.dependencies]
 mareader-appearance = { path = "crates/appearance" }
 mareader-workspace = { path = "crates/workspace" }
+mareader-settings = { path = "crates/settings" }
 mareader-ui = { path = "crates/ui" }
 
 serde = { version = "1", features = ["derive"] }

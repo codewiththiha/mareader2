@@ -1762,6 +1762,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-settings"
+version = "0.0.1"
+dependencies = [
+ "mareader-appearance",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mareader-ui"
 version = "0.0.1"
 dependencies = [
@@ -1772,6 +1781,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "mareader-appearance",
+ "mareader-settings",
  "mareader-workspace",
  "serde",
  "serde_json",
