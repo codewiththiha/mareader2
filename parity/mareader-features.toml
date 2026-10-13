@@ -96,7 +96,7 @@ tier = "P0"
 milestone = "M1"
 status = "partial"
 reference = ["src-tauri/src/macos/traffic_light.rs", "crates/app-chrome/src/window/traffic_lights.rs"]
-notes = "Centred in the bar and fading with it (apps/mareader/src/traffic_lights.rs, feature traffic-lights). Type-checked for macOS; not yet run on a Mac"
+notes = "Centred at x 20 in the bar. A drawn sidebar carries them and slides them away; otherwise they come with the bar, never in overlay mode (apps/mareader/src/traffic_lights.rs). Type-checked for macOS; not yet run on a Mac"
 
 [[feature]]
 id = "chrome.frameless-resize"
@@ -137,7 +137,7 @@ milestone = "M1"
 status = "partial"
 evidence = ["crates/ui/tests/shell.rs::the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it", "crates/ui/tests/shell.rs::the_switcher_changes_panel_and_a_reclick_keeps_it", "crates/ui/tests/shell.rs::a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace", "crates/ui/tests/shell.rs::docking_a_floating_sidebar_keeps_it_open", "crates/ui/tests/shell.rs::escape_closes_the_sidebar"]
 reference = ["crates/reader-runtime/src/components/shell/sidebar/container.rs"]
-notes = "The rail works: docked slide, floating fade with edge reveal and grace, header, switcher, Escape. Panel contents land with their features (outline and thumbnails M2, library M5, dictionary M6)"
+notes = "The rail works: docked slide, floating slide with edge reveal and grace, header, switcher, Escape. Panel contents land with their features (outline and thumbnails M2, library M5, dictionary M6)"
 
 [[feature]]
 id = "chrome.popovers"
