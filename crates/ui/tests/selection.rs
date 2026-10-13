@@ -235,3 +235,62 @@ fn dragging_past_the_bottom_scrolls_and_selects_into_the_next_page() -> Out {
     assert!(text.contains("\nPage 2 of 40\n"), "{text}");
     Ok(())
 }
+
+#[test]
+fn the_wheel_scrolls_during_a_drag_and_the_selection_follows() -> Out {
+    let mut h = reader();
+    let (layer, sheet) = page_one(&h)?;
+    let from = edge(&layer, sheet, find(&layer, "Sphinx")?, false)?;
+    h.hover_at(from);
+    h.step();
+    button(&mut h, from, true);
+    // A small move starts the drag; the button stays down after.
+    let held = from + egui::vec2(40.0, 0.0);
+    for _ in 0..4 {
+        h.hover_at(held);
+        h.step();
+    }
+    let top = h
+        .state()
+        .documents()
+        .sheets(h.state().active_pane())
+        .first()
+        .map(|s| s.rect.top());
+    for _ in 0..2 {
+        h.event(Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -600.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(30);
+    }
+    let pane = h.state().active_pane();
+    let moved = h
+        .state()
+        .documents()
+        .sheets(pane)
+        .first()
+        .map(|s| s.rect.top());
+    assert!(
+        moved < top,
+        "the page moved up under the pointer: {top:?} -> {moved:?}"
+    );
+    button(&mut h, held, false);
+    h.run();
+    let pages = h
+        .state()
+        .documents()
+        .selection(pane)
+        .ok_or("nothing selected")?
+        .pages();
+    assert_eq!(
+        pages,
+        0..2,
+        "the selection reaches the page now under the pointer"
+    );
+    let text = copy(&mut h).ok_or("nothing copied")?;
+    assert!(text.starts_with("Sphinx of black quartz"), "{text}");
+    assert!(text.contains("\nPage 2 of 40"), "{text}");
+    Ok(())
+}

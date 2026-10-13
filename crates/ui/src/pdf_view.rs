@@ -293,6 +293,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 doc: doc_id,
                 sheets: &sheets,
                 texts,
+                sideways: !down,
             };
             if let Some(sel) = selection.filter(|s| !s.is_empty()) {
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));

@@ -614,9 +614,9 @@ area = "D"
 tier = "P0"
 milestone = "M2"
 status = "shipped"
-evidence = ["crates/ui/tests/selection.rs::dragging_over_text_selects_it_and_copy_takes_exactly_that", "crates/ui/tests/selection.rs::double_and_triple_clicks_take_a_word_and_a_line", "crates/ui/tests/selection.rs::dragging_past_the_bottom_scrolls_and_selects_into_the_next_page", "crates/pdf/src/document.rs::a_page_reads_back_its_lines_words_and_links"]
+evidence = ["crates/ui/tests/selection.rs::dragging_over_text_selects_it_and_copy_takes_exactly_that", "crates/ui/tests/selection.rs::double_and_triple_clicks_take_a_word_and_a_line", "crates/ui/tests/selection.rs::dragging_past_the_bottom_scrolls_and_selects_into_the_next_page", "crates/ui/tests/selection.rs::the_wheel_scrolls_during_a_drag_and_the_selection_follows", "crates/pdf/src/document.rs::a_page_reads_back_its_lines_words_and_links"]
 reference = ["crates/reader-runtime/src/effects/reader/page_selection.rs"]
-notes = "Text layers from hayro glyph runs (OCR text included) for pages in view, read on a worker and kept by count. Drag across pages with edge scrolling, double click for a word, triple for a line, Cmd/Ctrl+C copies, Escape clears. Selection.pages() gives the page range mareader tracks for the AI pill (M6)"
+notes = "Text layers from hayro glyph runs (OCR text included) for pages in view, read on a worker and kept by count. Drag across pages with edge scrolling or the wheel (egui ignores the wheel during drags, so the selection forwards it), double click for a word, triple for a line, Cmd/Ctrl+C copies, Escape clears. Selection.pages() gives the page range mareader tracks for the AI pill (M6)"
 
 [[feature]]
 id = "pdf.links"
