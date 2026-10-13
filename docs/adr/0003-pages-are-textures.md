@@ -13,10 +13,14 @@
     - the blend family (`page_blend`);
     - the texture tile, anchored to the page;
     - the grain.
-  - EPUB rasters are drawn in the token colours already, so their filter chain is
-    empty (mareader: "blend mode stays a PDF feature").
+  - EPUB text is rasterised as a coverage mask; the pass colours it with the
+    ink and paper uniforms. EPUB images are separate textures. Their filter
+    chain is empty (mareader: "blend mode stays a PDF feature").
+  - Every appearance value is a uniform, so changing one re-rasterises nothing.
 - **Consequences:**
   - The CPU reference (`apply_filter`, `Blend::apply`) is the oracle for shader
     tests.
-  - Texture memory is bounded by a byte-capped LRU per session.
+  - Texture memory is bounded by one byte-capped cache for the whole app,
+    shared by every pane (ADR 0006).
+  - Appearance controls apply on the next frame, pages included.
   - Zoom stretches the current texture and re-rasterises once at rest.

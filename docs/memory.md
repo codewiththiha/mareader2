@@ -30,6 +30,8 @@ Add a dated section per audit; never overwrite one.
 ## Budgets to hold (set at M2)
 
 - **Idle window, no document:** measure it at M1 and record it here as the floor.
-- **Closing a pane:** texture count and bytes return to their value before it
-  opened (a kittest test).
+- **Closing the last pane on a document:** texture count and bytes return to
+  their value before it opened (a kittest test).
+- **The same book in two panes:** one parse, one tile set; the second pane adds
+  only the tiles its own zoom needs.
 - **Thumbnails:** LRU of 16, as in mareader.
