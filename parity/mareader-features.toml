@@ -522,9 +522,16 @@ title = "Open PDFs from the dialog, drag and drop, file association and the comm
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/reading.rs::an_empty_pane_offers_the_open_dialog",
+    "crates/ui/tests/reading.rs::open_beside_splits_and_opens_in_the_new_pane",
+    "crates/ui/tests/reading.rs::a_dropped_file_opens_in_the_pane_under_the_pointer",
+    "apps/mareader/src/single_instance.rs::a_second_launch_hands_its_files_to_the_first",
+    "apps/mareader/src/inbox.rs::mail_is_taken_once",
+]
 reference = ["crates/reader-runtime/src/services/document/open"]
-notes = "Open dialog (rfd), Open beside, command line and drag and drop into the pane under the pointer; file association comes with packaging"
+notes = "Open dialog (rfd), Open beside, drag and drop into the pane under the pointer, the command line, and the system: cargo-packager registers .pdf, a second launch hands its files to the running window, and macOS Finder files arrive as an Apple event (open_files.rs; the owner checks it on a Mac). See docs/packaging.md"
 
 [[feature]]
 id = "pdf.render"

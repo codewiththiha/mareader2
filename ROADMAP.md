@@ -69,10 +69,10 @@ appearance effects to that same pass.
 
 ## Open questions for the owner
 
-- **Closing M2.** Answered: finish all seven. Slices 8 to 10 shipped page
-  chrome, mixed sizes, the vertical view, tiles, capped caches and the find
-  key. Left: opening files from the system with cargo-packager associations
-  and a macOS `openURLs` delegate (slice 11).
+- **Closing M2.** Answered: finish all seven. Slices 8 to 11 shipped page
+  chrome, mixed sizes, the vertical view, tiles, capped caches, the find key
+  and opening files from the system. Left: the owner checks Finder opens on
+  a Mac (docs/packaging.md § Checking it on a Mac).
 
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts).
@@ -104,3 +104,4 @@ appearance effects to that same pass.
 | 2026-10-13 | M2 slice 8, page chrome. Settings, Layout gains the floating label (file name or chapter, always show, width limit as a share of the room beside the page), default fit, no gap, page margin (a 0 to 64 stepper in fours, "Off" at 0, mareader's horizontal air, none on the sideways strip), auto scale, auto resize and page shadow. The default margin is mareader's 0, so a fitted page now meets the pane's sides. The label shows while the title bar hides and the sidebar is closed. Auto Resize moves a fit to the page read once it settles 0.25 s on a page of another size, never mid-glide: refitting during a jump moved the glide's end and it landed a page short. Documents open at the default fit |
 | 2026-10-13 | M2 slice 9, tiles. A page whose raster would pass the GPU's texture side or hayro's 4096 px caps draws a backdrop of at most 2048 px under tiles of 1024 to 2048 px (a quarter of the page, growing with zoom, at most 16,384 px a side). `Document::render_tile` is hayro's `render` through `render_into` with the transform shifted to the tile's corner, and a test matches it to the whole page pixel for pixel. Tiles are a `Part` of the page key, so they share the cache, the 256 MiB cap, the workers and the page pass. Only tiles on screen are asked for, and only once the view rests 0.25 s; a page drawn at another scale drops its old tiles. Found on the way: with zero workers, queued work waited for an unrelated frame |
 | 2026-10-13 | M2 slice 10, find key. ⌘/Ctrl+F opens mareader's floating find bar at the focused pane's top right: a focused field ("Search in document…") that keeps its text, "Search arrives with M7" where the match count goes, and a close button. Escape or a press elsewhere on a pane closes it, and while open it holds the title bar. The Search buttons in the title bar and sidebar toggle it, as in mareader. With no document, the key opens the Library panel, standing in for mareader's library search (M5). Searching itself stays `search.document` (M7) |
+| 2026-10-13 | M2 slice 11, opening files from the system. cargo-packager config in `apps/mareader/Cargo.toml` registers `.pdf` as a viewer (mareader's icons, `Productivity`). A Linux `.deb` built here installs `Exec=mareader %F` with `MimeType=application/pdf`. Opening a file while Mareader runs reuses the window, like mareader's single-instance plugin: std loopback plus a token in the data folder, with no new crate. macOS Finder and Dock files come through `open_files.rs`, the second owner-approved `unsafe` module (`open-files` feature). It installs an `odoc` Apple event handler at will-finish-launching, because winit owns the app delegate. Every route goes through one `Inbox`, and the newest file opens. Clippy passes for macOS with and without the feature; the owner checks it on a Mac |
