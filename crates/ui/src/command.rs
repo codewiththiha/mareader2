@@ -41,6 +41,16 @@ pub enum Command {
     View(ViewMode),
     /// An arrow key over the active document: a turn, or the scroll's.
     Arrow(Arrow),
+    /// Shows `page` of the pane's document, from its start.
+    GoTo {
+        pane: PaneId,
+        page: usize,
+    },
+    /// The previous or next page, or spread, of the pane's document.
+    Turn {
+        pane: PaneId,
+        forward: bool,
+    },
     /// Shows a file in a pane, replacing what it showed.
     Open(OpenRequest),
     Split(SplitAxis),

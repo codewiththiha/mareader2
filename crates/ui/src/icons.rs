@@ -49,6 +49,7 @@ pub enum Icon {
     Alert,
     Done,
     ChevronDown,
+    ChevronLeft,
     ChevronRight,
 }
 
@@ -96,6 +97,7 @@ impl Icon {
             Self::Alert => Lucide::CircleAlert,
             Self::Done => Lucide::CircleCheck,
             Self::ChevronDown => Lucide::ChevronDown,
+            Self::ChevronLeft => Lucide::ChevronLeft,
             Self::ChevronRight => Lucide::ChevronRight,
         }
     }

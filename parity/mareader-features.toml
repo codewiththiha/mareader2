@@ -138,7 +138,7 @@ milestone = "M1"
 status = "partial"
 evidence = ["crates/ui/tests/shell.rs::the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it", "crates/ui/tests/shell.rs::the_switcher_changes_panel_and_a_reclick_keeps_it", "crates/ui/tests/shell.rs::a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace", "crates/ui/tests/shell.rs::docking_a_floating_sidebar_keeps_it_open", "crates/ui/tests/shell.rs::escape_closes_the_sidebar"]
 reference = ["crates/reader-runtime/src/components/shell/sidebar/container.rs"]
-notes = "The rail works: docked slide, floating slide with edge reveal and grace, header, switcher, Escape. Panel contents land with their features (outline and thumbnails M2, library M5, dictionary M6)"
+notes = "The rail works: docked slide, floating slide with edge reveal and grace, header, switcher, Escape. Outline and thumbnails panels serve the focused pane (M2); library M5, dictionary M6"
 
 [[feature]]
 id = "chrome.popovers"
@@ -179,8 +179,10 @@ title = "Click-through status bar with the page position"
 area = "A"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/src/page_bar.rs::the_counter_reads_as_pages_or_a_percentage"]
 reference = ["crates/reader-core/src/settings/layout.rs"]
+notes = "A click-through counter in each pane's corner, as pages or a percentage; it gives way while the bottom bar is up. Settings, Layout: on or off and its style"
 
 [[feature]]
 id = "chrome.overflow-menu"
@@ -552,7 +554,7 @@ tier = "P0"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-runtime/src/features/virtualizers.rs"]
-notes = "Virtualised from page sizes alone (tested at 10,000 pages); reading progress arrives with the page counter"
+notes = "Virtualised from page sizes alone (tested at 10,000 pages); a progress line along the pane's bottom edge follows the scroll"
 
 [[feature]]
 id = "pdf.view-scroll-horizontal"
@@ -639,8 +641,9 @@ title = "Page shadow, no-gap mode, page margin, page indicator and floating labe
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-core/src/settings/layout.rs"]
+notes = "Page indicator on or off with its style (pages or percent), and the progress bar; shadow, no-gap, margin and the floating label pending"
 
 [[feature]]
 id = "pdf.auto-scroll"
@@ -897,8 +900,10 @@ title = "Page counter with direct entry; previous and next"
 area = "H"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/navigation.rs::the_page_entry_jumps_and_snaps_back_from_nonsense", "crates/ui/tests/navigation.rs::the_bar_turns_by_spreads_and_hides_when_left"]
 reference = ["crates/reader-runtime/src/components/viewer/controls"]
+notes = "Each pane's bottom bar, up while its edge is hovered: previous and next (by spread in a spread), page entry (Enter jumps, past the end lands on the last page, anything else snaps back), the count and a page slider"
 
 [[feature]]
 id = "nav.outline"
@@ -906,8 +911,10 @@ title = "Outline panel; the deepest entry containing the page is highlighted"
 area = "H"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/navigation.rs::clicking_a_chapter_jumps_there_and_marks_it", "crates/pdf/src/outline.rs::named_and_action_destinations_resolve_like_direct_ones", "crates/ui/src/outline_panel.rs::a_click_keeps_its_entry_marked_until_the_page_changes"]
 reference = ["crates/reader-core/src/outline.rs", "crates/pdf-core/src/outline.rs"]
+notes = "Read from /Outlines at open (direct, GoTo, named and name-tree destinations; loops and depth capped). Rows indent to five levels with page numbers; a clicked entry stays marked while its page is read; the mark is revealed when off screen and centred on opening or a re-click of the panel button"
 
 [[feature]]
 id = "nav.thumbnails"
@@ -915,8 +922,10 @@ title = "Virtualised thumbnail grid, LRU of 16, follows the page"
 area = "H"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/navigation.rs::the_thumbnails_follow_the_page_and_a_click_jumps", "crates/ui/src/thumbnails.rs::a_window_of_rows_covers_the_band_and_stops_at_the_end"]
 reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
+notes = "Two columns, only rows near the viewport drawn and rendered; the page read gets an accent ring and badge and is centred, gliding as it moves, waiting 1.2 s after the grid is browsed. Thumbnails share the page cache's byte cap instead of their own LRU of 16 (ADR 0006)"
 
 [[feature]]
 id = "search.document"
@@ -1119,7 +1128,7 @@ tier = "P0"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
-notes = "Page textures capped at 256 MiB and finished results at 32 items or 32 MiB; thumbnails come with the sidebar panel"
+notes = "Page textures capped at 256 MiB, thumbnails included, and finished results at 32 items or 32 MiB"
 
 [[feature]]
 id = "perf.stale-results"

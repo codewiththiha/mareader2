@@ -64,6 +64,14 @@ fn main() -> Result<(), String> {
                     }));
                 }
             }
+            // 1-based, like the page entry: `goto=12`.
+            "goto" => {
+                let page: usize = v.parse().map_err(|_| "goto=page")?;
+                queued.push(Command::GoTo {
+                    pane: app.active_pane(),
+                    page: page.saturating_sub(1),
+                });
+            }
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(

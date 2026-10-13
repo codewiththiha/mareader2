@@ -1,7 +1,7 @@
 //! A PDF in a pane, in any view mode, drawn as pages arrive.
 
 use egui::emath::GuiRounding as _;
-use egui::scroll_area::{DragScroll, ScrollSource};
+use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_session::{DocId, Document, PageKey, Scale};
 
@@ -19,6 +19,7 @@ const PREFETCH: usize = 1;
 pub enum Urgency {
     ActivePane,
     OtherPane,
+    Thumbnail,
     Prefetch,
 }
 
@@ -44,6 +45,8 @@ pub struct PdfView {
     pub visible: std::ops::Range<usize>,
     /// The page read: the paged modes' page, or under a strip's centre.
     pub current: usize,
+    /// How far through the document, 0 to 1.
+    pub progress: f32,
 }
 
 impl PdfView {
@@ -60,6 +63,7 @@ impl PdfView {
             viewport: Vec2::ZERO,
             visible: 0..0,
             current: 0,
+            progress: 0.0,
         }
     }
 
@@ -89,6 +93,16 @@ impl PdfView {
         if let Some(forward) = arrow.turns(self.mode) {
             self.go(self.mode.turn(self.current, forward, count));
         }
+    }
+
+    /// A page turn from a button: it turns in every mode.
+    pub fn turn(&mut self, forward: bool, count: usize) {
+        self.go(self.mode.turn(self.current, forward, count));
+    }
+
+    /// Jumps to `page`, kept within the document's `count`.
+    pub fn go_to(&mut self, page: usize, count: usize) {
+        self.go(page.min(count.saturating_sub(1)));
     }
 
     /// Shows `page` from its start.
@@ -266,6 +280,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         let centre = Pos2::ZERO + out.state.offset + viewport / 2.0;
         view.current = layout.locate(centre).map_or(0, |(page, _)| page);
     }
+    view.progress = progress(view, layout, &out, sizes.len());
     view.visible = shown_pages;
     view.offset = out.state.offset;
     view.viewport = viewport;
@@ -280,8 +295,26 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     }
 }
 
+/// The strips' scroll along their axis; the paged modes' page.
+fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usize) -> f32 {
+    let room = (out.content_size - out.inner_rect.size()).max(Vec2::ZERO);
+    let (done, total) = match view.mode {
+        ViewMode::Vertical => (out.state.offset.y, room.y),
+        ViewMode::Horizontal => (out.state.offset.x, room.x),
+        ViewMode::Single | ViewMode::Spread => {
+            let last = layout.pages().end.max(1);
+            return last as f32 / count.max(1) as f32;
+        }
+    };
+    if total <= 0.5 {
+        1.0
+    } else {
+        (done / total).clamp(0.0, 1.0)
+    }
+}
+
 /// Paints a page, or queues it for the page pass in `quads`.
-fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens, quads: &mut Vec<Quad>) {
+pub(crate) fn paint_page(ui: &Ui, rect: Rect, look: Lookup, t: &Tokens, quads: &mut Vec<Quad>) {
     let painter = ui.painter();
     let shadow = egui::Shadow {
         offset: [0, 1],

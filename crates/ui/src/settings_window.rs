@@ -1,7 +1,7 @@
 //! The settings window: a modal with one tab per area of the app.
 
 use mareader_appearance::Rgb;
-use mareader_settings::{Corners, Settings, Swatch};
+use mareader_settings::{Corners, PageIndicatorStyle, Settings, Swatch};
 
 use egui::{
     Align, Button, Color32, Frame, Id, Layout, Margin, Modal, RichText, ScrollArea, Sense, Stroke,
@@ -253,10 +253,35 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             &mut s.chrome.sidebar_overlay,
         );
     });
+    section(ui, "Page position");
+    group(ui, |ui| {
+        switch_row(
+            ui,
+            "Page indicator",
+            "A page counter in the corner of each pane",
+            &mut s.layout.page_indicator,
+        );
+        divider(ui);
+        let on = s.layout.page_indicator;
+        row(ui, "Indicator shows", "", |ui| {
+            ui.add_enabled_ui(on, |ui| {
+                let style = &mut s.layout.page_indicator_style;
+                ui.selectable_value(style, PageIndicatorStyle::Percentage, "Percent");
+                ui.selectable_value(style, PageIndicatorStyle::PageNumber, "Pages");
+            });
+        });
+        divider(ui);
+        switch_row(
+            ui,
+            "Progress bar",
+            "A thin line along each pane's bottom edge",
+            &mut s.layout.progress_bar,
+        );
+    });
     pending(
         ui,
-        "Page indicator, document label, progress bar, default fit, page margin \
-         and page shadow join with PDF viewing (M2).",
+        "Document label, default fit, page margin and page shadow join with \
+         PDF viewing (M2).",
     );
     section(ui, "Motion");
     group(ui, |ui| {
