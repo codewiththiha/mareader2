@@ -33,8 +33,9 @@ area = "A"
 tier = "P0"
 milestone = "M1"
 status = "partial"
+evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar"]
 reference = ["crates/app-ui/src/components/shell/titlebar/app_title_bar.rs"]
-notes = "Held by any egui popup and by a press that began on the bar; the search hold comes with search (M7)"
+notes = "Any open popover holds it; the floating search arrives with M2"
 
 [[feature]]
 id = "chrome.titlebar-band-inset"
@@ -141,8 +142,10 @@ title = "Popovers for appearance, view and menus; dismiss on outside click and E
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "planned"
-reference = ["crates/app-chrome/src/floating/mod.rs", "styles/components/shell.css"]
+status = "partial"
+evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar"]
+reference = ["crates/app-chrome/src/floating/mod.rs"]
+notes = "egui Popup: the Appearance popover works; view and overflow menus to come"
 
 [[feature]]
 id = "chrome.tooltips"
@@ -775,9 +778,11 @@ id = "appearance.menu"
 title = "Appearance popover: mode and colour, presets, texture, grain"
 area = "F"
 tier = "P0"
-milestone = "M3"
-status = "planned"
+milestone = "M1"
+status = "partial"
+evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar", "crates/ui/tests/shell.rs::a_preset_swatch_applies_its_look"]
 reference = ["crates/app-ui/src/components/menus/appearance_menu"]
+notes = "Presets, mode, hue strip, strength, texture and grain controls work; saved presets, per-pane looks and text ink are still to come"
 
 [[feature]]
 id = "appearance.instant"

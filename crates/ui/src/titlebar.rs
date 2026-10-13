@@ -2,6 +2,7 @@
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, CornerRadius, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
+use mareader_appearance::Appearance;
 use mareader_workspace::SplitAxis;
 
 use crate::command::{Command, Commands, WindowCommand};
@@ -14,6 +15,7 @@ use crate::widgets::{self, CaptionStyle};
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
 pub const FADE: f32 = 0.2;
+pub const APPEARANCE_POPOVER: &str = "appearance-popover";
 
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
@@ -22,6 +24,7 @@ pub struct BarContext<'a> {
     /// A docked sidebar's width: the band starts after it.
     pub left_inset: f32,
     pub maximized: bool,
+    pub appearance: &'a Appearance,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -41,6 +44,11 @@ impl TitleBar {
         }
     }
 
+    /// Shows the bar as if hovered; it hides after the usual grace.
+    pub fn reveal(&mut self) {
+        self.shown = true;
+    }
+
     pub fn visible(&self) -> bool {
         !self.chromeless && (self.pinned || self.shown)
     }
@@ -58,7 +66,8 @@ impl TitleBar {
     fn update_hover(&mut self, ctx: &Context, band: Rect) {
         let now = ctx.input(|i| i.time);
         let inside = ctx.pointer_hover_pos().is_some_and(|p| band.contains(p));
-        let held = ctx.any_popup_open() || (self.shown && ctx.input(|i| i.pointer.any_down()));
+        let held =
+            egui::Popup::is_any_open(ctx) || (self.shown && ctx.input(|i| i.pointer.any_down()));
         if inside {
             self.shown = true;
             self.left_at = None;
@@ -178,7 +187,6 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool) -> (f32, Comm
     out.extend(clicked(r, Command::SetTitlebarPinned(!pinned)));
     let buttons = [
         (Icon::Settings, "Settings", Command::ShowSettings),
-        (Icon::Appearance, "Appearance", Command::ShowAppearance),
         (Icon::Search, "Search", Command::ShowSearch),
         (
             Icon::SplitDown,
@@ -191,11 +199,25 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool) -> (f32, Comm
             Command::Split(SplitAxis::Horizontal),
         ),
     ];
+    appearance_button(ui, bar.appearance, &mut out);
     for (icon, label, command) in buttons {
         let r = widgets::icon_button(ui, icon, label, false);
         out.extend(clicked(r, command));
     }
     (ui.min_rect().left(), out)
+}
+
+/// Toggles the Appearance popover, which edits the look live.
+fn appearance_button(ui: &mut egui::Ui, current: &Appearance, out: &mut Commands) {
+    let id = Id::new(APPEARANCE_POPOVER);
+    let open = egui::Popup::is_id_open(ui.ctx(), id);
+    let r = widgets::icon_button(ui, Icon::Appearance, "Appearance", open);
+    egui::Popup::from_toggle_button_response(&r)
+        .id(id)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::BOTTOM_END)
+        .gap(6.0)
+        .show(|ui| crate::appearance_menu::show(ui, current, out));
 }
 
 /// Centred on the window when it fits, else in the gap, truncated.
