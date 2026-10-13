@@ -564,8 +564,9 @@ title = "Fifteen zoom presets, 25 to 500 %, chained presses, no wrap at the ends
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/zoom_math.rs", "crates/reader-runtime/src/zoom/mod.rs"]
+evidence = ["crates/ui/src/zoom.rs::steps_climb_to_the_next_preset_and_stop_at_the_ends", "crates/ui/src/zoom.rs::chained_steps_walk_the_whole_ladder", "crates/ui/tests/reading.rs::zoom_keys_step_the_ladder_and_keep_the_page_in_view"]
 
 [[feature]]
 id = "pdf.fit"
@@ -573,8 +574,9 @@ title = "Fit width and fit page; refit on resize and sidebar slide"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/zoom_math.rs"]
+evidence = ["crates/ui/src/zoom.rs::fit_page_takes_the_tighter_side", "crates/ui/tests/reading.rs::the_menu_fits_the_page", "crates/ui/tests/reading.rs::a_resize_refits_and_keeps_the_page"]
 
 [[feature]]
 id = "pdf.zoom-anchor"
@@ -582,8 +584,9 @@ title = "Zoom keeps the point under the window centre fixed; stretch then one cr
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-runtime/src/zoom/coordinator.rs"]
+evidence = ["crates/ui/src/pdf_view.rs::zooming_holds_the_spot_under_the_pivot", "crates/ui/src/zoom.rs::a_pinch_stretches_until_it_settles", "crates/ui/tests/reading.rs::a_pinch_zooms_about_the_pointer"]
 
 [[feature]]
 id = "pdf.mixed-sizes"
@@ -593,7 +596,7 @@ tier = "P1"
 milestone = "M2"
 status = "partial"
 reference = ["crates/reader-core/src/settings/layout.rs"]
-notes = "One zoom fitted to the page read when the fit was set; wider pages overflow evenly around the centred column. Auto Resize later"
+notes = "One zoom fitted to the page read when the fit was chosen; wider pages overflow evenly around the centred column. Auto Resize later"
 
 [[feature]]
 id = "pdf.text-selection"
@@ -1051,9 +1054,9 @@ title = "mareader's shortcuts: open, find, fit, view modes, zoom, page and scrol
 area = "K"
 tier = "P0"
 milestone = "M2"
-status = "planned"
+status = "partial"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
-notes = "`crates/ui/src/keymap.rs` drives keys, tooltips and the reference; Settings and full screen are bound. Document keys join in M2"
+notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width (Cmd/Ctrl and bare +/-). Find, view modes, page, scroll and vim keys pending"
 
 [[feature]]
 id = "keys.glide"

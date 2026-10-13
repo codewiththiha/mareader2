@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 done (the glass moved to M2 slice 3); M2 slice 1 done.
+**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 and 2 done.
 **Parity:** 30.5 of 118 features (25.8 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -54,7 +54,7 @@ appearance effects to that same pass.
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | Open a PDF and scroll it: `pdf` crate (hayro), `session` (shared documents, worker pool, generations), virtualised vertical scroll at fit width, capped texture cache, the title from the document | **done** | `cargo run -p mareader -- book.pdf`, drop a PDF, `?pdf=sample` |
-| 2 | Zoom: fifteen presets, fit width and page, centre anchor, stretch then one crisp render, refit on resize and sidebar slide | planned | Ctrl +/−, the menu's zoom row |
+| 2 | Zoom: fifteen presets, fit width and page, centre anchor, stretch then one crisp render, refit on resize and sidebar slide | **done** | ⌘/Ctrl +/−/0, bare +/−, pinch, the menu's zoom row; `zoom=in,page` in shots |
 | 3 | The page pass (a wgpu callback drawing page textures) and the glass bar blur | planned | pin the bar and scroll a page under it |
 | 4 | View modes: single page with page turn, spread, horizontal strip | planned | the menu's view row |
 | 5 | Navigation: page counter with entry, outline, thumbnails, status bar | planned | sidebar panels, the counter |
@@ -63,8 +63,8 @@ appearance effects to that same pass.
 
 ## Next
 
-1. **M2 slice 2, zoom.**
-2. **M2 slice 3, the page pass and the glass.**
+1. **M2 slice 3, the page pass and the glass.**
+2. **M2 slice 4, view modes.**
 
 ## Open questions for the owner
 
@@ -87,3 +87,4 @@ appearance effects to that same pass.
 | 2026-10-13 | Traffic lights follow the sidebar: while a rail is drawn they sit in its header at full opacity and slide out with it; otherwise they come with the bar, and in overlay mode only with the rail (the bar then drops its gutter). The floating rail now slides like the docked one instead of fading. Off a Mac, `platform=mac` draws stand-in dots so this shows in shots and the preview |
 | 2026-10-13 | M1 closed; the glass moved into M2 (owner). M2 slice 1: `pdf` wraps hayro (open, page sizes, rasters, the title rule from mareader, a generated sample PDF); `session` shares documents across panes and runs a worker pool driven by per-frame demand, dropping stale jobs and results, capped at 32 finished items. Panes scroll a virtualised fit-width column with a 256 MiB texture cache; files open from the command line or by drop, `pdf=sample` in shots and the preview |
 | 2026-10-13 | Owner: the traffic lights work on a real Mac; "optional" meant optional to build, so the `traffic-lights` feature stays on with no in-app setting. `rfd` approved for native dialogs (imports will need it too): it added only `rfd` and `pollster` to the tree. ⌘O / Ctrl+O, the menu's Open… and Open beside… (split right, only once a file is picked) and the empty pane's button open the system dialog off the UI thread. In the browser, picks and drops arrive as bytes, so real PDFs open in the preview |
+| 2026-10-13 | M2 slice 2, zoom: mareader's fifteen presets (a step from 120 % goes to 125 %, not past it), fit width and fit page measured on the page read when chosen, refit as the pane resizes. Every relayout holds the point under the pivot: the window centre for keys and the menu, the pointer for pinch and Ctrl+wheel (new on desktop). Steps glide 120 ms and render sharp at once; pinches and resizes stretch, then render once after 180 ms of quiet. egui's own interface zoom keys are off |
