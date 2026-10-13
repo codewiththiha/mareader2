@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{Context, Ui};
-use mareader_session::{Budget, DocId, Event, Session, Source, Ticket};
+use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -14,6 +14,7 @@ use crate::layout::{Arrow, ViewMode};
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
 use crate::theme::{self, Tokens};
+use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
 use crate::zoom::{ZoomCommand, ZoomState};
 
@@ -80,6 +81,23 @@ impl OpenRequest {
 enum Content {
     Opening { ticket: Ticket, name: String },
     Pdf(PdfView),
+}
+
+/// One pane's document as navigation sees it, as of last frame.
+#[derive(Clone, Debug)]
+pub struct Reading {
+    pub pane: PaneId,
+    pub doc: DocId,
+    pub document: Arc<Document>,
+    pub current: usize,
+    pub mode: ViewMode,
+    pub progress: f32,
+}
+
+impl Reading {
+    pub fn count(&self) -> usize {
+        self.document.page_count()
+    }
 }
 
 pub struct Documents {
@@ -237,6 +255,44 @@ impl Documents {
         true
     }
 
+    /// What `pane` reads, if it shows an open document.
+    pub fn reading(&self, pane: PaneId) -> Option<Reading> {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return None;
+        };
+        let entry = self.session.as_ref()?.get(view.doc)?;
+        Some(Reading {
+            pane,
+            doc: view.doc,
+            document: Arc::clone(&entry.doc),
+            current: view.current,
+            mode: view.mode,
+            progress: view.progress,
+        })
+    }
+
+    /// The thumbnail grid for `pane`'s document; false if it has none.
+    pub fn thumbnails(
+        &mut self,
+        ui: &mut Ui,
+        pane: PaneId,
+        state: &mut ThumbState,
+        recentre: bool,
+        out: &mut Commands,
+    ) -> bool {
+        let Some(reading) = self.reading(pane) else {
+            return false;
+        };
+        let io = Sinks {
+            pages: &mut self.pages,
+            demand: &mut self.demand,
+            drawn: &mut Vec::new(),
+            pass: self.gpu.as_ref().map(|g| &g.pass),
+        };
+        thumbnails::show(ui, &reading, io, state, recentre, out);
+        true
+    }
+
     /// Pages go through our page pass once egui's renderer is known.
     pub fn set_gpu(&mut self, gpu: Gpu) {
         self.gpu = Some(gpu);
@@ -286,6 +342,20 @@ impl Documents {
         let count = self.page_count(pane).unwrap_or(0);
         if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
             view.arrow(arrow, count);
+        }
+    }
+
+    pub fn go_to(&mut self, pane: PaneId, page: usize) {
+        let count = self.page_count(pane).unwrap_or(0);
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.go_to(page, count);
+        }
+    }
+
+    pub fn turn(&mut self, pane: PaneId, forward: bool) {
+        let count = self.page_count(pane).unwrap_or(0);
+        if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
+            view.turn(forward, count);
         }
     }
 

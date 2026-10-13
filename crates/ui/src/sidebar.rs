@@ -23,6 +23,10 @@ pub const HOVER_GRACE: f64 = 0.25;
 pub const EDGE: f32 = 6.0;
 const SWITCHER_H: f32 = 48.0;
 
+/// Draws a panel; false shows the placeholder. The flag: reveal the
+/// reading place.
+pub type PanelBody<'a> = dyn FnMut(&mut Ui, Panel, bool, &mut Commands) -> bool + 'a;
+
 /// What the rail shows; the focused pane supplies the content.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Panel {
@@ -70,8 +74,8 @@ impl Panel {
     /// Placeholder copy until the panel's milestone lands.
     fn pending(self) -> &'static str {
         match self {
-            Panel::Thumbnails => "Page thumbnails of the focused book appear here (M2).",
-            Panel::Outline => "The table of contents appears here: PDFs in M2, EPUBs in M4.",
+            Panel::Thumbnails => "Open a PDF to browse its pages here.",
+            Panel::Outline => "Open a book to see its chapters here; EPUBs arrive in M4.",
             Panel::Library => "Your library as a tree, with the open tabs, arrives in M5.",
             Panel::Dictionary => "Look words up in your language packs (M6).",
         }
@@ -94,6 +98,8 @@ pub struct Sidebar {
     /// Floating only: the pointer has reached the rail since it opened.
     armed: bool,
     left_at: Option<f64>,
+    /// The panel should bring the reading place into view.
+    recentre: bool,
     /// Last frame's rail edge left of its open place; `None` when not drawn.
     offset: Option<f32>,
 }
@@ -115,9 +121,11 @@ impl Sidebar {
     /// Opens on `panel`, or on the last one shown.
     pub fn open(&mut self, panel: Option<Panel>) {
         if let Some(p) = panel {
+            self.recentre |= p != self.panel;
             self.panel = p;
         }
         if !self.open {
+            self.recentre = true;
             self.open = true;
             self.armed = false;
             self.left_at = None;
@@ -153,7 +161,13 @@ impl Sidebar {
     }
 
     /// Takes a sliding strip from the left of `ui`; returns its width.
-    pub fn show_docked(&mut self, ui: &mut Ui, cx: &RailContext, out: &mut Commands) -> f32 {
+    pub fn show_docked(
+        &mut self,
+        ui: &mut Ui,
+        cx: &RailContext,
+        body: &mut PanelBody<'_>,
+        out: &mut Commands,
+    ) -> f32 {
         let width = self.slide(ui.ctx(), cx, "sidebar-slide");
         self.offset = (width >= 1.0).then_some(width - WIDTH);
         if width < 1.0 {
@@ -173,7 +187,7 @@ impl Sidebar {
                 );
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rail).id_salt("rail"));
                 child.shrink_clip_rect(strip);
-                self.contents(&mut child, cx, out);
+                self.contents(&mut child, cx, body, out);
                 let t = Tokens::get(ui.ctx());
                 ui.painter().vline(
                     strip.right() - 0.5,
@@ -185,7 +199,13 @@ impl Sidebar {
     }
 
     /// Slides over the panes from the left edge; returns the width it covers.
-    pub fn show_floating(&mut self, ctx: &Context, cx: &RailContext, out: &mut Commands) -> f32 {
+    pub fn show_floating(
+        &mut self,
+        ctx: &Context,
+        cx: &RailContext,
+        body: &mut PanelBody<'_>,
+        out: &mut Commands,
+    ) -> f32 {
         let screen = ctx.content_rect();
         let home = Rect::from_min_size(screen.min, vec2(WIDTH, screen.height()));
         self.track_hover(ctx, home, screen, out);
@@ -214,7 +234,7 @@ impl Sidebar {
                 ui.painter().add(shadow.as_shape(rail, CornerRadius::ZERO));
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rail).id_salt("rail"));
                 child.set_clip_rect(rail);
-                self.contents(&mut child, cx, out);
+                self.contents(&mut child, cx, body, out);
                 ui.painter()
                     .vline(rail.right() - 0.5, rail.y_range(), Stroke::new(1.0, t.line));
             });
@@ -251,15 +271,35 @@ impl Sidebar {
     }
 
     /// Header, panel and switcher, laid out in `ui.max_rect()`.
-    fn contents(&self, ui: &mut Ui, cx: &RailContext, out: &mut Commands) {
+    fn contents(
+        &mut self,
+        ui: &mut Ui,
+        cx: &RailContext,
+        body: &mut PanelBody<'_>,
+        out: &mut Commands,
+    ) {
         let t = Tokens::get(ui.ctx());
         let rail = ui.max_rect();
         ui.painter()
             .rect_filled(rail, CornerRadius::ZERO, t.surface);
         let (header, rest) = rail.split_top_bottom_at_y(rail.top() + TITLE_BAR_H);
-        let (body, switcher) = rest.split_top_bottom_at_y(rest.bottom() - SWITCHER_H);
+        let (panel, switcher) = rest.split_top_bottom_at_y(rest.bottom() - SWITCHER_H);
         self.header(ui, header, cx, out);
-        panel_body(ui, body, self.panel);
+        let recentre = std::mem::take(&mut self.recentre);
+        let builder = UiBuilder::new()
+            .max_rect(panel)
+            .layout(Layout::top_down(Align::Min));
+        let drew = ui
+            .scope_builder(builder, |ui| {
+                ui.shrink_clip_rect(panel);
+                body(ui, self.panel, recentre, out)
+            })
+            .inner;
+        if !drew {
+            // Kept for the document still to come.
+            self.recentre |= recentre;
+            placeholder(ui, panel, self.panel);
+        }
         ui.painter()
             .hline(switcher.x_range(), switcher.top(), Stroke::new(1.0, t.line));
         self.switcher(ui, switcher, out);
@@ -300,7 +340,7 @@ impl Sidebar {
         });
     }
 
-    fn switcher(&self, ui: &mut Ui, rect: Rect, out: &mut Commands) {
+    fn switcher(&mut self, ui: &mut Ui, rect: Rect, out: &mut Commands) {
         let slot = rect.width() / Panel::SWITCHER.len() as f32;
         for (i, panel) in Panel::SWITCHER.into_iter().enumerate() {
             let centre = pos2(rect.left() + slot * (i as f32 + 0.5), rect.center().y);
@@ -314,16 +354,17 @@ impl Sidebar {
             let r = ui.put(at, button);
             let label = panel.label();
             r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
-            // Re-clicking the active panel will reveal the reading place (M2).
             widgets::tip(&r, label, None);
-            if r.clicked() && !on {
+            if r.clicked() && on {
+                self.recentre = true;
+            } else if r.clicked() {
                 out.push(Command::OpenSidebar(Some(panel)));
             }
         }
     }
 }
 
-fn panel_body(ui: &mut Ui, rect: Rect, panel: Panel) {
+fn placeholder(ui: &mut Ui, rect: Rect, panel: Panel) {
     let t = Tokens::get(ui.ctx());
     let area = rect.shrink2(vec2(28.0, 0.0));
     let builder = UiBuilder::new()
@@ -359,6 +400,17 @@ mod tests {
         s.toggle();
         assert!(s.is_open());
         assert_eq!(s.panel(), Panel::Outline);
+    }
+
+    #[test]
+    fn opening_or_switching_panels_asks_for_the_reading_place() {
+        let mut s = Sidebar::default();
+        s.open(Some(Panel::Outline));
+        assert!(std::mem::take(&mut s.recentre));
+        s.open(Some(Panel::Outline));
+        assert!(!s.recentre);
+        s.open(Some(Panel::Thumbnails));
+        assert!(s.recentre);
     }
 
     #[test]

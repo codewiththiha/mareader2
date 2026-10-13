@@ -12,11 +12,14 @@ use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::gpu::{Glass, Gpu, Quad};
+use crate::outline_panel::{self, OutlineState};
+use crate::page_bar::{self, PageBar};
 use crate::panes::{self, PaneView};
 use crate::pdf_view::ViewContext;
 use crate::platform::{NativeLights, Platform};
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
 use crate::sidebar::{Panel, RailContext, Sidebar};
+use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
@@ -38,6 +41,11 @@ pub struct MareaderApp {
     lights: NativeLights,
     documents: Documents,
     files: Files,
+    /// The sidebar panels' scroll-following, for the focused pane.
+    outline: OutlineState,
+    thumbs: ThumbState,
+    /// Each pane's page bar.
+    page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
     styled: Option<(Appearance, bool)>,
@@ -76,6 +84,9 @@ impl MareaderApp {
             lights: NativeLights::default(),
             documents: Documents::default(),
             files: Files::default(),
+            outline: OutlineState::default(),
+            thumbs: ThumbState::default(),
+            page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
             styled: None,
             fonts: FontState::Missing,
@@ -286,6 +297,8 @@ impl MareaderApp {
                 self.documents.set_mode(self.active, mode, fit, now);
             }
             Command::Arrow(arrow) => self.documents.arrow(self.active, arrow),
+            Command::GoTo { pane, page } => self.documents.go_to(pane, page),
+            Command::Turn { pane, forward } => self.documents.turn(pane, forward),
             Command::Open(request) => {
                 let mut pane = request.pane.unwrap_or(self.active);
                 // Open beside: a new pane to the right, as in mareader.
@@ -386,6 +399,19 @@ impl MareaderApp {
         hovering.then_some(under)
     }
 
+    /// Every document pane's counter, progress line and bottom bar.
+    fn page_bars(&mut self, ctx: &Context, out: &mut Commands) {
+        let rects = &self.pane_rects;
+        self.page_bars
+            .retain(|id, _| rects.iter().any(|(p, _)| p == id));
+        for (id, rect) in rects {
+            if let Some(reading) = self.documents.reading(*id) {
+                let bar = self.page_bars.entry(*id).or_default();
+                page_bar::show(ctx, *rect, &reading, &self.settings.layout, bar, out);
+            }
+        }
+    }
+
     /// What the bar blurs: pane fills, then this frame's GPU pages.
     fn glass(&mut self, ctx: &Context) -> Option<Glass> {
         let pass = self.documents.gpu()?.pass.clone();
@@ -479,10 +505,24 @@ impl eframe::App for MareaderApp {
             slide: self.settings.motion.sidebar_slide,
             platform: self.platform,
         };
+        let (documents, active) = (&mut self.documents, self.active);
+        let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
+        // The rail's panels serve the focused pane's document.
+        let mut body =
+            |ui: &mut egui::Ui, panel: Panel, recentre: bool, out: &mut Commands| match panel {
+                Panel::Outline => documents.reading(active).is_some_and(|r| {
+                    outline_panel::show(ui, &r, outline, recentre, out);
+                    true
+                }),
+                Panel::Thumbnails => documents.thumbnails(ui, active, thumbs, recentre, out),
+                Panel::Library | Panel::Dictionary => false,
+            };
         let inset = if overlay {
-            self.sidebar.show_floating(&ctx, &rail, &mut commands)
+            self.sidebar
+                .show_floating(&ctx, &rail, &mut body, &mut commands)
         } else {
-            self.sidebar.show_docked(ui, &rail, &mut commands)
+            self.sidebar
+                .show_docked(ui, &rail, &mut body, &mut commands)
         };
         let view = PaneView {
             active: self.active,
@@ -506,6 +546,7 @@ impl eframe::App for MareaderApp {
                 documents.show(ui, id, &cx)
             });
         });
+        self.page_bars(&ctx, &mut commands);
         self.documents.end_frame();
         let glass = self.glass(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));

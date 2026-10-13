@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 4 done.
+**Stage:** M1 done (the glass moved to M2 slice 3); M2 slices 1 to 5 done.
 **Parity:** 30.5 of 118 features (25.8 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -57,14 +57,14 @@ appearance effects to that same pass.
 | 2 | Zoom: fifteen presets, fit width and page, centre anchor, stretch then one crisp render, refit on resize and sidebar slide | **done** | ⌘/Ctrl +/−/0, bare +/−, pinch, the menu's zoom row; `zoom=in,page` in shots |
 | 3 | The page pass (a wgpu callback drawing page textures) and the glass bar blur | **done** | pin the bar and scroll a page under it; `pinned=true scroll=300` in shots |
 | 4 | View modes: single page with page turn, spread, horizontal strip | **done** | the menu's view row, ⌘/Ctrl+1 and +2, arrows; `view=spread arrows=right` in shots |
-| 5 | Navigation: page counter with entry, outline, thumbnails, status bar | planned | sidebar panels, the counter |
+| 5 | Navigation: page counter with entry, outline, thumbnails, status bar | **done** | the sidebar's outline and thumbnails, hover a pane's bottom edge; `sidebar=outline goto=17 hover=x,y` in shots |
 | 6 | Text selection and copy; internal and external links | planned | drag over text, click a link |
 | 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | planned | `docs/memory.md` |
 
 ## Next
 
-1. **M2 slice 5, navigation.**
-2. **M2 slice 6, selection and links.**
+1. **M2 slice 6, selection and links.**
+2. **M2 slice 7, keys, glide, last document, teardown and memory.**
 
 ## Open questions for the owner
 
@@ -90,3 +90,4 @@ appearance effects to that same pass.
 | 2026-10-13 | M2 slice 2, zoom: mareader's fifteen presets (a step from 120 % goes to 125 %, not past it), fit width and fit page measured on the page read when chosen, refit as the pane resizes. Every relayout holds the point under the pivot: the window centre for keys and the menu, the pointer for pinch and Ctrl+wheel (new on desktop). Steps glide 120 ms and render sharp at once; pinches and resizes stretch, then render once after 180 ms of quiet. egui's own interface zoom keys are off |
 | 2026-10-13 | M2 slice 3: pages leave egui's texture manager for our page pass (`crates/ui/src/gpu`): rasters upload from the UI thread through egui's own device, and each pane draws its pages in one wgpu callback of instanced quads, which ADR 0003's filters will extend in M3. The glass redraws the strip under the bar and 60 pt below at about a tenth of the resolution, 4 × 4 supersampled so scrolled text doesn't shimmer, blurs it twice (σ 20 pt), and composites it at 180 % saturation under a 72 % surface, fading with the bar. Without a GPU (headless tests) pages fall back to egui textures and the bar to 96 %. Tested on pixels from a real wgpu device, including a check that fails if the blur is skipped |
 | 2026-10-13 | M2 slice 4, view modes (`crates/ui/src/layout.rs`): one `Layout` places pages for the vertical column, the horizontal strip, a single page and a two-page spread (1–2, 3–4, touching at the spine), so zoom anchoring, prefetch and the page pass work in all four. A switch keeps the page being read; entering a spread fits both widths, single page fits when auto-scale is on, and the strip stops fitting, as in mareader. mareader's arrow rule: every arrow and h/j/k/l turns, except along a strip's own axis (left for later glide). ⌘/Ctrl+1 single, ⌘/Ctrl+2 vertical; the menu has a view row. On the strip a plain wheel runs sideways while nothing overflows down. Not yet saved across launches (slice 7) |
+| 2026-10-13 | M2 slice 5, navigation. The `pdf` crate reads `/Outlines` at open (direct, GoTo and named destinations, loops and depth capped); the sample PDF carries chapters. The rail's Outline panel marks the deepest entry holding the page (a click wins while its page is read), revealed when off screen and centred on opening or a re-click of the panel button. The Thumbnails panel is a two-column grid, only near rows drawn, following the page with a glide that waits 1.2 s after the reader browses it; thumbnails share the one page cache (ADR 0006) instead of mareader's separate LRU. Each pane gets a corner counter, a progress line and a bottom bar raised from its edge: previous and next, page entry, count and slider. Settings, Layout: indicator on or off and its style, progress bar. The bottom bar uses the bar's plain frost: the glass pass draws one strip per frame |
