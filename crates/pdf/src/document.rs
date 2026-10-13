@@ -7,14 +7,16 @@ use hayro::hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, TransformExt as _, interpret_page,
 };
 use hayro::hayro_syntax::{LoadPdfError, Pdf};
-use hayro::kurbo::Rect;
+use hayro::kurbo::{Affine, Rect};
 use hayro::vello_cpu::color::palette::css::WHITE;
+use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 
 use crate::dest::{self, PageIds, Targets};
 use crate::links;
 use crate::outline::{self, OutlineEntry};
 use crate::text::{Collector, PageText, TextLayer};
+use crate::tiles::Tiling;
 
 /// More pages than this is treated as a broken file.
 pub const MAX_PAGES: usize = 100_000;
@@ -174,6 +176,21 @@ impl Document {
             .unwrap_or(Err(RenderError::Failed))
     }
 
+    /// Tile `col`, `row` of page `page` split at `scale`; see [`Tiling`].
+    pub fn render_tile(
+        &self,
+        page: usize,
+        scale: f32,
+        col: u32,
+        row: u32,
+    ) -> Result<Raster, RenderError> {
+        let size = *self.sizes.get(page).ok_or(RenderError::NoPage(page))?;
+        let tiling = Tiling::new(size, scale);
+        let rect = tiling.rect(col, row).ok_or(RenderError::Failed)?;
+        catch_unwind(AssertUnwindSafe(|| self.tile(page, tiling.scale, rect)))
+            .unwrap_or(Err(RenderError::Failed))
+    }
+
     /// Page `page`'s characters and links; never panics.
     pub fn text_layer(&self, page: usize) -> Result<TextLayer, RenderError> {
         if page >= self.sizes.len() {
@@ -223,16 +240,46 @@ impl Document {
             &RenderSettings::default(),
             &settings,
         );
-        let (width, height) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
-        if width == 0 || height == 0 {
-            return Err(RenderError::Failed);
-        }
-        Ok(Raster {
-            width,
-            height,
-            pixels: pixmap.data_as_u8_slice().to_vec(),
-        })
+        finish(&pixmap)
     }
+
+    /// hayro's `render`, shifted so the tile's corner is the origin.
+    fn tile(&self, page: usize, scale: f32, [x, y, w, h]: [u32; 4]) -> Result<Raster, RenderError> {
+        let pages = self.pdf.pages();
+        let page = pages.get(page).ok_or(RenderError::NoPage(page))?;
+        let (w, h) = (u16::try_from(w), u16::try_from(h));
+        let (Ok(w), Ok(h)) = (w, h) else {
+            return Err(RenderError::Failed);
+        };
+        let mut ctx = RenderContext::new(w, h);
+        let shift = Affine::translate((-f64::from(x), -f64::from(y)));
+        let transform =
+            shift * Affine::scale(f64::from(scale)) * page.initial_transform(true).to_kurbo();
+        let cache = RenderCache::new();
+        let interpreter = InterpreterSettings::default();
+        let settings = RenderSettings::default();
+        hayro::render_into(page, &cache, &interpreter, &settings, &mut ctx, transform);
+        ctx.flush();
+        let mut pixmap = Pixmap::new(w, h);
+        let raster = RasterizerSettings {
+            target_init: TargetInit::Clear(WHITE),
+            ..Default::default()
+        };
+        ctx.render_with(&mut pixmap, &mut Resources::default(), raster);
+        finish(&pixmap)
+    }
+}
+
+fn finish(pixmap: &Pixmap) -> Result<Raster, RenderError> {
+    let (width, height) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
+    if width == 0 || height == 0 {
+        return Err(RenderError::Failed);
+    }
+    Ok(Raster {
+        width,
+        height,
+        pixels: pixmap.data_as_u8_slice().to_vec(),
+    })
 }
 
 /// Lowers `scale` until the raster fits the side and pixel caps.
@@ -311,6 +358,35 @@ mod tests {
         for bad in [f32::NAN, -1.0, 0.0, f32::INFINITY] {
             assert!(doc.render(0, bad).is_ok());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn a_tile_matches_its_part_of_the_whole_page() -> Out {
+        let doc = sample_doc(1)?;
+        // At 2×, 1224 × 1584 splits into 2 × 2 tiles of 1024.
+        let whole = doc.render(0, 2.0)?;
+        let tiling = Tiling::new(doc.page_sizes()[0], 2.0);
+        assert_eq!((tiling.width, tiling.height), (whole.width, whole.height));
+        let [x, y, w, h] = tiling.rect(1, 1).ok_or("no tile")?;
+        let tile = doc.render_tile(0, 2.0, 1, 1)?;
+        assert_eq!((tile.width, tile.height), (w, h));
+        let mut off = 0usize;
+        for row in 0..h {
+            for col in 0..w {
+                let at = |r: &Raster, x: u32, y: u32| (y * r.width + x) as usize * 4;
+                let a = &tile.pixels[at(&tile, col, row)..][..4];
+                let b = &whole.pixels[at(&whole, x + col, y + row)..][..4];
+                let diff = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).max();
+                off += usize::from(diff.unwrap_or(0) > 2);
+            }
+        }
+        assert!(off < 20, "{off} pixels differ");
+        assert!(
+            dark(&doc.render_tile(0, 2.0, 0, 0)?),
+            "the title's tile has ink"
+        );
+        assert!(doc.render_tile(0, 2.0, 2, 0).is_err());
         Ok(())
     }
 
