@@ -42,3 +42,10 @@ opt-level = 1
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Browser previews of work in progress: fast to rebuild, still optimised.
+[profile.web]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 2

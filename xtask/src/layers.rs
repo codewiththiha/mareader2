@@ -17,6 +17,7 @@ pub const TABLE: &[(&str, Layer)] = &[
     ("session", Layer::Core(3)),
     ("ui", Layer::Front),
     ("mareader", Layer::Exempt),
+    ("web", Layer::Exempt),
     ("xtask", Layer::Exempt),
 ];
 
