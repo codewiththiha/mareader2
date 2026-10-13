@@ -124,6 +124,8 @@ pub struct Pages<'a> {
     pub doc: DocId,
     pub sheets: &'a [Sheet],
     pub texts: &'a TextLayers,
+    /// The strip scrolls only sideways, so the wheel turns that way.
+    pub sideways: bool,
 }
 
 impl Pages<'_> {
@@ -195,6 +197,7 @@ pub fn interact(
             }
             edge_scroll(ui, area, p);
         }
+        wheel(ui, pages.sideways);
     } else if let Some(target) = &link {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         tooltip(&response, target);
@@ -220,6 +223,20 @@ fn tooltip(response: &Response, target: &LinkTarget) {
         LinkTarget::Web(url) => url.clone(),
     };
     response.clone().on_hover_text_at_pointer(text);
+}
+
+/// egui drops the wheel during drags, so a selection scrolls itself.
+fn wheel(ui: &Ui, sideways: bool) {
+    let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
+    let delta = if sideways {
+        Vec2::new(delta.x + delta.y, 0.0)
+    } else {
+        delta
+    };
+    if delta != Vec2::ZERO {
+        ui.scroll_with_delta(delta);
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Dragging past an edge scrolls on, faster the further out.
