@@ -43,6 +43,7 @@ apps/mareader      the binary
 crates/ui          the egui front: theme, icons, title bar, panes, shell
 crates/appearance  base modes, tints, filters, presets, tokens
 crates/workspace   the pane split tree
+crates/settings    every user setting: schema, ranges, migration
 xtask              layers, parity, assets, comments, ci
 parity/            every mareader feature and its status
 docs/              design, architecture, library, EPUB, porting, memory, ADRs

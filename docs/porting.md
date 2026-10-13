@@ -50,7 +50,7 @@ rebuilt from its goal, as the smallest native design that delivers it.
 | mareader | mareader2 | How |
 |---|---|---|
 | `reader-core/src/appearance` | `crates/appearance` | **rebuilt** (M0): model, tokens, filter chain, presets |
-| `reader-core/src/settings` | `crates/settings` (M1) | the same settings, our schema; a mareader import is optional |
+| `reader-core/src/settings` | `crates/settings` | **rebuilt** (M1): the same settings, our schema; `import_mareader` reads theirs |
 | `reader-runtime/src/host/{tree,drop_target}` | `crates/workspace` | **rebuilt** (M0): split tree, limits, drop edges |
 | `library-core`, `library-runtime` | `crates/library` (M5) | **redesigned** (`docs/library.md`) |
 | `dict-core`, `cefr-core`, `ai-core`, `download-core` | `crates/study` (M6) | the behaviour; transports are new |
