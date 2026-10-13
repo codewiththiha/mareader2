@@ -5,8 +5,12 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_ui::MareaderApp;
 
 fn harness(app: MareaderApp) -> Harness<'static, MareaderApp> {
+    sized(app, egui::vec2(1200.0, 800.0))
+}
+
+fn sized(app: MareaderApp, size: egui::Vec2) -> Harness<'static, MareaderApp> {
     let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
+        .with_size(size)
         .with_step_dt(1.0 / 60.0)
         .with_max_steps(64)
         .build_eframe(|_| app);
@@ -351,4 +355,126 @@ fn open_appearance_from_settings_swaps_the_window_for_the_popover() {
         &h.ctx,
         egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER)
     ));
+}
+
+/// Steps `secs` of app time at 60 frames a second.
+fn wait(h: &mut Harness<'static, MareaderApp>, secs: f32) {
+    h.run_steps((secs * 60.0).ceil() as usize);
+}
+
+#[test]
+fn a_toolbar_tooltip_names_the_control_and_its_shortcut() {
+    let mut h = with(&[("platform", "gnome")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    h.get_by_label("Settings").hover();
+    wait(&mut h, 0.6);
+    assert!(
+        h.query_by_label("Ctrl+,").is_some(),
+        "the shortcut rides in the tooltip"
+    );
+}
+
+#[test]
+fn a_narrow_bar_folds_tools_into_the_menu() {
+    let mut app = MareaderApp::default();
+    app.set_option("platform", "windows").ok();
+    let mut h = sized(app, egui::vec2(640.0, 600.0));
+    h.hover_at(egui::pos2(320.0, 20.0));
+    h.run_steps(8);
+    assert!(h.query_by_label("Search").is_some(), "the first tools stay");
+    assert!(
+        h.query_by_label("Split right").is_none(),
+        "the last ones fold"
+    );
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    h.get_by_label("Split right").click();
+    h.run_steps(3);
+    assert_eq!(h.state().panes().len(), 2, "a folded tool still works");
+}
+
+#[test]
+fn a_wide_bar_keeps_every_tool_out_of_the_menu() {
+    let mut h = with(&[("platform", "windows")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    assert_eq!(h.query_all_by_label("Split right").count(), 1, "bar only");
+    assert!(h.query_by_label("Full screen").is_some());
+}
+
+#[test]
+fn the_menu_lists_the_shortcuts_that_exist() {
+    let mut h = with(&[("platform", "gnome")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Esc").is_none(), "folded until asked");
+    h.get_by_label("Keyboard shortcuts").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Esc").is_some());
+    assert!(h.query_by_label("F11").is_some());
+}
+
+#[test]
+fn command_comma_opens_settings() {
+    let mut h = harness(MareaderApp::default());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Comma);
+    h.run_steps(3);
+    assert!(h.state().settings_window().is_open());
+}
+
+#[test]
+fn a_toast_leaves_by_itself() {
+    let mut h = with(&[("toast", "Copied")]);
+    assert!(h.query_by_label("Copied").is_some());
+    wait(&mut h, 3.0);
+    assert!(h.state().toast().is_some(), "still up before 3.5 s");
+    wait(&mut h, 1.0);
+    assert!(h.state().toast().is_none());
+    assert!(h.query_by_label("Copied").is_none());
+}
+
+#[test]
+fn reading_a_toast_keeps_it_up() {
+    let mut h = with(&[("toast", "Copied")]);
+    h.get_by_label("Copied").hover();
+    wait(&mut h, 6.0);
+    assert!(h.state().toast().is_some(), "hover holds it");
+    h.hover_at(egui::pos2(600.0, 300.0));
+    wait(&mut h, 2.0);
+    assert!(h.state().toast().is_none(), "gone after the grace");
+}
+
+#[test]
+fn a_toast_closes_from_its_button() {
+    let mut h = with(&[("toast", "error:Could not open the file")]);
+    h.get_by_label("Dismiss").click();
+    wait(&mut h, 0.5);
+    assert!(h.state().toast().is_none());
+}
+
+#[test]
+fn a_refused_split_says_why() {
+    use mareader_workspace::SplitAxis;
+    let mut h = with(&[("panes", "4")]);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::Split(SplitAxis::Horizontal));
+    h.run_steps(3);
+    let toast = h.state().toast().map(|t| t.message.clone());
+    assert!(toast.is_some_and(|m| m.contains("4 panes")));
+}
+
+#[test]
+fn repaired_settings_say_so() {
+    let mut disk = Memory::default();
+    let bad = r#"{"version":1,"motion":{"zoom":"often"}}"#;
+    disk.0
+        .insert(mareader_ui::app::SETTINGS_KEY.to_owned(), bad.to_owned());
+    let app = MareaderApp::from_storage(Some(&disk));
+    let tone = app.toast().map(|t| t.tone);
+    assert_eq!(tone, Some(mareader_ui::toast::Tone::Error));
 }
