@@ -75,10 +75,19 @@ fn a_pinned_bar_blurs_the_page_scrolled_under_it() -> Out {
     let diff = |x: u32, y: u32| luma(&clear, x, y) - luma(&under, x, y);
     let mut shows = 0;
     let mut sharpest = 0;
+    // The title's glyph edges step sharply over any backdrop.
+    let ink = |x: u32, y: u32| {
+        [(x, y), (x + 1, y), (x, y + 1)]
+            .iter()
+            .any(|&(x, y)| luma(&clear, x, y) < 128)
+    };
     for y in 0..bar - 1 {
         for x in 0..w - 1 {
             let d = diff(x, y);
             shows += usize::from(d > 6);
+            if ink(x, y) {
+                continue;
+            }
             let step = (diff(x + 1, y) - d).abs().max((diff(x, y + 1) - d).abs());
             sharpest = sharpest.max(step);
         }
@@ -141,5 +150,26 @@ fn the_page_bar_is_glass_and_both_bars_turn_solid_without_it() -> Out {
     );
     let title = band(&solid, 2..8, 0);
     assert_eq!(title.0, 0, "so is the title bar's edge");
+    Ok(())
+}
+
+#[test]
+fn page_shadow_darkens_the_paper_under_a_page_until_switched_off() -> Out {
+    // A margin leaves paper beside the page for its shadow.
+    let on = [("pdf", "sample:3"), ("margin", "32")];
+    let off = [("pdf", "sample:3"), ("margin", "32"), ("shadow", "false")];
+    let mut shades = Vec::new();
+    for options in [&on[..], &off[..]] {
+        let mut h = reader(options);
+        let pane = h.state().active_pane();
+        let page = h.state().documents().sheets(pane).first().map(|s| s.rect);
+        let page = page.ok_or("no page drawn")?;
+        let image = h.render()?;
+        // Just right of the page's edge, halfway down.
+        let (x, y) = (page.right() as u32 + 2, page.center().y as u32);
+        shades.push(luma(&image, x, y) - luma(&image, x + 20, y));
+    }
+    assert!(shades[0] < -2, "shadowed: {shades:?}");
+    assert_eq!(shades[1], 0, "no shadow: {shades:?}");
     Ok(())
 }

@@ -14,6 +14,7 @@ pub mod backdrop;
 pub mod command;
 pub mod documents;
 pub mod files;
+pub mod floating_label;
 pub mod gpu;
 pub mod icons;
 pub mod keymap;
@@ -62,5 +63,21 @@ mod testing {
                 _ => None,
             })
             .ok_or("the sample didn't open")
+    }
+
+    /// A sample of `pages` read at `current` in pane 1.
+    pub fn reading(pages: usize, current: usize) -> Result<crate::documents::Reading, String> {
+        let bytes = std::sync::Arc::new(mareader_pdf::sample::pdf(pages, "Sample"));
+        let document = mareader_session::Document::open(bytes).map_err(|e| e.to_string())?;
+        Ok(crate::documents::Reading {
+            pane: mareader_workspace::PaneId(1),
+            doc: doc()?,
+            document: std::sync::Arc::new(document),
+            current,
+            mode: crate::layout::ViewMode::Vertical,
+            progress: 0.0,
+            name: "sample.pdf".into(),
+            page: None,
+        })
     }
 }

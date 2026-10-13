@@ -274,7 +274,8 @@ fn a_resize_refits_and_keeps_the_page() {
     h.set_size(egui::vec2(600.0, 700.0));
     h.run();
     let z = zoom(&h);
-    assert!((z.zoom - (600.0 - 32.0) / 612.0).abs() < 0.01, "{z:?}");
+    // No page margin by default: the page meets the pane's sides.
+    assert!((z.zoom - 600.0 / 612.0).abs() < 0.01, "{z:?}");
     assert_eq!(current(&h), page);
 }
 

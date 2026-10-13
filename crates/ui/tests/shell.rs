@@ -309,6 +309,10 @@ fn the_animations_tab_leaves_with_its_master_switch() {
     );
     h.get_by_role_and_label(Role::Button, "Layout").click();
     h.run_steps(2);
+    // Below the Pages rows, it scrolls into view first.
+    h.get_by_role_and_label(Role::CheckBox, "Animations")
+        .scroll_to_me();
+    h.run();
     h.get_by_role_and_label(Role::CheckBox, "Animations")
         .click();
     h.run_steps(2);

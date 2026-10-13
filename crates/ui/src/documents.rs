@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use egui::{Context, Ui};
+use egui::{Context, Rect, Ui};
 use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket};
 use mareader_workspace::PaneId;
 
@@ -113,6 +113,9 @@ pub struct Reading {
     pub current: usize,
     pub mode: ViewMode,
     pub progress: f32,
+    pub name: String,
+    /// The page read, on screen last frame.
+    pub page: Option<Rect>,
 }
 
 impl Reading {
@@ -348,6 +351,12 @@ impl Documents {
             current: view.current,
             mode: view.mode,
             progress: view.progress,
+            name: entry.name.clone(),
+            page: view
+                .sheets
+                .iter()
+                .find(|s| s.page == view.current)
+                .map(|s| s.rect),
         })
     }
 

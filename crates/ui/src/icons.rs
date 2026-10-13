@@ -51,6 +51,8 @@ pub enum Icon {
     ChevronDown,
     ChevronLeft,
     ChevronRight,
+    Minus,
+    Plus,
 }
 
 impl Icon {
@@ -84,6 +86,8 @@ impl Icon {
             Self::Dim => Lucide::SunMoon,
             Self::Menu => Lucide::Menu,
             Self::Fullscreen => Lucide::Maximize,
+            Self::Minus => Lucide::Minus,
+            Self::Plus => Lucide::Plus,
             Self::ZoomIn => Lucide::ZoomIn,
             Self::ZoomOut => Lucide::ZoomOut,
             Self::FitWidth => Lucide::MoveHorizontal,
