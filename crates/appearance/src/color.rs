@@ -28,6 +28,20 @@ fn linear_to_srgb(c: f64) -> f64 {
     }
 }
 
+/// Stored as `"#rrggbb"`, the form people read and paste.
+impl serde::Serialize for Rgb {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_hex())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Rgb {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Rgb::from_hex(&text).ok_or_else(|| serde::de::Error::custom("expected #rrggbb"))
+    }
+}
+
 fn unit_to_u8(c: f64) -> u8 {
     // NaN casts to 0, which is the safe end of the range.
     (c.clamp(0.0, 1.0) * 255.0).round() as u8
