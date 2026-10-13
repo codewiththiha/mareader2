@@ -4,16 +4,16 @@ use egui::{Button, Color32, CornerRadius, Rect, Response, Sense, Ui, Vec2, vec2}
 
 use crate::command::WindowCommand;
 use crate::icons::Icon;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 
 /// A borderless icon button; `selected` marks a toggle that is on.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
-    let size = theme::ICON_BUTTON;
-    let button = Button::image(icon.image(theme::ICON))
+    let t = Tokens::get(ui.ctx());
+    let button = Button::image(icon.image(t.icon))
         .image_tint_follows_text_color(true)
         .frame_when_inactive(false)
         .selected(selected)
-        .min_size(Vec2::splat(size));
+        .min_size(Vec2::splat(t.control));
     let resp = ui.add(button);
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)

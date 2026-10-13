@@ -33,6 +33,10 @@ pub struct MareaderApp {
     sidebar_open: bool,
     styled: Option<(Appearance, bool)>,
     fonts: FontState,
+    /// Commands from outside a view: tests, OS drops, later the keymap.
+    queued: Commands,
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    live: theme::live::LiveTokens,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -63,6 +67,9 @@ impl MareaderApp {
             sidebar_open: false,
             styled: None,
             fonts: FontState::Missing,
+            queued: Commands::new(),
+            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+            live: theme::live::LiveTokens::from_env(),
         }
     }
 
@@ -72,6 +79,35 @@ impl MareaderApp {
             .and_then(|s| s.get_string(SETTINGS_KEY))
             .and_then(|json| serde_json::from_str::<Settings>(&json).ok());
         saved.map_or_else(Self::default, Self::with_settings)
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Applied at the end of the next frame, like a view's commands.
+    pub fn queue(&mut self, command: Command) {
+        self.queued.push(command);
+    }
+
+    /// Restyles egui when the look changed; true if it did.
+    fn restyle(&mut self, ctx: &Context) -> bool {
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        if self.live.poll(ctx) {
+            self.styled = None;
+        }
+        let want = (self.settings.appearance, self.settings.animations);
+        if self.styled == Some(want) {
+            return false;
+        }
+        #[allow(unused_mut)]
+        let mut tokens = theme::Tokens::new(&self.settings.appearance);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        self.live.overlay(&mut tokens);
+        theme::apply(ctx, &tokens);
+        motion::set_enabled(ctx, self.settings.animations);
+        self.styled = Some(want);
+        true
     }
 
     pub fn titlebar(&self) -> &TitleBar {
@@ -143,6 +179,13 @@ impl MareaderApp {
                     self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
                 }
             }
+            Command::SetRatio(path, ratio) => {
+                self.tree.set_ratio(&path, ratio);
+            }
+            Command::SetAppearance(mut a) => {
+                a.sanitize();
+                self.settings.appearance = a;
+            }
             Command::SetTitlebarPinned(p) => {
                 self.titlebar.pinned = p;
                 self.settings.titlebar_pinned = p;
@@ -171,12 +214,7 @@ impl eframe::App for MareaderApp {
             egui_extras::install_image_loaders(ctx);
             self.fonts = FontState::Installed;
         }
-        let want = (self.settings.appearance, self.settings.animations);
-        if self.styled != Some(want) {
-            theme::apply(ctx, &self.settings.appearance);
-            motion::set_enabled(ctx, self.settings.animations);
-            self.styled = Some(want);
-        }
+        self.restyle(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -188,13 +226,13 @@ impl eframe::App for MareaderApp {
             return;
         }
         resize::edges(&ctx, self.platform.frameless());
-        let mut commands = Commands::new();
+        let mut commands = std::mem::take(&mut self.queued);
         let view = PaneView {
             active: self.active,
             look: self.settings.workspace,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
         };
-        panes::show(ui, &mut self.tree, &view, &mut commands);
+        panes::show(ui, &self.tree, &view, &mut commands);
         let bar = BarContext {
             title: "Mareader",
             platform: self.platform,
@@ -204,6 +242,10 @@ impl eframe::App for MareaderApp {
         self.titlebar.show(&ctx, &bar, &mut commands);
         for command in commands {
             self.apply(&ctx, command);
+        }
+        // This frame drew with the old look; show the new one next frame.
+        if self.restyle(&ctx) {
+            ctx.request_repaint();
         }
     }
 
