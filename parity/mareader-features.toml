@@ -561,9 +561,14 @@ title = "Virtualised continuous vertical scroll with reading progress"
 area = "D"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-runtime/src/features/virtualizers.rs"]
-notes = "Virtualised from page sizes alone (tested at 10,000 pages); a progress line along the pane's bottom edge follows the scroll"
+evidence = [
+    "crates/ui/tests/reading.rs::the_wheel_scrolls_and_only_nearby_pages_are_kept_drawn",
+    "crates/ui/tests/pages.rs::the_progress_line_follows_the_scroll",
+    "crates/ui/tests/pages.rs::no_gap_lets_strip_pages_touch",
+]
+notes = "Virtualised from page sizes alone (tested at 10,000 pages); the progress line follows the scroll; No Gap lets pages touch"
 
 [[feature]]
 id = "pdf.view-scroll-horizontal"
@@ -612,9 +617,13 @@ title = "Mixed page sizes fit by the page on screen; Auto Resize"
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/layout.rs"]
-notes = "One zoom fitted to the page read when the fit was chosen; wider pages overflow evenly around the centred column. Auto Resize later"
+evidence = [
+    "crates/ui/tests/pages.rs::auto_resize_refits_to_a_page_of_another_size",
+    "crates/ui/tests/pages.rs::documents_open_at_the_default_fit",
+]
+notes = "One zoom per pane; a fit measures the page read and, with Auto Resize, follows a page of another size once it settles; the default fit opens documents"
 
 [[feature]]
 id = "pdf.text-selection"
@@ -654,9 +663,17 @@ title = "Page shadow, no-gap mode, page margin, page indicator and floating labe
 area = "D"
 tier = "P1"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-core/src/settings/layout.rs"]
-notes = "Page indicator on or off with its style (pages or percent), and the progress bar; shadow, no-gap, margin and the floating label pending"
+evidence = [
+    "crates/ui/tests/gpu.rs::page_shadow_darkens_the_paper_under_a_page_until_switched_off",
+    "crates/ui/tests/pages.rs::no_gap_lets_strip_pages_touch",
+    "crates/ui/tests/pages.rs::the_page_margin_is_air_beside_a_fitted_page",
+    "crates/ui/tests/pages.rs::the_floating_label_shows_while_the_bar_hides_and_room_allows",
+    "crates/ui/tests/pages.rs::always_show_keeps_the_label_under_a_pinned_bar",
+    "crates/ui/src/floating_label.rs::the_budget_is_the_blank_side_and_a_quarter_page",
+]
+notes = "Shadow, no gap, page margin (horizontal, none sideways), indicator, progress bar and the floating label with its content, persist and width limit"
 
 [[feature]]
 id = "pdf.auto-scroll"
