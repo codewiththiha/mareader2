@@ -1,0 +1,1033 @@
+# mareader2 parity with mareader. Validated and reported by `cargo xtask parity`.
+# status: planned | partial (notes say what is missing) | shipped (evidence cites a test) | dropped (notes say why)
+# evidence: `path::test_fn` in this repo. reference: paths in the ../mareader checkout.
+# areas: A chrome, B workspace, C library, D pdf, E epub, F appearance, G typography,
+#        H navigation and search, I study, J settings, K motion/keys/a11y, L performance.
+
+[[feature]]
+id = "chrome.titlebar-hover-reveal"
+title = "Title bar reveals on hover in the top band and hides after a 400 ms grace"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "shipped"
+evidence = ["crates/ui/tests/shell.rs::the_bar_appears_on_hover_and_hides_after_the_grace"]
+reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/app-chrome/src/hooks/hover_reveal.rs"]
+
+[[feature]]
+id = "chrome.titlebar-pin"
+title = "Pin keeps the title bar open; remembered separately for reader and library"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+evidence = ["crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves"]
+reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/reader-core/src/settings/mod.rs"]
+notes = "Reader pin works and persists; the library's own pin (starts pinned) arrives with the library (M5)"
+
+[[feature]]
+id = "chrome.titlebar-hold"
+title = "Title bar stays while a popover it opened, or the floating search, is open"
+area = "A"
+tier = "P0"
+milestone = "M1"
+status = "partial"
+reference = ["crates/app-ui/src/components/shell/titlebar/app_title_bar.rs"]
+notes = "Held by any egui popup and by a press that began on the bar; the search hold comes with search (M7)"
+
+[[feature]]
+id = "chrome.titlebar-band-inset"
+title = "Hover band starts at a docked sidebar's edge, never over it"
+area = "A"
+tier = "P1"
+milestone = "M1"
+status = "partial"
+reference = ["crates/app-chrome/src/titlebar/root.rs"]
+notes = "BarContext.left_inset exists; the sidebar (M1) must feed it"
+
+[[feature]]
+id = "chrome.titlebar-center-slot"
+title = "Title centred in the slot between the clusters; truncates only on a real collision; hides under a minimum width"
+area = "A"
+tier = "P1"
+milestone = "M1"
+status = "partial"
+reference = ["crates/app-chrome/src/titlebar/root.rs"]
+notes = "Centred on the window with no collision handling yet"
+
+[[feature]]
+id = "chrome.titlebar-drag"
+title = "Empty title bar drags the window; double-click toggles maximise"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["crates/app-chrome/src/window/api.rs"]
+notes = "Wired to ViewportCommand::StartDrag and Maximized; needs a real-window check on each OS"
+
+[[feature]]
+id = "chrome.captions-windows"
+title = "Windows caption squares: 46 pt, flush right, red close"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["crates/app-chrome/src/window/caption_windows.rs", "styles/components/title_bar.css"]
+notes = "Drawn to the CSS spec and checked by screenshot; no automated click test yet"
+
+[[feature]]
+id = "chrome.captions-gnome"
+title = "GNOME caption circles: 24 pt translucent ink, red close"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["crates/app-chrome/src/window/caption_gnome.rs", "styles/components/title_bar.css"]
+notes = "Drawn to the CSS spec and checked by screenshot; no automated click test yet"
+
+[[feature]]
+id = "chrome.traffic-lights"
+title = "macOS native traffic lights in the bar's gutter, hidden with the bar"
+area = "A"
+tier = "P0"
+milestone = "M1"
+status = "partial"
+reference = ["src-tauri/src/macos/traffic_light.rs", "crates/app-chrome/src/window/traffic_lights.rs"]
+notes = "Full-size content view and the 88 pt gutter; repositioning the lights needs AppKit (unsafe), an owner decision"
+
+[[feature]]
+id = "chrome.frameless-resize"
+title = "Resize from the outer 5 pt of a frameless window, corners first"
+area = "A"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+evidence = ["crates/ui/src/resize.rs::corners_win_over_edges_and_the_middle_is_free"]
+reference = ["crates/app-chrome/src/window/mod.rs"]
+notes = "Hit-testing is tested; BeginResize needs a real-window check on Windows and Wayland"
+
+[[feature]]
+id = "chrome.glass-blur"
+title = "Title bar glass: surface 72 % with a 20 pt backdrop blur, saturate 180 %"
+area = "A"
+tier = "P1"
+milestone = "M1"
+status = "partial"
+reference = ["styles/components/title_bar.css"]
+notes = "Uses mareader's no-blur fallback (surface 96 %); the wgpu blur pass is M1"
+
+[[feature]]
+id = "chrome.chromeless"
+title = "Distraction-free mode: the bar never shows"
+area = "A"
+tier = "P2"
+milestone = "M1"
+status = "partial"
+notes = "A TitleBar flag and a shot option; no command or shortcut yet"
+
+[[feature]]
+id = "chrome.sidebar"
+title = "Sidebar rail with outline, thumbnails and dictionary panels; slides 300 ms; docked or overlay"
+area = "A"
+tier = "P0"
+milestone = "M1"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/shell/sidebar/container.rs"]
+
+[[feature]]
+id = "chrome.popovers"
+title = "Popovers: radius 12, float shadow, 160 ms bubble-in, dismiss on outside click and Escape"
+area = "A"
+tier = "P0"
+milestone = "M1"
+status = "planned"
+reference = ["crates/app-chrome/src/floating/mod.rs", "styles/components/shell.css"]
+
+[[feature]]
+id = "chrome.tooltips"
+title = "Tooltips on every icon control"
+area = "A"
+tier = "P1"
+milestone = "M0"
+status = "partial"
+reference = ["crates/app-chrome/src/tooltip.rs"]
+notes = "egui hover text with the 0.35 s delay; not styled like mareader's yet"
+
+[[feature]]
+id = "chrome.toasts"
+title = "Toasts for errors, bottom, auto-dismiss after 3.5 s"
+area = "A"
+tier = "P0"
+milestone = "M1"
+status = "planned"
+reference = ["crates/app-ui/src/components/primitives/overlay/toast.rs"]
+
+[[feature]]
+id = "chrome.status-bar"
+title = "Click-through status bar with the page position"
+area = "A"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/layout.rs"]
+
+[[feature]]
+id = "chrome.overflow-menu"
+title = "Overflow menu: full screen and the shortcut reference"
+area = "A"
+tier = "P1"
+milestone = "M1"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/menus/reader_menu.rs"]
+
+[[feature]]
+id = "chrome.loading-mark"
+title = "Loading mark; under reduced motion it fades instead of freezing"
+area = "A"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/animation.rs"]
+
+[[feature]]
+id = "chrome.boot-paper"
+title = "The first frame paints the remembered paper colour, never white"
+area = "A"
+tier = "P1"
+milestone = "M1"
+status = "planned"
+reference = ["crates/reader-core/src/settings/mod.rs"]
+
+[[feature]]
+id = "workspace.split"
+title = "Split the active pane right or down, up to four panes, refusing slivers"
+area = "B"
+tier = "P0"
+milestone = "M0"
+status = "shipped"
+evidence = ["crates/workspace/src/tree.rs::splits_stop_at_four", "crates/workspace/src/tree.rs::a_narrow_pane_refuses_to_split", "crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane"]
+reference = ["crates/reader-runtime/src/host/tree.rs"]
+
+[[feature]]
+id = "workspace.layout"
+title = "Panes tile the area exactly on whole points"
+area = "B"
+tier = "P0"
+milestone = "M0"
+status = "shipped"
+evidence = ["crates/workspace/src/tree.rs::layout_tiles_the_area_exactly"]
+reference = ["crates/reader-runtime/src/host/geometry.rs"]
+
+[[feature]]
+id = "workspace.dividers"
+title = "Drag a divider to resize within the 0.15 ratio and 200 pt limits"
+area = "B"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+evidence = ["crates/workspace/src/tree.rs::dividers_resize_within_limits"]
+reference = ["crates/reader-runtime/src/host/tree.rs"]
+notes = "The model is tested; the egui drag is not covered by a kittest yet"
+
+[[feature]]
+id = "workspace.close-pane"
+title = "Close a pane; its sibling takes the space; hover close button"
+area = "B"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+evidence = ["crates/workspace/src/tree.rs::closing_hands_the_space_to_the_sibling"]
+reference = ["crates/reader-runtime/src/host/view.rs"]
+notes = "The model is tested; there are no documents to release yet"
+
+[[feature]]
+id = "workspace.focus"
+title = "Click focuses a pane; the focused pane has the outline"
+area = "B"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["styles/components/shell.css"]
+notes = "Focus and the outline are drawn; keyboard focus routing comes with the viewer"
+
+[[feature]]
+id = "workspace.drop-to-split"
+title = "Drag a book onto a pane edge to split there; centre replaces an empty pane"
+area = "B"
+tier = "P0"
+milestone = "M5"
+status = "partial"
+evidence = ["crates/workspace/src/tree.rs::nearest_edge_prefers_right_then_bottom_on_ties"]
+reference = ["crates/reader-runtime/src/host/drop_target.rs"]
+notes = "Edge choice exists in the model; no drag source yet"
+
+[[feature]]
+id = "workspace.pane-look"
+title = "Outline width and colour, gap, shadow, square or rounded corners"
+area = "B"
+tier = "P1"
+milestone = "M1"
+status = "partial"
+reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/mod.rs"]
+notes = "PaneLook draws all four with mareader's defaults; no settings UI or named colours yet"
+
+[[feature]]
+id = "workspace.independent-themes"
+title = "Each pane may have its own appearance (shared base mode optional)"
+area = "B"
+tier = "P1"
+milestone = "M3"
+status = "planned"
+reference = ["crates/reader-core/src/settings/workspace.rs"]
+
+[[feature]]
+id = "workspace.independent-textures"
+title = "Texture for each pane"
+area = "B"
+tier = "P2"
+milestone = "M3"
+status = "planned"
+reference = ["crates/reader-core/src/settings/workspace.rs"]
+
+[[feature]]
+id = "workspace.library-click"
+title = "Library click replaces the focused pane or opens beside it (or drag only)"
+area = "B"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+reference = ["crates/reader-core/src/settings/workspace.rs"]
+
+[[feature]]
+id = "workspace.pane-lift"
+title = "Lift a pane to rearrange it"
+area = "B"
+tier = "P2"
+milestone = "M5"
+status = "planned"
+reference = ["crates/reader-runtime/src/host/lift.rs"]
+
+[[feature]]
+id = "library.shelves"
+title = "Shelves as levels with breadcrumb (three crumbs, ellipsis)"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/shelf/mod.rs", "crates/library-runtime/src/features/library/breadcrumb"]
+
+[[feature]]
+id = "library.read-in-place"
+title = "Import a folder read in place, or copy into the library"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/folder.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
+
+[[feature]]
+id = "library.watched-folders"
+title = "Watched folders rescan on launch and focus, with a ledger and tombstones"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/ledger.rs", "crates/library-core/src/scan.rs"]
+
+[[feature]]
+id = "library.fingerprints"
+title = "Identity is a content fingerprint, not a path; relink missing books"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/hash.rs", "crates/library-runtime/src/features/library/relink_modal.rs"]
+
+[[feature]]
+id = "library.grid-list"
+title = "Grid or list, auto or 2 to 10 columns, sort, cover thumbnails"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/view.rs", "crates/library-runtime/src/features/library/grid.rs"]
+
+[[feature]]
+id = "library.search"
+title = "Search filters the shelf as you type, with suggestions and arrow keys"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/features/library/search_suggest.rs", "crates/library-core/src/query.rs"]
+
+[[feature]]
+id = "library.drag"
+title = "One in-app drag: move books and shelves, drop onto crumbs, drop files to import"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/features/library/dnd"]
+
+[[feature]]
+id = "library.context-menus"
+title = "Right-click menus per kind: book, shelf, link"
+area = "C"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/features/library/context_menu.rs"]
+
+[[feature]]
+id = "library.conflicts"
+title = "Name conflicts ask: keep both, replace, skip"
+area = "C"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/conflict.rs", "crates/library-runtime/src/features/library/conflict_modal"]
+
+[[feature]]
+id = "library.remove-receipt"
+title = "Removing shows what goes with it first"
+area = "C"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/features/library/remove_modal"]
+
+[[feature]]
+id = "library.import-dock"
+title = "Import progress cards in the corner"
+area = "C"
+tier = "P2"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/features/library/progress_dock.rs"]
+
+[[feature]]
+id = "library.resume"
+title = "Each book reopens where it was left"
+area = "C"
+tier = "P0"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/book/mod.rs"]
+
+[[feature]]
+id = "library.covers"
+title = "Covers from the first PDF page or the EPUB cover image, cached apart from the library"
+area = "C"
+tier = "P1"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-runtime/src/services/covers.rs"]
+
+[[feature]]
+id = "library.migrate"
+title = "Read mareader's library blob (mareader.library.v3) on first launch"
+area = "C"
+tier = "P2"
+milestone = "M5"
+status = "planned"
+reference = ["crates/library-core/src/blob/migrate.rs"]
+
+[[feature]]
+id = "pdf.open"
+title = "Open PDFs from the dialog, drag and drop, file association and the command line"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/services/document/open"]
+
+[[feature]]
+id = "pdf.render"
+title = "Render pages with hayro off the UI thread, crisp at the device scale"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/pdf-engine"]
+
+[[feature]]
+id = "pdf.view-single"
+title = "Single page view with a direction-aware page turn"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/view.rs"]
+
+[[feature]]
+id = "pdf.view-spread"
+title = "Two-page spread"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/view.rs"]
+
+[[feature]]
+id = "pdf.view-scroll-vertical"
+title = "Virtualised continuous vertical scroll with reading progress"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/features/virtualizers.rs"]
+
+[[feature]]
+id = "pdf.view-scroll-horizontal"
+title = "Horizontal strip that keeps its vertical position across zoom"
+area = "D"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/view.rs"]
+
+[[feature]]
+id = "pdf.zoom-presets"
+title = "Fifteen zoom presets, 25 to 500 %, chained presses, no wrap at the ends"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/zoom_math.rs", "crates/reader-runtime/src/zoom/mod.rs"]
+
+[[feature]]
+id = "pdf.fit"
+title = "Fit width and fit page; refit on resize and sidebar slide"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/zoom_math.rs"]
+
+[[feature]]
+id = "pdf.zoom-anchor"
+title = "Zoom keeps the point under the window centre fixed; stretch then one crisp render"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/zoom/coordinator.rs"]
+
+[[feature]]
+id = "pdf.mixed-sizes"
+title = "Mixed page sizes fit by the page on screen; Auto Resize"
+area = "D"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/layout.rs"]
+
+[[feature]]
+id = "pdf.text-selection"
+title = "Select and copy text over the page"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/page_selection.rs"]
+
+[[feature]]
+id = "pdf.links"
+title = "Internal links navigate; external links open the browser (javascript: and file: refused)"
+area = "D"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/link_navigation.rs"]
+
+[[feature]]
+id = "pdf.title"
+title = "Use /Title only when it looks like a title, else the file stem"
+area = "D"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/filename.rs"]
+
+[[feature]]
+id = "pdf.page-chrome"
+title = "Page shadow, no-gap mode, page margin, page indicator and floating label styles"
+area = "D"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/layout.rs"]
+
+[[feature]]
+id = "pdf.auto-scroll"
+title = "Auto-scroll in the scrolling modes (Shift+A)"
+area = "D"
+tier = "P2"
+milestone = "M7"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/auto_scroll.rs"]
+
+[[feature]]
+id = "epub.open"
+title = "Open EPUB 2 and 3: container, spine, metadata, cover"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+notes = "Replaces mareader's txt/md formats; docs/epub.md"
+
+[[feature]]
+id = "epub.layout"
+title = "XHTML subset laid out with parley and paginated by real line heights"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reflow-core/src/pager.rs"]
+
+[[feature]]
+id = "epub.view-modes"
+title = "Single, spread, horizontal strip and continuous vertical stream"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reflow-core/src/geometry.rs"]
+
+[[feature]]
+id = "epub.images"
+title = "Inline images from the container, capped in size"
+area = "E"
+tier = "P1"
+milestone = "M4"
+status = "planned"
+
+[[feature]]
+id = "epub.toc"
+title = "Table of contents from nav or NCX, active entry follows the position"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/reflow_outline.rs"]
+
+[[feature]]
+id = "epub.links"
+title = "Internal links to chapters and anchors; external links to the browser"
+area = "E"
+tier = "P1"
+milestone = "M4"
+status = "planned"
+
+[[feature]]
+id = "epub.position"
+title = "Reading position anchors to a block; re-pagination keeps it"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/reflow_layout.rs"]
+
+[[feature]]
+id = "epub.selection"
+title = "Select and copy text"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+
+[[feature]]
+id = "epub.safety"
+title = "Hostile EPUBs never crash: zip bombs, deep XML, path escapes, huge images"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+
+[[feature]]
+id = "appearance.model"
+title = "Base mode, tint, texture and grain as data with mareader's names and ranges"
+area = "F"
+tier = "P0"
+milestone = "M0"
+status = "shipped"
+evidence = ["crates/appearance/src/model.rs::mareader_json_reads_unchanged", "crates/appearance/src/model.rs::sanitize_clamps_every_range"]
+reference = ["crates/reader-core/src/appearance/model.rs"]
+
+[[feature]]
+id = "appearance.ui-tokens"
+title = "UI tokens per base mode, tinted on the OKLCH circle"
+area = "F"
+tier = "P0"
+milestone = "M0"
+status = "shipped"
+evidence = ["crates/appearance/src/tokens.rs::untinted_tokens_are_the_css_values", "crates/appearance/src/tokens.rs::a_tint_keeps_lightness_and_moves_hue"]
+reference = ["crates/reader-core/src/appearance/shared/tint.rs", "crates/reader-core/src/appearance/base.rs"]
+
+[[feature]]
+id = "appearance.page-filter"
+title = "PDF pages recoloured by the filter chain (dark inverts, dim dims, tint rotates)"
+area = "F"
+tier = "P0"
+milestone = "M3"
+status = "partial"
+evidence = ["crates/appearance/src/filter.rs::the_tint_runs_after_the_inversion"]
+reference = ["crates/reader-core/src/appearance/raster"]
+notes = "The chain and its CPU reference exist; the GPU page pass is M3"
+
+[[feature]]
+id = "appearance.textures"
+title = "Paper, lined, grid, dotted and cross textures; opacity and scale; anchored to the page"
+area = "F"
+tier = "P0"
+milestone = "M3"
+status = "planned"
+reference = ["styles/textures.css"]
+
+[[feature]]
+id = "appearance.grain"
+title = "Film grain off, static or animated, with intensity"
+area = "F"
+tier = "P1"
+milestone = "M3"
+status = "planned"
+reference = ["styles/noise.css"]
+
+[[feature]]
+id = "appearance.blend"
+title = "Blend backdrop: the pane takes the page's paper colour (whole page or edges)"
+area = "F"
+tier = "P0"
+milestone = "M3"
+status = "planned"
+reference = ["crates/pdf-paper/src/detect.rs", "crates/reader-runtime/src/effects/reader/blend_backdrop.rs"]
+
+[[feature]]
+id = "appearance.presets"
+title = "Five classic presets; saved presets in named groups; Custom after a nudge"
+area = "F"
+tier = "P0"
+milestone = "M3"
+status = "partial"
+evidence = ["crates/appearance/src/presets.rs::five_classics_with_unique_ids"]
+reference = ["crates/reader-core/src/appearance/presets.rs"]
+notes = "The classics exist as data; no menu or user presets yet"
+
+[[feature]]
+id = "appearance.menu"
+title = "Appearance popover: mode and colour, presets, texture, grain"
+area = "F"
+tier = "P0"
+milestone = "M3"
+status = "planned"
+reference = ["crates/app-ui/src/components/menus/appearance_menu"]
+
+[[feature]]
+id = "appearance.cross-fade"
+title = "Theme changes cross-fade; one-frame mute of colour transitions"
+area = "F"
+tier = "P2"
+milestone = "M3"
+status = "planned"
+reference = ["styles/components/title_bar.css"]
+
+[[feature]]
+id = "type.fonts"
+title = "Default, serif, sans and mono font choices; bundled faces first"
+area = "G"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.size-weight"
+title = "Font size and weight"
+area = "G"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.spacing"
+title = "Line height, paragraph margin, word and letter spacing, first-line indent"
+area = "G"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.justify-hyphenate"
+title = "Full justification and hyphenation"
+area = "G"
+tier = "P0"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.book-layout"
+title = "Book layout with spine-side gutters; column alignment while streaming"
+area = "G"
+tier = "P1"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.ink-contrast"
+title = "Body ink intensity dial"
+area = "G"
+tier = "P1"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-core/src/settings/typography.rs"]
+
+[[feature]]
+id = "type.fonts-tab"
+title = "Fonts settings tab, shown while an EPUB is open"
+area = "G"
+tier = "P1"
+milestone = "M4"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/settings/fonts.rs"]
+
+[[feature]]
+id = "nav.page-counter"
+title = "Page counter with direct entry; previous and next"
+area = "H"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/viewer/controls"]
+
+[[feature]]
+id = "nav.outline"
+title = "Outline panel; the deepest entry containing the page is highlighted"
+area = "H"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/outline.rs", "crates/pdf-core/src/outline.rs"]
+
+[[feature]]
+id = "nav.thumbnails"
+title = "Virtualised thumbnail grid, LRU of 16, follows the page"
+area = "H"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
+
+[[feature]]
+id = "search.document"
+title = "Full-text search: per-page results with snippets, wrap-around, amber current hit"
+area = "H"
+tier = "P0"
+milestone = "M7"
+status = "planned"
+reference = ["crates/reader-core/src/search.rs", "crates/pdf-core/src/search.rs", "crates/reader-runtime/src/components/search/floating_search.rs"]
+
+[[feature]]
+id = "search.lazy-index"
+title = "The search index builds on the first search, not at open"
+area = "H"
+tier = "P1"
+milestone = "M7"
+status = "planned"
+reference = ["crates/pdf-core/src/search.rs"]
+
+[[feature]]
+id = "study.gloss"
+title = "Select a word for a dictionary-style gloss card (AI on Apple Silicon, fallback elsewhere)"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "planned"
+reference = ["crates/ai-core/src/gloss/mod.rs", "src-tauri/src/ai"]
+
+[[feature]]
+id = "study.gloss-marks"
+title = "Saved gloss marks with colour, opacity and density"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "planned"
+reference = ["crates/ai-core/src/gloss/mark.rs", "crates/reader-core/src/settings/gloss.rs"]
+
+[[feature]]
+id = "study.cefr"
+title = "CEFR level highlighting with click-to-explain"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "planned"
+reference = ["crates/cefr-core/src/lib.rs", "crates/reader-core/src/settings/cefr.rs"]
+
+[[feature]]
+id = "study.dictionary"
+title = "Offline dictionary packs: download, hover lookup, language pairs"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "planned"
+reference = ["crates/dict-core/src/lib.rs", "crates/download-core/src/lib.rs", "crates/reader-core/src/settings/dict.rs"]
+
+[[feature]]
+id = "study.selection-menu"
+title = "Selection menu: copy, gloss, look up"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/ai/selection_menu.rs"]
+
+[[feature]]
+id = "settings.persist"
+title = "Settings saved under mareader.settings.v1; new fields default to the old behaviour"
+area = "J"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["crates/reader-core/src/settings/mod.rs"]
+notes = "Appearance, the pin and animations persist through eframe storage; the full schema is the settings crate (M1)"
+
+[[feature]]
+id = "settings.modal"
+title = "Settings window with Theme, Layout, Paper, Fonts, Workspace, Animations, Dictionary and CEFR tabs"
+area = "J"
+tier = "P0"
+milestone = "M1"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/settings/modal.rs"]
+
+[[feature]]
+id = "settings.migrate"
+title = "Read mareader's settings JSON unchanged"
+area = "J"
+tier = "P1"
+milestone = "M1"
+status = "partial"
+evidence = ["crates/appearance/src/model.rs::mareader_json_reads_unchanged"]
+reference = ["crates/reader-core/src/settings/mod.rs"]
+notes = "Appearance reads mareader JSON; the rest arrives with the settings crate"
+
+[[feature]]
+id = "settings.debounce"
+title = "Writes debounced; sliders repaint every frame and commit 180 ms after the last tick"
+area = "J"
+tier = "P2"
+milestone = "M1"
+status = "planned"
+reference = ["crates/reader-core/src/settings/mod.rs"]
+
+[[feature]]
+id = "settings.last-document"
+title = "Restore the last opened document on launch"
+area = "J"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/mod.rs"]
+
+[[feature]]
+id = "motion.master"
+title = "Animations master switch: off skips the in-between frames, never the end state"
+area = "K"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+reference = ["crates/reader-core/src/settings/animation.rs"]
+notes = "motion::set_enabled zeroes egui's animation time and motion::secs; no settings UI and no test yet"
+
+[[feature]]
+id = "motion.per-switch"
+title = "Sidebar slide, canvas follows window, zoom ease and scroll-to-page switches"
+area = "K"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-core/src/settings/animation.rs"]
+
+[[feature]]
+id = "keys.shortcuts"
+title = "mareader's shortcuts: open, find, fit, view modes, zoom, page and scroll keys, vim keys"
+area = "K"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
+
+[[feature]]
+id = "keys.glide"
+title = "Held arrows glide about 1000 pt/s after 350 ms; a tap moves 8 % (40 to 80 pt); page keys 90 %"
+area = "K"
+tier = "P1"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
+
+[[feature]]
+id = "a11y.labels"
+title = "Every control has an accessible label and state (AccessKit)"
+area = "K"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+evidence = ["crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane"]
+notes = "Title bar and caption buttons are labelled and found by kittest; the rest arrive with their views"
+
+[[feature]]
+id = "a11y.keyboard-only"
+title = "Full keyboard operation, visible focus rings"
+area = "K"
+tier = "P1"
+milestone = "M7"
+status = "planned"
+
+[[feature]]
+id = "perf.idle-zero"
+title = "An idle window renders no frames; every deferral has its own wake"
+area = "L"
+tier = "P0"
+milestone = "M0"
+status = "partial"
+notes = "The title bar's grace schedules request_repaint_after; no frame-count test yet"
+
+[[feature]]
+id = "perf.teardown"
+title = "Closing a pane releases its textures, jobs and document (measured)"
+area = "L"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/services/document/close.rs"]
+
+[[feature]]
+id = "perf.caches-capped"
+title = "Tile cache capped by bytes, thumbnails LRU of 16"
+area = "L"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/thumbnails"]
+
+[[feature]]
+id = "perf.stale-results"
+title = "Results for a closed pane, an old zoom or an old document are dropped"
+area = "L"
+tier = "P0"
+milestone = "M2"
+status = "planned"
+reference = ["crates/reader-runtime/src/services/document/session.rs"]
+
+[[feature]]
+id = "perf.memory-audit"
+title = "Memory measured and recorded in docs/memory.md at each milestone"
+area = "L"
+tier = "P1"
+milestone = "M2"
+status = "planned"

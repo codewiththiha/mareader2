@@ -1,0 +1,127 @@
+//! The seven UI colour tokens per base mode, and their tint.
+
+use crate::color::{Oklch, Rgb, hue_toward};
+use crate::model::{Appearance, BaseMode};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UiTokens {
+    pub paper: Rgb,
+    pub ink: Rgb,
+    pub muted: Rgb,
+    pub surface: Rgb,
+    pub line: Rgb,
+    pub accent: Rgb,
+    pub accent_soft: Rgb,
+}
+
+pub fn base_tokens(mode: BaseMode) -> UiTokens {
+    match mode {
+        BaseMode::Light => UiTokens {
+            paper: Rgb(0xff, 0xff, 0xff),
+            ink: Rgb(0x1f, 0x29, 0x37),
+            muted: Rgb(0x6b, 0x72, 0x80),
+            surface: Rgb(0xf3, 0xf4, 0xf6),
+            line: Rgb(0xe5, 0xe7, 0xeb),
+            accent: Rgb(0x25, 0x63, 0xeb),
+            accent_soft: Rgb(0xdb, 0xea, 0xfe),
+        },
+        BaseMode::Dark => UiTokens {
+            paper: Rgb(0x13, 0x13, 0x16),
+            ink: Rgb(0xe5, 0xe7, 0xeb),
+            muted: Rgb(0x9c, 0xa3, 0xaf),
+            surface: Rgb(0x1a, 0x1a, 0x1e),
+            line: Rgb(0x2b, 0x2b, 0x31),
+            accent: Rgb(0x60, 0xa5, 0xfa),
+            accent_soft: Rgb(0x1d, 0x2b, 0x3a),
+        },
+        BaseMode::Dim => UiTokens {
+            paper: Rgb(0x1a, 0x1c, 0x1f),
+            ink: Rgb(0xc3, 0xc6, 0xcb),
+            muted: Rgb(0x8b, 0x8f, 0x96),
+            surface: Rgb(0x20, 0x23, 0x28),
+            line: Rgb(0x2e, 0x32, 0x38),
+            accent: Rgb(0x7a, 0x9b, 0xd4),
+            accent_soft: Rgb(0x23, 0x2b, 0x36),
+        },
+    }
+}
+
+/// Page tint hues are sRGB angles; UI tokens rotate on the OKLCH circle.
+fn ui_hue_oklch(srgb_hue: f64) -> f64 {
+    let h = srgb_hue.rem_euclid(360.0) / 60.0;
+    let f = h.fract();
+    let (r, g, b) = match h.floor() as u8 {
+        0 => (1.0, f, 0.0),
+        1 => (1.0 - f, 1.0, 0.0),
+        2 => (0.0, 1.0, f),
+        3 => (0.0, 1.0 - f, 1.0),
+        4 => (f, 0.0, 1.0),
+        _ => (1.0, 0.0, 1.0 - f),
+    };
+    let byte = |v: f64| (v * 255.0).round() as u8;
+    Rgb(byte(r), byte(g), byte(b)).to_oklch().h
+}
+
+/// Shifts one token toward the tint, keeping its lightness.
+fn tinted(token: Rgb, target_h: f64, t: f64, max_c: f64) -> Rgb {
+    let Oklch { l, c, h } = token.to_oklch();
+    Oklch {
+        l,
+        c: c + (max_c - c).max(0.0) * t,
+        h: hue_toward(h, target_h, t),
+    }
+    .to_rgb()
+}
+
+impl Appearance {
+    /// The UI palette for this look; untinted bases come back unchanged.
+    pub fn ui_tokens(&self) -> UiTokens {
+        let base = base_tokens(self.base);
+        if !self.has_tint() {
+            return base;
+        }
+        let t = self.tint_amount();
+        let h = ui_hue_oklch(f64::from(self.tint_hue));
+        UiTokens {
+            paper: tinted(base.paper, h, t, 0.055),
+            ink: tinted(base.ink, h, t, 0.020),
+            muted: tinted(base.muted, h, t, 0.045),
+            surface: tinted(base.surface, h, t, 0.070),
+            line: tinted(base.line, h, t, 0.090),
+            accent: tinted(base.accent, h, t, 0.150),
+            accent_soft: tinted(base.accent_soft, h, t, 0.110),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn untinted_tokens_are_the_css_values() {
+        let a = Appearance::default();
+        assert_eq!(a.ui_tokens(), base_tokens(BaseMode::Light));
+        assert_eq!(base_tokens(BaseMode::Dark).accent.to_hex(), "#60a5fa");
+        assert_eq!(base_tokens(BaseMode::Dim).paper.to_hex(), "#1a1c1f");
+    }
+
+    #[test]
+    fn a_tint_keeps_lightness_and_moves_hue() {
+        let a = Appearance {
+            tint_hue: 104,
+            tint_strength: 50,
+            ..Default::default()
+        };
+        let before = base_tokens(BaseMode::Light).accent.to_oklch();
+        let after = a.ui_tokens().accent.to_oklch();
+        assert!((before.l - after.l).abs() < 0.02, "{before:?} → {after:?}");
+        assert!((before.h - after.h).abs() > 20.0, "{before:?} → {after:?}");
+    }
+
+    #[test]
+    fn srgb_red_maps_near_oklch_29() {
+        assert!((ui_hue_oklch(0.0) - 29.2).abs() < 1.0);
+        assert!((ui_hue_oklch(360.0) - ui_hue_oklch(0.0)).abs() < 1e-9);
+    }
+}

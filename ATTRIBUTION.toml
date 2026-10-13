@@ -1,0 +1,40 @@
+# Every asset mareader2 ships, one entry each. Checked by `cargo xtask assets`.
+# [[asset]] is a file under assets/; [[bundled]] is art inside a Cargo dependency.
+
+[[asset]]
+path = "assets/fonts/Inter-Regular.ttf"
+title = "Inter Regular 4.001"
+author = "The Inter Project Authors (Rasmus Andersson)"
+source = "https://github.com/rsms/inter (v4.001, git-9221beed3)"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-Inter.txt"
+sha256 = "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82"
+usage = "UI body face, embedded in the binary (egui Proportional family)"
+
+[[asset]]
+path = "assets/fonts/Inter-Medium.ttf"
+title = "Inter Medium 4.001"
+author = "The Inter Project Authors (Rasmus Andersson)"
+source = "https://github.com/rsms/inter (v4.001, git-9221beed3)"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-Inter.txt"
+sha256 = "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872"
+usage = "UI labels and the title (named family inter-medium)"
+
+[[asset]]
+path = "assets/fonts/Inter-SemiBold.ttf"
+title = "Inter SemiBold 4.001"
+author = "The Inter Project Authors (Rasmus Andersson)"
+source = "https://github.com/rsms/inter (v4.001, git-9221beed3)"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-Inter.txt"
+sha256 = "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+usage = "Headings and emphasis in chrome (named family inter-semibold)"
+
+[[bundled]]
+name = "Lucide icons 1.34.0"
+via = "egui-lucide 0.1.0 (crates.io), compiled into the binary"
+author = "Lucide Contributors (icons); greekfetacheese (crate)"
+source = "https://github.com/lucide-icons/lucide, https://github.com/greekfetacheese/egui-lucide"
+license = "ISC AND MIT"
+usage = "Every icon in the interface, through crates/ui/src/icons.rs"

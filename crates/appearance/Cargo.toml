@@ -1,0 +1,16 @@
+[package]
+name = "mareader-appearance"
+description = "The reading look as data: base mode, tint, texture, grain, presets and their colour maths"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

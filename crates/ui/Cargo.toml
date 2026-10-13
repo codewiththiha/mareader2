@@ -1,0 +1,24 @@
+[package]
+name = "mareader-ui"
+description = "The egui front end: theme, chrome, title bar, panes and the app state (layer L7)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mareader-appearance = { workspace = true }
+mareader-workspace = { workspace = true }
+egui = { workspace = true }
+egui_extras = { workspace = true }
+egui-lucide = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
+image = { workspace = true }

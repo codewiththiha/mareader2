@@ -1,0 +1,14 @@
+[package]
+name = "mareader-workspace"
+description = "The reader workspace as data: a binary split tree of up to four panes, its layout and drop targets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

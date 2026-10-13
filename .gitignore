@@ -1,0 +1,6 @@
+/target
+/.cache
+/shots
+/plan
+*.png.tmp
+.DS_Store
