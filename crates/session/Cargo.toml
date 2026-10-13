@@ -1,0 +1,13 @@
+[package]
+name = "mareader-session"
+description = "Open documents shared by every view, and the worker pool that opens and draws them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mareader-pdf = { workspace = true }
