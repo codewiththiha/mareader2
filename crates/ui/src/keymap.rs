@@ -12,13 +12,18 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 2] {
+pub fn bindings(platform: Platform) -> [Binding; 3] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
         Platform::Windows | Platform::Gnome => KeyboardShortcut::new(Modifiers::NONE, Key::F11),
     };
     [
+        Binding {
+            label: "Open a file",
+            shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::O),
+            command: Command::ShowOpenDialog { beside: false },
+        },
         Binding {
             label: "Settings",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma),
@@ -90,5 +95,7 @@ mod tests {
         assert_eq!(hint(Platform::Gnome, &full).as_deref(), Some("F11"));
         assert_eq!(hint(Platform::Mac, &full).as_deref(), Some("⌃⌘F"));
         assert_eq!(hint(Platform::Mac, &Command::ShowLibrary), None);
+        let open = Command::ShowOpenDialog { beside: false };
+        assert_eq!(hint(Platform::Gnome, &open).as_deref(), Some("Ctrl+O"));
     }
 }

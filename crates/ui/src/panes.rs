@@ -85,7 +85,7 @@ fn pane(
     let mut inner = ui.new_child(UiBuilder::new().max_rect(rect));
     inner.set_clip_rect(rect);
     if !content(&mut inner, id) {
-        empty_state(ui, rect, &t);
+        empty_state(ui, rect, &t, out);
     }
     if view.drop_target == Some(id) {
         let stroke = Stroke::new(2.0, t.accent);
@@ -146,7 +146,7 @@ fn dividers(ui: &mut Ui, tree: &PaneTree, area: Rect, out: &mut Commands) {
     }
 }
 
-fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens) {
+fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
     let c = rect.center();
     let icon = Rect::from_center_size(c - vec2(0.0, 22.0), vec2(28.0, 28.0));
     Icon::Book.paint(ui, icon, t.muted);
@@ -158,7 +158,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens) {
         theme::medium(14.0),
         t.ink,
     );
-    let hint = "Drop a PDF or EPUB here, or pick one from the library";
+    let hint = "Drop a PDF here, or open one from your files";
     painter.text(
         c + vec2(0.0, 32.0),
         egui::Align2::CENTER_CENTER,
@@ -166,4 +166,13 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens) {
         egui::FontId::proportional(12.0),
         t.muted,
     );
+    let button = egui::Button::image_and_text(Icon::Open.image(16.0), "Open…")
+        .image_tint_follows_text_color(true)
+        .fill(t.surface)
+        .stroke(Stroke::new(1.0, t.line))
+        .corner_radius(t.radius);
+    let at = Rect::from_center_size(c + vec2(0.0, 68.0), vec2(96.0, 32.0));
+    if ui.put(at, button).clicked() {
+        out.push(Command::ShowOpenDialog { beside: false });
+    }
 }

@@ -45,6 +45,19 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
+    let rows = [
+        (Icon::Open, "Open…", false),
+        (Icon::SplitRight, "Open beside…", true),
+    ];
+    for (icon, label, beside) in rows {
+        let command = Command::ShowOpenDialog { beside };
+        let keys = keymap::hint(cx.platform, &command);
+        if widgets::menu_row(ui, icon, label, keys.as_deref(), false).clicked() {
+            out.push(command);
+            ui.close();
+        }
+    }
+    ui.separator();
     for tool in cx.folded {
         let keys = keymap::hint(cx.platform, &tool.command);
         if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
