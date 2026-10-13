@@ -1,12 +1,14 @@
-//! Which caption family to draw; overridable so shots cover all three.
+//! Which desktop's window conventions to follow; tests can override it.
+
+use crate::widgets::CaptionStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Platform {
     /// Native traffic lights over a full-size content view.
     Mac,
-    /// Frameless; 46 pt square caption buttons, close turns red.
+    /// Frameless, Windows-style captions.
     Windows,
-    /// Frameless; 24 pt translucent circles (GNOME/Linux).
+    /// Frameless, GNOME-style captions.
     Gnome,
 }
 
@@ -30,11 +32,20 @@ impl Platform {
         }
     }
 
-    /// The bar row's left padding: mareader's light gutter, or the rest one.
-    pub fn leading_gutter(self) -> f32 {
+    /// Room the title bar leaves at its left edge: macOS's traffic lights.
+    pub fn leading_inset(self) -> f32 {
         match self {
-            Self::Mac => 88.0,
-            Self::Windows | Self::Gnome => 12.0,
+            Self::Mac => 80.0,
+            Self::Windows | Self::Gnome => 8.0,
+        }
+    }
+
+    /// The caption buttons the app draws; macOS draws its own.
+    pub fn captions(self) -> Option<CaptionStyle> {
+        match self {
+            Self::Mac => None,
+            Self::Windows => Some(CaptionStyle::Windows),
+            Self::Gnome => Some(CaptionStyle::Gnome),
         }
     }
 

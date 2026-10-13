@@ -54,3 +54,31 @@ fn a_pinned_bar_stays_after_the_pointer_leaves() {
     }
     assert!(h.state().titlebar().visible());
 }
+
+#[test]
+fn the_pin_button_keeps_the_bar_after_the_pointer_leaves() {
+    let mut h = harness(MareaderApp::default());
+    h.hover_at(egui::pos2(600.0, 20.0));
+    h.run_steps(8);
+    h.get_by_label("Pin title bar").click();
+    h.run_steps(2);
+    h.hover_at(egui::pos2(600.0, 500.0));
+    for _ in 0..40 {
+        h.step();
+    }
+    assert!(h.state().titlebar().visible());
+}
+
+#[test]
+fn closing_a_pane_from_its_button_focuses_the_survivor() {
+    let mut app = MareaderApp::default();
+    app.set_option("panes", "2").map_err(|e| e.to_string()).ok();
+    let mut h = harness(app);
+    let survivor = h.state().panes()[0];
+    h.hover_at(egui::pos2(900.0, 400.0));
+    h.run_steps(2);
+    h.get_by_label("Close pane").click();
+    h.run_steps(2);
+    assert_eq!(h.state().panes(), vec![survivor]);
+    assert_eq!(h.state().active_pane(), survivor);
+}

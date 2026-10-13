@@ -1,4 +1,4 @@
-//! The egui front end (L7). The look it must match: `docs/look.md`.
+//! The egui front end: the only crate that draws (`docs/architecture.md`).
 #![deny(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -9,6 +9,7 @@
 )]
 
 pub mod app;
+pub mod command;
 pub mod icons;
 pub mod motion;
 pub mod panes;

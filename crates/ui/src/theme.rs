@@ -1,15 +1,16 @@
-//! Design tokens and the egui restyle. Colours come from
-//! `mareader_appearance`; metrics are mareader's CSS (`docs/look.md`).
+//! `docs/design.md` as egui `Style` and `Visuals`, for stock widgets.
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke};
 use mareader_appearance::{Appearance, Rgb};
 
-/// mareader's `TITLE_BAR_H`.
 pub const TITLE_BAR_H: f32 = 48.0;
-/// Tailwind `rounded-lg`: buttons, menu rows.
+/// Controls and menu rows.
 pub const RADIUS_LG: u8 = 8;
-/// Tailwind `rounded-xl`: popovers, the selection menu.
+/// Popovers and windows.
 pub const RADIUS_XL: u8 = 12;
+/// Square toolbar button and the icon inside it.
+pub const ICON_BUTTON: f32 = 36.0;
+pub const ICON: f32 = 18.0;
 
 /// Named families; only usable from the frame after [`install_fonts`].
 pub const MEDIUM: &str = "inter-medium";
@@ -24,7 +25,7 @@ pub struct Tokens {
     pub line: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
-    /// Stands in for backdrop blur: mareader's fallback, surface at 96 %.
+    /// The title bar fill until the blur pass: surface at 96 %.
     pub glass: Color32,
     pub dark: bool,
 }
@@ -123,7 +124,6 @@ pub fn apply(ctx: &egui::Context, a: &Appearance) {
     v.override_text_color = Some(t.ink);
     v.window_corner_radius = CornerRadius::same(RADIUS_XL);
     v.menu_corner_radius = CornerRadius::same(RADIUS_XL);
-    // --shadow-float: a 1 px line ring plus 0 8px 24px black at 30 %.
     let float = egui::Shadow {
         offset: [0, 8],
         blur: 24,
@@ -146,7 +146,6 @@ pub fn apply(ctx: &egui::Context, a: &Appearance) {
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, t.line);
     v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_fill = t.surface;
-    // mareader's buttons are `hover:bg-line` with no pressed shade.
     for w in [
         &mut v.widgets.hovered,
         &mut v.widgets.active,
