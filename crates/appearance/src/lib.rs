@@ -15,7 +15,7 @@ mod model;
 mod presets;
 mod tokens;
 
-pub use color::{Oklch, Rgb, hue_toward};
+pub use color::{Oklch, Rgb};
 pub use filter::{Blend, ColorMatrix, FilterOp, MAX_FILTER_OPS, apply_filter};
 pub use model::{Appearance, BaseMode, NoiseMode, TextureMode};
 pub use presets::{Preset, builtin_presets};

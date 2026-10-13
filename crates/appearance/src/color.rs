@@ -76,8 +76,38 @@ impl Rgb {
 }
 
 impl Oklch {
-    /// Back to sRGB, clipping per channel where CSS would gamut-map.
+    /// Back to sRGB, clipping per channel.
     pub fn to_rgb(self) -> Rgb {
+        let [r, g, b] = self.linear_srgb();
+        Rgb(
+            unit_to_u8(linear_to_srgb(r)),
+            unit_to_u8(linear_to_srgb(g)),
+            unit_to_u8(linear_to_srgb(b)),
+        )
+    }
+
+    /// To sRGB, lowering chroma until it fits; clipping would shift hue.
+    pub fn to_rgb_in_gamut(self) -> Rgb {
+        let fits = |c: f64| Oklch { c, ..self }.in_gamut();
+        if fits(self.c) {
+            return self.to_rgb();
+        }
+        let (mut lo, mut hi) = (0.0, self.c.max(0.0));
+        for _ in 0..20 {
+            let mid = (lo + hi) / 2.0;
+            if fits(mid) { lo = mid } else { hi = mid }
+        }
+        Oklch { c: lo, ..self }.to_rgb()
+    }
+
+    pub fn in_gamut(self) -> bool {
+        const EPS: f64 = 1e-4;
+        self.linear_srgb()
+            .iter()
+            .all(|v| (-EPS..=1.0 + EPS).contains(v))
+    }
+
+    fn linear_srgb(self) -> [f64; 3] {
         let l = self.l.clamp(0.0, 1.0);
         let c = self.c.max(0.0);
         let (sin, cos) = self.h.to_radians().sin_cos();
@@ -86,21 +116,12 @@ impl Oklch {
         let m_ = l - 0.105_561_345_8 * a - 0.063_854_172_8 * b;
         let s_ = l - 0.089_484_177_5 * a - 1.291_485_548_0 * b;
         let (lc, mc, sc) = (l_.powi(3), m_.powi(3), s_.powi(3));
-        let r = 4.076_741_662_1 * lc - 3.307_711_591_3 * mc + 0.230_969_929_2 * sc;
-        let g = -1.268_438_004_6 * lc + 2.609_757_401_1 * mc - 0.341_319_396_5 * sc;
-        let bl = -0.004_196_086_3 * lc - 0.703_418_614_7 * mc + 1.707_614_701_0 * sc;
-        Rgb(
-            unit_to_u8(linear_to_srgb(r)),
-            unit_to_u8(linear_to_srgb(g)),
-            unit_to_u8(linear_to_srgb(bl)),
-        )
+        [
+            4.076_741_662_1 * lc - 3.307_711_591_3 * mc + 0.230_969_929_2 * sc,
+            -1.268_438_004_6 * lc + 2.609_757_401_1 * mc - 0.341_319_396_5 * sc,
+            -0.004_196_086_3 * lc - 0.703_418_614_7 * mc + 1.707_614_701_0 * sc,
+        ]
     }
-}
-
-/// Moves hue `from` toward `to` by `t` along the shorter arc.
-pub fn hue_toward(from: f64, to: f64, t: f64) -> f64 {
-    let delta = (to - from + 180.0).rem_euclid(360.0) - 180.0;
-    (from + delta * t).rem_euclid(360.0)
 }
 
 #[cfg(test)]
@@ -135,12 +156,5 @@ mod tests {
                 "{hex} → {back:?}"
             );
         }
-    }
-
-    #[test]
-    fn hue_takes_the_short_arc() {
-        assert!((hue_toward(350.0, 10.0, 0.5) - 0.0).abs() < 1e-9);
-        assert!((hue_toward(10.0, 350.0, 0.5) - 0.0).abs() < 1e-9);
-        assert!((hue_toward(90.0, 180.0, 1.0) - 180.0).abs() < 1e-9);
     }
 }

@@ -1,6 +1,6 @@
 //! The seven UI colour tokens per base mode, and their tint.
 
-use crate::color::{Oklch, Rgb, hue_toward};
+use crate::color::{Oklch, Rgb};
 use crate::model::{Appearance, BaseMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,15 +62,30 @@ fn ui_hue_oklch(srgb_hue: f64) -> f64 {
     Rgb(byte(r), byte(g), byte(b)).to_oklch().h
 }
 
-/// Shifts one token toward the tint, keeping its lightness.
+/// How far a near-white token may darken to carry its tint.
+const MAX_DARKEN: f64 = 0.06;
+
+/// Takes the tint's hue outright and keeps lightness; chroma eases toward
+/// `max_c`.
 fn tinted(token: Rgb, target_h: f64, t: f64, max_c: f64) -> Rgb {
-    let Oklch { l, c, h } = token.to_oklch();
-    Oklch {
+    let Oklch { l, c, .. } = token.to_oklch();
+    let want = Oklch {
         l,
-        c: c + (max_c - c).max(0.0) * t,
-        h: hue_toward(h, target_h, t),
+        c: c + (max_c - c) * t,
+        h: target_h,
+    };
+    if want.in_gamut() {
+        return want.to_rgb();
     }
-    .to_rgb()
+    // Near white, sRGB has no room for chroma: give up a little lightness.
+    (1..=12)
+        .map(|i| Oklch {
+            l: l - MAX_DARKEN * f64::from(i) / 12.0,
+            ..want
+        })
+        .find(|o| o.in_gamut())
+        .unwrap_or(want)
+        .to_rgb_in_gamut()
 }
 
 impl Appearance {
@@ -117,6 +132,24 @@ mod tests {
         let after = a.ui_tokens().accent.to_oklch();
         assert!((before.l - after.l).abs() < 0.02, "{before:?} → {after:?}");
         assert!((before.h - after.h).abs() > 20.0, "{before:?} → {after:?}");
+    }
+
+    #[test]
+    fn sepia_stays_in_its_own_hue() {
+        let sepia = Appearance {
+            tint_hue: 34,
+            tint_strength: 23,
+            ..Default::default()
+        };
+        let target = ui_hue_oklch(34.0);
+        let t = sepia.ui_tokens();
+        for token in [t.paper, t.surface, t.line, t.accent, t.accent_soft] {
+            let Oklch { c, h, .. } = token.to_oklch();
+            let off = (h - target + 180.0).rem_euclid(360.0) - 180.0;
+            let hex = token.to_hex();
+            assert!(c > 0.008, "{hex} lost its tint");
+            assert!(off.abs() < 12.0, "{hex} is {h:.0}°, sepia is {target:.0}°");
+        }
     }
 
     #[test]
