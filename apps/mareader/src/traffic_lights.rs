@@ -16,12 +16,13 @@ pub struct Layout {
     pub y: f64,
 }
 
-/// Centres buttons of `button_h` in a bar of `bar_h` at the window's top.
-pub fn layout(window_h: f64, bar_h: f64, button_h: f64, spacing: f64) -> Layout {
+/// Centres buttons of `button_h` in a bar of `bar_h`, `shift` from home.
+pub fn layout(window_h: f64, bar_h: f64, button_h: f64, spacing: f64, shift: f64) -> Layout {
     let finite = |v: f64, or: f64| if v.is_finite() { v } else { or };
     let bar_h = finite(bar_h, 0.0).max(0.0);
     let button_h = finite(button_h, 0.0).clamp(0.0, bar_h);
     let spacing = finite(spacing, 0.0);
+    let shift = finite(shift, 0.0);
     // A zero or reversed gap means the buttons weren't laid out yet.
     let spacing = if spacing < 1.0 {
         FALLBACK_SPACING
@@ -31,7 +32,7 @@ pub fn layout(window_h: f64, bar_h: f64, button_h: f64, spacing: f64) -> Layout 
     Layout {
         container_y: finite(window_h, 0.0) - bar_h,
         container_h: bar_h,
-        xs: [0.0, 1.0, 2.0].map(|i| INSET_X + i * spacing),
+        xs: [0.0, 1.0, 2.0].map(|i| INSET_X + shift + i * spacing),
         y: ((bar_h - button_h) / 2.0).round(),
     }
 }
@@ -42,6 +43,7 @@ pub use mac::place;
 #[cfg(all(target_os = "macos", feature = "traffic-lights"))]
 #[allow(unsafe_code)]
 mod mac {
+    use mareader_ui::platform::NativeLights;
     use objc2::MainThreadMarker;
     use objc2::rc::Retained;
     use objc2_app_kit::{NSButton, NSView, NSWindow, NSWindowButton};
@@ -49,7 +51,7 @@ mod mac {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     /// Positions and fades the lights; full screen is left to AppKit.
-    pub fn place(frame: &eframe::Frame, opacity: f32, fullscreen: bool) {
+    pub fn place(frame: &eframe::Frame, lights: NativeLights, fullscreen: bool) {
         // AppKit objects may only be touched on the main thread.
         if MainThreadMarker::new().is_none() {
             return;
@@ -60,10 +62,10 @@ mod mac {
         let Some(buttons) = buttons(&window) else {
             return;
         };
-        let opacity = if fullscreen { 1.0 } else { opacity };
+        let opacity = if fullscreen { 1.0 } else { lights.opacity };
         fade(&buttons, f64::from(opacity.clamp(0.0, 1.0)));
         if !fullscreen && opacity > 0.0 {
-            arrange(&window, &buttons);
+            arrange(&window, &buttons, f64::from(lights.shift));
         }
     }
 
@@ -97,7 +99,7 @@ mod mac {
         }
     }
 
-    fn arrange(window: &NSWindow, buttons: &[Retained<NSButton>; 3]) {
+    fn arrange(window: &NSWindow, buttons: &[Retained<NSButton>; 3], shift: f64) {
         // SAFETY: main-thread getters; the grandparent is the container.
         let container = unsafe { buttons[0].superview().and_then(|v| v.superview()) };
         let Some(container) = container else {
@@ -110,6 +112,7 @@ mod mac {
             f64::from(mareader_ui::theme::TITLE_BAR_H),
             close.size.height,
             spacing,
+            shift,
         );
         // AppKit resets these on resize, so write only what moved.
         let mut rect = container.frame();
@@ -135,7 +138,7 @@ mod tests {
 
     #[test]
     fn the_lights_sit_centred_in_the_bar() {
-        let l = layout(800.0, 48.0, 16.0, 20.0);
+        let l = layout(800.0, 48.0, 16.0, 20.0, 0.0);
         assert_eq!(l.container_y, 752.0);
         assert_eq!(l.container_h, 48.0);
         assert_eq!(l.y, 16.0);
@@ -144,7 +147,7 @@ mod tests {
 
     #[test]
     fn they_fit_the_room_the_bar_leaves() {
-        let l = layout(800.0, 48.0, 16.0, 20.0);
+        let l = layout(800.0, 48.0, 16.0, 20.0, 0.0);
         let right = l.xs[2] + 14.0;
         assert!(right < f64::from(mareader_ui::platform::Platform::Mac.leading_inset()));
     }
@@ -152,14 +155,21 @@ mod tests {
     #[test]
     fn an_unmeasured_gap_falls_back() {
         for gap in [0.0, -5.0, f64::NAN] {
-            assert_eq!(layout(800.0, 48.0, 16.0, gap).xs[1], 40.0);
+            assert_eq!(layout(800.0, 48.0, 16.0, gap, 0.0).xs[1], 40.0);
         }
     }
 
     #[test]
     fn bad_sizes_stay_finite() {
-        let l = layout(f64::NAN, 48.0, f64::INFINITY, 20.0);
-        assert!(l.container_y.is_finite() && l.y.is_finite());
-        assert_eq!(layout(800.0, 48.0, 90.0, 20.0).y, 0.0);
+        let l = layout(f64::NAN, 48.0, f64::INFINITY, 20.0, f64::NAN);
+        assert!(l.container_y.is_finite() && l.y.is_finite() && l.xs[0].is_finite());
+        assert_eq!(layout(800.0, 48.0, 90.0, 20.0, 0.0).y, 0.0);
+    }
+
+    #[test]
+    fn a_closing_rail_carries_them_off_the_left_edge() {
+        let l = layout(800.0, 48.0, 16.0, 20.0, -288.0);
+        assert!(l.xs[2] + 14.0 < 0.0, "past the window edge, out of sight");
+        assert_eq!(layout(800.0, 48.0, 16.0, 20.0, -100.0).xs[0], -80.0);
     }
 }

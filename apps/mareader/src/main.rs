@@ -24,7 +24,7 @@ impl eframe::App for Desktop {
         #[cfg(all(target_os = "macos", feature = "traffic-lights"))]
         {
             let fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
-            traffic_lights::place(frame, self.app.titlebar().opacity(), fullscreen);
+            traffic_lights::place(frame, self.app.native_lights(), fullscreen);
         }
     }
 
