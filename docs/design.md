@@ -29,8 +29,8 @@ in light, dark and one tint, at desktop and narrow sizes.
 ## How the theme works
 
 Taken from the ArtCraft suite (PdfCraft, PhotoCraft, FilmCraft, EffectCraft,
-DesignCraft; `craft-libs/docs/theme-infrastructure.md`). Each of those apps
-offers several looks, and some add accent, contrast, brightness or text-size
+DesignCraft; `storytold/craft-libs`, `docs/theme-infrastructure.md`). Each of
+those apps offers several looks, and some add accent, contrast, brightness or text-size
 knobs, all from one small mechanism:
 
 1. **Tokens are the only source.** `theme::Tokens` holds colours *and* shape:
