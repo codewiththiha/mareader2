@@ -32,10 +32,13 @@ title = "Title bar stays while one of its popovers, or the search, is open"
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar"]
+status = "shipped"
+evidence = [
+    "crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar",
+    "crates/ui/tests/keys.rs::find_opens_the_bar_which_holds_the_title_bar_until_escape",
+]
 reference = ["crates/app-ui/src/components/shell/titlebar/app_title_bar.rs"]
-notes = "Any open popover holds it; the floating search arrives with M2"
+notes = "Any open popover holds it, and so does the find bar"
 
 [[feature]]
 id = "chrome.titlebar-band-inset"
@@ -1115,13 +1118,15 @@ title = "mareader's shortcuts: open, find, fit, view modes, zoom, page and scrol
 area = "K"
 tier = "P0"
 milestone = "M2"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
 evidence = [
     "crates/ui/src/keymap.rs::the_reference_lists_each_action_once",
     "crates/ui/tests/keys.rs::across_the_column_arrows_turn_and_paged_modes_turn_on_page_keys",
+    "crates/ui/tests/keys.rs::find_opens_the_bar_which_holds_the_title_bar_until_escape",
+    "crates/ui/tests/keys.rs::find_without_a_document_opens_the_library",
 ]
-notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, settings, full screen, zoom steps and fit width, view modes, arrows and h/j/k/l, PageUp/PageDown, Space and Shift+Space, Home and End. Find waits for M7"
+notes = "`keymap.rs` drives keys, tooltips and the reference. Bound: open, find, settings, full screen, zoom steps and fit width, view modes, arrows and h/j/k/l, PageUp/PageDown, Space and Shift+Space, Home and End. Find opens the bar; searching is search.document (M7)"
 
 [[feature]]
 id = "keys.glide"
