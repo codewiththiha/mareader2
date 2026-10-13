@@ -252,6 +252,13 @@ fn layout(ui: &mut Ui, s: &mut Settings) {
             "The sidebar floats over pages and hides when the pointer leaves",
             &mut s.chrome.sidebar_overlay,
         );
+        divider(ui);
+        switch_row(
+            ui,
+            "Frosted glass",
+            "Blur the page behind the title bar and page bar; off makes both solid",
+            &mut s.chrome.glass,
+        );
     });
     section(ui, "Page position");
     group(ui, |ui| {

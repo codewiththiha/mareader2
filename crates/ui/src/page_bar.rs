@@ -7,8 +7,10 @@ use egui::{
 use mareader_settings::{LayoutSettings, PageIndicatorStyle};
 use mareader_workspace::PaneId;
 
+use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
+use crate::gpu::{Look, Reach};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::Tokens;
@@ -67,15 +69,23 @@ pub fn counter(reading: &Reading, style: PageIndicatorStyle) -> String {
     }
 }
 
+/// How the bars look this frame, and which glass slot this one takes.
+pub struct BarLook<'a> {
+    pub layout: &'a LayoutSettings,
+    pub backdrop: &'a Backdrop,
+    pub slot: usize,
+}
+
 /// Draws `pane`'s counter, progress line and bar over its document.
 pub fn show(
     ctx: &Context,
     pane: Rect,
     reading: &Reading,
-    layout: &LayoutSettings,
+    look: &BarLook<'_>,
     bar: &mut PageBar,
     out: &mut Commands,
 ) {
+    let layout = look.layout;
     let entry_id = Id::new(("page-entry", reading.pane));
     let typing = ctx.memory(|m| m.has_focus(entry_id));
     let home = Rect::from_min_max(pos2(pane.left(), pane.bottom() - BAR_H), pane.max);
@@ -122,7 +132,12 @@ pub fn show(
             ui.set_opacity(fade);
             ui.set_min_size(rect.size());
             ui.set_clip_rect(pane);
-            ui.painter().rect_filled(rect, CornerRadius::ZERO, t.glass);
+            let glass = Look {
+                slot: look.slot,
+                reach: Reach::Above,
+                opacity: fade,
+            };
+            look.backdrop.paint(ui, rect, glass);
             ui.painter()
                 .hline(rect.x_range(), rect.top(), Stroke::new(1.0, t.line));
             let row = rect.shrink2(vec2(10.0, 0.0));

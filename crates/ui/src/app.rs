@@ -8,12 +8,13 @@ use mareader_appearance::{Appearance, BaseMode, builtin_presets};
 use mareader_settings::Settings;
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
+use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::gpu::{Glass, Gpu, Quad};
 use crate::outline_panel::{self, OutlineState};
-use crate::page_bar::{self, PageBar};
+use crate::page_bar::{self, BarLook, PageBar};
 use crate::panes::{self, PaneView};
 use crate::pdf_view::ViewContext;
 use crate::platform::{NativeLights, Platform};
@@ -231,6 +232,7 @@ impl MareaderApp {
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
+            "glass" => self.settings.chrome.glass = value == "true",
             "sidebar" => match Panel::parse(value) {
                 Some(p) => self.sidebar.open(Some(p)),
                 None if value == "closed" => self.sidebar.close(),
@@ -400,27 +402,39 @@ impl MareaderApp {
     }
 
     /// Every document pane's counter, progress line and bottom bar.
-    fn page_bars(&mut self, ctx: &Context, out: &mut Commands) {
+    fn page_bars(&mut self, ctx: &Context, backdrop: &Backdrop, out: &mut Commands) {
         let rects = &self.pane_rects;
         self.page_bars
             .retain(|id, _| rects.iter().any(|(p, _)| p == id));
-        for (id, rect) in rects {
+        // The title bar's glass takes slot 0.
+        for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
+                let look = BarLook {
+                    layout: &self.settings.layout,
+                    backdrop,
+                    slot: i + 1,
+                };
                 let bar = self.page_bars.entry(*id).or_default();
-                page_bar::show(ctx, *rect, &reading, &self.settings.layout, bar, out);
+                page_bar::show(ctx, *rect, &reading, &look, bar, out);
             }
         }
     }
 
-    /// What the bar blurs: pane fills, then this frame's GPU pages.
-    fn glass(&mut self, ctx: &Context) -> Option<Glass> {
-        let pass = self.documents.gpu()?.pass.clone();
+    /// What the bars show behind them: pane fills, then this frame's pages.
+    fn backdrop(&mut self, ctx: &Context) -> Backdrop {
+        let drawn = self.documents.take_drawn();
+        if !self.settings.chrome.glass {
+            return Backdrop::Solid;
+        }
+        let Some(gpu) = self.documents.gpu() else {
+            return Backdrop::Tint;
+        };
         let t = theme::Tokens::get(ctx);
         let fills = self.pane_rects.iter().map(|(_, r)| Quad::fill(*r, t.paper));
         let mut quads: Vec<Quad> = fills.collect();
-        quads.extend(self.documents.take_drawn());
-        Some(Glass {
-            pass,
+        quads.extend(drawn);
+        Backdrop::Glass(Glass {
+            pass: gpu.pass.clone(),
             canvas: t.surface,
             quads,
         })
@@ -548,9 +562,9 @@ impl eframe::App for MareaderApp {
                 documents.show(ui, id, &cx)
             });
         });
-        self.page_bars(&ctx, &mut commands);
+        let backdrop = self.backdrop(&ctx);
+        self.page_bars(&ctx, &backdrop, &mut commands);
         self.documents.end_frame();
-        let glass = self.glass(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let bar = BarContext {
             title: self.documents.title(self.active).unwrap_or("Mareader"),
@@ -563,7 +577,7 @@ impl eframe::App for MareaderApp {
             appearance: &self.settings.appearance,
             zoom: self.documents.zoom_state(self.active),
             mode: self.documents.mode(self.active),
-            glass,
+            backdrop: &backdrop,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
         self.lights = self.place_lights(&ctx, overlay);

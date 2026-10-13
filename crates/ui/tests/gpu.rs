@@ -88,3 +88,58 @@ fn a_pinned_bar_blurs_the_page_scrolled_under_it() -> Out {
     assert!(sharpest < 6, "the backdrop is blurred: step {sharpest}");
     Ok(())
 }
+
+/// Rows of a band right of `left`: brightness spread and sharpest step.
+fn band(image: &RgbaImage, rows: std::ops::Range<u32>, left: u32) -> (i32, i32) {
+    let (mut lo, mut hi, mut step) = (i32::MAX, i32::MIN, 0);
+    for y in rows {
+        for x in left..image.width() - 1 {
+            let l = luma(image, x, y);
+            (lo, hi) = (lo.min(l), hi.max(l));
+            step = step.max((luma(image, x + 1, y) - l).abs());
+        }
+    }
+    (hi - lo, step)
+}
+
+#[test]
+fn the_page_bar_is_glass_and_both_bars_turn_solid_without_it() -> Out {
+    let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
+    // Brings a line of page 2 up under the bar's top edge.
+    let line = {
+        let docs = h.state().documents();
+        let pane = h.state().active_pane();
+        let reading = docs.reading(pane).ok_or("no document")?;
+        let layer = reading.document.text_layer(1).map_err(|e| e.to_string())?;
+        // Page 2 lies a page and a gap below page 1, off screen.
+        let mut sheet = *docs.sheets(pane).first().ok_or("no page")?;
+        let pitch = sheet.rect.height() + mareader_ui::layout::GAP;
+        sheet.rect = sheet.rect.translate(egui::vec2(0.0, pitch));
+        let text: String = layer.text.chars().iter().map(|c| c.ch).collect();
+        let at = text.find("Sphinx").ok_or("no line")?;
+        let line = layer.text.line_at(at);
+        let first = layer.text.chars().get(line.start).ok_or("empty")?;
+        sheet.to_screen(first.bounds)
+    };
+    scroll(&mut h, line.center().y - (SIZE.y - 35.0));
+    // Pointing at the pane's foot raises its bar.
+    h.hover_at(egui::pos2(SIZE.x / 2.0, SIZE.y - 3.0));
+    h.run_steps(30);
+    let glass = h.render()?;
+    // Near the bar's top edge, past the slider's knob on page 1.
+    let (top, bottom) = (SIZE.y as u32 - 38, SIZE.y as u32 - 32);
+    let (spread, step) = band(&glass, top..bottom, 260);
+    assert!(spread > 4, "page and margin show through: {spread}");
+    assert!(step < 6, "and blurred: step {step}");
+    h.state_mut().set_option("glass", "false")?;
+    h.run_steps(4);
+    let solid = h.render()?;
+    assert_eq!(
+        band(&solid, top..bottom, 260).0,
+        0,
+        "the page bar is one colour"
+    );
+    let title = band(&solid, 2..8, 0);
+    assert_eq!(title.0, 0, "so is the title bar's edge");
+    Ok(())
+}

@@ -1,4 +1,4 @@
-//! The bar's glass: the strip beneath, redrawn small and blurred.
+//! The bars' glass: the strip behind each, redrawn small and blurred.
 
 use std::sync::Arc;
 
@@ -14,6 +14,17 @@ pub const SATURATE: f32 = 1.8;
 const SIGMA_TEXELS: f32 = 4.0;
 /// The coarsest shrink, for very large scale factors.
 const MAX_SHRINK: f32 = 16.0;
+/// Glass panes per frame: the title bar and a page bar per pane.
+pub const MAX_SLOTS: usize = 17;
+
+/// Which side of a bar its content scrolls in from, to blur early.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reach {
+    /// The title bar: the strip runs on below it.
+    Below,
+    /// A page bar along a pane's foot: the strip runs on above it.
+    Above,
+}
 
 /// One frame's backdrop for the bar: pane fills, then pages.
 #[derive(Clone, Debug)]
@@ -25,11 +36,19 @@ pub struct Glass {
 }
 
 impl Glass {
-    /// The glass behind `bar`, faded like the bar itself.
-    pub fn shape(&self, bar: Rect, screen: Rect, opacity: f32) -> egui::Shape {
-        // Reaches below the bar so content blurs in before it arrives.
-        let bottom = (bar.bottom() + 3.0 * BLUR).min(screen.bottom());
-        let strip = Rect::from_min_max(bar.min, pos2(bar.right(), bottom.max(bar.bottom())));
+    /// The glass behind `bar`; each one in a frame needs its own slot.
+    pub fn shape(&self, bar: Rect, screen: Rect, look: Look) -> egui::Shape {
+        // Reaches past the bar so content blurs in before it arrives.
+        let strip = match look.reach {
+            Reach::Below => {
+                let bottom = (bar.bottom() + 3.0 * BLUR).min(screen.bottom());
+                Rect::from_min_max(bar.min, pos2(bar.right(), bottom.max(bar.bottom())))
+            }
+            Reach::Above => {
+                let top = (bar.top() - 3.0 * BLUR).max(screen.top());
+                Rect::from_min_max(pos2(bar.left(), top.min(bar.top())), bar.max)
+            }
+        };
         let quads = self
             .quads
             .iter()
@@ -42,10 +61,18 @@ impl Glass {
             quads,
             bar,
             strip,
-            opacity,
+            look,
         };
         egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(bar, callback))
     }
+}
+
+/// How one glass is drawn: its slot, its strip's side and its fade.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub slot: usize,
+    pub reach: Reach,
+    pub opacity: f32,
 }
 
 struct GlassCallback {
@@ -54,15 +81,20 @@ struct GlassCallback {
     quads: Vec<Quad>,
     bar: Rect,
     strip: Rect,
-    opacity: f32,
+    look: Look,
 }
 
-/// Pipelines and the strip's targets, kept across frames.
+/// Pipelines, and per slot a strip's targets, kept across frames.
 struct Kit {
     blur: wgpu::RenderPipeline,
     composite: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    slots: Vec<Slot>,
+}
+
+/// One glass's uniforms and strip; every glass prepares before any paints.
+struct Slot {
     /// Horizontal blur, vertical blur, composite.
     params: [wgpu::Buffer; 3],
     targets: Option<Targets>,
@@ -147,14 +179,6 @@ impl Kit {
                 cache: None,
             })
         };
-        let param = || {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("glass params"),
-                size: 16,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
         Self {
             blur: pipeline("fs_blur", None),
             composite: pipeline(
@@ -168,16 +192,40 @@ impl Kit {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             }),
-            params: [param(), param(), param()],
-            targets: None,
+            slots: Vec::new(),
         }
+    }
+}
+
+impl Slot {
+    /// Slot `i` of `slots`, made on first use; none past the cap.
+    fn get<'s>(slots: &'s mut Vec<Slot>, device: &wgpu::Device, i: usize) -> Option<&'s mut Slot> {
+        if i >= MAX_SLOTS {
+            return None;
+        }
+        while slots.len() <= i {
+            let param = || {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("glass params"),
+                    size: PARAMS,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            };
+            slots.push(Slot {
+                params: [param(), param(), param()],
+                targets: None,
+            });
+        }
+        slots.get_mut(i)
     }
 
     /// Targets of `size`, remade only when the strip resizes.
-    fn targets(&mut self, device: &wgpu::Device, size: [u32; 2], format: wgpu::TextureFormat) {
+    fn targets(&mut self, device: &wgpu::Device, size: [u32; 2], kit: Shared<'_>) {
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
+        let format = kit.format;
         let view = || {
             device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -202,7 +250,7 @@ impl Kit {
         let group = |src: &wgpu::TextureView, params: &wgpu::Buffer| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("glass"),
-                layout: &self.layout,
+                layout: kit.layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -210,7 +258,7 @@ impl Kit {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: wgpu::BindingResource::Sampler(kit.sampler),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -224,8 +272,19 @@ impl Kit {
     }
 }
 
-fn params(v: [f32; 2], a: f32, b: f32) -> Vec<u8> {
-    [v[0], v[1], a, b]
+/// What a slot's bind groups borrow from the kit.
+#[derive(Clone, Copy)]
+struct Shared<'a> {
+    layout: &'a wgpu::BindGroupLayout,
+    sampler: &'a wgpu::Sampler,
+    format: wgpu::TextureFormat,
+}
+
+/// The shader's `Params`: three vec2s and two floats, padded to 32 bytes.
+const PARAMS: u64 = 32;
+
+fn params(v: [f32; 2], a: f32, b: f32, o: [f32; 2]) -> Vec<u8> {
+    [v[0], v[1], a, b, o[0], o[1], 0.0, 0.0]
         .iter()
         .flat_map(|f| f.to_ne_bytes())
         .collect()
@@ -289,17 +348,38 @@ impl egui_wgpu::CallbackTrait for GlassCallback {
         let Some(kit) = resources.get_mut::<Kit>() else {
             return Vec::new();
         };
-        kit.targets(device, size, format);
-        let Some(targets) = &kit.targets else {
+        let Kit {
+            blur,
+            layout,
+            sampler,
+            slots,
+            ..
+        } = kit;
+        let shared = Shared {
+            layout,
+            sampler,
+            format,
+        };
+        let Some(slot) = Slot::get(slots, device, self.look.slot) else {
+            return Vec::new();
+        };
+        slot.targets(device, size, shared);
+        let Some(targets) = &slot.targets else {
             return Vec::new();
         };
         let sigma = BLUR * ppp / shrink;
         let [w, h] = size.map(|s| s as f32);
-        let reach = self.bar.height() / self.strip.height().max(1.0);
-        let [ph, pv, pc] = &kit.params;
-        queue.write_buffer(ph, 0, &params([1.0 / w, 0.0], sigma, 0.0));
-        queue.write_buffer(pv, 0, &params([0.0, 1.0 / h], sigma, 0.0));
-        queue.write_buffer(pc, 0, &params([1.0, reach], SATURATE, self.opacity));
+        // The bar's share of the strip, at its top or its foot.
+        let share = self.bar.height() / self.strip.height().max(1.0);
+        let start = match self.look.reach {
+            Reach::Below => 0.0,
+            Reach::Above => 1.0 - share,
+        };
+        let [ph, pv, pc] = &slot.params;
+        queue.write_buffer(ph, 0, &params([1.0 / w, 0.0], sigma, 0.0, [0.0; 2]));
+        queue.write_buffer(pv, 0, &params([0.0, 1.0 / h], sigma, 0.0, [0.0; 2]));
+        let fade = self.look.opacity;
+        queue.write_buffer(pc, 0, &params([1.0, share], SATURATE, fade, [0.0, start]));
 
         let instances = page_pass::instances(device, &self.quads, self.strip);
         {
@@ -314,7 +394,7 @@ impl egui_wgpu::CallbackTrait for GlassCallback {
         let [gh, gv, _] = &targets.groups;
         for (target, group) in [(&targets.b, gh), (&targets.a, gv)] {
             let mut rp = pass(encoder, target, wgpu::LoadOp::Clear(wgpu::Color::BLACK));
-            rp.set_pipeline(&kit.blur);
+            rp.set_pipeline(blur);
             rp.set_bind_group(0, group, &[]);
             rp.draw(0..3, 0..1);
         }
@@ -330,7 +410,8 @@ impl egui_wgpu::CallbackTrait for GlassCallback {
         let Some(kit) = resources.get::<Kit>() else {
             return;
         };
-        let Some(targets) = &kit.targets else {
+        let slot = kit.slots.get(self.look.slot);
+        let Some(targets) = slot.and_then(|s| s.targets.as_ref()) else {
             return;
         };
         let [_, _, composite] = &targets.groups;

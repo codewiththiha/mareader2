@@ -16,11 +16,13 @@ fn vs(@builtin(vertex_index) i: u32) -> VsOut {
 }
 
 // Blur: `v` one texel step, `a` sigma in texels.
-// Composite: `v` uv scale, `a` saturation, `b` opacity.
+// Composite: `v` uv scale, `a` saturation, `b` opacity, `o` uv start.
 struct Params {
     v: vec2<f32>,
     a: f32,
     b: f32,
+    o: vec2<f32>,
+    pad: vec2<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -44,7 +46,7 @@ fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
 // Rec. 709 luma, as CSS saturate() uses.
 @fragment
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
-    let c = textureSampleLevel(src, filtered, in.uv * p.v, 0.0);
+    let c = textureSampleLevel(src, filtered, p.o + in.uv * p.v, 0.0);
     let luma = dot(c.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
     let rgb = clamp(mix(vec3<f32>(luma), c.rgb, p.a), vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(rgb, 1.0) * p.b;
