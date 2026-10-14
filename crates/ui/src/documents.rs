@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui};
 use mareader_appearance::Rgb;
-use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket, Want};
+use mareader_session::{Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Want};
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
@@ -40,6 +40,8 @@ pub struct OpenRequest {
     pub beside: bool,
     /// The page to show once open; past the end, the last.
     pub page: usize,
+    /// A book's place to show instead, found again in today's type.
+    pub place: Option<Anchor>,
 }
 
 impl OpenRequest {
@@ -50,6 +52,7 @@ impl OpenRequest {
             pane: None,
             beside: false,
             page: 0,
+            place: None,
         }
     }
 
@@ -60,6 +63,7 @@ impl OpenRequest {
             pane: None,
             beside: false,
             page: 0,
+            place: None,
         }
     }
 
@@ -92,6 +96,7 @@ enum Content {
         name: String,
         file: Option<PathBuf>,
         page: usize,
+        place: Option<Anchor>,
     },
     Pdf(Box<PdfView>),
 }
@@ -207,12 +212,14 @@ impl Documents {
         {
             request.source = Source::Path(real);
         }
-        let (file, page) = (request.file(), request.page);
+        let (file, page, place) = (request.file(), request.page, request.place);
         if let Some(doc) = file.as_ref().and_then(|f| self.shown(f)) {
-            let count = self.session.as_ref().and_then(|s| s.get(doc));
-            let count = count.map_or(0, |e| e.doc.page_count());
+            let entry = self.session.as_ref().and_then(|s| s.get(doc));
+            let count = entry.map_or(0, |e| e.doc.page_count());
+            let page = landing(entry.map(|e| &*e.doc), page, place);
             let mut view = PdfView::new(doc);
             view.go_to(page, count);
+            view.hold_place(place);
             self.set(pane, Some(Content::Pdf(Box::new(view))));
             return None;
         }
@@ -223,6 +230,7 @@ impl Documents {
             name,
             file,
             page,
+            place,
         };
         self.set(pane, Some(opening));
         None
@@ -322,17 +330,21 @@ impl Documents {
                             ticket: t,
                             name,
                             page,
+                            place,
                             ..
-                        } if *t == ticket => Some((*id, name.clone(), *page)),
+                        } if *t == ticket => Some((*id, name.clone(), (*page, *place))),
                         _ => None,
                     });
                     match (waiting, result) {
-                        (Some((pane, _, page)), Ok(doc)) => {
+                        (Some((pane, _, (page, place))), Ok(doc)) => {
                             let mut view = PdfView::new(doc);
-                            let count = session.get(doc).map_or(0, |e| e.doc.page_count());
+                            let entry = session.get(doc);
+                            let count = entry.map_or(0, |e| e.doc.page_count());
+                            let page = landing(entry.map(|e| &*e.doc), page, place);
                             if page > 0 {
                                 view.go_to(page, count);
                             }
+                            view.hold_place(place);
                             self.panes.insert(pane, Content::Pdf(Box::new(view)));
                         }
                         (Some((pane, name, _)), Err(e)) => {
@@ -597,13 +609,17 @@ impl Documents {
         }
     }
 
-    /// The file `pane` reads and its page, to reopen at the next launch.
-    pub fn place(&self, pane: PaneId) -> Option<(PathBuf, usize)> {
+    /// The file `pane` reads, its page and a book's place in it.
+    pub fn place(&self, pane: PaneId) -> Option<(PathBuf, usize, Option<Anchor>)> {
         match self.panes.get(&pane)? {
-            Content::Opening { file, page, .. } => Some((file.clone()?, *page)),
+            Content::Opening {
+                file, page, place, ..
+            } => Some((file.clone()?, *page, *place)),
             Content::Pdf(v) => {
                 let entry = self.session.as_ref()?.get(v.doc)?;
-                Some((entry.path.clone()?, v.current))
+                // Unmoved since a re-set: the place read before it.
+                let place = v.place().or_else(|| entry.doc.anchor(v.current));
+                Some((entry.path.clone()?, v.current, place))
             }
         }
     }
@@ -640,4 +656,10 @@ fn opening(ui: &mut Ui, name: &str, t: &Tokens) {
         theme::medium(13.0),
         t.muted,
     );
+}
+
+/// Where an opened document starts: `place` in a book, else `page`.
+fn landing(doc: Option<&Document>, page: usize, place: Option<Anchor>) -> usize {
+    let found = place.and_then(|a| doc?.locate(a));
+    found.unwrap_or(page)
 }

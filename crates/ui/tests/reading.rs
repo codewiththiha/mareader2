@@ -443,6 +443,16 @@ impl File {
     }
 }
 
+impl File {
+    fn book(chapters: usize, tag: &str) -> Result<Self, String> {
+        let name = format!("mareader-{tag}-{}.epub", std::process::id());
+        let path = std::env::temp_dir().join(name);
+        let epub = mareader_epub::sample::epub(chapters, "Read Last Time");
+        std::fs::write(&path, epub).map_err(|e| e.to_string())?;
+        Ok(Self(path))
+    }
+}
+
 impl Drop for File {
     fn drop(&mut self) {
         std::fs::remove_file(&self.0).ok();
@@ -488,6 +498,41 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     drop(file);
     let mut moved = MareaderApp::from_storage(Some(&disk));
     assert!(!moved.resume());
+    Ok(())
+}
+
+#[test]
+fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> {
+    let file = File::book(6, "resume-book")?;
+    let mut app = MareaderApp::default();
+    let request = OpenRequest {
+        page: 8,
+        ..OpenRequest::path(file.0.clone())
+    };
+    app.queue(Command::Open(request));
+    let mut h = launched(app);
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().documents().current(pane), Some(8));
+    let reading = h.state().documents().reading(pane);
+    let place = reading.and_then(|r| r.document.anchor(8));
+    assert!(place.is_some(), "a book's page has a place");
+    let mut disk = Memory::default();
+    h.state_mut().save(&mut disk);
+    let saved = disk.get_string(LAST_DOCUMENT_KEY).unwrap_or_default();
+    assert!(saved.contains("\"place\""), "{saved}");
+    // Next launch in bigger type: the page differs, the place doesn't.
+    let mut again = MareaderApp::from_storage(Some(&disk));
+    again.settings_mut().text.font_size = 28.0;
+    assert!(again.resume());
+    let h = launched(again);
+    let pane = h.state().active_pane();
+    let current = h.state().documents().current(pane).unwrap_or(0);
+    assert!(current > 8, "{current}");
+    let book = h.state().documents().reading(pane).map(|r| r.document);
+    let start = book.as_ref().and_then(|d| d.anchor(current));
+    let next = book.as_ref().and_then(|d| d.anchor(current + 1));
+    assert!(start.is_some() && start <= place, "{start:?} {place:?}");
+    assert!(next.is_none() || next > place, "{next:?} {place:?}");
     Ok(())
 }
 
