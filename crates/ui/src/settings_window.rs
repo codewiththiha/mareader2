@@ -15,7 +15,14 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
-pub const MAX_SIZE: Vec2 = vec2(620.0, 640.0);
+/// Its size at most; below that, it takes [`SHARE`] of the window.
+pub const MAX_SIZE: Vec2 = vec2(760.0, 960.0);
+pub const SHARE: Vec2 = vec2(0.92, 0.86);
+
+/// The window's size in an app window of `screen` points.
+pub fn window_size(screen: Vec2) -> Vec2 {
+    (screen * SHARE).min(MAX_SIZE)
+}
 const ROW_H: f32 = 44.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -134,11 +141,7 @@ impl SettingsWindow {
             return;
         }
         let t = Tokens::get(ctx);
-        let screen = ctx.content_rect().size();
-        let size = vec2(
-            (screen.x * 0.92).min(MAX_SIZE.x),
-            (screen.y * 0.76).min(MAX_SIZE.y),
-        );
+        let size = window_size(ctx.content_rect().size());
         let frame = Frame::new()
             .fill(t.surface)
             .stroke(Stroke::new(1.0, t.line))
@@ -655,4 +658,18 @@ fn note(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(8.0);
     ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_window_grows_with_the_app_past_mareader_s_640() {
+        let tall = window_size(vec2(1600.0, 1100.0));
+        assert!(tall.y > 900.0 && tall.x > 700.0, "{tall:?}");
+        assert_eq!(window_size(vec2(5000.0, 5000.0)), MAX_SIZE);
+        let small = window_size(vec2(500.0, 400.0));
+        assert!(small.x < 500.0 && small.y < 400.0, "{small:?}: it fits");
+    }
 }
