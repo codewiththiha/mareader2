@@ -10,6 +10,7 @@
 )]
 
 mod book;
+mod convert;
 mod css;
 mod guard;
 mod href;
@@ -19,6 +20,7 @@ mod xhtml;
 pub use book::{
     Book, Destination, Link, MAX_BLOCKS, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry,
 };
+pub use convert::{Format, MAX_PICTURE_FILE, MAX_TEXT, Pictures, convert};
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
