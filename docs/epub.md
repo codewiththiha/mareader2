@@ -76,8 +76,37 @@ the user set always wins over it.
   reading position, and the deeper entry wins on shared pages.
 - **Covers:** the OPF cover image, for the library.
 
+## The XHTML subset (M4 slice 2)
+
+What the epub crate reads, and what each element becomes:
+
+| Markup | Block | Drawn as |
+|---|---|---|
+| `h1`–`h6`, `p`, `div` and other blocks | text | heading or body face; `h6` muted |
+| `ul`, `ol` (`start`), `li`, `dd` | text, framed | 1.6 em indent per level; `•` `◦` `▪` or `N.` hung in the margin; 0.3 em between items |
+| `blockquote` | text, framed | 1 em indent per level, a 3 px bar, softer ink |
+| `pre` | preformatted | mono, spaces and tabs kept, long lines wrap; shaded box |
+| `code`, `kbd`, `samp`, `tt` | inline | mono at 0.88 em on a light ground |
+| `table`, `caption`, `th`, `thead` | table | equal columns, 1 px borders, head rows bold and shaded; splits between rows |
+| `hr` | rule | a hairline |
+| `img`, SVG `image` | image | its own size, shrunk to the column and the page; never split |
+| the OPF cover | image | a page of its own, fitted and centred |
+
+- **CSS:** inline `style`, `<style>` and linked stylesheets. Selectors `tag`,
+  `.class` and `tag.class`; anything else, and every @-rule, is skipped.
+  Properties: `font-style`, `font-weight`, `text-align`, `display: none`.
+  `justify` reads as start until the typography slice.
+- **Images:** read once per path, only from inside the archive. The header is
+  probed when the book opens. Past 16 384 px a side, 50 MP or a 256 MiB
+  budget per book, the alt text shows in italics. Pixels are decoded when a
+  page needs them, at a power-of-two size near the drawn size, and kept in a
+  64 MB cache. One that won't decode draws as a grey box.
+- **Faces:** the mono face is JetBrains Mono (OFL). Every face falls back to
+  Inter for symbols it lacks.
+
 ## Revision history
 
 | Date | Summary |
 |---|---|
 | 2026-10-13 | Created with the M0 foundation |
+| 2026-10-14 | Added the XHTML subset as built in M4 slice 2 |
