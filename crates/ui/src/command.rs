@@ -79,6 +79,8 @@ pub enum Command {
     SetAppearance(Appearance),
     /// The split's per-pane modes, from the appearance popover.
     SetIndependence(Independence),
+    /// The ink dial, 10 to 100 %: how dark a book's text stays.
+    SetInkContrast(f32),
     /// Keeps `look` as a preset, in a section when `group` names one.
     SavePreset {
         name: String,

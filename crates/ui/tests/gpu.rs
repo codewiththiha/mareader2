@@ -626,3 +626,46 @@ fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
     }
     Ok(())
 }
+
+/// Pixels darker than `below` in the page's middle band.
+fn dark(image: &RgbaImage, below: i32) -> usize {
+    let (w, h) = image.dimensions();
+    (h / 4..h * 7 / 8)
+        .flat_map(|y| (w / 8..w * 7 / 8).map(move |x| (x, y)))
+        .filter(|&(x, y)| luma(image, x, y) < below)
+        .count()
+}
+
+#[test]
+fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
+    let options = [
+        ("epub", "sample:3"),
+        ("view", "single"),
+        ("animations", "false"),
+    ];
+    let mut h = reader(&options);
+    // Page 0 is the cover, a picture filling the page.
+    let cover = h.render()?;
+    h.state_mut().set_option("ink", "30")?;
+    h.run();
+    let faded = h.render()?;
+    let (w, ht) = cover.dimensions();
+    for (x, y) in [(w / 2, ht / 2), (w / 2, ht / 3), (w * 3 / 7, ht * 3 / 5)] {
+        let (a, b) = (luma(&cover, x, y), luma(&faded, x, y));
+        assert!((a - b).abs() <= 2, "the cover kept its colours: {a} {b}");
+    }
+    // Chapter 1's text, at full ink and then at 30 %.
+    let pane = h.state().active_pane();
+    h.state_mut().set_option("ink", "100")?;
+    h.state_mut()
+        .queue(mareader_ui::command::Command::GoTo { pane, page: 1 });
+    h.run();
+    h.run_steps(2);
+    let full = dark(&h.render()?, 90);
+    h.state_mut().set_option("ink", "30")?;
+    h.run();
+    let light = dark(&h.render()?, 90);
+    assert!(full > 300, "{full} dark text pixels at full ink");
+    assert!(light * 20 < full, "{light} still dark at 30 %, of {full}");
+    Ok(())
+}
