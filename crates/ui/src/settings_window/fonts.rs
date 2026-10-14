@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use egui::{Button, ComboBox, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
-use mareader_settings::{FontChoice, FontFamily, SystemFont, TextSettings};
+use mareader_settings::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 
 use super::{divider, group, pending, row, section, switch_row};
 use crate::theme::Tokens;
@@ -31,12 +31,24 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             "Break long words at line ends where the book's language allows",
             &mut t.hyphenation,
         );
+        divider(ui);
+        switch_row(
+            ui,
+            "Book layout",
+            "A wider margin toward the spine, as in a bound book",
+            &mut t.book_layout,
+        );
+        divider(ui);
+        let hint = "Where the vertical stream's text sits";
+        row(ui, "Column alignment", hint, |ui| {
+            // Added right to left, so they read left to right.
+            let align = &mut t.column_align;
+            ui.selectable_value(align, ColumnAlign::Right, "Right");
+            ui.selectable_value(align, ColumnAlign::Center, "Center");
+            ui.selectable_value(align, ColumnAlign::Left, "Left");
+        });
     });
-    pending(
-        ui,
-        "Column alignment and book layout arrive with the EPUB view modes, \
-         ink contrast with selection (M4).",
-    );
+    pending(ui, "Ink contrast arrives with selection (M4).");
 }
 
 fn typeface(ui: &mut Ui, t: &mut TextSettings) {
