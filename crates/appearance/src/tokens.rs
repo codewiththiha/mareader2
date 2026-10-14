@@ -84,7 +84,11 @@ fn tinted(token: Rgb, target_h: f64, t: f64, max_c: f64) -> Rgb {
             ..want
         })
         .find(|o| o.in_gamut())
-        .unwrap_or(want)
+        // Squeezed at full lightness, chroma would leave pure white.
+        .unwrap_or(Oklch {
+            l: l - MAX_DARKEN,
+            ..want
+        })
         .to_rgb_in_gamut()
 }
 
@@ -112,6 +116,24 @@ impl Appearance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stronger_tint_never_whitens_light_paper() {
+        let mut last = 0.0;
+        for strength in [10, 20, 35, 50, 100] {
+            let a = Appearance {
+                tint_hue: 4,
+                tint_strength: strength,
+                ..Appearance::default()
+            };
+            let c = a.ui_tokens().paper.to_oklch().c;
+            assert!(
+                c > 0.005 && c >= last - 1e-3,
+                "strength {strength}: chroma {c}"
+            );
+            last = c;
+        }
+    }
 
     #[test]
     fn untinted_tokens_are_the_css_values() {
