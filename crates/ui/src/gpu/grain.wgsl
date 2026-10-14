@@ -23,7 +23,8 @@ fn layer(p: vec2<f32>) -> vec4<f32> {
     for (var c = 0u; c < 4u; c++) {
         let seed = 11u + c * 31u;
         let n = value_noise(q, 144, seed) + 0.5 * value_noise(q * 2.0, 288, seed + 7u);
-        out[c] = clamp((n + 1.0) * 0.5, 0.0, 1.0);
+        // NOISE_SPREAD in grain.rs: feTurbulence's deviation.
+        out[c] = clamp(0.5 + n * 0.25, 0.0, 1.0);
     }
     return out;
 }
