@@ -80,6 +80,8 @@ struct Style {
     graphic: bool,
     /// Inside a link, by its index in [`Refs::hrefs`].
     link: Option<u32>,
+    /// List items show no marker; inherited, as in CSS.
+    unmarked: bool,
 }
 
 impl Style {
@@ -88,6 +90,7 @@ impl Style {
         self.bold = d.bold.unwrap_or(self.bold);
         self.align = d.align.unwrap_or(self.align);
         self.hidden |= d.hidden.unwrap_or(false);
+        self.unmarked = d.unmarked.unwrap_or(self.unmarked);
     }
 
     fn emphasis(&self) -> Emphasis {
@@ -742,9 +745,6 @@ impl State<'_> {
         ) {
             self.start_table(name, tag);
         }
-        if name == "li" {
-            self.marker = Some(self.next_marker());
-        }
         if is_void(name) || tag.self_closing || self.stack.len() >= MAX_DEPTH {
             return false;
         }
@@ -755,6 +755,11 @@ impl State<'_> {
             .and_then(|s| s.trim().parse::<u32>().ok())
             .map_or(0, |s| s.saturating_sub(1));
         let mut style = self.style_for(tag, name);
+        if name == "li" {
+            // An unmarked item still counts, as CSS counters do.
+            let marker = self.next_marker();
+            self.marker = (!style.unmarked).then_some(marker);
+        }
         if let Some(href) = attr(tag, "href").filter(|_| name == "a") {
             style.link = self.link_to(href);
         }
@@ -1052,6 +1057,16 @@ mod tests {
                 (0.0, None, false),
             ]
         );
+    }
+
+    #[test]
+    fn list_style_none_drops_the_marker_but_keeps_the_count() {
+        let b = read(
+            "<ol><li>one</li><li style='list-style: none'>two</li><li>three</li></ol>\
+             <ul style='list-style-type:none'><li>bare</li></ul>",
+        );
+        let markers: Vec<Option<&str>> = b.iter().map(|b| b.frame.marker.as_deref()).collect();
+        assert_eq!(markers, [Some("1."), None, Some("3."), None]);
     }
 
     #[test]
