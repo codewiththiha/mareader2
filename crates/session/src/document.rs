@@ -4,6 +4,7 @@ use std::sync::Arc;
 use mareader_epub::Book;
 use mareader_pdf::Tiling;
 use mareader_pdf::{OutlineEntry, PageSize, Paper, Raster, RenderError, SAMPLE_SIDE, TextLayer};
+use mareader_reflow::{Anchor, Typography};
 
 use crate::OpenError;
 
@@ -23,15 +24,42 @@ impl std::fmt::Debug for Document {
 }
 
 impl Document {
-    /// Opens by content, not name: every EPUB is a zip.
-    pub fn open(bytes: Arc<Vec<u8>>) -> Result<Self, OpenError> {
+    /// Opens by content, not name: every EPUB is a zip, set in `typo`.
+    pub fn open(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
         if !mareader_epub::sniff(&bytes) {
             return Ok(Self::Pdf(mareader_pdf::Document::open(bytes)?));
         }
-        let book = Book::open(bytes)?;
+        Ok(Self::epub(Book::open(bytes, typo)?))
+    }
+
+    fn epub(book: Book) -> Self {
         let (width, height) = book.page_size();
         let sizes = vec![PageSize { width, height }; book.page_count()];
-        Ok(Self::Epub { book, sizes })
+        Self::Epub { book, sizes }
+    }
+
+    /// The same book in other type; none for a PDF or on failure.
+    pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.retypeset(typo).map(Self::epub),
+        }
+    }
+
+    /// Where a reflowable page starts, to find again in other type.
+    pub fn anchor(&self, page: usize) -> Option<Anchor> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.anchor(page),
+        }
+    }
+
+    /// The page showing `anchor`; a PDF has none.
+    pub fn locate(&self, anchor: Anchor) -> Option<usize> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => Some(book.locate(anchor)),
+        }
     }
 
     /// Whether the text reflows: the typography settings apply.

@@ -71,7 +71,9 @@ mod testing {
     /// A sample of `pages` read at `current` in pane 1.
     pub fn reading(pages: usize, current: usize) -> Result<crate::documents::Reading, String> {
         let bytes = std::sync::Arc::new(mareader_pdf::sample::pdf(pages, "Sample"));
-        let document = mareader_session::Document::open(bytes).map_err(|e| e.to_string())?;
+        let typo = mareader_session::Typography::default();
+        let document = mareader_session::Document::open(bytes, &typo);
+        let document = document.map_err(|e| e.to_string())?;
         Ok(crate::documents::Reading {
             pane: mareader_workspace::PaneId(1),
             doc: doc()?,

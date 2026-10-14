@@ -11,7 +11,7 @@ use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
     builtin_presets,
 };
-use mareader_settings::{MotionSettings, PaperArea, Settings};
+use mareader_settings::{FontChoice, MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
@@ -393,6 +393,18 @@ impl MareaderApp {
                 self.settings.layout.page_margin = value.parse().map_err(|_| "margin: points")?
             }
             "gap" => self.settings.layout.no_gap = value == "false",
+            "text_size" => {
+                self.settings.text.font_size = value.parse().map_err(|_| "text_size: px")?;
+                self.settings.text.sanitize();
+            }
+            "indent" => {
+                self.settings.text.text_indent = value.parse().map_err(|_| "indent: ems")?;
+                self.settings.text.sanitize();
+            }
+            "justify" => self.settings.text.justify = value == "true",
+            "hyphenate" => self.settings.text.hyphenation = value == "true",
+            // `system:georgia`, `bundled:inter`: the body's face.
+            "body_font" => self.settings.text.default_font = FontChoice::parse(value),
             "shadow" => self.settings.layout.page_shadow = value == "true",
             "corners" => {
                 self.settings.workspace.look.corners = match value {
@@ -859,6 +871,7 @@ impl eframe::App for MareaderApp {
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
+        self.documents.set_text(&self.settings.text);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
         keymap::read(&ctx, self.platform, &mut commands);

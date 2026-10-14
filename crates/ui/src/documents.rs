@@ -7,7 +7,7 @@ use std::sync::Arc;
 use egui::{Context, Rect, Ui};
 use mareader_appearance::Rgb;
 use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket, Want};
-use mareader_settings::PaperArea;
+use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -140,6 +140,8 @@ pub struct Documents {
     demand: Demand,
     gpu: Option<Gpu>,
     drawn: Vec<Quad>,
+    /// What books are set in, as of the last change.
+    text: TextSettings,
 }
 
 impl Default for Documents {
@@ -160,6 +162,7 @@ impl Default for Documents {
             demand: Demand::new(),
             gpu: None,
             drawn: Vec::new(),
+            text: TextSettings::default(),
         }
     }
 }
@@ -175,10 +178,24 @@ impl Documents {
     /// Created on first use, when there is a context to wake.
     fn session(&mut self, ctx: &Context) -> &mut Session {
         let workers = self.workers;
+        let text = &self.text;
         self.session.get_or_insert_with(|| {
             let ctx = ctx.clone();
-            Session::new(workers, move || ctx.request_repaint())
+            let mut session = Session::new(workers, move || ctx.request_repaint());
+            session.set_text(text);
+            session
         })
+    }
+
+    /// Open books are set again, off the UI thread, when `text` changes.
+    pub fn set_text(&mut self, text: &TextSettings) {
+        if self.text == *text {
+            return;
+        }
+        self.text = text.clone();
+        if let Some(s) = &mut self.session {
+            s.set_text(text);
+        }
     }
 
     /// Starts opening into `pane`; a refusal comes back as a note.
@@ -275,6 +292,30 @@ impl Documents {
                 },
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
+                Event::Retypeset { old, new, previous } => {
+                    let doc = session.get(new).map(|e| Arc::clone(&e.doc));
+                    let count = doc.as_ref().map_or(0, |d| d.page_count());
+                    let mut shown = false;
+                    for content in self.panes.values_mut() {
+                        let Content::Pdf(view) = content else {
+                            continue;
+                        };
+                        if view.doc != old {
+                            continue;
+                        }
+                        // Unmoved since the last re-set: the same place.
+                        let place = view.place().or_else(|| previous.anchor(view.current));
+                        let page = place.and_then(|a| doc.as_ref()?.locate(a));
+                        view.retypeset(new, page.unwrap_or(view.current), count, place);
+                        shown = true;
+                    }
+                    if !shown {
+                        session.close(new);
+                    }
+                    self.pages.forget(old);
+                    self.texts.forget(old);
+                    self.papers.forget(old);
+                }
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
                         Content::Opening {

@@ -124,6 +124,38 @@ fn a_broken_epub_says_why() {
     );
 }
 
+#[test]
+fn bigger_type_sets_an_open_book_again_at_the_page_read() {
+    let mut h = reader(&[("epub", "sample:6")]);
+    let pane = h.state().active_pane();
+    let view = mareader_ui::layout::ViewMode::Single;
+    h.state_mut().queue(Command::View(view));
+    let before = h.state().documents().page_count(pane).unwrap_or(0);
+    let read = before / 2;
+    h.state_mut().queue(Command::GoTo { pane, page: read });
+    h.run();
+    let document = |h: &Harness<'static, MareaderApp>| {
+        let reading = h.state().documents().reading(pane);
+        reading.map(|r| r.document)
+    };
+    let place = document(&h).and_then(|d| d.anchor(read));
+    assert!(place.is_some(), "an EPUB page has a place");
+    h.state_mut().set_option("text_size", "26").ok();
+    h.run();
+    let after = h.state().documents().page_count(pane).unwrap_or(0);
+    assert!(after > before, "{after} > {before}");
+    // The page read now holds the old place: it starts at or before it.
+    let current = h.state().documents().current(pane).unwrap_or(0);
+    let book = document(&h);
+    let start = book.as_ref().and_then(|d| d.anchor(current));
+    let next = book.as_ref().and_then(|d| d.anchor(current + 1));
+    assert!(start.is_some() && start <= place, "{start:?} {place:?}");
+    assert!(next.is_none() || next > place, "{next:?} {place:?}");
+    // The old book is closed, its pages with it.
+    let (docs, _) = h.state().documents().stats();
+    assert_eq!(docs, 1);
+}
+
 fn sample(pages: usize) -> OpenRequest {
     let pdf = mareader_pdf::sample::pdf(pages, "A Mareader Sample");
     OpenRequest::bytes(pdf, "sample.pdf")
