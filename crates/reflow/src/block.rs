@@ -210,7 +210,22 @@ impl Block {
     pub fn is_heading(&self) -> bool {
         matches!(&self.content, Content::Text(t) if t.role.is_heading())
     }
+
+    /// Bytes its layouts are likely to hold once set (`docs/memory.md`).
+    pub fn layout_cost(&self) -> usize {
+        let cost = |t: &Text| LAYOUT_BYTES.saturating_add(t.text.len().saturating_mul(CHAR_BYTES));
+        match &self.content {
+            Content::Text(t) => cost(t),
+            Content::Table(t) => t.rows.iter().flat_map(|r| &r.cells).map(cost).sum(),
+            Content::Rule | Content::Image { .. } => 0,
+        }
+    }
 }
+
+/// What one set paragraph or cell holds before its text, measured.
+pub const LAYOUT_BYTES: usize = 3000;
+/// What each byte of set text adds, measured.
+pub const CHAR_BYTES: usize = 48;
 
 #[cfg(test)]
 mod tests {
@@ -266,5 +281,23 @@ mod tests {
         assert!(table(vec![]).is_blank());
         assert!(!table(vec![row(" "), row("x")]).is_blank());
         assert!(!Block::new(Content::Rule).is_blank());
+    }
+
+    #[test]
+    fn each_paragraph_and_cell_costs_a_layout_plus_its_text() {
+        let para = Block::text(Role::Paragraph, "four");
+        assert_eq!(para.layout_cost(), LAYOUT_BYTES + 4 * CHAR_BYTES);
+        let cell = |s: &str| {
+            let mut t = Text::new(Role::Paragraph);
+            t.push(s, Emphasis::default());
+            t
+        };
+        let row = Row {
+            cells: vec![cell("ab"), cell("")],
+            head: false,
+        };
+        let table = Block::new(Content::Table(Table { rows: vec![row] }));
+        assert_eq!(table.layout_cost(), 2 * LAYOUT_BYTES + 2 * CHAR_BYTES);
+        assert_eq!(Block::new(Content::Rule).layout_cost(), 0);
     }
 }
