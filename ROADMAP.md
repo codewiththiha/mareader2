@@ -68,13 +68,13 @@ appearance effects to that same pass.
 | 1 | The page pass themes pages: mareader's filter chain, then multiply, screen or soft light over the paper, on the GPU; thumbnails and the glass follow | **done** | the palette's modes and presets; `theme=dark`, `preset=sepia` in shots |
 | 2 | Paper textures on pages: real paper, lined, grid, dotted, cross, with opacity and scale | **done** | the palette's Texture row; `texture=grid texture_scale=150` or `preset=parchment` in shots |
 | 3 | Blend backdrop: the pane takes the page's own paper, themed; the texture runs across pages and gutter | **done** | Settings › Theme › Paper; `pdf=scan:12 blend=true blend_area=edges` in shots |
-| 4 | Grain | next | |
-| 5 | Presets UI and the appearance menu, finished | | |
+| 4 | Film grain: off, static or animated, with intensity, over the whole window | **done** | the palette's Grain row; `grain=animated grain_intensity=60` in shots |
+| 5 | Presets UI and the appearance menu, finished | next | |
 | 6 | Independent pane themes and textures | | |
 
 ## Next
 
-1. **M3 slice 4:** grain.
+1. **M3 slice 5:** the presets UI and the appearance menu, finished.
 
 ## Open questions for the owner
 
@@ -120,3 +120,5 @@ appearance effects to that same pass.
 | 2026-10-14 | Owner request, beyond mareader: textures lie on one sheet per pane instead of starting again at every page, so grid and cross rules no longer jar where pages meet (worst with no gap) or where sizes differ. Every page and tile in a pane shares the content's corner and the layout's single zoom as its anchor, so no texture, memory or GPU work is added. Coordinates are reduced in f64 by 4680 units, the first length every pattern repeats in (rules 26, dots 8, grain tile 180, now truly tiling), so pages a million points down stay crisp. A GPU test scrolls a page seam into view with no gap and checks the rules stay evenly spaced across it |
 | 2026-10-14 | Owner request: two verification modes ([docs/verification.md](docs/verification.md)). In local mode the gates run on the machine and CI is not polled. In CI mode nothing compiles locally: `tools/ci.py watch` follows CI to a verdict (2 min green; 28 s to a red format job, with the failing step quoted). The new on-demand `Remote` workflow returns shots rendered on lavapipe (70–85 s), the browser preview (2.5 min) or a sandbox build cache. The mode is detected (RAM, cores, disk) unless `MAREADER_VERIFY` or the user says otherwise. The cache restores a reset sandbox in 3.7 min instead of a 30–35 min cold build, after which the full gates take 11 s with nothing compiled. That needed CI to keep incremental compilation on, since it is part of cargo's profile hash. CI now also runs on `<type>/<slug>` branches and lints the macOS-only modules |
 | 2026-10-14 | Owner request: make the cache build faster, and use it only when needed. A build took 13.5 min because it compiled every crate from nothing: CI's own GitHub caches sit at other paths and settings, so cargo cannot use them. It now seeds from the previous cache artifact (downloaded inside GitHub in 17 s) and restores the per-file source times recorded with it, so it compiles only what changed: 2.5 min for a commit with no Rust changes. A restore from a seeded cache still compiles nothing. `--cold` builds from nothing; artifacts are kept 30 days. The docs say when restore and build are worth their minutes |
+| 2026-10-14 | M3 slice 3, blend backdrop: each page is drawn small on a worker (96 px) and read for its dominant colour, from the whole page or its margins; the page looked at, weighted by how much of each page shows, picks the colour between known pages. It is themed through the page tone and fills every pane, and a backdrop quad carries the texture across the gutter on the pane's one sheet. Settings › Theme › Paper |
+| 2026-10-14 | M3 slice 4, film grain (mareader's `noise.css`): coloured noise at feTurbulence's 0.9 per point, tiling every 160 points, over every layer including menus and the settings window. It multiplies on light and screens on dark and dim, at the intensity as its opacity; Animated jumps the tile through mareader's eight offsets every 0.66 s, ignoring the Animations switch but stilled by the system's reduced motion and while minimised. egui only blends "over", so the grain is a wgpu pass with its own blend states; the lattice noise is shared with the paper texture in `noise.wgsl` and mirrored bit for bit by `mareader_appearance::grain`, and a GPU test compares rendered pixels with it one by one. The preset cards show grain with slice 5 |

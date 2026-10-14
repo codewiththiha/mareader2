@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
-use mareader_appearance::{Appearance, BaseMode, Rgb, TextureMode, builtin_presets};
+use mareader_appearance::{
+    Appearance, BaseMode, FilmGrain, NoiseMode, Rgb, TextureMode, builtin_presets, crawl,
+};
 use mareader_settings::{MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
@@ -17,7 +19,7 @@ use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
-use crate::gpu::{Glass, Gpu, Quad};
+use crate::gpu::{Glass, Gpu, GrainCallback, Quad};
 use crate::layout::ViewMode;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
@@ -324,6 +326,19 @@ impl MareaderApp {
                 self.queue(Command::Open(request));
             }
             "blend" => self.settings.paper.blend = value == "true",
+            "grain" => {
+                self.settings.appearance.noise = match value {
+                    "off" => NoiseMode::Off,
+                    "static" => NoiseMode::Static,
+                    "animated" => NoiseMode::Animated,
+                    _ => return Err("grain: off, static or animated".into()),
+                }
+            }
+            "grain_intensity" => {
+                let v = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
+                self.settings.appearance.noise_intensity = v;
+                self.settings.appearance.sanitize();
+            }
             "blend_area" => {
                 self.settings.paper.area = match value {
                     "whole" => PaperArea::WholePage,
@@ -593,6 +608,27 @@ impl MareaderApp {
             .flatten()
     }
 
+    /// The grain over every layer, menus and windows included, as mareader's.
+    fn film_grain(&self, ctx: &Context) {
+        let (Some(grain), Some(gpu)) = (
+            FilmGrain::of(&self.settings.appearance),
+            self.documents.gpu(),
+        ) else {
+            return;
+        };
+        // Exempt from the Animations switch; the system's wish stills it.
+        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        let mut offset = [0.0; 2];
+        if grain.animated && !motion::reduced(ctx) && !minimized {
+            let (at, wait) = crawl(ctx.input(|i| i.time));
+            ctx.request_repaint_after_secs(wait as f32);
+            offset = at;
+        }
+        let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("film-grain"));
+        let shape = GrainCallback::shape(gpu.grain.clone(), ctx.content_rect(), grain, offset);
+        ctx.layer_painter(layer).add(shape);
+    }
+
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
     fn place_lights(&self, ctx: &Context, overlay: bool) -> NativeLights {
         let bar_hosts = self.sidebar.offset().is_none() && !overlay;
@@ -766,6 +802,7 @@ impl eframe::App for MareaderApp {
         let window = self.window_context();
         self.settings_window
             .show(&ctx, &self.settings, &window, &mut commands);
+        self.film_grain(&ctx);
         // Applied after drawing, so the next frame must show the result.
         if !commands.is_empty() {
             ctx.request_repaint();

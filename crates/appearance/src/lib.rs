@@ -11,6 +11,7 @@
 
 mod color;
 mod filter;
+mod grain;
 mod model;
 mod pattern;
 mod presets;
@@ -18,6 +19,7 @@ mod tokens;
 
 pub use color::{Oklch, Rgb};
 pub use filter::{Blend, ColorMatrix, FilterOp, MAX_FILTER_OPS, PageTone, apply_filter};
+pub use grain::{CRAWL, CRAWL_SECS, FilmGrain, NOISE_FREQUENCY, NOISE_TILE, crawl, layer};
 pub use model::{Appearance, BaseMode, NoiseMode, TextureMode};
 pub use pattern::{
     DOT_PITCH, GRAIN_ALPHA, GRAIN_FREQUENCY, GRAIN_TILE, LINE_PITCH, PATTERN_PERIOD, Pattern,

@@ -197,6 +197,9 @@ pub struct PagePass {
     pub format: wgpu::TextureFormat,
 }
 
+/// Lattice noise, prepended to the shaders that grain.
+pub(super) const NOISE: &str = include_str!("noise.wgsl");
+
 /// Raster bytes per pixel; RGBA8 throughout.
 const TEXEL: u32 = 4;
 /// Per instance: a clip-space rect, then a tint.
@@ -207,7 +210,7 @@ impl PagePass {
         let linear = format!("const LINEAR: bool = {};\n", format.is_srgb());
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("page pass"),
-            source: wgpu::ShaderSource::Wgsl((linear + include_str!("page.wgsl")).into()),
+            source: wgpu::ShaderSource::Wgsl((linear + NOISE + include_str!("page.wgsl")).into()),
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("page"),
