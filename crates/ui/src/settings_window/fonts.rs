@@ -5,7 +5,7 @@ use egui::{Button, ComboBox, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
 use mareader_settings::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 
-use super::{divider, group, pending, row, section, switch_row};
+use super::{divider, group, row, section, switch_row};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -47,8 +47,12 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             ui.selectable_value(align, ColumnAlign::Center, "Center");
             ui.selectable_value(align, ColumnAlign::Left, "Left");
         });
+        divider(ui);
+        let hint = "How dark a book's text stays; its pictures keep their colours";
+        let percent = |v: f32| format!("{v:.0} %");
+        let ink = &mut t.ink_contrast;
+        stepped(ui, "Text ink", hint, ink, TextSettings::INK, 5.0, percent);
     });
-    pending(ui, "Ink contrast arrives with selection (M4).");
 }
 
 fn typeface(ui: &mut Ui, t: &mut TextSettings) {

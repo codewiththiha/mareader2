@@ -408,6 +408,10 @@ impl MareaderApp {
                 self.settings.text.text_indent = value.parse().map_err(|_| "indent: ems")?;
                 self.settings.text.sanitize();
             }
+            "ink" => {
+                self.settings.text.ink_contrast = value.parse().map_err(|_| "ink: %")?;
+                self.settings.text.sanitize();
+            }
             "justify" => self.settings.text.justify = value == "true",
             "hyphenate" => self.settings.text.hyphenation = value == "true",
             "book_layout" => self.settings.text.book_layout = value == "true",
@@ -552,6 +556,10 @@ impl MareaderApp {
                 let routing = self.routing();
                 let global = &mut self.settings.appearance;
                 self.looks.edit(self.active, global, routing, a);
+            }
+            Command::SetInkContrast(ink) => {
+                self.settings.text.ink_contrast = ink;
+                self.settings.text.sanitize();
             }
             Command::SetIndependence(i) => {
                 self.settings.workspace.independent_themes = i.themes;
@@ -994,6 +1002,8 @@ impl eframe::App for MareaderApp {
             zoom: self.documents.zoom_state(self.active),
             mode: self.documents.mode(self.active),
             backdrop: &backdrop,
+            ink: (self.documents.reflowable(self.active))
+                .then_some(self.settings.text.ink_contrast),
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
         self.lights = self.place_lights(&ctx, overlay);

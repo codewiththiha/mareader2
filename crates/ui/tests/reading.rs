@@ -573,3 +573,32 @@ fn one_file_in_two_panes_is_read_once_and_drawn_once() -> Result<(), String> {
     assert_eq!(h.state().documents().meter().documents, 1, "still read");
     Ok(())
 }
+
+fn open_appearance(h: &mut Harness<'static, MareaderApp>) {
+    h.hover_at(egui::pos2(450.0, 20.0));
+    h.run_steps(2);
+    h.get_by_label("Appearance").click();
+    h.run_steps(2);
+}
+
+#[test]
+fn a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab() {
+    let mut h = reader(&[("epub", "sample:2")]);
+    open_appearance(&mut h);
+    assert!(h.query_by_label("Text ink").is_some(), "the popover's dial");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().set_option("settings", "fonts").ok();
+    h.run_steps(3);
+    let less = "Less text ink";
+    h.get_by_role_and_label(Role::Button, less).scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::Button, less).click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings().text.ink_contrast, 95.0);
+    // A PDF's ink is its own: no dial.
+    let mut h = reader(&[("pdf", "sample:3")]);
+    open_appearance(&mut h);
+    assert!(h.query_by_label("Strength").is_some());
+    assert!(h.query_by_label("Text ink").is_none());
+}

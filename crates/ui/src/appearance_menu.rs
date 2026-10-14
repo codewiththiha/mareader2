@@ -7,6 +7,7 @@ use egui::{
 use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, Preset, TextureMode, group_presets, section_names,
 };
+use mareader_settings::TextSettings;
 
 use crate::command::{Command, Commands, Independence};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
@@ -47,6 +48,8 @@ pub struct MenuContext<'a> {
     pub user: &'a [Preset],
     /// Draws cards as real pages; without it they are flat.
     pub gpu: Option<&'a Gpu>,
+    /// The ink dial's value while a book is active; none hides it.
+    pub ink: Option<f32>,
 }
 
 /// Edits a copy and pushes one command when anything changed.
@@ -71,6 +74,9 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             mode(ui, &mut a);
             hue(ui, &mut a);
             slider(ui, "Strength", &mut a.tint_strength, 0..=100);
+            if let Some(ink) = cx.ink {
+                ink_dial(ui, ink, out);
+            }
             ui.separator();
             section(ui, "Page texture");
             widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
@@ -150,6 +156,17 @@ fn slider<N: egui::emath::Numeric>(
         ui.spacing_mut().slider_width = ui.available_width() - 56.0;
         ui.add(egui::Slider::new(value, range).suffix(" %"));
     });
+}
+
+/// mareader's text ink intensity: only a book's text takes it.
+fn ink_dial(ui: &mut Ui, ink: f32, out: &mut Commands) {
+    let (lo, hi) = TextSettings::INK;
+    let shown = ink.round().clamp(lo, hi) as u8;
+    let mut value = shown;
+    slider(ui, "Text ink", &mut value, lo as u8..=hi as u8);
+    if value != shown {
+        out.push(Command::SetInkContrast(f32::from(value)));
+    }
 }
 
 fn noise_label(n: NoiseMode) -> &'static str {

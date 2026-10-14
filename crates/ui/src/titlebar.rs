@@ -54,6 +54,8 @@ pub struct BarContext<'a> {
     pub mode: Option<ViewMode>,
     /// What shows behind the bar: glass, a tint or a solid fill.
     pub backdrop: &'a Backdrop,
+    /// The ink dial, offered while the active pane shows a book.
+    pub ink: Option<f32>,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -318,6 +320,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
                 presets: bar.presets,
                 user: bar.user_presets,
                 gpu: bar.gpu,
+                ink: bar.ink,
             };
             crate::appearance_menu::show(ui, &cx, out);
         });
