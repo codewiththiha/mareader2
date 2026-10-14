@@ -15,7 +15,7 @@ mod pool;
 mod typeset;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use document::Document;
@@ -24,6 +24,7 @@ pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
 pub use mareader_reflow::{Anchor, Band, FACES, Face, Kind, Typography, has_family};
 pub use typeset::{bundled, typography};
 
+use document::TextFile;
 use pool::{Output, Pool};
 
 /// Where a document's bytes come from; workers read paths.
@@ -181,6 +182,18 @@ impl Session {
             Source::Bytes(_) => None,
         };
         let name = file_name.or_else(|| source.file_name());
+        // Markdown and plain text are told by name; the rest by content.
+        let text = name.as_deref().and_then(|n| {
+            Some(TextFile {
+                format: mareader_epub::Format::of_name(n)?,
+                name: n.to_owned(),
+                // A dropped file arrives as bytes named by its full path.
+                folder: path
+                    .clone()
+                    .or_else(|| Some(PathBuf::from(n)).filter(|p| p.is_absolute()))
+                    .and_then(|p| p.parent().map(Path::to_path_buf)),
+            })
+        });
         let typo = Arc::clone(&self.typography);
         let opening = Opening {
             name,
@@ -188,7 +201,7 @@ impl Session {
             typo: Arc::clone(&typo),
         };
         self.opening.insert(ticket, opening);
-        self.pool.open(ticket, source, typo);
+        self.pool.open(ticket, source, typo, text);
         Ticket(ticket)
     }
 

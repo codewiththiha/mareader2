@@ -7,6 +7,7 @@ use std::thread::JoinHandle;
 use mareader_pdf::{Paper, Raster, RenderError, TextLayer};
 use mareader_reflow::Typography;
 
+use crate::document::TextFile;
 use crate::key::{DocId, PageKey, Part, Want};
 use crate::{Document, OpenError, Source};
 
@@ -21,6 +22,8 @@ pub(crate) enum Job {
         ticket: u64,
         source: Source,
         typo: Arc<Typography>,
+        /// Set when the file is text to convert first.
+        text: Option<TextFile>,
     },
     /// `doc`, open as `id`, set again in `typo`.
     Retypeset {
@@ -160,11 +163,18 @@ impl Pool {
         Self { shared, workers }
     }
 
-    pub(crate) fn open(&self, ticket: u64, source: Source, typo: Arc<Typography>) {
+    pub(crate) fn open(
+        &self,
+        ticket: u64,
+        source: Source,
+        typo: Arc<Typography>,
+        text: Option<TextFile>,
+    ) {
         self.urgent(Job::Open {
             ticket,
             source,
             typo,
+            text,
         });
     }
 
@@ -304,9 +314,13 @@ fn finish(shared: &Shared, job: Job) {
             ticket,
             source,
             typo,
+            text,
         } => Output::Opened {
             ticket,
-            result: source.read().and_then(|b| Document::open(b, &typo)),
+            result: source.read().and_then(|b| match &text {
+                Some(file) => Document::convert(&b, file, &typo),
+                None => Document::open(b, &typo),
+            }),
         },
         Job::Retypeset {
             ticket,
