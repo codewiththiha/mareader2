@@ -643,10 +643,11 @@ def mem_gib() -> float:
 def facts() -> dict:
     cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") \
         else (os.cpu_count() or 1)
-    target = os.environ.get("CARGO_TARGET_DIR") or "target"
-    if not os.path.isdir(target) and os.path.isdir("/home/user/.cache/target-mr"):
-        target = "/home/user/.cache/target-mr"
-    warm = bool(glob.glob(os.path.join(target, "debug", ".fingerprint", "mareader-ui-*")))
+    # target/ may hold only downloaded shots; the sandbox builds elsewhere.
+    targets = [os.environ.get("CARGO_TARGET_DIR") or "", "target",
+               "/home/user/.cache/target-mr"]
+    warm = any(glob.glob(os.path.join(t, "debug", ".fingerprint", "mareader-ui-*"))
+               for t in targets if t)
     cargo = bool(shutil.which("cargo")) or os.path.exists("/home/user/.cache/env.sh")
     free = shutil.disk_usage(".").free / (1 << 30)
     return {"cores": cores, "ram_gib": round(mem_gib(), 1), "warm": warm,
