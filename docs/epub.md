@@ -155,6 +155,28 @@ What the epub crate reads, and what each element becomes:
   stream as on the paged modes' pages.
 - **Settings.** Book layout and column alignment sit in Settings › Fonts.
 
+## Navigation as built (M4 slice 5)
+
+- **Places.** A place is a block and a byte offset, never a page, so it
+  outlives any re-pagination. Every element `id` (and old `<a name>`)
+  marks one: mid-paragraph at its offset, otherwise at the next block.
+  Each chapter file marks its first block.
+- **Contents.** The EPUB 3 nav, else the EPUB 2 NCX, flattened with
+  depth (capped at 20 000 entries and 5 levels deep). An entry whose
+  target never resolves is dropped. A book that lists nothing gets its
+  headings, all six levels, as mareader outlines its Markdown. Pages are
+  worked out again from the places on every re-set, and the outline panel
+  marks the active entry as it does for a PDF.
+- **Links.** Linked words are underlined in the ink they're set in, not
+  mareader's accent: pages are drawn in greys and themed afterwards.
+  Each line a link crosses gets its own hit box, read from parley. Links
+  inside the book open on the page holding their place; others go through
+  the PDF path's scheme check, so `javascript:` and `file:` do nothing.
+- **Streams.** A sheet is hit-tested only where its band shows, so a link
+  near a band edge isn't taken by the neighbouring page's hidden part.
+- **Resume.** A book read at exit saves its place with its page; the next
+  launch opens on the page holding that place, even in other type.
+
 ## Revision history
 
 | Date | Summary |
@@ -163,3 +185,4 @@ What the epub crate reads, and what each element becomes:
 | 2026-10-14 | Added the XHTML subset as built in M4 slice 2 |
 | 2026-10-14 | Added typography as built in M4 slice 3 |
 | 2026-10-14 | Added view modes as built in M4 slice 4 |
+| 2026-10-14 | Added navigation as built in M4 slice 5 |
