@@ -868,10 +868,17 @@ title = "Five classic presets; saved presets in named groups; Custom after a nud
 area = "F"
 tier = "P0"
 milestone = "M3"
-status = "partial"
-evidence = ["crates/appearance/src/presets.rs::five_classics_with_unique_ids"]
-reference = ["crates/reader-core/src/appearance/presets.rs"]
-notes = "The classics exist as data; no menu or user presets yet"
+status = "shipped"
+evidence = [
+  "crates/appearance/src/presets.rs::five_classics_with_unique_ids",
+  "crates/appearance/src/presets.rs::sections_keep_first_seen_order_and_collect_the_unsectioned",
+  "crates/appearance/src/presets.rs::ids_are_slugs_numbered_past_taken_ones",
+  "crates/settings/src/lib.rs::presets_save_trimmed_and_delete_by_id",
+  "crates/ui/tests/shell.rs::saving_the_look_adds_a_preset_that_is_picked",
+  "crates/ui/tests/shell.rs::a_user_preset_shows_in_its_section_and_deletes_from_its_card",
+]
+reference = ["crates/reader-core/src/appearance/presets.rs", "crates/app-ui/src/components/menus/appearance_menu/presets"]
+notes = "Presets saved without a section show under Custom"
 
 [[feature]]
 id = "appearance.menu"
@@ -880,9 +887,14 @@ area = "F"
 tier = "P0"
 milestone = "M1"
 status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar", "crates/ui/tests/shell.rs::a_preset_swatch_applies_its_look"]
-reference = ["crates/app-ui/src/components/menus/appearance_menu"]
-notes = "Presets, mode, hue strip, strength, texture and grain controls work; saved presets, per-pane looks and text ink are still to come"
+evidence = [
+  "crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar",
+  "crates/ui/tests/shell.rs::a_preset_swatch_applies_its_look",
+  "crates/ui/tests/shell.rs::a_hue_landmark_tints_at_a_gentle_strength",
+  "crates/ui/tests/gpu.rs::preset_cards_carry_their_own_texture_and_grain",
+]
+reference = ["crates/app-ui/src/components/menus/appearance_menu", "styles/components/appearance.css"]
+notes = "Finished but for per-pane looks (M3 slice 6) and the text ink dial, which comes with EPUB"
 
 [[feature]]
 id = "appearance.instant"

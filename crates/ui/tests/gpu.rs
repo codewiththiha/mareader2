@@ -1,6 +1,7 @@
 //! The page pass and the glass, rendered by a real wgpu device.
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable as _;
 use image::RgbaImage;
 use mareader_appearance::FilmGrain;
 use mareader_ui::MareaderApp;
@@ -380,5 +381,43 @@ fn film_grain_multiplies_light_and_screens_dark_as_the_reference() -> Out {
             .all(|y| (x0..x0 + 40).all(|x| off.get_pixel(x, y) == plain.get_pixel(x, y)));
         assert!(same, "{theme}: grain off leaves the paper untouched");
     }
+    Ok(())
+}
+
+/// How much the green channel varies over a card's plain paper.
+fn card_spread(image: &RgbaImage, card: egui::Rect, ppp: f32) -> f64 {
+    // Left of the lines, clear of the corner dot.
+    let w = card.width();
+    let x = (card.left() + w * 0.05) * ppp..(card.left() + w * 0.16) * ppp;
+    let y = (card.top() + w * 0.2) * ppp..(card.top() + w * 0.55) * ppp;
+    let mut values = Vec::new();
+    for py in y.start as u32..y.end as u32 {
+        for px in x.start as u32..x.end as u32 {
+            values.push(f64::from(image.get_pixel(px, py).0[1]));
+        }
+    }
+    let n = values.len().max(1) as f64;
+    let avg = values.iter().sum::<f64>() / n;
+    (values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt()
+}
+
+#[test]
+fn preset_cards_carry_their_own_texture_and_grain() -> Out {
+    let loud = [
+        ("texture", "grid"),
+        ("grain", "static"),
+        ("grain_intensity", "100"),
+        ("save_preset", "Loud"),
+        ("preset", "sepia"),
+        ("open", "appearance"),
+    ];
+    let mut h = reader(&loud);
+    h.run_steps(4);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let loud = card_spread(&image, h.get_by_label("Loud").rect(), ppp);
+    let plain = card_spread(&image, h.get_by_label("Sepia").rect(), ppp);
+    assert!(plain < 1.5, "Sepia's card is flat paper: {plain}");
+    assert!(loud > 4.0, "Loud's card shows its grain: {loud}");
     Ok(())
 }

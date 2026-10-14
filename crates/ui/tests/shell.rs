@@ -1,7 +1,7 @@
 //! The whole app, headless: title bar, pin, panes and restyling.
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_ui::MareaderApp;
 
 fn harness(app: MareaderApp) -> Harness<'static, MareaderApp> {
@@ -605,4 +605,70 @@ fn the_floating_rail_slides_in_solid_not_fading() {
             .unwrap_or([r, g, b, 255])
     };
     assert_eq!([r, g, b], settled[..3], "same colour mid-slide as at rest");
+}
+
+#[test]
+fn saving_the_look_adds_a_preset_that_is_picked() {
+    let mut h = with(&[("preset", "sepia")]);
+    open_appearance(&mut h);
+    h.get_by_label("Save current look").click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("Night owl".into()));
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    let s = h.state().settings();
+    let saved = s
+        .user_presets
+        .first()
+        .map(|p| (p.name.as_str(), p.appearance));
+    assert_eq!(saved, Some(("Night owl", s.appearance)));
+    // It lands under Custom, and as the look in use it is the picked one.
+    h.get_by_label("CUSTOM");
+    let picked = h.get_by_label("Night owl").accesskit_node().toggled();
+    assert_eq!(picked, Some(egui::accesskit::Toggled::True));
+    assert!(
+        h.query_by_label("Save current look").is_some(),
+        "the form closed"
+    );
+}
+
+#[test]
+fn a_user_preset_shows_in_its_section_and_deletes_from_its_card() {
+    let mut h = with(&[("save_preset", "Owl/Evening")]);
+    open_appearance(&mut h);
+    h.get_by_label("EVENING");
+    assert!(h.query_by_label("Delete Sepia").is_none(), "built-ins stay");
+    h.get_by_label("Owl").hover();
+    h.run_steps(2);
+    h.get_by_label("Delete Owl").click();
+    h.run_steps(2);
+    assert!(h.state().settings().user_presets.is_empty());
+    assert!(h.query_by_label("Owl").is_none());
+}
+
+#[test]
+fn a_hue_landmark_tints_at_a_gentle_strength() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    h.get_by_label("Rose hue").click();
+    h.run_steps(2);
+    let a = h.state().settings().appearance;
+    assert_eq!((a.tint_hue, a.tint_strength), (14, 18));
+}
+
+#[test]
+fn the_appearance_popover_grows_to_its_cap_then_scrolls() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    h.run_steps(4);
+    let id = egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER);
+    let rect = h
+        .ctx
+        .memory(|m| m.area_rect(id))
+        .unwrap_or(egui::Rect::NOTHING);
+    // 70 % of 800 points is past the 512 cap; the frame adds a margin.
+    let cap = mareader_ui::appearance_menu::MAX_HEIGHT;
+    assert!(rect.height() >= cap, "{} tall", rect.height());
+    assert!(rect.height() < cap + 40.0, "{} tall", rect.height());
 }

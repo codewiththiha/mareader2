@@ -1,13 +1,25 @@
-//! Film grain: one triangle over the window, multiplied or screened.
+//! Film grain: one triangle, multiplied or screened, masked to an area.
 
 use std::sync::{Arc, OnceLock};
 
 use eframe::egui_wgpu::{self, CallbackResources, ScreenDescriptor, wgpu};
 use egui::Rect;
-use mareader_appearance::FilmGrain;
+use mareader_appearance::{FilmGrain, crawl};
 use wgpu::util::DeviceExt as _;
 
 use super::page_pass::NOISE;
+
+/// Where the crawl stands; still for static grain or reduced motion.
+pub fn crawl_offset(ctx: &egui::Context, grain: FilmGrain) -> [f32; 2] {
+    // Exempt from the Animations switch, as mareader's; hidden, it rests.
+    let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+    if !grain.animated || crate::motion::reduced(ctx) || minimized {
+        return [0.0; 2];
+    }
+    let (offset, wait) = crawl(ctx.input(|i| i.time));
+    ctx.request_repaint_after_secs(wait as f32);
+    offset
+}
 
 /// The grain's two pipelines: they differ only in how they blend.
 #[derive(Debug)]
@@ -18,7 +30,10 @@ pub struct GrainPass {
 }
 
 /// Bytes of the shader's `Grain` uniform.
-const UNIFORM_BYTES: u64 = 16;
+const UNIFORM_BYTES: u64 = 48;
+
+/// A preset card's grain tile, 40 points to the window's 160, as mareader's.
+const CARD_SCALE: f32 = 4.0;
 
 impl GrainPass {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
@@ -92,19 +107,42 @@ impl GrainPass {
     }
 }
 
-/// This frame's grain, drawn over everything painted before it.
+/// Grain over everything painted before it, inside a rounded area.
 pub struct GrainCallback {
     pass: Arc<GrainPass>,
     grain: FilmGrain,
+    /// The crawl's, in points.
     offset: [f32; 2],
+    area: Rect,
+    radius: f32,
+    scale: f32,
     group: OnceLock<wgpu::BindGroup>,
 }
 
 impl GrainCallback {
-    /// Grains `screen`; `offset` is the crawl's, in points.
-    pub fn shape(
+    /// Grains the whole `screen`.
+    pub fn window(
         pass: Arc<GrainPass>,
         screen: Rect,
+        grain: FilmGrain,
+        offset: [f32; 2],
+    ) -> egui::Shape {
+        Self::shape(pass, (screen, 0.0, 1.0), grain, offset)
+    }
+
+    /// Grains a preset card, finer, inside its round corners.
+    pub fn card(
+        pass: Arc<GrainPass>,
+        (card, radius): (Rect, f32),
+        grain: FilmGrain,
+        offset: [f32; 2],
+    ) -> egui::Shape {
+        Self::shape(pass, (card, radius, CARD_SCALE), grain, offset)
+    }
+
+    fn shape(
+        pass: Arc<GrainPass>,
+        (area, radius, scale): (Rect, f32, f32),
         grain: FilmGrain,
         offset: [f32; 2],
     ) -> egui::Shape {
@@ -112,9 +150,12 @@ impl GrainCallback {
             pass,
             grain,
             offset,
+            area,
+            radius,
+            scale,
             group: OnceLock::new(),
         };
-        egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(screen, callback))
+        egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(area, callback))
     }
 }
 
@@ -128,7 +169,21 @@ impl egui_wgpu::CallbackTrait for GrainCallback {
         _resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let [x, y] = self.offset;
-        let floats = [x, y, self.grain.opacity, screen.pixels_per_point];
+        let a = self.area;
+        let floats = [
+            x,
+            y,
+            self.grain.opacity,
+            screen.pixels_per_point,
+            a.min.x,
+            a.min.y,
+            a.max.x,
+            a.max.y,
+            self.radius,
+            self.scale,
+            0.0,
+            0.0,
+        ];
         let bytes: Vec<u8> = floats.iter().flat_map(|f| f.to_ne_bytes()).collect();
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("film grain"),

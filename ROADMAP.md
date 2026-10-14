@@ -69,12 +69,12 @@ appearance effects to that same pass.
 | 2 | Paper textures on pages: real paper, lined, grid, dotted, cross, with opacity and scale | **done** | the palette's Texture row; `texture=grid texture_scale=150` or `preset=parchment` in shots |
 | 3 | Blend backdrop: the pane takes the page's own paper, themed; the texture runs across pages and gutter | **done** | Settings › Theme › Paper; `pdf=scan:12 blend=true blend_area=edges` in shots |
 | 4 | Film grain: off, static or animated, with intensity, over the whole window | **done** | the palette's Grain row; `grain=static grain_intensity=60` in shots |
-| 5 | Presets UI and the appearance menu, finished | next | |
-| 6 | Independent pane themes and textures | | |
+| 5 | Presets UI and the appearance menu, finished | **done** | the palette: save the current look, hover a saved card to delete it; `save_preset=Owl/Evening open=appearance` in shots |
+| 6 | Independent pane themes and textures | next | |
 
 ## Next
 
-1. **M3 slice 5:** the presets UI and the appearance menu, finished.
+1. **M3 slice 6:** independent pane themes and textures.
 
 ## Open questions for the owner
 
@@ -122,3 +122,4 @@ appearance effects to that same pass.
 | 2026-10-14 | Owner request: make the cache build faster, and use it only when needed. A build took 13.5 min because it compiled every crate from nothing: CI's own GitHub caches sit at other paths and settings, so cargo cannot use them. It now seeds from the previous cache artifact (downloaded inside GitHub in 17 s) and restores the per-file source times recorded with it, so it compiles only what changed: 2.5 min for a commit with no Rust changes. A restore from a seeded cache still compiles nothing. `--cold` builds from nothing; artifacts are kept 30 days. The docs say when restore and build are worth their minutes |
 | 2026-10-14 | M3 slice 3, blend backdrop: each page is drawn small on a worker (96 px) and read for its dominant colour, from the whole page or its margins; the page looked at, weighted by how much of each page shows, picks the colour between known pages. It is themed through the page tone and fills every pane, and a backdrop quad carries the texture across the gutter on the pane's one sheet. Settings › Theme › Paper |
 | 2026-10-14 | M3 slice 4, film grain (mareader's `noise.css`): coloured noise at feTurbulence's 0.9 per point and its spread (σ 0.117, measured against a port of the spec's algorithm), tiling every 160 points, over every layer including menus and the settings window. It multiplies on light and screens on dark and dim, at the intensity as its opacity; Animated jumps the tile through mareader's eight offsets every 0.66 s, ignoring the Animations switch but stilled by the system's reduced motion and while minimised. egui only blends "over", so the grain is a wgpu pass with its own blend states; the lattice noise is shared with the paper texture in `noise.wgsl` and mirrored bit for bit by `mareader_appearance::grain`, and a GPU test compares rendered pixels with it one by one. The preset cards show grain with slice 5 |
+| 2026-10-14 | M3 slice 5, the appearance menu finished, as mareader's popover: presets in sections (Classic, then the user's, unsectioned ones under Custom); Save current look with a name and an optional section, offering the sections in use; a hover × deletes the user's own. Cards are real small pages: the page pass draws their paper with the preset's texture at mareader's 0.34 scale, and the grain pass, given a rounded mask and a tile scale, grains them four times finer, crawling when Animated. The hue reads out in degrees with mareader's seven landmarks; texture and grain sliders stay in place but inert while off; grain switched on at 0 % starts at 25 %; the popover scrolls past min(70 % of the window, 512 points) |
