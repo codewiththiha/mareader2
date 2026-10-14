@@ -4,7 +4,7 @@ use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use mareader_reflow::{Block, Content, Flow, Fonts, Picture, Pixels, Region, Typography};
+use mareader_reflow::{Anchor, Block, Content, Flow, Fonts, Picture, Pixels, Region, Typography};
 use rbook::Epub;
 
 use crate::css::{MAX_SHEET, Stylesheet};
@@ -64,8 +64,12 @@ impl Library for Shelf<'_> {
 
 /// An open book. `Send + Sync`: workers share one through an `Arc`.
 pub struct Book {
+    /// What the chapters say, kept to set again in other type.
+    blocks: Arc<Vec<Block>>,
     flow: Flow,
     title: Option<String>,
+    /// The `dc:language` tag, for hyphenation.
+    language: Option<String>,
 }
 
 impl std::fmt::Debug for Book {
@@ -75,12 +79,27 @@ impl std::fmt::Debug for Book {
 }
 
 impl Book {
-    /// Reads and lays out every chapter; never panics.
-    pub fn open(bytes: Arc<Vec<u8>>) -> Result<Self, OpenError> {
-        catch_unwind(AssertUnwindSafe(|| Self::parse(bytes))).unwrap_or(Err(OpenError::Invalid))
+    /// Reads and lays out every chapter in `typo`; never panics.
+    pub fn open(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
+        let parse = || Self::parse(bytes, typo);
+        catch_unwind(AssertUnwindSafe(parse)).unwrap_or(Err(OpenError::Invalid))
     }
 
-    fn parse(bytes: Arc<Vec<u8>>) -> Result<Self, OpenError> {
+    /// The same book set in `typo`; its pictures stay decoded.
+    pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
+        let set = || {
+            let flow = set(&self.blocks, typo, self.language.as_deref());
+            Self {
+                blocks: Arc::clone(&self.blocks),
+                flow: flow.keep_pictures(&self.flow),
+                title: self.title.clone(),
+                language: self.language.clone(),
+            }
+        };
+        catch_unwind(AssertUnwindSafe(set)).ok()
+    }
+
+    fn parse(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
         guard::check(&bytes)?;
         let epub = Epub::read(Cursor::new(Shared(bytes))).map_err(|_| OpenError::Invalid)?;
         let title = epub
@@ -88,6 +107,11 @@ impl Book {
             .title()
             .map(|t| t.value().trim().to_owned())
             .filter(|t| !t.is_empty());
+        let language = epub
+            .metadata()
+            .language()
+            .map(|l| l.value().trim().to_owned())
+            .filter(|l| !l.is_empty());
         let mut shelf = Shelf {
             epub: &epub,
             pictures: HashMap::new(),
@@ -119,8 +143,13 @@ impl Book {
         if blocks.is_empty() {
             return Err(OpenError::Empty);
         }
-        let flow = Flow::new(&blocks, &Typography::default(), &mut Fonts::bundled());
-        Ok(Self { flow, title })
+        let flow = set(&blocks, typo, language.as_deref());
+        Ok(Self {
+            blocks: Arc::new(blocks),
+            flow,
+            title,
+            language,
+        })
     }
 
     pub fn page_count(&self) -> usize {
@@ -137,9 +166,34 @@ impl Book {
         self.title.as_deref()
     }
 
+    /// Where page `page` starts, to find again after re-setting.
+    pub fn anchor(&self, page: usize) -> Option<Anchor> {
+        self.flow.anchor(page)
+    }
+
+    /// The page showing `anchor`, or the first after it.
+    pub fn locate(&self, anchor: Anchor) -> usize {
+        self.flow.locate(anchor)
+    }
+
     /// `region` of page `page` at `scale` pixels per unit.
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
+    }
+}
+
+/// Lays the blocks out; the book's language beats the default.
+fn set(blocks: &[Block], typo: &Typography, language: Option<&str>) -> Flow {
+    let mut fonts = Fonts::system();
+    match language {
+        Some(tag) if *tag != typo.language => {
+            let typo = Typography {
+                language: tag.to_owned(),
+                ..typo.clone()
+            };
+            Flow::new(blocks, &typo, &mut fonts)
+        }
+        _ => Flow::new(blocks, typo, &mut fonts),
     }
 }
 
@@ -170,7 +224,7 @@ mod tests {
 
     #[test]
     fn the_sample_opens_with_its_title_and_chapters() {
-        let book = Book::open(Arc::new(sample::epub(3, "Sample")));
+        let book = Book::open(Arc::new(sample::epub(3, "Sample")), &Typography::default());
         let book = book.as_ref().ok();
         assert_eq!(book.and_then(Book::title), Some("Sample"));
         // A cover, then chapters that each start a page and fill more.
@@ -180,21 +234,21 @@ mod tests {
     #[test]
     fn junk_is_refused() {
         assert_eq!(
-            Book::open(Arc::new(b"not a zip".to_vec())).err(),
+            Book::open(Arc::new(b"not a zip".to_vec()), &Typography::default()).err(),
             Some(OpenError::Invalid)
         );
     }
 
     #[test]
     fn a_page_draws() {
-        let book = Book::open(Arc::new(sample::epub(1, "S"))).ok();
+        let book = Book::open(Arc::new(sample::epub(1, "S")), &Typography::default()).ok();
         let px = book.and_then(|b| b.render(1, 0.25, [0, 0, 198, 280]));
         assert_eq!(px.map(|p| p.rgba.len()), Some(198 * 280 * 4));
     }
 
     #[test]
     fn the_cover_comes_first_and_draws_in_colour() {
-        let book = Book::open(Arc::new(sample::epub(1, "S"))).ok();
+        let book = Book::open(Arc::new(sample::epub(1, "S")), &Typography::default()).ok();
         let px = book.and_then(|b| b.render(0, 0.25, [0, 0, 198, 280]));
         let (pixels, _) = px
             .as_ref()
@@ -205,6 +259,30 @@ mod tests {
             .filter(|[r, g, b, _]| r.max(g).max(b) - r.min(g).min(b) > 60)
             .count();
         assert!(colourful > 5_000, "{colourful}");
+    }
+
+    #[test]
+    fn a_retypeset_book_keeps_its_place_in_bigger_type() {
+        let book = Book::open(Arc::new(sample::epub(4, "S")), &Typography::default()).ok();
+        let big = Typography {
+            font_size: 26.0,
+            ..Typography::default()
+        };
+        let bigger = book.as_ref().and_then(|b| b.retypeset(&big));
+        assert!(
+            book.is_some() && bigger.is_some(),
+            "sample opens and re-sets"
+        );
+        let (Some(book), Some(bigger)) = (book, bigger) else {
+            return;
+        };
+        assert!(bigger.page_count() > book.page_count());
+        assert_eq!(bigger.title(), book.title());
+        let page = book.page_count() / 2;
+        let anchor = book.anchor(page);
+        let found = anchor.map(|a| bigger.locate(a));
+        let start = found.and_then(|p| bigger.anchor(p));
+        assert!(start.is_some() && start <= anchor, "{start:?} {anchor:?}");
     }
 
     #[test]

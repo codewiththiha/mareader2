@@ -12,4 +12,6 @@ workspace = true
 [dependencies]
 mareader-epub = { workspace = true }
 mareader-pdf = { workspace = true }
+mareader-reflow = { workspace = true }
+mareader-settings = { workspace = true }
 thiserror = { workspace = true }

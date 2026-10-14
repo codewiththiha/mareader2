@@ -5,6 +5,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
 use mareader_pdf::{Paper, Raster, RenderError, TextLayer};
+use mareader_reflow::Typography;
 
 use crate::key::{DocId, PageKey, Part, Want};
 use crate::{Document, OpenError, Source};
@@ -16,14 +17,41 @@ const DONE_BYTES: usize = 32 << 20;
 pub(crate) type Wake = Arc<dyn Fn() + Send + Sync>;
 
 pub(crate) enum Job {
-    Open { ticket: u64, source: Source },
-    Work { want: Want, doc: Arc<Document> },
+    Open {
+        ticket: u64,
+        source: Source,
+        typo: Arc<Typography>,
+    },
+    /// `doc`, open as `id`, set again in `typo`.
+    Retypeset {
+        ticket: u64,
+        id: DocId,
+        doc: Arc<Document>,
+        typo: Arc<Typography>,
+    },
+    Work {
+        want: Want,
+        doc: Arc<Document>,
+    },
+}
+
+impl Job {
+    /// Opens and re-sets jump the queue and its backlog limit.
+    fn urgent(&self) -> bool {
+        matches!(self, Self::Open { .. } | Self::Retypeset { .. })
+    }
 }
 
 pub(crate) enum Output {
     Opened {
         ticket: u64,
         result: Result<Document, OpenError>,
+    },
+    /// None when the book wouldn't set; the old one stays.
+    Retypeset {
+        ticket: u64,
+        id: DocId,
+        result: Option<Document>,
     },
     Rendered {
         key: PageKey,
@@ -62,7 +90,7 @@ impl Output {
                 doc: *doc,
                 page: *page,
             }),
-            Self::Opened { .. } => None,
+            Self::Opened { .. } | Self::Retypeset { .. } => None,
         }
     }
 }
@@ -84,8 +112,8 @@ impl State {
 
     /// The next job a worker may take: opens always, the rest if room.
     fn next(&mut self) -> Option<Job> {
-        let open = matches!(self.queue.front(), Some(Job::Open { .. }));
-        if open || !self.full() {
+        let urgent = self.queue.front().is_some_and(Job::urgent);
+        if urgent || !self.full() {
             self.queue.pop_front()
         } else {
             None
@@ -132,12 +160,42 @@ impl Pool {
         Self { shared, workers }
     }
 
-    pub(crate) fn open(&self, ticket: u64, source: Source) {
+    pub(crate) fn open(&self, ticket: u64, source: Source, typo: Arc<Typography>) {
+        self.urgent(Job::Open {
+            ticket,
+            source,
+            typo,
+        });
+    }
+
+    /// Replaces any re-set of `id` still queued.
+    pub(crate) fn retypeset(
+        &self,
+        ticket: u64,
+        id: DocId,
+        doc: Arc<Document>,
+        typo: Arc<Typography>,
+    ) {
         let mut s = self.shared.lock();
-        // Opening outranks drawing: the reader is waiting on it.
-        s.queue.push_front(Job::Open { ticket, source });
+        let same = |j: &Job| matches!(j, Job::Retypeset { id: queued, .. } if *queued == id);
+        s.queue.retain(|j| !same(j));
         drop(s);
-        self.shared.work.notify_one();
+        self.urgent(Job::Retypeset {
+            ticket,
+            id,
+            doc,
+            typo,
+        });
+    }
+
+    /// Opening and re-setting outrank drawing: the reader is waiting.
+    fn urgent(&self, job: Job) {
+        self.shared.lock().queue.push_front(job);
+        if self.workers.is_empty() {
+            (self.shared.wake)();
+        } else {
+            self.shared.work.notify_one();
+        }
     }
 
     /// Replaces the demand; `jobs` come most urgent first.
@@ -145,7 +203,7 @@ impl Pool {
         let mut s = self.shared.lock();
         let s = &mut *s;
         s.wanted = jobs.iter().map(|(k, _)| *k).collect();
-        s.queue.retain(|j| matches!(j, Job::Open { .. }));
+        s.queue.retain(Job::urgent);
         s.done
             .retain(|o| o.want().is_none_or(|w| s.wanted.contains(&w)));
         s.done_bytes = s.done.iter().map(Output::bytes).sum();
@@ -242,9 +300,23 @@ fn work(shared: &Shared) {
 
 fn finish(shared: &Shared, job: Job) {
     let out = match job {
-        Job::Open { ticket, source } => Output::Opened {
+        Job::Open {
             ticket,
-            result: source.read().and_then(Document::open),
+            source,
+            typo,
+        } => Output::Opened {
+            ticket,
+            result: source.read().and_then(|b| Document::open(b, &typo)),
+        },
+        Job::Retypeset {
+            ticket,
+            id,
+            doc,
+            typo,
+        } => Output::Retypeset {
+            ticket,
+            id,
+            result: doc.retypeset(&typo),
         },
         Job::Work {
             want: Want::Raster(key),
