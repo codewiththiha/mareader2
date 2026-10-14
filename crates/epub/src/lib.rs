@@ -16,10 +16,10 @@ mod href;
 pub mod sample;
 mod xhtml;
 
-pub use book::{Book, MAX_MARKUP, MAX_PICTURE_BYTES};
+pub use book::{Book, Destination, Link, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry};
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_TOTAL};
-pub use xhtml::MAX_DEPTH;
+pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OpenError {

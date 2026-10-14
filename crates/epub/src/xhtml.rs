@@ -1,5 +1,6 @@
 //! Chapter XHTML to blocks: html5ever's tokenizer, our element stack, no DOM.
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use html5ever::tendril::StrTendril;
@@ -7,7 +8,9 @@ use html5ever::tokenizer::states::RawKind;
 use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
-use mareader_reflow::{Align, Block, Content, Emphasis, Frame, Picture, Role, Row, Table, Text};
+use mareader_reflow::{
+    Align, Anchor, Block, Content, Emphasis, Frame, Picture, Role, Row, Table, Text,
+};
 
 use crate::css::{self, Decl, MAX_SHEET, Stylesheet};
 use crate::href;
@@ -21,6 +24,38 @@ const MAX_CLASSES: usize = 16;
 const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
 const TAB: &str = "    ";
+/// Ids and links kept per book; past these, the rest are ignored.
+pub const MAX_PLACES: usize = 1 << 20;
+pub const MAX_LINKS: usize = 1 << 20;
+
+/// Where a link leads, as its chapter wrote it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Href {
+    /// `path` or `path#id` in the archive, both decoded.
+    Inside(String),
+    /// Anything with a scheme, checked only when followed.
+    Outside(String),
+}
+
+/// The places a book's ids mark and its links' destinations.
+#[derive(Debug, Default)]
+pub(crate) struct Refs {
+    /// `path` and `path#id` to where each starts.
+    pub(crate) places: HashMap<String, Anchor>,
+    /// Indexed by the target a link's text carries.
+    pub(crate) hrefs: Vec<Href>,
+}
+
+impl Refs {
+    /// The place `key` marks, else the start of its file.
+    pub(crate) fn place(&self, key: &str) -> Option<Anchor> {
+        let file = key.split('#').next().unwrap_or_default();
+        self.places
+            .get(key)
+            .or_else(|| self.places.get(file))
+            .copied()
+    }
+}
 
 /// Where a chapter's images and stylesheets come from.
 pub(crate) trait Library {
@@ -41,6 +76,8 @@ struct Style {
     hidden: bool,
     /// Inside SVG or MathML: no text, though SVG images still show.
     graphic: bool,
+    /// Inside a link, by its index in [`Refs::hrefs`].
+    link: Option<u32>,
 }
 
 impl Style {
@@ -183,6 +220,11 @@ impl TableBuild {
 
 struct State<'a> {
     library: &'a mut dyn Library,
+    refs: &'a mut Refs,
+    /// The book's index of this chapter's first block.
+    first: usize,
+    /// Ids waiting for the next block, which they mark.
+    pending: Vec<String>,
     /// The chapter's own path, for resolving its links.
     base: &'a str,
     sheets: Vec<Arc<Stylesheet>>,
@@ -245,7 +287,60 @@ impl State<'_> {
 
     fn emit(&mut self, mut block: Block) {
         block.break_before = std::mem::take(&mut self.chapter);
+        let at = Anchor {
+            block: self.first + self.blocks.len(),
+            offset: 0,
+        };
+        for key in self.pending.drain(..) {
+            self.refs.places.entry(key).or_insert(at);
+        }
         self.blocks.push(block);
+    }
+
+    /// Notes where `id` is: mid-paragraph, or the next block.
+    fn mark(&mut self, id: &str) {
+        let id = id.trim();
+        if id.is_empty() || self.refs.places.len() + self.pending.len() >= MAX_PLACES {
+            return;
+        }
+        let key = format!("{}#{id}", self.base);
+        let written = match self.current.as_ref().map(|b| &b.content) {
+            Some(Content::Text(t)) if self.table.is_none() => t.text.len(),
+            _ => 0,
+        };
+        if written == 0 {
+            return self.pending.push(key);
+        }
+        let at = Anchor {
+            block: self.first + self.blocks.len(),
+            offset: written,
+        };
+        self.refs.places.entry(key).or_insert(at);
+    }
+
+    /// `href`'s index in [`Refs::hrefs`], resolved from this chapter.
+    fn link_to(&mut self, href: &str) -> Option<u32> {
+        let href = href.trim();
+        let fragment = href.split_once('#').map(|(_, f)| href::percent_decode(f));
+        let fragment = fragment.filter(|f| !f.is_empty());
+        let target = if let (true, Some(f)) = (href.starts_with('#'), &fragment) {
+            Href::Inside(format!("{}#{f}", self.base))
+        } else if let Some(path) = href::resolve(self.base, href) {
+            match fragment {
+                Some(f) => Href::Inside(format!("{path}#{f}")),
+                None => Href::Inside(path),
+            }
+        } else if href.contains(':') {
+            Href::Outside(href.to_owned())
+        } else {
+            return None;
+        };
+        if self.refs.hrefs.len() >= MAX_LINKS {
+            return None;
+        }
+        let index = u32::try_from(self.refs.hrefs.len()).ok()?;
+        self.refs.hrefs.push(target);
+        Some(index)
     }
 
     fn finish(&mut self) {
@@ -296,7 +391,7 @@ impl State<'_> {
                 text.remove(0);
             }
             if let Some(t) = self.target() {
-                t.push(&text, emphasis);
+                put(t, &text, emphasis, style.link);
             }
             return;
         }
@@ -321,7 +416,7 @@ impl State<'_> {
             }
             text.push(c);
         }
-        target.push(&text, emphasis);
+        put(target, &text, emphasis, style.link);
         self.space = space;
     }
 
@@ -593,6 +688,10 @@ impl State<'_> {
     fn start(&mut self, tag: &Tag) -> bool {
         let name: &str = &tag.name;
         self.close_implied(name);
+        let id = attr(tag, "id").or_else(|| attr(tag, "name").filter(|_| name == "a"));
+        if let Some(id) = id.filter(|_| !is_block(name)) {
+            self.mark(id);
+        }
         match name {
             "br" => {
                 self.line_break();
@@ -623,6 +722,9 @@ impl State<'_> {
         }
         if is_block(name) {
             self.boundary(name);
+            if let Some(id) = id {
+                self.mark(id);
+            }
         }
         if matches!(
             name,
@@ -642,7 +744,10 @@ impl State<'_> {
         let counter = attr(tag, "start")
             .and_then(|s| s.trim().parse::<u32>().ok())
             .map_or(0, |s| s.saturating_sub(1));
-        let style = self.style_for(tag, name);
+        let mut style = self.style_for(tag, name);
+        if let Some(href) = attr(tag, "href").filter(|_| name == "a") {
+            style.link = self.link_to(href);
+        }
         self.pre_opened = name == "pre";
         self.stack.push(Open {
             name: name.to_owned(),
@@ -676,6 +781,21 @@ impl State<'_> {
     fn eof(&mut self) {
         self.finish();
         self.flush_table();
+        // Ids after the last block mark where the next chapter starts.
+        let at = Anchor {
+            block: self.first + self.blocks.len(),
+            offset: 0,
+        };
+        for key in self.pending.drain(..) {
+            self.refs.places.entry(key).or_insert(at);
+        }
+    }
+}
+
+fn put(text: &mut Text, s: &str, emphasis: Emphasis, link: Option<u32>) {
+    match link {
+        Some(target) => text.push_link(s, emphasis, target),
+        None => text.push(s, emphasis),
     }
 }
 
@@ -708,10 +828,19 @@ pub(crate) fn read_chapter(
     xhtml: &str,
     path: &str,
     library: &mut dyn Library,
-    out: &mut Vec<Block>,
+    (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
+    let first = out.len();
+    let start = Anchor {
+        block: first,
+        offset: 0,
+    };
+    refs.places.entry(path.to_owned()).or_insert(start);
     let sink = Sink(RefCell::new(State {
         library,
+        refs,
+        first,
+        pending: Vec::new(),
         base: path,
         sheets: Vec::new(),
         style_text: String::new(),
@@ -757,9 +886,17 @@ mod tests {
         }
     }
 
+    const BASE: &str = "/OEBPS/text/c1.xhtml";
+
+    fn read_refs(xhtml: &str) -> (Vec<Block>, Refs) {
+        let (mut out, mut refs) = (Vec::new(), Refs::default());
+        read_chapter(xhtml, BASE, &mut Shelf::default(), (&mut out, &mut refs));
+        (out, refs)
+    }
+
     fn read_with(shelf: &mut Shelf, xhtml: &str) -> Vec<Block> {
         let mut out = Vec::new();
-        read_chapter(xhtml, "/OEBPS/text/c1.xhtml", shelf, &mut out);
+        read_chapter(xhtml, BASE, shelf, (&mut out, &mut Refs::default()));
         out
     }
 
@@ -1011,5 +1148,60 @@ mod tests {
         };
         assert_eq!(spans(b.first()), [(" x", e(true, true))]);
         assert_eq!(spans(b.get(1)), [("y", e(true, false))]);
+    }
+
+    #[test]
+    fn ids_mark_their_block_or_their_place_in_its_text() {
+        let (_, refs) = read_refs(
+            "<h1 id='top'>Title</h1><p>ab <span id='mid'>c</span></p>\
+             <div id='empty'></div><p><a name='old'></a>d</p>\
+             <table><tr><td id='cell'>e</td></tr></table><p id='end'></p>",
+        );
+        let at = |key: &str| {
+            let a = refs.place(&format!("{BASE}{key}"));
+            a.map(|a| (a.block, a.offset))
+        };
+        assert_eq!(at(""), Some((0, 0)));
+        assert_eq!(at("#top"), Some((0, 0)));
+        assert_eq!(at("#mid"), Some((1, 2)));
+        assert_eq!(at("#empty"), Some((2, 0)));
+        assert_eq!(at("#old"), Some((2, 0)));
+        assert_eq!(at("#cell"), Some((3, 0)));
+        // Past the last block: where the next chapter will start.
+        assert_eq!(at("#end"), Some((4, 0)));
+        // An unknown id falls back to its file's start.
+        assert_eq!(at("#nowhere"), Some((0, 0)));
+    }
+
+    #[test]
+    fn links_mark_their_words_and_keep_where_they_lead() {
+        let (blocks, refs) = read_refs(
+            "<p>See <a href='c2.xhtml#n%201'>the <i>first</i> note</a> \
+             or <a href='https://example.org/'>a site</a>.</p>\
+             <p><a href='#top'>Back</a> <a href='javascript:x()'>run</a>\
+             <a href=''>none</a></p>",
+        );
+        let links = |b: Option<&Block>| {
+            let t = b.and_then(text);
+            let words = |l: &mareader_reflow::Link| {
+                let s = t.and_then(|t| t.text.get(l.range.clone()));
+                (s.unwrap_or_default().to_owned(), l.target)
+            };
+            t.map(|t| t.links.iter().map(words).collect::<Vec<_>>())
+        };
+        let first = links(blocks.first()).unwrap_or_default();
+        assert_eq!(first, [("the first note".into(), 0), ("a site".into(), 1)]);
+        let second = links(blocks.get(1)).unwrap_or_default();
+        assert_eq!(second, [("Back".into(), 2), ("run".into(), 3)]);
+        let inside = |s: &str| Href::Inside(s.to_owned());
+        assert_eq!(
+            refs.hrefs,
+            [
+                inside("/OEBPS/text/c2.xhtml#n 1"),
+                Href::Outside("https://example.org/".into()),
+                inside(&format!("{BASE}#top")),
+                Href::Outside("javascript:x()".into()),
+            ]
+        );
     }
 }
