@@ -446,3 +446,43 @@ fn split_panes_fill_with_their_own_paper() -> Out {
     assert_ne!(papers.first(), papers.last(), "each pane its own paper");
     Ok(())
 }
+
+fn rgb_at(image: &RgbaImage, ppp: f32, at: egui::Pos2) -> [i32; 3] {
+    let [r, g, b, _] = image.get_pixel((at.x * ppp) as u32, (at.y * ppp) as u32).0;
+    [r, g, b].map(i32::from)
+}
+
+fn apart(a: [i32; 3], b: [i32; 3]) -> i32 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn pages_keep_inside_a_split_pane_s_round_corners() -> Out {
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("corners", "rounded"),
+        ("pane_gap", "12"),
+    ];
+    let mut h = reader(&options);
+    h.run_steps(2);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let rects = h.state().pane_rects().to_vec();
+    let Some(&(_, r)) = rects.first() else {
+        return Err("no panes drawn".into());
+    };
+    let page = rgb_at(&image, ppp, r.left_bottom() + egui::vec2(40.0, -40.0));
+    let gap = rgb_at(&image, ppp, egui::pos2(r.right() + 6.0, r.center().y));
+    let corner = rgb_at(&image, ppp, r.left_bottom() + egui::vec2(1.0, -1.5));
+    assert!(apart(page, gap) > 8, "page {page:?} vs gap {gap:?}");
+    assert!(
+        apart(corner, gap) < apart(corner, page),
+        "corner {corner:?} shows the page {page:?}, not the gap {gap:?}"
+    );
+    Ok(())
+}
