@@ -2,6 +2,7 @@
 
 use egui_kittest::Harness;
 use image::RgbaImage;
+use mareader_appearance::FilmGrain;
 use mareader_ui::MareaderApp;
 use mareader_ui::theme::TITLE_BAR_H;
 
@@ -326,6 +327,58 @@ fn rules_run_on_across_touching_pages() -> Out {
             "a jarred rule at {}: {d} against {gap}",
             w[1].0
         );
+    }
+    Ok(())
+}
+
+/// A pixel of `plain`, the frame without grain, grained by the reference.
+fn grained_by_reference(plain: &RgbaImage, grain: FilmGrain, ppp: f32, x: u32, y: u32) -> [u8; 3] {
+    let [r, g, b, _] = plain.get_pixel(x, y).0;
+    let base = [r, g, b].map(|c| f32::from(c) / 255.0);
+    let p = [(x as f32 + 0.5) / ppp, (y as f32 + 0.5) / ppp];
+    grain.over(base, p).map(|c| (c * 255.0).round() as u8)
+}
+
+#[test]
+fn film_grain_multiplies_light_and_screens_dark_as_the_reference() -> Out {
+    for theme in ["light", "dark"] {
+        let mut h = reader(&[("theme", theme)]);
+        let plain = h.render()?;
+        h.state_mut().set_option("grain", "static")?;
+        h.state_mut().set_option("grain_intensity", "100")?;
+        h.run_steps(2);
+        let grained = h.render()?;
+        let look = h.state().settings().appearance;
+        let grain = FilmGrain::of(&look).ok_or("grain is on")?;
+        assert_eq!(grain.screen, theme == "dark");
+        let ppp = plain.width() as f32 / SIZE.x;
+        // Plain paper below the empty state's prompt.
+        let (x0, y0) = ((780.0 * ppp) as u32, (560.0 * ppp) as u32);
+        let (mut worst, mut values) = (0, Vec::new());
+        for y in y0..y0 + 40 {
+            for x in x0..x0 + 40 {
+                let want = grained_by_reference(&plain, grain, ppp, x, y);
+                let [r, g, b, _] = grained.get_pixel(x, y).0;
+                for (got, want) in [r, g, b].into_iter().zip(want) {
+                    worst = worst.max((i32::from(got) - i32::from(want)).abs());
+                }
+                values.push(f64::from(g));
+            }
+        }
+        let n = values.len() as f64;
+        let avg = values.iter().sum::<f64>() / n;
+        let spread = (values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt();
+        assert!(worst <= 3, "{theme}: off the reference by {worst}");
+        assert!(spread > 3.0, "{theme}: the grain varies, spread {spread}");
+        let before = f64::from(plain.get_pixel(x0, y0).0[1]);
+        let darker = avg < before;
+        assert_eq!(darker, theme == "light", "{theme}: {before} became {avg}");
+        h.state_mut().set_option("grain", "off")?;
+        h.run_steps(2);
+        let off = h.render()?;
+        let same = (y0..y0 + 40)
+            .all(|y| (x0..x0 + 40).all(|x| off.get_pixel(x, y) == plain.get_pixel(x, y)));
+        assert!(same, "{theme}: grain off leaves the paper untouched");
     }
     Ok(())
 }

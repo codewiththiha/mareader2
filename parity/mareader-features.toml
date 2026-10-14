@@ -835,8 +835,15 @@ title = "Film grain off, static or animated, with intensity"
 area = "F"
 tier = "P1"
 milestone = "M3"
-status = "planned"
-reference = ["styles/noise.css"]
+status = "shipped"
+evidence = [
+  "crates/appearance/src/grain.rs::grain_is_off_at_zero_and_screens_on_dark_and_dim",
+  "crates/appearance/src/grain.rs::the_crawl_steps_eight_times_a_cycle",
+  "crates/appearance/src/grain.rs::the_noise_tiles_every_160_points",
+  "crates/ui/tests/gpu.rs::film_grain_multiplies_light_and_screens_dark_as_the_reference",
+]
+reference = ["styles/noise.css", "styles/tokens.css"]
+notes = "A wgpu pass over every layer; the preset cards' grain comes with M3 slice 5"
 
 [[feature]]
 id = "appearance.blend"

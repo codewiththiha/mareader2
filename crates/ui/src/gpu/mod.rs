@@ -1,6 +1,7 @@
-//! Our GPU work in egui's frame (ADR 0003): pages, and the glass.
+//! Our GPU work in egui's frame (ADR 0003): pages, the glass and grain.
 
 mod glass;
+mod grain;
 mod page_pass;
 
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use eframe::egui_wgpu::{self, wgpu};
 use mareader_session::Raster;
 
 pub use glass::{Glass, Look, MAX_SLOTS, Reach};
+pub use grain::{GrainCallback, GrainPass};
 pub use page_pass::{Anchor, GpuPage, PagePass, PagesCallback, Quad};
 
 /// The renderer's device and queue, plus our pipelines for it.
@@ -17,6 +19,7 @@ pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pub pass: Arc<PagePass>,
+    pub grain: Arc<GrainPass>,
 }
 
 impl Gpu {
@@ -26,6 +29,7 @@ impl Gpu {
             device: render.device.clone(),
             queue: render.queue.clone(),
             pass: Arc::new(pass),
+            grain: Arc::new(GrainPass::new(&render.device, render.target_format)),
         }
     }
 
