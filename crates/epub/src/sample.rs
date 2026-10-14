@@ -20,8 +20,11 @@ const PROSE: [&str; 6] = [
 ];
 
 /// Everything the reader draws besides prose, as books write it.
-const FEATURES: &str = r#"
+const FEATURES: &str = r##"
 <h2>Things a book holds</h2>
+<p>Links read as underlined words: on <a href="chapter-2.xhtml">to the next
+chapter</a>, down <a href="#part-2">to Part 1.2</a>, or out
+<a href="https://github.com/codewiththiha/mareader2">to the web</a>.</p>
 <p>Lists hang their markers in the margin:</p>
 <ul>
   <li>Rice and timber at dawn</li>
@@ -49,7 +52,7 @@ asked.</p></blockquote>
 <hr/>
 <div class="figure"><img src="../images/river.png" alt="The river at dusk"/></div>
 <p class="caption">The river at dusk.</p>
-"#;
+"##;
 
 /// A dusk landscape `w × h`: sky, sun, and a rippled river.
 fn landscape(w: u32, h: u32) -> image::RgbImage {
@@ -109,7 +112,7 @@ fn chapter_xhtml(n: usize) -> String {
             .copied()
             .unwrap_or_default();
         if i == 6 {
-            body.push_str(&format!("<h2>Part {n}.2</h2>"));
+            body.push_str(&format!("<h2 id=\"part-2\">Part {n}.2</h2>"));
         }
         if n == 1 && i == 3 {
             body.push_str(FEATURES);
@@ -128,13 +131,16 @@ fn chapter_xhtml(n: usize) -> String {
     )
 }
 
-/// A cover, then `chapters` chapters; the first shows every block kind.
+/// A cover, then chapters listed with their parts; the first shows all.
 pub fn epub(chapters: usize, title: &str) -> Vec<u8> {
     let chapters: Vec<EpubChapter> = (1..=chapters.max(1))
         .map(|n| {
+            let href = format!("text/chapter-{n}.xhtml");
+            let part = EpubChapter::new(format!("Part {n}.2")).href(format!("{href}#part-2"));
             EpubChapter::new(format!("Chapter {n}"))
-                .href(format!("text/chapter-{n}.xhtml"))
+                .href(href)
                 .xhtml(chapter_xhtml(n))
+                .children(part)
         })
         .collect();
     let mut book = Epub::builder()
