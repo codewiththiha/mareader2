@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 html5ever = { workspace = true }
+image = { workspace = true }
 mareader-reflow = { workspace = true }
 rbook = { workspace = true }
 thiserror = { workspace = true }
