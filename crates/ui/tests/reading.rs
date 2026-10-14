@@ -71,7 +71,7 @@ fn closing_the_last_pane_on_a_book_frees_its_textures() {
     let baseline = textures(&h);
     let panes = h.state().panes();
     let (first, second) = (panes[0], panes[1]);
-    h.state_mut().queue(Command::FocusPane(second));
+    h.state_mut().set_option("focus", "2").ok();
     h.state_mut().set_option("pdf", "sample:30").ok();
     h.run();
     assert!(textures(&h) > baseline, "pages were uploaded");

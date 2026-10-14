@@ -346,6 +346,11 @@ impl MareaderApp {
                     ),
                     _ => OpenRequest::path(value.into()),
                 };
+                // Into the pane in front now, so `focus=` aims each file.
+                let request = OpenRequest {
+                    pane: Some(self.active),
+                    ..request
+                };
                 self.queue(Command::Open(request));
             }
             "blend" => self.settings.paper.blend = value == "true",
