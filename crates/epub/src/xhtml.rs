@@ -20,6 +20,8 @@ pub const MAX_DEPTH: usize = 256;
 const MAX_COLUMNS: usize = 32;
 const MAX_BARS: usize = 8;
 const MAX_CLASSES: usize = 16;
+/// Stylesheets one chapter applies; later ones are ignored.
+pub const MAX_SHEETS: usize = 16;
 /// Indents in body ems, as mareader's stylesheet has them.
 const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
@@ -534,6 +536,14 @@ impl State<'_> {
         st
     }
 
+    /// Every element meets every sheet, so a chapter keeps a few, once.
+    fn add_sheet(&mut self, sheet: Arc<Stylesheet>) {
+        let known = self.sheets.iter().any(|s| Arc::ptr_eq(s, &sheet));
+        if !known && self.sheets.len() < MAX_SHEETS {
+            self.sheets.push(sheet);
+        }
+    }
+
     fn link(&mut self, tag: &Tag) {
         let sheet = attr(tag, "rel").is_some_and(|r| {
             r.split_ascii_whitespace()
@@ -543,7 +553,7 @@ impl State<'_> {
         if let (true, Some(path)) = (sheet, path)
             && let Some(sheet) = self.library.stylesheet(&path)
         {
-            self.sheets.push(sheet);
+            self.add_sheet(sheet);
         }
     }
 
@@ -763,7 +773,7 @@ impl State<'_> {
     fn end(&mut self, name: &str) {
         if name == "style" && self.stack.last().is_some_and(|o| o.name == "style") {
             let sheet = Stylesheet::parse(&std::mem::take(&mut self.style_text));
-            self.sheets.push(Arc::new(sheet));
+            self.add_sheet(Arc::new(sheet));
         }
         if is_block(name) {
             self.boundary(name);
@@ -1148,6 +1158,28 @@ mod tests {
         };
         assert_eq!(spans(b.first()), [(" x", e(true, true))]);
         assert_eq!(spans(b.get(1)), [("y", e(true, false))]);
+    }
+
+    #[test]
+    fn a_chapter_applies_a_few_sheets_each_once() {
+        let mut shelf = Shelf::default();
+        let linked = Stylesheet::parse(".it { font-style: italic }");
+        shelf
+            .sheets
+            .insert("/OEBPS/css/book.css".into(), Arc::new(linked));
+        let links = "<link rel='stylesheet' href='../css/book.css'/>".repeat(100);
+        let styles: String = (0..MAX_SHEETS)
+            .map(|i| format!("<style>.c{i} {{ text-align: center }}</style>"))
+            .collect();
+        let last = MAX_SHEETS - 2;
+        let body = format!(
+            "<p class='c0'>a</p><p class='c{last}'>b</p><p class='c{}'>c</p>",
+            last + 1
+        );
+        let b = read_with(&mut shelf, &format!("<head>{links}{styles}</head>{body}"));
+        let aligns: Vec<Align> = b.iter().map(|b| b.frame.align).collect();
+        // The linked sheet counts once, so the last style is one too many.
+        assert_eq!(aligns, [Align::Center, Align::Center, Align::Start]);
     }
 
     #[test]
