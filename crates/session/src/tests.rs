@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use mareader_pdf::sample;
+use mareader_pdf::{LinkTarget, sample};
 
 use super::*;
 
@@ -289,7 +289,19 @@ fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
     let entry = s.get(id).ok_or("no entry")?;
     assert_eq!(entry.name, "Book");
     assert!(entry.doc.is_reflowable());
-    assert!(entry.doc.outline().is_empty());
+    let outline: Vec<(&str, u8)> = entry
+        .doc
+        .outline()
+        .iter()
+        .map(|e| (e.title.as_str(), e.depth))
+        .collect();
+    let listed = [
+        ("Chapter 1", 0),
+        ("Part 1.2", 1),
+        ("Chapter 2", 0),
+        ("Part 2.2", 1),
+    ];
+    assert_eq!(outline, listed);
     let size = entry.doc.page_sizes().first().copied().ok_or("no pages")?;
     let raster = entry.doc.render(0, 0.5)?;
     assert_eq!(
@@ -300,6 +312,39 @@ fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
     assert!(tile.width > 0 && tile.height > 0);
     assert_eq!(entry.doc.text_layer(0)?, TextLayer::default());
     assert!(entry.doc.text_layer(9999).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_book_s_contents_and_links_follow_its_setting() -> Out {
+    let mut s = inline();
+    let book = open_epub(&mut s, 2)?;
+    let entry = s.get(book).ok_or("no entry")?;
+    let chapter_two = |doc: &Document| {
+        let e = doc.outline().iter().find(|e| e.title == "Chapter 2");
+        e.map(|e| e.page)
+    };
+    let before = chapter_two(&entry.doc).ok_or("no chapter 2")?;
+    let mut targets = Vec::new();
+    for page in 0..entry.doc.page_count() {
+        let layer = entry.doc.text_layer(page)?;
+        targets.extend(layer.links.into_iter().map(|l| l.target));
+    }
+    assert!(targets.contains(&LinkTarget::Page(before)), "{targets:?}");
+    let web = |t: &LinkTarget| matches!(t, LinkTarget::Web(u) if u.contains("github.com"));
+    assert!(targets.iter().any(web), "{targets:?}");
+    // Bigger type: the chapter, and the link to it, move on.
+    s.set_text(&sized(30.0));
+    let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
+    let (_, new, _) = swaps(&events).first().copied().ok_or("no swap")?;
+    let doc = s.get(new).map(|e| Arc::clone(&e.doc)).ok_or("no entry")?;
+    let after = chapter_two(&doc).ok_or("no chapter 2")?;
+    assert!(after > before, "{after} > {before}");
+    let page = (0..doc.page_count()).find(|&p| {
+        doc.text_layer(p)
+            .is_ok_and(|l| l.links.iter().any(|l| l.target == LinkTarget::Page(after)))
+    });
+    assert!(page.is_some(), "a link leads to page {after}");
     Ok(())
 }
 
