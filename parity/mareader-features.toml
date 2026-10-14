@@ -767,8 +767,10 @@ title = "Table of contents from nav or NCX, active entry follows the position"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/epub/src/book.rs::the_contents_list_chapters_and_parts_where_they_are", "crates/epub/src/book.rs::a_book_without_contents_lists_its_headings", "crates/ui/tests/navigation.rs::a_book_s_contents_jump_to_its_parts_and_follow_the_page"]
 reference = ["crates/reader-runtime/src/effects/reader/reflow_outline.rs"]
+notes = "nav, else NCX, flattened with depth; a book listing nothing outlines its headings as mareader does. Pages recomputed from block places on every re-set"
 
 [[feature]]
 id = "epub.links"
@@ -776,7 +778,9 @@ title = "Internal links to chapters and anchors; external links to the browser"
 area = "E"
 tier = "P1"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/selection.rs::a_book_s_links_turn_its_pages_and_open_the_browser", "crates/epub/src/xhtml.rs::links_mark_their_words_and_keep_where_they_lead", "crates/reflow/src/flow.rs::links_box_their_words_on_every_line_they_cross"]
+notes = "Underlined in the text's own ink, not the accent: pages are greys themed later. External links pass the PDF path's scheme check"
 
 [[feature]]
 id = "epub.position"
@@ -784,8 +788,10 @@ title = "Reading position anchors to a block; re-pagination keeps it"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/reading.rs::bigger_type_sets_an_open_book_again_at_the_page_read", "crates/ui/tests/reading.rs::a_book_read_at_exit_reopens_at_its_place_in_new_type", "crates/epub/src/xhtml.rs::ids_mark_their_block_or_their_place_in_its_text"]
 reference = ["crates/reader-runtime/src/effects/reader/reflow_layout.rs"]
+notes = "A place is a block and byte offset; re-sets and the next launch reopen on the page holding it"
 
 [[feature]]
 id = "epub.selection"

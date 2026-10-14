@@ -1,7 +1,7 @@
 # Roadmap
 
 **Stage:** M1, M2 and M3 done; M4 (EPUB) in progress.
-**Parity:** 70.0 of 118 features (59.3 %, partial counts half). Run
+**Parity:** 73.0 of 118 features (61.9 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -80,13 +80,13 @@ appearance effects to that same pass.
 | 2 | The XHTML subset: lists, quotes, pre, basic tables, rules, inline code, images and the cover, the small CSS subset | **done** | `epub=sample:3` in shots: cover, then chapter 1's "Things a book holds" |
 | 3 | Typography: mareader's text settings, system and bundled faces, size, weight, spacing, indent, justify, hyphenation (hypher); the Fonts tab; re-pagination keeps the reading place | **done** | Settings › Fonts with a book open; `epub=sample:4 text_size=24 justify=true hyphenate=true` in shots |
 | 4 | Reflow view modes: spread with book gutters, horizontal strip, vertical stream with column alignment; zoom never re-paginates | **done** | open a book (it streams); Settings › Fonts › Book layout, Column alignment; `epub=sample:4 animations=false column=left book_layout=true goto=3` in shots |
-| 5 | Navigation: table of contents in the outline (the active entry follows), links inside the book and out, position anchors, resume | planned | |
+| 5 | Navigation: table of contents in the outline (the active entry follows), links inside the book and out, position anchors, resume | **done** | open `epub=sample:3 sidebar=outline`; click Part 2.2; chapter 1's "Things a book holds" has three links; quit and reopen in other type |
 | 6 | Selection and copy over parley's clusters; ink contrast | planned | |
 | 7 | Hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested | planned | |
 
 ## Next
 
-1. **M4 slice 5:** navigation: table of contents, links, position anchors and resume.
+1. **M4 slice 6:** selection and copy over parley's clusters; ink contrast.
 
 ## Open questions for the owner
 
