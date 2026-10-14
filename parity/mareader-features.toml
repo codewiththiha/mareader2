@@ -953,8 +953,10 @@ title = "Default, serif, sans and mono font choices; bundled faces first"
 area = "G"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/session/src/typeset.rs::picks_lead_their_stacks_and_bundled_faces_back_them", "crates/reflow/src/flow.rs::a_missing_face_falls_back_down_its_stack", "crates/reflow/src/fonts.rs::bundled_faces_count_as_installed_and_junk_does_not"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
+notes = "Font, serif, sans and mono slots; a pick leads its stack, the bundled face (Literata, Inter, JetBrains Mono) ends it; system faces via fontique (docs/epub.md)"
 
 [[feature]]
 id = "type.size-weight"
@@ -962,8 +964,10 @@ title = "Font size and weight"
 area = "G"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/session/src/typeset.rs::every_knob_reaches_the_typography", "crates/reflow/src/flow.rs::bigger_type_takes_more_pages_and_anchors_keep_the_place", "crates/ui/tests/reading.rs::bigger_type_sets_an_open_book_again_at_the_page_read"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
+notes = "A change re-sets open books off the UI thread and keeps the reading place"
 
 [[feature]]
 id = "type.spacing"
@@ -971,8 +975,10 @@ title = "Line height, paragraph margin, word and letter spacing, first-line inde
 area = "G"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/reflow/src/flow.rs::spacing_indent_and_weight_take_effect", "crates/session/src/typeset.rs::every_knob_reaches_the_typography"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
+notes = "Line height, paragraph margin, word and letter spacing; the indent applies to body paragraphs only, as mareader's"
 
 [[feature]]
 id = "type.justify-hyphenate"
@@ -980,8 +986,10 @@ title = "Full justification and hyphenation"
 area = "G"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/reflow/src/flow.rs::justified_lines_reach_the_column_edge_but_the_last", "crates/reflow/src/flow.rs::hyphenation_breaks_long_words_and_marks_those_lines", "crates/reflow/src/hyphen.rs::long_words_get_soft_hyphens_short_ones_and_code_do_not", "crates/reflow/src/hyphen.rs::language_tags_pick_patterns_and_fall_back_to_english"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
+notes = "hypher patterns by the book's dc:language, English when unknown; the raster draws the hyphen parley leaves out"
 
 [[feature]]
 id = "type.book-layout"
@@ -1007,8 +1015,10 @@ title = "Fonts settings tab, shown while an EPUB is open"
 area = "G"
 tier = "P1"
 milestone = "M4"
-status = "planned"
+status = "partial"
+evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification"]
 reference = ["crates/reader-runtime/src/components/settings/fonts.rs"]
+notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Book layout, column alignment and ink contrast wait for slices 4 and 6"
 
 [[feature]]
 id = "nav.page-counter"

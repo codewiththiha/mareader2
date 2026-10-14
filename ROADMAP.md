@@ -1,7 +1,7 @@
 # Roadmap
 
 **Stage:** M1, M2 and M3 done; M4 (EPUB) in progress.
-**Parity:** 63.5 of 118 features (53.8 %, partial counts half). Run
+**Parity:** 68.0 of 118 features (57.6 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -78,7 +78,7 @@ appearance effects to that same pass.
 |---|---|---|---|
 | 1 | Open an EPUB: rbook reads the spine and title; headings, paragraphs and emphasis set by parley in bundled Literata and Inter on mareader's A4 page, cut between lines; vello_cpu draws pages that the page pass themes like PDF pages | **done** | open any `.epub`; `epub=sample:3` in shots |
 | 2 | The XHTML subset: lists, quotes, pre, basic tables, rules, inline code, images and the cover, the small CSS subset | **done** | `epub=sample:3` in shots: cover, then chapter 1's "Things a book holds" |
-| 3 | Typography: mareader's text settings, system and bundled faces, size, weight, spacing, indent, justify, hyphenation (hypher); the Fonts tab; re-pagination keeps the reading place | planned | |
+| 3 | Typography: mareader's text settings, system and bundled faces, size, weight, spacing, indent, justify, hyphenation (hypher); the Fonts tab; re-pagination keeps the reading place | **done** | Settings › Fonts with a book open; `epub=sample:4 text_size=24 justify=true hyphenate=true` in shots |
 | 4 | Reflow view modes: spread with book gutters, horizontal strip, vertical stream with column alignment; zoom never re-paginates | planned | |
 | 5 | Navigation: table of contents in the outline (the active entry follows), links inside the book and out, position anchors, resume | planned | |
 | 6 | Selection and copy over parley's clusters; ink contrast | planned | |
@@ -86,7 +86,7 @@ appearance effects to that same pass.
 
 ## Next
 
-1. **M4 slice 3:** typography, hyphenation and the Fonts tab.
+1. **M4 slice 4:** reflow view modes, book gutters and column alignment.
 
 ## Open questions for the owner
 
