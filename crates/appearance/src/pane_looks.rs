@@ -189,7 +189,7 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
         }
     }
 
-    /// The keeper shows the window's texture; the others one unlike any.
+    /// Every pane gets a texture unlike the others'; the keeper keeps one.
     fn enable_patterns(
         &mut self,
         placed: &[K],
@@ -201,7 +201,7 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
         for &pane in placed {
             let mut look = self.get(pane).unwrap_or(*global);
             copy_texture(&mut look, global);
-            if pane != keeper {
+            if pane != keeper || look.texture == TextureMode::None {
                 look.texture = distinct_texture(&taken, random());
                 taken.push(look.texture);
             }
@@ -472,6 +472,38 @@ mod tests {
             assert!(gap(h, 30) >= 30, "{h} near the window's 30");
         }
         assert!(gap(one.tint_hue, three.tint_hue) >= 30);
+    }
+
+    #[test]
+    fn enabling_textures_paints_every_pane_unlike_the_others() {
+        let r = Routing {
+            themes: false,
+            textures: true,
+            ..SPLIT
+        };
+        let off = Routing {
+            textures: false,
+            ..r
+        };
+        let placed = [1, 2, 3];
+        for (window, r0) in [(TextureMode::None, 0.0), (TextureMode::Grid, 0.9)] {
+            let mut global = Appearance {
+                texture: window,
+                ..Appearance::default()
+            };
+            let mut looks = PaneLooks::default();
+            looks.reconcile((off, off), (&placed, 2), &mut global, &mut fixed(r0));
+            looks.reconcile((off, r), (&placed, 2), &mut global, &mut fixed(r0));
+            let shown = placed.map(|k| looks.shown(k, &global, r).texture);
+            assert!(!shown.contains(&TextureMode::None), "{window:?}: {shown:?}");
+            let mut unique = shown.to_vec();
+            unique.sort_by_key(|m| *m as u8);
+            unique.dedup();
+            assert_eq!(unique.len(), 3, "{window:?}: {shown:?}");
+            if window != TextureMode::None {
+                assert_eq!(shown.get(1), Some(&window), "the front pane keeps its");
+            }
+        }
     }
 
     #[test]
