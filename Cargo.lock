@@ -2177,6 +2177,7 @@ dependencies = [
  "html5ever",
  "image",
  "mareader-reflow",
+ "quick-xml 0.42.0",
  "rbook",
  "thiserror 2.0.21",
  "zip",

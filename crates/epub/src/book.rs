@@ -1,6 +1,5 @@
 //! One opened EPUB: its chapters read, set and paginated up front.
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -8,6 +7,7 @@ use mareader_reflow::{
     Anchor, Block, Content, Flow, Fonts, PageLine, Picture, Pixels, Region, Role, Typography,
 };
 use rbook::Epub;
+use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::css::{MAX_SHEET, Stylesheet};
 use crate::xhtml::{self, Href, Library, Refs};
@@ -15,6 +15,8 @@ use crate::{OpenError, guard};
 
 /// All chapters' markup together; past it the book is refused.
 pub const MAX_MARKUP: usize = 64 << 20;
+/// What the book's layouts may hold, as estimated; past it, it's refused.
+pub const MAX_LAYOUT: usize = 1 << 30;
 /// Encoded image bytes kept for one book; past it, alt text shows.
 pub const MAX_PICTURE_BYTES: usize = 256 << 20;
 
@@ -46,15 +48,6 @@ pub struct Link {
     /// Left, top, width, height.
     pub rect: [f32; 4],
     pub to: Destination,
-}
-
-/// The file's bytes, shared with the session that read them.
-struct Shared(Arc<Vec<u8>>);
-
-impl AsRef<[u8]> for Shared {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
 }
 
 /// The archive's images and stylesheets, each read once per path.
@@ -136,8 +129,7 @@ impl Book {
     }
 
     fn parse(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
-        guard::check(&bytes)?;
-        let epub = Epub::read(Cursor::new(Shared(bytes))).map_err(|_| OpenError::Invalid)?;
+        let epub = guard::open(&bytes)?;
         let title = epub
             .metadata()
             .title()
@@ -156,19 +148,30 @@ impl Book {
         };
         let mut blocks = Vec::new();
         let mut refs = Refs::default();
-        let mut markup = 0;
+        let (mut markup, mut cost) = (0, 0usize);
         // The first chapter with content, where a cover may already be.
         let mut opening = None;
         // A chapter that won't read is skipped, as a reader would.
-        for chapter in epub.reader().flatten() {
-            markup += chapter.content().len();
+        for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
+            let Some(content) = chapter_text(&entry) else {
+                continue;
+            };
+            markup += content.len();
             if markup > MAX_MARKUP {
                 return Err(OpenError::TooLarge);
             }
-            let path = chapter.manifest_entry().href().decode();
+            let path = entry.href().decode();
             let start = blocks.len();
             let out = (&mut blocks, &mut refs);
-            xhtml::read_chapter(chapter.content(), &path, &mut shelf, out);
+            xhtml::read_chapter(&content, &path, &mut shelf, out);
+            let read = blocks.get(start..).unwrap_or_default();
+            cost = read
+                .iter()
+                .map(Block::layout_cost)
+                .fold(cost, usize::saturating_add);
+            if cost > MAX_LAYOUT {
+                return Err(OpenError::TooLarge);
+            }
             if opening.is_none() && blocks.len() > start {
                 opening = Some(start..blocks.len());
             }
@@ -265,6 +268,13 @@ impl Book {
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
     }
+}
+
+/// A chapter's markup; stray bytes that aren't UTF-8 become U+FFFD.
+fn chapter_text(entry: &EpubManifestEntry) -> Option<String> {
+    let bytes = || entry.read_bytes().ok();
+    let lossy = |b: Vec<u8>| String::from_utf8_lossy(&b).into_owned();
+    entry.read_str().ok().or_else(|| bytes().map(lossy))
 }
 
 /// Lays the blocks out; the book's language beats the default.
