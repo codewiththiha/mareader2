@@ -9,9 +9,11 @@ use egui::{
 use mareader_session::{DocId, PageKey, Part, Scale};
 use mareader_workspace::PaneId;
 
+use mareader_appearance::Pattern;
+
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
-use crate::gpu::PagesCallback;
+use crate::gpu::{Anchor, PagesCallback};
 use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
@@ -142,7 +144,9 @@ pub fn show(
         }
     }
     let goal = follow(state, reading, recentre, now, &ctx);
-    let t = Tokens::get(&ctx);
+    let mut t = Tokens::get(&ctx);
+    // As in mareader: thumbnails take the theme but not the texture.
+    t.page.pattern = Pattern::NONE;
     ScrollArea::vertical()
         .id_salt(("thumbs", reading.pane))
         .auto_shrink(false)
@@ -163,7 +167,8 @@ pub fn show(
                 if !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
                     demand.push((Urgency::Thumbnail, key(page).into()));
                 }
-                paint_page(ui, rect, look, &t, true, &mut quads);
+                let anchor = Anchor::page(rect, size(page).0);
+                paint_page(ui, (rect, anchor), look, &t, true, &mut quads);
                 let on = page == reading.current;
                 let r = ui.interact(cell, Id::new(("thumb", reading.pane, page)), Sense::click());
                 let label = format!("Page {}", page + 1);

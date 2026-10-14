@@ -66,15 +66,15 @@ appearance effects to that same pass.
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | The page pass themes pages: mareader's filter chain, then multiply, screen or soft light over the paper, on the GPU; thumbnails and the glass follow | **done** | the palette's modes and presets; `theme=dark`, `preset=sepia` in shots |
-| 2 | Paper textures on pages and the gutter | next | |
-| 3 | Blend backdrop: the texture runs across pages and gutter | | |
+| 2 | Paper textures on pages: real paper, lined, grid, dotted, cross, with opacity and scale | **done** | the palette's Texture row; `texture=grid texture_scale=150` or `preset=parchment` in shots |
+| 3 | Blend backdrop: the texture runs across pages and gutter | next | |
 | 4 | Grain | | |
 | 5 | Presets UI and the appearance menu, finished | | |
 | 6 | Independent pane themes and textures | | |
 
 ## Next
 
-1. **M3 slice 2:** paper textures (ADR 0003).
+1. **M3 slice 3:** the blend backdrop (ADR 0003).
 
 ## Open questions for the owner
 
@@ -116,3 +116,4 @@ appearance effects to that same pass.
 | 2026-10-13 | M2 slice 11, opening files from the system. cargo-packager config in `apps/mareader/Cargo.toml` registers `.pdf` as a viewer (mareader's icons, `Productivity`). A Linux `.deb` built here installs `Exec=mareader %F` with `MimeType=application/pdf`. Opening a file while Mareader runs reuses the window, like mareader's single-instance plugin: std loopback plus a token in the data folder, with no new crate. macOS Finder and Dock files come through `open_files.rs`, the second owner-approved `unsafe` module (`open-files` feature). It installs an `odoc` Apple event handler at will-finish-launching, because winit owns the app delegate. Every route goes through one `Inbox`, and the newest file opens. Clippy passes for macOS with and without the feature; the owner checks it on a Mac |
 | 2026-10-14 | Deferred items. A paged view now refits on the turn, so a mixed spread no longer overflows (or underfills) for the 0.25 s settle, which only the strips keep. The offset "132.4 against 16" was not a bug: offsets are content points, and a strip is as wide as its widest page, so upright pages sit centred. A test pins that now. The browser preview was rebuilt and checked in headless Chromium. The pdf text commit failed to build alone, because `Event::Text` reached the UI a commit later. With the owner's approval it was folded into that commit as `7511256` and main was force-pushed, and every commit since the root now passes `cargo check`. CI's new `Build / each commit` job checks every pushed commit |
 | 2026-10-14 | M3 slice 1: the page pass themes pages. Each quad carries its pane's `PageTone` (mareader's filter chain as colour matrices, the blend and the paper), bound per draw at a dynamic offset, so independent pane themes need no new plumbing. The shader unpremultiplies, runs the chain clamping each step, blends over opaque paper and keeps the page's edge coverage; `PageTone::apply` is its CPU reference, and a test on a real wgpu device holds light, dark, dim, sepia and night to it within 3/255. Pages still drawing, and failed ones, show the themed blank page. Themed pages share the gutter's paper as in mareader, so the page shadow is now mareader's two layers. Dim keeps dark ink by design (mareader's soft light) |
+| 2026-10-14 | M3 slice 2, textures. The page pass draws mareader's five patterns over the themed page, as its `::before` layer does: rules every 26 units, dots every 8, crosses with a centred dot, and grain from two octaves of noise at feTurbulence's frequency, tinted slate (multiply) or white (screen) on dark and dim. A unit is a page point times the user's scale, anchored at the page's corner, so patterns zoom and scroll with the page and tiles continue them; strokes keep mareader's 0.5 to 2.5 px clamp and are box-filtered, and grain fades to its mean when zoomed out rather than sparkle. Pages still drawing are textured too; thumbnails take the theme but not the texture, as in mareader. `Pattern` in the appearance crate is the CPU reference; GPU tests check the stroke colour, even spacing that doubles at 200 %, and the grain's mean and spread, and fail when strokes or the scale are removed |

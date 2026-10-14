@@ -45,7 +45,7 @@ pub fn show(ui: &mut Ui, current: &Appearance, out: &mut Commands) {
         slider(ui, "Intensity", &mut a.noise_intensity, 0..=100);
     }
     let t = Tokens::get(ui.ctx());
-    let note = "Texture and grain draw on pages once the page renderer lands (M3).";
+    let note = "Grain draws on pages in a later M3 slice.";
     ui.label(RichText::new(note).size(t.text_small).color(t.muted));
     if a != *current {
         out.push(Command::SetAppearance(a));

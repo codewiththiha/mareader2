@@ -10,7 +10,7 @@ use mareader_pdf::{LinkTarget, web_address};
 use mareader_session::{DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{LayoutSettings, StartupFit};
 
-use crate::gpu::{PagePass, PagesCallback, Quad};
+use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::selection::{self, Pages, Selection, Sheet};
@@ -562,7 +562,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
-                paint_page(ui, rect, look, &t, cx.page.shadow, &mut quads);
+                let width = sizes.get(page).map_or(1.0, |s| s.width);
+                let anchor = Anchor::page(rect, width);
+                paint_page(ui, (rect, anchor), look, &t, cx.page.shadow, &mut quads);
                 if let Plan::Tiled {
                     backdrop,
                     tiling,
@@ -572,6 +574,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     let key = PageKey { scale, ..backdrop };
                     let tiles = Tiles {
                         page: rect,
+                        anchor,
                         tiling,
                         key,
                     };
@@ -799,6 +802,7 @@ fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usiz
 /// A tiled page's grid, drawn over its backdrop where tiles have arrived.
 struct Tiles {
     page: Rect,
+    anchor: Anchor,
     tiling: Tiling,
     /// The tiles' scale; its part is set per tile.
     key: PageKey,
@@ -836,7 +840,10 @@ impl Tiles {
                     ..self.key
                 };
                 match pages.lookup_tile(key) {
-                    Some(PageTexture::Gpu(page)) => quads.push(Quad::page(rect, clip, page, tone)),
+                    Some(PageTexture::Gpu(page)) => {
+                        let quad = Quad::page((rect, clip), Some(page), tone, self.anchor);
+                        quads.push(quad);
+                    }
                     Some(PageTexture::Egui(h)) => {
                         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                         ui.painter().image(h.id(), rect, uv, Color32::WHITE);
@@ -863,7 +870,7 @@ fn blank(t: &Tokens) -> Color32 {
 /// Paints a page, or queues it for the page pass in `quads`.
 pub(crate) fn paint_page(
     ui: &Ui,
-    rect: Rect,
+    (rect, anchor): (Rect, Anchor),
     look: Lookup,
     t: &Tokens,
     shadow: bool,
@@ -885,15 +892,21 @@ pub(crate) fn paint_page(
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
         Lookup::Sharp(PageTexture::Gpu(page)) | Lookup::Stale(PageTexture::Gpu(page)) => {
-            quads.push(Quad::page(rect, ui.clip_rect(), page, t.page));
+            quads.push(Quad::page(
+                (rect, ui.clip_rect()),
+                Some(page),
+                t.page,
+                anchor,
+            ));
         }
         // Without a GPU there is no page pass, so pages stay unthemed.
         Lookup::Sharp(PageTexture::Egui(h)) | Lookup::Stale(PageTexture::Egui(h)) => {
             painter.image(h.id(), rect, uv, Color32::WHITE);
         }
-        // Rasters are white under the ink: a blank page, themed.
+        // A blank page, themed and textured; the fill is the no-GPU fallback.
         Lookup::Missing => {
             painter.rect_filled(rect, 0.0, blank(t));
+            quads.push(Quad::page((rect, ui.clip_rect()), None, t.page, anchor));
         }
         Lookup::Failed => {
             painter.rect_filled(rect, 0.0, blank(t));
