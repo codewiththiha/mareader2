@@ -177,6 +177,34 @@ What the epub crate reads, and what each element becomes:
 - **Resume.** A book read at exit saves its place with its page; the next
   launch opens on the page holding that place, even in other type.
 
+## Selection and ink as built (M4 slice 6)
+
+- **Characters.** Each page's text comes from parley's clusters, line by
+  line: one box per character, as wide as its share of the cluster and as
+  tall as the line. Spaces are kept as characters, while soft hyphens and
+  the hyphens drawn at line ends are not. List markers are left out, as a
+  browser leaves out CSS markers. The page reaches the views as the same
+  text layer a PDF's page gives, read on a worker, so every selection
+  gesture works unchanged: drag, wheel and edge scroll, double click,
+  ⌘C or Ctrl+C, Escape.
+- **Copying.** A line that wrapped joins the next with nothing between
+  them: the space it broke at stays on the line, and a hyphenated word
+  rejoins. A line that ended (a new block, `<br>`, a line of `<pre>`)
+  gives a line break. A page that opens mid-paragraph joins the page
+  before in the same way.
+- **Triple click.** It takes the paragraph's lines on that page, as a
+  browser does; on a PDF, where no line wraps into the next, it still
+  takes one line.
+- **Ink dial.** The dial is mareader's "Text ink intensity", 10 to 100 %.
+  It sits under the tint in the Appearance popover while the active pane
+  shows a book, and in Settings › Fonts. The page pass mixes the drawn
+  greys toward white before the theme, folded into the first matrix of
+  the chain, so it costs nothing and moves with the slider. Everything
+  drawn in ink lightens (headings, rules, borders and code grounds too, as
+  mareader's tints derive from its ink). Pictures don't: each is drawn a
+  second time over its own box in the pane's plain tone. Thumbnails keep
+  full ink. Without a GPU, pages aren't themed and the dial does nothing.
+
 ## Revision history
 
 | Date | Summary |
@@ -186,3 +214,4 @@ What the epub crate reads, and what each element becomes:
 | 2026-10-14 | Added typography as built in M4 slice 3 |
 | 2026-10-14 | Added view modes as built in M4 slice 4 |
 | 2026-10-14 | Added navigation as built in M4 slice 5 |
+| 2026-10-14 | Added selection and ink as built in M4 slice 6 |
