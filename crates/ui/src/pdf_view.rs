@@ -594,7 +594,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
-                paint_page(ui, (rect, anchor), look, &t, cx.page.shadow, &mut quads);
+                let round = (frame, cx.corner);
+                let style = (&t, cx.page.shadow);
+                paint_page(ui, (rect, anchor, round), look, style, &mut quads);
                 if let Plan::Tiled {
                     backdrop,
                     tiling,
@@ -629,6 +631,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 (s.page, if seen.is_positive() { seen.area() } else { 0.0 })
             }));
             // One callback draws every GPU page, over the shadows.
+            for quad in &mut quads {
+                quad.round_to(frame, cx.corner);
+            }
             if let (Some(pass), false) = (pass, quads.is_empty()) {
                 let shape = PagesCallback::shape(pass.clone(), ui.clip_rect(), quads.clone());
                 ui.painter().add(shape);
@@ -904,16 +909,38 @@ fn blank(t: &Tokens) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
-/// Paints a page, or queues it for the page pass in `quads`.
+/// Painters for the parts of the clip clear of `frame`'s round corners.
+fn clear_of_corners(ui: &Ui, (frame, radius): (Rect, f32)) -> Vec<egui::Painter> {
+    let clip = ui.clip_rect();
+    if radius <= 0.0 {
+        return vec![ui.painter().clone()];
+    }
+    let (f, r) = (frame, radius);
+    let (top, bottom) = (f.top() + r, f.bottom() - r);
+    let (left, right) = (f.left() + r, f.right() - r);
+    [
+        Rect::from_min_max(pos2(left, f.top()), pos2(right, top)),
+        Rect::from_min_max(pos2(f.left(), top), pos2(f.right(), bottom)),
+        Rect::from_min_max(pos2(left, bottom), pos2(right, f.bottom())),
+    ]
+    .into_iter()
+    .map(|band| band.intersect(clip))
+    .filter(|band| band.is_positive())
+    .map(|band| ui.painter().with_clip_rect(band))
+    .collect()
+}
+
+/// Paints a page, or queues it in `quads`; nothing crosses `round`'s
+/// corners.
 pub(crate) fn paint_page(
     ui: &Ui,
-    (rect, anchor): (Rect, Anchor),
+    (rect, anchor, round): (Rect, Anchor, (Rect, f32)),
     look: Lookup,
-    t: &Tokens,
-    shadow: bool,
+    (t, shadow): (&Tokens, bool),
     quads: &mut Vec<Quad>,
 ) {
     let painter = ui.painter();
+    let bands = clear_of_corners(ui, round);
     // Themed pages match the gutter's paper; only this outlines them.
     if shadow {
         let lift = |offset, blur, alpha| egui::Shadow {
@@ -923,8 +950,10 @@ pub(crate) fn paint_page(
             color: Color32::from_black_alpha(alpha),
         };
         // mareader's `0 1px 2px` and `0 8px 24px -6px` box shadows.
-        painter.add(lift(1, 2, 31).as_shape(rect, CornerRadius::ZERO));
-        painter.add(lift(8, 24, 56).as_shape(rect.shrink(6.0), CornerRadius::ZERO));
+        for band in &bands {
+            band.add(lift(1, 2, 31).as_shape(rect, CornerRadius::ZERO));
+            band.add(lift(8, 24, 56).as_shape(rect.shrink(6.0), CornerRadius::ZERO));
+        }
     }
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
@@ -942,11 +971,15 @@ pub(crate) fn paint_page(
         }
         // A blank page, themed and textured; the fill is the no-GPU fallback.
         Lookup::Missing => {
-            painter.rect_filled(rect, 0.0, blank(t));
+            for band in &bands {
+                band.rect_filled(rect, 0.0, blank(t));
+            }
             quads.push(Quad::page((rect, ui.clip_rect()), None, t.page, anchor));
         }
         Lookup::Failed => {
-            painter.rect_filled(rect, 0.0, blank(t));
+            for band in &bands {
+                band.rect_filled(rect, 0.0, blank(t));
+            }
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
