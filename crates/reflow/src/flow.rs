@@ -177,6 +177,8 @@ struct Style<'a> {
 /// A text layout, its soft-hyphen lines, and line starts in source bytes.
 pub(crate) struct Para {
     pub(crate) layout: Layout<Ink>,
+    /// The text as set, soft hyphens included.
+    pub(crate) text: String,
     pub(crate) hyphens: Vec<usize>,
     starts: Vec<usize>,
     /// Linked runs, in bytes of the text as set.
@@ -720,6 +722,7 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
         .collect();
     Para {
         layout,
+        text: text.text.clone(),
         hyphens,
         starts,
         links: text.links.clone(),
