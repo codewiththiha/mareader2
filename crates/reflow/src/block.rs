@@ -36,12 +36,21 @@ pub struct Span {
     pub emphasis: Emphasis,
 }
 
+/// A run that leads elsewhere; the format knows what `target` means.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Link {
+    pub range: Range<usize>,
+    pub target: u32,
+}
+
 /// Styled text; spans cover only emphasised runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Text {
     pub role: Role,
     pub text: String,
     pub spans: Vec<Span>,
+    /// Linked runs, in order and apart.
+    pub links: Vec<Link>,
 }
 
 impl Text {
@@ -50,6 +59,28 @@ impl Text {
             role,
             text: String::new(),
             spans: Vec::new(),
+            links: Vec::new(),
+        }
+    }
+
+    /// Appends `text` as part of link `target`; a leading space isn't.
+    pub fn push_link(&mut self, text: &str, emphasis: Emphasis, target: u32) {
+        let at = self.text.len();
+        let start = at + (text.len() - text.trim_start_matches(' ').len());
+        self.push(text, emphasis);
+        let end = self.text.len();
+        if start >= end {
+            return;
+        }
+        match self.links.last_mut() {
+            // The same link going on, past a space between words.
+            Some(last) if last.range.end == at && last.target == target => {
+                last.range.end = end;
+            }
+            _ => self.links.push(Link {
+                range: start..end,
+                target,
+            }),
         }
     }
 
@@ -80,6 +111,10 @@ impl Text {
             span.range.end = span.range.end.min(len);
         }
         self.spans.retain(|s| !s.range.is_empty());
+        for link in &mut self.links {
+            link.range.end = link.range.end.min(len);
+        }
+        self.links.retain(|l| !l.range.is_empty());
     }
 
     pub fn is_blank(&self) -> bool {
