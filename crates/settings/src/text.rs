@@ -160,7 +160,8 @@ impl TextSettings {
     pub const INDENT: (f32, f32) = (0.0, 4.0);
     pub const FONT_SIZE: (f32, f32) = (10.0, 32.0);
     pub const FONT_WEIGHT: (f32, f32) = (100.0, 900.0);
-    pub const INK: (f32, f32) = (0.0, 100.0);
+    /// The ink dial's floor is mareader's: text never fades out.
+    pub const INK: (f32, f32) = (10.0, 100.0);
 
     pub fn sanitize(&mut self) {
         let d = Self::default();

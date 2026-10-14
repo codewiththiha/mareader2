@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
-use mareader_pdf::{LinkTarget, web_address};
+use mareader_pdf::{Bounds, LinkTarget, web_address};
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{ColumnAlign, LayoutSettings, StartupFit, TextSettings};
 
@@ -374,6 +374,8 @@ pub struct PageLook {
     pub fit: Fit,
     /// Where a book's vertical stream sits across the pane.
     pub column: egui::Align,
+    /// How much of a book's ink stays, 0 to 1: the ink dial.
+    pub ink: f32,
 }
 
 impl PageLook {
@@ -392,6 +394,7 @@ impl PageLook {
                 ColumnAlign::Center => egui::Align::Center,
                 ColumnAlign::Right => egui::Align::Max,
             },
+            ink: (text.ink_contrast / 100.0).clamp(0.0, 1.0),
         }
     }
 }
@@ -583,7 +586,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     } else {
         Urgency::OtherPane
     };
-    let t = cx.tokens;
+    let mut t = cx.tokens;
+    // The ink dial lightens a book's text; its pictures keep the pane's tone.
+    let picture_tone = t.page;
+    if doc.is_reflowable() {
+        t.page = t.page.inked(cx.page.ink);
+    }
     // egui turns a plain wheel sideways only if that's the sole direction.
     let down = view.mode != ViewMode::Horizontal || layout.size.y > frame.height() + 0.5;
     ui.style_mut().always_scroll_the_only_direction = true;
@@ -665,6 +673,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 }
                 let round = (frame, cx.corner);
                 let style = (&t, cx.page.shadow && bands.is_none());
+                let first = quads.len();
                 paint_page(ui, ((rect, clip), anchor, round), look, style, &mut quads);
                 if let Plan::Tiled {
                     backdrop,
@@ -689,6 +698,17 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     );
                 }
                 let width = sizes.get(page).map_or(1.0, |s| s.width);
+                if picture_tone != t.page {
+                    let to_screen = |b: Bounds| {
+                        let k = rect.width() / width;
+                        Rect::from_min_max(
+                            rect.min + vec2(b.x0, b.y0) * k,
+                            rect.min + vec2(b.x1, b.y1) * k,
+                        )
+                    };
+                    let shown = doc.pictures(page).into_iter().map(to_screen);
+                    keep_pictures(&mut quads, first, shown, picture_tone);
+                }
                 sheets.push(Sheet {
                     page,
                     rect,
@@ -1011,6 +1031,28 @@ fn clear_of_corners(ui: &Ui, clip: Rect, (frame, radius): (Rect, f32)) -> Vec<eg
     .filter(|band| band.is_positive())
     .map(|band| ui.painter().with_clip_rect(band))
     .collect()
+}
+
+/// Draws `quads` from `first` again over `pictures` in `tone`, undimmed.
+fn keep_pictures(
+    quads: &mut Vec<Quad>,
+    first: usize,
+    pictures: impl Iterator<Item = Rect>,
+    tone: PageTone,
+) {
+    let page: Vec<Quad> = quads.get(first..).unwrap_or_default().to_vec();
+    for picture in pictures {
+        for q in page.iter().filter(|q| q.texture.is_some()) {
+            let clip = q.clip.intersect(picture);
+            if clip.is_positive() {
+                quads.push(Quad {
+                    clip,
+                    tone,
+                    ..q.clone()
+                });
+            }
+        }
+    }
 }
 
 /// Paints a page, or queues it in `quads`; nothing crosses `round`'s
