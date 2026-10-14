@@ -11,4 +11,5 @@ workspace = true
 
 [dependencies]
 hayro = "0.8"
+mareader-appearance = { workspace = true }
 thiserror = { workspace = true }

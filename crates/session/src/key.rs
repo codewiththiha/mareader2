@@ -74,13 +74,18 @@ pub enum Want {
         doc: DocId,
         page: usize,
     },
+    /// A page drawn small to read its paper colour, for the backdrop.
+    Paper {
+        doc: DocId,
+        page: usize,
+    },
 }
 
 impl Want {
     pub fn doc(self) -> DocId {
         match self {
             Self::Raster(k) => k.doc,
-            Self::Text { doc, .. } => doc,
+            Self::Text { doc, .. } | Self::Paper { doc, .. } => doc,
         }
     }
 }

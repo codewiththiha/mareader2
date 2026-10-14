@@ -844,7 +844,15 @@ title = "Blend backdrop: the pane takes the page's paper colour (whole page or e
 area = "F"
 tier = "P0"
 milestone = "M3"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/pdf/src/paper.rs::the_edges_ignore_a_picture_filling_the_middle",
+  "crates/pdf/src/paper.rs::the_palette_mixes_between_known_pages",
+  "crates/appearance/src/filter.rs::a_backdrop_over_white_is_its_paper_themed",
+  "crates/ui/tests/blend.rs::the_gutter_takes_the_page_paper_through_the_theme",
+  "crates/ui/tests/blend.rs::the_texture_runs_from_the_page_into_the_gutter",
+  "crates/ui/tests/blend.rs::scrolling_between_chapters_mixes_their_papers",
+]
 reference = ["crates/pdf-paper/src/detect.rs", "crates/reader-runtime/src/effects/reader/blend_backdrop.rs"]
 
 [[feature]]

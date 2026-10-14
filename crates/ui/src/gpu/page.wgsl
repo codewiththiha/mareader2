@@ -7,6 +7,7 @@ struct VsOut {
     @location(1) tint: vec4<f32>,
     @location(2) at: vec2<f32>,
     @location(3) line: f32,
+    @location(4) shape: vec3<f32>,
 };
 
 // `rect`: clip-space corners; `pattern`: them in units; `line`: a stroke.
@@ -17,6 +18,7 @@ fn vs(
     @location(1) tint: vec4<f32>,
     @location(2) pattern: vec4<f32>,
     @location(3) line: f32,
+    @location(4) shape: vec3<f32>,
 ) -> VsOut {
     let corner = vec2<f32>(f32(i & 1u), f32(i >> 1u));
     var out: VsOut;
@@ -25,6 +27,7 @@ fn vs(
     out.tint = tint;
     out.at = mix(pattern.xy, pattern.zw, corner);
     out.line = line;
+    out.shape = shape;
     return out;
 }
 
@@ -198,10 +201,20 @@ fn to_target(c: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(select(high, low, rgb <= vec3<f32>(0.04045)) * c.a, c.a);
 }
 
+// A rounded quad's pixel cover; branch-free, so derivatives stay uniform.
+fn cover(uv: vec2<f32>, shape: vec3<f32>) -> f32 {
+    let r = shape.z;
+    let p = abs((uv - 0.5) * shape.xy) - (shape.xy * 0.5 - r);
+    let d = length(max(p, vec2<f32>(0.0))) + min(max(p.x, p.y), 0.0) - r;
+    let c = clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
+    return select(1.0, c, r > 0.0);
+}
+
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let fw = fwidth(in.at);
-    return to_target(themed(textureSample(page, filtered, in.uv), in.at, fw, in.line) * in.tint);
+    let c = themed(textureSample(page, filtered, in.uv), in.at, fw, in.line) * in.tint;
+    return to_target(c) * cover(in.uv, in.shape);
 }
 
 // For the shrunk glass strip: a 4x4 average per pixel
@@ -217,5 +230,6 @@ fn fs_strip(in: VsOut) -> @location(0) vec4<f32> {
             sum += textureSampleLevel(page, filtered, at, 0.0);
         }
     }
-    return to_target(themed(sum / 16.0, in.at, fw, in.line) * in.tint);
+    let c = themed(sum / 16.0, in.at, fw, in.line) * in.tint;
+    return to_target(c) * cover(in.uv, in.shape);
 }

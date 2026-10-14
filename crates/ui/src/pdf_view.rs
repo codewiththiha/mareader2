@@ -18,7 +18,7 @@ use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
 use crate::{keymap, motion};
-use mareader_appearance::PageTone;
+use mareader_appearance::{PageTone, Rgb};
 
 /// Pages drawn ahead of the viewport, each way, in turns.
 const PREFETCH: usize = 1;
@@ -104,6 +104,8 @@ pub enum Urgency {
     OtherPane,
     /// Text under the pointer matters more than a thumbnail.
     Text,
+    /// Small and quick, and the backdrop waits on it.
+    Paper,
     Thumbnail,
     Prefetch,
 }
@@ -135,6 +137,8 @@ pub struct PdfView {
     pub selection: Option<Selection>,
     /// Pages on screen last frame, where they sat.
     pub sheets: Vec<Sheet>,
+    /// The page looked at last frame, fractional, for the backdrop.
+    paper_at: Option<f64>,
     nudge: Option<Nudge>,
     /// Where the last key's glide is heading along the strip, and until when.
     aim: Option<Glide>,
@@ -167,6 +171,7 @@ impl PdfView {
             progress: 0.0,
             selection: None,
             sheets: Vec::new(),
+            paper_at: None,
             fresh: true,
             resize: None,
             moved_at: 0.0,
@@ -231,6 +236,11 @@ impl PdfView {
         } else {
             self.nudge = Some(Nudge::Screen(if forward { 1.0 } else { -1.0 }));
         }
+    }
+
+    /// Where the backdrop reads its paper: pages weighted by their share.
+    pub fn paper_at(&self) -> f64 {
+        self.paper_at.unwrap_or(self.current as f64)
     }
 
     /// Last frame's scroll, in content points; narrower pages sit centred.
@@ -303,6 +313,12 @@ pub struct ViewContext {
     /// Space a pinned title bar takes from the pane's top.
     pub top_inset: f32,
     pub page: PageLook,
+    /// Blend's paper behind the pages, raw; none draws no backdrop.
+    pub paper: Option<Rgb>,
+    /// The pane's corner radius, which the backdrop keeps.
+    pub corner: f32,
+    /// Read this pane's paper: blend is on and the pane is focused.
+    pub sample: bool,
 }
 
 /// The Layout settings the pages follow.
@@ -517,6 +533,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let wanted = |page: usize| landing.as_ref().is_none_or(|r| r.contains(&page));
     let mut shown_pages = 0..0;
     let mut sheets = Vec::new();
+    let mut paper_at = None;
     let mut follow = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
@@ -551,6 +568,14 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 origin: ui.max_rect().min,
                 zoom: layout.zoom(),
             };
+            // Blend's paper, under the shadows; the anchor joins its seams.
+            if let (Some(paper), Some(pass)) = (cx.paper, pass) {
+                let tone = t.page.backdrop(paper.to_unit());
+                let quad = Quad::backdrop(frame, cx.corner, tone, anchor);
+                let shape = PagesCallback::shape(pass.clone(), frame, vec![quad.clone()]);
+                ui.painter().add(shape);
+                drawn.push(quad);
+            }
             let shown = layout.visible(viewport);
             shown_pages = shown.clone();
             let mut quads = Vec::new();
@@ -596,6 +621,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     scale: rect.width() / width,
                 });
             }
+            let clip = ui.clip_rect();
+            paper_at = mareader_pdf::position(sheets.iter().map(|s| {
+                let seen = s.rect.intersect(clip);
+                (s.page, if seen.is_positive() { seen.area() } else { 0.0 })
+            }));
             // One callback draws every GPU page, over the shadows.
             if let (Some(pass), false) = (pass, quads.is_empty()) {
                 let shape = PagesCallback::shape(pass.clone(), ui.clip_rect(), quads.clone());
@@ -653,6 +683,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     view.progress = progress(view, layout, &out, sizes.len());
     view.visible = shown_pages;
     view.sheets = sheets;
+    // Nothing shown, as mid-jump: the backdrop holds its colour.
+    view.paper_at = paper_at.or(view.paper_at);
     if view.offset != out.state.offset || view.viewport != viewport {
         view.moved_at = now;
     }

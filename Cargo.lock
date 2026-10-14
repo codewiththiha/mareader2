@@ -2060,6 +2060,7 @@ name = "mareader-pdf"
 version = "0.0.1"
 dependencies = [
  "hayro",
+ "mareader-appearance",
  "thiserror 2.0.21",
 ]
 

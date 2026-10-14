@@ -67,14 +67,14 @@ appearance effects to that same pass.
 |---|---|---|---|
 | 1 | The page pass themes pages: mareader's filter chain, then multiply, screen or soft light over the paper, on the GPU; thumbnails and the glass follow | **done** | the palette's modes and presets; `theme=dark`, `preset=sepia` in shots |
 | 2 | Paper textures on pages: real paper, lined, grid, dotted, cross, with opacity and scale | **done** | the palette's Texture row; `texture=grid texture_scale=150` or `preset=parchment` in shots |
-| 3 | Blend backdrop: the texture runs across pages and gutter | next | |
-| 4 | Grain | | |
+| 3 | Blend backdrop: the pane takes the page's own paper, themed; the texture runs across pages and gutter | **done** | Settings › Theme › Paper; `pdf=scan:12 blend=true blend_area=edges` in shots |
+| 4 | Grain | next | |
 | 5 | Presets UI and the appearance menu, finished | | |
 | 6 | Independent pane themes and textures | | |
 
 ## Next
 
-1. **M3 slice 3:** the blend backdrop (ADR 0003).
+1. **M3 slice 4:** grain.
 
 ## Open questions for the owner
 

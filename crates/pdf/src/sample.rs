@@ -40,25 +40,67 @@ fn width(text: &str) -> f32 {
 pub fn pdf(pages: usize, title: &str) -> Vec<u8> {
     let pages = pages.max(1);
     let extra = outline(&chapters(pages));
-    build(pages, title, "/Outlines {E0}", &extra, &|i| {
-        sample_links(i, pages)
-    })
+    let links = |i| sample_links(i, pages);
+    build(
+        pages,
+        title,
+        "/Outlines {E0}",
+        &extra,
+        &links,
+        &|_, _, _| String::new(),
+    )
+}
+
+/// The sample as a scan: tinted paper each chapter, a plate on each page.
+pub fn scan(pages: usize, title: &str) -> Vec<u8> {
+    let pages = pages.max(1);
+    let extra = outline(&chapters(pages));
+    let links = |i| sample_links(i, pages);
+    build(pages, title, "/Outlines {E0}", &extra, &links, &scanned)
+}
+
+/// Under a scan's text: its chapter's paper, and a plate over most of it.
+fn scanned(page: usize, w: u32, h: u32) -> String {
+    const PAPERS: [&str; 4] = [
+        "0.98 0.95 0.88",
+        "0.86 0.90 0.95",
+        "0.94 0.87 0.70",
+        "0.88 0.94 0.86",
+    ];
+    let paper = PAPERS
+        .get(page / 5 % PAPERS.len())
+        .copied()
+        .unwrap_or("1 1 1");
+    let (pw, ph) = (w - 100, h - 212);
+    format!("{paper} rg 0 0 {w} {h} re f 0.47 0.53 0.60 rg 50 100 {pw} {ph} re f 0 g\n")
 }
 
 /// For tests: `catalog` joins the catalog; `{E0}` … name `extra`.
 pub fn with_objects(pages: usize, catalog: &str, extra: &[String]) -> Vec<u8> {
-    build(pages.max(1), "Test", catalog, extra, &|_| Vec::new())
+    let none = |_, _, _| String::new();
+    build(pages.max(1), "Test", catalog, extra, &|_| Vec::new(), &none)
 }
 
 /// For tests: `annots` are written onto page `on`, as dictionaries.
 pub fn with_annots(pages: usize, on: usize, annots: &[String]) -> Vec<u8> {
     let pick = |i: usize| if i == on { annots.to_vec() } else { Vec::new() };
-    build(pages.max(1), "Test", "", &[], &pick)
+    build(pages.max(1), "Test", "", &[], &pick, &|_, _, _| {
+        String::new()
+    })
 }
 
 type Annots<'a> = &'a dyn Fn(usize) -> Vec<String>;
+/// Content drawn under a page's text, from its index and size.
+type Under<'a> = &'a dyn Fn(usize, u32, u32) -> String;
 
-fn build(pages: usize, title: &str, catalog: &str, extra: &[String], annots: Annots) -> Vec<u8> {
+fn build(
+    pages: usize,
+    title: &str,
+    catalog: &str,
+    extra: &[String],
+    annots: Annots,
+    under: Under,
+) -> Vec<u8> {
     // 1 catalog, 2 page tree, 3 and 4 fonts, 5 info, then page pairs.
     let first = 6;
     let base = first + 2 * pages;
@@ -78,7 +120,7 @@ fn build(pages: usize, title: &str, catalog: &str, extra: &[String], annots: Ann
     ];
     for i in 0..pages {
         let (w, h) = page_size(i);
-        let text = page_text(i, pages, w, h);
+        let text = under(i, w, h) + &page_text(i, pages, w, h);
         let annots = annots(i).iter().map(|a| refs(a)).collect::<Vec<_>>();
         objs.push(format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] \
