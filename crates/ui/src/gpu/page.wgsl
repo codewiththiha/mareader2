@@ -5,31 +5,41 @@ struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) tint: vec4<f32>,
+    @location(2) at: vec2<f32>,
+    @location(3) line: f32,
 };
 
-// `rect` is (left, top, right, bottom) in clip space.
+// `rect`: clip-space corners; `pattern`: them in units; `line`: a stroke.
 @vertex
 fn vs(
     @builtin(vertex_index) i: u32,
     @location(0) rect: vec4<f32>,
     @location(1) tint: vec4<f32>,
+    @location(2) pattern: vec4<f32>,
+    @location(3) line: f32,
 ) -> VsOut {
     let corner = vec2<f32>(f32(i & 1u), f32(i >> 1u));
     var out: VsOut;
     out.pos = vec4<f32>(mix(rect.xy, rect.zw, corner), 0.0, 1.0);
     out.uv = corner;
     out.tint = tint;
+    out.at = mix(pattern.xy, pattern.zw, corner);
+    out.line = line;
     return out;
 }
 
 @group(0) @binding(0) var page: texture_2d<f32>;
 @group(0) @binding(1) var filtered: sampler;
 
-// A `PageTone`: seven 3x4 matrices, the paper, then count and blend.
+// A `PageTone`. `mode`: op count, blend, texture, grain blend.
 struct Tone {
     rows: array<vec4<f32>, 21>,
     paper: vec4<f32>,
     mode: vec4<u32>,
+    stroke: vec4<f32>,
+    grain: vec4<f32>,
+    // x: the texture's opacity.
+    params: vec4<f32>,
 };
 @group(1) @binding(0) var<uniform> tone: Tone;
 
@@ -68,14 +78,112 @@ fn blend(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     }
 }
 
-// The page filtered, then blended over opaque paper.
-fn themed(c: vec4<f32>) -> vec4<f32> {
+// Box-filtered cover of strokes `w` wide every `pitch`; `fw` is a pixel.
+fn band(x: f32, w: f32, pitch: f32, fw: f32) -> f32 {
+    let d = x - floor(x / pitch) * pitch;
+    let lo = d - fw * 0.5;
+    let hi = d + fw * 0.5;
+    var cover = 0.0;
+    for (var k = -1; k <= 1; k++) {
+        let s = f32(k) * pitch;
+        cover += max(0.0, min(hi, s + w) - max(lo, s));
+    }
+    return min(cover / max(fw, 1e-4), 1.0);
+}
+
+// A dot centred in each `pitch` cell, solid to `r0`, gone at `r1`.
+fn spot(p: vec2<f32>, pitch: f32, r0: f32, r1: f32, fw: f32) -> f32 {
+    let r = length(p - (floor(p / pitch) + 0.5) * pitch);
+    return clamp((r1 + fw * 0.5 - r) / (r1 - r0 + fw), 0.0, 1.0);
+}
+
+fn hash(p: vec2<i32>, seed: u32) -> f32 {
+    var h = bitcast<u32>(p.x) * 0x8da6b343u ^ bitcast<u32>(p.y) * 0xd8163841u;
+    h = (h ^ seed * 0xcb1ab31fu) * 0x7feb352du;
+    h = (h ^ (h >> 15u)) * 0x846ca68bu;
+    h = h ^ (h >> 16u);
+    return f32(h) / 4294967295.0;
+}
+
+// Smooth value noise, -1..1.
+fn value_noise(p: vec2<f32>, seed: u32) -> f32 {
+    let i = vec2<i32>(floor(p));
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = hash(i, seed);
+    let b = hash(i + vec2<i32>(1, 0), seed);
+    let c = hash(i + vec2<i32>(0, 1), seed);
+    let d = hash(i + vec2<i32>(1, 1), seed);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;
+}
+
+// Two octaves like feTurbulence's, 0..1, averaging out when minified.
+fn turbulence(p: vec2<f32>, fw: f32, seed: u32) -> f32 {
+    let q = p * 0.65;
+    let n = value_noise(q, seed) + 0.5 * value_noise(q * 2.0, seed + 7u);
+    let g = clamp((n + 1.0) * 0.5, 0.0, 1.0);
+    return mix(g, 0.5, clamp(fw * 0.65 - 0.5, 0.0, 1.0));
+}
+
+// The grain: noise blended into its tint, as `Pattern::grain_layer`.
+fn grain_layer(g: f32, n: f32) -> vec4<f32> {
+    let tint = tone.grain.rgb;
+    let ab = tone.grain.a;
+    let ai = 0.055 * n;
+    var mixed = tint * g;
+    if (tone.mode.w == 2u) {
+        mixed = tint + vec3<f32>(g) - tint * g;
+    }
+    let a = ai + ab * (1.0 - ai);
+    if (a <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+    let src = (1.0 - ab) * vec3<f32>(g) + ab * mixed;
+    return vec4<f32>((ai * src + ab * (1.0 - ai) * tint) / a, a);
+}
+
+// Texture modes: 1 paper, 2 lined, 3 grid, 4 dotted, 5 cross.
+fn pattern_layer(p: vec2<f32>, fw: vec2<f32>, line: f32) -> vec4<f32> {
+    let ink = tone.stroke;
+    let f = max(fw.x, fw.y);
+    switch tone.mode.z {
+        case 1u: {
+            return grain_layer(turbulence(p, f, 1u), turbulence(p, f, 2u));
+        }
+        case 2u: {
+            return vec4<f32>(ink.rgb, ink.a * band(p.y, line, 26.0, fw.y));
+        }
+        case 3u: {
+            let h = ink.a * band(p.y, line, 26.0, fw.y);
+            let v = ink.a * band(p.x, line, 26.0, fw.x);
+            return vec4<f32>(ink.rgb, 1.0 - (1.0 - h) * (1.0 - v));
+        }
+        case 4u: {
+            return vec4<f32>(ink.rgb, ink.a * spot(p, 8.0, 1.0, 1.5, f));
+        }
+        case 5u: {
+            let h = ink.a * band(p.y, line, 26.0, fw.y);
+            let v = ink.a * band(p.x, line, 26.0, fw.x);
+            let d = ink.a * spot(p, 26.0, 1.5, 2.0, f);
+            return vec4<f32>(ink.rgb, 1.0 - (1.0 - h) * (1.0 - v) * (1.0 - d));
+        }
+        default: {
+            return vec4<f32>(0.0);
+        }
+    }
+}
+
+// The page filtered, blended over opaque paper, then textured.
+fn themed(c: vec4<f32>, at: vec2<f32>, fw: vec2<f32>, line: f32) -> vec4<f32> {
     if (tone.mode.y == 0u) {
         return c;
     }
     let paper = tone.paper.rgb;
     let s = filter_chain(c.rgb / max(c.a, 1e-5));
-    return vec4<f32>(mix(paper, blend(paper, s), c.a), 1.0);
+    let page = mix(paper, blend(paper, s), c.a);
+    let layer = pattern_layer(at, fw, line);
+    let a = layer.a * tone.params.x;
+    return vec4<f32>(page * (1.0 - a) + layer.rgb * a, 1.0);
 }
 
 // Rasters hold gamma-encoded, premultiplied colour.
@@ -91,7 +199,8 @@ fn to_target(c: vec4<f32>) -> vec4<f32> {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    return to_target(themed(textureSample(page, filtered, in.uv)) * in.tint);
+    let fw = fwidth(in.at);
+    return to_target(themed(textureSample(page, filtered, in.uv), in.at, fw, in.line) * in.tint);
 }
 
 // For the shrunk glass strip: a 4x4 average per pixel
@@ -99,6 +208,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_strip(in: VsOut) -> @location(0) vec4<f32> {
     let step = fwidth(in.uv) / 4.0;
+    let fw = fwidth(in.at);
     var sum = vec4<f32>(0.0);
     for (var y = 0; y < 4; y++) {
         for (var x = 0; x < 4; x++) {
@@ -106,5 +216,5 @@ fn fs_strip(in: VsOut) -> @location(0) vec4<f32> {
             sum += textureSampleLevel(page, filtered, at, 0.0);
         }
     }
-    return to_target(themed(sum / 16.0) * in.tint);
+    return to_target(themed(sum / 16.0, in.at, fw, in.line) * in.tint);
 }
