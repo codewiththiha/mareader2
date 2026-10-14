@@ -10,3 +10,14 @@ The text is in the public domain in the USA. The file keeps the Project
 Gutenberg License it ships with, unchanged.
 
 sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a8679e`
+
+## Text files
+
+Markdown and plain text open converted to EPUBs (`docs/epub.md`).
+
+| File | What it is | Why it's here |
+|---|---|---|
+| `the-raven-gutenberg-17192.txt` | The same book's Plain Text UTF-8 edition (66 KB), fetched 2026-10-14 from <https://www.gutenberg.org/cache/epub/17192/pg17192.txt> | A text file as published: CRLF line ends, prose wrapped near 75 columns beside verse, headings in capitals framed by blank lines |
+| `river.md` and `river-dusk.png` | Written for these tests | Front matter, chapters, links between them, a footnote, a table, code, a task list, an alert and a local picture |
+
+sha256 of the text file: `6f0bb853f923de9804d9e65eb78d57b4046e2b6addcd21f217e8941e44030d13`

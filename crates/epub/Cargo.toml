@@ -10,9 +10,12 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+chardetng = { workspace = true }
+encoding_rs = { workspace = true }
 html5ever = { workspace = true }
 image = { workspace = true }
 mareader-reflow = { workspace = true }
+pulldown-cmark = { workspace = true }
 quick-xml = { workspace = true }
 rbook = { workspace = true }
 thiserror = { workspace = true }

@@ -34,6 +34,10 @@ html5ever = "0.40"
 zip = { version = "9", default-features = false }
 # The XML reader rbook uses, to measure what it would nest first.
 quick-xml = { version = "0.42", default-features = false }
+# Markdown and plain text become EPUBs on open.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+encoding_rs = "0.8"
+chardetng = "0.1"
 
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
