@@ -3,13 +3,15 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
+use hypher::Lang;
 use parley::{
-    Alignment, AlignmentOptions, FontFamily, FontFamilyName, FontStyle, FontWeight, Layout,
-    LineHeight, OverflowWrap, StyleProperty,
+    Alignment, AlignmentOptions, FontFamily, FontFamilyName, FontStyle, FontWeight, GenericFamily,
+    IndentOptions, Layout, LineHeight, OverflowWrap, StyleProperty,
 };
 
 use crate::block::{Align, Block, Content, Emphasis, Frame, Role, Table, Text};
-use crate::fonts::{Fonts, Ink, MONO, SANS, SERIF, Tone};
+use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
+use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
 
 /// mareader's page: an A4 card at 96 dpi, in layout units.
@@ -21,8 +23,8 @@ pub const PAD: f32 = 72.0;
 /// More than this many pages means a broken or hostile book.
 pub const MAX_PAGES: usize = 100_000;
 
-/// mareader's defaults; the knobs that change them come later.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// How a book is set: the reader's typography plus the text's language.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Typography {
     /// Body size in layout units (CSS px).
     pub font_size: f32,
@@ -30,6 +32,19 @@ pub struct Typography {
     pub line_height: f32,
     /// Space between blocks, in body ems.
     pub block_gap: f32,
+    /// Body weight, 100 to 900; headings keep their own.
+    pub weight: f32,
+    /// Extra space between words, in layout units.
+    pub word_spacing: f32,
+    /// Extra space between letters, in ems.
+    pub letter_spacing: f32,
+    /// A paragraph's first-line indent, in ems.
+    pub indent: f32,
+    pub justify: bool,
+    pub hyphenate: bool,
+    /// A BCP 47 tag; it picks the hyphenation patterns.
+    pub language: String,
+    pub faces: Faces,
 }
 
 impl Default for Typography {
@@ -38,6 +53,14 @@ impl Default for Typography {
             font_size: 17.0,
             line_height: 1.7,
             block_gap: 1.0,
+            weight: 400.0,
+            word_spacing: 0.0,
+            letter_spacing: 0.0,
+            indent: 0.0,
+            justify: false,
+            hyphenate: false,
+            language: "en".to_owned(),
+            faces: Faces::default(),
         }
     }
 }
@@ -45,7 +68,6 @@ impl Default for Typography {
 const HEADING_LINE_HEIGHT: f32 = 1.3;
 /// Inter's heaviest bundled weight stands in for mareader's 700.
 const HEADING_WEIGHT: f32 = 600.0;
-const BOLD_WEIGHT: f32 = 700.0;
 const HEAD_CELL_WEIGHT: f32 = 600.0;
 
 // Sizes in ems, after mareader's text stylesheet.
@@ -61,13 +83,6 @@ const RULE_HEIGHT: f32 = 0.5;
 /// From a list marker's right edge to the text.
 pub(crate) const MARKER_GAP: f32 = 0.5;
 
-/// Each face falls back to Inter for symbols it lacks, like "◦".
-const SERIF_FACES: &[FontFamilyName<'static>] =
-    &[FontFamilyName::named(SERIF), FontFamilyName::named(SANS)];
-const SANS_FACES: &[FontFamilyName<'static>] = &[FontFamilyName::named(SANS)];
-const MONO_FACES: &[FontFamilyName<'static>] =
-    &[FontFamilyName::named(MONO), FontFamilyName::named(SANS)];
-
 /// A heading's size in body ems, as mareader's stylesheet has it.
 fn heading_scale(level: u8) -> f32 {
     match level {
@@ -80,10 +95,61 @@ fn heading_scale(level: u8) -> f32 {
     }
 }
 
+/// CSS `bolder`: what bold text weighs inside text of `weight`.
+fn bolder(weight: f32) -> f32 {
+    if weight < 350.0 {
+        400.0
+    } else if weight < 550.0 {
+        700.0
+    } else {
+        900.0
+    }
+}
+
+type Stack = Vec<FontFamilyName<'static>>;
+
+/// Each stack as parley takes it, with Inter last for symbols.
+struct Stacks {
+    body: Stack,
+    heading: Stack,
+    mono: Stack,
+}
+
+impl Stacks {
+    fn new(faces: &Faces) -> Self {
+        Self {
+            body: stack(&faces.body),
+            heading: stack(&faces.heading),
+            mono: stack(&faces.mono),
+        }
+    }
+}
+
+fn stack(families: &[Family]) -> Stack {
+    let mut names: Stack = families
+        .iter()
+        .map(|f| match f {
+            Family::Named(name) => FontFamilyName::Named(Cow::Owned(name.clone())),
+            Family::Generic(kind) => FontFamilyName::Generic(match kind {
+                Kind::Serif => GenericFamily::Serif,
+                Kind::Sans => GenericFamily::SansSerif,
+                Kind::Mono => GenericFamily::Monospace,
+            }),
+        })
+        .collect();
+    let symbols = FontFamilyName::named(SANS);
+    if !names.contains(&symbols) {
+        names.push(symbols);
+    }
+    names
+}
+
 /// How one text layout is set.
 #[derive(Clone, Copy)]
-struct Style {
-    faces: &'static [FontFamilyName<'static>],
+struct Style<'a> {
+    faces: &'a [FontFamilyName<'static>],
+    /// Inline code's stack.
+    mono: &'a [FontFamilyName<'static>],
     size: f32,
     line_height: f32,
     weight: f32,
@@ -91,61 +157,28 @@ struct Style {
     align: Align,
     /// Preformatted: long lines wrap anywhere, code spans aren't resized.
     pre: bool,
+    justify: bool,
+    hyphens: Option<Lang>,
+    /// The first line's indent, in layout units.
+    indent: f32,
+    /// Extra advance per letter and per word, in layout units.
+    letter: f32,
+    word: f32,
 }
 
-impl Style {
-    fn body(typo: &Typography, frame: &Frame) -> Self {
-        Self {
-            faces: SERIF_FACES,
-            size: typo.font_size,
-            line_height: typo.line_height,
-            weight: 400.0,
-            tone: if frame.soft { Tone::Soft } else { Tone::Body },
-            align: frame.align,
-            pre: false,
-        }
-    }
-
-    fn text(role: Role, typo: &Typography, frame: &Frame) -> Self {
-        let body = Self::body(typo, frame);
-        match role {
-            Role::Heading(level) => Self {
-                faces: SANS_FACES,
-                size: body.size * heading_scale(level),
-                line_height: HEADING_LINE_HEIGHT,
-                weight: HEADING_WEIGHT,
-                tone: if level >= 6 { Tone::Muted } else { body.tone },
-                ..body
-            },
-            Role::Paragraph => body,
-            Role::Preformatted => Self {
-                faces: MONO_FACES,
-                size: body.size * PRE_SCALE,
-                line_height: PRE_LINE_HEIGHT,
-                align: Align::Start,
-                pre: true,
-                ..body
-            },
-        }
-    }
-
-    fn cell(typo: &Typography, frame: &Frame, head: bool) -> Self {
-        let body = Self::body(typo, frame);
-        Self {
-            size: body.size * CELL_SCALE,
-            weight: if head { HEAD_CELL_WEIGHT } else { body.weight },
-            align: Align::Start,
-            ..body
-        }
-    }
+/// A text layout, its soft-hyphen lines, and line starts in source bytes.
+pub(crate) struct Para {
+    pub(crate) layout: Layout<Ink>,
+    pub(crate) hyphens: Vec<usize>,
+    starts: Vec<usize>,
 }
 
 /// What a set block draws; positions are relative to the block.
 pub(crate) enum Draw {
     Text {
-        layout: Box<Layout<Ink>>,
+        para: Box<Para>,
         /// A list marker, hung left of the first line.
-        marker: Option<Box<Layout<Ink>>>,
+        marker: Option<Box<Para>>,
         /// Inner padding left of the text, for shaded blocks.
         pad: f32,
         shaded: bool,
@@ -163,11 +196,13 @@ pub(crate) struct Grid {
     pub(crate) column: f32,
     /// Cell padding: across, down.
     pub(crate) pad: [f32; 2],
-    pub(crate) rows: Vec<(Vec<Layout<Ink>>, bool)>,
+    pub(crate) rows: Vec<(Vec<Para>, bool)>,
 }
 
 /// One block set: `x` and `width` within the column.
 pub(crate) struct Set {
+    /// The block's index in the book, blank ones counted.
+    source: usize,
     pub(crate) x: f32,
     pub(crate) width: f32,
     /// Quote bars' left edges within the column.
@@ -175,6 +210,8 @@ pub(crate) struct Set {
     pub(crate) draw: Draw,
     /// Each unit's top and bottom: lines, rows or the whole image.
     pub(crate) units: Vec<(f32, f32)>,
+    /// Each unit's place in the block: a text offset or a row.
+    starts: Vec<usize>,
     keep_with_next: bool,
     break_before: bool,
     tight: bool,
@@ -192,11 +229,20 @@ pub(crate) struct Piece {
     pub(crate) dy: f32,
 }
 
+/// A place in the book that survives re-setting it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Anchor {
+    /// The block's index in the book.
+    pub block: usize,
+    /// A byte offset into its text, or a table row.
+    pub offset: usize,
+}
+
 /// A whole book set and paginated; `Send + Sync` for the workers.
 pub struct Flow {
     pub(crate) blocks: Vec<Set>,
     pub(crate) pages: Vec<Vec<Piece>>,
-    pub(crate) decoded: Decoded,
+    pub(crate) decoded: Arc<Decoded>,
 }
 
 impl std::fmt::Debug for Flow {
@@ -208,19 +254,33 @@ impl std::fmt::Debug for Flow {
 impl Flow {
     /// Sets `blocks` on mareader's A4 page; always at least one page.
     pub fn new(blocks: &[Block], typo: &Typography, fonts: &mut Fonts) -> Self {
-        let column = PAGE_WIDTH - 2.0 * PAD;
-        let height = PAGE_HEIGHT - 2.0 * PAD;
+        let stacks = Stacks::new(&typo.faces);
+        let mut setter = Setter {
+            typo,
+            stacks: &stacks,
+            lang: hyphen::lang(&typo.language),
+            fonts,
+            column: PAGE_WIDTH - 2.0 * PAD,
+            height: PAGE_HEIGHT - 2.0 * PAD,
+        };
         let set: Vec<Set> = blocks
             .iter()
-            .filter(|b| !b.is_blank())
-            .map(|b| set_block(b, typo, column, height, fonts))
+            .enumerate()
+            .filter(|(_, b)| !b.is_blank())
+            .map(|(i, b)| setter.block(i, b))
             .collect();
-        let pages = paginate(&set, height, typo);
+        let pages = paginate(&set, setter.height, typo);
         Self {
             blocks: set,
             pages,
-            decoded: Decoded::default(),
+            decoded: Arc::default(),
         }
+    }
+
+    /// Shares `other`'s decoded pictures: a re-set book shows the same.
+    pub fn keep_pictures(mut self, other: &Flow) -> Self {
+        self.decoded = Arc::clone(&other.decoded);
+        self
     }
 
     pub fn page_count(&self) -> usize {
@@ -231,17 +291,249 @@ impl Flow {
     pub fn page_size(&self) -> (f32, f32) {
         (PAGE_WIDTH, PAGE_HEIGHT)
     }
+
+    /// Where page `page` starts.
+    pub fn anchor(&self, page: usize) -> Option<Anchor> {
+        let piece = self.pages.get(page)?.first()?;
+        let set = self.blocks.get(piece.block)?;
+        Some(Anchor {
+            block: set.source,
+            offset: set.starts.get(piece.units.start).copied().unwrap_or(0),
+        })
+    }
+
+    /// The page showing `anchor`, or the first after it.
+    pub fn locate(&self, anchor: Anchor) -> usize {
+        let at = (anchor.block, anchor.offset);
+        for (n, page) in self.pages.iter().enumerate() {
+            for piece in page {
+                let Some(set) = self.blocks.get(piece.block) else {
+                    continue;
+                };
+                // Where the block goes on after this piece.
+                let next = set.starts.get(piece.units.end).copied();
+                if (set.source, next.unwrap_or(usize::MAX)) > at {
+                    return n;
+                }
+            }
+        }
+        self.pages.len().saturating_sub(1)
+    }
 }
 
-fn alignment(align: Align) -> Alignment {
-    match align {
+/// One job's view of the book's typography and fonts.
+struct Setter<'a> {
+    typo: &'a Typography,
+    stacks: &'a Stacks,
+    lang: Lang,
+    fonts: &'a mut Fonts,
+    column: f32,
+    height: f32,
+}
+
+impl<'a> Setter<'a> {
+    fn body(&self, frame: &Frame) -> Style<'a> {
+        let typo = self.typo;
+        Style {
+            faces: &self.stacks.body,
+            mono: &self.stacks.mono,
+            size: typo.font_size,
+            line_height: typo.line_height,
+            weight: typo.weight,
+            tone: if frame.soft { Tone::Soft } else { Tone::Body },
+            align: frame.align,
+            pre: false,
+            justify: typo.justify && frame.align == Align::Start,
+            hyphens: typo.hyphenate.then_some(self.lang),
+            indent: 0.0,
+            letter: typo.letter_spacing * typo.font_size,
+            word: typo.word_spacing,
+        }
+    }
+
+    fn text_style(&self, role: Role, frame: &Frame) -> Style<'a> {
+        let body = self.body(frame);
+        match role {
+            Role::Heading(level) => Style {
+                faces: &self.stacks.heading,
+                size: body.size * heading_scale(level),
+                line_height: HEADING_LINE_HEIGHT,
+                weight: HEADING_WEIGHT,
+                tone: if level >= 6 { Tone::Muted } else { body.tone },
+                justify: false,
+                hyphens: None,
+                ..body
+            },
+            // Quotes and list items start flush, as mareader's do.
+            Role::Paragraph if !frame.soft && frame.marker.is_none() => Style {
+                indent: self.typo.indent * body.size,
+                ..body
+            },
+            Role::Paragraph => body,
+            Role::Preformatted => Style {
+                faces: &self.stacks.mono,
+                size: body.size * PRE_SCALE,
+                line_height: PRE_LINE_HEIGHT,
+                align: Align::Start,
+                pre: true,
+                justify: false,
+                hyphens: None,
+                letter: 0.0,
+                word: 0.0,
+                ..body
+            },
+        }
+    }
+
+    fn cell_style(&self, frame: &Frame, head: bool) -> Style<'a> {
+        let body = self.body(frame);
+        Style {
+            size: body.size * CELL_SCALE,
+            weight: if head { HEAD_CELL_WEIGHT } else { body.weight },
+            align: Align::Start,
+            justify: false,
+            ..body
+        }
+    }
+
+    fn block(&mut self, source: usize, block: &Block) -> Set {
+        let (column, height) = (self.column, self.height);
+        let em = self.typo.font_size;
+        let frame = &block.frame;
+        // Deep nesting stops indenting at half the column.
+        let x = (frame.inset * em).clamp(0.0, column / 2.0);
+        let width = column - x;
+        let (draw, units, starts) = match &block.content {
+            Content::Text(text) => self.text(text, frame, width),
+            Content::Rule => (Draw::Rule, vec![(0.0, RULE_HEIGHT * em)], vec![0]),
+            Content::Image { picture, cover } => {
+                let (rect, unit) = if *cover {
+                    cover_rect(picture, column, height)
+                } else {
+                    image_rect(picture, frame.align, width, height)
+                };
+                let picture = picture.clone();
+                (Draw::Image { picture, rect }, vec![unit], vec![0])
+            }
+            Content::Table(table) => {
+                let (grid, units) = self.table(table, frame, width);
+                let rows = (0..units.len()).collect();
+                (Draw::Table(grid), units, rows)
+            }
+        };
+        let cover = matches!(block.content, Content::Image { cover: true, .. });
+        let heads = match &block.content {
+            Content::Table(t) => t.rows.iter().take_while(|r| r.head).count(),
+            _ => 0,
+        };
+        Set {
+            source,
+            x: if cover { 0.0 } else { x },
+            width: if cover { column } else { width },
+            bars: frame
+                .bars
+                .iter()
+                .map(|b| (b * em).min(column / 2.0))
+                .collect(),
+            draw,
+            units,
+            starts,
+            keep_with_next: block.is_heading(),
+            break_before: block.break_before,
+            tight: frame.tight,
+            lines: matches!(block.content, Content::Text(_)),
+            heads,
+        }
+    }
+
+    fn text(
+        &mut self,
+        text: &Text,
+        frame: &Frame,
+        width: f32,
+    ) -> (Draw, Vec<(f32, f32)>, Vec<usize>) {
+        let em = self.typo.font_size;
+        let style = self.text_style(text.role, frame);
+        let shaded = text.role == Role::Preformatted;
+        let (pad, pad_y) = if shaded {
+            (PRE_PAD.0 * em, PRE_PAD.1 * em)
+        } else {
+            (0.0, 0.0)
+        };
+        let inner = (width - 2.0 * pad).max(em);
+        let mut para = layout_text(self.fonts, text, style, Some(inner));
+        let mut units = line_units(&para.layout);
+        // The padding rides on the first and last lines.
+        if let Some(first) = units.first_mut() {
+            first.0 -= pad_y;
+        }
+        if let Some(last) = units.last_mut() {
+            last.1 += pad_y;
+        }
+        let marker = frame.marker.as_deref().map(|m| {
+            let mut t = Text::new(Role::Paragraph);
+            t.push(m, Emphasis::default());
+            let style = Style {
+                align: Align::Start,
+                pre: false,
+                justify: false,
+                hyphens: None,
+                indent: 0.0,
+                ..style
+            };
+            Box::new(layout_text(self.fonts, &t, style, None))
+        });
+        let starts = std::mem::take(&mut para.starts);
+        let draw = Draw::Text {
+            para: Box::new(para),
+            marker,
+            pad,
+            shaded,
+        };
+        (draw, units, starts)
+    }
+
+    fn table(&mut self, table: &Table, frame: &Frame, width: f32) -> (Grid, Vec<(f32, f32)>) {
+        let em = self.typo.font_size;
+        let columns = table.rows.iter().map(|r| r.cells.len()).max().unwrap_or(1);
+        let column = width / columns.max(1) as f32;
+        let (pad_x, pad_y) = (CELL_PAD.0 * em, CELL_PAD.1 * em);
+        let inner = (column - 2.0 * pad_x).max(em);
+        let mut units = Vec::with_capacity(table.rows.len());
+        let mut rows = Vec::with_capacity(table.rows.len());
+        let mut y = 0.0;
+        for row in &table.rows {
+            let style = self.cell_style(frame, row.head);
+            let cells: Vec<Para> = row
+                .cells
+                .iter()
+                .map(|c| layout_text(self.fonts, c, style, Some(inner)))
+                .collect();
+            let tallest = cells.iter().map(|c| c.layout.height()).fold(0.0, f32::max);
+            let h = tallest + 2.0 * pad_y;
+            units.push((y, y + h));
+            y += h;
+            rows.push((cells, row.head));
+        }
+        let pad = [pad_x, pad_y];
+        (Grid { column, pad, rows }, units)
+    }
+}
+
+fn alignment(style: &Style<'_>) -> Alignment {
+    if style.justify {
+        return Alignment::Justify;
+    }
+    match style.align {
         Align::Start => Alignment::Start,
         Align::Center => Alignment::Center,
         Align::End => Alignment::End,
     }
 }
 
-fn layout_text(fonts: &mut Fonts, text: &Text, style: Style, width: Option<f32>) -> Layout<Ink> {
+fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f32>) -> Para {
+    let hyphenated = style.hyphens.map(|lang| hyphen::hyphenate(text, lang));
+    let text = hyphenated.as_ref().map_or(text, |h| &h.text);
     let Fonts { fonts, layout } = fonts;
     let ink = Ink {
         tone: style.tone,
@@ -257,6 +549,12 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style, width: Option<f32>)
     )));
     b.push_default(StyleProperty::FontWeight(FontWeight::new(style.weight)));
     b.push_default(StyleProperty::Brush(ink));
+    if style.letter != 0.0 {
+        b.push_default(StyleProperty::LetterSpacing(style.letter));
+    }
+    if style.word != 0.0 {
+        b.push_default(StyleProperty::WordSpacing(style.word));
+    }
     if style.pre {
         b.push_default(StyleProperty::OverflowWrap(OverflowWrap::Anywhere));
     }
@@ -267,11 +565,11 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style, width: Option<f32>)
             b.push(StyleProperty::FontStyle(FontStyle::Italic), range.clone());
         }
         if bold {
-            let weight = FontWeight::new(BOLD_WEIGHT);
+            let weight = FontWeight::new(bolder(style.weight));
             b.push(StyleProperty::FontWeight(weight), range.clone());
         }
         if code && !style.pre {
-            let mono = FontFamily::List(Cow::Borrowed(MONO_FACES));
+            let mono = FontFamily::List(Cow::Borrowed(style.mono));
             b.push(StyleProperty::FontFamily(mono), range.clone());
             b.push(
                 StyleProperty::FontSize(style.size * CODE_SCALE),
@@ -281,9 +579,30 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style, width: Option<f32>)
         }
     }
     let mut layout = b.build(&text.text);
+    if style.indent > 0.0 {
+        layout.set_text_indent(style.indent, IndentOptions::default());
+    }
     layout.break_all_lines(width);
-    layout.align(alignment(style.align), AlignmentOptions::default());
-    layout
+    layout.align(alignment(&style), AlignmentOptions::default());
+    let ends_soft = |end: usize| text.text.get(..end).is_some_and(|s| s.ends_with(SHY));
+    let hyphens = layout
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| hyphenated.is_some() && ends_soft(l.text_range().end))
+        .map(|(i, _)| i)
+        .collect();
+    let starts = layout
+        .lines()
+        .map(|l| {
+            let start = l.text_range().start;
+            hyphenated.as_ref().map_or(start, |h| h.original(start))
+        })
+        .collect();
+    Para {
+        layout,
+        hyphens,
+        starts,
+    }
 }
 
 fn line_units(layout: &Layout<Ink>) -> Vec<(f32, f32)> {
@@ -291,99 +610,6 @@ fn line_units(layout: &Layout<Ink>) -> Vec<(f32, f32)> {
         .lines()
         .map(|l| (l.metrics().block_min_coord, l.metrics().block_max_coord))
         .collect()
-}
-
-fn set_block(block: &Block, typo: &Typography, column: f32, height: f32, f: &mut Fonts) -> Set {
-    let em = typo.font_size;
-    let frame = &block.frame;
-    // Deep nesting stops indenting at half the column.
-    let x = (frame.inset * em).clamp(0.0, column / 2.0);
-    let width = column - x;
-    let (draw, units, lines) = match &block.content {
-        Content::Text(text) => {
-            let (draw, units) = set_text(text, frame, typo, width, f);
-            (draw, units, true)
-        }
-        Content::Rule => (Draw::Rule, vec![(0.0, RULE_HEIGHT * em)], false),
-        Content::Image { picture, cover } => {
-            let (rect, unit) = if *cover {
-                cover_rect(picture, column, height)
-            } else {
-                image_rect(picture, frame.align, width, height)
-            };
-            let picture = picture.clone();
-            (Draw::Image { picture, rect }, vec![unit], false)
-        }
-        Content::Table(table) => {
-            let (grid, units) = set_table(table, frame, typo, width, f);
-            (Draw::Table(grid), units, false)
-        }
-    };
-    let cover = matches!(block.content, Content::Image { cover: true, .. });
-    let heads = match &block.content {
-        Content::Table(t) => t.rows.iter().take_while(|r| r.head).count(),
-        _ => 0,
-    };
-    Set {
-        x: if cover { 0.0 } else { x },
-        width: if cover { column } else { width },
-        bars: frame
-            .bars
-            .iter()
-            .map(|b| (b * em).min(column / 2.0))
-            .collect(),
-        draw,
-        units,
-        keep_with_next: block.is_heading(),
-        break_before: block.break_before,
-        tight: frame.tight,
-        lines,
-        heads,
-    }
-}
-
-fn set_text(
-    text: &Text,
-    frame: &Frame,
-    typo: &Typography,
-    width: f32,
-    fonts: &mut Fonts,
-) -> (Draw, Vec<(f32, f32)>) {
-    let em = typo.font_size;
-    let style = Style::text(text.role, typo, frame);
-    let shaded = text.role == Role::Preformatted;
-    let (pad, pad_y) = if shaded {
-        (PRE_PAD.0 * em, PRE_PAD.1 * em)
-    } else {
-        (0.0, 0.0)
-    };
-    let inner = (width - 2.0 * pad).max(em);
-    let layout = layout_text(fonts, text, style, Some(inner));
-    let mut units = line_units(&layout);
-    // The padding rides on the first and last lines.
-    if let Some(first) = units.first_mut() {
-        first.0 -= pad_y;
-    }
-    if let Some(last) = units.last_mut() {
-        last.1 += pad_y;
-    }
-    let marker = frame.marker.as_deref().map(|m| {
-        let mut t = Text::new(Role::Paragraph);
-        t.push(m, Emphasis::default());
-        let style = Style {
-            align: Align::Start,
-            pre: false,
-            ..style
-        };
-        Box::new(layout_text(fonts, &t, style, None))
-    });
-    let draw = Draw::Text {
-        layout: Box::new(layout),
-        marker,
-        pad,
-        shaded,
-    };
-    (draw, units)
 }
 
 /// At its own pixel size, shrunk to the column and the page.
@@ -410,37 +636,6 @@ fn cover_rect(picture: &Picture, width: f32, height: f32) -> ([f32; 4], (f32, f3
     let h = w * aspect;
     let rect = [(width - w) / 2.0, (height - h) / 2.0, w, h];
     (rect, (0.0, height))
-}
-
-fn set_table(
-    table: &Table,
-    frame: &Frame,
-    typo: &Typography,
-    width: f32,
-    fonts: &mut Fonts,
-) -> (Grid, Vec<(f32, f32)>) {
-    let em = typo.font_size;
-    let columns = table.rows.iter().map(|r| r.cells.len()).max().unwrap_or(1);
-    let column = width / columns.max(1) as f32;
-    let (pad_x, pad_y) = (CELL_PAD.0 * em, CELL_PAD.1 * em);
-    let inner = (column - 2.0 * pad_x).max(em);
-    let mut units = Vec::with_capacity(table.rows.len());
-    let mut rows = Vec::with_capacity(table.rows.len());
-    let mut y = 0.0;
-    for row in &table.rows {
-        let style = Style::cell(typo, frame, row.head);
-        let cells: Vec<Layout<Ink>> = row
-            .cells
-            .iter()
-            .map(|c| layout_text(fonts, c, style, Some(inner)))
-            .collect();
-        let h = cells.iter().map(Layout::height).fold(0.0, f32::max) + 2.0 * pad_y;
-        units.push((y, y + h));
-        y += h;
-        rows.push((cells, row.head));
-    }
-    let pad = [pad_x, pad_y];
-    (Grid { column, pad, rows }, units)
 }
 
 /// The page being filled: its pieces and how far down it is.
@@ -839,5 +1034,183 @@ mod tests {
         // The first unit starts above the first line by the padding.
         let first = set.and_then(|s| s.units.first()).map_or(0.0, |u| u.0);
         assert!((first + PRE_PAD.1 * 17.0).abs() < 0.01, "{first}");
+    }
+    fn with(blocks: &[Block], typo: Typography) -> Flow {
+        Flow::new(blocks, &typo, &mut Fonts::bundled())
+    }
+
+    fn book() -> Vec<Block> {
+        let mut blocks: Vec<Block> = (0..60).map(|i| para(40 + i * 9)).collect();
+        blocks.insert(20, heading("Middle"));
+        blocks
+    }
+
+    /// The first text block's layout.
+    fn first_para(f: &Flow) -> Option<&Para> {
+        f.blocks.iter().find_map(|s| match &s.draw {
+            Draw::Text { para, .. } => Some(&**para),
+            _ => None,
+        })
+    }
+
+    /// Each line's right edge: the end of its last glyph run.
+    fn right_edges(p: &Para) -> Vec<f32> {
+        p.layout
+            .lines()
+            .map(|l| {
+                l.items()
+                    .filter_map(|i| match i {
+                        parley::PositionedLayoutItem::GlyphRun(g) => Some(g.offset() + g.advance()),
+                        parley::PositionedLayoutItem::InlineBox(_) => None,
+                    })
+                    .fold(0.0, f32::max)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bigger_type_takes_more_pages_and_anchors_keep_the_place() {
+        let blocks = book();
+        let small = with(&blocks, Typography::default());
+        let big = with(
+            &blocks,
+            Typography {
+                font_size: 24.0,
+                ..Typography::default()
+            },
+        );
+        assert!(big.page_count() > small.page_count());
+        for page in [1, 3, small.page_count() / 2, small.page_count() - 1] {
+            let Some(anchor) = small.anchor(page) else {
+                continue;
+            };
+            let found = big.locate(anchor);
+            // The page found starts at or before the place...
+            assert!(big.anchor(found).is_some_and(|a| a <= anchor), "{page}");
+            // ...and the next one after it.
+            let next = big.anchor(found + 1);
+            assert!(next.is_none_or(|a| a > anchor), "{page}: {next:?}");
+        }
+        assert_eq!(
+            small.locate(Anchor {
+                block: 9999,
+                offset: 0
+            }),
+            small.page_count() - 1
+        );
+    }
+
+    #[test]
+    fn justified_lines_reach_the_column_edge_but_the_last() {
+        let column = PAGE_WIDTH - 2.0 * PAD;
+        let blocks = [para(120)];
+        let ragged = with(&blocks, Typography::default());
+        let justified = with(
+            &blocks,
+            Typography {
+                justify: true,
+                ..Typography::default()
+            },
+        );
+        let edges = first_para(&justified).map(right_edges).unwrap_or_default();
+        let (last, full) = edges.split_last().unwrap_or((&0.0, &[]));
+        assert!(full.len() > 2, "{edges:?}");
+        // A trailing space may hang past the edge; never short of it.
+        let reach = |e: &f32| *e > column - 0.5 && *e < column + 17.0 * 0.5;
+        assert!(full.iter().all(reach), "{edges:?}");
+        assert!(*last < column - 1.0, "{edges:?}");
+        let ragged = first_para(&ragged).map(right_edges).unwrap_or_default();
+        assert!(ragged.iter().any(|e| *e < column - 1.0), "{ragged:?}");
+    }
+
+    #[test]
+    fn hyphenation_breaks_long_words_and_marks_those_lines() {
+        let long = "Incomprehensibilities characteristically internationalisation ";
+        let blocks = [Block::text(Role::Paragraph, &long.repeat(12))];
+        let marks = |hyphenate| {
+            let f = with(
+                &blocks,
+                Typography {
+                    hyphenate,
+                    ..Typography::default()
+                },
+            );
+            first_para(&f).map_or(0, |p| p.hyphens.len())
+        };
+        assert_eq!(marks(false), 0);
+        assert!(marks(true) > 0);
+        // Anchors stay in the unhyphenated text's bytes.
+        let f = with(
+            &blocks,
+            Typography {
+                hyphenate: true,
+                ..Typography::default()
+            },
+        );
+        let starts = f
+            .blocks
+            .first()
+            .map(|s| s.starts.clone())
+            .unwrap_or_default();
+        let text = long.repeat(12);
+        assert!(
+            starts
+                .iter()
+                .all(|&s| text.is_char_boundary(s) && s < text.len())
+        );
+    }
+
+    #[test]
+    fn spacing_indent_and_weight_take_effect() {
+        let blocks = [para(200)];
+        let lines = |typo: Typography| {
+            let f = with(&blocks, typo);
+            first_para(&f).map_or(0, |p| p.layout.len())
+        };
+        let base = lines(Typography::default());
+        let letters = lines(Typography {
+            letter_spacing: 0.15,
+            ..Typography::default()
+        });
+        let words = lines(Typography {
+            word_spacing: 8.0,
+            ..Typography::default()
+        });
+        assert!(letters > base && words > base, "{base} {letters} {words}");
+        let f = with(
+            &blocks,
+            Typography {
+                indent: 2.0,
+                ..Typography::default()
+            },
+        );
+        let first = first_para(&f).and_then(|p| p.layout.get(0)).and_then(|l| {
+            l.items().find_map(|i| match i {
+                parley::PositionedLayoutItem::GlyphRun(g) => Some(g.offset()),
+                parley::PositionedLayoutItem::InlineBox(_) => None,
+            })
+        });
+        assert!(first.is_some_and(|x| (x - 34.0).abs() < 0.5), "{first:?}");
+        assert_eq!(bolder(400.0), 700.0);
+        assert_eq!(bolder(600.0), 900.0);
+        assert_eq!(bolder(200.0), 400.0);
+    }
+
+    #[test]
+    fn a_missing_face_falls_back_down_its_stack() {
+        let blocks = book();
+        let mut faces = Faces::default();
+        faces
+            .body
+            .insert(0, Family::Named("No Such Face 7f3a".into()));
+        let typo = Typography {
+            faces,
+            ..Typography::default()
+        };
+        let missing = Flow::new(&blocks, &typo, &mut Fonts::system());
+        let plain = with(&blocks, Typography::default());
+        assert_eq!(missing.page_count(), plain.page_count());
+        let pages = |f: &Flow| f.pages.clone();
+        assert_eq!(pages(&missing), pages(&plain));
     }
 }

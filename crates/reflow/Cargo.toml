@@ -11,6 +11,9 @@ workspace = true
 
 [dependencies]
 image = { workspace = true, features = ["jpeg", "gif", "webp"] }
+fontique = { workspace = true }
+hypher = { workspace = true }
 parley = { workspace = true }
+skrifa = { workspace = true }
 thiserror = { workspace = true }
 vello_cpu = { workspace = true }
