@@ -310,8 +310,17 @@ fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
     );
     let tile = entry.doc.render_tile(0, 4.0, 1, 1)?;
     assert!(tile.width > 0 && tile.height > 0);
+    // The cover is a picture and no text; the chapter reads back.
     assert_eq!(entry.doc.text_layer(0)?, TextLayer::default());
+    assert_eq!(entry.doc.pictures(0).len(), 1);
     assert!(entry.doc.text_layer(9999).is_err());
+    let text = entry.doc.text_layer(1)?.text;
+    let words = text.text(0..text.len());
+    assert!(
+        words.starts_with("Chapter 1\n1.0 The river ran slow"),
+        "{words}"
+    );
+    assert!(words.contains("the boats unloaded rice"), "{words}");
     Ok(())
 }
 

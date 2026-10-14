@@ -2,8 +2,9 @@
 use std::sync::Arc;
 
 use mareader_epub::{Book, Destination};
+use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
-use mareader_pdf::{OutlineEntry, PageSize, Paper, Raster, RenderError, SAMPLE_SIDE, TextLayer};
+use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError, SAMPLE_SIDE};
 use mareader_reflow::{Anchor, Typography};
 
 use crate::OpenError;
@@ -157,7 +158,7 @@ impl Document {
         draw(book, page, tiling.scale, rect)
     }
 
-    /// Page `page`'s characters and links; an EPUB's text comes later.
+    /// Page `page`'s characters and links.
     pub fn text_layer(&self, page: usize) -> Result<TextLayer, RenderError> {
         let book = match self {
             Self::Pdf(d) => return d.text_layer(page),
@@ -170,19 +171,27 @@ impl Document {
                 // The same schemes a PDF's links may use.
                 Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
             };
-            let [x, y, w, h] = l.rect;
-            let bounds = Bounds {
-                x0: x,
-                y0: y,
-                x1: x + w,
-                y1: y + h,
-            };
-            Some(Link { bounds, target })
+            Some(Link {
+                bounds: bounds(l.rect),
+                target,
+            })
+        });
+        let lines = book.text(page).into_iter().map(|l| {
+            let chars = l.chars.into_iter().map(|c| (c.ch, bounds(c.rect)));
+            (l.wraps, chars.collect())
         });
         Ok(TextLayer {
+            text: PageText::from_lines(lines),
             links: links.collect(),
-            ..TextLayer::default()
         })
+    }
+
+    /// Page `page`'s pictures, spared the ink dial; a PDF lists none.
+    pub fn pictures(&self, page: usize) -> Vec<Bounds> {
+        match self {
+            Self::Pdf(_) => Vec::new(),
+            Self::Epub { book, .. } => book.pictures(page).into_iter().map(bounds).collect(),
+        }
     }
 
     /// Page `page`'s paper colour, read from a small drawing of it.
@@ -200,6 +209,16 @@ impl Document {
             .get(page)
             .copied()
             .ok_or(RenderError::NoPage(page))
+    }
+}
+
+/// Left, top, width, height as a box.
+fn bounds([x, y, w, h]: [f32; 4]) -> Bounds {
+    Bounds {
+        x0: x,
+        y0: y,
+        x1: x + w,
+        y1: y + h,
     }
 }
 
