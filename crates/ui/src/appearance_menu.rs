@@ -1,12 +1,15 @@
-//! The Appearance popover: presets, mode, tint, texture and grain.
+//! The Appearance popover: presets, mode and colour, texture and grain.
 
 use egui::{
-    Color32, CornerRadius, CursorIcon, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui,
-    Vec2, pos2, vec2,
+    Align, Color32, Context, CornerRadius, CursorIcon, Id, Key, Layout, Rect, Response, RichText,
+    Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
-use mareader_appearance::{Appearance, BaseMode, NoiseMode, TextureMode, builtin_presets};
+use mareader_appearance::{
+    Appearance, BaseMode, FilmGrain, NoiseMode, Preset, TextureMode, group_presets, section_names,
+};
 
 use crate::command::{Command, Commands};
+use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -14,39 +17,87 @@ use crate::widgets;
 pub const WIDTH: f32 = 300.0;
 /// A hue picked at zero strength would show nothing.
 const STRENGTH_ON_HUE: u8 = 18;
+/// Grain switched on at zero intensity would read as a dead control.
+const INTENSITY_ON: u8 = 25;
+/// The tallest the popover grows before it scrolls, as mareader's 32 rem.
+pub const MAX_HEIGHT: f32 = 512.0;
+/// A card's texture against a page's, as mareader's preview.
+const CARD_ZOOM: f32 = 0.34;
+const CARD_RADIUS: f32 = 6.0;
+/// Named landmarks on the hue circle, as mareader's.
+const HUES: [(u16, &str); 7] = [
+    (34, "Sepia"),
+    (14, "Rose"),
+    (104, "Green"),
+    (160, "Mint"),
+    (200, "Sky"),
+    (240, "Blue"),
+    (290, "Violet"),
+];
+const DRAFT: &str = "appearance-preset-draft";
+
+/// What the popover reads besides the look it edits.
+pub struct MenuContext<'a> {
+    pub current: &'a Appearance,
+    /// Every preset, built-ins first.
+    pub presets: &'a [Preset],
+    /// The user's own, which can be deleted and name sections.
+    pub user: &'a [Preset],
+    /// Draws cards as real pages; without it they are flat.
+    pub gpu: Option<&'a Gpu>,
+}
 
 /// Edits a copy and pushes one command when anything changed.
-pub fn show(ui: &mut Ui, current: &Appearance, out: &mut Commands) {
-    let mut a = *current;
+pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
+    let mut a = *cx.current;
     ui.set_width(WIDTH);
-    ui.spacing_mut().item_spacing.y = 8.0;
-    // A smaller interact height keeps slider knobs in proportion.
-    ui.spacing_mut().interact_size.y = 20.0;
-    ui.label(RichText::new("Appearance").strong());
-    presets(ui, &mut a);
-    ui.separator();
-    section(ui, "Mode");
-    mode(ui, &mut a);
-    section(ui, "Tint");
-    if hue_strip(ui, &mut a.tint_hue).changed() && a.tint_strength == 0 {
-        a.tint_strength = STRENGTH_ON_HUE;
-    }
-    slider(ui, "Strength", &mut a.tint_strength, 0..=100);
-    section(ui, "Texture");
-    widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
-    if a.texture != TextureMode::None {
-        slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
-        slider(ui, "Scale", &mut a.texture_scale, 25..=400);
-    }
-    section(ui, "Grain");
-    let grain = [NoiseMode::Off, NoiseMode::Static, NoiseMode::Animated];
-    widgets::choices(ui, &mut a.noise, &grain, noise_label, 3);
-    if a.noise != NoiseMode::Off {
-        slider(ui, "Intensity", &mut a.noise_intensity, 0..=100);
-    }
-    if a != *current {
+    let max = (ui.ctx().content_rect().height() * 0.7).min(MAX_HEIGHT);
+    // The popup's first frame caps it at egui's default area size;
+    // claiming the height lets it grow past that.
+    egui::ScrollArea::vertical()
+        .max_height(max)
+        .min_scrolled_height(max)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            // A smaller interact height keeps slider knobs in proportion.
+            ui.spacing_mut().interact_size.y = 20.0;
+            section(ui, "Presets");
+            presets(ui, cx, &mut a, out);
+            save_form(ui, cx.user, &a, out);
+            ui.separator();
+            section(ui, "Mode & colour");
+            mode(ui, &mut a);
+            hue(ui, &mut a);
+            slider(ui, "Strength", &mut a.tint_strength, 0..=100);
+            ui.separator();
+            section(ui, "Page texture");
+            widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
+            // Kept in place but inert, so the popover never jumps.
+            ui.add_enabled_ui(a.texture != TextureMode::None, |ui| {
+                slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
+                slider(ui, "Scale", &mut a.texture_scale, 25..=400);
+            });
+            ui.separator();
+            section(ui, "Film grain");
+            let before = a.noise;
+            let grain = [NoiseMode::Off, NoiseMode::Static, NoiseMode::Animated];
+            widgets::choices(ui, &mut a.noise, &grain, noise_label, 3);
+            if a.noise != before && a.noise != NoiseMode::Off && a.noise_intensity == 0 {
+                a.noise_intensity = INTENSITY_ON;
+            }
+            ui.add_enabled_ui(a.noise != NoiseMode::Off, |ui| {
+                slider(ui, "Intensity", &mut a.noise_intensity, 0..=100);
+            });
+        });
+    if a != *cx.current {
         out.push(Command::SetAppearance(a));
     }
+}
+
+/// Drops a half-typed preset once the popover has closed.
+pub fn forget_draft(ctx: &Context) {
+    ctx.data_mut(|d| d.remove::<Draft>(Id::new(DRAFT)));
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -98,6 +149,30 @@ fn mode(ui: &mut Ui, a: &mut Appearance) {
             }
         }
     });
+}
+
+/// The hue, read out in degrees: a strip and one-click landmarks.
+fn hue(ui: &mut Ui, a: &mut Appearance) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Hue").size(t.text_small).color(t.muted));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.label(RichText::new(format!("{}°", a.tint_hue)).size(t.text_small));
+        });
+    });
+    let mut changed = hue_strip(ui, &mut a.tint_hue).changed();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for (h, name) in HUES {
+            if hue_swatch(ui, h, name, a.tint_hue == h).clicked() {
+                a.tint_hue = h;
+                changed = true;
+            }
+        }
+    });
+    if changed && a.tint_strength == 0 {
+        a.tint_strength = STRENGTH_ON_HUE;
+    }
 }
 
 /// The swatch hue matches what the tint filter produces (HSL 60 %, 55 %).
@@ -166,51 +241,115 @@ fn hue_strip(ui: &mut Ui, hue: &mut u16) -> Response {
     resp
 }
 
-/// Thumbnails of the built-in looks, four to a row.
-fn presets(ui: &mut Ui, a: &mut Appearance) {
+/// A landmark hue; a ring marks it picked, so the row never shifts.
+fn hue_swatch(ui: &mut Ui, h: u16, name: &str, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let all = builtin_presets();
-    for row in all.chunks(4) {
-        ui.columns(4, |cols| {
-            for (ui, p) in cols.iter_mut().zip(row) {
-                let selected = p.appearance == *a;
-                let w = ui.available_width();
-                let (rect, resp) = ui.allocate_exact_size(vec2(w, w * 0.75 + 16.0), Sense::click());
-                let page = Rect::from_min_size(rect.min, vec2(w, w * 0.75));
-                swatch(ui, page, &p.appearance, selected || resp.hovered(), &t);
-                let name = egui::Align2::CENTER_BOTTOM;
-                ui.painter().text(
-                    pos2(rect.center().x, rect.bottom()),
-                    name,
-                    &p.name,
-                    egui::FontId::proportional(t.text_small - 1.0),
-                    if selected { t.accent } else { t.ink },
-                );
-                let label = p.name.clone();
-                resp.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &label)
-                });
-                if resp.clicked() {
-                    *a = p.appearance;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::click());
+    let painter = ui.painter();
+    let c = rect.center();
+    painter.circle(c, 9.0, hue_colour(f32::from(h)), Stroke::new(1.0, t.line));
+    if on {
+        painter.circle_stroke(c, 11.0, Stroke::new(2.0, t.accent));
+    } else if resp.hovered() {
+        painter.circle_stroke(c, 11.0, Stroke::new(2.0, t.line));
+    }
+    let label = format!("{name} hue");
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &label));
+    resp.on_hover_text(name)
+}
+
+/// Every preset as a small page, four to a row, under its section.
+fn presets(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    for group in group_presets(cx.presets) {
+        let title = RichText::new(group.name.to_uppercase())
+            .size(t.text_small - 2.0)
+            .strong()
+            .color(t.muted);
+        ui.label(title);
+        for row in group.presets.chunks(4) {
+            ui.columns(4, |cols| {
+                for (ui, p) in cols.iter_mut().zip(row) {
+                    card(ui, cx, p, a, out);
                 }
-            }
-        });
+            });
+        }
     }
 }
 
-/// A tiny page in the look's own colours.
-fn swatch(ui: &Ui, page: Rect, look: &Appearance, hot: bool, t: &Tokens) {
+/// One preset; picks it on click, and the user's own show a delete.
+fn card(ui: &mut Ui, cx: &MenuContext<'_>, p: &Preset, a: &mut Appearance, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let selected = p.appearance == *a;
+    let w = ui.available_width();
+    let (rect, resp) = ui.allocate_exact_size(vec2(w, w * 0.75 + 16.0), Sense::click());
+    let page = Rect::from_min_size(rect.min, vec2(w, w * 0.75));
+    let hot = ui.rect_contains_pointer(rect);
+    paint_page(ui, cx.gpu, page, &p.appearance);
+    let border = match (selected, hot) {
+        (true, _) => Stroke::new(2.0, t.accent),
+        (false, true) => Stroke::new(2.0, t.muted),
+        (false, false) => Stroke::new(1.0, t.line),
+    };
+    let r = CornerRadius::same(CARD_RADIUS as u8);
+    ui.painter()
+        .rect_stroke(page, r, border, StrokeKind::Inside);
+    let name = egui::FontId::proportional(t.text_small - 1.0);
+    let colour = if selected { t.accent } else { t.ink };
+    let at = pos2(rect.center().x, rect.bottom());
+    ui.painter()
+        .text(at, egui::Align2::CENTER_BOTTOM, &p.name, name, colour);
+    let label = p.name.clone();
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &label)
+    });
+    let own = cx.user.iter().any(|u| u.id == p.id);
+    if own && hot && delete_button(ui, page, p).clicked() {
+        out.push(Command::DeletePreset(p.id.clone()));
+    } else if resp.on_hover_text(&p.name).clicked() {
+        *a = p.appearance;
+    }
+}
+
+/// A round × on a card's corner, above the card's own click.
+fn delete_button(ui: &mut Ui, page: Rect, p: &Preset) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let rect = Rect::from_center_size(page.right_top() + vec2(-3.0, 3.0), Vec2::splat(18.0));
+    let id = ui.id().with(("delete-preset", &p.id));
+    let resp = ui.interact(rect, id, Sense::click());
+    let painter = ui.painter();
+    painter.circle(rect.center(), 9.0, t.surface, Stroke::new(1.0, t.line));
+    let tint = if resp.hovered() { t.ink } else { t.muted };
+    Icon::Close
+        .image(10.0)
+        .tint(tint)
+        .paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(10.0)));
+    let label = format!("Delete {}", p.name);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    resp
+}
+
+/// A tiny page in the look's own paper, texture and grain.
+fn paint_page(ui: &Ui, gpu: Option<&Gpu>, page: Rect, look: &Appearance) {
     let c = look.ui_tokens();
     let rgb = |v: mareader_appearance::Rgb| Color32::from_rgb(v.0, v.1, v.2);
     let painter = ui.painter();
-    let r = CornerRadius::same(6);
-    painter.rect_filled(page, r, rgb(c.paper));
-    let border = if hot {
-        Stroke::new(2.0, t.accent)
-    } else {
-        Stroke::new(1.0, t.line)
-    };
-    painter.rect_stroke(page, r, border, StrokeKind::Inside);
+    let clip = page.intersect(ui.clip_rect());
+    match gpu {
+        Some(gpu) => {
+            let anchor = Anchor {
+                origin: page.min,
+                zoom: CARD_ZOOM,
+            };
+            let mut quad = Quad::backdrop(page, CARD_RADIUS, look.page_tone(), anchor);
+            quad.clip = clip;
+            painter.add(PagesCallback::shape(gpu.pass.clone(), page, vec![quad]));
+        }
+        None => {
+            let r = CornerRadius::same(CARD_RADIUS as u8);
+            painter.rect_filled(page, r, rgb(c.paper));
+        }
+    }
     let inner = page.shrink2(Vec2::new(page.width() * 0.18, page.height() * 0.24));
     for (i, frac) in [1.0, 0.8, 0.6].into_iter().enumerate() {
         let y = inner.top() + i as f32 * inner.height() / 2.0;
@@ -219,6 +358,106 @@ fn swatch(ui: &Ui, page: Rect, look: &Appearance, hot: bool, t: &Tokens) {
         painter.rect_filled(line, CornerRadius::same(1), rgb(c.ink).gamma_multiply(0.7));
     }
     painter.circle_filled(page.right_top() + vec2(-7.0, 7.0), 3.0, rgb(c.accent));
+    if let (Some(gpu), Some(grain)) = (gpu, FilmGrain::of(look)) {
+        let offset = crawl_offset(ui.ctx(), grain);
+        let card = (page, CARD_RADIUS);
+        painter.add(GrainCallback::card(gpu.grain.clone(), card, grain, offset));
+    }
+}
+
+/// A preset being named; it lives in egui's memory while the form shows.
+#[derive(Clone, Default)]
+struct Draft {
+    open: bool,
+    name: String,
+    group: String,
+    focus: bool,
+}
+
+/// "Save current look": a name, an optional section, Enter or Save.
+fn save_form(ui: &mut Ui, user: &[Preset], look: &Appearance, out: &mut Commands) {
+    let id = Id::new(DRAFT);
+    let mut d = ui.data(|m| m.get_temp::<Draft>(id)).unwrap_or_default();
+    if d.open {
+        draft_form(ui, user, look, &mut d, out);
+    } else {
+        let t = Tokens::get(ui.ctx());
+        let face = (Icon::Plus.image(12.0), "Save current look");
+        let button = egui::Button::new(face)
+            .image_tint_follows_text_color(true)
+            .stroke(Stroke::new(1.0, t.line))
+            .fill(Color32::TRANSPARENT);
+        if ui.add_sized([ui.available_width(), 26.0], button).clicked() {
+            d.open = true;
+            d.focus = true;
+        }
+    }
+    ui.data_mut(|m| m.insert_temp(id, d));
+}
+
+fn field<'a>(text: &'a mut String, hint: &str) -> egui::TextEdit<'a> {
+    egui::TextEdit::singleline(text)
+        .hint_text(hint.to_owned())
+        .desired_width(f32::INFINITY)
+}
+
+fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let frame = egui::Frame::new()
+        .stroke(Stroke::new(1.0, t.line))
+        .corner_radius(CornerRadius::same(6))
+        .inner_margin(8.0);
+    frame.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        let name = ui.add(field(&mut d.name, "Preset name"));
+        if std::mem::take(&mut d.focus) {
+            name.request_focus();
+        }
+        let group = ui.add(field(&mut d.group, "Section (optional)"));
+        let sections = section_names(user);
+        if !sections.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                for s in sections {
+                    if ui.selectable_label(d.group.trim() == s, s).clicked() {
+                        d.group = s.to_owned();
+                    }
+                }
+            });
+        }
+        let named = !d.name.trim().is_empty();
+        let left = name.lost_focus() || group.lost_focus();
+        let enter = left && ui.input(|i| i.key_pressed(Key::Enter));
+        let escape = ui.input(|i| i.key_pressed(Key::Escape));
+        let (mut save, mut cancel) = (false, false);
+        ui.columns(2, |cols| {
+            if let [l, r] = cols {
+                let ink = if t.dark {
+                    Color32::BLACK
+                } else {
+                    Color32::WHITE
+                };
+                let primary = egui::Button::new(RichText::new("Save").color(ink)).fill(t.accent);
+                save = l
+                    .add_enabled_ui(named, |ui| {
+                        ui.add_sized([ui.available_width(), 24.0], primary)
+                    })
+                    .inner
+                    .clicked();
+                let size = [r.available_width(), 24.0];
+                cancel = r.add_sized(size, egui::Button::new("Cancel")).clicked();
+            }
+        });
+        if named && (save || enter) {
+            out.push(Command::SavePreset {
+                name: d.name.trim().to_owned(),
+                group: d.group.trim().to_owned(),
+                look: *look,
+            });
+            *d = Draft::default();
+        } else if cancel || escape {
+            *d = Draft::default();
+        }
+    });
 }
 
 #[cfg(test)]

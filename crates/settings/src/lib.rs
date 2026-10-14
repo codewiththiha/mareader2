@@ -17,7 +17,7 @@ mod swatch;
 mod text;
 mod workspace;
 
-use mareader_appearance::{Appearance, Preset, builtin_presets};
+use mareader_appearance::{Appearance, Preset, builtin_presets, preset_id};
 use serde::{Deserialize, Serialize};
 
 pub use load::{Loaded, load, to_json};
@@ -90,6 +90,29 @@ impl Settings {
         }
     }
 
+    /// Keeps `look` as a preset; a blank name saves nothing.
+    pub fn save_preset(&mut self, name: &str, group: &str, look: Appearance) -> Option<String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let id = preset_id(name, &self.user_presets);
+        let mut appearance = look;
+        appearance.sanitize();
+        self.user_presets.push(Preset {
+            id: id.clone(),
+            name: name.to_owned(),
+            group: group.trim().to_owned(),
+            appearance,
+        });
+        Some(id)
+    }
+
+    /// Only the user's own go; a built-in id deletes nothing.
+    pub fn delete_preset(&mut self, id: &str) {
+        self.user_presets.retain(|p| p.id != id);
+    }
+
     /// Built-ins first, then the user's own: the menu's order.
     pub fn all_presets(&self) -> Vec<Preset> {
         let mut all = builtin_presets();
@@ -122,6 +145,28 @@ mod tests {
         s.dictionary.langs = vec!["en-my".into()];
         let back = load(&to_json(&s)).settings;
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn presets_save_trimmed_and_delete_by_id() {
+        let mut s = Settings::default();
+        let look = Appearance {
+            tint_strength: 40,
+            ..Appearance::default()
+        };
+        assert_eq!(s.save_preset("  ", "Night", look), None);
+        let id = s.save_preset(" Night owl ", " Evening ", look);
+        assert_eq!(id.as_deref(), Some("night-owl"));
+        let again = s.save_preset("Night owl", "", look);
+        assert_eq!(again.as_deref(), Some("night-owl-2"));
+        let saved = s.user_presets.first();
+        let fields = saved.map(|p| (p.name.as_str(), p.group.as_str(), p.appearance));
+        assert_eq!(fields, Some(("Night owl", "Evening", look)));
+        s.delete_preset("sepia");
+        s.delete_preset("night-owl");
+        let ids: Vec<_> = s.user_presets.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["night-owl-2"]);
+        assert_eq!(s.all_presets().len(), builtin_presets().len() + 1);
     }
 
     #[test]
