@@ -304,8 +304,16 @@ title = "Each pane may have its own appearance (shared base mode optional)"
 area = "B"
 tier = "P1"
 milestone = "M3"
-status = "planned"
-reference = ["crates/reader-core/src/settings/workspace.rs"]
+status = "shipped"
+evidence = [
+  "crates/appearance/src/pane_looks.rs::enabling_in_a_split_keeps_the_front_pane_and_spreads_the_rest",
+  "crates/appearance/src/pane_looks.rs::a_shared_base_switch_moves_every_pane",
+  "crates/appearance/src/pane_looks.rs::closing_to_one_pane_promotes_the_survivor_s_look",
+  "crates/ui/tests/shell.rs::independent_themes_from_settings_colour_the_other_pane",
+  "crates/ui/tests/shell.rs::a_mode_switch_changes_only_the_active_pane_unless_shared",
+  "crates/ui/tests/gpu.rs::split_panes_fill_with_their_own_paper",
+]
+reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/theme.rs"]
 
 [[feature]]
 id = "workspace.independent-textures"
@@ -313,8 +321,13 @@ title = "Texture for each pane"
 area = "B"
 tier = "P2"
 milestone = "M3"
-status = "planned"
-reference = ["crates/reader-core/src/settings/workspace.rs"]
+status = "shipped"
+evidence = [
+  "crates/appearance/src/pane_looks.rs::grain_and_unowned_families_are_the_window_s",
+  "crates/appearance/src/pane_looks.rs::a_new_texture_is_painted_and_unlike_the_taken",
+  "crates/ui/tests/shell.rs::the_popover_offers_pane_modes_only_while_split",
+]
+reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/theme.rs"]
 
 [[feature]]
 id = "workspace.library-click"
@@ -894,7 +907,7 @@ evidence = [
   "crates/ui/tests/gpu.rs::preset_cards_carry_their_own_texture_and_grain",
 ]
 reference = ["crates/app-ui/src/components/menus/appearance_menu", "styles/components/appearance.css"]
-notes = "Finished but for per-pane looks (M3 slice 6) and the text ink dial, which comes with EPUB"
+notes = "Finished but for the text ink dial, which comes with EPUB"
 
 [[feature]]
 id = "appearance.instant"
@@ -1263,7 +1276,8 @@ title = "A book open in several panes is parsed once and shares one tile cache (
 area = "L"
 tier = "P1"
 milestone = "M3"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/reading.rs::one_file_in_two_panes_is_read_once_and_drawn_once"]
 notes = "Improves on mareader, where each pane's iframe loads its own copy"
 
 [[feature]]

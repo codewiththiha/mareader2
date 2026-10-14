@@ -3,6 +3,7 @@
 use egui::{
     Color32, CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
 };
+use mareader_appearance::Rgb;
 use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
@@ -18,11 +19,26 @@ pub struct PaneView {
     pub chrome_bottom: f32,
     /// Where dragged files would land, outlined while they hover.
     pub drop_target: Option<PaneId>,
-    /// Blend's paper, themed: every pane's fill while it applies.
-    pub paper: Option<Color32>,
+    pub styles: Vec<(PaneId, PaneStyle)>,
+}
+
+/// How one pane is themed; the frame around it stays the window's.
+#[derive(Clone, Copy, Debug)]
+pub struct PaneStyle {
+    pub tokens: Tokens,
+    /// Blend's paper behind the pages, raw.
+    pub paper: Option<Rgb>,
+    /// The pane's fill: blend's paper themed, else the look's.
+    pub fill: Color32,
+    /// A look of its own, so its widgets take its visuals.
+    pub own: bool,
 }
 
 impl PaneView {
+    pub fn style(&self, id: PaneId) -> Option<&PaneStyle> {
+        self.styles.iter().find(|(k, _)| *k == id).map(|(_, s)| s)
+    }
+
     /// A pane's corner radius: rounded only while the workspace is split.
     pub fn corner(&self, split: bool, t: &Tokens) -> f32 {
         if split && self.look.rounded() {
@@ -76,20 +92,25 @@ fn pane(
     out: &mut Commands,
     content: &mut impl FnMut(&mut Ui, PaneId) -> bool,
 ) {
-    let t = Tokens::get(ui.ctx());
+    let window = Tokens::get(ui.ctx());
+    let style = view.style(id).copied();
+    let t = style.map_or(window, |s| s.tokens);
+    if style.is_some_and(|s| s.own) {
+        ui.style_mut().visuals = theme::visuals(&t);
+    }
     let rect = ui.max_rect();
-    let radius = CornerRadius::same(view.corner(split, &t) as u8);
+    let radius = CornerRadius::same(view.corner(split, &window) as u8);
     if split && view.look.shadow {
         let shadow = egui::Shadow {
             offset: [0, 5],
             blur: 18,
             spread: 0,
-            color: t.shadow,
+            color: window.shadow,
         };
         ui.painter().add(shadow.as_shape(rect, radius));
     }
-    ui.painter()
-        .rect_filled(rect, radius, view.paper.unwrap_or(t.paper));
+    let fill = style.map_or(window.paper, |s| s.fill);
+    ui.painter().rect_filled(rect, radius, fill);
     let focus = ui.interact(rect, ui.id().with("focus"), Sense::click());
     if focus.clicked() && id != view.active {
         out.push(Command::FocusPane(id));
@@ -100,7 +121,7 @@ fn pane(
         empty_state(ui, rect, &t, out);
     }
     if view.drop_target == Some(id) {
-        let stroke = Stroke::new(2.0, t.accent);
+        let stroke = Stroke::new(2.0, window.accent);
         ui.painter()
             .rect_stroke(rect.shrink(1.0), radius, stroke, StrokeKind::Inside);
     }
@@ -108,13 +129,13 @@ fn pane(
         return;
     }
     if id == view.active && view.look.outline_width > 0.0 {
-        let colour = view.look.outline_rgb().map_or(t.accent, theme::color);
+        let colour = view.look.outline_rgb().map_or(window.accent, theme::color);
         let stroke = Stroke::new(view.look.outline_width, colour);
         ui.painter()
             .rect_stroke(rect, radius, stroke, StrokeKind::Inside);
     }
     if ui.rect_contains_pointer(rect) {
-        let size = t.control;
+        let size = window.control;
         let top = rect.top().max(view.chrome_bottom) + 8.0;
         let at = pos2(rect.right() - 8.0 - size, top);
         let mut child =

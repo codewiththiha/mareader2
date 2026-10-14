@@ -310,6 +310,8 @@ fn hold(old: &Layout, new: &Layout, offset: Vec2, pivots: (Vec2, Vec2)) -> Optio
 /// What the pane needs from the app this frame.
 pub struct ViewContext {
     pub active: bool,
+    /// The pane's look: the window's, or its own while split.
+    pub tokens: Tokens,
     /// Space a pinned title bar takes from the pane's top.
     pub top_inset: f32,
     pub page: PageLook,
@@ -518,7 +520,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     } else {
         Urgency::OtherPane
     };
-    let t = Tokens::get(&ctx);
+    let t = cx.tokens;
     // egui turns a plain wheel sideways only if that's the sole direction.
     let down = view.mode != ViewMode::Horizontal || layout.size.y > frame.height() + 0.5;
     ui.style_mut().always_scroll_the_only_direction = true;
