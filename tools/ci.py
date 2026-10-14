@@ -292,7 +292,7 @@ def gate_run(repo: str, token: str, sha: str) -> Run | None:
 
 def watch(args) -> int:
     token = token_from(args)
-    sha = args.sha or resolve(args.repo, token, args.branch)
+    sha = full_sha(args.sha) if args.sha else resolve(args.repo, token, args.branch)
     log(f"== watching {args.repo}@{sha[:12]} for {GATE}")
     if args.once:
         run = gate_run(args.repo, token, sha)
@@ -318,6 +318,14 @@ def watch(args) -> int:
                           "failed": [j.name for j in run.jobs if is_red(j.conclusion)]
                           if run else []}))
     return code
+
+
+def full_sha(rev: str) -> str:
+    """The API matches whole commit ids only; expand a short one."""
+    try:
+        return git("rev-parse", f"{rev}^{{commit}}")
+    except (OSError, subprocess.CalledProcessError):
+        return rev
 
 
 def resolve(repo: str, token: str, branch: str | None) -> str:
