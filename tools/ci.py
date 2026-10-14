@@ -169,7 +169,8 @@ def is_red(conclusion: str | None) -> bool:
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?")
 STEP_FAIL = re.compile(r"##\[error\]|error(\[|:)|FAILED|panicked|Diff in")
-NOISE = re.compile(r"^\s*(Download|Extract|Cache|Receiving|Resolving|Updating files)")
+NOISE = re.compile(r"^\s*(Download|Extract|Cache|Receiving|Resolving|Updating files"
+                   r"|##\[(end)?group\]|##\[(start|end)-action)")
 # A rustfmt diff needs its hunk, which follows the marker.
 DIFF_CONTEXT = 14
 
@@ -188,8 +189,13 @@ def digest(text: str) -> str:
                 if j < len(lines) and j not in shown:
                     shown.add(j)
                     out.append(lines[j])
-    out.append("--- tail ---")
-    out.extend([ln for ln in lines[-250:] if not NOISE.match(ln)][-80:])
+    # The failing step: from its "Run" header to the first error.
+    errors = [i for i, ln in enumerate(lines) if ln.startswith("##[error]")]
+    end = errors[0] + 1 if errors else len(lines)
+    runs = [i for i in range(end) if lines[i].startswith("##[group]Run ")]
+    start = runs[-1] if errors and runs else max(0, end - 250)
+    out.append("--- failing step ---" if errors else "--- tail ---")
+    out.extend([ln for ln in lines[start:end] if not NOISE.match(ln)][-80:])
     return "\n".join(out)
 
 
@@ -220,6 +226,10 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int) -> Run:
     noted = ""
     while True:
         run = refresh(repo, token, run)
+        # A Remote run is named by its title: "task sha id".
+        task = run.name.split()[0]
+        if task in ("shots", "web", "cache"):
+            run.name = f"Remote {task}"
         running = [j.name for j in run.jobs if j.status != "completed"]
         state = f"{run.status} {', '.join(running)}"
         if state != noted:
