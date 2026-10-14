@@ -152,6 +152,8 @@ pub struct PdfView {
     resize: Option<(usize, f64)>,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
+    /// Where the last re-set landed, and on which page; reuse never drifts.
+    place: Option<(mareader_session::Anchor, usize)>,
 }
 
 impl PdfView {
@@ -180,7 +182,38 @@ impl PdfView {
             hold: None,
             jump: None,
             ease: true,
+            place: None,
         }
+    }
+
+    /// The place the last re-set landed on, while it's still read.
+    pub fn place(&self) -> Option<mareader_session::Anchor> {
+        self.place
+            .filter(|(_, page)| *page == self.current)
+            .map(|(a, _)| a)
+    }
+
+    /// Shows the book set again as `doc`, from `page`; mode and zoom stay.
+    pub fn retypeset(
+        &mut self,
+        doc: DocId,
+        page: usize,
+        count: usize,
+        place: Option<mareader_session::Anchor>,
+    ) {
+        let page = page.min(count.saturating_sub(1));
+        self.doc = doc;
+        // Page rects, selection and motion belong to the old pages.
+        self.layout = None;
+        self.selection = None;
+        self.sheets.clear();
+        self.visible = page..page + 1;
+        (self.jump, self.aim, self.hold, self.nudge) = (None, None, None, None);
+        self.scroll_to = None;
+        self.resize = None;
+        self.zoom.fit_page = page;
+        self.place = place.map(|a| (a, page));
+        self.go(page);
     }
 
     pub fn command(&mut self, command: ZoomCommand, now: f64) {

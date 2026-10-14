@@ -302,3 +302,78 @@ fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
     assert!(entry.doc.text_layer(9999).is_err());
     Ok(())
 }
+
+fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
+    let bytes = Arc::new(mareader_epub::sample::epub(chapters, "Book"));
+    let ticket = s.open(Source::Bytes(bytes), None);
+    let events = until(s, |e| matches!(e, Event::Opened { .. }));
+    events
+        .into_iter()
+        .find_map(|e| match e {
+            Event::Opened { ticket: t, result } if t == ticket => Some(result),
+            _ => None,
+        })
+        .ok_or("never opened")?
+        .map_err(|e| e.to_string())
+}
+
+fn swaps(events: &[Event]) -> Vec<(DocId, DocId, usize)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Retypeset { old, new, previous } => Some((*old, *new, previous.page_count())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn sized(font_size: f32) -> mareader_settings::TextSettings {
+    mareader_settings::TextSettings {
+        font_size,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn new_type_sets_open_books_again_once_and_leaves_pdfs() -> Out {
+    let mut s = inline();
+    let pdf = open_sample(&mut s, 2, "Paper")?;
+    let book = open_epub(&mut s, 4)?;
+    // A quick second change replaces the first; a repeat is free.
+    s.set_text(&sized(22.0));
+    s.set_text(&sized(26.0));
+    s.set_text(&sized(26.0));
+    let mut events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
+    while s.pending() > 0 {
+        events.extend(s.poll(ALL));
+    }
+    let swaps = swaps(&events);
+    assert_eq!(swaps.len(), 1, "{swaps:?}");
+    let (old, new, before) = swaps.first().copied().ok_or("no swap")?;
+    assert_eq!(old, book);
+    assert!(s.get(book).is_none(), "the old id is gone");
+    let after = s.get(new).map_or(0, |e| e.doc.page_count());
+    assert!(after > before, "{after} > {before}");
+    assert_eq!(s.get(new).map(|e| e.name.as_str()), Some("Book"));
+    assert!(s.get(pdf).is_some_and(|e| !e.doc.is_reflowable()));
+    Ok(())
+}
+
+#[test]
+fn a_book_opened_in_old_type_is_set_again() -> Out {
+    let mut s = inline();
+    let bytes = Arc::new(mareader_epub::sample::epub(2, "Book"));
+    s.open(Source::Bytes(bytes), None);
+    s.set_text(&sized(24.0));
+    let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
+    let opened = events.iter().find_map(|e| match e {
+        Event::Opened { result: Ok(id), .. } => Some(*id),
+        _ => None,
+    });
+    let swapped = swaps(&events).first().map(|s| s.0);
+    assert!(
+        opened.is_some() && opened == swapped,
+        "{opened:?} {swapped:?}"
+    );
+    Ok(())
+}

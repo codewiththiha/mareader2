@@ -12,6 +12,7 @@
 mod document;
 mod key;
 mod pool;
+mod typeset;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -20,6 +21,8 @@ use std::sync::Arc;
 pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
 pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
+pub use mareader_reflow::{Anchor, FACES, Face, Kind, Typography, has_family};
+pub use typeset::{bundled, typography};
 
 use pool::{Output, Pool};
 
@@ -104,6 +107,12 @@ pub enum Event {
         page: usize,
         result: Result<Paper, RenderError>,
     },
+    /// `old`, set again in new type, is now `new`; `previous` was `old`.
+    Retypeset {
+        old: DocId,
+        new: DocId,
+        previous: Arc<Document>,
+    },
 }
 
 /// One open document and what to call it.
@@ -125,9 +134,19 @@ pub struct Budget {
 pub struct Session {
     pool: Pool,
     docs: BTreeMap<DocId, Entry>,
-    /// Each open in flight: the name it falls back on, and its file.
-    opening: BTreeMap<u64, (Option<String>, Option<PathBuf>)>,
+    /// Each open in flight: its fallback name, file and type.
+    opening: BTreeMap<u64, Opening>,
+    /// What books are set in now.
+    typography: Arc<Typography>,
+    /// The newest re-set asked of each document; older ones are dropped.
+    typesetting: BTreeMap<DocId, u64>,
     next: u64,
+}
+
+struct Opening {
+    name: Option<String>,
+    path: Option<PathBuf>,
+    typo: Arc<Typography>,
 }
 
 impl std::fmt::Debug for Session {
@@ -143,6 +162,8 @@ impl Session {
             pool: Pool::new(workers, Arc::new(wake)),
             docs: BTreeMap::new(),
             opening: BTreeMap::new(),
+            typography: Arc::default(),
+            typesetting: BTreeMap::new(),
             next: 1,
         }
     }
@@ -160,13 +181,49 @@ impl Session {
             Source::Bytes(_) => None,
         };
         let name = file_name.or_else(|| source.file_name());
-        self.opening.insert(ticket, (name, path));
-        self.pool.open(ticket, source);
+        let typo = Arc::clone(&self.typography);
+        let opening = Opening {
+            name,
+            path,
+            typo: Arc::clone(&typo),
+        };
+        self.opening.insert(ticket, opening);
+        self.pool.open(ticket, source, typo);
         Ticket(ticket)
     }
 
     pub fn close(&mut self, id: DocId) {
         self.docs.remove(&id);
+        self.typesetting.remove(&id);
+    }
+
+    /// Re-sets open books when `text` changes them; each sends a `Retypeset`.
+    pub fn set_text(&mut self, text: &mareader_settings::TextSettings) {
+        let typo = typography(text);
+        if *self.typography == typo {
+            return;
+        }
+        self.typography = Arc::new(typo);
+        let books: Vec<DocId> = self
+            .docs
+            .iter()
+            .filter(|(_, e)| e.doc.is_reflowable())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in books {
+            self.retypeset(id);
+        }
+    }
+
+    fn retypeset(&mut self, id: DocId) {
+        let ticket = self.bump();
+        let Some(entry) = self.docs.get(&id) else {
+            return;
+        };
+        let doc = Arc::clone(&entry.doc);
+        self.typesetting.insert(id, ticket);
+        self.pool
+            .retypeset(ticket, id, doc, Arc::clone(&self.typography));
     }
 
     pub fn get(&self, id: DocId) -> Option<&Entry> {
@@ -207,18 +264,44 @@ impl Session {
     fn accept(&mut self, out: Output) -> Option<Event> {
         match out {
             Output::Opened { ticket, result } => {
-                let (file_name, path) = self.opening.remove(&ticket)?;
+                let Opening { name, path, typo } = self.opening.remove(&ticket)?;
                 let result = result.map(|doc| {
-                    let name = mareader_pdf::display_name(doc.raw_title(), file_name.as_deref())
+                    let name = mareader_pdf::display_name(doc.raw_title(), name.as_deref())
                         .unwrap_or_else(|| "Untitled".to_string());
                     let id = DocId(self.bump());
+                    // The type changed while it opened: set it again.
+                    let stale = doc.is_reflowable() && !Arc::ptr_eq(&typo, &self.typography);
                     let doc = Arc::new(doc);
                     self.docs.insert(id, Entry { doc, name, path });
+                    if stale {
+                        self.retypeset(id);
+                    }
                     id
                 });
                 Some(Event::Opened {
                     ticket: Ticket(ticket),
                     result,
+                })
+            }
+            Output::Retypeset { ticket, id, result } => {
+                if self.typesetting.get(&id) != Some(&ticket) {
+                    return None;
+                }
+                self.typesetting.remove(&id);
+                // A book that won't set again stays as it was.
+                let doc = result?;
+                let old = self.docs.remove(&id)?;
+                let new = DocId(self.bump());
+                let entry = Entry {
+                    doc: Arc::new(doc),
+                    name: old.name,
+                    path: old.path,
+                };
+                self.docs.insert(new, entry);
+                Some(Event::Retypeset {
+                    old: id,
+                    new,
+                    previous: old.doc,
                 })
             }
             // A page of a document closed meanwhile is dropped.

@@ -2210,6 +2210,8 @@ version = "0.0.1"
 dependencies = [
  "mareader-epub",
  "mareader-pdf",
+ "mareader-reflow",
+ "mareader-settings",
  "thiserror 2.0.21",
 ]
 
