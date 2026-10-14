@@ -130,6 +130,31 @@ What the epub crate reads, and what each element becomes:
   steppers, spacing dials, and the justify and hyphenation switches.
   A system face that isn't installed shows as "Not installed".
 
+## View modes as built (M4 slice 4)
+
+- **One raster per page in every mode.** Single, spread, the horizontal
+  strip and the stream all draw the same page textures, so switching modes
+  draws nothing new and zoom never re-paginates.
+- **Book layout.** The column moves toward the spine: 56 units on the
+  outer edge, 92 on the spine side, so the column is 646 wide instead of
+  650 and the book re-paginates once. Spreads pair pages from the first,
+  so even pages (0-based) sit left with their gutter on the right. Single
+  pages and the strip follow the same parity, unlike mareader, whose lone
+  pages count the other way; one rule keeps one texture per page.
+- **The stream.** The vertical strip of a book shows each page's band:
+  its column, cut to the text plus the block gap its page cut swallowed
+  (a chapter start gets a pad's worth). Bands are laid edge to edge with
+  no gap or shadow, on the pages' own paper, so the pane reads as one
+  column. Each page is drawn whole and clipped to its band (with 24 units
+  of slack either side for overhanging glyphs), so pagination, anchors,
+  page numbers and the page cache stay those of the paged modes.
+- **Column alignment.** Left, centre or right across the pane; off the
+  centre, the page margin keeps the column off the edge, at least 16 pt
+  (mareader lets it touch at a zero margin).
+- **Fit.** Fits measure whole pages, so the type is the same size in the
+  stream as on the paged modes' pages.
+- **Settings.** Book layout and column alignment sit in Settings › Fonts.
+
 ## Revision history
 
 | Date | Summary |
@@ -137,3 +162,4 @@ What the epub crate reads, and what each element becomes:
 | 2026-10-13 | Created with the M0 foundation |
 | 2026-10-14 | Added the XHTML subset as built in M4 slice 2 |
 | 2026-10-14 | Added typography as built in M4 slice 3 |
+| 2026-10-14 | Added view modes as built in M4 slice 4 |
