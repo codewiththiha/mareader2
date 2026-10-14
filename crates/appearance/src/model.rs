@@ -128,11 +128,56 @@ impl Appearance {
     pub fn tint_amount(&self) -> f64 {
         (f64::from(self.tint_strength) / 50.0).min(1.0)
     }
+
+    /// Whether going to `to` is a jump worth easing, not a dial's step.
+    pub fn leaps_to(&self, to: &Self) -> bool {
+        let hue = self.tint_hue.abs_diff(to.tint_hue) % 360;
+        let tinted = self.has_tint() && to.has_tint();
+        self.base != to.base
+            || self.texture != to.texture
+            || self.noise != to.noise
+            || self.tint_strength.abs_diff(to.tint_strength) >= LEAP_STRENGTH
+            || (tinted && hue.min(360 - hue) >= LEAP_HUE)
+    }
 }
+
+/// Smaller moves than these are a dial's steps.
+const LEAP_STRENGTH: u8 = 15;
+const LEAP_HUE: u16 = 30;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picks_leap_and_dial_steps_do_not() {
+        let a = Appearance {
+            tint_strength: 30,
+            ..Appearance::default()
+        };
+        let step = Appearance {
+            tint_hue: a.tint_hue + 5,
+            tint_strength: 32,
+            texture_scale: 150,
+            ..a
+        };
+        assert!(!a.leaps_to(&step), "a slider's step");
+        let dark = Appearance {
+            base: BaseMode::Dark,
+            ..a
+        };
+        let swatch = Appearance { tint_hue: 200, ..a };
+        let grid = Appearance {
+            texture: TextureMode::Grid,
+            ..a
+        };
+        for to in [dark, swatch, grid] {
+            assert!(a.leaps_to(&to), "{to:?}");
+        }
+        let across_zero = Appearance { tint_hue: 350, ..a };
+        let near = Appearance { tint_hue: 5, ..a };
+        assert!(!across_zero.leaps_to(&near), "15 degrees round the circle");
+    }
 
     #[test]
     fn sanitize_clamps_every_range() {
