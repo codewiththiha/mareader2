@@ -292,6 +292,80 @@ Owner decisions after M4, and what they changed.
 - **Kept as built:** one binding-side rule for every view (§ View modes as
   built), and the line-end hyphen hanging just past the column's edge.
 
+## Text files as EPUBs (owner request, 2026-10-14)
+
+Markdown and plain text open by converting them to an EPUB in memory,
+then opening that EPUB like any other book. Every EPUB setting applies,
+with no second pipeline (`crates/epub/src/convert/`).
+
+**What other readers do.** calibre's TXT input picks a paragraph style
+(a blank line, an indent, or every line), can unwrap hard-wrapped lines,
+detects chapter headings with heuristics, and reads Markdown with
+footnotes, tables and a contents list. pandoc starts a chapter at each
+`#` heading, builds the contents from headings to `###`, takes the title
+and author from front matter, and packs the pictures. calibre also
+guesses legacy encodings. Each is built in here.
+
+- **Which files.** mareader's extensions: `.txt` and `.text` are plain
+  text; `.md`, `.markdown` and `.mdown` are Markdown. They are told by
+  name, because text has no signature; every other file is still told by
+  its content. The open dialog offers them. A file is capped at 64 MiB
+  (`MAX_TEXT`); past that it is refused as too large, like a large EPUB.
+- **Encoding.** A byte order mark wins (UTF-8 or UTF-16), then valid
+  UTF-8, then chardetng's guess (Windows-1252, GBK, Shift_JIS and so on)
+  decoded by encoding_rs. mareader read everything as lossy UTF-8.
+- **What gets built.** An EPUB 3 container with `content.opf`, a nav
+  document and one XHTML file per chapter, stored uncompressed in memory.
+  Nothing is written to disk. Each chapter starts a new page, as in any
+  book.
+- **Markdown.** pulldown-cmark with GitHub's flavour, as mareader rendered
+  it: tables, task lists, strikethrough, footnotes, alerts, definition
+  lists, and `{#id}` on headings.
+  - **Chapters and contents.** Each `#` heading opens a chapter, as in
+    pandoc; text before the first one is a chapter of its own. Headings
+    `#` to `###` make the contents.
+  - **Ids and links.** Ids follow GitHub's slugs, so `[x](#a-heading)`
+    lands even in another chapter. Footnote marks link to their notes,
+    which sit where they were written, under a rule.
+  - **Title and metadata.** The title comes from front matter, else the
+    first heading to `###`, else the file name. The author and language
+    come from front matter too; YAML or TOML, as mareader read it.
+  - **Pictures.** Local pictures (relative or absolute paths, PNG, JPEG,
+    GIF or WebP) are read from beside the file and packed: 32 MiB each,
+    256 MiB in all. Web pictures aren't fetched; their alt text shows.
+  - **Shown as text.** Task boxes are drawn as □ and ■, which every
+    bundled face has, in place of the bullet, as on GitHub: the XHTML
+    reader now honours `list-style: none`, which EPUBs use too. Raw HTML passes through to the hostile-proof XHTML
+    reader, as pandoc and calibre pass it; it runs no scripts.
+- **Plain text.** Markup is never read, as in mareader: `# x` is two
+  characters.
+  - **Paragraphs.** As calibre's auto mode decides: blank lines if there
+    is one per 20 lines or more; else an indent starts a paragraph if one
+    line in 20 is indented; else every line is one.
+  - **Wrapped lines.** A paragraph joins into one when at least four
+    breaks in five fell where the next word wouldn't fit the file's width
+    (its 95th-percentile line). Verse breaks where the next word would
+    have fit, so it keeps its lines, and their indents. A word hyphenated
+    at a wrap joins without a space.
+  - **Headings.** One-line paragraphs: `Part`, `Book` or `Volume` with a
+    number are level 1; `Chapter`, `Act`, `Section`, `Canto`, `Scene` or
+    `Letter` with a number, a word such as `Prologue` or `Epilogue`, or
+    `第…章` style lines are level 2. So are a lone numeral where blank
+    lines are the paragraph breaks, and a line in capitals with two or
+    more blank lines before it (`COMMENT ON THE POEM.`, but not a
+    signature after one). Each heading opens a chapter. A file with none
+    gets one entry, its title.
+  - **Title.** The file name, as calibre names a text file.
+- **Not built.** The converted EPUB isn't saved: a library copy can come
+  with M5 if wanted. Strikethrough shows as plain text, as `<del>` does
+  in any EPUB here. The system isn't asked to open `.txt` or `.md` with
+  mareader; mareader registered only `.pdf`.
+- **Proof.** `crates/epub/tests/convert.rs` opens Project Gutenberg's
+  *The Raven* as plain text (CRLF, wrapped prose, verse, headings in
+  capitals) and `river.md`. Unit tests in `convert/tests.rs` cover
+  encodings, paragraph styles, headings, front matter, chapters, links,
+  footnotes and pictures. The session tests open both formats by name.
+
 ## Revision history
 
 | Date | Summary |
@@ -304,3 +378,4 @@ Owner decisions after M4, and what they changed.
 | 2026-10-14 | Added selection and ink as built in M4 slice 6 |
 | 2026-10-14 | Added hostile books as built in M4 slice 7 |
 | 2026-10-14 | Added the follow-ups as built: layout on demand, pictures, Column Width |
+| 2026-10-14 | Added text files as EPUBs: Markdown and plain text converted on open |
