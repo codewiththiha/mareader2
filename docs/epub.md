@@ -204,6 +204,8 @@ What the epub crate reads, and what each element becomes:
   mareader's tints derive from its ink). Pictures don't: each is drawn a
   second time over its own box in the pane's plain tone. Thumbnails keep
   full ink. Without a GPU, pages aren't themed and the dial does nothing.
+  *Since the follow-ups, pictures keep their own colours unless Theme
+  pictures is on (§ Follow-ups as built).*
 
 ## Hostile books as built (M4 slice 7)
 
@@ -250,6 +252,8 @@ parley layout, about 3,000 bytes plus 48 a byte of text (measured; see
 `docs/memory.md`). A book whose estimate passes 1 GiB is refused before
 layout. *War and Peace* comes to about 190 MB, the complete Shakespeare to
 about 560 MB. Laying out on demand would lift the limit; it is a follow-up.
+*Superseded: layouts are now laid on demand and blocks are capped instead
+(§ Follow-ups as built).*
 
 **EPUB 2.** Books with only an NCX, an OPF 2 cover (`<meta name="cover">`)
 and HTML entities open as EPUB 3 books do. A real one is a test fixture:
@@ -258,6 +262,35 @@ NCX, a page list and a cover wrapper page.
 
 **Fuzzing, cheaply.** One test flips bytes in copies of the sample book 48
 times, seeded, and opens each; every copy opens or is refused.
+
+## Follow-ups as built (before M5)
+
+Owner decisions after M4, and what they changed.
+
+- **Layout on demand.** Opening a book still lays every block out once, to
+  measure its lines and cut exact pages, but keeps only the line boxes.
+  A block's parley layouts are laid again when a page is drawn, its text is
+  read or its links are asked for. The most recent are kept, up to 32 MiB by
+  `Block::layout_cost` (`MAX_LAID`); past that the oldest go until half is
+  left. Laying again uses the same blocks, type and fonts, so pages, places
+  and selections are identical (`a_page_laid_again_draws_and_reads_the_same`).
+  Only pieces in view are laid, so a tile of a page lays only its part. The
+  fonts sit behind a lock, so workers lay one block at a time; drawing
+  doesn't hold it.
+- **Blocks capped, not layout.** With layouts no longer kept, the 1 GiB
+  estimate is gone. What stays per block is its text and line boxes, about
+  300 bytes for a one-word paragraph (`docs/memory.md`), so a book of more
+  than 1,048,576 blocks (`MAX_BLOCKS`) is refused as too large.
+- **Pictures keep their colours.** In every theme a book's pictures are
+  drawn again over their boxes untoned, as mareader leaves them. Settings ›
+  Fonts › Theme pictures tints them with the page instead (the ink dial
+  still leaves them at full strength). PDF pages are themed whole, as before.
+- **Column Width.** mareader's dial, 60 to 140 % in Settings › Layout ›
+  Pages while a book is open. The text column scales, never below 160
+  units, and the page grows or shrinks with it, keeping its margins. Each
+  step re-sets the book off the UI thread and keeps the reading place.
+- **Kept as built:** one binding-side rule for every view (§ View modes as
+  built), and the line-end hyphen hanging just past the column's edge.
 
 ## Revision history
 
@@ -270,3 +303,4 @@ times, seeded, and opens each; every copy opens or is refused.
 | 2026-10-14 | Added navigation as built in M4 slice 5 |
 | 2026-10-14 | Added selection and ink as built in M4 slice 6 |
 | 2026-10-14 | Added hostile books as built in M4 slice 7 |
+| 2026-10-14 | Added the follow-ups as built: layout on demand, pictures, Column Width |

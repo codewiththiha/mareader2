@@ -130,3 +130,25 @@ Each workload is one generated chapter in bundled fonts.
 - **Known limit:** a book near the budget holds most of it for as long as
   it is open. Laying out only the pages near the view, and dropping the
   rest, would bound it; that is the follow-up.
+
+## 2026-10-14: EPUB layout on demand (M4 follow-ups)
+
+What was measured: the same as the section above, with the same test, now
+also reading every page's text after opening, which lays every block again
+through the kept few. CI's Linux runner, VmRSS and VmHWM.
+
+| Workload | Open | Held after opening | After reading every page | Peak |
+|---|---|---|---|---|
+| Prose, 4M characters, 1,883 pages | 1.39 s | +16 MB (was +171 MB) | +44 MB, read in 1.98 s | 54 MB (was 177 MB) |
+| `<p>w</p>`, 200,000 paragraphs, 9,524 pages | 0.97 s | +59 MB (was +523 MB) | +78 MB, read in 1.21 s | 130 MB (was 700 MB) |
+
+- **Why:** a set book keeps only each block's line boxes and its text; the
+  parley layouts, about 3,000 bytes plus 48 a character each, are laid
+  again for the pages drawn. At most 32 MiB of them are kept (`MAX_LAID`).
+- **What stays:** about 4 bytes a character of prose, and about 300 bytes
+  a one-word paragraph (its `Block` and its line boxes). `MAX_BLOCKS`
+  (1,048,576) bounds that part near 300 MB; real books are far below it.
+- **The cost:** a page not kept is laid again before it draws, a
+  1,000-character paragraph in about half a millisecond. Reading all 9,524 pages' text took
+  1.2 s.
+- **Known limit:** each open book has its own 32 MiB of kept layouts.
