@@ -11,7 +11,7 @@ use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::flow::{Draw, Flow, Grid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
+use crate::flow::{Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
 
@@ -99,7 +99,7 @@ impl Flow {
         };
         for piece in pieces {
             if let Some(set) = self.blocks.get(piece.block) {
-                p.piece(set, piece, &self.decoded);
+                p.piece(set, piece, &self.decoded, || self.laid(piece.block));
             }
         }
         let Painter {
@@ -150,7 +150,8 @@ impl Painter {
         f64::from(bottom) >= self.top && f64::from(top) <= self.bottom
     }
 
-    fn piece(&mut self, set: &Set, piece: &Piece, decoded: &Decoded) {
+    /// Draws `piece` if in view; `laid` gives its layouts only then.
+    fn piece(&mut self, set: &Set, piece: &Piece, decoded: &Decoded, laid: impl Fn() -> Arc<Laid>) {
         let units = piece.units.clone();
         let top = set.units.get(units.start).map_or(0.0, |u| u.0) + piece.dy;
         let height = span_height(set, units.clone());
@@ -161,16 +162,15 @@ impl Painter {
             self.fill(BAR, bar, top, BAR_WIDTH as f32, height);
         }
         match &set.draw {
-            Draw::Text {
-                para,
-                marker,
-                pad,
-                shaded,
-            } => {
+            Draw::Text { pad, shaded } => {
                 if *shaded {
                     self.fill(PRE_GROUND, set.x, top, set.width, height);
                     self.frame(BORDER, set.x, top, set.width, height);
                 }
+                let laid = laid();
+                let Laid::Text { para, marker } = &*laid else {
+                    return;
+                };
                 let x = set.x + pad;
                 if units.start == 0
                     && let Some(marker) = marker
@@ -187,7 +187,11 @@ impl Painter {
                 let [x, y, w, h] = *rect;
                 self.image(picture, decoded, set.x + x, piece.dy + y, w, h);
             }
-            Draw::Table(grid) => self.table(set, grid, units, piece.dy),
+            Draw::Table(grid) => {
+                if let Laid::Table(rows) = &*laid() {
+                    self.table(set, (grid, rows), units, piece.dy);
+                }
+            }
         }
     }
 
@@ -321,10 +325,17 @@ impl Painter {
         self.ctx.reset_paint_transform();
     }
 
-    fn table(&mut self, set: &Set, grid: &Grid, rows: Range<usize>, dy: f32) {
+    fn table(
+        &mut self,
+        set: &Set,
+        (grid, laid): (&Grid, &[Vec<Para>]),
+        rows: Range<usize>,
+        dy: f32,
+    ) {
         let [pad_x, pad_y] = grid.pad;
         for r in rows {
-            let (Some(&(top, bottom)), Some((cells, head))) = (set.units.get(r), grid.rows.get(r))
+            let (Some(&(top, bottom)), Some(cells), Some(head)) =
+                (set.units.get(r), laid.get(r), grid.heads.get(r))
             else {
                 continue;
             };
@@ -366,7 +377,11 @@ mod tests {
             },
         );
         let blocks = [h, Block::new(Content::Text(p))];
-        Flow::new(&blocks, &Typography::default(), &mut Fonts::bundled())
+        Flow::new(
+            Arc::new(blocks.to_vec()),
+            &Typography::default(),
+            Fonts::bundled(),
+        )
     }
 
     fn ink(px: &super::Pixels) -> usize {
@@ -435,7 +450,7 @@ mod tests {
                 })
             })
             .collect();
-        let f = Flow::new(&blocks, &Typography::default(), &mut Fonts::bundled());
+        let f = Flow::new(Arc::new(blocks), &Typography::default(), Fonts::bundled());
         let px = f.render(0, 1.0, [0, 0, 794, 400]);
         // Left of the picture is red, right is blue; below, a grey box.
         let red = px.as_ref().and_then(|p| pixel(p, 72 + 5, 72 + 50));

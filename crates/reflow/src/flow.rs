@@ -1,7 +1,8 @@
 //! Blocks set by parley at their frame's width, then cut into pages.
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use hypher::Lang;
 use parley::{
@@ -188,9 +189,6 @@ pub(crate) struct Para {
 /// What a set block draws; positions are relative to the block.
 pub(crate) enum Draw {
     Text {
-        para: Box<Para>,
-        /// A list marker, hung left of the first line.
-        marker: Option<Box<Para>>,
         /// Inner padding left of the text, for shaded blocks.
         pad: f32,
         shaded: bool,
@@ -208,8 +206,64 @@ pub(crate) struct Grid {
     pub(crate) column: f32,
     /// Cell padding: across, down.
     pub(crate) pad: [f32; 2],
-    pub(crate) rows: Vec<(Vec<Para>, bool)>,
+    /// Which rows are head rows.
+    pub(crate) heads: Vec<bool>,
 }
+
+/// A block's text layouts: the bulk of a set book, so laid on demand.
+pub(crate) enum Laid {
+    Text {
+        para: Box<Para>,
+        /// A list marker, hung left of the first line.
+        marker: Option<Box<Para>>,
+    },
+    /// Each row's cells.
+    Table(Vec<Vec<Para>>),
+    None,
+}
+
+/// The blocks laid most recently, up to [`MAX_LAID`] estimated bytes.
+#[derive(Default)]
+struct Recent {
+    /// Each block's layouts, when last used, and estimated bytes.
+    laid: HashMap<usize, (Arc<Laid>, u64, usize)>,
+    tick: u64,
+    bytes: usize,
+}
+
+impl Recent {
+    fn get(&mut self, block: usize) -> Option<Arc<Laid>> {
+        self.tick += 1;
+        let entry = self.laid.get_mut(&block)?;
+        entry.1 = self.tick;
+        Some(Arc::clone(&entry.0))
+    }
+
+    fn put(&mut self, block: usize, laid: Arc<Laid>, bytes: usize) {
+        self.tick += 1;
+        if let Some(old) = self.laid.insert(block, (laid, self.tick, bytes)) {
+            self.bytes -= old.2;
+        }
+        self.bytes += bytes;
+        if self.bytes <= MAX_LAID {
+            return;
+        }
+        // Over: drop the oldest down to half, so eviction is rare.
+        let mut ages: Vec<(u64, usize)> = self.laid.iter().map(|(&b, e)| (e.1, b)).collect();
+        ages.sort_unstable();
+        for (_, old) in ages {
+            if self.bytes <= MAX_LAID / 2 || old == block {
+                break;
+            }
+            if let Some(gone) = self.laid.remove(&old) {
+                self.bytes -= gone.2;
+            }
+        }
+    }
+}
+
+/// Estimated bytes of layouts a book keeps; the rest are laid again.
+pub const MAX_LAID: usize = 32 << 20;
 
 /// One block set: `x` and `width` within the column.
 pub(crate) struct Set {
@@ -232,6 +286,9 @@ pub(crate) struct Set {
     /// A table's leading head rows, never left alone at a page's foot.
     heads: usize,
 }
+
+/// Each unit's top and bottom within its block.
+type Units = Vec<(f32, f32)>;
 
 /// A run of one block's units on a page; `dy` maps block to page.
 #[derive(Debug, Clone, PartialEq)]
@@ -267,13 +324,24 @@ pub struct Band {
     pub height: f32,
 }
 
-/// A whole book set and paginated; `Send + Sync` for the workers.
+/// A book paginated, keeping line boxes; `Send + Sync` for the workers.
 pub struct Flow {
     pub(crate) blocks: Vec<Set>,
     pub(crate) pages: Vec<Vec<Piece>>,
     pub(crate) bands: Vec<Band>,
     pub(crate) book_layout: bool,
     pub(crate) decoded: Arc<Decoded>,
+    /// Boxed: fonts and type are kilobytes, and books move.
+    relay: Box<Relay>,
+}
+
+/// The blocks, type and fonts a book was set in, to lay it again.
+struct Relay {
+    source: Arc<Vec<Block>>,
+    typo: Typography,
+    stacks: Stacks,
+    fonts: Mutex<Fonts>,
+    recent: Mutex<Recent>,
 }
 
 impl std::fmt::Debug for Flow {
@@ -284,32 +352,56 @@ impl std::fmt::Debug for Flow {
 
 impl Flow {
     /// Sets `blocks` on mareader's A4 page; always at least one page.
-    pub fn new(blocks: &[Block], typo: &Typography, fonts: &mut Fonts) -> Self {
+    pub fn new(blocks: Arc<Vec<Block>>, typo: &Typography, mut fonts: Fonts) -> Self {
         let stacks = Stacks::new(&typo.faces);
-        let mut setter = Setter {
-            typo,
-            stacks: &stacks,
-            lang: hyphen::lang(&typo.language),
-            fonts,
-            column: column_width(typo.book_layout),
-            height: PAGE_HEIGHT - 2.0 * PAD,
+        // Each block is laid to measure its lines, then let go.
+        let set: Vec<Set> = {
+            let mut setter = Setter::new(typo, &stacks, &mut fonts);
+            blocks
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| !b.is_blank())
+                .map(|(i, b)| setter.block(i, b).0)
+                .collect()
         };
-        let set: Vec<Set> = blocks
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| !b.is_blank())
-            .map(|(i, b)| setter.block(i, b))
-            .collect();
-        let pages = paginate(&set, setter.height, typo);
+        let pages = paginate(&set, PAGE_HEIGHT - 2.0 * PAD, typo);
         let mut flow = Self {
             blocks: set,
             pages,
             bands: Vec::new(),
             book_layout: typo.book_layout,
             decoded: Arc::default(),
+            relay: Box::new(Relay {
+                source: blocks,
+                typo: typo.clone(),
+                stacks,
+                fonts: Mutex::new(fonts),
+                recent: Mutex::default(),
+            }),
         };
         flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, typo)).collect();
         flow
+    }
+
+    /// Set block `block`'s layouts, laid again if not kept.
+    pub(crate) fn laid(&self, block: usize) -> Arc<Laid> {
+        let relay = &*self.relay;
+        let recent = || relay.recent.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(laid) = recent().get(block) {
+            return laid;
+        }
+        let set = self.blocks.get(block);
+        let set = set.filter(|s| matches!(s.draw, Draw::Text { .. } | Draw::Table(_)));
+        let Some((set, source)) = set.and_then(|s| Some((s, relay.source.get(s.source)?))) else {
+            return Arc::new(Laid::None);
+        };
+        let laid = {
+            let mut fonts = relay.fonts.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut setter = Setter::new(&relay.typo, &relay.stacks, &mut fonts);
+            Arc::new(setter.block(set.source, source).1)
+        };
+        recent().put(block, Arc::clone(&laid), source.layout_cost());
+        laid
     }
 
     /// Page `page`'s column: its left edge and width.
@@ -398,16 +490,14 @@ impl Flow {
             };
             let x = left + set.x;
             let y = PAD + piece.dy;
-            match &set.draw {
-                Draw::Text { para, pad, .. } => {
+            match (&set.draw, &*self.laid(piece.block)) {
+                (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     link_boxes(para, piece.units.clone(), (x + pad, y), &mut out);
                 }
-                Draw::Table(grid) => {
+                (Draw::Table(grid), Laid::Table(rows)) => {
                     let [pad_x, pad_y] = grid.pad;
                     for r in piece.units.clone() {
-                        let (Some(&(top, _)), Some((cells, _))) =
-                            (set.units.get(r), grid.rows.get(r))
-                        else {
+                        let (Some(&(top, _)), Some(cells)) = (set.units.get(r), rows.get(r)) else {
                             continue;
                         };
                         for (c, cell) in cells.iter().enumerate() {
@@ -416,7 +506,7 @@ impl Flow {
                         }
                     }
                 }
-                Draw::Rule | Draw::Image { .. } => {}
+                _ => {}
             }
         }
         out
@@ -451,6 +541,17 @@ struct Setter<'a> {
 }
 
 impl<'a> Setter<'a> {
+    fn new(typo: &'a Typography, stacks: &'a Stacks, fonts: &'a mut Fonts) -> Self {
+        Self {
+            typo,
+            stacks,
+            lang: hyphen::lang(&typo.language),
+            fonts,
+            column: column_width(typo.book_layout),
+            height: PAGE_HEIGHT - 2.0 * PAD,
+        }
+    }
+
     fn body(&self, frame: &Frame) -> Style<'a> {
         let typo = self.typo;
         Style {
@@ -515,16 +616,19 @@ impl<'a> Setter<'a> {
         }
     }
 
-    fn block(&mut self, source: usize, block: &Block) -> Set {
+    fn block(&mut self, source: usize, block: &Block) -> (Set, Laid) {
         let (column, height) = (self.column, self.height);
         let em = self.typo.font_size;
         let frame = &block.frame;
         // Deep nesting stops indenting at half the column.
         let x = (frame.inset * em).clamp(0.0, column / 2.0);
         let width = column - x;
-        let (draw, units, starts) = match &block.content {
+        let (draw, laid, units, starts) = match &block.content {
             Content::Text(text) => self.text(text, frame, width),
-            Content::Rule => (Draw::Rule, vec![(0.0, RULE_HEIGHT * em)], vec![0]),
+            Content::Rule => {
+                let unit = (0.0, RULE_HEIGHT * em);
+                (Draw::Rule, Laid::None, vec![unit], vec![0])
+            }
             Content::Image { picture, cover } => {
                 let (rect, unit) = if *cover {
                     cover_rect(picture, column, height)
@@ -532,12 +636,13 @@ impl<'a> Setter<'a> {
                     image_rect(picture, frame.align, width, height)
                 };
                 let picture = picture.clone();
-                (Draw::Image { picture, rect }, vec![unit], vec![0])
+                let draw = Draw::Image { picture, rect };
+                (draw, Laid::None, vec![unit], vec![0])
             }
             Content::Table(table) => {
-                let (grid, units) = self.table(table, frame, width);
+                let (grid, cells, units) = self.table(table, frame, width);
                 let rows = (0..units.len()).collect();
-                (Draw::Table(grid), units, rows)
+                (Draw::Table(grid), Laid::Table(cells), units, rows)
             }
         };
         let cover = matches!(block.content, Content::Image { cover: true, .. });
@@ -545,7 +650,7 @@ impl<'a> Setter<'a> {
             Content::Table(t) => t.rows.iter().take_while(|r| r.head).count(),
             _ => 0,
         };
-        Set {
+        let set = Set {
             source,
             x: if cover { 0.0 } else { x },
             width: if cover { column } else { width },
@@ -562,7 +667,8 @@ impl<'a> Setter<'a> {
             tight: frame.tight,
             lines: matches!(block.content, Content::Text(_)),
             heads,
-        }
+        };
+        (set, laid)
     }
 
     fn text(
@@ -570,7 +676,7 @@ impl<'a> Setter<'a> {
         text: &Text,
         frame: &Frame,
         width: f32,
-    ) -> (Draw, Vec<(f32, f32)>, Vec<usize>) {
+    ) -> (Draw, Laid, Vec<(f32, f32)>, Vec<usize>) {
         let em = self.typo.font_size;
         let style = self.text_style(text.role, frame);
         let shaded = text.role == Role::Preformatted;
@@ -603,16 +709,12 @@ impl<'a> Setter<'a> {
             Box::new(layout_text(self.fonts, &t, style, None))
         });
         let starts = std::mem::take(&mut para.starts);
-        let draw = Draw::Text {
-            para: Box::new(para),
-            marker,
-            pad,
-            shaded,
-        };
-        (draw, units, starts)
+        let para = Box::new(para);
+        let laid = Laid::Text { para, marker };
+        (Draw::Text { pad, shaded }, laid, units, starts)
     }
 
-    fn table(&mut self, table: &Table, frame: &Frame, width: f32) -> (Grid, Vec<(f32, f32)>) {
+    fn table(&mut self, table: &Table, frame: &Frame, width: f32) -> (Grid, Vec<Vec<Para>>, Units) {
         let em = self.typo.font_size;
         let columns = table.rows.iter().map(|r| r.cells.len()).max().unwrap_or(1);
         let column = width / columns.max(1) as f32;
@@ -620,6 +722,7 @@ impl<'a> Setter<'a> {
         let inner = (column - 2.0 * pad_x).max(em);
         let mut units = Vec::with_capacity(table.rows.len());
         let mut rows = Vec::with_capacity(table.rows.len());
+        let mut heads = Vec::with_capacity(table.rows.len());
         let mut y = 0.0;
         for row in &table.rows {
             let style = self.cell_style(frame, row.head);
@@ -632,10 +735,11 @@ impl<'a> Setter<'a> {
             let h = tallest + 2.0 * pad_y;
             units.push((y, y + h));
             y += h;
-            rows.push((cells, row.head));
+            rows.push(cells);
+            heads.push(row.head);
         }
         let pad = [pad_x, pad_y];
-        (Grid { column, pad, rows }, units)
+        (Grid { column, pad, heads }, rows, units)
     }
 }
 
@@ -957,7 +1061,8 @@ mod tests {
     }
 
     fn flow(blocks: &[Block]) -> Flow {
-        Flow::new(blocks, &Typography::default(), &mut Fonts::bundled())
+        let blocks = Arc::new(blocks.to_vec());
+        Flow::new(blocks, &Typography::default(), Fonts::bundled())
     }
 
     fn room() -> f32 {
@@ -1082,13 +1187,14 @@ mod tests {
         let f = flow(&[item(false)]);
         let set = f.blocks.first();
         assert_eq!(set.map(|s| s.x), Some(1.6 * 17.0));
-        assert!(set.is_some_and(|s| matches!(
-            &s.draw,
-            Draw::Text {
+        let marked = matches!(
+            &*f.laid(0),
+            Laid::Text {
                 marker: Some(_),
                 ..
             }
-        )));
+        );
+        assert!(marked);
     }
 
     #[test]
@@ -1187,7 +1293,7 @@ mod tests {
         assert!((first + PRE_PAD.1 * 17.0).abs() < 0.01, "{first}");
     }
     fn with(blocks: &[Block], typo: Typography) -> Flow {
-        Flow::new(blocks, &typo, &mut Fonts::bundled())
+        Flow::new(Arc::new(blocks.to_vec()), &typo, Fonts::bundled())
     }
 
     fn book() -> Vec<Block> {
@@ -1196,12 +1302,16 @@ mod tests {
         blocks
     }
 
-    /// The first text block's layout.
-    fn first_para(f: &Flow) -> Option<&Para> {
-        f.blocks.iter().find_map(|s| match &s.draw {
-            Draw::Text { para, .. } => Some(&**para),
+    /// `see` of the first text block's layout.
+    fn first_para<R>(f: &Flow, see: impl FnOnce(&Para) -> R) -> Option<R> {
+        let n = f
+            .blocks
+            .iter()
+            .position(|s| matches!(s.draw, Draw::Text { .. }))?;
+        match &*f.laid(n) {
+            Laid::Text { para, .. } => Some(see(para)),
             _ => None,
-        })
+        }
     }
 
     /// Each line's right edge: the end of its last glyph run.
@@ -1331,14 +1441,14 @@ mod tests {
                 ..Typography::default()
             },
         );
-        let edges = first_para(&justified).map(right_edges).unwrap_or_default();
+        let edges = first_para(&justified, right_edges).unwrap_or_default();
         let (last, full) = edges.split_last().unwrap_or((&0.0, &[]));
         assert!(full.len() > 2, "{edges:?}");
         // A trailing space may hang past the edge; never short of it.
         let reach = |e: &f32| *e > column - 0.5 && *e < column + 17.0 * 0.5;
         assert!(full.iter().all(reach), "{edges:?}");
         assert!(*last < column - 1.0, "{edges:?}");
-        let ragged = first_para(&ragged).map(right_edges).unwrap_or_default();
+        let ragged = first_para(&ragged, right_edges).unwrap_or_default();
         assert!(ragged.iter().any(|e| *e < column - 1.0), "{ragged:?}");
     }
 
@@ -1354,7 +1464,7 @@ mod tests {
                     ..Typography::default()
                 },
             );
-            first_para(&f).map_or(0, |p| p.hyphens.len())
+            first_para(&f, |p| p.hyphens.len()).unwrap_or(0)
         };
         assert_eq!(marks(false), 0);
         assert!(marks(true) > 0);
@@ -1384,7 +1494,7 @@ mod tests {
         let blocks = [para(200)];
         let lines = |typo: Typography| {
             let f = with(&blocks, typo);
-            first_para(&f).map_or(0, |p| p.layout.len())
+            first_para(&f, |p| p.layout.len()).unwrap_or(0)
         };
         let base = lines(Typography::default());
         let letters = lines(Typography {
@@ -1403,12 +1513,13 @@ mod tests {
                 ..Typography::default()
             },
         );
-        let first = first_para(&f).and_then(|p| p.layout.get(0)).and_then(|l| {
-            l.items().find_map(|i| match i {
+        let first = first_para(&f, |p| {
+            p.layout.get(0)?.items().find_map(|i| match i {
                 parley::PositionedLayoutItem::GlyphRun(g) => Some(g.offset()),
                 parley::PositionedLayoutItem::InlineBox(_) => None,
             })
-        });
+        })
+        .flatten();
         assert!(first.is_some_and(|x| (x - 34.0).abs() < 0.5), "{first:?}");
         assert_eq!(bolder(400.0), 700.0);
         assert_eq!(bolder(600.0), 900.0);
@@ -1466,6 +1577,68 @@ mod tests {
         assert!(split.iter().all(inside), "{split:?}");
     }
 
+    fn kept(f: &Flow) -> Vec<usize> {
+        let recent = f
+            .relay
+            .recent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut kept: Vec<usize> = recent.laid.keys().copied().collect();
+        kept.sort_unstable();
+        kept
+    }
+
+    #[test]
+    fn layouts_are_laid_for_the_pages_drawn_and_no_others() {
+        let f = flow(&book());
+        assert!(kept(&f).is_empty(), "nothing is kept at open");
+        let region = [0, 0, PAGE_WIDTH as u32, PAGE_HEIGHT as u32];
+        assert!(f.render(2, 1.0, region).is_some());
+        let on_page: Vec<usize> = f
+            .pages
+            .get(2)
+            .into_iter()
+            .flatten()
+            .map(|p| p.block)
+            .collect();
+        assert!(!on_page.is_empty());
+        assert_eq!(kept(&f), on_page);
+    }
+
+    #[test]
+    fn a_page_laid_again_draws_and_reads_the_same() {
+        let f = flow(&book());
+        let region = [0, 0, PAGE_WIDTH as u32, PAGE_HEIGHT as u32];
+        let see = |f: &Flow| (f.render(1, 1.0, region), f.text(1), f.links(1));
+        let first = see(&f);
+        *f.relay
+            .recent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Recent::default();
+        assert_eq!(see(&f), first);
+        assert!(first.1.len() > 10);
+    }
+
+    #[test]
+    fn kept_layouts_stay_under_the_cap_and_the_used_stay() {
+        let mut recent = Recent::default();
+        let laid = || Arc::new(Laid::None);
+        let quarter = MAX_LAID / 4;
+        for block in 0..4 {
+            recent.put(block, laid(), quarter);
+        }
+        assert!(recent.get(0).is_some());
+        // Past the cap, the oldest go until half is left: 1 and 2.
+        recent.put(4, laid(), quarter);
+        assert!(recent.bytes <= MAX_LAID / 2);
+        let mut kept: Vec<usize> = recent.laid.keys().copied().collect();
+        kept.sort_unstable();
+        assert_eq!(kept, [0, 4]);
+        // One block past the cap alone is still kept while used.
+        recent.put(5, laid(), 2 * MAX_LAID);
+        assert!(recent.get(5).is_some());
+    }
+
     #[test]
     fn a_missing_face_falls_back_down_its_stack() {
         let blocks = book();
@@ -1477,7 +1650,7 @@ mod tests {
             faces,
             ..Typography::default()
         };
-        let missing = Flow::new(&blocks, &typo, &mut Fonts::system());
+        let missing = Flow::new(Arc::new(blocks.clone()), &typo, Fonts::system());
         let plain = with(&blocks, Typography::default());
         assert_eq!(missing.page_count(), plain.page_count());
         let pages = |f: &Flow| f.pages.clone();

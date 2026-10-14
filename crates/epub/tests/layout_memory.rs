@@ -1,4 +1,4 @@
-//! Measures what set books hold, for `LAYOUT_BYTES` and `CHAR_BYTES`.
+//! What open books hold, then read through.
 //! Linux only; run with `--ignored --nocapture`.
 use std::sync::Arc;
 use std::time::Instant;
@@ -26,20 +26,31 @@ fn book(body: &str) -> Vec<u8> {
     book.write().to_vec().unwrap_or_default()
 }
 
-/// Opens `body` and prints the resident growth per `units`.
-fn measure(name: &str, body: &str, units: u64) {
+/// Opens `body`, reads every page, and tells resident growth per `units`.
+fn measure(name: &str, body: &str, units: u64) -> String {
     let bytes = Arc::new(book(body));
     let before = status("VmRSS:");
     let started = Instant::now();
     let opened = Book::open(bytes, &Typography::default());
     let secs = started.elapsed().as_secs_f32();
-    let grew = status("VmRSS:").saturating_sub(before);
+    let open = status("VmRSS:").saturating_sub(before);
     let pages = opened.as_ref().map_or(0, Book::page_count);
-    println!(
-        "{name}: {units} units, {secs:.2} s, {pages} pages, +{} MB, {} B a unit",
-        grew >> 20,
-        grew / units
-    );
+    // Every page's text lays every block again, through the kept few.
+    let started = Instant::now();
+    let lines: usize = opened
+        .iter()
+        .flat_map(|b| (0..pages).map(|p| b.text(p).len()))
+        .sum();
+    let read = started.elapsed().as_secs_f32();
+    let after = status("VmRSS:").saturating_sub(before);
+    format!(
+        "{name}: {units} units, {pages} pages; open {secs:.2} s, +{} MB, {} B a unit; \
+         read {read:.2} s ({lines} lines), +{} MB; peak {} MB",
+        open >> 20,
+        open / units,
+        after >> 20,
+        status("VmHWM:") >> 20,
+    )
 }
 
 #[test]
@@ -47,6 +58,12 @@ fn measure(name: &str, body: &str, units: u64) {
 fn set_books_hold_about_this_much() {
     // A fresh process each run keeps the allocator's reuse out of it.
     let paragraph = format!("<p>{}</p>", "abcdefghi ".repeat(100));
-    measure("characters", &paragraph.repeat(4000), 4_000_000);
-    measure("paragraphs", &"<p>w</p>".repeat(200_000), 200_000);
+    println!(
+        "{}",
+        measure("characters", &paragraph.repeat(4000), 4_000_000)
+    );
+    println!(
+        "{}",
+        measure("paragraphs", &"<p>w</p>".repeat(200_000), 200_000)
+    );
 }
