@@ -17,6 +17,7 @@ mareader-ui = { path = "crates/ui" }
 mareader-pdf = { path = "crates/pdf" }
 mareader-session = { path = "crates/session" }
 mareader-reflow = { path = "crates/reflow" }
+mareader-epub = { path = "crates/epub" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -24,6 +25,9 @@ thiserror = "2"
 
 parley = { version = "0.12", default-features = false, features = ["std"] }
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
+rbook = { version = "0.7.12", default-features = false, features = ["threadsafe", "write"] }
+html5ever = "0.40"
+zip = { version = "9", default-features = false }
 
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }

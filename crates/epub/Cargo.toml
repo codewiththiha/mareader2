@@ -1,0 +1,17 @@
+[package]
+name = "mareader-epub"
+description = "EPUB books through rbook: spine, title and XHTML as reflow blocks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+html5ever = { workspace = true }
+mareader-reflow = { workspace = true }
+rbook = { workspace = true }
+thiserror = { workspace = true }
+zip = { workspace = true }
