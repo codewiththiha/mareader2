@@ -17,7 +17,10 @@ mod page_text;
 mod picture;
 mod raster;
 
-pub use block::{Align, Block, Content, Emphasis, Frame, Link, Role, Row, Span, Table, Text};
+pub use block::{
+    Align, Block, CHAR_BYTES, Content, Emphasis, Frame, LAYOUT_BYTES, Link, Role, Row, Span, Table,
+    Text,
+};
 pub use flow::{Anchor, Band, Flow, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH, PageLink, Typography};
 pub use fonts::{FACES, Face, Faces, Family, Fonts, Kind, MONO, SANS, SERIF, has_family};
 pub use page_text::{PageChar, PageLine};
