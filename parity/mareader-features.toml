@@ -799,7 +799,10 @@ title = "Select and copy text"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/selection.rs::a_book_s_text_selects_and_copies_with_wrapped_lines_joined", "crates/reflow/src/page_text.rs::a_page_reads_back_its_words_with_wrapped_lines_joined", "crates/reflow/src/page_text.rs::justified_and_hyphenated_lines_box_each_letter_where_drawn", "crates/pdf/src/text.rs::set_lines_copy_wrapped_ones_unbroken", "crates/ui/src/selection.rs::a_page_going_on_from_the_last_copies_unbroken"]
+reference = ["crates/reader-runtime/src/effects/reader/page_selection.rs"]
+notes = "Characters from parley's clusters in the PDF path's text layer, so every gesture is shared. Wrapped lines and pages copy unbroken; a triple click takes the paragraph, as a browser does"
 
 [[feature]]
 id = "epub.safety"
@@ -919,15 +922,16 @@ title = "Appearance popover: mode and colour, presets, texture, grain"
 area = "F"
 tier = "P0"
 milestone = "M1"
-status = "partial"
+status = "shipped"
 evidence = [
   "crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar",
   "crates/ui/tests/shell.rs::a_preset_swatch_applies_its_look",
   "crates/ui/tests/shell.rs::a_hue_landmark_tints_at_a_gentle_strength",
   "crates/ui/tests/gpu.rs::preset_cards_carry_their_own_texture_and_grain",
+  "crates/ui/tests/reading.rs::a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab",
 ]
 reference = ["crates/app-ui/src/components/menus/appearance_menu", "styles/components/appearance.css"]
-notes = "Finished but for the text ink dial, which comes with EPUB"
+notes = "The text ink dial shows under the tint while the active pane shows a book"
 
 [[feature]]
 id = "appearance.instant"
@@ -1016,8 +1020,10 @@ title = "Body ink intensity dial"
 area = "G"
 tier = "P1"
 milestone = "M4"
-status = "planned"
-reference = ["crates/reader-core/src/settings/typography.rs"]
+status = "shipped"
+evidence = ["crates/ui/tests/gpu.rs::the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures", "crates/appearance/src/filter.rs::the_ink_dial_lightens_ink_toward_the_paper_in_every_mode", "crates/ui/tests/reading.rs::a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab"]
+reference = ["crates/reader-core/src/settings/typography.rs", "crates/reader-core/src/appearance/reflowable/tokens.rs"]
+notes = "10 to 100 % in the popover under the tint while a book is active, and in Settings › Fonts. Folded into the page pass's first matrix, so it moves with the slider without redrawing; pictures are drawn again in the plain tone"
 
 [[feature]]
 id = "type.fonts-tab"
@@ -1025,10 +1031,10 @@ title = "Fonts settings tab, shown while an EPUB is open"
 area = "G"
 tier = "P1"
 milestone = "M4"
-status = "partial"
-evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification"]
+status = "shipped"
+evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification", "crates/ui/tests/reading.rs::a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab"]
 reference = ["crates/reader-runtime/src/components/settings/fonts.rs"]
-notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Ink contrast waits for slice 6"
+notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Text ink steps by 5 % beside the popover's dial"
 
 [[feature]]
 id = "nav.page-counter"
