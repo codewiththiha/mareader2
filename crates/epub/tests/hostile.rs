@@ -2,7 +2,7 @@
 use std::io::{Cursor, Write};
 use std::sync::Arc;
 
-use mareader_epub::{Book, MAX_ENTRIES, MAX_ENTRY, OpenError, sample};
+use mareader_epub::{Book, MAX_BLOCKS, MAX_ENTRIES, MAX_ENTRY, OpenError, sample};
 use mareader_reflow::Typography;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -441,10 +441,13 @@ fn deep_markup_and_costly_styles_open() {
 }
 
 #[test]
-fn a_book_past_the_layout_budget_is_refused() {
-    let tiny = "<p>w</p>".repeat(400_000);
+fn a_flood_of_paragraphs_opens_and_past_the_cap_is_refused() {
+    // Their layouts aren't kept, so 400,000 lines open.
+    let book = open(Spec::new(&[&"<p>w</p>".repeat(400_000)]).build());
+    assert!(book.is_ok_and(|b| b.page_count() > 9000));
+    let flood = "<p>w</p>".repeat(MAX_BLOCKS + 1);
     assert_eq!(
-        open(Spec::new(&[&tiny]).build()).err(),
+        open(Spec::new(&[&flood]).build()).err(),
         Some(OpenError::TooLarge)
     );
 }

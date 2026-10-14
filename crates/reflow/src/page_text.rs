@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use parley::BreakReason;
 
-use crate::flow::{Draw, Flow, PAD, Para};
+use crate::flow::{Draw, Flow, Laid, PAD, Para};
 use crate::hyphen::SHY;
 
 /// One character's box on a page, in page units.
@@ -33,16 +33,14 @@ impl Flow {
             };
             let x = left + set.x;
             let y = PAD + piece.dy;
-            match &set.draw {
-                Draw::Text { para, pad, .. } => {
+            match (&set.draw, &*self.laid(piece.block)) {
+                (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     lines(para, piece.units.clone(), (x + pad, y), &mut out);
                 }
-                Draw::Table(grid) => {
+                (Draw::Table(grid), Laid::Table(rows)) => {
                     let [pad_x, pad_y] = grid.pad;
                     for r in piece.units.clone() {
-                        let (Some(&(top, _)), Some((cells, _))) =
-                            (set.units.get(r), grid.rows.get(r))
-                        else {
+                        let (Some(&(top, _)), Some(cells)) = (set.units.get(r), rows.get(r)) else {
                             continue;
                         };
                         for (c, cell) in cells.iter().enumerate() {
@@ -51,7 +49,7 @@ impl Flow {
                         }
                     }
                 }
-                Draw::Rule | Draw::Image { .. } => {}
+                _ => {}
             }
         }
         out
@@ -126,7 +124,7 @@ mod tests {
     use crate::picture::tests::png;
 
     fn with(blocks: &[Block], typo: &Typography) -> Flow {
-        Flow::new(blocks, typo, &mut Fonts::bundled())
+        Flow::new(std::sync::Arc::new(blocks.to_vec()), typo, Fonts::bundled())
     }
 
     /// Lines joined as a copy joins them.

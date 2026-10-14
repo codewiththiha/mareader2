@@ -15,8 +15,8 @@ use crate::{OpenError, guard};
 
 /// All chapters' markup together; past it the book is refused.
 pub const MAX_MARKUP: usize = 64 << 20;
-/// What the book's layouts may hold, as estimated; past it, it's refused.
-pub const MAX_LAYOUT: usize = 1 << 30;
+/// Blocks in one book; each keeps its line boxes while open.
+pub const MAX_BLOCKS: usize = 1 << 20;
 /// Encoded image bytes kept for one book; past it, alt text shows.
 pub const MAX_PICTURE_BYTES: usize = 256 << 20;
 
@@ -148,7 +148,7 @@ impl Book {
         };
         let mut blocks = Vec::new();
         let mut refs = Refs::default();
-        let (mut markup, mut cost) = (0, 0usize);
+        let mut markup = 0;
         // The first chapter with content, where a cover may already be.
         let mut opening = None;
         // A chapter that won't read is skipped, as a reader would.
@@ -164,12 +164,7 @@ impl Book {
             let start = blocks.len();
             let out = (&mut blocks, &mut refs);
             xhtml::read_chapter(&content, &path, &mut shelf, out);
-            let read = blocks.get(start..).unwrap_or_default();
-            cost = read
-                .iter()
-                .map(Block::layout_cost)
-                .fold(cost, usize::saturating_add);
-            if cost > MAX_LAYOUT {
+            if blocks.len() > MAX_BLOCKS {
                 return Err(OpenError::TooLarge);
             }
             if opening.is_none() && blocks.len() > start {
@@ -188,10 +183,11 @@ impl Book {
         if blocks.is_empty() {
             return Err(OpenError::Empty);
         }
+        let blocks = Arc::new(blocks);
         let flow = set(&blocks, typo, language.as_deref());
         let toc = contents(&epub, &refs, &blocks);
         Ok(Self {
-            blocks: Arc::new(blocks),
+            blocks,
             flow,
             refs: Arc::new(refs),
             toc: Arc::new(toc),
@@ -278,17 +274,17 @@ fn chapter_text(entry: &EpubManifestEntry) -> Option<String> {
 }
 
 /// Lays the blocks out; the book's language beats the default.
-fn set(blocks: &[Block], typo: &Typography, language: Option<&str>) -> Flow {
-    let mut fonts = Fonts::system();
+fn set(blocks: &Arc<Vec<Block>>, typo: &Typography, language: Option<&str>) -> Flow {
+    let (blocks, fonts) = (Arc::clone(blocks), Fonts::system());
     match language {
         Some(tag) if *tag != typo.language => {
             let typo = Typography {
                 language: tag.to_owned(),
                 ..typo.clone()
             };
-            Flow::new(blocks, &typo, &mut fonts)
+            Flow::new(blocks, &typo, fonts)
         }
-        _ => Flow::new(blocks, typo, &mut fonts),
+        _ => Flow::new(blocks, typo, fonts),
     }
 }
 

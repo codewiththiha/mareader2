@@ -17,7 +17,7 @@ pub mod sample;
 mod xhtml;
 
 pub use book::{
-    Book, Destination, Link, MAX_LAYOUT, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry,
+    Book, Destination, Link, MAX_BLOCKS, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry,
 };
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
