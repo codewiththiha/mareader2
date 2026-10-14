@@ -18,6 +18,7 @@ pub fn typography(t: &TextSettings) -> Typography {
         indent: t.text_indent,
         justify: t.justify,
         hyphenate: t.hyphenation,
+        book_layout: t.book_layout,
         faces: Faces {
             body,
             heading: stack(&t.sans_font, Kind::Sans),
@@ -99,6 +100,7 @@ mod tests {
             text_indent: 1.5,
             justify: true,
             hyphenation: true,
+            book_layout: true,
             ..TextSettings::default()
         };
         let t = typography(&s);
@@ -110,7 +112,7 @@ mod tests {
             (t.word_spacing, t.letter_spacing, t.indent),
             (2.0, 0.05, 1.5)
         );
-        assert!(t.justify && t.hyphenate);
+        assert!(t.justify && t.hyphenate && t.book_layout);
     }
 
     #[test]

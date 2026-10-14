@@ -62,6 +62,15 @@ impl Document {
         }
     }
 
+    /// What of each page a continuous stream shows; a PDF streams whole
+    /// pages.
+    pub fn bands(&self) -> Option<&[mareader_reflow::Band]> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => Some(book.bands()),
+        }
+    }
+
     /// Whether the text reflows: the typography settings apply.
     pub fn is_reflowable(&self) -> bool {
         matches!(self, Self::Epub { .. })

@@ -20,6 +20,10 @@ pub const PAGE_HEIGHT: f32 = 1123.0;
 /// The card's inner margin on every side.
 pub const PAD: f32 = 72.0;
 
+/// Book layout's inner margin, toward the spine, and its outer one.
+const GUTTER: f32 = 92.0;
+const EDGE: f32 = 56.0;
+
 /// More than this many pages means a broken or hostile book.
 pub const MAX_PAGES: usize = 100_000;
 
@@ -42,6 +46,8 @@ pub struct Typography {
     pub indent: f32,
     pub justify: bool,
     pub hyphenate: bool,
+    /// Each column moves toward the spine: right on even pages.
+    pub book_layout: bool,
     /// A BCP 47 tag; it picks the hyphenation patterns.
     pub language: String,
     pub faces: Faces,
@@ -59,6 +65,7 @@ impl Default for Typography {
             indent: 0.0,
             justify: false,
             hyphenate: false,
+            book_layout: false,
             language: "en".to_owned(),
             faces: Faces::default(),
         }
@@ -238,10 +245,21 @@ pub struct Anchor {
     pub offset: usize,
 }
 
+/// A page's part in a stream: its column, cut to text and gap above.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Band {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 /// A whole book set and paginated; `Send + Sync` for the workers.
 pub struct Flow {
     pub(crate) blocks: Vec<Set>,
     pub(crate) pages: Vec<Vec<Piece>>,
+    pub(crate) bands: Vec<Band>,
+    pub(crate) book_layout: bool,
     pub(crate) decoded: Arc<Decoded>,
 }
 
@@ -260,7 +278,7 @@ impl Flow {
             stacks: &stacks,
             lang: hyphen::lang(&typo.language),
             fonts,
-            column: PAGE_WIDTH - 2.0 * PAD,
+            column: column_width(typo.book_layout),
             height: PAGE_HEIGHT - 2.0 * PAD,
         };
         let set: Vec<Set> = blocks
@@ -270,10 +288,65 @@ impl Flow {
             .map(|(i, b)| setter.block(i, b))
             .collect();
         let pages = paginate(&set, setter.height, typo);
-        Self {
+        let mut flow = Self {
             blocks: set,
             pages,
+            bands: Vec::new(),
+            book_layout: typo.book_layout,
             decoded: Arc::default(),
+        };
+        flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, typo)).collect();
+        flow
+    }
+
+    /// Page `page`'s column: its left edge and width.
+    pub fn column(&self, page: usize) -> (f32, f32) {
+        let x = match (self.book_layout, page % 2) {
+            (false, _) => PAD,
+            // Spreads pair pages from the first: even ones sit left.
+            (true, 0) => EDGE,
+            (true, _) => GUTTER,
+        };
+        (x, column_width(self.book_layout))
+    }
+
+    /// Every page's band, for a stream that reads like one long page.
+    pub fn bands(&self) -> &[Band] {
+        &self.bands
+    }
+
+    fn band(&self, page: usize, typo: &Typography) -> Band {
+        let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
+        let used = pieces
+            .iter()
+            .filter_map(|p| {
+                let set = self.blocks.get(p.block)?;
+                let last = set.units.get(p.units.end.checked_sub(1)?)?;
+                Some(p.dy + last.1)
+            })
+            .fold(0.0, f32::max);
+        // The gap a page cut swallowed; a chapter gets a pad's worth.
+        let lead = match pieces.first() {
+            _ if page == 0 => PAD,
+            Some(p) if p.units.start == 0 => self
+                .blocks
+                .get(p.block)
+                .map_or(0.0, |b| if b.break_before { PAD } else { gap(b, typo) }),
+            _ => 0.0,
+        }
+        .min(PAD);
+        let foot = if page + 1 == self.pages.len() {
+            PAD
+        } else {
+            0.0
+        };
+        let (x, width) = self.column(page);
+        let y = PAD - lead;
+        Band {
+            x,
+            y,
+            width,
+            height: (lead + used + foot).min(PAGE_HEIGHT - y),
         }
     }
 
@@ -668,6 +741,14 @@ impl Cursor {
             dy: self.y - top,
         });
         self.y += bottom - top;
+    }
+}
+
+fn column_width(book_layout: bool) -> f32 {
+    if book_layout {
+        PAGE_WIDTH - GUTTER - EDGE
+    } else {
+        PAGE_WIDTH - 2.0 * PAD
     }
 }
 
@@ -1066,6 +1147,74 @@ mod tests {
                     .fold(0.0, f32::max)
             })
             .collect()
+    }
+
+    /// The leftmost column with ink in it, in pixels.
+    fn left_ink(px: &crate::Pixels) -> Option<u32> {
+        let width = px.width.max(1) as usize;
+        px.rgba
+            .iter()
+            .step_by(4)
+            .enumerate()
+            .filter(|(_, r)| **r < 128)
+            .map(|(i, _)| (i % width) as u32)
+            .min()
+    }
+
+    #[test]
+    fn book_layout_moves_each_column_toward_the_spine() {
+        let blocks = book();
+        let plain = with(&blocks, Typography::default());
+        let typo = Typography {
+            book_layout: true,
+            ..Typography::default()
+        };
+        let bound = with(&blocks, typo);
+        assert_eq!(plain.column(0), (PAD, PAGE_WIDTH - 2.0 * PAD));
+        assert_eq!(plain.column(1), plain.column(0));
+        let width = PAGE_WIDTH - GUTTER - EDGE;
+        // Spreads pair pages from the first: the left one's spine is right.
+        assert_eq!(bound.column(0), (EDGE, width));
+        assert_eq!(bound.column(1), (GUTTER, width));
+        let region = [0, 0, PAGE_WIDTH as u32, PAGE_HEIGHT as u32];
+        let ink = |f: &Flow, page| f.render(page, 1.0, region).as_ref().and_then(left_ink);
+        let (even, odd) = (ink(&bound, 2), ink(&bound, 3));
+        assert!(
+            even.is_some_and(|x| x.abs_diff(EDGE as u32) < 4),
+            "{even:?}"
+        );
+        assert!(
+            odd.is_some_and(|x| x.abs_diff(GUTTER as u32) < 4),
+            "{odd:?}"
+        );
+        assert!(ink(&plain, 3).is_some_and(|x| x.abs_diff(PAD as u32) < 4));
+    }
+
+    #[test]
+    fn bands_hold_each_page_s_text_and_the_gap_its_cut_swallowed() {
+        let f = with(&book(), Typography::default());
+        let bands = f.bands();
+        assert_eq!(bands.len(), f.page_count());
+        let first = bands.first().copied();
+        assert!(first.is_some_and(|b| b.y == 0.0), "the first keeps its pad");
+        let last = bands.last().copied();
+        let foot = last.map(|b| b.y + b.height);
+        assert!(foot.is_some_and(|y| y <= PAGE_HEIGHT), "{last:?}");
+        for (n, band) in bands.iter().enumerate() {
+            assert_eq!((band.x, band.width), f.column(n));
+            assert!(band.height > 0.0 && band.y + band.height <= PAGE_HEIGHT);
+            let Some(piece) = f.pages.get(n).and_then(|p| p.first()) else {
+                continue;
+            };
+            // Lines cut mid-paragraph butt; a cut between blocks keeps
+            // the block gap.
+            let lead = PAD - band.y;
+            match (n, piece.units.start) {
+                (0, _) => assert_eq!(lead, PAD),
+                (_, 0) => assert!((lead - 17.0).abs() < 0.01, "{n}: {lead}"),
+                _ => assert_eq!(lead, 0.0, "{n}"),
+            }
+        }
     }
 
     #[test]
