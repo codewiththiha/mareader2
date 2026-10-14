@@ -3,14 +3,15 @@ use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use parley::{Layout, PositionedLayoutItem};
+use parley::{GlyphRun, Layout, PositionedLayoutItem};
+use skrifa::{FontRef, MetadataProvider};
 use vello_cpu::color::palette::css::WHITE;
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::flow::{Draw, Flow, Grid, MARKER_GAP, PAD, Piece, Set, span_height};
+use crate::flow::{Draw, Flow, Grid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
 
@@ -154,7 +155,7 @@ impl Painter {
         }
         match &set.draw {
             Draw::Text {
-                layout,
+                para,
                 marker,
                 pad,
                 shaded,
@@ -167,9 +168,9 @@ impl Painter {
                 if units.start == 0
                     && let Some(marker) = marker
                 {
-                    self.marker(layout, marker, x, piece.dy);
+                    self.marker(&para.layout, marker, x, piece.dy);
                 }
-                self.lines(layout, units, x, piece.dy);
+                self.lines(para, units, x, piece.dy);
             }
             Draw::Rule => {
                 let y = top + height / 2.0 - 0.5;
@@ -183,11 +184,12 @@ impl Painter {
         }
     }
 
-    /// Lines `lines` of `layout`, its origin at `x, dy`.
-    fn lines(&mut self, layout: &Layout<Ink>, lines: Range<usize>, x: f32, dy: f32) {
+    /// Lines `lines` of `para`, its origin at `x, dy`.
+    fn lines(&mut self, para: &Para, lines: Range<usize>, x: f32, dy: f32) {
+        let layout = &para.layout;
         self.ctx
             .set_transform(self.view * Affine::translate((f64::from(x), f64::from(dy))));
-        for line in lines.filter_map(|l| layout.get(l)) {
+        for (n, line) in lines.filter_map(|l| Some((l, layout.get(l)?))) {
             let m = line.metrics();
             // Glyphs overflow their line box a little; keep a margin.
             let slack = m.line_height;
@@ -213,34 +215,56 @@ impl Painter {
                     );
                 }
             }
+            let mut last = None;
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(glyphs) = item else {
                     continue;
                 };
-                let run = glyphs.run();
-                self.coords.clear();
-                self.coords
-                    .extend(run.normalized_coords().iter().map(|c| c.to_bits()));
-                self.ctx.set_paint(tone(glyphs.style().brush.tone));
                 let placed = glyphs.positioned_glyphs().map(|g| Glyph {
                     id: g.id,
                     x: g.x,
                     y: g.y,
                 });
-                // A glyph the font can't draw is left blank, not fatal.
-                let _ = self
-                    .ctx
-                    .glyph_run(&mut self.resources, run.font())
-                    .font_size(run.font_size())
-                    .normalized_coords(&self.coords)
-                    .fill_glyphs(placed);
+                self.glyphs(&glyphs, placed);
+                last = Some(glyphs);
+            }
+            // parley breaks at a soft hyphen but leaves the hyphen to us.
+            if let Some(run) = last.filter(|_| para.hyphens.binary_search(&n).is_ok()) {
+                let font = run.run().font();
+                let id = FontRef::from_index(font.data.as_ref(), font.index)
+                    .ok()
+                    .and_then(|f| f.charmap().map('-'));
+                if let Some(id) = id {
+                    let hyphen = Glyph {
+                        id: id.to_u32(),
+                        x: run.offset() + run.advance(),
+                        y: run.baseline(),
+                    };
+                    self.glyphs(&run, std::iter::once(hyphen));
+                }
             }
         }
     }
 
+    /// `placed` in `run`'s font, size, variation and tone.
+    fn glyphs(&mut self, run: &GlyphRun<'_, Ink>, placed: impl Iterator<Item = Glyph> + Clone) {
+        let font = run.run();
+        self.coords.clear();
+        self.coords
+            .extend(font.normalized_coords().iter().map(|c| c.to_bits()));
+        self.ctx.set_paint(tone(run.style().brush.tone));
+        // A glyph the font can't draw is left blank, not fatal.
+        let _ = self
+            .ctx
+            .glyph_run(&mut self.resources, font.font())
+            .font_size(font.font_size())
+            .normalized_coords(&self.coords)
+            .fill_glyphs(placed);
+    }
+
     /// The marker's right edge a gap left of `x`, on the first baseline.
-    fn marker(&mut self, text: &Layout<Ink>, marker: &Layout<Ink>, x: f32, dy: f32) {
-        let (Some(first), Some(own)) = (text.get(0), marker.get(0)) else {
+    fn marker(&mut self, text: &Layout<Ink>, marker: &Para, x: f32, dy: f32) {
+        let (Some(first), Some(own)) = (text.get(0), marker.layout.get(0)) else {
             return;
         };
         let size = own
@@ -250,7 +274,7 @@ impl Painter {
                 PositionedLayoutItem::InlineBox(_) => None,
             })
             .unwrap_or(0.0);
-        let left = x - MARKER_GAP * size - marker.width();
+        let left = x - MARKER_GAP * size - marker.layout.width();
         let shift = first.metrics().baseline - own.metrics().baseline;
         self.lines(marker, 0..1, left, dy + shift);
     }
@@ -290,7 +314,7 @@ impl Painter {
             for (c, cell) in cells.iter().enumerate() {
                 let x = set.x + c as f32 * grid.column;
                 self.frame(BORDER, x, top, grid.column, h);
-                self.lines(cell, 0..cell.len(), x + pad_x, top + pad_y);
+                self.lines(cell, 0..cell.layout.len(), x + pad_x, top + pad_y);
             }
         }
     }
