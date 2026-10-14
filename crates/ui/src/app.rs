@@ -11,7 +11,7 @@ use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
     builtin_presets,
 };
-use mareader_settings::{FontChoice, MotionSettings, PaperArea, Settings};
+use mareader_settings::{ColumnAlign, FontChoice, MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
@@ -403,6 +403,15 @@ impl MareaderApp {
             }
             "justify" => self.settings.text.justify = value == "true",
             "hyphenate" => self.settings.text.hyphenation = value == "true",
+            "book_layout" => self.settings.text.book_layout = value == "true",
+            "column" => {
+                self.settings.text.column_align = match value {
+                    "left" => ColumnAlign::Left,
+                    "center" => ColumnAlign::Center,
+                    "right" => ColumnAlign::Right,
+                    _ => return Err("column: left, center or right".into()),
+                }
+            }
             // `system:georgia`, `bundled:inter`: the body's face.
             "body_font" => self.settings.text.default_font = FontChoice::parse(value),
             "shadow" => self.settings.layout.page_shadow = value == "true",
@@ -932,7 +941,7 @@ impl eframe::App for MareaderApp {
             f32::NEG_INFINITY
         };
         let documents = &mut self.documents;
-        let page = PageLook::new(&self.settings.layout);
+        let page = PageLook::new(&self.settings.layout, &self.settings.text);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
                 let style = view.style(id);
