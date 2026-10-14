@@ -8,13 +8,14 @@ use std::time::Duration;
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
 use mareader_appearance::{
-    Appearance, BaseMode, FilmGrain, NoiseMode, Rgb, TextureMode, builtin_presets,
+    Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
+    builtin_presets,
 };
 use mareader_settings::{MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, WindowCommand};
+use crate::command::{Command, Commands, Independence, WindowCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::find_bar::FindBar;
@@ -23,7 +24,7 @@ use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
-use crate::panes::{self, PaneView};
+use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
 use crate::settings_window::{SettingsWindow, Tab, WindowContext};
@@ -67,6 +68,11 @@ pub struct MareaderApp {
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
+    /// Split panes' own looks, and the routing they were last fitted to.
+    looks: PaneLooks<PaneId>,
+    routed: Routing,
+    /// Picks new panes' hues and textures.
+    random: u64,
     styled: Option<(Appearance, MotionSettings, bool)>,
     /// The system asks for less motion; set off the UI thread at launch.
     reduced_motion: Arc<AtomicBool>,
@@ -112,6 +118,9 @@ impl MareaderApp {
             thumbs: ThumbState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
+            looks: PaneLooks::default(),
+            routed: Routing::default(),
+            random: 0x9e37_79b9_7f4a_7c15,
             styled: None,
             reduced_motion: Arc::new(AtomicBool::new(false)),
             last: None,
@@ -388,6 +397,16 @@ impl MareaderApp {
                 let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
                 self.settings_window.open(Some(tab));
             }
+            "independent" => self.settings.workspace.independent_themes = value == "true",
+            "independent_textures" => {
+                self.settings.workspace.independent_textures = value == "true";
+            }
+            "shared_base" => self.settings.workspace.shared_base_mode = value == "true",
+            "focus" => {
+                let n: u32 = value.parse().map_err(|_| "focus: a pane number")?;
+                let pane = self.tree.panes().get(n.saturating_sub(1) as usize).copied();
+                self.active = pane.ok_or("focus: no such pane")?;
+            }
             "panes" => {
                 let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
                 let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
@@ -466,9 +485,14 @@ impl MareaderApp {
             Command::SetRatio(path, ratio) => {
                 self.tree.set_ratio(&path, ratio);
             }
-            Command::SetAppearance(mut a) => {
-                a.sanitize();
-                self.settings.appearance = a;
+            Command::SetAppearance(a) => {
+                let routing = self.routing();
+                let global = &mut self.settings.appearance;
+                self.looks.edit(self.active, global, routing, a);
+            }
+            Command::SetIndependence(i) => {
+                self.settings.workspace.independent_themes = i.themes;
+                self.settings.workspace.independent_textures = i.textures;
             }
             Command::SavePreset { name, group, look } => {
                 self.settings.save_preset(&name, &group, look);
@@ -589,7 +613,7 @@ impl MareaderApp {
     }
 
     /// What the bars show behind them: pane fills, then this frame's pages.
-    fn backdrop(&mut self, ctx: &Context) -> Backdrop {
+    fn backdrop(&mut self, ctx: &Context, view: &PaneView) -> Backdrop {
         let drawn = self.documents.take_drawn();
         if !self.settings.chrome.glass {
             return Backdrop::Solid;
@@ -598,8 +622,11 @@ impl MareaderApp {
             return Backdrop::Tint;
         };
         let t = theme::Tokens::get(ctx);
-        let fill = self.blend_paper().map_or(t.paper, |raw| baked(&t, raw));
-        let fills = self.pane_rects.iter().map(|(_, r)| Quad::fill(*r, fill));
+        let fill = |id| view.style(id).map_or(t.paper, |s| s.fill);
+        let fills = self
+            .pane_rects
+            .iter()
+            .map(|(id, r)| Quad::fill(*r, fill(*id)));
         let mut quads: Vec<Quad> = fills.collect();
         quads.extend(drawn);
         Backdrop::Glass(Glass {
@@ -609,13 +636,74 @@ impl MareaderApp {
         })
     }
 
-    /// Blend's raw paper: the focused PDF's, repeated across every pane.
-    fn blend_paper(&self) -> Option<Rgb> {
+    /// Blend's raw paper: the focused PDF's in every pane, or each its own.
+    fn blend_paper(&self, pane: PaneId) -> Option<Rgb> {
         let paper = &self.settings.paper;
+        let from = if self.routing().colour() {
+            pane
+        } else {
+            self.active
+        };
         paper
             .blend
-            .then(|| self.documents.paper(self.active, paper.area))
+            .then(|| self.documents.paper(from, paper.area))
             .flatten()
+    }
+
+    /// Which families split panes own right now.
+    fn routing(&self) -> Routing {
+        let w = &self.settings.workspace;
+        Routing {
+            themes: w.independent_themes,
+            textures: w.independent_textures,
+            shared_base: w.shared_base_mode,
+            split: self.tree.len() > 1,
+        }
+    }
+
+    /// `pane`'s look as drawn: the window's, or its own while split.
+    pub fn look(&self, pane: PaneId) -> Appearance {
+        let global = &self.settings.appearance;
+        self.looks.shown(pane, global, self.routing())
+    }
+
+    /// Fits the panes' looks to this frame's routing and panes.
+    fn reconcile_looks(&mut self, ctx: &Context) {
+        let now = self.routing();
+        let placed = self.tree.panes();
+        let mut state = self.random ^ ctx.input(|i| i.time).to_bits();
+        let mut random = || {
+            state = splitmix(state);
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let global = &mut self.settings.appearance;
+        let changes = (self.routed, now);
+        self.looks
+            .reconcile(changes, (&placed, self.active), global, &mut random);
+        self.random = state;
+        self.routed = now;
+    }
+
+    /// Each pane's theme this frame, and its blend paper.
+    fn pane_styles(&self, window: &theme::Tokens) -> Vec<(PaneId, PaneStyle)> {
+        let own = self.routing().any();
+        let style = |id: PaneId| {
+            let tokens = if own {
+                theme::Tokens::new(&self.look(id))
+            } else {
+                *window
+            };
+            let paper = self.blend_paper(id);
+            let fill = paper.map_or(tokens.paper, |raw| baked(&tokens, raw));
+            let style = PaneStyle {
+                tokens,
+                paper,
+                fill,
+                own,
+            };
+            (id, style)
+        };
+        self.tree.panes().into_iter().map(style).collect()
     }
 
     /// The grain over every layer, menus and windows included, as mareader's.
@@ -698,6 +786,7 @@ impl eframe::App for MareaderApp {
             ctx.request_repaint();
             return;
         }
+        self.reconcile_looks(&ctx);
         resize::edges(&ctx, self.platform.frameless());
         let mut commands = std::mem::take(&mut self.queued);
         self.documents.receive(&ctx, &mut commands);
@@ -741,15 +830,16 @@ impl eframe::App for MareaderApp {
             self.sidebar
                 .show_docked(ui, &rail, &mut body, &mut commands)
         };
-        let paper = self.blend_paper();
         let tokens = theme::Tokens::get(&ctx);
         let view = PaneView {
             active: self.active,
             look: self.settings.workspace.look,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
             drop_target,
-            paper: paper.map(|raw| baked(&tokens, raw)),
+            styles: self.pane_styles(&tokens),
         };
+        // Each pane reads its own paper while it has a colour of its own.
+        let every = self.routing().colour();
         let corner = view.corner(self.tree.len() > 1, &tokens);
         let blend = self.settings.paper.blend;
         // A pinned bar covers the panes' top; documents start below it.
@@ -762,18 +852,20 @@ impl eframe::App for MareaderApp {
         let page = PageLook::new(&self.settings.layout);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
+                let style = view.style(id);
                 let cx = ViewContext {
                     active: id == view.active,
+                    tokens: style.map_or(tokens, |s| s.tokens),
                     top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
                     page,
-                    paper,
+                    paper: style.and_then(|s| s.paper),
                     corner,
-                    sample: blend && id == view.active,
+                    sample: blend && (every || id == view.active),
                 };
                 documents.show(ui, id, &cx)
             });
         });
-        let backdrop = self.backdrop(&ctx);
+        let backdrop = self.backdrop(&ctx, &view);
         self.page_bars(&ctx, &backdrop, &mut commands);
         let top = self.titlebar.band_bottom(&ctx);
         self.find.show(&ctx, &self.pane_rects, top);
@@ -781,6 +873,12 @@ impl eframe::App for MareaderApp {
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings.all_presets();
+        let look = self.look(self.active);
+        let routing = self.routing();
+        let independence = routing.split.then_some(Independence {
+            themes: routing.themes,
+            textures: routing.textures,
+        });
         let bar = BarContext {
             title: self.documents.title(self.active).unwrap_or("Mareader"),
             platform: self.platform,
@@ -789,7 +887,8 @@ impl eframe::App for MareaderApp {
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             fullscreen,
             gutter: !overlay && inset <= 0.0 && !fullscreen,
-            appearance: &self.settings.appearance,
+            appearance: &look,
+            independence,
             presets: &presets,
             user_presets: &self.settings.user_presets,
             gpu: self.documents.gpu(),
@@ -839,4 +938,12 @@ impl eframe::App for MareaderApp {
         let last = serde_json::to_string(&self.last_document());
         storage.set_string(LAST_DOCUMENT_KEY, last.unwrap_or_else(|_| "null".into()));
     }
+}
+
+/// SplitMix64: a well-spread next state from any state.
+fn splitmix(state: u64) -> u64 {
+    let mut z = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
 }

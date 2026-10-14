@@ -8,7 +8,7 @@ use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, Preset, TextureMode, group_presets, section_names,
 };
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Independence};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -39,6 +39,8 @@ const DRAFT: &str = "appearance-preset-draft";
 /// What the popover reads besides the look it edits.
 pub struct MenuContext<'a> {
     pub current: &'a Appearance,
+    /// The per-pane modes, while the workspace is split.
+    pub independence: Option<Independence>,
     /// Every preset, built-ins first.
     pub presets: &'a [Preset],
     /// The user's own, which can be deleted and name sections.
@@ -52,8 +54,7 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     let mut a = *cx.current;
     ui.set_width(WIDTH);
     let max = (ui.ctx().content_rect().height() * 0.7).min(MAX_HEIGHT);
-    // The popup's first frame caps it at egui's default area size;
-    // claiming the height lets it grow past that.
+    // egui caps a popup's first frame; claiming the height lifts it.
     egui::ScrollArea::vertical()
         .max_height(max)
         .min_scrolled_height(max)
@@ -78,6 +79,11 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
                 slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
                 slider(ui, "Scale", &mut a.texture_scale, 25..=400);
             });
+            let mut split = cx.independence;
+            if let Some(i) = &mut split {
+                let hint = "Each pane keeps its own texture and dials.";
+                switch_row(ui, "Texture for each", hint, &mut i.textures);
+            }
             ui.separator();
             section(ui, "Film grain");
             let before = a.noise;
@@ -89,10 +95,35 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             ui.add_enabled_ui(a.noise != NoiseMode::Off, |ui| {
                 slider(ui, "Intensity", &mut a.noise_intensity, 0..=100);
             });
+            if let Some(i) = &mut split {
+                ui.separator();
+                let hint = "Each pane keeps its own colour; grain stays shared.";
+                switch_row(ui, "Independent theme for each", hint, &mut i.themes);
+            }
+            if split != cx.independence
+                && let Some(i) = split
+            {
+                out.push(Command::SetIndependence(i));
+            }
         });
     if a != *cx.current {
         out.push(Command::SetAppearance(a));
     }
+}
+
+/// A title over its hint, the switch at the right.
+fn switch_row(ui: &mut Ui, title: &str, hint: &str, on: &mut bool) {
+    let t = Tokens::get(ui.ctx());
+    // The switch claims its room first; the text wraps in what is left.
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        widgets::switch(ui, on, title);
+        ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.label(title);
+            let hint = RichText::new(hint).size(t.text_small).color(t.muted);
+            ui.add(egui::Label::new(hint).wrap());
+        });
+    });
 }
 
 /// Drops a half-typed preset once the popover has closed.
