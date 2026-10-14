@@ -22,7 +22,8 @@ pub use block::{
     Text,
 };
 pub use flow::{
-    Anchor, Band, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH, PageLink, Typography,
+    Anchor, Band, COLUMN_SCALE, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH, PageLink,
+    Typography,
 };
 pub use fonts::{FACES, Face, Faces, Family, Fonts, Kind, MONO, SANS, SERIF, has_family};
 pub use page_text::{PageChar, PageLine};

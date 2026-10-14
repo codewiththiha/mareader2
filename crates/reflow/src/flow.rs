@@ -50,6 +50,8 @@ pub struct Typography {
     pub hyphenate: bool,
     /// Each column moves toward the spine: right on even pages.
     pub book_layout: bool,
+    /// The column's width as a multiple of the page's own; the page follows.
+    pub column_scale: f32,
     /// A BCP 47 tag; it picks the hyphenation patterns.
     pub language: String,
     pub faces: Faces,
@@ -68,6 +70,7 @@ impl Default for Typography {
             justify: false,
             hyphenate: false,
             book_layout: false,
+            column_scale: 1.0,
             language: "en".to_owned(),
             faces: Faces::default(),
         }
@@ -330,6 +333,8 @@ pub struct Flow {
     pub(crate) pages: Vec<Vec<Piece>>,
     pub(crate) bands: Vec<Band>,
     pub(crate) book_layout: bool,
+    /// The text column's width.
+    width: f32,
     pub(crate) decoded: Arc<Decoded>,
     /// Boxed: fonts and type are kilobytes, and books move.
     relay: Box<Relay>,
@@ -370,6 +375,7 @@ impl Flow {
             pages,
             bands: Vec::new(),
             book_layout: typo.book_layout,
+            width: column_width(typo),
             decoded: Arc::default(),
             relay: Box::new(Relay {
                 source: blocks,
@@ -412,7 +418,7 @@ impl Flow {
             (true, 0) => EDGE,
             (true, _) => GUTTER,
         };
-        (x, column_width(self.book_layout))
+        (x, self.width)
     }
 
     /// Every page's band, for a stream that reads like one long page.
@@ -467,7 +473,12 @@ impl Flow {
 
     /// Every page is the same size: width, height in layout units.
     pub fn page_size(&self) -> (f32, f32) {
-        (PAGE_WIDTH, PAGE_HEIGHT)
+        let margins = if self.book_layout {
+            GUTTER + EDGE
+        } else {
+            2.0 * PAD
+        };
+        (margins + self.width, PAGE_HEIGHT)
     }
 
     /// Where page `page` starts.
@@ -547,7 +558,7 @@ impl<'a> Setter<'a> {
             stacks,
             lang: hyphen::lang(&typo.language),
             fonts,
-            column: column_width(typo.book_layout),
+            column: column_width(typo),
             height: PAGE_HEIGHT - 2.0 * PAD,
         }
     }
@@ -918,13 +929,26 @@ impl Cursor {
     }
 }
 
-fn column_width(book_layout: bool) -> f32 {
-    if book_layout {
+/// The text column's width; A4's own at a scale of 1.
+fn column_width(typo: &Typography) -> f32 {
+    let page = if typo.book_layout {
         PAGE_WIDTH - GUTTER - EDGE
     } else {
         PAGE_WIDTH - 2.0 * PAD
-    }
+    };
+    let (lo, hi) = COLUMN_SCALE;
+    let scale = if typo.column_scale.is_finite() {
+        typo.column_scale.clamp(lo, hi)
+    } else {
+        1.0
+    };
+    (page * scale).max(MIN_COLUMN)
 }
+
+/// The column scale's range, as mareader's Column Width dial.
+pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
+/// The narrowest column, as mareader's.
+const MIN_COLUMN: f32 = 160.0;
 
 fn gap(block: &Set, typo: &Typography) -> f32 {
     let ems = if block.tight {
@@ -1339,6 +1363,28 @@ mod tests {
             .filter(|(_, r)| **r < 128)
             .map(|(i, _)| (i % width) as u32)
             .min()
+    }
+
+    #[test]
+    fn the_column_scale_widens_the_column_and_page_within_its_range() {
+        let blocks = book();
+        let scaled = |column_scale| {
+            let typo = Typography {
+                column_scale,
+                ..Typography::default()
+            };
+            with(&blocks, typo)
+        };
+        let (plain, wide, narrow) = (scaled(1.0), scaled(1.4), scaled(0.6));
+        let width = PAGE_WIDTH - 2.0 * PAD;
+        assert_eq!(plain.page_size(), (PAGE_WIDTH, PAGE_HEIGHT));
+        assert_eq!(wide.column(0), (PAD, width * 1.4));
+        assert_eq!(wide.page_size().0, 2.0 * PAD + width * 1.4);
+        assert!(wide.page_count() < plain.page_count());
+        assert!(narrow.page_count() > plain.page_count());
+        // Past the range, or not a number, it clamps or falls back.
+        assert_eq!(scaled(9.0).column(0), wide.column(0));
+        assert_eq!(scaled(f32::NAN).column(0), plain.column(0));
     }
 
     #[test]
