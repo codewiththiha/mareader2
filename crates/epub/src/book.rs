@@ -176,6 +176,11 @@ impl Book {
         self.flow.locate(anchor)
     }
 
+    /// What of each page a stream shows.
+    pub fn bands(&self) -> &[mareader_reflow::Band] {
+        self.flow.bands()
+    }
+
     /// `region` of page `page` at `scale` pixels per unit.
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
