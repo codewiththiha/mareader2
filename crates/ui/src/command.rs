@@ -70,6 +70,14 @@ pub enum Command {
     SetRatio(DividerPath, f32),
     /// Every tick of an appearance control; restyles on the same frame.
     SetAppearance(Appearance),
+    /// Keeps `look` as a preset, in a section when `group` names one.
+    SavePreset {
+        name: String,
+        group: String,
+        look: Appearance,
+    },
+    /// Deletes one of the user's presets.
+    DeletePreset(String),
     SetTitlebarPinned(bool),
     Window(WindowCommand),
     /// Shows a toast, replacing the one on screen.

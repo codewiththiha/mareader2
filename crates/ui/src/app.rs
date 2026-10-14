@@ -8,7 +8,7 @@ use std::time::Duration;
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
 use mareader_appearance::{
-    Appearance, BaseMode, FilmGrain, NoiseMode, Rgb, TextureMode, builtin_presets, crawl,
+    Appearance, BaseMode, FilmGrain, NoiseMode, Rgb, TextureMode, builtin_presets,
 };
 use mareader_settings::{MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
@@ -19,7 +19,7 @@ use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
-use crate::gpu::{Glass, Gpu, GrainCallback, Quad};
+use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
@@ -334,6 +334,12 @@ impl MareaderApp {
                     _ => return Err("grain: off, static or animated".into()),
                 }
             }
+            "save_preset" => {
+                // `Name` or `Name/Section`, saving the look set so far.
+                let (name, group) = value.split_once('/').unwrap_or((value, ""));
+                let look = self.settings.appearance;
+                self.settings.save_preset(name, group, look);
+            }
             "grain_intensity" => {
                 let v = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
                 self.settings.appearance.noise_intensity = v;
@@ -464,6 +470,10 @@ impl MareaderApp {
                 a.sanitize();
                 self.settings.appearance = a;
             }
+            Command::SavePreset { name, group, look } => {
+                self.settings.save_preset(&name, &group, look);
+            }
+            Command::DeletePreset(id) => self.settings.delete_preset(&id),
             Command::SetTitlebarPinned(p) => {
                 self.titlebar.pinned = p;
                 self.settings.chrome.titlebar_pinned = p;
@@ -616,16 +626,9 @@ impl MareaderApp {
         ) else {
             return;
         };
-        // Exempt from the Animations switch; the system's wish stills it.
-        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-        let mut offset = [0.0; 2];
-        if grain.animated && !motion::reduced(ctx) && !minimized {
-            let (at, wait) = crawl(ctx.input(|i| i.time));
-            ctx.request_repaint_after_secs(wait as f32);
-            offset = at;
-        }
+        let offset = crawl_offset(ctx, grain);
         let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("film-grain"));
-        let shape = GrainCallback::shape(gpu.grain.clone(), ctx.content_rect(), grain, offset);
+        let shape = GrainCallback::window(gpu.grain.clone(), ctx.content_rect(), grain, offset);
         ctx.layer_painter(layer).add(shape);
     }
 
@@ -777,6 +780,7 @@ impl eframe::App for MareaderApp {
         self.titlebar.hold = self.find.is_open();
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        let presets = self.settings.all_presets();
         let bar = BarContext {
             title: self.documents.title(self.active).unwrap_or("Mareader"),
             platform: self.platform,
@@ -786,6 +790,9 @@ impl eframe::App for MareaderApp {
             fullscreen,
             gutter: !overlay && inset <= 0.0 && !fullscreen,
             appearance: &self.settings.appearance,
+            presets: &presets,
+            user_presets: &self.settings.user_presets,
+            gpu: self.documents.gpu(),
             zoom: self.documents.zoom_state(self.active),
             mode: self.documents.mode(self.active),
             backdrop: &backdrop,

@@ -24,5 +24,7 @@ pub use model::{Appearance, BaseMode, NoiseMode, TextureMode};
 pub use pattern::{
     DOT_PITCH, GRAIN_ALPHA, GRAIN_FREQUENCY, GRAIN_TILE, LINE_PITCH, PATTERN_PERIOD, Pattern,
 };
-pub use presets::{Preset, builtin_presets};
+pub use presets::{
+    Preset, PresetGroup, UNSECTIONED, builtin_presets, group_presets, preset_id, section_names,
+};
 pub use tokens::{UiTokens, base_tokens};

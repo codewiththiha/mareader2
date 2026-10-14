@@ -2,12 +2,12 @@
 
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
-use mareader_appearance::Appearance;
+use mareader_appearance::{Appearance, Preset};
 use mareader_workspace::SplitAxis;
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, WindowCommand};
-use crate::gpu::{Look, Reach};
+use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
@@ -41,6 +41,11 @@ pub struct BarContext<'a> {
     /// The row starts after the platform's leading room (macOS's lights).
     pub gutter: bool,
     pub appearance: &'a Appearance,
+    /// Every preset, built-ins first, and the user's own among them.
+    pub presets: &'a [Preset],
+    pub user_presets: &'a [Preset],
+    /// Lets the popover draw preset cards as real pages.
+    pub gpu: Option<&'a Gpu>,
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
@@ -284,7 +289,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -
     view_menu::button(ui, &menu, &mut out);
     let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);
     out.extend(clicked(r, Command::SetTitlebarPinned(!pinned)));
-    appearance_button(ui, bar.appearance, &mut out);
+    appearance_button(ui, bar, &mut out);
     for tool in shown {
         let keys = keymap::hint(bar.platform, &tool.command);
         let r = widgets::icon_button_keyed(ui, tool.icon, tool.label, false, keys.as_deref());
@@ -294,7 +299,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -
 }
 
 /// Toggles the Appearance popover, which edits the look live.
-fn appearance_button(ui: &mut egui::Ui, current: &Appearance, out: &mut Commands) {
+fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands) {
     let id = Id::new(APPEARANCE_POPOVER);
     let open = egui::Popup::is_id_open(ui.ctx(), id);
     let r = widgets::icon_button(ui, Icon::Appearance, "Appearance", open);
@@ -303,7 +308,18 @@ fn appearance_button(ui: &mut egui::Ui, current: &Appearance, out: &mut Commands
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .align(egui::RectAlign::BOTTOM_END)
         .gap(6.0)
-        .show(|ui| crate::appearance_menu::show(ui, current, out));
+        .show(|ui| {
+            let cx = crate::appearance_menu::MenuContext {
+                current: bar.appearance,
+                presets: bar.presets,
+                user: bar.user_presets,
+                gpu: bar.gpu,
+            };
+            crate::appearance_menu::show(ui, &cx, out);
+        });
+    if !open && !egui::Popup::is_id_open(ui.ctx(), id) {
+        crate::appearance_menu::forget_draft(ui.ctx());
+    }
 }
 
 /// Centred on the window when it fits, else in the gap, truncated.
