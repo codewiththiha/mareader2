@@ -328,7 +328,7 @@ impl Documents {
         let entry = match (self.panes.get(&pane), &self.session) {
             (Some(Content::Pdf(v)), Some(s)) => s.get(v.doc).cloned(),
             (Some(Content::Opening { name, .. }), _) => {
-                opening(ui, name);
+                opening(ui, name, &cx.tokens);
                 return true;
             }
             _ => None,
@@ -594,8 +594,7 @@ impl Documents {
     }
 }
 
-fn opening(ui: &mut Ui, name: &str) {
-    let t = Tokens::get(ui.ctx());
+fn opening(ui: &mut Ui, name: &str, t: &Tokens) {
     let c = ui.max_rect().center();
     let mark = egui::Rect::from_center_size(c - egui::vec2(0.0, 16.0), egui::vec2(22.0, 22.0));
     loading_mark::paint(ui, mark, t.muted);

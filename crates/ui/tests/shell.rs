@@ -1,5 +1,6 @@
 //! The whole app, headless: title bar, pin, panes and restyling.
 
+use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_ui::MareaderApp;
@@ -178,7 +179,6 @@ fn the_bar_band_starts_after_a_docked_sidebar() {
 
 #[test]
 fn the_switcher_changes_panel_and_a_reclick_keeps_it() {
-    use egui::accesskit::Role;
     use mareader_ui::sidebar::Panel;
     let mut h = with(&[("sidebar", "thumbnails")]);
     h.get_by_role_and_label(Role::Button, "Outline").click();
@@ -262,7 +262,6 @@ fn the_gear_opens_settings_and_escape_closes_only_them() {
 
 #[test]
 fn a_settings_switch_applies_on_the_frame_it_flips() {
-    use egui::accesskit::Role;
     let mut h = with(&[("settings", "layout")]);
     h.get_by_role_and_label(Role::CheckBox, "Overlay sidebar")
         .click();
@@ -288,7 +287,6 @@ fn the_system_asking_for_less_motion_stills_it_like_the_master() {
 
 #[test]
 fn the_glass_switch_starts_on_and_turns_it_off() {
-    use egui::accesskit::Role;
     let mut h = with(&[("settings", "layout")]);
     assert!(h.state().settings().chrome.glass);
     h.get_by_role_and_label(Role::CheckBox, "Frosted glass")
@@ -300,7 +298,6 @@ fn the_glass_switch_starts_on_and_turns_it_off() {
 
 #[test]
 fn the_animations_tab_leaves_with_its_master_switch() {
-    use egui::accesskit::Role;
     use mareader_ui::settings_window::Tab;
     let mut h = with(&[("settings", "animations")]);
     assert!(
@@ -671,4 +668,80 @@ fn the_appearance_popover_grows_to_its_cap_then_scrolls() {
     let cap = mareader_ui::appearance_menu::MAX_HEIGHT;
     assert!(rect.height() >= cap, "{} tall", rect.height());
     assert!(rect.height() < cap + 40.0, "{} tall", rect.height());
+}
+
+#[test]
+fn the_popover_offers_pane_modes_only_while_split() {
+    let modes = ["Independent theme for each", "Texture for each"];
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    for label in modes {
+        assert!(h.query_by_role_and_label(Role::CheckBox, label).is_none());
+    }
+    let mut h = with(&[("panes", "2")]);
+    open_appearance(&mut h);
+    for label in modes {
+        assert!(h.query_by_role_and_label(Role::CheckBox, label).is_some());
+    }
+}
+
+#[test]
+fn independent_themes_from_settings_colour_the_other_pane() {
+    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    h.get_by_role_and_label(Role::CheckBox, "Independent theme for each pane")
+        .click();
+    h.run_steps(3);
+    let app = h.state();
+    assert!(app.settings().workspace.independent_themes);
+    let (one, two) = match app.panes()[..] {
+        [one, two] => (one, two),
+        _ => panic!("two panes"),
+    };
+    assert_eq!(
+        app.look(one),
+        app.settings().appearance,
+        "the front keeps it"
+    );
+    let own = app.look(two);
+    assert_eq!(own.tint_strength, mareader_appearance::PANE_TINT_STRENGTH);
+    assert_ne!(own.tint_hue, app.look(one).tint_hue);
+}
+
+#[test]
+fn a_mode_switch_changes_only_the_active_pane_unless_shared() {
+    for shared in [false, true] {
+        let flag = if shared { "true" } else { "false" };
+        let options = [
+            ("panes", "2"),
+            ("independent", "true"),
+            ("shared_base", flag),
+        ];
+        let mut h = with(&options);
+        open_appearance(&mut h);
+        h.get_by_label("Dark").click();
+        h.run_steps(2);
+        let app = h.state();
+        let dark = |p| app.look(p).base == mareader_appearance::BaseMode::Dark;
+        let (one, two) = (app.panes()[0], app.panes()[1]);
+        assert!(dark(one), "the active pane is dark");
+        assert_eq!(dark(two), shared, "the other follows only when shared");
+        assert_eq!(app.settings().appearance.base.is_dark(), shared);
+    }
+}
+
+#[test]
+fn closing_to_one_pane_keeps_the_survivor_s_own_look() {
+    let mut h = with(&[("panes", "2"), ("independent", "true")]);
+    let two = h.state().panes()[1];
+    let own = h.state().look(two);
+    let one = h.state().panes()[0];
+    h.state_mut()
+        .queue(mareader_ui::command::Command::ClosePane(one));
+    h.run_steps(3);
+    assert_eq!(h.state().panes(), vec![two]);
+    assert_eq!(
+        h.state().settings().appearance,
+        own,
+        "the window took it over"
+    );
 }

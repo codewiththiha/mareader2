@@ -421,3 +421,28 @@ fn preset_cards_carry_their_own_texture_and_grain() -> Out {
     assert!(loud > 4.0, "Loud's card shows its grain: {loud}");
     Ok(())
 }
+
+#[test]
+fn split_panes_fill_with_their_own_paper() -> Out {
+    let mut h = reader(&[("panes", "2"), ("independent", "true")]);
+    h.run_steps(2);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let app = h.state();
+    let mut papers = Vec::new();
+    // Below each pane's empty state, clear of outlines and dividers.
+    for (pane, x) in app.panes().into_iter().zip([0.25, 0.75]) {
+        let want = mareader_ui::theme::Tokens::new(&app.look(pane)).paper;
+        let at = ((SIZE.x * x * ppp) as u32, (SIZE.y * 0.9 * ppp) as u32);
+        let [r, g, b, _] = image.get_pixel(at.0, at.1).0;
+        let off = [(r, want.r()), (g, want.g()), (b, want.b())]
+            .map(|(got, want)| (i32::from(got) - i32::from(want)).abs());
+        assert!(
+            off.iter().all(|d| *d <= 2),
+            "{pane:?}: {r} {g} {b} vs {want:?}"
+        );
+        papers.push(want);
+    }
+    assert_ne!(papers.first(), papers.last(), "each pane its own paper");
+    Ok(())
+}

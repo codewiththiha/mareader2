@@ -147,6 +147,28 @@ fn radius(r: f32) -> CornerRadius {
 /// Restyles every stock widget from `t` and stores it for [`Tokens::get`].
 pub fn apply(ctx: &egui::Context, t: &Tokens) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_ID), *t));
+    ctx.set_visuals(visuals(t));
+    ctx.global_style_mut(|s| {
+        s.spacing.item_spacing = egui::vec2(t.gap, t.gap * 0.75);
+        s.spacing.button_padding = egui::vec2(t.gap + 2.0, t.gap * 0.75);
+        s.spacing.interact_size.y = (t.control * 0.75).round();
+        s.spacing.menu_margin = Margin::same((t.gap * 0.75) as i8);
+        s.spacing.window_margin = Margin::same((t.gap * 2.0) as i8);
+        s.spacing.scroll = egui::style::ScrollStyle::floating();
+        s.text_styles
+            .insert(egui::TextStyle::Body, FontId::proportional(t.text));
+        s.text_styles
+            .insert(egui::TextStyle::Button, FontId::proportional(t.text));
+        s.text_styles
+            .insert(egui::TextStyle::Small, FontId::proportional(t.text_small));
+        s.text_styles
+            .insert(egui::TextStyle::Heading, medium(t.text + 4.0));
+        s.interaction.tooltip_delay = 0.35;
+    });
+}
+
+/// The stock widgets' look from `t`; a pane may scope its own.
+pub fn visuals(t: &Tokens) -> egui::Visuals {
     let mut v = if t.dark {
         egui::Visuals::dark()
     } else {
@@ -195,24 +217,7 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
         state.corner_radius = radius(t.radius);
         state.expansion = 0.0;
     }
-    ctx.set_visuals(v);
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(t.gap, t.gap * 0.75);
-        s.spacing.button_padding = egui::vec2(t.gap + 2.0, t.gap * 0.75);
-        s.spacing.interact_size.y = (t.control * 0.75).round();
-        s.spacing.menu_margin = Margin::same((t.gap * 0.75) as i8);
-        s.spacing.window_margin = Margin::same((t.gap * 2.0) as i8);
-        s.spacing.scroll = egui::style::ScrollStyle::floating();
-        s.text_styles
-            .insert(egui::TextStyle::Body, FontId::proportional(t.text));
-        s.text_styles
-            .insert(egui::TextStyle::Button, FontId::proportional(t.text));
-        s.text_styles
-            .insert(egui::TextStyle::Small, FontId::proportional(t.text_small));
-        s.text_styles
-            .insert(egui::TextStyle::Heading, medium(t.text + 4.0));
-        s.interaction.tooltip_delay = 0.35;
-    });
+    v
 }
 
 /// Debug builds: `MAREADER_TOKENS=tokens.json` overrides tokens live.

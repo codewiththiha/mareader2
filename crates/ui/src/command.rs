@@ -11,6 +11,13 @@ use crate::toast::Toast;
 use crate::zoom::ZoomCommand;
 use mareader_settings::Settings;
 
+/// Whether split panes take their own colour, texture, or both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Independence {
+    pub themes: bool,
+    pub textures: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     ToggleSidebar,
@@ -70,6 +77,8 @@ pub enum Command {
     SetRatio(DividerPath, f32),
     /// Every tick of an appearance control; restyles on the same frame.
     SetAppearance(Appearance),
+    /// The split's per-pane modes, from the appearance popover.
+    SetIndependence(Independence),
     /// Keeps `look` as a preset, in a section when `group` names one.
     SavePreset {
         name: String,

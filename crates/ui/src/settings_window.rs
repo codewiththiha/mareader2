@@ -236,7 +236,7 @@ fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &m
             ui,
             "Hover lookup, language packs and languages arrive with the study tools (M6).",
         ),
-        Tab::Workspace => workspace(ui),
+        Tab::Workspace => workspace(ui, s),
     }
 }
 
@@ -558,17 +558,33 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
     }
 }
 
-fn workspace(ui: &mut Ui) {
+fn workspace(ui: &mut Ui, s: &mut Settings) {
     section(ui, "Library panel");
     pending(
         ui,
         "What a click on a file in the Library panel does arrives with the library (M5).",
     );
     section(ui, "Pane themes");
-    pending(
-        ui,
-        "An independent theme and texture for each pane arrive with page rendering (M3).",
-    );
+    let w = &mut s.workspace;
+    group(ui, |ui| {
+        let hint = "While split, each pane keeps its own colour and texture";
+        switch_row(
+            ui,
+            "Independent theme for each pane",
+            hint,
+            &mut w.independent_themes,
+        );
+        divider(ui);
+        ui.add_enabled_ui(w.independent_themes, |ui| {
+            let hint = "Off: each pane keeps its own mode too";
+            let label = "Light, Dark and Dim change every pane";
+            switch_row(ui, label, hint, &mut w.shared_base_mode);
+        });
+        divider(ui);
+        let hint = "While split, each pane keeps its own texture and dials";
+        let label = "Independent page texture for each pane";
+        switch_row(ui, label, hint, &mut w.independent_textures);
+    });
 }
 
 fn section(ui: &mut Ui, title: &str) {

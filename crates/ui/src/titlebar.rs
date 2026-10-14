@@ -6,7 +6,7 @@ use mareader_appearance::{Appearance, Preset};
 use mareader_workspace::SplitAxis;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, WindowCommand};
+use crate::command::{Command, Commands, Independence, WindowCommand};
 use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
@@ -40,7 +40,10 @@ pub struct BarContext<'a> {
     pub fullscreen: bool,
     /// The row starts after the platform's leading room (macOS's lights).
     pub gutter: bool,
+    /// The active pane's look, which the popover edits.
     pub appearance: &'a Appearance,
+    /// The per-pane modes; offered only while the workspace is split.
+    pub independence: Option<Independence>,
     /// Every preset, built-ins first, and the user's own among them.
     pub presets: &'a [Preset],
     pub user_presets: &'a [Preset],
@@ -311,6 +314,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
         .show(|ui| {
             let cx = crate::appearance_menu::MenuContext {
                 current: bar.appearance,
+                independence: bar.independence,
                 presets: bar.presets,
                 user: bar.user_presets,
                 gpu: bar.gpu,
