@@ -746,8 +746,10 @@ title = "Single, spread, horizontal strip and continuous vertical stream"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/reading.rs::a_book_s_vertical_strip_streams_one_column_edge_to_edge", "crates/reflow/src/flow.rs::bands_hold_each_page_s_text_and_the_gap_its_cut_swallowed", "crates/ui/src/layout.rs::a_column_off_centre_keeps_the_margin_from_its_edge"]
 reference = ["crates/reflow-core/src/geometry.rs"]
+notes = "Single, spread and the strip show whole pages; the vertical strip streams each page cut to its text, edge to edge on its paper. One raster per page in every mode (docs/epub.md)"
 
 [[feature]]
 id = "epub.images"
@@ -997,8 +999,10 @@ title = "Book layout with spine-side gutters; column alignment while streaming"
 area = "G"
 tier = "P1"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/reflow/src/flow.rs::book_layout_moves_each_column_toward_the_spine", "crates/ui/tests/reading.rs::a_book_s_vertical_strip_streams_one_column_edge_to_edge", "crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
+notes = "Gutter by page parity, matching spreads paired from the first page; the stream straightens the column. Column alignment keeps at least 16 pt from the edge"
 
 [[feature]]
 id = "type.ink-contrast"
@@ -1018,7 +1022,7 @@ milestone = "M4"
 status = "partial"
 evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification"]
 reference = ["crates/reader-runtime/src/components/settings/fonts.rs"]
-notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Book layout, column alignment and ink contrast wait for slices 4 and 6"
+notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Ink contrast waits for slice 6"
 
 [[feature]]
 id = "nav.page-counter"
