@@ -368,3 +368,57 @@ fn the_wheel_scrolls_during_a_drag_and_the_selection_follows() -> Out {
     assert!(text.contains("\nPage 2 of 40"), "{text}");
     Ok(())
 }
+
+#[test]
+fn a_book_s_text_selects_and_copies_with_wrapped_lines_joined() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("epub", "sample:2"),
+        ("view", "single"),
+        ("animations", "false"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    // Page 0 is the cover; chapter 1 starts the next.
+    h.state_mut().queue(Command::GoTo { pane, page: 1 });
+    h.run();
+    let docs = h.state().documents();
+    let doc = docs.reading(pane).ok_or("no book")?.document;
+    let layer = doc.text_layer(1)?;
+    let sheet = *docs.sheets(pane).first().ok_or("no sheet")?;
+    assert_eq!(sheet.page, 1);
+    // From "The river" over the line's end to "unloaded", which wraps.
+    let from = find(&layer, "The river")?;
+    let to = find(&layer, "unloaded")? + "unloaded".len() - 1;
+    let line = |i: usize| layer.text.chars().get(i).map(|c| c.line);
+    assert!(line(from) < line(to), "the words cross a line end");
+    drag(
+        &mut h,
+        edge(&layer, sheet, from, false)?,
+        edge(&layer, sheet, to, true)?,
+    );
+    let text = copy(&mut h).ok_or("nothing copied")?;
+    assert!(text.starts_with("The river ran slow"), "{text}");
+    assert!(text.ends_with("the boats unloaded"), "{text}");
+    assert!(!text.contains('\n'), "{text}");
+    // A double click takes a word, a triple the paragraph.
+    let customs = edge(&layer, sheet, find(&layer, "customs")? + 2, false)?;
+    h.run_steps(40);
+    clicks(&mut h, customs, 2);
+    assert_eq!(copy(&mut h).as_deref(), Some("customs"));
+    h.run_steps(40);
+    clicks(&mut h, customs, 3);
+    let paragraph = copy(&mut h).ok_or("nothing copied")?;
+    assert!(paragraph.starts_with("1.0 The river"), "{paragraph}");
+    assert!(paragraph.trim_end().ends_with("Bold end."), "{paragraph}");
+    Ok(())
+}

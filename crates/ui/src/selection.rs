@@ -75,16 +75,21 @@ impl Selection {
         (start < end).then_some(start..end)
     }
 
-    /// The selected text, pages joined by line breaks.
+    /// The selected text, pages joined by line breaks unless one goes on.
     pub fn text(self, mut layer: impl FnMut(usize) -> Option<Arc<TextLayer>>) -> String {
-        let mut parts = Vec::new();
+        let mut out = String::new();
+        let mut first = true;
         for page in self.pages() {
             let Some(l) = layer(page) else { continue };
             if let Some(range) = self.on_page(page, l.text.len()) {
-                parts.push(l.text.text(range));
+                if !first && !l.text.continues() {
+                    out.push('\n');
+                }
+                out.push_str(&l.text.text(range));
+                first = false;
             }
         }
-        parts.join("\n")
+        out
     }
 }
 
@@ -284,6 +289,8 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, selection: Selection, tint: Color32) {
 
 #[cfg(test)]
 mod tests {
+    use mareader_pdf::PageText;
+
     use super::*;
 
     fn caret(page: usize, index: usize) -> Caret {
@@ -305,5 +312,39 @@ mod tests {
         // A caret past a page's text holds to its end.
         assert_eq!(up.on_page(1, 4), None);
         assert!(Selection::within(2, 4..4).is_empty());
+    }
+
+    fn page(wraps: bool, words: &str) -> Arc<TextLayer> {
+        let at = |i: usize| {
+            let x0 = i as f32 * 10.0;
+            let (x1, y1) = (x0 + 10.0, 20.0);
+            Bounds {
+                x0,
+                y0: 0.0,
+                x1,
+                y1,
+            }
+        };
+        let line = words.chars().enumerate().map(|(i, c)| (c, at(i)));
+        let text = PageText::from_lines([(wraps, line.collect())]);
+        Arc::new(TextLayer {
+            text,
+            links: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn a_page_going_on_from_the_last_copies_unbroken() {
+        let pages = [
+            page(false, "the boats "),
+            page(true, "unloaded"),
+            page(false, "End"),
+        ];
+        let all = Selection {
+            anchor: caret(0, 4),
+            focus: caret(2, 3),
+        };
+        let text = all.text(|p| pages.get(p).cloned());
+        assert_eq!(text, "boats unloaded\nEnd");
     }
 }
