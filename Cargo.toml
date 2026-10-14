@@ -32,6 +32,8 @@ vello_cpu = { version = "0.3", default-features = false, features = ["std", "tex
 rbook = { version = "0.7.12", default-features = false, features = ["threadsafe", "write"] }
 html5ever = "0.40"
 zip = { version = "9", default-features = false }
+# The XML reader rbook uses, to measure what it would nest first.
+quick-xml = { version = "0.42", default-features = false }
 
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
