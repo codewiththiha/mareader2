@@ -40,6 +40,20 @@ impl ColorMatrix {
         ])
     }
 
+    /// `self` after `first` as one matrix; `first` must stay in range.
+    fn after(self, first: Self) -> Self {
+        let [b0, b1, b2] = first.0;
+        Self(self.0.map(|[x, y, z, w]| {
+            let mut row = [0.0, 0.0, 0.0, w];
+            for (k, b) in [(x, b0), (y, b1), (z, b2)] {
+                for (r, v) in row.iter_mut().zip(b) {
+                    *r += k * v;
+                }
+            }
+            row
+        }))
+    }
+
     /// Applies the matrix and clamps, as CSS does after every function.
     pub fn apply(&self, c: [f32; 3]) -> [f32; 3] {
         self.0
@@ -228,6 +242,22 @@ impl PageTone {
         blend.apply(self.paper, s)
     }
 
+    /// mareader's ink dial: greys lightened, keeping `keep` (0 to 1) of
+    /// the ink.
+    pub fn inked(mut self, keep: f32) -> Self {
+        let keep = keep.clamp(0.0, 1.0);
+        if keep >= 1.0 || self.blend.is_none() {
+            return self;
+        }
+        // A mix toward white stays in range, so it folds into the first.
+        let ink = ColorMatrix::scale_offset(keep, 1.0 - keep);
+        if let Some(m) = self.matrices.first_mut() {
+            *m = if self.count == 0 { ink } else { m.after(ink) };
+        }
+        self.count = self.count.max(1);
+        self
+    }
+
     /// A blank page themed: what a page shows before it is drawn.
     pub fn blank(&self) -> [f32; 3] {
         self.apply([1.0; 3])
@@ -282,6 +312,30 @@ mod tests {
         };
         let out = apply_filter(&a.page_filter(), [1.0, 1.0, 1.0]);
         assert!(out.iter().all(|c| *c < 0.1), "{out:?}");
+    }
+
+    #[test]
+    fn the_ink_dial_lightens_ink_toward_the_paper_in_every_mode() {
+        for base in BaseMode::ALL {
+            for tint_strength in [0, 100] {
+                let tone = Appearance {
+                    base,
+                    tint_strength,
+                    ..Default::default()
+                }
+                .page_tone();
+                let half = tone.inked(0.5);
+                assert_eq!(tone.inked(1.0), tone);
+                assert!(close(half.blank(), tone.blank()), "{base:?}");
+                for c in [[0.0; 3], [0.33, 0.33, 0.33], [0.1, 0.6, 0.3]] {
+                    let mixed = c.map(|v| 0.5 + 0.5 * v);
+                    assert!(close(half.apply(c), tone.apply(mixed)), "{base:?} {c:?}");
+                }
+                // No ink left: text is the paper.
+                assert!(close(tone.inked(0.0).apply([0.0; 3]), tone.blank()));
+            }
+        }
+        assert_eq!(PageTone::NONE.inked(0.5), PageTone::NONE);
     }
 
     #[test]
