@@ -525,3 +525,104 @@ fn with_animations_off_a_mode_click_lands_at_once() -> Out {
     assert!(!app.fading());
     Ok(())
 }
+
+/// The darkest and lightest luma in the lower page of each pane.
+fn page_spread(h: &mut Harness<'static, MareaderApp>) -> Result<Vec<(i32, i32)>, String> {
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let mut spreads = Vec::new();
+    for (_, r) in h.state().pane_rects() {
+        let (mut lo, mut hi) = (255, 0);
+        for y in (r.top() + r.height() * 0.52) as u32..(r.top() + r.height() * 0.78) as u32 {
+            for x in (r.left() + 20.0) as u32..(r.right() - 20.0) as u32 {
+                let l = luma(&image, (x as f32 * ppp) as u32, (y as f32 * ppp) as u32);
+                (lo, hi) = (lo.min(l), hi.max(l));
+            }
+        }
+        spreads.push((lo, hi));
+    }
+    Ok(spreads)
+}
+
+#[test]
+fn texture_for_each_patterns_every_open_pane() -> Out {
+    use mareader_appearance::TextureMode;
+    use mareader_ui::command::Command;
+    use mareader_ui::settings_window::Tab;
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("focus", "2"),
+        ("pdf", "sample"),
+    ];
+    let mut h = reader(&options);
+    h.run_steps(4);
+    let app = h.state();
+    let panes = app.panes();
+    let open = panes
+        .iter()
+        .filter(|p| app.documents().reading(**p).is_some());
+    assert_eq!(open.count(), 2, "a book in each pane");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo < 6, "plain pages first: {lo}..{hi}");
+    }
+    h.state_mut().queue(Command::OpenSettings(Tab::Workspace));
+    h.run();
+    let switch = "Independent page texture for each pane";
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
+        .click();
+    h.run();
+    h.state_mut().queue(Command::CloseSettings);
+    h.run();
+    h.run_steps(4);
+    let app = h.state();
+    let textures: Vec<TextureMode> = app
+        .panes()
+        .into_iter()
+        .map(|p| app.look(p).texture)
+        .collect();
+    assert!(!textures.contains(&TextureMode::None), "{textures:?}");
+    assert_ne!(textures.first(), textures.last(), "{textures:?}");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo >= 6, "a pattern on every page: {lo}..{hi}");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
+    use mareader_appearance::TextureMode;
+    use mareader_ui::command::Command;
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("focus", "2"),
+        ("pdf", "sample"),
+    ];
+    let mut h = reader(&options);
+    h.state_mut().queue(Command::ShowAppearance);
+    h.run();
+    let switch = h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture for each");
+    switch.scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture for each")
+        .click();
+    h.run();
+    h.run_steps(4);
+    let app = h.state();
+    assert!(
+        app.settings().workspace.independent_textures,
+        "the switch took"
+    );
+    let textures: Vec<TextureMode> = app
+        .panes()
+        .into_iter()
+        .map(|p| app.look(p).texture)
+        .collect();
+    assert!(!textures.contains(&TextureMode::None), "{textures:?}");
+    assert_ne!(textures.first(), textures.last(), "{textures:?}");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo >= 6, "a pattern on every page: {lo}..{hi}");
+    }
+    Ok(())
+}

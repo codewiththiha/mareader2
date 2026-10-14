@@ -329,6 +329,8 @@ evidence = [
   "crates/appearance/src/pane_looks.rs::grain_and_unowned_families_are_the_window_s",
   "crates/appearance/src/pane_looks.rs::a_new_texture_is_painted_and_unlike_the_taken",
   "crates/appearance/src/pane_looks.rs::enabling_textures_paints_every_pane_unlike_the_others",
+  "crates/ui/tests/gpu.rs::texture_for_each_patterns_every_open_pane",
+  "crates/ui/tests/gpu.rs::the_palette_s_texture_for_each_patterns_every_open_pane",
   "crates/ui/tests/shell.rs::the_popover_offers_pane_modes_only_while_split",
 ]
 notes = "Unlike mareader, the front pane gets a texture too when it has none (owner)"
