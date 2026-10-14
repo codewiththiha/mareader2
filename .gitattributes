@@ -1,0 +1,2 @@
+# Test books stay byte for byte as published (CRLF and all).
+crates/epub/tests/books/* -text
