@@ -205,6 +205,60 @@ What the epub crate reads, and what each element becomes:
   second time over its own box in the pane's plain tone. Thumbnails keep
   full ink. Without a GPU, pages aren't themed and the dial does nothing.
 
+## Hostile books as built (M4 slice 7)
+
+A book is untrusted input. Whatever its bytes, opening it ends in a book or
+in one of three refusals (`OpenError`): `Invalid` (not a zip or no
+package), `Empty` (nothing to read) and `TooLarge` (past a cap below). On
+a refusal the pane closes and a toast says why, such as "the book is too
+large to open safely". Nothing crashes.
+`crates/epub/tests/hostile.rs` builds each attack and checks the outcome.
+
+**Caps.** Each is far past any real book and stops one kind of attack.
+
+| Where | Cap | Stops |
+|---|---|---|
+| Zip directory (`guard.rs`) | 10,000 files; 128 MiB a file; 512 MiB in all | zip bombs, before anything inflates |
+| Inflating | the size the directory declares | a file lying about its size: zip stops at the declared size |
+| Markup (`book.rs`) | 64 MiB of chapter text | books too big to lay out |
+| Contents (`guard.rs`) | 64 levels of nav or NCX nesting | stack overflow in rbook, which builds and frees the tree recursively |
+| Metadata (`guard.rs`) | 8 links in a `refines` chain | the same in rbook's recursive metadata |
+| XHTML (`xhtml.rs`) | 256 open elements; 16 stylesheets a book | deep markup; one sheet re-linked by every chapter |
+| CSS (`css.rs`) | 1 MiB a sheet; 10,000 distinct selectors | rule floods; a selector repeated merges into one rule |
+| Pictures | header-probed sizes, as in slice 2 | a small file declaring 100,000 px a side shows its alt text |
+| Layout (`book.rs`) | 1 GiB estimated | out-of-memory: see below |
+
+**The guard.** Before rbook sees a book, `guard::open` checks the zip
+directory. It then reads the book bare, without contents or metadata, and
+scans the package file with quick-xml the way rbook reads it. A nav or NCX
+nesting deeper than the cap is skipped and the headings stand in, as for a
+book listing nothing. A refinement chain past the cap skips the metadata, so
+the book opens untitled. If rbook still rejects the contents or metadata,
+the book opens without them rather than not at all.
+
+**Broken markup reads.** html5ever's tokenizer recovers from unclosed and
+stray tags and unknown entities. A chapter whose bytes aren't all UTF-8 is
+decoded lossily: the stray bytes become U+FFFD and the rest reads. rbook's
+own reader drops such a chapter whole, so chapters are taken from the spine
+directly. A spine entry naming no file, a picture path escaping the book
+(`../`, `/`, `file:`) and a picture that won't decode are skipped or shown
+as alt text.
+
+**The layout budget.** The pipeline above plans lazy layout by chapter. As
+built, a book is laid out whole when it opens, and every paragraph keeps its
+parley layout, about 3,000 bytes plus 48 a byte of text (measured; see
+`docs/memory.md`). A book whose estimate passes 1 GiB is refused before
+layout. *War and Peace* comes to about 190 MB, the complete Shakespeare to
+about 560 MB. Laying out on demand would lift the limit; it is a follow-up.
+
+**EPUB 2.** Books with only an NCX, an OPF 2 cover (`<meta name="cover">`)
+and HTML entities open as EPUB 3 books do. A real one is a test fixture:
+Project Gutenberg's *The Raven* (`crates/epub/tests/books/`), with a nested
+NCX, a page list and a cover wrapper page.
+
+**Fuzzing, cheaply.** One test flips bytes in copies of the sample book 48
+times, seeded, and opens each; every copy opens or is refused.
+
 ## Revision history
 
 | Date | Summary |
@@ -215,3 +269,4 @@ What the epub crate reads, and what each element becomes:
 | 2026-10-14 | Added view modes as built in M4 slice 4 |
 | 2026-10-14 | Added navigation as built in M4 slice 5 |
 | 2026-10-14 | Added selection and ink as built in M4 slice 6 |
+| 2026-10-14 | Added hostile books as built in M4 slice 7 |
