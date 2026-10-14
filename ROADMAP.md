@@ -61,11 +61,20 @@ appearance effects to that same pass.
 | 6 | Text selection and copy; internal and external links | **done** | drag over text, double or triple click, ⌘C; click a link; `drag=x1,y1,x2,y2 hover=x,y` in shots |
 | 7 | Keys and glide, last document on launch, loading mark, teardown and memory measured | **done** | hold ↓ or press Space; quit and relaunch; `cargo run -p mareader-ui --example memory -- BOOK.pdf`; `docs/memory.md` |
 
+## M3 slices
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | The page pass themes pages: mareader's filter chain, then multiply, screen or soft light over the paper, on the GPU; thumbnails and the glass follow | **done** | the palette's modes and presets; `theme=dark`, `preset=sepia` in shots |
+| 2 | Paper textures on pages and the gutter | next | |
+| 3 | Blend backdrop: the texture runs across pages and gutter | | |
+| 4 | Grain | | |
+| 5 | Presets UI and the appearance menu, finished | | |
+| 6 | Independent pane themes and textures | | |
+
 ## Next
 
-1. **Close M2, or carry its partial entries.** Every M2 slice is done; see the
-   open question below.
-2. **M3 slice 1:** the page pass's filter chain (ADR 0003).
+1. **M3 slice 2:** paper textures (ADR 0003).
 
 ## Open questions for the owner
 
@@ -106,3 +115,4 @@ appearance effects to that same pass.
 | 2026-10-13 | M2 slice 10, find key. ⌘/Ctrl+F opens mareader's floating find bar at the focused pane's top right: a focused field ("Search in document…") that keeps its text, "Search arrives with M7" where the match count goes, and a close button. Escape or a press elsewhere on a pane closes it, and while open it holds the title bar. The Search buttons in the title bar and sidebar toggle it, as in mareader. With no document, the key opens the Library panel, standing in for mareader's library search (M5). Searching itself stays `search.document` (M7) |
 | 2026-10-13 | M2 slice 11, opening files from the system. cargo-packager config in `apps/mareader/Cargo.toml` registers `.pdf` as a viewer (mareader's icons, `Productivity`). A Linux `.deb` built here installs `Exec=mareader %F` with `MimeType=application/pdf`. Opening a file while Mareader runs reuses the window, like mareader's single-instance plugin: std loopback plus a token in the data folder, with no new crate. macOS Finder and Dock files come through `open_files.rs`, the second owner-approved `unsafe` module (`open-files` feature). It installs an `odoc` Apple event handler at will-finish-launching, because winit owns the app delegate. Every route goes through one `Inbox`, and the newest file opens. Clippy passes for macOS with and without the feature; the owner checks it on a Mac |
 | 2026-10-14 | Deferred items. A paged view now refits on the turn, so a mixed spread no longer overflows (or underfills) for the 0.25 s settle, which only the strips keep. The offset "132.4 against 16" was not a bug: offsets are content points, and a strip is as wide as its widest page, so upright pages sit centred. A test pins that now. The browser preview was rebuilt and checked in headless Chromium. The pdf text commit failed to build alone, because `Event::Text` reached the UI a commit later. With the owner's approval it was folded into that commit as `7511256` and main was force-pushed, and every commit since the root now passes `cargo check`. CI's new `Build / each commit` job checks every pushed commit |
+| 2026-10-14 | M3 slice 1: the page pass themes pages. Each quad carries its pane's `PageTone` (mareader's filter chain as colour matrices, the blend and the paper), bound per draw at a dynamic offset, so independent pane themes need no new plumbing. The shader unpremultiplies, runs the chain clamping each step, blends over opaque paper and keeps the page's edge coverage; `PageTone::apply` is its CPU reference, and a test on a real wgpu device holds light, dark, dim, sepia and night to it within 3/255. Pages still drawing, and failed ones, show the themed blank page. Themed pages share the gutter's paper as in mareader, so the page shadow is now mareader's two layers. Dim keeps dark ink by design (mareader's soft light) |

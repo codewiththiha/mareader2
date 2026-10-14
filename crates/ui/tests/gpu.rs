@@ -173,3 +173,39 @@ fn page_shadow_darkens_the_paper_under_a_page_until_switched_off() -> Out {
     assert_eq!(shades[1], 0, "no shadow: {shades:?}");
     Ok(())
 }
+
+/// A margin pixel left of the text, on the first page.
+const MARGIN_PX: (f32, f32) = (40.0, 300.0);
+
+#[test]
+fn the_page_pass_themes_pages_as_the_cpu_reference_does() -> Out {
+    let looks = [("theme", "light"), ("theme", "dark"), ("theme", "dim")];
+    let presets = [("preset", "sepia"), ("preset", "night")];
+    for (key, value) in looks.into_iter().chain(presets) {
+        let mut h = reader(&[("pdf", "sample:3"), (key, value)]);
+        let image = h.render()?;
+        let ppp = image.width() as f32 / SIZE.x;
+        let (x, y) = (MARGIN_PX.0 * ppp, MARGIN_PX.1 * ppp);
+        let got = image.get_pixel(x as u32, y as u32).0;
+        let tone = h.state().settings().appearance.page_tone();
+        let want = tone.blank().map(|c| (c * 255.0).round() as i32);
+        let off = (0..3).map(|i| (i32::from(got[i]) - want[i]).abs()).max();
+        assert!(off <= Some(3), "{value}: got {got:?}, want {want:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn dark_pages_show_light_ink_on_dark_paper() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("theme", "dark")]);
+    let image = h.render()?;
+    let (w, h) = image.dimensions();
+    let paper = luma(&image, w / 20, h * 3 / 7);
+    assert!(paper < 60, "the page went dark: {paper}");
+    let ink = (h / 4..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| luma(&image, x, y) > paper + 120)
+        .count();
+    assert!(ink > 500, "{ink} light ink pixels");
+    Ok(())
+}

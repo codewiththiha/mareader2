@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use eframe::egui_wgpu::{self, CallbackResources, ScreenDescriptor, wgpu};
 use egui::{Color32, Rect};
+use mareader_appearance::{Blend, MAX_FILTER_OPS, PageTone};
 use wgpu::util::DeviceExt as _;
 
 /// A page raster on the GPU, ready to bind.
@@ -21,6 +22,8 @@ pub struct Quad {
     pub clip: Rect,
     pub tint: Color32,
     pub texture: Option<Arc<GpuPage>>,
+    /// Its pane's theme; fills keep [`PageTone::NONE`].
+    pub tone: PageTone,
 }
 
 impl Quad {
@@ -30,8 +33,94 @@ impl Quad {
             clip: rect,
             tint: colour,
             texture: None,
+            tone: PageTone::NONE,
         }
     }
+
+    /// A page raster, themed by `tone`.
+    pub fn page(rect: Rect, clip: Rect, texture: Arc<GpuPage>, tone: PageTone) -> Self {
+        Self {
+            rect,
+            clip,
+            tint: Color32::WHITE,
+            texture: Some(texture),
+            tone,
+        }
+    }
+}
+
+/// Bytes of one tone in the shader's `Tone` struct.
+const TONE_BYTES: u64 = (MAX_FILTER_OPS as u64 * 3 + 2) * 16;
+
+/// One draw's tones on the GPU, each once, and which one each quad uses.
+pub(super) struct Tones {
+    group: wgpu::BindGroup,
+    offsets: Vec<u32>,
+}
+
+impl Tones {
+    pub(super) fn new(device: &wgpu::Device, pass: &PagePass, quads: &[Quad]) -> Self {
+        let align = u64::from(device.limits().min_uniform_buffer_offset_alignment);
+        let stride = TONE_BYTES.div_ceil(align) * align;
+        let mut unique: Vec<PageTone> = Vec::new();
+        let mut offsets = Vec::with_capacity(quads.len());
+        for q in quads {
+            let i = unique.iter().position(|t| *t == q.tone).unwrap_or_else(|| {
+                unique.push(q.tone);
+                unique.len() - 1
+            });
+            offsets.push((i as u64 * stride) as u32);
+        }
+        if unique.is_empty() {
+            unique.push(PageTone::NONE);
+        }
+        let mut bytes = vec![0u8; unique.len() * stride as usize];
+        for (chunk, tone) in bytes.chunks_mut(stride as usize).zip(&unique) {
+            for (to, from) in chunk.iter_mut().zip(tone_bytes(tone)) {
+                *to = from;
+            }
+        }
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("page tones"),
+            contents: &bytes,
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("page tones"),
+            layout: &pass.tone_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(TONE_BYTES),
+                }),
+            }],
+        });
+        Self { group, offsets }
+    }
+}
+
+/// `tone` laid out as the shader's `Tone`.
+fn tone_bytes(tone: &PageTone) -> Vec<u8> {
+    let mut floats = Vec::with_capacity(TONE_BYTES as usize / 4);
+    for m in &tone.matrices {
+        floats.extend(m.0.iter().flatten());
+    }
+    floats.extend(tone.paper);
+    floats.push(1.0);
+    let mut bytes: Vec<u8> = floats.iter().flat_map(|f| f.to_ne_bytes()).collect();
+    let blend = match tone.blend {
+        None => 0u32,
+        Some(Blend::Multiply) => 1,
+        Some(Blend::Screen) => 2,
+        Some(Blend::SoftLight) => 3,
+    };
+    let count = tone.count.min(MAX_FILTER_OPS) as u32;
+    for word in [count, blend, 0, 0] {
+        bytes.extend_from_slice(&word.to_ne_bytes());
+    }
+    bytes
 }
 
 /// Pipelines and shared bindings; one per renderer.
@@ -41,6 +130,7 @@ pub struct PagePass {
     pub(super) screen: wgpu::RenderPipeline,
     pub(super) strip: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
+    tone_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     /// A white texel: flat fills are white tinted.
     white: wgpu::BindGroup,
@@ -80,9 +170,22 @@ impl PagePass {
                 },
             ],
         });
+        let tone_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("page tone"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(TONE_BYTES),
+                },
+                count: None,
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("page pass"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[Some(&layout), Some(&tone_layout)],
             immediate_size: 0,
         });
         let pipeline = |entry: &str| {
@@ -130,6 +233,7 @@ impl PagePass {
             screen: pipeline("fs"),
             strip: pipeline("fs_strip"),
             layout,
+            tone_layout,
             sampler,
             white: white.bind_group,
             format,
@@ -153,22 +257,23 @@ impl PagePass {
         Some(upload(device, queue, bind, [width, height], pixels))
     }
 
-    /// Draws `quads`; `scissor` maps each clip into the target.
+    /// Draws `quads`, toned by `tones`; `scissor` maps each clip.
     pub(super) fn draw(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
-        instances: &wgpu::Buffer,
+        (instances, tones): (&wgpu::Buffer, &Tones),
         quads: &[Quad],
         scissor: impl Fn(Rect) -> Option<[u32; 4]>,
     ) {
         pass.set_vertex_buffer(0, instances.slice(..));
-        for (i, quad) in (0u32..).zip(quads) {
+        for ((i, quad), offset) in (0u32..).zip(quads).zip(&tones.offsets) {
             let Some([x, y, w, h]) = scissor(quad.clip) else {
                 continue;
             };
             pass.set_scissor_rect(x, y, w, h);
             let group = quad.texture.as_ref().map_or(&self.white, |t| &t.bind_group);
             pass.set_bind_group(0, group, &[]);
+            pass.set_bind_group(1, &tones.group, &[*offset]);
             pass.draw(0..4, i..i + 1);
         }
     }
@@ -277,7 +382,7 @@ pub(super) fn scissor(clip: Rect, area: Rect, px: [u32; 2]) -> Option<[u32; 4]> 
 pub struct PagesCallback {
     pass: Arc<PagePass>,
     quads: Vec<Quad>,
-    instances: OnceLock<(wgpu::Buffer, Rect, [u32; 2])>,
+    instances: OnceLock<(wgpu::Buffer, Tones, Rect, [u32; 2])>,
 }
 
 impl PagesCallback {
@@ -307,7 +412,8 @@ impl egui_wgpu::CallbackTrait for PagesCallback {
             egui::vec2(px[0] as f32, px[1] as f32) / ppp,
         );
         let buffer = instances(device, &self.quads, area);
-        let _ = self.instances.set((buffer, area, px));
+        let tones = Tones::new(device, &self.pass, &self.quads);
+        let _ = self.instances.set((buffer, tones, area, px));
         Vec::new()
     }
 
@@ -317,14 +423,14 @@ impl egui_wgpu::CallbackTrait for PagesCallback {
         pass: &mut wgpu::RenderPass<'static>,
         _resources: &CallbackResources,
     ) {
-        let Some((buffer, area, px)) = self.instances.get() else {
+        let Some((buffer, tones, area, px)) = self.instances.get() else {
             return;
         };
         // egui's clamped viewport squashes pages hanging off screen.
         pass.set_viewport(0.0, 0.0, px[0] as f32, px[1] as f32, 0.0, 1.0);
         pass.set_pipeline(&self.pass.screen);
         let clip = info.clip_rect;
-        self.pass.draw(pass, buffer, &self.quads, |q| {
+        self.pass.draw(pass, (buffer, tones), &self.quads, |q| {
             scissor(q.intersect(clip), *area, *px)
         });
     }

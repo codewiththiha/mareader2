@@ -18,6 +18,7 @@ use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
 use crate::{keymap, motion};
+use mareader_appearance::PageTone;
 
 /// Pages drawn ahead of the viewport, each way, in turns.
 const PREFETCH: usize = 1;
@@ -579,7 +580,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                         ui,
                         pages,
                         ask.then_some((&mut *demand, urgency)),
-                        &mut quads,
+                        (&mut quads, t.page),
                     );
                 }
                 let width = sizes.get(page).map_or(1.0, |s| s.width);
@@ -810,7 +811,7 @@ impl Tiles {
         ui: &Ui,
         pages: &mut PageCache,
         mut ask: Option<(&mut Demand, Urgency)>,
-        quads: &mut Vec<Quad>,
+        (quads, tone): (&mut Vec<Quad>, PageTone),
     ) {
         let t = &self.tiling;
         let size = vec2(t.width as f32, t.height as f32);
@@ -835,12 +836,7 @@ impl Tiles {
                     ..self.key
                 };
                 match pages.lookup_tile(key) {
-                    Some(PageTexture::Gpu(page)) => quads.push(Quad {
-                        rect,
-                        clip,
-                        tint: Color32::WHITE,
-                        texture: Some(page),
-                    }),
+                    Some(PageTexture::Gpu(page)) => quads.push(Quad::page(rect, clip, page, tone)),
                     Some(PageTexture::Egui(h)) => {
                         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                         ui.painter().image(h.id(), rect, uv, Color32::WHITE);
@@ -858,6 +854,12 @@ impl Tiles {
     }
 }
 
+/// What a page shows before it is drawn: a blank page, themed.
+fn blank(t: &Tokens) -> Color32 {
+    let [r, g, b] = t.page.blank().map(|c| (c * 255.0).round() as u8);
+    Color32::from_rgb(r, g, b)
+}
+
 /// Paints a page, or queues it for the page pass in `quads`.
 pub(crate) fn paint_page(
     ui: &Ui,
@@ -868,34 +870,33 @@ pub(crate) fn paint_page(
     quads: &mut Vec<Quad>,
 ) {
     let painter = ui.painter();
+    // Themed pages match the gutter's paper; only this outlines them.
     if shadow {
-        let shadow = egui::Shadow {
-            offset: [0, 1],
-            blur: 6,
+        let lift = |offset, blur, alpha| egui::Shadow {
+            offset: [0, offset],
+            blur,
             spread: 0,
-            color: t.shadow.gamma_multiply(0.6),
+            color: Color32::from_black_alpha(alpha),
         };
-        painter.add(shadow.as_shape(rect, CornerRadius::ZERO));
+        // mareader's `0 1px 2px` and `0 8px 24px -6px` box shadows.
+        painter.add(lift(1, 2, 31).as_shape(rect, CornerRadius::ZERO));
+        painter.add(lift(8, 24, 56).as_shape(rect.shrink(6.0), CornerRadius::ZERO));
     }
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
         Lookup::Sharp(PageTexture::Gpu(page)) | Lookup::Stale(PageTexture::Gpu(page)) => {
-            quads.push(Quad {
-                rect,
-                clip: ui.clip_rect(),
-                tint: Color32::WHITE,
-                texture: Some(page),
-            });
+            quads.push(Quad::page(rect, ui.clip_rect(), page, t.page));
         }
+        // Without a GPU there is no page pass, so pages stay unthemed.
         Lookup::Sharp(PageTexture::Egui(h)) | Lookup::Stale(PageTexture::Egui(h)) => {
             painter.image(h.id(), rect, uv, Color32::WHITE);
         }
-        // Rasters are white under the ink, so the wait looks the same.
+        // Rasters are white under the ink: a blank page, themed.
         Lookup::Missing => {
-            painter.rect_filled(rect, 0.0, Color32::WHITE);
+            painter.rect_filled(rect, 0.0, blank(t));
         }
         Lookup::Failed => {
-            painter.rect_filled(rect, 0.0, Color32::WHITE);
+            painter.rect_filled(rect, 0.0, blank(t));
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,

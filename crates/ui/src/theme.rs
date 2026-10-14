@@ -3,7 +3,7 @@
 use egui::{
     Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke,
 };
-use mareader_appearance::{Appearance, Rgb};
+use mareader_appearance::{Appearance, PageTone, Rgb};
 
 /// Chrome geometry, not a theme choice: the hover band follows it.
 pub const TITLE_BAR_H: f32 = 48.0;
@@ -16,6 +16,8 @@ pub const SEMIBOLD: &str = "inter-semibold";
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     pub paper: Color32,
+    /// How the page pass themes a page.
+    pub page: PageTone,
     pub ink: Color32,
     pub muted: Color32,
     pub surface: Color32,
@@ -57,6 +59,7 @@ impl Tokens {
         let dark = a.base.is_dark();
         Self {
             paper: color(t.paper),
+            page: a.page_tone(),
             ink,
             muted: color(t.muted),
             surface,
