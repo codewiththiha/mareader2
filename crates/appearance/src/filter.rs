@@ -161,12 +161,71 @@ impl Appearance {
         ops
     }
 
+    /// Everything the page pass needs to theme a page.
+    pub fn page_tone(&self) -> PageTone {
+        let ops = self.page_filter();
+        let mut matrices = [ColorMatrix::linear(IDENTITY); MAX_FILTER_OPS];
+        for (slot, op) in matrices.iter_mut().zip(&ops) {
+            *slot = op.matrix();
+        }
+        let p = self.ui_tokens().paper;
+        PageTone {
+            matrices,
+            count: ops.len().min(MAX_FILTER_OPS),
+            blend: Some(self.page_blend()),
+            paper: [p.0, p.1, p.2].map(|c| f32::from(c) / 255.0),
+        }
+    }
+
     pub fn page_blend(&self) -> Blend {
         match self.base {
             BaseMode::Light => Blend::Multiply,
             BaseMode::Dark => Blend::Screen,
             BaseMode::Dim => Blend::SoftLight,
         }
+    }
+}
+
+const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// A themed page: its filter chain, then blended over the paper.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageTone {
+    /// The chain; slots past `count` are unused.
+    pub matrices: [ColorMatrix; MAX_FILTER_OPS],
+    pub count: usize,
+    /// None draws the raster as it is: flat fills, or no theme.
+    pub blend: Option<Blend>,
+    /// sRGB-encoded, 0..1.
+    pub paper: [f32; 3],
+}
+
+impl PageTone {
+    /// Leaves colours alone.
+    pub const NONE: Self = Self {
+        matrices: [ColorMatrix([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ]); MAX_FILTER_OPS],
+        count: 0,
+        blend: None,
+        paper: [1.0; 3],
+    };
+
+    /// One opaque page colour themed: the oracle for the shader.
+    pub fn apply(&self, c: [f32; 3]) -> [f32; 3] {
+        let Some(blend) = self.blend else {
+            return c;
+        };
+        let chain = self.matrices.iter().take(self.count);
+        let s = chain.fold(c, |c, m| m.apply(c));
+        blend.apply(self.paper, s)
+    }
+
+    /// A blank page themed: what a page shows before it is drawn.
+    pub fn blank(&self) -> [f32; 3] {
+        self.apply([1.0; 3])
     }
 }
 
@@ -238,6 +297,31 @@ mod tests {
             ..Default::default()
         };
         assert!(a.page_filter().contains(&FilterOp::Sepia(0.55)));
+    }
+
+    #[test]
+    fn a_tone_runs_the_chain_then_blends_over_the_paper() {
+        for base in BaseMode::ALL {
+            let a = Appearance {
+                base,
+                tint_strength: 40,
+                ..Default::default()
+            };
+            let tone = a.page_tone();
+            assert_eq!(tone.count, a.page_filter().len());
+            let ink = [0.1, 0.3, 0.2];
+            let want = a
+                .page_blend()
+                .apply(tone.paper, apply_filter(&a.page_filter(), ink));
+            assert!(close(tone.apply(ink), want), "{base:?}");
+        }
+    }
+
+    #[test]
+    fn a_blank_light_page_shows_the_paper() {
+        let tone = Appearance::default().page_tone();
+        assert!(close(tone.blank(), tone.paper));
+        assert_eq!(PageTone::NONE.apply([0.2; 3]), [0.2; 3]);
     }
 
     #[test]
