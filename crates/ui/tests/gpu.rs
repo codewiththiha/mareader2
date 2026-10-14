@@ -486,3 +486,42 @@ fn pages_keep_inside_a_split_pane_s_round_corners() -> Out {
     );
     Ok(())
 }
+
+#[test]
+fn a_mode_click_fades_from_the_old_look() -> Out {
+    use mareader_appearance::BaseMode;
+    let mut h = reader(&[("pdf", "sample"), ("open", "appearance")]);
+    let base = |h: &Harness<'static, MareaderApp>| h.state().look(h.state().active_pane()).base;
+    h.get_by_label("Dark").click();
+    h.step();
+    assert_eq!(base(&h), BaseMode::Light, "held for its snapshot");
+    h.step();
+    assert_eq!(base(&h), BaseMode::Dark);
+    assert!(h.state().fading(), "the old look fades out over the new");
+    h.run();
+    assert!(!h.state().fading(), "the fade ends");
+    let mut look = h.state().look(h.state().active_pane());
+    look.base = BaseMode::Dim;
+    h.state_mut()
+        .queue(mareader_ui::command::Command::SetAppearance(look));
+    h.step();
+    assert_eq!(base(&h), BaseMode::Dim, "a queued change lands at once");
+    assert!(!h.state().fading());
+    Ok(())
+}
+
+#[test]
+fn with_animations_off_a_mode_click_lands_at_once() -> Out {
+    use mareader_appearance::BaseMode;
+    let mut h = reader(&[
+        ("pdf", "sample"),
+        ("animations", "false"),
+        ("open", "appearance"),
+    ]);
+    h.get_by_label("Dark").click();
+    h.step();
+    let app = h.state();
+    assert_eq!(app.look(app.active_pane()).base, BaseMode::Dark);
+    assert!(!app.fading());
+    Ok(())
+}
