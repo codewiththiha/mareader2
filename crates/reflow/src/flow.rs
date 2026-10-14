@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use hypher::Lang;
 use parley::{
-    Alignment, AlignmentOptions, FontFamily, FontFamilyName, FontStyle, FontWeight, GenericFamily,
-    IndentOptions, Layout, LineHeight, OverflowWrap, StyleProperty,
+    Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName, FontStyle,
+    FontWeight, GenericFamily, IndentOptions, Layout, LineHeight, OverflowWrap, Selection,
+    StyleProperty,
 };
 
-use crate::block::{Align, Block, Content, Emphasis, Frame, Role, Table, Text};
+use crate::block::{Align, Block, Content, Emphasis, Frame, Link, Role, Table, Text};
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
@@ -178,6 +179,8 @@ pub(crate) struct Para {
     pub(crate) layout: Layout<Ink>,
     pub(crate) hyphens: Vec<usize>,
     starts: Vec<usize>,
+    /// Linked runs, in bytes of the text as set.
+    links: Vec<Link>,
 }
 
 /// What a set block draws; positions are relative to the block.
@@ -243,6 +246,14 @@ pub struct Anchor {
     pub block: usize,
     /// A byte offset into its text, or a table row.
     pub offset: usize,
+}
+
+/// A link's box on one line of a page, in page units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageLink {
+    pub target: u32,
+    /// Left, top, width, height.
+    pub rect: [f32; 4],
 }
 
 /// A page's part in a stream: its column, cut to text and gap above.
@@ -375,22 +386,55 @@ impl Flow {
         })
     }
 
+    /// Page `page`'s links: a box for each line of each.
+    pub fn links(&self, page: usize) -> Vec<PageLink> {
+        let mut out = Vec::new();
+        let left = self.column(page).0;
+        for piece in self.pages.get(page).map_or(&[][..], Vec::as_slice) {
+            let Some(set) = self.blocks.get(piece.block) else {
+                continue;
+            };
+            let x = left + set.x;
+            let y = PAD + piece.dy;
+            match &set.draw {
+                Draw::Text { para, pad, .. } => {
+                    link_boxes(para, piece.units.clone(), (x + pad, y), &mut out);
+                }
+                Draw::Table(grid) => {
+                    let [pad_x, pad_y] = grid.pad;
+                    for r in piece.units.clone() {
+                        let (Some(&(top, _)), Some((cells, _))) =
+                            (set.units.get(r), grid.rows.get(r))
+                        else {
+                            continue;
+                        };
+                        for (c, cell) in cells.iter().enumerate() {
+                            let at = (x + c as f32 * grid.column + pad_x, y + top + pad_y);
+                            link_boxes(cell, 0..cell.layout.len(), at, &mut out);
+                        }
+                    }
+                }
+                Draw::Rule | Draw::Image { .. } => {}
+            }
+        }
+        out
+    }
+
     /// The page showing `anchor`, or the first after it.
     pub fn locate(&self, anchor: Anchor) -> usize {
         let at = (anchor.block, anchor.offset);
-        for (n, page) in self.pages.iter().enumerate() {
-            for piece in page {
-                let Some(set) = self.blocks.get(piece.block) else {
-                    continue;
-                };
-                // Where the block goes on after this piece.
-                let next = set.starts.get(piece.units.end).copied();
-                if (set.source, next.unwrap_or(usize::MAX)) > at {
-                    return n;
-                }
-            }
-        }
-        self.pages.len().saturating_sub(1)
+        let reaches_past = |page: &Vec<Piece>| {
+            page.iter().any(|piece| {
+                self.blocks.get(piece.block).is_some_and(|set| {
+                    // Where the block goes on after this piece.
+                    let next = set.starts.get(piece.units.end).copied();
+                    (set.source, next.unwrap_or(usize::MAX)) > at
+                })
+            })
+        };
+        // Pages run in book order, so the first that does is found by halving.
+        let n = self.pages.partition_point(|page| !reaches_past(page));
+        n.min(self.pages.len().saturating_sub(1))
     }
 }
 
@@ -651,6 +695,9 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
             b.push(StyleProperty::Brush(Ink { code: true, ..ink }), range);
         }
     }
+    for link in &text.links {
+        b.push(StyleProperty::Underline(true), link.range.clone());
+    }
     let mut layout = b.build(&text.text);
     if style.indent > 0.0 {
         layout.set_text_indent(style.indent, IndentOptions::default());
@@ -675,6 +722,26 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
         layout,
         hyphens,
         starts,
+        links: text.links.clone(),
+    }
+}
+
+/// Boxes of `para`'s links on lines `lines`, its origin at `x, y`.
+fn link_boxes(para: &Para, lines: Range<usize>, (x, y): (f32, f32), out: &mut Vec<PageLink>) {
+    let layout = &para.layout;
+    for link in &para.links {
+        let caret = |i, affinity| Caret::from_byte_index(layout, i, affinity);
+        let start = caret(link.range.start, Affinity::Downstream);
+        let end = caret(link.range.end, Affinity::Upstream);
+        Selection::new(start, end).geometry_with(layout, |b, line| {
+            if lines.contains(&line) {
+                let (w, h) = ((b.x1 - b.x0) as f32, (b.y1 - b.y0) as f32);
+                out.push(PageLink {
+                    target: link.target,
+                    rect: [x + b.x0 as f32, y + b.y0 as f32, w, h],
+                });
+            }
+        });
     }
 }
 
@@ -1343,6 +1410,57 @@ mod tests {
         assert_eq!(bolder(400.0), 700.0);
         assert_eq!(bolder(600.0), 900.0);
         assert_eq!(bolder(200.0), 400.0);
+    }
+
+    fn linked(before: &str, link: &str, target: u32) -> Block {
+        let mut t = Text::new(Role::Paragraph);
+        t.push(before, Emphasis::default());
+        t.push_link(link, Emphasis::default(), target);
+        t.push(" after.", Emphasis::default());
+        Block::new(Content::Text(t))
+    }
+
+    #[test]
+    fn links_box_their_words_on_every_line_they_cross() {
+        let words = vec!["linked"; 60].join(" ");
+        let mut second = linked("Next ", "chapter", 9);
+        second.break_before = true;
+        let f = flow(&[linked("Before the link ", &words, 7), second]);
+        let links = f.links(0);
+        assert!(links.len() > 2, "{links:?}");
+        assert!(links.iter().all(|l| l.target == 7));
+        let right = PAGE_WIDTH - PAD + 1.0;
+        for l in &links {
+            let [x, y, w, h] = l.rect;
+            assert!(x >= PAD - 1.0 && x + w <= right && w > 0.0, "{l:?}");
+            assert!(y >= PAD - 1.0 && h > 0.0, "{l:?}");
+        }
+        // The first box starts after the unlinked words, on line one.
+        let first = links.first().map(|l| l.rect);
+        assert!(first.is_some_and(|[x, ..]| x > PAD + 40.0), "{first:?}");
+        let tops: Vec<f32> = links.iter().map(|l| l.rect[1]).collect();
+        assert!(tops.windows(2).all(|w| w.first() < w.get(1)), "{tops:?}");
+        let next = f.links(1);
+        assert_eq!(next.iter().map(|l| l.target).collect::<Vec<_>>(), [9]);
+    }
+
+    #[test]
+    fn hyphenated_links_keep_their_words() {
+        let typo = Typography {
+            hyphenate: true,
+            ..Typography::default()
+        };
+        let words = "extraordinarily incomprehensible ".repeat(30);
+        let blocks = [linked("Some text ", &words, 3)];
+        let plain = with(&blocks, Typography::default()).links(0);
+        let split = with(&blocks, typo).links(0);
+        // The link starts after the same unlinked words either way.
+        let first = |l: &[PageLink]| l.first().map(|l| l.rect[0]);
+        assert!(first(&split).is_some() && first(&split) == first(&plain));
+        assert!(split.len() + 1 >= plain.len(), "{split:?}");
+        let right = PAGE_WIDTH - PAD + 1.0;
+        let inside = |l: &PageLink| l.rect[0] >= PAD - 1.0 && l.rect[0] + l.rect[2] <= right;
+        assert!(split.iter().all(inside), "{split:?}");
     }
 
     #[test]
