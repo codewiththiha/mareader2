@@ -10,7 +10,8 @@ use crate::command::{Command, Commands};
 use crate::documents::OpenRequest;
 
 /// What the open dialog admits.
-const BOOKS: [&str; 2] = ["pdf", "epub"];
+/// Markdown and plain text open converted to books.
+const BOOKS: [&str; 7] = ["pdf", "epub", "txt", "text", "md", "markdown", "mdown"];
 
 /// Commands finished off the frame, waiting for the next one.
 #[derive(Clone, Default)]

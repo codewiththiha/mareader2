@@ -431,3 +431,72 @@ fn a_book_opened_in_old_type_is_set_again() -> Out {
     );
     Ok(())
 }
+
+/// Opens `source` named `name`; the document's id, or why not.
+fn open_named(s: &mut Session, source: Source, name: &str) -> Result<DocId, String> {
+    let ticket = s.open(source, Some(name.into()));
+    let events = until(s, |e| matches!(e, Event::Opened { .. }));
+    let opened = events.into_iter().find_map(|e| match e {
+        Event::Opened { ticket: t, result } if t == ticket => Some(result),
+        _ => None,
+    });
+    opened.ok_or("never opened")?.map_err(|e| e.to_string())
+}
+
+#[test]
+fn markdown_and_text_open_by_name_as_converted_books() -> Out {
+    let mut s = inline();
+    let md = b"# The River\n\nBoats at dawn.\n\n## The Jetty\n\nNobody asked.\n";
+    let id = open_named(&mut s, Source::Bytes(Arc::new(md.to_vec())), "notes.md")?;
+    let entry = s.get(id).ok_or("no entry")?;
+    assert!(entry.doc.is_reflowable());
+    assert_eq!(entry.name, "The River");
+    let outline: Vec<(&str, u8)> = entry
+        .doc
+        .outline()
+        .iter()
+        .map(|e| (e.title.as_str(), e.depth))
+        .collect();
+    assert_eq!(outline, [("The River", 0), ("The Jetty", 1)]);
+    let txt = b"The river ran slow and brown past the old customs house.";
+    let id = open_named(&mut s, Source::Bytes(Arc::new(txt.to_vec())), "/b/War.TXT")?;
+    let entry = s.get(id).ok_or("no entry")?;
+    assert!(entry.doc.is_reflowable());
+    assert_eq!(entry.name, "War");
+    // The same bytes under another name aren't converted.
+    let other = open_named(&mut s, Source::Bytes(Arc::new(md.to_vec())), "notes.bin");
+    assert!(other.is_err());
+    Ok(())
+}
+
+/// A one-pixel PNG.
+const DOT: [u8; 70] = [
+    0x89, 0x50, 0x4e, 0x47, 0xd, 0xa, 0x1a, 0xa, 0x0, 0x0, 0x0, 0xd, 0x49, 0x48, 0x44, 0x52, 0x0,
+    0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x8, 0x6, 0x0, 0x0, 0x0, 0x1f, 0x15, 0xc4, 0x89, 0x0, 0x0,
+    0x0, 0xd, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64, 0x60, 0xf8, 0x5f, 0xf, 0x0, 0x2,
+    0x87, 0x1, 0x80, 0xeb, 0x47, 0xba, 0x92, 0x0, 0x0, 0x0, 0x0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+];
+
+#[test]
+fn a_markdown_file_s_pictures_are_read_from_beside_it() -> Out {
+    let dir = std::env::temp_dir().join(format!("mareader-md-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("pics"))?;
+    std::fs::write(dir.join("pics/dot.png"), DOT)?;
+    let md = dir.join("notes.md");
+    std::fs::write(
+        &md,
+        "# Dots\n\n![a dot](pics/dot.png)\n\n![gone](pics/none.png)\n",
+    )?;
+    let mut s = inline();
+    let name = md.to_string_lossy().into_owned();
+    let id = open_named(&mut s, Source::Path(md), &name);
+    let _ = std::fs::remove_dir_all(&dir);
+    let entry = s.get(id?).ok_or("no entry")?;
+    let Document::Epub { book, .. } = entry.doc.as_ref() else {
+        return Err("not a book".into());
+    };
+    let pictures: usize = (0..book.page_count()).map(|p| book.pictures(p).len()).sum();
+    assert_eq!(pictures, 1);
+    Ok(())
+}

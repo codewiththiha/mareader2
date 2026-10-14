@@ -9,8 +9,9 @@ const PLACEHOLDERS: [&str; 5] = [
     "pdf document",
 ];
 /// Extensions a name may carry: ours, then ones we never open.
-const EXTENSIONS: [&str; 9] = [
-    "pdf", "epub", "doc", "docx", "ps", "dvi", "tex", "ppt", "pptx",
+const EXTENSIONS: [&str; 14] = [
+    "pdf", "epub", "txt", "text", "md", "markdown", "mdown", "doc", "docx", "ps", "dvi", "tex",
+    "ppt", "pptx",
 ];
 
 /// The document's own title when usable, else the file name's stem.
