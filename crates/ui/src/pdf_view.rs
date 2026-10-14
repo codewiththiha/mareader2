@@ -193,6 +193,11 @@ impl PdfView {
             .map(|(a, _)| a)
     }
 
+    /// Keeps `place` as the page being read's, as a re-set does.
+    pub fn hold_place(&mut self, place: Option<mareader_session::Anchor>) {
+        self.place = place.map(|a| (a, self.current));
+    }
+
     /// Shows the book set again as `doc`, from `page`; mode and zoom stay.
     pub fn retypeset(
         &mut self,
@@ -687,12 +692,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 sheets.push(Sheet {
                     page,
                     rect,
+                    shown: rect.intersect(clip),
                     scale: rect.width() / width,
                 });
             }
-            let clip = ui.clip_rect();
             paper_at = mareader_pdf::position(sheets.iter().map(|s| {
-                let seen = s.rect.intersect(clip);
+                let seen = s.shown;
                 (s.page, if seen.is_positive() { seen.area() } else { 0.0 })
             }));
             // One callback draws every GPU page, over the shadows.

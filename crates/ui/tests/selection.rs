@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use egui::{Event, Modifiers, OutputCommand, PointerButton, Pos2, pos2};
 use egui_kittest::Harness;
-use mareader_pdf::{TextLayer, sample};
+use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui::MareaderApp;
+use mareader_ui::command::Command;
 use mareader_ui::selection::Sheet;
 
 type H = Harness<'static, MareaderApp>;
@@ -207,6 +208,79 @@ fn an_internal_link_turns_this_pane_and_a_web_link_opens_the_browser() -> Out {
     clicks(&mut h, sheet.to_screen(chapter.bounds).center(), 1);
     h.run_steps(10);
     assert_eq!(h.state().documents().current(pane), Some(5));
+    Ok(())
+}
+
+#[test]
+fn a_book_s_links_turn_its_pages_and_open_the_browser() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("epub", "sample:2"),
+        ("view", "single"),
+        ("animations", "false"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    let doc = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or("no book")?
+        .document;
+    let (page, layer) = (0..doc.page_count())
+        .find_map(|p| Some((p, doc.text_layer(p).ok().filter(|l| l.links.len() > 1)?)))
+        .ok_or("no page with links")?;
+    h.state_mut().queue(Command::GoTo { pane, page });
+    h.run();
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(pane)
+        .first()
+        .ok_or("no sheet")?;
+    assert_eq!(sheet.page, page);
+    let web = layer
+        .links
+        .iter()
+        .find(|l| matches!(l.target, LinkTarget::Web(_)));
+    let web = sheet.to_screen(web.ok_or("no web link")?.bounds).center();
+    h.hover_at(web);
+    h.run();
+    let cursor = h.output().platform_output.cursor_icon;
+    assert_eq!(cursor, egui::CursorIcon::PointingHand);
+    h.step();
+    button(&mut h, web, true);
+    button(&mut h, web, false);
+    let opened = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|c| match c {
+            OutputCommand::OpenUrl(o) => Some(o.url.clone()),
+            _ => None,
+        });
+    assert_eq!(
+        opened.as_deref(),
+        Some("https://github.com/codewiththiha/mareader2")
+    );
+    let inside = layer.links.iter().find_map(|l| match l.target {
+        LinkTarget::Page(to) if to != page => Some((l.bounds, to)),
+        _ => None,
+    });
+    let (bounds, to) = inside.ok_or("no link to another page")?;
+    clicks(&mut h, sheet.to_screen(bounds).center(), 1);
+    h.run_steps(10);
+    assert_eq!(h.state().documents().current(pane), Some(to));
     Ok(())
 }
 
