@@ -31,6 +31,27 @@ license_file = "assets/fonts/OFL-Inter.txt"
 sha256 = "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
 usage = "Headings and emphasis in chrome (named family inter-semibold)"
 
+
+[[asset]]
+path = "assets/fonts/Literata-Variable.ttf"
+title = "Literata variable (opsz, wght)"
+author = "TypeTogether; The Literata Project Authors"
+source = "https://github.com/google/fonts/tree/4e5f06dbb274a27ebe71ed54ea706b3ee40eabd9/ofl/literata"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-Literata.txt"
+sha256 = "b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440"
+usage = "Default reading face for EPUB text (crates/reflow/src/fonts.rs)"
+
+[[asset]]
+path = "assets/fonts/Literata-Italic-Variable.ttf"
+title = "Literata Italic variable (opsz, wght)"
+author = "TypeTogether; The Literata Project Authors"
+source = "https://github.com/google/fonts/tree/4e5f06dbb274a27ebe71ed54ea706b3ee40eabd9/ofl/literata"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-Literata.txt"
+sha256 = "d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465"
+usage = "Italics of the default reading face (crates/reflow/src/fonts.rs)"
+
 [[bundled]]
 name = "Lucide icons 1.34.0"
 via = "egui-lucide 0.1.0 (crates.io), compiled into the binary"
