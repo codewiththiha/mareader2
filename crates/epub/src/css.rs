@@ -14,6 +14,8 @@ pub(crate) struct Decl {
     pub(crate) bold: Option<bool>,
     pub(crate) align: Option<Align>,
     pub(crate) hidden: Option<bool>,
+    /// `list-style: none`: list items show no marker.
+    pub(crate) unmarked: Option<bool>,
 }
 
 impl Decl {
@@ -32,6 +34,9 @@ impl Decl {
                 "font-weight" => d.bold = bold(value).or(d.bold),
                 "text-align" => d.align = align(value).or(d.align),
                 "display" => d.hidden = Some(value == "none"),
+                "list-style" | "list-style-type" => {
+                    d.unmarked = Some(value.split_ascii_whitespace().any(|w| w == "none"));
+                }
                 "font" => {
                     let words = || value.split_ascii_whitespace();
                     d.italic = words().find_map(italic).or(d.italic);
@@ -54,6 +59,7 @@ impl Decl {
             bold: self.bold.or(under.bold),
             align: self.align.or(under.align),
             hidden: self.hidden.or(under.hidden),
+            unmarked: self.unmarked.or(under.unmarked),
         }
     }
 }
