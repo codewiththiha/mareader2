@@ -726,8 +726,8 @@ area = "E"
 tier = "P0"
 milestone = "M4"
 status = "partial"
-evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn"]
-notes = "Replaces mareader's txt/md formats; docs/epub.md. M4 slice 1: container, spine and title; the cover image comes with images in slice 2"
+evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn"]
+notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title and the OPF cover (M4 slices 1-2); EPUB 2 books with only an NCX are proved with real books in slice 7"
 
 [[feature]]
 id = "epub.layout"
@@ -735,9 +735,9 @@ title = "XHTML subset laid out with parley and paginated by real line heights"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "partial"
-evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/epub/src/xhtml.rs::headings_and_paragraphs_become_blocks"]
-notes = "M4 slice 1: headings, paragraphs, emphasis and line breaks, cut between lines with no lone first or last line; lists, quotes, pre, tables, images and CSS in slice 2"
+status = "shipped"
+evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/reflow/src/flow.rs::tables_split_between_rows", "crates/epub/src/xhtml.rs::lists_indent_mark_and_tighten_their_items", "crates/epub/src/xhtml.rs::tables_read_rows_cells_and_heads", "crates/epub/src/xhtml.rs::stylesheets_style_by_tag_and_class"]
+notes = "docs/epub.md: headings, lists, quotes, pre, inline code, tables, rules, images and a CSS subset (M4 slice 2); justification and hyphenation are type.justify-hyphenate"
 reference = ["crates/reflow-core/src/pager.rs"]
 
 [[feature]]
@@ -755,7 +755,9 @@ title = "Inline images from the container, capped in size"
 area = "E"
 tier = "P1"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/reflow/src/picture.rs::junk_and_giants_are_refused", "crates/reflow/src/picture.rs::decodes_shrink_to_their_bucket_and_are_reused", "crates/reflow/src/flow.rs::images_shrink_to_the_column_and_the_page_never_split", "crates/reflow/src/raster.rs::images_draw_their_pixels_and_junk_draws_a_box", "crates/epub/src/xhtml.rs::rules_and_images_are_blocks_and_missing_images_show_alt"]
+notes = "PNG, JPEG, GIF and WebP; header-probed caps, lazy decode into a 64 MB cache, alt text when refused (docs/epub.md)"
 
 [[feature]]
 id = "epub.toc"
