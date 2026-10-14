@@ -75,7 +75,7 @@ impl Panel {
     fn pending(self) -> &'static str {
         match self {
             Panel::Thumbnails => "Open a PDF to browse its pages here.",
-            Panel::Outline => "Open a book to see its chapters here; EPUBs arrive in M4.",
+            Panel::Outline => "Open a book to see its chapters here.",
             Panel::Library => "Your library as a tree, with the open tabs, arrives in M5.",
             Panel::Dictionary => "Look words up in your language packs (M6).",
         }

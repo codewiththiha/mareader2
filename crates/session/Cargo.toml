@@ -10,5 +10,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+mareader-epub = { workspace = true }
 mareader-pdf = { workspace = true }
 thiserror = { workspace = true }

@@ -274,3 +274,31 @@ fn finished_pages_wait_in_a_bounded_queue() -> Out {
     assert_eq!(got, 60);
     Ok(())
 }
+
+#[test]
+fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
+    let mut s = inline();
+    let bytes = Arc::new(mareader_epub::sample::epub(2, "Book"));
+    let ticket = s.open(Source::Bytes(bytes), Some("book.bin".into()));
+    let events = until(&mut s, |e| matches!(e, Event::Opened { .. }));
+    let opened = events.into_iter().find_map(|e| match e {
+        Event::Opened { ticket: t, result } if t == ticket => Some(result),
+        _ => None,
+    });
+    let id = opened.ok_or("never opened")??;
+    let entry = s.get(id).ok_or("no entry")?;
+    assert_eq!(entry.name, "Book");
+    assert!(entry.doc.is_reflowable());
+    assert!(entry.doc.outline().is_empty());
+    let size = entry.doc.page_sizes().first().copied().ok_or("no pages")?;
+    let raster = entry.doc.render(0, 0.5)?;
+    assert_eq!(
+        (raster.width, raster.height),
+        ((size.width * 0.5) as u32, (size.height * 0.5) as u32)
+    );
+    let tile = entry.doc.render_tile(0, 4.0, 1, 1)?;
+    assert!(tile.width > 0 && tile.height > 0);
+    assert_eq!(entry.doc.text_layer(0)?, TextLayer::default());
+    assert!(entry.doc.text_layer(9999).is_err());
+    Ok(())
+}

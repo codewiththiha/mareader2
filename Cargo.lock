@@ -2157,6 +2157,7 @@ dependencies = [
 name = "mareader-session"
 version = "0.0.1"
 dependencies = [
+ "mareader-epub",
  "mareader-pdf",
  "thiserror 2.0.21",
 ]
@@ -2181,6 +2182,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "mareader-appearance",
+ "mareader-epub",
  "mareader-pdf",
  "mareader-session",
  "mareader-settings",

@@ -725,8 +725,9 @@ title = "Open EPUB 2 and 3: container, spine, metadata, cover"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
-notes = "Replaces mareader's txt/md formats; docs/epub.md"
+status = "partial"
+evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn"]
+notes = "Replaces mareader's txt/md formats; docs/epub.md. M4 slice 1: container, spine and title; the cover image comes with images in slice 2"
 
 [[feature]]
 id = "epub.layout"
@@ -734,7 +735,9 @@ title = "XHTML subset laid out with parley and paginated by real line heights"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "partial"
+evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/epub/src/xhtml.rs::headings_and_paragraphs_become_blocks"]
+notes = "M4 slice 1: headings, paragraphs, emphasis and line breaks, cut between lines with no lone first or last line; lists, quotes, pre, tables, images and CSS in slice 2"
 reference = ["crates/reflow-core/src/pager.rs"]
 
 [[feature]]

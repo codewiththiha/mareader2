@@ -59,6 +59,11 @@ pub struct PageSize {
 }
 
 impl PageSize {
+    /// `scale`, lowered so the page's raster fits the size caps.
+    pub fn fit_scale(self, scale: f32) -> f32 {
+        fit_scale(self, scale)
+    }
+
     fn sane(width: f32, height: f32) -> Self {
         let ok = |v: f32| v.is_finite() && v >= 1.0;
         if ok(width) && ok(height) {
