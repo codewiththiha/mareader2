@@ -33,7 +33,7 @@ pub(crate) fn resolve(base: &str, href: &str) -> Option<String> {
     (!parts.is_empty()).then(|| format!("/{}", parts.join("/")))
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let hex = |b: &u8| {
         char::from(*b)
             .to_digit(16)
