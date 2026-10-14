@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use egui::{Pos2, Rect, Vec2, pos2, vec2};
+use egui::{Align, Pos2, Rect, Vec2, pos2, vec2};
 use mareader_session::PageSize;
 
 /// Between pages in a strip unless No Gap; around the content.
@@ -111,6 +111,8 @@ pub struct Inputs {
     /// Space between a strip's pages, and air beside the pages.
     pub gap: f32,
     pub margin: f32,
+    /// Where vertical pages sit across a wider pane, `margin` off an edge.
+    pub align: Align,
 }
 
 /// Page rects in content space, for the pages laid out.
@@ -140,7 +142,12 @@ impl Layout {
                     .iter()
                     .map(|s| {
                         let size = scaled(s);
-                        let r = Rect::from_min_size(pos2((width - size.x) / 2.0, y), size);
+                        let x = match inputs.align {
+                            Align::Min => side,
+                            Align::Center => (width - size.x) / 2.0,
+                            Align::Max => width - side - size.x,
+                        };
+                        let r = Rect::from_min_size(pos2(x, y), size);
                         y += size.y + gap;
                         r
                     })
@@ -308,11 +315,31 @@ mod tests {
             focus,
             gap: GAP,
             margin: MARGIN,
+            align: Align::Center,
         }
     }
 
     fn layout(mode: ViewMode, sizes: &[PageSize], zoom: f32, focus: usize) -> Layout {
         Layout::new(sizes, inputs(mode, zoom, focus))
+    }
+
+    #[test]
+    fn a_column_off_centre_keeps_the_margin_from_its_edge() {
+        let pages = [LETTER; 3];
+        let centre = (1000.0 - LETTER.width) / 2.0;
+        let right = 1000.0 - MARGIN - LETTER.width;
+        for (align, x) in [
+            (Align::Min, MARGIN),
+            (Align::Center, centre),
+            (Align::Max, right),
+        ] {
+            let inputs = Inputs {
+                align,
+                ..inputs(ViewMode::Vertical, 1.0, 0)
+            };
+            let l = Layout::new(&pages, inputs);
+            assert_eq!(l.rect(1).map(|r| r.left()), Some(x), "{align:?}");
+        }
     }
 
     #[test]

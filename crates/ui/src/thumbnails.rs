@@ -169,7 +169,13 @@ pub fn show(
                 }
                 let anchor = Anchor::page(rect, size(page).0);
                 let square = (ui.clip_rect(), 0.0);
-                paint_page(ui, (rect, anchor, square), look, (&t, true), &mut quads);
+                paint_page(
+                    ui,
+                    ((rect, ui.clip_rect()), anchor, square),
+                    look,
+                    (&t, true),
+                    &mut quads,
+                );
                 let on = page == reading.current;
                 let r = ui.interact(cell, Id::new(("thumb", reading.pane, page)), Sense::click());
                 let label = format!("Page {}", page + 1);
