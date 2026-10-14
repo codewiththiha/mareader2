@@ -150,6 +150,8 @@ pub struct TextSettings {
     pub column_align: ColumnAlign,
     /// Percent of full ink contrast; lower softens text toward the paper.
     pub ink_contrast: f32,
+    /// A book's pictures take the page's theme; off, their own colours.
+    pub theme_pictures: bool,
 }
 
 impl TextSettings {
@@ -196,6 +198,7 @@ impl Default for TextSettings {
             mono_font: FontChoice::Default,
             column_align: ColumnAlign::Center,
             ink_contrast: 100.0,
+            theme_pictures: false,
         }
     }
 }
