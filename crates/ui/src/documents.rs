@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{Context, Rect, Ui};
-use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket};
+use mareader_appearance::Rgb;
+use mareader_session::{Budget, DocId, Document, Event, Session, Source, Ticket, Want};
+use mareader_settings::PaperArea;
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -13,7 +15,8 @@ use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
-use crate::pdf_view::{self, Demand, PdfView, Sinks, ViewContext};
+use crate::paper::Papers;
+use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
 use crate::selection::{Selection, Sheet};
 use crate::texts::TextLayers;
 use crate::theme::{self, Tokens};
@@ -143,6 +146,7 @@ pub struct Documents {
     workers: usize,
     pages: PageCache,
     texts: TextLayers,
+    papers: Papers,
     panes: BTreeMap<PaneId, Content>,
     demand: Demand,
     gpu: Option<Gpu>,
@@ -162,6 +166,7 @@ impl Default for Documents {
             workers,
             pages: PageCache::default(),
             texts: TextLayers::default(),
+            papers: Papers::default(),
             panes: BTreeMap::new(),
             demand: Demand::new(),
             gpu: None,
@@ -247,6 +252,7 @@ impl Documents {
             }
             self.pages.forget(doc);
             self.texts.forget(doc);
+            self.papers.forget(doc);
         }
     }
 
@@ -283,6 +289,7 @@ impl Documents {
                     Err(_) => self.pages.fail(key),
                 },
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
+                Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
                         Content::Opening {
@@ -337,7 +344,25 @@ impl Documents {
             pass: self.gpu.as_ref().map(|g| &g.pass),
         };
         pdf_view::show(ui, view, &entry.doc, io, cx);
+        if cx.sample {
+            let count = entry.doc.page_count();
+            for page in self.papers.wanted(view.doc, view.visible.clone(), count) {
+                let want = Want::Paper {
+                    doc: view.doc,
+                    page,
+                };
+                self.demand.push((Urgency::Paper, want));
+            }
+        }
         true
+    }
+
+    /// The paper behind `pane`'s pages where it is looked at, if known.
+    pub fn paper(&self, pane: PaneId, area: PaperArea) -> Option<Rgb> {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return None;
+        };
+        self.papers.at(view.doc, area, view.paper_at())
     }
 
     /// What `pane` reads, if it shows an open document.

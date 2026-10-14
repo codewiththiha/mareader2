@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use key::{DocId, PageKey, Part, Scale, Want};
-pub use mareader_pdf::{Document, PageSize, Raster, RenderError, TextLayer, Tiling};
+pub use mareader_pdf::{Document, PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
 
 use pool::{Output, Pool};
 
@@ -93,6 +93,12 @@ pub enum Event {
         doc: DocId,
         page: usize,
         result: Result<Arc<TextLayer>, RenderError>,
+    },
+    /// A page's paper colour, read from a small drawing of it.
+    Paper {
+        doc: DocId,
+        page: usize,
+        result: Result<Paper, RenderError>,
     },
 }
 
@@ -223,6 +229,10 @@ impl Session {
                     result: result.map(Arc::new),
                 })
             }
+            Output::Paper { doc, page, result } => self
+                .docs
+                .contains_key(&doc)
+                .then_some(Event::Paper { doc, page, result }),
         }
     }
 

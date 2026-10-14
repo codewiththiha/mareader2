@@ -125,7 +125,7 @@ impl Default for LayoutSettings {
     }
 }
 
-/// Where paper blending tints a PDF page.
+/// Where on a PDF page the backdrop reads its paper colour.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaperArea {
@@ -134,7 +134,7 @@ pub enum PaperArea {
     Edges,
 }
 
-/// Blends PDF pages into the themed paper instead of showing white.
+/// The backdrop takes the PDF page's own paper colour, themed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PaperSettings {

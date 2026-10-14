@@ -146,6 +146,31 @@ fn text_is_read_beside_rasters_and_dropped_when_unwanted() -> Out {
 }
 
 #[test]
+fn paper_is_read_for_wanted_pages_and_dropped_for_closed_ones() -> Out {
+    let mut s = inline();
+    let id = open_sample(&mut s, 3, "Paper")?;
+    s.want([Want::Paper { doc: id, page: 1 }]);
+    let events = until(&mut s, |e| matches!(e, Event::Paper { .. }));
+    let read: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Paper {
+                page,
+                result: Ok(p),
+                ..
+            } => Some((*page, p.whole.map(|c| (c.0, c.1, c.2)))),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(read, [(1, Some((255, 255, 255)))]);
+    // Asked for, then closed before the poll: nothing arrives.
+    s.want([Want::Paper { doc: id, page: 2 }]);
+    s.close(id);
+    assert!(s.poll(ALL).is_empty());
+    Ok(())
+}
+
+#[test]
 fn a_poll_hands_over_no_more_than_its_budget() -> Out {
     let mut s = Session::new(2, || {});
     let id = open_sample(&mut s, 4, "Pages")?;
