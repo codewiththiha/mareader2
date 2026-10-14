@@ -63,6 +63,50 @@ fn clicking_a_chapter_jumps_there_and_marks_it() {
     assert_eq!(selected(&h, "3.1 Scrolling"), Some(true));
 }
 
+fn book(options: &[(&str, &str)]) -> H {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    for (k, v) in options {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    h
+}
+
+fn outline_page(h: &H, title: &str) -> Option<usize> {
+    let pane = h.state().active_pane();
+    let reading = h.state().documents().reading(pane)?;
+    let entry = reading.document.outline().iter().find(|e| e.title == title);
+    entry.map(|e| e.page)
+}
+
+#[test]
+fn a_book_s_contents_jump_to_its_parts_and_follow_the_page() {
+    let mut h = book(&[
+        ("epub", "sample:3"),
+        ("sidebar", "outline"),
+        ("view", "single"),
+        ("animations", "false"),
+    ]);
+    let chapter = outline_page(&h, "Chapter 1");
+    let part = outline_page(&h, "Part 1.2");
+    assert!(chapter.is_some() && chapter < part, "{chapter:?} {part:?}");
+    h.get_by_label("Part 1.2").click();
+    h.run();
+    assert_eq!(Some(current(&h)), part);
+    assert_eq!(selected(&h, "Part 1.2"), Some(true));
+    // Reading back marks the chapter again.
+    go(&mut h, chapter.unwrap_or_default());
+    assert_eq!(selected(&h, "Chapter 1"), Some(true));
+    assert_eq!(selected(&h, "Part 1.2"), Some(false));
+}
+
 #[test]
 fn the_thumbnails_follow_the_page_and_a_click_jumps() {
     let mut h = reader(&[("sidebar", "thumbnails")]);

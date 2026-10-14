@@ -11,6 +11,7 @@ use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
     builtin_presets,
 };
+use mareader_session::Anchor;
 use mareader_settings::{ColumnAlign, FontChoice, MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
@@ -44,6 +45,9 @@ pub const LAST_DOCUMENT_KEY: &str = "last_document";
 pub struct LastDocument {
     pub path: PathBuf,
     pub page: usize,
+    /// A book's block and offset, which outlast a change of type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<(usize, usize)>,
 }
 
 /// Settings reach disk this long after a change, at most.
@@ -178,8 +182,10 @@ impl MareaderApp {
         let Some(last) = self.last.take().filter(|l| l.path.is_file()) else {
             return false;
         };
+        let place = last.place.map(|(block, offset)| Anchor { block, offset });
         let request = OpenRequest {
             page: last.page,
+            place,
             ..OpenRequest::path(last.path)
         };
         self.queue(Command::Open(request));
@@ -189,8 +195,9 @@ impl MareaderApp {
     /// The file being read: the active pane's, else the first with one.
     pub fn last_document(&self) -> Option<LastDocument> {
         let panes = std::iter::once(self.active).chain(self.tree.panes());
-        let (path, page) = panes.into_iter().find_map(|p| self.documents.place(p))?;
-        Some(LastDocument { path, page })
+        let (path, page, place) = panes.into_iter().find_map(|p| self.documents.place(p))?;
+        let place = place.map(|a| (a.block, a.offset));
+        Some(LastDocument { path, page, place })
     }
 
     pub fn toast(&self) -> Option<&Toast> {

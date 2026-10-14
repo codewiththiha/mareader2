@@ -93,6 +93,8 @@ impl Selection {
 pub struct Sheet {
     pub page: usize,
     pub rect: Rect,
+    /// What of `rect` is on screen; a stream shows only a band of it.
+    pub shown: Rect,
     pub scale: f32,
 }
 
@@ -110,7 +112,7 @@ impl Sheet {
     }
 
     fn distance(self, p: Pos2) -> f32 {
-        self.rect.distance_to_pos(p)
+        self.shown.distance_to_pos(p)
     }
 }
 
@@ -131,7 +133,7 @@ pub struct Pages<'a> {
 
 impl Pages<'_> {
     fn under(&self, p: Pos2) -> Option<(Sheet, Arc<TextLayer>)> {
-        let sheet = *self.sheets.iter().find(|s| s.rect.contains(p))?;
+        let sheet = *self.sheets.iter().find(|s| s.shown.contains(p))?;
         Some((sheet, self.texts.get(self.doc, sheet.page)?))
     }
 
@@ -142,7 +144,7 @@ impl Pages<'_> {
             .iter()
             .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))?;
         let layer = self.texts.get(self.doc, sheet.page)?;
-        let (x, y) = sheet.to_page(p.clamp(sheet.rect.min, sheet.rect.max));
+        let (x, y) = sheet.to_page(p.clamp(sheet.shown.min, sheet.shown.max));
         Some(Caret {
             page: sheet.page,
             index: layer.text.caret_at(x, y),
@@ -275,7 +277,7 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, selection: Selection, tint: Color32) {
             continue;
         };
         for b in layer.text.boxes(range) {
-            painter.rect_filled(sheet.to_screen(b).intersect(sheet.rect), 1.0, tint);
+            painter.rect_filled(sheet.to_screen(b).intersect(sheet.shown), 1.0, tint);
         }
     }
 }
