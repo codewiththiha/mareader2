@@ -1,0 +1,14 @@
+[package]
+name = "mareader-reflow"
+description = "Styled blocks laid out with parley, cut into pages and rasterised"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+parley = { workspace = true }
+vello_cpu = { workspace = true }
