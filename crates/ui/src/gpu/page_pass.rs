@@ -26,6 +26,8 @@ pub struct Quad {
     pub tone: PageTone,
     /// Where its pattern starts: one per pane, so pages share one sheet.
     pub anchor: Anchor,
+    /// Its corners' radius in points; pages and fills keep square ones.
+    pub radius: f32,
 }
 
 /// A pattern's origin on screen, and its points per page point.
@@ -57,6 +59,20 @@ impl Quad {
                 origin: rect.min,
                 zoom: 1.0,
             },
+            radius: 0.0,
+        }
+    }
+
+    /// The paper behind a pane's pages: a backdrop `tone` over white.
+    pub fn backdrop(rect: Rect, radius: f32, tone: PageTone, anchor: Anchor) -> Self {
+        Self {
+            rect,
+            clip: rect,
+            tint: Color32::WHITE,
+            texture: None,
+            tone,
+            anchor,
+            radius,
         }
     }
 
@@ -74,6 +90,7 @@ impl Quad {
             texture,
             tone,
             anchor,
+            radius: 0.0,
         }
     }
 }
@@ -183,7 +200,7 @@ pub struct PagePass {
 /// Raster bytes per pixel; RGBA8 throughout.
 const TEXEL: u32 = 4;
 /// Per instance: a clip-space rect, then a tint.
-const INSTANCE: u64 = 13 * 4;
+const INSTANCE: u64 = 16 * 4;
 
 impl PagePass {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
@@ -243,7 +260,8 @@ impl PagePass {
                         array_stride: INSTANCE,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
-                            0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32
+                            0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32,
+                            4 => Float32x3
                         ],
                     })],
                 },
@@ -398,7 +416,9 @@ pub(super) fn instances(device: &wgpu::Device, quads: &[Quad], area: Rect) -> wg
         let size = r.size() / (a.zoom * p.scale).max(1e-3);
         let (x, y) = (lo[0], lo[1]);
         let pattern = [x, y, x + size.x, y + size.y, p.line_width(a.zoom)];
-        for f in floats.into_iter().chain(tint).chain(pattern) {
+        let shape = [r.width(), r.height(), q.radius];
+        let all = floats.into_iter().chain(tint).chain(pattern).chain(shape);
+        for f in all {
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
     }

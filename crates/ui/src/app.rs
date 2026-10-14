@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
-use mareader_appearance::{Appearance, BaseMode, TextureMode, builtin_presets};
-use mareader_settings::{MotionSettings, Settings};
+use mareader_appearance::{Appearance, BaseMode, Rgb, TextureMode, builtin_presets};
+use mareader_settings::{MotionSettings, PaperArea, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
@@ -307,14 +307,30 @@ impl MareaderApp {
                     .parse()
                     .map_err(|_| "workers: a count, 0 runs inline")?,
             ),
-            "pdf" => self.queue(Command::Open(match value.strip_prefix("sample") {
-                Some(pages) => {
-                    let pages = pages.trim_start_matches(':').parse().unwrap_or(120);
-                    let pdf = mareader_pdf::sample::pdf(pages, "A Mareader Sample");
-                    OpenRequest::bytes(pdf, "sample.pdf")
+            "pdf" => {
+                let (kind, pages) = value.split_once(':').unwrap_or((value, ""));
+                let pages = pages.parse().unwrap_or(120);
+                let request = match kind {
+                    "sample" => OpenRequest::bytes(
+                        mareader_pdf::sample::pdf(pages, "A Mareader Sample"),
+                        "sample.pdf",
+                    ),
+                    "scan" => OpenRequest::bytes(
+                        mareader_pdf::sample::scan(pages, "A Mareader Scan"),
+                        "scan.pdf",
+                    ),
+                    _ => OpenRequest::path(value.into()),
+                };
+                self.queue(Command::Open(request));
+            }
+            "blend" => self.settings.paper.blend = value == "true",
+            "blend_area" => {
+                self.settings.paper.area = match value {
+                    "whole" => PaperArea::WholePage,
+                    "edges" => PaperArea::Edges,
+                    _ => return Err("blend_area: whole or edges".into()),
                 }
-                None => OpenRequest::path(value.into()),
-            })),
+            }
             "chromeless" => self.titlebar.chromeless = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
@@ -557,7 +573,8 @@ impl MareaderApp {
             return Backdrop::Tint;
         };
         let t = theme::Tokens::get(ctx);
-        let fills = self.pane_rects.iter().map(|(_, r)| Quad::fill(*r, t.paper));
+        let fill = self.blend_paper().map_or(t.paper, |raw| baked(&t, raw));
+        let fills = self.pane_rects.iter().map(|(_, r)| Quad::fill(*r, fill));
         let mut quads: Vec<Quad> = fills.collect();
         quads.extend(drawn);
         Backdrop::Glass(Glass {
@@ -565,6 +582,15 @@ impl MareaderApp {
             canvas: t.surface,
             quads,
         })
+    }
+
+    /// Blend's raw paper: the focused PDF's, repeated across every pane.
+    fn blend_paper(&self) -> Option<Rgb> {
+        let paper = &self.settings.paper;
+        paper
+            .blend
+            .then(|| self.documents.paper(self.active, paper.area))
+            .flatten()
     }
 
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
@@ -585,6 +611,11 @@ impl MareaderApp {
             None => NativeLights::default(),
         }
     }
+}
+
+/// `raw` paper themed as the pages are, so the backdrop matches them.
+fn baked(t: &theme::Tokens, raw: Rgb) -> egui::Color32 {
+    theme::color(Rgb::from_unit(t.page.apply(raw.to_unit())))
 }
 
 /// Three dots where AppKit would put its buttons, for checking off a Mac.
@@ -671,12 +702,17 @@ impl eframe::App for MareaderApp {
             self.sidebar
                 .show_docked(ui, &rail, &mut body, &mut commands)
         };
+        let paper = self.blend_paper();
+        let tokens = theme::Tokens::get(&ctx);
         let view = PaneView {
             active: self.active,
             look: self.settings.workspace.look,
             chrome_bottom: self.titlebar.band_bottom(&ctx),
             drop_target,
+            paper: paper.map(|raw| baked(&tokens, raw)),
         };
+        let corner = view.corner(self.tree.len() > 1, &tokens);
+        let blend = self.settings.paper.blend;
         // A pinned bar covers the panes' top; documents start below it.
         let pinned_bottom = if self.titlebar.pinned {
             view.chrome_bottom
@@ -691,6 +727,9 @@ impl eframe::App for MareaderApp {
                     active: id == view.active,
                     top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
                     page,
+                    paper,
+                    corner,
+                    sample: blend && id == view.active,
                 };
                 documents.show(ui, id, &cx)
             });

@@ -2,7 +2,7 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, PageIndicatorStyle, Settings, StartupFit, Swatch,
+    Corners, FloatingLabelStyle, PageIndicatorStyle, PaperArea, Settings, StartupFit, Swatch,
 };
 
 use egui::{
@@ -453,11 +453,36 @@ fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &WindowContext, out: &mut Comman
     } else {
         note(ui, "Shown while the workspace is split.");
     }
-    pending(
-        ui,
-        "Paper blend, where the backdrop takes the page's colour, arrives with \
-         page rendering (M3).",
-    );
+    // Read from page rasters, so only PDFs have it.
+    if !cx.reflowable {
+        section(ui, "Paper");
+        paper(ui, s);
+    }
+}
+
+fn paper(ui: &mut Ui, s: &mut Settings) {
+    let p = &mut s.paper;
+    group(ui, |ui| {
+        switch_row(
+            ui,
+            "Blend mode",
+            "The background takes the page's own paper colour",
+            &mut p.blend,
+        );
+        divider(ui);
+        row(ui, "Detection", "Where the paper colour is read", |ui| {
+            ui.add_enabled_ui(p.blend, |ui| {
+                // Right to left: the last option is drawn first.
+                let options = [
+                    (PaperArea::Edges, "Edges"),
+                    (PaperArea::WholePage, "Whole page"),
+                ];
+                for (area, label) in options {
+                    ui.selectable_value(&mut p.area, area, label);
+                }
+            });
+        });
+    });
 }
 
 fn pane_look(ui: &mut Ui, s: &mut Settings) {

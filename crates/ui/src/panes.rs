@@ -1,6 +1,8 @@
 //! The pane workspace; each pane draws in its own child `Ui`.
 
-use egui::{CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2};
+use egui::{
+    Color32, CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
+};
 use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
@@ -16,6 +18,19 @@ pub struct PaneView {
     pub chrome_bottom: f32,
     /// Where dragged files would land, outlined while they hover.
     pub drop_target: Option<PaneId>,
+    /// Blend's paper, themed: every pane's fill while it applies.
+    pub paper: Option<Color32>,
+}
+
+impl PaneView {
+    /// A pane's corner radius: rounded only while the workspace is split.
+    pub fn corner(&self, split: bool, t: &Tokens) -> f32 {
+        if split && self.look.rounded() {
+            t.radius_lg
+        } else {
+            0.0
+        }
+    }
 }
 
 const DIVIDER_HIT: f32 = 8.0;
@@ -63,11 +78,7 @@ fn pane(
 ) {
     let t = Tokens::get(ui.ctx());
     let rect = ui.max_rect();
-    let radius = if split && view.look.rounded() {
-        CornerRadius::same(t.radius_lg as u8)
-    } else {
-        CornerRadius::ZERO
-    };
+    let radius = CornerRadius::same(view.corner(split, &t) as u8);
     if split && view.look.shadow {
         let shadow = egui::Shadow {
             offset: [0, 5],
@@ -77,7 +88,8 @@ fn pane(
         };
         ui.painter().add(shadow.as_shape(rect, radius));
     }
-    ui.painter().rect_filled(rect, radius, t.paper);
+    ui.painter()
+        .rect_filled(rect, radius, view.paper.unwrap_or(t.paper));
     let focus = ui.interact(rect, ui.id().with("focus"), Sense::click());
     if focus.clicked() && id != view.active {
         out.push(Command::FocusPane(id));

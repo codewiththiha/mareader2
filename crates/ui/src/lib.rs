@@ -26,6 +26,7 @@ pub mod outline_panel;
 pub mod page_bar;
 pub mod pages;
 pub mod panes;
+pub mod paper;
 pub mod pdf_view;
 pub mod platform;
 pub mod resize;

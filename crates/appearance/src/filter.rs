@@ -232,6 +232,21 @@ impl PageTone {
     pub fn blank(&self) -> [f32; 3] {
         self.apply([1.0; 3])
     }
+
+    /// Over white, shows what a page of `paper` shows, pattern included.
+    pub fn backdrop(&self, paper: [f32; 3]) -> Self {
+        Self {
+            count: 0,
+            blend: Some(Blend::Multiply),
+            paper: self.apply(paper),
+            pattern: if self.blend.is_some() {
+                self.pattern
+            } else {
+                Pattern::NONE
+            },
+            ..Self::NONE
+        }
+    }
 }
 
 #[cfg(test)]
@@ -338,5 +353,31 @@ mod tests {
             close(Blend::SoftLight.apply(b, [0.5; 3]), b),
             "s = 0.5 is identity"
         );
+    }
+
+    #[test]
+    fn a_backdrop_over_white_is_its_paper_themed() {
+        let cream = [0.98, 0.95, 0.88];
+        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
+            let a = Appearance {
+                base,
+                ..Appearance::default()
+            };
+            let tone = a.page_tone();
+            let back = tone.backdrop(cream);
+            let (want, got) = (tone.apply(cream), back.apply([1.0; 3]));
+            for (w, g) in want.iter().zip(got) {
+                assert!((w - g).abs() < 1e-5, "{base:?}: {want:?} vs {got:?}");
+            }
+            assert_eq!(back.pattern, tone.pattern);
+        }
+    }
+
+    #[test]
+    fn an_untinted_backdrop_is_plain_paper() {
+        let back = PageTone::NONE.backdrop([0.5, 0.6, 0.7]);
+        assert_eq!(back.paper, [0.5, 0.6, 0.7]);
+        assert_eq!(back.apply([1.0; 3]), [0.5, 0.6, 0.7]);
+        assert_eq!(back.pattern, Pattern::NONE);
     }
 }

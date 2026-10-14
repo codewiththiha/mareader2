@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use mareader_pdf::{Document, Raster, RenderError, TextLayer};
+use mareader_pdf::{Document, Paper, Raster, RenderError, TextLayer};
 
 use crate::key::{DocId, PageKey, Part, Want};
 use crate::{OpenError, Source};
@@ -34,6 +34,11 @@ pub(crate) enum Output {
         page: usize,
         result: Result<TextLayer, RenderError>,
     },
+    Paper {
+        doc: DocId,
+        page: usize,
+        result: Result<Paper, RenderError>,
+    },
 }
 
 impl Output {
@@ -50,6 +55,10 @@ impl Output {
         match self {
             Self::Rendered { key, .. } => Some(Want::Raster(*key)),
             Self::Read { doc, page, .. } => Some(Want::Text {
+                doc: *doc,
+                page: *page,
+            }),
+            Self::Paper { doc, page, .. } => Some(Want::Paper {
                 doc: *doc,
                 page: *page,
             }),
@@ -257,6 +266,14 @@ fn finish(shared: &Shared, job: Job) {
             doc: id,
             page,
             result: doc.text_layer(page),
+        },
+        Job::Work {
+            want: Want::Paper { doc: id, page },
+            doc,
+        } => Output::Paper {
+            doc: id,
+            page,
+            result: doc.paper(page),
         },
     };
     let mut s = shared.lock();
