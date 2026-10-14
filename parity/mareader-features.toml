@@ -802,10 +802,15 @@ title = "PDF pages recoloured by the filter chain (dark inverts, dim dims, tint 
 area = "F"
 tier = "P0"
 milestone = "M3"
-status = "partial"
-evidence = ["crates/appearance/src/filter.rs::the_tint_runs_after_the_inversion"]
-reference = ["crates/reader-core/src/appearance/raster"]
-notes = "The chain and its CPU reference exist; the GPU page pass is M3"
+status = "shipped"
+evidence = [
+  "crates/appearance/src/filter.rs::the_tint_runs_after_the_inversion",
+  "crates/appearance/src/filter.rs::a_tone_runs_the_chain_then_blends_over_the_paper",
+  "crates/ui/tests/gpu.rs::the_page_pass_themes_pages_as_the_cpu_reference_does",
+  "crates/ui/tests/gpu.rs::dark_pages_show_light_ink_on_dark_paper",
+]
+reference = ["crates/reader-core/src/appearance/raster", "styles/page_host.css"]
+notes = "The page pass runs the chain and the blend per quad; the CPU path stays unthemed"
 
 [[feature]]
 id = "appearance.textures"

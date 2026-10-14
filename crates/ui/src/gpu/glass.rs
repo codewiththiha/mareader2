@@ -382,14 +382,16 @@ impl egui_wgpu::CallbackTrait for GlassCallback {
         queue.write_buffer(pc, 0, &params([1.0, share], SATURATE, fade, [0.0, start]));
 
         let instances = page_pass::instances(device, &self.quads, self.strip);
+        let tones = page_pass::Tones::new(device, &self.pass, &self.quads);
         {
             let load = wgpu::LoadOp::Clear(clear(self.canvas, format));
             let mut rp = pass(encoder, &targets.a, load);
             rp.set_pipeline(&self.pass.strip);
             let strip = self.strip;
-            self.pass.draw(&mut rp, &instances, &self.quads, |clip| {
-                page_pass::scissor(clip, strip, size)
-            });
+            self.pass
+                .draw(&mut rp, (&instances, &tones), &self.quads, |clip| {
+                    page_pass::scissor(clip, strip, size)
+                });
         }
         let [gh, gv, _] = &targets.groups;
         for (target, group) in [(&targets.b, gh), (&targets.a, gv)] {
