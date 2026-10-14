@@ -5,7 +5,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use mareader_reflow::{
-    Anchor, Block, Content, Flow, Fonts, Picture, Pixels, Region, Role, Typography,
+    Anchor, Block, Content, Flow, Fonts, PageLine, Picture, Pixels, Region, Role, Typography,
 };
 use rbook::Epub;
 
@@ -244,6 +244,16 @@ impl Book {
                 })
             })
             .collect()
+    }
+
+    /// Page `page`'s text by line, each character boxed.
+    pub fn text(&self, page: usize) -> Vec<PageLine> {
+        self.flow.text(page)
+    }
+
+    /// Page `page`'s pictures, which keep their colours under the ink dial.
+    pub fn pictures(&self, page: usize) -> Vec<[f32; 4]> {
+        self.flow.pictures(page)
     }
 
     /// What of each page a stream shows.
