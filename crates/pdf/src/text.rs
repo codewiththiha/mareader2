@@ -107,6 +107,8 @@ pub struct TextChar {
 struct Line {
     chars: Range<usize>,
     bounds: Bounds,
+    /// It goes on from the line before: a copy joins them unbroken.
+    wraps: bool,
 }
 
 /// A page's characters in content order, grouped into lines.
@@ -214,10 +216,32 @@ impl PageText {
         start..end
     }
 
-    /// The whole line holding character `at`.
+    /// The line holding `at` and those it wraps into: a book's paragraph.
     pub fn line_at(&self, at: usize) -> Range<usize> {
         let line = self.chars.get(at).map_or(0, |c| c.line as usize);
-        self.lines.get(line).map_or(at..at, |l| l.chars.clone())
+        let wraps = |n: usize| self.lines.get(n).is_some_and(|l| l.wraps);
+        let mut first = line;
+        while first > 0 && wraps(first) {
+            first -= 1;
+        }
+        let mut last = line;
+        while wraps(last + 1) {
+            last += 1;
+        }
+        match (self.lines.get(first), self.lines.get(last)) {
+            (Some(a), Some(b)) => a.chars.start..b.chars.end,
+            _ => at..at,
+        }
+    }
+
+    /// The page opens mid-paragraph, going on from the page before.
+    pub fn continues(&self) -> bool {
+        self.lines.first().is_some_and(|l| l.wraps)
+    }
+
+    fn wraps(&self, line: u32) -> bool {
+        let line = self.lines.get(line as usize);
+        line.is_some_and(|l| l.wraps)
     }
 
     fn space_at(&self, i: usize) -> bool {
@@ -230,7 +254,11 @@ impl PageText {
         let mut prev: Option<&TextChar> = None;
         for c in self.chars.get(range).unwrap_or_default() {
             match prev {
-                Some(p) if p.line != c.line => out.push('\n'),
+                Some(p) if p.line != c.line => {
+                    if !self.wraps(c.line) {
+                        out.push('\n');
+                    }
+                }
                 Some(_) if c.space_before => out.push(' '),
                 _ => {}
             }
@@ -252,6 +280,35 @@ impl PageText {
         out.into_iter().map(|(_, b)| b).collect()
     }
 
+    /// A page from `(wraps, characters)` lines in reading order.
+    pub fn from_lines(lines: impl IntoIterator<Item = (bool, Vec<(char, Bounds)>)>) -> Self {
+        let mut out = Self::default();
+        for (wraps, line) in lines {
+            let room = MAX_CHARS.saturating_sub(out.chars.len());
+            let Some(bounds) = line.iter().map(|c| c.1).reduce(Bounds::union) else {
+                continue;
+            };
+            if room == 0 {
+                break;
+            }
+            let index = u32::try_from(out.lines.len()).unwrap_or(u32::MAX);
+            let start = out.chars.len();
+            out.chars
+                .extend(line.into_iter().take(room).map(|(ch, bounds)| TextChar {
+                    ch,
+                    bounds,
+                    line: index,
+                    space_before: false,
+                }));
+            out.lines.push(Line {
+                chars: start..out.chars.len(),
+                bounds,
+                wraps,
+            });
+        }
+        out
+    }
+
     /// Groups glyphs into lines and marks the gaps between words.
     pub(crate) fn from_glyphs(glyphs: Vec<Placed>) -> Self {
         let mut chars: Vec<TextChar> = Vec::with_capacity(glyphs.len());
@@ -266,6 +323,7 @@ impl PageText {
                 lines.push(Line {
                     chars: chars.len()..chars.len(),
                     bounds: g.bounds,
+                    wraps: false,
                 });
             }
             let line = lines.len().saturating_sub(1);
@@ -440,6 +498,34 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// `(wraps, text)` lines 20 points apart, as a book sets them.
+    fn set(lines: &[(bool, &str)]) -> PageText {
+        PageText::from_lines(lines.iter().enumerate().map(|(n, (wraps, text))| {
+            let y = 20.0 * n as f32;
+            let row = row(text, 0.0, y).into_iter().map(|g| (g.ch, g.bounds));
+            (*wraps, row.collect())
+        }))
+    }
+
+    #[test]
+    fn set_lines_copy_wrapped_ones_unbroken() {
+        let p = set(&[
+            (false, "A long para"),
+            (true, "graph goes "),
+            (true, "on."),
+            (false, "Next"),
+        ]);
+        assert_eq!(p.text(0..p.len()), "A long paragraph goes on.\nNext");
+        assert!(!p.continues());
+        // Character 11 starts line two; a word, then the paragraph.
+        assert_eq!(p.text(p.word_at(11)), "graph");
+        assert_eq!(p.text(p.line_at(13)), "A long paragraph goes on.");
+        assert_eq!(p.text(p.line_at(p.len() - 1)), "Next");
+        let next = set(&[(true, "going on"), (false, "")]);
+        assert!(next.continues());
+        assert_eq!(next.len(), 8);
     }
 
     fn page() -> PageText {
