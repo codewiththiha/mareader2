@@ -102,3 +102,31 @@ in a 900 × 700 pane without a GPU, where egui's texture side is 2048.
   its old tiles. A pan queues no tile until the view rests 0.25 s.
 - **Threadless runs:** inline work queued by a demand now asks for a frame.
   Before, a test or the web preview could stop with jobs left queued.
+
+## 2026-10-14: EPUB layout (M4 slice 7)
+
+What was measured: resident memory (VmRSS, and VmHWM for the peak) from
+`/proc/self/status` before and after `Book::open`, on CI's Linux runner.
+How: `crates/epub/tests/layout_memory.rs`, an ignored test, run with
+`cargo test -p mareader-epub --test layout_memory -- --ignored --nocapture`.
+Each workload is one generated chapter in bundled fonts.
+
+| Workload | Units | Open time | Pages | RSS growth | Per unit |
+|---|---|---|---|---|---|
+| Prose, 1,000-character paragraphs | 4M characters | 0.92 s | 1,883 | +171 MB (peak 177 MB) | ≈45 bytes a character |
+| `<p>w</p>` repeated | 200,000 paragraphs | 0.97 s | 9,524 | +523 MB (VmHWM 700 MB) | ≈2,700 bytes a paragraph |
+| One paragraph | 2M characters | 0.41 s | 866 | +0 MB | unreliable: the allocator reused freed memory |
+
+- **Why it grows:** a book is laid out whole when it opens, and each
+  paragraph and table cell keeps its parley `Layout` for drawing and
+  selection. The cost is per paragraph as much as per character.
+- **The budget:** `Block::layout_cost` estimates 3,000 bytes a paragraph or
+  cell plus 48 a byte of text (`LAYOUT_BYTES`, `CHAR_BYTES`), a little over
+  what was measured. Before layout, a book estimated past 1 GiB
+  (`MAX_LAYOUT`) is refused as too large
+  (`a_book_past_the_layout_budget_is_refused`).
+- **Real books:** *War and Peace* (3.2M characters) is about 190 MB; the
+  complete Shakespeare about 560 MB. A 40M-character omnibus is refused.
+- **Known limit:** a book near the budget holds most of it for as long as
+  it is open. Laying out only the pages near the view, and dropping the
+  rest, would bound it; that is the follow-up.
