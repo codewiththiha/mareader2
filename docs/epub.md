@@ -104,9 +104,36 @@ What the epub crate reads, and what each element becomes:
 - **Faces:** the mono face is JetBrains Mono (OFL). Every face falls back to
   Inter for symbols it lacks.
 
+## Typography as built (M4 slice 3)
+
+- **Settings to type.** `session::typography` turns `TextSettings` into
+  `reflow::Typography`. The body takes the serif slot until the Font slot
+  names a face; headings take the sans slot, code the mono slot.
+- **Stacks.** A slot's pick comes first, then its bundled face (Literata,
+  Inter, JetBrains Mono) as the last resort. System picks expand to their
+  CSS stack; `serif`, `sans-serif` and `monospace` mean the machine's own
+  face of that kind. fontique scans the machine once (fontconfig is opened
+  at run time, so a box without it just has no system faces).
+- **Hyphenation.** `hypher` marks break points with U+00AD in words of five
+  letters or more, never inside inline code. The patterns follow the book's
+  `dc:language`, falling back to English. parley breaks there but draws
+  nothing, so the raster draws the hyphen at the line end.
+- **Justify and indent.** `Alignment::Justify` leaves last lines ragged.
+  The first-line indent applies to body paragraphs only; headings, quotes,
+  list items, table cells and code start flush, as mareader's do.
+- **Re-setting keeps the place.** A change re-sets each open book off the
+  UI thread; the old pages stay up until the new ones arrive as
+  `Event::Retypeset`. The view keeps the anchor of the page it showed and
+  lands on the page holding it. Going back to the old type returns to the
+  same page, since the stored anchor is reused, not re-derived.
+- **Fonts tab.** Settings › Fonts: the four slots, size and weight
+  steppers, spacing dials, and the justify and hyphenation switches.
+  A system face that isn't installed shows as "Not installed".
+
 ## Revision history
 
 | Date | Summary |
 |---|---|
 | 2026-10-13 | Created with the M0 foundation |
 | 2026-10-14 | Added the XHTML subset as built in M4 slice 2 |
+| 2026-10-14 | Added typography as built in M4 slice 3 |
