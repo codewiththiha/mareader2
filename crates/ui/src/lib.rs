@@ -12,6 +12,7 @@ pub mod app;
 pub mod appearance_menu;
 pub mod backdrop;
 pub mod command;
+pub mod crossfade;
 pub mod documents;
 pub mod files;
 pub mod find_bar;

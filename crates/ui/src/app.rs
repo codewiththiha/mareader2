@@ -16,6 +16,7 @@ use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, T
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, Independence, WindowCommand};
+use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest};
 use crate::files::Files;
 use crate::find_bar::FindBar;
@@ -73,6 +74,8 @@ pub struct MareaderApp {
     routed: Routing,
     /// Picks new panes' hues and textures.
     random: u64,
+    /// A theme change held for, or fading over, a snapshot.
+    fade: Crossfade<Held>,
     styled: Option<(Appearance, MotionSettings, bool)>,
     /// The system asks for less motion; set off the UI thread at launch.
     reduced_motion: Arc<AtomicBool>,
@@ -121,6 +124,7 @@ impl MareaderApp {
             looks: PaneLooks::default(),
             routed: Routing::default(),
             random: 0x9e37_79b9_7f4a_7c15,
+            fade: Crossfade::default(),
             styled: None,
             reduced_motion: Arc::new(AtomicBool::new(false)),
             last: None,
@@ -267,6 +271,11 @@ impl MareaderApp {
     /// Each pane's rect as last drawn.
     pub fn pane_rects(&self) -> &[(PaneId, egui::Rect)] {
         &self.pane_rects
+    }
+
+    /// Whether a theme change is fading in over the old look.
+    pub fn fading(&self) -> bool {
+        self.fade.is_fading()
     }
 
     pub fn active_pane(&self) -> PaneId {
@@ -668,13 +677,41 @@ impl MareaderApp {
 
     /// Which families split panes own right now.
     fn routing(&self) -> Routing {
-        let w = &self.settings.workspace;
-        Routing {
-            themes: w.independent_themes,
-            textures: w.independent_textures,
-            shared_base: w.shared_base_mode,
-            split: self.tree.len() > 1,
+        routing(&self.settings, self.tree.len() > 1)
+    }
+
+    fn held(&self) -> Held {
+        Held {
+            settings: self.settings.clone(),
+            looks: self.looks.clone(),
+            routed: self.routed,
         }
+    }
+
+    fn restore(&mut self, held: Held) {
+        self.titlebar.pinned = held.settings.chrome.titlebar_pinned;
+        self.settings = held.settings;
+        self.looks = held.looks;
+        self.routed = held.routed;
+    }
+
+    /// Whether the window or a pane jumped to another look since `before`.
+    fn leapt(&self, before: &Held) -> bool {
+        let (old, new) = (&before.settings, &self.settings);
+        let was = routing(old, self.tree.len() > 1);
+        let jumped = |id: PaneId| {
+            let from = before.looks.shown(id, &old.appearance, was);
+            from.leaps_to(&self.look(id))
+        };
+        old.paper.blend != new.paper.blend
+            || old.appearance.leaps_to(&new.appearance)
+            || self.tree.panes().into_iter().any(jumped)
+    }
+
+    /// A fade needs motion, the GPU's snapshot, and no slider held.
+    fn may_fade(&self, ctx: &Context) -> bool {
+        let held = ctx.input(|i| i.pointer.any_down());
+        motion::enabled(ctx) && self.documents.gpu().is_some() && !held
     }
 
     /// `pane`'s look as drawn: the window's, or its own while split.
@@ -802,8 +839,15 @@ impl eframe::App for MareaderApp {
             ctx.request_repaint();
             return;
         }
+        if let Some(after) = self.fade.poll(&ctx) {
+            self.restore(after);
+            self.restyle(&ctx);
+            ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
+        }
         self.reconcile_looks(&ctx);
         resize::edges(&ctx, self.platform.frameless());
+        // Tests, shots and the system change looks without a fade.
+        let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
@@ -925,16 +969,27 @@ impl eframe::App for MareaderApp {
         self.settings_window
             .show(&ctx, &self.settings, &window, &mut commands);
         self.film_grain(&ctx);
+        self.fade.paint(&ctx);
         // Applied after drawing, so the next frame must show the result.
         if !commands.is_empty() {
             ctx.request_repaint();
-            let before = self.settings.clone();
+            // A change still waiting on its snapshot lands first.
+            if let Some(after) = self.fade.take() {
+                self.restore(after);
+            }
+            let before = self.held();
             for command in commands {
                 self.apply(&ctx, command);
             }
+            self.reconcile_looks(&ctx);
             // eframe autosaves only on a frame, so book one after the interval.
-            if self.settings != before {
+            if self.settings != before.settings {
                 ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
+            }
+            if !outside && self.may_fade(&ctx) && self.leapt(&before) {
+                let after = self.held();
+                self.restore(before);
+                self.fade.hold(&ctx, after);
             }
         }
         // This frame drew with the old look; show the new one next frame.
@@ -953,6 +1008,25 @@ impl eframe::App for MareaderApp {
         // Nothing open saves `null`: the next launch starts empty.
         let last = serde_json::to_string(&self.last_document());
         storage.set_string(LAST_DOCUMENT_KEY, last.unwrap_or_else(|_| "null".into()));
+    }
+}
+
+/// What a cross-fade holds back: the settings and the panes' looks.
+#[derive(Clone)]
+struct Held {
+    settings: Settings,
+    looks: PaneLooks<PaneId>,
+    routed: Routing,
+}
+
+/// Which families split panes own under `settings`.
+fn routing(settings: &Settings, split: bool) -> Routing {
+    let w = &settings.workspace;
+    Routing {
+        themes: w.independent_themes,
+        textures: w.independent_textures,
+        shared_base: w.shared_base_mode,
+        split,
     }
 }
 
