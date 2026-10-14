@@ -1,13 +1,24 @@
 //! Either format behind one set of calls, so views never ask which.
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mareader_epub::{Book, Destination};
+use mareader_epub::{Book, Destination, Format, MAX_PICTURE_FILE};
 use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError, SAMPLE_SIDE};
 use mareader_reflow::{Anchor, Typography};
 
 use crate::OpenError;
+
+/// A text file converted to an EPUB before it opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TextFile {
+    pub format: Format,
+    /// Its name, which titles a plain text file.
+    pub name: String,
+    /// The folder its Markdown pictures are read from.
+    pub folder: Option<PathBuf>,
+}
 
 /// An open document. An EPUB's layout unit shows as one point.
 pub enum Document {
@@ -36,6 +47,18 @@ impl Document {
             return Ok(Self::Pdf(mareader_pdf::Document::open(bytes)?));
         }
         Ok(Self::epub(Book::open(bytes, typo)?))
+    }
+
+    /// Converts Markdown or plain text to an EPUB, then opens that.
+    pub(crate) fn convert(
+        bytes: &[u8],
+        file: &TextFile,
+        typo: &Typography,
+    ) -> Result<Self, OpenError> {
+        let folder = file.folder.as_deref();
+        let read = |path: &str| folder.and_then(|f| read_picture(f, path));
+        let epub = mareader_epub::convert(bytes, file.format, Some(&file.name), &read)?;
+        Ok(Self::epub(Book::open(Arc::new(epub), typo)?))
     }
 
     fn epub(book: Book) -> Self {
@@ -231,4 +254,12 @@ fn draw(book: &Book, page: usize, scale: f32, region: [u32; 4]) -> Result<Raster
         height: px.height,
         pixels: px.rgba,
     })
+}
+
+/// A picture beside a Markdown file, if it is small enough to read.
+fn read_picture(folder: &Path, path: &str) -> Option<Vec<u8>> {
+    let path = folder.join(path);
+    let len = std::fs::metadata(&path).ok()?.len();
+    let fits = usize::try_from(len).is_ok_and(|len| len <= MAX_PICTURE_FILE);
+    fits.then(|| std::fs::read(&path).ok()).flatten()
 }
