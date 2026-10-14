@@ -67,10 +67,14 @@ impl Flow {
         if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || scale.is_nan() || scale <= 0.0 {
             return None;
         }
-        catch_unwind(AssertUnwindSafe(|| self.draw(pieces, scale, region))).ok()?
+        let left = self.column(page).0;
+        catch_unwind(AssertUnwindSafe(|| {
+            self.draw(pieces, (scale, left), region)
+        }))
+        .ok()?
     }
 
-    fn draw(&self, pieces: &[Piece], scale: f32, region: Region) -> Option<Pixels> {
+    fn draw(&self, pieces: &[Piece], (scale, left): (f32, f32), region: Region) -> Option<Pixels> {
         let [x, y, w, h] = region;
         let (w16, h16) = (u16::try_from(w).ok()?, u16::try_from(h).ok()?);
         let mut ctx = RenderContext::new(w16, h16);
@@ -83,7 +87,7 @@ impl Flow {
             resources,
             view: Affine::translate((-f64::from(x), -f64::from(y)))
                 * Affine::scale(s)
-                * Affine::translate((f64::from(PAD), f64::from(PAD))),
+                * Affine::translate((f64::from(left), f64::from(PAD))),
             // The page area in column units, to skip what's out of view.
             top: f64::from(y) / s - f64::from(PAD),
             bottom: f64::from(y + h) / s - f64::from(PAD),

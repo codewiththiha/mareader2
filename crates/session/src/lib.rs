@@ -21,7 +21,7 @@ use std::sync::Arc;
 pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
 pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
-pub use mareader_reflow::{Anchor, FACES, Face, Kind, Typography, has_family};
+pub use mareader_reflow::{Anchor, Band, FACES, Face, Kind, Typography, has_family};
 pub use typeset::{bundled, typography};
 
 use pool::{Output, Pool};
