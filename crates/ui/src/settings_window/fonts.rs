@@ -52,6 +52,13 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
         let percent = |v: f32| format!("{v:.0} %");
         let ink = &mut t.ink_contrast;
         stepped(ui, "Text ink", hint, ink, TextSettings::INK, 5.0, percent);
+        divider(ui);
+        switch_row(
+            ui,
+            "Theme pictures",
+            "Tint a book's pictures with the page; off, they keep their colours",
+            &mut t.theme_pictures,
+        );
     });
 }
 

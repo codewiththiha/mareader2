@@ -413,6 +413,7 @@ impl MareaderApp {
                 self.settings.text.sanitize();
             }
             "justify" => self.settings.text.justify = value == "true",
+            "theme_pictures" => self.settings.text.theme_pictures = value == "true",
             "hyphenate" => self.settings.text.hyphenation = value == "true",
             "book_layout" => self.settings.text.book_layout = value == "true",
             "column" => {

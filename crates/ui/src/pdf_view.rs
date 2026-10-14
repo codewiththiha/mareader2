@@ -376,6 +376,8 @@ pub struct PageLook {
     pub column: egui::Align,
     /// How much of a book's ink stays, 0 to 1: the ink dial.
     pub ink: f32,
+    /// A book's pictures take the page's theme, not their own colours.
+    pub theme_pictures: bool,
 }
 
 impl PageLook {
@@ -395,6 +397,7 @@ impl PageLook {
                 ColumnAlign::Right => egui::Align::Max,
             },
             ink: (text.ink_contrast / 100.0).clamp(0.0, 1.0),
+            theme_pictures: text.theme_pictures,
         }
     }
 }
@@ -587,9 +590,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         Urgency::OtherPane
     };
     let mut t = cx.tokens;
-    // The ink dial lightens a book's text; its pictures keep the pane's tone.
-    let picture_tone = t.page;
+    // A book's pictures keep their colours, or the pane's tone undimmed.
+    let mut picture_tone = t.page;
     if doc.is_reflowable() {
+        if !cx.page.theme_pictures {
+            picture_tone = PageTone::NONE;
+        }
         t.page = t.page.inked(cx.page.ink);
     }
     // egui turns a plain wheel sideways only if that's the sole direction.

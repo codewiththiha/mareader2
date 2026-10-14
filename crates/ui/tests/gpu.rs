@@ -628,6 +628,37 @@ fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
 }
 
 /// Pixels darker than `below` in the page's middle band.
+#[test]
+fn a_book_s_pictures_keep_their_colours_in_the_dark_unless_themed() -> Out {
+    let options = [
+        ("epub", "sample:3"),
+        ("view", "single"),
+        ("animations", "false"),
+    ];
+    let mut h = reader(&options);
+    // Page 0 is the cover, a picture filling the page.
+    let light = h.render()?;
+    h.state_mut().set_option("theme", "dark")?;
+    h.run();
+    let dark = h.render()?;
+    h.state_mut().set_option("theme_pictures", "true")?;
+    h.run();
+    let themed = h.render()?;
+    let (w, ht) = light.dimensions();
+    let points = [(w / 2, ht / 2), (w / 2, ht / 3), (w * 3 / 7, ht * 3 / 5)];
+    let mut moved = 0;
+    for (x, y) in points {
+        let (a, b, c) = (luma(&light, x, y), luma(&dark, x, y), luma(&themed, x, y));
+        assert!((a - b).abs() <= 3, "the cover kept its colours: {a} {b}");
+        moved = moved.max((a - c).abs());
+    }
+    assert!(
+        moved > 40,
+        "themed, the cover follows the dark page: {moved}"
+    );
+    Ok(())
+}
+
 fn dark(image: &RgbaImage, below: i32) -> usize {
     let (w, h) = image.dimensions();
     (h / 4..h * 7 / 8)
