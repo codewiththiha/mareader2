@@ -264,6 +264,11 @@ impl MareaderApp {
         self.tree.panes()
     }
 
+    /// Each pane's rect as last drawn.
+    pub fn pane_rects(&self) -> &[(PaneId, egui::Rect)] {
+        &self.pane_rects
+    }
+
     pub fn active_pane(&self) -> PaneId {
         self.active
     }
@@ -370,6 +375,17 @@ impl MareaderApp {
             }
             "gap" => self.settings.layout.no_gap = value == "false",
             "shadow" => self.settings.layout.page_shadow = value == "true",
+            "corners" => {
+                self.settings.workspace.look.corners = match value {
+                    "rounded" => mareader_settings::Corners::Rounded,
+                    _ => mareader_settings::Corners::Square,
+                }
+            }
+            "pane_gap" => {
+                let gap = value.parse().map_err(|_| "pane_gap: points")?;
+                self.settings.workspace.look.gap = gap;
+                self.settings.sanitize();
+            }
             "label" => {
                 let l = &mut self.settings.layout;
                 l.floating_label = value != "false";

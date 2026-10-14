@@ -8,9 +8,10 @@ struct VsOut {
     @location(2) at: vec2<f32>,
     @location(3) line: f32,
     @location(4) shape: vec3<f32>,
+    @location(5) round: vec4<f32>,
 };
 
-// `rect`: clip-space corners; `pattern`: them in units; `line`: a stroke.
+// `rect`: clip corners; `pattern`: in units; `shape`, `round`: the mask.
 @vertex
 fn vs(
     @builtin(vertex_index) i: u32,
@@ -19,6 +20,7 @@ fn vs(
     @location(2) pattern: vec4<f32>,
     @location(3) line: f32,
     @location(4) shape: vec3<f32>,
+    @location(5) round: vec4<f32>,
 ) -> VsOut {
     let corner = vec2<f32>(f32(i & 1u), f32(i >> 1u));
     var out: VsOut;
@@ -28,6 +30,7 @@ fn vs(
     out.at = mix(pattern.xy, pattern.zw, corner);
     out.line = line;
     out.shape = shape;
+    out.round = round;
     return out;
 }
 
@@ -180,10 +183,11 @@ fn to_target(c: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(select(high, low, rgb <= vec3<f32>(0.04045)) * c.a, c.a);
 }
 
-// A rounded quad's pixel cover; branch-free, so derivatives stay uniform.
-fn cover(uv: vec2<f32>, shape: vec3<f32>) -> f32 {
+// Cover by the rounded `round`; branch-free keeps derivatives uniform.
+fn cover(uv: vec2<f32>, shape: vec3<f32>, round: vec4<f32>) -> f32 {
     let r = shape.z;
-    let p = abs((uv - 0.5) * shape.xy) - (shape.xy * 0.5 - r);
+    let half = (round.zw - round.xy) * 0.5;
+    let p = abs(uv * shape.xy - (round.xy + half)) - (half - r);
     let d = length(max(p, vec2<f32>(0.0))) + min(max(p.x, p.y), 0.0) - r;
     let c = clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
     return select(1.0, c, r > 0.0);
@@ -193,7 +197,7 @@ fn cover(uv: vec2<f32>, shape: vec3<f32>) -> f32 {
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let fw = fwidth(in.at);
     let c = themed(textureSample(page, filtered, in.uv), in.at, fw, in.line) * in.tint;
-    return to_target(c) * cover(in.uv, in.shape);
+    return to_target(c) * cover(in.uv, in.shape, in.round);
 }
 
 // For the shrunk glass strip: a 4x4 average per pixel
@@ -210,5 +214,5 @@ fn fs_strip(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
     let c = themed(sum / 16.0, in.at, fw, in.line) * in.tint;
-    return to_target(c) * cover(in.uv, in.shape);
+    return to_target(c) * cover(in.uv, in.shape, in.round);
 }

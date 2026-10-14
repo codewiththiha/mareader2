@@ -26,7 +26,9 @@ pub struct Quad {
     pub tone: PageTone,
     /// Where its pattern starts: one per pane, so pages share one sheet.
     pub anchor: Anchor,
-    /// Its corners' radius in points; pages and fills keep square ones.
+    /// The rounded rect it shows within: its own, or its pane's.
+    pub round: Rect,
+    /// That rect's corner radius in points; 0 keeps it square.
     pub radius: f32,
 }
 
@@ -59,6 +61,7 @@ impl Quad {
                 origin: rect.min,
                 zoom: 1.0,
             },
+            round: rect,
             radius: 0.0,
         }
     }
@@ -72,6 +75,7 @@ impl Quad {
             texture: None,
             tone,
             anchor,
+            round: rect,
             radius,
         }
     }
@@ -90,8 +94,15 @@ impl Quad {
             texture,
             tone,
             anchor,
+            round: rect,
             radius: 0.0,
         }
+    }
+
+    /// Hides what falls outside `frame`'s rounded corners.
+    pub fn round_to(&mut self, frame: Rect, radius: f32) {
+        self.round = frame;
+        self.radius = radius;
     }
 }
 
@@ -202,8 +213,8 @@ pub(super) const NOISE: &str = include_str!("noise.wgsl");
 
 /// Raster bytes per pixel; RGBA8 throughout.
 const TEXEL: u32 = 4;
-/// Per instance: a clip-space rect, then a tint.
-const INSTANCE: u64 = 16 * 4;
+/// Per instance: a clip-space rect, tint, pattern, shape and round rect.
+const INSTANCE: u64 = 20 * 4;
 
 impl PagePass {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
@@ -264,7 +275,7 @@ impl PagePass {
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
                             0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32,
-                            4 => Float32x3
+                            4 => Float32x3, 5 => Float32x4
                         ],
                     })],
                 },
@@ -420,7 +431,11 @@ pub(super) fn instances(device: &wgpu::Device, quads: &[Quad], area: Rect) -> wg
         let (x, y) = (lo[0], lo[1]);
         let pattern = [x, y, x + size.x, y + size.y, p.line_width(a.zoom)];
         let shape = [r.width(), r.height(), q.radius];
-        let all = floats.into_iter().chain(tint).chain(pattern).chain(shape);
+        // The round rect in the quad's own points.
+        let (lo, hi) = (q.round.min - r.min, q.round.max - r.min);
+        let round = [lo.x, lo.y, hi.x, hi.y];
+        let all = floats.into_iter().chain(tint).chain(pattern);
+        let all = all.chain(shape).chain(round);
         for f in all {
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
