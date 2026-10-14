@@ -7,8 +7,8 @@ use std::sync::Arc;
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_pdf::{LinkTarget, web_address};
-use mareader_session::{DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
-use mareader_settings::{LayoutSettings, StartupFit};
+use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
+use mareader_settings::{ColumnAlign, LayoutSettings, StartupFit, TextSettings};
 
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
@@ -367,10 +367,12 @@ pub struct PageLook {
     pub auto_resize: bool,
     /// The fit a document opens at.
     pub fit: Fit,
+    /// Where a book's vertical stream sits across the pane.
+    pub column: egui::Align,
 }
 
 impl PageLook {
-    pub fn new(layout: &LayoutSettings) -> Self {
+    pub fn new(layout: &LayoutSettings, text: &TextSettings) -> Self {
         Self {
             gap: if layout.no_gap { 0.0 } else { GAP },
             margin: layout.page_margin,
@@ -380,13 +382,18 @@ impl PageLook {
                 StartupFit::Page => Fit::Page,
                 StartupFit::Width => Fit::Width,
             },
+            column: match text.column_align {
+                ColumnAlign::Left => egui::Align::Min,
+                ColumnAlign::Center => egui::Align::Center,
+                ColumnAlign::Right => egui::Align::Max,
+            },
         }
     }
 }
 
 impl Default for PageLook {
     fn default() -> Self {
-        Self::new(&LayoutSettings::default())
+        Self::new(&LayoutSettings::default(), &TextSettings::default())
     }
 }
 
@@ -413,6 +420,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     view.ease = motion::zoom(&ctx);
     let frame = ui.max_rect();
     let sizes = doc.page_sizes();
+    // A book's vertical strip is a stream: each page cut to its text.
+    let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
     if ui.rect_contains_pointer(frame) {
         let (factor, pointer) = ctx.input(|i| (i.zoom_delta(), i.pointer.hover_pos()));
         if let (Some(p), true) = (pointer, factor != 1.0) {
@@ -428,6 +437,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     }
     let margin = if view.mode == ViewMode::Horizontal {
         MARGIN
+    } else if bands.is_some() {
+        // A stream's column never touches the pane's edge.
+        cx.page.margin.max(MARGIN)
     } else {
         cx.page.margin
     };
@@ -455,12 +467,25 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         inset: cx.top_inset,
         zoom: shown,
         focus: if view.mode.paged() { view.focus } else { 0 },
-        gap: cx.page.gap,
+        gap: if bands.is_some() { 0.0 } else { cx.page.gap },
         margin,
+        align: match bands {
+            Some(_) => cx.page.column,
+            None => egui::Align::Center,
+        },
     };
     let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
     if rebuilt {
-        let new = Layout::new(sizes, inputs);
+        let new = match bands {
+            Some(bands) => {
+                let cut = |b: &Band| PageSize {
+                    width: b.width,
+                    height: b.height,
+                };
+                Layout::new(&bands.iter().map(cut).collect::<Vec<_>>(), inputs)
+            }
+            None => Layout::new(sizes, inputs),
+        };
         match view.layout.take() {
             // Zooms and resizes keep the reading spot in place.
             Some(old) if view.reveal.is_none() && old.inputs.mode == view.mode => {
@@ -603,8 +628,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 origin: ui.max_rect().min,
                 zoom: layout.zoom(),
             };
-            // Blend's paper, under the shadows; the anchor joins its seams.
-            if let (Some(paper), Some(pass)) = (cx.paper, pass) {
+            // Blend's paper under the shadows; a stream always has its own.
+            let paper = cx.paper.or(bands.map(|_| Rgb(255, 255, 255)));
+            if let (Some(paper), Some(pass)) = (paper, pass) {
                 let tone = t.page.backdrop(paper.to_unit());
                 let quad = Quad::backdrop(frame, cx.corner, tone, anchor);
                 let shape = PagesCallback::shape(pass.clone(), frame, vec![quad.clone()]);
@@ -619,6 +645,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     continue;
                 };
                 let rect = rect.translate(origin).round_to_pixels(ppp);
+                let (rect, clip) = match bands.and_then(|b| b.get(page)) {
+                    Some(band) => streamed(rect, band, sizes.get(page), layout.zoom(), ppp),
+                    None => (rect, ui.clip_rect()),
+                };
+                let clip = clip.intersect(ui.clip_rect());
                 let plan = plan(page);
                 let look = pages.lookup(plan.base());
                 if wanted(page) && !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
@@ -628,8 +659,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
                 let round = (frame, cx.corner);
-                let style = (&t, cx.page.shadow);
-                paint_page(ui, (rect, anchor, round), look, style, &mut quads);
+                let style = (&t, cx.page.shadow && bands.is_none());
+                paint_page(ui, ((rect, clip), anchor, round), look, style, &mut quads);
                 if let Plan::Tiled {
                     backdrop,
                     tiling,
@@ -639,6 +670,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     let key = PageKey { scale, ..backdrop };
                     let tiles = Tiles {
                         page: rect,
+                        clip,
                         anchor,
                         tiling,
                         key,
@@ -876,6 +908,8 @@ fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usiz
 
 /// A tiled page's grid, drawn over its backdrop where tiles have arrived.
 struct Tiles {
+    /// What of the page shows: a stream cuts it to its band.
+    clip: Rect,
     page: Rect,
     anchor: Anchor,
     tiling: Tiling,
@@ -895,7 +929,7 @@ impl Tiles {
         let t = &self.tiling;
         let size = vec2(t.width as f32, t.height as f32);
         let to_screen = self.page.size() / size;
-        let clip = ui.clip_rect();
+        let clip = self.clip;
         for row in 0..t.rows() {
             for col in 0..t.cols() {
                 let Some([x, y, w, h]) = t.rect(col, row) else {
@@ -921,7 +955,8 @@ impl Tiles {
                     }
                     Some(PageTexture::Egui(h)) => {
                         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-                        ui.painter().image(h.id(), rect, uv, Color32::WHITE);
+                        let painter = ui.painter().with_clip_rect(clip);
+                        painter.image(h.id(), rect, uv, Color32::WHITE);
                     }
                     None => {
                         if let Some((demand, urgency)) = ask.as_mut()
@@ -936,17 +971,27 @@ impl Tiles {
     }
 }
 
+/// Glyphs may overhang the column a little: a hung hyphen, an italic.
+const STREAM_SLACK: f32 = 24.0;
+
+/// The whole page placed so `band` fills `cut`, and a clip to the band.
+fn streamed(cut: Rect, band: &Band, size: Option<&PageSize>, zoom: f32, ppp: f32) -> (Rect, Rect) {
+    let size = size.map_or(vec2(band.width, band.height), |s| vec2(s.width, s.height));
+    let min = cut.min - vec2(band.x, band.y) * zoom;
+    let page = Rect::from_min_size(min, size * zoom).round_to_pixels(ppp);
+    (page, cut.expand2(vec2(STREAM_SLACK * zoom, 0.0)))
+}
+
 /// What a page shows before it is drawn: a blank page, themed.
 fn blank(t: &Tokens) -> Color32 {
     let [r, g, b] = t.page.blank().map(|c| (c * 255.0).round() as u8);
     Color32::from_rgb(r, g, b)
 }
 
-/// Painters for the parts of the clip clear of `frame`'s round corners.
-fn clear_of_corners(ui: &Ui, (frame, radius): (Rect, f32)) -> Vec<egui::Painter> {
-    let clip = ui.clip_rect();
+/// Painters for the parts of `clip` clear of `frame`'s round corners.
+fn clear_of_corners(ui: &Ui, clip: Rect, (frame, radius): (Rect, f32)) -> Vec<egui::Painter> {
     if radius <= 0.0 {
-        return vec![ui.painter().clone()];
+        return vec![ui.painter().with_clip_rect(clip)];
     }
     let (f, r) = (frame, radius);
     let (top, bottom) = (f.top() + r, f.bottom() - r);
@@ -967,13 +1012,15 @@ fn clear_of_corners(ui: &Ui, (frame, radius): (Rect, f32)) -> Vec<egui::Painter>
 /// corners.
 pub(crate) fn paint_page(
     ui: &Ui,
-    (rect, anchor, round): (Rect, Anchor, (Rect, f32)),
+    ((rect, clip), anchor, round): ((Rect, Rect), Anchor, (Rect, f32)),
     look: Lookup,
     (t, shadow): (&Tokens, bool),
     quads: &mut Vec<Quad>,
 ) {
-    let painter = ui.painter();
-    let bands = clear_of_corners(ui, round);
+    // Shadows reach past the page; a cut page casts none.
+    let painter = ui.painter().with_clip_rect(clip);
+    let shade = clear_of_corners(ui, ui.clip_rect(), round);
+    let bands = clear_of_corners(ui, clip, round);
     // Themed pages match the gutter's paper; only this outlines them.
     if shadow {
         let lift = |offset, blur, alpha| egui::Shadow {
@@ -983,7 +1030,7 @@ pub(crate) fn paint_page(
             color: Color32::from_black_alpha(alpha),
         };
         // mareader's `0 1px 2px` and `0 8px 24px -6px` box shadows.
-        for band in &bands {
+        for band in &shade {
             band.add(lift(1, 2, 31).as_shape(rect, CornerRadius::ZERO));
             band.add(lift(8, 24, 56).as_shape(rect.shrink(6.0), CornerRadius::ZERO));
         }
@@ -991,12 +1038,7 @@ pub(crate) fn paint_page(
     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
     match look {
         Lookup::Sharp(PageTexture::Gpu(page)) | Lookup::Stale(PageTexture::Gpu(page)) => {
-            quads.push(Quad::page(
-                (rect, ui.clip_rect()),
-                Some(page),
-                t.page,
-                anchor,
-            ));
+            quads.push(Quad::page((rect, clip), Some(page), t.page, anchor));
         }
         // Without a GPU there is no page pass, so pages stay unthemed.
         Lookup::Sharp(PageTexture::Egui(h)) | Lookup::Stale(PageTexture::Egui(h)) => {
@@ -1007,7 +1049,7 @@ pub(crate) fn paint_page(
             for band in &bands {
                 band.rect_filled(rect, 0.0, blank(t));
             }
-            quads.push(Quad::page((rect, ui.clip_rect()), None, t.page, anchor));
+            quads.push(Quad::page((rect, clip), None, t.page, anchor));
         }
         Lookup::Failed => {
             for band in &bands {
@@ -1042,6 +1084,7 @@ mod tests {
             focus: 0,
             gap: GAP,
             margin: MARGIN,
+            align: egui::Align::Center,
         };
         Layout::new(&[LETTER; 20], inputs)
     }

@@ -158,6 +158,60 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
 }
 
 #[test]
+fn a_book_s_vertical_strip_streams_one_column_edge_to_edge() {
+    use mareader_ui::zoom::{Step, ZoomCommand};
+    let options = [
+        ("epub", "sample:6"),
+        ("book_layout", "true"),
+        ("column", "left"),
+    ];
+    let mut h = reader(&options);
+    let pane = h.state().active_pane();
+    let vertical = Some(mareader_ui::layout::ViewMode::Vertical);
+    assert_eq!(h.state().documents().mode(pane), vertical);
+    for _ in 0..8 {
+        h.state_mut()
+            .queue(Command::Zoom(ZoomCommand::Step(Step::Out)));
+    }
+    h.run();
+    // Each page's column, and where its band ends, on screen.
+    let columns = |h: &Harness<'static, MareaderApp>| {
+        let reading = h.state().documents().reading(pane);
+        let book = reading.map(|r| r.document);
+        let bands = book.as_ref().and_then(|d| d.bands()).unwrap_or(&[]);
+        let sheets = h.state().documents().sheets(pane);
+        let cut = |s: &mareader_ui::selection::Sheet| {
+            let b = bands.get(s.page)?;
+            let left = s.rect.left() + b.x * s.scale;
+            let top = s.rect.top() + b.y * s.scale;
+            Some((left, top, top + b.height * s.scale))
+        };
+        sheets.iter().filter_map(cut).collect::<Vec<_>>()
+    };
+    let cuts = columns(&h);
+    assert!(cuts.len() >= 3, "{cuts:?}");
+    for pair in cuts.windows(2) {
+        let [(left, _, bottom), (next_left, top, _)] = pair else {
+            continue;
+        };
+        // No gaps (sheets round alone), one column though book layout shifts.
+        assert!((bottom - top).abs() < 2.0, "{pair:?}");
+        assert!((left - next_left).abs() < 1.5, "{pair:?}");
+    }
+    let pane_left = h
+        .state()
+        .pane_rects()
+        .first()
+        .map_or(0.0, |(_, r)| r.left());
+    let left = cuts.first().map_or(0.0, |c| c.0);
+    assert!((left - pane_left - 16.0).abs() < 1.5, "{left} {pane_left}");
+    h.state_mut().set_option("column", "right").ok();
+    h.run();
+    let right = columns(&h).first().map_or(0.0, |c| c.0);
+    assert!(right > left + 50.0, "{right} > {left}");
+}
+
+#[test]
 fn the_fonts_tab_steps_the_size_and_switches_justification() {
     let mut h = reader(&[("epub", "sample:2")]);
     h.state_mut().set_option("settings", "fonts").ok();
