@@ -294,9 +294,12 @@ area = "B"
 tier = "P1"
 milestone = "M1"
 status = "shipped"
-evidence = ["crates/ui/tests/shell.rs::split_pane_outline_colour_comes_from_the_theme_tab"]
+evidence = [
+  "crates/ui/tests/shell.rs::split_pane_outline_colour_comes_from_the_theme_tab",
+  "crates/ui/tests/gpu.rs::pages_keep_inside_a_split_pane_s_round_corners",
+]
 reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/mod.rs"]
-notes = "Settings, Theme tab, while split: outline thickness and colour (palette or custom), gap, corners, shadow"
+notes = "Settings, Theme tab, while split: outline thickness and colour (palette or custom), gap, corners, shadow. Pages stay inside rounded corners"
 
 [[feature]]
 id = "workspace.independent-themes"
@@ -325,8 +328,10 @@ status = "shipped"
 evidence = [
   "crates/appearance/src/pane_looks.rs::grain_and_unowned_families_are_the_window_s",
   "crates/appearance/src/pane_looks.rs::a_new_texture_is_painted_and_unlike_the_taken",
+  "crates/appearance/src/pane_looks.rs::enabling_textures_paints_every_pane_unlike_the_others",
   "crates/ui/tests/shell.rs::the_popover_offers_pane_modes_only_while_split",
 ]
+notes = "Unlike mareader, the front pane gets a texture too when it has none (owner)"
 reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/theme.rs"]
 
 [[feature]]
@@ -926,8 +931,14 @@ title = "Theme changes without flashing"
 area = "F"
 tier = "P2"
 milestone = "M3"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/gpu.rs::a_mode_click_fades_from_the_old_look",
+  "crates/ui/tests/gpu.rs::with_animations_off_a_mode_click_lands_at_once",
+  "crates/appearance/src/model.rs::picks_leap_and_dial_steps_do_not",
+]
 reference = ["styles/components/title_bar.css"]
+notes = "mareader mutes transitions so a theme lands in one frame; here a pick (mode, preset, swatch, texture, grain, blend) also fades the old frame out over 0.2 s. Dials, Animations off and reduced motion stay instant"
 
 [[feature]]
 id = "type.fonts"
@@ -1106,9 +1117,9 @@ area = "J"
 tier = "P0"
 milestone = "M1"
 status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them", "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch", "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips"]
+evidence = ["crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them", "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch", "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips", "crates/ui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640"]
 reference = ["crates/reader-runtime/src/components/settings/modal.rs"]
-notes = "egui Modal with the tab strip; Layout, Theme, Animations and Workspace carry the settings that exist. Fonts appears with EPUB (M4); other rows join with their features"
+notes = "egui Modal with the tab strip; Layout, Theme, Animations and Workspace carry the settings that exist. Fonts appears with EPUB (M4); other rows join with their features. It takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640"
 
 [[feature]]
 id = "settings.migrate"
