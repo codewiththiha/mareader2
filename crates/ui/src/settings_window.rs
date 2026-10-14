@@ -15,6 +15,8 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
+mod fonts;
+
 /// Its size at most; below that, it takes [`SHARE`] of the window.
 pub const MAX_SIZE: Vec2 = vec2(760.0, 960.0);
 pub const SHARE: Vec2 = vec2(0.92, 0.86);
@@ -230,7 +232,7 @@ fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &m
         Tab::Layout => layout(ui, s, cx),
         Tab::Theme => theme_tab(ui, s, cx, out),
         Tab::Animations => animations(ui, s),
-        Tab::Fonts => pending(ui, "Typeface, size, spacing and margins for EPUBs (M4)."),
+        Tab::Fonts => fonts::tab(ui, &mut s.text),
         Tab::Vocabulary => pending(
             ui,
             "CEFR level highlighting and its word lists arrive with the study tools (M6).",

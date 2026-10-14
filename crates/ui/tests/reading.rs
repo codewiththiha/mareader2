@@ -1,6 +1,7 @@
 //! Opening and scrolling PDFs, headless, with jobs run between frames.
 
 use eframe::{App as _, Storage as _};
+use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui::app::LAST_DOCUMENT_KEY;
@@ -154,6 +155,29 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
     // The old book is closed, its pages with it.
     let (docs, _) = h.state().documents().stats();
     assert_eq!(docs, 1);
+}
+
+#[test]
+fn the_fonts_tab_steps_the_size_and_switches_justification() {
+    let mut h = reader(&[("epub", "sample:2")]);
+    h.state_mut().set_option("settings", "fonts").ok();
+    h.run_steps(3);
+    assert_eq!(h.state().settings().text.font_size, 17.0);
+    h.get_by_role_and_label(Role::Button, "More font size")
+        .click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings().text.font_size, 18.0);
+    let justify = "Full justification";
+    h.get_by_role_and_label(Role::CheckBox, justify)
+        .scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, justify).click();
+    h.run();
+    assert!(h.state().settings().text.justify);
+    // Four font slots, each a picker.
+    for slot in ["Font", "Serif font", "Sans-serif font", "Monospace font"] {
+        assert!(h.query_by_label(slot).is_some(), "{slot}");
+    }
 }
 
 fn sample(pages: usize) -> OpenRequest {
