@@ -215,8 +215,9 @@ fn margin_lines(image: &RgbaImage, ppp: f32, blank: i32) -> Vec<(f32, [u8; 4])> 
     let x = (MARGIN_PX.0 * ppp) as u32;
     let mut lines: Vec<(Vec<u32>, [u8; 4])> = Vec::new();
     let mut last = None;
-    // Below the gutter above page one, so no shadow joins in.
-    for y in (24.0 * ppp) as u32..image.height() {
+    // Clear of the gutter's shadow on top and the progress strip below.
+    let bottom = image.height().saturating_sub((12.0 * ppp) as u32);
+    for y in (24.0 * ppp) as u32..bottom {
         if luma(image, x, y) >= blank - 4 {
             continue;
         }
@@ -301,5 +302,30 @@ fn real_paper_grains_the_page_around_the_reference() -> Out {
         "grain mean {avg}, reference {want}"
     );
     assert!(spread > 0.5, "grain varies: {spread}");
+    Ok(())
+}
+
+#[test]
+fn rules_run_on_across_touching_pages() -> Out {
+    // 792 pt is no whole number of rules, so per-page rules would jar.
+    let opts = [("pdf", "sample:3"), ("texture", "lined"), ("gap", "false")];
+    let mut h = reader(&opts);
+    // Page one is about 1164 points tall: bring its seam on screen.
+    scroll(&mut h, 900.0);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let tone = h.state().settings().appearance.page_tone();
+    let blank = (tone.blank()[1] * 255.0).round() as i32;
+    let lines = margin_lines(&image, ppp, blank);
+    assert!(lines.len() >= 12, "{} lines", lines.len());
+    let gap = median_gap(&lines);
+    for w in lines.windows(2) {
+        let d = w[1].0 - w[0].0;
+        assert!(
+            (d - gap).abs() <= 1.5,
+            "a jarred rule at {}: {d} against {gap}",
+            w[1].0
+        );
+    }
     Ok(())
 }

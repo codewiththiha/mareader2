@@ -546,6 +546,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 jump_started = true;
             }
             let origin = ui.max_rect().min.to_vec2();
+            // One sheet under every page, so patterns run across seams.
+            let anchor = Anchor {
+                origin: ui.max_rect().min,
+                zoom: layout.zoom(),
+            };
             let shown = layout.visible(viewport);
             shown_pages = shown.clone();
             let mut quads = Vec::new();
@@ -562,8 +567,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 if wanted(page) && !texts.touch(doc_id, page) {
                     demand.push((Urgency::Text, Want::Text { doc: doc_id, page }));
                 }
-                let width = sizes.get(page).map_or(1.0, |s| s.width);
-                let anchor = Anchor::page(rect, width);
                 paint_page(ui, (rect, anchor), look, &t, cx.page.shadow, &mut quads);
                 if let Plan::Tiled {
                     backdrop,

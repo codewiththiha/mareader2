@@ -11,7 +11,9 @@
   - One `egui_wgpu` paint callback draws a page. It applies:
     - the filter matrices (`Appearance::page_filter`, at most `MAX_FILTER_OPS`);
     - the blend family (`page_blend`);
-    - the texture tile, anchored to the page;
+    - the texture, drawn on one sheet per pane rather than per page, so
+      patterns run across seams and mixed sizes (owner, 2026-10-14; mareader
+      anchored each page's pattern at its own corner);
     - the grain.
   - EPUB text is rasterised as a coverage mask; the pass colours it with the
     ink and paper uniforms. EPUB images are separate textures. Their filter

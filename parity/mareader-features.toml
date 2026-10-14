@@ -824,9 +824,10 @@ evidence = [
   "crates/appearance/src/pattern.rs::grain_tints_light_paper_faintly_darker",
   "crates/ui/tests/gpu.rs::lined_paper_rules_the_page_in_page_units",
   "crates/ui/tests/gpu.rs::real_paper_grains_the_page_around_the_reference",
+  "crates/ui/tests/gpu.rs::rules_run_on_across_touching_pages",
 ]
 reference = ["styles/textures.css", "styles/tokens.css"]
-notes = "PDF pages draw them in the page pass; EPUB pages reuse it in M4"
+notes = "One sheet per pane, so patterns run across pages (beyond mareader); EPUB in M4"
 
 [[feature]]
 id = "appearance.grain"
