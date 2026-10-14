@@ -13,6 +13,7 @@ workspace = true
 mareader-appearance = { workspace = true }
 mareader-workspace = { workspace = true }
 mareader-settings = { workspace = true }
+mareader-epub = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-session = { workspace = true }
 egui = { workspace = true }

@@ -243,7 +243,7 @@ impl MareaderApp {
     pub fn window_context(&self) -> WindowContext {
         WindowContext {
             split: self.tree.len() > 1,
-            reflowable: false,
+            reflowable: self.documents.reflowable(self.active),
             sideways: self
                 .documents
                 .reading(self.active)
@@ -332,15 +332,20 @@ impl MareaderApp {
                     .parse()
                     .map_err(|_| "workers: a count, 0 runs inline")?,
             ),
-            "pdf" => {
+            "pdf" | "epub" => {
                 let (kind, pages) = value.split_once(':').unwrap_or((value, ""));
-                let pages = pages.parse().unwrap_or(120);
-                let request = match kind {
-                    "sample" => OpenRequest::bytes(
+                let count = pages.parse().ok();
+                let pages = count.unwrap_or(120);
+                let request = match (key, kind) {
+                    ("epub", "sample") => OpenRequest::bytes(
+                        mareader_epub::sample::epub(count.unwrap_or(3), "A Mareader Book"),
+                        "sample.epub",
+                    ),
+                    (_, "sample") => OpenRequest::bytes(
                         mareader_pdf::sample::pdf(pages, "A Mareader Sample"),
                         "sample.pdf",
                     ),
-                    "scan" => OpenRequest::bytes(
+                    (_, "scan") => OpenRequest::bytes(
                         mareader_pdf::sample::scan(pages, "A Mareader Scan"),
                         "scan.pdf",
                     ),

@@ -4,10 +4,10 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use mareader_pdf::{Document, Paper, Raster, RenderError, TextLayer};
+use mareader_pdf::{Paper, Raster, RenderError, TextLayer};
 
 use crate::key::{DocId, PageKey, Part, Want};
-use crate::{OpenError, Source};
+use crate::{Document, OpenError, Source};
 
 /// Finished results wait here; past it, workers pause until a poll.
 const DONE_ITEMS: usize = 32;
@@ -244,7 +244,7 @@ fn finish(shared: &Shared, job: Job) {
     let out = match job {
         Job::Open { ticket, source } => Output::Opened {
             ticket,
-            result: source.read().and_then(|b| Ok(Document::open(b)?)),
+            result: source.read().and_then(Document::open),
         },
         Job::Work {
             want: Want::Raster(key),
