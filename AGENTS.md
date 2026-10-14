@@ -289,8 +289,9 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   3. `python3 tools/ci.py mode`, which detects RAM, cores and free disk.
 
   Say which mode you chose, and why, in the first report of a session.
-- **After a sandbox reset,** `python3 tools/ci.py cache restore` unpacks a
-  build that CI made, so local work there skips the cold build.
+- **After a sandbox reset,** and only if local work is wanted,
+  `python3 tools/ci.py cache restore` unpacks a build that CI made, so the
+  cold build is skipped. Run `cache build` only when restore finds none.
 
 ## Commits and pull requests
 

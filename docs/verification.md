@@ -27,9 +27,10 @@ on 2026-10-14:
 | CI, push to a red format job, digest included | 28 s |
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
-| `tools/ci.py cache restore` (1.7 GB at 8–17 MB/s, then unpack) | 3.7 min |
+| `tools/ci.py cache restore` (1.7 GB at 8–17 MB/s, then unpack) | 3.5 min |
 | The full local gates right after a restore (nothing compiles) | 11 s |
-| `tools/ci.py cache build`, in CI | 13.5 min |
+| `tools/ci.py cache build`, seeded from the previous cache | 2.5 min, plus changed crates |
+| `tools/ci.py cache build --cold`, from nothing | 13.5 min |
 
 So on such a machine the gates belong in CI, and on a workstation polling CI
 is a waste: the same checks already passed locally.
@@ -157,14 +158,34 @@ checked with shots.
 ## The sandbox cache
 
 After a sandbox reset, local mode would start with a 30-minute cold build.
-`python3 tools/ci.py cache build` has CI build everything the local gates
-build. `python3 tools/ci.py cache restore` downloads that build and unpacks
-it here, toolchain included.
+`python3 tools/ci.py cache restore` instead downloads a build that CI made of
+everything the local gates build, toolchain included, and unpacks it here.
+`python3 tools/ci.py cache build` refreshes that build.
+
+**Use it only when it is needed.** Each step costs minutes:
+
+- **Restore** only on a cold machine (after a reset) when local work is
+  wanted: local mode, or CI mode's hybrid loop. In plain CI mode nothing
+  compiles locally, so skip it. A warm machine never needs it.
+- **Build** only when `restore` reports no live cache, or `Cargo.lock`
+  changed a lot since the cache was made. An older cache is still worth
+  restoring: dependencies are reused, and only crates edited since then
+  recompile (seconds to a couple of minutes). Never build "just to be
+  fresh".
+- **`--cold`** only to move to a new toolchain or to drop accumulated
+  leftovers. The cache ships its own compiler, so it keeps the one it was
+  first built with until then.
 
 - **What is inside.** The `rustup` toolchain (with the wasm and macOS
   targets, clippy and rustfmt), the cargo registry and the full
   `target-mr` directory, packed with zstd. That is about 1.7 GB to
-  download and 7 GB unpacked; the artifact is kept for 7 days.
+  download and 7 GB unpacked; the artifact is kept for 30 days.
+- **Why a build takes minutes, not 13.** Normal CI jobs start from
+  GitHub's saved build and only compile our crates. That saved build sits
+  at other paths with other settings, so cargo cannot reuse it here. A
+  cold cache build therefore compiles all ~300 crates on one machine. A
+  normal cache build instead downloads the previous cache inside GitHub
+  (100 MB/s, about 30 s), compiles only what changed, and repacks.
 - **Why it can be reused.** Cargo keys its cache on absolute paths, the
   compiler version and the build profile. So the CI job clones the repo to
   `/home/user/mareader2` and uses `/home/user/.cache/{rustup,cargo,target-mr}`
@@ -174,10 +195,10 @@ it here, toolchain included.
   the runner turns it off (`CARGO_INCREMENTAL=0`). With it off, every
   workspace crate rebuilt after a restore, though no dependency did. The
   job sets `CARGO_INCREMENTAL=1` to match cargo's default here.
-- **Why nothing recompiles.** Cargo also compares file times. CI dates every
-  source file to its commit time before building. `restore` gives every file
-  that is unchanged since that commit the same date, so only crates you have
-  edited since recompile.
+- **Why nothing recompiles.** Cargo also compares file times. The cache
+  records every tracked file's time. `restore`, and the next cache build's
+  seed step, give each file that is unchanged since the cached commit its
+  recorded time back. So only crates edited since then recompile.
 - **When to use it.** A fresh sandbox where the user wants local mode, or
   CI mode with a warm cache for the hybrid loop. Rebuild the cache after
   `Cargo.lock` or the toolchain changes. A stale cache still works: only
