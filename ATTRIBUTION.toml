@@ -52,6 +52,17 @@ license_file = "assets/fonts/OFL-Literata.txt"
 sha256 = "d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465"
 usage = "Italics of the default reading face (crates/reflow/src/fonts.rs)"
 
+
+[[asset]]
+path = "assets/fonts/JetBrainsMono-Variable.ttf"
+title = "JetBrains Mono variable (wght)"
+author = "The JetBrains Mono Project Authors"
+source = "https://github.com/google/fonts/tree/6e4b84c976cadb3c49a40fd9a1c203e4f7fcf2da/ofl/jetbrainsmono"
+license = "OFL-1.1"
+license_file = "assets/fonts/OFL-JetBrainsMono.txt"
+sha256 = "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda"
+usage = "Monospace for EPUB pre and code (crates/reflow/src/fonts.rs)"
+
 [[bundled]]
 name = "Lucide icons 1.34.0"
 via = "egui-lucide 0.1.0 (crates.io), compiled into the binary"
