@@ -10,5 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+image = { workspace = true, features = ["jpeg", "gif", "webp"] }
 parley = { workspace = true }
+thiserror = { workspace = true }
 vello_cpu = { workspace = true }

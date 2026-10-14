@@ -10,11 +10,14 @@
 )]
 
 mod book;
+mod css;
 mod guard;
+mod href;
 pub mod sample;
 mod xhtml;
 
-pub use book::{Book, MAX_MARKUP};
+pub use book::{Book, MAX_MARKUP, MAX_PICTURE_BYTES};
+pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_TOTAL};
 pub use xhtml::MAX_DEPTH;
 
