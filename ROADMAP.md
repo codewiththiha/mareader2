@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1, M2 and M3 done; M4 (EPUB) is next.
+**Stage:** M1, M2 and M3 done; M4 (EPUB) in progress.
 **Parity:** 61.0 of 118 features (51.7 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -72,9 +72,21 @@ appearance effects to that same pass.
 | 5 | Presets UI and the appearance menu, finished | **done** | the palette: save the current look, hover a saved card to delete it; `save_preset=Owl/Evening open=appearance` in shots |
 | 6 | Independent pane themes and textures | **done** | split, then the palette's two switches or Settings › Workspace; `panes=2 independent=true` in shots |
 
+## M4 slices
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | Open an EPUB: rbook reads the spine and title; headings, paragraphs and emphasis set by parley in bundled Literata and Inter on mareader's A4 page, cut between lines; vello_cpu draws pages that the page pass themes like PDF pages | **done** | open any `.epub`; `epub=sample:3` in shots |
+| 2 | The XHTML subset: lists, quotes, pre, basic tables, rules, inline code, images and the cover, the small CSS subset | planned | |
+| 3 | Typography: mareader's text settings, system and bundled faces, size, weight, spacing, indent, justify, hyphenation (hypher); the Fonts tab; re-pagination keeps the reading place | planned | |
+| 4 | Reflow view modes: spread with book gutters, horizontal strip, vertical stream with column alignment; zoom never re-paginates | planned | |
+| 5 | Navigation: table of contents in the outline (the active entry follows), links inside the book and out, position anchors, resume | planned | |
+| 6 | Selection and copy over parley's clusters; ink contrast | planned | |
+| 7 | Hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested | planned | |
+
 ## Next
 
-1. **M4:** plan the EPUB slices, starting from ADR 0002's open questions.
+1. **M4 slice 2:** the XHTML subset, images and the cover.
 
 ## Open questions for the owner
 
@@ -84,7 +96,7 @@ appearance effects to that same pass.
   a Mac (docs/packaging.md § Checking it on a Mac).
 
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
-  drawing, reading fonts).
+  drawing, reading fonts). Answered by slice 1; see the ADR's answers.
 
 ## Progress log
 
@@ -125,3 +137,4 @@ appearance effects to that same pass.
 | 2026-10-14 | M3 slice 5, the appearance menu finished, as mareader's popover: presets in sections (Classic, then the user's, unsectioned ones under Custom); Save current look with a name and an optional section, offering the sections in use; a hover × deletes the user's own. Cards are real small pages: the page pass draws their paper with the preset's texture at mareader's 0.34 scale, and the grain pass, given a rounded mask and a tile scale, grains them four times finer, crawling when Animated. The hue reads out in degrees with mareader's seven landmarks; texture and grain sliders stay in place but inert while off; grain switched on at 0 % starts at 25 %; the popover scrolls past min(70 % of the window, 512 points) |
 | 2026-10-14 | M3 slice 6, M3 closed: independent themes and textures for split panes, as mareader's. While split, the palette offers "Texture for each" and "Independent theme for each"; Settings › Workspace holds both and "Light, Dark and Dim change every pane". Turning a mode on keeps the front pane's look and gives every other pane a hue in the widest gap between those showing (strength 35 if untinted) or a texture no other pane shows; a pane split later starts from its elder's look, made distinct; the palette edits the active pane, grain stays the window's, and a shared base switch moves every pane. The looks are not saved: closing to one pane hands the survivor's look to the window. The logic is `mareader_appearance::PaneLooks`, fitted once a frame to the routing and panes rather than hooked into each command; each pane draws with its own tokens and egui visuals, its own blend paper while it has its own colour, and the chrome keeps the window's. Fixed on the way: a light paper tinted past strength ~15 came out pure white (sRGB has no chroma at full lightness, and the fallback squeezed it there), now it darkens the allowed 0.06 and keeps the tint. `perf.shared-documents` was built in M2 slice 1 and is now marked shipped |
 | 2026-10-14 | M3 follow-ups (owner). Texture for each now paints every pane, the front one too when it has none; a pane that has a texture keeps it, and no two match. Pages stay inside a split pane's round corners: each page quad carries its pane's rounded rect into the page pass, which covers pixels against it as the backdrop's already did, the glass strips included; egui's blank-page fill and page shadows paint clear of the four corner boxes. The settings window takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640. Theme changes cross-fade: a pick (mode, preset, swatch, texture, grain, blend) is held while eframe snaps the old frame, then lands as the snap fades out over 0.2 s, as the web's view transitions do. Dials stay instant (a held pointer or a step under 15 strength or 30 degrees never fades), as do Animations off, reduced motion, no GPU, and changes queued by tests, shots or the system; a snap that never comes lands the change after four frames. Shot keys `corners=rounded` and `pane_gap=N` |
+| 2026-10-14 | M4 slice 1: `crates/reflow` (L1) sets blocks with parley in bundled Literata (reading) and Inter (headings), cuts pages between lines (headings keep their next two lines; no lone first or last line), and draws with hayro's vello_cpu 0.3. `crates/epub` (L2) checks the zip directory against size caps, reads the spine with rbook and the XHTML with html5ever's tokenizer and its own tag stack. The session's `Document` is PDF or EPUB behind one set of calls; files open by content. EPUB layout units are CSS px shown as points, so 17 px text is 17 points at 100 % |

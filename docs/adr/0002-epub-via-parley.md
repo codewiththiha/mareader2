@@ -39,6 +39,15 @@
      ourselves at hypher points.
   2. Glyph-run drawing in vello_cpu 0.3 for parley output (font data handoff).
   3. Bundled reading faces: which OFL families, with ATTRIBUTION entries.
+- **Answers from M4 slice 1 (2026-10-14):**
+  1. parley breaks at U+00AD but draws no hyphen: the soft hyphen shapes to a
+     zero-width blank. Slice 3 draws the hyphen at lines that end in one.
+  2. The handoff is direct: parley's `FontData` is peniko's, and each glyph
+     run goes to `RenderContext::glyph_run` with its size and variation
+     coordinates (`NormalizedCoord::to_bits`).
+  3. Literata (variable weight and optical size, roman and italic) for
+     reading, Inter for headings, both OFL and in ATTRIBUTION.toml. Only
+     bundled faces load for now, so layout is identical everywhere.
 - **Consequences:** EPUB pages are textures like PDF pages (ADR 0003). Search,
   selection and gloss use parley cluster geometry. The CSS subset is ours to
   grow; anything outside it degrades to plain flow and never fails.

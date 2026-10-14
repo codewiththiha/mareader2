@@ -9,6 +9,7 @@
     clippy::indexing_slicing
 )]
 
+mod document;
 mod key;
 mod pool;
 
@@ -16,8 +17,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
-pub use mareader_pdf::{Document, PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
+pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
 
 use pool::{Output, Pool};
 
@@ -72,6 +74,8 @@ pub enum OpenError {
     Unreadable(String),
     #[error(transparent)]
     Pdf(#[from] mareader_pdf::OpenError),
+    #[error(transparent)]
+    Epub(#[from] mareader_epub::OpenError),
 }
 
 /// Names one `open` call, to match its `Event::Opened`.

@@ -63,5 +63,12 @@ description = "PDF document"
 mime-type = "application/pdf"
 role = "viewer"
 
+[[package.metadata.packager.file-associations]]
+extensions = ["epub"]
+name = "EPUB Book"
+description = "EPUB electronic book"
+mime-type = "application/epub+zip"
+role = "viewer"
+
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"

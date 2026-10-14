@@ -82,17 +82,6 @@ impl OpenRequest {
             .and_then(mareader_pdf::file_stem)
             .unwrap_or_else(|| "document".into())
     }
-
-    fn is_epub(&self) -> bool {
-        let path = match &self.source {
-            Source::Path(p) => p.to_str(),
-            Source::Bytes(_) => None,
-        };
-        self.name
-            .as_deref()
-            .or(path)
-            .is_some_and(|n| n.to_lowercase().ends_with(".epub"))
-    }
 }
 
 #[derive(Debug)]
@@ -194,10 +183,6 @@ impl Documents {
 
     /// Starts opening into `pane`; a refusal comes back as a note.
     pub fn open(&mut self, ctx: &Context, pane: PaneId, request: OpenRequest) -> Option<Toast> {
-        if request.is_epub() {
-            let note = "EPUB books aren't supported yet; open a PDF for now.";
-            return Some(Toast::info(note));
-        }
         let mut request = request;
         // One spelling per file, so two panes on it share one parse.
         if let Source::Path(p) = &request.source
@@ -549,6 +534,15 @@ impl Documents {
             Content::Pdf(v) => Some(v.visible.clone()),
             Content::Opening { .. } => None,
         }
+    }
+
+    /// Whether `pane` shows a book whose text reflows.
+    pub fn reflowable(&self, pane: PaneId) -> bool {
+        let Some(Content::Pdf(v)) = self.panes.get(&pane) else {
+            return false;
+        };
+        let entry = self.session.as_ref().and_then(|s| s.get(v.doc));
+        entry.is_some_and(|e| e.doc.is_reflowable())
     }
 
     pub fn page_count(&self, pane: PaneId) -> Option<usize> {

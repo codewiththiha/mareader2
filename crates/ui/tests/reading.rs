@@ -99,13 +99,29 @@ fn a_broken_file_says_why_and_leaves_the_pane_empty() {
 }
 
 #[test]
-fn an_epub_is_turned_away_kindly_for_now() {
+fn an_epub_opens_titled_with_its_pages_drawn() {
+    let h = reader(&[("epub", "sample:3")]);
+    assert_eq!(h.state().title(), "A Mareader Book");
+    let pane = h.state().active_pane();
+    let pages = h.state().documents().page_count(pane);
+    // Three chapters, each opening a page and running onto another.
+    assert!(pages.is_some_and(|n| n >= 6), "{pages:?}");
+    assert!(h.state().window_context().reflowable);
+    let (docs, drawn) = h.state().documents().stats();
+    assert_eq!((docs, drawn), (1, visible(&h).len() + 1));
+}
+
+#[test]
+fn a_broken_epub_says_why() {
     let mut h = reader(&[]);
-    let book = OpenRequest::bytes(vec![0; 8], "Dune.epub");
+    let book = OpenRequest::bytes(b"PK\x03\x04 not really".to_vec(), "Dune.epub");
     h.state_mut().queue(Command::Open(book));
     h.run_steps(3);
     let toast = h.state().toast().map(|t| t.message.clone());
-    assert!(toast.is_some_and(|t| t.contains("EPUB")));
+    assert!(
+        toast.as_ref().is_some_and(|t| t.contains("EPUB")),
+        "{toast:?}"
+    );
 }
 
 fn sample(pages: usize) -> OpenRequest {
