@@ -66,7 +66,7 @@ impl TextureMode {
     }
 }
 
-/// Film grain: off, static, or re-seeded every frame.
+/// Film grain: off, still, or crawling in eight steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NoiseMode {
