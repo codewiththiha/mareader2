@@ -1,8 +1,8 @@
 //! Either format behind one set of calls, so views never ask which.
 use std::sync::Arc;
 
-use mareader_epub::Book;
-use mareader_pdf::Tiling;
+use mareader_epub::{Book, Destination};
+use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, Paper, Raster, RenderError, SAMPLE_SIDE, TextLayer};
 use mareader_reflow::{Anchor, Typography};
 
@@ -11,7 +11,12 @@ use crate::OpenError;
 /// An open document. An EPUB's layout unit shows as one point.
 pub enum Document {
     Pdf(mareader_pdf::Document),
-    Epub { book: Book, sizes: Vec<PageSize> },
+    Epub {
+        book: Book,
+        sizes: Vec<PageSize>,
+        /// The contents on this setting's pages.
+        outline: Vec<OutlineEntry>,
+    },
 }
 
 impl std::fmt::Debug for Document {
@@ -35,7 +40,20 @@ impl Document {
     fn epub(book: Book) -> Self {
         let (width, height) = book.page_size();
         let sizes = vec![PageSize { width, height }; book.page_count()];
-        Self::Epub { book, sizes }
+        let outline = book
+            .toc()
+            .iter()
+            .map(|e| OutlineEntry {
+                title: e.title.clone(),
+                page: book.locate(e.at),
+                depth: u8::try_from(e.depth).unwrap_or(u8::MAX).min(MAX_DEPTH),
+            })
+            .collect();
+        Self::Epub {
+            book,
+            sizes,
+            outline,
+        }
     }
 
     /// The same book in other type; none for a PDF or on failure.
@@ -91,7 +109,7 @@ impl Document {
     pub fn outline(&self) -> &[OutlineEntry] {
         match self {
             Self::Pdf(d) => d.outline(),
-            Self::Epub { .. } => &[],
+            Self::Epub { outline, .. } => outline,
         }
     }
 
@@ -139,12 +157,32 @@ impl Document {
         draw(book, page, tiling.scale, rect)
     }
 
-    /// Page `page`'s characters and links; an EPUB's come later.
+    /// Page `page`'s characters and links; an EPUB's text comes later.
     pub fn text_layer(&self, page: usize) -> Result<TextLayer, RenderError> {
-        match self {
-            Self::Pdf(d) => d.text_layer(page),
-            Self::Epub { .. } => self.size(page).map(|_| TextLayer::default()),
-        }
+        let book = match self {
+            Self::Pdf(d) => return d.text_layer(page),
+            Self::Epub { book, .. } => book,
+        };
+        self.size(page)?;
+        let links = book.links(page).into_iter().filter_map(|l| {
+            let target = match l.to {
+                Destination::Page(page) => LinkTarget::Page(page),
+                // The same schemes a PDF's links may use.
+                Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
+            };
+            let [x, y, w, h] = l.rect;
+            let bounds = Bounds {
+                x0: x,
+                y0: y,
+                x1: x + w,
+                y1: y + h,
+            };
+            Some(Link { bounds, target })
+        });
+        Ok(TextLayer {
+            links: links.collect(),
+            ..TextLayer::default()
+        })
     }
 
     /// Page `page`'s paper colour, read from a small drawing of it.
