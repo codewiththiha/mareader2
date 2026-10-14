@@ -9,6 +9,10 @@ use crate::model::{Appearance, TextureMode};
 pub const LINE_PITCH: f32 = 26.0;
 /// Dots repeat every 8 units.
 pub const DOT_PITCH: f32 = 8.0;
+/// The grain repeats every 180 units, as mareader's tile does.
+pub const GRAIN_TILE: f32 = 180.0;
+/// Every pattern repeats after this, so far coordinates can wrap.
+pub const PATTERN_PERIOD: f32 = 4680.0;
 /// Grain noise per unit (`feTurbulence baseFrequency`).
 pub const GRAIN_FREQUENCY: f32 = 0.65;
 /// The noise layer's own opacity in mareader's grain tile.
@@ -106,6 +110,15 @@ mod tests {
 
     fn close(a: [f32; 3], b: [f32; 3]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.004)
+    }
+
+    #[test]
+    fn the_wrap_period_holds_whole_repeats_of_every_pattern() {
+        for pitch in [LINE_PITCH, DOT_PITCH, GRAIN_TILE] {
+            assert_eq!(PATTERN_PERIOD % pitch, 0.0, "{pitch}");
+        }
+        // The grain's noise cells tile too: 117 per tile.
+        assert!((GRAIN_TILE * GRAIN_FREQUENCY - 117.0).abs() < 1e-3);
     }
 
     #[test]

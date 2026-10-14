@@ -105,22 +105,23 @@ fn hash(p: vec2<i32>, seed: u32) -> f32 {
     return f32(h) / 4294967295.0;
 }
 
-// Smooth value noise, -1..1.
-fn value_noise(p: vec2<f32>, seed: u32) -> f32 {
+// Smooth value noise, -1..1, repeating every `cells`.
+fn value_noise(p: vec2<f32>, cells: i32, seed: u32) -> f32 {
     let i = vec2<i32>(floor(p));
     let f = fract(p);
     let u = f * f * (3.0 - 2.0 * f);
-    let a = hash(i, seed);
-    let b = hash(i + vec2<i32>(1, 0), seed);
-    let c = hash(i + vec2<i32>(0, 1), seed);
-    let d = hash(i + vec2<i32>(1, 1), seed);
+    let n = vec2<i32>(cells);
+    let a = hash(((i % n) + n) % n, seed);
+    let b = hash(((i + vec2<i32>(1, 0)) % n + n) % n, seed);
+    let c = hash(((i + vec2<i32>(0, 1)) % n + n) % n, seed);
+    let d = hash(((i + vec2<i32>(1, 1)) % n + n) % n, seed);
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;
 }
 
-// Two octaves like feTurbulence's, 0..1, averaging out when minified.
+// feTurbulence-like octaves, 0..1, tiling every 180 units, minified to grey.
 fn turbulence(p: vec2<f32>, fw: f32, seed: u32) -> f32 {
     let q = p * 0.65;
-    let n = value_noise(q, seed) + 0.5 * value_noise(q * 2.0, seed + 7u);
+    let n = value_noise(q, 117, seed) + 0.5 * value_noise(q * 2.0, 234, seed + 7u);
     let g = clamp((n + 1.0) * 0.5, 0.0, 1.0);
     return mix(g, 0.5, clamp(fw * 0.65 - 0.5, 0.0, 1.0));
 }

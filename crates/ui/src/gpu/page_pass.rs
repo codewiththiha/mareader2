@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use eframe::egui_wgpu::{self, CallbackResources, ScreenDescriptor, wgpu};
 use egui::{Color32, Pos2, Rect};
-use mareader_appearance::{Blend, MAX_FILTER_OPS, PageTone, TextureMode};
+use mareader_appearance::{Blend, MAX_FILTER_OPS, PATTERN_PERIOD, PageTone, TextureMode};
 use wgpu::util::DeviceExt as _;
 
 /// A page raster on the GPU, ready to bind.
@@ -24,11 +24,11 @@ pub struct Quad {
     pub texture: Option<Arc<GpuPage>>,
     /// Its pane's theme; fills keep [`PageTone::NONE`].
     pub tone: PageTone,
-    /// Where its page's texture starts, so tiles continue one pattern.
+    /// Where its pattern starts: one per pane, so pages share one sheet.
     pub anchor: Anchor,
 }
 
-/// A page's top-left on screen, and its points per page point.
+/// A pattern's origin on screen, and its points per page point.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
     pub origin: Pos2,
@@ -394,10 +394,10 @@ pub(super) fn instances(device: &wgpu::Device, quads: &[Quad], area: Rect) -> wg
         let r = q.rect;
         let floats = [x(r.left()), y(r.top()), x(r.right()), y(r.bottom())];
         let (a, p) = (q.anchor, &q.tone.pattern);
-        // Pattern units: page points over the user's scale.
-        let unit = |v: Pos2| (v - a.origin) / (a.zoom * p.scale).max(1e-3);
-        let (lo, hi) = (unit(r.min), unit(r.max));
-        let pattern = [lo.x, lo.y, hi.x, hi.y, p.line_width(a.zoom)];
+        let lo = sheet(r.min - a.origin, a.zoom * p.scale);
+        let size = r.size() / (a.zoom * p.scale).max(1e-3);
+        let (x, y) = (lo[0], lo[1]);
+        let pattern = [x, y, x + size.x, y + size.y, p.line_width(a.zoom)];
         for f in floats.into_iter().chain(tint).chain(pattern) {
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
@@ -407,6 +407,14 @@ pub(super) fn instances(device: &wgpu::Device, quads: &[Quad], area: Rect) -> wg
         contents: &bytes,
         usage: wgpu::BufferUsages::VERTEX,
     })
+}
+
+/// Units at `offset` from the origin, wrapped where every pattern repeats.
+fn sheet(offset: egui::Vec2, points_per_unit: f32) -> [f32; 2] {
+    // In f64, so a page a million points down keeps its strokes crisp.
+    let k = f64::from(points_per_unit.max(1e-3));
+    let wrap = |v: f32| (f64::from(v) / k).rem_euclid(f64::from(PATTERN_PERIOD)) as f32;
+    [wrap(offset.x), wrap(offset.y)]
 }
 
 /// Scissor in a target of `px` pixels spanning `area`; none if empty.
