@@ -46,6 +46,16 @@ impl Decl {
     fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+
+    /// `self` over `under`: what `self` leaves unset comes from `under`.
+    fn over(self, under: Self) -> Self {
+        Self {
+            italic: self.italic.or(under.italic),
+            bold: self.bold.or(under.bold),
+            align: self.align.or(under.align),
+            hidden: self.hidden.or(under.hidden),
+        }
+    }
 }
 
 fn italic(v: &str) -> Option<bool> {
@@ -80,6 +90,8 @@ struct Rule {
     tag: Option<String>,
     class: Option<String>,
     decl: Decl,
+    /// Where it last appeared among the sheet's rules.
+    order: usize,
 }
 
 impl Rule {
@@ -88,12 +100,21 @@ impl Rule {
     }
 }
 
-/// One stylesheet's usable rules, indexed by tag and by class.
+/// One stylesheet's usable rules, one per selector, indexed by it.
 #[derive(Default)]
 pub struct Stylesheet {
     rules: Vec<Rule>,
-    by_tag: HashMap<String, Vec<usize>>,
-    by_class: HashMap<String, Vec<usize>>,
+    by_tag: HashMap<String, usize>,
+    by_class: HashMap<String, ByClass>,
+    /// Rules seen, repeats included.
+    seen: usize,
+}
+
+/// A class's rules: `.class`, and `tag.class` by tag.
+#[derive(Default)]
+struct ByClass {
+    any: Option<usize>,
+    tags: HashMap<String, usize>,
 }
 
 impl std::fmt::Debug for Stylesheet {
@@ -129,20 +150,46 @@ impl Stylesheet {
         sheet
     }
 
+    /// A repeated selector merges into its rule, later values winning.
     fn add(&mut self, selector: &str, decl: Decl) {
-        if self.rules.len() >= MAX_RULES {
-            return;
-        }
         let Some((tag, class)) = simple_selector(selector) else {
             return;
         };
+        let order = self.seen;
+        self.seen += 1;
+        let slot = match (&tag, &class) {
+            (Some(t), None) => self.by_tag.get(t),
+            (None, Some(c)) => self.by_class.get(c).and_then(|b| b.any.as_ref()),
+            (Some(t), Some(c)) => self.by_class.get(c).and_then(|b| b.tags.get(t)),
+            (None, None) => return,
+        };
+        if let Some(rule) = slot.copied().and_then(|at| self.rules.get_mut(at)) {
+            rule.decl = decl.over(rule.decl);
+            rule.order = order;
+            return;
+        }
+        if self.rules.len() >= MAX_RULES {
+            return;
+        }
         let at = self.rules.len();
         match (&tag, &class) {
-            (Some(t), _) => self.by_tag.entry(t.clone()).or_default().push(at),
-            (None, Some(c)) => self.by_class.entry(c.clone()).or_default().push(at),
+            (Some(t), None) => {
+                self.by_tag.insert(t.clone(), at);
+            }
+            (None, Some(c)) => self.by_class.entry(c.clone()).or_default().any = Some(at),
+            (Some(t), Some(c)) => {
+                let by = self.by_class.entry(c.clone()).or_default();
+                by.tags.insert(t.clone(), at);
+            }
             (None, None) => return,
         }
-        self.rules.push(Rule { tag, class, decl });
+        let rule = Rule {
+            tag,
+            class,
+            decl,
+            order,
+        };
+        self.rules.push(rule);
     }
 
     /// Calls `found(specificity, order, decl)` for each matching rule.
@@ -153,13 +200,10 @@ impl Stylesheet {
         found: &mut impl FnMut(u8, usize, Decl),
     ) {
         let by_class = classes.iter().filter_map(|c| self.by_class.get(*c));
-        for &at in self.by_tag.get(tag).into_iter().chain(by_class).flatten() {
-            let Some(rule) = self.rules.get(at) else {
-                continue;
-            };
-            let class_ok = rule.class.as_deref().is_none_or(|c| classes.contains(&c));
-            if class_ok {
-                found(rule.specificity(), at, rule.decl);
+        let by_class = by_class.flat_map(|b| b.any.into_iter().chain(b.tags.get(tag).copied()));
+        for at in self.by_tag.get(tag).copied().into_iter().chain(by_class) {
+            if let Some(rule) = self.rules.get(at) {
+                found(rule.specificity(), rule.order, rule.decl);
             }
         }
     }
@@ -290,5 +334,24 @@ mod tests {
         assert_eq!(decls(&sheet, "p", &[]).len(), 1);
         assert!(decls(&sheet, "q", &[]).is_empty());
         let _ = Stylesheet::parse("}}}{{{ ; @ { /* ");
+    }
+
+    #[test]
+    fn repeated_selectors_merge_so_each_element_meets_few_rules() {
+        let sheet = Stylesheet::parse(
+            "p { font-style: italic; text-align: center } .x { font-weight: bold }\n\
+             p { text-align: right }",
+        );
+        let found = decls(&sheet, "p", &["x"]);
+        // The two `p` rules merge, the later alignment winning.
+        assert_eq!(found.len(), 2);
+        let p = found.first().copied().unwrap_or_default();
+        assert_eq!((p.italic, p.align), (Some(true), Some(Align::End)));
+        // Thousands of rules, but one per selector an element can match.
+        let mut css = "p { font-style: italic }".repeat(5000);
+        css.extend((0..5000).map(|i| format!("t{i}.c {{ font-weight: bold }}")));
+        let sheet = Stylesheet::parse(&css);
+        assert_eq!(decls(&sheet, "p", &["c"]).len(), 1);
+        assert_eq!(decls(&sheet, "t7", &["c"]).len(), 1);
     }
 }
