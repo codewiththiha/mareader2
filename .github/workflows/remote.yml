@@ -1,0 +1,170 @@
+name: Remote
+# The id lets tools/ci.py find the run it dispatched.
+run-name: ${{ inputs.task }} ${{ inputs.sha }} ${{ inputs.id }}
+
+# CI mode's on-demand jobs (docs/verification.md); none gates a merge.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: shots, web or cache
+        required: true
+        type: choice
+        options: [shots, web, cache]
+      sha:
+        description: Commit to use (default the dispatched ref)
+        default: ""
+      shots:
+        description: "One shot per line: NAME key=value ..."
+        default: ""
+      id:
+        description: Request id from tools/ci.py
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  shots:
+    name: Remote / shots
+    if: inputs.task == 'shots'
+    runs-on: ubuntu-latest
+    # The same env as CI's test job, so its cache restores here.
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
+      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers
+      - name: Render
+        env:
+          SHOTS: ${{ inputs.shots }}
+        run: |
+          set -f
+          mkdir -p shots
+          cargo build -q -p mareader-ui --example shot
+          while IFS= read -r line; do
+            read -r name args <<< "$line" || true
+            [ -z "${name:-}" ] && continue
+            case "$name" in *[!A-Za-z0-9._-]*) echo "bad name: $name"; exit 1 ;; esac
+            echo "::group::$name $args"
+            target/debug/examples/shot "shots/$name.png" $args
+            echo "::endgroup::"
+          done <<< "$SHOTS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shots
+          path: shots/
+          retention-days: 3
+          if-no-files-found: error
+
+  web:
+    name: Remote / web
+    if: inputs.task == 'web'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: web
+      - name: wasm-bindgen, the version Cargo.lock pins
+        run: |
+          v=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
+          dir="wasm-bindgen-$v-x86_64-unknown-linux-musl"
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$v/$dir.tar.gz" \
+            | tar -xz --strip-components=1 -C "$HOME/.cargo/bin" "$dir/wasm-bindgen"
+      - run: OUT=web bash tools/web.sh
+      - name: Screenshot in headless Chrome
+        continue-on-error: true
+        run: |
+          python3 -m http.server -d web 8080 >/dev/null 2>&1 &
+          npx -y playwright screenshot --channel chrome --viewport-size "1200, 800" \
+            --wait-for-timeout 10000 http://localhost:8080/ web/preview.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: web/
+          retention-days: 3
+
+  cache:
+    name: Remote / sandbox cache
+    if: inputs.task == 'cache'
+    runs-on: ubuntu-latest
+    # The sandbox's paths and profile: cargo's cache is keyed on both.
+    env:
+      RUSTUP_HOME: /home/user/.cache/rustup
+      CARGO_HOME: /home/user/.cache/cargo
+      CARGO_TARGET_DIR: /home/user/.cache/target-mr
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      REPO_DIR: /home/user/mareader2
+    steps:
+      - name: Clone at the sandbox's path
+        run: |
+          sudo mkdir -p /home/user && sudo chown "$USER" /home/user
+          git clone -q "https://github.com/${{ github.repository }}" "$REPO_DIR"
+          git -C "$REPO_DIR" checkout -q "${{ inputs.sha || github.sha }}"
+          # Commit-dated sources; restore dates the sandbox's alike.
+          cd "$REPO_DIR"
+          t=$(git log -1 --format=%ct)
+          git ls-files -z | xargs -0 touch -h -d "@$t"
+      - name: Toolchain
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path \
+            --profile minimal -c clippy,rustfmt \
+            -t wasm32-unknown-unknown,aarch64-apple-darwin
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+      - name: Build what the gates build
+        working-directory: /home/user/mareader2
+        run: |
+          cargo clippy -q --workspace --all-targets -- -D warnings
+          cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings
+          cargo clippy -q -p mareader --target aarch64-apple-darwin -- -D warnings
+          cargo clippy -q -p mareader --target aarch64-apple-darwin \
+            --no-default-features -- -D warnings
+          cargo test -q --workspace --no-run
+          cargo build -q -p mareader-ui --example shot
+          cargo xtask layers && cargo xtask assets && cargo xtask unsafe
+      - name: Pack
+        working-directory: /home/user/mareader2
+        run: |
+          mkdir -p /home/user/out
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess
+          git = lambda *a: subprocess.check_output(["git", *a], text=True).strip()
+          meta = {
+              "sha": git("rev-parse", "HEAD"),
+              "time": int(git("log", "-1", "--format=%ct")),
+              "rustc": subprocess.check_output(["rustc", "-V"], text=True).strip(),
+              "lock": hashlib.sha256(open("Cargo.lock", "rb").read()).hexdigest(),
+              "root": "/home/user/.cache",
+              "repo_dir": os.environ["REPO_DIR"],
+              "dirs": ["rustup", "cargo", "target-mr"],
+          }
+          json.dump(meta, open("/home/user/out/meta.json", "w"), indent=2)
+          print(json.dumps(meta, indent=2))
+          PY
+          du -sh /home/user/.cache/*
+          tar -C /home/user/.cache --exclude=cargo/registry/cache -cf - \
+            rustup cargo target-mr | zstd -q -T0 -10 -o /home/user/out/sandbox-cache.tar.zst
+          ls -l /home/user/out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-cache
+          path: /home/user/out/
+          compression-level: 0
+          retention-days: 7
