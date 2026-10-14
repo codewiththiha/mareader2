@@ -197,9 +197,9 @@ impl Session {
         self.typesetting.remove(&id);
     }
 
-    /// Re-sets open books when `text` changes them; each sends a `Retypeset`.
-    pub fn set_text(&mut self, text: &mareader_settings::TextSettings) {
-        let typo = typography(text);
+    /// Re-sets books when text or Column Width change; each sends `Retypeset`.
+    pub fn set_text(&mut self, text: &mareader_settings::TextSettings, column_pct: f32) {
+        let typo = typography(text, column_pct);
         if *self.typography == typo {
             return;
         }

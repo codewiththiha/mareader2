@@ -414,6 +414,10 @@ impl MareaderApp {
             }
             "justify" => self.settings.text.justify = value == "true",
             "theme_pictures" => self.settings.text.theme_pictures = value == "true",
+            "column_width" => {
+                let pct = value.parse().map_err(|_| "column_width: %")?;
+                self.settings.layout.column_width_pct = pct;
+            }
             "hyphenate" => self.settings.text.hyphenation = value == "true",
             "book_layout" => self.settings.text.book_layout = value == "true",
             "column" => {
@@ -896,7 +900,8 @@ impl eframe::App for MareaderApp {
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
-        self.documents.set_text(&self.settings.text);
+        let column = self.settings.layout.column_width_pct;
+        self.documents.set_text(&self.settings.text, column);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
         keymap::read(&ctx, self.platform, &mut commands);

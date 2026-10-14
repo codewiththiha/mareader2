@@ -582,6 +582,38 @@ fn open_appearance(h: &mut Harness<'static, MareaderApp>) {
 }
 
 #[test]
+fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
+    let mut h = reader(&[("epub", "sample:6")]);
+    let pane = h.state().active_pane();
+    let measure = |h: &Harness<'static, MareaderApp>| {
+        let reading = h.state().documents().reading(pane);
+        let width = reading
+            .as_ref()
+            .and_then(|r| r.document.page_sizes().first().map(|s| s.width));
+        (
+            width.unwrap_or(0.0),
+            reading.map_or(0, |r| r.document.page_count()),
+        )
+    };
+    let (width, pages) = measure(&h);
+    h.state_mut().set_option("settings", "layout").ok();
+    h.run_steps(3);
+    let slider = h.get_by_label("Column width");
+    slider.scroll_to_me();
+    h.run();
+    h.state_mut().set_option("column_width", "140").ok();
+    h.run();
+    let (wider, fewer) = measure(&h);
+    assert!(wider > width * 1.3, "{wider} vs {width}");
+    assert!(fewer < pages, "{fewer} vs {pages}");
+    // A PDF's pages are its own: no dial.
+    let mut h = reader(&[("pdf", "sample:3")]);
+    h.state_mut().set_option("settings", "layout").ok();
+    h.run_steps(3);
+    assert!(h.query_by_label("Column width").is_none());
+}
+
+#[test]
 fn the_fonts_tab_switches_a_book_s_pictures_to_the_theme() {
     let mut h = reader(&[("epub", "sample:2")]);
     h.state_mut().set_option("settings", "fonts").ok();
