@@ -209,3 +209,97 @@ fn dark_pages_show_light_ink_on_dark_paper() -> Out {
     assert!(ink > 500, "{ink} light ink pixels");
     Ok(())
 }
+
+/// Darker runs down the margin column: each line's centre and darkest pixel.
+fn margin_lines(image: &RgbaImage, ppp: f32, blank: i32) -> Vec<(f32, [u8; 4])> {
+    let x = (MARGIN_PX.0 * ppp) as u32;
+    let mut lines: Vec<(Vec<u32>, [u8; 4])> = Vec::new();
+    let mut last = None;
+    // Below the gutter above page one, so no shadow joins in.
+    for y in (24.0 * ppp) as u32..image.height() {
+        if luma(image, x, y) >= blank - 4 {
+            continue;
+        }
+        let px = image.get_pixel(x, y).0;
+        match lines.last_mut() {
+            Some((rows, darkest)) if last == Some(y - 1) => {
+                rows.push(y);
+                let [r, g, b, _] = *darkest;
+                let old = (i32::from(r) * 2126 + i32::from(g) * 7152 + i32::from(b) * 722) / 10_000;
+                if luma(image, x, y) < old {
+                    *darkest = px;
+                }
+            }
+            _ => lines.push((vec![y], px)),
+        }
+        last = Some(y);
+    }
+    let centre = |rows: &[u32]| rows.iter().sum::<u32>() as f32 / rows.len().max(1) as f32;
+    lines.iter().map(|(rows, d)| (centre(rows), *d)).collect()
+}
+
+fn median_gap(lines: &[(f32, [u8; 4])]) -> f32 {
+    let mut gaps: Vec<f32> = lines.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    gaps.sort_by(f32::total_cmp);
+    gaps.get(gaps.len() / 2).copied().unwrap_or(0.0)
+}
+
+#[test]
+fn lined_paper_rules_the_page_in_page_units() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("texture", "lined")]);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let tone = h.state().settings().appearance.page_tone();
+    let p = tone.pattern;
+    let to_u8 = |c: [f32; 3]| c.map(|c| (c * 255.0).round() as i32);
+    let blank = to_u8(tone.blank());
+    let lines = margin_lines(&image, ppp, blank[1]);
+    assert!(lines.len() >= 8, "{} lines", lines.len());
+    let gap = median_gap(&lines);
+    for w in lines.windows(2) {
+        let d = w[1].0 - w[0].0;
+        assert!((d - gap).abs() <= 1.5, "uneven rules: {d} against {gap}");
+    }
+    // A fully covered pixel is the reference's stroke over the paper.
+    let want = to_u8(p.over(tone.blank(), p.stroke));
+    let off = |px: [u8; 4]| (0..3).map(|i| (i32::from(px[i]) - want[i]).abs()).max();
+    let best = lines.iter().map(|l| off(l.1)).min().flatten();
+    assert!(best <= Some(3), "darkest rule {best:?} from {want:?}");
+    // Twice the scale, twice the pitch: the rules follow the page.
+    let mut wide = reader(&[
+        ("pdf", "sample:3"),
+        ("texture", "lined"),
+        ("texture_scale", "200"),
+    ]);
+    let image = wide.render()?;
+    let wider = median_gap(&margin_lines(&image, ppp, blank[1]));
+    assert!(
+        (wider - 2.0 * gap).abs() <= 2.0,
+        "{wider} against twice {gap}"
+    );
+    Ok(())
+}
+
+#[test]
+fn real_paper_grains_the_page_around_the_reference() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("texture", "paper")]);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let p = h.state().settings().appearance.page_tone();
+    let mean = p.pattern.over(p.blank(), p.pattern.grain_layer(0.5, 0.5));
+    let want = (mean[1] * 255.0).round() as f64;
+    let (x0, y0) = ((20.0 * ppp) as u32, (200.0 * ppp) as u32);
+    let block: Vec<f64> = (y0..y0 + 60)
+        .flat_map(|y| (x0..x0 + 40).map(move |x| (x, y)))
+        .map(|(x, y)| f64::from(image.get_pixel(x, y).0[1]))
+        .collect();
+    let n = block.len() as f64;
+    let avg = block.iter().sum::<f64>() / n;
+    let spread = (block.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt();
+    assert!(
+        (avg - want).abs() <= 3.0,
+        "grain mean {avg}, reference {want}"
+    );
+    assert!(spread > 0.5, "grain varies: {spread}");
+    Ok(())
+}

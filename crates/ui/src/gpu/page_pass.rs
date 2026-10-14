@@ -3,8 +3,8 @@
 use std::sync::{Arc, OnceLock};
 
 use eframe::egui_wgpu::{self, CallbackResources, ScreenDescriptor, wgpu};
-use egui::{Color32, Rect};
-use mareader_appearance::{Blend, MAX_FILTER_OPS, PageTone};
+use egui::{Color32, Pos2, Rect};
+use mareader_appearance::{Blend, MAX_FILTER_OPS, PageTone, TextureMode};
 use wgpu::util::DeviceExt as _;
 
 /// A page raster on the GPU, ready to bind.
@@ -24,6 +24,25 @@ pub struct Quad {
     pub texture: Option<Arc<GpuPage>>,
     /// Its pane's theme; fills keep [`PageTone::NONE`].
     pub tone: PageTone,
+    /// Where its page's texture starts, so tiles continue one pattern.
+    pub anchor: Anchor,
+}
+
+/// A page's top-left on screen, and its points per page point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub origin: Pos2,
+    pub zoom: f32,
+}
+
+impl Anchor {
+    /// The page drawn in `rect`, `width` page points wide.
+    pub fn page(rect: Rect, width: f32) -> Self {
+        Self {
+            origin: rect.min,
+            zoom: rect.width() / width.max(1e-3),
+        }
+    }
 }
 
 impl Quad {
@@ -34,23 +53,33 @@ impl Quad {
             tint: colour,
             texture: None,
             tone: PageTone::NONE,
+            anchor: Anchor {
+                origin: rect.min,
+                zoom: 1.0,
+            },
         }
     }
 
-    /// A page raster, themed by `tone`.
-    pub fn page(rect: Rect, clip: Rect, texture: Arc<GpuPage>, tone: PageTone) -> Self {
+    /// A page raster, or a blank page while none is drawn, themed by `tone`.
+    pub fn page(
+        (rect, clip): (Rect, Rect),
+        texture: Option<Arc<GpuPage>>,
+        tone: PageTone,
+        anchor: Anchor,
+    ) -> Self {
         Self {
             rect,
             clip,
             tint: Color32::WHITE,
-            texture: Some(texture),
+            texture,
             tone,
+            anchor,
         }
     }
 }
 
 /// Bytes of one tone in the shader's `Tone` struct.
-const TONE_BYTES: u64 = (MAX_FILTER_OPS as u64 * 3 + 2) * 16;
+const TONE_BYTES: u64 = (MAX_FILTER_OPS as u64 * 3 + 5) * 16;
 
 /// One draw's tones on the GPU, each once, and which one each quad uses.
 pub(super) struct Tones {
@@ -117,8 +146,22 @@ fn tone_bytes(tone: &PageTone) -> Vec<u8> {
         Some(Blend::SoftLight) => 3,
     };
     let count = tone.count.min(MAX_FILTER_OPS) as u32;
-    for word in [count, blend, 0, 0] {
+    let p = &tone.pattern;
+    let texture = match p.mode {
+        TextureMode::None => 0u32,
+        TextureMode::Paper => 1,
+        TextureMode::Lined => 2,
+        TextureMode::Grid => 3,
+        TextureMode::Dotted => 4,
+        TextureMode::Cross => 5,
+    };
+    let grain = if p.grain_blend == Blend::Screen { 2 } else { 1 };
+    for word in [count, blend, texture, grain] {
         bytes.extend_from_slice(&word.to_ne_bytes());
+    }
+    let tail = p.stroke.into_iter().chain(p.grain);
+    for f in tail.chain([p.opacity, 0.0, 0.0, 0.0]) {
+        bytes.extend_from_slice(&f.to_ne_bytes());
     }
     bytes
 }
@@ -140,7 +183,7 @@ pub struct PagePass {
 /// Raster bytes per pixel; RGBA8 throughout.
 const TEXEL: u32 = 4;
 /// Per instance: a clip-space rect, then a tint.
-const INSTANCE: u64 = 8 * 4;
+const INSTANCE: u64 = 13 * 4;
 
 impl PagePass {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
@@ -199,7 +242,9 @@ impl PagePass {
                     buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: INSTANCE,
                         step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4],
+                        attributes: &wgpu::vertex_attr_array![
+                            0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32
+                        ],
                     })],
                 },
                 primitive: wgpu::PrimitiveState {
@@ -348,7 +393,12 @@ pub(super) fn instances(device: &wgpu::Device, quads: &[Quad], area: Rect) -> wg
         let tint = q.tint.to_array().map(|c| f32::from(c) / 255.0);
         let r = q.rect;
         let floats = [x(r.left()), y(r.top()), x(r.right()), y(r.bottom())];
-        for f in floats.into_iter().chain(tint) {
+        let (a, p) = (q.anchor, &q.tone.pattern);
+        // Pattern units: page points over the user's scale.
+        let unit = |v: Pos2| (v - a.origin) / (a.zoom * p.scale).max(1e-3);
+        let (lo, hi) = (unit(r.min), unit(r.max));
+        let pattern = [lo.x, lo.y, hi.x, hi.y, p.line_width(a.zoom)];
+        for f in floats.into_iter().chain(tint).chain(pattern) {
             bytes.extend_from_slice(&f.to_ne_bytes());
         }
     }

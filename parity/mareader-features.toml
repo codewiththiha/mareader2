@@ -818,8 +818,15 @@ title = "Paper, lined, grid, dotted and cross textures with opacity and scale, m
 area = "F"
 tier = "P0"
 milestone = "M3"
-status = "planned"
-reference = ["styles/textures.css"]
+status = "shipped"
+evidence = [
+  "crates/appearance/src/pattern.rs::strokes_stay_between_half_a_pixel_and_two_and_a_half",
+  "crates/appearance/src/pattern.rs::grain_tints_light_paper_faintly_darker",
+  "crates/ui/tests/gpu.rs::lined_paper_rules_the_page_in_page_units",
+  "crates/ui/tests/gpu.rs::real_paper_grains_the_page_around_the_reference",
+]
+reference = ["styles/textures.css", "styles/tokens.css"]
+notes = "PDF pages draw them in the page pass; EPUB pages reuse it in M4"
 
 [[feature]]
 id = "appearance.grain"

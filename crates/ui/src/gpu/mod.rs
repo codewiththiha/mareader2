@@ -9,7 +9,7 @@ use eframe::egui_wgpu::{self, wgpu};
 use mareader_session::Raster;
 
 pub use glass::{Glass, Look, MAX_SLOTS, Reach};
-pub use page_pass::{GpuPage, PagePass, PagesCallback, Quad};
+pub use page_pass::{Anchor, GpuPage, PagePass, PagesCallback, Quad};
 
 /// The renderer's device and queue, plus our pipelines for it.
 #[derive(Clone, Debug)]

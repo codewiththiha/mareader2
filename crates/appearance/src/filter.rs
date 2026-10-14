@@ -1,6 +1,7 @@
 //! The page colour pipeline as matrices; the GPU pass is tested against it.
 
 use crate::model::{Appearance, BaseMode};
+use crate::pattern::Pattern;
 
 /// The page shader's uniform array has exactly this many slots.
 pub const MAX_FILTER_OPS: usize = 7;
@@ -174,6 +175,7 @@ impl Appearance {
             count: ops.len().min(MAX_FILTER_OPS),
             blend: Some(self.page_blend()),
             paper: [p.0, p.1, p.2].map(|c| f32::from(c) / 255.0),
+            pattern: self.pattern(),
         }
     }
 
@@ -198,6 +200,8 @@ pub struct PageTone {
     pub blend: Option<Blend>,
     /// sRGB-encoded, 0..1.
     pub paper: [f32; 3],
+    /// The texture laid over the themed page.
+    pub pattern: Pattern,
 }
 
 impl PageTone {
@@ -211,6 +215,7 @@ impl PageTone {
         count: 0,
         blend: None,
         paper: [1.0; 3],
+        pattern: Pattern::NONE,
     };
 
     /// One opaque page colour themed: the oracle for the shader.

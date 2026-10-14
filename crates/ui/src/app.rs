@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use eframe::Storage;
 use egui::{Context, ViewportCommand};
-use mareader_appearance::{Appearance, BaseMode, builtin_presets};
+use mareader_appearance::{Appearance, BaseMode, TextureMode, builtin_presets};
 use mareader_settings::{MotionSettings, Settings};
 use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
@@ -280,6 +280,19 @@ impl MareaderApp {
                 self.settings.appearance = p
                     .ok_or("preset: sepia, green, night, parchment, cinema")?
                     .appearance;
+            }
+            "texture" => {
+                let mode = TextureMode::ALL.into_iter().find(|m| {
+                    let id = format!("{m:?}");
+                    id.eq_ignore_ascii_case(value)
+                });
+                let hint = "texture: none, paper, lined, grid, dotted, cross";
+                self.settings.appearance.texture = mode.ok_or(hint)?;
+            }
+            "texture_scale" => {
+                let scale = value.parse().map_err(|_| "texture_scale: 25 to 400")?;
+                self.settings.appearance.texture_scale = scale;
+                self.settings.appearance.sanitize();
             }
             "platform" => {
                 self.platform = Platform::parse(value).ok_or("platform: mac, windows or gnome")?
