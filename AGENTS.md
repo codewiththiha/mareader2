@@ -271,6 +271,27 @@ Scope builds and tests to the crates you touched, under a `timeout`. The full
 workspace sweep (`cargo xtask ci`) is CI's job; run it locally only when the
 machine is free.
 
+## Where the gates run: local mode or CI mode
+
+The gates are the same everywhere; only where they run differs. Details,
+numbers and the full loop are in [docs/verification.md](docs/verification.md).
+
+- **Local mode** (a capable machine): run the gates here, push when green,
+  and **don't poll CI**. It repeats checks that already passed.
+- **CI mode** (a sandbox or a low-end machine): compile nothing locally.
+  Push a `<type>/<slug>` branch, then run `python3 tools/ci.py watch` until
+  the verdict; merge into `main` once it is green. Take screenshots with
+  `python3 tools/ci.py shots`, never with a local wasm build and browser.
+- **Choosing**, highest precedence first:
+  1. The user's explicit word, in either direction ("use CI" on a fast
+     machine, "build locally" on a slow one).
+  2. `MAREADER_VERIFY=local|ci`.
+  3. `python3 tools/ci.py mode`, which detects RAM, cores and free disk.
+
+  Say which mode you chose, and why, in the first report of a session.
+- **After a sandbox reset,** `python3 tools/ci.py cache restore` unpacks a
+  build that CI made, so local work there skips the cold build.
+
 ## Commits and pull requests
 
 - Conventional commits: `type(scope): summary`, imperative, lower case, no
