@@ -70,6 +70,9 @@ pub fn crawl(secs: f64) -> ([f32; 2], f64) {
     (offset, (at.floor() + 1.0 - at) * step)
 }
 
+/// Scales the noise to feTurbulence's deviation, measured at 0.117.
+const NOISE_SPREAD: f32 = 0.25;
+
 /// The noise tile's colour and alpha at point `p`, each 0..1.
 pub fn layer(p: [f32; 2]) -> [f32; 4] {
     let q = p.map(|v| v * NOISE_FREQUENCY);
@@ -79,7 +82,7 @@ pub fn layer(p: [f32; 2]) -> [f32; 4] {
         let seed = 11 + seed * 31;
         let fine = q.map(|v| v * 2.0);
         let n = value_noise(q, cells, seed) + 0.5 * value_noise(fine, cells * 2, seed + 7);
-        *c = ((n + 1.0) * 0.5).clamp(0.0, 1.0);
+        *c = (0.5 + n * NOISE_SPREAD).clamp(0.0, 1.0);
     }
     out
 }
@@ -182,7 +185,8 @@ mod tests {
             let spread =
                 (v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / v.len() as f32).sqrt();
             assert!((mean - 0.5).abs() < 0.05, "channel {c} mean {mean}");
-            assert!(spread > 0.08, "channel {c} spread {spread}");
+            // feTurbulence's fractalNoise here deviates by 0.117.
+            assert!((spread - 0.117).abs() < 0.02, "channel {c} spread {spread}");
         }
         let coloured = samples.iter().any(|[r, g, ..]| (r - g).abs() > 0.1);
         assert!(coloured, "the channels differ");
