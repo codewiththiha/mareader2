@@ -730,6 +730,17 @@ evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapte
 notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title, language and the OPF cover (M4 slices 1-2); EPUB 2 with an NCX and a meta cover, proved on Project Gutenberg's The Raven (slice 7). The author isn't read yet: nothing shows it"
 
 [[feature]]
+id = "epub.text-files"
+title = "Open Markdown and plain text, converted to EPUB"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "shipped"
+evidence = ["crates/epub/tests/convert.rs::the_raven_as_text_finds_its_headings_wrapped_prose_and_verse", "crates/epub/tests/convert.rs::the_river_notes_open_with_chapters_links_a_note_and_a_picture", "crates/epub/src/convert/tests.rs::text_decodes_from_its_bom_utf_8_or_a_guessed_legacy_encoding", "crates/epub/src/convert/tests.rs::markdown_takes_its_title_author_and_language_from_front_matter", "crates/session/src/tests.rs::markdown_and_text_open_by_name_as_converted_books", "crates/session/src/tests.rs::a_markdown_file_s_pictures_are_read_from_beside_it"]
+reference = ["crates/txt-core/src/parser.rs", "crates/md-core/src/metadata.rs", "crates/md-core/src/outline.rs", "crates/reader-core/src/format.rs"]
+notes = "mareader's .txt/.text and .md/.markdown/.mdown open as EPUBs built in memory, so every EPUB setting applies (docs/epub.md). Markdown: GitHub's flavour, front matter title and author, a chapter per # heading, local pictures packed. Text: blank, indent or line paragraphs, wrapped prose joined, verse kept, headings found, legacy encodings guessed"
+
+[[feature]]
 id = "epub.layout"
 title = "XHTML subset laid out with parley and paginated by real line heights"
 area = "E"
