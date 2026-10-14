@@ -7,7 +7,7 @@
   python3 tools/ci.py watch --detach       # in the background; --tail, --stop
   python3 tools/ci.py shots "grid texture=grid gap=false" "dark theme=dark"
   python3 tools/ci.py web                  # the browser preview, built + screenshot
-  python3 tools/ci.py cache build          # a sandbox build cache for HEAD
+  python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
 
 Exit code: 0 green, 1 red, 2 not finished yet.
@@ -493,22 +493,17 @@ def web(args) -> int:
 def cache_build(args) -> int:
     token = token_from(args)
     sha = pushed_sha(args.repo, token, args.rev)
-    run = follow(args.repo, token, dispatch(args.repo, token, "cache", sha),
+    cold = "true" if args.cold else "false"
+    run = follow(args.repo, token, dispatch(args.repo, token, "cache", sha, cold=cold),
                  args.timeout, args.poll)
     return 0 if run.conclusion == "success" else 1
 
 
-def newest_cache(repo: str, token: str) -> tuple[Run, dict]:
-    payload = api(token, f"/repos/{repo}/actions/workflows/{REMOTE}/runs"
-                         "?status=success&per_page=50")
-    for item in (payload or {}).get("workflow_runs", []):
-        if not item.get("display_title", "").startswith("cache "):
-            continue
-        arts = api(token, f"/repos/{repo}/actions/runs/{item['id']}/artifacts")
-        for art in (arts or {}).get("artifacts", []):
-            if art["name"] == "sandbox-cache" and not art["expired"]:
-                return Run.of(item), art
-    raise SystemExit("no live sandbox cache; make one: python3 tools/ci.py cache build")
+def newest_cache(repo: str, token: str) -> dict | None:
+    """The newest unexpired sandbox cache artifact, if any."""
+    payload = api(token, f"/repos/{repo}/actions/artifacts?name=sandbox-cache&per_page=20")
+    live = [a for a in (payload or {}).get("artifacts", []) if not a["expired"]]
+    return max(live, key=lambda a: a["created_at"]) if live else None
 
 
 def ensure_zstd() -> None:
@@ -528,13 +523,23 @@ def cache_restore(args) -> int:
         raise SystemExit("downloading needs a token: --token-file or $GITHUB_TOKEN")
     started = time.time()
     if args.run:
-        run = Run.of(api(token, f"/repos/{args.repo}/actions/runs/{args.run}"))
-        art = artifact(args.repo, token, run.id, "sandbox-cache")
+        art = artifact(args.repo, token, args.run, "sandbox-cache")
     else:
-        run, art = newest_cache(args.repo, token)
-    log(f"== sandbox cache from run {run.id} ({run.title.split()[1][:9] if run.title else '?'}), "
+        art = newest_cache(args.repo, token)
+        if art is None:
+            raise SystemExit("no live sandbox cache; make one: python3 tools/ci.py cache build")
+    meta = fetch_cache(token, art, "/home/user/.cache", args.force)
+    if meta["repo_dir"] != git("rev-parse", "--show-toplevel"):
+        log(f"  warning: the cache was built at {meta['repo_dir']}; cargo will rebuild")
+    log(f"restored in {time.time() - started:.0f}s; workspace crates edited since "
+        f"{meta['sha'][:9]} recompile, dependencies do not")
+    return 0
+
+
+def fetch_cache(token: str, art: dict, root: str, force: bool) -> dict:
+    """Download a sandbox cache, unpack it, and redate the sources."""
+    log(f"== sandbox cache {art['id']} from {art['created_at']}, "
         f"{art['size_in_bytes'] >> 20} MB")
-    root = "/home/user/.cache"
     os.makedirs(os.path.join(root, "tmp"), exist_ok=True)
     zip_path = os.path.join(root, "tmp", "sandbox-cache.zip")
     need = art["size_in_bytes"] * 4
@@ -546,7 +551,7 @@ def cache_restore(args) -> int:
         meta = json.loads(zf.read("meta.json"))
         root = meta["root"]
         present = [d for d in meta["dirs"] if os.path.exists(os.path.join(root, d))]
-        if present and not args.force:
+        if present and not force:
             raise SystemExit(f"{', '.join(present)} already exist under {root}: this "
                              "machine is warm already; --force replaces them")
         for d in present:
@@ -560,11 +565,24 @@ def cache_restore(args) -> int:
         if tar.wait() != 0:
             raise SystemExit("tar failed; the cache is incomplete, delete it and retry")
     os.unlink(zip_path)
-    log(f"  {redate(meta)} unchanged source files dated to {meta['sha'][:9]}")
-    if meta["repo_dir"] != git("rev-parse", "--show-toplevel"):
-        log(f"  warning: the cache was built at {meta['repo_dir']}; cargo will rebuild")
-    log(f"restored in {time.time() - started:.0f}s; workspace crates edited since "
-        f"{meta['sha'][:9]} recompile, dependencies do not")
+    log(f"  {redate(meta)} unchanged source files dated as at {meta['sha'][:9]}")
+    return meta
+
+
+def cache_seed(args) -> int:
+    """In the cache job: start from the newest cache, not from nothing.
+    Never fails the job; a cold build is the fallback."""
+    token = token_from(args)
+    try:
+        art = newest_cache(args.repo, token)
+        if art is None:
+            log("no live sandbox cache: building cold")
+            return 0
+        fetch_cache(token, art, "/home/user/.cache", force=True)
+    except (SystemExit, OSError, zipfile.BadZipFile) as exc:
+        log(f"seeding failed ({exc}): building cold")
+        for d in ("rustup", "cargo", "target-mr"):
+            shutil.rmtree(os.path.join("/home/user/.cache", d), ignore_errors=True)
     return 0
 
 
@@ -580,10 +598,13 @@ def redate(meta: dict) -> int:
     except subprocess.CalledProcessError:
         log("  cached commit unknown here: every crate recompiles")
         return 0
+    # Per-file times since seeding; older caches dated all to the commit.
+    times = meta.get("mtimes", {})
     count = 0
     for path in git("ls-files").splitlines():
         if path not in changed and os.path.isfile(path) and not os.path.islink(path):
-            os.utime(path, (meta["time"], meta["time"]))
+            t = times.get(path, meta["time"])
+            os.utime(path, (t, t))
             count += 1
     return count
 
@@ -687,7 +708,10 @@ def main() -> int:
     s.add_argument("spec", nargs="+", help='"NAME key=value ...", the shot example\'s keys')
     wb = sub.add_parser("web", help="build the browser preview in CI and download it")
     c = sub.add_parser("cache", help="a sandbox build cache made by CI")
-    c.add_argument("action", choices=["build", "restore"])
+    c.add_argument("action", choices=["build", "restore", "seed"],
+                   help="seed is the cache job's own first step")
+    c.add_argument("--cold", action="store_true",
+                   help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
     c.add_argument("--force", action="store_true", help="replace an existing cache")
     for p in (w, s, wb, c):
@@ -711,6 +735,8 @@ def main() -> int:
         return shots(args)
     if args.cmd == "web":
         return web(args)
+    if args.action == "seed":
+        return cache_seed(args)
     return cache_build(args) if args.action == "build" else cache_restore(args)
 
 

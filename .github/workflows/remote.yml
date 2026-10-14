@@ -20,9 +20,15 @@ on:
       id:
         description: Request id from tools/ci.py
         default: ""
+      cold:
+        description: Cache from nothing, not from the last cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  # The cache job starts from the previous cache artifact.
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -120,15 +126,20 @@ jobs:
           sudo mkdir -p /home/user && sudo chown "$USER" /home/user
           git clone -q "https://github.com/${{ github.repository }}" "$REPO_DIR"
           git -C "$REPO_DIR" checkout -q "${{ inputs.sha || github.sha }}"
-          # Commit-dated sources; restore dates the sandbox's alike.
-          cd "$REPO_DIR"
-          t=$(git log -1 --format=%ct)
-          git ls-files -z | xargs -0 touch -h -d "@$t"
+      # Only what changed since the last cache compiles: minutes, not 12.
+      - name: Seed from the last cache
+        if: ${{ !inputs.cold }}
+        working-directory: /home/user/mareader2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/ci.py --repo "${{ github.repository }}" cache seed
       - name: Toolchain
         run: |
-          curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path \
-            --profile minimal -c clippy,rustfmt \
-            -t wasm32-unknown-unknown,aarch64-apple-darwin
+          if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
+            curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path \
+              --profile minimal -c clippy,rustfmt \
+              -t wasm32-unknown-unknown,aarch64-apple-darwin
+          fi
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Build what the gates build
         working-directory: /home/user/mareader2
@@ -156,9 +167,12 @@ jobs:
               "root": "/home/user/.cache",
               "repo_dir": os.environ["REPO_DIR"],
               "dirs": ["rustup", "cargo", "target-mr"],
+              # Restore gives unchanged files these times back.
+              "mtimes": {f: int(os.stat(f).st_mtime)
+                         for f in git("ls-files").splitlines() if os.path.isfile(f)},
           }
           json.dump(meta, open("/home/user/out/meta.json", "w"), indent=2)
-          print(json.dumps(meta, indent=2))
+          print({k: v for k, v in meta.items() if k != "mtimes"})
           PY
           du -sh /home/user/.cache/*
           tar -C /home/user/.cache --exclude=cargo/registry/cache -cf - \
@@ -169,4 +183,4 @@ jobs:
           name: sandbox-cache
           path: /home/user/out/
           compression-level: 0
-          retention-days: 7
+          retention-days: 30
