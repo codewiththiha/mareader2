@@ -2,7 +2,8 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, PageIndicatorStyle, PaperArea, Settings, StartupFit, Swatch,
+    Corners, FloatingLabelStyle, LayoutSettings, PageIndicatorStyle, PaperArea, Settings,
+    StartupFit, Swatch,
 };
 
 use egui::{
@@ -386,6 +387,20 @@ fn page_rows(ui: &mut Ui, s: &mut Settings, cx: &WindowContext) {
         });
     });
     divider(ui);
+    // A book's measure; its pages grow and shrink with it.
+    if cx.reflowable {
+        row(ui, "Column width", "How wide a book's text runs", |ui| {
+            ui.spacing_mut().slider_width = 140.0;
+            let (lo, hi) = LayoutSettings::COLUMN_PCT;
+            ui.add(
+                egui::Slider::new(&mut l.column_width_pct, lo..=hi)
+                    .step_by(5.0)
+                    .fixed_decimals(0)
+                    .suffix(" %"),
+            );
+        });
+        divider(ui);
+    }
     switch_row(
         ui,
         "Auto scale",

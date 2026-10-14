@@ -343,7 +343,7 @@ fn a_book_s_contents_and_links_follow_its_setting() -> Out {
     let web = |t: &LinkTarget| matches!(t, LinkTarget::Web(u) if u.contains("github.com"));
     assert!(targets.iter().any(web), "{targets:?}");
     // Bigger type: the chapter, and the link to it, move on.
-    s.set_text(&sized(30.0));
+    s.set_text(&sized(30.0), 100.0);
     let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
     let (_, new, _) = swaps(&events).first().copied().ok_or("no swap")?;
     let doc = s.get(new).map(|e| Arc::clone(&e.doc)).ok_or("no entry")?;
@@ -394,9 +394,9 @@ fn new_type_sets_open_books_again_once_and_leaves_pdfs() -> Out {
     let pdf = open_sample(&mut s, 2, "Paper")?;
     let book = open_epub(&mut s, 4)?;
     // A quick second change replaces the first; a repeat is free.
-    s.set_text(&sized(22.0));
-    s.set_text(&sized(26.0));
-    s.set_text(&sized(26.0));
+    s.set_text(&sized(22.0), 100.0);
+    s.set_text(&sized(26.0), 100.0);
+    s.set_text(&sized(26.0), 100.0);
     let mut events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
     while s.pending() > 0 {
         events.extend(s.poll(ALL));
@@ -418,7 +418,7 @@ fn a_book_opened_in_old_type_is_set_again() -> Out {
     let mut s = inline();
     let bytes = Arc::new(mareader_epub::sample::epub(2, "Book"));
     s.open(Source::Bytes(bytes), None);
-    s.set_text(&sized(24.0));
+    s.set_text(&sized(24.0), 100.0);
     let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
     let opened = events.iter().find_map(|e| match e {
         Event::Opened { result: Ok(id), .. } => Some(*id),

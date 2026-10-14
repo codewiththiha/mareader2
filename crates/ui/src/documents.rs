@@ -147,6 +147,8 @@ pub struct Documents {
     drawn: Vec<Quad>,
     /// What books are set in, as of the last change.
     text: TextSettings,
+    /// Column Width, in percent.
+    column_pct: f32,
 }
 
 impl Default for Documents {
@@ -168,6 +170,7 @@ impl Default for Documents {
             gpu: None,
             drawn: Vec::new(),
             text: TextSettings::default(),
+            column_pct: 100.0,
         }
     }
 }
@@ -183,23 +186,24 @@ impl Documents {
     /// Created on first use, when there is a context to wake.
     fn session(&mut self, ctx: &Context) -> &mut Session {
         let workers = self.workers;
-        let text = &self.text;
+        let (text, column) = (&self.text, self.column_pct);
         self.session.get_or_insert_with(|| {
             let ctx = ctx.clone();
             let mut session = Session::new(workers, move || ctx.request_repaint());
-            session.set_text(text);
+            session.set_text(text, column);
             session
         })
     }
 
-    /// Open books are set again, off the UI thread, when `text` changes.
-    pub fn set_text(&mut self, text: &TextSettings) {
-        if self.text == *text {
+    /// Re-sets open books off the UI thread when text or Column Width change.
+    pub fn set_text(&mut self, text: &TextSettings, column_pct: f32) {
+        if self.text == *text && self.column_pct == column_pct {
             return;
         }
         self.text = text.clone();
+        self.column_pct = column_pct;
         if let Some(s) = &mut self.session {
-            s.set_text(text);
+            s.set_text(text, column_pct);
         }
     }
 
