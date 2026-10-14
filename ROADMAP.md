@@ -1,7 +1,7 @@
 # Roadmap
 
-**Stage:** M1, M2 and M3 done; M4 (EPUB) in progress.
-**Parity:** 76.0 of 118 features (64.4 %, partial counts half). Run
+**Stage:** M1 to M4 done; M5 (Library) is next.
+**Parity:** 77.5 of 118 features (65.7 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -82,11 +82,11 @@ appearance effects to that same pass.
 | 4 | Reflow view modes: spread with book gutters, horizontal strip, vertical stream with column alignment; zoom never re-paginates | **done** | open a book (it streams); Settings › Fonts › Book layout, Column alignment; `epub=sample:4 animations=false column=left book_layout=true goto=3` in shots |
 | 5 | Navigation: table of contents in the outline (the active entry follows), links inside the book and out, position anchors, resume | **done** | open `epub=sample:3 sidebar=outline`; click Part 2.2; chapter 1's "Things a book holds" has three links; quit and reopen in other type |
 | 6 | Selection and copy over parley's clusters; ink contrast | **done** | open `epub=sample:3 view=single goto=2`; drag from "The river" to "unloaded" and copy: one line; triple click a paragraph; slide Text ink in the Appearance popover: text fades, the cover doesn't |
-| 7 | Hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested | planned | |
+| 7 | Hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested; EPUB 2 | **done** | `cargo test -p mareader-epub --test hostile`; open Project Gutenberg's EPUB 2 *The Raven* (`crates/epub/tests/books/`): cover, then the NCX in the outline |
 
 ## Next
 
-1. **M4 slice 7:** hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested; EPUB 2.
+1. **M5:** plan the library slices from `docs/library.md`.
 
 ## Open questions for the owner
 
@@ -138,3 +138,4 @@ appearance effects to that same pass.
 | 2026-10-14 | M3 slice 6, M3 closed: independent themes and textures for split panes, as mareader's. While split, the palette offers "Texture for each" and "Independent theme for each"; Settings › Workspace holds both and "Light, Dark and Dim change every pane". Turning a mode on keeps the front pane's look and gives every other pane a hue in the widest gap between those showing (strength 35 if untinted) or a texture no other pane shows; a pane split later starts from its elder's look, made distinct; the palette edits the active pane, grain stays the window's, and a shared base switch moves every pane. The looks are not saved: closing to one pane hands the survivor's look to the window. The logic is `mareader_appearance::PaneLooks`, fitted once a frame to the routing and panes rather than hooked into each command; each pane draws with its own tokens and egui visuals, its own blend paper while it has its own colour, and the chrome keeps the window's. Fixed on the way: a light paper tinted past strength ~15 came out pure white (sRGB has no chroma at full lightness, and the fallback squeezed it there), now it darkens the allowed 0.06 and keeps the tint. `perf.shared-documents` was built in M2 slice 1 and is now marked shipped |
 | 2026-10-14 | M3 follow-ups (owner). Texture for each now paints every pane, the front one too when it has none; a pane that has a texture keeps it, and no two match. Pages stay inside a split pane's round corners: each page quad carries its pane's rounded rect into the page pass, which covers pixels against it as the backdrop's already did, the glass strips included; egui's blank-page fill and page shadows paint clear of the four corner boxes. The settings window takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640. Theme changes cross-fade: a pick (mode, preset, swatch, texture, grain, blend) is held while eframe snaps the old frame, then lands as the snap fades out over 0.2 s, as the web's view transitions do. Dials stay instant (a held pointer or a step under 15 strength or 30 degrees never fades), as do Animations off, reduced motion, no GPU, and changes queued by tests, shots or the system; a snap that never comes lands the change after four frames. Shot keys `corners=rounded` and `pane_gap=N` |
 | 2026-10-14 | M4 slice 1: `crates/reflow` (L1) sets blocks with parley in bundled Literata (reading) and Inter (headings), cuts pages between lines (headings keep their next two lines; no lone first or last line), and draws with hayro's vello_cpu 0.3. `crates/epub` (L2) checks the zip directory against size caps, reads the spine with rbook and the XHTML with html5ever's tokenizer and its own tag stack. The session's `Document` is PDF or EPUB behind one set of calls; files open by content. EPUB layout units are CSS px shown as points, so 17 px text is 17 points at 100 % |
+| 2026-10-14 | M4 slice 7, M4 closed: hostile books. A guard checks the zip directory and scans the package before rbook nests contents or metadata; markup, sheets and an estimated layout budget are capped (`docs/epub.md`, `docs/memory.md`); non-UTF-8 chapters read lossily; EPUB 2 proved on a real Gutenberg book. A refused book closes its pane with a toast |

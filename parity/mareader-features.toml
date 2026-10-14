@@ -725,9 +725,9 @@ title = "Open EPUB 2 and 3: container, spine, metadata, cover"
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "partial"
-evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn"]
-notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title and the OPF cover (M4 slices 1-2); EPUB 2 books with only an NCX are proved with real books in slice 7"
+status = "shipped"
+evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn", "crates/epub/tests/hostile.rs::a_real_epub_2_book_opens_with_its_ncx_and_cover", "crates/epub/tests/hostile.rs::an_epub_2_book_reads_its_ncx_cover_and_entities"]
+notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title, language and the OPF cover (M4 slices 1-2); EPUB 2 with an NCX and a meta cover, proved on Project Gutenberg's The Raven (slice 7). The author isn't read yet: nothing shows it"
 
 [[feature]]
 id = "epub.layout"
@@ -810,7 +810,9 @@ title = "Hostile EPUBs never crash: zip bombs, deep XML, path escapes, huge imag
 area = "E"
 tier = "P0"
 milestone = "M4"
-status = "planned"
+status = "shipped"
+evidence = ["crates/epub/tests/hostile.rs::a_lying_entry_size_can_t_inflate_past_it", "crates/epub/tests/hostile.rs::archives_past_the_caps_are_refused", "crates/epub/tests/hostile.rs::a_deep_nav_falls_back_to_the_headings", "crates/epub/tests/hostile.rs::a_deep_ncx_falls_back_to_the_headings", "crates/epub/tests/hostile.rs::a_long_refinement_chain_costs_only_the_metadata", "crates/epub/tests/hostile.rs::broken_markup_still_reads", "crates/epub/tests/hostile.rs::missing_and_escaping_paths_are_skipped", "crates/epub/tests/hostile.rs::a_giant_picture_shows_its_alt_text", "crates/epub/tests/hostile.rs::deep_markup_and_costly_styles_open", "crates/epub/tests/hostile.rs::a_book_past_the_layout_budget_is_refused", "crates/epub/tests/hostile.rs::mangled_copies_of_a_book_never_crash", "crates/epub/src/guard.rs::contents_depth_counts_what_rbook_stacks", "crates/epub/src/guard.rs::refinement_chains_are_followed_and_cycles_end"]
+notes = "docs/epub.md: caps on the zip, contents and metadata nesting, markup, sheets and an estimated layout budget (docs/memory.md); broken and non-UTF-8 markup reads; a refusal is a toast"
 
 [[feature]]
 id = "appearance.model"
