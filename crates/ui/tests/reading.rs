@@ -582,6 +582,20 @@ fn open_appearance(h: &mut Harness<'static, MareaderApp>) {
 }
 
 #[test]
+fn the_fonts_tab_switches_a_book_s_pictures_to_the_theme() {
+    let mut h = reader(&[("epub", "sample:2")]);
+    h.state_mut().set_option("settings", "fonts").ok();
+    h.run_steps(3);
+    let switch = "Theme pictures";
+    h.get_by_role_and_label(Role::CheckBox, switch)
+        .scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, switch).click();
+    h.run_steps(2);
+    assert!(h.state().settings().text.theme_pictures);
+}
+
+#[test]
 fn a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab() {
     let mut h = reader(&[("epub", "sample:2")]);
     open_appearance(&mut h);
