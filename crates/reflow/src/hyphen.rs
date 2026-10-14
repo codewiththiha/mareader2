@@ -1,7 +1,7 @@
 //! Soft hyphens put where the text's language allows a break.
 use hypher::Lang;
 
-use crate::block::{Span, Text};
+use crate::block::{Link, Span, Text};
 
 /// U+00AD: parley may break after it; the hyphen is drawn there.
 pub(crate) const SHY: char = '\u{AD}';
@@ -77,6 +77,14 @@ pub(crate) fn hyphenate(text: &Text, lang: Lang) -> Hyphenated {
             emphasis: s.emphasis,
         })
         .collect();
+    let links = text
+        .links
+        .iter()
+        .map(|l| Link {
+            range: shift(l.range.start, |p, x| p <= x)..shift(l.range.end, |p, x| p < x),
+            target: l.target,
+        })
+        .collect();
     let marks = at
         .iter()
         .enumerate()
@@ -87,6 +95,7 @@ pub(crate) fn hyphenate(text: &Text, lang: Lang) -> Hyphenated {
             role: text.role,
             text: out,
             spans,
+            links,
         },
         marks,
     }
@@ -152,6 +161,33 @@ mod tests {
         let words = h.text.text.find("words").unwrap_or(0);
         assert_eq!(h.original(words), "extensive ".len());
         assert_eq!(h.original(0), 0);
+    }
+
+    #[test]
+    fn links_cover_the_same_words_once_hyphenated() {
+        let mut t = Text::new(Role::Paragraph);
+        t.push("See ", Emphasis::default());
+        t.push_link("incomprehensible things", Emphasis::default(), 4);
+        t.push(" now.", Emphasis::default());
+        let h = hyphenate(&t, Lang::English);
+        let linked: Vec<(&str, u32)> = h
+            .text
+            .links
+            .iter()
+            .map(|l| {
+                (
+                    h.text.text.get(l.range.clone()).unwrap_or_default(),
+                    l.target,
+                )
+            })
+            .collect();
+        assert_eq!(linked.len(), 1, "{linked:?}");
+        let Some(&(words, target)) = linked.first() else {
+            return;
+        };
+        assert_eq!(target, 4);
+        assert!(words.contains(SHY), "{words:?}");
+        assert_eq!(words.replace(SHY, ""), "incomprehensible things");
     }
 
     #[test]

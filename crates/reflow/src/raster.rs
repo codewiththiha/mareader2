@@ -33,6 +33,9 @@ const HEAD_GROUND: Color = Color::from_rgba8(0, 0, 0, 10);
 /// Stands in for an image that won't decode.
 const MISSING: Color = Color::from_rgba8(0, 0, 0, 24);
 const BAR_WIDTH: f64 = 3.0;
+/// mareader draws link underlines 2 px below where fonts put them.
+const UNDERLINE_GAP: f32 = 2.0;
+const UNDERLINE_MIN: f32 = 0.75;
 
 fn tone(t: Tone) -> Color {
     match t {
@@ -218,6 +221,9 @@ impl Painter {
                         self.view * Affine::translate((f64::from(x), f64::from(dy))),
                     );
                 }
+                if run.style().underline.is_some() {
+                    self.underline(&run, x, dy);
+                }
             }
             let mut last = None;
             for item in line.items() {
@@ -248,6 +254,17 @@ impl Painter {
                 }
             }
         }
+    }
+
+    /// A link's underline under `run`, a little clear of the glyphs.
+    fn underline(&mut self, run: &GlyphRun<'_, Ink>, x: f32, dy: f32) {
+        let m = run.run().font_metrics();
+        let size = m.underline_size.max(UNDERLINE_MIN);
+        let y = run.baseline() + m.underline_offset.abs() + UNDERLINE_GAP;
+        let ink = tone(run.style().brush.tone);
+        self.fill(ink, x + run.offset(), y + dy, run.advance(), size);
+        self.ctx
+            .set_transform(self.view * Affine::translate((f64::from(x), f64::from(dy))));
     }
 
     /// `placed` in `run`'s font, size, variation and tone.
