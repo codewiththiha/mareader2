@@ -700,3 +700,18 @@ fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
     assert!(light * 20 < full, "{light} still dark at 30 %, of {full}");
     Ok(())
 }
+
+#[test]
+fn the_library_page_draws_under_a_glass_bar() -> Out {
+    // A pinned bar blurs whatever is behind it; here, no pages at all.
+    let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::ShowLibrary);
+    h.run();
+    assert!(h.state().library_showing());
+    let image = h.render()?;
+    // Under the bar, the frosted page paper, not a hole.
+    let (bar, page) = (luma(&image, 450, 10), luma(&image, 450, 600));
+    assert!((bar - page).abs() < 40, "bar {bar}, page {page}");
+    Ok(())
+}
