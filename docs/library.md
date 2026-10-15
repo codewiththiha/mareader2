@@ -436,6 +436,61 @@ What the first slice built, and where it stops short of the model above.
 - **Not yet.** Search with slice 6; dragging onto panes and import
   progress with slice 7.
 
+## Slice 6: search (2026-10-15)
+
+- **One rule.** `mareader_library::Query` decides both what the page
+  keeps and what the bar suggests. A query is split into words, and every
+  word must turn up in the title, the author or the address. A word can
+  turn up as a substring, or as an ordered subsequence that keeps its
+  shape: `mthmtcl` finds "Mathematical", `tlhod` finds "The Left Hand of
+  Darkness", while `dunee` does not find "Dune". Case doesn't matter, nor do
+  Latin accents (`elan` finds "Élan", `zola` finds "Zoła"), curly quotes or
+  long dashes. Nothing is indexed: the page's list is cached instead.
+- **Scores.** A substring scores by its length, and more at the start of a
+  word. A subsequence scores per letter: more for runs, less for gaps, and
+  more at word starts. Words start after a space or mark, at a case step
+  ("MobyDick") and where letters meet digits ("vol10"). Each word takes its
+  best field: title ×3, author ×2, address ×1. Ties go to the book read
+  last, then by name.
+- **The address** is what the file's place says: the path inside its folder
+  ("Scifi/1984.pdf"), or the parent and name of a loose file
+  ("Downloads/paper.pdf"). A store copy's path names only its content, so
+  it isn't searched.
+- **The field** takes the centre of the library's bar where the reader's
+  title sits. It reads "Search 12 books", or names the shelf or folder
+  chip it searches. ⌘F or Ctrl+F focuses it with its text selected. With
+  no document open, the find key opens the library and focuses its
+  search. While typing, or while a search filters the page, the bar stays
+  shown even if unpinned.
+- **The page** filters as you type. At the top level a search looks through
+  every book, shelved or not, whatever Library shows; a folder or Missing
+  chip narrows it, and on a shelf it searches that shelf. Shelf cards are
+  kept by name; at the top a search lists nested shelves too. The header counts "3 of 12 books". When nothing here
+  matches, the page says so and offers "Show the N matches elsewhere" and
+  Clear the search. Going into a shelf ends the search (it was found);
+  going up keeps it.
+- **Suggestions** list under the field: the best seven books and shelves
+  from the whole library, each with its thumbnail or shelf mark, the
+  matched letters picked out, and the author underneath (or the address,
+  when that's what matched; a shelf's parents for a shelf). Down opens the
+  list or moves down, Up moves up and closes it from the top row. Enter or
+  a click shows the chosen one. Enter with nothing lit closes the list and
+  keeps the filter.
+- **Showing a choice.** A book visible where you are is ringed in place.
+  Otherwise the page goes to the top level, where the search lists every
+  match; a shelf chosen from inside another shelf opens its parent. The card is scrolled to the middle
+  and ringed in the accent with a halo that pulses twice. The ring fades
+  after four seconds; with reduced motion only the ring shows.
+- **Escape peels** one layer at a time. In the field: the list, then the
+  text, then the focus. On the page: the selection, then the search, then
+  back to reading.
+- **Kept fresh** by a revision number the model bumps on every change it
+  shows, saved or not (a rescan, a presence check). The page's list is
+  cached by revision, open shelf, chip, sort, Library setting and query.
+  That also ends the per-frame sort of slice 2.
+- **Shots.** `search=<text>` types into the field and `open=search`
+  focuses it: `books=10 library=show search=essays open=search`.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
@@ -457,9 +512,9 @@ going back finds it as it was. On macOS the bar's gutter hosts the lights.
 |---|---|---|
 | Sidebar toggle | gone | No rail in the library (above). |
 | Library button | pressed, "Back to reading", only while a pane is open | Panes wait behind the page; with nothing open there is no way back. |
-| Title | "Library" | Holds the centre until search (slice 6); the breadcrumb (slice 4) takes the left. |
+| Title | the search field | The centre holds the library's search (slice 6); the breadcrumb (slice 4) takes the left. |
 | Settings | gone | Settings are about reading; the gear lives on the reader's bar, as in mareader. |
-| Search | gone | It finds in the focused document. The library's own search is slice 6. |
+| Search | gone | It finds in the focused document. The library's own search field replaces the title (slice 6). |
 | Split down, Split right | gone | They split panes, which the library hides. |
 | View & tools (☰) | replaced by View options | Its rows serve the panes: folded tools, view mode, zoom, the reader's shortcuts. Open… stays on the shelf, full screen on its key. |
 | View options | in the ☰ slot | mareader keeps the shelf's View menu in its bar; the slot keeps Pin and Appearance where the reader has them. |
@@ -467,8 +522,8 @@ going back finds it as it was. On macOS the bar's gutter hosts the lights.
 | Pin | kept | The library's own pin, on by default. |
 | Window buttons | kept | The window's. |
 
-**Keys in the library.** Zoom, page moves, view modes, Find, the sidebar,
-Split and Settings do nothing. Open (⌘O) and full screen still work. The
+**Keys in the library.** Zoom, page moves, view modes, the sidebar, Split
+and Settings do nothing. Find focuses the library's search (slice 6). Open (⌘O) and full screen still work. The
 View menu command (`open=menu` in shots) opens the library's own menu.
 Escape and the Library button go back only while a pane has a document.
 Entering the library closes the find bar and the settings window.

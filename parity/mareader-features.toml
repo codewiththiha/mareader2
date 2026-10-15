@@ -490,8 +490,15 @@ title = "Search filters as you type (substring and fuzzy), with suggestions and 
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+    "crates/library/src/query_tests.rs::a_subsequence_that_holds_its_shape_matches_and_a_scatter_does_not",
+    "crates/ui/tests/search.rs::typing_filters_the_page_and_says_how_many_match",
+    "crates/ui/tests/search.rs::arrows_and_enter_show_a_book_from_another_shelf",
+    "crates/ui/tests/search.rs::escape_peels_the_list_the_text_the_focus_then_the_page",
+]
 reference = ["crates/library-core/src/query.rs", "crates/library-runtime/src/features/library/search_suggest.rs"]
+notes = "Title, author and address; substring or shaped subsequence; accents folded. The chosen card is shown and ringed (M5 slice 6)"
 
 [[feature]]
 id = "library.selection"
