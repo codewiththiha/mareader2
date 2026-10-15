@@ -1,6 +1,6 @@
 # Library: design
 
-> **Status:** design for M5 · **Last updated:** 2026-10-13
+> **Status:** design for M5 · **Last updated:** 2026-10-15
 
 mareader's library is ~32k lines (`library-core` 10k, `library-runtime` 22k,
 plus `src-tauri/src/commands/library.rs`), and its design notes
@@ -99,6 +99,96 @@ relink, and delete only paths that canonicalise inside the store.
 **Persistence:** one versioned serde file, written atomically (temp + rename)
 on a worker after a short debounce. Covers live in the cache directory, keyed
 by content id, rebuilt on demand.
+
+## Identity and naming edge cases (2026-10-15)
+
+- **Text is hashed whole.** Head and tail suffice for PDF and EPUB, whose
+  tails (the xref, the zip's directory with each entry's CRC) change with
+  any edit. A same-length typo fix in the middle of a Markdown note
+  changes neither end, so `.txt` and `.md` (64 MiB at most) hash
+  entirely.
+- **Metadata never decides identity.** Generic PDF titles ("Microsoft Word
+  - Document1", "PowerPoint Presentation", "untitled") would merge
+  unrelated files; only content does.
+- **Display title.** The document's title, unless it is empty, generic or
+  just the file name; then the file name, without a copy mark: `book
+  (1).pdf` shows as `book`.
+- **A source file edited in place** (a Markdown note, a re-saved PDF) is
+  the same book with new content: it keeps its id, position, marks and
+  shelves. A source path is the user's own file. Store copies never
+  change.
+- **A newer version imported** (a re-downloaded or re-exported book) is new
+  content. When its title, author and format match a book, the import
+  sheet offers "Replace": the book keeps its id, shelves and marks, and its
+  position clamps to the new length. One book, last import wins.
+- **Hash races.** Two imports of one content in a single batch, or a scan
+  and a drop at once, meet in one lookup by content id inside the
+  operation, so they make one book.
+
+## Text files in the library (2026-10-15)
+
+Markdown and plain text open by converting to an EPUB on the session's
+workers (`docs/epub.md` § Text files as EPUBs). Conversion is cheap and
+byte-for-byte repeatable, so the library keeps the source and treats the
+EPUB as a cache:
+
+- **What is kept.** A store copy is the source file. Exception: a copied
+  Markdown file with local pictures is kept as its converted EPUB, which
+  packs them, since the copy would lose the pictures beside the original.
+- **The converted cache** lives in the cache directory, keyed by content id
+  and converter version, and is rebuilt on a miss.
+- **Positions survive a newer converter.** A converter that finds more
+  headings regroups blocks, so a block anchor could drift. A converted
+  book also saves its position as a character offset into the book's text,
+  which re-conversion keeps, and uses it when the converter version
+  differs.
+- **Metadata without converting.** The library needs a title and author
+  for a row, not chapters: `describe` reads front matter, header labels
+  and the file name without building the book.
+
+## Covers in detail (2026-10-15)
+
+mareader made covers for PDFs only, keyed by path (a move re-rendered
+them), held as data URLs and capped at 60. mareader2 covers every format,
+keyed by content:
+
+- **Where the art comes from.**
+  - PDF: the first page, rendered at cover size on a worker, apart from the
+    page cache.
+  - EPUB: the manifest's `cover-image`, then EPUB 2's `meta name="cover"`,
+    then the first picture of the first chapter, as the reader places it.
+  - Markdown: the front matter's `cover`, then its first picture.
+  - Plain text and books without art: a drawn cover, the title and author
+    on a card tinted from the theme. Painted by egui, so it follows the
+    theme instantly and costs no file.
+- **The cached file:** `<cache>/covers/v<N>/<content-id>.jpg` (or `.png`
+  when the art has transparency), long edge 512 px, never upscaled.
+  - Written atomically, temp then rename.
+  - Bumping `N` when rendering changes rebuilds every cover; the old
+    directory is deleted at launch.
+  - Twins share one cover, and a moved file keeps it.
+- **Failures.** Undecodable art writes nothing; the content is remembered
+  as failed until the next launch, and shows the drawn cover.
+- **Loading in egui.** `ScrollArea::show_rows` names the visible rows, so
+  no observer is needed.
+  - The visible rows are requested first, then a screen above and below.
+    Rows scrolled away are dropped from the queue by a generation number.
+  - Workers decode to a `ColorImage` at the card's pixel size
+    (`pixels_per_point`); the UI uploads a few per frame, so a fast scroll
+    never stalls a frame.
+  - Textures sit in an LRU keyed by content id with a byte budget; the
+    drawn cover shows until the art arrives, then fades in unless
+    Animations are off.
+- **A cover the user picks** (later) is user data: it lives in the data
+  directory, not the cache, and syncs.
+
+## Ready for sync (2026-10-15)
+
+Sync comes after 1.0 (`docs/sync.md`), but its ground is laid in M5 so no
+library needs migrating later: ids nobody else mints, a hybrid-clock stamp
+on each synced field, tombstones instead of deletion, sort keys for
+manual order, and synced facts kept apart from a machine's own
+(`docs/sync.md` § What M5 must lay down).
 
 ## UI (`crates/ui`, M5)
 
