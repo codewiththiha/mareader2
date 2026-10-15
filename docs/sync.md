@@ -1,6 +1,6 @@
 # Sync: design
 
-> **Status:** design for after 1.0 (M9); M5 lays its ground · **Last updated:** 2026-10-15
+> **Status:** design for after 1.0 (M9); M5 lays its ground · **Last updated:** 2026-10-16
 
 mareader has no sync. mareader2 will sync one library across machines
 through several backends. Sync itself comes after 1.0, but the library's
@@ -183,9 +183,58 @@ model above is unchanged; only where records rest moved.
 The file layout above is the remote side and is unchanged: a file backend
 writes records from the store into those envelopes. No backend exists yet.
 
+## Taking rows in (M5 slice 14, 2026-10-16)
+
+A review of the model against the design found four places where two
+machines could end up apart or a newer build's work could be lost. They
+are closed before any backend exists, so none of them becomes a migration.
+
+- **`Library::absorb(rows, now)`** is the receiving half every backend
+  will call. It merges synced rows (books, shelves, memberships, positions)
+  with `Merge`, moves the clock past every stamp it saw, skips local kinds
+  and unreadable rows, then mends what merging can leave, in this order:
+  one content as two originals, loops of shelves, sibling shelves of one
+  name. Merged and mended records are marked changed, so the next save
+  writes them and the next round sends them on.
+- **Mends are writes every machine makes alike.** Each picks its target
+  from the merged state alone, so two machines that mend the same thing
+  write the same values; their stamps differ and the later one wins
+  without a visible change.
+- **Fields from a newer build.** Every synced record keeps the fields this
+  build doesn't know (`Extra`) and writes them back unchanged. Merging
+  takes, per field, the value with the later `t`, then the larger text, so
+  unknown fields merge as known ones do. This holds only if later versions
+  follow the schema rule: **a new field is a top-level, stamped `{v, t}`
+  field of its record; a field never changes meaning; a value inside a
+  field never grows.** Something with a new meaning gets a new name.
+  New kinds go in new paths (§ Wire layout), which older clients ignore.
+- **`twin_of` is stamped.** Promoting a twin when its original is removed
+  rewrites `twin_of`, so it is last writer wins like the other book fields;
+  the old larger-id-wins rule brought a promoted twin back under a removed
+  book. A bare value saved before the stamp reads as never written.
+- **Loops of shelves.** Each shelf keeps `from`, where it was before its
+  last move, carried with whichever move wins a merge. A loop is broken at
+  the shelf whose move is newest: it goes back to `from` while that shelf
+  lives, else to the top level, and to the top level if the same shelf is
+  picked again.
+- **Two shelves of one name** beside each other (case folded): the one
+  named first keeps the name, the others take the first free `Name 2`,
+  `Name 3`, as removing a shelf already does.
+- **One content as two originals** (§ Merge rules): the lower id keeps the
+  book. It takes the other's title, author and last open by stamp, its
+  files here, its shelves and its position; the other becomes a removed
+  twin of it, and twins of the other follow.
+
+**Left for the sync milestone.** Settings carry no stamps yet; a book's
+synced record has no file size for downloads; rows merged in get a new
+`seq`, so a round sends them back once (harmless, merging is idempotent);
+encryption would seal each `v` and leave `t` readable; marks and reading
+stats follow the record pattern when M6 builds them.
+
 ## Revision history
 
 | Date | Summary |
 |---|---|
 | 2026-10-15 | First design: what M5 lays down, clock, merge rules, backends, layout |
 | 2026-10-15 | SQLite store replaces plain files (owner): records, local rows, change cursor, `Merge` |
+| 2026-10-16 | Taking rows in: `absorb`, mends, fields from newer builds, stamped `twin_of` |
