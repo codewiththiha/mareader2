@@ -294,8 +294,10 @@ Owner decisions after M4, and what they changed.
   drawn again over their boxes untoned, as mareader leaves them. Settings ›
   Fonts › Theme pictures tints them with the page instead (the ink dial
   still leaves them at full strength). PDF pages are themed whole, as before.
-- **Column Width.** mareader's dial, 60 to 140 % in Settings › Layout ›
-  Pages while a book is open. The text column scales, never below 160
+- **Column Width.** mareader's dial, 60 to 140 %. The owner moved it from
+  Layout to Settings › Fonts › Layout (2026-10-15), so it is a text setting
+  and follows "Independent text for each pane"; settings v2 carry the old
+  value over. The text column scales, never below 160
   units, and the page grows or shrinks with it, keeping its margins. Each
   step re-sets the book off the UI thread and keeps the reading place.
 - **Kept as built:** one binding-side rule for every view (§ View modes as
@@ -387,3 +389,4 @@ packed. Legacy encodings are guessed.
 | 2026-10-14 | Added hostile books as built in M4 slice 7 |
 | 2026-10-14 | Added the follow-ups as built: layout on demand, pictures, Column Width |
 | 2026-10-14 | Added text files as EPUBs: Markdown and plain text converted on open |
+| 2026-10-15 | Added text for each pane; Column Width moved to the Fonts tab |
