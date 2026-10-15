@@ -102,6 +102,13 @@ impl Library {
         out
     }
 
+    /// Every shelf reachable from the top, by name.
+    pub fn every_shelf(&self) -> Vec<&Shelf> {
+        let mut out: Vec<&Shelf> = self.shelves().filter(|s| self.rooted(s.id)).collect();
+        out.sort_by(|a, b| natural(&a.name.value, &b.name.value).then(a.id.cmp(&b.id)));
+        out
+    }
+
     /// From the top level down to `id`; empty if it's gone.
     pub fn path_to(&self, id: ShelfId) -> Vec<&Shelf> {
         let mut path = Vec::new();
@@ -201,7 +208,7 @@ impl Library {
             restored: None,
         };
         self.shelves.insert(id, shelf);
-        self.dirty.library = true;
+        self.touch();
         Ok(id)
     }
 
@@ -235,7 +242,7 @@ impl Library {
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.name = Field::new(name, at);
         }
-        self.dirty.library = true;
+        self.touch();
         Ok(())
     }
 
@@ -267,7 +274,7 @@ impl Library {
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.parent = Field::new(parent, at);
         }
-        self.dirty.library = true;
+        self.touch();
         Ok(())
     }
 
@@ -307,7 +314,7 @@ impl Library {
         for (_, m) in self.members.range_mut(range) {
             m.alive = Field::new(false, at);
         }
-        self.dirty.library = true;
+        self.touch();
         Some(done)
     }
 
@@ -339,7 +346,7 @@ impl Library {
         if let Some(m) = self.members.get_mut(&(shelf, book)) {
             m.alive = Field::new(false, at);
         }
-        self.dirty.library = true;
+        self.touch();
         true
     }
 
@@ -381,7 +388,7 @@ impl Library {
             alive: Field::new(true, at),
         };
         self.members.insert((shelf, book), member);
-        self.dirty.library = true;
+        self.touch();
     }
 }
 
