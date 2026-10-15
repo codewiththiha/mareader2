@@ -442,8 +442,21 @@ title = "Nested shelves; a book can be on several; manual order or sort"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/library/src/shelves_tests.rs::shelves_nest_sort_by_name_and_keep_sibling_names_apart",
+  "crates/library/src/shelves_tests.rs::renames_and_moves_refuse_clashes_and_loops",
+  "crates/library/src/shelves_tests.rs::removing_a_shelf_keeps_its_books_and_moves_its_shelves_up",
+  "crates/library/src/shelves_tests.rs::filing_appends_once_and_a_book_can_sit_on_many_shelves",
+  "crates/library/src/shelves_tests.rs::a_book_moves_anywhere_in_a_shelfs_order",
+  "crates/library/src/shelves_tests.rs::shelves_and_their_order_come_back_from_disk",
+  "crates/library/src/key.rs::inserting_anywhere_keeps_every_key_in_order_and_valid",
+  "crates/ui/tests/library.rs::a_new_shelf_opens_and_is_named_in_the_breadcrumb",
+  "crates/ui/tests/library.rs::removing_a_shelf_asks_then_moves_its_shelves_up",
+  "crates/ui/tests/library.rs::home_can_leave_shelved_books_to_their_shelves",
+]
 reference = ["crates/library-core/src/shelf/mod.rs"]
+notes = "Nested shelves with unique sibling names, books on many, Manual order by sync-safe keys; Home shows every book or only unshelved ones (M5 slice 4). The list shows shelves as rows, not a tree"
 
 [[feature]]
 id = "library.source-tree"
@@ -489,8 +502,14 @@ title = "Drag books and shelves onto shelves and breadcrumbs; drop files from th
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "partial"
+evidence = [
+  "crates/ui/tests/library.rs::dragging_a_book_onto_a_shelf_files_it_and_says_so",
+  "crates/ui/tests/library.rs::escape_drops_what_is_carried_and_keeps_the_page",
+  "crates/ui/tests/library.rs::a_shelf_moves_books_between_shelves_or_adds_them_with_alt",
+]
 reference = ["crates/library-runtime/src/features/library/dnd"]
+notes = "Books and shelves drag onto shelf cards and crumbs, Alt adds instead of moving, Manual order reorders by drag (M5 slice 4). One book at a time until selection (slice 5); OS file drops import with slice 5"
 
 [[feature]]
 id = "library.breadcrumb"
@@ -498,8 +517,13 @@ title = "Breadcrumb for nested shelves, folding the oldest levels when space run
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::a_long_trail_folds_its_middle_and_leads_back_up",
+  "crates/ui/tests/library.rs::escape_while_naming_keeps_the_old_name_and_the_page",
+]
 reference = ["crates/library-runtime/src/features/library/breadcrumb"]
+notes = "In the title bar on a shelf: the top, a folded … menu, the last two levels and the open shelf, each name capped; the open shelf's crumb renames or removes it (M5 slice 4)"
 
 [[feature]]
 id = "library.context-menus"

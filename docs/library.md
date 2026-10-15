@@ -325,6 +325,58 @@ What the first slice built, and where it stops short of the model above.
   with slices 4, 5 and 7. There is no file watcher: rescans are cheap and
   run when the window comes back, as mareader does.
 
+## Slice 4: shelves and the breadcrumb (2026-10-15)
+
+- **Shelves.** New shelf (in the page header and the View menu) makes
+  one where the reader is, opens it and selects its name in the
+  breadcrumb: type, then Enter or click away; Escape keeps the old name.
+  Shelves nest without limit and sort by name, numbers by value. Names are
+  one line, trimmed, at most 120 characters, and unique among siblings
+  ignoring case; a clash is refused in a toast. A book may sit on any
+  number of shelves; a shelf holds books by id, so moves, edits in place
+  and find-again keep it on its shelves.
+- **The page.** Shelf cards come first: a 2 × 2 plate of the first four
+  shelves (a shelf tile) and covers, the name and "4 books · 1 shelf". In
+  the list, shelves are rows with a chevron. A click opens a shelf; the
+  header then shows its name and counts, and the top level keeps Open…
+  and Folders. The chips (All books, Missing, each folder) show only at
+  the top level and list matching books flat, without shelves; opening a
+  shelf returns them to All books. Right-click on a shelf: Open, Rename…,
+  Remove shelf….
+- **What the top level shows** is a View setting, Library shows: All books
+  (the default) or Unshelved, books on no shelf. Either way shelves come
+  first.
+- **Drag to file.** A book card dragged onto a shelf card or a crumb is
+  filed there, with a label under the pointer. From an open shelf it moves:
+  it leaves that shelf, unless Alt is held, which adds it and keeps it
+  (the label shows "+"). Dropped on the top level's crumb, it leaves the
+  open shelf only. A shelf dragged onto a shelf or crumb moves inside it;
+  into itself or its own shelves is refused ("A shelf can't go inside
+  itself."). A book already there says so. Escape drops what's carried
+  and stays on the page. Each drop says what it did in a toast.
+- **Manual order.** Sort by Manual (First to last, Last to first) shows a
+  shelf in its own order; books are added at its end, and dragging a book
+  beside another on that shelf puts it there, with an accent bar where it
+  lands. Elsewhere Manual reads as date added. Each membership carries a
+  base-62 fractional key, so a move rewrites one record and another key
+  always fits between two (`crates/library/src/key.rs`); a merge that
+  leaves two keys equal or out of order still yields a usable one.
+- **Breadcrumb.** On a shelf the bar's left shows Library › … › the last
+  levels, and the centre title gives way. Past four crumbs the middle
+  folds into a … menu; each name is cut at 160 pt. Crumbs open their level
+  and take drops. The open shelf's crumb has Rename… and Remove shelf….
+- **Removing a shelf** asks first: its books stay in the library, and its
+  shelves move up to its parent (or the top), a clashing one renamed
+  "Name 2". The page then shows the parent. The shelf and its memberships
+  become tombstones, so a sync can't bring them back. A shelf open while
+  removed elsewhere gives way to its nearest living parent.
+- **Saved.** `library.json` moves to schema 3 with `shelves` and
+  `members`; names, parents, keys and the alive flag are stamped fields
+  (`docs/sync.md`). A parent that is removed, unknown or loops back counts
+  as the top level, so a bad merge can't hide a shelf.
+- **Not yet.** Several books at once (selection) and shelf menus for
+  books come with slice 5; dragging onto panes with slice 7.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
