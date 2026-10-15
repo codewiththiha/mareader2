@@ -451,8 +451,12 @@ impl MareaderApp {
             }
             // A folder read in place, as if added from the page.
             "folder" => {
-                let root = std::path::PathBuf::from(value);
-                self.queue(Command::Library(library::Action::AddFolder(root)));
+                let roots = vec![std::path::PathBuf::from(value)];
+                let plan = library::FolderPlan::default();
+                self.queue(Command::Library(library::Action::AddFolders {
+                    roots,
+                    plan,
+                }));
             }
             "layout" => {
                 self.settings.library.layout = match value {
@@ -632,6 +636,11 @@ impl MareaderApp {
                     self.queue(Command::Library(library::Action::Search(focus)));
                 }
                 "folders" => self.queue(Command::Library(library::Action::ShowFolders)),
+                "add" => self.queue(Command::Library(library::Action::ShowAdd)),
+                "add_folder" => {
+                    let roots = vec![std::path::PathBuf::from("/home/reader/Books")];
+                    self.queue(Command::Library(library::Action::AskFolders(roots)));
+                }
                 // The removal sheet for what `select` picked.
                 "remove" => {
                     let books = self.queued.iter().find_map(|c| match c {
@@ -908,20 +917,36 @@ impl MareaderApp {
                 }
             }
             A::ShowFolders => {
-                egui::Popup::open_id(ctx, egui::Id::new(library::folders::FOLDERS_POPOVER));
+                let model = self.library.model();
+                let first = (model.sources())
+                    .min_by_key(|s| s.name().to_lowercase())
+                    .map(|s| s.id);
+                if let Some(id) = first {
+                    let scope = A::Scope(library::Scope::Folder(id));
+                    self.library
+                        .act(scope, ctx.input(|i| i.time), &mut Commands::new());
+                    egui::Popup::open_id(ctx, library::folders::menu_id(id));
+                }
             }
+            A::ShowAdd => egui::Popup::open_id(ctx, egui::Id::new(library::ADD_MENU)),
             A::PickFolder => {
-                let add = |root| Command::Library(A::AddFolder(root));
-                self.files.pick_folder(ctx, "Read a folder of books", add);
+                let ask = |root| Command::Library(A::AskFolders(vec![root]));
+                self.files.pick_folder(ctx, "Add a folder of books", ask);
             }
             A::PickSearchFolder(book) => {
                 let seek = move |folder| Command::Library(A::Seek { book, folder });
                 self.files.pick_folder(ctx, "Search a folder", seek);
             }
-            A::Book(library::BookAction::PickImport) => {
+            A::Book(library::BookAction::PickImport(keep)) => {
                 let to = self.library.at();
                 let import = move |paths| {
-                    let action = library::BookAction::Import { paths, to };
+                    let filter = library::Filter::default();
+                    let action = library::BookAction::Import {
+                        paths,
+                        to,
+                        keep,
+                        filter,
+                    };
                     Command::Library(A::Book(action))
                 };
                 self.files.pick_books(ctx, import);
@@ -1078,11 +1103,19 @@ impl MareaderApp {
             let dropped = ctx.input(|i| i.raw.dropped_files.clone());
             let paths = dropped.iter().map(|f| f.path().to_path_buf());
             let (folders, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.partition(|p| p.is_dir());
-            let add = folders.into_iter().map(library::Action::AddFolder);
-            out.extend(add.map(Command::Library));
+            // Folders ask how they're kept; files are copied in.
+            if !folders.is_empty() {
+                out.push(Command::Library(library::Action::AskFolders(folders)));
+            }
             if !paths.is_empty() {
                 let to = self.library.file_target.or(self.library.at());
-                let import = library::BookAction::Import { paths, to };
+                let (keep, filter) = (library::Keep::Copy, library::Filter::default());
+                let import = library::BookAction::Import {
+                    paths,
+                    to,
+                    keep,
+                    filter,
+                };
                 out.push(Command::Library(library::Action::Book(import)));
             }
             return None;

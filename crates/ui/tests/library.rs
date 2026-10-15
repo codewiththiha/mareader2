@@ -9,7 +9,9 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, Origin, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
-use mareader_ui::library::{Action, BookAction, Pick, PickAction, ShelfAction};
+use mareader_ui::library::{
+    Action, BookAction, Filter, FolderPlan, Keep, Pick, PickAction, ShelfAction,
+};
 
 /// Canonical, as the library records it; opens take any spelling.
 fn fixture(name: &str) -> PathBuf {
@@ -438,7 +440,7 @@ fn a_folder_brings_in_its_books_where_they_are_and_says_how_many() {
     put(&root, "letter.docx", b"not a book");
     put(&root, ".trash/old.md", b"# Old");
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(root.clone()));
+    act(&mut h, read_in(root.clone()));
     assert_eq!(toast(&h), "Added 2 books from “Books”.", "{}", state(&h));
     let titles: Vec<String> = library(&h).books().map(|b| b.title.value.clone()).collect();
     assert!(titles.contains(&"Field Notes".to_owned()), "{titles:?}");
@@ -447,7 +449,7 @@ fn a_folder_brings_in_its_books_where_they_are_and_says_how_many() {
     assert!(library(&h).books().all(|b| b.opened.value == 0));
     assert!(root.join("raven.epub").is_file());
     assert!(h.query_by_label("Books · 2").is_some(), "the folder's chip");
-    act(&mut h, Action::AddFolder(root.join("notes")));
+    act(&mut h, read_in(root.join("notes")));
     assert!(toast(&h).contains("already read as part of “Books”"));
 }
 
@@ -456,7 +458,7 @@ fn coming_back_to_the_window_finds_new_files_and_notices_gone_ones() {
     let dir = tempfile::tempdir().unwrap();
     let raven = put(dir.path(), "raven.epub", &raven_bytes());
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(dir.path().into()));
+    act(&mut h, read_in(dir.path()));
     let first = library(&h).book_at(&raven).unwrap();
     std::fs::remove_file(&raven).unwrap();
     let notes = put(dir.path(), "notes.md", NOTES);
@@ -476,7 +478,7 @@ fn a_file_moved_within_a_folder_keeps_its_book_and_place() {
     let dir = tempfile::tempdir().unwrap();
     let raven = put(dir.path(), "new/raven.epub", &raven_bytes());
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(dir.path().into()));
+    act(&mut h, read_in(dir.path()));
     let id = library(&h).book_at(&raven).unwrap();
     h.state_mut().queue(Command::OpenBook(id));
     h.run();
@@ -493,7 +495,7 @@ fn a_lost_book_is_found_again_by_choosing_its_file() {
     let dir = tempfile::tempdir().unwrap();
     let raven = put(&dir.path().join("in"), "raven.epub", &raven_bytes());
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    act(&mut h, read_in(dir.path().join("in")));
     let id = library(&h).book_at(&raven).unwrap();
     let elsewhere = moved(&raven, &dir.path().join("out/renamed.epub"));
     act(&mut h, Action::Rescan(None));
@@ -511,7 +513,7 @@ fn searching_a_folder_finds_a_lost_book_under_any_name() {
     let dir = tempfile::tempdir().unwrap();
     let raven = put(&dir.path().join("in"), "raven.epub", &raven_bytes());
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    act(&mut h, read_in(dir.path().join("in")));
     let id = library(&h).book_at(&raven).unwrap();
     let deep = moved(&raven, &dir.path().join("attic/old/poems.epub"));
     act(&mut h, Action::Rescan(None));
@@ -526,7 +528,7 @@ fn a_namesake_with_other_content_is_offered_not_taken() {
     let dir = tempfile::tempdir().unwrap();
     let notes = put(&dir.path().join("in"), "notes.md", NOTES);
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    act(&mut h, read_in(dir.path().join("in")));
     let id = library(&h).book_at(&notes).unwrap();
     let before = library(&h).book(id).unwrap().content;
     std::fs::remove_file(&notes).unwrap();
@@ -556,7 +558,7 @@ fn removing_a_folder_asks_first_and_adding_it_again_restores_its_books() {
     let raven = put(&root, "raven.epub", &raven_bytes());
     put(&root, "notes.md", NOTES);
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(root.clone()));
+    act(&mut h, read_in(root.clone()));
     let id = library(&h).book_at(&raven).unwrap();
     let source = library(&h).sources().next().unwrap().id;
     act(&mut h, Action::AskRemoveFolder(source));
@@ -566,7 +568,7 @@ fn removing_a_folder_asks_first_and_adding_it_again_restores_its_books() {
     assert!(library(&h).is_empty(), "{}", state(&h));
     assert_eq!(toast(&h), "Removed “Shelf” and its 2 books.");
     assert!(raven.is_file(), "files stay where they are");
-    act(&mut h, Action::AddFolder(root));
+    act(&mut h, read_in(root));
     assert_eq!(library(&h).len(), 2);
     assert_eq!(library(&h).book_at(&raven), Some(id), "the same book, back");
 }
@@ -578,15 +580,31 @@ fn adding_a_folder_leaves_other_missing_books_missing() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     let lost = library(&h).books().filter(|b| b.missing()).count();
     assert_eq!(lost, 1);
-    act(&mut h, Action::AddFolder(dir.path().into()));
+    act(&mut h, read_in(dir.path()));
     assert_eq!(library(&h).len(), 5, "{}", state(&h));
     assert_eq!(library(&h).books().filter(|b| b.missing()).count(), 1);
 }
 
 #[test]
 fn an_empty_library_offers_to_add_a_folder() {
-    let h = reader(&[("library", "show")]);
-    assert!(h.query_by_label("Add folder…").is_some());
+    let mut h = reader(&[("library", "show")]);
+    h.get_by_label("Add books").click();
+    h.run();
+    assert!(h.query_by_label("Add a folder…").is_some());
+}
+
+/// Opens the plus card's menu and picks `entry`.
+fn from_add_menu(h: &mut Harness<'static, MareaderApp>, entry: &str) {
+    h.get_by_label("Add books").click();
+    h.run();
+    h.get_by_label(entry).click();
+    h.run();
+}
+
+/// Reads a folder in place and watches it, as the sheet's default.
+fn read_in(root: impl Into<PathBuf>) -> Action {
+    let (roots, plan) = (vec![root.into()], FolderPlan::default());
+    Action::AddFolders { roots, plan }
 }
 
 fn open_shelf(h: &Harness<'static, MareaderApp>) -> Option<ShelfId> {
@@ -629,8 +647,7 @@ fn book_id(h: &Harness<'static, MareaderApp>, n: usize) -> BookId {
 #[test]
 fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
-    h.get_by_label("New shelf").click();
-    h.run();
+    from_add_menu(&mut h, "New shelf");
     let id = open_shelf(&h).expect("the new shelf opens");
     assert_eq!(h.state().library_state().renaming(), Some(id));
     // Its whole name is selected, so typing replaces it.
@@ -655,8 +672,7 @@ fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
 #[test]
 fn escape_while_naming_keeps_the_old_name_and_the_page() {
     let mut h = reader(&[("books", "2"), ("library", "show")]);
-    h.get_by_label("New shelf").click();
-    h.run();
+    from_add_menu(&mut h, "New shelf");
     let id = open_shelf(&h).unwrap();
     name_field(&h).type_text("Junk");
     h.run();
@@ -665,7 +681,7 @@ fn escape_while_naming_keeps_the_old_name_and_the_page() {
     assert_eq!(library(&h).shelf(id).unwrap().name.value, "New shelf");
     assert_eq!(h.state().library_state().renaming(), None);
     assert!(h.state().library_showing(), "Escape only ended the naming");
-    // The crumb's menu names it again; the header's button shares its name.
+    // The crumb's menu names it again.
     let crumbs = h.get_all_by_role_and_label(Role::Button, "New shelf");
     let crumb = crumbs.min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
     crumb.unwrap().click();
@@ -1016,17 +1032,17 @@ fn a_card_menu_offers_what_a_book_can_do() {
 }
 
 #[test]
-fn removing_a_folder_book_hides_it_until_restored_from_folders() {
+fn removing_a_folder_book_hides_it_until_restored_from_its_menu() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("Shelf");
     let raven = put(&root, "raven.epub", &raven_bytes());
     put(&root, "notes.md", NOTES);
     let mut h = reader(&[("library", "show")]);
-    act(&mut h, Action::AddFolder(root.clone()));
+    act(&mut h, read_in(root.clone()));
     let id = library(&h).book_at(&raven).unwrap();
     let (books, shelves) = (vec![id], Vec::new());
     book(&mut h, BookAction::AskRemove { books, shelves });
-    let says = "Its file stays in its folder; restore it from Folders.";
+    let says = "Its file stays in its folder; restore it from the folder's menu.";
     assert!(
         h.query_by_label(says).is_some(),
         "the receipt says what stays"
@@ -1036,7 +1052,7 @@ fn removing_a_folder_book_hides_it_until_restored_from_folders() {
     assert!(library(&h).book(id).is_none());
     assert!(raven.is_file(), "the file is never touched");
     assert!(
-        toast(&h).ends_with("Restore from Folders."),
+        toast(&h).ends_with("Restore from the folder's menu."),
         "{}",
         toast(&h)
     );
@@ -1167,6 +1183,8 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
         BookAction::Import {
             paths: vec![outside.clone()],
             to,
+            keep: Keep::Copy,
+            filter: Filter::default(),
         },
     );
     assert_eq!(toast(&h), "Imported “The Raven” to “Poems”.");
@@ -1182,6 +1200,8 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
         BookAction::Import {
             paths: vec![outside.clone(), notes],
             to: None,
+            keep: Keep::Copy,
+            filter: Filter::default(),
         },
     );
     let said = "“The Raven” was already in your library. “notes.docx” isn't a book Mareader reads.";
@@ -1198,4 +1218,109 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     h.run();
     assert!(!copy.exists(), "the library's copy goes");
     assert!(outside.is_file(), "the file imported from stays");
+}
+
+/// A library kept in `dir/library`, its page showing.
+fn kept_in(dir: &Path) -> Harness<'static, MareaderApp> {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("library", "show").ok();
+    app.attach_library(dir.join("library"));
+    harness(app)
+}
+
+#[test]
+fn files_added_in_place_are_read_where_they_are() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = put(dir.path(), "Raven.epub", &raven_bytes());
+    let mut h = kept_in(dir.path());
+    let (paths, to) = (vec![outside.clone()], None);
+    let (keep, filter) = (Keep::InPlace, Filter::default());
+    book(
+        &mut h,
+        BookAction::Import {
+            paths,
+            to,
+            keep,
+            filter,
+        },
+    );
+    assert_eq!(toast(&h), "Added “The Raven”.");
+    let b = library(&h).books().next().unwrap().clone();
+    assert_eq!(b.path(), Some(outside.canonicalize().unwrap().as_path()));
+    assert_eq!(b.locations[0].origin, Origin::Opened);
+    let store = dir.path().join("library").join("files");
+    assert!(!store.exists() || std::fs::read_dir(&store).unwrap().next().is_none());
+    let (books, shelves) = (vec![b.id], Vec::new());
+    book(&mut h, BookAction::AskRemove { books, shelves });
+    h.get_by_label("Remove").click();
+    h.run();
+    h.run();
+    assert!(outside.is_file(), "a book read in place keeps its file");
+}
+
+#[test]
+fn a_folder_copied_in_takes_only_what_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    put(&root, "raven.epub", &raven_bytes());
+    put(&root, "deep/notes.md", NOTES);
+    let empty = dir.path().join("Empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let mut h = kept_in(dir.path());
+    act(&mut h, Action::AskFolders(vec![root.clone(), empty]));
+    assert!(h.query_by_label("Add 2 folders").is_some());
+    h.get_by_label("Copy into the library").click();
+    h.run();
+    // Markdown no longer counts.
+    h.get_by_label("MD").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    h.run();
+    assert!(h.state().library_state().sheet().is_none());
+    assert_eq!(library(&h).len(), 1, "{}", state(&h));
+    let b = library(&h).books().next().unwrap();
+    assert_eq!(b.locations[0].origin, Origin::Store);
+    assert_eq!(library(&h).sources().count(), 0, "nothing is read in place");
+    let said = "Imported “The Raven”. “Empty” holds no books Mareader reads.";
+    assert_eq!(toast(&h), said);
+}
+
+#[test]
+fn a_folder_read_in_place_keeps_the_sheets_choices() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    put(&root, "raven.epub", &raven_bytes());
+    put(&root, "notes.md", NOTES);
+    let mut h = kept_in(dir.path());
+    act(&mut h, Action::AskFolders(vec![root.clone()]));
+    assert!(h.query_by_label("Add “Shelf”").is_some());
+    h.get_by_label("Read in place").click();
+    h.run();
+    h.get_by_label("EPUB").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    h.run();
+    let source = library(&h).sources().next().unwrap().clone();
+    assert!(!source.watch, "read in place, not watched");
+    assert!(!source.formats.contains(&Format::Epub));
+    assert_eq!(library(&h).len(), 1, "{}", state(&h));
+    assert_eq!(title_of(&h, 0), "Field Notes");
+}
+
+#[test]
+fn the_plus_card_ends_the_page_but_not_a_search() {
+    let mut h = reader(&[("books", "3"), ("library", "show")]);
+    h.get_by_label("Add books").click();
+    h.run();
+    for entry in ["Import files…", "Add files in place…", "Add a folder…"] {
+        assert!(h.query_by_label(entry).is_some(), "{entry}");
+    }
+    h.key_press(egui::Key::Escape);
+    h.run();
+    let text = mareader_ui::library::SearchAction::Text("b".into());
+    act(&mut h, Action::Search(text));
+    assert!(h.query_by_label("Add books").is_none());
 }

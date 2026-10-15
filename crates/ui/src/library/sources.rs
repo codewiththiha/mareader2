@@ -32,11 +32,18 @@ pub enum Scope {
 /// Folder and find-again work asked for by the page and its sheets.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Opens the header's Folders popover.
+    /// Shows the first folder and opens its menu.
     ShowFolders,
-    /// Shows the folder dialog; the pick returns as `AddFolder`.
+    /// Opens the plus card's menu.
+    ShowAdd,
+    /// Shows the folder dialog; the pick returns as `AskFolders`.
     PickFolder,
-    AddFolder(PathBuf),
+    /// Asks how to keep these folders' books.
+    AskFolders(Vec<PathBuf>),
+    AddFolders {
+        roots: Vec<PathBuf>,
+        plan: super::FolderPlan,
+    },
     /// One folder looked through again, or every watched one.
     Rescan(Option<SourceId>),
     EditFolder(SourceId, SourceEdit),
@@ -79,6 +86,8 @@ pub enum Sheet {
         receipt: mareader_library::Receipt,
     },
     RenameBook(BookId),
+    /// How to keep the books of folders being added.
+    AddFolders(Vec<PathBuf>),
 }
 
 /// Finding a lost book: what it's doing, or what it found.
@@ -143,7 +152,11 @@ impl LibraryState {
     /// Does what the page asked; dialogs are the app's.
     pub fn act(&mut self, action: Action, now: f64, out: &mut Commands) {
         match action {
-            Action::AddFolder(root) => self.add_folder(root, now, out),
+            Action::AskFolders(roots) => self.folders.sheet = Some(Sheet::AddFolders(roots)),
+            Action::AddFolders { roots, plan } => {
+                self.folders.sheet = None;
+                self.add_folders(roots, plan, now, out);
+            }
             Action::Rescan(only) => {
                 // Asked for by name: say what it found.
                 self.folders.announce = only.map(|id| (id, 0));
@@ -215,13 +228,44 @@ impl LibraryState {
             Action::Search(action) => self.search_act(action, now),
             // Dialogs need the app's files; it handles them.
             Action::ShowFolders
+            | Action::ShowAdd
             | Action::PickFolder
             | Action::PickFile(_)
             | Action::PickSearchFolder(_) => {}
         }
     }
 
-    fn add_folder(&mut self, root: PathBuf, now: f64, out: &mut Commands) {
+    /// Copies the folders' books in, or reads them where they are.
+    fn add_folders(
+        &mut self,
+        roots: Vec<PathBuf>,
+        plan: super::FolderPlan,
+        now: f64,
+        out: &mut Commands,
+    ) {
+        let super::FolderPlan { keep, filter } = plan;
+        if keep == super::FolderKeep::Copy {
+            let to = self.at();
+            let keep = super::Keep::Copy;
+            let import = super::BookAction::Import {
+                paths: roots,
+                to,
+                keep,
+                filter,
+            };
+            return self.book_act(import, out);
+        }
+        for root in roots {
+            let edit = SourceEdit {
+                formats: filter.formats.clone(),
+                min_size: filter.min_size,
+                watch: keep == super::FolderKeep::Watch,
+            };
+            self.add_folder(root, edit, now, out);
+        }
+    }
+
+    fn add_folder(&mut self, root: PathBuf, edit: SourceEdit, now: f64, out: &mut Commands) {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
         let inside_library = self.avoid().iter().any(|own| own.starts_with(&root));
         if inside_library {
@@ -237,6 +281,7 @@ impl LibraryState {
                     let note = format!("It takes in “{names}”, which you'd added before.");
                     out.push(Command::Notify(Toast::info(note)));
                 }
+                self.model.edit_source(added.id, edit);
                 self.rescan(Some(added.id), now);
             }
             Err(AddError::Inside(name)) => {
@@ -333,7 +378,7 @@ impl LibraryState {
     }
 
     /// The library's own folders, which no walk enters.
-    fn avoid(&self) -> Vec<PathBuf> {
+    pub(super) fn avoid(&self) -> Vec<PathBuf> {
         let folder = self.folder.as_ref().map(|f| f.root().to_path_buf());
         folder.into_iter().chain(self.covers.cache_dir()).collect()
     }
@@ -502,7 +547,7 @@ impl LibraryState {
     }
 }
 
-fn folder_name(folder: &Path) -> String {
+pub(super) fn folder_name(folder: &Path) -> String {
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned());
     name.unwrap_or_else(|| folder.display().to_string())
 }

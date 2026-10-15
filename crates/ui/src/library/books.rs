@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use mareader_library::{BookId, ContentId, Imported, ShelfId};
 
-use super::io::{self, Import, Job};
+use super::io::{self, Filter, Import, Job, Keep};
 use super::runs::Phase;
 use super::{LibraryState, PickAction, Sheet, wall_ms};
 use crate::command::{Command, Commands};
@@ -32,11 +32,13 @@ pub enum BookAction {
     /// Shows its file in the system's file manager.
     Reveal(BookId),
     /// Shows the file dialog; the picks come back as `Import`.
-    PickImport,
-    /// Copies files into the library, onto a shelf if `to`.
+    PickImport(Keep),
+    /// Takes in files, or folders' books, onto a shelf if `to`.
     Import {
         paths: Vec<PathBuf>,
         to: Option<ShelfId>,
+        keep: Keep,
+        filter: Filter,
     },
     /// A new shelf where the reader is, holding these.
     ShelveTogether {
@@ -89,13 +91,18 @@ impl LibraryState {
                 self.folders.sheet = None;
                 self.model.rename_book(id, &title, now);
             }
-            BookAction::Import { paths, to } => self.import(paths, to, out),
+            BookAction::Import {
+                paths,
+                to,
+                keep,
+                filter,
+            } => self.import(paths, to, (keep, filter), out),
             BookAction::ShelveTogether { books, shelves } => {
                 self.shelve_together(&books, &shelves, out);
             }
             BookAction::TakeOff(books) => self.take_off(&books, out),
             // Dialogs and the file manager are the app's.
-            BookAction::Reveal(_) | BookAction::PickImport => {}
+            BookAction::Reveal(_) | BookAction::PickImport(_) => {}
         }
     }
 
@@ -131,7 +138,7 @@ impl LibraryState {
         };
         let note = match receipt.hidden {
             0 => gone,
-            _ => format!("{gone} Restore from Folders."),
+            _ => format!("{gone} Restore from the folder's menu."),
         };
         out.push(Command::Notify(Toast::info(note)));
     }
@@ -203,12 +210,23 @@ impl LibraryState {
         out.push(Command::Notify(Toast::info(note)));
     }
 
-    /// Copies files into the library's folder on the worker.
-    fn import(&mut self, paths: Vec<PathBuf>, to: Option<ShelfId>, out: &mut Commands) {
-        let Some(store) = self.folder.as_ref().map(|f| f.store()) else {
-            let note = "The library has no folder to copy books into.";
-            out.push(Command::Notify(Toast::error(note)));
-            return;
+    /// Takes in files or folders on the worker, copied or in place.
+    fn import(
+        &mut self,
+        paths: Vec<PathBuf>,
+        to: Option<ShelfId>,
+        (keep, filter): (Keep, Filter),
+        out: &mut Commands,
+    ) {
+        // Books read in place need no store; copies do.
+        let store = match (self.folder.as_ref().map(|f| f.store()), keep) {
+            (Some(store), _) => store,
+            (None, Keep::InPlace) => PathBuf::new(),
+            (None, Keep::Copy) => {
+                let note = "The library has no folder to keep books in.";
+                out.push(Command::Notify(Toast::error(note)));
+                return;
+            }
         };
         if paths.is_empty() {
             return;
@@ -217,12 +235,19 @@ impl LibraryState {
         let known: HashSet<ContentId> = originals.map(|b| b.content).collect();
         let label = match paths.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()),
-            many => Some(format!("{} files", many.len())),
+            many => Some(format!("{} items", many.len())),
         };
-        let run = self.runs.start(label.unwrap_or_default(), Phase::Copying);
+        let phase = match keep {
+            Keep::Copy => Phase::Copying,
+            Keep::InPlace => Phase::Reading,
+        };
+        let run = self.runs.start(label.unwrap_or_default(), phase);
         let job = Import {
             paths,
+            keep,
+            filter,
             store,
+            avoid: self.avoid(),
             known,
             to,
             run,
@@ -230,22 +255,25 @@ impl LibraryState {
         self.io.send(Job::Import(Box::new(job)));
     }
 
-    /// Takes in the copies, files them, and says what happened.
+    /// Records what was taken in, files it, and says what happened.
     pub(super) fn imported(&mut self, done: io::Imported, out: &mut Commands) {
         let now = wall_ms();
         let to = done.to.filter(|&s| self.model.shelf(s).is_some());
-        let mut added = Vec::new();
-        let mut extra = Vec::new();
-        for copy in done.copies {
-            let path = copy.path.clone();
-            match self.model.import(copy, now) {
+        let (mut added, mut known, mut extra) = (Vec::new(), Vec::new(), Vec::new());
+        for file in done.files {
+            let path = file.path.clone();
+            let taken = match done.keep {
+                Keep::Copy => self.model.import(file, now),
+                Keep::InPlace => self.model.link(file, now),
+            };
+            match taken {
                 Imported::New(id) => added.push(id),
                 Imported::Known(id) => {
                     // Taken in meanwhile, by a scan: the copy isn't needed.
-                    if !self.model.listed(&path) {
+                    if done.keep == Keep::Copy && !self.model.listed(&path) {
                         extra.push(path);
                     }
-                    self.known_import(id, to);
+                    known.push(id);
                 }
             }
         }
@@ -262,13 +290,20 @@ impl LibraryState {
                 .find(|b| b.content == content && b.twin_of.is_none())
                 .map(|b| b.id)
         };
-        let known: Vec<BookId> = done.known.iter().filter_map(|(_, c)| holder(*c)).collect();
+        known.extend(done.known.iter().filter_map(|(_, c)| holder(*c)));
+        known.sort_unstable();
+        known.dedup();
         for &id in added.iter().chain(&known) {
             if let Some(shelf) = to {
                 self.model.file(id, shelf, now);
             }
         }
-        let note = self.import_note(&added, &known, to, &done.skipped, &done.failed);
+        let note = self.import_note(
+            done.keep,
+            (&added, &known),
+            to,
+            (&done.skipped, &done.empty, &done.failed),
+        );
         let toast = match added.is_empty() && known.is_empty() {
             true => Toast::error(note),
             false => Toast::info(note),
@@ -276,21 +311,18 @@ impl LibraryState {
         out.push(Command::Notify(toast));
     }
 
-    fn known_import(&mut self, id: BookId, to: Option<ShelfId>) {
-        if let Some(shelf) = to {
-            self.model.file(id, shelf, wall_ms());
-        }
-    }
-
     /// "Imported 3 books to “Essays”. 1 was already in your library."
     fn import_note(
         &self,
-        added: &[BookId],
-        known: &[BookId],
+        keep: Keep,
+        (added, known): (&[BookId], &[BookId]),
         to: Option<ShelfId>,
-        skipped: &[PathBuf],
-        failed: &[(PathBuf, String)],
+        (skipped, empty, failed): (&[PathBuf], &[PathBuf], &[(PathBuf, String)]),
     ) -> String {
+        let (verb, fail) = match keep {
+            Keep::Copy => ("Imported", "copy"),
+            Keep::InPlace => ("Added", "read"),
+        };
         let title = |id: &BookId| self.model.book(*id).map(|b| b.title.value.clone());
         let onto = to.and_then(|s| self.model.shelf(s));
         let onto = onto
@@ -299,11 +331,8 @@ impl LibraryState {
         let mut parts = Vec::new();
         match added {
             [] => {}
-            [id] => parts.push(format!(
-                "Imported “{}”{onto}.",
-                title(id).unwrap_or_default()
-            )),
-            many => parts.push(format!("Imported {} books{onto}.", many.len())),
+            [id] => parts.push(format!("{verb} “{}”{onto}.", title(id).unwrap_or_default())),
+            many => parts.push(format!("{verb} {} books{onto}.", many.len())),
         }
         match known {
             [] => {}
@@ -318,12 +347,17 @@ impl LibraryState {
             [path] => parts.push(format!("“{}” isn't a book Mareader reads.", name(path))),
             many => parts.push(format!("{} files aren't books Mareader reads.", many.len())),
         }
+        match empty {
+            [] => {}
+            [path] => parts.push(format!("“{}” holds no books Mareader reads.", name(path))),
+            many => parts.push(format!("{} folders hold no books.", many.len())),
+        }
         if let Some((path, why)) = failed.first() {
             let more = match failed.len() {
                 1 => String::new(),
                 n => format!(" ({} more failed)", n - 1),
             };
-            parts.push(format!("Couldn't copy “{}”: {why}{more}.", name(path)));
+            parts.push(format!("Couldn't {fail} “{}”: {why}{more}.", name(path)));
         }
         parts.join(" ")
     }

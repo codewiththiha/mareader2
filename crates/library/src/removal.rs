@@ -251,14 +251,31 @@ impl Library {
 
     /// Takes in a file copied into the library's folder.
     pub fn import(&mut self, copy: Opened, wall_ms: u64) -> Imported {
-        let content = copy.measure.content;
+        self.take_in(copy, wall_ms, Origin::Store)
+    }
+
+    /// Takes in a file read where it is; a known one gains the place.
+    pub fn link(&mut self, file: Opened, wall_ms: u64) -> Imported {
+        let origin = self.origin_of(&file.path);
+        self.take_in(file, wall_ms, origin)
+    }
+
+    fn take_in(&mut self, file: Opened, wall_ms: u64, origin: Origin) -> Imported {
+        let content = file.measure.content;
         let holder = |b: &&Book| b.content == content && b.twin_of.is_none();
-        if let Some(book) = self.books().find(holder) {
-            return Imported::Known(book.id);
+        let known = self.books().find(holder).map(|b| b.id);
+        if let Some(id) = known {
+            // A copy is the library's to drop; a file in place is a new place.
+            if origin != Origin::Store && self.book_at(&file.path) != Some(id) {
+                self.place(id, &file.path, file.measure.stamp, origin);
+                self.mirror(id);
+                self.touch();
+            }
+            return Imported::Known(id);
         }
         let at = self.clock.tick(wall_ms);
-        let id = self.add(&copy, wall_ms, at, false);
-        self.place(id, &copy.path, copy.measure.stamp, Origin::Store);
+        let id = self.add(&file, wall_ms, at, false);
+        self.place(id, &file.path, file.measure.stamp, origin);
         self.mirror(id);
         self.index();
         self.touch();

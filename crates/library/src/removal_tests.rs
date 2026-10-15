@@ -250,3 +250,21 @@ fn a_newer_library_that_wont_parse_is_left_alone() {
     assert!(!loaded.writable);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), newer);
 }
+
+#[test]
+fn files_added_in_place_are_read_there_and_never_deleted() {
+    let mut lib = Library::new(DEVICE);
+    let a = match lib.link(opened("/books/a.pdf", 1), 1_000) {
+        Imported::New(id) => id,
+        Imported::Known(_) => panic!("new content"),
+    };
+    let book = lib.book(a).unwrap();
+    assert_eq!(book.locations[0].origin, Origin::Opened);
+    assert_eq!(book.opened.value, 0, "added, not read");
+    // The same content elsewhere is another place of the same book.
+    assert_eq!(lib.link(opened("/usb/a.pdf", 1), 2_000), Imported::Known(a));
+    assert_eq!(lib.book(a).unwrap().locations.len(), 2);
+    assert_eq!(lib.book_at(&PathBuf::from("/usb/a.pdf")), Some(a));
+    assert_eq!(lib.receipt(&[a]).copies, 0);
+    assert!(lib.remove_books(&[a], 3_000).delete.is_empty());
+}
