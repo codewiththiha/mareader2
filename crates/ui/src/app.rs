@@ -12,19 +12,22 @@ use mareader_appearance::{
     builtin_presets,
 };
 use mareader_session::Anchor;
-use mareader_settings::{ColumnAlign, FontChoice, MotionSettings, PaperArea, Settings};
-use mareader_workspace::{Bounds, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
+use mareader_settings::{
+    ColumnAlign, FontChoice, LibraryClick, MotionSettings, PaperArea, Settings,
+};
+use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, Independence, WindowCommand};
 use crate::crossfade::Crossfade;
-use crate::documents::{Documents, OpenRequest};
+use crate::documents::{Documents, OpenRequest, Placement};
 use crate::files::Files;
 use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
 use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
 use crate::library::{self, LibraryState};
+use crate::library_panel::{self, PaneTab, PanelContext, PanelState};
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
 use crate::pane_texts::PaneTexts;
@@ -76,6 +79,7 @@ pub struct MareaderApp {
     /// The sidebar panels' scroll-following, for the focused pane.
     outline: OutlineState,
     thumbs: ThumbState,
+    shelf_tree: PanelState,
     /// Each pane's page bar.
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
@@ -135,6 +139,7 @@ impl MareaderApp {
             library: LibraryState::default(),
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
+            shelf_tree: PanelState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
             library_rect: None,
@@ -673,6 +678,16 @@ impl MareaderApp {
                 self.settings.workspace.independent_textures = value == "true";
             }
             "shared_base" => self.settings.workspace.shared_base_mode = value == "true",
+            "library_click" => {
+                self.settings.workspace.library_click = match value {
+                    "replace" => LibraryClick::Replace,
+                    "split" => LibraryClick::Split,
+                    "drag_only" => LibraryClick::DragOnly,
+                    _ => return Err("library_click: replace, split or drag_only".into()),
+                };
+            }
+            // Two imports under way, their cards shown at once.
+            "runs" => self.library.runs.demo(),
             "focus" => {
                 let n: u32 = value.parse().map_err(|_| "focus: a pane number")?;
                 let pane = self.tree.panes().get(n.saturating_sub(1) as usize).copied();
@@ -723,7 +738,7 @@ impl MareaderApp {
                     }
                 }
             }
-            Command::ShowOpenDialog { beside } => self.files.pick(ctx, beside),
+            Command::ShowOpenDialog(placement) => self.files.pick(ctx, placement),
             Command::Zoom(zoom) => {
                 let now = ctx.input(|i| i.time);
                 self.documents.zoom(self.active, zoom, now);
@@ -749,9 +764,13 @@ impl MareaderApp {
                 };
                 self.go(Route::Reader);
                 let mut pane = request.pane.unwrap_or(self.active);
-                // Open beside: a new pane to the right, as in mareader.
-                if request.beside {
-                    match self.split(ctx, pane, SplitAxis::Horizontal) {
+                let edge = match request.placement {
+                    Placement::Into => None,
+                    Placement::Beside => Some(self.beside(ctx, pane)),
+                    Placement::Edge(edge) => Some(edge),
+                };
+                if let Some(edge) = edge {
+                    match self.split_at(ctx, pane, edge) {
                         Some(new) => pane = new,
                         None => return,
                     }
@@ -852,13 +871,19 @@ impl MareaderApp {
                 self.settings.library.sanitize();
             }
             // A lost book asks where it went instead of failing.
-            Command::OpenBook(id) if self.library.model().book(id).is_some_and(|b| b.missing()) => {
-                self.apply(ctx, Command::Library(library::Action::FindAgain(id)));
+            Command::OpenBook(book) => {
+                // Do nothing is for the rail; the page has nothing to drag to.
+                let placement = match self.settings.workspace.library_click {
+                    LibraryClick::Split => Placement::Beside,
+                    LibraryClick::Replace | LibraryClick::DragOnly => Placement::Into,
+                };
+                self.open_book(ctx, book, None, placement);
             }
-            Command::OpenBook(id) => match self.library.open(id) {
-                Ok(request) => self.apply(ctx, Command::Open(request)),
-                Err(toast) => self.toasts.push(toast),
-            },
+            Command::PlaceBook {
+                book,
+                pane,
+                placement,
+            } => self.open_book(ctx, book, pane, placement),
             Command::Library(action) => self.library_action(ctx, action),
         }
     }
@@ -928,9 +953,110 @@ impl MareaderApp {
 
     /// Splits `pane`; a refusal is explained in a toast.
     fn split(&mut self, ctx: &Context, pane: PaneId, axis: SplitAxis) -> Option<PaneId> {
+        let edge = match axis {
+            SplitAxis::Horizontal => Edge::Right,
+            SplitAxis::Vertical => Edge::Bottom,
+        };
+        self.split_at(ctx, pane, edge)
+    }
+
+    /// Every pane as the rail's Library panel lists it.
+    fn tabs(&self) -> Vec<PaneTab> {
+        // The library's name tells twins apart; the document's title doesn't.
+        let name = |pane, book: Option<mareader_library::BookId>| {
+            let named = book.and_then(|id| self.library.model().book(id));
+            let title = named.map(|b| b.title.value.as_str());
+            let title = title.or_else(|| self.documents.title(pane));
+            title.unwrap_or("Empty pane").to_owned()
+        };
+        let panes = self.tree.panes().into_iter();
+        let tab = |pane| {
+            let book = self.library.book_in(&self.documents, pane);
+            PaneTab {
+                pane,
+                name: name(pane, book),
+                book,
+            }
+        };
+        panes.map(tab).collect()
+    }
+
+    /// A book carried from the rail lands where it's let go.
+    fn drops_from_rail(&self, ui: &egui::Ui, out: &mut Commands) {
+        if self.library.showing {
+            return;
+        }
+        let floating = self.settings.chrome.sidebar_overlay;
+        let rail = (self.sidebar.offset()).filter(|_| floating);
+        let edge = rail.map(|o| o + crate::sidebar::WIDTH);
+        let empty = |pane| self.documents.title(pane).is_none();
+        let name = |pane| self.documents.title(pane).unwrap_or("this pane").to_owned();
+        library_panel::drop_overlay(ui, &self.pane_rects, edge, empty, name, out);
+    }
+
+    /// Opens a library book: shown already, a click focuses its pane.
+    fn open_book(
+        &mut self,
+        ctx: &Context,
+        id: mareader_library::BookId,
+        pane: Option<PaneId>,
+        placement: Placement,
+    ) {
+        // A lost book asks where it went instead of failing.
+        if self.library.model().book(id).is_some_and(|b| b.missing()) {
+            self.apply(ctx, Command::Library(library::Action::FindAgain(id)));
+            return;
+        }
+        let dropped = pane.is_some();
+        let panes = self.tree.panes();
+        let showing = panes
+            .into_iter()
+            .find(|&p| self.library.book_in(&self.documents, p) == Some(id));
+        if let (false, Some(showing)) = (dropped, showing) {
+            self.active = showing;
+            self.go(Route::Reader);
+            return;
+        }
+        // A library book beside an empty pane goes in it, as in mareader.
+        let empty = self.documents.title(pane.unwrap_or(self.active)).is_none();
+        let placement = match placement {
+            Placement::Beside if empty => Placement::Into,
+            other => other,
+        };
+        match self.library.open(id) {
+            Ok(request) => {
+                let request = OpenRequest {
+                    pane,
+                    placement,
+                    ..request
+                };
+                self.apply(ctx, Command::Open(request));
+            }
+            Err(toast) => self.toasts.push(toast),
+        }
+    }
+
+    /// Right of `pane`, else below it when the right has no room.
+    fn beside(&self, ctx: &Context, pane: PaneId) -> Edge {
+        let mut probe = self.tree.clone();
+        let area = Self::area(ctx);
+        let (axis, side) = Edge::Right.placement();
+        match probe.split(pane, axis, side, area) {
+            Err(TreeError::NoRoom(_)) => Edge::Bottom,
+            _ => Edge::Right,
+        }
+    }
+
+    fn area(ctx: &Context) -> Bounds {
         let r = ctx.content_rect();
-        let area = Bounds::new(r.left(), r.top(), r.width(), r.height());
-        match self.tree.split(pane, axis, Side::After, area) {
+        Bounds::new(r.left(), r.top(), r.width(), r.height())
+    }
+
+    /// A new pane on `edge` of `pane`; a refusal is a note.
+    fn split_at(&mut self, ctx: &Context, pane: PaneId, edge: Edge) -> Option<PaneId> {
+        let area = Self::area(ctx);
+        let (axis, side) = edge.placement();
+        match self.tree.split(pane, axis, side, area) {
             Ok(id) => Some(id),
             Err(TreeError::Full) => {
                 let note = format!("A workspace holds {MAX_PANES} panes at most.");
@@ -1303,6 +1429,15 @@ impl eframe::App for MareaderApp {
             slide: self.settings.motion.sidebar_slide,
             platform: self.platform,
         };
+        let tabs = self.tabs();
+        let shelves = PanelContext {
+            model: self.library.model(),
+            tabs: &tabs,
+            active: self.active,
+            click: self.settings.workspace.library_click,
+            home: self.settings.library.home,
+        };
+        let shelf_tree = &mut self.shelf_tree;
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.
@@ -1313,7 +1448,8 @@ impl eframe::App for MareaderApp {
                     true
                 }),
                 Panel::Thumbnails => documents.thumbnails(ui, active, thumbs, recentre, out),
-                Panel::Library | Panel::Dictionary => false,
+                Panel::Library => library_panel::show(ui, &shelves, shelf_tree, out),
+                Panel::Dictionary => false,
             };
         // The rail serves reading; the library keeps it, unseen, for return.
         let inset = match (route.has_rail(), overlay) {
@@ -1369,6 +1505,7 @@ impl eframe::App for MareaderApp {
             });
         });
         self.library.end_frame(&ctx);
+        self.drops_from_rail(ui, &mut commands);
         library::sheets::show(&ctx, &self.library, &mut commands);
         let backdrop = self.backdrop(&ctx, &view);
         self.page_bars(&ctx, &backdrop, &mut commands);
@@ -1435,6 +1572,12 @@ impl eframe::App for MareaderApp {
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
         self.toasts.show(&ctx, stage, &mut commands);
+        // A run outlives the page that started it, so cards show on both.
+        let lift = match route {
+            Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
+            Route::Library => 0.0,
+        };
+        library::runs::show(&ctx, &mut self.library.runs, stage, lift);
         let window = self.settings_scope();
         self.settings_window
             .show(&ctx, &self.settings, &window, &mut commands);

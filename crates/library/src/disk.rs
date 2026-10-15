@@ -433,13 +433,15 @@ pub fn walk(
 /// A content id remembered for a path, valid while its stamp holds.
 pub type Known = std::collections::HashMap<PathBuf, (FileStamp, ContentId)>;
 
-/// Measures what a walk found, re-hashing only files that changed.
+/// Measures a walk's files, re-hashing changed ones; `each` hears progress.
 pub fn measure_all(
     files: Vec<(PathBuf, Format, FileStamp)>,
     known: &Known,
+    mut each: impl FnMut(usize, &Path),
 ) -> Vec<(PathBuf, Format, Measure)> {
     let mut out = Vec::with_capacity(files.len());
-    for (path, format, stamp) in files {
+    for (done, (path, format, stamp)) in files.into_iter().enumerate() {
+        each(done, &path);
         let cached = known.get(&path).filter(|(s, _)| *s == stamp);
         let measured = match cached {
             Some(&(stamp, content)) => Some(Measure { content, stamp }),

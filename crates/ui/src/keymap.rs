@@ -3,6 +3,7 @@
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
 use crate::command::{Command, Commands, WindowCommand};
+use crate::documents::Placement;
 use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
 use crate::route::Route;
@@ -25,7 +26,7 @@ pub fn bindings(platform: Platform) -> [Binding; 27] {
         Binding {
             label: "Open a file",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::O),
-            command: Command::ShowOpenDialog { beside: false },
+            command: Command::ShowOpenDialog(Placement::Into),
         },
         zoom("Zoom in", Modifiers::COMMAND, Key::Plus, ZOOM_IN),
         zoom("Zoom in", Modifiers::COMMAND, Key::Equals, ZOOM_IN),
@@ -237,7 +238,7 @@ mod tests {
         assert_eq!(hint(Platform::Gnome, &full).as_deref(), Some("F11"));
         assert_eq!(hint(Platform::Mac, &full).as_deref(), Some("⌃⌘F"));
         assert_eq!(hint(Platform::Mac, &Command::ShowLibrary), None);
-        let open = Command::ShowOpenDialog { beside: false };
+        let open = Command::ShowOpenDialog(Placement::Into);
         assert_eq!(hint(Platform::Gnome, &open).as_deref(), Some("Ctrl+O"));
         let zoom_in = Command::Zoom(ZOOM_IN);
         assert_eq!(hint(Platform::Mac, &zoom_in).as_deref(), Some("⌘+"));

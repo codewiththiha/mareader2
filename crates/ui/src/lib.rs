@@ -22,6 +22,7 @@ pub mod icons;
 pub mod keymap;
 pub mod layout;
 pub mod library;
+pub mod library_panel;
 pub mod loading_mark;
 pub mod motion;
 pub mod outline_panel;

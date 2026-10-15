@@ -1,12 +1,14 @@
 //! The library's disk work on one thread, or inline for tests and shots.
 
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
 use egui::Context;
+
+use super::runs::{Beat, Phase, RunId};
 use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Source, display_title,
@@ -41,11 +43,13 @@ pub struct Import {
     pub known: HashSet<ContentId>,
     /// The shelf they go on.
     pub to: Option<mareader_library::ShelfId>,
+    pub run: RunId,
 }
 
 /// What an import copied, found known, skipped or couldn't read.
 #[derive(Debug, Default)]
 pub struct Imported {
+    pub run: Option<RunId>,
     pub to: Option<mareader_library::ShelfId>,
     pub copies: Vec<Opened>,
     /// Already in the library: not copied.
@@ -67,6 +71,8 @@ pub struct Rescan {
     /// The library's own folders, never walked.
     pub avoid: Vec<PathBuf>,
     pub now_ms: u64,
+    /// Named folders walked show a card.
+    pub run: Option<RunId>,
 }
 
 #[derive(Clone, Debug)]
@@ -100,10 +106,12 @@ pub enum News {
         found: FoundAgain,
     },
     Imported(Box<Imported>),
+    Beat(Beat),
 }
 
 /// Which known files are gone, if checked, and each folder's walk.
 pub struct Rescanned {
+    pub run: Option<RunId>,
     pub gone: Option<HashSet<PathBuf>>,
     pub scans: Vec<Scan>,
     /// Folders with files still being written; look again soon.
@@ -139,14 +147,19 @@ impl Io {
         let spawned = std::thread::Builder::new()
             .name("library".into())
             .spawn(move || {
-                for job in inbox {
-                    let Some(n) = run(job) else { continue };
-                    if post.send(n).is_err() {
-                        return;
-                    }
+                // The app has gone: no one to tell, so stop.
+                let closed = std::cell::Cell::new(false);
+                let mut tell = |n: News| {
+                    closed.set(closed.get() || post.send(n).is_err());
                     let ctx = wake.lock().unwrap_or_else(PoisonError::into_inner);
                     if let Some(ctx) = ctx.as_ref() {
                         ctx.request_repaint();
+                    }
+                };
+                for job in inbox {
+                    run(job, &mut tell);
+                    if closed.get() {
+                        return;
                     }
                 }
             });
@@ -163,7 +176,7 @@ impl Io {
 
     pub fn send(&mut self, job: Job) {
         match self {
-            Self::Inline(news) => news.extend(run(job)),
+            Self::Inline(news) => run(job, &mut |n| news.push_back(n)),
             Self::Thread { jobs, .. } => {
                 // A dead worker means no disk: the library stays in memory.
                 let _ = jobs.as_ref().map(|j| j.send(job));
@@ -198,8 +211,9 @@ impl Drop for Io {
     }
 }
 
-fn run(job: Job) -> Option<News> {
-    match job {
+/// Does `job`, telling `post` how it goes and how it ended.
+fn run(job: Job, post: &mut dyn FnMut(News)) {
+    let news = match job {
         Job::Load(folder, device) => Some(News::Loaded(Box::new(folder.load(device)))),
         // A file gone before it was measured is simply not recorded.
         Job::Measure(probe) => disk::measure(&probe.path, probe.format)
@@ -215,7 +229,7 @@ fn run(job: Job) -> Option<News> {
             }
             failed.map(|e| News::WriteFailed(format!("Couldn't save the library: {e}")))
         }
-        Job::Rescan(job) => Some(News::Rescanned(Box::new(rescan(*job)))),
+        Job::Rescan(job) => Some(News::Rescanned(Box::new(rescan(*job, post)))),
         Job::Relink(relink) => {
             let format = Format::of_path(&relink.path);
             let measured = format.and_then(|f| Some((f, disk::measure(&relink.path, f).ok()?)));
@@ -233,21 +247,49 @@ fn run(job: Job) -> Option<News> {
                 found,
             })
         }
-        Job::Import(job) => Some(News::Imported(Box::new(import(*job)))),
+        Job::Import(job) => Some(News::Imported(Box::new(import(*job, post)))),
         Job::Delete { store, paths } => {
             disk::delete_copies(&store, &paths);
             None
         }
+    };
+    if let Some(news) = news {
+        post(news);
     }
 }
 
-fn import(job: Import) -> Imported {
+/// A beat for `run`, if there is one and it moves the ring.
+fn beat(
+    post: &mut dyn FnMut(News),
+    run: Option<RunId>,
+    phase: Phase,
+    at: (usize, usize),
+    name: &Path,
+) {
+    let (done, total) = at;
+    let Some(run) = run.filter(|_| Beat::worth(done, total)) else {
+        return;
+    };
+    let name = name.file_name().map(|n| n.to_string_lossy().into_owned());
+    post(News::Beat(Beat {
+        run,
+        phase,
+        done,
+        total,
+        name: name.unwrap_or_default(),
+    }));
+}
+
+fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
     let mut out = Imported {
+        run: Some(job.run),
         to: job.to,
         ..Imported::default()
     };
     let mut known = job.known;
-    for path in job.paths {
+    let total = job.paths.len();
+    for (done, path) in job.paths.into_iter().enumerate() {
+        beat(post, Some(job.run), Phase::Copying, (done, total), &path);
         let Some(format) = Format::of_path(&path).filter(|_| path.is_file()) else {
             out.skipped.push(path);
             continue;
@@ -278,10 +320,11 @@ fn import(job: Import) -> Imported {
     out
 }
 
-fn rescan(job: Rescan) -> Rescanned {
+fn rescan(job: Rescan, post: &mut dyn FnMut(News)) -> Rescanned {
     let gone = (job.locations).map(|l| l.into_iter().filter(|p| !p.is_file()).collect());
     let mut contents = job.contents;
     let mut out = Rescanned {
+        run: job.run,
         gone,
         scans: Vec::new(),
         settling: Vec::new(),
@@ -290,6 +333,7 @@ fn rescan(job: Rescan) -> Rescanned {
     let limits = Limits::new(job.now_ms);
     for source in job.folders {
         let keep = |format, size| source.counts(format, size);
+        beat(post, job.run, Phase::Scanning, (0, 0), &source.root);
         let walked = disk::walk(&source.root, keep, limits, &job.avoid);
         if walked.settling > 0 {
             out.settling.push(source.id);
@@ -297,7 +341,9 @@ fn rescan(job: Rescan) -> Rescanned {
         if walked.truncated {
             out.truncated.push(source.id);
         }
-        let measured = disk::measure_all(walked.files, &job.known);
+        let total = walked.files.len();
+        let each = |done, path: &Path| beat(post, job.run, Phase::Reading, (done, total), path);
+        let measured = disk::measure_all(walked.files, &job.known, each);
         let mut found = Vec::with_capacity(measured.len());
         for (path, format, measure) in measured {
             // Names are read once per content, for books new to the library.

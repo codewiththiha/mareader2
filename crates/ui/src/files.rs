@@ -8,7 +8,7 @@ use egui::{Context, DroppedFileHandle};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
-use crate::documents::OpenRequest;
+use crate::documents::{OpenRequest, Placement};
 
 /// What the open dialog admits.
 /// Markdown and plain text open converted to books.
@@ -35,8 +35,8 @@ impl Files {
         ctx.request_repaint();
     }
 
-    /// Shows the system open dialog; `beside` opens the pick in a split.
-    pub fn pick(&self, ctx: &Context, beside: bool) {
+    /// Shows the system open dialog; the pick lands as `placement` says.
+    pub fn pick(&self, ctx: &Context, placement: Placement) {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -45,7 +45,13 @@ impl Files {
             files.picking.store(false, Ordering::Release);
             // Cancelling is silent, as in mareader.
             if let Some(request) = request {
-                files.deliver(&ctx, Command::Open(OpenRequest { beside, ..request }));
+                files.deliver(
+                    &ctx,
+                    Command::Open(OpenRequest {
+                        placement,
+                        ..request
+                    }),
+                );
             }
         };
         if !dialog::run(done) {

@@ -11,7 +11,7 @@ use mareader_session::{
     Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
-use mareader_workspace::PaneId;
+use mareader_workspace::{Edge, PaneId};
 
 use crate::command::{Command, Commands};
 use crate::gpu::{Gpu, Quad};
@@ -33,14 +33,25 @@ const UPLOADS: Budget = Budget {
     bytes: 16 << 20,
 };
 
+/// Where an open lands, measured from its pane.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Placement {
+    #[default]
+    Into,
+    /// A new pane to the right, else below when the right has no room.
+    Beside,
+    /// A new pane on exactly this edge, as a drop asks.
+    Edge(Edge),
+}
+
 /// A request to show a file in a pane (the active one by default).
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpenRequest {
     pub source: Source,
     pub name: Option<String>,
     pub pane: Option<PaneId>,
-    /// Split that pane and open in the new half instead.
-    pub beside: bool,
+    /// Into that pane, or a new one split from it.
+    pub placement: Placement,
     /// The page to show once open; past the end, the last.
     pub page: usize,
     /// A book's place to show instead, found again in today's type.
@@ -55,7 +66,7 @@ impl OpenRequest {
             source: Source::Path(path),
             name: None,
             pane: None,
-            beside: false,
+            placement: Placement::Into,
             page: 0,
             place: None,
             book: None,
@@ -67,7 +78,7 @@ impl OpenRequest {
             source: Source::Bytes(Arc::new(bytes)),
             name: Some(name.into()),
             pane: None,
-            beside: false,
+            placement: Placement::Into,
             page: 0,
             place: None,
             book: None,
