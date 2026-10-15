@@ -102,6 +102,7 @@ appearance effects to that same pass.
 | 11 | A living grid: drag a card and the others slide aside with springs; a lifted ghost; cheap repaints | **done** | click Library; drag a card and rest on another: a hole opens beside it, the others slide; let go, or press Escape to fly it home; Ctrl/⌘-click two books and drag one: both lift, with a count; `books=10 library=show carry=470,240,190,240` in shots |
 | 12 | Stacking: rest a book on another to make a shelf, drop on a shelf to file, rest on a shelf to open it, drop on a crumb | **done** | click Library; drag a book onto another's middle and hold: it sinks into a ringed plate; let go for a shelf in its place. Hold on a shelf to open it and drop among its books; inside a shelf, hold on the Library crumb to go up and drop in place |
 | 13 | Long press to select, carry many at once (a fanned stack), stack, file or move them together | **done** | click Library; press and hold a book until it's picked, let go, click another; press one of them, hold a moment and drag: both come as a fanned stack; hold them on a book's middle for one shelf, or drop them on a shelf |
+| 14 | Ready to merge: `absorb` takes in another machine's rows and mends what merging leaves (one book twice, loops of shelves, clashing names); fields from newer builds kept; `twin_of` stamped | **done** | no visible change; the library crate's `absorb_tests` trade rows between two libraries |
 
 ## Next
 
@@ -110,7 +111,8 @@ appearance effects to that same pass.
    (`docs/library.md` § Redesign).
 2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
-   ids, stamps and tombstones; slice 4 laid sort keys.
+   ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
+   half and its mends (`docs/sync.md` § Taking rows in).
 
 ## Open questions for the owner
 
@@ -189,3 +191,4 @@ appearance effects to that same pass.
 | 2026-10-15 | M5 slice 11: a living grid. A carry lifts its cards out and opens a hole that follows card halves, so approaching a card never shoves it; a shelf's middle still files. Cards ease on critically damped springs kept only for cards drawn, repainting only while one moves; the carried card rides raised under the pointer with a count, lands in the hole or flies home on Escape, and the grid scrolls near its edges |
 | 2026-10-16 | M5 slice 12, stacking. Rests are one timed aim on the lift: 0.18 s moves the hole, 0.3 s on a book's middle readies a shelf (the book sinks into a ringed plate), 0.7 s on a shelf or a crumb opens that level. Letting go on a readied book makes a shelf in its place, named after a shared author when free. A carry now crosses levels: cards from elsewhere open a hole at the end and land filed and in place, and the card under the pointer as a level opens waits until it moves |
 | 2026-10-16 | M5 slice 13, many at once. A still press of 0.45 s picks a card and its release is no click; held past egui's 0.8 s click length the press lifts the whole selection without moving. A carried selection fans out behind the card held, up to two cards turned a few degrees in their own tints, and makes room, stacks, files, opens shelves and climbs crumbs as one carry. The library redesign (slices 8–13) is done |
+| 2026-10-16 | M5 slice 14, ready to merge, after a review against the sync design. `Library::absorb` merges another machine's rows, passes their stamps and mends what merging leaves, alike on every machine: two originals of one content fold into the lower id with its shelves and position, a loop of shelves undoes its newest move, sibling shelves of one name are numbered apart. Records keep and merge fields from newer builds under a schema rule, and `twin_of` is stamped so a promoted twin stays promoted (`docs/sync.md` § Taking rows in) |
