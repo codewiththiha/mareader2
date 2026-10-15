@@ -1,6 +1,6 @@
 //! Hybrid logical time: stamps that order changes across machines.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::id::{DeviceId, parse_hex};
 
@@ -99,16 +99,43 @@ pub struct Field<T> {
     pub at: Stamp,
 }
 
+/// Before any write: a field read from before it had a stamp.
+pub(crate) const NEVER: Stamp = Stamp {
+    ms: 0,
+    counter: 0,
+    device: DeviceId(0),
+};
+
 /// Never written: any real write wins over it.
 impl<T: Default> Default for Field<T> {
     fn default() -> Self {
-        let never = Stamp {
-            ms: 0,
-            counter: 0,
-            device: DeviceId(0),
-        };
-        Self::new(T::default(), never)
+        Self::new(T::default(), NEVER)
     }
+}
+
+impl<T> Field<Option<T>> {
+    /// Empty and never written, so not worth writing down.
+    pub fn is_unset(&self) -> bool {
+        self.value.is_none() && self.at == NEVER
+    }
+}
+
+/// A field saved bare, before it had a stamp, reads as never written.
+pub(crate) fn stamped_or_bare<'de, D, T>(d: D) -> Result<Field<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either<T> {
+        Stamped(Field<T>),
+        Bare(T),
+    }
+    Ok(match Either::deserialize(d)? {
+        Either::Stamped(field) => field,
+        Either::Bare(value) => Field::new(value, NEVER),
+    })
 }
 
 impl<T> Field<T> {

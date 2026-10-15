@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::clock::{Field, Stamp};
+use crate::clock::{Field, Stamp, stamped_or_bare};
+use crate::extra::Extra;
 use crate::id::{BookId, ContentId, SourceId};
 
 /// The file's own format; text and Markdown open converted to EPUB.
@@ -77,6 +78,17 @@ impl Position {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct State {
     pub position: Field<Position>,
+    #[serde(flatten)]
+    pub extra: Extra,
+}
+
+impl State {
+    pub fn new(position: Field<Position>) -> Self {
+        Self {
+            position,
+            extra: Extra::default(),
+        }
+    }
 }
 
 /// Size and modification time, to skip re-hashing an unchanged file.
@@ -136,8 +148,14 @@ pub struct Book {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restored: Option<Stamp>,
     /// The book this one is read separately from; they share its files.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub twin_of: Option<BookId>,
+    #[serde(
+        default,
+        deserialize_with = "stamped_or_bare",
+        skip_serializing_if = "Field::is_unset"
+    )]
+    pub twin_of: Field<Option<BookId>>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Book {
@@ -158,7 +176,7 @@ impl Book {
 
     /// The book whose files it shares: itself unless a twin.
     pub fn original(&self) -> BookId {
-        self.twin_of.unwrap_or(self.id)
+        self.twin_of.value.unwrap_or(self.id)
     }
 
     /// No location of it is there any more.

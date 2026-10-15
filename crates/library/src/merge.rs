@@ -1,11 +1,20 @@
 //! Joining two copies of one record, as a sync will; order never matters.
 
 use crate::book::{Book, State};
+use crate::clock::{NEVER, Stamp};
 use crate::shelves::{Membership, Shelf};
 
 pub trait Merge {
     /// Takes in `other`, a copy of the same record from elsewhere.
     fn merge(&mut self, other: Self);
+
+    /// Its latest stamp, which this device's clock must then pass.
+    fn latest(&self) -> Stamp;
+}
+
+/// The largest of `stamps`; never written if there are none.
+fn newest(stamps: impl IntoIterator<Item = Option<Stamp>>) -> Stamp {
+    stamps.into_iter().flatten().max().unwrap_or(NEVER)
 }
 
 impl Merge for Book {
@@ -23,19 +32,50 @@ impl Merge for Book {
         self.added = self.added.min(other.added);
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
-        self.twin_of = self.twin_of.max(other.twin_of);
+        self.twin_of.merge(other.twin_of);
+        self.extra.merge(other.extra);
         // Locations are this machine's own; another's mean nothing here.
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([
+            Some(self.title.at),
+            Some(self.author.at),
+            Some(self.opened.at),
+            Some(self.key.at),
+            Some(self.twin_of.at),
+            self.removed,
+            self.restored,
+            self.extra.latest(),
+        ])
     }
 }
 
 impl Merge for Shelf {
     fn merge(&mut self, other: Self) {
         self.name.merge(other.name);
+        // Where it came from goes with the move that won.
+        let (mine, theirs) = (self.parent.at, other.parent.at);
+        if theirs > mine || (theirs == mine && other.from > self.from) {
+            self.from = other.from;
+        }
         self.parent.merge(other.parent);
         self.key.merge(other.key);
         self.added = self.added.min(other.added);
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([
+            Some(self.name.at),
+            Some(self.parent.at),
+            Some(self.key.at),
+            self.removed,
+            self.restored,
+            self.extra.latest(),
+        ])
     }
 }
 
@@ -43,12 +83,22 @@ impl Merge for Membership {
     fn merge(&mut self, other: Self) {
         self.key.merge(other.key);
         self.alive.merge(other.alive);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([Some(self.key.at), Some(self.alive.at), self.extra.latest()])
     }
 }
 
 impl Merge for State {
     fn merge(&mut self, other: Self) {
         self.position.merge(other.position);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([Some(self.position.at), self.extra.latest()])
     }
 }
 
@@ -57,6 +107,7 @@ mod tests {
     use super::*;
     use crate::book::{Format, Position};
     use crate::clock::{Field, Stamp};
+    use crate::extra::Extra;
     use crate::id::{BookId, ContentId, DeviceId, ShelfId};
 
     /// A small deterministic generator: the same cases every run.
@@ -88,6 +139,23 @@ mod tests {
         format!("{}-{}-{}", at.ms, at.counter, at.device.0)
     }
 
+    /// A newer build's fields: stamped, bare, or none at all.
+    fn extra(rng: &mut Rng) -> Extra {
+        let mut out = Extra::default();
+        for name in ["rating", "colour"] {
+            let value = match rng.next(3) {
+                0 => continue,
+                1 => serde_json::json!(rng.next(3)),
+                _ => {
+                    let at = rng.stamp();
+                    serde_json::json!({ "v": word(at), "t": String::from(at) })
+                }
+            };
+            out.insert(name, value);
+        }
+        out
+    }
+
     fn book(rng: &mut Rng) -> Book {
         let (title, author, opened) = (rng.stamp(), rng.stamp(), rng.stamp());
         let key = rng.stamp();
@@ -106,7 +174,11 @@ mod tests {
             locations: Vec::new(),
             removed: rng.maybe(),
             restored: rng.maybe(),
-            twin_of: (rng.next(2) == 0).then(|| BookId(u128::from(rng.next(3)))),
+            twin_of: {
+                let at = rng.stamp();
+                Field::new((at.counter > 0).then_some(BookId(u128::from(at.ms))), at)
+            },
+            extra: extra(rng),
         }
     }
 
@@ -116,10 +188,12 @@ mod tests {
             id: ShelfId(1),
             name: Field::new(word(name), name),
             parent: Field::new(Some(ShelfId(u128::from(parent.ms))), parent),
+            from: Some(ShelfId(u128::from(parent.counter))),
             added: rng.next(5),
             key: Field::new(word(key), key),
             removed: rng.maybe(),
             restored: rng.maybe(),
+            extra: extra(rng),
         }
     }
 
@@ -130,6 +204,7 @@ mod tests {
             book: BookId(1),
             key: Field::new(word(key), key),
             alive: Field::new(alive.ms % 2 == 0, alive),
+            extra: extra(rng),
         }
     }
 
@@ -143,6 +218,7 @@ mod tests {
         };
         State {
             position: Field::new(position, at),
+            extra: extra(rng),
         }
     }
 
