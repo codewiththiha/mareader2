@@ -96,9 +96,16 @@ other stays where it was; removing one takes nothing from the other.
 result cap), refuse symlinks, skip hidden directories, re-measure before any
 relink, and delete only paths that canonicalise inside the store.
 
-**Persistence:** one versioned serde file, written atomically (temp + rename)
-on a worker after a short debounce. Covers live in the cache directory, keyed
-by content id, rebuilt on demand.
+**Persistence** (owner decision, 2026-10-15): versioned serde files, each
+written atomically (temp + rename) on a worker after a short debounce.
+
+- `library.json` holds the facts that rarely change: books, locations,
+  shelves, sources.
+- `state/<book-id>.json` holds one book's position (and its marks, M6). A
+  page turn rewrites only that small file, never the whole library; the
+  same split is the sync layout (`docs/sync.md` § Wire layout).
+- Covers live in the cache directory, keyed by content id, rebuilt on
+  demand.
 
 ## Identity and naming edge cases (2026-10-15)
 
