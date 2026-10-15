@@ -17,6 +17,7 @@
 | M6 | Study tools | Gloss cards and marks, CEFR highlighting, offline dictionaries, selection menu |
 | M7 | Search and keyboard | Document search for both formats, lazy index, auto-scroll, full keyboard operation |
 | M8 | Polish and 1.0 | Every P0 and P1 shipped; memory budgets held; packaging for macOS, Windows, Linux |
+| M9 | Sync (after 1.0) | Per `docs/sync.md`: one library on several machines through a synced folder, WebDAV, S3, Google Drive or OneDrive; hybrid-clock merge; covers and files on demand |
 
 A milestone is done when every P0 entry for it is `shipped` and the P1 entries
 are `shipped` or explicitly deferred with notes. Parity means the capability,
@@ -87,8 +88,17 @@ appearance effects to that same pass.
 ## Next
 
 1. **M5:** plan the library slices from `docs/library.md`.
+2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
+   the first release (`docs/sync.md` § What M5 must lay down).
 
 ## Open questions for the owner
+
+- **Where reading state is written (M5).** `docs/library.md` keeps the
+  library in one serde file. A position is saved on every page turn, and
+  with ten thousand books that file runs to megabytes rewritten each time.
+  Proposed: the library file holds the cold facts and each book's position
+  and marks sit in a small `state/<book-id>.json`, as the sync layout has
+  them. Not changed until the owner agrees.
 
 - **Closing M2.** Answered: finish all seven. Slices 8 to 11 shipped page
   chrome, mixed sizes, the vertical view, tiles, capped caches, the find key
@@ -142,3 +152,4 @@ appearance effects to that same pass.
 | 2026-10-14 | Owner request: Markdown and plain text open as EPUBs, as calibre and pandoc convert them. The file becomes an EPUB 3 in memory (one XHTML chapter per heading, a nav contents list, packed pictures) and opens through `Book::open`, so every EPUB setting applies. Markdown is GitHub's flavour with front matter; text finds blank, indent or line paragraphs, joins wrapped prose, keeps verse and finds headings; legacy encodings are guessed. mareader's extensions; `docs/epub.md` |
 | 2026-10-15 | Owner request: Fonts settings for each pane, and focus on any press. Settings › Workspace's "Independent text for each pane" gives split panes their own text; the window's text mirrors the focused pane's, so the Fonts tab edits only it. The session forks a re-set into a new document instead of replacing the old, and panes share one only while file and type match (`docs/epub.md`). A press anywhere in a pane now focuses it, as mareader's pointerdown on the pane root; before, the page's own widgets took the click and only the page bar focused |
 | 2026-10-15 | Owner request: Column Width moves to the Fonts tab, so it is a text setting and per pane with "Independent text for each pane" (settings v2 carry the old value over). The settings window now shows only what reaches the focused pane, as mareader's, from one rule: `Scope` says what is focused and open, each tab, section and row names an `Applies`, and `Rows` places dividers between the rows drawn (`docs/design.md`). New against before: Pane text shows only while split with a book in some pane; Auto resize hides for books; No gap and Page shadow hide in a book's vertical stream; Split pane appearance hides until split, as mareader's |
+| 2026-10-15 | Library, covers and sync studied for edge cases. Text conversion: titles and authors from Chinese-style names (`《河流》作者：林`) and from `Title:`/`Author:` header lines (Project Gutenberg's *The Raven* is now "The Raven"); a copy mark like `(1)` drops; Chinese headings take traditional and formal numerals, and measure-word units (`本`, `部`, `卷`) head a part only with a gap, so `第一本书…` stays prose; the zip's dates are pinned so a text converts to identical bytes. Docs: `docs/sync.md` (new; M9 after 1.0), and library sections on identity edge cases, text files in the library, covers for every format, and sync readiness |

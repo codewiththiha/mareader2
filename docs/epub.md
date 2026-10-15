@@ -377,6 +377,32 @@ guesses legacy encodings. Each is built in here.
   encodings, paragraph styles, headings, front matter, chapters, links,
   footnotes and pictures. The session tests open both formats by name.
 
+### Text file edge cases (2026-10-15)
+
+- **Names that say more.** Chinese novels are named `《河流》作者：林.txt`,
+  `《河流》[林].txt` or `【河流】作者:林.txt`: the title and author come
+  from the name. A copy mark goes: `notes (1).md` is titled `notes`.
+- **Labelled lines in the head.** Within its first 40 lines, a plain text's
+  `Title:` and `Author:` lines (or `书名：`, `标题：`, `作者：`) win over
+  the name, as front matter does in Markdown. Project Gutenberg's files
+  carry them, so *The Raven* is titled "The Raven", by Edgar Allan Poe.
+- **Chinese headings.** Numerals include the traditional and formal forms
+  (`两`, `兩`, `萬`, `貳`, `拾` and kin). Units that are also measure words
+  (`卷`, `部`, `集`, `本`, `册`) head a part only when a space or colon
+  parts them from the title or nothing follows, so `第一本书记载着…` stays
+  prose. A title runs 36 characters at most after its unit, and a line
+  ending in `。`, `，` or `；` is a sentence.
+- **A missed heading style costs only its own chapters.** Lines are judged
+  one at a time, so an unknown style joins the chapter before it; the
+  book's other headings stand.
+- **No chunking of heading-less files.** A book is one list of blocks
+  however many chapters it has, so splitting a long file into chapters of
+  100 paragraphs would buy no speed and fill the contents with numbers.
+- **Same text, same bytes.** The zip's dates and the package's modified
+  date are fixed, so a file converts to identical bytes every time. The
+  library relies on this to cache the result (`docs/library.md` § Text
+  files in the library).
+
 ## Revision history
 
 | Date | Summary |
@@ -391,3 +417,4 @@ guesses legacy encodings. Each is built in here.
 | 2026-10-14 | Added the follow-ups as built: layout on demand, pictures, Column Width |
 | 2026-10-14 | Added text files as EPUBs: Markdown and plain text converted on open |
 | 2026-10-15 | Added text for each pane; Column Width moved to the Fonts tab |
+| 2026-10-15 | Added text file edge cases: names, labelled heads, Chinese headings, repeatable bytes |
