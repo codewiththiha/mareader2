@@ -704,6 +704,27 @@ on it; moving to another place restarts the clock.
 - **Code.** `Lift::aim` in `library/living.rs`; the crumb's rest is in
   `library/crumbs.rs`, kept in egui's memory with the frame it was seen.
 
+## Slice 13: many at once (2026-10-16)
+
+- **Long press picks.** A press held still for 0.45 s on a card or row
+  picks it, as on a phone, and starts picking: plain clicks then toggle.
+  Its release is no click, so the card stays picked and nothing opens.
+- **Holding on lifts.** Held past a click's length (egui's 0.8 s), the
+  press becomes a carry without moving, of the whole selection when the
+  card is in it. Press, wait, then move: the cards are already in hand.
+- **A fanned stack.** The ghost of a selection shows up to two cards
+  behind the one held, turned a few degrees either way in their own
+  tints, with the count badge. Landing, they fly to their slots fanned.
+  The selection bar steps aside while they're in hand.
+- **Together.** A selection makes room as one hole, stacks onto a book
+  into one shelf (books and shelves alike), files onto a shelf, opens
+  shelves and climbs crumbs as one carry, and lands in place anywhere.
+- **Touch screens.** egui turns a 0.8 s touch into a right-click, so on
+  a touch screen the hold also opens the card's menu; the desktop app is
+  driven by mouse and trackpad.
+- **Code.** `long_press` in `library/view.rs`; `fanned` in
+  `library/view/grid.rs`.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
