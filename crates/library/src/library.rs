@@ -84,7 +84,12 @@ impl Library {
 
     pub(crate) fn index(&mut self) {
         self.at.clear();
-        for book in self.books.values().filter(|b| b.alive()) {
+        // A twin shares its original's files; paths name the original.
+        let originals = self
+            .books
+            .values()
+            .filter(|b| b.alive() && b.twin_of.is_none());
+        for book in originals {
             for location in &book.locations {
                 self.at.insert(location.path.clone(), book.id);
             }
@@ -133,16 +138,29 @@ impl Library {
 
     /// Records an open: the book of that content or path, else a new one.
     pub fn record_open(&mut self, opened: Opened, wall_ms: u64) -> BookId {
+        self.record_open_as(opened, wall_ms, None)
+    }
+
+    /// As [`Self::record_open`]; a twin of that book read is the one opened.
+    pub fn record_open_as(&mut self, opened: Opened, wall_ms: u64, twin: Option<BookId>) -> BookId {
         let at = self.clock.tick(wall_ms);
         let content = opened.measure.content;
-        let by_content = self.books().find(|b| b.content == content).map(|b| b.id);
+        let original = |b: &&Book| b.content == content && b.twin_of.is_none();
+        let by_content = self.books().find(original).map(|b| b.id);
         // A file edited in place is the same book with new content.
         let id = by_content.or_else(|| self.book_at(&opened.path));
+        let twin_of = |t: &BookId| {
+            self.book(*t)
+                .is_some_and(|b| id.is_some() && b.twin_of == id)
+        };
+        let reader = twin.filter(twin_of);
         let id = match id.and_then(|id| self.books.get_mut(&id)) {
             Some(book) => {
                 book.content = content;
                 book.format = opened.format;
-                book.opened = Field::new(wall_ms, at);
+                if reader.is_none() {
+                    book.opened = Field::new(wall_ms, at);
+                }
                 // Filled once; a reader's own edit outlasts reopening.
                 if book.author.value.is_none() && opened.author.is_some() {
                     book.author = Field::new(opened.author.clone(), at);
@@ -153,6 +171,10 @@ impl Library {
         };
         let origin = self.origin_of(&opened.path);
         self.place(id, &opened.path, opened.measure.stamp, origin);
+        self.mirror(id);
+        if let Some(book) = reader.and_then(|t| self.books.get_mut(&t)) {
+            book.opened = Field::new(wall_ms, at);
+        }
         self.dirty.library = true;
         id
     }
@@ -178,14 +200,45 @@ impl Library {
             locations: Vec::new(),
             removed: None,
             restored: None,
+            twin_of: None,
         });
         if !book.alive() {
             book.restored = Some(at);
             if opening {
                 book.opened = Field::new(wall_ms, at);
             }
+            // Back on purpose: folders no longer leave it out.
+            for source in self.sources.values_mut() {
+                source.hidden.remove(&id);
+            }
         }
         id
+    }
+
+    /// Gives `original`'s twins its files, content and format again.
+    pub(crate) fn mirror(&mut self, original: BookId) {
+        let Some(book) = self.books.get(&original) else {
+            return;
+        };
+        let (content, format) = (book.content, book.format);
+        let locations = book.locations.clone();
+        let twins = self
+            .books
+            .values_mut()
+            .filter(|b| b.twin_of == Some(original));
+        for twin in twins {
+            twin.content = content;
+            twin.format = format;
+            twin.locations.clone_from(&locations);
+        }
+    }
+
+    /// Mirrors every original that has twins.
+    pub(crate) fn mirror_all(&mut self) {
+        let originals: BTreeSet<BookId> = self.books.values().filter_map(|b| b.twin_of).collect();
+        for original in originals {
+            self.mirror(original);
+        }
     }
 
     /// Makes the path the book's newest location, and only its own.
@@ -228,6 +281,19 @@ impl Library {
                 location.present = exists(&location.path);
             }
         }
+    }
+
+    /// Looks again for one book's files, and its twins'.
+    pub fn recheck(&mut self, id: BookId, exists: impl Fn(&Path) -> bool) {
+        let Some(original) = self.books.get(&id).map(Book::original) else {
+            return;
+        };
+        if let Some(book) = self.books.get_mut(&original) {
+            for location in &mut book.locations {
+                location.present = exists(&location.path);
+            }
+        }
+        self.mirror(original);
     }
 
     /// What changed since the last call, now to be written.

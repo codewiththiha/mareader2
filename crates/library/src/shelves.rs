@@ -386,7 +386,7 @@ impl Library {
 }
 
 /// One line, trimmed and capped; none if nothing is left.
-fn clean(name: &str) -> Option<String> {
+pub(crate) fn clean(name: &str) -> Option<String> {
     let spaced = name.replace(char::is_control, " ");
     let words: Vec<&str> = spaced.split_whitespace().collect();
     let joined: String = words.join(" ").chars().take(NAME_MAX).collect();
