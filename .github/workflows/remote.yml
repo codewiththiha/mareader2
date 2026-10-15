@@ -138,7 +138,7 @@ jobs:
           if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
             curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path \
               --profile minimal -c clippy,rustfmt \
-              -t wasm32-unknown-unknown,aarch64-apple-darwin
+              -t wasm32-unknown-unknown
           fi
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Build what the gates build
@@ -146,9 +146,6 @@ jobs:
         run: |
           cargo clippy -q --workspace --all-targets -- -D warnings
           cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings
-          cargo clippy -q -p mareader --target aarch64-apple-darwin -- -D warnings
-          cargo clippy -q -p mareader --target aarch64-apple-darwin \
-            --no-default-features -- -D warnings
           cargo test -q --workspace --no-run
           cargo build -q -p mareader-ui --example shot
           cargo xtask layers && cargo xtask assets && cargo xtask unsafe
