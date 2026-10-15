@@ -5,6 +5,7 @@ use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 use crate::command::{Command, Commands, WindowCommand};
 use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
+use crate::route::Route;
 use crate::zoom::{Fit, Step, ZoomCommand};
 
 pub struct Binding {
@@ -167,10 +168,14 @@ pub fn held(input: &egui::InputState, arrow: Arrow) -> bool {
 const LISTED: [(&str, &str); 1] = [("Close a popover, window or sidebar", "Esc")];
 
 /// Consumes this frame's shortcuts and queues their commands.
-pub fn read(ctx: &Context, platform: Platform, out: &mut Commands) {
+pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands) {
     let typing = ctx.egui_wants_keyboard_input();
     let focused = ctx.memory(|m| m.focused().is_some()) || egui::Popup::is_any_open(ctx);
-    for b in bindings(platform) {
+    // Keys the route ignores stay unconsumed, for the page's own widgets.
+    for b in bindings(platform)
+        .into_iter()
+        .filter(|b| route.allows(&b.command))
+    {
         if (typing && types(&b.shortcut)) || (focused && steers(&b)) {
             continue;
         }

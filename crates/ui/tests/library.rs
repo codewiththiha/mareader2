@@ -275,3 +275,115 @@ fn the_library_keeps_its_own_title_bar_pin() {
     assert_eq!(chrome(&h), (true, false), "the reader's pin alone");
     assert!(h.state().titlebar().pinned);
 }
+
+#[test]
+fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
+    let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "outline")]);
+    assert!(h.query_by_label("Close sidebar").is_some());
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    // The library's bar starts pinned, so all of it is on show.
+    let reader_only = [
+        "Close sidebar",
+        "Toggle sidebar",
+        "Settings",
+        "Search",
+        "Split down",
+        "Split right",
+        "View & tools",
+    ];
+    for gone in reader_only {
+        assert!(h.query_by_label(gone).is_none(), "{gone} in the library");
+    }
+    for kept in [
+        "Back to reading",
+        "View options",
+        "Appearance",
+        "Pin title bar",
+    ] {
+        assert!(h.query_by_label(kept).is_some(), "{kept} missing");
+    }
+    assert!(h.state().sidebar().is_open(), "kept for the way back");
+    h.get_by_label("Back to reading").click();
+    h.run();
+    assert!(!h.state().library_showing());
+    assert!(h.query_by_label("Close sidebar").is_some());
+}
+
+#[test]
+fn an_empty_library_offers_no_way_back() {
+    let h = reader(&[("library", "show")]);
+    assert!(h.query_by_label("Back to reading").is_none());
+    assert!(h.query_by_label("View options").is_some());
+}
+
+#[test]
+fn reader_commands_and_keys_do_nothing_in_the_library() {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    h.state_mut().queue(Command::ShowFind);
+    h.run();
+    assert!(h.state().find().is_open());
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    assert!(
+        !h.state().find().is_open(),
+        "the find bar ends with the panes"
+    );
+    for c in [
+        Command::Split(mareader_workspace::SplitAxis::Horizontal),
+        Command::ShowSettings,
+        Command::ToggleSidebar,
+        Command::LastPage,
+    ] {
+        h.state_mut().queue(c);
+    }
+    h.key_press(egui::Key::End);
+    h.run();
+    assert!(h.state().library_showing());
+    assert_eq!(h.state().panes().len(), 1);
+    assert!(!h.state().settings_window().is_open());
+    assert!(!h.state().sidebar().is_open());
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    let app = h.state();
+    let page = app.documents().current(app.active_pane());
+    assert_eq!(page, Some(0), "no page turned behind the library");
+}
+
+#[test]
+fn the_library_appearance_menu_has_no_page_texture() {
+    let mut h = reader(&[("pdf", "sample:5"), ("pinned", "true")]);
+    h.get_by_label("Appearance").click();
+    h.run();
+    assert!(h.query_by_label("Page texture").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run();
+    assert!(h.query_by_label("Mode & colour").is_some());
+    assert!(
+        h.query_by_label("Page texture").is_none(),
+        "the shelf has no page"
+    );
+}
+
+#[test]
+fn the_view_menu_key_opens_the_librarys_own_menu() {
+    let mut h = reader(&[("library", "show"), ("books", "3")]);
+    h.state_mut().queue(Command::ShowViewMenu);
+    h.run();
+    assert!(h.query_by_label("Sort by").is_some());
+    assert!(
+        h.query_by_label("Full screen").is_none(),
+        "not the reader's"
+    );
+}
+
+#[test]
+fn library_show_after_an_open_lands_in_the_library() {
+    let h = reader(&[("pdf", "sample:5"), ("library", "show")]);
+    assert!(h.state().library_showing());
+    assert!(h.query_by_label("Back to reading").is_some());
+}

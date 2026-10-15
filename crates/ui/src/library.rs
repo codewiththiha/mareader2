@@ -2,7 +2,7 @@
 
 mod covers;
 mod io;
-mod menu;
+pub(crate) mod menu;
 pub mod view;
 
 use std::collections::BTreeMap;

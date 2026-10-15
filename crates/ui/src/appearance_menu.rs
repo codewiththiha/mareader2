@@ -50,6 +50,8 @@ pub struct MenuContext<'a> {
     pub gpu: Option<&'a Gpu>,
     /// The ink dial's value while a book is active; none hides it.
     pub ink: Option<f32>,
+    /// Offers the page texture; the library has no page.
+    pub texture: bool,
 }
 
 /// Edits a copy and pushes one command when anything changed.
@@ -77,18 +79,10 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             if let Some(ink) = cx.ink {
                 ink_dial(ui, ink, out);
             }
-            ui.separator();
-            section(ui, "Page texture");
-            widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
-            // Kept in place but inert, so the popover never jumps.
-            ui.add_enabled_ui(a.texture != TextureMode::None, |ui| {
-                slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
-                slider(ui, "Scale", &mut a.texture_scale, 25..=400);
-            });
             let mut split = cx.independence;
-            if let Some(i) = &mut split {
-                let hint = "Each pane keeps its own texture and dials.";
-                switch_row(ui, "Texture for each", hint, &mut i.textures);
+            if cx.texture {
+                ui.separator();
+                texture(ui, &mut a, split.as_mut());
             }
             ui.separator();
             section(ui, "Film grain");
@@ -114,6 +108,21 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         });
     if a != *cx.current {
         out.push(Command::SetAppearance(a));
+    }
+}
+
+/// The page texture, its dials and, while split, one per pane.
+fn texture(ui: &mut Ui, a: &mut Appearance, split: Option<&mut Independence>) {
+    section(ui, "Page texture");
+    widgets::choices(ui, &mut a.texture, &TextureMode::ALL, TextureMode::label, 3);
+    // Kept in place but inert, so the popover never jumps.
+    ui.add_enabled_ui(a.texture != TextureMode::None, |ui| {
+        slider(ui, "Opacity", &mut a.texture_opacity, 0..=100);
+        slider(ui, "Scale", &mut a.texture_scale, 25..=400);
+    });
+    if let Some(i) = split {
+        let hint = "Each pane keeps its own texture and dials.";
+        switch_row(ui, "Texture for each", hint, &mut i.textures);
     }
 }
 
