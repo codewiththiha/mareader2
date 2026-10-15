@@ -173,6 +173,28 @@ documents, caches and workers (ADR 0006).
 - A close button appears at the top right of a hovered pane, below the hover
   band.
 
+## Settings that follow the focused pane
+
+The settings window shows only what reaches the focused pane, as mareader
+does, but from one rule instead of a condition at every row.
+`settings_window::Scope` says what the focused pane shows (nothing, a PDF,
+or a book read as a stream or as pages), whether the window is split,
+whether any pane shows a book, and whether pages scroll sideways. Each tab,
+section and row names an `Applies`, and `Scope::applies` is the only place
+that decides. A section's rows go through `Rows`, which draws a divider only
+between rows it drew, so hiding a row never leaves a double line.
+
+| Applies | Shown when | Used by |
+|---|---|---|
+| `Always` | always | most rows |
+| `Book` | a book is focused | the Fonts tab, Column width included |
+| `NotBook` | a PDF or nothing is focused | Auto resize, the Paper section |
+| `Pages` | not a book's vertical stream | No gap, Page shadow |
+| `Split` | the window is split | Split pane appearance |
+| `SplitWithBook` | split, with a book in any pane | Pane text |
+
+A new setting picks its `Applies` once; nothing else changes.
+
 ## Tooltips, toasts and the menu
 
 - **Tooltips.** `widgets::tip`: a chip on `surface` with a `line` edge,
@@ -225,3 +247,4 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 | 2026-10-13 | Created with the M0 foundation as `look.md` |
 | 2026-10-13 | Became `design.md`: our own design system (ADR 0005); one-hue tints; egui-native controls |
 | 2026-10-13 | How the theme works (from ArtCraft): shape tokens, one apply, instant restyle, live token file |
+| 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |

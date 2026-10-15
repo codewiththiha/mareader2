@@ -331,6 +331,7 @@ evidence = [
   "crates/ui/src/pane_texts.rs::the_focused_pane_hands_its_text_to_the_window",
   "crates/ui/tests/reading.rs::independent_text_sets_each_pane_in_its_own_type",
   "crates/session/src/tests.rs::each_slot_sets_one_book_in_its_own_type",
+  "crates/ui/tests/reading.rs::pane_text_shows_only_while_split_with_a_book",
 ]
 reference = ["crates/reader-core/src/settings/workspace.rs"]
 notes = "Owner's extension: mareader shares text across panes. While split, Settings › Workspace's switch gives each pane its own Fonts settings; the tab edits the focused pane, and panes on one file share a parse while their type matches"
@@ -1042,7 +1043,7 @@ milestone = "M4"
 status = "shipped"
 evidence = ["crates/reflow/src/flow.rs::book_layout_moves_each_column_toward_the_spine", "crates/ui/tests/reading.rs::a_book_s_vertical_strip_streams_one_column_edge_to_edge", "crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification", "crates/reflow/src/flow.rs::the_column_scale_widens_the_column_and_page_within_its_range", "crates/ui/tests/reading.rs::column_width_widens_a_book_s_pages_and_shows_only_for_books"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
-notes = "Gutter by page parity, matching spreads paired from the first page; the stream straightens the column. Column alignment keeps at least 16 pt from the edge. Column Width, 60 to 140 % in Settings › Layout while a book is open, as mareader's; the page grows with its column"
+notes = "Gutter by page parity, matching spreads paired from the first page; the stream straightens the column. Column alignment keeps at least 16 pt from the edge. Column Width, 60 to 140 % in Settings › Fonts (the owner moved it from Layout, so each pane may have its own); the page grows with its column"
 
 [[feature]]
 id = "type.ink-contrast"
@@ -1180,9 +1181,9 @@ area = "J"
 tier = "P0"
 milestone = "M1"
 status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them", "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch", "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips", "crates/ui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640"]
+evidence = ["crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them", "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch", "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips", "crates/ui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640", "crates/ui/src/settings_window/scope.rs::the_focused_document_decides_what_applies", "crates/ui/tests/reading.rs::layout_rows_follow_the_focused_document"]
 reference = ["crates/reader-runtime/src/components/settings/modal.rs"]
-notes = "egui Modal with the tab strip; Layout, Theme, Animations and Workspace carry the settings that exist. Fonts appears with EPUB (M4); other rows join with their features. It takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640"
+notes = "egui Modal with the tab strip; Layout, Theme, Animations and Workspace carry the settings that exist. Fonts appears with EPUB (M4); other rows join with their features. It takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640. Rows follow the focused pane, as mareader's, from one `Scope` and `Applies` rule (docs/design.md)"
 
 [[feature]]
 id = "settings.migrate"
