@@ -16,8 +16,9 @@ use crate::library::{Dirty, Library, Measure};
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 
-/// The files' version; 2 added folders, 3 shelves. Newer files stay untouched.
-pub const SCHEMA: u32 = 3;
+/// The files' version; 2 folders, 3 shelves, 4 twins and copies.
+/// Newer files stay untouched.
+pub const SCHEMA: u32 = 4;
 
 /// Bytes hashed from each end of a large PDF or EPUB.
 const SAMPLE: u64 = 64 << 10;
@@ -33,6 +34,12 @@ struct LibraryFile {
     shelves: Vec<Shelf>,
     #[serde(default)]
     members: Vec<Membership>,
+}
+
+/// Just the version, read when the rest won't parse.
+#[derive(Deserialize)]
+struct Probe {
+    schema: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,6 +78,11 @@ impl Folder {
         self.root.join("library.json")
     }
 
+    /// Where imported books are copied: `files/<content>/<name>`.
+    pub fn store(&self) -> PathBuf {
+        self.root.join("files")
+    }
+
     fn states(&self) -> PathBuf {
         self.root.join("state")
     }
@@ -98,7 +110,19 @@ impl Folder {
                 };
             }
         };
+        let newer = |text: &str| {
+            let probe = serde_json::from_str::<Probe>(text);
+            probe.is_ok_and(|p| p.schema > SCHEMA)
+        };
         let file = match serde_json::from_str::<LibraryFile>(&text) {
+            // A newer file may not parse here at all.
+            Err(_) if newer(&text) => {
+                notes.push("A newer Mareader saved this library; it's left untouched.".into());
+                return Loaded {
+                    writable: false,
+                    ..fresh(notes)
+                };
+            }
             Ok(file) if file.schema > SCHEMA => {
                 notes.push("A newer Mareader saved this library; it's left untouched.".into());
                 return Loaded {
@@ -200,6 +224,48 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
     })
+}
+
+/// Copies `file` into the store under its content; a whole copy is kept.
+pub fn copy_in(store: &Path, file: &Path, content: ContentId) -> io::Result<(PathBuf, FileStamp)> {
+    let unnamed = || io::Error::new(io::ErrorKind::InvalidInput, "the file has no name");
+    let name = file.file_name().ok_or_else(unnamed)?;
+    let dir = store.join(content.to_string());
+    fs::create_dir_all(&dir)?;
+    let dest = dir.join(name);
+    let size = fs::metadata(file)?.len();
+    if !fs::metadata(&dest).is_ok_and(|m| m.len() == size) {
+        let mut part = name.to_os_string();
+        part.push(".part");
+        let temp = dir.join(part);
+        fs::copy(file, &temp)?;
+        fs::rename(&temp, &dest).inspect_err(|_| {
+            let _ = fs::remove_file(&temp);
+        })?;
+    }
+    let dest = fs::canonicalize(&dest)?;
+    let stamp = stamp_of(&fs::metadata(&dest)?);
+    Ok((dest, stamp))
+}
+
+/// Deletes store copies, and their folders once empty; others stay.
+pub fn delete_copies(store: &Path, paths: &[PathBuf]) -> usize {
+    let Ok(store) = fs::canonicalize(store) else {
+        return 0;
+    };
+    let mut deleted = 0;
+    for path in paths {
+        let Some(dir) = path.parent().and_then(|d| fs::canonicalize(d).ok()) else {
+            continue;
+        };
+        // Only `files/<content>/<name>`: never anything outside the store.
+        if dir.parent() != Some(store.as_path()) || fs::remove_file(path).is_err() {
+            continue;
+        }
+        deleted += 1;
+        let _ = fs::remove_dir(&dir);
+    }
+    deleted
 }
 
 /// A file's size and modification time.

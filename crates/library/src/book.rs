@@ -94,6 +94,8 @@ pub enum Origin {
     Opened,
     /// Found in a folder the library reads in place; never touched.
     Source(SourceId),
+    /// Copied into the library's own folder; deleted with the book.
+    Store,
 }
 
 /// One place a book's file is; local to this machine, never synced.
@@ -129,6 +131,9 @@ pub struct Book {
     pub removed: Option<Stamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restored: Option<Stamp>,
+    /// The book this one is read separately from; they share its files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub twin_of: Option<BookId>,
 }
 
 impl Book {
@@ -145,6 +150,11 @@ impl Book {
     pub fn path(&self) -> Option<&Path> {
         let here = self.locations.iter().find(|l| l.present);
         here.map(|l| l.path.as_path())
+    }
+
+    /// The book whose files it shares: itself unless a twin.
+    pub fn original(&self) -> BookId {
+        self.twin_of.unwrap_or(self.id)
     }
 
     /// No location of it is there any more.
