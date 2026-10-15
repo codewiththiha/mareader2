@@ -578,6 +578,31 @@ Slices, each checkable on its own (`ROADMAP.md`):
 animation state only for cards drawn, allocates nothing per card per
 frame, and stops repainting when nothing moves.
 
+## Slice 9: storage on SQLite (2026-10-15)
+
+- **One file.** `library.sqlite`, bundled SQLite in WAL mode, opened by the
+  library's disk thread and kept open; the UI never touches it. Tables:
+  `meta` (clock, last save number), `records` (synced: book, shelf,
+  member) and `local` (locations, folders). Positions stay
+  `state/<id>.json`, so a page turn never writes a row.
+- **Only what changed.** The model's maps are `Tracked`: every way to
+  change a value marks its key, so no edit can forget to save. A save
+  turns the marked keys into rows and writes them in one transaction;
+  renaming one book writes two rows, not the library. Whether a file is
+  there is never saved, so presence checks mark nothing.
+- **Sync-ready.** Each save numbers the rows it wrote (`seq`);
+  `Store::changed_since` lists records past a number. `Merge` joins two
+  copies of a record in any order. No sync option exists yet.
+- **Moving in.** A `library.json` from earlier builds is read once, written
+  to the store whole, and renamed `library.json.migrated`. A newer or
+  unreadable `library.json` behaves as before.
+- **Failure.** A damaged `library.sqlite` is kept aside as
+  `library.unreadable.sqlite` and a new one started, with a note. A file
+  from a newer Mareader is read but never written. Rows of a kind this
+  build doesn't know are skipped silently; a row that won't parse is told
+  once and left as it was, since saves only write rows they changed.
+- **The browser preview** has no store; its library lives in memory.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
