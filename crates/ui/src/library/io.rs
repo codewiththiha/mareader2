@@ -22,6 +22,7 @@ pub struct Probe {
     pub path: PathBuf,
     pub format: Format,
     pub title: String,
+    pub author: Option<String>,
 }
 
 pub enum News {

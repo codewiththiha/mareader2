@@ -215,12 +215,22 @@ impl MareaderApp {
         self.library.attach(root);
     }
 
+    /// Keeps covers and other rebuildable files in `dir`.
+    pub fn attach_cache(&mut self, dir: PathBuf) {
+        self.library.attach_cache(dir);
+    }
+
     pub fn library(&self) -> &mareader_library::Library {
         self.library.model()
     }
 
     pub fn library_showing(&self) -> bool {
         self.library.showing
+    }
+
+    /// Covers held as textures, for tests.
+    pub fn covers_shown(&self) -> usize {
+        self.library.covers().shown()
     }
 
     pub fn toast(&self) -> Option<&Toast> {
@@ -365,7 +375,12 @@ impl MareaderApp {
                 Some(message) => Toast::error(message),
                 None => Toast::info(value),
             }),
-            "pinned" => self.titlebar.pinned = value == "true",
+            "pinned" => {
+                let on = value == "true";
+                self.settings.chrome.titlebar_pinned = on;
+                self.settings.chrome.library_titlebar_pinned = on;
+                self.titlebar.pinned = on;
+            }
             "workers" => {
                 let n = value
                     .parse()
@@ -374,6 +389,35 @@ impl MareaderApp {
                 self.library.set_inline(n == 0);
             }
             "library" => self.library.showing = value == "show",
+            "layout" => {
+                self.settings.library.layout = match value {
+                    "list" => mareader_library::Layout::List,
+                    _ => mareader_library::Layout::Grid,
+                }
+            }
+            "columns" => {
+                self.settings.library.columns = value.parse().ok();
+                self.settings.library.sanitize();
+            }
+            "cover" => {
+                self.settings.library.cover = match value {
+                    "crop" => mareader_library::CoverFit::Crop,
+                    _ => mareader_library::CoverFit::Fit,
+                }
+            }
+            "sort" => {
+                let (key, way) = value.split_once(':').unwrap_or((value, ""));
+                let key = mareader_library::SortKey::ALL
+                    .into_iter()
+                    .find(|k| format!("{k:?}").eq_ignore_ascii_case(&key.replace('_', "")))
+                    .ok_or("sort: last_read, title, author or added")?;
+                self.settings.library.sort = key;
+                self.settings.library.ascending = match way {
+                    "asc" => true,
+                    "desc" => false,
+                    _ => key.natural_ascending(),
+                };
+            }
             "books" => self
                 .library
                 .seed(value.parse().map_err(|_| "books: a count")?),
@@ -622,7 +666,7 @@ impl MareaderApp {
             Command::DeletePreset(id) => self.settings.delete_preset(&id),
             Command::SetTitlebarPinned(p) => {
                 self.titlebar.pinned = p;
-                self.settings.chrome.titlebar_pinned = p;
+                *self.pin_setting() = p;
             }
             Command::Window(w) => ctx.send_viewport_cmd(match w {
                 WindowCommand::Minimize => ViewportCommand::Minimized(true),
@@ -669,6 +713,10 @@ impl MareaderApp {
             Command::ShowLibrary => {
                 self.library.showing = !self.library.showing;
                 self.find.close();
+            }
+            Command::SetLibraryView(view) => {
+                self.settings.library = view;
+                self.settings.library.sanitize();
             }
             Command::OpenBook(id) => match self.library.open(id) {
                 Ok(request) => self.apply(ctx, Command::Open(request)),
@@ -779,6 +827,15 @@ impl MareaderApp {
             .blend
             .then(|| self.documents.paper(from, paper.area))
             .flatten()
+    }
+
+    /// The library keeps its own pin; the reader's is the other.
+    fn pin_setting(&mut self) -> &mut bool {
+        let chrome = &mut self.settings.chrome;
+        match self.library.showing {
+            true => &mut chrome.library_titlebar_pinned,
+            false => &mut chrome.titlebar_pinned,
+        }
     }
 
     /// Which families split panes own right now.
@@ -965,6 +1022,7 @@ impl eframe::App for MareaderApp {
         }
         self.reconcile_looks(&ctx);
         self.reconcile_texts();
+        self.titlebar.pinned = *self.pin_setting();
         resize::edges(&ctx, self.platform.frameless());
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
@@ -1050,13 +1108,13 @@ impl eframe::App for MareaderApp {
         };
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
-        let library = &self.library;
+        let (library, library_view) = (&mut self.library, &self.settings.library);
         self.library_rect = None;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
                 self.pane_rects.clear();
                 self.library_rect = Some(ui.max_rect());
-                library::view::show(ui, library, view.chrome_bottom, &mut commands);
+                library::view::show(ui, library, library_view, view.chrome_bottom, &mut commands);
                 return;
             }
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
@@ -1073,6 +1131,7 @@ impl eframe::App for MareaderApp {
                 documents.show(ui, id, &cx)
             });
         });
+        self.library.end_frame(&ctx);
         let backdrop = self.backdrop(&ctx, &view);
         self.page_bars(&ctx, &backdrop, &mut commands);
         let top = self.titlebar.band_bottom(&ctx);

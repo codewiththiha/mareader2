@@ -1,6 +1,8 @@
 //! The library's state: the model, its files, and what the panes read.
 
+mod covers;
 mod io;
+mod menu;
 pub mod view;
 
 use std::collections::BTreeMap;
@@ -16,7 +18,9 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
+pub use covers::Covers;
 use io::{Io, Job, News, Probe};
+pub use menu::LIBRARY_VIEW_MENU;
 
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
@@ -43,6 +47,7 @@ pub struct LibraryState {
     waiting: Vec<OpenRequest>,
     /// When the last write left, in egui seconds.
     wrote: f64,
+    covers: Covers,
     /// The library page is up in place of the panes.
     pub showing: bool,
 }
@@ -58,6 +63,7 @@ impl Default for LibraryState {
             seen: BTreeMap::new(),
             waiting: Vec::new(),
             wrote: f64::NEG_INFINITY,
+            covers: Covers::default(),
             showing: false,
         }
     }
@@ -75,6 +81,26 @@ impl LibraryState {
     /// Disk work runs on the frame; set before [`Self::attach`].
     pub fn set_inline(&mut self, inline: bool) {
         self.inline = inline;
+        self.covers.set_inline(inline);
+    }
+
+    /// Keeps covers in `<dir>/covers` between launches.
+    pub fn attach_cache(&mut self, dir: PathBuf) {
+        self.covers.set_cache(dir.join("covers"));
+    }
+
+    /// The books, and their covers to draw them with.
+    pub fn parts(&mut self) -> (&Library, &mut Covers) {
+        (&self.model, &mut self.covers)
+    }
+
+    pub fn covers(&self) -> &Covers {
+        &self.covers
+    }
+
+    /// Hands the frame's cover asks to their worker.
+    pub fn end_frame(&mut self, ctx: &Context) {
+        self.covers.end_frame(ctx);
     }
 
     /// Reads the library kept in `root`, and saves to it from now on.
@@ -113,6 +139,7 @@ impl LibraryState {
                         measure,
                         format: probe.format,
                         title: probe.title,
+                        author: probe.author,
                     };
                     self.model.record_open(opened, wall_ms());
                 }
@@ -160,11 +187,13 @@ impl LibraryState {
             if self.seen.get(&pane) != Some(&path) {
                 let format = format_of(&path, &reading.document);
                 let title = title_of(&reading.document, &path);
+                let author = author_of(&reading.document);
                 self.seen.insert(pane, path.clone());
                 self.io.send(Job::Measure(Probe {
                     path,
                     format,
                     title,
+                    author,
                 }));
                 measuring = true;
                 continue;
@@ -229,20 +258,25 @@ impl LibraryState {
 
     /// Made-up books for shots: some started, one missing.
     pub fn seed(&mut self, count: usize) {
-        const TITLES: [&str; 8] = [
-            "The Raven",
-            "Middlemarch",
-            "A Field Guide to Ferns",
-            "Notes on Typography",
-            "The Voyage Out",
-            "Practical Rust",
-            "Letters from the Coast",
-            "An Atlas of Rivers",
+        const BOOKS: [(&str, Option<&str>); 10] = [
+            ("The Raven", Some("Edgar Allan Poe")),
+            ("Middlemarch", Some("George Eliot")),
+            ("A Field Guide to Ferns", None),
+            ("Notes on Typography", Some("Ada Bringhurst")),
+            ("The Voyage Out", Some("Virginia Woolf")),
+            ("Collected Essays, Volume 10", Some("M. Aurel")),
+            ("Letters from the Coast", None),
+            ("An Atlas of Rivers", Some("Lena Ortiz")),
+            ("Collected Essays, Volume 2", Some("M. Aurel")),
+            ("Practical Rust", Some("Sam Okafor")),
         ];
         let formats = [Format::Epub, Format::Pdf, Format::Markdown, Format::Text];
         let now = wall_ms();
         for i in 0..count {
-            let title = TITLES.get(i % TITLES.len()).copied().unwrap_or("Book");
+            let (title, author) = BOOKS
+                .get(i % BOOKS.len())
+                .copied()
+                .unwrap_or(("Book", None));
             let format = formats
                 .get(i % formats.len())
                 .copied()
@@ -255,6 +289,7 @@ impl LibraryState {
                 },
                 format,
                 title: title.to_owned(),
+                author: author.map(str::to_owned),
             };
             let at = now.saturating_sub(i as u64 * 7_000_000);
             let id = self.model.record_open(opened, at);
@@ -300,6 +335,17 @@ fn title_of(document: &Document, path: &Path) -> String {
         .filter(|t| !t.is_empty())
         .map(str::to_owned);
     own.or_else(stem).unwrap_or_else(|| "Untitled".into())
+}
+
+/// The document's own author, if it names one.
+fn author_of(document: &Document) -> Option<String> {
+    let own = match document {
+        Document::Epub { book, .. } => book.author(),
+        Document::Pdf(pdf) => pdf.raw_author(),
+    };
+    own.map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(str::to_owned)
 }
 
 /// Random per library: the first launch keeps it in `library.json`.

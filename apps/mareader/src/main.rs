@@ -107,6 +107,9 @@ fn main() -> eframe::Result {
             if let Some(dir) = eframe::storage_dir("mareader") {
                 app.attach_library(dir.join("library"));
             }
+            if let Some(dir) = cache_dir() {
+                app.attach_cache(dir);
+            }
             inbox.wake_with(cc.egui_ctx.clone());
             // A file asked for at launch, else what was read last time.
             if !open_latest(&mut app, inbox.take().paths) {
@@ -116,4 +119,22 @@ fn main() -> eframe::Result {
             Ok(Box::new(Desktop { app, inbox }))
         }),
     )
+}
+
+/// Where rebuildable files such as covers go, as each platform expects.
+fn cache_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let var = |k: &str| {
+        std::env::var_os(k)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    if cfg!(target_os = "windows") {
+        return var("LOCALAPPDATA").map(|d| d.join("mareader").join("cache"));
+    }
+    if cfg!(target_os = "macos") {
+        return var("HOME").map(|h| h.join("Library/Caches/mareader"));
+    }
+    let base = var("XDG_CACHE_HOME").or_else(|| var("HOME").map(|h| h.join(".cache")));
+    base.map(|d| d.join("mareader"))
 }

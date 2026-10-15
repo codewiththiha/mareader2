@@ -14,6 +14,7 @@ fn opened(path: &str, content: u128) -> Opened {
         },
         format: Format::Pdf,
         title: format!("Book {content}"),
+        author: None,
     }
 }
 
@@ -184,4 +185,121 @@ fn text_is_hashed_whole_and_large_books_by_their_ends() {
         .unwrap()
         .stamp;
     assert_eq!(stamp.size, 300 << 10);
+}
+
+mod view {
+    use std::cmp::Ordering;
+
+    use super::*;
+    use crate::{SortKey, View, natural};
+
+    fn titled(lib: &mut Library, title: &str, author: Option<&str>, at: u64) -> BookId {
+        let content = u128::from(at);
+        let mut o = opened(&format!("/{at}.pdf"), content);
+        o.title = title.into();
+        o.author = author.map(Into::into);
+        lib.record_open(o, at)
+    }
+
+    fn order(lib: &Library, view: &View) -> Vec<String> {
+        let books = view.sort(lib.books());
+        books.iter().map(|b| b.title.value.clone()).collect()
+    }
+
+    #[test]
+    fn numbers_in_names_sort_by_value_ignoring_case() {
+        assert_eq!(natural("Volume 2", "Volume 10"), Ordering::Less);
+        assert_eq!(natural("file007", "file7"), Ordering::Equal);
+        assert_eq!(natural("apple", "Banana"), Ordering::Less);
+        assert_eq!(natural("Éclair", "éclair"), Ordering::Equal);
+        assert_eq!(natural("  Raven", "raven"), Ordering::Equal);
+        assert_eq!(natural("Part 3b", "Part 3a"), Ordering::Greater);
+        assert_eq!(natural("9", "10 Lives"), Ordering::Less);
+        assert_eq!(natural("", "a"), Ordering::Less);
+    }
+
+    #[test]
+    fn the_default_is_last_read_newest_first() {
+        let mut lib = Library::new(DEVICE);
+        titled(&mut lib, "Old", None, 1_000);
+        titled(&mut lib, "New", None, 3_000);
+        titled(&mut lib, "Mid", None, 2_000);
+        let mut view = View::default();
+        assert_eq!(order(&lib, &view), ["New", "Mid", "Old"]);
+        view.set_sort(SortKey::LastRead);
+        assert!(view.ascending, "the same key flips");
+        assert_eq!(order(&lib, &view), ["Old", "Mid", "New"]);
+    }
+
+    #[test]
+    fn titles_sort_naturally_and_a_new_key_starts_in_its_direction() {
+        let mut lib = Library::new(DEVICE);
+        titled(&mut lib, "Volume 10", None, 1_000);
+        titled(&mut lib, "volume 2", None, 2_000);
+        titled(&mut lib, "Atlas", None, 3_000);
+        let mut view = View::default();
+        view.set_sort(SortKey::Title);
+        assert!(view.ascending);
+        assert_eq!(order(&lib, &view), ["Atlas", "volume 2", "Volume 10"]);
+        view.set_sort(SortKey::Title);
+        assert_eq!(order(&lib, &view), ["Volume 10", "volume 2", "Atlas"]);
+    }
+
+    #[test]
+    fn books_without_an_author_sort_last_both_ways() {
+        let mut lib = Library::new(DEVICE);
+        titled(&mut lib, "Nobody", None, 1_000);
+        titled(&mut lib, "Blank", Some("  "), 2_000);
+        titled(&mut lib, "By Zola", Some("Zola"), 3_000);
+        titled(&mut lib, "By Austen", Some("austen"), 4_000);
+        let mut view = View::default();
+        view.set_sort(SortKey::Author);
+        assert_eq!(
+            order(&lib, &view),
+            ["By Austen", "By Zola", "Blank", "Nobody"]
+        );
+        view.set_sort(SortKey::Author);
+        assert_eq!(
+            order(&lib, &view),
+            ["By Zola", "By Austen", "Blank", "Nobody"]
+        );
+    }
+
+    #[test]
+    fn equal_keys_fall_back_to_title_then_id() {
+        let mut lib = Library::new(DEVICE);
+        let a = titled(&mut lib, "Same", None, 1_000);
+        let b = titled(&mut lib, "Same", None, 2_000);
+        let mut view = View::default();
+        view.set_sort(SortKey::Author);
+        let ids: Vec<BookId> = view.sort(lib.books()).iter().map(|b| b.id).collect();
+        assert_eq!(ids, [a.min(b), a.max(b)]);
+    }
+
+    #[test]
+    fn pinned_columns_stay_in_range() {
+        let mut view = View {
+            columns: Some(40),
+            ..View::default()
+        };
+        view.sanitize();
+        assert_eq!(view.columns, Some(crate::COLUMNS_MAX));
+        view.columns = Some(0);
+        view.sanitize();
+        assert_eq!(view.columns, Some(crate::COLUMNS_MIN));
+    }
+
+    #[test]
+    fn an_author_fills_in_once_and_is_kept() {
+        let mut lib = Library::new(DEVICE);
+        let id = lib.record_open(opened("/a.pdf", 1), 1_000);
+        let mut named = opened("/a.pdf", 1);
+        named.author = Some("Poe".into());
+        lib.record_open(named.clone(), 2_000);
+        let author = |lib: &Library| lib.book(id).and_then(|b| b.author.value.clone());
+        assert_eq!(author(&lib).as_deref(), Some("Poe"));
+        named.author = Some("Other".into());
+        lib.record_open(named, 3_000);
+        assert_eq!(author(&lib).as_deref(), Some("Poe"));
+    }
 }
