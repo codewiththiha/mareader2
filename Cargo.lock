@@ -2266,6 +2266,7 @@ name = "mareader-settings"
 version = "0.0.1"
 dependencies = [
  "mareader-appearance",
+ "mareader-library",
  "serde",
  "serde_json",
 ]

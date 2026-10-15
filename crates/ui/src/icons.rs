@@ -53,6 +53,10 @@ pub enum Icon {
     ChevronRight,
     Minus,
     Plus,
+    Grid,
+    List,
+    Sort,
+    ViewOptions,
 }
 
 impl Icon {
@@ -103,6 +107,10 @@ impl Icon {
             Self::ChevronDown => Lucide::ChevronDown,
             Self::ChevronLeft => Lucide::ChevronLeft,
             Self::ChevronRight => Lucide::ChevronRight,
+            Self::Grid => Lucide::LayoutGrid,
+            Self::List => Lucide::List,
+            Self::Sort => Lucide::ArrowDownUp,
+            Self::ViewOptions => Lucide::SlidersHorizontal,
         }
     }
 

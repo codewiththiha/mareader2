@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use mareader_library::{Format, Library};
+use mareader_library::{CoverFit, Format, Layout, Library, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 
@@ -188,4 +188,90 @@ fn the_library_and_positions_come_back_after_a_restart() {
     assert_eq!(library(&h).position(id).map(|p| p.page), Some(2));
     open(&mut h, "epub", path.to_str().unwrap());
     assert_eq!(page(&h), 2);
+}
+
+fn top(h: &Harness<'static, MareaderApp>, label: &str) -> f32 {
+    h.get_by_label(label).rect().top()
+}
+
+#[test]
+fn titles_with_numbers_sort_by_their_value() {
+    let options = [("books", "10"), ("layout", "list"), ("sort", "title")];
+    let h = reader(&[options.as_slice(), &[("library", "show")]].concat());
+    let order = [
+        "A Field Guide to Ferns",
+        "An Atlas of Rivers",
+        "Collected Essays, Volume 2",
+        "Collected Essays, Volume 10",
+    ];
+    let tops: Vec<f32> = order.iter().map(|t| top(&h, t)).collect();
+    assert!(tops.windows(2).all(|w| w[0] < w[1]), "{tops:?}");
+}
+
+#[test]
+fn the_view_menu_sets_layout_columns_covers_and_order() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let view = |h: &Harness<'static, MareaderApp>| h.state().settings().library;
+    assert_eq!(view(&h).layout, Layout::Grid);
+    h.get_by_label("View options").click();
+    h.run();
+    h.get_by_label("List").click();
+    h.run();
+    assert_eq!(view(&h).layout, Layout::List);
+    h.get_by_label("Grid").click();
+    h.run();
+    // 900 wide: five automatic columns, so one more pins six.
+    h.get_by_label("More columns").click();
+    h.run();
+    assert_eq!(view(&h).columns, Some(6));
+    h.get_by_label("Auto").click();
+    h.run();
+    assert_eq!(view(&h).columns, None);
+    h.get_by_label("Crop").click();
+    h.run();
+    assert_eq!(view(&h).cover, CoverFit::Crop);
+    h.get_by_label("Title").click();
+    h.run();
+    assert_eq!((view(&h).sort, view(&h).ascending), (SortKey::Title, true));
+    h.get_by_label("Z–A").click();
+    h.run();
+    assert!(!view(&h).ascending);
+}
+
+#[test]
+fn a_book_with_a_cover_shows_it_in_the_library() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("covered.epub");
+    std::fs::write(&path, mareader_epub::sample::epub(2, "Covered")).unwrap();
+    let mut h = reader(&[("epub", path.to_str().unwrap())]);
+    assert_eq!(h.state().covers_shown(), 0, "none until the page shows");
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    assert!(h.query_by_label("Covered").is_some(), "{}", state(&h));
+    assert_eq!(h.state().covers_shown(), 1, "{}", state(&h));
+    open(&mut h, "layout", "list");
+    assert_eq!(h.state().covers_shown(), 1, "the list reuses it");
+}
+
+#[test]
+fn the_library_keeps_its_own_title_bar_pin() {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let chrome = |h: &Harness<'static, MareaderApp>| {
+        let c = &h.state().settings().chrome;
+        (c.titlebar_pinned, c.library_titlebar_pinned)
+    };
+    assert!(!h.state().titlebar().pinned);
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    assert!(h.state().titlebar().pinned, "the library pins by default");
+    h.state_mut().queue(Command::SetTitlebarPinned(false));
+    h.run();
+    assert_eq!(chrome(&h), (false, false));
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    assert!(!h.state().library_showing());
+    h.state_mut().queue(Command::SetTitlebarPinned(true));
+    h.run();
+    assert_eq!(chrome(&h), (true, false), "the reader's pin alone");
+    assert!(h.state().titlebar().pinned);
 }

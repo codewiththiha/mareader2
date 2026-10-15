@@ -18,6 +18,7 @@ mod text;
 mod workspace;
 
 use mareader_appearance::{Appearance, Preset, builtin_presets, preset_id};
+use mareader_library::View;
 use serde::{Deserialize, Serialize};
 
 pub use load::{Loaded, load, to_json};
@@ -52,6 +53,8 @@ pub struct Settings {
     pub study: StudySettings,
     pub dictionary: DictionarySettings,
     pub workspace: WorkspaceSettings,
+    /// The library page's layout and order.
+    pub library: View,
 }
 
 impl Default for Settings {
@@ -68,6 +71,7 @@ impl Default for Settings {
             study: StudySettings::default(),
             dictionary: DictionarySettings::default(),
             workspace: WorkspaceSettings::default(),
+            library: View::default(),
         }
     }
 }
@@ -81,6 +85,7 @@ impl Settings {
         self.text.sanitize();
         self.study.sanitize();
         self.workspace.look.sanitize();
+        self.library.sanitize();
         let builtin: Vec<String> = builtin_presets().into_iter().map(|p| p.id).collect();
         self.user_presets.retain(|p| {
             !p.id.trim().is_empty() && !p.name.trim().is_empty() && !builtin.contains(&p.id)
@@ -143,8 +148,20 @@ mod tests {
         s.text.serif_font = FontChoice::System(SystemFont::Georgia);
         s.workspace.look.outline_color = Swatch::Custom;
         s.dictionary.langs = vec!["en-my".into()];
+        s.library.layout = mareader_library::Layout::List;
+        s.library.columns = Some(4);
+        s.library.set_sort(mareader_library::SortKey::Author);
         let back = load(&to_json(&s)).settings;
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn a_library_view_out_of_range_or_missing_loads_sane() {
+        let s = load(r#"{"version":2,"library":{"columns":99,"sort":"title"}}"#).settings;
+        assert_eq!(s.library.columns, Some(mareader_library::COLUMNS_MAX));
+        assert_eq!(s.library.sort, mareader_library::SortKey::Title);
+        let old = load(r#"{"version":2}"#).settings;
+        assert_eq!(old.library, mareader_library::View::default());
     }
 
     #[test]
