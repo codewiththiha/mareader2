@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use egui::accesskit::Role;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, Origin, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -606,6 +606,14 @@ fn new_shelf(h: &mut Harness<'static, MareaderApp>, name: &str) -> ShelfId {
     id
 }
 
+/// The field a name is typed in; the bar's search is the other.
+fn name_field<'a>(h: &'a Harness<'static, MareaderApp>) -> egui_kittest::Node<'a> {
+    let search = Some(mareader_ui::library::search::LABEL.to_owned());
+    let mut fields =
+        (h.get_all_by_role(Role::TextInput)).filter(|n| n.accesskit_node().label() != search);
+    fields.next().expect("a name field")
+}
+
 fn title_of(h: &Harness<'static, MareaderApp>, n: usize) -> String {
     let mut books: Vec<_> = library(h).books().collect();
     books.sort_by_key(|b| b.id);
@@ -626,7 +634,7 @@ fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
     let id = open_shelf(&h).expect("the new shelf opens");
     assert_eq!(h.state().library_state().renaming(), Some(id));
     // Its whole name is selected, so typing replaces it.
-    let field = h.get_by_role(Role::TextInput);
+    let field = name_field(&h);
     assert!(field.is_focused());
     field.type_text("Poetry");
     h.run();
@@ -650,7 +658,7 @@ fn escape_while_naming_keeps_the_old_name_and_the_page() {
     h.get_by_label("New shelf").click();
     h.run();
     let id = open_shelf(&h).unwrap();
-    h.get_by_role(Role::TextInput).type_text("Junk");
+    name_field(&h).type_text("Junk");
     h.run();
     h.key_press(egui::Key::Escape);
     h.run();
@@ -997,8 +1005,8 @@ fn a_card_menu_offers_what_a_book_can_do() {
     h.get_by_label("Rename…").click();
     h.run();
     // The old name starts focused and selected: typing replaces it.
-    assert!(h.get_by_role(Role::TextInput).is_focused());
-    h.get_by_role(Role::TextInput).type_text("Moby Dick");
+    assert!(name_field(&h).is_focused());
+    name_field(&h).type_text("Moby Dick");
     h.run();
     h.key_press(egui::Key::Enter);
     h.run();

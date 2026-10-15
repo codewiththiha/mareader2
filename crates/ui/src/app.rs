@@ -487,6 +487,11 @@ impl MareaderApp {
                 let found = self.library.open_shelf(value);
                 found.then_some(()).ok_or("shelf: no shelf by that path")?;
             }
+            // Typed into the library's search field.
+            "search" => {
+                let text = library::SearchAction::Text(value.to_owned());
+                self.queue(Command::Library(library::Action::Search(text)));
+            }
             "home" => {
                 self.settings.library.home = match value {
                     "unshelved" => mareader_library::Home::Unshelved,
@@ -617,6 +622,10 @@ impl MareaderApp {
                 "settings" => self.queue(Command::ShowSettings),
                 "menu" => self.queue(Command::ShowViewMenu),
                 "find" => self.queue(Command::ShowFind),
+                "search" => {
+                    let focus = library::SearchAction::Focus;
+                    self.queue(Command::Library(library::Action::Search(focus)));
+                }
                 "folders" => self.queue(Command::Library(library::Action::ShowFolders)),
                 // The removal sheet for what `select` picked.
                 "remove" => {
@@ -810,13 +819,17 @@ impl MareaderApp {
                 egui::Popup::open_id(ctx, egui::Id::new(menu));
             }
             Command::ShowSettings => self.settings_window.open(None),
-            // mareader's find falls back to the library's search.
-            Command::ShowFind => match self.documents.reading(self.active) {
-                Some(_) => {
+            // With nothing to search in, find searches the library.
+            Command::ShowFind => match (self.route(), self.documents.reading(self.active)) {
+                (Route::Reader, Some(_)) => {
                     self.find.open(self.active);
                     self.titlebar.reveal();
                 }
-                None => self.sidebar.open(Some(Panel::Library)),
+                _ => {
+                    self.go(Route::Library);
+                    let focus = library::SearchAction::Focus;
+                    self.apply(ctx, Command::Library(library::Action::Search(focus)));
+                }
             },
             Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
             Command::CloseSettings => self.settings_window.close(),
@@ -855,7 +868,20 @@ impl MareaderApp {
     /// Library work; its dialogs need the app's files.
     fn library_action(&mut self, ctx: &Context, action: library::Action) {
         use library::Action as A;
+        use library::SearchAction as S;
         match action {
+            A::Search(S::Focus) => {
+                self.titlebar.reveal();
+                library::search::focus(ctx);
+            }
+            A::Search(S::Choose(_) | S::ChooseLit) => {
+                library::search::blur(ctx);
+                let mut out = Commands::new();
+                self.library.act(action, ctx.input(|i| i.time), &mut out);
+                for command in out {
+                    self.apply(ctx, command);
+                }
+            }
             A::ShowFolders => {
                 egui::Popup::open_id(ctx, egui::Id::new(library::folders::FOLDERS_POPOVER));
             }
@@ -1253,7 +1279,8 @@ impl eframe::App for MareaderApp {
         // Naming a shelf takes Escape to cancel.
         let modal = self.settings_window.is_open()
             || self.library.sheet().is_some()
-            || self.library.renaming().is_some();
+            || self.library.renaming().is_some()
+            || (route == Route::Library && library::search::focused(&ctx));
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
@@ -1347,7 +1374,10 @@ impl eframe::App for MareaderApp {
         self.page_bars(&ctx, &backdrop, &mut commands);
         let top = self.titlebar.band_bottom(&ctx);
         self.find.show(&ctx, &self.pane_rects, top);
-        self.titlebar.hold = self.find.is_open();
+        // Typing, or filtered by what was typed, the field stays in view.
+        let searching =
+            route == Route::Library && (self.library.searching() || library::search::focused(&ctx));
+        self.titlebar.hold = self.find.is_open() || searching;
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings.all_presets();
@@ -1367,6 +1397,7 @@ impl eframe::App for MareaderApp {
                     can_return: self.reading(),
                     trail: self.library.trail(),
                     renaming: self.library.renaming(),
+                    search: self.library.field(),
                 };
                 // On a shelf, the breadcrumb names the page.
                 let title = if library.trail.is_empty() {
@@ -1393,6 +1424,9 @@ impl eframe::App for MareaderApp {
             page,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
+        if route == Route::Library {
+            library::search::suggestions(&ctx, &mut self.library, &mut commands);
+        }
         self.lights = self.place_lights(&ctx, overlay, route);
         // Shots and the preview simulate macOS; draw where the lights go.
         if self.platform == Platform::Mac && !cfg!(target_os = "macos") {
