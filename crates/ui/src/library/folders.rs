@@ -38,7 +38,7 @@ pub fn offline(book: &Book, offline: &BTreeSet<SourceId>) -> bool {
     book.missing()
         && book.locations.iter().any(|l| match l.origin {
             Origin::Source(id) => offline.contains(&id),
-            Origin::Opened => false,
+            Origin::Opened | Origin::Store => false,
         })
 }
 

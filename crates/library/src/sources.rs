@@ -317,6 +317,9 @@ impl Library {
             self.index();
             self.dirty.library = true;
         }
+        if self.dirty.library {
+            self.mirror_all();
+        }
         report
     }
 
@@ -327,13 +330,12 @@ impl Library {
         book.is_some_and(|b| b.locations.iter().find(same).is_some_and(|l| l.present))
     }
 
-    /// Each content's book, living ones over removed ones.
+    /// Each content's original book, living ones over removed ones.
     fn by_content(&self) -> HashMap<ContentId, BookId> {
         let mut map = HashMap::new();
-        for book in self.books.values().filter(|b| !b.alive()) {
-            map.insert(book.content, book.id);
-        }
-        for book in self.books() {
+        let originals = self.books.values().filter(|b| b.twin_of.is_none());
+        let (alive, removed): (Vec<&Book>, Vec<&Book>) = originals.partition(|b| b.alive());
+        for book in removed.into_iter().chain(alive) {
             map.insert(book.content, book.id);
         }
         map
@@ -361,11 +363,14 @@ impl Library {
         measure: Measure,
         force: bool,
     ) -> Result<(), RelinkError> {
+        // A twin's files are its original's.
+        let id = self.book(id).ok_or(RelinkError::Removed)?.original();
         let book = self.book(id).ok_or(RelinkError::Removed)?;
         let same = book.content == measure.content;
         let holds =
             |b: &Book| b.content == measure.content || b.locations.iter().any(|l| l.path == path);
-        if let Some(other) = self.books().find(|b| b.id != id && holds(b)) {
+        let other = |b: &&Book| b.original() != id && holds(b);
+        if let Some(other) = self.books().find(other) {
             return Err(RelinkError::OtherBook(other.title.value.clone()));
         }
         if !same && format != book.format {
@@ -382,6 +387,7 @@ impl Library {
             book.locations.retain(|l| l.present);
         }
         self.place(id, path, measure.stamp, origin);
+        self.mirror(id);
         self.dirty.library = true;
         Ok(())
     }
