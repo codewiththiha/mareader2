@@ -108,7 +108,7 @@ pub enum Event {
         page: usize,
         result: Result<Paper, RenderError>,
     },
-    /// `old`, set again in new type, is now `new`; `previous` was `old`.
+    /// `old` set again in new type as `new`; `old` stays open.
     Retypeset {
         old: DocId,
         new: DocId,
@@ -123,6 +123,8 @@ pub struct Entry {
     pub name: String,
     /// The file it came from; none for bytes, such as a browser's drop.
     pub path: Option<PathBuf>,
+    /// What a book is set in; documents with pages ignore it.
+    pub typo: Arc<Typography>,
 }
 
 /// How much finished work one `poll` hands over.
@@ -137,11 +139,15 @@ pub struct Session {
     docs: BTreeMap<DocId, Entry>,
     /// Each open in flight: its fallback name, file and type.
     opening: BTreeMap<u64, Opening>,
-    /// What books are set in now.
-    typography: Arc<Typography>,
-    /// The newest re-set asked of each document; older ones are dropped.
-    typesetting: BTreeMap<DocId, u64>,
+    /// The newest re-set asked in each slot; older ones are dropped.
+    typesetting: BTreeMap<u64, Typesetting>,
     next: u64,
+}
+
+struct Typesetting {
+    ticket: u64,
+    doc: DocId,
+    typo: Arc<Typography>,
 }
 
 struct Opening {
@@ -163,7 +169,6 @@ impl Session {
             pool: Pool::new(workers, Arc::new(wake)),
             docs: BTreeMap::new(),
             opening: BTreeMap::new(),
-            typography: Arc::default(),
             typesetting: BTreeMap::new(),
             next: 1,
         }
@@ -175,7 +180,14 @@ impl Session {
     }
 
     /// Starts opening; `file_name` names it if its title won't.
-    pub fn open(&mut self, source: Source, file_name: Option<String>) -> Ticket {
+    ///
+    /// A book is set in `typo`.
+    pub fn open(
+        &mut self,
+        source: Source,
+        file_name: Option<String>,
+        typo: Arc<Typography>,
+    ) -> Ticket {
         let ticket = self.bump();
         let path = match &source {
             Source::Path(p) => Some(p.clone()),
@@ -194,7 +206,6 @@ impl Session {
                     .and_then(|p| p.parent().map(Path::to_path_buf)),
             })
         });
-        let typo = Arc::clone(&self.typography);
         let opening = Opening {
             name,
             path,
@@ -207,36 +218,23 @@ impl Session {
 
     pub fn close(&mut self, id: DocId) {
         self.docs.remove(&id);
-        self.typesetting.remove(&id);
+        self.typesetting.retain(|_, t| t.doc != id);
     }
 
-    /// Re-sets books when text or Column Width change; each sends `Retypeset`.
-    pub fn set_text(&mut self, text: &mareader_settings::TextSettings, column_pct: f32) {
-        let typo = typography(text, column_pct);
-        if *self.typography == typo {
-            return;
-        }
-        self.typography = Arc::new(typo);
-        let books: Vec<DocId> = self
-            .docs
-            .iter()
-            .filter(|(_, e)| e.doc.is_reflowable())
-            .map(|(id, _)| *id)
-            .collect();
-        for id in books {
-            self.retypeset(id);
-        }
-    }
-
-    fn retypeset(&mut self, id: DocId) {
-        let ticket = self.bump();
+    /// Sets book `id` again in `typo`; a newer request in `slot` wins.
+    pub fn retypeset(&mut self, id: DocId, typo: Arc<Typography>, slot: u64) {
         let Some(entry) = self.docs.get(&id) else {
             return;
         };
         let doc = Arc::clone(&entry.doc);
-        self.typesetting.insert(id, ticket);
-        self.pool
-            .retypeset(ticket, id, doc, Arc::clone(&self.typography));
+        let ticket = self.bump();
+        let set = Typesetting {
+            ticket,
+            doc: id,
+            typo: Arc::clone(&typo),
+        };
+        let stale = self.typesetting.insert(slot, set).map(|t| t.ticket);
+        self.pool.retypeset(ticket, id, doc, typo, stale);
     }
 
     pub fn get(&self, id: DocId) -> Option<&Entry> {
@@ -282,13 +280,14 @@ impl Session {
                     let name = mareader_pdf::display_name(doc.raw_title(), name.as_deref())
                         .unwrap_or_else(|| "Untitled".to_string());
                     let id = DocId(self.bump());
-                    // The type changed while it opened: set it again.
-                    let stale = doc.is_reflowable() && !Arc::ptr_eq(&typo, &self.typography);
                     let doc = Arc::new(doc);
-                    self.docs.insert(id, Entry { doc, name, path });
-                    if stale {
-                        self.retypeset(id);
-                    }
+                    let entry = Entry {
+                        doc,
+                        name,
+                        path,
+                        typo,
+                    };
+                    self.docs.insert(id, entry);
                     id
                 });
                 Some(Event::Opened {
@@ -297,24 +296,27 @@ impl Session {
                 })
             }
             Output::Retypeset { ticket, id, result } => {
-                if self.typesetting.get(&id) != Some(&ticket) {
-                    return None;
-                }
-                self.typesetting.remove(&id);
+                let slot = self
+                    .typesetting
+                    .iter()
+                    .find_map(|(slot, t)| (t.ticket == ticket).then_some(*slot))?;
+                let set = self.typesetting.remove(&slot)?;
                 // A book that won't set again stays as it was.
                 let doc = result?;
-                let old = self.docs.remove(&id)?;
-                let new = DocId(self.bump());
+                let old = self.docs.get(&id)?;
                 let entry = Entry {
                     doc: Arc::new(doc),
-                    name: old.name,
-                    path: old.path,
+                    name: old.name.clone(),
+                    path: old.path.clone(),
+                    typo: set.typo,
                 };
+                let previous = Arc::clone(&old.doc);
+                let new = DocId(self.bump());
                 self.docs.insert(new, entry);
                 Some(Event::Retypeset {
                     old: id,
                     new,
-                    previous: old.doc,
+                    previous,
                 })
             }
             // A page of a document closed meanwhile is dropped.

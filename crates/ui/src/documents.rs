@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui};
 use mareader_appearance::Rgb;
-use mareader_session::{Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Want};
+use mareader_session::{
+    Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
+};
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
@@ -145,10 +147,11 @@ pub struct Documents {
     demand: Demand,
     gpu: Option<Gpu>,
     drawn: Vec<Quad>,
-    /// What books are set in, as of the last change.
-    text: TextSettings,
-    /// Column Width, in percent.
-    column_pct: f32,
+    /// What books are set in: the window's type, or a pane's own.
+    window: Arc<Typography>,
+    own: BTreeMap<PaneId, Arc<Typography>>,
+    /// The re-set each pane last asked for: of which document, in what.
+    asked: BTreeMap<PaneId, (DocId, Arc<Typography>)>,
 }
 
 impl Default for Documents {
@@ -169,8 +172,9 @@ impl Default for Documents {
             demand: Demand::new(),
             gpu: None,
             drawn: Vec::new(),
-            text: TextSettings::default(),
-            column_pct: 100.0,
+            window: Arc::new(typography(&TextSettings::default(), 100.0)),
+            own: BTreeMap::new(),
+            asked: BTreeMap::new(),
         }
     }
 }
@@ -186,25 +190,99 @@ impl Documents {
     /// Created on first use, when there is a context to wake.
     fn session(&mut self, ctx: &Context) -> &mut Session {
         let workers = self.workers;
-        let (text, column) = (&self.text, self.column_pct);
         self.session.get_or_insert_with(|| {
             let ctx = ctx.clone();
-            let mut session = Session::new(workers, move || ctx.request_repaint());
-            session.set_text(text, column);
-            session
+            Session::new(workers, move || ctx.request_repaint())
         })
     }
 
-    /// Re-sets open books off the UI thread when text or Column Width change.
-    pub fn set_text(&mut self, text: &TextSettings, column_pct: f32) {
-        if self.text == *text && self.column_pct == column_pct {
+    /// Each pane's book type: its `own` text, or `window`.
+    pub fn set_text(
+        &mut self,
+        window: &TextSettings,
+        own: &[(PaneId, &TextSettings)],
+        column_pct: f32,
+    ) {
+        let fresh = |old: Option<&Arc<Typography>>, text: &TextSettings| {
+            let typo = typography(text, column_pct);
+            match old {
+                Some(old) if **old == typo => Arc::clone(old),
+                _ => Arc::new(typo),
+            }
+        };
+        self.window = fresh(Some(&self.window), window);
+        let own = own
+            .iter()
+            .map(|(pane, text)| (*pane, fresh(self.own.get(pane), text)));
+        self.own = own.collect();
+        self.retype();
+    }
+
+    fn typo(&self, pane: PaneId) -> &Arc<Typography> {
+        self.own.get(&pane).unwrap_or(&self.window)
+    }
+
+    /// Moves each book whose type is stale onto a twin in its type, or asks.
+    fn retype(&mut self) {
+        let Some(session) = &mut self.session else {
             return;
+        };
+        let (mut moves, mut asks) = (Vec::new(), Vec::new());
+        for (pane, content) in &self.panes {
+            let Content::Pdf(view) = content else {
+                continue;
+            };
+            let want = self.own.get(pane).unwrap_or(&self.window);
+            let Some(entry) = session.get(view.doc) else {
+                continue;
+            };
+            if !entry.doc.is_reflowable() || *entry.typo == **want {
+                continue;
+            }
+            // Another pane on the file shows it in this type already.
+            let twin = self.panes.values().find_map(|c| match c {
+                Content::Pdf(v) => {
+                    let e = session.get(v.doc)?;
+                    let same = entry.path.is_some() && e.path == entry.path;
+                    (same && *e.typo == **want).then_some(v.doc)
+                }
+                Content::Opening { .. } => None,
+            });
+            match twin {
+                Some(twin) => moves.push((*pane, view.doc, twin)),
+                None => asks.push((*pane, view.doc, Arc::clone(want))),
+            }
         }
-        self.text = text.clone();
-        self.column_pct = column_pct;
-        if let Some(s) = &mut self.session {
-            s.set_text(text, column_pct);
+        for (pane, doc, want) in asks {
+            // One request serves every pane that wants it.
+            if self.asked.values().any(|(d, t)| *d == doc && **t == *want) {
+                continue;
+            }
+            session.retypeset(doc, Arc::clone(&want), pane.0);
+            self.asked.insert(pane, (doc, want));
         }
+        for (pane, old, new) in moves {
+            self.retarget(pane, old, new);
+            self.release(old);
+        }
+    }
+
+    /// Moves `pane` from `old` to `new`, the same book in other type.
+    fn retarget(&mut self, pane: PaneId, old: DocId, new: DocId) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        let doc = session.get(new).map(|e| &*e.doc);
+        let previous = session.get(old).map(|e| &*e.doc);
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return;
+        };
+        let count = doc.map_or(0, |d| d.page_count());
+        // Unmoved since the last re-set: the same place.
+        let place = view.place().or_else(|| previous?.anchor(view.current));
+        let page = place.and_then(|a| doc?.locate(a));
+        view.retypeset(new, page.unwrap_or(view.current), count, place);
+        self.asked.remove(&pane);
     }
 
     /// Starts opening into `pane`; a refusal comes back as a note.
@@ -217,7 +295,8 @@ impl Documents {
             request.source = Source::Path(real);
         }
         let (file, page, place) = (request.file(), request.page, request.place);
-        if let Some(doc) = file.as_ref().and_then(|f| self.shown(f)) {
+        let typo = Arc::clone(self.typo(pane));
+        if let Some(doc) = file.as_ref().and_then(|f| self.shown(f, &typo)) {
             let entry = self.session.as_ref().and_then(|s| s.get(doc));
             let count = entry.map_or(0, |e| e.doc.page_count());
             let page = landing(entry.map(|e| &*e.doc), page, place);
@@ -228,7 +307,7 @@ impl Documents {
             return None;
         }
         let name = request.label();
-        let ticket = self.session(ctx).open(request.source, request.name);
+        let ticket = self.session(ctx).open(request.source, request.name, typo);
         let opening = Content::Opening {
             ticket,
             name,
@@ -250,6 +329,7 @@ impl Documents {
             Some(c) => self.panes.insert(pane, c),
             None => self.panes.remove(&pane),
         };
+        self.asked.remove(&pane);
         if let Some(Content::Pdf(view)) = old {
             self.release(view.doc);
         }
@@ -270,16 +350,25 @@ impl Documents {
         }
     }
 
-    /// The open document read from `file`, if a pane shows one.
-    fn shown(&self, file: &std::path::Path) -> Option<DocId> {
+    /// The open document read from `file`, preferably set in `typo`.
+    fn shown(&self, file: &std::path::Path, typo: &Typography) -> Option<DocId> {
         let session = self.session.as_ref()?;
-        self.panes.values().find_map(|c| match c {
+        let open = self.panes.values().filter_map(|c| match c {
             Content::Pdf(v) => {
                 let entry = session.get(v.doc)?;
-                (entry.path.as_deref() == Some(file)).then_some(v.doc)
+                (entry.path.as_deref() == Some(file)).then_some((v.doc, entry))
             }
             Content::Opening { .. } => None,
-        })
+        });
+        let (mut first, mut matched) = (None, None);
+        for (doc, entry) in open {
+            first = first.or(Some(doc));
+            if *entry.typo == *typo || !entry.doc.is_reflowable() {
+                matched = Some(doc);
+                break;
+            }
+        }
+        matched.or(first)
     }
 
     /// Takes finished work: documents into their panes, pages to the GPU.
@@ -287,6 +376,7 @@ impl Documents {
         let Some(session) = &mut self.session else {
             return;
         };
+        let mut retyped = Vec::new();
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
@@ -304,30 +394,7 @@ impl Documents {
                 },
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
-                Event::Retypeset { old, new, previous } => {
-                    let doc = session.get(new).map(|e| Arc::clone(&e.doc));
-                    let count = doc.as_ref().map_or(0, |d| d.page_count());
-                    let mut shown = false;
-                    for content in self.panes.values_mut() {
-                        let Content::Pdf(view) = content else {
-                            continue;
-                        };
-                        if view.doc != old {
-                            continue;
-                        }
-                        // Unmoved since the last re-set: the same place.
-                        let place = view.place().or_else(|| previous.anchor(view.current));
-                        let page = place.and_then(|a| doc.as_ref()?.locate(a));
-                        view.retypeset(new, page.unwrap_or(view.current), count, place);
-                        shown = true;
-                    }
-                    if !shown {
-                        session.close(new);
-                    }
-                    self.pages.forget(old);
-                    self.texts.forget(old);
-                    self.papers.forget(old);
-                }
+                Event::Retypeset { old, new, .. } => retyped.push((old, new)),
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
                         Content::Opening {
@@ -363,6 +430,32 @@ impl Documents {
                 }
             }
         }
+        for (old, new) in retyped {
+            self.retyped(old, new);
+        }
+    }
+
+    /// Moves the panes on `old` that want `new`'s type onto it.
+    fn retyped(&mut self, old: DocId, new: DocId) {
+        let session = self.session.as_ref();
+        let Some(typo) = session
+            .and_then(|s| s.get(new))
+            .map(|e| Arc::clone(&e.typo))
+        else {
+            return;
+        };
+        let waiting: Vec<PaneId> = (self.panes.iter())
+            .filter(|(pane, c)| {
+                let on_old = matches!(c, Content::Pdf(v) if v.doc == old);
+                on_old && **self.typo(**pane) == *typo
+            })
+            .map(|(pane, _)| *pane)
+            .collect();
+        for pane in waiting {
+            self.retarget(pane, old, new);
+        }
+        self.release(new);
+        self.release(old);
     }
 
     /// Draws the pane's document; false leaves the pane to its empty state.

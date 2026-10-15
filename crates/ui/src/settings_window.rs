@@ -605,6 +605,12 @@ fn workspace(ui: &mut Ui, s: &mut Settings) {
         let label = "Independent page texture for each pane";
         switch_row(ui, label, hint, &mut w.independent_textures);
     });
+    section(ui, "Pane text");
+    group(ui, |ui| {
+        let hint = "While split, the Fonts tab changes only the focused pane";
+        let label = "Independent text for each pane";
+        switch_row(ui, label, hint, &mut w.independent_text);
+    });
 }
 
 fn section(ui: &mut Ui, title: &str) {
