@@ -99,7 +99,7 @@ What CI covers, against the local gates:
 |---|---|
 | `cargo fmt --all --check` | Rust / format |
 | `cargo clippy --workspace --all-targets` | Rust / lint |
-| clippy for `aarch64-apple-darwin`, with and without default features | Rust / lint |
+| clippy on macOS, with and without default features (native: bundled SQLite needs the SDK) | Build / macos-latest |
 | clippy for `wasm32-unknown-unknown` | none: the browser preview is best-effort, with no CI job |
 | `cargo test --workspace` (with lavapipe for GPU tests) | Rust / test |
 | `cargo xtask layers`, `parity`, `assets`, `unsafe` | Rust / test |
