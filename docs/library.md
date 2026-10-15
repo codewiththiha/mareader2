@@ -274,6 +274,57 @@ What the first slice built, and where it stops short of the model above.
 - **Not yet.** Manual order arrives with shelves. A cover that failed is
   retried only after a relaunch.
 
+## Slice 3: folders read in place (2026-10-15)
+
+- **Adding.** Folders (beside Open…, and on the empty page) adds a folder
+  through the system dialog. Its books are read where they are: nothing is
+  copied, moved or written there. A folder inside one already added is
+  refused by name; one holding added folders takes them in (their books
+  keep their places) and says so. The library's own folders are never
+  walked. `library.json` moves to schema 2 with a `sources` list; an older
+  app leaves the newer file alone.
+- **What counts.** Each folder has formats (all four by default, at least
+  one), a size floor and watching (on), under What counts. Narrowing
+  keeps books already found; widening rescans that folder. A walk skips
+  hidden and `~$` names, system folders (`node_modules`, `__MACOSX`, the
+  recycle bin and the like) and links, stops at
+  20,000 files, 20,000 folders or 24 levels, and says when a folder was cut
+  short. A file written in the last 3 s waits for the next look, 3.5 s
+  later, so a copy in progress isn't measured half done.
+- **Rescans.** On launch, when the window comes back (at most every 2 s),
+  from Rescan all, and per folder from its Rescan button. A full rescan
+  first re-checks every known file, then walks the watched folders; a named
+  one walks only that folder. Unchanged files (same size and modified time)
+  aren't hashed again, and names are read only from contents the library
+  hasn't met. The walk, hashing and reading run on the library worker.
+- **What a scan does.** A known content under a new path is the same book,
+  followed with its place, and its lost addresses are dropped. A known path
+  with new content is an edit in place: the same book. A removed book's
+  content comes back as that book, with its place. Anything else is a new
+  book, found but never opened: it lists "Not opened" and sorts last by
+  last read. Titles come from the file (an EPUB's `dc:title`, a PDF's
+  `/Title` unless generic, Markdown front matter), else the file name; PDFs
+  opened in the reader now use the same rule.
+- **Missing books.** A missing book stays listed, faded, until found or
+  removed. When its folder's drive isn't there, it reads Offline ("Drive
+  not connected") instead of Moved or deleted. The chips over the books
+  show All books, Missing (when any) and each folder with its count.
+- **Find again.** Clicking a missing book opens a sheet with its last path:
+  Choose the file… or Search a folder…. A chosen file of the same content
+  heals the book and opens it. A search walks the folder for the same
+  content under any name, checking only files of its old name or size.
+  A namesake with other content (another edition, or edited) is offered:
+  Use this file keeps the book and its place. A file that is another book,
+  or another format, is refused in one sentence. Cancel or Escape changes
+  nothing, and Escape doesn't leave the library while a sheet is up.
+- **Removing a folder** asks first and says how many books found only there
+  leave the library. Books also opened from elsewhere stay. Files are never
+  touched; adding the folder again brings the books back with their places.
+- **Not yet.** Folders as a browsable tree, hiding single books from a
+  folder and restoring them, and a progress card for big first scans come
+  with slices 4, 5 and 7. There is no file watcher: rescans are cheap and
+  run when the window comes back, as mareader does.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:

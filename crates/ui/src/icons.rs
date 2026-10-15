@@ -57,6 +57,14 @@ pub enum Icon {
     List,
     Sort,
     ViewOptions,
+    Folders,
+    Folder,
+    FolderPlus,
+    Rescan,
+    SearchFolder,
+    ChooseFile,
+    Offline,
+    Remove,
 }
 
 impl Icon {
@@ -111,6 +119,14 @@ impl Icon {
             Self::List => Lucide::List,
             Self::Sort => Lucide::ArrowDownUp,
             Self::ViewOptions => Lucide::SlidersHorizontal,
+            Self::Folders => Lucide::Folders,
+            Self::Folder => Lucide::Folder,
+            Self::FolderPlus => Lucide::FolderPlus,
+            Self::Rescan => Lucide::RefreshCw,
+            Self::SearchFolder => Lucide::FolderSearch,
+            Self::ChooseFile => Lucide::FileSearch,
+            Self::Offline => Lucide::HardDrive,
+            Self::Remove => Lucide::Trash2,
         }
     }
 

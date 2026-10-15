@@ -1,8 +1,11 @@
 //! The library's state: the model, its files, and what the panes read.
 
 mod covers;
+pub mod folders;
 mod io;
 pub(crate) mod menu;
+pub mod sheets;
+mod sources;
 pub mod view;
 
 use std::collections::BTreeMap;
@@ -11,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use egui::Context;
 use mareader_library::disk::Folder;
-use mareader_library::{BookId, DeviceId, Format, Library, Opened, Position};
+use mareader_library::{BookId, DeviceId, Format, Library, Opened, Position, display_title};
 use mareader_session::{Anchor, Document, Source};
 use mareader_workspace::PaneId;
 
@@ -21,6 +24,7 @@ use crate::toast::Toast;
 pub use covers::Covers;
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
+pub use sources::{Action, Finding, Scope, Sheet, Step};
 
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
@@ -48,8 +52,10 @@ pub struct LibraryState {
     /// When the last write left, in egui seconds.
     wrote: f64,
     covers: Covers,
+    folders: sources::Folders,
     /// The library page is up in place of the panes.
     pub showing: bool,
+    pub scope: Scope,
 }
 
 impl Default for LibraryState {
@@ -64,7 +70,9 @@ impl Default for LibraryState {
             waiting: Vec::new(),
             wrote: f64::NEG_INFINITY,
             covers: Covers::default(),
+            folders: sources::Folders::default(),
             showing: false,
+            scope: Scope::All,
         }
     }
 }
@@ -118,6 +126,7 @@ impl LibraryState {
 
     /// Takes in finished disk work.
     pub fn receive(&mut self, ctx: &Context, out: &mut Commands) {
+        let now = ctx.input(|i| i.time);
         for news in self.io.poll(ctx) {
             match news {
                 News::Loaded(loaded) => {
@@ -132,6 +141,8 @@ impl LibraryState {
                     out.extend(notes.map(Command::Notify));
                     let held = self.waiting.drain(..);
                     out.extend(held.map(Command::Open));
+                    // Gone files and new books, found where they're kept.
+                    self.rescan(None, now);
                 }
                 News::Measured(probe, measure) => {
                     let opened = Opened {
@@ -144,6 +155,13 @@ impl LibraryState {
                     self.model.record_open(opened, wall_ms());
                 }
                 News::WriteFailed(e) => out.push(Command::Notify(Toast::error(e))),
+                News::Rescanned(done) => self.rescanned(*done, now, out),
+                News::Relinked(relink, measured) => self.relink_measured(relink, measured, out),
+                News::Sought {
+                    book,
+                    folder,
+                    found,
+                } => self.sought_found(book, &folder, found, out),
             }
         }
     }
@@ -323,18 +341,13 @@ fn format_of(path: &Path, document: &Document) -> Format {
     }
 }
 
-/// A book's own title, else the file's name without its extension.
+/// A book's own title, unless generic; else the file's name.
 fn title_of(document: &Document, path: &Path) -> String {
     let own = match document {
         Document::Epub { book, .. } => book.title(),
-        Document::Pdf(_) => None,
+        Document::Pdf(pdf) => pdf.raw_title(),
     };
-    let stem = || path.file_stem().map(|s| s.to_string_lossy().into_owned());
-    let own = own
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(str::to_owned);
-    own.or_else(stem).unwrap_or_else(|| "Untitled".into())
+    display_title(own, path)
 }
 
 /// The document's own author, if it names one.
