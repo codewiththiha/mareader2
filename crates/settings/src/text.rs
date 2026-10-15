@@ -148,6 +148,8 @@ pub struct TextSettings {
     pub sans_font: FontChoice,
     pub mono_font: FontChoice,
     pub column_align: ColumnAlign,
+    /// A book's text column, in percent of its usual width.
+    pub column_width_pct: f32,
     /// Percent of full ink contrast; lower softens text toward the paper.
     pub ink_contrast: f32,
     /// A book's pictures take the page's theme; off, their own colours.
@@ -164,6 +166,7 @@ impl TextSettings {
     pub const FONT_WEIGHT: (f32, f32) = (100.0, 900.0);
     /// The ink dial's floor is mareader's: text never fades out.
     pub const INK: (f32, f32) = (10.0, 100.0);
+    pub const COLUMN_PCT: (f32, f32) = (60.0, 140.0);
 
     pub fn sanitize(&mut self) {
         let d = Self::default();
@@ -176,6 +179,8 @@ impl TextSettings {
         self.font_size = fit(self.font_size, Self::FONT_SIZE, d.font_size);
         self.font_weight = fit(self.font_weight, Self::FONT_WEIGHT, d.font_weight);
         self.ink_contrast = fit(self.ink_contrast, Self::INK, d.ink_contrast);
+        let column = self.column_width_pct;
+        self.column_width_pct = fit(column, Self::COLUMN_PCT, d.column_width_pct);
     }
 }
 
@@ -197,6 +202,7 @@ impl Default for TextSettings {
             sans_font: FontChoice::Default,
             mono_font: FontChoice::Default,
             column_align: ColumnAlign::Center,
+            column_width_pct: 100.0,
             ink_contrast: 100.0,
             theme_pictures: false,
         }

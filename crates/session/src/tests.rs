@@ -399,7 +399,7 @@ fn typed(font_size: f32) -> Arc<Typography> {
         font_size,
         ..Default::default()
     };
-    Arc::new(typography(&text, 100.0))
+    Arc::new(typography(&text))
 }
 
 #[test]

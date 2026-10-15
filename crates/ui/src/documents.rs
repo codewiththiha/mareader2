@@ -172,7 +172,7 @@ impl Default for Documents {
             demand: Demand::new(),
             gpu: None,
             drawn: Vec::new(),
-            window: Arc::new(typography(&TextSettings::default(), 100.0)),
+            window: Arc::new(typography(&TextSettings::default())),
             own: BTreeMap::new(),
             asked: BTreeMap::new(),
         }
@@ -197,14 +197,9 @@ impl Documents {
     }
 
     /// Each pane's book type: its `own` text, or `window`.
-    pub fn set_text(
-        &mut self,
-        window: &TextSettings,
-        own: &[(PaneId, &TextSettings)],
-        column_pct: f32,
-    ) {
+    pub fn set_text(&mut self, window: &TextSettings, own: &[(PaneId, &TextSettings)]) {
         let fresh = |old: Option<&Arc<Typography>>, text: &TextSettings| {
-            let typo = typography(text, column_pct);
+            let typo = typography(text);
             match old {
                 Some(old) if **old == typo => Arc::clone(old),
                 _ => Arc::new(typo),
