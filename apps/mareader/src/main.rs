@@ -104,6 +104,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
+            if let Some(dir) = eframe::storage_dir("mareader") {
+                app.attach_library(dir.join("library"));
+            }
             inbox.wake_with(cc.egui_ctx.clone());
             // A file asked for at launch, else what was read last time.
             if !open_latest(&mut app, inbox.take().paths) {
