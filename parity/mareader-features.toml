@@ -283,10 +283,14 @@ title = "Drag a book onto a pane edge to split there; centre replaces an empty p
 area = "B"
 tier = "P0"
 milestone = "M5"
-status = "partial"
-evidence = ["crates/workspace/src/tree.rs::nearest_edge_prefers_right_then_bottom_on_ties"]
+status = "shipped"
+evidence = [
+  "crates/workspace/src/tree.rs::nearest_edge_prefers_right_then_bottom_on_ties",
+  "crates/workspace/src/drop.rs::a_pane_with_a_document_splits_at_its_nearest_edge",
+  "crates/ui/tests/panel.rs::a_book_dropped_on_a_pane_edge_splits_there",
+  "crates/ui/tests/panel.rs::a_book_dropped_on_an_empty_pane_opens_in_it",
+]
 reference = ["crates/reader-runtime/src/host/drop_target.rs"]
-notes = "Edge choice exists in the model; no drag source yet"
 
 [[feature]]
 id = "workspace.pane-look"
@@ -360,7 +364,13 @@ title = "Library click replaces the focused pane or opens beside it (or drag onl
 area = "B"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/panel.rs::a_click_replaces_the_focused_pane_by_default",
+  "crates/ui/tests/panel.rs::a_click_can_open_beside_and_then_focuses_where_it_shows",
+  "crates/ui/tests/panel.rs::do_nothing_leaves_clicks_to_drags_and_keys",
+  "crates/ui/tests/panel.rs::the_workspace_tab_picks_what_a_click_does",
+]
 reference = ["crates/reader-core/src/settings/workspace.rs"]
 
 [[feature]]
@@ -592,7 +602,11 @@ title = "Import progress in a corner card, never blocking the window"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/src/library/runs.rs::a_scan_spins_then_reading_fills_the_ring",
+  "crates/ui/src/library/runs.rs::beats_are_sent_once_a_percent",
+]
 reference = ["crates/library-runtime/src/features/library/progress_dock.rs"]
 
 [[feature]]

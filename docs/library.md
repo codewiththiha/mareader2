@@ -491,6 +491,46 @@ What the first slice built, and where it stops short of the model above.
 - **Shots.** `search=<text>` types into the field and `open=search`
   focuses it: `books=10 library=show search=essays open=search`.
 
+## Slice 7: the Library panel, drops on panes, progress (2026-10-15)
+
+- **The panel.** The reading sidebar's Library panel lists shelves, then
+  books, by name (natural order, case folded). The top level shows what
+  Home shows: every book or only unshelved ones. A shelf opens in place
+  with its chevron, a click or Right, and folds with Left; each counts
+  the books under it. Books carry a format badge and a dot when open in
+  a pane; the focused pane's book is lit. A missing book is faded and
+  opens the find-again sheet instead of a pane.
+- **Tabs.** While the window is split, the panes are listed above the tree
+  as tabs, named by the library (so twins differ) or the document. A
+  click focuses a pane, × closes it.
+- **A click** follows Settings › Workspace › Library panel:
+  Open in focused pane (default), Open as a new split, or Do
+  nothing. A book already shown only focuses its pane. Beside splits to
+  the right, or below when there is no room, and an empty focused pane
+  takes the book instead. Do nothing still lets Enter open beside, so
+  the panel works from the keyboard. The Library page follows the first
+  two; with Do nothing it opens in the focused pane, since the page has
+  no panes to drag onto.
+- **A drag** from a book row onto a pane shows where it lands: the half
+  the new pane would take, lit, named "Split right of Middlemarch". The
+  edge is the nearest one, ties going right, then below, left, above. An
+  empty pane takes the book whole ("Open here"). Letting go elsewhere, on
+  the rail, or on the library page drops nothing. The rule lives in
+  `mareader_workspace::DropTarget`, so it is tested without a window.
+- **Progress.** A folder walk or an import that runs longer than 0.4 s
+  gets a card in the bottom-left corner: a ring that spins while a
+  folder is walked, then fills as files are read or copied ("Reading 4 of
+  12", "Importing 3 of 12") with the file at hand underneath. One card
+  per run; it leaves when the run ends, and the toast reports the result,
+  so the card never needs closing. The worker sends a beat only when the
+  ring moves a whole percent, so huge folders don't flood the queue.
+- **Not yet.** Importing a mareader library is deferred (owner,
+  2026-10-15); see § Optional below.
+- **Shots.** `sidebar=library` opens the panel; `library_click=split`
+  picks the click; `carry=x1,y1,x2,y2` holds a drag without letting go;
+  `runs=demo` shows two cards: `pdf=sample:5 books=10 shelves=demo
+  sidebar=library panes=2`.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
