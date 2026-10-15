@@ -37,13 +37,15 @@ fn reads(command: &Command) -> bool {
         C::Page { .. } | C::FirstPage | C::LastPage => true,
         C::GoTo { .. } | C::Turn { .. } => true,
         C::FocusPane(_) | C::ClosePane(_) | C::SetRatio(..) => true,
+        // The rail's Library panel places books among the panes.
+        C::PlaceBook { .. } => true,
         C::SetIndependence(_) | C::SetInkContrast(_) => true,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
         // Find searches the page in reading, the library on the shelf.
         C::ShowFind => false,
         C::Library(_) => false,
-        C::Open(_) | C::ShowOpenDialog { .. } | C::ShowViewMenu => false,
+        C::Open(_) | C::ShowOpenDialog(_) | C::ShowViewMenu => false,
         // The window's look, chrome and notices.
         C::ShowAppearance | C::SetAppearance(_) => false,
         C::SavePreset { .. } | C::DeletePreset(_) => false,

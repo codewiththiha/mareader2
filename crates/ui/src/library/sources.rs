@@ -6,10 +6,11 @@ use std::path::{Path, PathBuf};
 use egui::Context;
 use mareader_library::disk::{FoundAgain, Known, Sought};
 use mareader_library::{
-    AddError, BookId, Format, Measure, RelinkError, Scan, SourceEdit, SourceId,
+    AddError, BookId, Format, Measure, RelinkError, Scan, Source, SourceEdit, SourceId,
 };
 
 use super::io::{Job, Relink, Rescan, Rescanned};
+use super::runs::Phase;
 use super::{LibraryState, Status, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
@@ -269,7 +270,7 @@ impl LibraryState {
 
     fn start(&mut self, want: Want, now: f64) {
         let folders = self.model.sources();
-        let folders = folders
+        let folders: Vec<Source> = folders
             .filter(|s| want.folders.contains(&s.id) || (want.all && s.watch))
             .cloned()
             .collect();
@@ -285,6 +286,19 @@ impl LibraryState {
                 }
             }
         }
+        // Only folders asked for by name show a card; returns stay quiet.
+        let named: Vec<String> = (folders.iter())
+            .filter(|s| want.folders.contains(&s.id))
+            .map(Source::name)
+            .collect();
+        let run = match named.as_slice() {
+            [] => None,
+            [one] => Some(self.runs.start(one.clone(), Phase::Scanning)),
+            many => Some(
+                self.runs
+                    .start(format!("{} folders", many.len()), Phase::Scanning),
+            ),
+        };
         let job = Rescan {
             locations: want.all.then_some(locations),
             folders,
@@ -292,6 +306,7 @@ impl LibraryState {
             contents,
             avoid: self.avoid(),
             now_ms: wall_ms(),
+            run,
         };
         self.io.send(Job::Rescan(Box::new(job)));
         self.folders.scanning = true;
@@ -325,6 +340,7 @@ impl LibraryState {
 
     pub(super) fn rescanned(&mut self, mut done: Rescanned, now: f64, out: &mut Commands) {
         self.folders.scanning = false;
+        self.runs.finish(done.run);
         // A walk of named folders didn't look at other files.
         if let Some(gone) = &done.gone {
             self.model.check_present(|p| !gone.contains(p));

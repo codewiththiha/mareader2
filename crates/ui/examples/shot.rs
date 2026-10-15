@@ -16,6 +16,7 @@ fn main() -> Result<(), String> {
     let mut queued = Vec::new();
     let mut scroll = 0.0;
     let mut drag = None;
+    let mut carry = None;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -35,6 +36,14 @@ fn main() -> Result<(), String> {
                     return Err("drag=x1,y1,x2,y2".into());
                 };
                 drag = Some((egui::pos2(*x1, *y1), egui::pos2(*x2, *y2)));
+            }
+            // A drag held, not let go: `carry=x1,y1,x2,y2`.
+            "carry" => {
+                let n: Vec<f32> = v.split(',').filter_map(|n| n.parse().ok()).collect();
+                let [x1, y1, x2, y2] = n.as_slice() else {
+                    return Err("carry=x1,y1,x2,y2".into());
+                };
+                carry = Some((egui::pos2(*x1, *y1), egui::pos2(*x2, *y2)));
             }
             // Applied once the document is open: `zoom=in,in,page`.
             "zoom" => {
@@ -119,7 +128,8 @@ fn main() -> Result<(), String> {
         });
         harness.run_steps(40);
     }
-    if let Some((from, to)) = drag {
+    let held = carry.map(|c| (c, false));
+    if let Some(((from, to), release)) = drag.map(|d| (d, true)).or(held) {
         let press = |pos, pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,
@@ -133,7 +143,9 @@ fn main() -> Result<(), String> {
             harness.hover_at(from + (to - from) * (k as f32 / 8.0));
             harness.run_steps(1);
         }
-        harness.event(press(to, false));
+        if release {
+            harness.event(press(to, false));
+        }
         harness.run_steps(4);
     }
     // Long enough for a tooltip to appear.

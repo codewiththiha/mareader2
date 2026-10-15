@@ -21,6 +21,7 @@ use super::search::{self, Lit, SearchAction};
 use super::shelving::{Carry, ShelfAction};
 use super::{Action, BookAction, LibraryState, Pick, PickAction, Picks, Scope};
 use crate::command::{Command, Commands};
+use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
@@ -299,7 +300,7 @@ fn header(
             ui.add_space(inset);
             // Adding books is the shelf's own; the bar keeps the View menu.
             if shelf.is_none() && header_button(ui, Icon::Open, "Open…", t).clicked() {
-                out.push(Command::ShowOpenDialog { beside: false });
+                out.push(Command::ShowOpenDialog(Placement::Into));
             }
             // Copies kept by the library, onto the shelf shown.
             if header_button(ui, Icon::Import, "Import…", t).clicked() {
@@ -1103,7 +1104,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, shown: &Shown<'_>, t: &Tokens, out: &mut
         let row = egui::Layout::left_to_right(egui::Align::Center);
         ui.allocate_ui_with_layout(vec2(EMPTY_ROW, 32.0), row, |ui| {
             if header_button(ui, Icon::Open, "Open…", t).clicked() {
-                out.push(Command::ShowOpenDialog { beside: false });
+                out.push(Command::ShowOpenDialog(Placement::Into));
             }
             // An empty folder already added stays reachable to remove.
             match shown.model.sources().next() {

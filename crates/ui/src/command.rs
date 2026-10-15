@@ -4,7 +4,7 @@ use mareader_appearance::Appearance;
 use mareader_library::BookId;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
-use crate::documents::OpenRequest;
+use crate::documents::{OpenRequest, Placement};
 use crate::layout::{Arrow, ViewMode};
 use crate::settings_window::Tab;
 use crate::sidebar::Panel;
@@ -29,8 +29,14 @@ pub enum Command {
     SetSidebarOverlay(bool),
     /// The library page in place of the panes, or back to them.
     ShowLibrary,
-    /// A library book, in the focused pane where it was left.
+    /// Opens a library book as Settings › Workspace says, or focuses it.
     OpenBook(BookId),
+    /// A library book placed from the rail: clicked, or dropped on a pane.
+    PlaceBook {
+        book: BookId,
+        pane: Option<PaneId>,
+        placement: Placement,
+    },
     /// The library page's layout and order.
     SetLibraryView(mareader_library::View),
     /// Folders, scopes and finding lost books.
@@ -49,10 +55,8 @@ pub enum Command {
     CloseSettings,
     /// Every edit in the settings window; applies on the same frame.
     SetSettings(Box<Settings>),
-    /// The system open dialog; `beside` opens the pick in a new split.
-    ShowOpenDialog {
-        beside: bool,
-    },
+    /// The system open dialog, the pick placed as asked.
+    ShowOpenDialog(Placement),
     /// Zooms the active pane's document.
     Zoom(ZoomCommand),
     /// The active pane's view mode, kept on the page read.

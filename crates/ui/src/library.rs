@@ -8,6 +8,7 @@ mod io;
 pub(crate) mod menu;
 mod menus;
 pub mod picks;
+pub mod runs;
 pub mod search;
 pub mod sheets;
 pub mod shelving;
@@ -75,6 +76,8 @@ pub struct LibraryState {
     /// The shelf under files dragged in from outside, if any.
     pub(crate) file_target: Option<ShelfId>,
     search: search::Search,
+    /// Imports and folder walks still going.
+    pub runs: runs::Runs,
 }
 
 impl Default for LibraryState {
@@ -97,6 +100,7 @@ impl Default for LibraryState {
             picks: Picks::default(),
             file_target: None,
             search: search::Search::default(),
+            runs: runs::Runs::default(),
         }
     }
 }
@@ -200,7 +204,11 @@ impl LibraryState {
                     folder,
                     found,
                 } => self.sought_found(book, &folder, found, out),
-                News::Imported(done) => self.imported(*done, out),
+                News::Imported(done) => {
+                    self.runs.finish(done.run);
+                    self.imported(*done, out);
+                }
+                News::Beat(beat) => self.runs.beat(beat),
             }
         }
     }
@@ -276,6 +284,12 @@ impl LibraryState {
         }
         self.seen.retain(|p, _| panes.contains(p));
         measuring
+    }
+
+    /// The book `pane` reads as: its own, else its file's.
+    pub fn book_in(&self, documents: &Documents, pane: PaneId) -> Option<BookId> {
+        let own = documents.book(pane);
+        own.or_else(|| self.model.book_at(&documents.place(pane)?.0))
     }
 
     /// Writes changes at most every [`SAVE_DELAY`]; else the wait left.
