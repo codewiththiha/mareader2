@@ -8,11 +8,13 @@ use std::thread::JoinHandle;
 
 use egui::Context;
 use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
-use mareader_library::{BookId, ContentId, DeviceId, Format, Found, Measure, Scan, Source};
+use mareader_library::{
+    BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Source, display_title,
+};
 
 pub enum Job {
     Load(Folder, DeviceId),
-    Measure(Probe),
+    Measure(Box<Probe>),
     Write(Vec<(PathBuf, String)>),
     Rescan(Box<Rescan>),
     /// Measures a file picked to stand in for a lost book.
@@ -23,6 +25,34 @@ pub enum Job {
         folder: PathBuf,
         sought: Sought,
     },
+    /// Copies files into the library's own folder.
+    Import(Box<Import>),
+    /// Deletes store copies of removed books.
+    Delete {
+        store: PathBuf,
+        paths: Vec<PathBuf>,
+    },
+}
+
+/// Files to copy into `store`, unless their content is in `known`.
+pub struct Import {
+    pub paths: Vec<PathBuf>,
+    pub store: PathBuf,
+    pub known: HashSet<ContentId>,
+    /// The shelf they go on.
+    pub to: Option<mareader_library::ShelfId>,
+}
+
+/// What an import copied, found known, skipped or couldn't read.
+#[derive(Debug, Default)]
+pub struct Imported {
+    pub to: Option<mareader_library::ShelfId>,
+    pub copies: Vec<Opened>,
+    /// Already in the library: not copied.
+    pub known: Vec<(PathBuf, ContentId)>,
+    /// Not a book Mareader reads.
+    pub skipped: Vec<PathBuf>,
+    pub failed: Vec<(PathBuf, String)>,
 }
 
 /// Known files re-checked, if any, then the folders walked.
@@ -53,11 +83,13 @@ pub struct Probe {
     pub format: Format,
     pub title: String,
     pub author: Option<String>,
+    /// Opened as this book, which may be a twin.
+    pub book: Option<BookId>,
 }
 
 pub enum News {
     Loaded(Box<Loaded>),
-    Measured(Probe, Measure),
+    Measured(Box<Probe>, Measure),
     WriteFailed(String),
     Rescanned(Box<Rescanned>),
     /// The picked file's format and measure; none if unreadable.
@@ -67,6 +99,7 @@ pub enum News {
         folder: PathBuf,
         found: FoundAgain,
     },
+    Imported(Box<Imported>),
 }
 
 /// Which known files are gone, if checked, and each folder's walk.
@@ -200,7 +233,49 @@ fn run(job: Job) -> Option<News> {
                 found,
             })
         }
+        Job::Import(job) => Some(News::Imported(Box::new(import(*job)))),
+        Job::Delete { store, paths } => {
+            disk::delete_copies(&store, &paths);
+            None
+        }
     }
+}
+
+fn import(job: Import) -> Imported {
+    let mut out = Imported {
+        to: job.to,
+        ..Imported::default()
+    };
+    let mut known = job.known;
+    for path in job.paths {
+        let Some(format) = Format::of_path(&path).filter(|_| path.is_file()) else {
+            out.skipped.push(path);
+            continue;
+        };
+        let copied = disk::measure(&path, format).and_then(|m| {
+            // The same file dropped twice in one go is copied once.
+            if !known.insert(m.content) {
+                return Ok(Err(m.content));
+            }
+            let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
+            Ok(Ok((copy, Measure { stamp, ..m })))
+        });
+        match copied {
+            Ok(Ok((copy, measure))) => {
+                let (title, author) = mareader_session::describe(&copy);
+                out.copies.push(Opened {
+                    title: display_title(title.as_deref(), &path),
+                    path: copy,
+                    measure,
+                    format,
+                    author,
+                });
+            }
+            Ok(Err(content)) => out.known.push((path, content)),
+            Err(e) => out.failed.push((path, e.to_string())),
+        }
+    }
+    out
 }
 
 fn rescan(job: Rescan) -> Rescanned {

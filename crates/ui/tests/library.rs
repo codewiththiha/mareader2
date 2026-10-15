@@ -6,10 +6,10 @@ use std::time::{Duration, SystemTime};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, ShelfId, SortKey};
+use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, Origin, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
-use mareader_ui::library::{Action, ShelfAction};
+use mareader_ui::library::{Action, BookAction, Pick, PickAction, ShelfAction};
 
 /// Canonical, as the library records it; opens take any spelling.
 fn fixture(name: &str) -> PathBuf {
@@ -885,4 +885,237 @@ fn a_removed_open_shelf_gives_way_to_its_parent() {
     shelve(&mut h, ShelfAction::Remove(inner));
     assert_eq!(open_shelf(&h), Some(outer));
     assert_eq!(h.state().library_state().renaming(), None);
+}
+
+fn picks(h: &Harness<'static, MareaderApp>) -> Vec<BookId> {
+    h.state().library_state().picks().books()
+}
+
+fn book(h: &mut Harness<'static, MareaderApp>, action: BookAction) {
+    act(h, Action::Book(action));
+}
+
+#[test]
+fn ctrl_click_starts_a_selection_that_plain_clicks_then_extend() {
+    let mut h = reader(&[("books", "6"), ("library", "show")]);
+    let (one, two) = (title_of(&h, 1), title_of(&h, 2));
+    h.get_by_label(&one)
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    assert_eq!(picks(&h), [book_id(&h, 1)]);
+    assert!(
+        h.query_by_label("1 book selected").is_some(),
+        "the bar shows"
+    );
+    // While picking, a plain click picks too instead of opening.
+    h.get_by_label(&two).click();
+    h.run();
+    assert_eq!(picks(&h).len(), 2);
+    assert!(h.state().library_showing(), "nothing opened");
+    h.get_by_label(&two).click();
+    h.run();
+    assert_eq!(picks(&h), [book_id(&h, 1)]);
+    // Escape lets go of the selection before it leaves the page.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(picks(&h).is_empty());
+    assert!(h.state().library_showing());
+}
+
+#[test]
+fn shift_click_picks_the_run_between_and_ctrl_a_picks_all() {
+    let mut h = reader(&[("books", "6"), ("library", "show"), ("layout", "list")]);
+    // In the order shown: top to bottom.
+    let mut titles: Vec<String> = library(&h).books().map(|b| b.title.value.clone()).collect();
+    titles.sort_by(|a, b| top(&h, a).total_cmp(&top(&h, b)));
+    h.get_by_label(&titles[1])
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    h.get_by_label(&titles[4])
+        .click_modifiers(egui::Modifiers::SHIFT);
+    h.run();
+    assert_eq!(picks(&h).len(), 4, "{titles:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    assert_eq!(picks(&h).len(), 6);
+    h.get_by_label("Clear selection").click();
+    h.run();
+    assert!(picks(&h).is_empty());
+}
+
+#[test]
+fn picks_go_on_a_new_shelf_together_and_come_off_it() {
+    let mut h = reader(&[("books", "5"), ("library", "show")]);
+    let (a, b) = (book_id(&h, 1), book_id(&h, 2));
+    let both = vec![Pick::Book(a), Pick::Book(b)];
+    act(&mut h, Action::Pick(PickAction::Only(both)));
+    h.get_by_label("New shelf from these").click();
+    h.run();
+    let shelf = open_shelf(&h).expect("the new shelf opens");
+    assert_eq!(
+        h.state().library_state().renaming(),
+        Some(shelf),
+        "named next"
+    );
+    assert_eq!(library(&h).shelf_books(shelf).len(), 2);
+    assert!(picks(&h).is_empty());
+    act(&mut h, Action::Pick(PickAction::Only(vec![Pick::Book(a)])));
+    book(&mut h, BookAction::TakeOff(vec![a]));
+    assert_eq!(library(&h).shelf_books(shelf).len(), 1);
+    assert!(toast(&h).starts_with("Took “"), "{}", toast(&h));
+}
+
+#[test]
+fn a_dragged_selection_moves_onto_a_shelf_together() {
+    let mut h = reader(&[("books", "5"), ("library", "show")]);
+    let shelf = new_shelf(&mut h, "Poetry");
+    let (one, two) = (title_of(&h, 1), title_of(&h, 2));
+    h.get_by_label(&one)
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    h.get_by_label(&two)
+        .click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    let from = h.get_by_label(&one).rect().center();
+    let target = h.get_by_label("Poetry").rect().center();
+    carry(&mut h, from, target);
+    release(&mut h, target);
+    assert_eq!(library(&h).shelf_books(shelf).len(), 2, "{}", toast(&h));
+    assert_eq!(toast(&h), "Added 2 books to “Poetry”.");
+    assert!(picks(&h).is_empty(), "a drop lets go");
+}
+
+#[test]
+fn a_card_menu_offers_what_a_book_can_do() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let title = title_of(&h, 1);
+    h.get_by_label(&title).click_secondary();
+    h.run();
+    for entry in ["Open", "Select", "Rename…", "Read separately", "Remove…"] {
+        assert!(h.query_by_label(entry).is_some(), "{entry}");
+    }
+    h.get_by_label("Rename…").click();
+    h.run();
+    // The old name starts focused and selected: typing replaces it.
+    assert!(h.get_by_role(Role::TextInput).is_focused());
+    h.get_by_role(Role::TextInput).type_text("Moby Dick");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let renamed = library(&h).book(book_id(&h, 1)).unwrap();
+    assert_eq!(renamed.title.value, "Moby Dick");
+    assert!(h.state().library_state().sheet().is_none());
+}
+
+#[test]
+fn removing_a_folder_book_hides_it_until_restored_from_folders() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    let raven = put(&root, "raven.epub", &raven_bytes());
+    put(&root, "notes.md", NOTES);
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(root.clone()));
+    let id = library(&h).book_at(&raven).unwrap();
+    let (books, shelves) = (vec![id], Vec::new());
+    book(&mut h, BookAction::AskRemove { books, shelves });
+    let says = "Its file stays in its folder; restore it from Folders.";
+    assert!(
+        h.query_by_label(says).is_some(),
+        "the receipt says what stays"
+    );
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(library(&h).book(id).is_none());
+    assert!(raven.is_file(), "the file is never touched");
+    assert!(
+        toast(&h).ends_with("Restore from Folders."),
+        "{}",
+        toast(&h)
+    );
+    act(&mut h, Action::Rescan(None));
+    assert!(library(&h).book(id).is_none(), "a rescan leaves it out");
+    act(&mut h, Action::ShowFolders);
+    h.get_by_label("Removed · 1").click();
+    h.run();
+    h.get_by_label("Restore").click();
+    h.run();
+    assert!(library(&h).book(id).is_some_and(|b| !b.missing()));
+    assert_eq!(toast(&h), "Restored “The Raven”.");
+}
+
+#[test]
+fn read_separately_keeps_a_second_place_in_the_same_file() {
+    let path = raven();
+    let mut h = reader(&[("epub", path.to_str().unwrap())]);
+    go_to(&mut h, 2);
+    h.run_steps(3);
+    let id = library(&h).book_at(&path).unwrap();
+    book(&mut h, BookAction::Twin(id));
+    let twin = library(&h).books().find(|b| b.twin_of == Some(id));
+    let twin = twin
+        .map(|b| b.id)
+        .unwrap_or_else(|| panic!("{}", state(&h)));
+    assert_eq!(library(&h).book(twin).unwrap().title.value, "The Raven (2)");
+    h.state_mut().queue(Command::OpenBook(twin));
+    h.run();
+    h.run_steps(3);
+    assert_eq!(page(&h), 0, "a twin starts at its own place");
+    go_to(&mut h, 1);
+    h.run_steps(3);
+    assert_eq!(library(&h).position(twin).map(|p| p.page), Some(1));
+    assert_eq!(library(&h).position(id).map(|p| p.page), Some(2));
+    h.state_mut().queue(Command::OpenBook(id));
+    h.run();
+    h.run_steps(3);
+    assert_eq!(page(&h), 2, "the original kept its place");
+}
+
+#[test]
+fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("library");
+    let outside = put(dir.path(), "Raven.epub", &raven_bytes());
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("library", "show").ok();
+    app.attach_library(root.clone());
+    let mut h = harness(app);
+    let shelf = new_shelf(&mut h, "Poems");
+    let to = Some(shelf);
+    book(
+        &mut h,
+        BookAction::Import {
+            paths: vec![outside.clone()],
+            to,
+        },
+    );
+    assert_eq!(toast(&h), "Imported “The Raven” to “Poems”.");
+    let b = library(&h).books().next().unwrap().clone();
+    let copy = b.path().unwrap().to_path_buf();
+    assert_eq!(b.locations[0].origin, Origin::Store);
+    assert!(copy.starts_with(root.join("files").canonicalize().unwrap()));
+    assert_eq!(library(&h).shelf_books(shelf).len(), 1);
+    // The same content again is the same book; nothing is copied.
+    let notes = put(dir.path(), "notes.docx", b"not a book");
+    book(
+        &mut h,
+        BookAction::Import {
+            paths: vec![outside.clone(), notes],
+            to: None,
+        },
+    );
+    let said = "“The Raven” was already in your library. “notes.docx” isn't a book Mareader reads.";
+    assert_eq!(toast(&h), said);
+    assert_eq!(library(&h).len(), 1);
+    let (books, shelves) = (vec![b.id], Vec::new());
+    book(&mut h, BookAction::AskRemove { books, shelves });
+    assert!(
+        h.query_by_label("The copy Mareader keeps is deleted.")
+            .is_some()
+    );
+    h.get_by_label("Remove").click();
+    h.run();
+    h.run();
+    assert!(!copy.exists(), "the library's copy goes");
+    assert!(outside.is_file(), "the file imported from stays");
 }

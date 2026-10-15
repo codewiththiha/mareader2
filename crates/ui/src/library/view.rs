@@ -3,8 +3,9 @@
 use egui::epaint::Shadow;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
-    Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, Id, LayerId, Order, Painter,
-    Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, pos2, vec2,
+    Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, Id, Key, KeyboardShortcut,
+    LayerId, Modifiers, Order, Painter, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, pos2,
+    vec2,
 };
 use std::collections::BTreeSet;
 
@@ -15,8 +16,9 @@ use mareader_library::{
 
 use super::covers::{self, Cover, Covers};
 use super::folders::{self, Shown};
+use super::menus;
 use super::shelving::{self, Carry, ShelfAction};
-use super::{Action, LibraryState, Scope};
+use super::{Action, BookAction, LibraryState, Pick, PickAction, Picks, Scope};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::motion;
@@ -25,6 +27,8 @@ use crate::theme::{self, Tokens};
 const ROW_H: f32 = 60.0;
 /// How far a list row's content sits in from its edges.
 const ROW_INSET: f32 = 12.0;
+/// Keeps the rings of picked rows apart.
+const ROW_GAP: egui::Vec2 = egui::vec2(0.0, 2.0);
 /// The list reads best narrow; the grid takes the window.
 const LIST_WIDTH: f32 = 880.0;
 const GRID_WIDTH: f32 = 1_600.0;
@@ -48,6 +52,15 @@ enum Item<'a> {
     Book(&'a Book),
 }
 
+impl Item<'_> {
+    fn pick(self) -> Pick {
+        match self {
+            Self::Shelf(s) => Pick::Shelf(s.id),
+            Self::Book(b) => Pick::Book(b.id),
+        }
+    }
+}
+
 /// The page over `ui`'s whole rect; `top` clears the title bar.
 pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out: &mut Commands) {
     library.settle();
@@ -57,6 +70,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let loading = library.loading();
     let offline = library.offline().clone();
     let (scope, scanning, at) = (library.scope, library.scanning(), library.at());
+    let picks = library.picks().clone();
     let (model, covers) = library.parts();
     let shown = Shown {
         model,
@@ -103,7 +117,23 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let items: Vec<Item<'_>> = (shelves.iter().map(|&s| Item::Shelf(s)))
         .chain(books.iter().map(|&b| Item::Book(b)))
         .collect();
+    let sequence: Vec<Pick> = items.iter().map(|i| i.pick()).collect();
     carried(&ui, model, &t);
+    // Empty space: a click lets go of the selection; a right-click offers more.
+    let back = ui.available_rect_before_wrap();
+    let back = ui.interact(back, Id::new("library-page"), Sense::click());
+    if back.clicked() && !picks.is_empty() {
+        out.push(Command::Library(Action::Pick(PickAction::Clear)));
+    }
+    back.context_menu(|ui| menus::page_menu(ui, &sequence, out));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
+    if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {
+        out.push(Command::Library(Action::Pick(PickAction::Only(
+            sequence.clone(),
+        ))));
+    }
+    let hovering = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
     if items.is_empty() {
         let note = match (scope, at) {
             (Scope::Missing, _) => "Nothing is missing.",
@@ -112,6 +142,11 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
             _ => "No books here yet.",
         };
         ui.label(egui::RichText::new(note).color(t.muted));
+        if hovering {
+            let onto = menus::shelf_name(model, at);
+            menus::file_hint(&ui, body, onto.as_deref(), &t);
+        }
+        library.file_target = None;
         return;
     }
     // A shelf in its own order takes drops between its books.
@@ -131,6 +166,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         order,
         books: &books,
         shelves: shelves.len(),
+        picks: &picks,
+        sequence: &sequence,
+        files: hovering.then_some(None),
         t: &t,
         out,
     };
@@ -145,6 +183,13 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         ),
         Layout::List => list(&mut ui, &items, &mut cx),
     }
+    menus::selection_bar(&mut ui, body, &picks, at, &t, cx.out);
+    let target = cx.files.flatten();
+    if hovering {
+        let onto = menus::shelf_name(model, target.or(at));
+        menus::file_hint(&ui, body, onto.as_deref(), &t);
+    }
+    library.file_target = target;
 }
 
 /// A shelf shown in its own order, which drops can change.
@@ -167,6 +212,11 @@ struct Cx<'a> {
     /// The books in the order shown, after `shelves` shelf cards.
     books: &'a [&'a Book],
     shelves: usize,
+    picks: &'a Picks,
+    /// Every card in the order shown, for Shift-click ranges.
+    sequence: &'a [Pick],
+    /// While files from outside hover: the shelf under them, if any.
+    files: Option<Option<ShelfId>>,
     t: &'a Tokens,
     out: &'a mut Commands,
 }
@@ -223,10 +273,14 @@ fn header(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(inset);
             // Adding books is the shelf's own; the bar keeps the View menu.
+            if shelf.is_none() && header_button(ui, Icon::Open, "Open…", t).clicked() {
+                out.push(Command::ShowOpenDialog { beside: false });
+            }
+            // Copies kept by the library, onto the shelf shown.
+            if header_button(ui, Icon::Import, "Import…", t).clicked() {
+                out.push(Command::Library(Action::Book(BookAction::PickImport)));
+            }
             if shelf.is_none() {
-                if header_button(ui, Icon::Open, "Open…", t).clicked() {
-                    out.push(Command::ShowOpenDialog { beside: false });
-                }
                 folders::button(ui, shown, t, out);
             }
             if header_button(ui, Icon::Plus, "New shelf", t).clicked() {
@@ -255,6 +309,7 @@ fn grid(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {
     egui::ScrollArea::vertical()
         .id_salt("library-grid")
         .auto_shrink(false)
+        .content_margin(margin(cx))
         .show_rows(ui, height + GAP, rows, |ui, range| {
             for row in range.clone() {
                 let (line, _) = ui.allocate_exact_size(vec2(width, height + GAP), Sense::hover());
@@ -275,10 +330,21 @@ fn grid(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {
         });
 }
 
+/// Room for the cards' rings above, and for the selection bar below.
+fn margin(cx: &Cx<'_>) -> egui::Margin {
+    let foot = if cx.picks.is_empty() { 8 } else { 76 };
+    egui::Margin {
+        top: 8,
+        bottom: foot,
+        ..egui::Margin::ZERO
+    }
+}
+
 fn list(ui: &mut Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
     egui::ScrollArea::vertical()
         .id_salt("library-list")
         .auto_shrink(false)
+        .content_margin(margin(cx))
         .show_rows(ui, ROW_H, items.len(), |ui, range| {
             for at in range.clone() {
                 match items.get(at) {
@@ -309,13 +375,54 @@ fn prefetch(covers: &mut Covers, items: &[Item<'_>], rows: std::ops::Range<usize
 fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response {
     let resp = ui.interact(rect, ui.id().with(book.id), Sense::click_and_drag());
     let title = book.title.value.as_str();
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
-    if resp.clicked() {
+    let picked = cx.picks.contains(Pick::Book(book.id));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, title));
+    if resp.clicked() && !picking(ui, Pick::Book(book.id), cx) {
         cx.out.push(Command::OpenBook(book.id));
     }
-    let from = cx.at;
-    resp.dnd_set_drag_payload(Carry::Book { id: book.id, from });
+    if resp.drag_started() {
+        let from = cx.at;
+        resp.dnd_set_drag_payload(carry(Pick::Book(book.id), from, cx));
+    }
+    resp.context_menu(|ui| match picked {
+        true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
+        false => menus::book_menu(ui, book, cx.at, cx.t, cx.out),
+    });
     resp
+}
+
+/// Picks on a click if asked or already picking; false to open instead.
+fn picking(ui: &Ui, pick: Pick, cx: &mut Cx<'_>) -> bool {
+    let m = ui.input(|i| i.modifiers);
+    let action = match () {
+        _ if m.shift && cx.picks.has_anchor() => PickAction::Add(cx.picks.range(cx.sequence, pick)),
+        _ if m.command || m.shift || !cx.picks.is_empty() => PickAction::Toggle(pick),
+        _ => return false,
+    };
+    cx.out.push(Command::Library(Action::Pick(action)));
+    true
+}
+
+/// What dragging `pick` carries: the whole selection, if it's in it.
+fn carry(pick: Pick, from: Option<ShelfId>, cx: &Cx<'_>) -> Carry {
+    let many = cx.picks.len() > 1 && cx.picks.contains(pick);
+    match pick {
+        _ if many => {
+            // In the order shown, for drops between books.
+            let picked = cx.sequence.iter().filter(|p| cx.picks.contains(**p));
+            let books = picked.filter_map(|p| match p {
+                Pick::Book(id) => Some(*id),
+                Pick::Shelf(_) => None,
+            });
+            Carry::Many {
+                books: books.collect(),
+                shelves: cx.picks.shelves(),
+                from,
+            }
+        }
+        Pick::Book(id) => Carry::Book { id, from },
+        Pick::Shelf(id) => Carry::Shelf(id),
+    }
 }
 
 /// On a shelf in its own order, a book dropped beside this one moves there.
@@ -323,16 +430,13 @@ fn reorder_drop(ui: &Ui, resp: &egui::Response, at: usize, across: bool, cx: &mu
     let Some(order) = cx.order else {
         return;
     };
-    let carried = resp.dnd_hover_payload::<Carry>().map(|c| *c);
-    let Some(Carry::Book { id, from }) = carried else {
+    let carried = resp.dnd_hover_payload::<Carry>();
+    let Some(moving) = carried.and_then(|c| c.books_from(order.shelf)) else {
         return;
     };
     let Some(pointer) = ui.ctx().pointer_interact_pos() else {
         return;
     };
-    if from != Some(order.shelf) {
-        return;
-    }
     let rect = resp.rect;
     let after = match across {
         true => pointer.x > rect.center().x,
@@ -341,11 +445,12 @@ fn reorder_drop(ui: &Ui, resp: &egui::Response, at: usize, across: bool, cx: &mu
     let shown = at.saturating_sub(cx.shelves);
     let gap = shown + usize::from(after);
     // Shown last to first, the gap's key order is mirrored.
-    let before = match order.ascending {
-        true => cx.books.get(gap),
-        false => gap.checked_sub(1).and_then(|i| cx.books.get(i)),
+    let after_gap: Vec<BookId> = match order.ascending {
+        true => cx.books.iter().skip(gap).map(|b| b.id).collect(),
+        false => cx.books.iter().take(gap).rev().map(|b| b.id).collect(),
     };
-    let before: Option<BookId> = before.map(|b| b.id);
+    // The first book after the gap that isn't itself moving.
+    let before = after_gap.into_iter().find(|b| !moving.contains(b));
     let bar = match (across, after) {
         (true, false) => Rect::from_center_size(
             rect.left_center() - vec2(GAP / 2.0, 0.0),
@@ -362,7 +467,7 @@ fn reorder_drop(ui: &Ui, resp: &egui::Response, at: usize, across: bool, cx: &mu
     if resp.dnd_release_payload::<Carry>().is_some() {
         let shelf = order.shelf;
         let action = ShelfAction::Reorder {
-            book: id,
+            books: moving,
             shelf,
             before,
         };
@@ -372,7 +477,7 @@ fn reorder_drop(ui: &Ui, resp: &egui::Response, at: usize, across: bool, cx: &mu
 
 /// What's carried, beside the pointer; Alt adds a copy instead.
 fn carried(ui: &Ui, model: &Library, t: &Tokens) {
-    let Some(carry) = DragAndDrop::payload::<Carry>(ui.ctx()).map(|c| *c) else {
+    let Some(carry) = DragAndDrop::payload::<Carry>(ui.ctx()) else {
         return;
     };
     let ctx = ui.ctx();
@@ -382,7 +487,7 @@ fn carried(ui: &Ui, model: &Library, t: &Tokens) {
     };
     let keep = ctx.input(|i| i.modifiers.alt);
     let mut label = carry.label(model);
-    if keep && matches!(carry, Carry::Book { from: Some(_), .. }) {
+    if keep && carry.off_shelf() {
         label = format!("+ {label}");
     }
     let p = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("library-carried")));
@@ -412,32 +517,55 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
     let id = shelf.id;
     let resp = ui.interact(rect, ui.id().with(("shelf", id)), Sense::click_and_drag());
     let name = shelf.name.value.clone();
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
-    let act = |a: ShelfAction| Command::Library(Action::Shelf(a));
-    if resp.clicked() {
-        cx.out.push(act(ShelfAction::GoTo(Some(id))));
+    let picked = cx.picks.contains(Pick::Shelf(id));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &name));
+    if resp.clicked() && !picking(ui, Pick::Shelf(id), cx) {
+        let go = ShelfAction::GoTo(Some(id));
+        cx.out.push(Command::Library(Action::Shelf(go)));
     }
-    resp.dnd_set_drag_payload(Carry::Shelf(id));
+    if resp.drag_started() {
+        resp.dnd_set_drag_payload(carry(Pick::Shelf(id), cx.at, cx));
+    }
     let keep = ui.input(|i| i.modifiers.alt);
     let hovered = resp.dnd_hover_payload::<Carry>();
-    let target = hovered.is_some_and(|c| c.onto(Some(id), keep).is_some());
+    let mut target = hovered.is_some_and(|c| c.onto(Some(id), keep).is_some());
     if let Some(carry) = resp.dnd_release_payload::<Carry>() {
         let action = carry.onto(Some(id), keep).map(Command::Library);
         cx.out.extend(action);
     }
-    resp.context_menu(|ui| {
-        if ui.button("Open").clicked() {
-            cx.out.push(act(ShelfAction::GoTo(Some(id))));
-        }
-        if ui.button("Rename…").clicked() {
-            cx.out.push(act(ShelfAction::GoTo(Some(id))));
-            cx.out.push(act(ShelfAction::StartRename(id)));
-        }
-        if ui.button("Remove shelf…").clicked() {
-            cx.out.push(act(ShelfAction::AskRemove(id)));
-        }
+    // Files from outside, held over it, go onto it.
+    let pointer = ui.ctx().pointer_latest_pos();
+    if let Some(files) = &mut cx.files
+        && pointer.is_some_and(|p| rect.contains(p) && ui.clip_rect().contains(p))
+    {
+        *files = Some(id);
+        target = true;
+    }
+    resp.context_menu(|ui| match picked {
+        true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
+        false => menus::shelf_menu(ui, shelf, cx.t, cx.out),
     });
     (resp, target)
+}
+
+/// A card's ground: hovered, picked, or a drop target ringed.
+fn backing(
+    ui: &Ui,
+    rect: Rect,
+    radius: f32,
+    (hovered, picked, target): (bool, bool, bool),
+    t: &Tokens,
+) {
+    let p = ui.painter();
+    if picked {
+        p.rect_filled(rect, radius, t.accent.gamma_multiply(0.14));
+    } else if hovered || target {
+        p.rect_filled(rect, radius, t.hover);
+    }
+    if picked || target {
+        let ring = Stroke::new(2.0, t.accent);
+        p.rect_stroke(rect, radius, ring, StrokeKind::Inside);
+    }
 }
 
 /// "4 books · 1 shelf", or "Empty".
@@ -460,16 +588,13 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
     let (resp, target) = shelf_hit(ui, rect, shelf, cx);
     let t = cx.t;
     let pad = rect.expand2(vec2(8.0, 8.0));
-    if resp.hovered() || target {
-        ui.painter().rect_filled(pad, t.radius_lg, t.hover);
-    }
-    if target {
-        let ring = Stroke::new(2.0, t.accent);
-        ui.painter()
-            .rect_stroke(pad, t.radius_lg, ring, StrokeKind::Inside);
-    }
+    let picked = cx.picks.contains(Pick::Shelf(shelf.id));
+    backing(ui, pad, t.radius_lg, (resp.hovered(), picked, target), t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     plate(ui, bounds, shelf.id, cx);
+    if !cx.picks.is_empty() {
+        menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
+    }
     let p = ui.painter();
     let width = rect.width();
     let mut y = bounds.bottom() + 8.0;
@@ -529,20 +654,25 @@ fn shelf_row(ui: &mut Ui, shelf: &Shelf, cx: &mut Cx<'_>) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
     let (resp, target) = shelf_hit(ui, rect, shelf, cx);
     let t = cx.t;
-    if resp.hovered() || target {
-        ui.painter().rect_filled(rect, t.radius, t.hover);
-    }
-    if target {
-        let ring = Stroke::new(2.0, t.accent);
-        ui.painter()
-            .rect_stroke(rect, t.radius, ring, StrokeKind::Inside);
-    }
+    let picked = cx.picks.contains(Pick::Shelf(shelf.id));
+    backing(
+        ui,
+        rect.shrink2(ROW_GAP),
+        t.radius,
+        (resp.hovered(), picked, target),
+        t,
+    );
     let thumb = Rect::from_center_size(
         pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
     );
-    let icon = Rect::from_center_size(thumb.center(), vec2(24.0, 24.0));
-    Icon::Shelf.paint(ui, icon, t.muted);
+    // While picking, the mark takes the icon's place.
+    if cx.picks.is_empty() {
+        let icon = Rect::from_center_size(thumb.center(), vec2(24.0, 24.0));
+        Icon::Shelf.paint(ui, icon, t.muted);
+    } else {
+        menus::mark(ui, thumb.center(), picked, t);
+    }
     let p = ui.painter();
     let x = thumb.right() + 14.0;
     let wide = (rect.right() - ROW_INSET - x - 24.0).max(40.0);
@@ -578,12 +708,14 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, at: usize, cx: &mut Cx<'_>) {
     let missing = book.missing();
     let offline = folders::offline(book, cx.offline);
     let fade = if missing { 0.5 } else { 1.0 };
-    if resp.hovered() {
-        let pad = rect.expand2(vec2(8.0, 8.0));
-        ui.painter().rect_filled(pad, t.radius_lg, t.hover);
-    }
+    let picked = cx.picks.contains(Pick::Book(book.id));
+    let pad = rect.expand2(vec2(8.0, 8.0));
+    backing(ui, pad, t.radius_lg, (resp.hovered(), picked, false), t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     cover(ui, bounds, book, cx, fade, false);
+    if !cx.picks.is_empty() {
+        menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
+    }
     let p = ui.painter();
     if missing {
         let tag = if offline { "Offline" } else { "Missing" };
@@ -631,14 +763,22 @@ fn list_row(ui: &mut Ui, book: &Book, at: usize, cx: &mut Cx<'_>) {
     let t = cx.t;
     let missing = book.missing();
     let fade = if missing { 0.5 } else { 1.0 };
-    if resp.hovered() {
-        ui.painter().rect_filled(rect, t.radius, t.hover);
-    }
+    let picked = cx.picks.contains(Pick::Book(book.id));
+    backing(
+        ui,
+        rect.shrink2(ROW_GAP),
+        t.radius,
+        (resp.hovered(), picked, false),
+        t,
+    );
     let thumb = Rect::from_center_size(
         pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
     );
     cover(ui, thumb, book, cx, fade, true);
+    if !cx.picks.is_empty() {
+        menus::mark(ui, thumb.center(), picked, t);
+    }
     let p = ui.painter();
     // Books found in a folder may never have been opened.
     let when = match book.opened.value {
