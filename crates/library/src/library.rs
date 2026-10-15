@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
@@ -53,6 +54,14 @@ pub struct Library {
     /// Each location's path to its book; rebuilt, never saved.
     pub(crate) at: HashMap<PathBuf, BookId>,
     pub(crate) dirty: Dirty,
+    /// Changes whenever a book, shelf or folder does; never repeats.
+    revision: u64,
+}
+
+/// Unique across libraries, so a loaded one never reuses a revision.
+fn next_revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Library {
@@ -77,6 +86,7 @@ impl Library {
             members: BTreeMap::new(),
             at: HashMap::new(),
             dirty: Dirty::default(),
+            revision: next_revision(),
         };
         library.index();
         library
@@ -175,7 +185,7 @@ impl Library {
         if let Some(book) = reader.and_then(|t| self.books.get_mut(&t)) {
             book.opened = Field::new(wall_ms, at);
         }
-        self.dirty.library = true;
+        self.touch();
         id
     }
 
@@ -281,6 +291,7 @@ impl Library {
                 location.present = exists(&location.path);
             }
         }
+        self.bump();
     }
 
     /// Looks again for one book's files, and its twins'.
@@ -294,6 +305,23 @@ impl Library {
             }
         }
         self.mirror(original);
+        self.bump();
+    }
+
+    /// Changes whenever books, shelves or folders do, not positions.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// A change `library.json` must keep, seen by [`Self::revision`].
+    pub(crate) fn touch(&mut self) {
+        self.dirty.library = true;
+        self.bump();
+    }
+
+    /// A change worth showing that `library.json` needn't keep.
+    pub(crate) fn bump(&mut self) {
+        self.revision = next_revision();
     }
 
     /// What changed since the last call, now to be written.

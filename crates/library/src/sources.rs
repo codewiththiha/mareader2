@@ -190,7 +190,7 @@ impl Library {
             location.origin = Origin::Source(id);
         }
         self.sources.insert(id, source);
-        self.dirty.library = true;
+        self.touch();
         Ok(Added { id, absorbed })
     }
 
@@ -215,7 +215,7 @@ impl Library {
         source.formats = edit.formats;
         source.min_size = edit.min_size;
         source.watch = edit.watch;
-        self.dirty.library = true;
+        self.touch();
         true
     }
 
@@ -239,7 +239,7 @@ impl Library {
             }
         }
         self.index();
-        self.dirty.library = true;
+        self.touch();
         left
     }
 
@@ -309,17 +309,19 @@ impl Library {
             by_content.insert(content, id);
             if !self.has_location(id, &found.path, stamp, origin) {
                 self.place(id, &found.path, stamp, origin);
-                self.dirty.library = true;
+                self.touch();
             }
         }
         // Brought back in place: the paths index them again.
         if !report.back.is_empty() {
             self.index();
-            self.dirty.library = true;
+            self.touch();
         }
         if self.dirty.library {
             self.mirror_all();
         }
+        // Presence and content may change without a write.
+        self.bump();
         report
     }
 
@@ -388,7 +390,7 @@ impl Library {
         }
         self.place(id, path, measure.stamp, origin);
         self.mirror(id);
-        self.dirty.library = true;
+        self.touch();
         Ok(())
     }
 

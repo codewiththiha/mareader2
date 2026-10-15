@@ -118,7 +118,7 @@ impl Library {
         }
         self.promote_twins(&removing);
         self.index();
-        self.dirty.library = true;
+        self.touch();
         done
     }
 
@@ -174,7 +174,7 @@ impl Library {
             self.mirror(original);
         }
         self.index();
-        self.dirty.library = true;
+        self.touch();
         true
     }
 
@@ -204,7 +204,7 @@ impl Library {
             let before = next.map(|b| b.id);
             self.place_before(twin, shelf, before, wall_ms);
         }
-        self.dirty.library = true;
+        self.touch();
         Some(twin)
     }
 
@@ -245,7 +245,7 @@ impl Library {
         if let Some(book) = self.books.get_mut(&id) {
             book.title = Field::new(title, at);
         }
-        self.dirty.library = true;
+        self.touch();
         true
     }
 
@@ -261,7 +261,7 @@ impl Library {
         self.place(id, &copy.path, copy.measure.stamp, Origin::Store);
         self.mirror(id);
         self.index();
-        self.dirty.library = true;
+        self.touch();
         Imported::New(id)
     }
 
