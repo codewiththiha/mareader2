@@ -10,8 +10,8 @@ use egui::{
 use std::collections::BTreeSet;
 
 use mareader_library::{
-    Book, COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, Library, Shelf, ShelfId, SortKey,
-    SourceId, View,
+    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, Library, Shelf, ShelfId,
+    SortKey, SourceId, View,
 };
 
 use super::add::{self, Here};
@@ -188,6 +188,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         sequence,
         motion,
         filing: None,
+        stacking: None,
         files: hovering.then_some(None),
         lit,
         scroll_to: lit
@@ -248,6 +249,8 @@ struct Cx<'a> {
     motion: &'a mut Motion,
     /// While a card is carried in the grid: the shelf it would file onto.
     filing: Option<ShelfId>,
+    /// The book a rest made ready to become a shelf with what's carried.
+    stacking: Option<BookId>,
     /// While files from outside hover: the shelf under them, if any.
     files: Option<Option<ShelfId>>,
     /// The card a search chose, ringed for a while.
@@ -693,7 +696,15 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     backing(ui, pad, t.radius_lg, (resp.hovered(), picked, false), t);
     lit_ring(ui, pad, t.radius_lg, Pick::Book(book.id), cx);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
-    cover(ui, bounds, book, cx, fade, false);
+    let stack = stacked(ui, bounds, book.id, cx);
+    cover(
+        ui,
+        bounds.shrink(bounds.width() * 0.12 * stack),
+        book,
+        cx,
+        fade,
+        false,
+    );
     if !cx.picks.is_empty() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
     }
@@ -735,6 +746,28 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         let read = Rect::from_min_size(track.min, vec2(width * done, 3.0));
         p.rect_filled(read, 1.5, faded(t.accent, fade));
     }
+}
+
+/// A book ready to stack sinks into a plate; returns how far, 0 to 1.
+fn stacked(ui: &Ui, bounds: Rect, id: BookId, cx: &Cx<'_>) -> f32 {
+    if cx.motion.lift.is_none() {
+        return 0.0;
+    }
+    let on = cx.stacking == Some(id);
+    let k = ui
+        .ctx()
+        .animate_bool_with_time(ui.id().with(("stack", id)), on, 0.12);
+    if k > 0.0 {
+        let t = cx.t;
+        let plate = bounds.expand(bounds.width() * 0.04 * k);
+        let radius = t.radius.min(6.0) + 2.0;
+        ui.painter()
+            .rect_filled(plate, radius, t.hover.gamma_multiply(k));
+        let ring = Stroke::new(2.0, t.accent.gamma_multiply(k));
+        ui.painter()
+            .rect_stroke(plate, radius, ring, StrokeKind::Inside);
+    }
+    k
 }
 
 fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {

@@ -5,9 +5,10 @@ use egui::{
     Color32, CornerRadius, CursorIcon, DragAndDrop, Id, LayerId, Order, Pos2, Rect, Sense, Ui,
     Vec2, vec2,
 };
+use mareader_library::BookId;
 
 use super::super::add::Here;
-use super::super::living::Slot;
+use super::super::living::{Aim, Rested, Slot};
 use super::super::shelving::{Carry, ShelfAction};
 use super::super::{Action, Pick};
 use super::{A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, plate, prefetch};
@@ -23,10 +24,10 @@ pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>
     let card = ((width - GAP * (cols - 1) as f32) / cols as f32).max(1.0);
     let height = card * A4 + CARD_TEXT;
     let pitch = vec2(card + GAP, height + GAP);
-    let slots = items.len() + usize::from(cx.adding.is_some());
-    let rows = slots.div_ceil(cols);
     let dt = ui.input(|i| i.stable_dt).min(0.1);
-    cx.motion.begin((cols, card), dt, motion::enabled(ui.ctx()));
+    // Another level is another page: its cards start in place.
+    let shape = (cols, card, cx.at);
+    cx.motion.begin(shape, dt, motion::enabled(ui.ctx()));
     follow_carry(ui, items, cx);
     // The rest: the cards not lifted, as indexes into `items`.
     let rest: Vec<usize> = match &cx.motion.lift {
@@ -36,6 +37,13 @@ pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>
             .collect(),
         None => Vec::new(),
     };
+    // Cards brought from elsewhere add their hole to the grid.
+    let cards = match &cx.motion.lift {
+        Some(lift) => rest.len() + lift.hole.size,
+        None => items.len(),
+    };
+    let slots = cards + usize::from(cx.adding.is_some());
+    let rows = slots.div_ceil(cols);
     let mut area = egui::ScrollArea::vertical()
         .id_salt("library-grid")
         .auto_shrink(false)
@@ -55,9 +63,11 @@ pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>
             cols,
             pitch,
             card: vec2(card, height),
+            rows,
         };
-        if cx.motion.lift.is_some() {
-            carry_over(ui, &fill, cx);
+        let carry = DragAndDrop::payload::<Carry>(ui.ctx());
+        if let Some(carry) = carry.filter(|_| cx.motion.lift.is_some()) {
+            carry_over(ui, &fill, &carry, cx);
         }
         for slot in range.start * cols..(range.end * cols).min(slots) {
             let target = vec2(
@@ -107,6 +117,7 @@ struct Fill<'a, 'b> {
     cols: usize,
     pitch: Vec2,
     card: Vec2,
+    rows: usize,
 }
 
 impl<'a> Fill<'a, '_> {
@@ -130,7 +141,7 @@ impl<'a> Fill<'a, '_> {
     }
 }
 
-/// Starts or ends following a carry from this level.
+/// Starts or ends following a carry over this level.
 fn follow_carry(ui: &Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
     let carry = DragAndDrop::payload::<Carry>(ui.ctx());
     let level = cx.arranging.map(|a| a.level);
@@ -141,72 +152,130 @@ fn follow_carry(ui: &Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
             }
             cx.motion.grab = None;
         }
-        (Some(carry), Some(level)) if cx.motion.lift.is_none() => {
-            if let Some(moving) = carry.items_at(level, cx.model) {
+        // Searching or sorted elsewhere: the label carries it.
+        (Some(_), None) => cx.motion.lift = None,
+        (Some(carry), Some(level)) => {
+            // A shelf opened mid-carry gets a lift of its own.
+            let fresh = (cx.motion.lift.as_ref()).is_none_or(|l| l.level != level);
+            if fresh {
+                let native = carry.items_at(level, cx.model);
+                let moving = native.clone().unwrap_or_else(|| carry.picks());
                 let shown: Vec<Pick> = items.iter().map(|i| i.pick()).collect();
-                cx.motion.pick_up(moving, &shown);
+                cx.motion.lift = None;
+                cx.motion.pick_up(moving, &shown, level, native.is_some());
+                if let Some(lift) = cx.motion.lift.as_mut().filter(|l| !l.native()) {
+                    lift.hold = ui.ctx().pointer_latest_pos();
+                }
             }
         }
-        _ => {}
     }
 }
 
-/// Moves the hole under the pointer, files on a shelf's middle, and drops.
-fn carry_over(ui: &Ui, fill: &Fill<'_, '_>, cx: &mut Cx<'_>) {
+/// How far the pointer moves after a shelf opens before it aims again.
+const HOLD: f32 = 8.0;
+
+/// Moves the hole, stacks, files or opens under the pointer, and drops.
+fn carry_over(ui: &Ui, fill: &Fill<'_, '_>, carry: &Carry, cx: &mut Cx<'_>) {
     let Some(pointer) = ui.ctx().pointer_latest_pos() else {
         return;
     };
     let view = ui.clip_rect();
-    scroll_near_edges(ui, view, pointer);
     if !view.contains(pointer) {
         return;
     }
+    // Room to scroll: the first row above the view, the last below it.
+    let origin = cx.motion.origin;
+    let bottom = origin.y + fill.rows as f32 * fill.pitch.y;
+    let room = (origin.y < view.top() - 0.5, bottom > view.bottom() + 0.5);
+    scroll_near_edges(ui, view, pointer, room);
     let p = pointer - cx.motion.origin;
     let (col, row) = ((p.x / fill.pitch.x).floor(), (p.y / fill.pitch.y).floor());
     let inside = vec2(p.x - col * fill.pitch.x, p.y - row * fill.pitch.y);
     let on_card = inside.x <= fill.card.x && inside.y <= fill.card.y;
-    // Where the pointer asks for the hole: beside the card under it.
-    let mut want = None;
-    if let Some(lift) = &cx.motion.lift
+    // Just opened, what's under the pointer waits till it moves.
+    if let Some(lift) = &mut cx.motion.lift
+        && lift.hold.is_some_and(|at| at.distance(pointer) > HOLD)
+    {
+        lift.hold = None;
+    }
+    // What a rest here asks for, and where a drop lands without one.
+    let (mut want, mut halves) = (None, None);
+    if let Some(lift) = cx.motion.lift.as_ref().filter(|l| l.hold.is_none())
         && (0.0..fill.cols as f32).contains(&col)
         && row >= 0.0
+        && on_card
     {
         let slot = row as usize * fill.cols + col as usize;
         let across = inside.x / fill.card.x;
+        let middle = (0.25..=0.75).contains(&across);
         let rest = lift.hole.rest_at(slot);
         let item = rest
             .and_then(|r| fill.rest.get(r))
             .and_then(|&n| fill.items.get(n));
-        match (item, rest) {
-            // A shelf's middle takes the card in; its edges move it.
-            (Some(Item::Shelf(shelf)), _) if on_card && (0.25..=0.75).contains(&across) => {
+        halves = rest
+            .filter(|_| item.is_some())
+            .map(|r| r + usize::from(across > 0.5));
+        want = match item {
+            // A shelf's middle takes the card in, and opens on a rest.
+            Some(Item::Shelf(shelf)) if middle => {
                 cx.filing = Some(shelf.id);
+                Some(Aim::Open(shelf.id))
             }
-            (Some(_), Some(r)) if on_card => want = Some(r + usize::from(across > 0.5)),
-            // Empty space, the plus card included, leaves the hole put.
-            _ => {}
-        }
+            // A book's middle makes a shelf of both, on a rest.
+            Some(Item::Book(book)) if middle && carry.has_books() => Some(Aim::Stack(book.id)),
+            _ => halves.map(Aim::Hole),
+        };
     }
     let now = ui.input(|i| i.time);
-    if let Some(lift) = &mut cx.motion.lift
-        && let Some(left) = lift.hole.aim(want, now)
-    {
-        ui.ctx().request_repaint_after_secs(left as f32);
+    if let Some(lift) = &mut cx.motion.lift {
+        match lift.aim(want, now) {
+            Rested::Wait(left) => ui.ctx().request_repaint_after_secs(left as f32),
+            Rested::Open(shelf) => {
+                let go = ShelfAction::GoTo(Some(shelf));
+                cx.out.push(Command::Library(Action::Shelf(go)));
+            }
+            Rested::Nothing => {}
+        }
+        cx.stacking = lift.stack;
     }
     // Letting go lands where the pointer is, without waiting.
-    if cx.filing.is_none() && ui.input(|i| i.pointer.any_released()) {
-        let at = want.or(cx.motion.lift.as_ref().map(|l| l.hole.at));
-        arrange_at_hole(fill, at, cx);
+    let (released, keep) = ui.input(|i| (i.pointer.any_released(), i.modifiers.alt));
+    if cx.filing.is_none() && released {
+        match cx.stacking {
+            Some(onto) => stack(onto, carry, keep, cx),
+            None => {
+                let at = halves.or(cx.motion.lift.as_ref().map(|l| l.hole.at));
+                land(fill, (at, keep), carry, cx);
+            }
+        }
     }
 }
 
-/// Lets go over the grid: the lifted cards land at rest index `at`.
-fn arrange_at_hole(fill: &Fill<'_, '_>, at: Option<usize>, cx: &mut Cx<'_>) {
+/// Lets go on a book made ready: the two become a shelf.
+fn stack(onto: BookId, carry: &Carry, keep: bool, cx: &mut Cx<'_>) {
+    let Some(arranging) = cx.arranging else {
+        return;
+    };
+    let action = ShelfAction::Stack {
+        onto,
+        carry: carry.clone(),
+        level: arranging.level,
+        keep,
+    };
+    cx.out.push(Command::Library(Action::Shelf(action)));
+}
+
+/// Lands what's carried at rest index `at`, joining this level first.
+fn land(fill: &Fill<'_, '_>, (at, keep): (Option<usize>, bool), carry: &Carry, cx: &mut Cx<'_>) {
     let (Some(lift), Some(arranging), Some(at)) = (&cx.motion.lift, cx.arranging, at) else {
         return;
     };
-    if at == lift.hole.start {
+    if lift.hole.start == Some(at) {
         return;
+    }
+    if !lift.native() {
+        let join = carry.onto(arranging.level, keep);
+        cx.out.extend(join.map(Command::Library));
     }
     let next = fill.rest.get(at).and_then(|&n| fill.items.get(n));
     let action = ShelfAction::Arrange {
@@ -219,13 +288,13 @@ fn arrange_at_hole(fill: &Fill<'_, '_>, at: Option<usize>, cx: &mut Cx<'_>) {
     cx.out.extend(arranging.switch.map(Command::SetLibraryView));
 }
 
-/// Held near the top or bottom, the grid scrolls toward that edge.
-fn scroll_near_edges(ui: &Ui, view: Rect, pointer: Pos2) {
+/// Held near the top or bottom, the grid scrolls that way if it can.
+fn scroll_near_edges(ui: &Ui, view: Rect, pointer: Pos2, (can_up, can_down): (bool, bool)) {
     const BAND: f32 = 32.0;
-    let x_inside = view.x_range().contains(pointer.x);
-    let up = (view.top() + BAND - pointer.y).clamp(0.0, BAND);
-    let down = (pointer.y - (view.bottom() - BAND)).clamp(0.0, BAND);
-    if !x_inside || (up == 0.0 && down == 0.0) {
+    let near = |gap: f32, can: bool| if can { gap.clamp(0.0, BAND) } else { 0.0 };
+    let up = near(view.top() + BAND - pointer.y, can_up);
+    let down = near(pointer.y - (view.bottom() - BAND), can_down);
+    if up == 0.0 && down == 0.0 {
         return;
     }
     let dt = ui.input(|i| i.stable_dt).min(0.1);
