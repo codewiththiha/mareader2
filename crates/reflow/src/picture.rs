@@ -83,8 +83,15 @@ impl Picture {
         self.height as f32 / self.width as f32
     }
 
-    /// Decodes and shrinks to fit `side` pixels; `None` if it won't decode.
-    fn decode(&self, side: u32) -> Option<Pixmap> {
+    /// Straight-alpha RGBA at most `side` on its long edge: width, height,
+    /// pixels.
+    pub fn thumbnail(&self, side: u32) -> Option<(u32, u32, Vec<u8>)> {
+        let rgba = self.rgba(side)?;
+        Some((rgba.width(), rgba.height(), rgba.into_raw()))
+    }
+
+    /// Decodes and shrinks to fit `side`, never enlarging.
+    fn rgba(&self, side: u32) -> Option<image::RgbaImage> {
         let mut reader = ImageReader::new(Cursor::new(&self.data))
             .with_guessed_format()
             .ok()?;
@@ -97,7 +104,12 @@ impl Picture {
         if img.width().max(img.height()) > side {
             img = img.resize(side, side, image::imageops::FilterType::Triangle);
         }
-        let rgba = DynamicImage::into_rgba8(img);
+        Some(DynamicImage::into_rgba8(img))
+    }
+
+    /// Decodes and shrinks to fit `side` pixels; `None` if it won't decode.
+    fn decode(&self, side: u32) -> Option<Pixmap> {
+        let rgba = self.rgba(side)?;
         let (w, h) = (
             u16::try_from(rgba.width()).ok()?,
             u16::try_from(rgba.height()).ok()?,

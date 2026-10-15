@@ -9,6 +9,7 @@
     clippy::indexing_slicing
 )]
 
+mod cover;
 mod document;
 mod key;
 mod pool;
@@ -18,6 +19,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use cover::cover;
 pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
 pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};

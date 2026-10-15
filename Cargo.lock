@@ -2257,6 +2257,7 @@ dependencies = [
  "mareader-pdf",
  "mareader-reflow",
  "mareader-settings",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

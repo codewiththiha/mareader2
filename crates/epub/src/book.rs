@@ -95,6 +95,7 @@ pub struct Book {
     refs: Arc<Refs>,
     toc: Arc<Vec<TocEntry>>,
     title: Option<String>,
+    author: Option<String>,
     /// The `dc:language` tag, for hyphenation.
     language: Option<String>,
 }
@@ -122,6 +123,7 @@ impl Book {
                 refs: Arc::clone(&self.refs),
                 toc: Arc::clone(&self.toc),
                 title: self.title.clone(),
+                author: self.author.clone(),
                 language: self.language.clone(),
             }
         };
@@ -135,6 +137,11 @@ impl Book {
             .title()
             .map(|t| t.value().trim().to_owned())
             .filter(|t| !t.is_empty());
+        let author = epub
+            .metadata()
+            .creators()
+            .map(|c| c.value().trim().to_owned())
+            .find(|c| !c.is_empty());
         let language = epub
             .metadata()
             .language()
@@ -192,6 +199,7 @@ impl Book {
             refs: Arc::new(refs),
             toc: Arc::new(toc),
             title,
+            author,
             language,
         })
     }
@@ -208,6 +216,11 @@ impl Book {
     /// The `dc:title` as written, if any.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    /// The first `dc:creator` that isn't blank.
+    pub fn author(&self) -> Option<&str> {
+        self.author.as_deref()
     }
 
     /// Where page `page` starts, to find again after re-setting.
@@ -264,6 +277,45 @@ impl Book {
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
     }
+}
+
+/// A picture this near the opening counts as the cover.
+const COVER_BLOCKS: usize = 4;
+
+/// The declared cover, else a picture opening the first chapter; sets no type.
+pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
+    let find = || {
+        let epub = guard::open(bytes).ok()?;
+        let mut shelf = Shelf {
+            epub: &epub,
+            pictures: HashMap::new(),
+            sheets: HashMap::new(),
+            budget: MAX_PICTURE_BYTES,
+        };
+        let declared = epub.manifest().cover_image().map(|e| e.href().decode());
+        if let Some(picture) = declared.and_then(|path| shelf.picture(&path)) {
+            return Some(picture);
+        }
+        let (mut blocks, mut refs) = (Vec::new(), Refs::default());
+        for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
+            let Some(content) = chapter_text(&entry).filter(|c| c.len() <= MAX_MARKUP) else {
+                continue;
+            };
+            let path = entry.href().decode();
+            xhtml::read_chapter(&content, &path, &mut shelf, (&mut blocks, &mut refs));
+            if !blocks.is_empty() {
+                break;
+            }
+        }
+        blocks
+            .iter()
+            .take(COVER_BLOCKS)
+            .find_map(|b| match &b.content {
+                Content::Image { picture, .. } => Some(Arc::clone(picture)),
+                _ => None,
+            })
+    };
+    catch_unwind(AssertUnwindSafe(find)).ok().flatten()
 }
 
 /// A chapter's markup; stray bytes that aren't UTF-8 become U+FFFD.
