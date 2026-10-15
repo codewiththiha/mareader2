@@ -3,7 +3,7 @@
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::{Appearance, Preset};
-use mareader_library::View;
+use mareader_library::{ShelfId, View};
 use mareader_workspace::SplitAxis;
 
 use crate::backdrop::Backdrop;
@@ -13,6 +13,7 @@ use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
 use crate::library::menu as library_menu;
+use crate::library::{Crumb, crumbs};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
@@ -79,6 +80,9 @@ pub struct LibraryBar<'a> {
     pub auto_columns: u8,
     /// Panes wait behind the page; the pressed Library button returns.
     pub can_return: bool,
+    /// The way up from the open shelf; empty at the top level.
+    pub trail: Vec<Crumb>,
+    pub renaming: Option<ShelfId>,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -287,12 +291,14 @@ fn leading(ui: &mut egui::Ui, page: &BarPage<'_>) -> (f32, Commands) {
             let r = widgets::icon_button(ui, Icon::Library, "Library", false);
             out.extend(clicked(r, Command::ShowLibrary));
         }
-        // Pressed, it undoes itself; with nothing open there is no way back.
-        BarPage::Library(library) if library.can_return => {
-            let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
-            out.extend(clicked(r, Command::ShowLibrary));
+        BarPage::Library(library) => {
+            // Pressed, it undoes itself; with nothing open there's no way back.
+            if library.can_return {
+                let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
+                out.extend(clicked(r, Command::ShowLibrary));
+            }
+            crumbs::show(ui, &library.trail, library.renaming, &mut out);
         }
-        BarPage::Library(_) => {}
     }
     (ui.min_rect().right(), out)
 }

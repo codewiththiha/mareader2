@@ -1,8 +1,9 @@
 //! The library's View menu: layout, columns, covers and order.
 
 use egui::{Id, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
-use mareader_library::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Layout, SortKey, View};
+use mareader_library::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View};
 
+use super::{Action, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -25,6 +26,11 @@ pub fn button(ui: &mut Ui, view: &View, auto: u8, out: &mut Commands) {
         .show(|ui| {
             // Every change shows at once; the menu stays open to chain them.
             let mut next = *view;
+            if widgets::menu_row(ui, Icon::Plus, "New shelf", None, false).clicked() {
+                out.push(Command::Library(Action::Shelf(ShelfAction::New)));
+                ui.close();
+            }
+            ui.separator();
             contents(ui, &mut next, auto);
             if next != *view {
                 out.push(Command::SetLibraryView(next));
@@ -72,6 +78,21 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
             let button = egui::Button::selectable(view.ascending == ascending, label);
             if ui.add_sized([(WIDTH - 16.0) / 2.0, 28.0], button).clicked() {
                 view.ascending = ascending;
+            }
+        }
+    });
+    ui.separator();
+    // Shelved books can stay on the top level too, or only on shelves.
+    heading(ui, "Library shows");
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        for (home, label) in [
+            (Home::Everything, "All books"),
+            (Home::Unshelved, "Unshelved"),
+        ] {
+            let button = egui::Button::selectable(view.home == home, label);
+            if ui.add_sized([(WIDTH - 16.0) / 2.0, 28.0], button).clicked() {
+                view.home = home;
             }
         }
     });
