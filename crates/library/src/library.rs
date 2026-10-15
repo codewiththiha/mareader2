@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
-use crate::id::{BookId, ContentId, DeviceId, SourceId};
+use crate::id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
+use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 
 /// What a measured file is: its content and its size and time.
@@ -47,6 +48,8 @@ pub struct Library {
     pub(crate) books: BTreeMap<BookId, Book>,
     pub(crate) states: BTreeMap<BookId, State>,
     pub(crate) sources: BTreeMap<SourceId, Source>,
+    pub(crate) shelves: BTreeMap<ShelfId, Shelf>,
+    pub(crate) members: BTreeMap<(ShelfId, BookId), Membership>,
     /// Each location's path to its book; rebuilt, never saved.
     pub(crate) at: HashMap<PathBuf, BookId>,
     pub(crate) dirty: Dirty,
@@ -70,6 +73,8 @@ impl Library {
             books,
             states,
             sources,
+            shelves: BTreeMap::new(),
+            members: BTreeMap::new(),
             at: HashMap::new(),
             dirty: Dirty::default(),
         };
