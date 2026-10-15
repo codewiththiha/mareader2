@@ -111,14 +111,15 @@ fn pane(
     }
     let fill = style.map_or(window.paper, |s| s.fill);
     ui.painter().rect_filled(rect, radius, fill);
-    let focus = ui.interact(rect, ui.id().with("focus"), Sense::click());
-    if focus.clicked() && id != view.active {
-        out.push(Command::FocusPane(id));
-    }
     let mut inner = ui.new_child(UiBuilder::new().max_rect(rect));
     inner.set_clip_rect(rect);
     if !content(&mut inner, id) {
         empty_state(ui, rect, &t, out);
+    }
+    // Any press focuses the pane, even one its page widgets take.
+    let pressed = ui.input(|i| i.pointer.any_pressed());
+    if pressed && id != view.active && ui.rect_contains_pointer(rect) {
+        out.push(Command::FocusPane(id));
     }
     if view.drop_target == Some(id) {
         let stroke = Stroke::new(2.0, window.accent);
