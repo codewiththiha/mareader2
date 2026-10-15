@@ -309,3 +309,74 @@ fn resting_on_a_crumb_goes_up_to_drop_there_in_place() {
     );
     assert_eq!(top(&h)[..2], [book, order[0]]);
 }
+
+/// Presses on `at` and holds still for `seconds`.
+fn press_hold(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2, seconds: f32) {
+    h.hover_at(at);
+    h.run();
+    h.drag_at(at);
+    h.run();
+    rest(h, seconds);
+}
+
+#[test]
+fn a_long_press_picks_a_card_and_its_release_is_no_click() {
+    let mut h = reader(&[("books", "3")]);
+    let order = top(&h);
+    let at = on(&h, order[1], 0.5);
+    press_hold(&mut h, at, 0.6);
+    release(&mut h, at);
+    let picks = h.state().library_state().picks().clone();
+    assert!(picks.contains(order[1]) && picks.len() == 1, "{picks:?}");
+    // Picking now, a plain click adds another.
+    h.get_by_label(&label(&h, order[2])).click();
+    h.run();
+    assert_eq!(h.state().library_state().picks().len(), 2);
+}
+
+#[test]
+fn holding_on_lifts_the_whole_selection_to_drop_together() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let id = shelf_of(&mut h, "Poetry", &[]);
+    let a = on(&h, order[0], 0.5);
+    press_hold(&mut h, a, 0.6);
+    release(&mut h, a);
+    h.get_by_label(&label(&h, order[2])).click();
+    h.run();
+    // Held past a click's length, the press lifts both.
+    press_hold(&mut h, a, 1.0);
+    let lifted =
+        |h: &Harness<'static, MareaderApp>, item| h.query_by_label(&label(h, item)).is_none();
+    assert!(lifted(&h, order[0]) && lifted(&h, order[2]), "both lifted");
+    assert!(!lifted(&h, order[1]));
+    let to = on(&h, Item::Shelf(id), 0.5);
+    rest_at(&mut h, to, 0.1);
+    release(&mut h, to);
+    let mut filed = inside(&h, id);
+    filed.sort();
+    let mut both = vec![order[0], order[2]];
+    both.sort();
+    assert_eq!(filed, both);
+}
+
+#[test]
+fn a_selection_rested_on_a_book_makes_one_shelf_of_all() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let a = on(&h, order[0], 0.5);
+    press_hold(&mut h, a, 0.6);
+    release(&mut h, a);
+    h.get_by_label(&label(&h, order[1])).click();
+    h.run();
+    let to = on(&h, order[3], 0.5);
+    carry(&mut h, a, to);
+    rest(&mut h, 0.4);
+    release(&mut h, to);
+    let shelf = top(&h).into_iter().find(|i| matches!(i, Item::Shelf(_)));
+    let Some(Item::Shelf(id)) = shelf else {
+        panic!("no shelf made");
+    };
+    assert_eq!(inside(&h, id).len(), 3);
+    assert!(h.state().library_state().picks().is_empty(), "picks let go");
+}
