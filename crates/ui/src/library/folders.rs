@@ -3,9 +3,9 @@
 use std::collections::BTreeSet;
 
 use egui::{Button, Id, Popup, PopupCloseBehavior, RectAlign, RichText, Stroke, Ui};
-use mareader_library::{Book, Format, Library, Origin, Source, SourceEdit, SourceId};
+use mareader_library::{Book, BookId, Format, Library, Origin, Source, SourceEdit, SourceId};
 
-use super::{Action, Scope};
+use super::{Action, BookAction, Scope};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -136,6 +136,41 @@ fn folder(ui: &mut Ui, shown: &Shown<'_>, source: &Source, t: &Tokens, out: &mut
     egui::CollapsingHeader::new(RichText::new("What counts").size(12.5))
         .id_salt(("folder-counts", id))
         .show(ui, |ui| counts(ui, source, out));
+    let hidden = shown.model.hidden_in(id);
+    if !hidden.is_empty() {
+        let label = format!("Removed · {}", hidden.len());
+        egui::CollapsingHeader::new(RichText::new(label).size(12.5))
+            .id_salt(("folder-removed", id))
+            .show(ui, |ui| removed(ui, id, &hidden, t, out));
+    }
+}
+
+/// Books removed from a folder, each with a way back.
+fn removed(ui: &mut Ui, id: SourceId, hidden: &[&Book], t: &Tokens, out: &mut Commands) {
+    let restore = |out: &mut Commands, books: Vec<BookId>| {
+        out.push(Command::Library(Action::Book(BookAction::Restore(books))));
+    };
+    let note = "Their files are still here; restored, they come back as they were.";
+    ui.label(RichText::new(note).size(11.5).color(t.muted));
+    egui::ScrollArea::vertical()
+        .id_salt(("folder-removed-list", id))
+        .max_height(160.0)
+        .show(ui, |ui| {
+            for book in hidden {
+                ui.horizontal(|ui| {
+                    let title = RichText::new(&book.title.value).size(12.5).color(t.ink);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("Restore").clicked() {
+                            restore(out, vec![book.id]);
+                        }
+                        ui.add(egui::Label::new(title).truncate());
+                    });
+                });
+            }
+        });
+    if hidden.len() > 1 && ui.button("Restore all").clicked() {
+        restore(out, hidden.iter().map(|b| b.id).collect());
+    }
 }
 
 /// The formats, size floor and watching that pick a folder's books.

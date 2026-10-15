@@ -425,6 +425,14 @@ impl MareaderApp {
                 "show" => self.go(Route::Library),
                 _ => self.go(Route::Reader),
             },
+            // The first books by last read, picked.
+            "select" => {
+                let n: usize = value.parse().map_err(|_| "select: a count of books")?;
+                let recent = self.library.model().recent().into_iter().take(n);
+                let picks = recent.map(|b| library::Pick::Book(b.id)).collect();
+                let pick = library::Action::Pick(library::PickAction::Only(picks));
+                self.queue(Command::Library(pick));
+            }
             // A folder read in place, as if added from the page.
             "folder" => {
                 let root = std::path::PathBuf::from(value);
@@ -599,6 +607,28 @@ impl MareaderApp {
                 "menu" => self.queue(Command::ShowViewMenu),
                 "find" => self.queue(Command::ShowFind),
                 "folders" => self.queue(Command::Library(library::Action::ShowFolders)),
+                // The removal sheet for what `select` picked.
+                "remove" => {
+                    let books = self.queued.iter().find_map(|c| match c {
+                        Command::Library(library::Action::Pick(library::PickAction::Only(p))) => {
+                            Some(p.iter().filter_map(|p| match p {
+                                library::Pick::Book(id) => Some(*id),
+                                library::Pick::Shelf(_) => None,
+                            }))
+                        }
+                        _ => None,
+                    });
+                    let books: Vec<_> = books.ok_or("open=remove: select books first")?.collect();
+                    let shelves = Vec::new();
+                    let ask = library::BookAction::AskRemove { books, shelves };
+                    self.queue(Command::Library(library::Action::Book(ask)));
+                }
+                "rename" => {
+                    let first = self.library.model().recent().first().map(|b| b.id);
+                    let first = first.ok_or("open=rename: no book")?;
+                    let ask = library::BookAction::AskRename(first);
+                    self.queue(Command::Library(library::Action::Book(ask)));
+                }
                 // The first missing book's find-again sheet.
                 "find_again" => {
                     let lost = self.library.model().books().find(|b| b.missing());
@@ -607,7 +637,9 @@ impl MareaderApp {
                 }
                 _ => {
                     return Err(
-                        "open: appearance, settings, menu, find, folders or find_again".into(),
+                        "open: appearance, settings, menu, find, folders, find_again, remove \
+                         or rename"
+                            .into(),
                     );
                 }
             },
@@ -824,6 +856,22 @@ impl MareaderApp {
                 let seek = move |folder| Command::Library(A::Seek { book, folder });
                 self.files.pick_folder(ctx, "Search a folder", seek);
             }
+            A::Book(library::BookAction::PickImport) => {
+                let to = self.library.at();
+                let import = move |paths| {
+                    let action = library::BookAction::Import { paths, to };
+                    Command::Library(A::Book(action))
+                };
+                self.files.pick_books(ctx, import);
+            }
+            A::Book(library::BookAction::Reveal(book)) => {
+                let path = self.library.model().book(book).and_then(|b| b.path());
+                let shown = path.is_some_and(crate::reveal::reveal);
+                if !shown {
+                    let note = "The file manager couldn't be opened.";
+                    self.toasts.push(Toast::error(note));
+                }
+            }
             A::PickFile(book) => {
                 let Some(format) = self.library.model().book(book).map(|b| b.format) else {
                     return;
@@ -860,8 +908,22 @@ impl MareaderApp {
         }
     }
 
-    /// Drops open in the pane under the pointer; returns the hover target.
-    fn drops(&self, ctx: &Context) -> Option<PaneId> {
+    /// Drops open under the pointer, returning that pane; the library imports.
+    fn drops(&self, ctx: &Context, out: &mut Commands) -> Option<PaneId> {
+        let desktop = cfg!(not(target_arch = "wasm32"));
+        if desktop && self.route() == Route::Library {
+            let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+            let paths = dropped.iter().map(|f| f.path().to_path_buf());
+            let (folders, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.partition(|p| p.is_dir());
+            let add = folders.into_iter().map(library::Action::AddFolder);
+            out.extend(add.map(Command::Library));
+            if !paths.is_empty() {
+                let to = self.library.file_target.or(self.library.at());
+                let import = library::BookAction::Import { paths, to };
+                out.push(Command::Library(library::Action::Book(import)));
+            }
+            return None;
+        }
         let pointer = ctx.pointer_latest_pos();
         let under = pointer
             .and_then(|p| self.pane_rects.iter().find(|(_, r)| r.contains(p)))
@@ -1174,7 +1236,7 @@ impl eframe::App for MareaderApp {
         }
         let route = self.route();
         keymap::read(&ctx, self.platform, route, &mut commands);
-        let drop_target = self.drops(&ctx);
+        let drop_target = self.drops(&ctx, &mut commands);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         // Naming a shelf takes Escape to cancel.
@@ -1182,9 +1244,11 @@ impl eframe::App for MareaderApp {
             || self.library.sheet().is_some()
             || self.library.renaming().is_some();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
-        // The library page goes back to what's being read, and only that.
+        // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
-            commands.push(Command::ShowLibrary);
+            if !self.library.escape() {
+                commands.push(Command::ShowLibrary);
+            }
             free = false;
         }
         if free && self.find.is_open() {
