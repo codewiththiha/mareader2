@@ -1,0 +1,111 @@
+//! Ids: what a file holds, which book it is, and which device wrote.
+
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+/// What a file holds: a hash of its size and bytes (`disk::measure`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct ContentId(pub u128);
+
+/// One book in the library, kept through moves, renames and edits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct BookId(pub u128);
+
+/// The machine that made a change; random, made once per library.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct DeviceId(pub u64);
+
+impl BookId {
+    /// Its first content's id: two machines agree unasked (`docs/sync.md`).
+    pub fn original(content: ContentId) -> Self {
+        Self(content.0)
+    }
+}
+
+impl fmt::Display for BookId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl fmt::Display for ContentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl fmt::Display for DeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+/// Fixed-width lowercase hex of `digits` digits, as ids are written.
+pub(crate) fn parse_hex(s: &str, digits: usize) -> Result<u128, String> {
+    let fits = s.len() == digits && s.bytes().all(|b| b.is_ascii_hexdigit());
+    let value = fits.then(|| u128::from_str_radix(s, 16).ok()).flatten();
+    value.ok_or_else(|| format!("not {digits} hex digits: {s:?}"))
+}
+
+impl From<BookId> for String {
+    fn from(id: BookId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for BookId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        parse_hex(&s, 32).map(Self)
+    }
+}
+
+impl From<ContentId> for String {
+    fn from(id: ContentId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for ContentId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        parse_hex(&s, 32).map(Self)
+    }
+}
+
+impl From<DeviceId> for String {
+    fn from(id: DeviceId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for DeviceId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        let value = parse_hex(&s, 16)?;
+        u64::try_from(value).map(Self).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ids_write_as_fixed_hex_and_read_back() {
+        let id = BookId(0xabc);
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"00000000000000000000000000000abc\"");
+        assert_eq!(serde_json::from_str::<BookId>(&json).unwrap(), id);
+        let device = DeviceId(u64::MAX);
+        let json = serde_json::to_string(&device).unwrap();
+        assert_eq!(serde_json::from_str::<DeviceId>(&json).unwrap(), device);
+        // Short, long or non-hex text is refused, never guessed.
+        assert!(serde_json::from_str::<BookId>("\"abc\"").is_err());
+        assert!(serde_json::from_str::<DeviceId>("\"zzzzzzzzzzzzzzzz\"").is_err());
+    }
+}

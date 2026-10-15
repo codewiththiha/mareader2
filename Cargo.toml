@@ -18,10 +18,14 @@ mareader-pdf = { path = "crates/pdf" }
 mareader-session = { path = "crates/session" }
 mareader-reflow = { path = "crates/reflow" }
 mareader-epub = { path = "crates/epub" }
+mareader-library = { path = "crates/library" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# Content ids: a SHA-256 of a file's size, head and tail.
+sha2 = "0.10"
+tempfile = "3"
 
 parley = { version = "0.12", default-features = false, features = ["std", "system"] }
 # Fontconfig loads at run time, so Linux builds need no headers.
