@@ -322,22 +322,33 @@ fn number(w: &str, words: bool) -> bool {
     digits || roman(w) || (words && NUMBER_WORDS.contains(&w))
 }
 
+/// Chinese numerals: plain, traditional and the forms cheques use.
+const CJK_NUMERALS: &str = "零〇一二三四五六七八九十百千万萬两兩壹贰貳叁叄參肆伍陆陸柒捌玖拾佰仟";
+/// Units a title may follow straight on: `第一章天地初开`.
+const CJK_CHAPTERS: &str = "章节節回篇幕讲講话話";
+/// Units that are also measure words, so `第一本书` stays prose.
+const CJK_PARTS: &str = "卷部集本册冊";
+/// Marks that may part a unit from its title.
+const CJK_GAPS: &str = " \u{3000}:：、()（）";
+/// The longest title after the unit, in characters.
+const CJK_TITLE: usize = 36;
+
 /// `第十二章` and kin, as Chinese text novels head chapters.
 fn cjk_heading(t: &str) -> Option<u8> {
     let rest = t.strip_prefix('第')?;
-    let numeral = |c: char| {
-        c.is_ascii_digit()
-            || ('０'..='９').contains(&c)
-            || "零〇一二三四五六七八九十百千万两".contains(c)
-    };
+    let numeral =
+        |c: char| c.is_ascii_digit() || ('０'..='９').contains(&c) || CJK_NUMERALS.contains(c);
     let count = rest.chars().take_while(|&c| numeral(c)).count();
-    let mark = rest.chars().nth(count)?;
-    if count == 0 {
+    let mut after = rest.chars().skip(count);
+    let mark = after.next()?;
+    let title: String = after.collect();
+    let sentence = title.ends_with(['。', '，', '；']);
+    if count == 0 || chars(&title) > CJK_TITLE || sentence {
         return None;
     }
-    match mark {
-        '卷' | '部' | '集' => Some(1),
-        '章' | '节' | '節' | '回' | '篇' | '幕' => Some(2),
-        _ => None,
+    if CJK_CHAPTERS.contains(mark) {
+        return Some(2);
     }
+    let parted = title.chars().next().is_none_or(|c| CJK_GAPS.contains(c));
+    (CJK_PARTS.contains(mark) && parted).then_some(1)
 }
