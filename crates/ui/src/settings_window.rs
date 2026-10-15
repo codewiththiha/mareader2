@@ -2,13 +2,13 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, LayoutSettings, PageIndicatorStyle, PaperArea, Settings,
-    StartupFit, Swatch,
+    Corners, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle, PaperArea,
+    Settings, StartupFit, Swatch,
 };
 
 use egui::{
     Align, Button, Color32, Frame, Id, Layout, Margin, Modal, RichText, ScrollArea, Sense, Stroke,
-    Ui, Vec2, vec2,
+    Ui, Vec2, pos2, vec2,
 };
 
 use crate::command::{Command, Commands};
@@ -516,13 +516,40 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
     }
 }
 
+/// The Library panel's click choices, in the tab's order.
+const LIBRARY_CLICKS: [(LibraryClick, &str, &str); 3] = [
+    (
+        LibraryClick::Replace,
+        "Open in focused pane",
+        "The book replaces what the focused pane shows.",
+    ),
+    (
+        LibraryClick::Split,
+        "Open as a new split",
+        "The book opens in a new pane beside the focused one.",
+    ),
+    (
+        LibraryClick::DragOnly,
+        "Do nothing",
+        "Books open by dragging them onto a pane, or with Enter.",
+    ),
+];
+
 fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
-    section(ui, "Library panel");
-    pending(
-        ui,
-        "What a click on a file in the Library panel does arrives with the library (M5).",
-    );
     let w = &mut s.workspace;
+    section(ui, "Library panel");
+    group(ui, |ui| {
+        for (i, (choice, title, detail)) in LIBRARY_CLICKS.into_iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            if choice_row(ui, title, detail, w.library_click == choice) {
+                w.library_click = choice;
+            }
+        }
+    });
+    let page = "The Library page follows this too; with Do nothing it opens in the focused pane.";
+    note(ui, page);
     rows(ui, cx, Applies::Always, "Pane themes", |r| {
         r.always(|ui| {
             let hint = "While split, each pane keeps its own colour and texture";
@@ -644,6 +671,33 @@ fn switch_row(ui: &mut Ui, label: &str, hint: &str, on: &mut bool) {
     row(ui, label, hint, |ui| {
         widgets::switch(ui, on, label);
     });
+}
+
+/// A titled choice with its detail and a radio mark; true when picked.
+fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), 52.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, title));
+    let painter = ui.painter();
+    let left = rect.left();
+    let font = egui::FontId::proportional(t.text);
+    let top = pos2(left, rect.center().y - 9.0);
+    painter.text(top, egui::Align2::LEFT_CENTER, title, font, t.ink);
+    let small = egui::FontId::proportional(t.text_small);
+    let below = pos2(left, rect.center().y + 9.0);
+    painter.text(below, egui::Align2::LEFT_CENTER, detail, small, t.muted);
+    let mark = pos2(rect.right() - 9.0, rect.center().y);
+    let ring = if on || resp.hovered() {
+        t.accent
+    } else {
+        t.line
+    };
+    painter.circle_stroke(mark, 8.0, Stroke::new(1.5, ring));
+    if on {
+        painter.circle_filled(mark, 4.5, t.accent);
+    }
+    resp.clicked() && !on
 }
 
 /// Honest copy for settings whose feature has not landed yet.

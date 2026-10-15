@@ -3,6 +3,7 @@
 use egui::{Align, Button, Id, Layout, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
 
 use crate::command::{Command, Commands, WindowCommand};
+use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
@@ -51,11 +52,11 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
     let rows = [
-        (Icon::Open, "Open…", false),
-        (Icon::SplitRight, "Open beside…", true),
+        (Icon::Open, "Open…", Placement::Into),
+        (Icon::SplitRight, "Open beside…", Placement::Beside),
     ];
-    for (icon, label, beside) in rows {
-        let command = Command::ShowOpenDialog { beside };
+    for (icon, label, placement) in rows {
+        let command = Command::ShowOpenDialog(placement);
         let keys = keymap::hint(cx.platform, &command);
         if widgets::menu_row(ui, icon, label, keys.as_deref(), false).clicked() {
             out.push(command);

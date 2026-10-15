@@ -8,6 +8,7 @@ use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
 use crate::command::{Command, Commands};
+use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
@@ -207,6 +208,6 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
         .corner_radius(t.radius);
     let at = Rect::from_center_size(c + vec2(0.0, 68.0), vec2(96.0, 32.0));
     if ui.put(at, button).clicked() {
-        out.push(Command::ShowOpenDialog { beside: false });
+        out.push(Command::ShowOpenDialog(Placement::Into));
     }
 }

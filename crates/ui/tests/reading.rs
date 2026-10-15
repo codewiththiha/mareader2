@@ -6,6 +6,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui::app::LAST_DOCUMENT_KEY;
 use mareader_ui::command::Command;
+use mareader_ui::documents::Placement;
 use mareader_ui::{MareaderApp, OpenRequest};
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
@@ -250,7 +251,7 @@ fn open_beside_splits_and_opens_in_the_new_pane() {
     let mut h = reader(&[]);
     let first = h.state().active_pane();
     let request = OpenRequest {
-        beside: true,
+        placement: Placement::Beside,
         ..sample(5)
     };
     h.state_mut().queue(Command::Open(request));

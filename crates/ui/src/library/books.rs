@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use mareader_library::{BookId, ContentId, Imported, ShelfId};
 
 use super::io::{self, Import, Job};
+use super::runs::Phase;
 use super::{LibraryState, PickAction, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
@@ -214,11 +215,17 @@ impl LibraryState {
         }
         let originals = self.model.books().filter(|b| b.twin_of.is_none());
         let known: HashSet<ContentId> = originals.map(|b| b.content).collect();
+        let label = match paths.as_slice() {
+            [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()),
+            many => Some(format!("{} files", many.len())),
+        };
+        let run = self.runs.start(label.unwrap_or_default(), Phase::Copying);
         let job = Import {
             paths,
             store,
             known,
             to,
+            run,
         };
         self.io.send(Job::Import(Box::new(job)));
     }
