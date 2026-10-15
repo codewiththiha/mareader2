@@ -239,8 +239,8 @@ What the first slice built, and where it stops short of the model above.
 - **View.** `mareader_library::View` keeps the layout, the pinned columns
   (none is Auto), the cover fit and the sort, inside the settings as
   `library`. An older settings file without it loads the defaults: grid,
-  Auto, Fit, last read newest first. The View options button by Open…
-  changes each at once and stays open to chain changes.
+  Auto, Fit, last read newest first. The View options menu (in the title
+  bar, § Routes) changes each at once and stays open to chain changes.
 - **Sort.** Last read, title, author or date added, either way. A new key
   starts in its natural direction (names A–Z, dates newest first). Names
   compare ignoring case, with digit runs as numbers, so Volume 2 comes
@@ -269,10 +269,47 @@ What the first slice built, and where it stops short of the model above.
   shown dropped first; each fades in unless Animations are off. A book
   without art gets a drawn cover: a steady per-book tint, title, author
   and format.
-- **Title bar.** The library keeps its own pin (on by default), with its
-  own switch in Settings › Layout.
+- **Title bar.** The library keeps its own pin (on by default), set from
+  the bar's Pin alone, as mareader's.
 - **Not yet.** Manual order arrives with shelves. A cover that failed is
   retried only after a relaunch.
+
+## Routes: the reader and the library (2026-10-15)
+
+The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
+the reader (panes beside the rail) or the library (the shelf alone). The
+library replaces the panes without closing them, unlike mareader, which
+closes the book. `Route::allows` is one exhaustive table of which commands
+each route takes. The keymap skips bindings the route drops, so their keys
+reach the page's own widgets. The app drops the same commands from any
+other source, and the bar, rail and lights read the route, not flags.
+
+**No rail in the library.** The sidebar's panels (outline, pages) serve
+the focused document, which the library hides. The library draws no docked
+or overlay rail, no edge reveal and no toggle. The rail keeps its state, so
+going back finds it as it was. On macOS the bar's gutter hosts the lights.
+
+**The library's bar** keeps only what acts on the shelf or the window:
+
+| Item | Library | Why |
+|---|---|---|
+| Sidebar toggle | gone | No rail in the library (above). |
+| Library button | pressed, "Back to reading", only while a pane is open | Panes wait behind the page; with nothing open there is no way back. |
+| Title | "Library" | Holds the centre until search (slice 6); the breadcrumb (slice 4) takes the left. |
+| Settings | gone | Settings are about reading; the gear lives on the reader's bar, as in mareader. |
+| Search | gone | It finds in the focused document. The library's own search is slice 6. |
+| Split down, Split right | gone | They split panes, which the library hides. |
+| View & tools (☰) | replaced by View options | Its rows serve the panes: folded tools, view mode, zoom, the reader's shortcuts. Open… stays on the shelf, full screen on its key. |
+| View options | in the ☰ slot | mareader keeps the shelf's View menu in its bar; the slot keeps Pin and Appearance where the reader has them. |
+| Appearance | kept, without Page texture | The shelf has no page, as in mareader. The ink dial and per-pane switches go too. It edits the window's look, which the shelf wears. |
+| Pin | kept | The library's own pin, on by default. |
+| Window buttons | kept | The window's. |
+
+**Keys in the library.** Zoom, page moves, view modes, Find, the sidebar,
+Split and Settings do nothing. Open (⌘O) and full screen still work. The
+View menu command (`open=menu` in shots) opens the library's own menu.
+Escape and the Library button go back only while a pane has a document.
+Entering the library closes the find bar and the settings window.
 
 ## UI (`crates/ui`, M5)
 
