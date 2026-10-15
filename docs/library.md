@@ -606,6 +606,40 @@ frame, and stops repainting when nothing moves.
   once and left as it was, since saves only write rows they changed.
 - **The browser preview** has no store; its library lives in memory.
 
+## Slice 10: the arranged order (2026-10-15)
+
+- **One order per level.** The top level holds shelves and every book; a
+  shelf holds its shelves and its books. `Library::arranged` lists either
+  as `Item`s (shelf or book), mixed. Home's Unshelved choice filters the
+  top's list without changing it.
+- **Keys, not indexes.** A shelf's key places it beside its siblings; a
+  book's own key places it on the top level; a membership's key places
+  it on that shelf. Each is a stamped field, so two machines that move
+  different cards merge, and the later move of the same card wins.
+- **Joining a level** takes a key after the level's last. The top's last
+  key is looked up once and kept, so importing thousands of books never
+  rescans. A moved shelf joins its new level at the end; a twin sits right
+  behind its book, on the top and on each of its shelves.
+- **Moving.** `Library::arrange` puts cards, in the order shown, before
+  another card or at the end, with keys spread evenly between the two
+  neighbours, so a hundred cards dropped in one gap stay short. A level
+  saved before keys existed shows as it did (shelves by name, then books
+  by date added) and gets its keys on its first move.
+- **Sorts are views.** Arranged is the default and has no direction; Last
+  read, Title, Author and Added still sort either way, shelves first. A
+  saved `manual` sort reads as Arranged.
+- **Dragging.** In the grid, unsearched and showing everything, a card
+  dropped on another card's left or right half lands on that side; a
+  shelf's outer quarters arrange too, while its middle files the card
+  into it. A bar marks the gap. A drop made while sorted switches the page
+  to Arranged, so it shows what the drop did. The list files by drag but
+  never rearranges. A shelf's plate shows its first four cards as
+  arranged.
+- **One type.** The page's `Pick` is the library's `Item`; the shelf-only
+  reorder action became `ShelfAction::Arrange`.
+- **Shots.** `books=6 shelves=demo library=show` shows the mixed grid;
+  `carry=x1,y1,x2,y2` holds a drag over a card's side to show the bar.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:

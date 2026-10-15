@@ -40,6 +40,9 @@ These cost little in M5 and make sync a transport, not a migration.
 - **Manual order by key, not index.** A shelf's order is a sort key per
   membership (a string between its neighbours'), so two machines that
   reorder different books merge without a conflict.
+- **Arranged levels too** (slice 10). Books (on the top level) and shelves
+  (beside their siblings) carry a stamped key of their own, merged per
+  field like a membership's.
 - **A device id**, random, made on first launch and kept in the data
   directory.
 
