@@ -13,10 +13,11 @@ use crate::book::{Book, FileStamp, Format, State};
 use crate::clock::Clock;
 use crate::id::{BookId, ContentId, DeviceId};
 use crate::library::{Dirty, Library, Measure};
+use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 
-/// The files' version; 2 added folders. Newer files are left untouched.
-pub const SCHEMA: u32 = 2;
+/// The files' version; 2 added folders, 3 shelves. Newer files stay untouched.
+pub const SCHEMA: u32 = 3;
 
 /// Bytes hashed from each end of a large PDF or EPUB.
 const SAMPLE: u64 = 64 << 10;
@@ -28,6 +29,10 @@ struct LibraryFile {
     books: Vec<Book>,
     #[serde(default)]
     sources: Vec<Source>,
+    #[serde(default)]
+    shelves: Vec<Shelf>,
+    #[serde(default)]
+    members: Vec<Membership>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -120,6 +125,9 @@ impl Folder {
         let sources = file.sources.into_iter().map(|s| (s.id, s)).collect();
         let states = self.load_states(&books);
         let mut library = Library::from_parts(file.clock, books, states, sources);
+        library.shelves = file.shelves.into_iter().map(|s| (s.id, s)).collect();
+        let members = file.members.into_iter();
+        library.members = members.map(|m| ((m.shelf, m.book), m)).collect();
         library.check_present(Path::is_file);
         Loaded {
             library,
@@ -153,6 +161,8 @@ impl Folder {
                 clock: library.clock,
                 books: library.books.values().cloned().collect(),
                 sources: library.sources.values().cloned().collect(),
+                shelves: library.shelves.values().cloned().collect(),
+                members: library.members.values().cloned().collect(),
             };
             if let Ok(json) = serde_json::to_string_pretty(&file) {
                 out.push((self.library_file(), json));
