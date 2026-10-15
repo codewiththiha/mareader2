@@ -11,7 +11,8 @@ use egui::Context;
 use super::runs::{Beat, Phase, RunId};
 use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
 use mareader_library::{
-    BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Source, display_title,
+    BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Shelving, Source,
+    display_title,
 };
 
 pub enum Job {
@@ -36,57 +37,65 @@ pub enum Job {
     },
 }
 
-/// How added books are kept.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Keep {
-    /// Copied into the library's folder; the originals may go.
-    #[default]
-    Copy,
-    /// Read where they are; nothing is copied.
-    InPlace,
-}
-
-/// Which files a folder gives: these formats, at least this big.
+/// How a folder is walked: which files count, and the shelves they get.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Filter {
+pub struct Walk {
     pub formats: BTreeSet<Format>,
+    /// `formats` are the ones left out.
+    pub exclude: bool,
     pub min_size: u64,
+    pub shelving: Shelving,
 }
 
-impl Default for Filter {
+impl Default for Walk {
     fn default() -> Self {
         Self {
             formats: Format::ALL.into(),
+            exclude: false,
             min_size: 0,
+            shelving: Shelving::None,
         }
     }
 }
 
-/// Files, or folders walked through `filter`, to take in as `keep` says.
+impl Walk {
+    /// Whether the settings let any format through.
+    pub fn counts_any(&self) -> bool {
+        Format::ALL
+            .iter()
+            .any(|f| self.formats.contains(f) != self.exclude)
+    }
+}
+
+/// Files, and folders walked as `walk` says, to copy in.
 pub struct Import {
     pub paths: Vec<PathBuf>,
-    pub keep: Keep,
-    pub filter: Filter,
+    pub walk: Walk,
     pub store: PathBuf,
     /// The library's own folders, never walked.
     pub avoid: Vec<PathBuf>,
     /// Contents the library holds: not copied again.
     pub known: HashSet<ContentId>,
-    /// The shelf they go on.
+    /// The shelf they go on, or inside which folder shelves are made.
     pub to: Option<mareader_library::ShelfId>,
     pub run: RunId,
 }
 
-/// What an import took in, found known, skipped or couldn't read.
+/// A file to take in, and the shelf names its folders map to.
+#[derive(Debug)]
+pub struct Shelved<T> {
+    pub file: T,
+    pub shelves: Vec<String>,
+}
+
+/// What an import copied, found known, skipped or couldn't read.
 #[derive(Debug, Default)]
 pub struct Imported {
     pub run: Option<RunId>,
     pub to: Option<mareader_library::ShelfId>,
-    pub keep: Keep,
-    /// Copies made, or files in place, to record.
-    pub files: Vec<Opened>,
+    pub copies: Vec<Shelved<Opened>>,
     /// Already in the library: not copied.
-    pub known: Vec<(PathBuf, ContentId)>,
+    pub known: Vec<Shelved<(PathBuf, ContentId)>>,
     /// Not a book Mareader reads.
     pub skipped: Vec<PathBuf>,
     /// Folders with no books in them.
@@ -319,19 +328,14 @@ fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
     let mut out = Imported {
         run: Some(job.run),
         to: job.to,
-        keep: job.keep,
         ..Imported::default()
     };
     let paths = expand(&job, post, &mut out.empty);
     let mut known = job.known;
     let mut seen = HashSet::new();
     let total = paths.len();
-    let phase = match job.keep {
-        Keep::Copy => Phase::Copying,
-        Keep::InPlace => Phase::Reading,
-    };
-    for (done, path) in paths.into_iter().enumerate() {
-        beat(post, Some(job.run), phase, (done, total), &path);
+    for (done, (path, shelves)) in paths.into_iter().enumerate() {
+        beat(post, Some(job.run), Phase::Copying, (done, total), &path);
         let Some(format) = Format::of_path(&path).filter(|_| path.is_file()) else {
             out.skipped.push(path);
             continue;
@@ -341,35 +345,28 @@ fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
             if !seen.insert(m.content) {
                 return Ok(None);
             }
-            let fresh = known.insert(m.content);
-            match job.keep {
-                Keep::Copy if !fresh => Ok(Some(Err(m.content))),
-                Keep::Copy => {
-                    let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
-                    Ok(Some(Ok((copy, Measure { stamp, ..m }, true))))
-                }
-                Keep::InPlace => {
-                    let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                    Ok(Some(Ok((path, m, fresh))))
-                }
+            if !known.insert(m.content) {
+                return Ok(Some(Err(m.content)));
             }
+            let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
+            Ok(Some(Ok((copy, Measure { stamp, ..m }))))
         });
         match taken {
-            Ok(Some(Ok((file, measure, fresh)))) => {
-                // Names are read only for books new to the library.
-                let (title, author) = match fresh {
-                    true => mareader_session::describe(&file),
-                    false => (None, None),
-                };
-                out.files.push(Opened {
+            Ok(Some(Ok((copy, measure)))) => {
+                let (title, author) = mareader_session::describe(&copy);
+                let file = Opened {
                     title: display_title(title.as_deref(), &path),
-                    path: file,
+                    path: copy,
                     measure,
                     format,
                     author,
-                });
+                };
+                out.copies.push(Shelved { file, shelves });
             }
-            Ok(Some(Err(content))) => out.known.push((path, content)),
+            Ok(Some(Err(content))) => {
+                let file = (path, content);
+                out.known.push(Shelved { file, shelves });
+            }
             Ok(None) => {}
             Err(e) => out.failed.push((path, e.to_string())),
         }
@@ -377,22 +374,31 @@ fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
     out
 }
 
-/// The files named, and the books under the folders named.
-fn expand(job: &Import, post: &mut dyn FnMut(News), empty: &mut Vec<PathBuf>) -> Vec<PathBuf> {
-    let keep = |format, size| job.filter.formats.contains(&format) && size >= job.filter.min_size;
+/// The files named, and the books under the folders named, with shelves.
+fn expand(
+    job: &Import,
+    post: &mut dyn FnMut(News),
+    empty: &mut Vec<PathBuf>,
+) -> Vec<(PathBuf, Vec<String>)> {
+    let walk = &job.walk;
+    let keep = mareader_library::counts(&walk.formats, walk.exclude, walk.min_size);
     let limits = Limits::new(super::wall_ms());
     let mut files = Vec::new();
     for path in &job.paths {
         if !path.is_dir() {
-            files.push(path.clone());
+            files.push((path.clone(), Vec::new()));
             continue;
         }
         beat(post, Some(job.run), Phase::Scanning, (0, 0), path);
-        let walked = disk::walk(path, keep, limits, &job.avoid);
+        let walked = disk::walk(path, &keep, limits, &job.avoid);
         if walked.files.is_empty() {
             empty.push(path.clone());
         }
-        files.extend(walked.files.into_iter().map(|(file, ..)| file));
+        let shelved = walked.files.into_iter().map(|(file, ..)| {
+            let shelves = walk.shelving.names(path, &file);
+            (file, shelves)
+        });
+        files.extend(shelved);
     }
     files
 }

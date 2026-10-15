@@ -449,10 +449,14 @@ impl MareaderApp {
                 let pick = library::Action::Pick(library::PickAction::Only(picks));
                 self.queue(Command::Library(pick));
             }
-            // A folder read in place, as if added from the page.
+            // A folder read in place, as the sheet can add one.
             "folder" => {
                 let roots = vec![std::path::PathBuf::from(value)];
-                let plan = library::FolderPlan::default();
+                // Watched and unshelved, so its books show as found.
+                let plan = library::FolderPlan {
+                    keep: library::FolderKeep::Watch,
+                    walk: library::Walk::default(),
+                };
                 self.queue(Command::Library(library::Action::AddFolders {
                     roots,
                     plan,
@@ -937,16 +941,11 @@ impl MareaderApp {
                 let seek = move |folder| Command::Library(A::Seek { book, folder });
                 self.files.pick_folder(ctx, "Search a folder", seek);
             }
-            A::Book(library::BookAction::PickImport(keep)) => {
+            A::Book(library::BookAction::PickImport) => {
                 let to = self.library.at();
                 let import = move |paths| {
-                    let filter = library::Filter::default();
-                    let action = library::BookAction::Import {
-                        paths,
-                        to,
-                        keep,
-                        filter,
-                    };
+                    let walk = library::Walk::default();
+                    let action = library::BookAction::Import { paths, to, walk };
                     Command::Library(A::Book(action))
                 };
                 self.files.pick_books(ctx, import);
@@ -1109,13 +1108,8 @@ impl MareaderApp {
             }
             if !paths.is_empty() {
                 let to = self.library.file_target.or(self.library.at());
-                let (keep, filter) = (library::Keep::Copy, library::Filter::default());
-                let import = library::BookAction::Import {
-                    paths,
-                    to,
-                    keep,
-                    filter,
-                };
+                let walk = library::Walk::default();
+                let import = library::BookAction::Import { paths, to, walk };
                 out.push(Command::Library(library::Action::Book(import)));
             }
             return None;

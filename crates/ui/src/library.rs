@@ -34,7 +34,7 @@ use crate::toast::Toast;
 pub use add::{ADD_MENU, FolderKeep, FolderPlan};
 pub use books::BookAction;
 pub use covers::Covers;
-pub use io::{Filter, Keep};
+pub use io::Walk;
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use picks::{Pick, PickAction, Picks};

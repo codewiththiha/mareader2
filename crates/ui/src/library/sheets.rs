@@ -3,13 +3,14 @@
 use std::path::PathBuf;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
-use mareader_library::{Book, BookId, Library, Receipt, Shelf, ShelfId, Source};
+use mareader_library::{Book, BookId, Library, Receipt, Shelf, ShelfId, Shelving, Source};
 
 use super::books::counted;
 use super::{
     Action, BookAction, Finding, FolderKeep, FolderPlan, LibraryState, Sheet, ShelfAction, Step,
 };
 use crate::command::{Command, Commands};
+use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
 const WIDTH: f32 = 420.0;
@@ -57,7 +58,11 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => rename(ui, book, &t),
                     None => Some(Action::CloseSheet),
                 },
-                Sheet::AddFolders(roots) => add_folders(ui, roots, &t),
+                Sheet::AddFolders(roots) => {
+                    let inside = library.at().and_then(|id| model.shelf(id));
+                    let inside = inside.map(|s| s.name.value.as_str());
+                    add_folders(ui, roots, inside, &t)
+                }
             };
         });
     let working = matches!(sheet, Sheet::Find(f) if matches!(f.step, Step::Working(_)));
@@ -313,61 +318,85 @@ fn rename(ui: &mut Ui, book: &Book, t: &Tokens) -> Option<Action> {
     act
 }
 
-/// Asks how folders' books are kept, and which files count.
-fn add_folders(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> Option<Action> {
-    let name = |p: &PathBuf| super::sources::folder_name(p);
+/// One sheet for a folder: which files count, how they're kept, shelved.
+fn add_folders(ui: &mut Ui, roots: &[PathBuf], inside: Option<&str>, t: &Tokens) -> Option<Action> {
     match roots {
-        [one] => title(ui, &format!("Add “{}”", name(one)), t),
+        [_] => title(ui, "Add a folder", t),
         many => title(ui, &format!("Add {} folders", many.len()), t),
     }
-    let shown: Vec<String> = roots.iter().map(|p| p.display().to_string()).collect();
-    ui.label(RichText::new(shown.join("\n")).size(12.0).color(t.muted));
     let key = Id::new("add-folders-plan");
+    // The answers outlive the sheet: the next folder often matches.
     let mut plan = ui.data_mut(|d| {
         d.get_temp_mut_or_insert_with(key, FolderPlan::default)
             .clone()
     });
-    let ways = [
-        (
-            FolderKeep::Watch,
-            "Read in place and watch",
-            "Nothing is copied. Books added to the folder later appear too.",
-        ),
-        (
-            FolderKeep::InPlace,
-            "Read in place",
-            "Nothing is copied. Look again from the folder's menu.",
-        ),
-        (
-            FolderKeep::Copy,
-            "Copy into the library",
-            "Mareader keeps its own copies; the folder can go.",
-        ),
-    ];
-    for (keep, label, detail) in ways {
-        ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.radio_value(&mut plan.keep, keep, RichText::new(label).color(t.ink));
-            let indent = ui.spacing().icon_width + ui.spacing().icon_spacing;
-            ui.horizontal(|ui| {
-                ui.add_space(indent);
-                ui.label(RichText::new(detail).size(12.0).color(t.muted));
-            });
+    let mut act = None;
+    egui::ScrollArea::vertical()
+        .max_height(ui.ctx().content_rect().height() * 0.7)
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            section(ui, "Folder", t);
+            if folder_row(ui, roots, t) {
+                act = Some(Action::PickFolder);
+            }
+            section(ui, "Formats", t);
+            let walk = &mut plan.walk;
+            let (formats, exclude, min) =
+                (&mut walk.formats, &mut walk.exclude, &mut walk.min_size);
+            super::folders::what_counts(ui, formats, exclude, min);
+            section(ui, "Books", t);
+            ui.label(RichText::new("How the books are held").color(t.ink));
+            let keeps = [
+                (FolderKeep::Copy, "Copy into the library"),
+                (FolderKeep::InPlace, "Read in place"),
+                (FolderKeep::Watch, "Read in place, and watch for new books"),
+            ];
+            choices(ui, &mut plan.keep, &keeps, t);
+            let held = match plan.keep {
+                FolderKeep::Copy => {
+                    "Books are copied into Mareader's own folder, so they keep \
+                     working if this folder moves or is deleted."
+                }
+                FolderKeep::InPlace => {
+                    "Books stay where they are; the library remembers where. \
+                     Books added later wait for a rescan from the folder's menu."
+                }
+                FolderKeep::Watch => {
+                    "Books stay where they are, and the folder is checked for \
+                     new ones when Mareader opens or you come back to it."
+                }
+            };
+            note(ui, held, t);
+            ui.add_space(4.0);
+            ui.label(RichText::new("Folder structure").color(t.ink));
+            let shapes = [
+                (Shelving::Each, "A shelf for each folder"),
+                (Shelving::One, "One shelf for everything"),
+                (Shelving::None, "No shelf"),
+            ];
+            choices(ui, &mut plan.walk.shelving, &shapes, t);
+            let shaped = match plan.walk.shelving {
+                Shelving::Each => {
+                    "Every subfolder gets its own shelf, inside one named after the folder."
+                }
+                Shelving::One => "One shelf, named after the folder, holds all its books.",
+                Shelving::None => "Books join the library without a shelf.",
+            };
+            let shaped = match (inside, plan.walk.shelving) {
+                (Some(shelf), Shelving::Each | Shelving::One) => {
+                    format!("{shaped} It's made inside “{shelf}”.")
+                }
+                (Some(shelf), Shelving::None) => format!("Books go on “{shelf}”."),
+                (None, _) => shaped.to_owned(),
+            };
+            note(ui, &shaped, t);
         });
-    }
-    ui.add_space(4.0);
-    ui.label(
-        RichText::new("What counts as a book")
-            .size(12.0)
-            .color(t.muted),
-    );
-    let filter = &mut plan.filter;
-    super::folders::what_counts(ui, &mut filter.formats, &mut filter.min_size);
     ui.data_mut(|d| d.insert_temp(key, plan.clone()));
     ui.add_space(8.0);
-    let mut act = None;
     buttons(ui, |ui| {
-        if primary(ui, "Add", t.accent, t).clicked() {
+        let ready = plan.walk.counts_any();
+        let add = ui.add_enabled_ui(ready, |ui| primary(ui, "Add", t.accent, t));
+        if add.inner.clicked() {
             let roots = roots.to_vec();
             act = Some(Action::AddFolders {
                 roots,
@@ -378,8 +407,57 @@ fn add_folders(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> Option<Action> {
             act = Some(Action::CloseSheet);
         }
     });
-    // The choice stays for the next folder; only the sheet goes.
     act
+}
+
+/// A small heading over a group of the sheet's controls.
+fn section(ui: &mut Ui, text: &str, t: &Tokens) {
+    ui.add_space(6.0);
+    ui.label(RichText::new(text).font(theme::medium(11.5)).color(t.muted));
+}
+
+/// The folders being added, and a way to pick another; true if asked.
+fn folder_row(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> bool {
+    let frame = Frame::new()
+        .stroke(Stroke::new(1.0, t.line))
+        .corner_radius(t.radius)
+        .inner_margin(Margin::symmetric(10, 6));
+    let inner = frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.add(Icon::Folder.image(16.0).tint(t.muted));
+            let change = ui
+                .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let change = ui.button("Change…").on_hover_text("Choose another folder");
+                    ui.vertical(|ui| {
+                        for root in roots {
+                            let path = RichText::new(root.display().to_string()).color(t.ink);
+                            let full = root.display().to_string();
+                            ui.add(egui::Label::new(path).truncate())
+                                .on_hover_text(full);
+                        }
+                    });
+                    change
+                })
+                .inner;
+            change.clicked()
+        })
+        .inner
+    });
+    inner.inner
+}
+
+/// Radio rows, one per choice.
+fn choices<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, all: &[(T, &str)], t: &Tokens) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        for &(choice, label) in all {
+            ui.radio_value(value, choice, RichText::new(label).color(t.ink));
+        }
+    });
+}
+
+fn note(ui: &mut Ui, text: &str, t: &Tokens) {
+    ui.label(RichText::new(text).size(12.0).color(t.muted));
 }
 
 fn title(ui: &mut Ui, text: &str, t: &Tokens) {

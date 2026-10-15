@@ -4,9 +4,9 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Id, Popup, PopupCloseBehavior, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
-use mareader_library::{Book, BookId, Library, ShelfId};
+use mareader_library::{Book, BookId, Library, ShelfId, Shelving};
 
-use super::io::{Filter, Keep};
+use super::io::Walk;
 use super::{Action, BookAction, Scope, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -22,17 +22,31 @@ const RESTORE_ROWS: usize = 5;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FolderKeep {
     Copy,
+    #[default]
     InPlace,
     /// Read in place, and walked again when the window comes back.
-    #[default]
     Watch,
 }
 
-/// A folder's keeping and which of its files count.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// A folder's keeping, which of its files count, and their shelves.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderPlan {
     pub keep: FolderKeep,
-    pub filter: Filter,
+    pub walk: Walk,
+}
+
+impl Default for FolderPlan {
+    /// Read in place, a shelf for each folder.
+    fn default() -> Self {
+        let walk = Walk {
+            shelving: Shelving::Each,
+            ..Walk::default()
+        };
+        Self {
+            keep: FolderKeep::InPlace,
+            walk,
+        }
+    }
 }
 
 /// Where the menu adds: the shelf open, and the folder chip chosen.
@@ -108,27 +122,11 @@ fn menu(anchor: &Response, here: Here<'_>, t: &Tokens, out: &mut Commands) {
 fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
-    let book = |out: &mut Commands, action| out.push(Command::Library(Action::Book(action)));
-    let ways = [
-        (
-            Icon::Import,
-            "Import files…",
-            "Copied into the library; the originals can go",
-            Keep::Copy,
-        ),
-        (
-            Icon::Link,
-            "Add files in place…",
-            "Read where they are; nothing is copied",
-            Keep::InPlace,
-        ),
-    ];
-    for (icon, title, detail, keep) in ways {
-        if entry(ui, icon, title, detail, t).clicked() {
-            book(out, BookAction::PickImport(keep));
-        }
+    let import = "Copied into the library; the originals can go";
+    if entry(ui, Icon::Import, "Import files…", import, t).clicked() {
+        out.push(Command::Library(Action::Book(BookAction::PickImport)));
     }
-    let folder = "Copy its books, or read them where they are";
+    let folder = "Copy it in, or read it where it is";
     if entry(ui, Icon::FolderPlus, "Add a folder…", folder, t).clicked() {
         out.push(Command::Library(Action::PickFolder));
     }
