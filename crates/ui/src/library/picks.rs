@@ -1,0 +1,123 @@
+//! Books and shelves picked on the page, to act on together.
+
+use std::collections::BTreeSet;
+
+use mareader_library::{BookId, ShelfId};
+
+/// A card picked on the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Pick {
+    Shelf(ShelfId),
+    Book(BookId),
+}
+
+/// Picking asked for by clicks, keys and the selection bar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PickAction {
+    /// In or out; it anchors a later Shift-click.
+    Toggle(Pick),
+    /// Added, keeping the anchor: a Shift-click's range.
+    Add(Vec<Pick>),
+    /// These and only these: Select all.
+    Only(Vec<Pick>),
+    Clear,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Picks {
+    set: BTreeSet<Pick>,
+    anchor: Option<Pick>,
+}
+
+impl Picks {
+    pub fn contains(&self, pick: Pick) -> bool {
+        self.set.contains(&pick)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.set.len()
+    }
+
+    /// Whether a Shift-click has somewhere to run from.
+    pub fn has_anchor(&self) -> bool {
+        self.anchor.is_some()
+    }
+
+    pub fn books(&self) -> Vec<BookId> {
+        let books = self.set.iter().filter_map(|p| match p {
+            Pick::Book(id) => Some(*id),
+            Pick::Shelf(_) => None,
+        });
+        books.collect()
+    }
+
+    pub fn shelves(&self) -> Vec<ShelfId> {
+        let shelves = self.set.iter().filter_map(|p| match p {
+            Pick::Shelf(id) => Some(*id),
+            Pick::Book(_) => None,
+        });
+        shelves.collect()
+    }
+
+    /// From the anchor to `to` in the order shown; else just `to`.
+    pub fn range(&self, order: &[Pick], to: Pick) -> Vec<Pick> {
+        let at = |p: Pick| order.iter().position(|&o| o == p);
+        let (Some(from), Some(end)) = (self.anchor.and_then(at), at(to)) else {
+            return vec![to];
+        };
+        let (lo, hi) = (from.min(end), from.max(end));
+        order
+            .get(lo..=hi)
+            .map_or_else(|| vec![to], <[Pick]>::to_vec)
+    }
+
+    pub(super) fn apply(&mut self, action: PickAction) {
+        match action {
+            PickAction::Toggle(pick) => {
+                if !self.set.remove(&pick) {
+                    self.set.insert(pick);
+                }
+                self.anchor = Some(pick);
+            }
+            PickAction::Add(picks) => self.set.extend(picks),
+            PickAction::Only(picks) => {
+                self.set = picks.into_iter().collect();
+                self.anchor = None;
+            }
+            PickAction::Clear => *self = Self::default(),
+        }
+    }
+
+    /// Drops picks that no longer exist.
+    pub(super) fn retain(&mut self, keep: impl Fn(Pick) -> bool) {
+        self.set.retain(|&p| keep(p));
+        self.anchor = self.anchor.filter(|&p| keep(p));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_range_runs_from_the_anchor_either_way() {
+        let order: Vec<Pick> = (1..=5).map(|n| Pick::Book(BookId(n))).collect();
+        let mut picks = Picks::default();
+        let b = |n| Pick::Book(BookId(n));
+        assert_eq!(picks.range(&order, b(3)), [b(3)]);
+        picks.apply(PickAction::Toggle(b(4)));
+        assert_eq!(picks.range(&order, b(2)), [b(2), b(3), b(4)]);
+        assert_eq!(picks.range(&order, b(5)), [b(4), b(5)]);
+        picks.apply(PickAction::Add(vec![b(1), b(2)]));
+        picks.apply(PickAction::Toggle(b(4)));
+        assert_eq!(picks.books(), [BookId(1), BookId(2)]);
+        picks.retain(|p| p != b(1));
+        assert_eq!(picks.len(), 1);
+        picks.apply(PickAction::Clear);
+        assert!(picks.is_empty());
+    }
+}

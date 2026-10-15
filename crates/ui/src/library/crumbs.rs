@@ -139,6 +139,15 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
         });
 }
 
+/// Focuses a fresh name field with all of it selected.
+pub(super) fn select_all(field: &egui::Response, id: Id, text: &str) {
+    field.request_focus();
+    let mut state = egui::TextEdit::load_state(&field.ctx, id).unwrap_or_default();
+    let all = CCursorRange::two(CCursor::new(0), CCursor::new(text.chars().count()));
+    state.cursor.set_char_range(Some(all));
+    state.store(&field.ctx, id);
+}
+
 /// The name in place: Enter or a click away keeps it, Escape doesn't.
 fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
     let field = Id::new("library-shelf-name").with(id);
@@ -152,11 +161,7 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
     let r = ui.add(edit);
     if fresh {
         // The whole name selected, so typing replaces it.
-        r.request_focus();
-        let mut state = egui::TextEdit::load_state(ui.ctx(), field).unwrap_or_default();
-        let all = CCursorRange::two(CCursor::new(0), CCursor::new(text.chars().count()));
-        state.cursor.set_char_range(Some(all));
-        state.store(ui.ctx(), field);
+        select_all(&r, field, &text);
     }
     let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let done = escape || (r.lost_focus() && !fresh);

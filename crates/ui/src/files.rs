@@ -62,7 +62,7 @@ impl Files {
     ) {
         let title = title.to_owned();
         let make = move || rfd::AsyncFileDialog::new().set_title(title);
-        self.pick_path(ctx, make, true, then);
+        self.pick_paths(ctx, make, Kind::Folder, first(then));
     }
 
     /// Shows the file dialog for one book's `extensions`.
@@ -77,27 +77,38 @@ impl Files {
                 .set_title("Choose the book's file")
                 .add_filter("This book's format", extensions)
         };
-        self.pick_path(ctx, make, false, then);
+        self.pick_paths(ctx, make, Kind::File, first(then));
     }
 
-    fn pick_path(
+    /// Shows the file dialog for books to import, several at once.
+    pub fn pick_books(
+        &self,
+        ctx: &Context,
+        then: impl FnOnce(Vec<PathBuf>) -> Command + Send + 'static,
+    ) {
+        let make = || books().set_title("Import books into the library");
+        let then = move |paths: Vec<PathBuf>| (!paths.is_empty()).then(|| then(paths));
+        self.pick_paths(ctx, make, Kind::Files, then);
+    }
+
+    fn pick_paths(
         &self,
         ctx: &Context,
         make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
-        folder: bool,
-        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+        kind: Kind,
+        then: impl FnOnce(Vec<PathBuf>) -> Option<Command> + Send + 'static,
     ) {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
         let (files, ctx) = (self.clone(), ctx.clone());
-        let done = move |path: Option<PathBuf>| {
+        let done = move |paths: Vec<PathBuf>| {
             files.picking.store(false, Ordering::Release);
-            if let Some(path) = path {
-                files.deliver(&ctx, then(path));
+            if let Some(command) = then(paths) {
+                files.deliver(&ctx, command);
             }
         };
-        if !dialog::run_path(make, folder, done) {
+        if !dialog::run_path(make, kind, done) {
             self.picking.store(false, Ordering::Release);
         }
     }
@@ -110,6 +121,21 @@ impl Files {
         };
         dialog::read_drop(self, ctx, file, place);
     }
+}
+
+/// What a path dialog picks.
+#[derive(Clone, Copy)]
+enum Kind {
+    Folder,
+    File,
+    Files,
+}
+
+/// A command from a dialog's one pick; cancelling gives none.
+fn first(
+    then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+) -> impl FnOnce(Vec<PathBuf>) -> Option<Command> + Send + 'static {
+    move |paths| paths.into_iter().next().map(then)
 }
 
 fn books() -> rfd::AsyncFileDialog {
@@ -133,21 +159,23 @@ mod dialog {
             .is_ok()
     }
 
-    /// A file or folder path, picked on a helper thread.
+    /// Files or a folder, picked on a helper thread.
     pub(super) fn run_path(
         make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
-        folder: bool,
-        done: impl FnOnce(Option<PathBuf>) + Send + 'static,
+        kind: Kind,
+        done: impl FnOnce(Vec<PathBuf>) + Send + 'static,
     ) -> bool {
         std::thread::Builder::new()
             .name("mareader-path-dialog".into())
             .spawn(move || {
                 let dialog = make();
-                let picked = match folder {
-                    true => pollster::block_on(dialog.pick_folder()),
-                    false => pollster::block_on(dialog.pick_file()),
+                let picked = match kind {
+                    Kind::Folder => pollster::block_on(dialog.pick_folder()).map(|f| vec![f]),
+                    Kind::File => pollster::block_on(dialog.pick_file()).map(|f| vec![f]),
+                    Kind::Files => pollster::block_on(dialog.pick_files()),
                 };
-                done(picked.map(|f| f.path().to_path_buf()));
+                let picked = picked.unwrap_or_default();
+                done(picked.iter().map(|f| f.path().to_path_buf()).collect());
             })
             .is_ok()
     }
@@ -184,8 +212,8 @@ mod dialog {
     /// Browsers hide paths, so folders and relinks can't be picked.
     pub(super) fn run_path(
         _make: impl FnOnce() -> rfd::AsyncFileDialog,
-        _folder: bool,
-        _done: impl FnOnce(Option<PathBuf>),
+        _kind: Kind,
+        _done: impl FnOnce(Vec<PathBuf>),
     ) -> bool {
         false
     }

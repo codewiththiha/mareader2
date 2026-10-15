@@ -1,9 +1,10 @@
-//! Sheets over the library: finding a lost book, removing a folder or shelf.
+//! Sheets over the library: finding, removing and renaming.
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
-use mareader_library::{Book, Library, Shelf, Source};
+use mareader_library::{Book, BookId, Library, Receipt, Shelf, ShelfId, Source};
 
-use super::{Action, Finding, LibraryState, Sheet, ShelfAction, Step};
+use super::books::counted;
+use super::{Action, BookAction, Finding, LibraryState, Sheet, ShelfAction, Step};
 use crate::command::{Command, Commands};
 use crate::theme::{self, Tokens};
 
@@ -41,6 +42,15 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                 },
                 Sheet::RemoveShelf(id) => match model.shelf(*id) {
                     Some(shelf) => remove_shelf(ui, model, shelf, &t),
+                    None => Some(Action::CloseSheet),
+                },
+                Sheet::Removal {
+                    books,
+                    shelves,
+                    receipt,
+                } => removal(ui, model, (books, shelves), receipt, &t),
+                Sheet::RenameBook(id) => match model.book(*id) {
+                    Some(book) => rename(ui, book, &t),
                     None => Some(Action::CloseSheet),
                 },
             };
@@ -187,6 +197,112 @@ fn remove_shelf(ui: &mut Ui, model: &Library, shelf: &Shelf, t: &Tokens) -> Opti
             act = Some(Action::CloseSheet);
         }
     });
+    act
+}
+
+/// What removing books does, said before it's done.
+fn removal(
+    ui: &mut Ui,
+    model: &Library,
+    (books, shelves): (&[BookId], &[ShelfId]),
+    receipt: &Receipt,
+    t: &Tokens,
+) -> Option<Action> {
+    let n = receipt.books;
+    let one = books
+        .first()
+        .and_then(|id| model.book(*id))
+        .filter(|_| n == 1);
+    let what = match (one, shelves.len()) {
+        (Some(book), 0) => format!("“{}”", book.title.value),
+        (_, 0) => counted(n, "book", "books"),
+        (_, s) if n == 0 => counted(s, "shelf", "shelves"),
+        (_, s) => format!(
+            "{} and {}",
+            counted(n, "book", "books"),
+            counted(s, "shelf", "shelves")
+        ),
+    };
+    title(ui, &format!("Remove {what}?"), t);
+    let mut lines = Vec::new();
+    match receipt.hidden {
+        0 => {}
+        1 if n == 1 => lines.push("Its file stays in its folder; restore it from Folders.".into()),
+        h => lines.push(format!(
+            "{} stay in their folders as files; restore them from Folders.",
+            counted(h, "book", "books")
+        )),
+    }
+    match receipt.copies {
+        0 => {}
+        1 => lines.push("The copy Mareader keeps is deleted.".to_owned()),
+        c => lines.push(format!("The {c} copies Mareader keeps are deleted.")),
+    }
+    let elsewhere = receipt.hidden == 0 && receipt.copies == 0;
+    if n > 0 && elsewhere {
+        lines.push("Files stay where they are; open one again to bring it back.".into());
+    }
+    if receipt.positions > 0 || receipt.spots > 0 {
+        lines.push("Places and shelf spots are kept, should books come back.".into());
+    }
+    if !shelves.is_empty() {
+        let they = if shelves.len() == 1 { "its" } else { "their" };
+        lines.push(format!(
+            "Books on the shelves stay in the library, off {they} shelf."
+        ));
+    }
+    for line in lines {
+        ui.label(RichText::new(line).color(t.ink));
+    }
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        if primary(ui, "Remove", t.danger, t).clicked() {
+            let (books, shelves) = (books.to_vec(), shelves.to_vec());
+            act = Some(Action::Book(BookAction::Remove { books, shelves }));
+        }
+        if ui.button("Cancel").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    act
+}
+
+/// A book's own name, edited; Enter saves it.
+fn rename(ui: &mut Ui, book: &Book, t: &Tokens) -> Option<Action> {
+    title(ui, &format!("Rename “{}”", book.title.value), t);
+    let key = Id::new(("rename-book", book.id));
+    let first = ui.data(|d| d.get_temp::<String>(key).is_none());
+    let mut draft = ui.data_mut(|d| {
+        d.get_temp_mut_or_insert_with(key, || book.title.value.clone())
+            .clone()
+    });
+    let edit = egui::TextEdit::singleline(&mut draft)
+        .id(key)
+        .desired_width(f32::INFINITY)
+        .char_limit(mareader_library::NAME_MAX);
+    let resp = ui.add(edit);
+    if first {
+        super::crumbs::select_all(&resp, key, &draft);
+    }
+    ui.data_mut(|d| d.insert_temp(key, draft.clone()));
+    let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        let blank = draft.trim().is_empty();
+        let save = ui.add_enabled_ui(!blank, |ui| primary(ui, "Rename", t.accent, t));
+        if save.inner.clicked() || (entered && !blank) {
+            act = Some(Action::Book(BookAction::Rename(book.id, draft.clone())));
+        }
+        if ui.button("Cancel").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    // The next rename starts from the book's name again.
+    if act.is_some() {
+        ui.data_mut(|d| d.remove::<String>(key));
+    }
     act
 }
 

@@ -60,6 +60,8 @@ pub enum Action {
     },
     CloseSheet,
     Shelf(super::ShelfAction),
+    Pick(super::PickAction),
+    Book(super::BookAction),
 }
 
 /// The sheet over the page, if any.
@@ -68,6 +70,13 @@ pub enum Sheet {
     Find(Finding),
     Remove(SourceId),
     RemoveShelf(mareader_library::ShelfId),
+    /// Removing books, and maybe shelves, with what that does.
+    Removal {
+        books: Vec<BookId>,
+        shelves: Vec<mareader_library::ShelfId>,
+        receipt: mareader_library::Receipt,
+    },
+    RenameBook(BookId),
 }
 
 /// Finding a lost book: what it's doing, or what it found.
@@ -160,7 +169,10 @@ impl LibraryState {
                 };
                 out.push(Command::Notify(Toast::info(note)));
             }
-            Action::Scope(scope) => self.scope = scope,
+            Action::Scope(scope) => {
+                self.scope = scope;
+                self.picks.apply(super::PickAction::Clear);
+            }
             Action::FindAgain(book) => {
                 let step = Step::Ask;
                 self.folders.sheet = Some(Sheet::Find(Finding { book, step }));
@@ -196,6 +208,8 @@ impl LibraryState {
             }
             Action::CloseSheet => self.folders.sheet = None,
             Action::Shelf(action) => self.shelf_act(action, out),
+            Action::Pick(action) => self.picks.apply(action),
+            Action::Book(action) => self.book_act(action, out),
             // Dialogs need the app's files; it handles them.
             Action::ShowFolders
             | Action::PickFolder

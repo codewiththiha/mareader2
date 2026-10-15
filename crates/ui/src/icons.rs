@@ -67,6 +67,8 @@ pub enum Icon {
     Remove,
     Shelf,
     Rename,
+    Check,
+    Import,
 }
 
 impl Icon {
@@ -131,6 +133,8 @@ impl Icon {
             Self::Remove => Lucide::Trash2,
             Self::Shelf => Lucide::SquareLibrary,
             Self::Rename => Lucide::Pencil,
+            Self::Check => Lucide::Check,
+            Self::Import => Lucide::BookPlus,
         }
     }
 

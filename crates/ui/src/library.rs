@@ -1,10 +1,13 @@
 //! The library's state: the model, its files, and what the panes read.
 
+pub mod books;
 mod covers;
 pub mod crumbs;
 pub mod folders;
 mod io;
 pub(crate) mod menu;
+mod menus;
+pub mod picks;
 pub mod sheets;
 pub mod shelving;
 mod sources;
@@ -25,9 +28,11 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
+pub use books::BookAction;
 pub use covers::Covers;
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
+pub use picks::{Pick, PickAction, Picks};
 pub use shelving::{Carry, Crumb, ShelfAction};
 pub use sources::{Action, Finding, Scope, Sheet, Step};
 
@@ -50,8 +55,10 @@ pub struct LibraryState {
     status: Status,
     io: Io,
     inline: bool,
-    /// The file each pane showed when last looked at.
-    seen: BTreeMap<PaneId, PathBuf>,
+    /// The file each pane showed when last looked at, and as which book.
+    seen: BTreeMap<PaneId, (PathBuf, Option<BookId>)>,
+    /// A book opened by id: the pane that next shows its file reads it.
+    opening: Option<(PathBuf, BookId)>,
     /// Opens held until the library has loaded.
     waiting: Vec<OpenRequest>,
     /// When the last write left, in egui seconds.
@@ -64,6 +71,9 @@ pub struct LibraryState {
     /// The shelf open on the page; none is the top level.
     at: Option<ShelfId>,
     renaming: Option<ShelfId>,
+    picks: Picks,
+    /// The shelf under files dragged in from outside, if any.
+    pub(crate) file_target: Option<ShelfId>,
 }
 
 impl Default for LibraryState {
@@ -75,6 +85,7 @@ impl Default for LibraryState {
             io: Io::default(),
             inline: false,
             seen: BTreeMap::new(),
+            opening: None,
             waiting: Vec::new(),
             wrote: f64::NEG_INFINITY,
             covers: Covers::default(),
@@ -83,6 +94,8 @@ impl Default for LibraryState {
             scope: Scope::All,
             at: None,
             renaming: None,
+            picks: Picks::default(),
+            file_target: None,
         }
     }
 }
@@ -110,6 +123,18 @@ impl LibraryState {
     /// The books, and their covers to draw them with.
     pub fn parts(&mut self) -> (&Library, &mut Covers) {
         (&self.model, &mut self.covers)
+    }
+
+    /// The books and shelves picked on the page.
+    pub fn picks(&self) -> &Picks {
+        &self.picks
+    }
+
+    /// Escape clears a selection first; true if it did.
+    pub fn escape(&mut self) -> bool {
+        let had = !self.picks.is_empty();
+        self.picks.apply(PickAction::Clear);
+        had
     }
 
     pub fn covers(&self) -> &Covers {
@@ -162,7 +187,7 @@ impl LibraryState {
                         title: probe.title,
                         author: probe.author,
                     };
-                    self.model.record_open(opened, wall_ms());
+                    self.model.record_open_as(opened, wall_ms(), probe.book);
                 }
                 News::WriteFailed(e) => out.push(Command::Notify(Toast::error(e))),
                 News::Rescanned(done) => self.rescanned(*done, now, out),
@@ -172,6 +197,7 @@ impl LibraryState {
                     folder,
                     found,
                 } => self.sought_found(book, &folder, found, out),
+                News::Imported(done) => self.imported(*done, out),
             }
         }
     }
@@ -181,7 +207,9 @@ impl LibraryState {
         let Source::Path(path) = &request.source else {
             return Some(request);
         };
-        if request.page != 0 || request.place.is_some() {
+        // Opened by id, or with a place already: nothing to fill in.
+        let by_id = self.opening.as_ref().is_some_and(|(p, _)| p == path);
+        if request.page != 0 || request.place.is_some() || by_id {
             return Some(request);
         }
         if self.status == Status::Loading {
@@ -212,21 +240,27 @@ impl LibraryState {
                 self.seen.remove(&pane);
                 continue;
             };
-            if self.seen.get(&pane) != Some(&path) {
+            // Opened by id: this pane now reads as that book, a twin perhaps.
+            let by_id = self.opening.take_if(|(p, _)| *p == path).map(|(_, id)| id);
+            let shown = self.seen.get(&pane);
+            let reader = shown.and_then(|(_, id)| *id);
+            if shown.is_none_or(|(p, _)| *p != path) || by_id.is_some() {
                 let format = format_of(&path, &reading.document);
                 let title = title_of(&reading.document, &path);
                 let author = author_of(&reading.document);
-                self.seen.insert(pane, path.clone());
-                self.io.send(Job::Measure(Probe {
+                self.seen.insert(pane, (path.clone(), by_id));
+                self.io.send(Job::Measure(Box::new(Probe {
                     path,
                     format,
                     title,
                     author,
-                }));
+                    book: by_id,
+                })));
                 measuring = true;
                 continue;
             }
-            let Some(id) = self.model.book_at(&path) else {
+            let reader = reader.filter(|id| self.model.book(*id).is_some());
+            let Some(id) = reader.or_else(|| self.model.book_at(&path)) else {
                 continue;
             };
             let position = Position {
@@ -265,7 +299,7 @@ impl LibraryState {
     }
 
     /// Where `id`'s file opens, on its page; a toast if it's gone.
-    pub fn open(&self, id: BookId) -> Result<OpenRequest, Toast> {
+    pub fn open(&mut self, id: BookId) -> Result<OpenRequest, Toast> {
         let book = self
             .model
             .book(id)
@@ -275,6 +309,9 @@ impl LibraryState {
             return Err(Toast::error(format!("“{title}” isn't where it was.")));
         };
         let position = self.model.position(id);
+        // Read as this book: a twin keeps its own place.
+        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.opening = Some((real, id));
         Ok(OpenRequest {
             page: position.map_or(0, |p| p.page),
             place: position
