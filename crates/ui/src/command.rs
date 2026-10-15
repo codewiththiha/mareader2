@@ -33,6 +33,8 @@ pub enum Command {
     OpenBook(BookId),
     /// The library page's layout and order.
     SetLibraryView(mareader_library::View),
+    /// Folders, scopes and finding lost books.
+    Library(crate::library::Action),
     /// The Search buttons: the find bar on, or off if open.
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).

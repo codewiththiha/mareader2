@@ -420,6 +420,11 @@ impl MareaderApp {
                 "show" => self.go(Route::Library),
                 _ => self.go(Route::Reader),
             },
+            // A folder read in place, as if added from the page.
+            "folder" => {
+                let root = std::path::PathBuf::from(value);
+                self.queue(Command::Library(library::Action::AddFolder(root)));
+            }
             "layout" => {
                 self.settings.library.layout = match value {
                     "list" => mareader_library::Layout::List,
@@ -576,7 +581,18 @@ impl MareaderApp {
                 "settings" => self.queue(Command::ShowSettings),
                 "menu" => self.queue(Command::ShowViewMenu),
                 "find" => self.queue(Command::ShowFind),
-                _ => return Err("open: appearance, settings, menu or find".into()),
+                "folders" => self.queue(Command::Library(library::Action::ShowFolders)),
+                // The first missing book's find-again sheet.
+                "find_again" => {
+                    let lost = self.library.model().books().find(|b| b.missing());
+                    let lost = lost.ok_or("open=find_again: no missing book")?.id;
+                    self.queue(Command::Library(library::Action::FindAgain(lost)));
+                }
+                _ => {
+                    return Err(
+                        "open: appearance, settings, menu, find, folders or find_again".into(),
+                    );
+                }
             },
             "settings" => {
                 let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
@@ -762,15 +778,52 @@ impl MareaderApp {
                 self.settings.library = view;
                 self.settings.library.sanitize();
             }
+            // A lost book asks where it went instead of failing.
+            Command::OpenBook(id) if self.library.model().book(id).is_some_and(|b| b.missing()) => {
+                self.apply(ctx, Command::Library(library::Action::FindAgain(id)));
+            }
             Command::OpenBook(id) => match self.library.open(id) {
                 Ok(request) => self.apply(ctx, Command::Open(request)),
                 Err(toast) => self.toasts.push(toast),
             },
+            Command::Library(action) => self.library_action(ctx, action),
         }
     }
 }
 
 impl MareaderApp {
+    /// Library work; its dialogs need the app's files.
+    fn library_action(&mut self, ctx: &Context, action: library::Action) {
+        use library::Action as A;
+        match action {
+            A::ShowFolders => {
+                egui::Popup::open_id(ctx, egui::Id::new(library::folders::FOLDERS_POPOVER));
+            }
+            A::PickFolder => {
+                let add = |root| Command::Library(A::AddFolder(root));
+                self.files.pick_folder(ctx, "Read a folder of books", add);
+            }
+            A::PickSearchFolder(book) => {
+                let seek = move |folder| Command::Library(A::Seek { book, folder });
+                self.files.pick_folder(ctx, "Search a folder", seek);
+            }
+            A::PickFile(book) => {
+                let Some(format) = self.library.model().book(book).map(|b| b.format) else {
+                    return;
+                };
+                let relink = move |path| Command::Library(A::Relink { book, path });
+                self.files.pick_book(ctx, format.extensions(), relink);
+            }
+            action => {
+                let mut out = Commands::new();
+                self.library.act(action, ctx.input(|i| i.time), &mut out);
+                for command in out {
+                    self.apply(ctx, command);
+                }
+            }
+        }
+    }
+
     /// Splits `pane`; a refusal is explained in a toast.
     fn split(&mut self, ctx: &Context, pane: PaneId, axis: SplitAxis) -> Option<PaneId> {
         let r = ctx.content_rect();
@@ -1094,6 +1147,7 @@ impl eframe::App for MareaderApp {
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
         self.library.receive(&ctx, &mut commands);
+        self.library.tick(&ctx);
         // Inline, the measure lands next frame; book it.
         if self.library.observe(&self.documents, &self.tree.panes()) {
             ctx.request_repaint();
@@ -1106,7 +1160,7 @@ impl eframe::App for MareaderApp {
         let drop_target = self.drops(&ctx);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        let modal = self.settings_window.is_open();
+        let modal = self.settings_window.is_open() || self.library.sheet().is_some();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page goes back to what's being read, and only that.
         if free && route == Route::Library {
@@ -1193,6 +1247,7 @@ impl eframe::App for MareaderApp {
             });
         });
         self.library.end_frame(&ctx);
+        library::sheets::show(&ctx, &self.library, &mut commands);
         let backdrop = self.backdrop(&ctx, &view);
         self.page_bars(&ctx, &backdrop, &mut commands);
         let top = self.titlebar.band_bottom(&ctx);

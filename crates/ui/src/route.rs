@@ -40,6 +40,7 @@ fn reads(command: &Command) -> bool {
         C::SetIndependence(_) | C::SetInkContrast(_) => true,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
+        C::Library(_) => false,
         C::Open(_) | C::ShowOpenDialog { .. } | C::ShowViewMenu => false,
         // The window's look, chrome and notices.
         C::ShowAppearance | C::SetAppearance(_) => false,
