@@ -93,12 +93,10 @@ appearance effects to that same pass.
 
 ## Open questions for the owner
 
-- **Where reading state is written (M5).** `docs/library.md` keeps the
-  library in one serde file. A position is saved on every page turn, and
-  with ten thousand books that file runs to megabytes rewritten each time.
-  Proposed: the library file holds the cold facts and each book's position
-  and marks sit in a small `state/<book-id>.json`, as the sync layout has
-  them. Not changed until the owner agrees.
+- **Where reading state is written (M5).** Answered (owner, 2026-10-15):
+  the library file holds the cold facts and each book's position and marks
+  sit in `state/<book-id>.json`, as the sync layout has them
+  (`docs/library.md` § Persistence).
 
 - **Closing M2.** Answered: finish all seven. Slices 8 to 11 shipped page
   chrome, mixed sizes, the vertical view, tiles, capped caches, the find key
