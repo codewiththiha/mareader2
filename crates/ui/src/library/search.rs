@@ -9,7 +9,8 @@ use egui::{
     StrokeKind, TextFormat, Ui, pos2, vec2,
 };
 use mareader_library::{
-    Book, BookId, Home, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target, View,
+    Book, BookId, Home, Item, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target,
+    View,
 };
 
 use super::folders::in_scope;
@@ -94,8 +95,8 @@ struct Reveal {
 /// What the page lists, kept until the library or the page changes.
 #[derive(Debug, Default)]
 pub struct Listing {
-    pub shelves: Vec<ShelfId>,
-    pub books: Vec<BookId>,
+    /// Shelves and books in the order shown.
+    pub items: Vec<Item>,
     /// Books before the search: the 12 in "3 of 12 books".
     pub total: usize,
     /// Matches hidden by the shelf or filter, when none show.
@@ -154,6 +155,16 @@ impl LibraryState {
 
     fn list(&self, view: &View) -> Listing {
         let (model, query) = (&self.model, &self.search.query);
+        // Unsearched, the reader's own order mixes shelves among books.
+        if self.arranging(view) {
+            let items = model.arranged(self.at, view.home);
+            let total = items.iter().filter(|i| matches!(i, Item::Book(_))).count();
+            return Listing {
+                items,
+                total,
+                elsewhere: 0,
+            };
+        }
         let pool = self.pool(view);
         let books: Vec<BookId> = (pool.iter())
             .filter(|b| query.keeps(model, b))
@@ -166,9 +177,9 @@ impl LibraryState {
             (Scope::All, at) => model.children(at),
             _ => Vec::new(),
         };
-        let shelves: Vec<ShelfId> = (shelves.into_iter())
+        let shelves: Vec<Item> = (shelves.into_iter())
             .filter(|s| query.keeps_name(&s.name.value))
-            .map(|s| s.id)
+            .map(|s| Item::Shelf(s.id))
             .collect();
         let narrowed = self.at.is_some() || self.scope != Scope::All;
         let none = books.is_empty() && shelves.is_empty();
@@ -177,11 +188,19 @@ impl LibraryState {
             false => 0,
         };
         Listing {
-            shelves,
-            books,
+            items: shelves
+                .into_iter()
+                .chain(books.into_iter().map(Item::Book))
+                .collect(),
             total: pool.len(),
             elsewhere,
         }
+    }
+
+    /// Whether the page shows a level in the reader's own order.
+    pub fn arranging(&self, view: &View) -> bool {
+        let plain = self.scope == Scope::All && self.search.query.is_empty();
+        plain && view.sort == SortKey::Arranged
     }
 
     /// The books the page would list unsearched, sorted.
@@ -189,9 +208,8 @@ impl LibraryState {
         let model = &self.model;
         if let Some(shelf) = self.at {
             let own = model.shelf_books(shelf);
-            return match (view.sort, view.ascending) {
-                (SortKey::Manual, true) => own,
-                (SortKey::Manual, false) => own.into_iter().rev().collect(),
+            return match view.sort {
+                SortKey::Arranged => own,
                 _ => view.sort(own.into_iter()),
             };
         }
@@ -200,6 +218,14 @@ impl LibraryState {
             return view.sort(model.books().filter(|b| in_scope(b, scope)));
         }
         // A search at the top looks through every book, shelved or not.
+        if view.sort == SortKey::Arranged {
+            let top = model.arranged(None, Home::Everything).into_iter();
+            let book = |i| match i {
+                Item::Book(id) => model.book(id),
+                Item::Shelf(_) => None,
+            };
+            return top.filter_map(book).collect();
+        }
         match (view.home, self.search.query.is_empty()) {
             (Home::Unshelved, true) => {
                 let shelved = model.shelved();

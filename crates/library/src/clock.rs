@@ -99,6 +99,18 @@ pub struct Field<T> {
     pub at: Stamp,
 }
 
+/// Never written: any real write wins over it.
+impl<T: Default> Default for Field<T> {
+    fn default() -> Self {
+        let never = Stamp {
+            ms: 0,
+            counter: 0,
+            device: DeviceId(0),
+        };
+        Self::new(T::default(), never)
+    }
+}
+
 impl<T> Field<T> {
     pub fn new(value: T, at: Stamp) -> Self {
         Self { value, at }

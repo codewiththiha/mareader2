@@ -69,6 +69,8 @@ pub struct Library {
     pub(crate) states_dirty: BTreeSet<BookId>,
     /// Changes whenever a book, shelf or folder does; never repeats.
     revision: u64,
+    /// The top level's last key, once looked up; see `next_key`.
+    pub(crate) home_end: Option<Option<String>>,
 }
 
 /// Unique across libraries, so a loaded one never reuses a revision.
@@ -95,6 +97,7 @@ impl Library {
             at: HashMap::new(),
             states_dirty: BTreeSet::new(),
             revision: next_revision(),
+            home_end: None,
         };
         library.index();
         library
@@ -207,6 +210,11 @@ impl Library {
     ) -> BookId {
         let id = BookId::original(opened.measure.content);
         let last = if opening { wall_ms } else { 0 };
+        // A new book joins the top level at the end.
+        let key = match self.books.contains_key(&id) {
+            true => String::new(),
+            false => self.next_key(None),
+        };
         let book = self.books.entry(id).or_insert_with(|| Book {
             id,
             content: opened.measure.content,
@@ -215,6 +223,7 @@ impl Library {
             author: Field::new(opened.author.clone(), at),
             added: wall_ms,
             opened: Field::new(last, at),
+            key: Field::new(key, at),
             locations: Vec::new(),
             removed: None,
             restored: None,

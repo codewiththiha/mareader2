@@ -4,12 +4,8 @@ use std::collections::BTreeSet;
 
 use mareader_library::{BookId, ShelfId};
 
-/// A card picked on the page.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Pick {
-    Shelf(ShelfId),
-    Book(BookId),
-}
+/// A card picked on the page: the library's own shelf-or-book item.
+pub use mareader_library::Item as Pick;
 
 /// Picking asked for by clicks, keys and the selection bar.
 #[derive(Clone, Debug, PartialEq, Eq)]

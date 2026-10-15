@@ -125,6 +125,9 @@ pub struct Book {
     pub added: u64,
     /// When it was last opened, in wall milliseconds.
     pub opened: Field<u64>,
+    /// Its place on the top level, among shelves and books; see `arrange`.
+    #[serde(default)]
+    pub key: Field<String>,
     /// Newest first; the first present one is opened. Local, not synced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locations: Vec<Location>,

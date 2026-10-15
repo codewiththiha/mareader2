@@ -32,22 +32,23 @@ pub enum CoverFit {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SortKey {
+    /// The reader's own order, shelves and books mixed; set by dragging.
     #[default]
+    #[serde(alias = "manual")]
+    Arranged,
     LastRead,
     Title,
     Author,
     Added,
-    /// A shelf's own order, set by dragging; elsewhere, date added.
-    Manual,
 }
 
 impl SortKey {
     pub const ALL: [Self; 5] = [
+        Self::Arranged,
         Self::LastRead,
         Self::Title,
         Self::Author,
         Self::Added,
-        Self::Manual,
     ];
 
     pub fn label(self) -> &'static str {
@@ -56,21 +57,21 @@ impl SortKey {
             Self::Title => "Title",
             Self::Author => "Author",
             Self::Added => "Date added",
-            Self::Manual => "Manual",
+            Self::Arranged => "Arranged",
         }
     }
 
     /// Names first from A, dates newest first.
     pub fn natural_ascending(self) -> bool {
-        matches!(self, Self::Title | Self::Author | Self::Manual)
+        matches!(self, Self::Title | Self::Author | Self::Arranged)
     }
 
-    /// What each direction reads as, ascending first.
-    pub fn directions(self) -> [&'static str; 2] {
+    /// What each direction reads as, ascending first; Arranged has one.
+    pub fn directions(self) -> Option<[&'static str; 2]> {
         match self {
-            Self::Title | Self::Author => ["A–Z", "Z–A"],
-            Self::LastRead | Self::Added => ["Oldest first", "Newest first"],
-            Self::Manual => ["First to last", "Last to first"],
+            Self::Title | Self::Author => Some(["A–Z", "Z–A"]),
+            Self::LastRead | Self::Added => Some(["Oldest first", "Newest first"]),
+            Self::Arranged => None,
         }
     }
 }
@@ -105,8 +106,8 @@ impl Default for View {
             layout: Layout::Grid,
             columns: None,
             cover: CoverFit::Fit,
-            sort: SortKey::LastRead,
-            ascending: SortKey::LastRead.natural_ascending(),
+            sort: SortKey::Arranged,
+            ascending: true,
             home: Home::Everything,
         }
     }
@@ -115,12 +116,14 @@ impl Default for View {
 impl View {
     pub fn sanitize(&mut self) {
         self.columns = self.columns.map(|n| n.clamp(COLUMNS_MIN, COLUMNS_MAX));
+        self.ascending |= self.sort == SortKey::Arranged;
     }
 
     /// A new key starts in its natural direction; the same key flips.
     pub fn set_sort(&mut self, key: SortKey) {
         if self.sort == key {
-            self.ascending = !self.ascending;
+            // Arranged has no other way round.
+            self.ascending = !self.ascending || key == SortKey::Arranged;
         } else {
             self.sort = key;
             self.ascending = key.natural_ascending();
@@ -138,7 +141,7 @@ impl View {
         let direct = |o: Ordering| if self.ascending { o } else { o.reverse() };
         let first = match self.sort {
             SortKey::LastRead => direct(a.opened.value.cmp(&b.opened.value)),
-            SortKey::Added | SortKey::Manual => direct(a.added.cmp(&b.added)),
+            SortKey::Added | SortKey::Arranged => direct(a.added.cmp(&b.added)),
             SortKey::Title => direct(natural(&a.title.value, &b.title.value)),
             // No author sorts last whichever way the rest run.
             SortKey::Author => match (author(a), author(b)) {

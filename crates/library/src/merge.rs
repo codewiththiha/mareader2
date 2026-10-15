@@ -19,6 +19,7 @@ impl Merge for Book {
         self.title.merge(other.title);
         self.author.merge(other.author);
         self.opened.merge(other.opened);
+        self.key.merge(other.key);
         self.added = self.added.min(other.added);
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
@@ -31,6 +32,7 @@ impl Merge for Shelf {
     fn merge(&mut self, other: Self) {
         self.name.merge(other.name);
         self.parent.merge(other.parent);
+        self.key.merge(other.key);
         self.added = self.added.min(other.added);
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
@@ -88,6 +90,7 @@ mod tests {
 
     fn book(rng: &mut Rng) -> Book {
         let (title, author, opened) = (rng.stamp(), rng.stamp(), rng.stamp());
+        let key = rng.stamp();
         Book {
             id: BookId(1),
             content: ContentId(u128::from(opened.ms)),
@@ -99,6 +102,7 @@ mod tests {
             author: Field::new(Some(word(author)), author),
             added: rng.next(5),
             opened: Field::new(opened.ms, opened),
+            key: Field::new(word(key), key),
             locations: Vec::new(),
             removed: rng.maybe(),
             restored: rng.maybe(),
@@ -107,12 +111,13 @@ mod tests {
     }
 
     fn shelf(rng: &mut Rng) -> Shelf {
-        let (name, parent) = (rng.stamp(), rng.stamp());
+        let (name, parent, key) = (rng.stamp(), rng.stamp(), rng.stamp());
         Shelf {
             id: ShelfId(1),
             name: Field::new(word(name), name),
             parent: Field::new(Some(ShelfId(u128::from(parent.ms))), parent),
             added: rng.next(5),
+            key: Field::new(word(key), key),
             removed: rng.maybe(),
             restored: rng.maybe(),
         }

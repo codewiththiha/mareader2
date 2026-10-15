@@ -10,6 +10,7 @@
     clippy::indexing_slicing
 )]
 
+mod arrange;
 mod book;
 mod clock;
 pub mod disk;
@@ -27,6 +28,7 @@ pub mod store;
 mod tracked;
 mod view;
 
+pub use arrange::Item;
 pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
 pub use id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
@@ -41,6 +43,8 @@ pub use sources::{
 };
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 
+#[cfg(test)]
+mod arrange_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]

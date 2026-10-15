@@ -4,11 +4,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::hash::{BuildHasher, RandomState};
 use std::path::PathBuf;
 
+use crate::arrange::Item;
 use crate::book::{Book, Origin};
 use crate::clock::{Field, Stamp};
 use crate::id::{BookId, SourceId};
 use crate::library::{Library, Opened};
 use crate::shelves::{Membership, clean};
+use crate::view::Home;
 
 /// What removing some books will do, told before it's done.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -199,12 +201,16 @@ impl Library {
             ..original
         };
         self.books.insert(twin, book);
-        // Right behind the book pointed at, on each of its shelves.
-        for shelf in self.shelves_of(id) {
-            let order = self.shelf_books(shelf);
-            let next = order.iter().skip_while(|b| b.id != id).nth(1);
-            let before = next.map(|b| b.id);
-            self.place_before(twin, shelf, before, wall_ms);
+        // Right behind the book pointed at, on top and on each of its shelves.
+        let shelves = self.shelves_of(id).into_iter().map(Some);
+        for level in std::iter::once(None).chain(shelves) {
+            if let Some(shelf) = level {
+                self.file(twin, shelf, wall_ms);
+            }
+            let order = self.arranged(level, Home::Everything);
+            let others = order.into_iter().filter(|i| *i != Item::Book(twin));
+            let before = others.skip_while(|i| *i != Item::Book(id)).nth(1);
+            self.arrange(level, &[Item::Book(twin)], before, wall_ms);
         }
         self.bump();
         Some(twin)
