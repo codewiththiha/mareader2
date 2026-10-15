@@ -1,5 +1,6 @@
 //! The open dialog and dropped files; results arrive later as commands.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -52,6 +53,55 @@ impl Files {
         }
     }
 
+    /// Shows the folder dialog; `then` turns the pick into a command.
+    pub fn pick_folder(
+        &self,
+        ctx: &Context,
+        title: &str,
+        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+    ) {
+        let title = title.to_owned();
+        let make = move || rfd::AsyncFileDialog::new().set_title(title);
+        self.pick_path(ctx, make, true, then);
+    }
+
+    /// Shows the file dialog for one book's `extensions`.
+    pub fn pick_book(
+        &self,
+        ctx: &Context,
+        extensions: &'static [&'static str],
+        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+    ) {
+        let make = move || {
+            books()
+                .set_title("Choose the book's file")
+                .add_filter("This book's format", extensions)
+        };
+        self.pick_path(ctx, make, false, then);
+    }
+
+    fn pick_path(
+        &self,
+        ctx: &Context,
+        make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
+        folder: bool,
+        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+    ) {
+        if self.picking.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let (files, ctx) = (self.clone(), ctx.clone());
+        let done = move |path: Option<PathBuf>| {
+            files.picking.store(false, Ordering::Release);
+            if let Some(path) = path {
+                files.deliver(&ctx, then(path));
+            }
+        };
+        if !dialog::run_path(make, folder, done) {
+            self.picking.store(false, Ordering::Release);
+        }
+    }
+
     /// Opens a dropped file in `pane`.
     pub fn dropped(&self, ctx: &Context, file: &DroppedFileHandle, pane: PaneId) {
         let place = move |request: OpenRequest| OpenRequest {
@@ -83,6 +133,25 @@ mod dialog {
             .is_ok()
     }
 
+    /// A file or folder path, picked on a helper thread.
+    pub(super) fn run_path(
+        make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
+        folder: bool,
+        done: impl FnOnce(Option<PathBuf>) + Send + 'static,
+    ) -> bool {
+        std::thread::Builder::new()
+            .name("mareader-path-dialog".into())
+            .spawn(move || {
+                let dialog = make();
+                let picked = match folder {
+                    true => pollster::block_on(dialog.pick_folder()),
+                    false => pollster::block_on(dialog.pick_file()),
+                };
+                done(picked.map(|f| f.path().to_path_buf()));
+            })
+            .is_ok()
+    }
+
     /// A desktop drop has a real path; a worker reads it.
     pub(super) fn read_drop(
         files: &Files,
@@ -110,6 +179,15 @@ mod dialog {
             done(request);
         });
         true
+    }
+
+    /// Browsers hide paths, so folders and relinks can't be picked.
+    pub(super) fn run_path(
+        _make: impl FnOnce() -> rfd::AsyncFileDialog,
+        _folder: bool,
+        _done: impl FnOnce(Option<PathBuf>),
+    ) -> bool {
+        false
     }
 
     pub(super) fn read_drop(

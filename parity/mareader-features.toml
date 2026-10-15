@@ -378,7 +378,19 @@ title = "Add folders read in place; they rescan on launch and on window focus"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::a_folder_brings_in_its_books_where_they_are_and_says_how_many",
+  "crates/ui/tests/library.rs::coming_back_to_the_window_finds_new_files_and_notices_gone_ones",
+  "crates/ui/tests/library.rs::removing_a_folder_asks_first_and_adding_it_again_restores_its_books",
+  "crates/library/src/source_tests.rs::a_folder_takes_its_known_files_and_never_nests",
+  "crates/library/src/source_tests.rs::a_scan_adds_unread_books_named_by_their_files_once",
+  "crates/library/src/source_tests.rs::what_a_folder_counts_and_hides_stays_out_and_an_offline_one_changes_nothing",
+  "crates/library/src/source_tests.rs::a_walk_keeps_books_and_skips_hidden_litter_and_deep_folders",
+  "crates/library/src/source_tests.rs::a_walk_never_follows_links",
+  "crates/session/src/cover.rs::a_file_names_its_title_and_author_without_being_laid_out",
+]
+notes = "Formats, size floor and watching per folder; nested folders refused or taken in; capped walks; half-written files wait (M5 slice 3). Browsing a folder's subfolders is library.source-tree"
 reference = ["crates/library-core/src/folder.rs", "crates/library-core/src/scan.rs", "crates/library-core/src/ledger.rs"]
 
 [[feature]]
@@ -397,9 +409,14 @@ area = "C"
 tier = "P0"
 milestone = "M5"
 status = "partial"
-evidence = ["crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place"]
+evidence = [
+  "crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place",
+  "crates/library/src/source_tests.rs::a_moved_file_is_followed_and_a_second_copy_is_a_second_place",
+  "crates/library/src/source_tests.rs::a_file_edited_in_place_keeps_its_book",
+  "crates/ui/tests/library.rs::a_file_moved_within_a_folder_keeps_its_book_and_place",
+]
 reference = ["crates/library-core/src/hash.rs", "crates/library-core/src/ledger.rs"]
-notes = "A moved file opened again is the same book with its position; scans that follow moves unopened, and shelves and marks, arrive with sources, shelves and M6"
+notes = "Opens and folder scans follow moves and in-place edits with the position (M5 slice 3); shelves and marks are kept once they exist (slice 4, M6)"
 
 [[feature]]
 id = "library.missing"
@@ -407,10 +424,17 @@ title = "A vanished file stays on its shelf as missing, with find-again (pick a 
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "partial"
-evidence = ["crates/ui/tests/library.rs::a_book_whose_file_is_gone_says_so_instead_of_opening"]
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::a_missing_book_asks_where_it_went_instead_of_opening",
+  "crates/ui/tests/library.rs::a_lost_book_is_found_again_by_choosing_its_file",
+  "crates/ui/tests/library.rs::searching_a_folder_finds_a_lost_book_under_any_name",
+  "crates/ui/tests/library.rs::a_namesake_with_other_content_is_offered_not_taken",
+  "crates/library/src/source_tests.rs::relinking_heals_the_same_content_and_asks_about_other",
+  "crates/library/src/source_tests.rs::a_lost_file_is_found_again_by_content_under_any_name",
+]
 reference = ["crates/library-runtime/src/features/library/relink_modal.rs"]
-notes = "Missing books stay listed, faded, and say so when clicked; shelves and find-again arrive with slices 3 and 4"
+notes = "Missing books stay listed, faded (Offline when the drive is gone); clicking one opens find-again: choose the file or search a folder (M5 slice 3). Shelf membership is kept once shelves exist"
 
 [[feature]]
 id = "library.shelves"

@@ -90,17 +90,16 @@ appearance effects to that same pass.
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | Records: every opened file becomes a book (moves and in-place edits keep it), positions kept per book in `state/<id>.json`, any open resumes, the library page lists books last opened first, missing books marked | **done** | open a book, turn pages, open another, click Library in the title bar, click the first; quit and relaunch; `books=6 library=show` in shots |
-| 2 | Grid and list, columns, sort, covers on a worker | **done** | click Library; View options (beside Open…): grid or list, columns, Fit or Crop, sort and direction; `books=10 library=show layout=list sort=title` in shots |
-| 3 | Sources: read-in-place folders, scans, following moves, missing books and find-again | next | |
-| 4 | Shelves | | |
+| 2 | Grid and list, columns, sort, covers on a worker | **done** | click Library; View options (the title bar's right-hand button): grid or list, columns, Fit or Crop, sort and direction; `books=10 library=show layout=list sort=title` in shots |
+| 3 | Sources: read-in-place folders, scans, following moves, missing books and find-again | **done** | click Library, Folders, Add folder…; add a file there, switch away and back; rename a book out of it and click it: Choose the file… or Search a folder…; `library=show folder=crates/epub/tests/books open=folders` in shots |
+| 4 | Shelves | next | |
 | 5 | Selection, menus, removal receipt, restore, twins, store-copy import | | |
 | 6 | Search | | |
 | 7 | Drag to panes, the library-click setting, import progress, mareader import | | |
 
 ## Next
 
-1. **M5 slice 3:** sources: folders read in place, scans, moves and
-   find-again.
+1. **M5 slice 4:** shelves and the breadcrumb.
 2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; sort keys come with shelves.
@@ -168,3 +167,4 @@ appearance effects to that same pass.
 | 2026-10-15 | M5 slice 1: library records. New `crates/library` (L1): ids, hybrid-clock stamps on every synced field, books with locations and tombstones, and pure rules for recording an open (a move keeps the book, an edit in place keeps it, a path holds one book) and a position. Files are `library.json` plus `state/<id>.json`, written whole and atomically on a worker at most every half second; newer or unreadable files are never overwritten. The UI records each pane's open file and position, resumes any open where it was left, and shows a Library page from the title bar button (`docs/library.md` § Slice 1: records and resume) |
 | 2026-10-15 | M5 slice 2: grid and list. The library page shows a grid of A4 covers (Fit or Crop) or a list with thumbnails, Auto or 2 to 10 columns, sorted by last read, title, author or date added either way, with names compared naturally (Volume 2 before Volume 10) and blank authors last. The view lives in settings (`library`), changed from a View options menu. Covers come from a PDF's first page, an EPUB's cover or opening picture, or converted text, read on one worker that always takes the first still-wanted ask, cached at 512 px in the platform cache, uploaded a few per frame within 64 MiB and faded in; books without art get a drawn cover. EPUB and PDF authors are now recorded. The library keeps its own title bar pin. List nits fixed: the header lines up with the rows, and a missing row fades its time |
 | 2026-10-15 | Owner request: the library is its own route. A `Route` (reader or library) decides, from one exhaustive table, which commands each takes; the keymap, bar, rail and lights read it. The library draws no sidebar and its bar keeps only View options (moved from the page header), Appearance without Page texture, Pin, and a pressed Library button back to reading while a pane is open. Settings, Search, the splits and the ☰ menu stay on the reader's bar, and their keys do nothing in the library. The library pin's settings switch is gone; the bar's Pin sets it, as mareader's (`docs/library.md` § Routes) |
+| 2026-10-15 | M5 slice 3: folders read in place. Folders (beside Open…) adds a folder whose books stay where they are, with formats, a size floor and watching per folder; nested folders are refused or taken in. Rescans run on launch, when the window comes back and on request: known files are re-checked, unchanged ones aren't hashed again, half-written ones wait, and walks are capped. Scans follow moves and edits in place, bring removed books back with their places, and add new ones unopened with titles from the file. Missing books read Offline when their drive is gone; chips scope the page to Missing or one folder. Clicking a missing book opens find-again: choose its file, or search a folder for the same content under any name; a namesake with other content is offered, never taken silently. Removing a folder asks first and leaves its files alone (`docs/library.md` § Slice 3) |

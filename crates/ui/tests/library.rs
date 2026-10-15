@@ -1,12 +1,14 @@
 //! The library: opens are recorded, positions kept, books reopened.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_library::{CoverFit, Format, Layout, Library, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::library::Action;
 
 /// Canonical, as the library records it; opens take any spelling.
 fn fixture(name: &str) -> PathBuf {
@@ -146,7 +148,7 @@ fn escape_leaves_the_library_only_for_something_to_read() {
 }
 
 #[test]
-fn a_book_whose_file_is_gone_says_so_instead_of_opening() {
+fn a_missing_book_asks_where_it_went_instead_of_opening() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     assert!(h.query_by_label("4 books").is_some());
     let missing = library(&h).books().find(|b| b.missing()).unwrap();
@@ -154,12 +156,15 @@ fn a_book_whose_file_is_gone_says_so_instead_of_opening() {
     h.get_by_label(&title).click();
     h.run();
     assert!(h.state().library_showing());
-    let toast = h
-        .state()
-        .toast()
-        .map(|t| t.message.clone())
-        .unwrap_or_default();
-    assert!(toast.contains("isn't where it was"), "{toast}");
+    assert!(h.query_by_label(&format!("Find “{title}”")).is_some());
+    assert!(h.query_by_label("Choose the file…").is_some());
+    assert!(h.query_by_label("Search a folder…").is_some());
+    // Escape closes the sheet, not the library; nothing changed.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("Choose the file…").is_none());
+    assert!(h.state().library_showing());
+    assert!(library(&h).books().any(|b| b.missing()));
 }
 
 #[test]
@@ -386,4 +391,199 @@ fn library_show_after_an_open_lands_in_the_library() {
     let h = reader(&[("pdf", "sample:5"), ("library", "show")]);
     assert!(h.state().library_showing());
     assert!(h.query_by_label("Back to reading").is_some());
+}
+
+const NOTES: &[u8] = b"---\ntitle: Field Notes\nauthor: A. Walker\n---\n\n# One\n\nText.\n";
+
+fn raven_bytes() -> Vec<u8> {
+    std::fs::read(raven()).unwrap()
+}
+
+/// Writes a file an hour old, so no scan waits for it to settle.
+fn put(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let path = dir.join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, bytes).unwrap();
+    let old = SystemTime::now() - Duration::from_secs(3_600);
+    let file = std::fs::File::options().write(true).open(&path).unwrap();
+    file.set_modified(old).unwrap();
+    path.canonicalize().unwrap()
+}
+
+fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
+    h.state_mut().queue(Command::Library(action));
+    h.run();
+    // Inline disk work answers on the next frame.
+    h.run();
+}
+
+fn toast(h: &Harness<'static, MareaderApp>) -> String {
+    let toast = h.state().toast().map(|t| t.message.clone());
+    toast.unwrap_or_default()
+}
+
+fn moved(from: &Path, to: &Path) -> PathBuf {
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::rename(from, to).unwrap();
+    to.canonicalize().unwrap()
+}
+
+#[test]
+fn a_folder_brings_in_its_books_where_they_are_and_says_how_many() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Books");
+    put(&root, "raven.epub", &raven_bytes());
+    put(&root, "notes/notes.md", NOTES);
+    put(&root, "letter.docx", b"not a book");
+    put(&root, ".trash/old.md", b"# Old");
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(root.clone()));
+    assert_eq!(toast(&h), "Added 2 books from “Books”.", "{}", state(&h));
+    let titles: Vec<String> = library(&h).books().map(|b| b.title.value.clone()).collect();
+    assert!(titles.contains(&"Field Notes".to_owned()), "{titles:?}");
+    assert!(titles.iter().any(|t| t.contains("Raven")), "{titles:?}");
+    // Found, not opened; nothing was copied or moved.
+    assert!(library(&h).books().all(|b| b.opened.value == 0));
+    assert!(root.join("raven.epub").is_file());
+    assert!(h.query_by_label("Books · 2").is_some(), "the folder's chip");
+    act(&mut h, Action::AddFolder(root.join("notes")));
+    assert!(toast(&h).contains("already read as part of “Books”"));
+}
+
+#[test]
+fn coming_back_to_the_window_finds_new_files_and_notices_gone_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let raven = put(dir.path(), "raven.epub", &raven_bytes());
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(dir.path().into()));
+    let first = library(&h).book_at(&raven).unwrap();
+    std::fs::remove_file(&raven).unwrap();
+    let notes = put(dir.path(), "notes.md", NOTES);
+    // Rescans on focus wait out a short gap after the last.
+    h.run_steps(150);
+    h.input_mut().focused = false;
+    h.run();
+    h.input_mut().focused = true;
+    h.run();
+    h.run();
+    assert!(library(&h).book_at(&notes).is_some(), "{}", state(&h));
+    assert!(library(&h).book(first).unwrap().missing());
+}
+
+#[test]
+fn a_file_moved_within_a_folder_keeps_its_book_and_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let raven = put(dir.path(), "new/raven.epub", &raven_bytes());
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(dir.path().into()));
+    let id = library(&h).book_at(&raven).unwrap();
+    h.state_mut().queue(Command::OpenBook(id));
+    h.run();
+    go_to(&mut h, 2);
+    let now = moved(&raven, &dir.path().join("read/The Raven.epub"));
+    act(&mut h, Action::Rescan(None));
+    assert_eq!(library(&h).book_at(&now), Some(id), "{}", state(&h));
+    assert_eq!(library(&h).len(), 1);
+    assert_eq!(library(&h).position(id).map(|p| p.page), Some(2));
+}
+
+#[test]
+fn a_lost_book_is_found_again_by_choosing_its_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let raven = put(&dir.path().join("in"), "raven.epub", &raven_bytes());
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    let id = library(&h).book_at(&raven).unwrap();
+    let elsewhere = moved(&raven, &dir.path().join("out/renamed.epub"));
+    act(&mut h, Action::Rescan(None));
+    assert!(library(&h).book(id).unwrap().missing());
+    act(&mut h, Action::FindAgain(id));
+    let path = elsewhere.clone();
+    act(&mut h, Action::Relink { book: id, path });
+    assert!(!library(&h).book(id).unwrap().missing(), "{}", state(&h));
+    assert_eq!(library(&h).book_at(&elsewhere), Some(id));
+    assert!(!h.state().library_showing(), "a found book opens");
+}
+
+#[test]
+fn searching_a_folder_finds_a_lost_book_under_any_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let raven = put(&dir.path().join("in"), "raven.epub", &raven_bytes());
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    let id = library(&h).book_at(&raven).unwrap();
+    let deep = moved(&raven, &dir.path().join("attic/old/poems.epub"));
+    act(&mut h, Action::Rescan(None));
+    act(&mut h, Action::FindAgain(id));
+    let folder = dir.path().join("attic");
+    act(&mut h, Action::Seek { book: id, folder });
+    assert_eq!(library(&h).book_at(&deep), Some(id), "{}", state(&h));
+}
+
+#[test]
+fn a_namesake_with_other_content_is_offered_not_taken() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = put(&dir.path().join("in"), "notes.md", NOTES);
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(dir.path().join("in")));
+    let id = library(&h).book_at(&notes).unwrap();
+    let before = library(&h).book(id).unwrap().content;
+    std::fs::remove_file(&notes).unwrap();
+    let edited = put(
+        &dir.path().join("backup"),
+        "notes.md",
+        b"# One\n\nText, revised.\n",
+    );
+    act(&mut h, Action::Rescan(None));
+    act(&mut h, Action::FindAgain(id));
+    let folder = dir.path().join("backup");
+    act(&mut h, Action::Seek { book: id, folder });
+    assert!(library(&h).book(id).unwrap().missing(), "asked first");
+    h.get_by_label("Use this file").click();
+    h.run();
+    h.run();
+    let book = library(&h).book(id).unwrap();
+    assert!(!book.missing(), "{}", state(&h));
+    assert_ne!(book.content, before);
+    assert_eq!(library(&h).book_at(&edited), Some(id));
+}
+
+#[test]
+fn removing_a_folder_asks_first_and_adding_it_again_restores_its_books() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    let raven = put(&root, "raven.epub", &raven_bytes());
+    put(&root, "notes.md", NOTES);
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, Action::AddFolder(root.clone()));
+    let id = library(&h).book_at(&raven).unwrap();
+    let source = library(&h).sources().next().unwrap().id;
+    act(&mut h, Action::AskRemoveFolder(source));
+    assert_eq!(library(&h).len(), 2, "nothing goes before the answer");
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(library(&h).is_empty(), "{}", state(&h));
+    assert_eq!(toast(&h), "Removed “Shelf” and its 2 books.");
+    assert!(raven.is_file(), "files stay where they are");
+    act(&mut h, Action::AddFolder(root));
+    assert_eq!(library(&h).len(), 2);
+    assert_eq!(library(&h).book_at(&raven), Some(id), "the same book, back");
+}
+
+#[test]
+fn adding_a_folder_leaves_other_missing_books_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    put(dir.path(), "notes.md", NOTES);
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let lost = library(&h).books().filter(|b| b.missing()).count();
+    assert_eq!(lost, 1);
+    act(&mut h, Action::AddFolder(dir.path().into()));
+    assert_eq!(library(&h).len(), 5, "{}", state(&h));
+    assert_eq!(library(&h).books().filter(|b| b.missing()).count(), 1);
+}
+
+#[test]
+fn an_empty_library_offers_to_add_a_folder() {
+    let h = reader(&[("library", "show")]);
+    assert!(h.query_by_label("Add folder…").is_some());
 }

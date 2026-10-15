@@ -106,6 +106,10 @@ impl Covers {
     }
 
     /// Where covers are kept between launches; set before the first ask.
+    pub fn cache_dir(&self) -> Option<PathBuf> {
+        self.cache.clone()
+    }
+
     pub fn set_cache(&mut self, dir: PathBuf) {
         self.cache = Some(dir);
     }

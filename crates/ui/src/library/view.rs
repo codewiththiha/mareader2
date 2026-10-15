@@ -6,10 +6,13 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Painter, Rect, Sense, Stroke, StrokeKind, TextFormat,
     Ui, pos2, vec2,
 };
-use mareader_library::{Book, COLUMNS_MAX, COLUMNS_MIN, CoverFit, Layout, Library, View};
+use std::collections::BTreeSet;
 
-use super::LibraryState;
+use mareader_library::{Book, COLUMNS_MAX, COLUMNS_MIN, CoverFit, Layout, Library, SourceId, View};
+
 use super::covers::{self, Cover, Covers};
+use super::folders::{self, Shown};
+use super::{Action, LibraryState, Scope};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::motion;
@@ -29,6 +32,8 @@ const CARD_MIN: f32 = 150.0;
 const A4: f32 = 297.0 / 210.0;
 /// Covers stranger than these are trimmed to them.
 const SHAPES: std::ops::RangeInclusive<f32> = 0.55..=1.8;
+/// The empty page's two buttons, side by side.
+const EMPTY_ROW: f32 = 236.0;
 /// Title, detail and progress under a card's cover.
 const CARD_TEXT: f32 = 54.0;
 
@@ -38,10 +43,18 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let full = ui.max_rect();
     ui.painter().rect_filled(full, 0.0, t.paper);
     let loading = library.loading();
+    let offline = library.offline().clone();
+    let (scope, scanning) = (library.scope, library.scanning());
     let (model, covers) = library.parts();
+    let shown = Shown {
+        model,
+        offline: &offline,
+        scanning,
+        scope,
+    };
     if model.is_empty() {
         if !loading {
-            empty_state(ui, full, &t, out);
+            empty_state(ui, full, &shown, &t, out);
         }
         return;
     }
@@ -56,12 +69,22 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         pos2(left + width, full.bottom()),
     );
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
-    header(&mut ui, model.len(), view, &t, out);
+    let books = view.sort(model.books().filter(|b| folders::in_scope(b, scope)));
+    header(&mut ui, books.len(), view, &shown, &t, out);
     ui.add_space(12.0);
-    let books = view.sort(model.books());
+    folders::chips(&mut ui, &shown, out);
+    if books.is_empty() {
+        let note = match scope {
+            Scope::Missing => "Nothing is missing.",
+            _ => "No books here yet.",
+        };
+        ui.label(egui::RichText::new(note).color(t.muted));
+        return;
+    }
     let mut cx = Cx {
         model,
         covers,
+        offline: &offline,
         fit: view.cover,
         t: &t,
         out,
@@ -83,6 +106,8 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
 struct Cx<'a> {
     model: &'a Library,
     covers: &'a mut Covers,
+    /// Folders whose drive wasn't there at the last look.
+    offline: &'a BTreeSet<SourceId>,
     fit: CoverFit,
     t: &'a Tokens,
     out: &'a mut Commands,
@@ -99,7 +124,14 @@ fn auto_columns(width: f32) -> u8 {
     (n.clamp(0.0, 255.0) as u8).clamp(COLUMNS_MIN, COLUMNS_MAX)
 }
 
-fn header(ui: &mut Ui, count: usize, view: &View, t: &Tokens, out: &mut Commands) {
+fn header(
+    ui: &mut Ui,
+    count: usize,
+    view: &View,
+    shown: &Shown<'_>,
+    t: &Tokens,
+    out: &mut Commands,
+) {
     // Lined up with the list rows' text, which sits in from their edges.
     let inset = match view.layout {
         Layout::Grid => 0.0,
@@ -124,6 +156,7 @@ fn header(ui: &mut Ui, count: usize, view: &View, t: &Tokens, out: &mut Commands
             if open_button(ui, t).clicked() {
                 out.push(Command::ShowOpenDialog { beside: false });
             }
+            folders::button(ui, shown, t, out);
         });
     });
 }
@@ -203,6 +236,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     let t = cx.t;
     // A missing book stays shown, faded, until found or removed.
     let missing = book.missing();
+    let offline = folders::offline(book, cx.offline);
     let fade = if missing { 0.5 } else { 1.0 };
     if resp.hovered() {
         let pad = rect.expand2(vec2(8.0, 8.0));
@@ -212,7 +246,8 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     cover(ui, bounds, book, cx, fade, false);
     let p = ui.painter();
     if missing {
-        let tag = p.layout_no_wrap("Missing".into(), theme::medium(11.0), t.ink);
+        let tag = if offline { "Offline" } else { "Missing" };
+        let tag = p.layout_no_wrap(tag.into(), theme::medium(11.0), t.ink);
         let pill = Rect::from_min_size(
             pos2(bounds.right() - tag.size().x - 20.0, bounds.top() + 8.0),
             tag.size() + vec2(12.0, 6.0),
@@ -231,7 +266,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         (rect.left(), y),
         width,
     );
-    let detail = card_detail(cx.model, book);
+    let detail = card_detail(cx.model, book, offline);
     let small = FontId::proportional(12.0);
     y += line(
         p,
@@ -264,7 +299,11 @@ fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
     );
     cover(ui, thumb, book, cx, fade, true);
     let p = ui.painter();
-    let when = ago(super::wall_ms().saturating_sub(book.opened.value));
+    // Books found in a folder may never have been opened.
+    let when = match book.opened.value {
+        0 => "Not opened".to_owned(),
+        at => ago(super::wall_ms().saturating_sub(at)),
+    };
     let when = p.layout_no_wrap(when, FontId::proportional(12.0), faded(t.muted, fade));
     let right = rect.right() - ROW_INSET;
     let at = pos2(right - when.size().x, rect.center().y - when.size().y / 2.0);
@@ -281,7 +320,12 @@ fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
     };
     let g = job(title, theme::medium(14.0), ink);
     p.galley(pos2(x, center(rect.center().y - 9.0, g.size().y)), g, ink);
-    let detail = format!("{} · {}", book.format.label(), detail(cx.model, book));
+    let offline = folders::offline(book, cx.offline);
+    let detail = format!(
+        "{} · {}",
+        book.format.label(),
+        detail(cx.model, book, offline)
+    );
     let muted = faded(t.muted, fade);
     let g = job(&detail, FontId::proportional(12.0), muted);
     p.galley(
@@ -416,7 +460,10 @@ fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: boo
 }
 
 /// Under a card's title: the author, else how far through.
-fn card_detail(model: &Library, book: &Book) -> String {
+fn card_detail(model: &Library, book: &Book, offline: bool) -> String {
+    if offline {
+        return "Drive not connected".into();
+    }
     if book.missing() {
         return "Moved or deleted".into();
     }
@@ -431,7 +478,10 @@ fn card_detail(model: &Library, book: &Book) -> String {
 }
 
 /// "Page 12 of 300 · 4%", or why it can't open.
-fn detail(model: &Library, book: &Book) -> String {
+fn detail(model: &Library, book: &Book, offline: bool) -> String {
+    if offline {
+        return "Missing: its drive isn't connected".into();
+    }
     if book.missing() {
         return "Missing: moved or deleted".into();
     }
@@ -463,7 +513,7 @@ fn ago(ms: u64) -> String {
     }
 }
 
-fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
+fn empty_state(ui: &mut Ui, rect: Rect, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
     let at = Rect::from_center_size(rect.center(), vec2(rect.width(), 200.0));
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(at));
     ui.vertical_centered(|ui| {
@@ -471,12 +521,33 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
         ui.add_space(10.0);
         let title = egui::RichText::new("Your library is empty").font(theme::medium(16.0));
         ui.label(title.color(t.ink));
-        let hint = "Books you open appear here, ready to resume.";
+        let hint = "Books you open appear here, ready to resume. \
+                    Or add a folder to read its books where they are.";
         ui.label(egui::RichText::new(hint).size(13.0).color(t.muted));
         ui.add_space(14.0);
-        if open_button(ui, t).clicked() {
-            out.push(Command::ShowOpenDialog { beside: false });
-        }
+        // A fixed-width row, which the centred layout centres.
+        let row = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(vec2(EMPTY_ROW, 32.0), row, |ui| {
+            if open_button(ui, t).clicked() {
+                out.push(Command::ShowOpenDialog { beside: false });
+            }
+            // An empty folder already added stays reachable to remove.
+            match shown.model.sources().next() {
+                Some(_) => folders::button(ui, shown, t, out),
+                None => {
+                    let add =
+                        egui::Button::image_and_text(Icon::FolderPlus.image(16.0), "Add folder…")
+                            .image_tint_follows_text_color(true)
+                            .fill(t.surface)
+                            .stroke(Stroke::new(1.0, t.line))
+                            .corner_radius(t.radius)
+                            .min_size(vec2(96.0, 32.0));
+                    if ui.add(add).clicked() {
+                        out.push(Command::Library(Action::PickFolder));
+                    }
+                }
+            }
+        });
     });
 }
 
