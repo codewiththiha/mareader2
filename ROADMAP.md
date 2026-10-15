@@ -117,7 +117,9 @@ appearance effects to that same pass.
 - **Where reading state is written (M5).** Answered (owner, 2026-10-15):
   the library file holds the cold facts and each book's position and marks
   sit in `state/<book-id>.json`, as the sync layout has them
-  (`docs/library.md` § Persistence).
+  (`docs/library.md` § Persistence). Revised (owner, 2026-10-15): the
+  library and positions are rows in one SQLite file, the choice that
+  serves sync best (`docs/library.md` § Slice 9).
 
 - **Closing M2.** Answered: finish all seven. Slices 8 to 11 shipped page
   chrome, mixed sizes, the vertical view, tiles, capped caches, the find key
@@ -182,3 +184,4 @@ appearance effects to that same pass.
 | 2026-10-15 | M5 slice 6: search. One `Query` rule filters the page and ranks suggestions: each word must turn up in the title, author or address as a substring or a subsequence that keeps its shape, folding case, Latin accents and curly quotes; title outweighs author outweighs address, ties go to the book read last. The field sits in the centre of the library's bar ("Search 12 books"); ⌘F or Ctrl+F focuses it, and with no document the find key opens the library on it. At the top level a search covers every book whatever Library shows; chips and shelves narrow it, and "3 of 12 books" counts. Seven suggestions show thumbnails and the matched letters; Down, Up and Enter choose, and the chosen card is scrolled to and ringed, going to the top level or a shelf's parent when it isn't in view. Escape peels the list, the text, the focus, then the page. The page's list is cached by a model revision, so it is no longer sorted every frame (`docs/library.md` § Slice 6) |
 | 2026-10-15 | M5 slice 7: the reading sidebar's Library panel lists shelves then books (Home's choice at the top, shelves open in place, format badges, open books dotted, missing ones faded and sent to find-again) and, while split, the panes as tabs that focus and close. A click follows Settings › Workspace › Library panel: open in the focused pane, open as a new split (right, or below without room; an empty pane just takes it), or do nothing, where Enter still opens; a book already shown focuses its pane, and the Library page follows the first two. Dragging a book onto a pane lights the half a split would take and names it ("Split right of Middlemarch"); an empty pane takes it whole. Folder walks and imports past 0.4 s show a corner card with a ring and "Importing 3 of 12", beats sent once a percent. mareader import deferred by the owner (`docs/library.md` § Slice 7) |
 | 2026-10-15 | M5 slice 9: the library is one bundled SQLite file (owner decision): synced records and local rows apart, maps that mark what changed so a save writes only those rows in one transaction on the disk thread, a change cursor and a `Merge` with property tests for a later sync, `library.json` migrated once, damaged and newer files handled (`docs/library.md` § Slice 9) |
+| 2026-10-15 | Positions join the SQLite store as `state` records (owner: whatever serves sync best): one change cursor and one transaction cover them; `state/` files move in once and the folder becomes `state.migrated` |

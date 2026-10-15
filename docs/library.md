@@ -583,8 +583,11 @@ frame, and stops repainting when nothing moves.
 - **One file.** `library.sqlite`, bundled SQLite in WAL mode, opened by the
   library's disk thread and kept open; the UI never touches it. Tables:
   `meta` (clock, last save number), `records` (synced: book, shelf,
-  member) and `local` (locations, folders). Positions stay
-  `state/<id>.json`, so a page turn never writes a row.
+  member, state) and `local` (locations, folders). A page turn writes one
+  `state` row (owner, 2026-10-15: positions joined the store, so one
+  cursor and one transaction cover everything a sync needs). Old
+  `state/<id>.json` files move in once; the folder becomes
+  `state.migrated`.
 - **Only what changed.** The model's maps are `Tracked`: every way to
   change a value marks its key, so no edit can forget to save. A save
   turns the marked keys into rows and writes them in one transaction;
