@@ -672,6 +672,38 @@ frame, and stops repainting when nothing moves.
 - **Code.** `library/living.rs` holds the hole, springs and lift, and
   `library/view/grid.rs` draws the grid.
 
+## Slice 12: stacking and resting (2026-10-16)
+
+Each rest is one `Aim` on the lift, timed from when the pointer settled
+on it; moving to another place restarts the clock.
+
+| Rest on | For | Then |
+|---|---|---|
+| A card's outer quarter (any card's half, for a shelf carried alone) | 0.18 s | the hole moves beside it |
+| A book's middle half, carrying a book | 0.3 s | the book sinks into a ringed plate; letting go makes a shelf |
+| A shelf's middle half | 0.7 s | the shelf opens; letting go before that files onto it |
+| A crumb | 0.7 s | that level opens; letting go before that moves it there |
+
+- **A stack** (`ShelfAction::Stack`) makes the shelf at the book's place
+  in the arranged order and files both there. Inside a shelf both move
+  into the new one, Alt keeping the carried copy, like any filing. It is
+  named after the books' one shared author when that name is free there,
+  else "New shelf". A carried shelf goes in too; a shelf alone never
+  stacks. Letting go on a middle without the rest only moves the card,
+  by halves.
+- **Carrying across levels.** A carry outlives the level it began on.
+  On a level it didn't come from, its cards open a hole at the end (or
+  where one already shows, as the top shows every book). Letting go
+  files or moves them here first, then arranges them at the hole.
+- **No surprise after opening.** The card under the pointer when a level
+  opens takes no rest until the pointer moves 8 points.
+- **Another level snaps.** Springs are kept per level, so cards shown on
+  both levels don't fly between pages when a shelf opens.
+- **Edges scroll only with room**, and only with the pointer inside the
+  grid, so a carry held over the bar or a short grid costs no frames.
+- **Code.** `Lift::aim` in `library/living.rs`; the crumb's rest is in
+  `library/crumbs.rs`, kept in egui's memory with the frame it was seen.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
