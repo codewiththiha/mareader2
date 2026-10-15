@@ -2,8 +2,8 @@
 
 use egui::epaint::Shadow;
 use egui::{
-    Color32, CornerRadius, CursorIcon, DragAndDrop, Id, LayerId, Order, Pos2, Rect, Sense, Ui,
-    Vec2, vec2,
+    Color32, CornerRadius, CursorIcon, DragAndDrop, Id, LayerId, Order, Painter, Pos2, Rect, Sense,
+    Shape, Stroke, Ui, Vec2, vec2,
 };
 use mareader_library::BookId;
 
@@ -11,7 +11,9 @@ use super::super::add::Here;
 use super::super::living::{Aim, Rested, Slot};
 use super::super::shelving::{Carry, ShelfAction};
 use super::super::{Action, Pick};
-use super::{A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, plate, prefetch};
+use super::{
+    A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, paper, plate, prefetch,
+};
 use super::{grid_card, shelf_card};
 use crate::command::Command;
 use crate::motion;
@@ -326,6 +328,12 @@ pub(super) fn ghost(ui: &mut Ui, cx: &mut Cx<'_>) -> bool {
     // Lifted: a touch larger, on a deeper shadow.
     let lifted = rect.expand(rect.width() * 0.03);
     let bounds = Rect::from_min_size(lifted.min, vec2(lifted.width(), lifted.width() * A4));
+    // A selection fans out behind the card held.
+    let behind = lift.moving.iter().filter(|p| **p != grab.pick).take(2);
+    let fan: Vec<Color32> = behind.map(|&p| tint(p, cx)).collect();
+    for (&fill, angle) in fan.iter().zip([-0.07, 0.06]).rev() {
+        fanned(ui.painter(), bounds, angle, fill, t);
+    }
     let shadow = Shadow {
         offset: [0, 10],
         blur: 28,
@@ -371,4 +379,37 @@ pub(super) fn ghost(ui: &mut Ui, cx: &mut Cx<'_>) -> bool {
         p.galley(dot.center() - g.size() / 2.0, g, Color32::WHITE);
     }
     true
+}
+
+/// The colour a card shows when only its outline is drawn.
+fn tint(pick: Pick, cx: &Cx<'_>) -> Color32 {
+    match Item::of(cx.model, pick) {
+        Some(Item::Book(book)) => paper(book, cx.t),
+        _ => cx.t.hover,
+    }
+}
+
+/// A card behind the ghost, turned `angle` radians about its foot.
+fn fanned(p: &Painter, bounds: Rect, angle: f32, fill: Color32, t: &theme::Tokens) {
+    let pivot = bounds.center_bottom();
+    let (sin, cos) = angle.sin_cos();
+    let turn = |q: Pos2| {
+        let d = q - pivot;
+        pivot + vec2(d.x * cos - d.y * sin, d.x * sin + d.y * cos)
+    };
+    let corners = [
+        bounds.left_top(),
+        bounds.right_top(),
+        bounds.right_bottom(),
+        bounds.left_bottom(),
+    ]
+    .map(turn);
+    let drop = corners.map(|c| c + vec2(0.0, 6.0)).to_vec();
+    let shade = t.shadow.gamma_multiply(0.5);
+    p.add(Shape::convex_polygon(drop, shade, Stroke::NONE));
+    p.add(Shape::convex_polygon(
+        corners.to_vec(),
+        fill,
+        Stroke::new(1.0, t.line),
+    ));
 }
