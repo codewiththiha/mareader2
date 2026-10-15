@@ -208,7 +208,7 @@ impl Library {
             restored: None,
         };
         self.shelves.insert(id, shelf);
-        self.touch();
+        self.bump();
         Ok(id)
     }
 
@@ -242,7 +242,7 @@ impl Library {
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.name = Field::new(name, at);
         }
-        self.touch();
+        self.bump();
         Ok(())
     }
 
@@ -274,7 +274,7 @@ impl Library {
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.parent = Field::new(parent, at);
         }
-        self.touch();
+        self.bump();
         Ok(())
     }
 
@@ -314,7 +314,7 @@ impl Library {
         for (_, m) in self.members.range_mut(range) {
             m.alive = Field::new(false, at);
         }
-        self.touch();
+        self.bump();
         Some(done)
     }
 
@@ -346,7 +346,7 @@ impl Library {
         if let Some(m) = self.members.get_mut(&(shelf, book)) {
             m.alive = Field::new(false, at);
         }
-        self.touch();
+        self.bump();
         true
     }
 
@@ -388,7 +388,7 @@ impl Library {
             alive: Field::new(true, at),
         };
         self.members.insert((shelf, book), member);
-        self.touch();
+        self.bump();
     }
 }
 

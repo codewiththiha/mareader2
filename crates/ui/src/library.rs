@@ -308,7 +308,8 @@ impl LibraryState {
             return Some(wait);
         }
         let dirty = self.model.take_dirty();
-        self.io.send(Job::Write(folder.writes(&self.model, &dirty)));
+        let save = folder.writes(&self.model, &dirty);
+        self.io.send(Job::Write(Box::new(save)));
         self.wrote = now;
         None
     }
@@ -428,7 +429,7 @@ fn author_of(document: &Document) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Random per library: the first launch keeps it in `library.json`.
+/// Random per library: the first save keeps it in the store.
 fn new_device() -> DeviceId {
     DeviceId(RandomState::new().hash_one(wall_ms()))
 }

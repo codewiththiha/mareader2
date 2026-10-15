@@ -79,7 +79,7 @@ fn a_scan_adds_unread_books_named_by_their_files_once() {
     let book = lib.book(id).unwrap();
     assert_eq!(book.title.value, "Dune");
     assert_eq!(book.opened.value, 0, "found, not opened");
-    assert!(lib.take_dirty().library);
+    assert!(lib.take_dirty().books.contains(&id));
     // The same walk again changes nothing and writes nothing.
     assert!(scan(&mut lib, s, vec![found("/s/Dune (1).pdf", 1)]).is_empty());
     assert!(!lib.is_dirty());
