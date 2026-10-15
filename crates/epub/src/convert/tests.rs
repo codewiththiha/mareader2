@@ -200,6 +200,34 @@ fn chinese_chapter_headings_are_found() {
 }
 
 #[test]
+fn chinese_numerals_and_measure_words_are_told_apart() {
+    let long = format!("第三章 {}", "很".repeat(CJK_LONG));
+    let src = format!(
+        "第二部 中篇\n\n第两百零一章 归来\n\n正文。\n\n第貳拾章 舊事\n\n\
+         第一本书记载着锤法。\n\n第一封信\n\n第一节课很无聊，大家都睡着了。\n\n\
+         {long}\n\n第三讲天地\n\n正文。"
+    );
+    let book = open(&src, Format::Plain, "小说.txt");
+    let toc = titles(&book);
+    assert_eq!(
+        toc.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
+        [
+            "第二部 中篇",
+            "第两百零一章 归来",
+            "第貳拾章 舊事",
+            "第三讲天地"
+        ]
+    );
+    assert_eq!(
+        toc.iter().map(|(_, d)| *d).collect::<Vec<_>>(),
+        [0, 1, 1, 1]
+    );
+}
+
+/// Past the 36 characters a title may run after its unit.
+const CJK_LONG: usize = 37;
+
+#[test]
 fn one_text_always_packs_to_the_same_bytes() {
     let pack = || convert(PROSE.as_bytes(), Format::Plain, Some("a.txt"), &none).unwrap();
     assert_eq!(pack(), pack());
