@@ -107,7 +107,7 @@ fn an_epub_opens_titled_with_its_pages_drawn() {
     let pages = h.state().documents().page_count(pane);
     // Three chapters, each opening a page and running onto another.
     assert!(pages.is_some_and(|n| n >= 6), "{pages:?}");
-    assert!(h.state().window_context().reflowable);
+    assert!(h.state().settings_scope().book());
     let (docs, drawn) = h.state().documents().stats();
     assert_eq!((docs, drawn), (1, visible(&h).len() + 1));
 }
@@ -612,6 +612,54 @@ fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
     h.run_steps(3);
     assert!(h.query_by_label("Column width").is_none());
     assert!(h.query_by_label("Fonts").is_none());
+}
+
+/// Whether the open settings window shows a row labelled `label`.
+fn shows(h: &Harness<'static, MareaderApp>, label: &str) -> bool {
+    h.query_all_by_label(label).next().is_some()
+}
+
+#[test]
+fn layout_rows_follow_the_focused_document() {
+    let mut h = reader(&[("pdf", "sample:3"), ("settings", "layout")]);
+    h.run_steps(3);
+    for label in ["No gap", "Auto resize", "Page shadow", "Page margin"] {
+        assert!(shows(&h, label), "a PDF has {label}");
+    }
+    // A book's vertical stream: no gaps, shadows or odd page sizes.
+    let mut h = reader(&[("epub", "sample:2"), ("settings", "layout")]);
+    h.run_steps(3);
+    for label in ["No gap", "Auto resize", "Page shadow"] {
+        assert!(!shows(&h, label), "a book's stream has no {label}");
+    }
+    assert!(shows(&h, "Page margin"));
+    // Its single pages have gaps and shadows again.
+    let single = mareader_ui::layout::ViewMode::Single;
+    h.state_mut().queue(Command::View(single));
+    h.run();
+    assert!(shows(&h, "No gap") && shows(&h, "Page shadow"));
+    assert!(!shows(&h, "Auto resize"));
+}
+
+#[test]
+fn pane_text_shows_only_while_split_with_a_book() {
+    let label = "Independent text for each pane";
+    let options = [("panes", "2"), ("focus", "2"), ("pdf", "sample:3")];
+    let mut h = reader(&options);
+    h.state_mut().set_option("settings", "workspace").ok();
+    h.run_steps(3);
+    assert!(!shows(&h, label), "PDFs alone have no text settings");
+    // A book in the other pane brings it back; opens land where focus is.
+    h.state_mut().set_option("focus", "1").ok();
+    h.state_mut().set_option("epub", "sample:2").ok();
+    h.run();
+    h.state_mut().set_option("focus", "2").ok();
+    h.run();
+    assert!(!h.state().settings_scope().book());
+    assert!(shows(&h, label));
+    let mut h = reader(&[("epub", "sample:2"), ("settings", "workspace")]);
+    h.run_steps(3);
+    assert!(!shows(&h, label), "one pane has nothing to keep apart");
 }
 
 #[test]

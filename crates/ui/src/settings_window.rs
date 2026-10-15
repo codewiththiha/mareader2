@@ -2,7 +2,8 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, PageIndicatorStyle, PaperArea, Settings, StartupFit, Swatch,
+    Corners, FloatingLabelStyle, LayoutSettings, PageIndicatorStyle, PaperArea, Settings,
+    StartupFit, Swatch,
 };
 
 use egui::{
@@ -16,6 +17,9 @@ use crate::theme::{self, Tokens};
 use crate::widgets;
 
 mod fonts;
+mod scope;
+
+pub use scope::{Applies, Scope, Shown};
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.
 pub const MAX_SIZE: Vec2 = vec2(760.0, 960.0);
@@ -82,21 +86,13 @@ impl Tab {
         }
     }
 
-    fn available(self, s: &Settings, cx: &WindowContext) -> bool {
+    fn available(self, s: &Settings, cx: &Scope) -> bool {
         match self {
             Tab::Animations => s.motion.enabled,
-            Tab::Fonts => cx.reflowable,
+            Tab::Fonts => cx.applies(Applies::Book),
             _ => true,
         }
     }
-}
-
-/// What the window needs to know about the workspace this frame.
-pub struct WindowContext {
-    pub split: bool,
-    pub reflowable: bool,
-    /// The focused pane scrolls sideways, where pages have no margin.
-    pub sideways: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -123,7 +119,7 @@ impl SettingsWindow {
     }
 
     /// The tab on screen: a hidden tab falls back to Layout.
-    pub fn tab(&self, s: &Settings, cx: &WindowContext) -> Tab {
+    pub fn tab(&self, s: &Settings, cx: &Scope) -> Tab {
         if self.tab.available(s, cx) {
             self.tab
         } else {
@@ -136,7 +132,7 @@ impl SettingsWindow {
         &mut self,
         ctx: &egui::Context,
         current: &Settings,
-        cx: &WindowContext,
+        cx: &Scope,
         out: &mut Commands,
     ) {
         if !self.open {
@@ -191,7 +187,7 @@ impl SettingsWindow {
     }
 
     /// The tab strip and the close button; true when close was clicked.
-    fn tabs(&mut self, ui: &mut Ui, s: &Settings, cx: &WindowContext) -> bool {
+    fn tabs(&mut self, ui: &mut Ui, s: &Settings, cx: &Scope) -> bool {
         let shown = self.tab(s, cx);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -227,11 +223,11 @@ impl SettingsWindow {
     }
 }
 
-fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &mut Commands) {
+fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     match tab {
         Tab::Layout => layout(ui, s, cx),
         Tab::Theme => theme_tab(ui, s, cx, out),
-        Tab::Animations => animations(ui, s),
+        Tab::Animations => animations(ui, s, cx),
         Tab::Fonts => fonts::tab(ui, &mut s.text),
         Tab::Vocabulary => pending(
             ui,
@@ -241,198 +237,162 @@ fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &WindowContext, out: &m
             ui,
             "Hover lookup, language packs and languages arrive with the study tools (M6).",
         ),
-        Tab::Workspace => workspace(ui, s),
+        Tab::Workspace => workspace(ui, s, cx),
     }
 }
 
-fn layout(ui: &mut Ui, s: &mut Settings, cx: &WindowContext) {
-    section(ui, "Reader chrome");
-    group(ui, |ui| {
-        switch_row(
-            ui,
-            "Keep title bar shown",
-            "Pin the title bar so it never hides",
-            &mut s.chrome.titlebar_pinned,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Overlay sidebar",
-            "The sidebar floats over pages and hides when the pointer leaves",
-            &mut s.chrome.sidebar_overlay,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Frosted glass",
-            "Blur the page behind the title bar and page bar; off makes both solid",
-            &mut s.chrome.glass,
-        );
+fn layout(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
+    rows(ui, cx, Applies::Always, "Reader chrome", |r| {
+        let c = &mut s.chrome;
+        r.always(|ui| {
+            let hint = "Pin the title bar so it never hides";
+            switch_row(ui, "Keep title bar shown", hint, &mut c.titlebar_pinned);
+        });
+        r.always(|ui| {
+            let hint = "The sidebar floats over pages and hides when the pointer leaves";
+            switch_row(ui, "Overlay sidebar", hint, &mut c.sidebar_overlay);
+        });
+        r.always(|ui| {
+            let hint = "Blur the page behind the title bar and page bar; off makes both solid";
+            switch_row(ui, "Frosted glass", hint, &mut c.glass);
+        });
     });
-    section(ui, "Page position");
-    group(ui, |ui| {
-        switch_row(
-            ui,
-            "Page indicator",
-            "A page counter in the corner of each pane",
-            &mut s.layout.page_indicator,
-        );
-        divider(ui);
-        let on = s.layout.page_indicator;
-        row(ui, "Indicator shows", "", |ui| {
-            ui.add_enabled_ui(on, |ui| {
-                let style = &mut s.layout.page_indicator_style;
-                ui.selectable_value(style, PageIndicatorStyle::Percentage, "Percent");
-                ui.selectable_value(style, PageIndicatorStyle::PageNumber, "Pages");
+    rows(ui, cx, Applies::Always, "Page position", |r| {
+        let l = &mut s.layout;
+        r.always(|ui| {
+            let hint = "A page counter in the corner of each pane";
+            switch_row(ui, "Page indicator", hint, &mut l.page_indicator);
+        });
+        let on = l.page_indicator;
+        r.always(|ui| {
+            row(ui, "Indicator shows", "", |ui| {
+                ui.add_enabled_ui(on, |ui| {
+                    let style = &mut l.page_indicator_style;
+                    ui.selectable_value(style, PageIndicatorStyle::Percentage, "Percent");
+                    ui.selectable_value(style, PageIndicatorStyle::PageNumber, "Pages");
+                });
             });
         });
-        divider(ui);
-        label_rows(ui, s);
-        divider(ui);
-        switch_row(
-            ui,
-            "Progress bar",
-            "A thin line along each pane's bottom edge",
-            &mut s.layout.progress_bar,
-        );
+        label_rows(r, l);
+        r.always(|ui| {
+            let hint = "A thin line along each pane's bottom edge";
+            switch_row(ui, "Progress bar", hint, &mut l.progress_bar);
+        });
     });
-    section(ui, "Pages");
-    group(ui, |ui| page_rows(ui, s, cx));
-    section(ui, "Motion");
-    group(ui, |ui| {
-        switch_row(
-            ui,
-            "Animations",
-            "Everything that moves. Off, a change lands as its end frame.",
-            &mut s.motion.enabled,
-        );
+    rows(ui, cx, Applies::Always, "Pages", |r| {
+        page_rows(r, &mut s.layout)
+    });
+    rows(ui, cx, Applies::Always, "Motion", |r| {
+        r.always(|ui| {
+            let hint = "Everything that moves. Off, a change lands as its end frame.";
+            switch_row(ui, "Animations", hint, &mut s.motion.enabled);
+        });
     });
 }
 
 /// The floating document label and how it behaves.
-fn label_rows(ui: &mut Ui, s: &mut Settings) {
-    let l = &mut s.layout;
-    switch_row(
-        ui,
-        "Floating label",
-        "The document's name in each pane's corner while the title bar hides",
-        &mut l.floating_label,
-    );
+fn label_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
+    r.always(|ui| {
+        let hint = "The document's name in each pane's corner while the title bar hides";
+        switch_row(ui, "Floating label", hint, &mut l.floating_label);
+    });
     let on = l.floating_label;
-    divider(ui);
-    row(ui, "Label shows", "", |ui| {
-        ui.add_enabled_ui(on, |ui| {
-            let style = &mut l.floating_label_style;
-            ui.selectable_value(style, FloatingLabelStyle::Chapter, "Chapter");
-            ui.selectable_value(style, FloatingLabelStyle::FileName, "File name");
+    r.always(|ui| {
+        row(ui, "Label shows", "", |ui| {
+            ui.add_enabled_ui(on, |ui| {
+                let style = &mut l.floating_label_style;
+                ui.selectable_value(style, FloatingLabelStyle::Chapter, "Chapter");
+                ui.selectable_value(style, FloatingLabelStyle::FileName, "File name");
+            });
         });
     });
-    divider(ui);
-    row(
-        ui,
-        "Always show label",
-        "Keep it while the title bar shows, however narrow the side",
-        |ui| {
+    r.always(|ui| {
+        let hint = "Keep it while the title bar shows, however narrow the side";
+        row(ui, "Always show label", hint, |ui| {
             ui.add_enabled_ui(on, |ui| {
                 widgets::switch(ui, &mut l.floating_label_persist, "Always show label");
             });
-        },
-    );
-    divider(ui);
-    row(
-        ui,
-        "Label width limit",
-        "How much of the room beside the page the label may take",
-        |ui| {
+        });
+    });
+    r.always(|ui| {
+        let hint = "How much of the room beside the page the label may take";
+        row(ui, "Label width limit", hint, |ui| {
             ui.add_enabled_ui(on && !l.floating_label_persist, |ui| {
                 let pct = &mut l.floating_label_max_pct;
                 let show = |v: f32| format!("{v:.0}%");
                 widgets::stepper(ui, pct, 10.0..=100.0, 10.0, show, "label width");
             });
-        },
-    );
+        });
+    });
 }
 
 /// How pages sit: the fit they open at, their spacing and shadow.
-fn page_rows(ui: &mut Ui, s: &mut Settings, cx: &WindowContext) {
-    let l = &mut s.layout;
-    row(ui, "Default fit", "How a document opens", |ui| {
-        ui.selectable_value(&mut l.startup_fit, StartupFit::Width, "Width");
-        ui.selectable_value(&mut l.startup_fit, StartupFit::Page, "Page");
-    });
-    divider(ui);
-    switch_row(
-        ui,
-        "No gap",
-        "Pages in the scrolling views touch",
-        &mut l.no_gap,
-    );
-    divider(ui);
-    let hint = if cx.sideways {
-        "Pages scrolling sideways have no margin"
-    } else {
-        "Space beside the pages"
-    };
-    row(ui, "Page margin", hint, |ui| {
-        ui.add_enabled_ui(!cx.sideways, |ui| {
-            let show = |v: f32| {
-                if v <= 0.0 {
-                    "Off".to_owned()
-                } else {
-                    format!("{v:.0} px")
-                }
-            };
-            widgets::stepper(ui, &mut l.page_margin, 0.0..=64.0, 4.0, show, "page margin");
+fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
+    let sideways = r.cx.sideways;
+    r.always(|ui| {
+        row(ui, "Default fit", "How a document opens", |ui| {
+            ui.selectable_value(&mut l.startup_fit, StartupFit::Width, "Width");
+            ui.selectable_value(&mut l.startup_fit, StartupFit::Page, "Page");
         });
     });
-    divider(ui);
-    switch_row(
-        ui,
-        "Auto scale",
-        "Fit the width on switching to single or two pages",
-        &mut l.auto_scale,
-    );
-    divider(ui);
-    switch_row(
-        ui,
-        "Auto resize",
-        "Refit when a page of another size is read",
-        &mut l.auto_resize,
-    );
-    divider(ui);
-    switch_row(ui, "Page shadow", "", &mut l.page_shadow);
+    // A book's vertical stream has neither gaps nor shadows.
+    r.add(Applies::Pages, |ui| {
+        let hint = "Pages in the scrolling views touch";
+        switch_row(ui, "No gap", hint, &mut l.no_gap);
+    });
+    r.always(|ui| {
+        let hint = if sideways {
+            "Pages scrolling sideways have no margin"
+        } else {
+            "Space beside the pages"
+        };
+        row(ui, "Page margin", hint, |ui| {
+            ui.add_enabled_ui(!sideways, |ui| {
+                let show = |v: f32| {
+                    if v <= 0.0 {
+                        "Off".to_owned()
+                    } else {
+                        format!("{v:.0} px")
+                    }
+                };
+                let margin = &mut l.page_margin;
+                widgets::stepper(ui, margin, 0.0..=64.0, 4.0, show, "page margin");
+            });
+        });
+    });
+    r.always(|ui| {
+        let hint = "Fit the width on switching to single or two pages";
+        switch_row(ui, "Auto scale", hint, &mut l.auto_scale);
+    });
+    // A book's pages are all one size.
+    r.add(Applies::NotBook, |ui| {
+        let hint = "Refit when a page of another size is read";
+        switch_row(ui, "Auto resize", hint, &mut l.auto_resize);
+    });
+    r.add(Applies::Pages, |ui| {
+        switch_row(ui, "Page shadow", "", &mut l.page_shadow);
+    });
 }
 
-fn animations(ui: &mut Ui, s: &mut Settings) {
-    section(ui, "Reader motion");
-    group(ui, |ui| {
-        switch_row(
-            ui,
-            "Sidebar animation",
-            "The sidebar slides in and out, docked or floating",
-            &mut s.motion.sidebar_slide,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Canvas follows window",
-            "Re-fit the page while the window is dragged; off, once the drag ends",
-            &mut s.motion.canvas_resize,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Zoom in and out",
-            "Ease a zoom to its new scale; off, it lands on the first frame",
-            &mut s.motion.zoom,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Scroll to page",
-            "Glide to a page, and with the arrow and page keys; off, land there",
-            &mut s.motion.scroll_jumps,
-        );
+fn animations(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
+    rows(ui, cx, Applies::Always, "Reader motion", |r| {
+        let m = &mut s.motion;
+        r.always(|ui| {
+            let hint = "The sidebar slides in and out, docked or floating";
+            switch_row(ui, "Sidebar animation", hint, &mut m.sidebar_slide);
+        });
+        r.always(|ui| {
+            let hint = "Re-fit the page while the window is dragged; off, once the drag ends";
+            switch_row(ui, "Canvas follows window", hint, &mut m.canvas_resize);
+        });
+        r.always(|ui| {
+            let hint = "Ease a zoom to its new scale; off, it lands on the first frame";
+            switch_row(ui, "Zoom in and out", hint, &mut m.zoom);
+        });
+        r.always(|ui| {
+            let hint = "Glide to a page, and with the arrow and page keys; off, land there";
+            switch_row(ui, "Scroll to page", hint, &mut m.scroll_jumps);
+        });
     });
     note(
         ui,
@@ -440,41 +400,32 @@ fn animations(ui: &mut Ui, s: &mut Settings) {
     );
 }
 
-fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &WindowContext, out: &mut Commands) {
-    section(ui, "Colours");
-    group(ui, |ui| {
-        row(ui, "Mode, tint, texture and presets", "", |ui| {
-            let t = Tokens::get(ui.ctx());
-            let text = RichText::new("Open Appearance").color(t.accent);
-            if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
-                out.push(Command::CloseSettings);
-                out.push(Command::ShowAppearance);
-            }
+fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
+    rows(ui, cx, Applies::Always, "Colours", |r| {
+        r.always(|ui| {
+            row(ui, "Mode, tint, texture and presets", "", |ui| {
+                let t = Tokens::get(ui.ctx());
+                let text = RichText::new("Open Appearance").color(t.accent);
+                if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
+                    out.push(Command::CloseSettings);
+                    out.push(Command::ShowAppearance);
+                }
+            });
         });
     });
-    section(ui, "Split pane appearance");
-    if cx.split {
-        pane_look(ui, s);
-    } else {
-        note(ui, "Shown while the workspace is split.");
-    }
+    let title = "Split pane appearance";
+    rows(ui, cx, Applies::Split, title, |r| pane_look(r, s));
     // Read from page rasters, so only PDFs have it.
-    if !cx.reflowable {
-        section(ui, "Paper");
-        paper(ui, s);
-    }
+    rows(ui, cx, Applies::NotBook, "Paper", |r| paper(r, s));
 }
 
-fn paper(ui: &mut Ui, s: &mut Settings) {
+fn paper(r: &mut Rows<'_>, s: &mut Settings) {
     let p = &mut s.paper;
-    group(ui, |ui| {
-        switch_row(
-            ui,
-            "Blend mode",
-            "The background takes the page's own paper colour",
-            &mut p.blend,
-        );
-        divider(ui);
+    r.always(|ui| {
+        let hint = "The background takes the page's own paper colour";
+        switch_row(ui, "Blend mode", hint, &mut p.blend);
+    });
+    r.always(|ui| {
         row(ui, "Detection", "Where the paper colour is read", |ui| {
             ui.add_enabled_ui(p.blend, |ui| {
                 // Right to left: the last option is drawn first.
@@ -490,9 +441,9 @@ fn paper(ui: &mut Ui, s: &mut Settings) {
     });
 }
 
-fn pane_look(ui: &mut Ui, s: &mut Settings) {
+fn pane_look(r: &mut Rows<'_>, s: &mut Settings) {
     let w = &mut s.workspace.look;
-    group(ui, |ui| {
+    r.always(|ui| {
         row(ui, "Outline thickness", "Zero hides the outline", |ui| {
             ui.spacing_mut().slider_width = 140.0;
             ui.add(
@@ -502,11 +453,13 @@ fn pane_look(ui: &mut Ui, s: &mut Settings) {
                     .suffix(" px"),
             );
         });
-        divider(ui);
+    });
+    r.always(|ui| {
         row(ui, "Outline colour", "The focused pane's outline", |ui| {
             outline_colours(ui, &mut w.outline_color, &mut w.outline_custom);
         });
-        divider(ui);
+    });
+    r.always(|ui| {
         row(ui, "Space around and between panes", "", |ui| {
             ui.spacing_mut().slider_width = 140.0;
             ui.add(
@@ -516,7 +469,8 @@ fn pane_look(ui: &mut Ui, s: &mut Settings) {
                     .suffix(" px"),
             );
         });
-        divider(ui);
+    });
+    r.always(|ui| {
         row(ui, "Corners", "", |ui| {
             // Right to left: the last option is drawn first.
             for (corners, label) in [(Corners::Rounded, "Rounded"), (Corners::Square, "Square")] {
@@ -528,9 +482,8 @@ fn pane_look(ui: &mut Ui, s: &mut Settings) {
                 }
             }
         });
-        divider(ui);
-        switch_row(ui, "Pane drop shadow", "", &mut w.shadow);
     });
+    r.always(|ui| switch_row(ui, "Pane drop shadow", "", &mut w.shadow));
 }
 
 /// Laid out right to left: the custom picker, then the palette.
@@ -563,39 +516,80 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
     }
 }
 
-fn workspace(ui: &mut Ui, s: &mut Settings) {
+fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     section(ui, "Library panel");
     pending(
         ui,
         "What a click on a file in the Library panel does arrives with the library (M5).",
     );
-    section(ui, "Pane themes");
     let w = &mut s.workspace;
-    group(ui, |ui| {
-        let hint = "While split, each pane keeps its own colour and texture";
-        switch_row(
-            ui,
-            "Independent theme for each pane",
-            hint,
-            &mut w.independent_themes,
-        );
-        divider(ui);
-        ui.add_enabled_ui(w.independent_themes, |ui| {
-            let hint = "Off: each pane keeps its own mode too";
-            let label = "Light, Dark and Dim change every pane";
-            switch_row(ui, label, hint, &mut w.shared_base_mode);
+    rows(ui, cx, Applies::Always, "Pane themes", |r| {
+        r.always(|ui| {
+            let hint = "While split, each pane keeps its own colour and texture";
+            let label = "Independent theme for each pane";
+            switch_row(ui, label, hint, &mut w.independent_themes);
         });
-        divider(ui);
-        let hint = "While split, each pane keeps its own texture and dials";
-        let label = "Independent page texture for each pane";
-        switch_row(ui, label, hint, &mut w.independent_textures);
+        let themes = w.independent_themes;
+        r.always(|ui| {
+            ui.add_enabled_ui(themes, |ui| {
+                let hint = "Off: each pane keeps its own mode too";
+                let label = "Light, Dark and Dim change every pane";
+                switch_row(ui, label, hint, &mut w.shared_base_mode);
+            });
+        });
+        r.always(|ui| {
+            let hint = "While split, each pane keeps its own texture and dials";
+            let label = "Independent page texture for each pane";
+            switch_row(ui, label, hint, &mut w.independent_textures);
+        });
     });
-    section(ui, "Pane text");
+    // Text settings only reach books, so PDFs alone don't need it.
+    rows(ui, cx, Applies::SplitWithBook, "Pane text", |r| {
+        r.always(|ui| {
+            let hint = "While split, the Fonts tab changes only the focused pane";
+            let label = "Independent text for each pane";
+            switch_row(ui, label, hint, &mut w.independent_text);
+        });
+    });
+}
+
+/// A titled group where `applies`, its rows each where they apply.
+fn rows(ui: &mut Ui, cx: &Scope, applies: Applies, title: &str, add: impl FnOnce(&mut Rows<'_>)) {
+    if !cx.applies(applies) {
+        return;
+    }
+    section(ui, title);
     group(ui, |ui| {
-        let hint = "While split, the Fonts tab changes only the focused pane";
-        let label = "Independent text for each pane";
-        switch_row(ui, label, hint, &mut w.independent_text);
+        add(&mut Rows {
+            ui,
+            cx: *cx,
+            drawn: 0,
+        });
     });
+}
+
+/// A group's rows; dividers fall only between rows drawn.
+struct Rows<'a> {
+    ui: &'a mut Ui,
+    cx: Scope,
+    drawn: usize,
+}
+
+impl Rows<'_> {
+    fn add(&mut self, applies: Applies, row: impl FnOnce(&mut Ui)) {
+        if !self.cx.applies(applies) {
+            return;
+        }
+        if self.drawn > 0 {
+            divider(self.ui);
+        }
+        row(self.ui);
+        self.drawn += 1;
+    }
+
+    fn always(&mut self, row: impl FnOnce(&mut Ui)) {
+        self.add(Applies::Always, row);
+    }
 }
 
 fn section(ui: &mut Ui, title: &str) {
