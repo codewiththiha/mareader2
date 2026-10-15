@@ -153,17 +153,33 @@ the other machines.
 - Tombstones are kept for good. They are small, and dropping them lets a
   machine that was offline for months bring removed books back.
 
-## Why files, not a database
+## Why SQLite (owner, 2026-10-15)
 
-The library is plain serde files written atomically (`docs/library.md`).
-The sync layout mirrors them, so a backend is a folder of the same
-records. SQLite would add a C dependency and a second schema to migrate,
-for queries a library of tens of thousands of books answers from memory.
-A database stays an option for the M7 search index, which is a cache and
-never syncs.
+The owner reversed the plain-files decision: the library is one bundled
+SQLite file, `library.sqlite` (`docs/library.md` § Slice 9). The record
+model above is unchanged; only where records rest moved.
+
+- **Records** (books, shelves, memberships) are rows of `{kind, id, body,
+  seq}`. The body is the record's JSON, every field stamped as above. Rows
+  are never deleted; a removal is a tombstone in the body.
+- **Local rows** (locations, folders) live in their own table and never
+  leave the machine.
+- **The change cursor.** Each save gets the next `seq` and stamps the rows
+  it wrote. A sync remembers the last `seq` it pushed and asks the store
+  for rows past it, so a round never diffs the whole library.
+- **Merge** is `Merge` in `crates/library`: per field last-writer-wins,
+  tombstones only grow. Property tests check it commutes, associates and
+  is idempotent, which is what lets backends race safely.
+- **Positions** stay `state/<book-id>.json`, as in the wire layout.
+- **Migrations** are dated, append-only SQL steps keyed by `user_version`.
+  A newer file is read but never written.
+
+The file layout above is the remote side and is unchanged: a file backend
+writes records from the store into those envelopes. No backend exists yet.
 
 ## Revision history
 
 | Date | Summary |
 |---|---|
 | 2026-10-15 | First design: what M5 lays down, clock, merge rules, backends, layout |
+| 2026-10-15 | SQLite store replaces plain files (owner): records, local rows, change cursor, `Merge` |
