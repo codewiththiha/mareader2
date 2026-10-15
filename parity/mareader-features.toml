@@ -396,8 +396,10 @@ title = "A moved or renamed file is still the same book: position, shelves and m
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "partial"
+evidence = ["crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place"]
 reference = ["crates/library-core/src/hash.rs", "crates/library-core/src/ledger.rs"]
+notes = "A moved file opened again is the same book with its position; scans that follow moves unopened, and shelves and marks, arrive with sources, shelves and M6"
 
 [[feature]]
 id = "library.missing"
@@ -405,8 +407,10 @@ title = "A vanished file stays on its shelf as missing, with find-again (pick a 
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "partial"
+evidence = ["crates/ui/tests/library.rs::a_book_whose_file_is_gone_says_so_instead_of_opening"]
 reference = ["crates/library-runtime/src/features/library/relink_modal.rs"]
+notes = "Missing books stay listed, faded, and say so when clicked; shelves and find-again arrive with slices 3 and 4"
 
 [[feature]]
 id = "library.shelves"
@@ -513,7 +517,11 @@ title = "Each book reopens where it was left"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/library.rs::an_opened_book_is_recorded_once_and_reopens_where_it_was_left",
+    "crates/ui/tests/library.rs::the_library_and_positions_come_back_after_a_restart",
+]
 reference = ["crates/library-core/src/book/mod.rs"]
 
 [[feature]]

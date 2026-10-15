@@ -1,6 +1,7 @@
 //! User intents. Views push them; the app applies them after the UI pass.
 
 use mareader_appearance::Appearance;
+use mareader_library::BookId;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
 
 use crate::documents::OpenRequest;
@@ -26,7 +27,10 @@ pub enum Command {
     CloseSidebar,
     /// Floating over the panes, or docked beside them.
     SetSidebarOverlay(bool),
+    /// The library page in place of the panes, or back to them.
     ShowLibrary,
+    /// A library book, in the focused pane where it was left.
+    OpenBook(BookId),
     /// The Search buttons: the find bar on, or off if open.
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).

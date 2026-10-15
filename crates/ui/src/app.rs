@@ -24,6 +24,7 @@ use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
 use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
+use crate::library::{self, LibraryState};
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
 use crate::pane_texts::PaneTexts;
@@ -67,6 +68,7 @@ pub struct MareaderApp {
     lights: NativeLights,
     documents: Documents,
     files: Files,
+    library: LibraryState,
     /// The sidebar panels' scroll-following, for the focused pane.
     outline: OutlineState,
     thumbs: ThumbState,
@@ -124,6 +126,7 @@ impl MareaderApp {
             lights: NativeLights::default(),
             documents: Documents::default(),
             files: Files::default(),
+            library: LibraryState::default(),
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
             page_bars: std::collections::BTreeMap::new(),
@@ -202,6 +205,19 @@ impl MareaderApp {
         let (path, page, place) = panes.into_iter().find_map(|p| self.documents.place(p))?;
         let place = place.map(|a| (a.block, a.offset));
         Some(LastDocument { path, page, place })
+    }
+
+    /// Keeps the library in `root`; without one it lives in memory.
+    pub fn attach_library(&mut self, root: PathBuf) {
+        self.library.attach(root);
+    }
+
+    pub fn library(&self) -> &mareader_library::Library {
+        self.library.model()
+    }
+
+    pub fn library_showing(&self) -> bool {
+        self.library.showing
     }
 
     pub fn toast(&self) -> Option<&Toast> {
@@ -347,11 +363,17 @@ impl MareaderApp {
                 None => Toast::info(value),
             }),
             "pinned" => self.titlebar.pinned = value == "true",
-            "workers" => self.documents.set_workers(
-                value
+            "workers" => {
+                let n = value
                     .parse()
-                    .map_err(|_| "workers: a count, 0 runs inline")?,
-            ),
+                    .map_err(|_| "workers: a count, 0 runs inline")?;
+                self.documents.set_workers(n);
+                self.library.set_inline(n == 0);
+            }
+            "library" => self.library.showing = value == "show",
+            "books" => self
+                .library
+                .seed(value.parse().map_err(|_| "books: a count")?),
             "pdf" | "epub" => {
                 let (kind, pages) = value.split_once(':').unwrap_or((value, ""));
                 let count = pages.parse().ok();
@@ -555,6 +577,11 @@ impl MareaderApp {
             Command::GoTo { pane, page } => self.documents.go_to(pane, page),
             Command::Turn { pane, forward } => self.documents.turn(pane, forward),
             Command::Open(request) => {
+                // Held while the library loads, to open where it was left.
+                let Some(request) = self.library.resume(request) else {
+                    return;
+                };
+                self.library.showing = false;
                 let mut pane = request.pane.unwrap_or(self.active);
                 // Open beside: a new pane to the right, as in mareader.
                 if request.beside {
@@ -636,7 +663,14 @@ impl MareaderApp {
             }
             Command::ShowSearch if self.find.is_open() => self.find.close(),
             Command::ShowSearch => self.apply(ctx, Command::ShowFind),
-            Command::ShowLibrary => {}
+            Command::ShowLibrary => {
+                self.library.showing = !self.library.showing;
+                self.find.close();
+            }
+            Command::OpenBook(id) => match self.library.open(id) {
+                Ok(request) => self.apply(ctx, Command::Open(request)),
+                Err(toast) => self.toasts.push(toast),
+            },
         }
     }
 }
@@ -934,12 +968,30 @@ impl eframe::App for MareaderApp {
         self.documents.set_text(&self.settings.text, &own);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
+        self.library.receive(&ctx, &mut commands);
+        // Inline, the measure lands next frame; book it.
+        if self.library.observe(&self.documents, &self.tree.panes()) {
+            ctx.request_repaint();
+        }
+        if let Some(wait) = self.library.save(ctx.input(|i| i.time)) {
+            ctx.request_repaint_after(Duration::from_secs_f64(wait));
+        }
         keymap::read(&ctx, self.platform, &mut commands);
         let drop_target = self.drops(&ctx);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
+        // The library page goes back to what's being read.
+        let reading = self
+            .tree
+            .panes()
+            .iter()
+            .any(|p| self.documents.reading(*p).is_some());
+        if free && self.library.showing && reading {
+            self.library.showing = false;
+            free = false;
+        }
         if free && self.find.is_open() {
             self.find.close();
             free = false;
@@ -993,7 +1045,13 @@ impl eframe::App for MareaderApp {
         };
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
+        let library = &self.library;
         egui::CentralPanel::no_frame().show(ui, |ui| {
+            if library.showing {
+                self.pane_rects.clear();
+                library::view::show(ui, library, view.chrome_bottom, &mut commands);
+                return;
+            }
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
                 let style = view.style(id);
                 let cx = ViewContext {
@@ -1023,7 +1081,11 @@ impl eframe::App for MareaderApp {
             textures: routing.textures,
         });
         let bar = BarContext {
-            title: self.documents.title(self.active).unwrap_or("Mareader"),
+            title: match self.library.showing {
+                true => "Library",
+                false => self.documents.title(self.active).unwrap_or("Mareader"),
+            },
+            library: self.library.showing,
             platform: self.platform,
             left_inset: inset,
             sidebar_toggle: !overlay && !self.sidebar.is_open(),
@@ -1089,6 +1151,7 @@ impl eframe::App for MareaderApp {
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {
+        self.library.flush();
         storage.set_string(SETTINGS_KEY, mareader_settings::to_json(&self.settings));
         // Nothing open saves `null`: the next launch starts empty.
         let last = serde_json::to_string(&self.last_document());
