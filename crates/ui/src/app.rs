@@ -31,10 +31,11 @@ use crate::pane_texts::PaneTexts;
 use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
+use crate::route::Route;
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::thumbnails::ThumbState;
-use crate::titlebar::{self, BarContext, TitleBar};
+use crate::titlebar::{self, BarContext, BarPage, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
 
@@ -225,7 +226,30 @@ impl MareaderApp {
     }
 
     pub fn library_showing(&self) -> bool {
-        self.library.showing
+        self.route() == Route::Library
+    }
+
+    /// The page in the window; the library replaces the panes, not ends them.
+    pub fn route(&self) -> Route {
+        match self.library.showing {
+            true => Route::Library,
+            false => Route::Reader,
+        }
+    }
+
+    /// Something is open in a pane, so the library can go back to it.
+    fn reading(&self) -> bool {
+        let panes = self.tree.panes();
+        panes.iter().any(|p| self.documents.reading(*p).is_some())
+    }
+
+    /// The one way between routes; leaving the reader ends its overlays.
+    fn go(&mut self, route: Route) {
+        if route == Route::Library {
+            self.find.close();
+            self.settings_window.close();
+        }
+        self.library.showing = route == Route::Library;
     }
 
     /// Covers held as textures, for tests.
@@ -388,7 +412,14 @@ impl MareaderApp {
                 self.documents.set_workers(n);
                 self.library.set_inline(n == 0);
             }
-            "library" => self.library.showing = value == "show",
+            "library" => match value {
+                // After a queued open, which would otherwise leave it.
+                "show" if self.queued.iter().any(|c| matches!(c, Command::Open(_))) => {
+                    self.queue(Command::ShowLibrary);
+                }
+                "show" => self.go(Route::Library),
+                _ => self.go(Route::Reader),
+            },
             "layout" => {
                 self.settings.library.layout = match value {
                     "list" => mareader_library::Layout::List,
@@ -542,7 +573,7 @@ impl MareaderApp {
             },
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
-                "settings" => self.settings_window.open(None),
+                "settings" => self.queue(Command::ShowSettings),
                 "menu" => self.queue(Command::ShowViewMenu),
                 "find" => self.queue(Command::ShowFind),
                 _ => return Err("open: appearance, settings, menu or find".into()),
@@ -583,6 +614,9 @@ impl MareaderApp {
     }
 
     fn apply(&mut self, ctx: &Context, command: Command) {
+        if !self.route().allows(&command) {
+            return;
+        }
         // Text edits must reach the pane focused when they were made.
         self.reconcile_texts();
         match command {
@@ -628,7 +662,7 @@ impl MareaderApp {
                 let Some(request) = self.library.resume(request) else {
                     return;
                 };
-                self.library.showing = false;
+                self.go(Route::Reader);
                 let mut pane = request.pane.unwrap_or(self.active);
                 // Open beside: a new pane to the right, as in mareader.
                 if request.beside {
@@ -646,6 +680,10 @@ impl MareaderApp {
             }
             Command::SetRatio(path, ratio) => {
                 self.tree.set_ratio(&path, ratio);
+            }
+            // The shelf wears the window's look; no pane is in view.
+            Command::SetAppearance(a) if self.route() == Route::Library => {
+                self.settings.appearance = a;
             }
             Command::SetAppearance(a) => {
                 let routing = self.routing();
@@ -689,7 +727,11 @@ impl MareaderApp {
             }
             Command::ShowViewMenu => {
                 self.titlebar.reveal();
-                egui::Popup::open_id(ctx, egui::Id::new(crate::view_menu::VIEW_MENU));
+                let menu = match self.route() {
+                    Route::Reader => crate::view_menu::VIEW_MENU,
+                    Route::Library => crate::library::menu::LIBRARY_VIEW_MENU,
+                };
+                egui::Popup::open_id(ctx, egui::Id::new(menu));
             }
             Command::ShowSettings => self.settings_window.open(None),
             // mareader's find falls back to the library's search.
@@ -710,10 +752,12 @@ impl MareaderApp {
             }
             Command::ShowSearch if self.find.is_open() => self.find.close(),
             Command::ShowSearch => self.apply(ctx, Command::ShowFind),
-            Command::ShowLibrary => {
-                self.library.showing = !self.library.showing;
-                self.find.close();
-            }
+            Command::ShowLibrary => match self.route() {
+                Route::Reader => self.go(Route::Library),
+                // An empty reader is no place to go back to.
+                Route::Library if self.reading() => self.go(Route::Reader),
+                Route::Library => {}
+            },
             Command::SetLibraryView(view) => {
                 self.settings.library = view;
                 self.settings.library.sanitize();
@@ -831,10 +875,11 @@ impl MareaderApp {
 
     /// The library keeps its own pin; the reader's is the other.
     fn pin_setting(&mut self) -> &mut bool {
+        let route = self.route();
         let chrome = &mut self.settings.chrome;
-        match self.library.showing {
-            true => &mut chrome.library_titlebar_pinned,
-            false => &mut chrome.titlebar_pinned,
+        match route {
+            Route::Library => &mut chrome.library_titlebar_pinned,
+            Route::Reader => &mut chrome.titlebar_pinned,
         }
     }
 
@@ -949,13 +994,30 @@ impl MareaderApp {
         ctx.layer_painter(layer).add(shape);
     }
 
+    /// The reader's half of the bar: rail toggle, tools and the menu's state.
+    fn reader_bar(&self, overlay: bool) -> ReaderBar {
+        let routing = self.routing();
+        ReaderBar {
+            sidebar_toggle: !overlay && !self.sidebar.is_open(),
+            independence: routing.split.then_some(Independence {
+                themes: routing.themes,
+                textures: routing.textures,
+            }),
+            zoom: self.documents.zoom_state(self.active),
+            mode: self.documents.mode(self.active),
+            ink: (self.documents.reflowable(self.active))
+                .then_some(self.settings.text.ink_contrast),
+        }
+    }
+
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
-    fn place_lights(&self, ctx: &Context, overlay: bool) -> NativeLights {
-        let bar_hosts = self.sidebar.offset().is_none() && !overlay;
+    fn place_lights(&self, ctx: &Context, overlay: bool, route: Route) -> NativeLights {
+        let rail = self.sidebar.offset().filter(|_| route.has_rail());
+        let bar_hosts = rail.is_none() && (!overlay || !route.has_rail());
         // Handing over from a rail, they fade in rather than pop.
         let secs = motion::secs(ctx, titlebar::FADE);
         let handoff = ctx.animate_bool_with_time(egui::Id::new("lights-bar"), bar_hosts, secs);
-        match self.sidebar.offset() {
+        match rail {
             Some(shift) => NativeLights {
                 shift,
                 opacity: 1.0,
@@ -1039,20 +1101,16 @@ impl eframe::App for MareaderApp {
         if let Some(wait) = self.library.save(ctx.input(|i| i.time)) {
             ctx.request_repaint_after(Duration::from_secs_f64(wait));
         }
-        keymap::read(&ctx, self.platform, &mut commands);
+        let route = self.route();
+        keymap::read(&ctx, self.platform, route, &mut commands);
         let drop_target = self.drops(&ctx);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let modal = self.settings_window.is_open();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
-        // The library page goes back to what's being read.
-        let reading = self
-            .tree
-            .panes()
-            .iter()
-            .any(|p| self.documents.reading(*p).is_some());
-        if free && self.library.showing && reading {
-            self.library.showing = false;
+        // The library page goes back to what's being read, and only that.
+        if free && route == Route::Library {
+            commands.push(Command::ShowLibrary);
             free = false;
         }
         if free && self.find.is_open() {
@@ -1081,12 +1139,15 @@ impl eframe::App for MareaderApp {
                 Panel::Thumbnails => documents.thumbnails(ui, active, thumbs, recentre, out),
                 Panel::Library | Panel::Dictionary => false,
             };
-        let inset = if overlay {
-            self.sidebar
-                .show_floating(&ctx, &rail, &mut body, &mut commands)
-        } else {
-            self.sidebar
-                .show_docked(ui, &rail, &mut body, &mut commands)
+        // The rail serves reading; the library keeps it, unseen, for return.
+        let inset = match (route.has_rail(), overlay) {
+            (false, _) => 0.0,
+            (true, true) => self
+                .sidebar
+                .show_floating(&ctx, &rail, &mut body, &mut commands),
+            (true, false) => self
+                .sidebar
+                .show_docked(ui, &rail, &mut body, &mut commands),
         };
         let tokens = theme::Tokens::get(&ctx);
         let view = PaneView {
@@ -1140,37 +1201,45 @@ impl eframe::App for MareaderApp {
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings.all_presets();
-        let look = self.look(self.active);
-        let routing = self.routing();
-        let independence = routing.split.then_some(Independence {
-            themes: routing.themes,
-            textures: routing.textures,
-        });
+        let (title, look, page) = match route {
+            Route::Reader => (
+                self.documents.title(self.active).unwrap_or("Mareader"),
+                self.look(self.active),
+                BarPage::Reader(self.reader_bar(overlay)),
+            ),
+            Route::Library => {
+                let width = self
+                    .library_rect
+                    .map_or(ctx.content_rect().width(), |r| r.width());
+                let library = LibraryBar {
+                    view: &self.settings.library,
+                    auto_columns: library::view::page_columns(width),
+                    can_return: self.reading(),
+                };
+                (
+                    "Library",
+                    self.settings.appearance,
+                    BarPage::Library(library),
+                )
+            }
+        };
         let bar = BarContext {
-            title: match self.library.showing {
-                true => "Library",
-                false => self.documents.title(self.active).unwrap_or("Mareader"),
-            },
-            library: self.library.showing,
+            title,
             platform: self.platform,
             left_inset: inset,
-            sidebar_toggle: !overlay && !self.sidebar.is_open(),
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             fullscreen,
-            gutter: !overlay && inset <= 0.0 && !fullscreen,
+            // With no rail beside it, the bar hosts the lights.
+            gutter: (!overlay || !route.has_rail()) && inset <= 0.0 && !fullscreen,
             appearance: &look,
-            independence,
             presets: &presets,
             user_presets: &self.settings.user_presets,
             gpu: self.documents.gpu(),
-            zoom: self.documents.zoom_state(self.active),
-            mode: self.documents.mode(self.active),
             backdrop: &backdrop,
-            ink: (self.documents.reflowable(self.active))
-                .then_some(self.settings.text.ink_contrast),
+            page,
         };
         self.titlebar.show(&ctx, &bar, &mut commands);
-        self.lights = self.place_lights(&ctx, overlay);
+        self.lights = self.place_lights(&ctx, overlay, route);
         // Shots and the preview simulate macOS; draw where the lights go.
         if self.platform == Platform::Mac && !cfg!(target_os = "macos") {
             stand_in_lights(&ctx, self.lights);

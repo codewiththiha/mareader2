@@ -55,9 +55,8 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         pos2(left, top.max(full.top()) + 20.0),
         pos2(left + width, full.bottom()),
     );
-    let auto = auto_columns(width);
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
-    header(&mut ui, model.len(), view, auto, &t, out);
+    header(&mut ui, model.len(), view, &t, out);
     ui.add_space(12.0);
     let books = view.sort(model.books());
     let mut cx = Cx {
@@ -70,7 +69,12 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     // Rows are spaced by their own height; egui's gap would add to it.
     ui.spacing_mut().item_spacing.y = 0.0;
     match view.layout {
-        Layout::Grid => grid(&mut ui, &books, view.columns.unwrap_or(auto), &mut cx),
+        Layout::Grid => grid(
+            &mut ui,
+            &books,
+            view.columns.unwrap_or(auto_columns(width)),
+            &mut cx,
+        ),
         Layout::List => list(&mut ui, &books, &mut cx),
     }
 }
@@ -84,13 +88,18 @@ struct Cx<'a> {
     out: &'a mut Commands,
 }
 
+/// What Auto shows across a page `page_width` wide, for the View menu.
+pub fn page_columns(page_width: f32) -> u8 {
+    auto_columns((page_width - 2.0 * MARGIN).min(GRID_WIDTH))
+}
+
 /// As many cards as fit at least [`CARD_MIN`] wide.
 fn auto_columns(width: f32) -> u8 {
     let n = ((width + GAP) / (CARD_MIN + GAP)).floor();
     (n.clamp(0.0, 255.0) as u8).clamp(COLUMNS_MIN, COLUMNS_MAX)
 }
 
-fn header(ui: &mut Ui, count: usize, view: &View, auto: u8, t: &Tokens, out: &mut Commands) {
+fn header(ui: &mut Ui, count: usize, view: &View, t: &Tokens, out: &mut Commands) {
     // Lined up with the list rows' text, which sits in from their edges.
     let inset = match view.layout {
         Layout::Grid => 0.0,
@@ -111,10 +120,10 @@ fn header(ui: &mut Ui, count: usize, view: &View, auto: u8, t: &Tokens, out: &mu
         ui.label(egui::RichText::new(books).color(t.muted));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(inset);
+            // Adding books is the shelf's own; the bar keeps the View menu.
             if open_button(ui, t).clicked() {
                 out.push(Command::ShowOpenDialog { beside: false });
             }
-            super::menu::button(ui, view, auto, out);
         });
     });
 }

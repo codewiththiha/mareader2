@@ -33,6 +33,7 @@ pub mod paper;
 pub mod pdf_view;
 pub mod platform;
 pub mod resize;
+pub mod route;
 pub mod selection;
 pub mod settings_window;
 pub mod sidebar;
