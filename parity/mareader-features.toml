@@ -320,6 +320,22 @@ evidence = [
 reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/theme.rs"]
 
 [[feature]]
+id = "workspace.independent-text"
+title = "Fonts settings for each pane"
+area = "B"
+tier = "P2"
+milestone = "M4"
+status = "shipped"
+evidence = [
+  "crates/ui/src/pane_texts.rs::each_pane_keeps_its_own_text_while_split",
+  "crates/ui/src/pane_texts.rs::the_focused_pane_hands_its_text_to_the_window",
+  "crates/ui/tests/reading.rs::independent_text_sets_each_pane_in_its_own_type",
+  "crates/session/src/tests.rs::each_slot_sets_one_book_in_its_own_type",
+]
+reference = ["crates/reader-core/src/settings/workspace.rs"]
+notes = "Owner's extension: mareader shares text across panes. While split, Settings › Workspace's switch gives each pane its own Fonts settings; the tab edits the focused pane, and panes on one file share a parse while their type matches"
+
+[[feature]]
 id = "workspace.independent-textures"
 title = "Texture for each pane"
 area = "B"

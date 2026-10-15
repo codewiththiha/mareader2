@@ -129,6 +129,15 @@ What the epub crate reads, and what each element becomes:
 - **Fonts tab.** Settings › Fonts: the four slots, size and weight
   steppers, spacing dials, and the justify and hyphenation switches.
   A system face that isn't installed shows as "Not installed".
+- **Text for each pane (owner's extension).** Settings › Workspace ›
+  "Independent text for each pane" gives each split pane its own Fonts
+  settings. The window's text mirrors the focused pane's, so the Fonts tab,
+  the ink dial and shot keys edit that pane alone (`PaneTexts`). A new pane
+  copies the focused one; turning the switch off or closing to one pane
+  hands the focused pane's text to the window. Documents are per file and
+  type: panes on one file share a parse while their type matches, and a
+  re-set forks a new document in a per-pane slot, leaving the old one to
+  any pane still on it.
 
 ## View modes as built (M4 slice 4)
 
