@@ -1,4 +1,4 @@
-//! The arranged order: cards moved by dropping them between others.
+//! The arranged order: cards carried through a living grid and dropped.
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
@@ -67,8 +67,8 @@ fn drop_on(h: &mut Harness<'static, MareaderApp>, item: Item, onto: Item, along:
     drag(h, from, to);
 }
 
-/// Presses on `from`, moves in steps past egui's drag threshold, lets go.
-fn drag(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2) {
+/// Presses on `from`, moves in steps past egui's drag threshold, holds.
+fn carry(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2) {
     h.hover_at(from);
     h.run();
     h.drag_at(from);
@@ -77,13 +77,25 @@ fn drag(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2)
         h.hover_at(from.lerp(to, step as f32 / 6.0));
         h.run();
     }
+}
+
+fn release(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
     h.event(egui::Event::PointerButton {
-        pos: to,
+        pos: at,
         button: egui::PointerButton::Primary,
         pressed: false,
         modifiers: egui::Modifiers::NONE,
     });
     h.run();
+}
+
+fn drag(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2) {
+    carry(h, from, to);
+    release(h, to);
+}
+
+fn rect_of(h: &Harness<'static, MareaderApp>, item: Item) -> egui::Rect {
+    h.get_by_label(&label(h, item)).rect()
 }
 
 #[test]
@@ -144,4 +156,43 @@ fn the_list_files_by_drag_but_keeps_its_order() {
     let (from, to) = (row(&h, last), row(&h, first));
     drag(&mut h, from, to);
     assert_eq!(top(&h), before);
+}
+
+#[test]
+fn carried_cards_make_room_and_settle_where_dropped() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let (first, last) = (order[0], order[3]);
+    let (slot0, slot1) = (rect_of(&h, first), rect_of(&h, order[1]));
+    let (from, to) = (on(&h, last, 0.5), on(&h, first, 0.2));
+    carry(&mut h, from, to);
+    // Passing over cards moves nothing; resting on one makes room.
+    assert!((rect_of(&h, first).left() - slot0.left()).abs() < 1.0);
+    h.run_steps(20);
+    h.run();
+    // Lifted, it leaves the grid; the first card slides into the next slot.
+    assert!(h.query_by_label(&label(&h, last)).is_none(), "lifted");
+    assert!((rect_of(&h, first).left() - slot1.left()).abs() < 1.0);
+    release(&mut h, to);
+    assert_eq!(top(&h), [last, order[0], order[1], order[2]]);
+    assert!(
+        (rect_of(&h, last).min - slot0.min).length() < 1.0,
+        "settled"
+    );
+}
+
+#[test]
+fn escape_puts_a_lifted_card_back() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let (first, last) = (order[0], order[3]);
+    let (home, was) = (rect_of(&h, first), rect_of(&h, last));
+    let (from, to) = (on(&h, last, 0.5), on(&h, first, 0.2));
+    carry(&mut h, from, to);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    release(&mut h, to);
+    assert_eq!(top(&h), order);
+    assert!((rect_of(&h, first).min - home.min).length() < 1.0);
+    assert!((rect_of(&h, last).min - was.min).length() < 1.0);
 }
