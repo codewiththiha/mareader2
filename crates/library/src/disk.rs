@@ -13,9 +13,10 @@ use crate::book::{Book, FileStamp, Format, State};
 use crate::clock::Clock;
 use crate::id::{BookId, ContentId, DeviceId};
 use crate::library::{Dirty, Library, Measure};
+use crate::sources::Source;
 
-/// The files' version; a newer one is left untouched.
-pub const SCHEMA: u32 = 1;
+/// The files' version; 2 added folders. Newer files are left untouched.
+pub const SCHEMA: u32 = 2;
 
 /// Bytes hashed from each end of a large PDF or EPUB.
 const SAMPLE: u64 = 64 << 10;
@@ -25,6 +26,8 @@ struct LibraryFile {
     schema: u32,
     clock: Clock,
     books: Vec<Book>,
+    #[serde(default)]
+    sources: Vec<Source>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -114,8 +117,9 @@ impl Folder {
             }
         };
         let books: BTreeMap<BookId, Book> = file.books.into_iter().map(|b| (b.id, b)).collect();
+        let sources = file.sources.into_iter().map(|s| (s.id, s)).collect();
         let states = self.load_states(&books);
-        let mut library = Library::from_parts(file.clock, books, states);
+        let mut library = Library::from_parts(file.clock, books, states, sources);
         library.check_present(Path::is_file);
         Loaded {
             library,
@@ -148,6 +152,7 @@ impl Folder {
                 schema: SCHEMA,
                 clock: library.clock,
                 books: library.books.values().cloned().collect(),
+                sources: library.sources.values().cloned().collect(),
             };
             if let Ok(json) = serde_json::to_string_pretty(&file) {
                 out.push((self.library_file(), json));
@@ -187,16 +192,24 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })
 }
 
-/// SHA-256 of the size and both 64 KiB ends; text is hashed whole.
-pub fn measure(path: &Path, format: Format) -> io::Result<Measure> {
-    let mut file = File::open(path)?;
-    let meta = file.metadata()?;
-    let size = meta.len();
+/// A file's size and modification time.
+fn stamp_of(meta: &fs::Metadata) -> FileStamp {
     let since = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
     let mtime_ms = since.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    FileStamp {
+        size: meta.len(),
+        mtime_ms,
+    }
+}
+
+/// SHA-256 of the size and both 64 KiB ends; text is hashed whole.
+pub fn measure(path: &Path, format: Format) -> io::Result<Measure> {
+    let mut file = File::open(path)?;
+    let stamp = stamp_of(&file.metadata()?);
+    let size = stamp.size;
     let mut hasher = Sha256::new();
     hasher.update(size.to_le_bytes());
     if format.hashed_whole() || size <= 2 * SAMPLE {
@@ -219,6 +232,192 @@ pub fn measure(path: &Path, format: Format) -> io::Result<Measure> {
         .unwrap_or_default();
     Ok(Measure {
         content: ContentId(u128::from_be_bytes(first)),
-        stamp: FileStamp { size, mtime_ms },
+        stamp,
     })
+}
+
+/// How far a walk may go before it stops short.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub files: usize,
+    pub folders: usize,
+    pub depth: usize,
+    /// Files changed this recently may still be copying in.
+    pub settle_ms: u64,
+    pub now_ms: u64,
+}
+
+impl Limits {
+    pub fn new(now_ms: u64) -> Self {
+        Self {
+            files: 20_000,
+            folders: 20_000,
+            depth: 24,
+            settle_ms: 3_000,
+            now_ms,
+        }
+    }
+}
+
+/// What a walk found, and how it ended.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Walked {
+    /// Sorted by path.
+    pub files: Vec<(PathBuf, Format, FileStamp)>,
+    /// Stopped at a limit: what wasn't seen may still be there.
+    pub truncated: bool,
+    /// Files skipped as still being written; worth another look soon.
+    pub settling: usize,
+    /// The folder itself couldn't be read.
+    pub offline: bool,
+}
+
+/// Folders a walk never enters: system litter and build trees.
+const SKIP: [&str; 6] = [
+    "node_modules",
+    "__MACOSX",
+    "$RECYCLE.BIN",
+    "System Volume Information",
+    "@eaDir",
+    "lost+found",
+];
+
+/// The book files under `root` that `keep` takes, never following links.
+pub fn walk(
+    root: &Path,
+    keep: impl Fn(Format, u64) -> bool,
+    limits: Limits,
+    avoid: &[PathBuf],
+) -> Walked {
+    let mut walked = Walked::default();
+    if !root.is_dir() {
+        walked.offline = true;
+        return walked;
+    }
+    let mut folders = vec![(root.to_path_buf(), 0)];
+    let mut entered = 0;
+    while let Some((dir, depth)) = folders.pop() {
+        entered += 1;
+        let Ok(entries) = fs::read_dir(&dir) else {
+            walked.offline |= dir == root;
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // Hidden files and Office's `~$` locks are never books.
+            if name.starts_with('.') || name.starts_with("~$") {
+                continue;
+            }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                let skipped = SKIP.contains(&name.as_ref()) || avoid.contains(&path);
+                if skipped {
+                    continue;
+                }
+                if depth >= limits.depth || entered + folders.len() >= limits.folders {
+                    walked.truncated = true;
+                    continue;
+                }
+                folders.push((path, depth + 1));
+                continue;
+            }
+            // Links are refused: they lead out of the folder, or round it.
+            let Some(format) = kind.is_file().then(|| Format::of_path(&path)).flatten() else {
+                continue;
+            };
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            let stamp = stamp_of(&meta);
+            if !keep(format, stamp.size) {
+                continue;
+            }
+            if limits.now_ms.saturating_sub(stamp.mtime_ms) < limits.settle_ms {
+                walked.settling += 1;
+                continue;
+            }
+            if walked.files.len() >= limits.files {
+                walked.truncated = true;
+                break;
+            }
+            walked.files.push((path, format, stamp));
+        }
+        if walked.files.len() >= limits.files && walked.truncated {
+            break;
+        }
+    }
+    walked.files.sort_by(|a, b| a.0.cmp(&b.0));
+    walked
+}
+
+/// A content id remembered for a path, valid while its stamp holds.
+pub type Known = std::collections::HashMap<PathBuf, (FileStamp, ContentId)>;
+
+/// Measures what a walk found, re-hashing only files that changed.
+pub fn measure_all(
+    files: Vec<(PathBuf, Format, FileStamp)>,
+    known: &Known,
+) -> Vec<(PathBuf, Format, Measure)> {
+    let mut out = Vec::with_capacity(files.len());
+    for (path, format, stamp) in files {
+        let cached = known.get(&path).filter(|(s, _)| *s == stamp);
+        let measured = match cached {
+            Some(&(stamp, content)) => Some(Measure { content, stamp }),
+            // A file gone mid-walk is simply not found.
+            None => measure(&path, format).ok(),
+        };
+        out.extend(measured.map(|m| (path, format, m)));
+    }
+    out
+}
+
+/// What a book's lost file is sought by.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sought {
+    pub content: ContentId,
+    pub format: Format,
+    /// Its file's last name and size, when known.
+    pub name: Option<std::ffi::OsString>,
+    pub size: Option<u64>,
+}
+
+/// What a search for a lost file turned up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FoundAgain {
+    /// The very content, under any name.
+    Same(PathBuf, Measure),
+    /// Its old name with other content: an edition or an edit.
+    Named(PathBuf, Measure),
+    Nothing,
+}
+
+/// Looks under `folder` for the content, else the old name.
+pub fn find_again(folder: &Path, sought: &Sought, limits: Limits) -> FoundAgain {
+    let limits = Limits {
+        settle_ms: 0,
+        ..limits
+    };
+    let walked = walk(folder, |f, _| f == sought.format, limits, &[]);
+    let mut named = None;
+    for (path, format, stamp) in walked.files {
+        let same_name = sought.name.is_some() && path.file_name() == sought.name.as_deref();
+        let same_size = sought.size == Some(stamp.size);
+        if !same_name && !same_size {
+            continue;
+        }
+        let Ok(m) = measure(&path, format) else {
+            continue;
+        };
+        if m.content == sought.content {
+            return FoundAgain::Same(path, m);
+        }
+        if same_name && named.is_none() {
+            named = Some((path, m));
+        }
+    }
+    named.map_or(FoundAgain::Nothing, |(p, m)| FoundAgain::Named(p, m))
 }

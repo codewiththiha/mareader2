@@ -19,6 +19,11 @@ pub struct BookId(pub u128);
 #[serde(into = "String", try_from = "String")]
 pub struct DeviceId(pub u64);
 
+/// A folder read in place; local to this machine, like its path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct SourceId(pub u64);
+
 impl BookId {
     /// Its first content's id: two machines agree unasked (`docs/sync.md`).
     pub fn original(content: ContentId) -> Self {
@@ -84,6 +89,26 @@ impl From<DeviceId> for String {
 }
 
 impl TryFrom<String> for DeviceId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        let value = parse_hex(&s, 16)?;
+        u64::try_from(value).map(Self).map_err(|e| e.to_string())
+    }
+}
+
+impl fmt::Display for SourceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+impl From<SourceId> for String {
+    fn from(id: SourceId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for SourceId {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
         let value = parse_hex(&s, 16)?;
