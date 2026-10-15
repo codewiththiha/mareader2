@@ -412,6 +412,11 @@ What the first slice built, and where it stops short of the model above.
   at its own place; the original keeps its own. Removing the original
   promotes the first living twin, so opening the file by path still finds
   a book.
+  Which book a pane reads as travels with its open request into the
+  pane's view, and is saved with the last-read file. A failed open
+  leaves nothing behind, another pane on the same file is never taken
+  over, and a twin reopens as itself after a relaunch. A pane reading a
+  removed book stops recording its place rather than hand it to another.
 - **Rename…** edits a book's title in a sheet: Enter or Rename saves,
   Escape cancels; at most 120 characters. Rescans and later opens keep
   it; the title is a stamped field for sync.
