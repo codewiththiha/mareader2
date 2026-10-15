@@ -30,6 +30,8 @@ const TITLE_ROOM: f32 = 160.0;
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
     pub title: &'a str,
+    /// The library page is up: its button shows pressed.
+    pub library: bool,
     pub platform: Platform,
     /// The sidebar's width: the band starts after it.
     pub left_inset: f32,
@@ -234,7 +236,7 @@ impl TitleBar {
         let ((lead_end, lead), (trail_start, trail)) =
             egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
                 ui,
-                |ui| leading(ui, bar.sidebar_toggle),
+                |ui| leading(ui, bar.sidebar_toggle, bar.library),
                 |ui| trailing(ui, bar, pinned, fit),
             );
         for c in lead.into_iter().chain(trail).filter(|_| live) {
@@ -252,14 +254,14 @@ fn clicked(r: egui::Response, c: Command) -> Option<Command> {
 }
 
 /// Returns its right edge and what was clicked.
-fn leading(ui: &mut egui::Ui, sidebar_toggle: bool) -> (f32, Commands) {
+fn leading(ui: &mut egui::Ui, sidebar_toggle: bool, library: bool) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
     if sidebar_toggle {
         let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
         out.extend(clicked(r, Command::ToggleSidebar));
     }
-    let r = widgets::icon_button(ui, Icon::Library, "Library", false);
+    let r = widgets::icon_button(ui, Icon::Library, "Library", library);
     out.extend(clicked(r, Command::ShowLibrary));
     (ui.min_rect().right(), out)
 }
