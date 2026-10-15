@@ -200,6 +200,12 @@ fn chinese_chapter_headings_are_found() {
 }
 
 #[test]
+fn one_text_always_packs_to_the_same_bytes() {
+    let pack = || convert(PROSE.as_bytes(), Format::Plain, Some("a.txt"), &none).unwrap();
+    assert_eq!(pack(), pack());
+}
+
+#[test]
 fn files_without_blank_lines_take_a_line_or_an_indent_as_a_paragraph() {
     let lines: Vec<String> = (0..40)
         .map(|i| format!("Line {i} is a short sentence."))
