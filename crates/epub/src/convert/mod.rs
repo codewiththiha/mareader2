@@ -48,10 +48,10 @@ pub fn convert(
     if text.trim().is_empty() {
         return Err(OpenError::Empty);
     }
-    let title = name.and_then(stem);
+    let name = name.map(Name::read).unwrap_or_default();
     let draft = match format {
-        Format::Plain => plain::draft(&text, title),
-        Format::Markdown => markdown::draft(&text, title, pictures),
+        Format::Plain => plain::draft(&text, name),
+        Format::Markdown => markdown::draft(&text, name, pictures),
     };
     pack::pack(&draft)
 }
@@ -103,10 +103,70 @@ fn chapter_file(index: usize) -> String {
     format!("chapter-{}.xhtml", index + 1)
 }
 
-/// The file name without its directory or extension.
-fn stem(name: &str) -> Option<String> {
-    let stem = Path::new(name).file_stem()?.to_str()?.trim();
-    (!stem.is_empty()).then(|| stem.to_owned())
+/// What a file's name says of its book, the fallback for its own words.
+#[derive(Debug, Default, PartialEq)]
+struct Name {
+    title: Option<String>,
+    author: Option<String>,
+}
+
+impl Name {
+    /// `《河流》作者：林.txt` names both, as Chinese novels do; `notes (1)`
+    /// is `notes`.
+    fn read(path: &str) -> Self {
+        let Some(stem) = Path::new(path).file_stem().and_then(|s| s.to_str()) else {
+            return Self::default();
+        };
+        let stem = without_copy_mark(stem.trim());
+        let (stem, author) = match stem.split_once("作者") {
+            Some((before, after)) => (before, Some(after.trim_start_matches([':', '：']))),
+            None => (stem, None),
+        };
+        let quoted = between(stem, '《', '》');
+        let boxed = stem.strip_prefix('【').and_then(|s| s.split_once('】'));
+        let (title, rest) = quoted.or(boxed).unwrap_or((stem, ""));
+        // `《河流》[林]` and `《河流》（林 著）` bracket the author.
+        let bracketed = ["[]", "【】", "()", "（）"].iter().find_map(|pair| {
+            let mut ends = pair.chars();
+            let (open, close) = (ends.next()?, ends.next()?);
+            between(rest, open, close).map(|(inner, _)| inner.trim_end_matches('著'))
+        });
+        Self {
+            title: kept(title),
+            author: author.or(bracketed).and_then(kept),
+        }
+    }
+}
+
+/// The text between `open` and `close`, and what follows.
+fn between(s: &str, open: char, close: char) -> Option<(&str, &str)> {
+    let (_, rest) = s.split_once(open)?;
+    rest.split_once(close)
+}
+
+/// `notes (1)` as `notes`: the mark a second download gets.
+fn without_copy_mark(stem: &str) -> &str {
+    let Some(open) = stem.rfind(['(', '（']) else {
+        return stem;
+    };
+    let (base, mark) = stem.split_at(open);
+    let digits = mark
+        .trim_start_matches(['(', '（'])
+        .trim_end_matches([')', '）']);
+    let numbered = !digits.is_empty() && digits.len() <= 3;
+    let closed = mark.ends_with([')', '）']);
+    let base = base.trim_end();
+    if numbered && closed && digits.bytes().all(|b| b.is_ascii_digit()) && !base.is_empty() {
+        base
+    } else {
+        stem
+    }
+}
+
+/// `s` trimmed, unless nothing is left.
+fn kept(s: &str) -> Option<String> {
+    let s = s.trim_matches(|c: char| c.is_whitespace() || "-_·".contains(c));
+    (!s.is_empty()).then(|| s.to_owned())
 }
 
 /// Text as UTF-8: a byte order mark wins, then UTF-8, then a guess.
