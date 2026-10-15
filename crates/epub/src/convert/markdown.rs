@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 use pulldown_cmark::{BlockQuoteKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use super::{Draft, Entry, MAX_PICTURE_FILE, Picture, Pictures, chapter_file, escape, fold_lines};
+use super::{
+    Draft, Entry, MAX_PICTURE_FILE, Name, Picture, Pictures, chapter_file, escape, fold_lines,
+};
 use crate::MAX_PICTURE_BYTES;
 
 /// Headings this deep or shallower make the contents.
@@ -48,7 +50,7 @@ struct Note {
     chapter: Option<usize>,
 }
 
-pub(super) fn draft(text: &str, title: Option<String>, pictures: Pictures<'_>) -> Draft {
+pub(super) fn draft(text: &str, name: Name, pictures: Pictures<'_>) -> Draft {
     let text = fold_lines(text);
     let events: Vec<Event<'_>> = Parser::new_ext(&text, options()).collect();
     let mut d = Draft::new(None);
@@ -57,9 +59,9 @@ pub(super) fn draft(text: &str, title: Option<String>, pictures: Pictures<'_>) -
     let first_heading = scan.headings.iter().find(|h| h.level <= TOC_DEPTH);
     d.title = matter(&["title"])
         .or_else(|| first_heading.map(|h| h.text.clone()))
-        .or(title)
+        .or(name.title)
         .unwrap_or(d.title);
-    d.author = matter(&["author", "authors", "creator"]);
+    d.author = matter(&["author", "authors", "creator"]).or(name.author);
     d.language = matter(&["lang", "language"]);
     d.toc = scan
         .headings

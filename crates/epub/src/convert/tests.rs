@@ -114,7 +114,7 @@ fn wrapped_prose_joins_into_paragraphs_and_verse_keeps_its_lines() {
     let verse = "Once upon a midnight dreary, while I pondered, weak and weary,\n\
         Over many a quaint and curious volume of forgotten lore,\n\
         While I nodded, nearly napping, suddenly there came a tapping,";
-    let d = plain::draft(&format!("{prose}\n\n{verse}"), None);
+    let d = plain::draft(&format!("{prose}\n\n{verse}"), Name::default());
     let body = d.chapters.concat();
     assert!(body.contains("customs house, where the boats"), "{body}");
     assert!(body.contains("weak and weary,<br/>Over many"), "{body}");
@@ -177,7 +177,7 @@ fn a_line_that_only_starts_like_a_heading_stays_prose() {
         "Part of it",
     ] {
         assert_eq!(
-            plain::draft(line, None)
+            plain::draft(line, Name::default())
                 .toc
                 .first()
                 .map(|e| e.title.as_str()),
@@ -228,6 +228,37 @@ fn chinese_numerals_and_measure_words_are_told_apart() {
 const CJK_LONG: usize = 37;
 
 #[test]
+fn file_names_give_a_title_an_author_and_lose_copy_marks() {
+    let read = |path: &str| {
+        let name = Name::read(path);
+        (name.title, name.author)
+    };
+    let both = |t: &str, a: &str| (Some(t.to_owned()), Some(a.to_owned()));
+    assert_eq!(read("/x/《河流》作者：林小.txt"), both("河流", "林小"));
+    assert_eq!(read("《河流》[林小].txt"), both("河流", "林小"));
+    assert_eq!(read("《河流》（林小 著）.txt"), both("河流", "林小"));
+    assert_eq!(read("【河流】作者:林小.txt"), both("河流", "林小"));
+    assert_eq!(read("河流 作者 林小.txt"), both("河流", "林小"));
+    assert_eq!(read("notes (1).md"), (Some("notes".to_owned()), None));
+    assert_eq!(read("The River.txt"), (Some("The River".to_owned()), None));
+    assert_eq!(read("(1).txt"), (Some("(1)".to_owned()), None));
+}
+
+#[test]
+fn labelled_lines_in_the_head_win_over_the_name() {
+    let src = "Title: The Raven\n\nAuthor: Edgar Allan Poe\n\nOnce upon a midnight dreary.";
+    let epub = convert(src.as_bytes(), Format::Plain, Some("pg17192.txt"), &none).unwrap();
+    let opf = String::from_utf8_lossy(&epub);
+    assert!(opf.contains("<dc:creator>Edgar Allan Poe</dc:creator>"));
+    let book = Book::open(Arc::new(epub), &Typography::default()).unwrap();
+    assert_eq!(book.title(), Some("The Raven"));
+    // Without a head, the name speaks.
+    let name = Some("《河流》作者：林小.txt");
+    let epub = convert("河水流过。".as_bytes(), Format::Plain, name, &none).unwrap();
+    assert!(String::from_utf8_lossy(&epub).contains("<dc:creator>林小</dc:creator>"));
+}
+
+#[test]
 fn one_text_always_packs_to_the_same_bytes() {
     let pack = || convert(PROSE.as_bytes(), Format::Plain, Some("a.txt"), &none).unwrap();
     assert_eq!(pack(), pack());
@@ -238,13 +269,13 @@ fn files_without_blank_lines_take_a_line_or_an_indent_as_a_paragraph() {
     let lines: Vec<String> = (0..40)
         .map(|i| format!("Line {i} is a short sentence."))
         .collect();
-    let d = plain::draft(&lines.join("\n"), None);
+    let d = plain::draft(&lines.join("\n"), Name::default());
     let body = d.chapters.concat();
     assert_eq!(body.matches("<p>").count(), 40);
     let printed: Vec<String> = (0..20)
         .map(|i| format!("    Paragraph {i} starts indented and\nruns on to a second line."))
         .collect();
-    let d = plain::draft(&printed.join("\n"), None);
+    let d = plain::draft(&printed.join("\n"), Name::default());
     let body = d.chapters.concat();
     assert_eq!(body.matches("<p>").count(), 20);
     assert!(body.contains("indented and runs on"), "{body}");
@@ -284,7 +315,7 @@ Back [to the river](#the-river).
 
 #[test]
 fn markdown_takes_its_title_author_and_language_from_front_matter() {
-    let d = markdown::draft(MD, Some("file".into()), &none);
+    let d = markdown::draft(MD, Name::read("file"), &none);
     assert_eq!(d.title, "The River Book");
     assert_eq!(d.author.as_deref(), Some("Ann Writer"));
     assert_eq!(d.language.as_deref(), Some("en"));
@@ -300,17 +331,17 @@ fn markdown_takes_its_title_author_and_language_from_front_matter() {
 fn markdown_without_front_matter_is_titled_by_its_first_heading() {
     let d = markdown::draft(
         "Some intro.\n\n## Notes on boats\n\ntext",
-        Some("f".into()),
+        Name::read("f"),
         &none,
     );
     assert_eq!(d.title, "Notes on boats");
-    let d = markdown::draft("just text", Some("file name".into()), &none);
+    let d = markdown::draft("just text", Name::read("file name"), &none);
     assert_eq!(d.title, "file name");
 }
 
 #[test]
 fn each_top_heading_opens_a_chapter_and_headings_make_the_contents() {
-    let d = markdown::draft(MD, None, &none);
+    let d = markdown::draft(MD, Name::default(), &none);
     // The text before the first `#` is a chapter of its own.
     assert_eq!(d.chapters.len(), 3);
     let book = open(MD, Format::Markdown, "file.md");
@@ -352,7 +383,7 @@ fn footnotes_link_across_chapters_and_tasks_show_their_boxes() {
     let all = text(&book);
     assert!(all.contains("\u{25a0} Unload the rice"), "{all}");
     assert!(all.contains("\u{25a1} Count the boats"), "{all}");
-    let d = markdown::draft(MD, None, &none);
+    let d = markdown::draft(MD, Name::default(), &none);
     let unmarked = d
         .chapters
         .concat()
@@ -390,7 +421,7 @@ fn local_pictures_are_packed_and_remote_ones_keep_their_alt_text() {
     };
     let md = "# Pictures\n\n![a red dot](pics/red%20dot.png)\n\n![](https://x.org/a.png \"web\")\n\n\
               ![missing one](nowhere.png)\n";
-    let d = markdown::draft(md, None, &read);
+    let d = markdown::draft(md, Name::default(), &read);
     assert_eq!(d.pictures.len(), 1);
     assert_eq!(*asked.borrow(), ["pics/red dot.png", "nowhere.png"]);
     let epub = convert(md.as_bytes(), Format::Markdown, Some("p.md"), &read).unwrap();
