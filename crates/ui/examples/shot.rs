@@ -146,7 +146,8 @@ fn main() -> Result<(), String> {
         if release {
             harness.event(press(to, false));
         }
-        harness.run_steps(4);
+        // A held carry rests, so the grid's rests take, opening included.
+        harness.run_steps(if release { 4 } else { 50 });
     }
     // Long enough for a tooltip to appear.
     if let Some(p) = hover {

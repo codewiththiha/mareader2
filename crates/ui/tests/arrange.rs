@@ -1,8 +1,9 @@
 //! The arranged order: cards carried through a living grid and dropped.
 
+use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use mareader_library::{Home, Item, Library, SortKey};
+use mareader_library::{Home, Item, Library, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::library::{Action, ShelfAction};
@@ -92,6 +93,42 @@ fn release(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
 fn drag(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2) {
     carry(h, from, to);
     release(h, to);
+}
+
+/// Holds the pointer still for `seconds`, so a rest takes.
+fn rest(h: &mut Harness<'static, MareaderApp>, seconds: f32) {
+    h.run_steps((seconds * 60.0).ceil() as usize);
+    h.run();
+}
+
+/// Moves a held carry to `to` and rests there.
+fn rest_at(h: &mut Harness<'static, MareaderApp>, to: egui::Pos2, seconds: f32) {
+    h.hover_at(to);
+    h.run();
+    rest(h, seconds);
+}
+
+/// A shelf named `name` holding `books`, at the top level.
+fn shelf_of(h: &mut Harness<'static, MareaderApp>, name: &str, books: &[Item]) -> ShelfId {
+    let shelf = new_shelf(h, name);
+    for &book in books {
+        drop_on(h, book, shelf, 0.5);
+    }
+    let Item::Shelf(id) = shelf else {
+        unreachable!("new_shelf makes shelves")
+    };
+    id
+}
+
+fn book_id(item: Item) -> mareader_library::BookId {
+    match item {
+        Item::Book(id) => id,
+        Item::Shelf(_) => unreachable!("a book"),
+    }
+}
+
+fn inside(h: &Harness<'static, MareaderApp>, id: ShelfId) -> Vec<Item> {
+    library(h).arranged(Some(id), Home::Everything)
 }
 
 fn rect_of(h: &Harness<'static, MareaderApp>, item: Item) -> egui::Rect {
@@ -195,4 +232,80 @@ fn escape_puts_a_lifted_card_back() {
     assert_eq!(top(&h), order);
     assert!((rect_of(&h, first).min - home.min).length() < 1.0);
     assert!((rect_of(&h, last).min - was.min).length() < 1.0);
+}
+
+#[test]
+fn resting_a_book_on_another_makes_a_shelf_in_its_place() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let (onto, carried) = (order[1], order[3]);
+    let (from, to) = (on(&h, carried, 0.5), on(&h, onto, 0.5));
+    carry(&mut h, from, to);
+    rest(&mut h, 0.4);
+    release(&mut h, to);
+    let now = top(&h);
+    let Some(&Item::Shelf(id)) = now.get(1) else {
+        panic!("no shelf where the book was: {now:?}");
+    };
+    let mut on_it = inside(&h, id);
+    on_it.sort();
+    let mut both = vec![onto, carried];
+    both.sort();
+    assert_eq!(on_it, both);
+    // Every book still shows at the top, the shelf before its first.
+    assert_eq!(now.len(), 5);
+    assert_eq!(now.get(2), Some(&onto));
+}
+
+#[test]
+fn a_quick_drop_on_a_books_middle_only_moves_it() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    drop_on(&mut h, order[3], order[1], 0.6);
+    assert_eq!(top(&h), [order[0], order[1], order[3], order[2]]);
+    assert_eq!(library(&h).shelves().count(), 0);
+}
+
+#[test]
+fn resting_on_a_shelf_opens_it_to_drop_inside_in_place() {
+    let mut h = reader(&[("books", "4")]);
+    let order = top(&h);
+    let id = shelf_of(&mut h, "Poetry", &[order[0], order[1]]);
+    let was = inside(&h, id);
+    assert_eq!(was.len(), 2);
+    let book = order[3];
+    let (from, to) = (on(&h, book, 0.5), on(&h, Item::Shelf(id), 0.5));
+    carry(&mut h, from, to);
+    rest(&mut h, 0.8);
+    assert_eq!(h.state().library_state().at(), Some(id), "opened");
+    // Inside, resting on the first book's edge makes room before it.
+    let first = on(&h, was[0], 0.1);
+    rest_at(&mut h, first, 0.3);
+    release(&mut h, first);
+    assert_eq!(inside(&h, id), [book, was[0], was[1]]);
+}
+
+#[test]
+fn resting_on_a_crumb_goes_up_to_drop_there_in_place() {
+    let mut h = reader(&[("books", "3")]);
+    let order = top(&h);
+    let id = shelf_of(&mut h, "Poetry", &[order[0], order[1]]);
+    shelve(&mut h, ShelfAction::GoTo(Some(id)));
+    let book = order[1];
+    let crumb = h
+        .get_by_role_and_label(Role::Button, "Library")
+        .rect()
+        .center();
+    let from = on(&h, book, 0.5);
+    carry(&mut h, from, crumb);
+    rest(&mut h, 0.8);
+    assert_eq!(h.state().library_state().at(), None, "went up");
+    let first = on(&h, order[0], 0.1);
+    rest_at(&mut h, first, 0.3);
+    release(&mut h, first);
+    assert!(
+        library(&h).shelves_of(book_id(book)).is_empty(),
+        "off the shelf"
+    );
+    assert_eq!(top(&h)[..2], [book, order[0]]);
 }

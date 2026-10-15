@@ -4,6 +4,7 @@ use egui::text::{CCursor, CCursorRange};
 use egui::{Button, Id, Popup, PopupCloseBehavior, RectAlign, Response, Stroke, StrokeKind, Ui};
 use mareader_library::{NAME_MAX, ShelfId};
 
+use super::living::OPEN_DWELL;
 use super::{Action, Carry, Crumb, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -81,15 +82,40 @@ fn crumb_button(ui: &mut Ui, crumb: &Crumb, open: bool) -> Response {
 fn take_drops(ui: &Ui, r: &Response, id: Option<ShelfId>, out: &mut Commands) {
     let keep = ui.input(|i| i.modifiers.alt);
     let hovered = r.dnd_hover_payload::<Carry>();
-    if hovered.is_some_and(|c| c.onto(id, keep).is_some()) {
+    if hovered.as_ref().is_some_and(|c| c.onto(id, keep).is_some()) {
         let t = Tokens::get(ui.ctx());
         let ring = Stroke::new(2.0, t.accent);
         ui.painter()
             .rect_stroke(r.rect, t.radius, ring, StrokeKind::Inside);
     }
+    if hovered.is_some() {
+        rest_to_go(ui, id, out);
+    }
     if let Some(carry) = r.dnd_release_payload::<Carry>() {
         out.extend(carry.onto(id, keep).map(Command::Library));
     }
+}
+
+/// A carry resting on a crumb goes there, to be dropped in place.
+fn rest_to_go(ui: &Ui, id: Option<ShelfId>, out: &mut Commands) {
+    let key = Id::new("library-crumb-rest");
+    let (now, pass) = (ui.input(|i| i.time), ui.ctx().cumulative_pass_nr());
+    let since = ui.data_mut(|d| {
+        let rest = d.get_temp_mut_or_insert_with(key, || (id, now, pass));
+        // Another crumb, or a gap since the last frame: a fresh rest.
+        if rest.0 != id || rest.2 + 1 < pass {
+            *rest = (id, now, pass);
+        }
+        rest.2 = pass;
+        rest.1
+    });
+    let left = OPEN_DWELL - (now - since);
+    if left > 0.0 {
+        ui.ctx().request_repaint_after_secs(left as f32);
+        return;
+    }
+    ui.data_mut(|d| d.remove::<(Option<ShelfId>, f64, u64)>(key));
+    out.push(go(id));
 }
 
 /// The folded middle of a long trail, listed in a menu.
