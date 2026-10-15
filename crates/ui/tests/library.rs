@@ -1060,6 +1060,8 @@ fn read_separately_keeps_a_second_place_in_the_same_file() {
     h.run();
     h.run_steps(3);
     assert_eq!(page(&h), 0, "a twin starts at its own place");
+    let last = h.state().last_document().map(|l| l.book);
+    assert_eq!(last, Some(Some(twin)), "a relaunch reopens the twin");
     go_to(&mut h, 1);
     h.run_steps(3);
     assert_eq!(library(&h).position(twin).map(|p| p.page), Some(1));
@@ -1068,6 +1070,76 @@ fn read_separately_keeps_a_second_place_in_the_same_file() {
     h.run();
     h.run_steps(3);
     assert_eq!(page(&h), 2, "the original kept its place");
+}
+
+/// The Raven, read to page 2, and a twin of it.
+fn raven_and_twin(h: &mut Harness<'static, MareaderApp>, path: &Path) -> (BookId, BookId) {
+    go_to(h, 2);
+    h.run_steps(3);
+    let id = library(h).book_at(path).unwrap();
+    book(h, BookAction::Twin(id));
+    let twin = library(h).books().find(|b| b.twin_of == Some(id));
+    (
+        id,
+        twin.map(|b| b.id).unwrap_or_else(|| panic!("{}", state(h))),
+    )
+}
+
+#[test]
+fn a_failed_open_leaves_the_next_open_as_the_files_own_book() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = put(dir.path(), "raven.epub", &raven_bytes());
+    let mut h = reader(&[("epub", path.to_str().unwrap())]);
+    let (id, twin) = raven_and_twin(&mut h, &path);
+    // Shown nowhere, then unreadable: opening the twin fails.
+    open(&mut h, "pdf", "sample:3");
+    std::fs::write(&path, b"not a book").unwrap();
+    h.state_mut().queue(Command::OpenBook(twin));
+    h.run();
+    h.run_steps(3);
+    assert!(toast(&h).starts_with("Couldn't open"), "{}", state(&h));
+    std::fs::write(&path, raven_bytes()).unwrap();
+    open(&mut h, "epub", path.to_str().unwrap());
+    h.run_steps(3);
+    let pane = h.state().active_pane();
+    assert_eq!(
+        h.state().documents().book(pane),
+        None,
+        "the file's own book"
+    );
+    assert_eq!(page(&h), 2, "at the original's place: {}", state(&h));
+    go_to(&mut h, 3);
+    h.run_steps(3);
+    assert_eq!(library(&h).position(id).map(|p| p.page), Some(3));
+    assert_ne!(library(&h).position(twin).map(|p| p.page), Some(3));
+}
+
+#[test]
+fn a_twin_opened_beside_its_original_leaves_that_pane_alone() {
+    let path = raven();
+    let mut h = reader(&[("epub", path.to_str().unwrap())]);
+    let first = h.state().active_pane();
+    let (id, twin) = raven_and_twin(&mut h, &path);
+    let split = Command::Split(mareader_workspace::SplitAxis::Horizontal);
+    h.state_mut().queue(split);
+    h.run();
+    h.state_mut().queue(Command::OpenBook(twin));
+    h.run();
+    h.run_steps(3);
+    let beside = h.state().active_pane();
+    assert_ne!(beside, first);
+    assert_eq!(h.state().documents().book(beside), Some(twin));
+    assert_eq!(
+        h.state().documents().book(first),
+        None,
+        "still the original"
+    );
+    h.state_mut().queue(Command::FocusPane(first));
+    h.run();
+    go_to(&mut h, 3);
+    h.run_steps(3);
+    assert_eq!(library(&h).position(id).map(|p| p.page), Some(3));
+    assert_ne!(library(&h).position(twin).map(|p| p.page), Some(3));
 }
 
 #[test]

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui};
 use mareader_appearance::Rgb;
+use mareader_library::BookId;
 use mareader_session::{
     Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
 };
@@ -44,6 +45,8 @@ pub struct OpenRequest {
     pub page: usize,
     /// A book's place to show instead, found again in today's type.
     pub place: Option<Anchor>,
+    /// Read as this library book, a twin perhaps; none: the file's own.
+    pub book: Option<BookId>,
 }
 
 impl OpenRequest {
@@ -55,6 +58,7 @@ impl OpenRequest {
             beside: false,
             page: 0,
             place: None,
+            book: None,
         }
     }
 
@@ -66,6 +70,7 @@ impl OpenRequest {
             beside: false,
             page: 0,
             place: None,
+            book: None,
         }
     }
 
@@ -99,6 +104,7 @@ enum Content {
         file: Option<PathBuf>,
         page: usize,
         place: Option<Anchor>,
+        book: Option<BookId>,
     },
     Pdf(Box<PdfView>),
 }
@@ -290,12 +296,14 @@ impl Documents {
             request.source = Source::Path(real);
         }
         let (file, page, place) = (request.file(), request.page, request.place);
+        let book = request.book;
         let typo = Arc::clone(self.typo(pane));
         if let Some(doc) = file.as_ref().and_then(|f| self.shown(f, &typo)) {
             let entry = self.session.as_ref().and_then(|s| s.get(doc));
             let count = entry.map_or(0, |e| e.doc.page_count());
             let page = landing(entry.map(|e| &*e.doc), page, place);
             let mut view = PdfView::new(doc);
+            view.book = book;
             view.go_to(page, count);
             view.hold_place(place);
             self.set(pane, Some(Content::Pdf(Box::new(view))));
@@ -309,6 +317,7 @@ impl Documents {
             file,
             page,
             place,
+            book,
         };
         self.set(pane, Some(opening));
         None
@@ -397,13 +406,15 @@ impl Documents {
                             name,
                             page,
                             place,
+                            book,
                             ..
-                        } if *t == ticket => Some((*id, name.clone(), (*page, *place))),
+                        } if *t == ticket => Some((*id, name.clone(), (*page, *place, *book))),
                         _ => None,
                     });
                     match (waiting, result) {
-                        (Some((pane, _, (page, place))), Ok(doc)) => {
+                        (Some((pane, _, (page, place, book))), Ok(doc)) => {
                             let mut view = PdfView::new(doc);
+                            view.book = book;
                             let entry = session.get(doc);
                             let count = entry.map_or(0, |e| e.doc.page_count());
                             let page = landing(entry.map(|e| &*e.doc), page, place);
@@ -570,6 +581,14 @@ impl Documents {
         match self.panes.get(&pane)? {
             Content::Opening { name, .. } => Some(name),
             Content::Pdf(v) => self.session.as_ref()?.get(v.doc).map(|e| e.name.as_str()),
+        }
+    }
+
+    /// The library book `pane` reads as, or will once open.
+    pub fn book(&self, pane: PaneId) -> Option<BookId> {
+        match self.panes.get(&pane)? {
+            Content::Opening { book, .. } => *book,
+            Content::Pdf(v) => v.book,
         }
     }
 

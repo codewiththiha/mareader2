@@ -57,8 +57,6 @@ pub struct LibraryState {
     inline: bool,
     /// The file each pane showed when last looked at, and as which book.
     seen: BTreeMap<PaneId, (PathBuf, Option<BookId>)>,
-    /// A book opened by id: the pane that next shows its file reads it.
-    opening: Option<(PathBuf, BookId)>,
     /// Opens held until the library has loaded.
     waiting: Vec<OpenRequest>,
     /// When the last write left, in egui seconds.
@@ -85,7 +83,6 @@ impl Default for LibraryState {
             io: Io::default(),
             inline: false,
             seen: BTreeMap::new(),
-            opening: None,
             waiting: Vec::new(),
             wrote: f64::NEG_INFINITY,
             covers: Covers::default(),
@@ -207,9 +204,8 @@ impl LibraryState {
         let Source::Path(path) = &request.source else {
             return Some(request);
         };
-        // Opened by id, or with a place already: nothing to fill in.
-        let by_id = self.opening.as_ref().is_some_and(|(p, _)| p == path);
-        if request.page != 0 || request.place.is_some() || by_id {
+        // Opened as a book, or with a place already: nothing to fill in.
+        if request.page != 0 || request.place.is_some() || request.book.is_some() {
             return Some(request);
         }
         if self.status == Status::Loading {
@@ -240,27 +236,29 @@ impl LibraryState {
                 self.seen.remove(&pane);
                 continue;
             };
-            // Opened by id: this pane now reads as that book, a twin perhaps.
-            let by_id = self.opening.take_if(|(p, _)| *p == path).map(|(_, id)| id);
-            let shown = self.seen.get(&pane);
-            let reader = shown.and_then(|(_, id)| *id);
-            if shown.is_none_or(|(p, _)| *p != path) || by_id.is_some() {
-                let format = format_of(&path, &reading.document);
-                let title = title_of(&reading.document, &path);
-                let author = author_of(&reading.document);
-                self.seen.insert(pane, (path.clone(), by_id));
+            // The view carries its book: a failed open leaves nothing.
+            let reader = documents.book(pane);
+            let shown = (path, reader);
+            if self.seen.get(&pane) != Some(&shown) {
+                let (path, book) = shown.clone();
+                self.seen.insert(pane, shown);
                 self.io.send(Job::Measure(Box::new(Probe {
+                    format: format_of(&path, &reading.document),
+                    title: title_of(&reading.document, &path),
+                    author: author_of(&reading.document),
                     path,
-                    format,
-                    title,
-                    author,
-                    book: by_id,
+                    book,
                 })));
                 measuring = true;
                 continue;
             }
-            let reader = reader.filter(|id| self.model.book(*id).is_some());
-            let Some(id) = reader.or_else(|| self.model.book_at(&path)) else {
+            let (path, reader) = shown;
+            // A book removed while read keeps no place, nor hands it on.
+            let id = match reader {
+                Some(id) => self.model.book(id).map(|b| b.id),
+                None => self.model.book_at(&path),
+            };
+            let Some(id) = id else {
                 continue;
             };
             let position = Position {
@@ -310,9 +308,8 @@ impl LibraryState {
         };
         let position = self.model.position(id);
         // Read as this book: a twin keeps its own place.
-        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        self.opening = Some((real, id));
         Ok(OpenRequest {
+            book: Some(id),
             page: position.map_or(0, |p| p.page),
             place: position
                 .and_then(|p| p.place)

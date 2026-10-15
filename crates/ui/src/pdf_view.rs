@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
+use mareader_library::BookId;
 use mareader_pdf::{Bounds, LinkTarget, web_address};
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{ColumnAlign, LayoutSettings, StartupFit, TextSettings};
@@ -117,6 +118,8 @@ pub type Demand = Vec<(Urgency, Want)>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfView {
     pub doc: DocId,
+    /// The library book this pane reads as; none: the file's own.
+    pub book: Option<BookId>,
     pub zoom: PaneZoom,
     pub mode: ViewMode,
     /// The paged modes' page; the strips follow the scroll instead.
@@ -160,6 +163,7 @@ impl PdfView {
     pub fn new(doc: DocId) -> Self {
         Self {
             doc,
+            book: None,
             zoom: PaneZoom::default(),
             mode: ViewMode::default(),
             focus: 0,
