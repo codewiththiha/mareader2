@@ -24,6 +24,8 @@ pub struct WorkspaceSettings {
     /// With independent themes, still share light, dark or dim.
     pub shared_base_mode: bool,
     pub independent_textures: bool,
+    /// While split, each pane keeps its own Fonts settings.
+    pub independent_text: bool,
     pub look: PaneLook,
 }
 
@@ -34,6 +36,7 @@ impl Default for WorkspaceSettings {
             independent_themes: false,
             shared_base_mode: true,
             independent_textures: false,
+            independent_text: false,
             look: PaneLook::default(),
         }
     }
