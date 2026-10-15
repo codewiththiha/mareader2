@@ -648,3 +648,33 @@ fn a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab() {
     assert!(h.query_by_label("Strength").is_some());
     assert!(h.query_by_label("Text ink").is_none());
 }
+
+fn press(h: &mut Harness<'static, MareaderApp>, pos: egui::Pos2) {
+    h.hover_at(pos);
+    h.step();
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+    }
+    h.run();
+}
+
+#[test]
+fn a_press_on_a_pane_page_focuses_that_pane() {
+    let mut h = reader(&[("panes", "2"), ("focus", "2"), ("pdf", "sample:5")]);
+    h.state_mut().set_option("focus", "1").ok();
+    h.state_mut().set_option("pdf", "sample:5").ok();
+    h.run();
+    let rects = h.state().pane_rects().to_vec();
+    assert_eq!(rects.len(), 2, "{rects:?}");
+    let (first, (second, right)) = (rects[0].0, rects[1]);
+    assert_eq!(h.state().active_pane(), first);
+    // Mid-pane is on the page, whose own widgets take the press too.
+    press(&mut h, right.center());
+    assert_eq!(h.state().active_pane(), second);
+}

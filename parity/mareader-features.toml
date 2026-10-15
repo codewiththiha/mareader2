@@ -273,8 +273,9 @@ area = "B"
 tier = "P0"
 milestone = "M0"
 status = "partial"
-reference = ["styles/components/shell.css"]
-notes = "Focus and the outline are drawn; keyboard focus routing comes with the viewer"
+evidence = ["crates/ui/tests/reading.rs::a_press_on_a_pane_page_focuses_that_pane"]
+reference = ["styles/components/shell.css", "crates/reader-runtime/src/pane/view.rs"]
+notes = "Focus and the outline are drawn; a press anywhere in a pane focuses it, its page too, as mareader's pointerdown. Keyboard focus routing comes with the viewer"
 
 [[feature]]
 id = "workspace.drop-to-split"
