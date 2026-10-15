@@ -40,6 +40,13 @@ pub enum ShelfAction {
         from: Option<ShelfId>,
         keep: bool,
     },
+    /// What's carried rested on a book: both go on a new shelf there.
+    Stack {
+        onto: BookId,
+        carry: Carry,
+        level: Option<ShelfId>,
+        keep: bool,
+    },
     /// Cards moved in a level's own order, before another or to the end.
     Arrange {
         items: Vec<Item>,
@@ -117,6 +124,35 @@ impl Carry {
             _ => return None,
         };
         Some(items)
+    }
+
+    /// Every card it carries, shelves first.
+    pub fn picks(&self) -> Vec<Item> {
+        let (books, shelves, _) = self.parts();
+        let shelves = shelves.into_iter().map(Item::Shelf);
+        shelves.chain(books.into_iter().map(Item::Book)).collect()
+    }
+
+    /// Whether a book is among what it carries, so it can stack.
+    pub fn has_books(&self) -> bool {
+        match self {
+            Self::Book { .. } => true,
+            Self::Shelf(_) => false,
+            Self::Many { books, .. } => !books.is_empty(),
+        }
+    }
+
+    /// Its books, its shelves, and the shelf it came off.
+    fn parts(&self) -> (Vec<BookId>, Vec<ShelfId>, Option<ShelfId>) {
+        match self {
+            &Self::Book { id, from } => (vec![id], Vec::new(), from),
+            &Self::Shelf(id) => (Vec::new(), vec![id], None),
+            Self::Many {
+                books,
+                shelves,
+                from,
+            } => (books.clone(), shelves.clone(), *from),
+        }
     }
 
     /// Whether it was carried off a shelf, so Alt can add instead.
@@ -338,6 +374,12 @@ impl LibraryState {
                 from,
                 keep,
             } => self.file_many(&books, &shelves, (to, from), keep, out),
+            ShelfAction::Stack {
+                onto,
+                carry,
+                level,
+                keep,
+            } => self.stack(onto, &carry, level, keep, out),
             ShelfAction::Arrange {
                 items,
                 level,
@@ -348,6 +390,67 @@ impl LibraryState {
                     self.picks.apply(super::PickAction::Clear);
                 }
             }
+        }
+    }
+
+    /// Makes a shelf where `onto` sits on `level`, holding it and `carry`.
+    fn stack(
+        &mut self,
+        onto: BookId,
+        carry: &Carry,
+        level: Option<ShelfId>,
+        keep: bool,
+        out: &mut Commands,
+    ) {
+        let now = wall_ms();
+        let (books, shelves, from) = carry.parts();
+        let books: Vec<BookId> = (books.into_iter()).filter(|&b| b != onto).collect();
+        if books.is_empty() || self.model.book(onto).is_none() {
+            return;
+        }
+        let name = self.stack_name(onto, &books, level);
+        let Ok(id) = self.model.create_shelf(&name, level, now) else {
+            return;
+        };
+        self.picks.apply(super::PickAction::Clear);
+        let (shelf, book) = (Item::Shelf(id), Item::Book(onto));
+        self.model.arrange(level, &[shelf], Some(book), now);
+        self.model.file(onto, id, now);
+        if let Some(level) = level {
+            self.model.unfile(onto, level, now);
+        }
+        let leave = from.filter(|_| !keep);
+        for &b in &books {
+            self.model.file(b, id, now);
+            if let Some(from) = leave {
+                self.model.unfile(b, from, now);
+            }
+        }
+        let moved = shelves
+            .iter()
+            .filter(|&&s| self.model.move_shelf(s, Some(id), now).is_ok());
+        let shelved = moved.count();
+        let mut what = counted(books.len() + 1, "book", "books");
+        if shelved > 0 {
+            what = format!("{what} and {}", counted(shelved, "shelf", "shelves"));
+        }
+        let note = format!("Made “{name}” of {what}.");
+        out.push(Command::Notify(Toast::info(note)));
+    }
+
+    /// The books' one shared author, if free there; else "New shelf".
+    fn stack_name(&self, onto: BookId, books: &[BookId], level: Option<ShelfId>) -> String {
+        let author = |b: &BookId| self.model.book(*b).and_then(|b| b.author.value.clone());
+        let first = author(&onto).filter(|a| !a.trim().is_empty());
+        let shared = first.filter(|a| books.iter().all(|b| author(b).as_ref() == Some(a)));
+        let taken = |name: &str| {
+            let here = self.model.children(level).into_iter();
+            here.into_iter()
+                .any(|s| s.name.value.eq_ignore_ascii_case(name))
+        };
+        match shared {
+            Some(name) if !taken(&name) => name,
+            _ => self.model.fresh_shelf_name(level),
         }
     }
 
