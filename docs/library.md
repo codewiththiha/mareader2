@@ -377,6 +377,60 @@ What the first slice built, and where it stops short of the model above.
 - **Not yet.** Several books at once (selection) and shelf menus for
   books come with slice 5; dragging onto panes with slice 7.
 
+## Slice 5: selection, menus, removal and imports (2026-10-15)
+
+- **Picking.** Ctrl-click (⌘ on macOS) picks a book or shelf card;
+  Shift-click picks the run from the last pick, in the order shown;
+  Ctrl/⌘+A picks everything on the page. While anything is picked a plain
+  click picks too, instead of opening (owner decision). Picked cards wear
+  an accent ring and a check. Escape, a click on empty page or Clear
+  selection lets go; changing level or chip does too.
+- **The selection bar** rises at the page's foot: "3 books · 1 shelf
+  selected", then New shelf from these, Take off this shelf (on a shelf),
+  Remove… and Clear. Dragging a picked card carries all the picks; the
+  drop files them together and lets go.
+- **Menus.** Right-click a book: Open (Find… when missing), Select,
+  Rename…, Read separately, Show in Finder / Explorer / folder, Take off
+  this shelf, Remove…. A shelf: Open, Select, Rename…, New shelf inside,
+  Remove shelf…. Right-click inside a selection: the bar's actions for
+  all of it. Empty page: New shelf, Import books…, Select all.
+- **Removal receipt.** Remove… asks first and says what goes: how many
+  books, the places and shelf spots kept, the store copies deleted and the
+  folder books hidden. A book that is also somewhere else is only taken
+  off; removing a shelf among the picks keeps its books.
+- **What removing does** depends on where the book lives (owner decision):
+  - in a folder: hidden. Its file is never touched, a rescan leaves it out,
+    and Folders lists it under Removed · N with Restore and Restore all.
+    Restored, it comes back with its place and shelves.
+  - in the library's own folder (a store copy): the record becomes a
+    tombstone and the copy is deleted once no other book lists it.
+  - opened from elsewhere: the record goes; opening the file again brings
+    the book back.
+  The toast names what went and, for folder books, where to restore them.
+- **Read separately** makes an independent twin ("The Raven (2)") with
+  its own place, name and shelves, sharing the file. Opening a twin reads
+  at its own place; the original keeps its own. Removing the original
+  promotes the first living twin, so opening the file by path still finds
+  a book.
+- **Rename…** edits a book's title in a sheet: Enter or Rename saves,
+  Escape cancels; at most 120 characters. Rescans and later opens keep
+  it; the title is a stamped field for sync.
+- **Imports are copies** (owner decision). Import… (the page header) and
+  files dropped on the library copy books into `files/<content>/<name>` in
+  the library's folder, onto the shelf shown, and record them as store
+  locations. The copy is written to a `.part` file and renamed, so a
+  crash leaves no half book. Content the library already has is the same
+  book, not a second copy ("was already in your library"); files it can't
+  read are named in the toast. Folders dropped are added as folders read
+  in place, and Open… still reads a file where it is.
+- **Reveal.** Show in Finder selects the file (`open -R`); on Windows
+  Explorer selects it; on Linux the file manager's D-Bus ShowItems, else
+  the parent folder opens. A failure says so in a toast.
+- **Saved.** `library.json` moves to schema 4: `Origin::Store`
+  locations, `twin_of`, and each folder's `hidden` set.
+- **Not yet.** Search with slice 6; dragging onto panes and import
+  progress with slice 7.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
