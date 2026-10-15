@@ -1,6 +1,6 @@
 //! Shelves on the page: where the reader is, and what drags and drops do.
 
-use mareader_library::{BookId, Library, ShelfError, ShelfId};
+use mareader_library::{BookId, Item, Library, ShelfError, ShelfId};
 
 use super::books::counted;
 use super::{Action, LibraryState, Scope, Sheet, wall_ms};
@@ -40,11 +40,11 @@ pub enum ShelfAction {
         from: Option<ShelfId>,
         keep: bool,
     },
-    /// Books moved in a shelf's own order, before another or to the end.
-    Reorder {
-        books: Vec<BookId>,
-        shelf: ShelfId,
-        before: Option<BookId>,
+    /// Cards moved in a level's own order, before another or to the end.
+    Arrange {
+        items: Vec<Item>,
+        level: Option<ShelfId>,
+        before: Option<Item>,
     },
 }
 
@@ -98,17 +98,25 @@ impl Carry {
         Some(Action::Shelf(action))
     }
 
-    /// The books it moves within the shelf `from`, if only books.
-    pub fn books_from(&self, shelf: ShelfId) -> Option<Vec<BookId>> {
-        match self {
-            Self::Book { id, from } if *from == Some(shelf) => Some(vec![*id]),
+    /// The cards it moves within `level`, if it came from there.
+    pub fn items_at(&self, level: Option<ShelfId>, model: &Library) -> Option<Vec<Item>> {
+        let here = |s: &ShelfId| model.shelf(*s).is_some_and(|s| model.parent_of(s) == level);
+        let items = match self {
+            Self::Book { id, from } if *from == level => vec![Item::Book(*id)],
+            Self::Shelf(id) if here(id) => vec![Item::Shelf(*id)],
             Self::Many {
                 books,
                 shelves,
                 from,
-            } if *from == Some(shelf) && shelves.is_empty() => Some(books.clone()),
-            _ => None,
-        }
+            } if *from == level && shelves.iter().all(here) => {
+                let shelves = shelves.iter().map(|s| Item::Shelf(*s));
+                shelves
+                    .chain(books.iter().map(|b| Item::Book(*b)))
+                    .collect()
+            }
+            _ => return None,
+        };
+        Some(items)
     }
 
     /// Whether it was carried off a shelf, so Alt can add instead.
@@ -330,16 +338,13 @@ impl LibraryState {
                 from,
                 keep,
             } => self.file_many(&books, &shelves, (to, from), keep, out),
-            ShelfAction::Reorder {
-                books,
-                shelf,
+            ShelfAction::Arrange {
+                items,
+                level,
                 before,
             } => {
-                // Each lands just before `before`: their order holds.
-                for book in &books {
-                    self.model.place_before(*book, shelf, before, now);
-                }
-                if books.len() > 1 {
+                self.model.arrange(level, &items, before, now);
+                if items.len() > 1 {
                     self.picks.apply(super::PickAction::Clear);
                 }
             }

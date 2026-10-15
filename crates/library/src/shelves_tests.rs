@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crate::disk::Folder;
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Library, Measure, Opened, ShelfError, ShelfId,
-    ShelfRemoved,
+    BookId, ContentId, DeviceId, FileStamp, Format, Item, Library, Measure, Opened, ShelfError,
+    ShelfId, ShelfRemoved,
 };
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -29,6 +29,12 @@ fn library(count: u128) -> (Library, Vec<BookId>) {
         .collect();
     lib.take_dirty();
     (lib, ids)
+}
+
+/// Moves `book` before `before` on `shelf`, as a drag does.
+fn put(lib: &mut Library, shelf: ShelfId, book: BookId, before: Option<BookId>, at: u64) -> bool {
+    let before = before.map(Item::Book);
+    lib.arrange(Some(shelf), &[Item::Book(book)], before, at)
 }
 
 fn names(lib: &Library, parent: Option<ShelfId>) -> Vec<String> {
@@ -149,17 +155,17 @@ fn a_book_moves_anywhere_in_a_shelfs_order() {
     for (n, &id) in ids.iter().enumerate() {
         lib.file(id, s, 11 + n as u64);
     }
-    assert!(lib.place_before(ids[3], s, Some(ids[0]), 20));
+    assert!(put(&mut lib, s, ids[3], Some(ids[0]), 20));
     assert_eq!(on(&lib, s), [ids[3], ids[0], ids[1], ids[2]]);
-    assert!(lib.place_before(ids[3], s, Some(ids[2]), 21));
+    assert!(put(&mut lib, s, ids[3], Some(ids[2]), 21));
     assert_eq!(on(&lib, s), [ids[0], ids[1], ids[3], ids[2]]);
-    assert!(lib.place_before(ids[0], s, None, 22));
+    assert!(put(&mut lib, s, ids[0], None, 22));
     assert_eq!(on(&lib, s), [ids[1], ids[3], ids[2], ids[0]]);
-    assert!(!lib.place_before(ids[0], s, Some(ids[0]), 23));
+    assert!(!put(&mut lib, s, ids[0], Some(ids[0]), 23));
     // Many drops into one gap still keep the order.
     for n in 0..200 {
         let (moving, before) = if n % 2 == 0 { (1, 2) } else { (2, 1) };
-        lib.place_before(ids[moving], s, Some(ids[before]), 30 + n);
+        put(&mut lib, s, ids[moving], Some(ids[before]), 30 + n);
     }
     let order = on(&lib, s);
     assert_eq!(order.len(), 4);
@@ -198,7 +204,7 @@ fn shelves_and_their_order_come_back_from_disk() {
     let b = lib.create_shelf("B", Some(a), 11).unwrap();
     lib.file(ids[1], b, 12);
     lib.file(ids[0], b, 13);
-    lib.place_before(ids[0], b, Some(ids[1]), 14);
+    put(&mut lib, b, ids[0], Some(ids[1]), 14);
     let gone = lib.create_shelf("Gone", None, 15).unwrap();
     lib.remove_shelf(gone, 16);
     // The books were taken as saved: write them too.

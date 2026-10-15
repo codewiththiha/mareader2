@@ -71,16 +71,18 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
             view.set_sort(key);
         }
     }
-    ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        let [up, down] = view.sort.directions();
-        for (ascending, label) in [(true, up), (false, down)] {
-            let button = egui::Button::selectable(view.ascending == ascending, label);
-            if ui.add_sized([(WIDTH - 16.0) / 2.0, 28.0], button).clicked() {
-                view.ascending = ascending;
+    // The reader's own order has no other way round.
+    if let Some([up, down]) = view.sort.directions() {
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+            for (ascending, label) in [(true, up), (false, down)] {
+                let button = egui::Button::selectable(view.ascending == ascending, label);
+                if ui.add_sized([(WIDTH - 16.0) / 2.0, 28.0], button).clicked() {
+                    view.ascending = ascending;
+                }
             }
-        }
-    });
+        });
+    }
     ui.separator();
     // Shelved books can stay on the top level too, or only on shelves.
     heading(ui, "Library shows");

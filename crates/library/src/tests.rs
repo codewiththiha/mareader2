@@ -218,12 +218,16 @@ mod view {
     }
 
     #[test]
-    fn the_default_is_last_read_newest_first() {
+    fn the_default_is_arranged_and_last_read_starts_newest_first() {
         let mut lib = Library::new(DEVICE);
         titled(&mut lib, "Old", None, 1_000);
         titled(&mut lib, "New", None, 3_000);
         titled(&mut lib, "Mid", None, 2_000);
         let mut view = View::default();
+        assert_eq!(view.sort, SortKey::Arranged);
+        view.set_sort(SortKey::Arranged);
+        assert!(view.ascending, "Arranged has one way round");
+        view.set_sort(SortKey::LastRead);
         assert_eq!(order(&lib, &view), ["New", "Mid", "Old"]);
         view.set_sort(SortKey::LastRead);
         assert!(view.ascending, "the same key flips");

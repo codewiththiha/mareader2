@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::book::Book;
 use crate::clock::{Field, Stamp};
 use crate::id::{BookId, ShelfId};
-use crate::key;
 use crate::library::Library;
 use crate::view::natural;
 
@@ -25,6 +24,9 @@ pub struct Shelf {
     pub parent: Field<Option<ShelfId>>,
     /// When it was made, in wall milliseconds.
     pub added: u64,
+    /// Its place among the shelves and books beside it.
+    #[serde(default)]
+    pub key: Field<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<Stamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,11 +201,13 @@ impl Library {
         }
         let at = self.clock.tick(wall_ms);
         let id = self.new_shelf_id(at);
+        let key = self.next_key(parent);
         let shelf = Shelf {
             id,
             name: Field::new(name, at),
             parent: Field::new(parent, at),
             added: wall_ms,
+            key: Field::new(key, at),
             removed: None,
             restored: None,
         };
@@ -271,8 +275,11 @@ impl Library {
             return Err(ShelfError::Taken(name));
         }
         let at = self.clock.tick(wall_ms);
+        // It joins its new level at the end.
+        let key = self.next_key(parent);
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.parent = Field::new(parent, at);
+            shelf.key = Field::new(key, at);
         }
         self.bump();
         Ok(())
@@ -327,8 +334,7 @@ impl Library {
         if on || self.book(book).is_none() || self.shelf(shelf).is_none() {
             return false;
         }
-        let last = self.on(shelf).map(|(k, _)| k).max().map(str::to_owned);
-        let key = key::after(last.as_deref());
+        let key = self.next_key(Some(shelf));
         self.set_member(book, shelf, key, wall_ms);
         true
     }
@@ -347,35 +353,6 @@ impl Library {
             m.alive = Field::new(false, at);
         }
         self.bump();
-        true
-    }
-
-    /// Moves a book just before `before` on a shelf, else to its end.
-    pub fn place_before(
-        &mut self,
-        book: BookId,
-        shelf: ShelfId,
-        before: Option<BookId>,
-        wall_ms: u64,
-    ) -> bool {
-        if before == Some(book) || self.book(book).is_none() || self.shelf(shelf).is_none() {
-            return false;
-        }
-        let order: Vec<(String, BookId)> = (self.shelf_books(shelf).into_iter())
-            .filter(|b| b.id != book)
-            .filter_map(|b| Some((self.members.get(&(shelf, b.id))?.key.value.clone(), b.id)))
-            .collect();
-        let at = before.and_then(|b| order.iter().position(|(_, id)| *id == b));
-        let key = match at {
-            Some(i) => {
-                let prev = i.checked_sub(1).and_then(|p| order.get(p));
-                let next = order.get(i);
-                let prev = prev.map(|(k, _)| k.as_str());
-                key::between(prev, next.map(|(k, _)| k.as_str()))
-            }
-            None => key::after(order.last().map(|(k, _)| k.as_str())),
-        };
-        self.set_member(book, shelf, key, wall_ms);
         true
     }
 
