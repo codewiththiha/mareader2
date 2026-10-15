@@ -345,10 +345,14 @@ fn add_folders(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> Option<Action> {
         ),
     ];
     for (keep, label, detail) in ways {
-        ui.radio_value(&mut plan.keep, keep, RichText::new(label).color(t.ink));
-        ui.horizontal(|ui| {
-            ui.add_space(24.0);
-            ui.label(RichText::new(detail).size(12.0).color(t.muted));
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.radio_value(&mut plan.keep, keep, RichText::new(label).color(t.ink));
+            let indent = ui.spacing().icon_width + ui.spacing().icon_spacing;
+            ui.horizontal(|ui| {
+                ui.add_space(indent);
+                ui.label(RichText::new(detail).size(12.0).color(t.muted));
+            });
         });
     }
     ui.add_space(4.0);
