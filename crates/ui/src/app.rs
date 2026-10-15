@@ -483,7 +483,7 @@ impl MareaderApp {
                 let key = mareader_library::SortKey::ALL
                     .into_iter()
                     .find(|k| format!("{k:?}").eq_ignore_ascii_case(&key.replace('_', "")))
-                    .ok_or("sort: last_read, title, author, added or manual")?;
+                    .ok_or("sort: arranged, last_read, title, author or added")?;
                 self.settings.library.sort = key;
                 self.settings.library.ascending = match way {
                     "asc" => true,

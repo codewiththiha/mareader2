@@ -27,6 +27,21 @@ pub fn between(a: Option<&str>, b: Option<&str>) -> String {
     }
 }
 
+/// `n` keys in order strictly between `a` and `b`, short for any `n`.
+pub fn spread(a: Option<&str>, b: Option<&str>, n: usize) -> Vec<String> {
+    if n == 0 {
+        return Vec::new();
+    }
+    // The middle one first, then each half: lengths grow with log n.
+    let mid = between(a, b);
+    let half = n / 2;
+    let mut out = spread(a, Some(&mid), half);
+    let right = spread(Some(&mid), b, n - half - 1);
+    out.push(mid);
+    out.extend(right);
+    out
+}
+
 /// Its digits, if it is a key this module could have made.
 fn parse(key: &str) -> Option<Vec<u8>> {
     let digits: Option<Vec<u8>> = key.bytes().map(digit).collect();
@@ -107,6 +122,16 @@ mod tests {
         }
         assert!(keys.windows(2).all(|w| w.first() < w.last()));
         assert!(keys.iter().all(|k| parse(k).is_some()));
+    }
+
+    #[test]
+    fn spread_keys_are_ordered_short_and_inside_their_ends() {
+        let keys = spread(Some("A"), Some("B"), 5_000);
+        assert_eq!(keys.len(), 5_000);
+        assert!(keys.windows(2).all(|w| w.first() < w.last()));
+        assert!(keys.iter().all(|k| k.as_str() > "A" && k.as_str() < "B"));
+        assert!(keys.iter().all(|k| k.len() <= 16), "{:?}", keys.last());
+        assert!(spread(None, None, 0).is_empty());
     }
 
     #[test]
