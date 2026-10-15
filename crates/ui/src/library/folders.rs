@@ -1,8 +1,8 @@
-//! The Folders popover and the scope chips over the books.
+//! The scope chips over the books, and each folder's own menu.
 
 use std::collections::BTreeSet;
 
-use egui::{Button, Id, Popup, PopupCloseBehavior, RectAlign, RichText, Stroke, Ui};
+use egui::{Button, Id, IntoAtoms, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
 use mareader_library::{Book, BookId, Format, Library, Origin, Source, SourceEdit, SourceId};
 
 use super::{Action, BookAction, Scope};
@@ -10,10 +10,9 @@ use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
-pub const FOLDERS_POPOVER: &str = "library-folders";
-const WIDTH: f32 = 360.0;
+const WIDTH: f32 = 340.0;
 
-/// What the popover and chips read from the library.
+/// What the chips and folder menus read from the library.
 pub struct Shown<'a> {
     pub model: &'a Library,
     pub offline: &'a BTreeSet<SourceId>,
@@ -42,64 +41,9 @@ pub fn offline(book: &Book, offline: &BTreeSet<SourceId>) -> bool {
         })
 }
 
-/// The header's Folders button and its popover.
-pub fn button(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
-    let id = Id::new(FOLDERS_POPOVER);
-    let label = match shown.model.sources().count() {
-        0 => "Folders".to_owned(),
-        n => format!("Folders · {n}"),
-    };
-    let button = Button::image_and_text(Icon::Folders.image(16.0), label)
-        .image_tint_follows_text_color(true)
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius)
-        .min_size(egui::vec2(96.0, 32.0));
-    let r = ui.add(button);
-    Popup::from_toggle_button_response(&r)
-        .id(id)
-        .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-        .align(RectAlign::BOTTOM_END)
-        .gap(6.0)
-        .width(WIDTH)
-        .show(|ui| contents(ui, shown, t, out));
-}
-
-fn contents(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
-    ui.set_width(WIDTH);
-    ui.spacing_mut().item_spacing.y = 6.0;
-    ui.horizontal(|ui| {
-        let title = RichText::new("Folders").font(theme::medium(14.0));
-        ui.label(title.color(t.ink));
-        if shown.scanning {
-            ui.spinner();
-        }
-    });
-    let mut sources: Vec<&Source> = shown.model.sources().collect();
-    sources.sort_by_key(|s| s.name().to_lowercase());
-    if sources.is_empty() {
-        let hint = "Add a folder to read its books where they are. \
-                    Books put there later appear when you come back.";
-        ui.label(RichText::new(hint).size(12.5).color(t.muted));
-    }
-    for source in sources {
-        ui.separator();
-        folder(ui, shown, source, t, out);
-    }
-    ui.separator();
-    ui.horizontal(|ui| {
-        let add = Button::image_and_text(Icon::FolderPlus.image(16.0), "Add folder…")
-            .image_tint_follows_text_color(true);
-        if ui.add(add).clicked() {
-            out.push(Command::Library(Action::PickFolder));
-        }
-        let any = shown.model.sources().next().is_some();
-        let all = Button::image_and_text(Icon::Rescan.image(16.0), "Rescan all")
-            .image_tint_follows_text_color(true);
-        if ui.add_enabled(any && !shown.scanning, all).clicked() {
-            out.push(Command::Library(Action::Rescan(None)));
-        }
-    });
+/// The popup that manages one folder, opened from its chip.
+pub fn menu_id(id: SourceId) -> Id {
+    Id::new(("library-folder", id))
 }
 
 fn folder(ui: &mut Ui, shown: &Shown<'_>, source: &Source, t: &Tokens, out: &mut Commands) {
@@ -180,30 +124,7 @@ fn counts(ui: &mut Ui, source: &Source, out: &mut Commands) {
         min_size: source.min_size,
         watch: source.watch,
     };
-    ui.horizontal(|ui| {
-        for format in Format::ALL {
-            let on = edit.formats.contains(&format);
-            // A folder reads at least one format.
-            let last = on && edit.formats.len() == 1;
-            let chip = Button::selectable(on, format.label());
-            if ui.add_enabled(!last, chip).clicked() {
-                match on {
-                    true => edit.formats.remove(&format),
-                    false => edit.formats.insert(format),
-                };
-            }
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label("Skip files under");
-        let mut kb = edit.min_size / 1_024;
-        let drag = egui::DragValue::new(&mut kb)
-            .range(0..=100_000)
-            .suffix(" KB");
-        if ui.add(drag).changed() {
-            edit.min_size = kb * 1_024;
-        }
-    });
+    what_counts(ui, &mut edit.formats, &mut edit.min_size);
     ui.checkbox(
         &mut edit.watch,
         "Look for new books when Mareader comes back",
@@ -216,8 +137,36 @@ fn counts(ui: &mut Ui, source: &Source, out: &mut Commands) {
     }
 }
 
+/// Format chips and a size floor: which of a folder's files are books.
+pub fn what_counts(ui: &mut Ui, formats: &mut BTreeSet<Format>, min_size: &mut u64) {
+    ui.horizontal(|ui| {
+        for format in Format::ALL {
+            let on = formats.contains(&format);
+            // A folder reads at least one format.
+            let last = on && formats.len() == 1;
+            let chip = Button::selectable(on, format.label());
+            if ui.add_enabled(!last, chip).clicked() {
+                match on {
+                    true => formats.remove(&format),
+                    false => formats.insert(format),
+                };
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label("Skip files under");
+        let mut kb = *min_size / 1_024;
+        let drag = egui::DragValue::new(&mut kb)
+            .range(0..=100_000)
+            .suffix(" KB");
+        if ui.add(drag).changed() {
+            *min_size = kb * 1_024;
+        }
+    });
+}
+
 /// All, Missing and each folder, when there's more than one place.
-pub fn chips(ui: &mut Ui, shown: &Shown<'_>, out: &mut Commands) {
+pub fn chips(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
     let missing = shown.model.missing();
     let mut sources: Vec<&Source> = shown.model.sources().collect();
     if sources.is_empty() && missing == 0 && shown.scope == Scope::All {
@@ -226,23 +175,42 @@ pub fn chips(ui: &mut Ui, shown: &Shown<'_>, out: &mut Commands) {
     sources.sort_by_key(|s| s.name().to_lowercase());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let mut chip = |ui: &mut Ui, scope: Scope, label: String| {
+        let chip = |ui: &mut Ui, scope: Scope, label: egui::Atoms<'static>, out: &mut Commands| {
             let on = shown.scope == scope;
-            if ui.add(Button::selectable(on, label)).clicked() && !on {
+            let resp = ui.add(Button::selectable(on, label));
+            if resp.clicked() && !on {
                 out.push(Command::Library(Action::Scope(scope)));
             }
+            resp
         };
-        chip(ui, Scope::All, "All books".into());
+        chip(ui, Scope::All, "All books".into_atoms(), out);
         if missing > 0 || shown.scope == Scope::Missing {
-            chip(ui, Scope::Missing, format!("Missing · {missing}"));
+            let label = format!("Missing · {missing}");
+            chip(ui, Scope::Missing, label.into_atoms(), out);
         }
         for source in sources {
             let n = shown.model.books_in(source.id).count();
-            chip(
-                ui,
-                Scope::Folder(source.id),
-                format!("{} · {n}", source.name()),
-            );
+            let scope = Scope::Folder(source.id);
+            let on = shown.scope == scope;
+            let label = format!("{} · {n}", source.name());
+            // The chosen folder's chip says it has a menu, and opens it.
+            let label = match on {
+                true => (label, Icon::More.image(14.0).tint(t.muted)).into_atoms(),
+                false => label.into_atoms(),
+            };
+            let resp = chip(ui, scope, label, out);
+            let menu = Popup::from_response(&resp)
+                .id(menu_id(source.id))
+                .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+                .align(RectAlign::BOTTOM_START)
+                .gap(6.0)
+                .width(WIDTH);
+            let toggle = (on && resp.clicked()).then_some(egui::SetOpenCommand::Toggle);
+            menu.open_memory(toggle).show(|ui| {
+                ui.set_width(WIDTH);
+                ui.spacing_mut().item_spacing.y = 6.0;
+                folder(ui, shown, source, t, out);
+            });
         }
     });
     ui.add_space(10.0);

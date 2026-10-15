@@ -69,6 +69,9 @@ pub enum Icon {
     Rename,
     Check,
     Import,
+    Link,
+    Restore,
+    More,
 }
 
 impl Icon {
@@ -135,6 +138,9 @@ impl Icon {
             Self::Rename => Lucide::Pencil,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
+            Self::Link => Lucide::Link,
+            Self::Restore => Lucide::Undo2,
+            Self::More => Lucide::Ellipsis,
         }
     }
 
