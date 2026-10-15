@@ -90,8 +90,8 @@ appearance effects to that same pass.
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | Records: every opened file becomes a book (moves and in-place edits keep it), positions kept per book in `state/<id>.json`, any open resumes, the library page lists books last opened first, missing books marked | **done** | open a book, turn pages, open another, click Library in the title bar, click the first; quit and relaunch; `books=6 library=show` in shots |
-| 2 | Grid and list, columns, sort, covers on a worker | next | |
-| 3 | Sources: read-in-place folders, scans, following moves, missing books and find-again | | |
+| 2 | Grid and list, columns, sort, covers on a worker | **done** | click Library; View options (beside Open…): grid or list, columns, Fit or Crop, sort and direction; `books=10 library=show layout=list sort=title` in shots |
+| 3 | Sources: read-in-place folders, scans, following moves, missing books and find-again | next | |
 | 4 | Shelves | | |
 | 5 | Selection, menus, removal receipt, restore, twins, store-copy import | | |
 | 6 | Search | | |
@@ -99,7 +99,8 @@ appearance effects to that same pass.
 
 ## Next
 
-1. **M5 slice 2:** grid and list, columns, sort and covers.
+1. **M5 slice 3:** sources: folders read in place, scans, moves and
+   find-again.
 2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; sort keys come with shelves.
@@ -165,3 +166,4 @@ appearance effects to that same pass.
 | 2026-10-15 | Owner request: Column Width moves to the Fonts tab, so it is a text setting and per pane with "Independent text for each pane" (settings v2 carry the old value over). The settings window now shows only what reaches the focused pane, as mareader's, from one rule: `Scope` says what is focused and open, each tab, section and row names an `Applies`, and `Rows` places dividers between the rows drawn (`docs/design.md`). New against before: Pane text shows only while split with a book in some pane; Auto resize hides for books; No gap and Page shadow hide in a book's vertical stream; Split pane appearance hides until split, as mareader's |
 | 2026-10-15 | Library, covers and sync studied for edge cases. Text conversion: titles and authors from Chinese-style names (`《河流》作者：林`) and from `Title:`/`Author:` header lines (Project Gutenberg's *The Raven* is now "The Raven"); a copy mark like `(1)` drops; Chinese headings take traditional and formal numerals, and measure-word units (`本`, `部`, `卷`) head a part only with a gap, so `第一本书…` stays prose; the zip's dates are pinned so a text converts to identical bytes. Docs: `docs/sync.md` (new; M9 after 1.0), and library sections on identity edge cases, text files in the library, covers for every format, and sync readiness |
 | 2026-10-15 | M5 slice 1: library records. New `crates/library` (L1): ids, hybrid-clock stamps on every synced field, books with locations and tombstones, and pure rules for recording an open (a move keeps the book, an edit in place keeps it, a path holds one book) and a position. Files are `library.json` plus `state/<id>.json`, written whole and atomically on a worker at most every half second; newer or unreadable files are never overwritten. The UI records each pane's open file and position, resumes any open where it was left, and shows a Library page from the title bar button (`docs/library.md` § Slice 1: records and resume) |
+| 2026-10-15 | M5 slice 2: grid and list. The library page shows a grid of A4 covers (Fit or Crop) or a list with thumbnails, Auto or 2 to 10 columns, sorted by last read, title, author or date added either way, with names compared naturally (Volume 2 before Volume 10) and blank authors last. The view lives in settings (`library`), changed from a View options menu. Covers come from a PDF's first page, an EPUB's cover or opening picture, or converted text, read on one worker that always takes the first still-wanted ask, cached at 512 px in the platform cache, uploaded a few per frame within 64 MiB and faded in; books without art get a drawn cover. EPUB and PDF authors are now recorded. The library keeps its own title bar pin. List nits fixed: the header lines up with the rows, and a missing row fades its time |

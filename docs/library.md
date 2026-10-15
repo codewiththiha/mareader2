@@ -234,6 +234,46 @@ What the first slice built, and where it stops short of the model above.
   the character offset for converted books, and following a file that
   moved while the app was closed all wait for later slices.
 
+## Slice 2: grid, list, sort and covers (2026-10-15)
+
+- **View.** `mareader_library::View` keeps the layout, the pinned columns
+  (none is Auto), the cover fit and the sort, inside the settings as
+  `library`. An older settings file without it loads the defaults: grid,
+  Auto, Fit, last read newest first. The View options button by Open…
+  changes each at once and stays open to chain changes.
+- **Sort.** Last read, title, author or date added, either way. A new key
+  starts in its natural direction (names A–Z, dates newest first). Names
+  compare ignoring case, with digit runs as numbers, so Volume 2 comes
+  before Volume 10 and `007` equals `7`. A blank author sorts last both
+  ways. Ties fall to the title, then the book id, so the order never jumps.
+- **Grid.** Auto fits as many 150 pt cards as the width allows, 2 to 10;
+  a pinned count shares the width. Each card is an A4 cover box, the title,
+  the author (else the page reached), and a progress line. Fit shows the
+  whole cover bottom-aligned; Crop fills the box. Covers shaped past 0.55
+  to 1.8 are trimmed to it. Rows are virtual (`show_rows`).
+- **List.** The rows gain a thumbnail; the format joins the detail line.
+  A missing row fades its time too, and the header lines up with the rows.
+- **Authors.** An EPUB's first non-blank `dc:creator`, or a PDF's
+  `/Author`, fills a book's author when it has none; a later open never
+  overwrites it, so a reader's own edit will stand.
+- **Covers** follow the section above. The session's `cover` reads the
+  art: a PDF's first page; an EPUB's declared cover, else a picture among
+  the first four blocks of its opening chapter; text and Markdown are
+  converted first. One `covers` thread takes the first still-wanted ask;
+  each frame replaces the asks (shown, then a screen below, then above).
+  Results keep as JPEG (opaque) or PNG at 512 px in
+  `<cache>/covers/v1/<content-id>`, written atomically; other versions'
+  folders are deleted. The cache is the platform's (`~/Library/Caches`,
+  `$XDG_CACHE_HOME` or `~/.cache`, `%LOCALAPPDATA%`), and tests have none.
+  Four textures upload per frame within a 64 MiB budget, least recently
+  shown dropped first; each fades in unless Animations are off. A book
+  without art gets a drawn cover: a steady per-book tint, title, author
+  and format.
+- **Title bar.** The library keeps its own pin (on by default), with its
+  own switch in Settings › Layout.
+- **Not yet.** Manual order arrives with shelves. A cover that failed is
+  retried only after a relaunch.
+
 ## UI (`crates/ui`, M5)
 
 - **Sections:** All books, Shelves (a tree), Sources (each folder's own tree,

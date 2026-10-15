@@ -21,10 +21,10 @@ title = "Pin keeps the title bar open; remembered separately for reader and libr
 area = "A"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_pin_button_keeps_the_bar_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves"]
+status = "shipped"
+evidence = ["crates/ui/tests/shell.rs::the_pin_button_keeps_the_bar_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin"]
 reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/reader-core/src/settings/mod.rs"]
-notes = "Reader pin works and persists; the library's own pin (starts pinned) arrives with the library (M5)"
+notes = "The library keeps its own pin, starting pinned (M5 slice 2)"
 
 [[feature]]
 id = "chrome.titlebar-hold"
@@ -436,8 +436,10 @@ title = "Grid or list, column count, sort, cover thumbnails"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/library.rs::the_view_menu_sets_layout_columns_covers_and_order", "crates/ui/tests/library.rs::titles_with_numbers_sort_by_their_value", "crates/library/src/tests.rs::numbers_in_names_sort_by_value_ignoring_case", "crates/library/src/tests.rs::books_without_an_author_sort_last_both_ways", "crates/ui/src/library/view.rs::automatic_columns_keep_cards_wide_within_the_limits"]
 reference = ["crates/library-core/src/view.rs", "crates/library-runtime/src/features/library/grid.rs"]
+notes = "Grid of A4 covers (fit or crop) or list; Auto or 2-10 columns; last read, title, author or added, either way (M5 slice 2). Manual order comes with shelves"
 
 [[feature]]
 id = "library.search"
@@ -530,8 +532,10 @@ title = "Covers from the first PDF page or the EPUB cover, cached apart from the
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = ["crates/ui/tests/library.rs::a_book_with_a_cover_shows_it_in_the_library", "crates/session/src/cover.rs::a_book_shows_its_cover_shrunk_never_enlarged", "crates/session/src/cover.rs::a_pdf_shows_its_first_page", "crates/session/src/cover.rs::markdown_shows_its_opening_picture_and_text_has_none"]
 reference = ["crates/library-runtime/src/features/library/cover_thumb.rs"]
+notes = "Read on a worker, cached as JPEG or PNG in the platform cache; text without art gets a drawn cover (M5 slice 2)"
 
 [[feature]]
 id = "library.migrate"
@@ -752,8 +756,8 @@ area = "E"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn", "crates/epub/tests/hostile.rs::a_real_epub_2_book_opens_with_its_ncx_and_cover", "crates/epub/tests/hostile.rs::an_epub_2_book_reads_its_ncx_cover_and_entities"]
-notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title, language and the OPF cover (M4 slices 1-2); EPUB 2 with an NCX and a meta cover, proved on Project Gutenberg's The Raven (slice 7). The author isn't read yet: nothing shows it"
+evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn", "crates/epub/tests/hostile.rs::a_real_epub_2_book_opens_with_its_ncx_and_cover", "crates/epub/tests/hostile.rs::an_epub_2_book_reads_its_ncx_cover_and_entities", "crates/session/src/cover.rs::a_books_author_is_its_first_creator"]
+notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title, language and the OPF cover (M4 slices 1-2); EPUB 2 with an NCX and a meta cover, proved on Project Gutenberg's The Raven (slice 7). The first dc:creator names the book's author in the library (M5 slice 2)"
 
 [[feature]]
 id = "epub.text-files"
