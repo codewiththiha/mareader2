@@ -551,9 +551,13 @@ Slices, each checkable on its own (`ROADMAP.md`):
 
 1. **Adding (slice 8).** The header keeps the title and count. A book-sized
    card with a plus ends the grid (an Add row ends the list) and opens one
-   menu: import copies, add files in place, add a folder, a new shelf, and
-   Restore for books removed from the folder shown. A folder asks how its
-   books are kept: copied in, read in place, or read in place and watched.
+   menu: import copies, add a folder, a new shelf, and Restore for books
+   removed from the folder shown. Files picked are always copied in. One
+   folder sheet, as in mareader, holds every choice (owner, 2026-10-15):
+   formats included or excluded, a size floor, how books are held (copied
+   in, read in place, or read in place and watched) and folder structure
+   (a shelf per folder, one shelf, or none). Watched folders file books
+   found later on the same shelves; a folder shelf removed stays removed.
 2. **Storage (slice 9).** Synced records are rows whose fields carry their
    own stamps; a removal is a tombstone that field writes never revive.
    Local facts (locations, folders) sit in their own table and never sync.

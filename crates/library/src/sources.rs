@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::book::{Book, FileStamp, Format, Location, Origin, display_title};
-use crate::id::{BookId, ContentId, SourceId};
+use crate::id::{BookId, ContentId, ShelfId, SourceId};
 use crate::library::{Library, Measure, Opened};
 
 /// A folder the library reads in place, and what counts as a book in it.
@@ -17,6 +17,9 @@ pub struct Source {
     /// Canonical; every location under it is the folder's.
     pub root: PathBuf,
     pub formats: BTreeSet<Format>,
+    /// `formats` are the ones left out, so new formats count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exclude: bool,
     /// Smaller files are skipped: stubs and placeholders.
     #[serde(default)]
     pub min_size: u64,
@@ -27,15 +30,62 @@ pub struct Source {
     /// Books removed from it, which rescans leave out.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub hidden: BTreeSet<BookId>,
+    #[serde(default)]
+    pub shelving: Shelving,
+    /// The shelf named after the folder, when `shelving` makes one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shelf: Option<ShelfId>,
+}
+
+/// How a folder's books land on shelves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Shelving {
+    /// They join the library on no shelf.
+    #[default]
+    None,
+    /// One shelf, named after the folder, holds them all.
+    One,
+    /// A shelf for each folder, nested as the folders are.
+    Each,
+}
+
+impl Shelving {
+    /// The shelf names, outermost first, for `file` found under `root`.
+    pub fn names(self, root: &Path, file: &Path) -> Vec<String> {
+        let top = folder_name(root);
+        let dirs = file.parent().and_then(|d| d.strip_prefix(root).ok());
+        let dirs = dirs.into_iter().flat_map(|d| d.components());
+        let dirs = dirs.map(|c| c.as_os_str().to_string_lossy().into_owned());
+        match self {
+            Self::None => Vec::new(),
+            Self::One => vec![top],
+            Self::Each => std::iter::once(top).chain(dirs).collect(),
+        }
+    }
+}
+
+/// A folder's own name, as shown.
+fn folder_name(root: &Path) -> String {
+    match root.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => root.display().to_string(),
+    }
+}
+
+/// Whether a file of `format` and `size` passes a folder's settings.
+pub fn counts(
+    formats: &BTreeSet<Format>,
+    exclude: bool,
+    min_size: u64,
+) -> impl Fn(Format, u64) -> bool {
+    move |format, size| formats.contains(&format) != exclude && size >= min_size.max(1)
 }
 
 impl Source {
     /// The folder's own name, as shown.
     pub fn name(&self) -> String {
-        match self.root.file_name() {
-            Some(name) => name.to_string_lossy().into_owned(),
-            None => self.root.display().to_string(),
-        }
+        folder_name(&self.root)
     }
 
     pub fn contains(&self, path: &Path) -> bool {
@@ -44,7 +94,7 @@ impl Source {
 
     /// Whether a file of `format` and `size` counts as a book here.
     pub fn counts(&self, format: Format, size: u64) -> bool {
-        self.formats.contains(&format) && size >= self.min_size.max(1)
+        counts(&self.formats, self.exclude, self.min_size)(format, size)
     }
 }
 
@@ -52,6 +102,7 @@ impl Source {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceEdit {
     pub formats: BTreeSet<Format>,
+    pub exclude: bool,
     pub min_size: u64,
     pub watch: bool,
 }
@@ -174,10 +225,13 @@ impl Library {
             id,
             root,
             formats: Format::ALL.into(),
+            exclude: false,
             min_size: 0,
             watch: true,
             added: wall_ms,
             hidden: BTreeSet::new(),
+            shelving: Shelving::None,
+            shelf: None,
         };
         let mut absorbed = Vec::new();
         for old in inner.iter().filter_map(|i| self.sources.remove(i)) {
@@ -209,14 +263,88 @@ impl Library {
         let Some(source) = self.sources.get_mut(&id) else {
             return false;
         };
-        if edit.formats.is_empty() {
+        let any = Format::ALL
+            .iter()
+            .any(|f| edit.formats.contains(f) != edit.exclude);
+        if !any {
             return false;
         }
         source.formats = edit.formats;
+        source.exclude = edit.exclude;
         source.min_size = edit.min_size;
         source.watch = edit.watch;
         self.touch();
         true
+    }
+
+    /// Shelves a folder's books as `shelving` says, inside `parent`.
+    pub fn shelve_source(
+        &mut self,
+        id: SourceId,
+        shelving: Shelving,
+        parent: Option<ShelfId>,
+        wall_ms: u64,
+    ) -> bool {
+        let Some(source) = self.sources.get(&id) else {
+            return false;
+        };
+        let names = [folder_name(&source.root)];
+        let shelf = match shelving {
+            Shelving::None => None,
+            Shelving::One | Shelving::Each => self.shelf_path(parent, &names, wall_ms),
+        };
+        let Some(source) = self.sources.get_mut(&id) else {
+            return false;
+        };
+        source.shelving = shelving;
+        source.shelf = shelf;
+        let source = source.clone();
+        // Books it already held are shelved as found ones will be.
+        let here: Vec<(BookId, PathBuf)> = (self.books_in(id))
+            .filter_map(|b| Some((b.id, b.locations.iter().find(|l| source.contains(&l.path))?)))
+            .map(|(id, l)| (id, l.path.clone()))
+            .collect();
+        for (book, path) in here {
+            self.file_found(&source, book, &path, wall_ms);
+        }
+        self.touch();
+        true
+    }
+
+    /// Files a book found in `source` on the shelf its folder maps to.
+    fn file_found(&mut self, source: &Source, book: BookId, path: &Path, wall_ms: u64) {
+        // A folder shelf the reader removed stays removed.
+        let Some(top) = source.shelf.filter(|&s| self.shelf(s).is_some()) else {
+            return;
+        };
+        let names = source.shelving.names(&source.root, path);
+        let shelf = self.shelf_path(Some(top), names.get(1..).unwrap_or_default(), wall_ms);
+        if let Some(shelf) = shelf {
+            self.file(book, shelf, wall_ms);
+        }
+    }
+
+    /// The shelf at `names` under `parent`, each made where missing.
+    pub fn shelf_path(
+        &mut self,
+        parent: Option<ShelfId>,
+        names: &[String],
+        wall_ms: u64,
+    ) -> Option<ShelfId> {
+        let mut at = parent;
+        for name in names {
+            let Some(name) = crate::shelves::clean(name) else {
+                continue;
+            };
+            let lower = name.to_lowercase();
+            let same = |s: &&crate::Shelf| s.name.value.to_lowercase() == lower;
+            let found = self.children(at).into_iter().find(same).map(|s| s.id);
+            at = match found {
+                Some(id) => Some(id),
+                None => Some(self.create_shelf(&name, at, wall_ms).ok()?),
+            };
+        }
+        at
     }
 
     /// Stops reading a folder. Books found only there leave, files stay.
@@ -268,6 +396,7 @@ impl Library {
             }
             let stamp = found.measure.stamp;
             let alive = known.filter(|id| self.book(*id).is_some());
+            let before = (report.added.len(), report.back.len());
             let id = match (alive, self.book_at(&found.path)) {
                 (Some(id), _) => {
                     if self.follow(id, &found.path) {
@@ -307,6 +436,9 @@ impl Library {
                 }
             };
             by_content.insert(content, id);
+            if (report.added.len(), report.back.len()) != before {
+                self.file_found(&source, id, &found.path, wall_ms);
+            }
             if !self.has_location(id, &found.path, stamp, origin) {
                 self.place(id, &found.path, stamp, origin);
                 self.touch();

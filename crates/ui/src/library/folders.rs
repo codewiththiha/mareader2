@@ -121,15 +121,17 @@ fn removed(ui: &mut Ui, id: SourceId, hidden: &[&Book], t: &Tokens, out: &mut Co
 fn counts(ui: &mut Ui, source: &Source, out: &mut Commands) {
     let mut edit = SourceEdit {
         formats: source.formats.clone(),
+        exclude: source.exclude,
         min_size: source.min_size,
         watch: source.watch,
     };
-    what_counts(ui, &mut edit.formats, &mut edit.min_size);
+    what_counts(ui, &mut edit.formats, &mut edit.exclude, &mut edit.min_size);
     ui.checkbox(
         &mut edit.watch,
         "Look for new books when Mareader comes back",
     );
     let changed = edit.formats != source.formats
+        || edit.exclude != source.exclude
         || edit.min_size != source.min_size
         || edit.watch != source.watch;
     if changed {
@@ -137,30 +139,57 @@ fn counts(ui: &mut Ui, source: &Source, out: &mut Commands) {
     }
 }
 
-/// Format chips and a size floor: which of a folder's files are books.
-pub fn what_counts(ui: &mut Ui, formats: &mut BTreeSet<Format>, min_size: &mut u64) {
+/// The size floor's step and ceiling, in bytes.
+const SIZE_STEP: u64 = 10 * 1_024;
+const SIZE_MAX: u64 = 500 * 1_024;
+
+/// Which of a folder's files are books: formats in or out, and a floor.
+pub fn what_counts(
+    ui: &mut Ui,
+    formats: &mut BTreeSet<Format>,
+    exclude: &mut bool,
+    min_size: &mut u64,
+) {
+    // Nothing is offered that would leave no format counting.
+    let any = |formats: &BTreeSet<Format>, exclude: bool| {
+        Format::ALL.iter().any(|f| formats.contains(f) != exclude)
+    };
+    ui.horizontal(|ui| {
+        for (out, label) in [(false, "Include selected"), (true, "Exclude selected")] {
+            let chip = Button::selectable(*exclude == out, label);
+            if ui.add_enabled(any(formats, out), chip).clicked() {
+                *exclude = out;
+            }
+        }
+    });
     ui.horizontal(|ui| {
         for format in Format::ALL {
             let on = formats.contains(&format);
-            // A folder reads at least one format.
-            let last = on && formats.len() == 1;
+            let mut next = formats.clone();
+            match on {
+                true => next.remove(&format),
+                false => next.insert(format),
+            };
             let chip = Button::selectable(on, format.label());
-            if ui.add_enabled(!last, chip).clicked() {
-                match on {
-                    true => formats.remove(&format),
-                    false => formats.insert(format),
-                };
+            if ui.add_enabled(any(&next, *exclude), chip).clicked() {
+                *formats = next;
             }
         }
     });
     ui.horizontal(|ui| {
         ui.label("Skip files under");
-        let mut kb = *min_size / 1_024;
-        let drag = egui::DragValue::new(&mut kb)
-            .range(0..=100_000)
-            .suffix(" KB");
-        if ui.add(drag).changed() {
-            *min_size = kb * 1_024;
+        let less = ui.add_enabled_ui(*min_size > 0, |ui| {
+            crate::widgets::icon_button(ui, Icon::Minus, "Smaller files count too", false)
+        });
+        if less.inner.clicked() {
+            *min_size = min_size.saturating_sub(SIZE_STEP) / SIZE_STEP * SIZE_STEP;
+        }
+        ui.label(format!("{} KB", *min_size / 1_024));
+        let more = ui.add_enabled_ui(*min_size < SIZE_MAX, |ui| {
+            crate::widgets::icon_button(ui, Icon::Plus, "Only larger files", false)
+        });
+        if more.inner.clicked() {
+            *min_size = ((*min_size / SIZE_STEP + 1) * SIZE_STEP).min(SIZE_MAX);
         }
     });
 }
