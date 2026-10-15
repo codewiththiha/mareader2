@@ -51,6 +51,9 @@ pub struct LastDocument {
     /// A book's block and offset, which outlast a change of type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<(usize, usize)>,
+    /// The library book it was read as, so a twin reopens as itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub book: Option<mareader_library::BookId>,
 }
 
 /// Settings reach disk this long after a change, at most.
@@ -197,6 +200,7 @@ impl MareaderApp {
         let request = OpenRequest {
             page: last.page,
             place,
+            book: last.book,
             ..OpenRequest::path(last.path)
         };
         self.queue(Command::Open(request));
@@ -206,9 +210,16 @@ impl MareaderApp {
     /// The file being read: the active pane's, else the first with one.
     pub fn last_document(&self) -> Option<LastDocument> {
         let panes = std::iter::once(self.active).chain(self.tree.panes());
-        let (path, page, place) = panes.into_iter().find_map(|p| self.documents.place(p))?;
+        let (pane, (path, page, place)) =
+            (panes.into_iter()).find_map(|p| Some((p, self.documents.place(p)?)))?;
         let place = place.map(|a| (a.block, a.offset));
-        Some(LastDocument { path, page, place })
+        let book = self.documents.book(pane);
+        Some(LastDocument {
+            path,
+            page,
+            place,
+            book,
+        })
     }
 
     /// Keeps the library in `root`; without one it lives in memory.
