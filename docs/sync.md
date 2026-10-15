@@ -170,7 +170,10 @@ model above is unchanged; only where records rest moved.
 - **Merge** is `Merge` in `crates/library`: per field last-writer-wins,
   tombstones only grow. Property tests check it commutes, associates and
   is idempotent, which is what lets backends race safely.
-- **Positions** stay `state/<book-id>.json`, as in the wire layout.
+- **Positions** are records too (kind `state`, owner's choice for sync,
+  2026-10-15): one cursor finds every change, and a save is one
+  transaction. A file backend may still lay them out as
+  `state/<book-id>.json` on the remote.
 - **Migrations** are dated, append-only SQL steps keyed by `user_version`.
   A newer file is read but never written.
 
