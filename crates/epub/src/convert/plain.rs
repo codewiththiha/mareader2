@@ -1,7 +1,7 @@
 //! Plain text: paragraphs, wrapped lines and headings. Markup is never read.
 use std::fmt::Write as _;
 
-use super::{Draft, Entry, escape, fold_lines};
+use super::{Draft, Entry, Name, escape, fold_lines};
 
 /// How a file marks its paragraphs, guessed from the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,11 +22,13 @@ struct Paragraph<'a> {
     framed: bool,
 }
 
-pub(super) fn draft(text: &str, title: Option<String>) -> Draft {
+pub(super) fn draft(text: &str, name: Name) -> Draft {
     let text = fold_lines(text);
     let lines: Vec<&str> = text.split('\n').map(str::trim_end).collect();
     let breaks = breaks(&lines);
-    let mut d = Draft::new(title);
+    let head = lines.get(..HEAD_LINES).unwrap_or(&lines);
+    let mut d = Draft::new(field(head, &TITLE_LABELS).or(name.title));
+    d.author = field(head, &AUTHOR_LABELS).or(name.author);
     let mut body = String::new();
     for p in paragraphs(&lines, breaks) {
         let heading = match p.lines.as_slice() {
@@ -60,6 +62,22 @@ pub(super) fn draft(text: &str, title: Option<String>) -> Draft {
         });
     }
     d
+}
+
+/// Lines read for labelled fields, as Project Gutenberg's header gives.
+const HEAD_LINES: usize = 40;
+const TITLE_LABELS: [&str; 5] = ["title", "书名", "書名", "标题", "標題"];
+const AUTHOR_LABELS: [&str; 2] = ["author", "作者"];
+
+/// The value of the first `Label: value` line whose label is in `labels`.
+fn field(head: &[&str], labels: &[&str]) -> Option<String> {
+    head.iter().find_map(|line| {
+        let (label, value) = line.split_once([':', '：'])?;
+        let label = label.trim().to_lowercase();
+        let value = value.trim();
+        let fits = !value.is_empty() && chars(value) <= 120;
+        (fits && labels.contains(&label.as_str())).then(|| value.to_owned())
+    })
 }
 
 fn filled(line: &str) -> bool {

@@ -32,7 +32,8 @@ fn lines(book: &Book) -> Vec<(String, bool)> {
 #[test]
 fn the_raven_as_text_finds_its_headings_wrapped_prose_and_verse() {
     let book = open(RAVEN, Format::Plain, "the-raven-gutenberg-17192.txt");
-    assert_eq!(book.title(), Some("the-raven-gutenberg-17192"));
+    // The header's `Title:` line wins over the file name.
+    assert_eq!(book.title(), Some("The Raven"));
     let toc: Vec<&str> = book.toc().iter().map(|e| e.title.as_str()).collect();
     for want in [
         "THE RAVEN",
