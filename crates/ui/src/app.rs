@@ -225,6 +225,11 @@ impl MareaderApp {
         self.library.model()
     }
 
+    /// The page's own state: the open shelf, a name being edited.
+    pub fn library_state(&self) -> &LibraryState {
+        &self.library
+    }
+
     pub fn library_showing(&self) -> bool {
         self.route() == Route::Library
     }
@@ -457,6 +462,18 @@ impl MareaderApp {
             "books" => self
                 .library
                 .seed(value.parse().map_err(|_| "books: a count")?),
+            "shelves" => self.library.seed_shelves(),
+            // A shelf by its names from the top, as "Fiction/Classics".
+            "shelf" => {
+                let found = self.library.open_shelf(value);
+                found.then_some(()).ok_or("shelf: no shelf by that path")?;
+            }
+            "home" => {
+                self.settings.library.home = match value {
+                    "unshelved" => mareader_library::Home::Unshelved,
+                    _ => mareader_library::Home::Everything,
+                }
+            }
             "pdf" | "epub" => {
                 let (kind, pages) = value.split_once(':').unwrap_or((value, ""));
                 let count = pages.parse().ok();
@@ -1160,7 +1177,10 @@ impl eframe::App for MareaderApp {
         let drop_target = self.drops(&ctx);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        let modal = self.settings_window.is_open() || self.library.sheet().is_some();
+        // Naming a shelf takes Escape to cancel.
+        let modal = self.settings_window.is_open()
+            || self.library.sheet().is_some()
+            || self.library.renaming().is_some();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page goes back to what's being read, and only that.
         if free && route == Route::Library {
@@ -1270,12 +1290,16 @@ impl eframe::App for MareaderApp {
                     view: &self.settings.library,
                     auto_columns: library::view::page_columns(width),
                     can_return: self.reading(),
+                    trail: self.library.trail(),
+                    renaming: self.library.renaming(),
                 };
-                (
-                    "Library",
-                    self.settings.appearance,
-                    BarPage::Library(library),
-                )
+                // On a shelf, the breadcrumb names the page.
+                let title = if library.trail.is_empty() {
+                    "Library"
+                } else {
+                    ""
+                };
+                (title, self.settings.appearance, BarPage::Library(library))
             }
         };
         let bar = BarContext {

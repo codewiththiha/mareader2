@@ -1,10 +1,12 @@
 //! The library's state: the model, its files, and what the panes read.
 
 mod covers;
+pub mod crumbs;
 pub mod folders;
 mod io;
 pub(crate) mod menu;
 pub mod sheets;
+pub mod shelving;
 mod sources;
 pub mod view;
 
@@ -14,7 +16,9 @@ use std::path::{Path, PathBuf};
 
 use egui::Context;
 use mareader_library::disk::Folder;
-use mareader_library::{BookId, DeviceId, Format, Library, Opened, Position, display_title};
+use mareader_library::{
+    BookId, DeviceId, Format, Library, Opened, Position, ShelfId, display_title,
+};
 use mareader_session::{Anchor, Document, Source};
 use mareader_workspace::PaneId;
 
@@ -24,6 +28,7 @@ use crate::toast::Toast;
 pub use covers::Covers;
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
+pub use shelving::{Carry, Crumb, ShelfAction};
 pub use sources::{Action, Finding, Scope, Sheet, Step};
 
 /// Seconds between writes while reading.
@@ -56,6 +61,9 @@ pub struct LibraryState {
     /// The library page is up in place of the panes.
     pub showing: bool,
     pub scope: Scope,
+    /// The shelf open on the page; none is the top level.
+    at: Option<ShelfId>,
+    renaming: Option<ShelfId>,
 }
 
 impl Default for LibraryState {
@@ -73,6 +81,8 @@ impl Default for LibraryState {
             folders: sources::Folders::default(),
             showing: false,
             scope: Scope::All,
+            at: None,
+            renaming: None,
         }
     }
 }

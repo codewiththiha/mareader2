@@ -88,6 +88,11 @@ impl Library {
         shelf.parent.value.filter(|p| self.shelf(*p).is_some())
     }
 
+    /// Where a shelf was last put, even if it or its parent is removed.
+    pub fn recorded_parent(&self, id: ShelfId) -> Option<ShelfId> {
+        self.shelves.get(&id).and_then(|s| s.parent.value)
+    }
+
     /// The shelves on `parent`'s level, by name.
     pub fn children(&self, parent: Option<ShelfId>) -> Vec<&Shelf> {
         let mut out: Vec<&Shelf> = (self.shelves())

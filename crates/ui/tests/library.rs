@@ -3,12 +3,13 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
-use mareader_library::{CoverFit, Format, Layout, Library, SortKey};
+use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
-use mareader_ui::library::Action;
+use mareader_ui::library::{Action, ShelfAction};
 
 /// Canonical, as the library records it; opens take any spelling.
 fn fixture(name: &str) -> PathBuf {
@@ -586,4 +587,302 @@ fn adding_a_folder_leaves_other_missing_books_missing() {
 fn an_empty_library_offers_to_add_a_folder() {
     let h = reader(&[("library", "show")]);
     assert!(h.query_by_label("Add folder…").is_some());
+}
+
+fn open_shelf(h: &Harness<'static, MareaderApp>) -> Option<ShelfId> {
+    h.state().library_state().at()
+}
+
+fn shelve(h: &mut Harness<'static, MareaderApp>, action: ShelfAction) {
+    act(h, Action::Shelf(action));
+}
+
+/// A shelf made through the page's own action, at the top level.
+fn new_shelf(h: &mut Harness<'static, MareaderApp>, name: &str) -> ShelfId {
+    shelve(h, ShelfAction::New);
+    let id = open_shelf(h).expect("a new shelf opens");
+    shelve(h, ShelfAction::Rename(id, name.into()));
+    shelve(h, ShelfAction::GoTo(None));
+    id
+}
+
+fn title_of(h: &Harness<'static, MareaderApp>, n: usize) -> String {
+    let mut books: Vec<_> = library(h).books().collect();
+    books.sort_by_key(|b| b.id);
+    books[n].title.value.clone()
+}
+
+fn book_id(h: &Harness<'static, MareaderApp>, n: usize) -> BookId {
+    let mut ids: Vec<BookId> = library(h).books().map(|b| b.id).collect();
+    ids.sort();
+    ids[n]
+}
+
+#[test]
+fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    h.get_by_label("New shelf").click();
+    h.run();
+    let id = open_shelf(&h).expect("the new shelf opens");
+    assert_eq!(h.state().library_state().renaming(), Some(id));
+    // Its whole name is selected, so typing replaces it.
+    let field = h.get_by_role(Role::TextInput);
+    assert!(field.is_focused());
+    field.type_text("Poetry");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let shelf = library(&h).shelf(id).unwrap();
+    assert_eq!(shelf.name.value, "Poetry");
+    assert_eq!(h.state().library_state().renaming(), None);
+    assert!(h.state().library_showing());
+    h.get_by_role_and_label(Role::Button, "Library").click();
+    h.run();
+    assert_eq!(open_shelf(&h), None);
+    h.get_by_label("Poetry").click();
+    h.run();
+    assert_eq!(open_shelf(&h), Some(id));
+}
+
+#[test]
+fn escape_while_naming_keeps_the_old_name_and_the_page() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    h.get_by_label("New shelf").click();
+    h.run();
+    let id = open_shelf(&h).unwrap();
+    h.get_by_role(Role::TextInput).type_text("Junk");
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(library(&h).shelf(id).unwrap().name.value, "New shelf");
+    assert_eq!(h.state().library_state().renaming(), None);
+    assert!(h.state().library_showing(), "Escape only ended the naming");
+    // The crumb's menu names it again; the header's button shares its name.
+    let crumbs = h.get_all_by_role_and_label(Role::Button, "New shelf");
+    let crumb = crumbs.min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    crumb.unwrap().click();
+    h.run();
+    h.get_by_label("Rename…").click();
+    h.run();
+    assert_eq!(h.state().library_state().renaming(), Some(id));
+}
+
+#[test]
+fn a_name_already_beside_it_is_refused() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    new_shelf(&mut h, "Poetry");
+    let other = new_shelf(&mut h, "Other");
+    shelve(&mut h, ShelfAction::Rename(other, "poetry".into()));
+    assert_eq!(toast(&h), "There's already a shelf called “poetry” there.");
+    assert_eq!(library(&h).shelf(other).unwrap().name.value, "Other");
+}
+
+/// Presses on `from`, moves in steps past egui's drag threshold, and stops.
+fn carry(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2) {
+    h.hover_at(from);
+    h.run();
+    h.drag_at(from);
+    h.run();
+    for step in 1..=6 {
+        h.hover_at(from.lerp(to, step as f32 / 6.0));
+        h.run();
+    }
+}
+
+/// Lets go at `at`, the pointer staying there.
+fn release(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
+    h.event(egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+}
+
+#[test]
+fn dragging_a_book_onto_a_shelf_files_it_and_says_so() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let shelf = new_shelf(&mut h, "Poetry");
+    let title = title_of(&h, 1);
+    let book = h.get_by_label(&title).rect().center();
+    let target = h.get_by_label("Poetry").rect().center();
+    carry(&mut h, book, target);
+    release(&mut h, target);
+    assert_eq!(
+        library(&h).shelves_of(book_id(&h, 1)).len(),
+        1,
+        "{}",
+        toast(&h)
+    );
+    assert_eq!(toast(&h), format!("Added “{title}” to “Poetry”."));
+    assert_eq!(open_shelf(&h), None, "a drop doesn't open the shelf");
+    // Again: it's already there.
+    carry(&mut h, book, target);
+    release(&mut h, target);
+    assert_eq!(toast(&h), format!("“{title}” is already on “Poetry”."));
+    assert_eq!(library(&h).shelf_books(shelf).len(), 1);
+}
+
+#[test]
+fn escape_drops_what_is_carried_and_keeps_the_page() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    new_shelf(&mut h, "Poetry");
+    let title = title_of(&h, 2);
+    let book = h.get_by_label(&title).rect().center();
+    let target = h.get_by_label("Poetry").rect().center();
+    carry(&mut h, book, target);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    release(&mut h, target);
+    assert!(library(&h).shelved().is_empty(), "{}", toast(&h));
+    assert!(
+        h.state().library_showing(),
+        "Escape ended the drag, not the page"
+    );
+}
+
+#[test]
+fn a_shelf_moves_books_between_shelves_or_adds_them_with_alt() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let a = new_shelf(&mut h, "A");
+    let b = new_shelf(&mut h, "B");
+    let book = book_id(&h, 0);
+    let file = |to, from, keep| ShelfAction::File {
+        book,
+        to,
+        from,
+        keep,
+    };
+    shelve(&mut h, file(Some(a), None, false));
+    shelve(&mut h, file(Some(b), Some(a), false));
+    assert!(toast(&h).starts_with("Moved"), "{}", toast(&h));
+    assert_eq!(
+        library(&h).shelves_of(book).into_iter().collect::<Vec<_>>(),
+        [b]
+    );
+    shelve(&mut h, file(Some(a), Some(b), true));
+    assert_eq!(library(&h).shelves_of(book).len(), 2, "Alt keeps it on B");
+    // Dropped on the top level's crumb, it leaves the open shelf.
+    shelve(&mut h, file(None, Some(a), false));
+    assert_eq!(
+        library(&h).shelves_of(book).into_iter().collect::<Vec<_>>(),
+        [b]
+    );
+    // A shelf can't go inside its own shelves.
+    shelve(
+        &mut h,
+        ShelfAction::Move {
+            shelf: b,
+            to: Some(b),
+        },
+    );
+    let inner = new_shelf(&mut h, "Inner");
+    shelve(
+        &mut h,
+        ShelfAction::Move {
+            shelf: inner,
+            to: Some(b),
+        },
+    );
+    shelve(
+        &mut h,
+        ShelfAction::Move {
+            shelf: b,
+            to: Some(inner),
+        },
+    );
+    assert_eq!(toast(&h), "A shelf can't go inside itself.");
+}
+
+#[test]
+fn home_can_leave_shelved_books_to_their_shelves() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let shelf = new_shelf(&mut h, "Poetry");
+    let shelved = title_of(&h, 0);
+    let file = ShelfAction::File {
+        book: book_id(&h, 0),
+        to: Some(shelf),
+        from: None,
+        keep: false,
+    };
+    shelve(&mut h, file);
+    assert!(
+        h.query_by_label(&shelved).is_some(),
+        "everything, by default"
+    );
+    h.get_by_label("View options").click();
+    h.run();
+    h.get_by_label("Unshelved").click();
+    h.run();
+    assert_eq!(h.state().settings().library.home, Home::Unshelved);
+    assert!(h.query_by_label(&shelved).is_none());
+    assert!(h.query_by_label(&title_of(&h, 1)).is_some());
+}
+
+#[test]
+fn removing_a_shelf_asks_then_moves_its_shelves_up() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let outer = new_shelf(&mut h, "Outer");
+    shelve(&mut h, ShelfAction::GoTo(Some(outer)));
+    shelve(&mut h, ShelfAction::New);
+    let inner = open_shelf(&h).unwrap();
+    let file = ShelfAction::File {
+        book: book_id(&h, 0),
+        to: Some(outer),
+        from: None,
+        keep: false,
+    };
+    shelve(&mut h, file);
+    shelve(&mut h, ShelfAction::GoTo(Some(outer)));
+    shelve(&mut h, ShelfAction::AskRemove(outer));
+    assert!(
+        library(&h).shelf(outer).is_some(),
+        "nothing goes before the answer"
+    );
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(library(&h).shelf(outer).is_none());
+    assert_eq!(open_shelf(&h), None, "back up to where it was");
+    let top: Vec<ShelfId> = library(&h).children(None).iter().map(|s| s.id).collect();
+    assert_eq!(top, [inner]);
+    assert_eq!(library(&h).len(), 4, "its books stay");
+    assert_eq!(toast(&h), "Removed “Outer”. Its books stay in the library.");
+}
+
+#[test]
+fn a_long_trail_folds_its_middle_and_leads_back_up() {
+    let mut h = reader(&[("books", "1"), ("library", "show")]);
+    for n in 1..=5 {
+        shelve(&mut h, ShelfAction::New);
+        let id = open_shelf(&h).unwrap();
+        shelve(&mut h, ShelfAction::Rename(id, format!("Level {n}")));
+    }
+    let trail = h.state().library_state().trail();
+    assert_eq!(trail.len(), 6);
+    assert!(h.query_by_label("…").is_some());
+    // The top, then the last two above the open shelf: four crumbs.
+    let kept = &trail[trail.len() - 3].name;
+    assert!(h.query_by_role_and_label(Role::Button, kept).is_some());
+    h.get_by_label("…").click();
+    h.run();
+    let second = trail[1].id;
+    h.get_by_label(&trail[1].name).click();
+    h.run();
+    assert_eq!(open_shelf(&h), second);
+    h.get_by_role_and_label(Role::Button, "Library").click();
+    h.run();
+    assert_eq!(open_shelf(&h), None);
+}
+
+#[test]
+fn a_removed_open_shelf_gives_way_to_its_parent() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    let outer = new_shelf(&mut h, "Outer");
+    shelve(&mut h, ShelfAction::GoTo(Some(outer)));
+    shelve(&mut h, ShelfAction::New);
+    let inner = open_shelf(&h).unwrap();
+    shelve(&mut h, ShelfAction::Remove(inner));
+    assert_eq!(open_shelf(&h), Some(outer));
+    assert_eq!(h.state().library_state().renaming(), None);
 }
