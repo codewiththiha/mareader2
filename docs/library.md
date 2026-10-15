@@ -640,6 +640,38 @@ frame, and stops repainting when nothing moves.
 - **Shots.** `books=6 shelves=demo library=show` shows the mixed grid;
   `carry=x1,y1,x2,y2` holds a drag over a card's side to show the bar.
 
+## Slice 11: a living grid (2026-10-15)
+
+- **A hole, not a bar.** Carrying a card from the level shown lifts it
+  (or the whole selection) out of the grid. A hole as wide as what's
+  carried opens where it was, and the other cards close up around it.
+- **The hole follows halves, after a rest.** Over a card's left half the
+  hole moves just before it; over its right half, just after. It moves
+  only once the pointer has rested there 0.18 s, so cards passed over on
+  the way, such as a shelf entered from its far side, stay put. Empty
+  space and the plus card leave the hole put; the last card's right half
+  sends it to the end. A shelf's middle half takes the card in at once,
+  ringed, and the hole stays put.
+- **Letting go** lands where the pointer is, without waiting for the
+  rest (`ShelfAction::Arrange`); back where it started, nothing is written.
+  Off the grid (a crumb, the bar) the grid does nothing. Escape, or a
+  drop elsewhere, flies the cards home.
+- **Springs.** Each card drawn eases to its slot on a critically damped
+  spring, so it never overshoots. Cards entering view start in place,
+  and a new column count or width snaps every card. With Animations off,
+  or the system asking for less motion, cards jump.
+- **The ghost.** The carried card rides under the pointer where it was
+  grabbed, a touch larger on a deep shadow, with a count for a selection
+  and a plus while Alt adds a copy. When it lands, it flies from there
+  into its slot. The list keeps the small label.
+- **Edges scroll.** Held within 32 points of the grid's top or bottom,
+  the grid scrolls that way, faster nearer the edge.
+- **Cheap.** Springs live in one map keyed by card, kept only for cards
+  drawn this frame. A frame allocates the list of cards left behind only
+  while carrying. The page asks for frames only while a card moves.
+- **Code.** `library/living.rs` holds the hole, springs and lift, and
+  `library/view/grid.rs` draws the grid.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:

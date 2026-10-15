@@ -474,6 +474,7 @@ evidence = [
   "crates/library/src/arrange_tests.rs::a_level_from_before_keys_keeps_its_order_when_first_arranged",
   "crates/ui/tests/arrange.rs::a_card_dropped_on_anothers_side_moves_there",
   "crates/ui/tests/arrange.rs::a_shelf_moves_by_its_edges_and_takes_books_in_its_middle",
+  "crates/ui/tests/arrange.rs::carried_cards_make_room_and_settle_where_dropped",
 ]
 reference = ["crates/library-core/src/shelf/mod.rs"]
 notes = "Nested shelves with unique sibling names, books on many; Home shows every book or only unshelved ones (M5 slice 4). Shelves and books share one arranged order per level by sync-safe keys, dragged in the grid (M5 slice 10). The list shows shelves as rows, not a tree"
