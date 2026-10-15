@@ -26,6 +26,7 @@ pub mod motion;
 pub mod outline_panel;
 pub mod page_bar;
 pub mod pages;
+pub mod pane_texts;
 pub mod panes;
 pub mod paper;
 pub mod pdf_view;
@@ -54,7 +55,11 @@ mod testing {
     pub fn doc() -> Result<DocId, &'static str> {
         let mut s = Session::new(0, || {});
         let bytes = std::sync::Arc::new(mareader_pdf::sample::pdf(1, "t"));
-        s.open(mareader_session::Source::Bytes(bytes), None);
+        s.open(
+            mareader_session::Source::Bytes(bytes),
+            None,
+            Default::default(),
+        );
         let budget = mareader_session::Budget {
             items: 1,
             bytes: usize::MAX,

@@ -678,3 +678,44 @@ fn a_press_on_a_pane_page_focuses_that_pane() {
     press(&mut h, right.center());
     assert_eq!(h.state().active_pane(), second);
 }
+
+fn raven() -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    dir.join("../epub/tests/books/the-raven-gutenberg-17192.epub")
+}
+
+#[test]
+fn independent_text_sets_each_pane_in_its_own_type() {
+    let mut h = reader(&[("panes", "2"), ("independent_text", "true")]);
+    let panes = h.state().panes();
+    let (a, b) = (panes[0], panes[1]);
+    for pane in [a, b] {
+        let open = OpenRequest {
+            pane: Some(pane),
+            ..OpenRequest::path(raven())
+        };
+        h.state_mut().queue(Command::Open(open));
+        h.run();
+    }
+    let doc =
+        |h: &Harness<'static, MareaderApp>, p| h.state().documents().reading(p).map(|r| r.doc);
+    let pages = |h: &Harness<'static, MareaderApp>, p| h.state().documents().page_count(p);
+    assert!(doc(&h, a).is_some());
+    assert_eq!(doc(&h, a), doc(&h, b), "one file, one type: one parse");
+    let (before, size) = (pages(&h, a), h.state().settings().text.font_size);
+    // The Fonts settings change only the focused pane.
+    h.state_mut().set_option("focus", "2").ok();
+    h.state_mut().set_option("text_size", "28").ok();
+    h.run();
+    assert_ne!(doc(&h, a), doc(&h, b));
+    assert_eq!(pages(&h, a), before);
+    assert!(pages(&h, b) > before, "{:?} > {before:?}", pages(&h, b));
+    assert_eq!(h.state().text(a).font_size, size);
+    assert_eq!(h.state().text(b).font_size, 28.0);
+    // Off, the focused pane's text is everyone's, and they share again.
+    h.state_mut().set_option("independent_text", "false").ok();
+    h.run();
+    assert_eq!(h.state().settings().text.font_size, 28.0);
+    assert_eq!(doc(&h, a), doc(&h, b));
+    assert_eq!(h.state().documents().stats().0, 1, "the other type closed");
+}

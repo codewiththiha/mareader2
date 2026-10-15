@@ -26,6 +26,7 @@ use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
+use crate::pane_texts::PaneTexts;
 use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
@@ -76,6 +77,8 @@ pub struct MareaderApp {
     /// Split panes' own looks, and the routing they were last fitted to.
     looks: PaneLooks<PaneId>,
     routed: Routing,
+    /// Split panes' own text, while text is independent.
+    texts: PaneTexts,
     /// Picks new panes' hues and textures.
     random: u64,
     /// A theme change held for, or fading over, a snapshot.
@@ -127,6 +130,7 @@ impl MareaderApp {
             pane_rects: Vec::new(),
             looks: PaneLooks::default(),
             routed: Routing::default(),
+            texts: PaneTexts::default(),
             random: 0x9e37_79b9_7f4a_7c15,
             fade: Crossfade::default(),
             styled: None,
@@ -300,6 +304,7 @@ impl MareaderApp {
 
     /// Headless knobs for `examples/shot.rs` and tests.
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
+        self.reconcile_texts();
         match key {
             "theme" => {
                 let base = BaseMode::ALL
@@ -470,6 +475,7 @@ impl MareaderApp {
                 self.settings_window.open(Some(tab));
             }
             "independent" => self.settings.workspace.independent_themes = value == "true",
+            "independent_text" => self.settings.workspace.independent_text = value == "true",
             "independent_textures" => {
                 self.settings.workspace.independent_textures = value == "true";
             }
@@ -500,6 +506,8 @@ impl MareaderApp {
     }
 
     fn apply(&mut self, ctx: &Context, command: Command) {
+        // Text edits must reach the pane focused when they were made.
+        self.reconcile_texts();
         match command {
             Command::ToggleSidebar => self.sidebar.toggle(),
             Command::OpenSidebar(panel) => self.sidebar.open(panel),
@@ -771,6 +779,19 @@ impl MareaderApp {
         self.looks.shown(pane, global, self.routing())
     }
 
+    /// Fits the panes' own text to the panes and the focused one.
+    fn reconcile_texts(&mut self) {
+        let on = self.settings.workspace.independent_text;
+        let placed = self.tree.panes();
+        let window = &mut self.settings.text;
+        self.texts.reconcile(on, (&placed, self.active), window);
+    }
+
+    /// `pane`'s text settings: the window's, or its own while independent.
+    pub fn text(&self, pane: PaneId) -> &mareader_settings::TextSettings {
+        self.texts.of(pane, &self.settings.text)
+    }
+
     /// Fits the panes' looks to this frame's routing and panes.
     fn reconcile_looks(&mut self, ctx: &Context) {
         let now = self.routing();
@@ -896,12 +917,14 @@ impl eframe::App for MareaderApp {
             ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
         }
         self.reconcile_looks(&ctx);
+        self.reconcile_texts();
         resize::edges(&ctx, self.platform.frameless());
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
         let column = self.settings.layout.column_width_pct;
-        self.documents.set_text(&self.settings.text, column);
+        let own = self.texts.own(&self.settings.text);
+        self.documents.set_text(&self.settings.text, &own, column);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
         keymap::read(&ctx, self.platform, &mut commands);
@@ -962,7 +985,7 @@ impl eframe::App for MareaderApp {
             f32::NEG_INFINITY
         };
         let documents = &mut self.documents;
-        let page = PageLook::new(&self.settings.layout, &self.settings.text);
+        let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
                 let style = view.style(id);
@@ -970,7 +993,7 @@ impl eframe::App for MareaderApp {
                     active: id == view.active,
                     tokens: style.map_or(tokens, |s| s.tokens),
                     top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
-                    page,
+                    page: PageLook::new(layout, texts.of(id, window)),
                     paper: style.and_then(|s| s.paper),
                     corner,
                     sample: blend && (every || id == view.active),

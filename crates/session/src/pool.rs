@@ -178,16 +178,17 @@ impl Pool {
         });
     }
 
-    /// Replaces any re-set of `id` still queued.
+    /// Replaces the `stale` re-set if still queued.
     pub(crate) fn retypeset(
         &self,
         ticket: u64,
         id: DocId,
         doc: Arc<Document>,
         typo: Arc<Typography>,
+        stale: Option<u64>,
     ) {
         let mut s = self.shared.lock();
-        let same = |j: &Job| matches!(j, Job::Retypeset { id: queued, .. } if *queued == id);
+        let same = |j: &Job| matches!(j, Job::Retypeset { ticket: t, .. } if Some(*t) == stale);
         s.queue.retain(|j| !same(j));
         drop(s);
         self.urgent(Job::Retypeset {

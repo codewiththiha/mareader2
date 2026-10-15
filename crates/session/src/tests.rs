@@ -36,6 +36,7 @@ fn open_sample(s: &mut Session, pages: usize, title: &str) -> Result<DocId, Stri
     let ticket = s.open(
         Source::Bytes(bytes),
         Some("/books/fallback-name.pdf".into()),
+        Arc::default(),
     );
     let events = until(s, |e| matches!(e, Event::Opened { .. }));
     events
@@ -81,8 +82,16 @@ fn opening_names_the_document_by_title_or_file() -> Out {
 #[test]
 fn a_broken_or_missing_file_reports_why() {
     let mut s = inline();
-    let t = s.open(Source::Bytes(Arc::new(b"%PDF-garbage".to_vec())), None);
-    let missing = s.open(Source::Path("/nowhere/at/all.pdf".into()), None);
+    let t = s.open(
+        Source::Bytes(Arc::new(b"%PDF-garbage".to_vec())),
+        None,
+        Arc::default(),
+    );
+    let missing = s.open(
+        Source::Path("/nowhere/at/all.pdf".into()),
+        None,
+        Arc::default(),
+    );
     let mut events = s.poll(ALL);
     events.extend(s.poll(ALL));
     let error = |want: Ticket| {
@@ -242,7 +251,7 @@ fn a_path_opens_on_a_worker_and_names_the_document() -> Out {
     let path = dir.join("Field Notes.pdf");
     std::fs::write(&path, sample::pdf(1, "untitled"))?;
     let mut s = Session::new(1, || {});
-    s.open(Source::Path(path), None);
+    s.open(Source::Path(path), None, Arc::default());
     let events = until(&mut s, |e| matches!(e, Event::Opened { .. }));
     let id = events.iter().find_map(|e| match e {
         Event::Opened { result: Ok(id), .. } => Some(*id),
@@ -279,7 +288,11 @@ fn finished_pages_wait_in_a_bounded_queue() -> Out {
 fn an_epub_opens_by_its_bytes_and_draws_its_pages() -> Out {
     let mut s = inline();
     let bytes = Arc::new(mareader_epub::sample::epub(2, "Book"));
-    let ticket = s.open(Source::Bytes(bytes), Some("book.bin".into()));
+    let ticket = s.open(
+        Source::Bytes(bytes),
+        Some("book.bin".into()),
+        Arc::default(),
+    );
     let events = until(&mut s, |e| matches!(e, Event::Opened { .. }));
     let opened = events.into_iter().find_map(|e| match e {
         Event::Opened { ticket: t, result } if t == ticket => Some(result),
@@ -343,7 +356,7 @@ fn a_book_s_contents_and_links_follow_its_setting() -> Out {
     let web = |t: &LinkTarget| matches!(t, LinkTarget::Web(u) if u.contains("github.com"));
     assert!(targets.iter().any(web), "{targets:?}");
     // Bigger type: the chapter, and the link to it, move on.
-    s.set_text(&sized(30.0), 100.0);
+    s.retypeset(book, typed(30.0), 0);
     let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
     let (_, new, _) = swaps(&events).first().copied().ok_or("no swap")?;
     let doc = s.get(new).map(|e| Arc::clone(&e.doc)).ok_or("no entry")?;
@@ -359,7 +372,7 @@ fn a_book_s_contents_and_links_follow_its_setting() -> Out {
 
 fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
     let bytes = Arc::new(mareader_epub::sample::epub(chapters, "Book"));
-    let ticket = s.open(Source::Bytes(bytes), None);
+    let ticket = s.open(Source::Bytes(bytes), None, Arc::default());
     let events = until(s, |e| matches!(e, Event::Opened { .. }));
     events
         .into_iter()
@@ -381,22 +394,20 @@ fn swaps(events: &[Event]) -> Vec<(DocId, DocId, usize)> {
         .collect()
 }
 
-fn sized(font_size: f32) -> mareader_settings::TextSettings {
-    mareader_settings::TextSettings {
+fn typed(font_size: f32) -> Arc<Typography> {
+    let text = mareader_settings::TextSettings {
         font_size,
         ..Default::default()
-    }
+    };
+    Arc::new(typography(&text, 100.0))
 }
 
 #[test]
-fn new_type_sets_open_books_again_once_and_leaves_pdfs() -> Out {
+fn a_newer_retypeset_in_a_slot_replaces_the_older() -> Out {
     let mut s = inline();
-    let pdf = open_sample(&mut s, 2, "Paper")?;
     let book = open_epub(&mut s, 4)?;
-    // A quick second change replaces the first; a repeat is free.
-    s.set_text(&sized(22.0), 100.0);
-    s.set_text(&sized(26.0), 100.0);
-    s.set_text(&sized(26.0), 100.0);
+    s.retypeset(book, typed(22.0), 0);
+    s.retypeset(book, typed(26.0), 0);
     let mut events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
     while s.pending() > 0 {
         events.extend(s.poll(ALL));
@@ -405,36 +416,65 @@ fn new_type_sets_open_books_again_once_and_leaves_pdfs() -> Out {
     assert_eq!(swaps.len(), 1, "{swaps:?}");
     let (old, new, before) = swaps.first().copied().ok_or("no swap")?;
     assert_eq!(old, book);
-    assert!(s.get(book).is_none(), "the old id is gone");
-    let after = s.get(new).map_or(0, |e| e.doc.page_count());
-    assert!(after > before, "{after} > {before}");
-    assert_eq!(s.get(new).map(|e| e.name.as_str()), Some("Book"));
-    assert!(s.get(pdf).is_some_and(|e| !e.doc.is_reflowable()));
+    assert!(s.get(book).is_some(), "the old book stays for other panes");
+    let entry = s.get(new).ok_or("no entry")?;
+    assert!(entry.doc.page_count() > before);
+    assert_eq!((entry.name.as_str(), entry.typo.font_size), ("Book", 26.0));
     Ok(())
 }
 
 #[test]
-fn a_book_opened_in_old_type_is_set_again() -> Out {
+fn each_slot_sets_one_book_in_its_own_type() -> Out {
     let mut s = inline();
+    let book = open_epub(&mut s, 4)?;
+    s.retypeset(book, typed(22.0), 1);
+    s.retypeset(book, typed(30.0), 2);
+    let mut events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
+    while s.pending() > 0 {
+        events.extend(s.poll(ALL));
+    }
+    let mut sizes: Vec<f32> = swaps(&events)
+        .iter()
+        .filter_map(|(_, new, _)| s.get(*new).map(|e| e.typo.font_size))
+        .collect();
+    // Urgent jobs run newest first; the order doesn't matter.
+    sizes.sort_by(f32::total_cmp);
+    assert_eq!(sizes, [22.0, 30.0]);
+    // Closing the book drops what is still asked of it.
+    s.retypeset(book, typed(40.0), 1);
+    s.close(book);
+    while s.pending() > 0 {
+        assert!(s.poll(ALL).is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn a_book_opens_in_the_type_asked() -> Out {
+    let mut s = inline();
+    let small = open_epub(&mut s, 2)?;
     let bytes = Arc::new(mareader_epub::sample::epub(2, "Book"));
-    s.open(Source::Bytes(bytes), None);
-    s.set_text(&sized(24.0), 100.0);
-    let events = until(&mut s, |e| matches!(e, Event::Retypeset { .. }));
-    let opened = events.iter().find_map(|e| match e {
-        Event::Opened { result: Ok(id), .. } => Some(*id),
+    let ticket = s.open(Source::Bytes(bytes), None, typed(30.0));
+    let events = until(&mut s, |e| matches!(e, Event::Opened { .. }));
+    let big = events.into_iter().find_map(|e| match e {
+        Event::Opened { ticket: t, result } if t == ticket => result.ok(),
         _ => None,
     });
-    let swapped = swaps(&events).first().map(|s| s.0);
+    let pages = |id| s.get(id).map_or(0, |e| e.doc.page_count());
+    let big = big.ok_or("never opened")?;
     assert!(
-        opened.is_some() && opened == swapped,
-        "{opened:?} {swapped:?}"
+        pages(big) > pages(small),
+        "{} > {}",
+        pages(big),
+        pages(small)
     );
+    assert_eq!(s.get(big).map(|e| e.typo.font_size), Some(30.0));
     Ok(())
 }
 
 /// Opens `source` named `name`; the document's id, or why not.
 fn open_named(s: &mut Session, source: Source, name: &str) -> Result<DocId, String> {
-    let ticket = s.open(source, Some(name.into()));
+    let ticket = s.open(source, Some(name.into()), Arc::default());
     let events = until(s, |e| matches!(e, Event::Opened { .. }));
     let opened = events.into_iter().find_map(|e| match e {
         Event::Opened { ticket: t, result } if t == ticket => Some(result),
