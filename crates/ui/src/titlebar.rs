@@ -3,6 +3,7 @@
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::{Appearance, Preset};
+use mareader_library::View;
 use mareader_workspace::SplitAxis;
 
 use crate::backdrop::Backdrop;
@@ -11,6 +12,7 @@ use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
+use crate::library::menu as library_menu;
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
@@ -30,34 +32,53 @@ const TITLE_ROOM: f32 = 160.0;
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
     pub title: &'a str,
-    /// The library page is up: its button shows pressed.
-    pub library: bool,
     pub platform: Platform,
     /// The sidebar's width: the band starts after it.
     pub left_inset: f32,
-    /// The bar's sidebar toggle; the rail's own header closes it.
-    pub sidebar_toggle: bool,
     pub maximized: bool,
     /// No captions or traffic lights in full screen.
     pub fullscreen: bool,
     /// The row starts after the platform's leading room (macOS's lights).
     pub gutter: bool,
-    /// The active pane's look, which the popover edits.
+    /// The look the popover edits: the active pane's, or the window's.
     pub appearance: &'a Appearance,
-    /// The per-pane modes; offered only while the workspace is split.
-    pub independence: Option<Independence>,
     /// Every preset, built-ins first, and the user's own among them.
     pub presets: &'a [Preset],
     pub user_presets: &'a [Preset],
     /// Lets the popover draw preset cards as real pages.
     pub gpu: Option<&'a Gpu>,
+    /// What shows behind the bar: glass, a tint or a solid fill.
+    pub backdrop: &'a Backdrop,
+    /// The route's own controls.
+    pub page: BarPage<'a>,
+}
+
+/// What sets the reader's bar apart from the library's.
+pub enum BarPage<'a> {
+    Reader(ReaderBar),
+    Library(LibraryBar<'a>),
+}
+
+/// Rail, folding tools and the overflow menu act on the panes.
+pub struct ReaderBar {
+    /// The bar's sidebar toggle; the rail's own header closes it.
+    pub sidebar_toggle: bool,
+    /// The per-pane modes; offered only while the workspace is split.
+    pub independence: Option<Independence>,
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
-    /// What shows behind the bar: glass, a tint or a solid fill.
-    pub backdrop: &'a Backdrop,
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
+}
+
+/// The shelf has no rail, panes or page: View, Appearance and Pin.
+pub struct LibraryBar<'a> {
+    pub view: &'a View,
+    /// The grid's automatic column count, for the menu's stepper.
+    pub auto_columns: u8,
+    /// Panes wait behind the page; the pressed Library button returns.
+    pub can_return: bool,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -84,8 +105,8 @@ fn tools() -> [Tool; 4] {
 }
 
 /// How many folding tools fit beside the fixed controls and the title.
-fn fitting(bar: &BarContext<'_>, row_width: f32) -> usize {
-    let lead = if bar.sidebar_toggle { 2.0 } else { 1.0 } * TOOL_W;
+fn fitting(bar: &BarContext<'_>, reader: &ReaderBar, row_width: f32) -> usize {
+    let lead = if reader.sidebar_toggle { 2.0 } else { 1.0 } * TOOL_W;
     let captions = match captions(bar) {
         Some(CaptionStyle::Windows) => 3.0 * 46.0 + 4.0,
         Some(CaptionStyle::Gnome) => 3.0 * 24.0 + 2.0 * 8.0 + 4.0,
@@ -232,12 +253,12 @@ impl TitleBar {
         out: &mut Commands,
     ) {
         let pinned = self.pinned;
-        let fit = fitting(bar, ui.max_rect().width());
+        let width = ui.max_rect().width();
         let ((lead_end, lead), (trail_start, trail)) =
             egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
                 ui,
-                |ui| leading(ui, bar.sidebar_toggle, bar.library),
-                |ui| trailing(ui, bar, pinned, fit),
+                |ui| leading(ui, &bar.page),
+                |ui| trailing(ui, bar, pinned, width),
             );
         for c in lead.into_iter().chain(trail).filter(|_| live) {
             if let Command::SetTitlebarPinned(p) = c {
@@ -254,20 +275,30 @@ fn clicked(r: egui::Response, c: Command) -> Option<Command> {
 }
 
 /// Returns its right edge and what was clicked.
-fn leading(ui: &mut egui::Ui, sidebar_toggle: bool, library: bool) -> (f32, Commands) {
+fn leading(ui: &mut egui::Ui, page: &BarPage<'_>) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
-    if sidebar_toggle {
-        let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
-        out.extend(clicked(r, Command::ToggleSidebar));
+    match page {
+        BarPage::Reader(reader) => {
+            if reader.sidebar_toggle {
+                let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
+                out.extend(clicked(r, Command::ToggleSidebar));
+            }
+            let r = widgets::icon_button(ui, Icon::Library, "Library", false);
+            out.extend(clicked(r, Command::ShowLibrary));
+        }
+        // Pressed, it undoes itself; with nothing open there is no way back.
+        BarPage::Library(library) if library.can_return => {
+            let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
+            out.extend(clicked(r, Command::ShowLibrary));
+        }
+        BarPage::Library(_) => {}
     }
-    let r = widgets::icon_button(ui, Icon::Library, "Library", library);
-    out.extend(clicked(r, Command::ShowLibrary));
     (ui.min_rect().right(), out)
 }
 
 /// Laid out right to left. Returns its left edge and what was clicked.
-fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -> (f32, Commands) {
+fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
     if let Some(style) = captions(bar) {
@@ -285,18 +316,33 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, fit: usize) -
         ui.add_space(4.0);
     }
     let tools = tools();
-    let (shown, folded) = tools.split_at(fit);
-    let menu = MenuContext {
-        folded,
-        fullscreen: bar.fullscreen,
-        platform: bar.platform,
-        zoom: bar.zoom,
-        mode: bar.mode,
+    let fit = match &bar.page {
+        BarPage::Reader(reader) => fitting(bar, reader, width),
+        BarPage::Library(_) => 0,
     };
-    view_menu::button(ui, &menu, &mut out);
+    let (shown, folded) = tools.split_at(fit);
+    // The end slot is the route's menu; Pin and Appearance stay put.
+    match &bar.page {
+        BarPage::Reader(reader) => {
+            let menu = MenuContext {
+                folded,
+                fullscreen: bar.fullscreen,
+                platform: bar.platform,
+                zoom: reader.zoom,
+                mode: reader.mode,
+            };
+            view_menu::button(ui, &menu, &mut out);
+        }
+        BarPage::Library(library) => {
+            library_menu::button(ui, library.view, library.auto_columns, &mut out);
+        }
+    }
     let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);
     out.extend(clicked(r, Command::SetTitlebarPinned(!pinned)));
     appearance_button(ui, bar, &mut out);
+    if matches!(bar.page, BarPage::Library(_)) {
+        return (ui.min_rect().left(), out);
+    }
     for tool in shown {
         let keys = keymap::hint(bar.platform, &tool.command);
         let r = widgets::icon_button_keyed(ui, tool.icon, tool.label, false, keys.as_deref());
@@ -316,13 +362,19 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
         .align(egui::RectAlign::BOTTOM_END)
         .gap(6.0)
         .show(|ui| {
+            let reader = match &bar.page {
+                BarPage::Reader(reader) => Some(reader),
+                BarPage::Library(_) => None,
+            };
             let cx = crate::appearance_menu::MenuContext {
                 current: bar.appearance,
-                independence: bar.independence,
+                independence: reader.and_then(|r| r.independence),
                 presets: bar.presets,
                 user: bar.user_presets,
                 gpu: bar.gpu,
-                ink: bar.ink,
+                ink: reader.and_then(|r| r.ink),
+                // The shelf has no page to texture.
+                texture: reader.is_some(),
             };
             crate::appearance_menu::show(ui, &cx, out);
         });
