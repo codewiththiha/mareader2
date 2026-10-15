@@ -21,6 +21,8 @@ pub struct Opened {
     pub measure: Measure,
     pub format: Format,
     pub title: String,
+    /// The document's own author, if it names one.
+    pub author: Option<String>,
 }
 
 /// What must reach disk since the last save.
@@ -130,6 +132,10 @@ impl Library {
             Some(book) => {
                 book.content = content;
                 book.opened = Field::new(wall_ms, at);
+                // Filled once; a reader's own edit outlasts reopening.
+                if book.author.value.is_none() && opened.author.is_some() {
+                    book.author = Field::new(opened.author.clone(), at);
+                }
                 book.id
             }
             None => self.add(&opened, wall_ms, at),
@@ -147,7 +153,7 @@ impl Library {
             content: opened.measure.content,
             format: opened.format,
             title: Field::new(opened.title.clone(), at),
-            author: Field::new(None, at),
+            author: Field::new(opened.author.clone(), at),
             added: wall_ms,
             opened: Field::new(wall_ms, at),
             locations: Vec::new(),

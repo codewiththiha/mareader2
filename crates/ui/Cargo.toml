@@ -17,6 +17,7 @@ mareader-epub = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-session = { workspace = true }
 mareader-library = { workspace = true }
+image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }
 egui-lucide = { workspace = true }
@@ -33,5 +34,4 @@ wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
-image = { workspace = true }
 tempfile = { workspace = true }

@@ -130,7 +130,8 @@ fn parse_sections(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Sett
         text,
         study,
         dictionary,
-        workspace
+        workspace,
+        library
     );
     s.sanitize();
     s

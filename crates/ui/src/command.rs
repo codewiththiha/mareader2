@@ -31,6 +31,8 @@ pub enum Command {
     ShowLibrary,
     /// A library book, in the focused pane where it was left.
     OpenBook(BookId),
+    /// The library page's layout and order.
+    SetLibraryView(mareader_library::View),
     /// The Search buttons: the find bar on, or off if open.
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).
