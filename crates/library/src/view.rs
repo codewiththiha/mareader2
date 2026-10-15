@@ -37,10 +37,18 @@ pub enum SortKey {
     Title,
     Author,
     Added,
+    /// A shelf's own order, set by dragging; elsewhere, date added.
+    Manual,
 }
 
 impl SortKey {
-    pub const ALL: [Self; 4] = [Self::LastRead, Self::Title, Self::Author, Self::Added];
+    pub const ALL: [Self; 5] = [
+        Self::LastRead,
+        Self::Title,
+        Self::Author,
+        Self::Added,
+        Self::Manual,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -48,12 +56,13 @@ impl SortKey {
             Self::Title => "Title",
             Self::Author => "Author",
             Self::Added => "Date added",
+            Self::Manual => "Manual",
         }
     }
 
     /// Names first from A, dates newest first.
     pub fn natural_ascending(self) -> bool {
-        matches!(self, Self::Title | Self::Author)
+        matches!(self, Self::Title | Self::Author | Self::Manual)
     }
 
     /// What each direction reads as, ascending first.
@@ -61,8 +70,20 @@ impl SortKey {
         match self {
             Self::Title | Self::Author => ["A–Z", "Z–A"],
             Self::LastRead | Self::Added => ["Oldest first", "Newest first"],
+            Self::Manual => ["First to last", "Last to first"],
         }
     }
+}
+
+/// What the library's top level shows besides its shelves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Home {
+    /// Every book, shelved or not.
+    #[default]
+    Everything,
+    /// Only books on no shelf.
+    Unshelved,
 }
 
 /// The page's layout and order; kept with the settings.
@@ -75,6 +96,7 @@ pub struct View {
     pub cover: CoverFit,
     pub sort: SortKey,
     pub ascending: bool,
+    pub home: Home,
 }
 
 impl Default for View {
@@ -85,6 +107,7 @@ impl Default for View {
             cover: CoverFit::Fit,
             sort: SortKey::LastRead,
             ascending: SortKey::LastRead.natural_ascending(),
+            home: Home::Everything,
         }
     }
 }
@@ -115,7 +138,7 @@ impl View {
         let direct = |o: Ordering| if self.ascending { o } else { o.reverse() };
         let first = match self.sort {
             SortKey::LastRead => direct(a.opened.value.cmp(&b.opened.value)),
-            SortKey::Added => direct(a.added.cmp(&b.added)),
+            SortKey::Added | SortKey::Manual => direct(a.added.cmp(&b.added)),
             SortKey::Title => direct(natural(&a.title.value, &b.title.value)),
             // No author sorts last whichever way the rest run.
             SortKey::Author => match (author(a), author(b)) {

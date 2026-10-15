@@ -14,17 +14,22 @@ mod book;
 mod clock;
 pub mod disk;
 mod id;
+mod key;
 mod library;
+mod shelves;
 mod sources;
 mod view;
 
 pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
-pub use id::{BookId, ContentId, DeviceId, SourceId};
+pub use id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
 pub use library::{Dirty, Library, Measure, Opened};
+pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfRemoved};
 pub use sources::{AddError, Added, Found, RelinkError, Scan, ScanReport, Source, SourceEdit};
-pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Layout, SortKey, View, natural};
+pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 
+#[cfg(test)]
+mod shelves_tests;
 #[cfg(test)]
 mod source_tests;
 #[cfg(test)]
