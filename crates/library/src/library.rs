@@ -9,6 +9,7 @@ use crate::clock::{Clock, Field, Stamp};
 use crate::id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
+use crate::tracked::Tracked;
 
 /// What a measured file is: its content and its size and time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,32 +29,44 @@ pub struct Opened {
     pub author: Option<String>,
 }
 
-/// What must reach disk since the last save.
+/// What must reach disk since the last save: one row or file each.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Dirty {
-    /// `library.json`: books and their locations.
-    pub library: bool,
+    pub books: BTreeSet<BookId>,
+    pub shelves: BTreeSet<ShelfId>,
+    pub members: BTreeSet<(ShelfId, BookId)>,
+    /// Gone ones included: their rows go too.
+    pub sources: BTreeSet<SourceId>,
     /// `state/<id>.json`: one book's position each.
     pub states: BTreeSet<BookId>,
 }
 
 impl Dirty {
     pub fn is_empty(&self) -> bool {
-        !self.library && self.states.is_empty()
+        self.store_is_clean() && self.states.is_empty()
+    }
+
+    /// Nothing for the store: only positions changed.
+    pub fn store_is_clean(&self) -> bool {
+        self.books.is_empty()
+            && self.shelves.is_empty()
+            && self.members.is_empty()
+            && self.sources.is_empty()
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Library {
     pub(crate) clock: Clock,
-    pub(crate) books: BTreeMap<BookId, Book>,
+    pub(crate) books: Tracked<BookId, Book>,
     pub(crate) states: BTreeMap<BookId, State>,
-    pub(crate) sources: BTreeMap<SourceId, Source>,
-    pub(crate) shelves: BTreeMap<ShelfId, Shelf>,
-    pub(crate) members: BTreeMap<(ShelfId, BookId), Membership>,
+    pub(crate) sources: Tracked<SourceId, Source>,
+    pub(crate) shelves: Tracked<ShelfId, Shelf>,
+    pub(crate) members: Tracked<(ShelfId, BookId), Membership>,
     /// Each location's path to its book; rebuilt, never saved.
     pub(crate) at: HashMap<PathBuf, BookId>,
-    pub(crate) dirty: Dirty,
+    /// Positions to write; the maps track their own changes.
+    pub(crate) states_dirty: BTreeSet<BookId>,
     /// Changes whenever a book, shelf or folder does; never repeats.
     revision: u64,
 }
@@ -67,25 +80,20 @@ fn next_revision() -> u64 {
 impl Library {
     /// An empty library written by `device`.
     pub fn new(device: DeviceId) -> Self {
-        let clock = Clock::new(device);
-        Self::from_parts(clock, BTreeMap::new(), BTreeMap::new(), BTreeMap::new())
+        Self::from_parts(Parts::new(Clock::new(device)))
     }
 
-    pub(crate) fn from_parts(
-        clock: Clock,
-        books: BTreeMap<BookId, Book>,
-        states: BTreeMap<BookId, State>,
-        sources: BTreeMap<SourceId, Source>,
-    ) -> Self {
+    /// A library as it was saved: nothing in it needs writing.
+    pub(crate) fn from_parts(parts: Parts) -> Self {
         let mut library = Self {
-            clock,
-            books,
-            states,
-            sources,
-            shelves: BTreeMap::new(),
-            members: BTreeMap::new(),
+            clock: parts.clock,
+            books: Tracked::new(parts.books),
+            states: parts.states,
+            sources: Tracked::new(parts.sources),
+            shelves: Tracked::new(parts.shelves),
+            members: Tracked::new(parts.members),
             at: HashMap::new(),
-            dirty: Dirty::default(),
+            states_dirty: BTreeSet::new(),
             revision: next_revision(),
         };
         library.index();
@@ -185,7 +193,7 @@ impl Library {
         if let Some(book) = reader.and_then(|t| self.books.get_mut(&t)) {
             book.opened = Field::new(wall_ms, at);
         }
-        self.touch();
+        self.bump();
         id
     }
 
@@ -218,7 +226,8 @@ impl Library {
                 book.opened = Field::new(wall_ms, at);
             }
             // Back on purpose: folders no longer leave it out.
-            for source in self.sources.values_mut() {
+            let hiding = self.sources.values_mut_where(|s| s.hidden.contains(&id));
+            for source in hiding {
                 source.hidden.remove(&id);
             }
         }
@@ -232,10 +241,7 @@ impl Library {
         };
         let (content, format) = (book.content, book.format);
         let locations = book.locations.clone();
-        let twins = self
-            .books
-            .values_mut()
-            .filter(|b| b.twin_of == Some(original));
+        let twins = self.books.values_mut_where(|b| b.twin_of == Some(original));
         for twin in twins {
             twin.content = content;
             twin.format = format;
@@ -243,10 +249,12 @@ impl Library {
         }
     }
 
-    /// Mirrors every original that has twins.
-    pub(crate) fn mirror_all(&mut self) {
+    /// Mirrors each original with twins that changed since the last save.
+    pub(crate) fn mirror_changed(&mut self) {
         let originals: BTreeSet<BookId> = self.books.values().filter_map(|b| b.twin_of).collect();
-        for original in originals {
+        let changed = self.books.changed();
+        let changed: Vec<BookId> = originals.intersection(changed).copied().collect();
+        for original in changed {
             self.mirror(original);
         }
     }
@@ -280,13 +288,13 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         let field = Field::new(position, at);
         self.states.insert(id, State { position: field });
-        self.dirty.states.insert(id);
+        self.states_dirty.insert(id);
         true
     }
 
     /// Marks each location there or not; done after loading.
     pub fn check_present(&mut self, exists: impl Fn(&Path) -> bool) {
-        for book in self.books.values_mut() {
+        for book in self.books.quiet_values_mut() {
             for location in &mut book.locations {
                 location.present = exists(&location.path);
             }
@@ -299,12 +307,20 @@ impl Library {
         let Some(original) = self.books.get(&id).map(Book::original) else {
             return;
         };
-        if let Some(book) = self.books.get_mut(&original) {
+        if let Some(book) = self.books.quiet_get_mut(&original) {
             for location in &mut book.locations {
                 location.present = exists(&location.path);
             }
         }
-        self.mirror(original);
+        let twins = self.books.values().filter(|b| b.twin_of == Some(original));
+        let twins: Vec<BookId> = twins.map(|b| b.id).collect();
+        let locations = self.books.get(&original).map(|b| b.locations.clone());
+        let locations = locations.unwrap_or_default();
+        for twin in &twins {
+            if let Some(twin) = self.books.quiet_get_mut(twin) {
+                twin.locations.clone_from(&locations);
+            }
+        }
         self.bump();
     }
 
@@ -313,23 +329,59 @@ impl Library {
         self.revision
     }
 
-    /// A change `library.json` must keep, seen by [`Self::revision`].
-    pub(crate) fn touch(&mut self) {
-        self.dirty.library = true;
-        self.bump();
-    }
-
-    /// A change worth showing that `library.json` needn't keep.
+    /// A change worth showing, seen by [`Self::revision`].
     pub(crate) fn bump(&mut self) {
         self.revision = next_revision();
     }
 
     /// What changed since the last call, now to be written.
     pub fn take_dirty(&mut self) -> Dirty {
-        std::mem::take(&mut self.dirty)
+        Dirty {
+            books: self.books.take_changed(),
+            shelves: self.shelves.take_changed(),
+            members: self.members.take_changed(),
+            sources: self.sources.take_changed(),
+            states: std::mem::take(&mut self.states_dirty),
+        }
     }
 
     pub fn is_dirty(&self) -> bool {
-        !self.dirty.is_empty()
+        self.books.has_changes()
+            || self.shelves.has_changes()
+            || self.members.has_changes()
+            || self.sources.has_changes()
+            || !self.states_dirty.is_empty()
+    }
+
+    /// Marks every row, so the next save writes them all; not positions.
+    pub(crate) fn mark_all(&mut self) {
+        self.books.mark_all();
+        self.shelves.mark_all();
+        self.members.mark_all();
+        self.sources.mark_all();
+    }
+}
+
+/// What a saved library is made of, read back from disk.
+#[derive(Debug)]
+pub(crate) struct Parts {
+    pub clock: Clock,
+    pub books: BTreeMap<BookId, Book>,
+    pub states: BTreeMap<BookId, State>,
+    pub sources: BTreeMap<SourceId, Source>,
+    pub shelves: BTreeMap<ShelfId, Shelf>,
+    pub members: BTreeMap<(ShelfId, BookId), Membership>,
+}
+
+impl Parts {
+    pub fn new(clock: Clock) -> Self {
+        Self {
+            clock,
+            books: BTreeMap::new(),
+            states: BTreeMap::new(),
+            sources: BTreeMap::new(),
+            shelves: BTreeMap::new(),
+            members: BTreeMap::new(),
+        }
     }
 }

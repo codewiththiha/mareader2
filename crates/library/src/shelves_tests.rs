@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::disk::{Folder, write_atomic};
+use crate::disk::Folder;
 use crate::{
     BookId, ContentId, DeviceId, FileStamp, Format, Library, Measure, Opened, ShelfError, ShelfId,
     ShelfRemoved,
@@ -44,7 +44,10 @@ fn on(lib: &Library, shelf: ShelfId) -> Vec<BookId> {
 fn shelves_nest_sort_by_name_and_keep_sibling_names_apart() {
     let (mut lib, _) = library(0);
     let fiction = lib.create_shelf("  Fiction\n", None, 10).unwrap();
-    assert!(lib.take_dirty().library);
+    assert_eq!(
+        lib.take_dirty().shelves.into_iter().collect::<Vec<_>>(),
+        [fiction]
+    );
     lib.create_shelf("Shelf 10", None, 11).unwrap();
     lib.create_shelf("shelf 9", None, 12).unwrap();
     assert_eq!(names(&lib, None), ["Fiction", "shelf 9", "Shelf 10"]);
@@ -198,10 +201,9 @@ fn shelves_and_their_order_come_back_from_disk() {
     lib.place_before(ids[0], b, Some(ids[1]), 14);
     let gone = lib.create_shelf("Gone", None, 15).unwrap();
     lib.remove_shelf(gone, 16);
-    let dirty = lib.take_dirty();
-    for (path, text) in folder.writes(&lib, &dirty) {
-        write_atomic(&path, text.as_bytes()).unwrap();
-    }
+    // The books were taken as saved: write them too.
+    lib.mark_all();
+    crate::tests::save(&folder, &mut lib);
     let back = folder.load(DEVICE).library;
     assert_eq!(names(&back, None), ["A"]);
     assert_eq!(names(&back, Some(a)), ["B"]);

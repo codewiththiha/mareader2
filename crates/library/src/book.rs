@@ -125,7 +125,8 @@ pub struct Book {
     pub added: u64,
     /// When it was last opened, in wall milliseconds.
     pub opened: Field<u64>,
-    /// Newest first; the first present one is opened.
+    /// Newest first; the first present one is opened. Local, not synced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locations: Vec<Location>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<Stamp>,

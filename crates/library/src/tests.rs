@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::disk::{self, Folder, write_atomic};
+use crate::disk::{self, Folder};
 use crate::{BookId, ContentId, DeviceId, FileStamp, Format, Library, Measure, Opened, Position};
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -82,22 +82,22 @@ fn only_changes_are_written_and_positions_apart_from_books() {
     let mut lib = Library::new(DEVICE);
     let id = lib.record_open(opened("/a.pdf", 1), 1_000);
     let dirty = lib.take_dirty();
-    assert!(dirty.library && dirty.states.is_empty());
+    assert_eq!(dirty.books.iter().collect::<Vec<_>>(), [&id]);
+    assert!(dirty.states.is_empty());
     assert!(lib.record_position(id, page(5), 1_100));
     assert!(!lib.record_position(id, page(5), 1_200));
     let dirty = lib.take_dirty();
-    assert!(!dirty.library, "a page turn leaves library.json alone");
+    assert!(dirty.store_is_clean(), "a page turn leaves the store alone");
     assert_eq!(dirty.states.into_iter().collect::<Vec<_>>(), [id]);
     assert!(!lib.is_dirty());
     // An unknown book has no state to write.
     assert!(!lib.record_position(BookId(99), page(1), 1_300));
 }
 
-fn save(folder: &Folder, lib: &mut Library) {
+pub(crate) fn save(folder: &Folder, lib: &mut Library) {
+    let mut store = folder.load(lib.device()).store;
     let dirty = lib.take_dirty();
-    for (path, text) in folder.writes(lib, &dirty) {
-        write_atomic(&path, text.as_bytes()).unwrap();
-    }
+    folder.writes(lib, &dirty).apply(store.as_mut()).unwrap();
 }
 
 #[test]
