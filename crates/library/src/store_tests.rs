@@ -39,11 +39,11 @@ fn a_save_writes_only_the_rows_that_changed() {
 
     assert!(lib.rename_book(a, "Renamed", 2_000));
     let dirty = lib.take_dirty();
-    let save = folder.writes(&lib, &dirty);
-    let kinds: Vec<Kind> = save.changes.put.iter().map(|r| r.kind).collect();
+    let changes = lib.changes(&dirty);
+    let kinds: Vec<Kind> = changes.put.iter().map(|r| r.kind).collect();
     assert_eq!(kinds, [Kind::Book, Kind::Locations]);
-    assert!(save.changes.put.iter().all(|r| r.id == a.to_string()));
-    // A page turn is a state file, never a row.
+    assert!(changes.put.iter().all(|r| r.id == a.to_string()));
+    // A page turn writes one row: that book's state.
     let position = Position {
         page: 3,
         pages: 9,
@@ -51,8 +51,8 @@ fn a_save_writes_only_the_rows_that_changed() {
     };
     lib.record_position(a, position, 2_100);
     let dirty = lib.take_dirty();
-    let turned = folder.writes(&lib, &dirty);
-    assert!(turned.changes.is_empty() && turned.states.len() == 1);
+    let kinds: Vec<Kind> = lib.changes(&dirty).put.iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [Kind::State]);
 }
 
 #[test]
@@ -138,8 +138,8 @@ fn rows_this_build_cant_read_are_kept_as_they_were() {
     assert_eq!(loaded.notes.len(), 1, "{:?}", loaded.notes);
     let id = loaded.library.record_open(opened("/b.pdf", 2), 2_000);
     let dirty = loaded.library.take_dirty();
-    let save = folder.writes(&loaded.library, &dirty);
-    save.apply(loaded.store.as_mut()).unwrap();
+    let changes = loaded.library.changes(&dirty);
+    loaded.store.as_mut().unwrap().apply(&changes).unwrap();
     drop(loaded);
     let count = |kind: &str| -> i64 {
         let query = "SELECT count(*) FROM records WHERE kind = ?1";
@@ -170,4 +170,31 @@ fn the_change_cursor_names_what_each_save_wrote() {
     assert_eq!(ids, [b.to_string()]);
     // Paths are this machine's: they never leave as records.
     assert!(all.iter().all(|c| c.row.kind.synced()));
+}
+
+#[test]
+fn state_files_move_into_the_store_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = Library::new(DEVICE);
+    let a = lib.record_open(opened("/a.pdf", 1), 1_000);
+    save(&folder, &mut lib);
+    let position = Position {
+        page: 12,
+        pages: 40,
+        place: None,
+    };
+    lib.record_position(a, position, 1_500);
+    let state = lib.states.get(&a).unwrap();
+    let file = serde_json::json!({ "schema": 4, "book": a, "state": state });
+    let states = dir.path().join("state");
+    std::fs::create_dir_all(&states).unwrap();
+    std::fs::write(states.join(format!("{a}.json")), file.to_string()).unwrap();
+
+    let loaded = folder.load(DEVICE);
+    assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
+    assert_eq!(loaded.library.position(a), Some(position));
+    assert!(!states.exists() && dir.path().join("state.migrated").is_dir());
+    drop(loaded);
+    assert_eq!(folder.load(DEVICE).library.position(a), Some(position));
 }

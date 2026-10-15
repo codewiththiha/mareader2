@@ -9,17 +9,17 @@ use std::thread::JoinHandle;
 use egui::Context;
 
 use super::runs::{Beat, Phase, RunId};
-use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Save, Sought};
+use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
 use mareader_library::store::Store;
 use mareader_library::{
-    BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Shelving, Source,
+    BookId, Changes, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Shelving, Source,
     display_title,
 };
 
 pub enum Job {
     Load(Folder, DeviceId),
     Measure(Box<Probe>),
-    Write(Box<Save>),
+    Write(Box<Changes>),
     Rescan(Box<Rescan>),
     /// Measures a file picked to stand in for a lost book.
     Relink(Relink),
@@ -276,10 +276,15 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
         Job::Measure(probe) => disk::measure(&probe.path, probe.format)
             .ok()
             .map(|m| News::Measured(probe, m)),
-        Job::Write(save) => save
-            .apply(store.as_mut())
-            .err()
-            .map(|e| News::WriteFailed(format!("Couldn't save the library: {e}"))),
+        Job::Write(changes) => {
+            let saved = match store.as_mut() {
+                Some(store) => store.apply(&changes),
+                None => Err("the library file isn't open".into()),
+            };
+            saved
+                .err()
+                .map(|e| News::WriteFailed(format!("Couldn't save the library: {e}")))
+        }
         Job::Rescan(job) => Some(News::Rescanned(Box::new(rescan(*job, post)))),
         Job::Relink(relink) => {
             let format = Format::of_path(&relink.path);

@@ -97,7 +97,7 @@ fn only_changes_are_written_and_positions_apart_from_books() {
 pub(crate) fn save(folder: &Folder, lib: &mut Library) {
     let mut store = folder.load(lib.device()).store;
     let dirty = lib.take_dirty();
-    folder.writes(lib, &dirty).apply(store.as_mut()).unwrap();
+    store.as_mut().unwrap().apply(&lib.changes(&dirty)).unwrap();
 }
 
 #[test]
@@ -115,7 +115,6 @@ fn the_library_comes_back_from_its_files_with_missing_books_marked() {
     let gone = lib.record_open(opened("/nowhere/b.pdf", 2), 2_000);
     lib.record_position(a, page(12), 2_100);
     save(&folder, &mut lib);
-    assert!(folder.root().join(format!("state/{a}.json")).is_file());
 
     let loaded = folder.load(DeviceId(99));
     assert!(

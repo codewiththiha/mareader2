@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::book::{Book, Location};
+use crate::book::{Book, Location, State};
 use crate::clock::Clock;
 use crate::library::{Dirty, Library, Parts};
 use crate::shelves::{Membership, Shelf};
@@ -21,6 +21,8 @@ pub enum Kind {
     Locations,
     /// A folder read in place.
     Source,
+    /// Where the reader is in one book.
+    State,
 }
 
 impl Kind {
@@ -31,6 +33,7 @@ impl Kind {
             Self::Member => "member",
             Self::Locations => "locations",
             Self::Source => "source",
+            Self::State => "state",
         }
     }
 
@@ -42,13 +45,14 @@ impl Kind {
             Self::Member,
             Self::Locations,
             Self::Source,
+            Self::State,
         ];
         all.into_iter().find(|k| k.name() == name)
     }
 
     /// Shared by a reader's devices, once they sync.
     pub fn synced(self) -> bool {
-        matches!(self, Self::Book | Self::Shelf | Self::Member)
+        matches!(self, Self::Book | Self::Shelf | Self::Member | Self::State)
     }
 }
 
@@ -87,8 +91,14 @@ fn member_id(m: &Membership) -> String {
     format!("{}/{}", m.shelf, m.book)
 }
 
-/// The rows `dirty` names, as the library now has them.
-pub(crate) fn changes(library: &Library, dirty: &Dirty) -> Changes {
+impl Library {
+    /// The rows `dirty` names, as the library now has them.
+    pub fn changes(&self, dirty: &Dirty) -> Changes {
+        changes(self, dirty)
+    }
+}
+
+fn changes(library: &Library, dirty: &Dirty) -> Changes {
     let mut out = Changes::default();
     for book in dirty.books.iter().filter_map(|id| library.books.get(id)) {
         let id = book.id.to_string();
@@ -118,6 +128,13 @@ pub(crate) fn changes(library: &Library, dirty: &Dirty) -> Changes {
             None => out.gone.push((Kind::Source, id.to_string())),
         }
     }
+    for (id, state) in dirty
+        .states
+        .iter()
+        .filter_map(|id| Some((id, library.states.get(id)?)))
+    {
+        out.put(Kind::State, id.to_string(), state);
+    }
     if !out.is_empty() {
         out.clock = serde_json::to_string(&library.clock).ok();
     }
@@ -129,6 +146,7 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
     let mut parts = Parts::new(clock);
     let mut skipped = 0;
     let mut locations: HashMap<String, Vec<Location>> = HashMap::new();
+    let mut states: HashMap<String, State> = HashMap::new();
     for row in rows {
         let read = match row.kind {
             Kind::Book => parse::<Book>(&row).map(|b| {
@@ -146,12 +164,19 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
             Kind::Locations => parse::<Vec<Location>>(&row).map(|l| {
                 locations.insert(row.id.clone(), l);
             }),
+            Kind::State => parse::<State>(&row).map(|s| {
+                states.insert(row.id.clone(), s);
+            }),
         };
         skipped += usize::from(read.is_none());
     }
     for book in parts.books.values_mut() {
-        if let Some(found) = locations.remove(&book.id.to_string()) {
+        let id = book.id.to_string();
+        if let Some(found) = locations.remove(&id) {
             book.locations = found;
+        }
+        if let Some(state) = states.remove(&id) {
+            parts.states.insert(book.id, state);
         }
     }
     (parts, skipped)

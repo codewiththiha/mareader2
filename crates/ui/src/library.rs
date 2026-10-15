@@ -297,7 +297,7 @@ impl LibraryState {
 
     /// Writes changes at most every [`SAVE_DELAY`]; else the wait left.
     pub fn save(&mut self, now: f64) -> Option<f64> {
-        let (Some(folder), Status::Ready) = (&self.folder, self.status) else {
+        let (Some(_), Status::Ready) = (&self.folder, self.status) else {
             return None;
         };
         if !self.model.is_dirty() {
@@ -308,8 +308,8 @@ impl LibraryState {
             return Some(wait);
         }
         let dirty = self.model.take_dirty();
-        let save = folder.writes(&self.model, &dirty);
-        self.io.send(Job::Write(Box::new(save)));
+        let changes = self.model.changes(&dirty);
+        self.io.send(Job::Write(Box::new(changes)));
         self.wrote = now;
         None
     }
