@@ -9,7 +9,8 @@ use std::thread::JoinHandle;
 use egui::Context;
 
 use super::runs::{Beat, Phase, RunId};
-use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
+use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Save, Sought};
+use mareader_library::store::Store;
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Shelving, Source,
     display_title,
@@ -18,7 +19,7 @@ use mareader_library::{
 pub enum Job {
     Load(Folder, DeviceId),
     Measure(Box<Probe>),
-    Write(Vec<(PathBuf, String)>),
+    Write(Box<Save>),
     Rescan(Box<Rescan>),
     /// Measures a file picked to stand in for a lost book.
     Relink(Relink),
@@ -165,7 +166,10 @@ pub struct Rescanned {
 }
 
 pub enum Io {
-    Inline(VecDeque<News>),
+    Inline {
+        news: VecDeque<News>,
+        store: Option<Store>,
+    },
     Thread {
         jobs: Option<Sender<Job>>,
         news: Receiver<News>,
@@ -177,7 +181,10 @@ pub enum Io {
 
 impl Default for Io {
     fn default() -> Self {
-        Self::Inline(VecDeque::new())
+        Self::Inline {
+            news: VecDeque::new(),
+            store: None,
+        }
     }
 }
 
@@ -200,8 +207,10 @@ impl Io {
                         ctx.request_repaint();
                     }
                 };
+                // Opened by the load, then written by every save.
+                let mut store = None;
                 for job in inbox {
-                    run(job, &mut tell);
+                    run(job, &mut store, &mut tell);
                     if closed.get() {
                         return;
                     }
@@ -220,7 +229,7 @@ impl Io {
 
     pub fn send(&mut self, job: Job) {
         match self {
-            Self::Inline(news) => run(job, &mut |n| news.push_back(n)),
+            Self::Inline { news, store } => run(job, store, &mut |n| news.push_back(n)),
             Self::Thread { jobs, .. } => {
                 // A dead worker means no disk: the library stays in memory.
                 let _ = jobs.as_ref().map(|j| j.send(job));
@@ -231,7 +240,7 @@ impl Io {
     /// What finished since the last call.
     pub fn poll(&mut self, ctx: &Context) -> Vec<News> {
         match self {
-            Self::Inline(news) => news.drain(..).collect(),
+            Self::Inline { news, .. } => news.drain(..).collect(),
             Self::Thread {
                 news, ctx: wake, ..
             } => {
@@ -256,23 +265,21 @@ impl Drop for Io {
 }
 
 /// Does `job`, telling `post` how it goes and how it ended.
-fn run(job: Job, post: &mut dyn FnMut(News)) {
+fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
     let news = match job {
-        Job::Load(folder, device) => Some(News::Loaded(Box::new(folder.load(device)))),
+        Job::Load(folder, device) => {
+            let mut loaded = folder.load(device);
+            *store = loaded.store.take();
+            Some(News::Loaded(Box::new(loaded)))
+        }
         // A file gone before it was measured is simply not recorded.
         Job::Measure(probe) => disk::measure(&probe.path, probe.format)
             .ok()
             .map(|m| News::Measured(probe, m)),
-        Job::Write(files) => {
-            // Each file is tried; one failure doesn't hold back the rest.
-            let mut failed = None;
-            for (path, text) in &files {
-                if let Err(e) = disk::write_atomic(path, text.as_bytes()) {
-                    failed.get_or_insert(e);
-                }
-            }
-            failed.map(|e| News::WriteFailed(format!("Couldn't save the library: {e}")))
-        }
+        Job::Write(save) => save
+            .apply(store.as_mut())
+            .err()
+            .map(|e| News::WriteFailed(format!("Couldn't save the library: {e}"))),
         Job::Rescan(job) => Some(News::Rescanned(Box::new(rescan(*job, post)))),
         Job::Relink(relink) => {
             let format = Format::of_path(&relink.path);

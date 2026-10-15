@@ -16,17 +16,24 @@ pub mod disk;
 mod id;
 mod key;
 mod library;
+mod merge;
 mod query;
+mod records;
 mod removal;
 mod shelves;
 mod sources;
+#[cfg_attr(target_arch = "wasm32", path = "store_none.rs")]
+pub mod store;
+mod tracked;
 mod view;
 
 pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
 pub use id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
 pub use library::{Dirty, Library, Measure, Opened};
+pub use merge::Merge;
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
+pub use records::{Changes, Kind, Row};
 pub use removal::{Imported, Receipt, Removed};
 pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfRemoved};
 pub use sources::{
@@ -42,5 +49,7 @@ mod removal_tests;
 mod shelves_tests;
 #[cfg(test)]
 mod source_tests;
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;

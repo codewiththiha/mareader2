@@ -229,10 +229,7 @@ fn twins_and_store_copies_come_back_from_disk() {
     let a = lib.record_open(opened("/a.pdf", 1), 1_000);
     let t = lib.twin(a, 2_000).unwrap();
     lib.import(opened("/lib/files/2/b.pdf", 2), 2_000);
-    let dirty = lib.take_dirty();
-    for (path, text) in folder.writes(&lib, &dirty) {
-        disk::write_atomic(&path, text.as_bytes()).unwrap();
-    }
+    crate::tests::save(&folder, &mut lib);
     let back = folder.load(DEVICE).library;
     assert_eq!(back.book(t).unwrap().twin_of, Some(a));
     assert_eq!(back.book_at("/a.pdf".as_ref()), Some(a));

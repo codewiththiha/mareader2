@@ -118,7 +118,7 @@ impl Library {
         }
         self.promote_twins(&removing);
         self.index();
-        self.touch();
+        self.bump();
         done
     }
 
@@ -130,7 +130,8 @@ impl Library {
                 heirs.entry(original).or_insert(book.id);
             }
         }
-        for book in self.books.values_mut() {
+        let heir_of = |b: &Book| b.twin_of.is_some_and(|o| heirs.contains_key(&o));
+        for book in self.books.values_mut_where(heir_of) {
             let Some(&heir) = book.twin_of.and_then(|o| heirs.get(&o)) else {
                 continue;
             };
@@ -160,7 +161,8 @@ impl Library {
             return false;
         };
         let at = self.clock.tick(wall_ms);
-        for source in self.sources.values_mut() {
+        let hiding = self.sources.values_mut_where(|s| s.hidden.contains(&id));
+        for source in hiding {
             source.hidden.remove(&id);
         }
         // Its content may have come back meanwhile: then it reads beside it.
@@ -174,7 +176,7 @@ impl Library {
             self.mirror(original);
         }
         self.index();
-        self.touch();
+        self.bump();
         true
     }
 
@@ -204,7 +206,7 @@ impl Library {
             let before = next.map(|b| b.id);
             self.place_before(twin, shelf, before, wall_ms);
         }
-        self.touch();
+        self.bump();
         Some(twin)
     }
 
@@ -245,7 +247,7 @@ impl Library {
         if let Some(book) = self.books.get_mut(&id) {
             book.title = Field::new(title, at);
         }
-        self.touch();
+        self.bump();
         true
     }
 
@@ -261,7 +263,7 @@ impl Library {
         self.place(id, &copy.path, copy.measure.stamp, Origin::Store);
         self.mirror(id);
         self.index();
-        self.touch();
+        self.bump();
         Imported::New(id)
     }
 

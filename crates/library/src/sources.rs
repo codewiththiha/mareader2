@@ -239,12 +239,14 @@ impl Library {
             absorbed.push(old.name());
         }
         // Files already known under it, opened or found, are now its own.
-        let locations = self.books.values_mut().flat_map(|b| &mut b.locations);
+        let under = |b: &Book| b.locations.iter().any(|l| source.contains(&l.path));
+        let locations = self.books.values_mut_where(under);
+        let locations = locations.flat_map(|b| &mut b.locations);
         for location in locations.filter(|l| source.contains(&l.path)) {
             location.origin = Origin::Source(id);
         }
         self.sources.insert(id, source);
-        self.touch();
+        self.bump();
         Ok(Added { id, absorbed })
     }
 
@@ -273,7 +275,7 @@ impl Library {
         source.exclude = edit.exclude;
         source.min_size = edit.min_size;
         source.watch = edit.watch;
-        self.touch();
+        self.bump();
         true
     }
 
@@ -307,7 +309,7 @@ impl Library {
         for (book, path) in here {
             self.file_found(&source, book, &path, wall_ms);
         }
-        self.touch();
+        self.bump();
         true
     }
 
@@ -355,7 +357,8 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         let mut left = 0;
         let here = |o: Origin| o == Origin::Source(id);
-        for book in self.books.values_mut().filter(|b| b.alive()) {
+        let held = |b: &Book| b.alive() && b.locations.iter().any(|l| here(l.origin));
+        for book in self.books.values_mut_where(held) {
             let only_here =
                 !book.locations.is_empty() && book.locations.iter().all(|l| here(l.origin));
             if only_here {
@@ -367,7 +370,7 @@ impl Library {
             }
         }
         self.index();
-        self.touch();
+        self.bump();
         left
     }
 
@@ -441,17 +444,15 @@ impl Library {
             }
             if !self.has_location(id, &found.path, stamp, origin) {
                 self.place(id, &found.path, stamp, origin);
-                self.touch();
+                self.bump();
             }
         }
         // Brought back in place: the paths index them again.
         if !report.back.is_empty() {
             self.index();
-            self.touch();
+            self.bump();
         }
-        if self.dirty.library {
-            self.mirror_all();
-        }
+        self.mirror_changed();
         // Presence and content may change without a write.
         self.bump();
         report
@@ -477,12 +478,16 @@ impl Library {
 
     /// Before `id` is found at `path`: the places it left give way.
     fn follow(&mut self, id: BookId, path: &Path) -> bool {
+        // Looked at first: a book known where it is stays unwritten.
+        let known = |b: &Book| b.locations.iter().any(|l| l.path == path);
+        let gone = |b: &Book| b.locations.iter().any(|l| !l.present);
+        let moved = self.books.get(&id).is_some_and(|b| !known(b) && gone(b));
+        if !moved {
+            return false;
+        }
         let Some(book) = self.books.get_mut(&id) else {
             return false;
         };
-        if book.locations.iter().any(|l| l.path == path) {
-            return false;
-        }
         let before = book.locations.len();
         book.locations.retain(|l| l.present);
         book.locations.len() < before
@@ -522,7 +527,7 @@ impl Library {
         }
         self.place(id, path, measure.stamp, origin);
         self.mirror(id);
-        self.touch();
+        self.bump();
         Ok(())
     }
 

@@ -12,18 +12,23 @@ use sha2::{Digest, Sha256};
 use crate::book::{Book, FileStamp, Format, State};
 use crate::clock::Clock;
 use crate::id::{BookId, ContentId, DeviceId};
-use crate::library::{Dirty, Library, Measure};
+use crate::library::{Dirty, Library, Measure, Parts};
+use crate::records::{self, Changes};
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
+use crate::store::{OpenError, Store};
 
-/// The files' version; 2 folders, 3 shelves, 4 twins and copies.
+/// The state files' version, and the last `library.json` one.
 /// Newer files stay untouched.
 pub const SCHEMA: u32 = 4;
 
 /// Bytes hashed from each end of a large PDF or EPUB.
 const SAMPLE: u64 = 64 << 10;
 
-#[derive(Serialize, Deserialize)]
+const NEWER: &str = "A newer Mareader saved this library; it's left untouched.";
+
+/// The library before SQLite; read once, then kept as `.migrated`.
+#[derive(Deserialize)]
 struct LibraryFile {
     schema: u32,
     clock: Clock,
@@ -57,6 +62,47 @@ pub struct Loaded {
     pub notes: Vec<String>,
     /// False when a newer Mareader wrote the files: they stay as they are.
     pub writable: bool,
+    /// The open file saves go to; None when nothing may be written.
+    pub store: Option<Store>,
+}
+
+/// What `library.json` held, if there is one to move into the store.
+enum Legacy {
+    Absent,
+    Read(Parts),
+    /// It can't be moved: the library opens empty and read only.
+    Stop,
+}
+
+/// What one save writes: rows in one transaction, and state files.
+#[derive(Debug, Default)]
+pub struct Save {
+    pub changes: Changes,
+    pub states: Vec<(PathBuf, String)>,
+}
+
+impl Save {
+    pub fn is_empty(&self) -> bool {
+        self.changes.is_empty() && self.states.is_empty()
+    }
+
+    /// Writes all of it; one failure doesn't hold back the rest.
+    pub fn apply(&self, store: Option<&mut Store>) -> Result<(), String> {
+        let mut failed = None;
+        if !self.changes.is_empty() {
+            let applied = match store {
+                Some(store) => store.apply(&self.changes),
+                None => Err("the library file isn't open".into()),
+            };
+            failed = applied.err();
+        }
+        for (path, text) in &self.states {
+            if let Err(e) = write_atomic(path, text.as_bytes()) {
+                failed.get_or_insert(e.to_string());
+            }
+        }
+        failed.map_or(Ok(()), Err)
+    }
 }
 
 /// The folder a library lives in.
@@ -78,6 +124,10 @@ impl Folder {
         self.root.join("library.json")
     }
 
+    fn store_file(&self) -> PathBuf {
+        self.root.join("library.sqlite")
+    }
+
     /// Where imported books are copied: `files/<content>/<name>`.
     pub fn store(&self) -> PathBuf {
         self.root.join("files")
@@ -94,20 +144,110 @@ impl Folder {
     /// Reads the library, else starts one; unreadable files are kept aside.
     pub fn load(&self, device: DeviceId) -> Loaded {
         let mut notes = Vec::new();
-        let fresh = |notes| Loaded {
-            library: Library::new(device),
-            notes,
-            writable: true,
+        let legacy = match self.store_file().exists() {
+            true => Legacy::Absent,
+            false => self.read_legacy(&mut notes),
         };
+        let legacy = match legacy {
+            Legacy::Stop => return fresh(device, notes, false),
+            Legacy::Read(parts) => Some(parts),
+            Legacy::Absent => None,
+        };
+        let Some(store) = self.open_store(&mut notes) else {
+            return fresh(device, notes, false);
+        };
+        let (mut library, store) = match legacy {
+            Some(parts) => self.migrate(parts, store, &mut notes),
+            None => match read(&store, device) {
+                Ok((parts, skipped)) => {
+                    if skipped > 0 {
+                        let note =
+                            format!("{skipped} saved records couldn't be read; they're kept.");
+                        notes.push(note);
+                    }
+                    (Library::from_parts(parts), Some(store))
+                }
+                Err(e) => {
+                    notes.push(format!("Couldn't read the library: {e}"));
+                    return fresh(device, notes, false);
+                }
+            },
+        };
+        let store = store.filter(|s| {
+            let newer = s.newer();
+            if newer {
+                notes.push(NEWER.into());
+            }
+            !newer
+        });
+        library.states = self.load_states(&library.books);
+        library.check_present(Path::is_file);
+        Loaded {
+            library,
+            notes,
+            writable: store.is_some(),
+            store,
+        }
+    }
+
+    /// The store, opened; a damaged file is kept aside for a new one.
+    fn open_store(&self, notes: &mut Vec<String>) -> Option<Store> {
+        let path = self.store_file();
+        let e = match Store::open(&path) {
+            Ok(store) => return Some(store),
+            Err(OpenError::Other(e)) => {
+                notes.push(format!("Couldn't open the library: {e}"));
+                return None;
+            }
+            Err(OpenError::Unreadable(e)) => e,
+        };
+        let aside = self.root.join("library.unreadable.sqlite");
+        let kept = fs::rename(&path, aside).is_ok();
+        for end in ["-wal", "-shm"] {
+            let mut side = path.clone().into_os_string();
+            side.push(end);
+            let _ = fs::remove_file(side);
+        }
+        let note = match kept {
+            true => format!("The library couldn't be read ({e}); it was kept aside."),
+            false => format!("The library couldn't be read ({e})."),
+        };
+        notes.push(note);
+        kept.then(|| Store::open(&path).ok()).flatten()
+    }
+
+    /// `library.json` into the store, then renamed so it's read once.
+    fn migrate(
+        &self,
+        parts: Parts,
+        mut store: Store,
+        notes: &mut Vec<String>,
+    ) -> (Library, Option<Store>) {
+        let mut library = Library::from_parts(parts);
+        library.mark_all();
+        let dirty = library.take_dirty();
+        match store.apply(&records::changes(&library, &dirty)) {
+            Ok(()) => {
+                let mut done = self.library_file().into_os_string();
+                done.push(".migrated");
+                let _ = fs::rename(self.library_file(), done);
+                (library, Some(store))
+            }
+            Err(e) => {
+                notes.push(format!("Couldn't move the library to its new file: {e}"));
+                (library, None)
+            }
+        }
+    }
+
+    /// The old library file, if there is one and this build can read it.
+    fn read_legacy(&self, notes: &mut Vec<String>) -> Legacy {
         let text = match fs::read_to_string(self.library_file()) {
             Ok(text) => text,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return fresh(notes),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Legacy::Absent,
             Err(e) => {
                 notes.push(format!("Couldn't read the library: {e}"));
-                return Loaded {
-                    writable: false,
-                    ..fresh(notes)
-                };
+                return Legacy::Stop;
             }
         };
         let newer = |text: &str| {
@@ -116,21 +256,9 @@ impl Folder {
         };
         let file = match serde_json::from_str::<LibraryFile>(&text) {
             // A newer file may not parse here at all.
-            Err(_) if newer(&text) => {
-                notes.push("A newer Mareader saved this library; it's left untouched.".into());
-                return Loaded {
-                    writable: false,
-                    ..fresh(notes)
-                };
-            }
-            Ok(file) if file.schema > SCHEMA => {
-                notes.push("A newer Mareader saved this library; it's left untouched.".into());
-                return Loaded {
-                    writable: false,
-                    ..fresh(notes)
-                };
-            }
-            Ok(file) => file,
+            Err(_) if newer(&text) => None,
+            Ok(file) if file.schema > SCHEMA => None,
+            Ok(file) => Some(file),
             Err(e) => {
                 let aside = self.root.join("library.unreadable.json");
                 let kept = fs::rename(self.library_file(), &aside).is_ok();
@@ -139,25 +267,23 @@ impl Folder {
                     false => format!("The library couldn't be read ({e})."),
                 };
                 notes.push(note);
-                return Loaded {
-                    writable: kept,
-                    ..fresh(notes)
+                return match kept {
+                    true => Legacy::Absent,
+                    false => Legacy::Stop,
                 };
             }
         };
-        let books: BTreeMap<BookId, Book> = file.books.into_iter().map(|b| (b.id, b)).collect();
-        let sources = file.sources.into_iter().map(|s| (s.id, s)).collect();
-        let states = self.load_states(&books);
-        let mut library = Library::from_parts(file.clock, books, states, sources);
-        library.shelves = file.shelves.into_iter().map(|s| (s.id, s)).collect();
+        let Some(file) = file else {
+            notes.push(NEWER.into());
+            return Legacy::Stop;
+        };
+        let mut parts = Parts::new(file.clock);
+        parts.books = file.books.into_iter().map(|b| (b.id, b)).collect();
+        parts.sources = file.sources.into_iter().map(|s| (s.id, s)).collect();
+        parts.shelves = file.shelves.into_iter().map(|s| (s.id, s)).collect();
         let members = file.members.into_iter();
-        library.members = members.map(|m| ((m.shelf, m.book), m)).collect();
-        library.check_present(Path::is_file);
-        Loaded {
-            library,
-            notes,
-            writable: true,
-        }
+        parts.members = members.map(|m| ((m.shelf, m.book), m)).collect();
+        Legacy::Read(parts)
     }
 
     /// Each book's state; an unreadable or orphaned file is skipped.
@@ -176,22 +302,9 @@ impl Folder {
         paths.filter(json).filter_map(read).collect()
     }
 
-    /// The files `dirty` names, with what each must now hold.
-    pub fn writes(&self, library: &Library, dirty: &Dirty) -> Vec<(PathBuf, String)> {
-        let mut out = Vec::new();
-        if dirty.library {
-            let file = LibraryFile {
-                schema: SCHEMA,
-                clock: library.clock,
-                books: library.books.values().cloned().collect(),
-                sources: library.sources.values().cloned().collect(),
-                shelves: library.shelves.values().cloned().collect(),
-                members: library.members.values().cloned().collect(),
-            };
-            if let Ok(json) = serde_json::to_string_pretty(&file) {
-                out.push((self.library_file(), json));
-            }
-        }
+    /// The rows and files `dirty` names, with what each must now hold.
+    pub fn writes(&self, library: &Library, dirty: &Dirty) -> Save {
+        let mut states = Vec::new();
         for id in &dirty.states {
             let Some(state) = library.states.get(id) else {
                 continue;
@@ -202,11 +315,32 @@ impl Folder {
                 state: state.clone(),
             };
             if let Ok(json) = serde_json::to_string_pretty(&file) {
-                out.push((self.state_file(*id), json));
+                states.push((self.state_file(*id), json));
             }
         }
-        out
+        Save {
+            changes: records::changes(library, dirty),
+            states,
+        }
     }
+}
+
+/// An empty library; `writable` false when the folder must stay as is.
+fn fresh(device: DeviceId, notes: Vec<String>, writable: bool) -> Loaded {
+    Loaded {
+        library: Library::new(device),
+        notes,
+        writable,
+        store: None,
+    }
+}
+
+/// The store's rows as a library, and how many couldn't be read.
+fn read(store: &Store, device: DeviceId) -> Result<(Parts, usize), String> {
+    let rows = store.rows()?;
+    let clock = store.meta("clock")?;
+    let clock = clock.and_then(|c| serde_json::from_str(&c).ok());
+    Ok(records::assemble(rows, clock.unwrap_or(Clock::new(device))))
 }
 
 /// Writes `bytes` to `path` whole: a temp file beside it, then a rename.

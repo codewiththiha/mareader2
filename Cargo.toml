@@ -26,6 +26,8 @@ thiserror = "2"
 # Content ids: a SHA-256 of a file's size, head and tail.
 sha2 = "0.10"
 tempfile = "3"
+# The library store; bundled, so no system SQLite is needed.
+rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 
 parley = { version = "0.12", default-features = false, features = ["std", "system"] }
 # Fontconfig loads at run time, so Linux builds need no headers.
