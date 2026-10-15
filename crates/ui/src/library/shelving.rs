@@ -1,9 +1,8 @@
 //! Shelves on the page: where the reader is, and what drags and drops do.
 
-use mareader_library::{Book, BookId, Home, Library, ShelfError, ShelfId, SortKey, View};
+use mareader_library::{BookId, Library, ShelfError, ShelfId};
 
 use super::books::counted;
-use super::folders::in_scope;
 use super::{Action, LibraryState, Scope, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
@@ -146,33 +145,6 @@ pub struct Crumb {
     pub name: String,
 }
 
-/// The page's books in the order shown, for where the reader is.
-pub fn books_shown<'a>(
-    model: &'a Library,
-    at: Option<ShelfId>,
-    scope: Scope,
-    view: &View,
-) -> Vec<&'a Book> {
-    if let Some(shelf) = at {
-        let own = model.shelf_books(shelf);
-        return match (view.sort, view.ascending) {
-            (SortKey::Manual, true) => own,
-            (SortKey::Manual, false) => own.into_iter().rev().collect(),
-            _ => view.sort(own.into_iter()),
-        };
-    }
-    if scope != Scope::All {
-        return view.sort(model.books().filter(|b| in_scope(b, scope)));
-    }
-    match view.home {
-        Home::Everything => view.sort(model.books()),
-        Home::Unshelved => {
-            let shelved = model.shelved();
-            view.sort(model.books().filter(|b| !shelved.contains(&b.id)))
-        }
-    }
-}
-
 impl LibraryState {
     /// The shelf open on the page; none is the top level.
     pub fn at(&self) -> Option<ShelfId> {
@@ -217,6 +189,15 @@ impl LibraryState {
         }
         self.at = up.filter(|&id| open(id));
         self.renaming = self.renaming.filter(|&id| self.model.shelf(id).is_some());
+    }
+
+    /// Whether `to` is inside the shelf open now.
+    fn goes_down(&self, to: Option<ShelfId>) -> bool {
+        let Some(to) = to.filter(|&to| Some(to) != self.at) else {
+            return false;
+        };
+        let path = self.model.path_to(to);
+        self.at.is_none_or(|at| path.iter().any(|s| s.id == at))
     }
 
     /// Picks of removed books and shelves fall away.
@@ -273,7 +254,12 @@ impl LibraryState {
         let notify = |out: &mut Commands, toast| out.push(Command::Notify(toast));
         match action {
             ShelfAction::GoTo(at) => {
-                self.at = at.filter(|&id| self.model.shelf(id).is_some());
+                let at = at.filter(|&id| self.model.shelf(id).is_some());
+                // Into a shelf the search found: that search is done.
+                if self.goes_down(at) {
+                    self.search.clear();
+                }
+                self.at = at;
                 self.scope = Scope::All;
                 self.renaming = None;
                 self.picks.apply(super::PickAction::Clear);
@@ -281,6 +267,7 @@ impl LibraryState {
             ShelfAction::New => {
                 let name = self.model.fresh_shelf_name(self.at);
                 if let Ok(id) = self.model.create_shelf(&name, self.at, now) {
+                    self.search.clear();
                     self.at = Some(id);
                     self.scope = Scope::All;
                     self.renaming = Some(id);

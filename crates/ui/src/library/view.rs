@@ -17,7 +17,8 @@ use mareader_library::{
 use super::covers::{self, Cover, Covers};
 use super::folders::{self, Shown};
 use super::menus;
-use super::shelving::{self, Carry, ShelfAction};
+use super::search::{self, Lit, SearchAction};
+use super::shelving::{Carry, ShelfAction};
 use super::{Action, BookAction, LibraryState, Pick, PickAction, Picks, Scope};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -71,6 +72,14 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let offline = library.offline().clone();
     let (scope, scanning, at) = (library.scope, library.scanning(), library.at());
     let picks = library.picks().clone();
+    let listing = library.listing(view);
+    let searched = library
+        .searching()
+        .then(|| library.search_text().trim().to_owned());
+    let now = ui.input(|i| i.time);
+    let (lit, scroll) = library
+        .revealing(now)
+        .map_or((None, false), |(l, s)| (Some(l), s));
     let (model, covers) = library.parts();
     let shown = Shown {
         model,
@@ -95,16 +104,18 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         pos2(left + width, full.bottom()),
     );
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
-    let books = shelving::books_shown(model, at, scope, view);
-    // A folder or Missing is a flat list of what matches.
-    let shelves = match scope {
-        Scope::All => model.children(at),
-        _ => Vec::new(),
-    };
+    let books: Vec<&Book> = (listing.books.iter())
+        .filter_map(|&id| model.book(id))
+        .collect();
+    let shelves: Vec<&Shelf> = (listing.shelves.iter())
+        .filter_map(|&id| model.shelf(id))
+        .collect();
+    // Searching, the count says how many of how many.
+    let of = searched.is_some().then_some(listing.total);
     header(
         &mut ui,
         at,
-        (books.len(), shelves.len()),
+        (books.len(), shelves.len(), of),
         view,
         &shown,
         &t,
@@ -135,6 +146,11 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     }
     let hovering = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
     if items.is_empty() {
+        if let Some(text) = &searched {
+            no_match(&mut ui, text, listing.elsewhere, &t, out);
+            library.file_target = None;
+            return;
+        }
         let note = match (scope, at) {
             (Scope::Missing, _) => "Nothing is missing.",
             (_, Some(_)) => "This shelf is empty. Drag books onto it from the library.",
@@ -169,6 +185,10 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         picks: &picks,
         sequence: &sequence,
         files: hovering.then_some(None),
+        lit,
+        scroll_to: lit
+            .filter(|_| scroll)
+            .and_then(|l| sequence.iter().position(|p| *p == l.pick)),
         t: &t,
         out,
     };
@@ -217,6 +237,10 @@ struct Cx<'a> {
     sequence: &'a [Pick],
     /// While files from outside hover: the shelf under them, if any.
     files: Option<Option<ShelfId>>,
+    /// The card a search chose, ringed for a while.
+    lit: Option<Lit>,
+    /// Where that card sits in `sequence`, the frame it's chosen.
+    scroll_to: Option<usize>,
     t: &'a Tokens,
     out: &'a mut Commands,
 }
@@ -243,7 +267,7 @@ fn counted(n: usize, one: &str, many: &str) -> String {
 fn header(
     ui: &mut Ui,
     at: Option<ShelfId>,
-    (books, shelves): (usize, usize),
+    (books, shelves, of): (usize, usize, Option<usize>),
     view: &View,
     shown: &Shown<'_>,
     t: &Tokens,
@@ -258,9 +282,10 @@ fn header(
     let name = shelf.map_or("Library", |s| s.name.value.as_str());
     // Unshelved, the top level counts only what it shows.
     let unshelved = shelf.is_none() && shown.scope == Scope::All && view.home == Home::Unshelved;
-    let mut count = match unshelved {
-        true => counted(books, "unshelved book", "unshelved books"),
-        false => counted(books, "book", "books"),
+    let mut count = match (of, unshelved) {
+        (Some(of), _) => format!("{books} of {}", counted(of, "book", "books")),
+        (None, true) => counted(books, "unshelved book", "unshelved books"),
+        (None, false) => counted(books, "book", "books"),
     };
     if shelf.is_some() && shelves > 0 {
         count = format!("{count} · {}", counted(shelves, "shelf", "shelves"));
@@ -306,28 +331,31 @@ fn grid(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {
     let card = ((width - GAP * (cols - 1) as f32) / cols as f32).max(1.0);
     let height = card * A4 + CARD_TEXT;
     let rows = items.len().div_ceil(cols);
-    egui::ScrollArea::vertical()
+    let mut area = egui::ScrollArea::vertical()
         .id_salt("library-grid")
         .auto_shrink(false)
-        .content_margin(margin(cx))
-        .show_rows(ui, height + GAP, rows, |ui, range| {
-            for row in range.clone() {
-                let (line, _) = ui.allocate_exact_size(vec2(width, height + GAP), Sense::hover());
-                for col in 0..cols {
-                    let at = row * cols + col;
-                    let Some(&item) = items.get(at) else {
-                        break;
-                    };
-                    let x = line.left() + col as f32 * (card + GAP);
-                    let rect = Rect::from_min_size(pos2(x, line.top()), vec2(card, height));
-                    match item {
-                        Item::Shelf(shelf) => shelf_card(ui, rect, shelf, cx),
-                        Item::Book(book) => grid_card(ui, rect, book, at, cx),
-                    }
+        .content_margin(margin(cx));
+    if let Some(at) = cx.scroll_to {
+        area = area.vertical_scroll_offset(centred(ui, at / cols, height + GAP));
+    }
+    area.show_rows(ui, height + GAP, rows, |ui, range| {
+        for row in range.clone() {
+            let (line, _) = ui.allocate_exact_size(vec2(width, height + GAP), Sense::hover());
+            for col in 0..cols {
+                let at = row * cols + col;
+                let Some(&item) = items.get(at) else {
+                    break;
+                };
+                let x = line.left() + col as f32 * (card + GAP);
+                let rect = Rect::from_min_size(pos2(x, line.top()), vec2(card, height));
+                match item {
+                    Item::Shelf(shelf) => shelf_card(ui, rect, shelf, cx),
+                    Item::Book(book) => grid_card(ui, rect, book, at, cx),
                 }
             }
-            prefetch(cx.covers, items, range, cols);
-        });
+        }
+        prefetch(cx.covers, items, range, cols);
+    });
 }
 
 /// Room for the cards' rings above, and for the selection bar below.
@@ -340,21 +368,30 @@ fn margin(cx: &Cx<'_>) -> egui::Margin {
     }
 }
 
+/// The scroll that puts row `row` mid-page.
+fn centred(ui: &Ui, row: usize, height: f32) -> f32 {
+    let mid = row as f32 * height + height / 2.0;
+    (mid - ui.available_height() / 2.0).max(0.0)
+}
+
 fn list(ui: &mut Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
-    egui::ScrollArea::vertical()
+    let mut area = egui::ScrollArea::vertical()
         .id_salt("library-list")
         .auto_shrink(false)
-        .content_margin(margin(cx))
-        .show_rows(ui, ROW_H, items.len(), |ui, range| {
-            for at in range.clone() {
-                match items.get(at) {
-                    Some(Item::Shelf(shelf)) => shelf_row(ui, shelf, cx),
-                    Some(Item::Book(book)) => list_row(ui, book, at, cx),
-                    None => {}
-                }
+        .content_margin(margin(cx));
+    if let Some(at) = cx.scroll_to {
+        area = area.vertical_scroll_offset(centred(ui, at, ROW_H));
+    }
+    area.show_rows(ui, ROW_H, items.len(), |ui, range| {
+        for at in range.clone() {
+            match items.get(at) {
+                Some(Item::Shelf(shelf)) => shelf_row(ui, shelf, cx),
+                Some(Item::Book(book)) => list_row(ui, book, at, cx),
+                None => {}
             }
-            prefetch(cx.covers, items, range, 1);
-        });
+        }
+        prefetch(cx.covers, items, range, 1);
+    });
 }
 
 /// Asks for the covers a screen below, then above, what shows.
@@ -568,6 +605,13 @@ fn backing(
     }
 }
 
+/// Rings the card a search chose.
+fn lit_ring(ui: &Ui, rect: Rect, radius: f32, pick: Pick, cx: &Cx<'_>) {
+    if let Some(lit) = cx.lit.filter(|l| l.pick == pick) {
+        search::ring(ui, rect, radius, lit.age, cx.t);
+    }
+}
+
 /// "4 books · 1 shelf", or "Empty".
 fn shelf_detail(model: &Library, id: ShelfId) -> String {
     let (books, shelves) = model.counts(id);
@@ -590,6 +634,7 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
     let pad = rect.expand2(vec2(8.0, 8.0));
     let picked = cx.picks.contains(Pick::Shelf(shelf.id));
     backing(ui, pad, t.radius_lg, (resp.hovered(), picked, target), t);
+    lit_ring(ui, pad, t.radius_lg, Pick::Shelf(shelf.id), cx);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     plate(ui, bounds, shelf.id, cx);
     if !cx.picks.is_empty() {
@@ -662,6 +707,13 @@ fn shelf_row(ui: &mut Ui, shelf: &Shelf, cx: &mut Cx<'_>) {
         (resp.hovered(), picked, target),
         t,
     );
+    lit_ring(
+        ui,
+        rect.shrink2(ROW_GAP),
+        t.radius,
+        Pick::Shelf(shelf.id),
+        cx,
+    );
     let thumb = Rect::from_center_size(
         pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
@@ -711,6 +763,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, at: usize, cx: &mut Cx<'_>) {
     let picked = cx.picks.contains(Pick::Book(book.id));
     let pad = rect.expand2(vec2(8.0, 8.0));
     backing(ui, pad, t.radius_lg, (resp.hovered(), picked, false), t);
+    lit_ring(ui, pad, t.radius_lg, Pick::Book(book.id), cx);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     cover(ui, bounds, book, cx, fade, false);
     if !cx.picks.is_empty() {
@@ -771,6 +824,7 @@ fn list_row(ui: &mut Ui, book: &Book, at: usize, cx: &mut Cx<'_>) {
         (resp.hovered(), picked, false),
         t,
     );
+    lit_ring(ui, rect.shrink2(ROW_GAP), t.radius, Pick::Book(book.id), cx);
     let thumb = Rect::from_center_size(
         pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
@@ -835,17 +889,34 @@ fn faded(c: Color32, fade: f32) -> Color32 {
     c.gamma_multiply(fade)
 }
 
-/// The cover in `bounds`: art if read, else a placeholder or a drawn one.
 fn cover(ui: &Ui, bounds: Rect, book: &Book, cx: &mut Cx<'_>, fade: f32, small: bool) {
-    let t = cx.t;
+    let fit = (!small).then_some(cx.fit);
+    paint_cover(ui, bounds, book, (cx.covers, cx.t), fit, fade);
+}
+
+/// A small cover, as a suggestion shows it.
+pub(super) fn thumb(ui: &Ui, bounds: Rect, book: &Book, covers: &mut Covers, t: &Tokens) {
+    paint_cover(ui, bounds, book, (covers, t), None, 1.0);
+}
+
+/// Art if read, else a placeholder or a drawn cover; no fit is a thumb.
+fn paint_cover(
+    ui: &Ui,
+    bounds: Rect,
+    book: &Book,
+    (covers, t): (&mut Covers, &Tokens),
+    fit: Option<CoverFit>,
+    fade: f32,
+) {
+    let small = fit.is_none();
     let radius = if small { 3.0 } else { t.radius.min(6.0) };
     let p = ui.painter();
-    match cx.covers.get(ui.ctx(), book, motion::enabled(ui.ctx())) {
+    match covers.get(ui.ctx(), book, motion::enabled(ui.ctx())) {
         Cover::Art { texture, alpha } => {
             let shape = texture.size.y / texture.size.x;
             let size = vec2(1.0, shape.clamp(*SHAPES.start(), *SHAPES.end()));
-            let rect = match cx.fit {
-                CoverFit::Fit if !small => covers::fit(bounds, size),
+            let rect = match fit {
+                Some(CoverFit::Fit) => covers::fit(bounds, size),
                 _ => bounds,
             };
             if alpha < 1.0 {
@@ -992,6 +1063,28 @@ fn ago(ms: u64) -> String {
         _ if d < 730 => format!("{} months ago", d / 30),
         _ => format!("{} years ago", d / 365),
     }
+}
+
+/// Nothing here matches: say so, and offer the wider library.
+fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Commands) {
+    let note = format!("No books match “{text}”.");
+    ui.label(egui::RichText::new(note).color(t.muted));
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let act = |a| Command::Library(Action::Search(a));
+        if elsewhere > 0 {
+            let all = match elsewhere {
+                1 => "Show the 1 match elsewhere".to_owned(),
+                n => format!("Show the {n} matches elsewhere"),
+            };
+            if header_button(ui, Icon::Search, &all, t).clicked() {
+                out.push(act(SearchAction::Widen));
+            }
+        }
+        if header_button(ui, Icon::Close, "Clear the search", t).clicked() {
+            out.push(act(SearchAction::Clear));
+        }
+    });
 }
 
 fn empty_state(ui: &mut Ui, rect: Rect, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {

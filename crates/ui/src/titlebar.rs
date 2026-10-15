@@ -13,7 +13,7 @@ use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
 use crate::library::menu as library_menu;
-use crate::library::{Crumb, crumbs};
+use crate::library::{Crumb, Field, crumbs, search};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
@@ -29,6 +29,9 @@ pub const APPEARANCE_POPOVER: &str = "appearance-popover";
 const TOOL_W: f32 = 40.0;
 /// Width the title keeps before tools fold into the menu.
 const TITLE_ROOM: f32 = 160.0;
+/// The library's search field: its widest and its narrowest.
+const SEARCH_W: f32 = 380.0;
+const SEARCH_MIN: f32 = 140.0;
 
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
@@ -83,6 +86,8 @@ pub struct LibraryBar<'a> {
     /// The way up from the open shelf; empty at the top level.
     pub trail: Vec<Crumb>,
     pub renaming: Option<ShelfId>,
+    /// The search field, centred where the reader's title sits.
+    pub search: Field,
 }
 
 /// The tools that may fold, rightmost first: the leftmost folds first.
@@ -264,13 +269,19 @@ impl TitleBar {
                 |ui| leading(ui, &bar.page),
                 |ui| trailing(ui, bar, pinned, width),
             );
-        for c in lead.into_iter().chain(trail).filter(|_| live) {
+        let mut field = Commands::new();
+        match &bar.page {
+            BarPage::Library(library) => {
+                search_field(ui, &library.search, (lead_end, trail_start), &mut field)
+            }
+            BarPage::Reader(_) => title(ui, bar.title, lead_end, trail_start),
+        }
+        for c in lead.into_iter().chain(trail).chain(field).filter(|_| live) {
             if let Command::SetTitlebarPinned(p) = c {
                 self.pinned = p;
             }
             out.push(c);
         }
-        title(ui, bar.title, lead_end, trail_start);
     }
 }
 
@@ -387,6 +398,26 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
     if !open && !egui::Popup::is_id_open(ui.ctx(), id) {
         crate::appearance_menu::forget_draft(ui.ctx());
     }
+}
+
+/// Centred on the window like a title, narrowed to the gap.
+fn search_field(
+    ui: &mut egui::Ui,
+    field: &Field,
+    (lead_end, trail_start): (f32, f32),
+    out: &mut Commands,
+) {
+    const PAD: f32 = 12.0;
+    let gap = trail_start - lead_end - 2.0 * PAD;
+    if gap < SEARCH_MIN {
+        return;
+    }
+    let w = gap.min(SEARCH_W);
+    let centred = ui.ctx().content_rect().center().x - w / 2.0;
+    let x = centred.clamp(lead_end + PAD, trail_start - PAD - w);
+    let y = ui.max_rect().center().y;
+    let rect = Rect::from_min_size(pos2(x, y - 15.0), vec2(w, 30.0));
+    search::field(ui, rect, field, out);
 }
 
 /// Centred on the window when it fits, else in the gap, truncated.

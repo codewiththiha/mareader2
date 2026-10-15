@@ -8,6 +8,7 @@ mod io;
 pub(crate) mod menu;
 mod menus;
 pub mod picks;
+pub mod search;
 pub mod sheets;
 pub mod shelving;
 mod sources;
@@ -33,6 +34,7 @@ pub use covers::Covers;
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use picks::{Pick, PickAction, Picks};
+pub use search::{Field, Listing, SearchAction};
 pub use shelving::{Carry, Crumb, ShelfAction};
 pub use sources::{Action, Finding, Scope, Sheet, Step};
 
@@ -72,6 +74,7 @@ pub struct LibraryState {
     picks: Picks,
     /// The shelf under files dragged in from outside, if any.
     pub(crate) file_target: Option<ShelfId>,
+    search: search::Search,
 }
 
 impl Default for LibraryState {
@@ -93,6 +96,7 @@ impl Default for LibraryState {
             renaming: None,
             picks: Picks::default(),
             file_target: None,
+            search: search::Search::default(),
         }
     }
 }
@@ -127,11 +131,13 @@ impl LibraryState {
         &self.picks
     }
 
-    /// Escape clears a selection first; true if it did.
+    /// Escape lets go of a selection, then the search; true if it did.
     pub fn escape(&mut self) -> bool {
-        let had = !self.picks.is_empty();
-        self.picks.apply(PickAction::Clear);
-        had
+        if !self.picks.is_empty() {
+            self.picks.apply(PickAction::Clear);
+            return true;
+        }
+        self.search.clear()
     }
 
     pub fn covers(&self) -> &Covers {
