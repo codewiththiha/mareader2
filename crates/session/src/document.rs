@@ -257,7 +257,7 @@ fn draw(book: &Book, page: usize, scale: f32, region: [u32; 4]) -> Result<Raster
 }
 
 /// A picture beside a Markdown file, if it is small enough to read.
-fn read_picture(folder: &Path, path: &str) -> Option<Vec<u8>> {
+pub(crate) fn read_picture(folder: &Path, path: &str) -> Option<Vec<u8>> {
     let path = folder.join(path);
     let len = std::fs::metadata(&path).ok()?.len();
     let fits = usize::try_from(len).is_ok_and(|len| len <= MAX_PICTURE_FILE);

@@ -102,6 +102,7 @@ pub struct Document {
     pdf: Pdf,
     sizes: Vec<PageSize>,
     title: Option<String>,
+    author: Option<String>,
     outline: Vec<OutlineEntry>,
     page_ids: PageIds,
 }
@@ -138,12 +139,14 @@ impl Document {
             })
             .collect();
         let title = pdf.metadata().title.as_deref().map(decode_text);
+        let author = pdf.metadata().author.as_deref().map(decode_text);
         let page_ids = dest::page_ids(&pdf);
         let outline = outline::read(&pdf, &page_ids);
         Ok(Self {
             pdf,
             sizes,
             title,
+            author,
             outline,
             page_ids,
         })
@@ -165,6 +168,11 @@ impl Document {
     /// The `/Title` as written; see `display_name` for what to show.
     pub fn raw_title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    /// The `/Author` as written, if any.
+    pub fn raw_author(&self) -> Option<&str> {
+        self.author.as_deref()
     }
 
     /// The scale `render` really uses: `scale`, lowered to fit the caps.
