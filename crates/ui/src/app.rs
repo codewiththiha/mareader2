@@ -30,7 +30,7 @@ use crate::pane_texts::PaneTexts;
 use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
-use crate::settings_window::{SettingsWindow, Tab, WindowContext};
+use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, TitleBar};
@@ -251,14 +251,22 @@ impl MareaderApp {
         &self.settings_window
     }
 
-    pub fn window_context(&self) -> WindowContext {
-        WindowContext {
+    /// What the focused pane and the workspace show: which settings apply.
+    pub fn settings_scope(&self) -> Scope {
+        let docs = &self.documents;
+        let reading = docs.reading(self.active);
+        let focused = match &reading {
+            None => Shown::Nothing,
+            Some(r) if r.document.is_reflowable() => Shown::Book {
+                stream: r.mode == ViewMode::Vertical,
+            },
+            Some(_) => Shown::Pdf,
+        };
+        Scope {
+            focused,
             split: self.tree.len() > 1,
-            reflowable: self.documents.reflowable(self.active),
-            sideways: self
-                .documents
-                .reading(self.active)
-                .is_some_and(|r| r.mode == ViewMode::Horizontal),
+            any_book: self.tree.panes().into_iter().any(|p| docs.reflowable(p)),
+            sideways: reading.is_some_and(|r| r.mode == ViewMode::Horizontal),
         }
     }
 
@@ -1042,7 +1050,7 @@ impl eframe::App for MareaderApp {
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
         self.toasts.show(&ctx, stage, &mut commands);
-        let window = self.window_context();
+        let window = self.settings_scope();
         self.settings_window
             .show(&ctx, &self.settings, &window, &mut commands);
         self.film_grain(&ctx);
