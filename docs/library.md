@@ -197,6 +197,43 @@ on each synced field, tombstones instead of deletion, sort keys for
 manual order, and synced facts kept apart from a machine's own
 (`docs/sync.md` § What M5 must lay down).
 
+## Slice 1: records and resume (2026-10-15)
+
+What the first slice built, and where it stops short of the model above.
+
+- **Opened files are books.** Every file a pane opens (dialog, drop, the
+  system, launch) is measured on the library's worker and recorded with a
+  third origin, `Opened`: read where it is, never moved or deleted. Sources
+  and the store arrive with their slices. Samples and other in-memory
+  documents have no file, so they are not recorded.
+- **Recording an open.** The book holding that content takes the path as
+  its newest location (a move). Failing that, the book already at that path
+  takes the new content (an edit in place). Failing both, a new book is
+  made, and a removed book of that content comes back. A path belongs to
+  one book; the book that held it loses it.
+- **Positions** are the page, the page count then, and a book's block
+  anchor, recorded each frame but written only when they change. Opening a
+  known file without a page asks the library, so any open resumes. Opens
+  that come before the library has loaded wait for it.
+- **Measuring.** SHA-256 of the size and, for PDF and EPUB, 64 KiB from each
+  end; text, and anything up to 128 KiB, is hashed whole. The first 16
+  bytes are the content id.
+- **Files.** `library.json` is `{ schema, clock, books }`;
+  `state/<id>.json` is `{ schema, book, state }`. Each field carries its
+  stamp. Writes leave at most every half second, and on exit.
+- **Failure.** A `library.json` from a newer schema is not written to; the
+  library lives in memory and says so. An unreadable one is renamed to
+  `library.unreadable.json` and the library starts empty. An unreadable or
+  orphaned state file is skipped. Each location is checked when the library
+  loads; a book with none left shows as missing and says so when clicked.
+- **The page.** The title bar's Library button swaps the panes for a list,
+  last opened first: format, title, page and progress, and when it was last
+  opened. Escape goes back if something is open; any open does too.
+- **Not yet.** No `Disk` trait: the pure rules take what they need (the
+  existence check is a closure) and `disk` does the rest. Authors, covers,
+  the character offset for converted books, and following a file that
+  moved while the app was closed all wait for later slices.
+
 ## UI (`crates/ui`, M5)
 
 - **Sections:** All books, Shelves (a tree), Sources (each folder's own tree,

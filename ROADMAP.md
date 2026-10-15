@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M1 to M4 done; M5 (Library) is next.
+**Stage:** M1 to M4 done; M5 (Library) under way.
 **Parity:** 77.5 of 118 features (65.7 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -85,11 +85,24 @@ appearance effects to that same pass.
 | 6 | Selection and copy over parley's clusters; ink contrast | **done** | open `epub=sample:3 view=single goto=2`; drag from "The river" to "unloaded" and copy: one line; triple click a paragraph; slide Text ink in the Appearance popover: text fades, the cover doesn't |
 | 7 | Hostile books: zip bombs, deep nesting, huge pictures, broken markup, tested; EPUB 2 | **done** | `cargo test -p mareader-epub --test hostile`; open Project Gutenberg's EPUB 2 *The Raven* (`crates/epub/tests/books/`): cover, then the NCX in the outline |
 
+## M5 slices
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | Records: every opened file becomes a book (moves and in-place edits keep it), positions kept per book in `state/<id>.json`, any open resumes, the library page lists books last opened first, missing books marked | **done** | open a book, turn pages, open another, click Library in the title bar, click the first; quit and relaunch; `books=6 library=show` in shots |
+| 2 | Grid and list, columns, sort, covers on a worker | next | |
+| 3 | Sources: read-in-place folders, scans, following moves, missing books and find-again | | |
+| 4 | Shelves | | |
+| 5 | Selection, menus, removal receipt, restore, twins, store-copy import | | |
+| 6 | Search | | |
+| 7 | Drag to panes, the library-click setting, import progress, mareader import | | |
+
 ## Next
 
-1. **M5:** plan the library slices from `docs/library.md`.
+1. **M5 slice 2:** grid and list, columns, sort and covers.
 2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
-   the first release (`docs/sync.md` § What M5 must lay down).
+   the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
+   ids, stamps and tombstones; sort keys come with shelves.
 
 ## Open questions for the owner
 
@@ -151,3 +164,4 @@ appearance effects to that same pass.
 | 2026-10-15 | Owner request: Fonts settings for each pane, and focus on any press. Settings › Workspace's "Independent text for each pane" gives split panes their own text; the window's text mirrors the focused pane's, so the Fonts tab edits only it. The session forks a re-set into a new document instead of replacing the old, and panes share one only while file and type match (`docs/epub.md`). A press anywhere in a pane now focuses it, as mareader's pointerdown on the pane root; before, the page's own widgets took the click and only the page bar focused |
 | 2026-10-15 | Owner request: Column Width moves to the Fonts tab, so it is a text setting and per pane with "Independent text for each pane" (settings v2 carry the old value over). The settings window now shows only what reaches the focused pane, as mareader's, from one rule: `Scope` says what is focused and open, each tab, section and row names an `Applies`, and `Rows` places dividers between the rows drawn (`docs/design.md`). New against before: Pane text shows only while split with a book in some pane; Auto resize hides for books; No gap and Page shadow hide in a book's vertical stream; Split pane appearance hides until split, as mareader's |
 | 2026-10-15 | Library, covers and sync studied for edge cases. Text conversion: titles and authors from Chinese-style names (`《河流》作者：林`) and from `Title:`/`Author:` header lines (Project Gutenberg's *The Raven* is now "The Raven"); a copy mark like `(1)` drops; Chinese headings take traditional and formal numerals, and measure-word units (`本`, `部`, `卷`) head a part only with a gap, so `第一本书…` stays prose; the zip's dates are pinned so a text converts to identical bytes. Docs: `docs/sync.md` (new; M9 after 1.0), and library sections on identity edge cases, text files in the library, covers for every format, and sync readiness |
+| 2026-10-15 | M5 slice 1: library records. New `crates/library` (L1): ids, hybrid-clock stamps on every synced field, books with locations and tombstones, and pure rules for recording an open (a move keeps the book, an edit in place keeps it, a path holds one book) and a position. Files are `library.json` plus `state/<id>.json`, written whole and atomically on a worker at most every half second; newer or unreadable files are never overwritten. The UI records each pane's open file and position, resumes any open where it was left, and shows a Library page from the title bar button (`docs/library.md` § Slice 1: records and resume) |
