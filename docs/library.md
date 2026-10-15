@@ -531,6 +531,49 @@ What the first slice built, and where it stops short of the model above.
   `runs=demo` shows two cards: `pdf=sample:5 books=10 shelves=demo
   sidebar=library panes=2`.
 
+## Redesign: the page as a home screen (owner, 2026-10-15)
+
+The owner asked for a page that looks like mareader's, with less on it, where
+cards behave like apps on a phone's home screen. The owner's answers:
+
+- **Order.** One order arranged by hand, "Arranged", is the default. Title,
+  Author and the rest stay as views; dragging in one returns to Arranged,
+  which is never lost.
+- **Shelves sit anywhere,** mixed with books, drawn as a 2×2 plate of
+  covers like a phone's folder.
+- **Storage moves to SQLite** (bundled), shaped for sync as `docs/sync.md`
+  describes. This replaces the decision to keep plain files.
+- **The list stays** for scanning and selecting; arranging, stacking and
+  filing by drag happen in the grid.
+- **Old code goes** when the new design replaces it; no parallel paths.
+
+Slices, each checkable on its own (`ROADMAP.md`):
+
+1. **Adding (slice 8).** The header keeps the title and count. A book-sized
+   card with a plus ends the grid (an Add row ends the list) and opens one
+   menu: import copies, add files in place, add a folder, a new shelf, and
+   Restore for books removed from the folder shown. A folder asks how its
+   books are kept: copied in, read in place, or read in place and watched.
+2. **Storage (slice 9).** Synced records are rows whose fields carry their
+   own stamps; a removal is a tombstone that field writes never revive.
+   Local facts (locations, folders) sit in their own table and never sync.
+   Only records an edit touched are written, in one transaction off the UI
+   thread. A change cursor lets a later sync ask what changed since.
+3. **Arranged order (slice 10).** Every item at a level, book or shelf, has
+   a sort key between its neighbours', so two machines' moves merge.
+4. **A living grid (slice 11).** Cards ease to their slots on springs while
+   a drag moves the hole; only cards on screen animate, and the page asks
+   for frames only while something moves.
+5. **Stacking (slice 12).** Resting a carried book on another for a moment
+   makes a shelf of both, named and ready to rename; a shelf takes drops,
+   and opens when rested on; crumbs take drops.
+6. **Many at once (slice 13).** A long press selects; carrying a selected
+   card carries all of them as a fanned stack with a count.
+
+**Cheap on weak machines.** The grid lays out only rows in view, keeps
+animation state only for cards drawn, allocates nothing per card per
+frame, and stops repainting when nothing moves.
+
 ## Routes: the reader and the library (2026-10-15)
 
 The window shows one of two routes, `crates/ui/src/route.rs`'s `Route`:
