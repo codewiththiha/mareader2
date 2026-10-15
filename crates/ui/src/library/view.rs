@@ -44,6 +44,8 @@ const CARD_MIN: f32 = 150.0;
 const A4: f32 = 297.0 / 210.0;
 /// Covers stranger than these are trimmed to them.
 const SHAPES: std::ops::RangeInclusive<f32> = 0.55..=1.8;
+/// How long a still press takes to pick a card, as on a phone.
+const LONG_PRESS: f64 = 0.45;
 /// Title, detail and progress under a card's cover.
 const CARD_TEXT: f32 = 54.0;
 
@@ -217,7 +219,10 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     if !lifted {
         carried(&ui, model, &t);
     }
-    menus::selection_bar(&mut ui, body, &picks, at, &t, cx.out);
+    // While carried, the selection is in hand; the bar steps aside.
+    if DragAndDrop::payload::<Carry>(ui.ctx()).is_none() {
+        menus::selection_bar(&mut ui, body, &picks, at, &t, cx.out);
+    }
     let target = cx.files.flatten();
     if hovering {
         let onto = menus::shelf_name(model, target.or(at));
@@ -388,7 +393,8 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
     let title = book.title.value.as_str();
     let picked = cx.picks.contains(Pick::Book(book.id));
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, title));
-    if resp.clicked() && !picking(ui, Pick::Book(book.id), cx) {
+    let held = long_press(ui, &resp, Pick::Book(book.id), cx);
+    if resp.clicked() && !held && !picking(ui, Pick::Book(book.id), cx) {
         cx.out.push(Command::OpenBook(book.id));
     }
     if resp.drag_started() {
@@ -399,6 +405,46 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
         false => menus::book_menu(ui, book, cx.at, cx.t, cx.out),
     });
     resp
+}
+
+/// A still press held on a card picks it; true on its release, no click.
+fn long_press(ui: &Ui, resp: &egui::Response, pick: Pick, cx: &mut Cx<'_>) -> bool {
+    let key = Id::new("library-long-press");
+    let (now, start, pressed, released) = ui.input(|i| {
+        let p = &i.pointer;
+        (
+            i.time,
+            p.press_start_time(),
+            p.any_pressed(),
+            p.any_released(),
+        )
+    });
+    // A new press forgets the last one.
+    if pressed {
+        ui.data_mut(|d| d.remove::<Pick>(key));
+    }
+    let fired = ui.data(|d| d.get_temp::<Pick>(key)) == Some(pick);
+    if released {
+        if fired {
+            ui.data_mut(|d| d.remove::<Pick>(key));
+        }
+        return fired && resp.clicked();
+    }
+    let held = resp.is_pointer_button_down_on() && !resp.dragged();
+    let Some(start) = start.filter(|_| held && !fired) else {
+        return false;
+    };
+    let left = LONG_PRESS - (now - start);
+    if left > 0.0 {
+        ui.ctx().request_repaint_after_secs(left as f32);
+        return false;
+    }
+    ui.data_mut(|d| d.insert_temp(key, pick));
+    if !cx.picks.contains(pick) {
+        let action = PickAction::Toggle(pick);
+        cx.out.push(Command::Library(Action::Pick(action)));
+    }
+    false
 }
 
 /// Picks on a click if asked or already picking; false to open instead.
@@ -487,7 +533,8 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
     let name = shelf.name.value.clone();
     let picked = cx.picks.contains(Pick::Shelf(id));
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &name));
-    if resp.clicked() && !picking(ui, Pick::Shelf(id), cx) {
+    let held = long_press(ui, &resp, Pick::Shelf(id), cx);
+    if resp.clicked() && !held && !picking(ui, Pick::Shelf(id), cx) {
         let go = ShelfAction::GoTo(Some(id));
         cx.out.push(Command::Library(Action::Shelf(go)));
     }
@@ -904,10 +951,8 @@ fn paint_cover(
     }
 }
 
-/// A cover for a book without art: a tinted card with its names.
-fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: bool) {
-    let radius = if small { 3.0 } else { t.radius.min(6.0) };
-    // A steady hue per book, softened toward the theme's surface.
+/// A steady hue per book, softened toward the theme's surface.
+fn paper(book: &Book, t: &Tokens) -> Color32 {
     let mixed = book
         .content
         .0
@@ -915,7 +960,13 @@ fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: boo
     let hue = ((mixed >> 96) % 360) as f32 / 360.0;
     let (s, v) = if t.dark { (0.35, 0.36) } else { (0.24, 0.9) };
     let tone = Color32::from(egui::ecolor::Hsva::new(hue, s, v, 1.0));
-    let paper = tone.lerp_to_gamma(t.surface, 0.3);
+    tone.lerp_to_gamma(t.surface, 0.3)
+}
+
+/// A cover for a book without art: a tinted card with its names.
+fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: bool) {
+    let radius = if small { 3.0 } else { t.radius.min(6.0) };
+    let paper = paper(book, t);
     p.rect_filled(rect, radius, faded(paper, fade));
     let spine = Rect::from_min_size(rect.min, vec2(rect.width() * 0.06, rect.height()));
     let corners = CornerRadius {
