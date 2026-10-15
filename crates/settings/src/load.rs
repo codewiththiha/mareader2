@@ -53,7 +53,18 @@ fn migrate(root: &mut Map<String, Value>, notes: &mut Vec<String>) {
     if stored < 1 {
         v0_to_v1(root);
     }
+    if stored < 2 {
+        v1_to_v2(root);
+    }
     root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+}
+
+/// v2 moved Column Width to the text, so each pane may have its own.
+fn v1_to_v2(root: &mut Map<String, Value>) {
+    let layout = root.get_mut("layout").and_then(Value::as_object_mut);
+    if let Some(v) = layout.and_then(|l| l.remove("column_width_pct")) {
+        put(root, "text", "column_width_pct", v);
+    }
 }
 
 /// v0 is the flat blob the shell saved before this crate existed.
@@ -185,6 +196,16 @@ mod tests {
         assert_eq!(look.outline_custom.to_hex(), "#ff0010");
         assert_eq!(look.corners, Corners::Rounded);
         assert!(look.shadow);
+    }
+
+    #[test]
+    fn v1_column_width_moves_to_the_text() {
+        let v1 = r#"{"version":1,"layout":{"column_width_pct":80,"page_margin":8}}"#;
+        let got = load(v1);
+        assert!(got.notes.is_empty(), "{:?}", got.notes);
+        assert_eq!(got.settings.text.column_width_pct, 80.0);
+        assert_eq!(got.settings.layout.page_margin, 8.0);
+        assert_eq!(got.settings.version, 2);
     }
 
     #[test]

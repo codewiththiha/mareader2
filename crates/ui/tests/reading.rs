@@ -596,7 +596,7 @@ fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
         )
     };
     let (width, pages) = measure(&h);
-    h.state_mut().set_option("settings", "layout").ok();
+    h.state_mut().set_option("settings", "fonts").ok();
     h.run_steps(3);
     let slider = h.get_by_label("Column width");
     slider.scroll_to_me();
@@ -606,11 +606,12 @@ fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
     let (wider, fewer) = measure(&h);
     assert!(wider > width * 1.3, "{wider} vs {width}");
     assert!(fewer < pages, "{fewer} vs {pages}");
-    // A PDF's pages are its own: no dial.
+    // A PDF's pages are its own: no dial, and no Fonts tab.
     let mut h = reader(&[("pdf", "sample:3")]);
-    h.state_mut().set_option("settings", "layout").ok();
+    h.state_mut().set_option("settings", "fonts").ok();
     h.run_steps(3);
     assert!(h.query_by_label("Column width").is_none());
+    assert!(h.query_by_label("Fonts").is_none());
 }
 
 #[test]
@@ -712,6 +713,11 @@ fn independent_text_sets_each_pane_in_its_own_type() {
     assert!(pages(&h, b) > before, "{:?} > {before:?}", pages(&h, b));
     assert_eq!(h.state().text(a).font_size, size);
     assert_eq!(h.state().text(b).font_size, 28.0);
+    // Column Width is a Fonts setting, so it is the pane's own too.
+    h.state_mut().set_option("column_width", "140").ok();
+    h.run();
+    assert_eq!(h.state().text(a).column_width_pct, 100.0);
+    assert_eq!(h.state().text(b).column_width_pct, 140.0);
     // Off, the focused pane's text is everyone's, and they share again.
     h.state_mut().set_option("independent_text", "false").ok();
     h.run();

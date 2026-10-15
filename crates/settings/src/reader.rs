@@ -74,14 +74,11 @@ pub struct LayoutSettings {
     pub page_shadow: bool,
     /// Extra margin around pages, in points.
     pub page_margin: f32,
-    /// Page column width as a percent of the fitted width.
-    pub column_width_pct: f32,
 }
 
 impl LayoutSettings {
     pub const ZOOM: (f32, f32) = (0.25, 5.0);
     pub const MARGIN: (f32, f32) = (0.0, 64.0);
-    pub const COLUMN_PCT: (f32, f32) = (60.0, 140.0);
     pub const LABEL_PCT: (f32, f32) = (10.0, 100.0);
 
     pub fn sanitize(&mut self) {
@@ -90,8 +87,6 @@ impl LayoutSettings {
         self.default_zoom = clamp(self.default_zoom, lo, hi, d.default_zoom);
         let (lo, hi) = Self::MARGIN;
         self.page_margin = clamp(self.page_margin, lo, hi, d.page_margin);
-        let (lo, hi) = Self::COLUMN_PCT;
-        self.column_width_pct = clamp(self.column_width_pct, lo, hi, d.column_width_pct);
         let (lo, hi) = Self::LABEL_PCT;
         let max = clamp(
             self.floating_label_max_pct,
@@ -120,7 +115,6 @@ impl Default for LayoutSettings {
             auto_resize: true,
             page_shadow: true,
             page_margin: 0.0,
-            column_width_pct: 100.0,
         }
     }
 }

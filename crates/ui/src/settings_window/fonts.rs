@@ -48,6 +48,18 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             ui.selectable_value(align, ColumnAlign::Left, "Left");
         });
         divider(ui);
+        // The book's measure; its pages grow and shrink with it.
+        row(ui, "Column width", "How wide a book's text runs", |ui| {
+            ui.spacing_mut().slider_width = 140.0;
+            let (lo, hi) = TextSettings::COLUMN_PCT;
+            ui.add(
+                egui::Slider::new(&mut t.column_width_pct, lo..=hi)
+                    .step_by(5.0)
+                    .fixed_decimals(0)
+                    .suffix(" %"),
+            );
+        });
+        divider(ui);
         let hint = "How dark a book's text stays; its pictures keep their colours";
         let percent = |v: f32| format!("{v:.0} %");
         let ink = &mut t.ink_contrast;
