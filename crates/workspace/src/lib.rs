@@ -9,7 +9,10 @@
     clippy::indexing_slicing
 )]
 
+mod drop;
 mod tree;
+
+pub use drop::DropTarget;
 
 pub use tree::{
     Bounds, Divider, DividerPath, Edge, MAX_PANES, MIN_PANE_PX, MIN_RATIO, PaneId, PaneTree, Side,
