@@ -6,6 +6,7 @@ mod covers;
 pub mod crumbs;
 pub mod folders;
 mod io;
+mod living;
 pub(crate) mod menu;
 mod menus;
 pub mod picks;
@@ -81,6 +82,7 @@ pub struct LibraryState {
     search: search::Search,
     /// Imports and folder walks still going.
     pub runs: runs::Runs,
+    motion: living::Motion,
 }
 
 impl Default for LibraryState {
@@ -104,6 +106,7 @@ impl Default for LibraryState {
             file_target: None,
             search: search::Search::default(),
             runs: runs::Runs::default(),
+            motion: living::Motion::default(),
         }
     }
 }
@@ -131,6 +134,11 @@ impl LibraryState {
     /// The books, and their covers to draw them with.
     pub fn parts(&mut self) -> (&Library, &mut Covers) {
         (&self.model, &mut self.covers)
+    }
+
+    /// What the page draws with, its grid's moving parts included.
+    fn page_parts(&mut self) -> (&Library, &mut Covers, &mut living::Motion) {
+        (&self.model, &mut self.covers, &mut self.motion)
     }
 
     /// The books and shelves picked on the page.
