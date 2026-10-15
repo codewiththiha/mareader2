@@ -342,6 +342,10 @@ impl PagePass {
         quads: &[Quad],
         scissor: impl Fn(Rect) -> Option<[u32; 4]>,
     ) {
+        // wgpu refuses a slice of an empty buffer.
+        if quads.is_empty() {
+            return;
+        }
         pass.set_vertex_buffer(0, instances.slice(..));
         for ((i, quad), offset) in (0u32..).zip(quads).zip(&tones.offsets) {
             let Some([x, y, w, h]) = scissor(quad.clip) else {

@@ -76,6 +76,8 @@ pub struct MareaderApp {
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
+    /// The library page's rect while it is up, for the glass behind bars.
+    library_rect: Option<egui::Rect>,
     /// Split panes' own looks, and the routing they were last fitted to.
     looks: PaneLooks<PaneId>,
     routed: Routing,
@@ -131,6 +133,7 @@ impl MareaderApp {
             thumbs: ThumbState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
+            library_rect: None,
             looks: PaneLooks::default(),
             routed: Routing::default(),
             texts: PaneTexts::default(),
@@ -754,6 +757,8 @@ impl MareaderApp {
             .iter()
             .map(|(id, r)| Quad::fill(*r, fill(*id)));
         let mut quads: Vec<Quad> = fills.collect();
+        // The library page's paper stands in for the panes.
+        quads.extend(self.library_rect.map(|r| Quad::fill(r, t.paper)));
         quads.extend(drawn);
         Backdrop::Glass(Glass {
             pass: gpu.pass.clone(),
@@ -1046,9 +1051,11 @@ impl eframe::App for MareaderApp {
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         let library = &self.library;
+        self.library_rect = None;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
                 self.pane_rects.clear();
+                self.library_rect = Some(ui.max_rect());
                 library::view::show(ui, library, view.chrome_bottom, &mut commands);
                 return;
             }
