@@ -317,7 +317,7 @@ fn the_animations_tab_leaves_with_its_master_switch() {
         h.query_by_role_and_label(Role::Button, "Animations")
             .is_none()
     );
-    let cx = h.state().window_context();
+    let cx = h.state().settings_scope();
     let tab = h.state().settings_window().tab(h.state().settings(), &cx);
     assert_eq!(tab, Tab::Layout);
 }
