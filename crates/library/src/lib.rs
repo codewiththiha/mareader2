@@ -10,10 +10,12 @@
     clippy::indexing_slicing
 )]
 
+mod absorb;
 mod arrange;
 mod book;
 mod clock;
 pub mod disk;
+mod extra;
 mod id;
 mod key;
 mod library;
@@ -28,9 +30,11 @@ pub mod store;
 mod tracked;
 mod view;
 
+pub use absorb::Absorbed;
 pub use arrange::Item;
 pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
+pub use extra::Extra;
 pub use id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
 pub use library::{Dirty, Library, Measure, Opened};
 pub use merge::Merge;
@@ -43,6 +47,8 @@ pub use sources::{
 };
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 
+#[cfg(test)]
+mod absorb_tests;
 #[cfg(test)]
 mod arrange_tests;
 #[cfg(test)]

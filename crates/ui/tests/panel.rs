@@ -56,7 +56,7 @@ fn raven_and_twin(click: &str) -> (Harness<'static, MareaderApp>, BookId, BookId
     h.state_mut().queue(twin);
     h.run();
     h.run();
-    let twin = library(&h).books().find(|b| b.twin_of == Some(id));
+    let twin = library(&h).books().find(|b| b.twin_of.value == Some(id));
     let twin = twin.expect("twinned").id;
     (h, id, twin)
 }

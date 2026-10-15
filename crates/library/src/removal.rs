@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use crate::arrange::Item;
 use crate::book::{Book, Origin};
 use crate::clock::{Field, Stamp};
+use crate::extra::Extra;
 use crate::id::{BookId, SourceId};
 use crate::library::{Library, Opened};
 use crate::shelves::{Membership, clean};
@@ -118,26 +119,26 @@ impl Library {
                 done.books += 1;
             }
         }
-        self.promote_twins(&removing);
+        self.promote_twins(&removing, at);
         self.index();
         self.bump();
         done
     }
 
     /// Each removed original's first living twin takes its place.
-    fn promote_twins(&mut self, removed: &BTreeSet<BookId>) {
+    fn promote_twins(&mut self, removed: &BTreeSet<BookId>, at: Stamp) {
         let mut heirs: HashMap<BookId, BookId> = HashMap::new();
         for book in self.books() {
-            if let Some(original) = book.twin_of.filter(|o| removed.contains(o)) {
+            if let Some(original) = book.twin_of.value.filter(|o| removed.contains(o)) {
                 heirs.entry(original).or_insert(book.id);
             }
         }
-        let heir_of = |b: &Book| b.twin_of.is_some_and(|o| heirs.contains_key(&o));
+        let heir_of = |b: &Book| b.twin_of.value.is_some_and(|o| heirs.contains_key(&o));
         for book in self.books.values_mut_where(heir_of) {
-            let Some(&heir) = book.twin_of.and_then(|o| heirs.get(&o)) else {
+            let Some(&heir) = book.twin_of.value.and_then(|o| heirs.get(&o)) else {
                 continue;
             };
-            book.twin_of = (book.id != heir).then_some(heir);
+            book.twin_of = Field::new((book.id != heir).then_some(heir), at);
         }
     }
 
@@ -168,11 +169,11 @@ impl Library {
             source.hidden.remove(&id);
         }
         // Its content may have come back meanwhile: then it reads beside it.
-        let holder = |b: &&Book| b.content == content && b.twin_of.is_none();
+        let holder = |b: &&Book| b.content == content && b.twin_of.value.is_none();
         let living = self.books().find(holder).map(|b| b.id);
         if let Some(book) = self.books.get_mut(&id) {
             book.restored = Some(at);
-            book.twin_of = living;
+            book.twin_of = Field::new(living, at);
         }
         if let Some(original) = living {
             self.mirror(original);
@@ -197,7 +198,8 @@ impl Library {
             opened: Field::new(0, at),
             removed: None,
             restored: None,
-            twin_of: Some(original.id),
+            twin_of: Field::new(Some(original.id), at),
+            extra: Extra::default(),
             ..original
         };
         self.books.insert(twin, book);
@@ -260,7 +262,7 @@ impl Library {
     /// Takes in a file copied into the library's folder.
     pub fn import(&mut self, copy: Opened, wall_ms: u64) -> Imported {
         let content = copy.measure.content;
-        let holder = |b: &&Book| b.content == content && b.twin_of.is_none();
+        let holder = |b: &&Book| b.content == content && b.twin_of.value.is_none();
         if let Some(book) = self.books().find(holder) {
             return Imported::Known(book.id);
         }

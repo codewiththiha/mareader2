@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
+use crate::extra::Extra;
 use crate::id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
@@ -109,7 +110,7 @@ impl Library {
         let originals = self
             .books
             .values()
-            .filter(|b| b.alive() && b.twin_of.is_none());
+            .filter(|b| b.alive() && b.twin_of.value.is_none());
         for book in originals {
             for location in &book.locations {
                 self.at.insert(location.path.clone(), book.id);
@@ -166,13 +167,13 @@ impl Library {
     pub fn record_open_as(&mut self, opened: Opened, wall_ms: u64, twin: Option<BookId>) -> BookId {
         let at = self.clock.tick(wall_ms);
         let content = opened.measure.content;
-        let original = |b: &&Book| b.content == content && b.twin_of.is_none();
+        let original = |b: &&Book| b.content == content && b.twin_of.value.is_none();
         let by_content = self.books().find(original).map(|b| b.id);
         // A file edited in place is the same book with new content.
         let id = by_content.or_else(|| self.book_at(&opened.path));
         let twin_of = |t: &BookId| {
             self.book(*t)
-                .is_some_and(|b| id.is_some() && b.twin_of == id)
+                .is_some_and(|b| id.is_some() && b.twin_of.value == id)
         };
         let reader = twin.filter(twin_of);
         let id = match id.and_then(|id| self.books.get_mut(&id)) {
@@ -227,7 +228,8 @@ impl Library {
             locations: Vec::new(),
             removed: None,
             restored: None,
-            twin_of: None,
+            twin_of: Field::default(),
+            extra: Extra::default(),
         });
         if !book.alive() {
             book.restored = Some(at);
@@ -250,7 +252,9 @@ impl Library {
         };
         let (content, format) = (book.content, book.format);
         let locations = book.locations.clone();
-        let twins = self.books.values_mut_where(|b| b.twin_of == Some(original));
+        let twins = self
+            .books
+            .values_mut_where(|b| b.twin_of.value == Some(original));
         for twin in twins {
             twin.content = content;
             twin.format = format;
@@ -260,7 +264,8 @@ impl Library {
 
     /// Mirrors each original with twins that changed since the last save.
     pub(crate) fn mirror_changed(&mut self) {
-        let originals: BTreeSet<BookId> = self.books.values().filter_map(|b| b.twin_of).collect();
+        let originals = self.books.values().filter_map(|b| b.twin_of.value);
+        let originals: BTreeSet<BookId> = originals.collect();
         let changed = self.books.changed();
         let changed: Vec<BookId> = originals.intersection(changed).copied().collect();
         for original in changed {
@@ -296,7 +301,11 @@ impl Library {
         }
         let at = self.clock.tick(wall_ms);
         let field = Field::new(position, at);
-        self.states.insert(id, State { position: field });
+        let state = self
+            .states
+            .entry(id)
+            .or_insert_with(|| State::new(field.clone()));
+        state.position = field;
         self.states_dirty.insert(id);
         true
     }
@@ -321,7 +330,10 @@ impl Library {
                 location.present = exists(&location.path);
             }
         }
-        let twins = self.books.values().filter(|b| b.twin_of == Some(original));
+        let twins = self
+            .books
+            .values()
+            .filter(|b| b.twin_of.value == Some(original));
         let twins: Vec<BookId> = twins.map(|b| b.id).collect();
         let locations = self.books.get(&original).map(|b| b.locations.clone());
         let locations = locations.unwrap_or_default();
