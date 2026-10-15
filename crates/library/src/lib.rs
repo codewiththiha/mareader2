@@ -29,7 +29,9 @@ pub use library::{Dirty, Library, Measure, Opened};
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use removal::{Imported, Receipt, Removed};
 pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfRemoved};
-pub use sources::{AddError, Added, Found, RelinkError, Scan, ScanReport, Source, SourceEdit};
+pub use sources::{
+    AddError, Added, Found, RelinkError, Scan, ScanReport, Shelving, Source, SourceEdit, counts,
+};
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 
 #[cfg(test)]

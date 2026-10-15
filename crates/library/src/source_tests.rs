@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::disk::{self, FoundAgain, Limits, Sought};
 use crate::{
     AddError, ContentId, DeviceId, FileStamp, Format, Found, Library, Measure, Opened, Origin,
-    Position, RelinkError, Scan, SourceEdit,
+    Position, RelinkError, Scan, Shelving, SourceEdit,
 };
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -154,6 +154,7 @@ fn what_a_folder_counts_and_hides_stays_out_and_an_offline_one_changes_nothing()
     let s = lib.add_source("/s".into(), 1_000).unwrap().id;
     let edit = SourceEdit {
         formats: BTreeSet::from([Format::Epub]),
+        exclude: false,
         min_size: 50,
         watch: false,
     };
@@ -311,4 +312,74 @@ fn a_lost_file_is_found_again_by_content_under_any_name() {
         disk::find_again(root, &sought, limits()),
         FoundAgain::Nothing
     );
+}
+
+#[test]
+fn excluded_formats_leave_out_only_those() {
+    let mut lib = Library::new(DEVICE);
+    let s = lib.add_source("/s".into(), 1_000).unwrap().id;
+    let edit = SourceEdit {
+        formats: BTreeSet::from([Format::Pdf]),
+        exclude: true,
+        min_size: 0,
+        watch: true,
+    };
+    assert!(lib.edit_source(s, edit.clone()));
+    let every = SourceEdit {
+        formats: Format::ALL.into(),
+        ..edit
+    };
+    assert!(
+        !lib.edit_source(s, every),
+        "excluding every format counts nothing"
+    );
+    let mut epub = found("/s/b.epub", 3);
+    epub.format = Format::Epub;
+    let report = scan(&mut lib, s, vec![found("/s/a.pdf", 2), epub]);
+    assert_eq!(report.added.len(), 1);
+}
+
+#[test]
+fn a_folder_shelved_by_folder_files_books_on_nested_shelves() {
+    let mut lib = Library::new(DEVICE);
+    let s = lib.add_source("/s/Books".into(), 1_000).unwrap().id;
+    assert!(lib.shelve_source(s, Shelving::Each, None, 1_000));
+    let top = lib.source(s).unwrap().shelf.unwrap();
+    assert_eq!(lib.shelf(top).unwrap().name.value, "Books");
+    let deep = found("/s/Books/Poe/Early/b.pdf", 2);
+    scan(&mut lib, s, vec![found("/s/Books/a.pdf", 1), deep]);
+    let (a, b) = (
+        lib.book_at(Path::new("/s/Books/a.pdf")),
+        lib.book_at(Path::new("/s/Books/Poe/Early/b.pdf")),
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+    let poe = lib.children(Some(top))[0].id;
+    assert_eq!(lib.shelf(poe).unwrap().name.value, "Poe");
+    let early = lib.children(Some(poe))[0].id;
+    assert_eq!(lib.shelf(early).unwrap().name.value, "Early");
+    assert!(lib.shelves_of(a).contains(&top));
+    assert!(lib.shelves_of(b).contains(&early));
+    // A shelf the reader removed isn't made again by a rescan.
+    lib.remove_shelf(top, 6_000);
+    scan(&mut lib, s, vec![found("/s/Books/Poe/c.pdf", 3)]);
+    let c = lib.book_at(Path::new("/s/Books/Poe/c.pdf")).unwrap();
+    assert!(lib.shelves_of(c).is_empty());
+}
+
+#[test]
+fn one_shelf_holds_a_whole_folder_and_books_known_before() {
+    let mut lib = Library::new(DEVICE);
+    let s = lib.add_source("/s/Books".into(), 1_000).unwrap().id;
+    scan(&mut lib, s, vec![found("/s/Books/x/a.pdf", 1)]);
+    let a = lib.book_at(Path::new("/s/Books/x/a.pdf")).unwrap();
+    assert!(lib.shelve_source(s, Shelving::One, None, 2_000));
+    let top = lib.source(s).unwrap().shelf.unwrap();
+    assert!(
+        lib.shelves_of(a).contains(&top),
+        "known books are shelved too"
+    );
+    scan(&mut lib, s, vec![found("/s/Books/y/z/b.pdf", 2)]);
+    let b = lib.book_at(Path::new("/s/Books/y/z/b.pdf")).unwrap();
+    assert!(lib.shelves_of(b).contains(&top));
+    assert!(lib.children(Some(top)).is_empty());
 }

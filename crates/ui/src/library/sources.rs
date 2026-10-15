@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use egui::Context;
 use mareader_library::disk::{FoundAgain, Known, Sought};
 use mareader_library::{
-    AddError, BookId, Format, Measure, RelinkError, Scan, Source, SourceEdit, SourceId,
+    AddError, BookId, Format, Measure, RelinkError, Scan, ShelfId, Source, SourceEdit, SourceId,
 };
 
 use super::io::{Job, Relink, Rescan, Rescanned};
@@ -243,29 +243,35 @@ impl LibraryState {
         now: f64,
         out: &mut Commands,
     ) {
-        let super::FolderPlan { keep, filter } = plan;
+        let super::FolderPlan { keep, walk } = plan;
+        let to = self.at();
         if keep == super::FolderKeep::Copy {
-            let to = self.at();
-            let keep = super::Keep::Copy;
             let import = super::BookAction::Import {
                 paths: roots,
                 to,
-                keep,
-                filter,
+                walk,
             };
             return self.book_act(import, out);
         }
         for root in roots {
             let edit = SourceEdit {
-                formats: filter.formats.clone(),
-                min_size: filter.min_size,
+                formats: walk.formats.clone(),
+                exclude: walk.exclude,
+                min_size: walk.min_size,
                 watch: keep == super::FolderKeep::Watch,
             };
-            self.add_folder(root, edit, now, out);
+            self.add_folder(root, (edit, walk.shelving, to), now, out);
         }
     }
 
-    fn add_folder(&mut self, root: PathBuf, edit: SourceEdit, now: f64, out: &mut Commands) {
+    /// Reads `root` in place, counted and shelved as asked, inside `to`.
+    fn add_folder(
+        &mut self,
+        root: PathBuf,
+        (edit, shelving, to): (SourceEdit, mareader_library::Shelving, Option<ShelfId>),
+        now: f64,
+        out: &mut Commands,
+    ) {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
         let inside_library = self.avoid().iter().any(|own| own.starts_with(&root));
         if inside_library {
@@ -282,6 +288,7 @@ impl LibraryState {
                     out.push(Command::Notify(Toast::info(note)));
                 }
                 self.model.edit_source(added.id, edit);
+                self.model.shelve_source(added.id, shelving, to, wall_ms());
                 self.rescan(Some(added.id), now);
             }
             Err(AddError::Inside(name)) => {

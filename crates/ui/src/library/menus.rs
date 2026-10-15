@@ -4,7 +4,7 @@ use egui::{Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec
 use mareader_library::{Book, Library, Shelf, ShelfId};
 
 use super::books::counted;
-use super::{Action, BookAction, Keep, Pick, PickAction, Picks, ShelfAction};
+use super::{Action, BookAction, Pick, PickAction, Picks, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -126,7 +126,7 @@ pub fn page_menu(ui: &mut Ui, model: &Library, sequence: &[Pick], out: &mut Comm
         shelf(out, ShelfAction::New);
     }
     if ui.button("Import books…").clicked() {
-        book(out, BookAction::PickImport(Keep::Copy));
+        book(out, BookAction::PickImport);
     }
     // Watched folders are walked on return; this asks now, for all.
     let folders = model.sources().next().is_some();
