@@ -112,7 +112,7 @@ fn a_twin_reads_separately_and_follows_its_originals_file() {
         (title(t), title(t3)),
         ("Book 1 (2)".into(), "Book 1 (3)".into())
     );
-    assert_eq!(lib.book(t3).unwrap().twin_of, Some(a));
+    assert_eq!(lib.book(t3).unwrap().twin_of.value, Some(a));
     assert_eq!(lib.position(t), None);
     // Each twin lands right behind the book it was made from.
     let order: Vec<BookId> = lib.shelf_books(shelf).iter().map(|b| b.id).collect();
@@ -137,7 +137,7 @@ fn removing_an_original_hands_its_files_to_a_twin() {
     assert_eq!(lib.receipt(&[a]).hidden, 0);
     lib.remove_books(&[a], 3_000);
     assert!(lib.source(s).unwrap().hidden.is_empty());
-    assert_eq!(lib.book(t).unwrap().twin_of, None);
+    assert_eq!(lib.book(t).unwrap().twin_of.value, None);
     assert_eq!(lib.book_at("/s/a.pdf".as_ref()), Some(t));
     // The heir is the folder's book now: a rescan adds nothing.
     assert!(scan(&mut lib, s, &[("/s/a.pdf", 1)]).is_empty());
@@ -162,7 +162,7 @@ fn a_restored_book_reads_beside_a_book_of_its_content() {
     assert_eq!(lib.import(copy, 4_000), Imported::New(a));
     assert!(lib.source(s).unwrap().hidden.contains(&t));
     assert!(lib.restore(t, 5_000));
-    assert_eq!(lib.book(t).unwrap().twin_of, Some(a));
+    assert_eq!(lib.book(t).unwrap().twin_of.value, Some(a));
     assert!(lib.hidden_in(s).is_empty());
     assert_eq!(
         lib.book(t).unwrap().path(),
@@ -231,7 +231,7 @@ fn twins_and_store_copies_come_back_from_disk() {
     lib.import(opened("/lib/files/2/b.pdf", 2), 2_000);
     crate::tests::save(&folder, &mut lib);
     let back = folder.load(DEVICE).library;
-    assert_eq!(back.book(t).unwrap().twin_of, Some(a));
+    assert_eq!(back.book(t).unwrap().twin_of.value, Some(a));
     assert_eq!(back.book_at("/a.pdf".as_ref()), Some(a));
     let store = back.books().find(|b| b.content == ContentId(2)).unwrap();
     assert_eq!(store.locations[0].origin, Origin::Store);

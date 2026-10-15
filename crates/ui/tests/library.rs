@@ -1078,7 +1078,7 @@ fn read_separately_keeps_a_second_place_in_the_same_file() {
     h.run_steps(3);
     let id = library(&h).book_at(&path).unwrap();
     book(&mut h, BookAction::Twin(id));
-    let twin = library(&h).books().find(|b| b.twin_of == Some(id));
+    let twin = library(&h).books().find(|b| b.twin_of.value == Some(id));
     let twin = twin
         .map(|b| b.id)
         .unwrap_or_else(|| panic!("{}", state(&h)));
@@ -1105,7 +1105,7 @@ fn raven_and_twin(h: &mut Harness<'static, MareaderApp>, path: &Path) -> (BookId
     h.run_steps(3);
     let id = library(h).book_at(path).unwrap();
     book(h, BookAction::Twin(id));
-    let twin = library(h).books().find(|b| b.twin_of == Some(id));
+    let twin = library(h).books().find(|b| b.twin_of.value == Some(id));
     (
         id,
         twin.map(|b| b.id).unwrap_or_else(|| panic!("{}", state(h))),

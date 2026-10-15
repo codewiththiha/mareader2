@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::book::Book;
 use crate::clock::{Field, Stamp};
+use crate::extra::Extra;
 use crate::id::{BookId, ShelfId};
 use crate::library::Library;
 use crate::view::natural;
@@ -22,6 +23,9 @@ pub struct Shelf {
     pub name: Field<String>,
     /// None: on the top level.
     pub parent: Field<Option<ShelfId>>,
+    /// Where it was before its last move; a move a merge loops goes back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<ShelfId>,
     /// When it was made, in wall milliseconds.
     pub added: u64,
     /// Its place among the shelves and books beside it.
@@ -31,6 +35,8 @@ pub struct Shelf {
     pub removed: Option<Stamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restored: Option<Stamp>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Shelf {
@@ -51,6 +57,8 @@ pub struct Membership {
     pub book: BookId,
     pub key: Field<String>,
     pub alive: Field<bool>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 /// Why a shelf can't take a name or a place.
@@ -178,7 +186,7 @@ impl Library {
     }
 
     /// No shelf beside `parent`'s others but `own` has `name`.
-    fn free(&self, name: &str, parent: Option<ShelfId>, own: Option<ShelfId>) -> bool {
+    pub(crate) fn free(&self, name: &str, parent: Option<ShelfId>, own: Option<ShelfId>) -> bool {
         let lower = name.to_lowercase();
         let others = self.children(parent).into_iter();
         !others
@@ -206,10 +214,12 @@ impl Library {
             id,
             name: Field::new(name, at),
             parent: Field::new(parent, at),
+            from: None,
             added: wall_ms,
             key: Field::new(key, at),
             removed: None,
             restored: None,
+            extra: Extra::default(),
         };
         self.shelves.insert(id, shelf);
         self.bump();
@@ -278,6 +288,7 @@ impl Library {
         // It joins its new level at the end.
         let key = self.next_key(parent);
         if let Some(shelf) = self.shelves.get_mut(&id) {
+            shelf.from = shelf.parent.value;
             shelf.parent = Field::new(parent, at);
             shelf.key = Field::new(key, at);
         }
@@ -310,6 +321,7 @@ impl Library {
                 n += 1;
             }
             if let Some(shelf) = self.shelves.get_mut(&child) {
+                shelf.from = shelf.parent.value;
                 shelf.parent = Field::new(parent, at);
                 if fit != name {
                     shelf.name = Field::new(fit, at);
@@ -358,11 +370,15 @@ impl Library {
 
     fn set_member(&mut self, book: BookId, shelf: ShelfId, key: String, wall_ms: u64) {
         let at = self.clock.tick(wall_ms);
+        // Back on a shelf: what a newer build wrote on it stays.
+        let old = self.members.get(&(shelf, book));
+        let extra = old.map(|m| m.extra.clone()).unwrap_or_default();
         let member = Membership {
             shelf,
             book,
             key: Field::new(key, at),
             alive: Field::new(true, at),
+            extra,
         };
         self.members.insert((shelf, book), member);
         self.bump();

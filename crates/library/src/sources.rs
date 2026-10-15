@@ -468,7 +468,7 @@ impl Library {
     /// Each content's original book, living ones over removed ones.
     fn by_content(&self) -> HashMap<ContentId, BookId> {
         let mut map = HashMap::new();
-        let originals = self.books.values().filter(|b| b.twin_of.is_none());
+        let originals = self.books.values().filter(|b| b.twin_of.value.is_none());
         let (alive, removed): (Vec<&Book>, Vec<&Book>) = originals.partition(|b| b.alive());
         for book in removed.into_iter().chain(alive) {
             map.insert(book.content, book.id);

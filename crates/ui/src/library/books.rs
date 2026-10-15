@@ -214,7 +214,7 @@ impl LibraryState {
         if paths.is_empty() {
             return;
         }
-        let originals = self.model.books().filter(|b| b.twin_of.is_none());
+        let originals = self.model.books().filter(|b| b.twin_of.value.is_none());
         let known: HashSet<ContentId> = originals.map(|b| b.content).collect();
         let label = match paths.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()),
@@ -266,7 +266,8 @@ impl LibraryState {
         }
         for io::Shelved { file, shelves } in done.known {
             let content = file.1;
-            let holder = (self.model.books()).find(|b| b.content == content && b.twin_of.is_none());
+            let holder =
+                (self.model.books()).find(|b| b.content == content && b.twin_of.value.is_none());
             if let Some(id) = holder.map(|b| b.id) {
                 known.push(id);
                 filing.push((id, shelves));
