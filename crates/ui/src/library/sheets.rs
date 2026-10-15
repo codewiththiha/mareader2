@@ -1,9 +1,9 @@
-//! Sheets over the library: finding a lost book, removing a folder.
+//! Sheets over the library: finding a lost book, removing a folder or shelf.
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
-use mareader_library::{Book, Library, Source};
+use mareader_library::{Book, Library, Shelf, Source};
 
-use super::{Action, Finding, LibraryState, Sheet, Step};
+use super::{Action, Finding, LibraryState, Sheet, ShelfAction, Step};
 use crate::command::{Command, Commands};
 use crate::theme::{self, Tokens};
 
@@ -37,6 +37,10 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                 },
                 Sheet::Remove(id) => match model.source(*id) {
                     Some(source) => remove(ui, model, source, &t),
+                    None => Some(Action::CloseSheet),
+                },
+                Sheet::RemoveShelf(id) => match model.shelf(*id) {
+                    Some(shelf) => remove_shelf(ui, model, shelf, &t),
                     None => Some(Action::CloseSheet),
                 },
             };
@@ -147,6 +151,37 @@ fn remove(ui: &mut Ui, model: &Library, source: &Source, t: &Tokens) -> Option<A
     buttons(ui, |ui| {
         if primary(ui, "Remove", t.danger, t).clicked() {
             act = Some(Action::RemoveFolder(source.id));
+        }
+        if ui.button("Cancel").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    act
+}
+
+fn remove_shelf(ui: &mut Ui, model: &Library, shelf: &Shelf, t: &Tokens) -> Option<Action> {
+    title(ui, &format!("Remove “{}”?", shelf.name.value), t);
+    let (books, shelves) = model.counts(shelf.id);
+    let up = match model.parent_of(shelf).and_then(|p| model.shelf(p)) {
+        Some(parent) => format!("“{}”", parent.name.value),
+        None => "the top of the library".into(),
+    };
+    let books = match books {
+        0 => "It holds no books.".to_owned(),
+        1 => "Its 1 book stays in the library.".to_owned(),
+        n => format!("Its {n} books stay in the library."),
+    };
+    let body = match shelves {
+        0 => books,
+        1 => format!("{books} The shelf inside it moves up to {up}."),
+        n => format!("{books} The {n} shelves inside it move up to {up}."),
+    };
+    ui.label(RichText::new(body).color(t.ink));
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        if primary(ui, "Remove", t.danger, t).clicked() {
+            act = Some(Action::Shelf(ShelfAction::Remove(shelf.id)));
         }
         if ui.button("Cancel").clicked() {
             act = Some(Action::CloseSheet);

@@ -59,6 +59,7 @@ pub enum Action {
         folder: PathBuf,
     },
     CloseSheet,
+    Shelf(super::ShelfAction),
 }
 
 /// The sheet over the page, if any.
@@ -66,6 +67,7 @@ pub enum Action {
 pub enum Sheet {
     Find(Finding),
     Remove(SourceId),
+    RemoveShelf(mareader_library::ShelfId),
 }
 
 /// Finding a lost book: what it's doing, or what it found.
@@ -110,7 +112,7 @@ pub(super) struct Folders {
     /// The folder just added or rescanned by name, and books it brought.
     announce: Option<(SourceId, usize)>,
     offline: BTreeSet<SourceId>,
-    sheet: Option<Sheet>,
+    pub(super) sheet: Option<Sheet>,
 }
 
 impl LibraryState {
@@ -193,6 +195,7 @@ impl LibraryState {
                 });
             }
             Action::CloseSheet => self.folders.sheet = None,
+            Action::Shelf(action) => self.shelf_act(action, out),
             // Dialogs need the app's files; it handles them.
             Action::ShowFolders
             | Action::PickFolder

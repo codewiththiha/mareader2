@@ -65,6 +65,8 @@ pub enum Icon {
     ChooseFile,
     Offline,
     Remove,
+    Shelf,
+    Rename,
 }
 
 impl Icon {
@@ -127,6 +129,8 @@ impl Icon {
             Self::ChooseFile => Lucide::FileSearch,
             Self::Offline => Lucide::HardDrive,
             Self::Remove => Lucide::Trash2,
+            Self::Shelf => Lucide::SquareLibrary,
+            Self::Rename => Lucide::Pencil,
         }
     }
 
