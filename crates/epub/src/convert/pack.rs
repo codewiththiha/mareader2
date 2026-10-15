@@ -2,8 +2,8 @@
 use std::fmt::Write as _;
 use std::io::{Cursor, Write};
 
-use zip::CompressionMethod;
 use zip::write::{SimpleFileOptions, ZipWriter};
+use zip::{CompressionMethod, DateTime};
 
 use super::{Draft, Entry, chapter_file, escape};
 use crate::OpenError;
@@ -34,7 +34,10 @@ pub(super) fn pack(d: &Draft) -> Result<Vec<u8>, OpenError> {
 }
 
 fn put(zip: &mut ZipWriter<Cursor<Vec<u8>>>, name: &str, bytes: &[u8]) -> Result<(), OpenError> {
-    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+    // A fixed date, so one text always packs to the same bytes.
+    let stored = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .last_modified_time(DateTime::default());
     zip.start_file(name, stored)
         .map_err(|_| OpenError::Invalid)?;
     zip.write_all(bytes).map_err(|_| OpenError::Invalid)
