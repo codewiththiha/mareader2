@@ -399,8 +399,14 @@ title = "Keep the app's own copy of a book (loose files, or a folder import that
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "partial"
+evidence = [
+  "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
+  "crates/library/src/removal_tests.rs::copies_land_in_the_store_and_only_store_files_are_deleted",
+  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
+]
 reference = ["crates/library-core/src/store.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
+notes = "Import… and dropped files are copied into the library's files folder, known content kept once (M5 slice 5). Importing a whole folder as copies is not offered: folders are read in place"
 
 [[feature]]
 id = "library.follow-moves"
@@ -493,8 +499,14 @@ title = "Multi-select with click modifiers and select all; act on the selection"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::ctrl_click_starts_a_selection_that_plain_clicks_then_extend",
+  "crates/ui/tests/library.rs::shift_click_picks_the_run_between_and_ctrl_a_picks_all",
+  "crates/ui/tests/library.rs::picks_go_on_a_new_shelf_together_and_come_off_it",
+]
 reference = ["crates/library-runtime/src/features/library/selection.rs"]
+notes = "Ctrl/Cmd-click, Shift ranges, Ctrl/Cmd+A; plain clicks pick while picking; a bar to shelve, take off or remove (M5 slice 5)"
 
 [[feature]]
 id = "library.drag"
@@ -502,14 +514,14 @@ title = "Drag books and shelves onto shelves and breadcrumbs; drop files from th
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "partial"
+status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::dragging_a_book_onto_a_shelf_files_it_and_says_so",
-  "crates/ui/tests/library.rs::escape_drops_what_is_carried_and_keeps_the_page",
-  "crates/ui/tests/library.rs::a_shelf_moves_books_between_shelves_or_adds_them_with_alt",
+  "crates/ui/tests/library.rs::a_dragged_selection_moves_onto_a_shelf_together",
+  "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
 ]
 reference = ["crates/library-runtime/src/features/library/dnd"]
-notes = "Books and shelves drag onto shelf cards and crumbs, Alt adds instead of moving, Manual order reorders by drag (M5 slice 4). One book at a time until selection (slice 5); OS file drops import with slice 5"
+notes = "Books, selections and shelves drag onto shelf cards and crumbs, Alt adds (M5 slices 4-5). Files dropped from the OS are imported onto the shelf under the pointer, folders added in place. Dragging onto panes is workspace.library-click (slice 7)"
 
 [[feature]]
 id = "library.breadcrumb"
@@ -531,8 +543,12 @@ title = "Right-click menus for books, shelves and empty space"
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::a_card_menu_offers_what_a_book_can_do",
+]
 reference = ["crates/library-runtime/src/features/library/context_menu.rs"]
+notes = "Book, shelf, selection and empty-page menus (M5 slice 5)"
 
 [[feature]]
 id = "library.remove-receipt"
@@ -540,8 +556,14 @@ title = "Removing shows what goes with it; the app deletes only its own copies"
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_folders",
+  "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
+  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
+]
 reference = ["crates/library-runtime/src/features/library/remove_modal"]
+notes = "The sheet counts books, kept places and shelf spots, deleted copies and hidden folder books; only store copies are ever deleted (M5 slice 5)"
 
 [[feature]]
 id = "library.restore"
@@ -549,8 +571,13 @@ title = "A book removed from a watched folder can be restored"
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_folders",
+  "crates/library/src/removal_tests.rs::a_folder_book_removed_stays_hidden_until_restored_with_its_place",
+]
 reference = ["crates/library-core/src/ledger.rs"]
+notes = "Folders lists removed books under Removed · N with Restore and Restore all; they return with place and shelves (M5 slice 5)"
 
 [[feature]]
 id = "library.import-progress"
@@ -610,9 +637,14 @@ title = "Two independent reading states for one file"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/library.rs::read_separately_keeps_a_second_place_in_the_same_file",
+  "crates/library/src/removal_tests.rs::a_twin_reads_separately_and_follows_its_originals_file",
+  "crates/library/src/removal_tests.rs::removing_an_original_hands_its_files_to_a_twin",
+]
 reference = ["crates/library-core/src/book/mod.rs"]
-notes = "Kept (owner, 2026-10-13): a twin is a second book with its own id; file facts stay shared (docs/library.md)"
+notes = "Read separately makes a second book of the file with its own id, name, place and shelves; file facts stay shared (owner, 2026-10-13; M5 slice 5)"
 
 [[feature]]
 id = "pdf.open"
