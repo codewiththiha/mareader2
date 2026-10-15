@@ -1,4 +1,4 @@
-//! A book's cover art for the library, read off the frame.
+//! A book's cover art and names for the library, read off the frame.
 use std::path::Path;
 use std::sync::Arc;
 
@@ -30,6 +30,26 @@ pub fn cover(path: &Path, side: u32) -> Option<Raster> {
     })
 }
 
+/// A file's own title and author; text converts without its pictures.
+pub fn describe(path: &Path) -> (Option<String>, Option<String>) {
+    let read = || {
+        let bytes = std::fs::read(path).ok()?;
+        let name = path.file_name()?.to_string_lossy();
+        let bytes = match mareader_epub::Format::of_name(&name) {
+            Some(format) => mareader_epub::convert(&bytes, format, Some(&name), &|_| None).ok()?,
+            None => bytes,
+        };
+        let bytes = Arc::new(bytes);
+        if mareader_epub::sniff(&bytes) {
+            return mareader_epub::describe(&bytes);
+        }
+        let doc = mareader_pdf::Document::open(bytes).ok()?;
+        let own = |s: Option<&str>| s.map(str::to_owned);
+        Some((own(doc.raw_title()), own(doc.raw_author())))
+    };
+    read().unwrap_or_default()
+}
+
 fn first_page(bytes: Arc<Vec<u8>>, side: u32) -> Option<Raster> {
     let doc = mareader_pdf::Document::open(bytes).ok()?;
     let size = *doc.page_sizes().first()?;
@@ -50,6 +70,25 @@ mod tests {
 
     fn size(r: Option<Raster>) -> Option<(u32, u32)> {
         r.map(|r| (r.width, r.height))
+    }
+
+    #[test]
+    fn a_file_names_its_title_and_author_without_being_laid_out() {
+        let dir = tempfile::tempdir().ok();
+        let dir = dir.as_ref().map_or(Path::new("."), |d| d.path());
+        let book = write(dir, "b.epub", &mareader_epub::sample::epub(2, "Bee"));
+        assert_eq!(describe(&book).0.as_deref(), Some("Bee"));
+        let note = write(
+            dir,
+            "n.md",
+            b"---\ntitle: Notes\nauthor: Me\n---\n\n# One\n\nText.\n",
+        );
+        let names = describe(&note);
+        assert_eq!(
+            (names.0.as_deref(), names.1.as_deref()),
+            (Some("Notes"), Some("Me"))
+        );
+        assert_eq!(describe(&dir.join("gone.pdf")), (None, None));
     }
 
     #[test]

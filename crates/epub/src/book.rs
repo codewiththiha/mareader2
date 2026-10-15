@@ -132,16 +132,7 @@ impl Book {
 
     fn parse(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
         let epub = guard::open(&bytes)?;
-        let title = epub
-            .metadata()
-            .title()
-            .map(|t| t.value().trim().to_owned())
-            .filter(|t| !t.is_empty());
-        let author = epub
-            .metadata()
-            .creators()
-            .map(|c| c.value().trim().to_owned())
-            .find(|c| !c.is_empty());
+        let (title, author) = names(&epub);
         let language = epub
             .metadata()
             .language()
@@ -277,6 +268,27 @@ impl Book {
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
     }
+}
+
+/// The `dc:title` and first non-blank `dc:creator`, as written.
+fn names(epub: &Epub) -> (Option<String>, Option<String>) {
+    let title = epub
+        .metadata()
+        .title()
+        .map(|t| t.value().trim().to_owned())
+        .filter(|t| !t.is_empty());
+    let author = epub
+        .metadata()
+        .creators()
+        .map(|c| c.value().trim().to_owned())
+        .find(|c| !c.is_empty());
+    (title, author)
+}
+
+/// A book's title and author without laying it out, for the library.
+pub fn describe(bytes: &Arc<Vec<u8>>) -> Option<(Option<String>, Option<String>)> {
+    let read = || guard::open(bytes).ok().map(|epub| names(&epub));
+    catch_unwind(AssertUnwindSafe(read)).ok().flatten()
 }
 
 /// A picture this near the opening counts as the cover.
