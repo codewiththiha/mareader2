@@ -6,14 +6,15 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::book::{Book, FileStamp, Format, State};
 use crate::clock::Clock;
 use crate::id::{BookId, ContentId, DeviceId};
-use crate::library::{Dirty, Library, Measure, Parts};
-use crate::records::{self, Changes};
+use crate::library::{Library, Measure, Parts};
+use crate::merge::Merge;
+use crate::records;
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 use crate::store::{OpenError, Store};
@@ -47,7 +48,8 @@ struct Probe {
     schema: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+/// A position before SQLite; read once, then the folder is renamed.
+#[derive(Deserialize)]
 struct StateFile {
     schema: u32,
     book: BookId,
@@ -72,37 +74,6 @@ enum Legacy {
     Read(Parts),
     /// It can't be moved: the library opens empty and read only.
     Stop,
-}
-
-/// What one save writes: rows in one transaction, and state files.
-#[derive(Debug, Default)]
-pub struct Save {
-    pub changes: Changes,
-    pub states: Vec<(PathBuf, String)>,
-}
-
-impl Save {
-    pub fn is_empty(&self) -> bool {
-        self.changes.is_empty() && self.states.is_empty()
-    }
-
-    /// Writes all of it; one failure doesn't hold back the rest.
-    pub fn apply(&self, store: Option<&mut Store>) -> Result<(), String> {
-        let mut failed = None;
-        if !self.changes.is_empty() {
-            let applied = match store {
-                Some(store) => store.apply(&self.changes),
-                None => Err("the library file isn't open".into()),
-            };
-            failed = applied.err();
-        }
-        for (path, text) in &self.states {
-            if let Err(e) = write_atomic(path, text.as_bytes()) {
-                failed.get_or_insert(e.to_string());
-            }
-        }
-        failed.map_or(Ok(()), Err)
-    }
 }
 
 /// The folder a library lives in.
@@ -137,10 +108,6 @@ impl Folder {
         self.root.join("state")
     }
 
-    fn state_file(&self, id: BookId) -> PathBuf {
-        self.states().join(format!("{id}.json"))
-    }
-
     /// Reads the library, else starts one; unreadable files are kept aside.
     pub fn load(&self, device: DeviceId) -> Loaded {
         let mut notes = Vec::new();
@@ -173,14 +140,14 @@ impl Folder {
                 }
             },
         };
-        let store = store.filter(|s| {
+        let mut store = store.filter(|s| {
             let newer = s.newer();
             if newer {
                 notes.push(NEWER.into());
             }
             !newer
         });
-        library.states = self.load_states(&library.books);
+        self.adopt_states(&mut library, store.as_mut(), &mut notes);
         library.check_present(Path::is_file);
         Loaded {
             library,
@@ -226,7 +193,7 @@ impl Folder {
         let mut library = Library::from_parts(parts);
         library.mark_all();
         let dirty = library.take_dirty();
-        match store.apply(&records::changes(&library, &dirty)) {
+        match store.apply(&library.changes(&dirty)) {
             Ok(()) => {
                 let mut done = self.library_file().into_os_string();
                 done.push(".migrated");
@@ -286,6 +253,40 @@ impl Folder {
         Legacy::Read(parts)
     }
 
+    /// Positions from `state/` files into the store, then the folder renamed.
+    fn adopt_states(
+        &self,
+        library: &mut Library,
+        store: Option<&mut Store>,
+        notes: &mut Vec<String>,
+    ) {
+        let found = self.load_states(&library.books);
+        if found.is_empty() {
+            return;
+        }
+        for (id, state) in found {
+            match library.states.get_mut(&id) {
+                Some(kept) => kept.merge(state),
+                None => {
+                    library.states.insert(id, state);
+                }
+            }
+            library.states_dirty.insert(id);
+        }
+        let Some(store) = store else {
+            return;
+        };
+        let dirty = library.take_dirty();
+        match store.apply(&library.changes(&dirty)) {
+            Ok(()) => {
+                let mut done = self.states().into_os_string();
+                done.push(".migrated");
+                let _ = fs::rename(self.states(), done);
+            }
+            Err(e) => notes.push(format!("Couldn't move reading places to the library: {e}")),
+        }
+    }
+
     /// Each book's state; an unreadable or orphaned file is skipped.
     fn load_states(&self, books: &BTreeMap<BookId, Book>) -> BTreeMap<BookId, State> {
         let Ok(entries) = fs::read_dir(self.states()) else {
@@ -300,28 +301,6 @@ impl Folder {
         let json = |p: &PathBuf| p.extension().is_some_and(|e| e == "json");
         let paths = entries.filter_map(|e| e.ok().map(|e| e.path()));
         paths.filter(json).filter_map(read).collect()
-    }
-
-    /// The rows and files `dirty` names, with what each must now hold.
-    pub fn writes(&self, library: &Library, dirty: &Dirty) -> Save {
-        let mut states = Vec::new();
-        for id in &dirty.states {
-            let Some(state) = library.states.get(id) else {
-                continue;
-            };
-            let file = StateFile {
-                schema: SCHEMA,
-                book: *id,
-                state: state.clone(),
-            };
-            if let Ok(json) = serde_json::to_string_pretty(&file) {
-                states.push((self.state_file(*id), json));
-            }
-        }
-        Save {
-            changes: records::changes(library, dirty),
-            states,
-        }
     }
 }
 
