@@ -230,7 +230,7 @@ mod tests {
         "titlebar_pinned": true,
         "layout": {"default_fit": "none", "floating_label_style": "title",
                    "sidebar_overlay": true, "blend_mode": true, "blend_area": "edges",
-                   "page_margin": 12},
+                   "page_margin": 12, "column_width_pct": 120},
         "animations": {"enabled": true, "zoom": false},
         "gloss_color": "violet", "gloss_custom": "#12345", "gloss_opacity": 0.8,
         "cefr_enabled": true, "cefr_level": "c1",
@@ -268,6 +268,10 @@ mod tests {
         assert!(s.study.cefr.enabled);
         assert_eq!(s.text.font_size, 20.0);
         assert_eq!(s.text.column_align, ColumnAlign::Left);
+        assert_eq!(
+            s.text.column_width_pct, 120.0,
+            "the column moves to the text"
+        );
         assert!(!s.dictionary.hover);
         assert_eq!(s.workspace.library_click, LibraryClick::DragOnly);
         assert!(s.workspace.independent_themes);

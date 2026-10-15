@@ -2,8 +2,8 @@
 use mareader_reflow::{FACES, Faces, Family, Kind, Typography};
 use mareader_settings::{FontChoice, FontFamily, TextSettings};
 
-/// Column Width is in percent. The body takes the serif slot until picked.
-pub fn typography(t: &TextSettings, column_pct: f32) -> Typography {
+/// The body takes the serif slot until picked.
+pub fn typography(t: &TextSettings) -> Typography {
     let body = match &t.default_font {
         FontChoice::Default => stack(&t.serif_font, Kind::Serif),
         pick => stack(pick, kind_of(pick).unwrap_or(Kind::Serif)),
@@ -19,7 +19,7 @@ pub fn typography(t: &TextSettings, column_pct: f32) -> Typography {
         justify: t.justify,
         hyphenate: t.hyphenation,
         book_layout: t.book_layout,
-        column_scale: column_pct / 100.0,
+        column_scale: t.column_width_pct / 100.0,
         faces: Faces {
             body,
             heading: stack(&t.sans_font, Kind::Sans),
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn defaults_set_the_bundled_faces_as_before() {
-        let t = typography(&TextSettings::default(), 100.0);
+        let t = typography(&TextSettings::default());
         assert_eq!(t, Typography::default());
     }
 
@@ -102,9 +102,10 @@ mod tests {
             justify: true,
             hyphenation: true,
             book_layout: true,
+            column_width_pct: 120.0,
             ..TextSettings::default()
         };
-        let t = typography(&s, 120.0);
+        let t = typography(&s);
         assert_eq!(t.column_scale, 1.2);
         assert_eq!(
             (t.font_size, t.weight, t.line_height, t.block_gap),
@@ -125,7 +126,7 @@ mod tests {
             mono_font: FontChoice::Bundled("jetbrains-mono".into()),
             ..TextSettings::default()
         };
-        let f = typography(&s, 100.0).faces;
+        let f = typography(&s).faces;
         // The body follows the serif slot.
         assert_eq!(f.body, [named("Georgia"), named("Literata")]);
         assert_eq!(f.heading, [Family::Generic(Kind::Sans), named("Inter")]);
@@ -135,7 +136,7 @@ mod tests {
             ..s
         };
         assert_eq!(
-            typography(&s, 100.0).faces.body,
+            typography(&s).faces.body,
             [named("Verdana"), named("Inter")]
         );
         // An id that doesn't ship is the slot's default.
@@ -143,6 +144,6 @@ mod tests {
             default_font: FontChoice::Bundled("gone".into()),
             ..TextSettings::default()
         };
-        assert_eq!(typography(&s, 100.0).faces.body, [named("Literata")]);
+        assert_eq!(typography(&s).faces.body, [named("Literata")]);
     }
 }
