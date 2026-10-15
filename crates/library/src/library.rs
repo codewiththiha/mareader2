@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
-use crate::id::{BookId, ContentId, DeviceId};
+use crate::id::{BookId, ContentId, DeviceId, SourceId};
+use crate::sources::Source;
 
 /// What a measured file is: its content and its size and time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,26 +46,30 @@ pub struct Library {
     pub(crate) clock: Clock,
     pub(crate) books: BTreeMap<BookId, Book>,
     pub(crate) states: BTreeMap<BookId, State>,
+    pub(crate) sources: BTreeMap<SourceId, Source>,
     /// Each location's path to its book; rebuilt, never saved.
-    at: HashMap<PathBuf, BookId>,
-    dirty: Dirty,
+    pub(crate) at: HashMap<PathBuf, BookId>,
+    pub(crate) dirty: Dirty,
 }
 
 impl Library {
     /// An empty library written by `device`.
     pub fn new(device: DeviceId) -> Self {
-        Self::from_parts(Clock::new(device), BTreeMap::new(), BTreeMap::new())
+        let clock = Clock::new(device);
+        Self::from_parts(clock, BTreeMap::new(), BTreeMap::new(), BTreeMap::new())
     }
 
     pub(crate) fn from_parts(
         clock: Clock,
         books: BTreeMap<BookId, Book>,
         states: BTreeMap<BookId, State>,
+        sources: BTreeMap<SourceId, Source>,
     ) -> Self {
         let mut library = Self {
             clock,
             books,
             states,
+            sources,
             at: HashMap::new(),
             dirty: Dirty::default(),
         };
@@ -72,7 +77,7 @@ impl Library {
         library
     }
 
-    fn index(&mut self) {
+    pub(crate) fn index(&mut self) {
         self.at.clear();
         for book in self.books.values().filter(|b| b.alive()) {
             for location in &book.locations {
@@ -131,6 +136,7 @@ impl Library {
         let id = match id.and_then(|id| self.books.get_mut(&id)) {
             Some(book) => {
                 book.content = content;
+                book.format = opened.format;
                 book.opened = Field::new(wall_ms, at);
                 // Filled once; a reader's own edit outlasts reopening.
                 if book.author.value.is_none() && opened.author.is_some() {
@@ -138,16 +144,24 @@ impl Library {
                 }
                 book.id
             }
-            None => self.add(&opened, wall_ms, at),
+            None => self.add(&opened, wall_ms, at, true),
         };
-        self.place(id, &opened);
+        let origin = self.origin_of(&opened.path);
+        self.place(id, &opened.path, opened.measure.stamp, origin);
         self.dirty.library = true;
         id
     }
 
-    /// A new book, or a removed one of this content brought back.
-    fn add(&mut self, opened: &Opened, wall_ms: u64, at: Stamp) -> BookId {
+    /// A new book, or a removed one back; found unopened, it reads 0.
+    pub(crate) fn add(
+        &mut self,
+        opened: &Opened,
+        wall_ms: u64,
+        at: Stamp,
+        opening: bool,
+    ) -> BookId {
         let id = BookId::original(opened.measure.content);
+        let last = if opening { wall_ms } else { 0 };
         let book = self.books.entry(id).or_insert_with(|| Book {
             id,
             content: opened.measure.content,
@@ -155,45 +169,39 @@ impl Library {
             title: Field::new(opened.title.clone(), at),
             author: Field::new(opened.author.clone(), at),
             added: wall_ms,
-            opened: Field::new(wall_ms, at),
+            opened: Field::new(last, at),
             locations: Vec::new(),
             removed: None,
             restored: None,
         });
         if !book.alive() {
             book.restored = Some(at);
-            book.opened = Field::new(wall_ms, at);
+            if opening {
+                book.opened = Field::new(wall_ms, at);
+            }
         }
         id
     }
 
     /// Makes the path the book's newest location, and only its own.
-    fn place(&mut self, id: BookId, opened: &Opened) {
-        if let Some(old) = self.at.insert(opened.path.clone(), id)
+    pub(crate) fn place(&mut self, id: BookId, path: &Path, stamp: FileStamp, origin: Origin) {
+        if let Some(old) = self.at.insert(path.to_path_buf(), id)
             && old != id
             && let Some(other) = self.books.get_mut(&old)
         {
-            other.locations.retain(|l| l.path != opened.path);
+            other.locations.retain(|l| l.path != path);
         }
         let Some(book) = self.books.get_mut(&id) else {
             return;
         };
-        let kept = book.locations.iter().position(|l| l.path == opened.path);
-        let origin = kept
-            .and_then(|i| book.locations.get(i))
-            .map_or(Origin::Opened, |l| l.origin);
-        if let Some(i) = kept {
-            book.locations.remove(i);
-        }
-        book.locations.insert(
-            0,
-            Location {
-                path: opened.path.clone(),
-                origin,
-                stamp: opened.measure.stamp,
-                present: true,
-            },
-        );
+        book.locations.retain(|l| l.path != path);
+        let location = Location {
+            path: path.to_path_buf(),
+            origin,
+            stamp,
+            present: true,
+        };
+        book.locations.insert(0, location);
     }
 
     /// Writes down where the reader is; false if nothing changed.

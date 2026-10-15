@@ -15,13 +15,17 @@ mod clock;
 pub mod disk;
 mod id;
 mod library;
+mod sources;
 mod view;
 
-pub use book::{Book, FileStamp, Format, Location, Origin, Position, State};
+pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
-pub use id::{BookId, ContentId, DeviceId};
+pub use id::{BookId, ContentId, DeviceId, SourceId};
 pub use library::{Dirty, Library, Measure, Opened};
+pub use sources::{AddError, Added, Found, RelinkError, Scan, ScanReport, Source, SourceEdit};
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Layout, SortKey, View, natural};
 
+#[cfg(test)]
+mod source_tests;
 #[cfg(test)]
 mod tests;
