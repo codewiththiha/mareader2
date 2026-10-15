@@ -249,13 +249,14 @@ fn find_opens_the_bar_which_holds_the_title_bar_until_escape() {
 
 #[test]
 fn find_without_a_document_opens_the_library() {
+    use egui_kittest::kittest::Queryable as _;
     let mut h = reader(&[]);
     h.key_press_modifiers(egui::Modifiers::COMMAND, Key::F);
     h.run();
     assert!(!h.state().find().is_open());
-    let sidebar = h.state().sidebar();
-    assert!(sidebar.is_open());
-    assert_eq!(sidebar.panel(), mareader_ui::sidebar::Panel::Library);
+    assert!(h.state().library_showing());
+    let search = h.get_by_label(mareader_ui::library::search::LABEL);
+    assert!(search.is_focused(), "its search takes the keys");
 }
 
 #[test]

@@ -62,6 +62,7 @@ pub enum Action {
     Shelf(super::ShelfAction),
     Pick(super::PickAction),
     Book(super::BookAction),
+    Search(super::SearchAction),
 }
 
 /// The sheet over the page, if any.
@@ -210,6 +211,7 @@ impl LibraryState {
             Action::Shelf(action) => self.shelf_act(action, out),
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.book_act(action, out),
+            Action::Search(action) => self.search_act(action, now),
             // Dialogs need the app's files; it handles them.
             Action::ShowFolders
             | Action::PickFolder

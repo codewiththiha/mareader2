@@ -29,7 +29,7 @@ fn reads(command: &Command) -> bool {
     match command {
         // The rail and the bar's folding tools act on panes.
         C::ToggleSidebar | C::OpenSidebar(_) | C::CloseSidebar => true,
-        C::ShowSearch | C::ShowFind | C::Split(_) => true,
+        C::ShowSearch | C::Split(_) => true,
         // Settings are about reading; their gear lives on the reader's bar.
         C::ShowSettings | C::OpenSettings(_) => true,
         // The focused pane's view and place.
@@ -40,6 +40,8 @@ fn reads(command: &Command) -> bool {
         C::SetIndependence(_) | C::SetInkContrast(_) => true,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
+        // Find searches the page in reading, the library on the shelf.
+        C::ShowFind => false,
         C::Library(_) => false,
         C::Open(_) | C::ShowOpenDialog { .. } | C::ShowViewMenu => false,
         // The window's look, chrome and notices.
