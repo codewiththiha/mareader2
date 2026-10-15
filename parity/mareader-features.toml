@@ -470,9 +470,13 @@ evidence = [
   "crates/ui/tests/library.rs::a_new_shelf_opens_and_is_named_in_the_breadcrumb",
   "crates/ui/tests/library.rs::removing_a_shelf_asks_then_moves_its_shelves_up",
   "crates/ui/tests/library.rs::home_can_leave_shelved_books_to_their_shelves",
+  "crates/library/src/arrange_tests.rs::shelves_and_books_mix_anywhere_and_moves_keep_their_order",
+  "crates/library/src/arrange_tests.rs::a_level_from_before_keys_keeps_its_order_when_first_arranged",
+  "crates/ui/tests/arrange.rs::a_card_dropped_on_anothers_side_moves_there",
+  "crates/ui/tests/arrange.rs::a_shelf_moves_by_its_edges_and_takes_books_in_its_middle",
 ]
 reference = ["crates/library-core/src/shelf/mod.rs"]
-notes = "Nested shelves with unique sibling names, books on many, Manual order by sync-safe keys; Home shows every book or only unshelved ones (M5 slice 4). The list shows shelves as rows, not a tree"
+notes = "Nested shelves with unique sibling names, books on many; Home shows every book or only unshelved ones (M5 slice 4). Shelves and books share one arranged order per level by sync-safe keys, dragged in the grid (M5 slice 10). The list shows shelves as rows, not a tree"
 
 [[feature]]
 id = "library.source-tree"
@@ -492,7 +496,7 @@ milestone = "M5"
 status = "shipped"
 evidence = ["crates/ui/tests/library.rs::the_view_menu_sets_layout_columns_covers_and_order", "crates/ui/tests/library.rs::titles_with_numbers_sort_by_their_value", "crates/library/src/tests.rs::numbers_in_names_sort_by_value_ignoring_case", "crates/library/src/tests.rs::books_without_an_author_sort_last_both_ways", "crates/ui/src/library/view.rs::automatic_columns_keep_cards_wide_within_the_limits"]
 reference = ["crates/library-core/src/view.rs", "crates/library-runtime/src/features/library/grid.rs"]
-notes = "Grid of A4 covers (fit or crop) or list; Auto or 2-10 columns; last read, title, author or added, either way (M5 slice 2). Manual order comes with shelves"
+notes = "Grid of A4 covers (fit or crop) or list; Auto or 2-10 columns; last read, title, author or added, either way (M5 slice 2); Arranged, the default, is the reader's own order (M5 slice 10)"
 
 [[feature]]
 id = "library.search"
