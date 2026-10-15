@@ -575,7 +575,7 @@ tier = "P0"
 milestone = "M5"
 status = "shipped"
 evidence = [
-  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_folders",
+  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_its_menu",
   "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
   "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
 ]
@@ -590,7 +590,7 @@ tier = "P1"
 milestone = "M5"
 status = "shipped"
 evidence = [
-  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_folders",
+  "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_its_menu",
   "crates/library/src/removal_tests.rs::a_folder_book_removed_stays_hidden_until_restored_with_its_place",
 ]
 reference = ["crates/library-core/src/ledger.rs"]

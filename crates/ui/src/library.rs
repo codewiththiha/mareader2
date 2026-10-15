@@ -1,5 +1,6 @@
 //! The library's state: the model, its files, and what the panes read.
 
+mod add;
 pub mod books;
 mod covers;
 pub mod crumbs;
@@ -30,8 +31,10 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
+pub use add::{ADD_MENU, FolderKeep, FolderPlan};
 pub use books::BookAction;
 pub use covers::Covers;
+pub use io::{Filter, Keep};
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use picks::{Pick, PickAction, Picks};

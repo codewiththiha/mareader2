@@ -1,10 +1,14 @@
-//! Sheets over the library: finding, removing and renaming.
+//! Sheets over the library: finding, removing, renaming, adding folders.
+
+use std::path::PathBuf;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
 use mareader_library::{Book, BookId, Library, Receipt, Shelf, ShelfId, Source};
 
 use super::books::counted;
-use super::{Action, BookAction, Finding, LibraryState, Sheet, ShelfAction, Step};
+use super::{
+    Action, BookAction, Finding, FolderKeep, FolderPlan, LibraryState, Sheet, ShelfAction, Step,
+};
 use crate::command::{Command, Commands};
 use crate::theme::{self, Tokens};
 
@@ -53,6 +57,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => rename(ui, book, &t),
                     None => Some(Action::CloseSheet),
                 },
+                Sheet::AddFolders(roots) => add_folders(ui, roots, &t),
             };
         });
     let working = matches!(sheet, Sheet::Find(f) if matches!(f.step, Step::Working(_)));
@@ -227,9 +232,11 @@ fn removal(
     let mut lines = Vec::new();
     match receipt.hidden {
         0 => {}
-        1 if n == 1 => lines.push("Its file stays in its folder; restore it from Folders.".into()),
+        1 if n == 1 => {
+            lines.push("Its file stays in its folder; restore it from the folder's menu.".into())
+        }
         h => lines.push(format!(
-            "{} stay in their folders as files; restore them from Folders.",
+            "{} stay in their folders as files; restore them from each folder's menu.",
             counted(h, "book", "books")
         )),
     }
@@ -303,6 +310,71 @@ fn rename(ui: &mut Ui, book: &Book, t: &Tokens) -> Option<Action> {
     if act.is_some() {
         ui.data_mut(|d| d.remove::<String>(key));
     }
+    act
+}
+
+/// Asks how folders' books are kept, and which files count.
+fn add_folders(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> Option<Action> {
+    let name = |p: &PathBuf| super::sources::folder_name(p);
+    match roots {
+        [one] => title(ui, &format!("Add “{}”", name(one)), t),
+        many => title(ui, &format!("Add {} folders", many.len()), t),
+    }
+    let shown: Vec<String> = roots.iter().map(|p| p.display().to_string()).collect();
+    ui.label(RichText::new(shown.join("\n")).size(12.0).color(t.muted));
+    let key = Id::new("add-folders-plan");
+    let mut plan = ui.data_mut(|d| {
+        d.get_temp_mut_or_insert_with(key, FolderPlan::default)
+            .clone()
+    });
+    let ways = [
+        (
+            FolderKeep::Watch,
+            "Read in place and watch",
+            "Nothing is copied. Books added to the folder later appear too.",
+        ),
+        (
+            FolderKeep::InPlace,
+            "Read in place",
+            "Nothing is copied. Look again from the folder's menu.",
+        ),
+        (
+            FolderKeep::Copy,
+            "Copy into the library",
+            "Mareader keeps its own copies; the folder can go.",
+        ),
+    ];
+    for (keep, label, detail) in ways {
+        ui.radio_value(&mut plan.keep, keep, RichText::new(label).color(t.ink));
+        ui.horizontal(|ui| {
+            ui.add_space(24.0);
+            ui.label(RichText::new(detail).size(12.0).color(t.muted));
+        });
+    }
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new("What counts as a book")
+            .size(12.0)
+            .color(t.muted),
+    );
+    let filter = &mut plan.filter;
+    super::folders::what_counts(ui, &mut filter.formats, &mut filter.min_size);
+    ui.data_mut(|d| d.insert_temp(key, plan.clone()));
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        if primary(ui, "Add", t.accent, t).clicked() {
+            let roots = roots.to_vec();
+            act = Some(Action::AddFolders {
+                roots,
+                plan: plan.clone(),
+            });
+        }
+        if ui.button("Cancel").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    // The choice stays for the next folder; only the sheet goes.
     act
 }
 

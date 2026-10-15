@@ -1,6 +1,6 @@
 //! The library's disk work on one thread, or inline for tests and shots.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -36,26 +36,61 @@ pub enum Job {
     },
 }
 
-/// Files to copy into `store`, unless their content is in `known`.
+/// How added books are kept.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Keep {
+    /// Copied into the library's folder; the originals may go.
+    #[default]
+    Copy,
+    /// Read where they are; nothing is copied.
+    InPlace,
+}
+
+/// Which files a folder gives: these formats, at least this big.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Filter {
+    pub formats: BTreeSet<Format>,
+    pub min_size: u64,
+}
+
+impl Default for Filter {
+    fn default() -> Self {
+        Self {
+            formats: Format::ALL.into(),
+            min_size: 0,
+        }
+    }
+}
+
+/// Files, or folders walked through `filter`, to take in as `keep` says.
 pub struct Import {
     pub paths: Vec<PathBuf>,
+    pub keep: Keep,
+    pub filter: Filter,
     pub store: PathBuf,
+    /// The library's own folders, never walked.
+    pub avoid: Vec<PathBuf>,
+    /// Contents the library holds: not copied again.
     pub known: HashSet<ContentId>,
     /// The shelf they go on.
     pub to: Option<mareader_library::ShelfId>,
     pub run: RunId,
 }
 
-/// What an import copied, found known, skipped or couldn't read.
+/// What an import took in, found known, skipped or couldn't read.
 #[derive(Debug, Default)]
 pub struct Imported {
     pub run: Option<RunId>,
     pub to: Option<mareader_library::ShelfId>,
-    pub copies: Vec<Opened>,
+    pub keep: Keep,
+    /// Copies made, or files in place, to record.
+    pub files: Vec<Opened>,
     /// Already in the library: not copied.
     pub known: Vec<(PathBuf, ContentId)>,
     /// Not a book Mareader reads.
     pub skipped: Vec<PathBuf>,
+    /// Folders with no books in them.
+    pub empty: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
 }
 
@@ -284,40 +319,82 @@ fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
     let mut out = Imported {
         run: Some(job.run),
         to: job.to,
+        keep: job.keep,
         ..Imported::default()
     };
+    let paths = expand(&job, post, &mut out.empty);
     let mut known = job.known;
-    let total = job.paths.len();
-    for (done, path) in job.paths.into_iter().enumerate() {
-        beat(post, Some(job.run), Phase::Copying, (done, total), &path);
+    let mut seen = HashSet::new();
+    let total = paths.len();
+    let phase = match job.keep {
+        Keep::Copy => Phase::Copying,
+        Keep::InPlace => Phase::Reading,
+    };
+    for (done, path) in paths.into_iter().enumerate() {
+        beat(post, Some(job.run), phase, (done, total), &path);
         let Some(format) = Format::of_path(&path).filter(|_| path.is_file()) else {
             out.skipped.push(path);
             continue;
         };
-        let copied = disk::measure(&path, format).and_then(|m| {
-            // The same file dropped twice in one go is copied once.
-            if !known.insert(m.content) {
-                return Ok(Err(m.content));
+        let taken = disk::measure(&path, format).and_then(|m| {
+            // The same file dropped twice in one go is taken once.
+            if !seen.insert(m.content) {
+                return Ok(None);
             }
-            let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
-            Ok(Ok((copy, Measure { stamp, ..m })))
+            let fresh = known.insert(m.content);
+            match job.keep {
+                Keep::Copy if !fresh => Ok(Some(Err(m.content))),
+                Keep::Copy => {
+                    let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
+                    Ok(Some(Ok((copy, Measure { stamp, ..m }, true))))
+                }
+                Keep::InPlace => {
+                    let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+                    Ok(Some(Ok((path, m, fresh))))
+                }
+            }
         });
-        match copied {
-            Ok(Ok((copy, measure))) => {
-                let (title, author) = mareader_session::describe(&copy);
-                out.copies.push(Opened {
+        match taken {
+            Ok(Some(Ok((file, measure, fresh)))) => {
+                // Names are read only for books new to the library.
+                let (title, author) = match fresh {
+                    true => mareader_session::describe(&file),
+                    false => (None, None),
+                };
+                out.files.push(Opened {
                     title: display_title(title.as_deref(), &path),
-                    path: copy,
+                    path: file,
                     measure,
                     format,
                     author,
                 });
             }
-            Ok(Err(content)) => out.known.push((path, content)),
+            Ok(Some(Err(content))) => out.known.push((path, content)),
+            Ok(None) => {}
             Err(e) => out.failed.push((path, e.to_string())),
         }
     }
     out
+}
+
+/// The files named, and the books under the folders named.
+fn expand(job: &Import, post: &mut dyn FnMut(News), empty: &mut Vec<PathBuf>) -> Vec<PathBuf> {
+    let keep = |format, size| job.filter.formats.contains(&format) && size >= job.filter.min_size;
+    let limits = Limits::new(super::wall_ms());
+    let mut files = Vec::new();
+    for path in &job.paths {
+        if !path.is_dir() {
+            files.push(path.clone());
+            continue;
+        }
+        beat(post, Some(job.run), Phase::Scanning, (0, 0), path);
+        let walked = disk::walk(path, keep, limits, &job.avoid);
+        if walked.files.is_empty() {
+            empty.push(path.clone());
+        }
+        files.extend(walked.files.into_iter().map(|(file, ..)| file));
+    }
+    files
 }
 
 fn rescan(job: Rescan, post: &mut dyn FnMut(News)) -> Rescanned {
