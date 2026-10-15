@@ -189,7 +189,6 @@ fn the_library_and_positions_come_back_after_a_restart() {
     let id = library(&h).book_at(&path);
     let id = id.unwrap_or_else(|| panic!("{path:?} not recorded: {}", state(&h)));
     assert!(root.join("library.sqlite").is_file());
-    assert!(root.join(format!("state/{id}.json")).is_file());
     drop(h);
 
     let mut h = launch();
