@@ -224,14 +224,13 @@ fn with_zoom_ease_off_a_step_lands_on_its_first_frame() {
 #[test]
 fn find_opens_the_bar_which_holds_the_title_bar_until_escape() {
     use egui_kittest::kittest::Queryable as _;
-    use mareader_ui::find_bar::LATER;
     let mut h = reader(&[("pdf", "sample:20")]);
     h.hover_at(egui::pos2(450.0, 400.0));
     h.key_press_modifiers(egui::Modifiers::COMMAND, Key::F);
     h.run();
     let pane = h.state().active_pane();
     assert_eq!(h.state().find().pane(), Some(pane));
-    let _ = h.get_by_label(LATER);
+    let _ = h.get_by_label("Close search");
     // Well past the bar's grace, the open search keeps it.
     h.run_steps(60);
     assert!(h.state().titlebar().visible());

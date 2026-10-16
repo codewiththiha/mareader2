@@ -1226,8 +1226,17 @@ title = "Full-text search: per-page results with snippets, wrap-around, amber cu
 area = "H"
 tier = "P0"
 milestone = "M7"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-core/src/search.rs", "crates/pdf-core/src/search.rs", "crates/reader-runtime/src/components/search/floating_search.rs"]
+evidence = [
+  "crates/ui/tests/find.rs::a_query_counts_every_page_and_enter_steps_through_them",
+  "crates/ui/tests/find.rs::the_results_list_goes_to_a_picked_hit",
+  "crates/ui/tests/find.rs::a_book_is_searched_and_its_hit_revealed",
+  "crates/ui/tests/find.rs::a_hit_below_a_tall_figure_is_scrolled_into_view",
+  "crates/ui/tests/find.rs::escape_closes_the_bar_and_keeps_the_query",
+  "crates/search/src/walk.rs::a_shown_hit_stays_and_others_land_on_the_bias_line",
+]
+notes = "Also matches across lines and line-end hyphens, folds accents, quotes and ligatures, and starts from the page read (docs/search.md)"
 
 [[feature]]
 id = "search.lazy-index"
@@ -1235,8 +1244,10 @@ title = "The search index builds on the first search, not at open"
 area = "H"
 tier = "P1"
 milestone = "M7"
-status = "planned"
+status = "shipped"
 reference = ["crates/pdf-core/src/search.rs"]
+evidence = ["crates/ui/tests/find.rs::the_first_enter_starts_from_the_page_read"]
+notes = "One thread per searched document reads pages on the first query, answering as they come; tests and wasm read inline"
 
 [[feature]]
 id = "study.gloss"

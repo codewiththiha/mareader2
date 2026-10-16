@@ -8,6 +8,7 @@ use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
 use mareader_library::{BookId, MarkId};
 use mareader_pdf::{Bounds, LinkTarget, web_address};
+use mareader_search::reveal;
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupFit, TextSettings};
 
@@ -302,6 +303,55 @@ impl PdfView {
         self.go(page.min(count.saturating_sub(1)));
     }
 
+    /// Shows `spot` on `page`, offset by its stream `band`; false if unknown.
+    pub fn seek(&mut self, page: usize, spot: Option<Bounds>, band: Vec2, count: usize) -> bool {
+        // Already heading there: going again would restart the glide.
+        let heading = self.jump.is_some() || self.reveal.is_some();
+        let shows = self.visible.contains(&page);
+        if self.mode.paged() || spot.is_none() || self.layout.is_none() {
+            if !shows && !heading {
+                self.go_to(page, count);
+            }
+            return self.mode.paged();
+        }
+        let (Some(layout), Some(b)) = (&self.layout, spot) else {
+            return false;
+        };
+        let Some(rect) = layout.rect(page) else {
+            return false;
+        };
+        let zoom = layout.zoom();
+        // Only the vertical strip cuts pages to their bands.
+        let band = if self.mode == ViewMode::Vertical {
+            band
+        } else {
+            Vec2::ZERO
+        };
+        let origin = rect.min - band * zoom;
+        let at = |x: f32, y: f32| origin + vec2(x, y) * zoom;
+        let hit = Rect::from_min_max(at(b.x0, b.y0), at(b.x1, b.y1));
+        let (o, v) = (self.offset, self.viewport);
+        // The find bar floats over the pane's top, under any pinned bar.
+        let top = layout.inputs.inset + FIND_CLEARANCE;
+        let y = reveal(
+            hit.top()..hit.bottom(),
+            o.y + top..o.y + v.y - SEEK_MARGIN,
+            o.y,
+        );
+        let x = reveal(
+            hit.left()..hit.right(),
+            o.x + SEEK_MARGIN..o.x + v.x - SEEK_MARGIN,
+            o.x,
+        );
+        if x.is_some() || y.is_some() {
+            self.scroll_to = Some((vec2(x.unwrap_or(o.x), y.unwrap_or(o.y)), 2));
+            self.jump = None;
+            self.aim = None;
+            self.reveal = None;
+        }
+        true
+    }
+
     /// Auto Resize: refits to the page read; returns any wait left.
     fn follow_size(&mut self, sizes: &[PageSize], on: bool, now: f64) -> Option<f64> {
         let page = self.current;
@@ -374,6 +424,8 @@ pub struct ViewContext {
     pub picked: Option<Vec<MarkId>>,
     /// How hard words are shaded; none while shading is off.
     pub shading: Option<crate::vocab::Look>,
+    /// The find bar's hits, in the pane it searches.
+    pub found: Option<crate::search::Lit>,
 }
 
 /// The Layout settings the pages follow.
@@ -790,6 +842,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
             }
+            if let Some(lit) = &cx.found {
+                crate::search::paint(ui, &text, lit, &t);
+            }
             if let Some(sel) = selection.filter(|s| !s.is_empty()) {
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
@@ -1162,6 +1217,10 @@ impl Tiles {
 
 /// Glyphs may overhang the column a little: a hung hyphen, an italic.
 const STREAM_SLACK: f32 = 24.0;
+/// What a revealed hit keeps clear at the top: the find bar and its air.
+const FIND_CLEARANCE: f32 = 72.0;
+/// Air a revealed hit keeps from the other edges.
+const SEEK_MARGIN: f32 = 24.0;
 
 /// The whole page placed so `band` fills `cut`, and a clip to the band.
 fn streamed(cut: Rect, band: &Band, size: Option<&PageSize>, zoom: f32, ppp: f32) -> (Rect, Rect) {

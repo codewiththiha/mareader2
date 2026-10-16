@@ -22,6 +22,7 @@ fn main() -> Result<(), String> {
     let mut drag = None;
     let mut carry = None;
     let mut words = false;
+    let mut searched = false;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -96,7 +97,13 @@ fn main() -> Result<(), String> {
                 });
             }
             // The find bar, once open: `find=true`.
-            "find" => queued.push(Command::ShowFind),
+            "find" if v == "true" => queued.push(Command::ShowFind),
+            // Searched, on the first hit from the page read: `find=fox`.
+            "find" => {
+                app.set_option(k, v)?;
+                queued.push(Command::ShowFind);
+                searched = true;
+            }
             // The real word levels, fetched into a temporary folder.
             "cefr" if v == "download" => {
                 let dir = std::env::temp_dir().join("mareader-shot-cefr");
@@ -128,6 +135,10 @@ fn main() -> Result<(), String> {
     for c in queued {
         harness.state_mut().queue(c);
         harness.run_steps(8);
+    }
+    // The hit is revealed, gliding there when it's pages away.
+    if searched {
+        harness.run_steps(60);
     }
     for z in zooms {
         harness.state_mut().queue(Command::Zoom(z));
