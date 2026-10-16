@@ -1292,6 +1292,37 @@ fn a_folder_read_in_place_keeps_the_sheets_choices() {
     assert_eq!(library(&h).shelf_books(shelf.id).len(), 1);
 }
 
+#[test]
+fn covers_scrolled_past_never_pile_up_waiting() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Many");
+    for n in 0..120 {
+        let pdf = mareader_pdf::sample::pdf(1, &format!("Book {n}"));
+        put(&root, &format!("b{n:03}.pdf"), &pdf);
+    }
+    let mut h = kept_in(dir.path());
+    act(&mut h, read_in(&root));
+    assert_eq!(library(&h).len(), 120, "{}", state(&h));
+    // A fast scroll, a frame a step, past far more covers than fit.
+    h.hover_at(egui::pos2(450.0, 400.0));
+    let mut most = 0;
+    for _ in 0..80 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -300.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.step();
+        let waiting = h.state().library_state().covers().waiting();
+        most = most.max(waiting);
+    }
+    // Read covers wait only while their books are near the view.
+    assert!(most <= 8, "{most} covers waited for a texture");
+    assert!(h.state().covers_shown() > 0, "covers were drawn");
+    assert!(h.state().library_state().covers().bytes() <= 64 << 20);
+}
+
 fn note(title: &str) -> Vec<u8> {
     format!("---\ntitle: {title}\n---\n\n# {title}\n\nText.\n").into_bytes()
 }
