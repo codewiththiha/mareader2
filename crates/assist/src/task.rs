@@ -84,10 +84,10 @@ impl Task for Explain<'_> {
     fn read(&self, answer: &Value, whole: bool) -> Option<WordInfo> {
         let fields = unwrap_object(answer)?;
         let info = WordInfo {
-            pos: text(fields.get("pos")),
-            meaning: text(fields.get("meaning")),
-            synonyms: list(fields.get("synonyms")),
-            usages: list(fields.get("usages")),
+            pos: text(field(fields, POS)),
+            meaning: text(field(fields, MEANING)),
+            synonyms: list(field(fields, SYNONYMS)),
+            usages: list(field(fields, USAGES)),
         };
         let empty = info == WordInfo::default();
         match whole {
@@ -99,10 +99,33 @@ impl Task for Explain<'_> {
     }
 }
 
+// Names models use when they drift from the schema, schema's first.
+const POS: &[&str] = &["pos", "part_of_speech", "partofspeech", "word_class"];
+const MEANING: &[&str] = &["meaning", "definition", "explanation", "sense", "gloss"];
+const SYNONYMS: &[&str] = &["synonyms", "synonym", "similar_words"];
+const USAGES: &[&str] = &[
+    "usages",
+    "usage",
+    "examples",
+    "example_sentences",
+    "example",
+];
+
+/// The first of `names` present, ignoring case, spaces and dashes.
+fn field<'a>(fields: &'a Map<String, Value>, names: &[&str]) -> Option<&'a Value> {
+    let plain = |k: &str| k.to_lowercase().replace([' ', '-'], "_");
+    names.iter().find_map(|name| {
+        fields
+            .iter()
+            .find(|(k, _)| plain(k) == *name)
+            .map(|(_, v)| v)
+    })
+}
+
 /// The object itself, or the one object some models wrap it in.
 fn unwrap_object(v: &Value) -> Option<&Map<String, Value>> {
     let o = v.as_object()?;
-    if o.contains_key("meaning") || o.len() != 1 {
+    if field(o, MEANING).is_some() || o.len() != 1 {
         return Some(o);
     }
     match o.values().next() {
@@ -141,6 +164,26 @@ mod tests {
         word: "quick",
         context: "The quick brown fox",
     };
+
+    #[test]
+    fn drifting_names_are_still_read() {
+        let v = serde_json::json!({
+            "Part of Speech": "adjective",
+            "Definition": "Fast.",
+            "synonyms": "swift, rapid",
+            "examples": ["Be quick."]
+        });
+        let info = FOX.read(&v, true).unwrap_or_default();
+        assert_eq!(info.pos, "adjective");
+        assert_eq!(info.meaning, "Fast.");
+        assert_eq!(info.synonyms, ["swift", "rapid"]);
+        assert_eq!(info.usages, ["Be quick."]);
+        let wrapped = serde_json::json!({ "word_info": { "definition": "Fast." } });
+        assert_eq!(
+            FOX.read(&wrapped, true).map(|i| i.meaning).as_deref(),
+            Some("Fast.")
+        );
+    }
 
     #[test]
     fn the_prompt_quotes_the_reader_s_text() {

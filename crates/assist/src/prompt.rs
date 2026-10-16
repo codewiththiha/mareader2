@@ -13,16 +13,6 @@ pub struct Prompt {
     pub schema: Value,
 }
 
-impl Prompt {
-    /// The system text plus the schema, for servers that can't take one.
-    pub fn system_with_schema(&self) -> String {
-        format!(
-            "{}\nThe JSON must match this JSON Schema:\n{}",
-            self.system, self.schema
-        )
-    }
-}
-
 /// `text` as a one-line JSON string, so it can't pass for instructions.
 pub fn quote(text: &str, max: usize) -> String {
     let flat: String = text

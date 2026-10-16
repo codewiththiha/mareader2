@@ -69,6 +69,44 @@ async fn a_refused_schema_falls_back_to_a_json_object() {
 }
 
 #[tokio::test]
+async fn an_ignored_schema_is_asked_for_again_plainly() {
+    // As Ollama Cloud does: the schema is accepted, then ignored.
+    let drift = r#"{"term":"quick","notes":"fast"}"#;
+    let answers = vec![Answer::stream(&[drift]), Answer::stream(&[QUICK])];
+    let server = Server::start(answers).await;
+    let compat = Compat::new(keyless(&server.url).await, "gemma-cloud");
+    let info = run(&compat, &FOX, &|_| {}).await.unwrap();
+    assert_eq!(info.pos, "adjective");
+    let seen = server.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[1].body["response_format"]["type"], "json_object");
+
+    // The next word starts with the mode that worked.
+    run(&compat, &FOX, &|_| {}).await.unwrap();
+    let seen = server.seen();
+    assert_eq!(seen[2].body["response_format"]["type"], "json_object");
+}
+
+#[tokio::test]
+async fn an_unreadable_answer_names_what_came() {
+    let drift = r#"{"term":"quick","notes":"fast"}"#;
+    let server = Server::start(vec![Answer::stream(&[drift])]).await;
+    let compat = Compat::new(keyless(&server.url).await, "m");
+    let failed = run(&compat, &FOX, &|_| {}).await.unwrap_err();
+    assert_eq!(failed.why, Why::BadAnswer);
+    let detail = failed.detail.unwrap_or_default();
+    assert!(
+        detail.contains("notes") && detail.contains("term"),
+        "{detail}"
+    );
+    assert_eq!(
+        server.seen().len(),
+        3,
+        "schema, JSON mode, then a plain prompt"
+    );
+}
+
+#[tokio::test]
 async fn a_blank_model_takes_the_server_s_first() {
     let models = r#"{"data":[{"id":"llama3.2"},{"id":"qwen3"}]}"#;
     let answers = vec![Answer::json(200, models), Answer::stream(&[QUICK])];

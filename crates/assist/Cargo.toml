@@ -16,9 +16,9 @@ serde_json = { workspace = true }
 tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
 # Apple Intelligence through a Swift helper; a Mac answers, others say why.
-fm-bridge = { git = "https://github.com/codewiththiha/fm-bridge", rev = "55b8c43e82c0c4fb21bf43a65d240ef8733d90cb" }
+fm-bridge = { git = "https://github.com/codewiththiha/fm-bridge", rev = "dc85911d63d49a7946ff7d1bf12c0e226ab5a450" }
 # OpenAI-compatible servers, with keys encrypted in one SQLite file.
-ai-pool = { git = "https://github.com/codewiththiha/ai-pool", rev = "68b8a9d893b4dd3e9d5a3f7285a3723d08774346", default-features = false, features = ["sqlite", "os-keychain", "stream"] }
+ai-pool = { git = "https://github.com/codewiththiha/ai-pool", rev = "42f910be4828e8fe9047930a684b13320fe20cc8", default-features = false, features = ["sqlite", "os-keychain", "stream"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
