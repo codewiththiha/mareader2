@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web or cache
+        description: shots, web, memory or cache
         required: true
         type: choice
-        options: [shots, web, cache]
+        options: [shots, web, memory, cache]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -72,6 +72,65 @@ jobs:
           path: shots/
           retention-days: 3
           if-no-files-found: error
+
+  # docs/memory.md: each workload's table and budgets, in the summary too.
+  memory:
+    name: Remote / memory
+    if: inputs.task == 'memory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
+      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers
+      # The M2 audit's two papers, and a long novel; a fetch may fail.
+      - name: Books
+        run: |
+          mkdir -p books out
+          get() { curl -sSfL -A "Mozilla/5.0" --retry 3 -o "books/$1" "$2" || rm -f "books/$1"; }
+          get tracemonkey.pdf https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf
+          get attention.pdf https://arxiv.org/pdf/1706.03762v7
+          get war-and-peace.epub https://www.gutenberg.org/ebooks/2600.epub3.images
+          cp crates/epub/tests/books/the-raven-gutenberg-17192.epub books/raven.epub
+          ls -l books
+      - name: Measure
+        run: |
+          cargo build -q -p mareader-ui --example memory
+          status=0
+          run() {
+            title=$1; shift
+            case "$1" in books/*) [ -f "$1" ] || { echo "skipped: $title" | tee -a out/memory.md; return; } ;; esac
+            printf '## %s\n\n' "$title" >> out/memory.md
+            target/debug/examples/memory "$@" | tee -a out/memory.md || status=1
+            echo >> out/memory.md
+          }
+          run "tracemonkey, 14 pp" books/tracemonkey.pdf 12
+          run "arXiv Attention, 15 pp" books/attention.pdf 4
+          run "The Raven, EPUB" books/raven.epub 4
+          run "War and Peace, EPUB" books/war-and-peace.epub 2
+          run "Library, 3,000 PDFs read in place" --library 3000
+          run "Library, 20,000 books without files" --seeded 20000
+          cat out/memory.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: EPUB layout
+        if: always()
+        run: |
+          cargo test -q -p mareader-epub --test layout_memory -- --ignored --nocapture \
+            | tee -a out/layout.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memory
+          path: out/
+          retention-days: 7
 
   web:
     name: Remote / web

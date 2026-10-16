@@ -280,6 +280,11 @@ impl Covers {
         }
     }
 
+    /// The cover textures' bytes, held under a 64 MiB budget.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     /// Covers kept as textures; for tests.
     pub fn shown(&self) -> usize {
         let shown = |s: &&Slot| matches!(s, Slot::Shown { .. });
