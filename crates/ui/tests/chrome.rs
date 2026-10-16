@@ -269,3 +269,62 @@ fn an_idle_window_draws_nothing() {
         assert!(settled.is_ok(), "{options:?}: {settled:?}");
     }
 }
+
+/// Whether hovering the top, then the bottom, brings each bar up.
+fn bars(h: &mut Harness<'static, MareaderApp>) -> (bool, bool) {
+    h.hover_at(pos2(600.0, 10.0));
+    h.run_steps(30);
+    let top = h.query_by_label("Pin title bar").is_some();
+    h.hover_at(pos2(600.0, SIZE.y - 4.0));
+    h.run_steps(30);
+    let bottom = h.query_by_label("Next page").is_some();
+    (top, bottom)
+}
+
+fn toast(h: &Harness<'static, MareaderApp>) -> String {
+    h.state()
+        .toast()
+        .map(|t| t.message.clone())
+        .unwrap_or_default()
+}
+
+#[test]
+fn distraction_free_hides_every_bar_until_escape_or_its_key() {
+    let mut h = with(&[("pdf", "sample:3"), ("sidebar", "outline")], SIZE);
+    assert_eq!(bars(&mut h), (true, true), "both bars rise on hover");
+    let key = |h: &mut Harness<'static, MareaderApp>| {
+        h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, egui::Key::F);
+        h.run_steps(2);
+    };
+    key(&mut h);
+    assert!(!h.state().sidebar().is_open(), "the sidebar goes too");
+    assert!(toast(&h).contains("Esc"), "{}", toast(&h));
+    assert!(h.query_by_label("Find").is_none(), "Shift+F is not Find");
+    assert_eq!(bars(&mut h), (false, false));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(bars(&mut h), (true, true), "Escape brings them back");
+    // The View menu turns it on; the same key turns it off.
+    h.hover_at(pos2(600.0, 10.0));
+    h.run_steps(30);
+    h.get_by_label("View & tools").click();
+    h.run_steps(2);
+    h.get_by_label("Distraction-free").click();
+    h.run_steps(2);
+    assert_eq!(bars(&mut h), (false, false));
+    key(&mut h);
+    assert_eq!(bars(&mut h), (true, true));
+}
+
+#[test]
+fn distraction_free_leaves_the_library_its_bar() {
+    let mut h = with(&[("pdf", "sample:3"), ("chromeless", "true")], SIZE);
+    assert_eq!(bars(&mut h), (false, false));
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run_steps(4);
+    assert!(bars(&mut h).0, "the library has no other way out");
+    // Back to reading, the bars hide again.
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run_steps(4);
+    assert_eq!(bars(&mut h), (false, false));
+}

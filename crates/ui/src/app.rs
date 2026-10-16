@@ -68,6 +68,8 @@ pub struct MareaderApp {
     settings: Settings,
     platform: Platform,
     titlebar: TitleBar,
+    /// Distraction-free: bars stay hidden while reading.
+    chromeless: bool,
     tree: PaneTree,
     active: PaneId,
     sidebar: Sidebar,
@@ -149,6 +151,7 @@ impl MareaderApp {
             titlebar: TitleBar::new(settings.chrome.titlebar_pinned),
             settings,
             platform: Platform::current(),
+            chromeless: false,
             tree: PaneTree::new(),
             active: PaneId(1),
             sidebar: Sidebar::default(),
@@ -746,7 +749,7 @@ impl MareaderApp {
                     _ => return Err("blend_area: whole or edges".into()),
                 }
             }
-            "chromeless" => self.titlebar.chromeless = value == "true",
+            "chromeless" => self.chromeless = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -1164,6 +1167,16 @@ impl MareaderApp {
                 self.documents.arrow(self.active, arrow, now);
             }
             Command::Page { forward } => self.documents.page_key(self.active, forward),
+            Command::Chromeless => {
+                self.chromeless = !self.chromeless;
+                if self.chromeless {
+                    self.sidebar.close();
+                    let keys = keymap::hint(self.platform, &Command::Chromeless);
+                    let keys = keys.map_or(String::new(), |k| format!(" or {k}"));
+                    let how = format!("Distraction-free. Press Esc{keys} to leave.");
+                    self.toasts.push(Toast::info(how));
+                }
+            }
             Command::AutoScroll => {
                 let now = ctx.input(|i| i.time);
                 if !self.documents.toggle_drift(self.active, now) {
@@ -1573,6 +1586,11 @@ impl MareaderApp {
         // The title bar's glass takes slot 0.
         for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
+                // Distraction-free keeps the label, which has its own setting.
+                if self.chromeless {
+                    floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
+                    continue;
+                }
                 let look = BarLook {
                     layout: &self.settings.layout,
                     backdrop,
@@ -1806,6 +1824,12 @@ fn stand_in_lights(ctx: &Context, lights: NativeLights) {
 }
 
 impl eframe::App for MareaderApp {
+    /// The remembered paper from the very first frame, never a dark flash.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        let paper = theme::Tokens::new(&self.settings.appearance).paper;
+        paper.to_normalized_gamma_f32()
+    }
+
     fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         if self.fonts == FontState::Missing {
             theme::install_fonts(ctx);
@@ -1827,6 +1851,9 @@ impl eframe::App for MareaderApp {
         // Fonts from set_fonts arrive next frame; named families panic before.
         if self.fonts != FontState::Ready {
             self.fonts = FontState::Ready;
+            // Still paper underneath, the frame the window first shows.
+            let paper = theme::Tokens::get(&ctx).paper;
+            ui.painter().rect_filled(ctx.content_rect(), 0.0, paper);
             ctx.request_repaint();
             return;
         }
@@ -1859,6 +1886,8 @@ impl eframe::App for MareaderApp {
             ctx.request_repaint_after(Duration::from_secs_f64(wait));
         }
         let route = self.route();
+        // The library keeps its bar: it has no other way out.
+        self.titlebar.chromeless = self.chromeless && route == Route::Reader;
         // Tab brings hidden chrome up, unless a dialog would sit below it.
         let dialog = self.settings_window.is_open() || self.library.sheet().is_some();
         if crate::focus::begin(&ctx) && !dialog {
@@ -1892,9 +1921,13 @@ impl eframe::App for MareaderApp {
             self.find.close();
             free = false;
         }
-        // A selection takes Escape before the sidebar does.
-        if free && !self.documents.clear_selection(self.active) && self.sidebar.is_open() {
-            commands.push(Command::CloseSidebar);
+        // A selection takes Escape before the sidebar, then distraction-free.
+        if free && !self.documents.clear_selection(self.active) {
+            if self.sidebar.is_open() {
+                commands.push(Command::CloseSidebar);
+            } else if self.chromeless {
+                commands.push(Command::Chromeless);
+            }
         }
         let overlay = self.settings.chrome.sidebar_overlay;
         let rail = RailContext {
