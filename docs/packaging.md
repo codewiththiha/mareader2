@@ -96,3 +96,61 @@ cd apps/mareader && cargo packager --release
   When none is found, Settings › AI says so under Apple Intelligence.
 - **Other platforms.** The helper is never built or shipped; the AI tab
   hides Apple Intelligence and offers the servers instead.
+
+## Installers from CI (M8)
+
+`.github/workflows/installers.yml` builds every installer on its own
+platform, then installs it, launches it with a book, and removes it:
+
+| Runner | Installers | Checked |
+| --- | --- | --- |
+| `ubuntu-22.04` | `.deb`, AppImage, pacman (`.tar.gz` and `PKGBUILD`) | the desktop entry's four types and `%F`; `apt` installs it with its dependencies; every linked library resolves; both the `.deb` and the AppImage launch; `apt` removes it |
+| `macos-26` (Apple Silicon) | `.app` in a `.dmg` | `Info.plist` lists the four types and macOS 11; the signature verifies; the binary is arm64 and links only system libraries; the Apple Intelligence helper is inside; the `.dmg` mounts with the app and an Applications link; it launches |
+| `macos-26-intel` | `.app` in a `.dmg` | the same, x86_64, without the helper |
+| `windows-latest` | NSIS `-setup.exe`, MSI | each installs silently, registers `.pdf`, `.epub`, `.txt` and `.md`, launches and uninstalls silently |
+
+"Launches" means the app is still running 12 s after opening an EPUB, on
+the runner's software GPU (lavapipe under Xvfb, WARP) or its Metal device.
+The run's summary lists every check, and each platform's report (the
+checks, logs, a screenshot where the platform allows one, and the
+installers' sizes and SHA-256) is a `checks-<platform>` artifact. The
+installers are `installers-<platform>` artifacts.
+
+How to run it:
+
+- **On demand:** `python3 tools/ci.py installers` dispatches the workflow
+  on a pushed commit, waits for all four platforms, and prints their
+  checks (`--download` also fetches the installers).
+- **A packaging change:** push it to a `release/<slug>` branch, which
+  builds and checks the installers without a tag.
+- **A release:** push a `v<version>` tag that matches `Cargo.toml`. The
+  same checks run, then a draft GitHub release collects the installers
+  with `SHA256SUMS`, for the owner to publish.
+- **On your own machine:** after `cargo packager --release`,
+  `tools/check-installers.sh target/release` runs the same checks for
+  your platform (it installs and removes the app). Without a GPU, a
+  launch that dies is a warning; `SMOKE=required` makes it a failure.
+
+What each platform registers: `.pdf`, `.epub`, `.txt` and `.text`, `.md`,
+`.markdown` and `.mdown`, as a viewer. Text and Markdown open through the
+EPUB path, and mareader registered the same list. On Windows, a user's own
+default app choice still wins; Mareader appears under "Open with".
+
+Signing:
+
+- **macOS** is signed ad hoc (`signing-identity = "-"`). A downloaded
+  copy asks once: open it, then choose Open Anyway in System Settings ›
+  Privacy & Security. Unsigned, Apple Silicon would call it damaged. With
+  the repository secrets `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`
+  (base64 `.p12`) and `APPLE_CERTIFICATE_PASSWORD`, CI signs with that
+  Developer ID instead, and `APPLE_ID`, `APPLE_PASSWORD` (an app-specific
+  password) and `APPLE_TEAM_ID` add notarization.
+- **Windows** installers are unsigned, so SmartScreen warns on first run
+  until a code-signing certificate is added.
+- **Linux** packages are not signed; `SHA256SUMS` in the release lets you
+  check a download.
+
+The Linux `.deb` declares what Mareader loads at run time, which `dpkg`
+can't see in the binary: fontconfig, xkbcommon (with its X11 part), and
+Vulkan or EGL. The AppImage expects the same from the system. It is built
+on Ubuntu 22.04, so it needs glibc 2.35 or newer.
