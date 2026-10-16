@@ -854,8 +854,15 @@ title = "Auto-scroll in the scrolling modes (Shift+A)"
 area = "D"
 tier = "P2"
 milestone = "M7"
-status = "planned"
+status = "shipped"
 reference = ["crates/reader-runtime/src/effects/reader/auto_scroll.rs"]
+evidence = [
+    "crates/ui/tests/auto_scroll.rs::shift_a_drifts_at_its_pace_whatever_the_steps",
+    "crates/ui/tests/auto_scroll.rs::paged_modes_refuse_it_and_say_why",
+    "crates/ui/tests/auto_scroll.rs::escape_and_a_paged_mode_stop_it",
+    "crates/ui/tests/auto_scroll.rs::it_stops_at_the_strips_end",
+]
+notes = "Shift+A and the View menu row; 72 px a second at any frame rate, paused by a held press; stops at the end, on Escape, paged views and pane blur"
 
 [[feature]]
 id = "epub.open"
