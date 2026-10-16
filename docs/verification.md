@@ -242,3 +242,20 @@ cache travels as a workflow artifact.
   setting differs, as `CARGO_INCREMENTAL` once did. If all dependencies
   recompile instead, the paths or the toolchain differ; `restore` prints
   the cached `rustc`.
+
+## What only a real machine can check
+
+Headless tests prove Mareader asks for the right thing: a caption click,
+a drag on the empty bar, a press on a frameless edge each send their
+window command (`crates/ui/tests/chrome.rs`). Whether the system then
+moves, resizes or closes the window is eframe's and the OS's, so the
+owner checks these on real machines before 1.0:
+
+| Check | Where | How |
+| --- | --- | --- |
+| Drag the empty title bar; double-click it | every OS | the window follows; it maximises and restores |
+| Resize from each edge and corner | Windows; Linux on Wayland and X11 | the cursor changes, the window resizes |
+| Caption buttons | Windows; GNOME | minimise, maximise and restore, close |
+| Traffic lights | macOS | sit in the bar at x 20, slide with the sidebar |
+| Open from the file manager | every OS, installed | the book opens in the running window |
+
