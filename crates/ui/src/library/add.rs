@@ -113,10 +113,14 @@ pub fn button(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
 fn menu(anchor: &Response, here: Here<'_>, t: &Tokens, out: &mut Commands) {
     Popup::from_toggle_button_response(anchor)
         .id(Id::new(ADD_MENU))
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClick)
         .gap(6.0)
         .width(WIDTH)
-        .show(|ui| contents(ui, here, t, out));
+        .show(|ui| {
+            contents(ui, here, t, out);
+            crate::widgets::close_on_key(ui);
+        });
 }
 
 fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {

@@ -23,6 +23,7 @@ fn main() -> Result<(), String> {
     let mut carry = None;
     let mut words = false;
     let mut searched = false;
+    let mut tabs = 0;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -110,6 +111,8 @@ fn main() -> Result<(), String> {
                 app.set_option(k, &dir.to_string_lossy())?;
                 words = true;
             }
+            // Tab presses once open, so the focus ring shows: `tab=3`.
+            "tab" => tabs = v.parse().map_err(|_| "tab=count")?,
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -174,6 +177,10 @@ fn main() -> Result<(), String> {
         }
         // A held carry rests, so the grid's rests take, opening included.
         harness.run_steps(if release { 4 } else { 50 });
+    }
+    for _ in 0..tabs {
+        harness.key_press(egui::Key::Tab);
+        harness.run_steps(4);
     }
     // Long enough for a tooltip to appear.
     if let Some(p) = hover {

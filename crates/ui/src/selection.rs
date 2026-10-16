@@ -181,7 +181,7 @@ pub fn interact(
     pages: &Pages<'_>,
     selection: &mut Option<Selection>,
 ) -> Outcome {
-    let response = ui.interact(area, ui.id().with("text"), Sense::click_and_drag());
+    let response = ui.interact(area, ui.id().with("text"), Sense::CLICK | Sense::DRAG);
     let mut out = Outcome::default();
     let hovered = response
         .hover_pos()

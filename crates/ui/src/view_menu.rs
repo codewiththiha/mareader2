@@ -41,6 +41,7 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     let r = widgets::icon_button(ui, Icon::Menu, "View & tools", open);
     Popup::from_toggle_button_response(&r)
         .id(id)
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
         .align(RectAlign::BOTTOM_END)
         .gap(6.0)

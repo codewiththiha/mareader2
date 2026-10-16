@@ -144,6 +144,13 @@ impl FindBar {
         }
     }
 
+    /// F3 or Cmd+G: as the bar's own step buttons.
+    pub fn key_step(&mut self, found: Option<&Found>, forward: bool, now: f64) {
+        if !self.query.trim().is_empty() {
+            self.step(found, forward, now);
+        }
+    }
+
     /// A waiting step lands once there's a hit from `page` on, or all are in.
     pub fn settle(&mut self, found: Option<&Found>, page: usize) {
         let (Some(forward), Some(f)) = (self.waiting, found) else {
