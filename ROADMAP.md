@@ -110,7 +110,7 @@ appearance effects to that same pass.
 |---|---|---|---|
 | 1 | Proof sweep: window commands, title, dividers, popovers and idle frames tested; every control named for screen readers; the real-machine checks listed (`docs/verification.md`) | **done** | a screen reader names each settings slider and box; `cargo test -p mareader-ui --test chrome --test a11y` |
 | 2 | What is left of P1 and P2: the theme from the first frame, a source folder's own subfolders, distraction-free reading by command | **done** | launch on a light theme: no dark flash; choose a folder's chip, then a subfolder chip under it, and its crumbs back up; ⌘/Ctrl+Shift+F or the View menu's Distraction-free, Esc to leave |
-| 3 | Memory budgets measured again over both formats and the library | planned | |
+| 3 | Memory budgets measured again over both formats and the library | **done** | `python3 tools/ci.py memory --ref BRANCH`, or `cargo run -p mareader-ui --example memory -- BOOK [ROUNDS]` (`--library N`, `--seeded N`); `docs/memory.md` § 2026-10-16 |
 | 4 | Installers built in CI for macOS, Windows and Linux | planned | |
 
 ## Next
@@ -147,6 +147,9 @@ appearance effects to that same pass.
 9. **M8 slice 2, the last P1 and P2 features** (§ M8 slices): the
    first frame on the remembered paper, a folder's own subfolders,
    distraction-free reading. Landed. Next is slice 3, memory budgets.
+10. **M8 slice 3, memory budgets** (§ M8 slices): PDFs, EPUBs and the
+    library measured in CI, every budget checked. Landed. Next is
+    slice 4, installers built in CI.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -242,3 +245,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M7 slice 3, auto-scroll. Shift+A or the View menu's Auto-scroll row drifts the focused pane at 72 px a second in the scrolling views (a toast explains the paged ones). The pace follows frame time, so it holds at any refresh rate; keys and the wheel add to it, a held press pauses it, and it stops at the strip's end, on Escape, on a paged view or on pane blur. M7 is done (`docs/search.md` § Keyboard) |
 | 2026-10-16 | M8 slice 1, proof sweep. Headless tests now prove the caption buttons, the bar's drag and double-click, frameless edges (none on a Mac), the title's centring, truncation and hiding, divider drags within their limits, popovers closing on Escape and outside presses, and that an idle window draws nothing. A sweep over the reader, its panels, every settings tab, the popover, menus, find and the library found 22 nameless controls; settings rows now name their controls by their label, and lone fields are named. A moved file keeps its shelves and marks. Real-machine checks are listed (`docs/verification.md`) |
 | 2026-10-16 | M8 slice 2, the last P1 and P2 features. The window clears to the remembered paper and paints it on the frame that waits for fonts, so a light theme never opens dark. A chosen folder shows its own books with a chip per subfolder (counting every book below) and crumbs back up, whatever its shelving; a search covers the subfolder and all below it, and choosing a deeper result walks there. Distraction-free reading (⌘/Ctrl+Shift+F or the View menu) hides the title bar, page bars and sidebar while reading, keeps the floating label, leaves the library its bar, and ends with Esc or the same key |
+| 2026-10-16 | M8 slice 3, memory budgets. The memory example now covers PDFs, EPUBs, a 3,000-PDF library read in place and 20,000 books without files, and ends each workload with a table of budgets that fails the run on a breach: closed books leave no document or search, later rounds' floor stays level, a second pane costs under a quarter of the first open, page and cover caps hold, a book costs at most 16 KiB (3.3 measured) and a scroll to the end adds at most 256 MiB at its peak (152 measured). CI runs it as the Remote memory task (`tools/ci.py memory`), with the EPUB layout test; the step keeps a breach's exit status. Found by it: covers scrolled past stayed queued, so a fling over a big library read and uploaded every cover it passed (only covers asked for this frame or last wait now, four inline loads a frame at most, nearest first); a closed pane's search kept its book until the bar was used again. A 5 GB scroll peak was the test harness, which submits uploads only when it renders. `docs/memory.md` § 2026-10-16 |

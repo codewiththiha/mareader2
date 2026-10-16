@@ -11,6 +11,7 @@ chooses per session, and the user can override the choice at any time.
 | Verdict | the local gates | `python3 tools/ci.py watch` |
 | Screenshots | `cargo run -p mareader-ui --example shot` | `python3 tools/ci.py shots` |
 | Browser preview | `tools/web.sh --serve` | `python3 tools/ci.py web` |
+| Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
 | Polls CI | no | yes, until the verdict |
 
 ## Why two modes
@@ -154,6 +155,19 @@ python3 -m http.server -d target/remote/web 8000 --bind 0.0.0.0
 
 Use it only to check the browser preview itself. Desktop changes are
 checked with shots.
+
+## Memory from CI
+
+`python3 tools/ci.py memory --ref BRANCH --rev SHA` runs the Remote memory
+task: two PDFs and two EPUBs read in rounds, a 3,000-PDF library and 20,000
+books without files, then the EPUB layout test. It takes about 15 minutes.
+
+- **Where it lands.** `target/remote/memory/memory.md` (each workload's
+  rows and budgets) and `layout.txt`; the run's summary shows the same.
+- **The verdict.** The command returns 1 when any budget reads `**no**`.
+  Piped through `sed` or `grep`, that status is lost, so read the file.
+- **What the numbers mean.** `docs/memory.md`, including why RSS on CI's
+  software GPU counts what a real GPU keeps in VRAM.
 
 ## The sandbox cache
 
