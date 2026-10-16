@@ -639,7 +639,7 @@ fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
     let (width, pages) = measure(&h);
     h.state_mut().set_option("settings", "fonts").ok();
     h.run_steps(3);
-    let slider = h.get_by_label("Column width");
+    let slider = h.get_by_role_and_label(Role::Slider, "Column width");
     slider.scroll_to_me();
     h.run();
     h.state_mut().set_option("column_width", "140").ok();
@@ -721,7 +721,10 @@ fn the_fonts_tab_switches_a_book_s_pictures_to_the_theme() {
 fn a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab() {
     let mut h = reader(&[("epub", "sample:2")]);
     open_appearance(&mut h);
-    assert!(h.query_by_label("Text ink").is_some(), "the popover's dial");
+    assert!(
+        h.query_all_by_label("Text ink").next().is_some(),
+        "the popover's dial"
+    );
     h.key_press(egui::Key::Escape);
     h.run();
     h.state_mut().set_option("settings", "fonts").ok();
@@ -735,8 +738,8 @@ fn a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab() {
     // A PDF's ink is its own: no dial.
     let mut h = reader(&[("pdf", "sample:3")]);
     open_appearance(&mut h);
-    assert!(h.query_by_label("Strength").is_some());
-    assert!(h.query_by_label("Text ink").is_none());
+    assert!(h.query_all_by_label("Strength").next().is_some());
+    assert!(h.query_all_by_label("Text ink").next().is_none());
 }
 
 fn press(h: &mut Harness<'static, MareaderApp>, pos: egui::Pos2) {

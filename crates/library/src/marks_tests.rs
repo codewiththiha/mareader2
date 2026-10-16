@@ -58,6 +58,18 @@ fn a_word_is_marked_once_per_spot() {
 }
 
 #[test]
+fn a_moved_file_keeps_its_shelves_and_marks() {
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/old/a.pdf", 1), 1_000);
+    let shelf = lib.create_shelf("Essays", None, 1_100).unwrap();
+    assert!(lib.file(book, shelf, 1_200));
+    lib.add_mark(book, fox(100.0), 1_300).unwrap();
+    assert_eq!(lib.record_open(opened("/new/b.pdf", 1), 2_000), book);
+    assert!(lib.shelves_of(book).contains(&shelf));
+    assert_eq!(words(&lib, book), ["fox"]);
+}
+
+#[test]
 fn removing_and_undo_bring_a_mark_back_as_it_was() {
     let mut lib = Library::new(A);
     let book = lib.record_open(opened("/a.pdf", 1), 1_000);

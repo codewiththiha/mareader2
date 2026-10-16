@@ -189,6 +189,7 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
         .char_limit(NAME_MAX)
         .desired_width(CRUMB_MAX + 20.0);
     let r = ui.add(edit);
+    crate::widgets::name(&r, "Shelf name");
     if fresh {
         // The whole name selected, so typing replaces it.
         select_all(&r, field, &text);

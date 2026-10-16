@@ -428,7 +428,7 @@ fn search_field(
 fn title(ui: &egui::Ui, text: &str, lead_end: f32, trail_start: f32) {
     const PAD: f32 = 12.0;
     let gap = (trail_start - lead_end - 2.0 * PAD).max(0.0);
-    if gap < 48.0 {
+    if gap < 48.0 || text.is_empty() {
         return;
     }
     let t = Tokens::get(ui.ctx());
@@ -440,5 +440,10 @@ fn title(ui: &egui::Ui, text: &str, lead_end: f32, trail_start: f32) {
     let centred = ui.ctx().content_rect().center().x - w / 2.0;
     let x = centred.clamp(lead_end + PAD, (trail_start - PAD - w).max(lead_end + PAD));
     let y = rect.center().y - galley.size().y / 2.0;
+    let size = galley.size();
     ui.painter().galley(pos2(x, y), galley, t.ink);
+    // Named in full for screen readers; hover only, so drags pass through.
+    let at = Rect::from_min_size(pos2(x, y), size);
+    let node = ui.interact(at, Id::new("titlebar-title"), Sense::hover());
+    node.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
 }

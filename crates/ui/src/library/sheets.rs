@@ -294,6 +294,7 @@ fn rename(ui: &mut Ui, book: &Book, t: &Tokens) -> Option<Action> {
         .desired_width(f32::INFINITY)
         .char_limit(mareader_library::NAME_MAX);
     let resp = ui.add(edit);
+    crate::widgets::name(&resp, "Title");
     if first {
         super::crumbs::select_all(&resp, key, &draft);
     }

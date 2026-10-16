@@ -139,7 +139,7 @@ fn choices(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static mareader_d
             .first()
             .and_then(|id| ready.iter().find(|p| p.id == id));
         let shown = chosen.map_or("Every dictionary".to_owned(), |p| p.label());
-        egui::ComboBox::from_id_salt("dict-pack")
+        let pick = egui::ComboBox::from_id_salt("dict-pack")
             .width(ui.available_width())
             .selected_text(shown)
             .show_ui(ui, |ui| {
@@ -156,24 +156,38 @@ fn choices(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static mareader_d
                     }
                 }
             });
+        crate::widgets::name(&pick.response, "Dictionary to search");
         return;
     }
     let langs = languages(ready);
     ui.horizontal(|ui| {
         let half = (ui.available_width() - 36.0) / 2.0;
-        language_box(ui, "dict-from", half, &mut s.from, &langs);
+        language_box(
+            ui,
+            ("dict-from", "Translate from"),
+            half,
+            &mut s.from,
+            &langs,
+        );
         let swap =
             crate::widgets::small_icon_button(ui, crate::icons::Icon::Swap, "Swap languages");
         if swap.clicked() {
             std::mem::swap(&mut s.from, &mut s.to);
         }
-        language_box(ui, "dict-to", half, &mut s.to, &langs);
+        language_box(ui, ("dict-to", "Translate to"), half, &mut s.to, &langs);
     });
 }
 
-fn language_box(ui: &mut Ui, id: &str, width: f32, value: &mut Option<String>, langs: &[&str]) {
+/// A language picker; `id` is its salt and its spoken name.
+fn language_box(
+    ui: &mut Ui,
+    id: (&str, &str),
+    width: f32,
+    value: &mut Option<String>,
+    langs: &[&str],
+) {
     let shown = value.as_deref().map_or("Automatic".to_owned(), language);
-    egui::ComboBox::from_id_salt(id)
+    let pick = egui::ComboBox::from_id_salt(id.0)
         .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {
@@ -187,6 +201,7 @@ fn language_box(ui: &mut Ui, id: &str, width: f32, value: &mut Option<String>, l
                 }
             }
         });
+    crate::widgets::name(&pick.response, id.1);
 }
 
 /// After nothing was found between a pair: the other source languages.

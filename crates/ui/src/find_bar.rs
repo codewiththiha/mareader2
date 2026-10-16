@@ -259,6 +259,7 @@ impl FindBar {
                     .hint_text(PLACEHOLDER)
                     .desired_width(f32::INFINITY);
                 let r = ui.add(field);
+                widgets::name(&r, "Search in document");
                 if self.query != before {
                     self.typed = Some(now);
                     self.waiting = None;
