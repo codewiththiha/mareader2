@@ -36,6 +36,8 @@ entries are `study.*` in `parity/mareader-features.toml`.
 | The one-word rule, context, the answer's shape and limits, the `Explainer` contract | `crates/study` (L1) | pure rules, no egui, tested alone |
 | Mark records | `crates/library` | every synced row lives in one store, merged and absorbed alike (`docs/sync.md`) |
 | Bar, card, mark layer | `crates/ui/src/study/` | egui; one place hooks into the page view |
+| Packs, downloads, conversion, lookups | `crates/dict` (L1) | threads and SQLite, no egui; the browser lists packs only |
+| Lookup card, Dictionary panel, Settings › Dictionary | `crates/ui/src/dict/`, `settings_window/dictionary.rs` | egui |
 
 The `study` crate is the "gloss requests and marks" row of
 `docs/architecture.md`; the marks' records join the library's rows so a
@@ -208,3 +210,44 @@ slice 5.
   pairs; kittests highlight and underline from the bar, remove with a
   click, pick from the colour row, set the tab, and stage highlights with
   the `highlight=full|half|underline` option after `selection=`.
+
+## Slice 4 behaviour
+
+- **Packs.** Three, as in mareader: English to Burmese (mcfnlp), Japanese
+  (JMdict) and French (Wiktionary). Each comes from GitHub, then two
+  jsDelivr mirrors, two tries each. A download resumes from its part file
+  when the server honours the range and its start matches; anything that
+  isn't a parquet at both ends is dropped and the next mirror tried.
+  Pause keeps the part, Cancel and Remove delete it.
+- **Conversion.** The parquet is streamed row by row, by column
+  name (word and definition required; part of speech, romanization and
+  sense if present), into `<id>.db` beside it, then the parquet goes.
+  Empty words or definitions are skipped and cells cut at 2,000 chars.
+  A whole download found at launch converts then; a leftover table half
+  built is deleted.
+- **Look up** joins the selection menu after Explain, saved menus too
+  (settings v3). It takes the selection, one line, edge punctuation
+  trimmed, up to 60 characters, and opens a card beside it; nothing is
+  marked. The card answers in Default language, else the first other
+  language a pack holds. The word's script names its language (Burmese,
+  Japanese); Latin is read as English.
+- **Routes.** One pack either way round, else two packs meeting at
+  English, so Burmese reaches French; such answers say "via" the English
+  word. A card takes exact entries, then prefixes, then near misses (two
+  edits at most), marked "≈" with the entry found. Repeats show once.
+- **The card** closes on Escape, a press outside, or a scroll. Without
+  packs it offers Get dictionaries…, which opens Settings › Dictionary.
+- **The Dictionary panel** searches as you type (180 ms after the last
+  key): every pack or one, both sides, with substrings; or between two
+  languages, each Automatic or chosen, with a swap. When nothing is found
+  between languages it offers "Search as" each other language.
+- **Settings › Dictionary** lists the packs with Download, progress with
+  Pause and Cancel, Resume, Remove and Try again, then Default language,
+  offered only for downloaded packs.
+- **Left for later.** Lookup on hover over CEFR words comes with slice 5;
+  a browser lists packs but can't download them.
+- **Checks.** The dict crate's tests convert both fixture packs, serve
+  downloads from a local server (mirrors, error pages, a dropped
+  connection resumed, pause and cancel), and ask cards, bridges and
+  searches; kittests look up from the bar, follow Get dictionaries…,
+  remove a pack and search in the panel.

@@ -77,6 +77,8 @@ pub struct MareaderApp {
     study: Study,
     /// Who answers Explain, and the AI settings' background work.
     ai: crate::ai::Ai,
+    /// Language packs, the lookup card and the Dictionary panel.
+    dict: crate::dict::Dict,
     /// A selection the options asked for, made once its page is laid out.
     staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
@@ -152,6 +154,7 @@ impl MareaderApp {
             toasts: Toasts::default(),
             study: Study::default(),
             ai: crate::ai::Ai::default(),
+            dict: crate::dict::Dict::default(),
             staged: Default::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
@@ -256,6 +259,17 @@ impl MareaderApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf, helper: Option<PathBuf>) {
         self.ai.attach(ctx, root, helper);
+    }
+
+    /// Keeps language packs in `dir`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach_dictionaries(&mut self, ctx: &Context, dir: PathBuf) {
+        let ctx = ctx.clone();
+        let waker = Arc::new(move || ctx.request_repaint());
+        if let Err(e) = self.dict.attach(dir, waker) {
+            self.toasts
+                .push(Toast::info(format!("Dictionaries are off: {e}")));
+        }
     }
 
     /// Keeps covers and other rebuildable files in `dir`.
@@ -406,6 +420,10 @@ impl MareaderApp {
     }
 
     /// The study tools: the card, its answer, session marks.
+    pub fn dict(&self) -> &crate::dict::Dict {
+        &self.dict
+    }
+
     pub fn study(&self) -> &Study {
         &self.study
     }
@@ -465,6 +483,12 @@ impl MareaderApp {
                 self.settings.chrome.library_titlebar_pinned = on;
                 self.titlebar.pinned = on;
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            "dictionaries" => {
+                let inline = self.study.inline();
+                self.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
+                self.dict.set_inline(inline);
+            }
             "workers" => {
                 let n = value
                     .parse()
@@ -472,6 +496,7 @@ impl MareaderApp {
                 self.documents.set_workers(n);
                 self.library.set_inline(n == 0);
                 self.study.set_inline(n == 0);
+                self.dict.set_inline(n == 0);
             }
             "library" => match value {
                 // After a queued open, which would otherwise leave it.
@@ -851,6 +876,7 @@ impl MareaderApp {
         for (pane, gloss) in self.documents.take_gloss() {
             match gloss {
                 Gloss::Explain => out.push(Command::Explain(pane)),
+                Gloss::LookUp => out.push(Command::LookUp(pane)),
                 Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
                 Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
                 Gloss::Open { mark, at } => {
@@ -872,6 +898,29 @@ impl MareaderApp {
         self.study.receive(self.library.model_mut());
         let look = &self.settings.study.gloss;
         self.study.show(ctx, &self.pane_rects, look, out);
+        self.dict.poll();
+        let documents = &self.documents;
+        let offset = |pane| documents.offset(pane);
+        self.dict.show(ctx, &self.pane_rects, offset, out);
+    }
+
+    /// Look up: the pane's selection, its card beside it.
+    fn look_up(&mut self, pane: PaneId) {
+        let Some((text, rect)) = self.documents.looked_up(pane) else {
+            return;
+        };
+        let max = mareader_study::MAX_GLOSS_CHARS;
+        let Some(word) = crate::dict::lookup_text(&text, max) else {
+            let rule = format!("Look up takes a word or short phrase, up to {max} characters.");
+            self.toasts.push(Toast::info(rule));
+            return;
+        };
+        self.documents.clear_selection(pane);
+        // One card at a time.
+        self.study.escape();
+        let offset = self.documents.offset(pane);
+        let to = self.settings.dictionary.default_lang.clone();
+        self.dict.look_up(pane, word, rect, offset, to);
     }
 
     /// Explain: the pane's selected word, marked, its card open.
@@ -888,6 +937,7 @@ impl MareaderApp {
             return;
         };
         self.documents.clear_selection(pane);
+        self.dict.escape();
         let book = self.library.book_in(&self.documents, pane);
         let name = self.documents.title(pane).unwrap_or_default().to_owned();
         let at = Explained {
@@ -1040,6 +1090,12 @@ impl MareaderApp {
                 self.queued.extend(out);
             }
             Command::Explain(pane) => self.explain(ctx, pane),
+            Command::LookUp(pane) => self.look_up(pane),
+            Command::Dict(action) => self.dict.act(action),
+            Command::SetDictionary(d) => {
+                self.settings.dictionary = *d;
+                self.settings.dictionary.sanitize();
+            }
             Command::Highlight { pane, pen, color } => self.highlight(pane, pen, color),
             Command::SelectText { pane, page, text } => {
                 self.documents.select(pane, page, &text);
@@ -1650,7 +1706,7 @@ impl eframe::App for MareaderApp {
             }
             free = false;
         }
-        if free && self.study.escape() {
+        if free && (self.dict.escape() || self.study.escape()) {
             free = false;
         }
         if free && self.find.is_open() {
@@ -1678,6 +1734,7 @@ impl eframe::App for MareaderApp {
         let shelf_tree = &mut self.shelf_tree;
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
+        let (dict, dictionary) = (&mut self.dict, &self.settings.dictionary);
         // The rail's panels serve the focused pane's document.
         let mut body =
             |ui: &mut egui::Ui, panel: Panel, recentre: bool, out: &mut Commands| match panel {
@@ -1687,7 +1744,10 @@ impl eframe::App for MareaderApp {
                 }),
                 Panel::Thumbnails => documents.thumbnails(ui, active, thumbs, recentre, out),
                 Panel::Library => library_panel::show(ui, &shelves, shelf_tree, out),
-                Panel::Dictionary => false,
+                Panel::Dictionary => {
+                    dict.panel(ui, dictionary, out);
+                    true
+                }
             };
         // The rail serves reading; the library keeps it, unseen, for return.
         let inset = match (route.has_rail(), overlay) {
@@ -1828,8 +1888,13 @@ impl eframe::App for MareaderApp {
         };
         library::runs::show(&ctx, &mut self.library.runs, stage, lift);
         let window = self.settings_scope();
-        self.settings_window
-            .show(&ctx, &self.settings, &window, &self.ai, &mut commands);
+        self.settings_window.show(
+            &ctx,
+            &self.settings,
+            &window,
+            (&self.ai, &self.dict),
+            &mut commands,
+        );
         self.film_grain(&ctx);
         self.fade.paint(&ctx);
         // Applied after drawing, so the next frame must show the result.

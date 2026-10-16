@@ -38,6 +38,8 @@ pub const UNDO_FOR: f64 = 6.0;
 pub enum Gloss {
     /// Explain was pressed on the pane's selection.
     Explain,
+    /// Look up was pressed on the pane's selection.
+    LookUp,
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.
@@ -187,6 +189,10 @@ impl Study {
 
     pub fn set_inline(&mut self, inline: bool) {
         self.inline = inline;
+    }
+
+    pub fn inline(&self) -> bool {
+        self.inline
     }
 
     /// The mark whose card is open in `pane`.

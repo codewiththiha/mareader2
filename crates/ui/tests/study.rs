@@ -402,6 +402,7 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
     let want = [
         BarItem::Explain,
         BarItem::Copy,
+        BarItem::LookUp,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),
         BarItem::Highlight(Pen::Half),

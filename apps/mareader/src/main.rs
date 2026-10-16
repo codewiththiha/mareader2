@@ -107,6 +107,7 @@ fn main() -> eframe::Result {
             if let Some(dir) = eframe::storage_dir("mareader") {
                 app.attach_library(dir.join("library"));
                 app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
+                app.attach_dictionaries(&cc.egui_ctx, dir.join("dictionaries"));
             }
             if let Some(dir) = cache_dir() {
                 app.attach_cache(dir);

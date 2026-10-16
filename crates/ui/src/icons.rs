@@ -86,6 +86,11 @@ pub enum Icon {
     Key,
     /// Sets a key aside.
     Ban,
+    Swap,
+    Download,
+    Pause,
+    Resume,
+    LookUp,
 }
 
 impl Icon {
@@ -151,6 +156,11 @@ impl Icon {
             Self::Shelf => Lucide::SquareLibrary,
             Self::Key => Lucide::KeyRound,
             Self::Ban => Lucide::Ban,
+            Self::Swap => Lucide::ArrowRightLeft,
+            Self::Download => Lucide::Download,
+            Self::Pause => Lucide::Pause,
+            Self::Resume => Lucide::Play,
+            Self::LookUp => Lucide::BookSearch,
             Self::Rename => Lucide::Pencil,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
