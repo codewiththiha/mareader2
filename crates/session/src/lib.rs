@@ -84,6 +84,17 @@ pub enum OpenError {
     Epub(#[from] mareader_epub::OpenError),
 }
 
+impl OpenError {
+    /// What the reader can do about it, as a sentence.
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            Self::Unreadable(_) => Some("Check that it still exists and can be read."),
+            Self::Pdf(e) => e.hint(),
+            Self::Epub(_) => None,
+        }
+    }
+}
+
 /// Names one `open` call, to match its `Event::Opened`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ticket(u64);

@@ -7,7 +7,7 @@ use hayro::hayro_syntax::object::Dict;
 use hayro::hayro_syntax::object::dict::keys::{FIRST, NEXT, OUTLINES, TITLE};
 
 use crate::dest::{PageIds, Targets};
-use crate::document::decode_text;
+use crate::strings::decode_text;
 
 /// Entries past this are dropped; real books stay far below it.
 pub const MAX_ENTRIES: usize = 20_000;

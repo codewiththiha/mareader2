@@ -427,10 +427,13 @@ impl Documents {
                         _ => None,
                     });
                     match (waiting, result) {
-                        (Some((pane, _, (page, place, book))), Ok(doc)) => {
+                        (Some((pane, name, (page, place, book))), Ok(doc)) => {
                             let mut view = PdfView::new(doc);
                             view.book = book;
                             let entry = session.get(doc);
+                            if entry.is_some_and(|e| e.doc.cut_short()) {
+                                out.push(Command::Notify(cut_short(&name)));
+                            }
                             let count = entry.map_or(0, |e| e.doc.page_count());
                             let page = landing(entry.map(|e| &*e.doc), page, place);
                             if page > 0 {
@@ -441,8 +444,7 @@ impl Documents {
                         }
                         (Some((pane, name, _)), Err(e)) => {
                             self.panes.remove(&pane);
-                            let note = format!("Couldn't open {name}: {e}.");
-                            out.push(Command::Notify(Toast::error(note)));
+                            out.push(Command::Notify(open_failed(&name, &e)));
                         }
                         // The pane closed or moved on while this opened.
                         (None, Ok(doc)) => session.close(doc),
@@ -848,4 +850,39 @@ fn opening(ui: &mut Ui, name: &str, t: &Tokens) {
 fn landing(doc: Option<&Document>, page: usize, place: Option<Anchor>) -> usize {
     let found = place.and_then(|a| doc?.locate(a));
     found.unwrap_or(page)
+}
+/// Why `name` didn't open, and what to try, as one toast.
+fn open_failed(name: &str, e: &mareader_session::OpenError) -> Toast {
+    Toast::error(match e.hint() {
+        Some(hint) => format!("Couldn't open {name}: {e}. {hint}"),
+        None => format!("Couldn't open {name}: {e}."),
+    })
+}
+
+/// `name` opened, but its end is missing.
+fn cut_short(name: &str) -> Toast {
+    Toast::warning(format!(
+        "{name} looks cut short; some pages may be missing."
+    ))
+}
+
+#[cfg(test)]
+mod open_notes {
+    use super::*;
+    use mareader_pdf::OpenError as Pdf;
+    use mareader_session::OpenError;
+
+    #[test]
+    fn a_failure_says_why_and_what_to_try() {
+        let locked = open_failed("deed.pdf", &OpenError::Pdf(Pdf::Locked));
+        assert!(
+            locked
+                .message
+                .starts_with("Couldn't open deed.pdf: the PDF is locked")
+        );
+        assert!(locked.message.ends_with("save an unlocked copy."));
+        let none = open_failed("a.pdf", &OpenError::Pdf(Pdf::NoPages));
+        assert_eq!(none.message, "Couldn't open a.pdf: the PDF has no pages.");
+        assert_eq!(cut_short("a.pdf").tone, crate::toast::Tone::Warning);
+    }
 }

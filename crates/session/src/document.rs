@@ -113,6 +113,11 @@ impl Document {
         }
     }
 
+    /// A PDF that opened without its end: pages may be missing.
+    pub fn cut_short(&self) -> bool {
+        matches!(self, Self::Pdf(d) if d.cut_short())
+    }
+
     /// Whether the text reflows: the typography settings apply.
     pub fn is_reflowable(&self) -> bool {
         matches!(self, Self::Epub { .. })
