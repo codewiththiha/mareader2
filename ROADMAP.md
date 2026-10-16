@@ -109,7 +109,7 @@ appearance effects to that same pass.
 | # | Slice | State | Try it |
 |---|---|---|---|
 | 1 | Proof sweep: window commands, title, dividers, popovers and idle frames tested; every control named for screen readers; the real-machine checks listed (`docs/verification.md`) | **done** | a screen reader names each settings slider and box; `cargo test -p mareader-ui --test chrome --test a11y` |
-| 2 | What is left of P1 and P2: the theme from the first frame, a source folder's own subfolders, distraction-free reading by command | planned | |
+| 2 | What is left of P1 and P2: the theme from the first frame, a source folder's own subfolders, distraction-free reading by command | **done** | launch on a light theme: no dark flash; choose a folder's chip, then a subfolder chip under it, and its crumbs back up; ⌘/Ctrl+Shift+F or the View menu's Distraction-free, Esc to leave |
 | 3 | Memory budgets measured again over both formats and the library | planned | |
 | 4 | Installers built in CI for macOS, Windows and Linux | planned | |
 
@@ -144,6 +144,9 @@ appearance effects to that same pass.
 8. **M8 slice 1, proof sweep** (§ M8 slices): stale partial entries
    proved by tests, every control named. Landed. Next is slice 2, the
    last P1 and P2 features.
+9. **M8 slice 2, the last P1 and P2 features** (§ M8 slices): the
+   first frame on the remembered paper, a folder's own subfolders,
+   distraction-free reading. Landed. Next is slice 3, memory budgets.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -238,3 +241,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M7 slice 2, keyboard-only operation. Tab shows a 2 px accent ring (cards ring their backing, page stops ring outside, links tinted) that a pointer press hides, and brings the hidden title bar and page bar up, held while focus is in them or the sidebar. Links, marks and click-explain words on screen are Tab stops in reading order; Enter or Space acts, Shift+F10 opens a card's or mark's menu. Surfaces, drag bands and popup frames are no longer stops. Library cards open with Enter and pick with Shift+Enter; modals keep Tab inside. F6 cycles panes, and tabbing into one focuses it; F3 and Cmd/Ctrl+G step matches (`docs/search.md` § Keyboard) |
 | 2026-10-16 | M7 slice 3, auto-scroll. Shift+A or the View menu's Auto-scroll row drifts the focused pane at 72 px a second in the scrolling views (a toast explains the paged ones). The pace follows frame time, so it holds at any refresh rate; keys and the wheel add to it, a held press pauses it, and it stops at the strip's end, on Escape, on a paged view or on pane blur. M7 is done (`docs/search.md` § Keyboard) |
 | 2026-10-16 | M8 slice 1, proof sweep. Headless tests now prove the caption buttons, the bar's drag and double-click, frameless edges (none on a Mac), the title's centring, truncation and hiding, divider drags within their limits, popovers closing on Escape and outside presses, and that an idle window draws nothing. A sweep over the reader, its panels, every settings tab, the popover, menus, find and the library found 22 nameless controls; settings rows now name their controls by their label, and lone fields are named. A moved file keeps its shelves and marks. Real-machine checks are listed (`docs/verification.md`) |
+| 2026-10-16 | M8 slice 2, the last P1 and P2 features. The window clears to the remembered paper and paints it on the frame that waits for fonts, so a light theme never opens dark. A chosen folder shows its own books with a chip per subfolder (counting every book below) and crumbs back up, whatever its shelving; a search covers the subfolder and all below it, and choosing a deeper result walks there. Distraction-free reading (⌘/Ctrl+Shift+F or the View menu) hides the title bar, page bars and sidebar while reading, keeps the floating label, leaves the library its bar, and ends with Esc or the same key |
