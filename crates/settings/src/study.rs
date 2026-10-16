@@ -94,6 +94,8 @@ pub struct HighlightSettings {
     pub pick: PickColor,
     /// How words the AI explained are marked.
     pub ai: Reserved,
+    /// How words above the reader's level are shaded.
+    pub cefr: Reserved,
 }
 
 impl HighlightSettings {
@@ -127,9 +129,9 @@ impl HighlightSettings {
         }
     }
 
-    /// Looks kept for other purposes: the AI's now, CEFR's in slice 5.
-    pub fn reserved(&self) -> [Reserved; 1] {
-        [self.ai]
+    /// Looks kept for other purposes: the AI's and CEFR's.
+    pub fn reserved(&self) -> [Reserved; 2] {
+        [self.ai, self.cefr]
     }
 
     /// Whether the reader may highlight with `pen` in `color`.
@@ -155,6 +157,12 @@ impl HighlightSettings {
             seen.push(*item);
             new
         });
+        // Shading never passes for an AI mark: it takes another colour.
+        if self.cefr == self.ai {
+            let (ai, own) = (self.ai.color, self.color(self.cefr.pen));
+            let free = Self::PALETTE.into_iter().find(|c| *c != ai && *c != own);
+            self.cefr.color = free.unwrap_or(Self::default().cefr.color);
+        }
         // A pen whose colour became reserved moves to the next one free.
         for pen in Pen::ALL {
             if !self.allowed(pen, self.color(pen))
@@ -184,6 +192,10 @@ impl Default for HighlightSettings {
             ai: Reserved {
                 pen: Pen::Full,
                 color: Rgb(0xa5, 0x8a, 0xf0),
+            },
+            cefr: Reserved {
+                pen: Pen::Full,
+                color: Rgb(0xff, 0x00, 0x00),
             },
         }
     }
@@ -333,6 +345,18 @@ mod tests {
         h.sanitize();
         assert_ne!(h.full, h.ai.color);
         assert!(h.allowed(Pen::Full, h.full));
+    }
+
+    #[test]
+    fn shading_keeps_its_look_apart_from_ai_marks_and_pens() {
+        let mut h = HighlightSettings::default();
+        assert!(!h.colors(Pen::Full).contains(&h.cefr.color));
+        h.cefr = h.ai;
+        h.full = h.ai.color;
+        h.sanitize();
+        assert_ne!(h.cefr, h.ai);
+        assert!(h.allowed(Pen::Full, h.full));
+        assert_ne!(h.full, h.cefr.color);
     }
 
     #[test]

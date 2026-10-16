@@ -1,6 +1,7 @@
 //! What each pane shows, and the per-frame traffic with the session.
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -482,7 +483,13 @@ impl Documents {
     }
 
     /// Draws the pane's document; false leaves the pane to its empty state.
-    pub fn show(&mut self, ui: &mut Ui, pane: PaneId, cx: &ViewContext) -> bool {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        pane: PaneId,
+        cx: &ViewContext,
+        vocab: Option<&mut crate::vocab::Vocab>,
+    ) -> bool {
         let entry = match (self.panes.get(&pane), &self.session) {
             (Some(Content::Pdf(v)), Some(s)) => s.get(v.doc).cloned(),
             (Some(Content::Opening { name, .. }), _) => {
@@ -502,6 +509,7 @@ impl Documents {
             drawn: &mut self.drawn,
             pass: self.gpu.as_ref().map(|g| &g.pass),
             gloss: &mut gloss,
+            vocab,
         };
         pdf_view::show(ui, view, &entry.doc, io, cx);
         self.gloss.extend(gloss.into_iter().map(|g| (pane, g)));
@@ -567,6 +575,7 @@ impl Documents {
             drawn: &mut Vec::new(),
             pass: self.gpu.as_ref().map(|g| &g.pass),
             gloss: &mut Vec::new(),
+            vocab: None,
         };
         thumbnails::show(ui, &reading, io, state, recentre, out);
         true
@@ -640,6 +649,13 @@ impl Documents {
         let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
         let rect = on_screen.reduce(|a, b| a.union(b))?;
         Some((asked, rect))
+    }
+
+    /// The word at `chars` of `page`, as Explain asks for it.
+    pub fn asked_at(&self, pane: PaneId, page: usize, chars: Range<usize>) -> Option<Asked> {
+        let view = self.view(pane)?;
+        let layer = self.texts.get(view.doc, page)?;
+        study::words::asked_at(&layer, page, chars)
     }
 
     /// The pane's selected text for a lookup, and where it shows.

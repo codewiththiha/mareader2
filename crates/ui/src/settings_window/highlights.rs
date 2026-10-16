@@ -82,14 +82,19 @@ fn pen_row(ui: &mut Ui, h: &mut HighlightSettings, pen: Pen) {
     let mut color = h.color(pen);
     row(ui, pen.label(), hint, |ui| {
         let free = |c: Rgb| !reserved.contains(&Reserved { pen, color: c });
-        palette(ui, (pen.label(), "Kept for AI marks"), &mut color, free);
+        palette(
+            ui,
+            (pen.label(), "Kept for AI marks or shading"),
+            &mut color,
+            free,
+        );
         preview(ui, pen, color, opacity);
     });
     *h.color_mut(pen) = color;
 }
 
 /// "Aa" drawn over with `pen`, as a page shows it.
-fn preview(ui: &mut Ui, pen: Pen, color: Rgb, opacity: f32) {
+pub(super) fn preview(ui: &mut Ui, pen: Pen, color: Rgb, opacity: f32) {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(34.0, 22.0), Sense::hover());
     let line = rect.shrink2(vec2(3.0, 3.0));
@@ -100,7 +105,12 @@ fn preview(ui: &mut Ui, pen: Pen, color: Rgb, opacity: f32) {
 }
 
 /// The palette as dots, laid right to left; kept ones can't be picked.
-fn palette(ui: &mut Ui, (name, kept): (&str, &str), value: &mut Rgb, free: impl Fn(Rgb) -> bool) {
+pub(super) fn palette(
+    ui: &mut Ui,
+    (name, kept): (&str, &str),
+    value: &mut Rgb,
+    free: impl Fn(Rgb) -> bool,
+) {
     let t = Tokens::get(ui.ctx());
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut srgb = [value.0, value.1, value.2];

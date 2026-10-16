@@ -22,6 +22,7 @@ mod dictionary;
 mod fonts;
 mod highlights;
 mod scope;
+mod vocabulary;
 
 pub use scope::{Applies, Scope, Shown};
 
@@ -148,7 +149,7 @@ impl SettingsWindow {
         ctx: &egui::Context,
         current: &Settings,
         cx: &Scope,
-        (ai, dict): (&crate::ai::Ai, &crate::dict::Dict),
+        (ai, dict, vocab): (&crate::ai::Ai, &crate::dict::Dict, &crate::vocab::Vocab),
         out: &mut Commands,
     ) {
         if !self.open {
@@ -190,7 +191,7 @@ impl SettingsWindow {
                     Frame::new().inner_margin(body).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let tab = self.tab(&draft, cx);
-                        tab_body(ui, tab, &mut draft, (cx, ai, dict), out);
+                        tab_body(ui, tab, &mut draft, (cx, ai, dict, vocab), out);
                     });
                 });
             });
@@ -243,7 +244,12 @@ fn tab_body(
     ui: &mut Ui,
     tab: Tab,
     s: &mut Settings,
-    (cx, ai, dict): (&Scope, &crate::ai::Ai, &crate::dict::Dict),
+    (cx, ai, dict, vocab): (
+        &Scope,
+        &crate::ai::Ai,
+        &crate::dict::Dict,
+        &crate::vocab::Vocab,
+    ),
     out: &mut Commands,
 ) {
     match tab {
@@ -255,10 +261,10 @@ fn tab_body(
             let study = &mut s.study;
             highlights::tab(ui, &mut study.highlights, &mut study.gloss);
         }
-        Tab::Vocabulary => pending(
-            ui,
-            "CEFR level highlighting and its word lists arrive with the study tools (M6).",
-        ),
+        Tab::Vocabulary => {
+            let (study, dictionary) = (&mut s.study, &mut s.dictionary);
+            vocabulary::tab(ui, study, dictionary, vocab, out);
+        }
         Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]
         Tab::Ai => ai::tab(ui, &mut s.ai, ai.board(), out),
@@ -729,6 +735,7 @@ fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
 }
 
 /// Honest copy for settings whose feature has not landed yet.
+#[cfg(target_arch = "wasm32")]
 fn pending(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(8.0);

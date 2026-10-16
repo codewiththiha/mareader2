@@ -19,6 +19,7 @@ mareader-session = { workspace = true }
 mareader-library = { workspace = true }
 mareader-study = { workspace = true }
 mareader-dict = { workspace = true }
+mareader-cefr = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }
@@ -39,3 +40,4 @@ wasm-bindgen-futures = "0.4"
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
 tempfile = { workspace = true }
+parquet = { workspace = true }

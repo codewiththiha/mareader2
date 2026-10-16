@@ -19,8 +19,7 @@ cefr = { workspace = true }
 cefr = { workspace = true, features = ["nlp"] }
 mareader-fetch = { workspace = true }
 rusqlite = { workspace = true }
-# The dataset is a parquet; only its codecs, not arrow.
-parquet = { version = "59", default-features = false, features = ["snap", "zstd"] }
+parquet = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
