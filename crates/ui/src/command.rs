@@ -71,6 +71,8 @@ pub enum Command {
     Page {
         forward: bool,
     },
+    /// Shift+A: the active pane's auto-scroll on or off.
+    AutoScroll,
     /// Home and End: the active document's first or last page.
     FirstPage,
     LastPage,

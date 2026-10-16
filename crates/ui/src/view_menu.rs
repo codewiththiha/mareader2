@@ -32,6 +32,7 @@ pub struct MenuContext<'a> {
     /// The active document's zoom and mode; no rows without one.
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
+    pub auto_scroll: Option<bool>,
 }
 
 /// The menu button and its popup.
@@ -70,6 +71,11 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     }
     if let Some(zoom) = cx.zoom {
         zoom_row(ui, zoom, cx.platform, out);
+    }
+    if let (Some(on), Some(mode)) = (cx.auto_scroll, cx.mode) {
+        auto_scroll_row(ui, on, !mode.paged(), cx.platform, out);
+    }
+    if cx.zoom.is_some() {
         ui.separator();
     }
     for tool in cx.folded {
@@ -102,6 +108,18 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.horizontal(|ui| {
         ui.add_space(8.0);
         ui.label(RichText::new(version).size(t.text_small).color(t.muted));
+    });
+}
+
+/// Auto-scroll's switch, dimmed in the paged modes, as in mareader.
+fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &mut Commands) {
+    let keys = keymap::hint(platform, &Command::AutoScroll);
+    ui.add_enabled_ui(can, |ui| {
+        let row = widgets::menu_row(ui, Icon::AutoScroll, "Auto-scroll", keys.as_deref(), on);
+        if row.clicked() {
+            out.push(Command::AutoScroll);
+            ui.close();
+        }
     });
 }
 

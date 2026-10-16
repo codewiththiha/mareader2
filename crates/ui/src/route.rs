@@ -35,6 +35,7 @@ fn reads(command: &Command) -> bool {
         // The focused pane's view and place.
         C::Zoom(_) | C::View(_) | C::Arrow(_) => true,
         C::Page { .. } | C::FirstPage | C::LastPage => true,
+        C::AutoScroll => true,
         C::GoTo { .. } | C::Turn { .. } => true,
         C::FocusPane(_) | C::ClosePane(_) | C::SetRatio(..) => true,
         C::CyclePane { .. } | C::FindStep { .. } => true,
