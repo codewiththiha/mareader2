@@ -181,7 +181,7 @@ impl Dictionaries {
     /// Stops a download, keeping what came to resume later.
     pub fn pause(&mut self, pack: &'static Pack) {
         if let Some(desk) = &mut self.desk {
-            desk.halt(pack, crate::fetch::Halt::Pause);
+            desk.halt(pack, mareader_fetch::Halt::Pause);
         }
     }
 
@@ -189,7 +189,7 @@ impl Dictionaries {
     pub fn cancel(&mut self, pack: &'static Pack) {
         let idle = matches!(self.state(pack), State::Paused { .. } | State::Failed(_));
         if let Some(desk) = &mut self.desk {
-            desk.halt(pack, crate::fetch::Halt::Cancel);
+            desk.halt(pack, mareader_fetch::Halt::Cancel);
             if idle {
                 desk.remove(pack);
             }
@@ -200,7 +200,7 @@ impl Dictionaries {
     /// Deletes a pack's files; it can be downloaded again.
     pub fn remove(&mut self, pack: &'static Pack) {
         if let Some(desk) = &mut self.desk {
-            desk.halt(pack, crate::fetch::Halt::Cancel);
+            desk.halt(pack, mareader_fetch::Halt::Cancel);
             desk.remove(pack);
         }
         self.set(pack, State::Absent);
@@ -218,10 +218,10 @@ mod desk {
 
     use super::{Query, Reply, State, Ticket};
     use crate::build::build;
-    use crate::fetch::{self, Halt, Stopped};
     use crate::packs::{PACKS, Pack};
     use crate::shelf::{Shelf, building_file, db_file, part_file};
     use crate::store;
+    use mareader_fetch::{self as fetch, Halt, Kind, Stopped};
 
     pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
@@ -279,7 +279,7 @@ mod desk {
             }
             let part = part_file(&self.dir, pack);
             match std::fs::metadata(&part).map(|m| m.len()) {
-                Ok(_) if fetch::check(&part).is_ok() => {
+                Ok(_) if Kind::Parquet.check(&part).is_ok() => {
                     self.convert_later(pack);
                     State::Converting
                 }
@@ -330,7 +330,7 @@ mod desk {
                         say(State::Fetching { got, total });
                     }
                 };
-                match fetch::fetch(&pack.urls(), &part, &flag, &mut progress) {
+                match fetch::fetch(&pack.urls(), &part, Kind::Parquet, &flag, &mut progress) {
                     Ok(()) => {
                         say(State::Converting);
                         say(convert(&dir, pack));

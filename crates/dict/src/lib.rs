@@ -22,8 +22,6 @@ mod service;
 #[cfg(not(target_arch = "wasm32"))]
 mod build;
 #[cfg(not(target_arch = "wasm32"))]
-mod fetch;
-#[cfg(not(target_arch = "wasm32"))]
 mod shelf;
 #[cfg(not(target_arch = "wasm32"))]
 mod store;
