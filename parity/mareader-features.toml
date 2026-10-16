@@ -1602,5 +1602,7 @@ status = "shipped"
 evidence = [
     "crates/ui/tests/reading.rs::one_file_in_two_panes_is_read_once_and_drawn_once",
     "crates/ui/tests/reading.rs::closing_the_last_pane_on_a_book_frees_its_textures",
+    "crates/ui/tests/find.rs::a_book_set_again_or_closed_lets_its_old_search_go",
+    "crates/ui/tests/library.rs::covers_scrolled_past_never_pile_up_waiting",
 ]
-notes = "`crates/ui/examples/memory.rs` measures; the M2 audit is in docs/memory.md. Each later milestone adds a dated section"
+notes = "`crates/ui/examples/memory.rs` measures and checks budgets; CI runs it as the Remote memory task. The M2 and M8 audits are in docs/memory.md. Each later milestone adds a dated section"
