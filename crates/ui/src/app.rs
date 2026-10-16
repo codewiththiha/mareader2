@@ -883,8 +883,11 @@ impl MareaderApp {
                     self.study
                         .open_mark(ctx, self.library.model(), pane, mark, at);
                 }
-                Gloss::Menu { mark, at } => self.study.open_menu(mark, at),
+                Gloss::Menu { mark, at } => self.study.open_menu(pane, mark, at),
                 Gloss::Anchor(at) => self.study.anchor(pane, at),
+                Gloss::Pick(mark) => self.study.pick(pane, mark),
+                Gloss::Toggle(mark) => self.study.toggle(pane, mark),
+                Gloss::Seen { page, all } => self.study.seen(pane, page, all),
             }
         }
         for (pane, _) in &self.pane_rects {
@@ -1808,6 +1811,7 @@ impl eframe::App for MareaderApp {
                     },
                     highlights: highlights.clone(),
                     card: study.card_mark(id),
+                    picked: study.picked(id),
                 };
                 documents.show(ui, id, &cx)
             });

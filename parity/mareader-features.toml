@@ -1256,7 +1256,7 @@ area = "I"
 tier = "P1"
 milestone = "M6"
 status = "shipped"
-evidence = ["crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::a_right_click_removes_a_mark_and_undo_brings_it_back", "crates/ui/tests/study.rs::a_book_s_mark_is_found_again_after_the_type_changes", "crates/ui/tests/study.rs::a_library_book_keeps_its_marks", "crates/library/src/marks_tests.rs::marks_travel_and_a_removal_wins_over_an_older_keep", "crates/ui/tests/study.rs::the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look", "crates/settings/src/study.rs::the_ai_look_is_never_offered_to_its_pen"]
+evidence = ["crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::a_right_click_removes_a_mark_and_undo_brings_it_back", "crates/ui/tests/study.rs::a_book_s_mark_is_found_again_after_the_type_changes", "crates/ui/tests/study.rs::a_library_book_keeps_its_marks", "crates/library/src/marks_tests.rs::marks_travel_and_a_removal_wins_over_an_older_keep", "crates/ui/tests/study.rs::the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look", "crates/settings/src/study.rs::the_ai_look_is_never_offered_to_its_pen", "crates/ui/tests/study.rs::several_marks_are_picked_and_removed_together"]
 reference = ["crates/ai-core/src/gloss/mark.rs", "crates/reader-core/src/settings/gloss.rs"]
 notes = "Marks are drawn, kept per book and synced as records (M6 slice 1); Settings > Highlights sets the AI mark's pen and colour, fill strength and card spacing (slice 3)"
 

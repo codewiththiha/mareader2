@@ -244,10 +244,14 @@ slice 5.
 - **Settings › Dictionary** lists the packs with Download, progress with
   Pause and Cancel, Resume, Remove and Try again, then Default language,
   offered only for downloaded packs.
+- **Picking several marks**, left from slice 3. A long press on a mark
+  (half a second) or Select several in its menu starts it: picked marks
+  get a ring, a click toggles one, and a bar offers This page, All,
+  Remove (N) with Undo, and Done. Escape stops picking.
 - **Left for later.** Lookup on hover over CEFR words comes with slice 5;
   a browser lists packs but can't download them.
 - **Checks.** The dict crate's tests convert both fixture packs, serve
   downloads from a local server (mirrors, error pages, a dropped
   connection resumed, pause and cancel), and ask cards, bridges and
   searches; kittests look up from the bar, follow Get dictionaries…,
-  remove a pack and search in the panel.
+  remove a pack, search in the panel, and pick and remove marks.
