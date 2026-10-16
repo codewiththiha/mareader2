@@ -914,6 +914,11 @@ impl Documents {
         }
     }
 
+    /// The document open as `doc`, as it is set now.
+    pub fn document(&self, doc: DocId) -> Option<&Arc<Document>> {
+        self.session.as_ref()?.get(doc).map(|e| &e.doc)
+    }
+
     /// Open documents and cached page textures, for tests and meters.
     pub fn stats(&self) -> (usize, usize) {
         (

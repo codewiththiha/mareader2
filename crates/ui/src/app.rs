@@ -333,6 +333,11 @@ impl MareaderApp {
     }
 
     /// Covers held as textures, for tests.
+    /// Document searches kept, for meters.
+    pub fn searches(&self) -> usize {
+        self.search.len()
+    }
+
     pub fn covers_shown(&self) -> usize {
         self.library.covers().shown()
     }
@@ -1875,6 +1880,9 @@ impl eframe::App for MareaderApp {
         self.files.collect(&mut commands);
         self.library.receive(&ctx, &mut commands);
         self.library.tick(&ctx);
+        // A closed book's search would keep it, and its thread, alive.
+        let documents = &self.documents;
+        self.search.forget_closed(|doc| documents.document(doc));
         if self.search.poll() {
             ctx.request_repaint();
         }

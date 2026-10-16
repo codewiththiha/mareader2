@@ -178,6 +178,25 @@ fn a_book_is_searched_and_its_hit_revealed() {
 }
 
 #[test]
+fn a_book_set_again_or_closed_lets_its_old_search_go() {
+    // The lone pane stays; a second one can close.
+    let mut h = reader(&[("panes", "2"), ("focus", "2"), ("epub", "sample")]);
+    search(&mut h, "Bold");
+    assert_eq!(h.state().searches(), 1);
+    // Set in another size, the book is a new document, searched afresh.
+    h.state_mut().set_option("text_size", "26").ok();
+    h.run_steps(20);
+    assert_eq!(h.state().searches(), 1, "only the book as set now");
+    assert!(!hit_pages(&h).is_empty(), "found again");
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().panes().get(1), Some(&pane), "read in the second");
+    h.state_mut().queue(Command::ClosePane(pane));
+    h.run_steps(3);
+    assert_eq!(h.state().panes().len(), 1);
+    assert_eq!(h.state().searches(), 0, "closed, nothing holds the book");
+}
+
+#[test]
 fn a_hit_below_a_tall_figure_is_scrolled_into_view() {
     let mut h = reader(&[("epub", "sample")]);
     search(&mut h, "river at dusk");
