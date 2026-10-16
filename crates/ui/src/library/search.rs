@@ -109,6 +109,7 @@ struct Shape {
     revision: u64,
     at: Option<ShelfId>,
     scope: Scope,
+    trail: Vec<String>,
     sort: SortKey,
     ascending: bool,
     home: Home,
@@ -138,6 +139,7 @@ impl LibraryState {
             revision: self.model.revision(),
             at: self.at,
             scope: self.scope,
+            trail: self.trail.clone(),
             sort: view.sort,
             ascending: view.ascending,
             home: view.home,
@@ -214,6 +216,12 @@ impl LibraryState {
             };
         }
         let scope = self.scope;
+        // In a folder, its subfolder's own books; searching, all below it.
+        if let Scope::Folder(id) = scope {
+            let direct = self.search.query.is_empty();
+            let here = |b: &&Book| model.in_trail(b, id, &self.trail, direct);
+            return view.sort(model.books().filter(here));
+        }
         if scope != Scope::All {
             return view.sort(model.books().filter(|b| in_scope(b, scope)));
         }
@@ -278,9 +286,10 @@ impl LibraryState {
         }
         match self.scope {
             Scope::Missing => "Search missing books".into(),
-            Scope::Folder(id) => match self.model.source(id) {
-                Some(source) => format!("Search “{}”", source.name()),
-                None => "Search".into(),
+            Scope::Folder(id) => match (self.trail.last(), self.model.source(id)) {
+                (Some(sub), _) => format!("Search “{sub}”"),
+                (None, Some(source)) => format!("Search “{}”", source.name()),
+                (None, None) => "Search".into(),
             },
             Scope::All => match self.model.len() {
                 0 => "Search".into(),
@@ -331,6 +340,7 @@ impl LibraryState {
             SearchAction::Widen => {
                 self.at = None;
                 self.scope = Scope::All;
+                self.trail.clear();
                 self.renaming = None;
                 self.picks.apply(PickAction::Clear);
             }
@@ -363,6 +373,7 @@ impl LibraryState {
     /// Lights the target where it shows, going there if it's elsewhere.
     fn choose(&mut self, target: Target, now: f64) {
         let model = &self.model;
+        let mut walk: Option<Vec<String>> = None;
         let (pick, there) = match target {
             Target::Book(id) => {
                 let Some(book) = model.book(id) else {
@@ -372,6 +383,14 @@ impl LibraryState {
                 let here = match (self.at, self.scope) {
                     (Some(shelf), _) => model.shelves_of(id).contains(&shelf),
                     (None, Scope::All) => true,
+                    // In a folder, the walk goes to the book's own subfolder.
+                    (None, Scope::Folder(source)) => {
+                        let trails = model.trails_of(book, source);
+                        if !trails.contains(&self.trail) {
+                            walk = trails.into_iter().next();
+                        }
+                        walk.is_some() || in_scope(book, self.scope)
+                    }
                     (None, scope) => in_scope(book, scope),
                 };
                 (Pick::Book(id), (!here).then_some(None))
@@ -390,7 +409,10 @@ impl LibraryState {
         if let Some(at) = there {
             self.at = at;
             self.scope = Scope::All;
+            self.trail.clear();
             self.renaming = None;
+        } else if let Some(trail) = walk {
+            self.trail = trail;
         }
         self.picks.apply(PickAction::Clear);
         self.search.close();

@@ -82,6 +82,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let loading = library.loading();
     let offline = library.offline().clone();
     let (scope, scanning, at) = (library.scope, library.scanning(), library.at());
+    let trail = library.trail.clone();
     let picks = library.picks().clone();
     let listing = library.listing(view);
     let searched = library
@@ -97,6 +98,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         offline: &offline,
         scanning,
         scope,
+        trail: &trail,
     };
     if model.is_empty() && model.shelves().next().is_none() {
         if !loading {

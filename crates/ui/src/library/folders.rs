@@ -18,6 +18,8 @@ pub struct Shown<'a> {
     pub offline: &'a BTreeSet<SourceId>,
     pub scanning: bool,
     pub scope: Scope,
+    /// Inside the chosen folder, the subfolders walked into.
+    pub trail: &'a [String],
 }
 
 /// Whether `book` belongs on the page under `scope`.
@@ -243,5 +245,46 @@ pub fn chips(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
             });
         }
     });
+    if let Scope::Folder(id) = shown.scope {
+        trail(ui, shown, id, t, out);
+    }
     ui.add_space(10.0);
+}
+
+/// The chosen folder's trail and its subfolders, walked as in a file manager.
+fn trail(ui: &mut Ui, shown: &Shown<'_>, id: SourceId, t: &Tokens, out: &mut Commands) {
+    let subs = shown.model.subfolders(id, shown.trail);
+    if shown.trail.is_empty() && subs.is_empty() {
+        return;
+    }
+    let root = shown.model.source(id).map(Source::name).unwrap_or_default();
+    let go = |trail: Vec<String>| Command::Library(Action::Trail(trail));
+    ui.add_space(8.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let names = std::iter::once(root).chain(shown.trail.iter().cloned());
+        for (depth, name) in names.enumerate() {
+            if depth > 0 {
+                ui.label(RichText::new("›").color(t.muted));
+            }
+            // The folder shown is plain text; those above it lead back up.
+            if depth == shown.trail.len() {
+                ui.label(RichText::new(name).font(theme::medium(t.text)).color(t.ink));
+            } else if ui.add(Button::new(name).frame(false)).clicked() {
+                out.push(go(shown.trail.iter().take(depth).cloned().collect()));
+            }
+        }
+        ui.add_space(8.0);
+        for (name, count) in subs {
+            let label = (
+                Icon::Folder.image(14.0).tint(t.muted),
+                format!("{name} · {count}"),
+            );
+            if ui.add(Button::new(label.into_atoms())).clicked() {
+                let mut next = shown.trail.to_vec();
+                next.push(name);
+                out.push(go(next));
+            }
+        }
+    });
 }

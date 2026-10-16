@@ -1,6 +1,6 @@
 //! Folders read in place: what counts in them, scans, and relinking.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -54,15 +54,20 @@ impl Shelving {
     /// The shelf names, outermost first, for `file` found under `root`.
     pub fn names(self, root: &Path, file: &Path) -> Vec<String> {
         let top = folder_name(root);
-        let dirs = file.parent().and_then(|d| d.strip_prefix(root).ok());
-        let dirs = dirs.into_iter().flat_map(|d| d.components());
-        let dirs = dirs.map(|c| c.as_os_str().to_string_lossy().into_owned());
         match self {
             Self::None => Vec::new(),
             Self::One => vec![top],
-            Self::Each => std::iter::once(top).chain(dirs).collect(),
+            Self::Each => std::iter::once(top).chain(dirs_under(root, file)).collect(),
         }
     }
+}
+
+/// The folder names between `root` and `file`, outermost first.
+fn dirs_under(root: &Path, file: &Path) -> Vec<String> {
+    let dirs = file.parent().and_then(|d| d.strip_prefix(root).ok());
+    let dirs = dirs.into_iter().flat_map(|d| d.components());
+    dirs.map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect()
 }
 
 /// A folder's own name, as shown.
@@ -206,6 +211,42 @@ impl Library {
     pub fn books_in(&self, id: SourceId) -> impl Iterator<Item = &Book> {
         let here = move |b: &&Book| b.locations.iter().any(|l| l.origin == Origin::Source(id));
         self.books().filter(here)
+    }
+
+    /// The subfolders where `book` has files in folder `id`, as name trails.
+    pub fn trails_of(&self, book: &Book, id: SourceId) -> Vec<Vec<String>> {
+        let Some(root) = self.source(id).map(|s| s.root.as_path()) else {
+            return Vec::new();
+        };
+        let mine = book
+            .locations
+            .iter()
+            .filter(|l| l.origin == Origin::Source(id));
+        mine.map(|l| dirs_under(root, &l.path)).collect()
+    }
+
+    /// Whether `book` lies in `trail` of folder `id`, directly or below.
+    pub fn in_trail(&self, book: &Book, id: SourceId, trail: &[String], direct: bool) -> bool {
+        let fits = |dirs: &Vec<String>| match direct {
+            true => dirs.as_slice() == trail,
+            false => dirs.starts_with(trail),
+        };
+        self.trails_of(book, id).iter().any(fits)
+    }
+
+    /// The folders right under `trail` in folder `id`, with books below.
+    pub fn subfolders(&self, id: SourceId, trail: &[String]) -> Vec<(String, usize)> {
+        let mut found: BTreeMap<String, BTreeSet<BookId>> = BTreeMap::new();
+        for book in self.books_in(id) {
+            for dirs in self.trails_of(book, id) {
+                if let Some(next) = dirs.strip_prefix(trail).and_then(|d| d.first()) {
+                    found.entry(next.clone()).or_default().insert(book.id);
+                }
+            }
+        }
+        let mut out: Vec<(String, usize)> = found.into_iter().map(|(n, b)| (n, b.len())).collect();
+        out.sort_by_key(|(n, _)| n.to_lowercase());
+        out
     }
 
     /// Reads `root` in place from now on; a folder inside takes no part.
