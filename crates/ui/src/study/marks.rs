@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use egui::{Painter, Pos2, Rect, Ui, pos2};
+use egui::{Color32, Id, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2};
 use mareader_appearance::Rgb;
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::{Bounds, TextLayer};
@@ -171,4 +171,64 @@ pub fn draw(painter: &Painter, r: Rect, pen: Pen, color: Rgb, opacity: f32) {
 /// The mark under `p`, the last drawn first.
 pub fn hit(placed: &[Placed], p: Pos2) -> Option<&Placed> {
     placed.iter().rev().find(|m| m.contains(p))
+}
+
+/// A still press held this long on a mark picks it.
+pub const LONG_PRESS: f64 = 0.5;
+/// Set when a long press picked: its release's click does nothing.
+const ARMED: &str = "mark-long-press";
+
+/// The mark a still press has held long enough on, once per press.
+pub fn long_press(ui: &Ui, placed: &[Placed]) -> Option<MarkId> {
+    let id = Id::new(ARMED);
+    let (origin, start, down, latest, now) = ui.input(|i| {
+        let p = &i.pointer;
+        let down = p.primary_down();
+        (
+            p.press_origin(),
+            p.press_start_time(),
+            down,
+            p.latest_pos(),
+            i.time,
+        )
+    });
+    let (Some(origin), Some(start), true) = (origin, start, down) else {
+        return None;
+    };
+    let mark = hit(placed, origin)?;
+    let still = latest.is_some_and(|p| p.distance(origin) < 6.0);
+    if !still || ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) {
+        return None;
+    }
+    let held = now - start;
+    if held < LONG_PRESS {
+        ui.ctx()
+            .request_repaint_after_secs((LONG_PRESS - held) as f32);
+        return None;
+    }
+    ui.data_mut(|d| d.insert_temp(id, true));
+    Some(mark.id)
+}
+
+/// True when this frame's click ends a long press.
+pub fn swallowed(ui: &Ui, clicked: bool) -> bool {
+    let id = Id::new(ARMED);
+    if ui.input(|i| i.pointer.any_pressed()) {
+        ui.data_mut(|d| d.remove::<bool>(id));
+    }
+    let armed = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    if clicked && armed {
+        ui.data_mut(|d| d.remove::<bool>(id));
+    }
+    clicked && armed
+}
+
+/// A ring around each picked mark.
+pub fn ring(painter: &Painter, placed: &[Placed], picked: &[MarkId], color: Color32) {
+    let stroke = Stroke::new(1.5, color);
+    for m in placed.iter().filter(|m| picked.contains(&m.id)) {
+        for r in &m.rects {
+            painter.rect_stroke(r.expand(2.0), 2.0, stroke, StrokeKind::Outside);
+        }
+    }
 }

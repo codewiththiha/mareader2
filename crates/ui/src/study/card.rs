@@ -7,6 +7,7 @@ use egui::{
 use mareader_library::MarkId;
 use mareader_settings::GlossDensity;
 use mareader_study::{Failure, WordInfo};
+use mareader_workspace::PaneId;
 
 use super::Action;
 use crate::command::{Command, Commands};
@@ -209,7 +210,13 @@ fn explaining(ui: &mut Ui, t: &Tokens) {
 }
 
 /// The right-click menu on a mark; returns where it went.
-pub fn menu(ctx: &Context, mark: MarkId, at: egui::Pos2, t: &Tokens, out: &mut Commands) -> Rect {
+pub fn menu(
+    ctx: &Context,
+    (pane, mark): (PaneId, MarkId),
+    at: egui::Pos2,
+    t: &Tokens,
+    out: &mut Commands,
+) -> Rect {
     egui::Area::new(Id::new("study-mark-menu"))
         .order(Order::Foreground)
         .fixed_pos(at)
@@ -222,6 +229,11 @@ pub fn menu(ctx: &Context, mark: MarkId, at: egui::Pos2, t: &Tokens, out: &mut C
                 .inner_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.set_width(190.0);
+                    let several =
+                        widgets::menu_row(ui, Icon::SelectSeveral, "Select several", None, false);
+                    if several.clicked() {
+                        out.push(Command::Study(Action::SelectSeveral(pane, mark)));
+                    }
                     ui.visuals_mut().override_text_color = Some(t.danger);
                     let row = widgets::menu_row(ui, Icon::Remove, "Remove highlight", None, false);
                     if row.clicked() {
