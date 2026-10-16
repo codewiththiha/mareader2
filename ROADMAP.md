@@ -1,7 +1,7 @@
 # Roadmap
 
-**Stage:** M1 to M4 done; M5 (Library) under way.
-**Parity:** 77.5 of 118 features (65.7 %, partial counts half). Run
+**Stage:** M1 to M5 done; M6 (Study tools) under way.
+**Parity:** 99 of 118 features (83.9 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -110,7 +110,16 @@ appearance effects to that same pass.
    was dropped (owner, 2026-10-16): mareader never shipped. The
    library redesign the owner asked for, M5 slices 8–13, is done
    (`docs/library.md` § Redesign).
-2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
+2. **M6 slice 3 is the highlighters** the owner asked for: full, half
+   and underline looks, your own highlights, a configurable selection
+   menu and reserved looks for AI marks and CEFR (`docs/study.md`
+   § Highlighters).
+3. **PDF lessons from pdf.js:** prefetch the next page in the scroll direction
+   first; thumbnails from page rasters already made; cap a page's raster
+   by the screen's area before tiling; a quick low-resolution pass for
+   pages slow to render; drop parsed caches after 30 s idle. Proposed to
+   the owner as a slice after the highlighters.
+4. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
    half and its mends (`docs/sync.md` § Taking rows in).
@@ -195,3 +204,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M5 slice 14, ready to merge, after a review against the sync design. `Library::absorb` merges another machine's rows, passes their stamps and mends what merging leaves, alike on every machine: two originals of one content fold into the lower id with its shelves and position, a loop of shelves undoes its newest move, sibling shelves of one name are numbered apart. Records keep and merge fields from newer builds under a schema rule, and `twin_of` is stamped so a promoted twin stays promoted (`docs/sync.md` § Taking rows in) |
 | 2026-10-16 | M6 slice 1, selection bar and marks. A released selection shows Copy and Explain under it (above near the bottom). Explain takes one word of up to 60 characters, marks it and opens a 320 pt card that shimmers until the answer comes from a worker thread, then shows sense, meaning, synonyms and usages; a failure says why and offers Try again only where retrying can help. Marks are synced records in the library (`Spot::Page` rects on PDFs, `Spot::Text` block bytes on books, so they survive retypesetting); documents outside the library keep theirs for the session. A click on a mark reopens its card, a right-click offers Remove highlight with a 6 s Undo. The answering backend is slice 2; until then nothing answers outside tests and shots (`explain=canned`) |
 | 2026-10-16 | M6 slice 2, answers from any AI (owner widened it from Apple only). A new `assist` crate keeps tasks (a prompt with a JSON Schema and a lenient reader), providers (one `Backend` seam) and the app's service apart, so every provider gets the same prompt. Apple Intelligence answers through the fm-bridge helper on a Mac; OpenAI, Gemini, OpenRouter, Ollama, LM Studio and custom servers answer through ai-pool everywhere, falling back from strict schemas to JSON mode to plain text. Settings › AI chooses the provider, model (with the server's list) and address, tries it, and adds, rotates, sets aside and removes encrypted API keys. The card fills as the answer streams and failures name their reason. `tools/fm-helper.sh` builds the helper for packaging (`docs/assist.md`) |
+| 2026-10-16 | Fixes from the owner's Mac. ai-pool's adaptive structured output (schema in every prompt; JSON mode, then one plain prompt, remembered per address and model) fixes Ollama Cloud, which accepts a schema and ignores it; debug builds find the Apple Intelligence helper `tools/fm-helper.sh` builds. Then saved answers: a finished answer is a stamped `gloss` field on its mark, so it survives restarts and will sync; the card names who answered and offers Ask again; settings changes no longer drop answers (`docs/study.md` § Saved answers) |
