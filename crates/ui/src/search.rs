@@ -146,6 +146,21 @@ impl Search {
         }
     }
 
+    /// Drops searches of documents closed or set again, and their threads.
+    pub fn forget_closed<'a>(&mut self, open: impl Fn(DocId) -> Option<&'a Arc<Document>>) {
+        let live = |j: &Job| open(j.doc).is_some_and(|d| Arc::as_ptr(d).addr() == j.key);
+        self.jobs.retain(live);
+    }
+
+    /// Searches kept, each holding its document's text; for meters.
+    pub fn len(&self) -> usize {
+        self.jobs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.jobs.is_empty()
+    }
+
     /// Takes in what the indexes found; true if anything changed.
     pub fn poll(&mut self) -> bool {
         let mut changed = false;
