@@ -8,6 +8,7 @@ use serde_json::Value;
 pub const TABLE: &[(&str, Layer)] = &[
     ("appearance", Layer::Core(0)),
     ("workspace", Layer::Core(0)),
+    ("fetch", Layer::Core(0)),
     ("pdf", Layer::Core(1)),
     ("reflow", Layer::Core(1)),
     ("library", Layer::Core(1)),
