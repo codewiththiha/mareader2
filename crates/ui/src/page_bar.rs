@@ -94,7 +94,8 @@ pub fn show(
             let origin = i.pointer.press_origin();
             i.pointer.any_down() && origin.is_some_and(|p| home.contains(p))
         });
-    bar.update_hover(ctx, pane, typing || dragging);
+    let tabbing = crate::focus::within(ctx, home);
+    bar.update_hover(ctx, pane, typing || dragging || tabbing);
     let id = Id::new(("page-bar", reading.pane));
     let fade = ctx.animate_bool_with_time(id, bar.shown, motion::secs(ctx, FADE));
     let t = Tokens::get(ctx);

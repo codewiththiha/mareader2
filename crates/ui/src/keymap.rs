@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 27] {
+pub fn bindings(platform: Platform) -> [Binding; 33] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -78,6 +78,26 @@ pub fn bindings(platform: Platform) -> [Binding; 27] {
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::F),
             command: Command::ShowFind,
         },
+        // Shift first again: the bare key would take Shift+F3 too.
+        step("Previous match", Modifiers::SHIFT, Key::F3, false),
+        step("Next match", Modifiers::NONE, Key::F3, true),
+        step(
+            "Previous match",
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Key::G,
+            false,
+        ),
+        step("Next match", Modifiers::COMMAND, Key::G, true),
+        Binding {
+            label: "Previous pane",
+            shortcut: KeyboardShortcut::new(Modifiers::SHIFT, Key::F6),
+            command: Command::CyclePane { forward: false },
+        },
+        Binding {
+            label: "Next pane",
+            shortcut: KeyboardShortcut::new(Modifiers::NONE, Key::F6),
+            command: Command::CyclePane { forward: true },
+        },
     ]
 }
 
@@ -110,6 +130,14 @@ fn arrow(label: &'static str, key: Key, arrow: Arrow) -> Binding {
         label,
         shortcut: KeyboardShortcut::new(Modifiers::NONE, key),
         command: Command::Arrow(arrow),
+    }
+}
+
+fn step(label: &'static str, modifiers: Modifiers, key: Key, forward: bool) -> Binding {
+    Binding {
+        label,
+        shortcut: KeyboardShortcut::new(modifiers, key),
+        command: Command::FindStep { forward },
     }
 }
 
@@ -166,11 +194,17 @@ pub fn held(input: &egui::InputState, arrow: Arrow) -> bool {
 }
 
 /// Keys handled elsewhere, listed so the reference is complete.
-const LISTED: [(&str, &str); 1] = [("Close a popover, window or sidebar", "Esc")];
+const LISTED: [(&str, &str); 4] = [
+    ("Close a popover, window or sidebar", "Esc"),
+    ("Move between controls", "Tab  Shift+Tab"),
+    ("Press the focused control, link or mark", "Enter  Space"),
+    ("Open the focused item's menu", "Shift+F10"),
+];
 
 /// Consumes this frame's shortcuts and queues their commands.
 pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands) {
-    let typing = ctx.egui_wants_keyboard_input();
+    // A focused button wants Space and the arrows, not every key.
+    let typing = ctx.text_edit_focused();
     let focused = ctx.memory(|m| m.focused().is_some()) || egui::Popup::is_any_open(ctx);
     // Keys the route ignores stay unconsumed, for the page's own widgets.
     for b in bindings(platform)

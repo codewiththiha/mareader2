@@ -163,7 +163,7 @@ fn dividers(ui: &mut Ui, tree: &PaneTree, area: Rect, out: &mut Commands) {
         let resp = ui.interact(
             strip,
             ui.id().with(("divider", d.path.clone())),
-            Sense::drag(),
+            Sense::DRAG,
         );
         if resp.hovered() || resp.dragged() {
             ui.ctx().set_cursor_icon(match d.axis {

@@ -124,6 +124,7 @@ fn folded(ui: &mut Ui, elided: &[Crumb], out: &mut Commands) {
     let r = r.on_hover_text("Shelves between");
     Popup::from_toggle_button_response(&r)
         .id(Id::new(ELIDED_MENU))
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClick)
         .align(RectAlign::BOTTOM_START)
         .gap(6.0)
@@ -135,6 +136,7 @@ fn folded(ui: &mut Ui, elided: &[Crumb], out: &mut Commands) {
                     out.push(go(crumb.id));
                 }
             }
+            widgets::close_on_key(ui);
         });
 }
 
@@ -150,6 +152,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
     let act = |a: ShelfAction| Command::Library(Action::Shelf(a));
     Popup::from_toggle_button_response(&r)
         .id(menu)
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClick)
         .align(RectAlign::BOTTOM_START)
         .gap(6.0)
@@ -162,6 +165,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             if widgets::menu_row(ui, Icon::Remove, "Remove shelf…", None, false).clicked() {
                 out.push(act(ShelfAction::AskRemove(id)));
             }
+            widgets::close_on_key(ui);
         });
 }
 

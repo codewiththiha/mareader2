@@ -51,6 +51,10 @@ pub enum Command {
     ShowSettings,
     /// The find bar over the focused document; else the library.
     ShowFind,
+    /// F3 and Cmd+G: the next or previous match, opening the bar if shut.
+    FindStep {
+        forward: bool,
+    },
     OpenSettings(Tab),
     CloseSettings,
     /// Every edit in the settings window; applies on the same frame.
@@ -84,6 +88,10 @@ pub enum Command {
     Open(OpenRequest),
     Split(SplitAxis),
     FocusPane(PaneId),
+    /// F6: focus moves to the next or previous pane, in reading order.
+    CyclePane {
+        forward: bool,
+    },
     ClosePane(PaneId),
     /// A divider drag; sent every frame it moves.
     SetRatio(DividerPath, f32),

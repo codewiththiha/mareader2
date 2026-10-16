@@ -382,6 +382,18 @@ impl MareaderApp {
         found_in(&self.search, &self.documents, &self.find)
     }
 
+    /// Tabbing into a pane makes it the focused one, as a click there does.
+    fn follow_focus(&self, ctx: &Context, out: &mut Commands) {
+        let Some(at) = crate::focus::rect(ctx).map(|r| r.center()) else {
+            return;
+        };
+        let modal = self.settings_window.is_open() || self.library.sheet().is_some();
+        let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
+        if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active) {
+            out.push(Command::FocusPane(*id));
+        }
+    }
+
     /// Asks for the bar's query once it settles, and walks to its hits.
     fn drive_search(&mut self, ctx: &Context) {
         let Some(pane) = self.find.pane() else {
@@ -1118,6 +1130,17 @@ impl MareaderApp {
                 }
             }
             Command::FocusPane(id) => self.active = id,
+            Command::CyclePane { forward } => {
+                let panes = self.tree.panes();
+                let at = panes.iter().position(|p| *p == self.active).unwrap_or(0);
+                let n = panes.len().max(1);
+                let next = (if forward { at + 1 } else { at + n - 1 }) % n;
+                if let Some(pane) = panes.get(next) {
+                    self.active = *pane;
+                }
+                // Else focus in the last pane would pull it straight back.
+                ctx.memory_mut(|m| m.focused().map(|id| m.surrender_focus(id)));
+            }
             Command::ClosePane(id) => {
                 if self.tree.close(id).is_ok() {
                     self.documents.close_pane(id);
@@ -1245,6 +1268,11 @@ impl MareaderApp {
             }
             Command::ShowSettings => self.settings_window.open(None),
             // With nothing to search in, find searches the library.
+            Command::FindStep { forward } if self.find.is_open() => {
+                let found = found_in(&self.search, &self.documents, &self.find);
+                self.find.key_step(found, forward, ctx.input(|i| i.time));
+            }
+            Command::FindStep { .. } => self.apply(ctx, Command::ShowFind),
             Command::ShowFind => match (self.route(), self.documents.reading(self.active)) {
                 (Route::Reader, Some(_)) => {
                     self.find.open(self.active);
@@ -1823,6 +1851,12 @@ impl eframe::App for MareaderApp {
             ctx.request_repaint_after(Duration::from_secs_f64(wait));
         }
         let route = self.route();
+        // Tab brings hidden chrome up, unless a dialog would sit below it.
+        let dialog = self.settings_window.is_open() || self.library.sheet().is_some();
+        if crate::focus::begin(&ctx) && !dialog {
+            self.titlebar.reveal();
+            self.page_bars.entry(self.active).or_default().reveal();
+        }
         keymap::read(&ctx, self.platform, route, &mut commands);
         let drop_target = self.drops(&ctx, &mut commands);
         // An open popup takes Escape first.
@@ -1980,7 +2014,12 @@ impl eframe::App for MareaderApp {
         // Typing, or filtered by what was typed, the field stays in view.
         let searching =
             route == Route::Library && (self.library.searching() || library::search::focused(&ctx));
-        self.titlebar.hold = self.find.is_open() || searching;
+        let band = ctx
+            .content_rect()
+            .with_max_y(self.titlebar.band_bottom(&ctx));
+        let tabbing = crate::focus::within(&ctx, band);
+        self.titlebar.hold = self.find.is_open() || searching || tabbing;
+        self.follow_focus(&ctx, &mut commands);
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings.all_presets();
@@ -2052,6 +2091,7 @@ impl eframe::App for MareaderApp {
             (&self.ai, &self.dict, &self.vocab),
             &mut commands,
         );
+        crate::focus::paint(&ctx);
         self.film_grain(&ctx);
         self.fade.paint(&ctx);
         // Applied after drawing, so the next frame must show the result.

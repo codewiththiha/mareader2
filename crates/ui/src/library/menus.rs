@@ -168,7 +168,7 @@ pub fn selection_bar(
     );
     let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     // Clicks on the bar's own background stay off the page.
-    bar.interact(rect, Id::new("library-selection-bar"), Sense::click());
+    bar.interact(rect, Id::new("library-selection-bar"), Sense::CLICK);
     let shadow = egui::epaint::Shadow {
         offset: [0, 4],
         blur: 16,

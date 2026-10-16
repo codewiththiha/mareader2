@@ -230,6 +230,7 @@ pub fn chips(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
             let resp = chip(ui, scope, label, out);
             let menu = Popup::from_response(&resp)
                 .id(menu_id(source.id))
+                .sense(crate::widgets::POPUP_SENSE)
                 .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
                 .align(RectAlign::BOTTOM_START)
                 .gap(6.0)

@@ -230,7 +230,7 @@ impl TitleBar {
                 };
                 bar.backdrop.paint(ui, band, look);
                 // Registered before the buttons so they win the pointer.
-                let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::click_and_drag());
+                let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::CLICK | Sense::DRAG);
                 if visible && drag.double_clicked() {
                     out.push(Command::Window(WindowCommand::ToggleMaximize));
                 } else if visible && drag.drag_started() {
@@ -375,6 +375,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
     let r = widgets::icon_button(ui, Icon::Appearance, "Appearance", open);
     egui::Popup::from_toggle_button_response(&r)
         .id(id)
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .align(egui::RectAlign::BOTTOM_END)
         .gap(6.0)

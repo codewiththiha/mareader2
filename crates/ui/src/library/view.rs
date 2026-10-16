@@ -133,7 +133,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         (searched.is_none() && scope != Scope::Missing).then_some(Here { model, at, scope });
     // Empty space: a click lets go of the selection; a right-click offers more.
     let back = ui.available_rect_before_wrap();
-    let back = ui.interact(back, Id::new("library-page"), Sense::click());
+    let back = ui.interact(back, Id::new("library-page"), Sense::CLICK);
     if back.clicked() && !picks.is_empty() {
         out.push(Command::Library(Action::Pick(PickAction::Clear)));
     }
@@ -400,7 +400,7 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
     if resp.drag_started() {
         lift(&resp, Pick::Book(book.id), cx);
     }
-    resp.context_menu(|ui| match picked {
+    crate::widgets::context_menu(&resp, |ui| match picked {
         true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
         false => menus::book_menu(ui, book, cx.at, cx.t, cx.out),
     });
@@ -558,11 +558,21 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
         *files = Some(id);
         target = true;
     }
-    resp.context_menu(|ui| match picked {
+    crate::widgets::context_menu(&resp, |ui| match picked {
         true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
         false => menus::shelf_menu(ui, shelf, cx.t, cx.out),
     });
     (resp, target)
+}
+
+/// The focus ring follows a card's padded backing, not its cover.
+fn card_ring(resp: &egui::Response, t: &Tokens) {
+    let ring = crate::focus::Ring {
+        radius: t.radius_lg,
+        outside: false,
+        grow: 8.0,
+    };
+    crate::focus::shape(resp, ring);
 }
 
 /// A card's ground: hovered, picked, or a drop target ringed.
@@ -615,6 +625,7 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
     let picked = cx.picks.contains(Pick::Shelf(shelf.id));
     backing(ui, pad, t.radius_lg, (resp.hovered(), picked, target), t);
     lit_ring(ui, pad, t.radius_lg, Pick::Shelf(shelf.id), cx);
+    card_ring(&resp, t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     plate(ui, bounds, shelf.id, cx);
     if !cx.picks.is_empty() {
@@ -742,6 +753,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     let pad = rect.expand2(vec2(8.0, 8.0));
     backing(ui, pad, t.radius_lg, (resp.hovered(), picked, false), t);
     lit_ring(ui, pad, t.radius_lg, Pick::Book(book.id), cx);
+    card_ring(&resp, t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     let stack = stacked(ui, bounds, book.id, cx);
     cover(
