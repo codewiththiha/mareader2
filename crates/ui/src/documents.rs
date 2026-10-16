@@ -5,9 +5,10 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use egui::{Context, Rect, Ui};
+use egui::{Context, Rect, Ui, Vec2};
 use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
+use mareader_pdf::Bounds;
 use mareader_session::{
     Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
 };
@@ -649,6 +650,32 @@ impl Documents {
         let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
         let rect = on_screen.reduce(|a, b| a.union(b))?;
         Some((asked, rect))
+    }
+
+    /// Where `chars` of `page` were drawn last frame, if on screen.
+    pub fn hit_box(&self, pane: PaneId, page: usize, chars: Range<usize>) -> Option<Rect> {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return None;
+        };
+        let sheet = view.sheets.iter().find(|s| s.page == page)?;
+        let layer = self.texts.get(view.doc, page)?;
+        let spot = layer.text.boxes(chars).into_iter().reduce(Bounds::union)?;
+        Some(sheet.to_screen(spot))
+    }
+
+    /// Brings a hit into `pane`'s view; false while its page's text is due.
+    pub fn reveal_hit(&mut self, pane: PaneId, page: usize, chars: Range<usize>) -> bool {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return true;
+        };
+        let Some(entry) = self.session.as_ref().and_then(|s| s.get(view.doc)) else {
+            return true;
+        };
+        let layer = self.texts.get(view.doc, page);
+        let spot = layer.and_then(|l| l.text.boxes(chars).into_iter().reduce(Bounds::union));
+        let band = entry.doc.bands().and_then(|b| b.get(page));
+        let band = band.map_or(Vec2::ZERO, |b| egui::vec2(b.x, b.y));
+        view.seek(page, spot, band, entry.doc.page_count())
     }
 
     /// The word at `chars` of `page`, as Explain asks for it.

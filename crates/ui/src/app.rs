@@ -35,6 +35,7 @@ use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
 use crate::route::Route;
+use crate::search::{Found, Lit, Search};
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::study::{Explained, Gloss, Highlighted, Study};
@@ -72,6 +73,7 @@ pub struct MareaderApp {
     sidebar: Sidebar,
     settings_window: SettingsWindow,
     find: FindBar,
+    search: Search,
     toasts: Toasts,
     /// The selection bar's answers, marks and the word card.
     study: Study,
@@ -152,6 +154,7 @@ impl MareaderApp {
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
             find: FindBar::default(),
+            search: Search::default(),
             toasts: Toasts::default(),
             study: Study::default(),
             ai: crate::ai::Ai::default(),
@@ -374,6 +377,41 @@ impl MareaderApp {
         &self.find
     }
 
+    /// What the find bar's query has found in its pane, if asked yet.
+    pub fn found(&self) -> Option<&Found> {
+        found_in(&self.search, &self.documents, &self.find)
+    }
+
+    /// Asks for the bar's query once it settles, and walks to its hits.
+    fn drive_search(&mut self, ctx: &Context) {
+        let Some(pane) = self.find.pane() else {
+            return;
+        };
+        let Some(reading) = self.documents.reading(pane) else {
+            return;
+        };
+        let key = Arc::as_ptr(&reading.document).addr();
+        if self.find.due(ctx.input(|i| i.time), key) {
+            let query = self.find.query();
+            self.search.ask(ctx, reading.doc, &reading.document, query);
+            self.find.asked(key);
+        }
+        let found = self.search.found(reading.doc, &reading.document);
+        let found = found.filter(|f| f.query == self.find.query());
+        self.find.settle(found, reading.current);
+        let Some(i) = self.find.seeking() else {
+            return;
+        };
+        ctx.request_repaint();
+        let Some(hit) = found.and_then(|f| f.hits.get(i)) else {
+            self.find.sought();
+            return;
+        };
+        if self.documents.reveal_hit(pane, hit.page, hit.chars.clone()) {
+            self.find.sought();
+        }
+    }
+
     pub fn settings_window(&self) -> &SettingsWindow {
         &self.settings_window
     }
@@ -522,6 +560,7 @@ impl MareaderApp {
                 self.library.set_inline(n == 0);
                 self.study.set_inline(n == 0);
                 self.dict.set_inline(n == 0);
+                self.search.set_inline(n == 0);
             }
             "library" => match value {
                 // After a queued open, which would otherwise leave it.
@@ -761,6 +800,8 @@ impl MareaderApp {
                 None if value == "closed" => self.sidebar.close(),
                 None => return Err("sidebar: thumbnails, outline, library or closed".into()),
             },
+            // The bar's query, landing on its first hit once `open=find`.
+            "find" => self.find.seed(value),
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
                 "settings" => self.queue(Command::ShowSettings),
@@ -1771,6 +1812,9 @@ impl eframe::App for MareaderApp {
         self.files.collect(&mut commands);
         self.library.receive(&ctx, &mut commands);
         self.library.tick(&ctx);
+        if self.search.poll() {
+            ctx.request_repaint();
+        }
         // Inline, the measure lands next frame; book it.
         if self.library.observe(&self.documents, &self.tree.panes()) {
             ctx.request_repaint();
@@ -1867,6 +1911,12 @@ impl eframe::App for MareaderApp {
         } else {
             f32::NEG_INFINITY
         };
+        // The bar's hits paint in the pane it searches.
+        let lit = found_in(&self.search, &self.documents, &self.find).map(|f| Lit {
+            hits: f.hits.clone(),
+            active: self.find.active(),
+        });
+        let lit = self.find.pane().zip(lit);
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         let (library, library_view) = (&mut self.library, &self.settings.library);
@@ -1909,6 +1959,10 @@ impl eframe::App for MareaderApp {
                     card: study.card_mark(id),
                     picked: study.picked(id),
                     shading,
+                    found: lit
+                        .as_ref()
+                        .filter(|(p, _)| *p == id)
+                        .map(|(_, l)| l.clone()),
                 };
                 documents.show(ui, id, &cx, Some(&mut *vocab))
             });
@@ -1920,7 +1974,9 @@ impl eframe::App for MareaderApp {
         let backdrop = self.backdrop(&ctx, &view);
         self.page_bars(&ctx, &backdrop, &mut commands);
         let top = self.titlebar.band_bottom(&ctx);
-        self.find.show(&ctx, &self.pane_rects, top);
+        let found = found_in(&self.search, &self.documents, &self.find);
+        self.find.show(&ctx, &self.pane_rects, top, found);
+        self.drive_search(&ctx);
         // Typing, or filtered by what was typed, the field stays in view.
         let searching =
             route == Route::Library && (self.library.searching() || library::search::focused(&ctx));
@@ -2065,4 +2121,11 @@ fn splitmix(state: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     z ^ (z >> 31)
+}
+
+/// What the find bar's pane holds for its current query, if asked yet.
+fn found_in<'a>(search: &'a Search, documents: &Documents, find: &FindBar) -> Option<&'a Found> {
+    let reading = documents.reading(find.pane()?)?;
+    let found = search.found(reading.doc, &reading.document)?;
+    (found.query == find.query()).then_some(found)
 }
