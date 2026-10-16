@@ -76,10 +76,49 @@ The reveal leaves 72 px clear at the top for the bar, and 24 px at the
 other edges. It moves along both axes, so a zoomed-in page also scrolls
 sideways to the hit.
 
-## Slices
+## Keyboard
+
+mareader gets keyboard use from the browser: Tab order, a 2 px accent
+ring on `:focus-visible`, Space and Enter on buttons, and focus trapped
+in modals. egui moves focus and fakes clicks but draws no ring, so
+`crates/ui/src/focus.rs` adds what is missing.
+
+- **The ring.** 2 px accent, inside a control's edge. Cards ring their
+  padded backing; links, marks and words ring outside, and a link is also
+  tinted 22%, as in mareader. It shows after Tab and hides at the next
+  pointer press. Text fields keep their own focus look.
+- **Hidden chrome.** Tab brings the auto-hidden title bar and the focused
+  pane's page bar up, so their buttons join the order. Either stays up
+  while the ring is in it, and so does the floating sidebar. mareader's
+  bar stayed hidden, so Tab reached buttons no one could see.
+- **The page.** Links, marks, and shaded words when a click explains them,
+  become Tab stops in reading order (`crates/ui/src/reach.rs`). Only what
+  shows whole, clear of the bars Tab brings up, takes part, so Tab never
+  scrolls the page or lands under a bar. Enter or Space
+  does what a click there does. They are focus-only widgets, so clicks,
+  drags and hover still reach the page beneath.
+- **Not stops.** The page's text surface, drag bands, dividers, the
+  library's background and popups' own frames. Each senses clicks
+  without `FOCUSABLE`.
+- **Menus.** Shift+F10 opens a focused card's or mark's right-click menu
+  under it, with its first row focused (`widgets::context_menu`). Enter
+  or Space on a row closes the menu, as a click does.
+- **Library.** Enter opens a card, Shift+Enter starts picking, and Enter
+  toggles while picking, as in mareader. The Library panel's shelves fold
+  with Left and Right.
+- **Modals.** Settings and the library's sheets are egui modals. Nothing
+  behind them takes focus, so Tab stays inside and comes round.
+- **Panes.** F6 and Shift+F6 move between panes. Tabbing into a pane
+  focuses it, as mareader's `focusin` did.
+- **Find.** F3 and Cmd/Ctrl+G step through matches, adding Shift to step
+  back; with the bar shut they open it.
+- **Keys and focus.** Only a text field takes typing keys. A focused
+  button takes Space and the arrows, which move focus as egui does;
+  zoom, page keys, Home and End still reach the reader.
+
 
 | # | Slice | Check |
 |---|---|---|
 | 1 | Document search: the `search` crate, threaded lazy index, bar with count, steps and results, hit painting, reveal | `crates/search` unit tests; `crates/ui/tests/find.rs` |
-| 2 | Keyboard-only operation and focus rings | planned |
+| 2 | Keyboard-only operation and focus rings | `crates/ui/tests/focus.rs`; `reach.rs` unit test |
 | 3 | Auto-scroll | planned |
