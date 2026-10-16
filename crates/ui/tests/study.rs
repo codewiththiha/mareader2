@@ -437,3 +437,65 @@ fn the_ai_tab_picks_who_explains() {
     // The preset's model field shows; its address waits under Advanced.
     h.get_by_label("Advanced");
 }
+
+#[test]
+fn several_marks_are_picked_and_removed_together() -> Out {
+    use mareader_library::Pen;
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let pane = h.state().active_pane();
+    for word in ["quick", "lazy"] {
+        select(&mut h, 0, word);
+        let (pen, color) = (Pen::Full, None);
+        h.state_mut().queue(Command::Highlight { pane, pen, color });
+        h.run();
+    }
+    assert_eq!(marks(&h).len(), 2);
+    let (layer, sheet) = page(&h, 0)?;
+    let quick = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
+    let lazy = middle(&layer, sheet, find(&layer, "lazy")? + 1)?;
+    // The menu's Select several, then a click takes the other in.
+    press(&mut h, quick, PointerButton::Secondary);
+    h.get_by_label("Select several").click();
+    h.run();
+    assert!(h.state().study().picking());
+    press(&mut h, lazy, PointerButton::Primary);
+    h.get_by_label("2 selected");
+    h.get_by_label("Remove (2)").click();
+    h.run();
+    assert!(marks(&h).is_empty());
+    assert!(!h.state().study().picking());
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!(marks(&h).len(), 2);
+
+    // A long press picks; letting go doesn't pick it off again.
+    h.hover_at(quick);
+    h.step();
+    let button = PointerButton::Primary;
+    let modifiers = Modifiers::NONE;
+    let pos = quick;
+    h.event(Event::PointerButton {
+        pos,
+        button,
+        pressed: true,
+        modifiers,
+    });
+    h.run_steps(45);
+    h.event(Event::PointerButton {
+        pos,
+        button,
+        pressed: false,
+        modifiers,
+    });
+    h.step();
+    h.run();
+    assert_eq!(h.state().study().picked(pane).map(|p| p.len()), Some(1));
+    h.get_by_label("All").click();
+    h.run();
+    h.get_by_label("2 selected");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(!h.state().study().picking());
+    assert_eq!(marks(&h).len(), 2, "nothing removed");
+    Ok(())
+}

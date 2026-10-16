@@ -4,6 +4,7 @@
 mod bar;
 mod card;
 pub mod marks;
+mod picking;
 pub mod words;
 
 use std::collections::HashMap;
@@ -50,6 +51,12 @@ pub enum Gloss {
     Highlight(Pen, Option<Rgb>),
     /// Where the open card's mark is now; none while its text loads.
     Anchor(Option<Rect>),
+    /// A long press on a mark: picking several begins with it.
+    Pick(MarkId),
+    /// A click on a mark while picking.
+    Toggle(MarkId),
+    /// While picking: the marks on screen, and every mark of the book.
+    Seen { page: Vec<MarkId>, all: Vec<MarkId> },
 }
 
 /// What the card and the mark menu ask of the app.
@@ -63,6 +70,12 @@ pub enum Action {
     /// Asks the AI chosen now; its answer replaces the saved one.
     AskAgain,
     Close,
+    /// The mark menu's Select several: picking begins with its mark.
+    SelectSeveral(PaneId, MarkId),
+    /// Picks the marks on screen, or every mark of the book.
+    PickPage,
+    PickAll,
+    DonePicking,
 }
 
 /// Which answer a card shows: a mark's, or one kept by nothing.
@@ -87,6 +100,7 @@ struct Card {
 /// The right-click menu on a mark.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MarkMenu {
+    pane: PaneId,
     mark: MarkId,
     at: Pos2,
 }
@@ -139,6 +153,8 @@ pub struct Study {
     loose: Library,
     card: Option<Card>,
     menu: Option<MarkMenu>,
+    /// Marks picked to remove together, in one pane.
+    picking: Option<picking::Picking>,
     /// Answers this session; a mark's are saved with it too.
     answers: HashMap<Key, Said>,
     /// Answers still arriving, as far as they got.
@@ -161,6 +177,7 @@ impl Default for Study {
             loose: Library::new(DeviceId(0)),
             card: None,
             menu: None,
+            picking: None,
             answers: HashMap::new(),
             partial: HashMap::new(),
             failed: HashMap::new(),
@@ -315,7 +332,7 @@ impl Study {
         };
         if m.kind == MarkKind::Highlight {
             let p = ctx.pointer_latest_pos().unwrap_or(at.left_bottom());
-            self.open_menu(id, p);
+            self.open_menu(pane, id, p);
             return;
         }
         let words = (m.word.clone(), m.context.clone());
@@ -389,9 +406,41 @@ impl Study {
     }
 
     /// The right-click menu on a mark.
-    pub fn open_menu(&mut self, mark: MarkId, at: Pos2) {
+    pub fn open_menu(&mut self, pane: PaneId, mark: MarkId, at: Pos2) {
         self.card = None;
-        self.menu = Some(MarkMenu { mark, at });
+        self.menu = Some(MarkMenu { pane, mark, at });
+    }
+
+    /// Picking several marks begins with `mark`, or takes it in.
+    pub fn pick(&mut self, pane: PaneId, mark: MarkId) {
+        self.card = None;
+        self.menu = None;
+        match &mut self.picking {
+            Some(p) if p.pane == pane => p.add(&[mark]),
+            _ => self.picking = Some(picking::Picking::new(pane, mark)),
+        }
+    }
+
+    pub fn toggle(&mut self, pane: PaneId, mark: MarkId) {
+        if let Some(p) = self.picking.as_mut().filter(|p| p.pane == pane) {
+            p.toggle(mark);
+        }
+    }
+
+    pub fn seen(&mut self, pane: PaneId, page: Vec<MarkId>, all: Vec<MarkId>) {
+        if let Some(p) = self.picking.as_mut().filter(|p| p.pane == pane) {
+            (p.page, p.all) = (page, all);
+        }
+    }
+
+    /// The marks picked in `pane`, while picking there.
+    pub fn picked(&self, pane: PaneId) -> Option<Vec<MarkId>> {
+        let p = self.picking.as_ref().filter(|p| p.pane == pane)?;
+        Some(p.ids.clone())
+    }
+
+    pub fn picking(&self) -> bool {
+        self.picking.is_some()
     }
 
     /// The open card's mark, seen this frame at `at`, or maybe there.
@@ -409,12 +458,14 @@ impl Study {
         }
     }
 
-    /// Escape: closes the card or menu; false if neither was open.
+    /// Escape: closes the card or menu, else stops picking.
     pub fn escape(&mut self) -> bool {
-        let open = self.card.is_some() || self.menu.is_some();
-        self.card = None;
-        self.menu = None;
-        open
+        if self.card.is_some() || self.menu.is_some() {
+            self.card = None;
+            self.menu = None;
+            return true;
+        }
+        self.picking.take().is_some()
     }
 
     /// Takes the card's and menu's asks; marks change in the libraries.
@@ -429,6 +480,7 @@ impl Study {
                     self.card = None;
                 }
                 self.menu = None;
+                self.picking = None;
                 if n > 0 {
                     let message = match n {
                         1 => "Removed highlight".to_owned(),
@@ -464,6 +516,17 @@ impl Study {
                 self.card = None;
                 self.menu = None;
             }
+            Action::SelectSeveral(pane, mark) => self.pick(pane, mark),
+            Action::PickPage | Action::PickAll => {
+                if let Some(p) = &mut self.picking {
+                    let more = match action {
+                        Action::PickPage => p.page.clone(),
+                        _ => p.all.clone(),
+                    };
+                    p.add(&more);
+                }
+            }
+            Action::DonePicking => self.picking = None,
         }
     }
 
@@ -570,7 +633,21 @@ impl Study {
             };
             Some(card::show(ctx, &view, &t, out))
         });
-        self.menu_rect = self.menu.map(|m| card::menu(ctx, m.mark, m.at, &t, out));
+        self.menu_rect = self
+            .menu
+            .map(|m| card::menu(ctx, (m.pane, m.mark), m.at, &t, out));
+        if self
+            .picking
+            .as_ref()
+            .is_some_and(|p| room(p.pane).is_none())
+        {
+            self.picking = None;
+        }
+        if let Some(p) = &self.picking
+            && let Some(r) = room(p.pane)
+        {
+            picking::bar(ctx, p, r, &t, out);
+        }
     }
 }
 

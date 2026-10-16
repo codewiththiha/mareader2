@@ -91,6 +91,7 @@ pub enum Icon {
     Pause,
     Resume,
     LookUp,
+    SelectSeveral,
 }
 
 impl Icon {
@@ -161,6 +162,7 @@ impl Icon {
             Self::Pause => Lucide::Pause,
             Self::Resume => Lucide::Play,
             Self::LookUp => Lucide::BookSearch,
+            Self::SelectSeveral => Lucide::ListChecks,
             Self::Rename => Lucide::Pencil,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,

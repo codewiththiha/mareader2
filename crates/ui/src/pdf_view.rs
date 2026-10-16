@@ -369,6 +369,8 @@ pub struct ViewContext {
     pub highlights: HighlightSettings,
     /// The mark whose card is open here, to keep the card beside it.
     pub card: Option<MarkId>,
+    /// The marks picked here, while picking several.
+    pub picked: Option<Vec<MarkId>>,
 }
 
 /// The Layout settings the pages follow.
@@ -756,21 +758,44 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             };
             let placed = study::marks::place(&cx.marks, &text);
             study::marks::paint(ui, &placed, cx.highlights.opacity);
+            if let Some(picked) = &cx.picked {
+                study::marks::ring(ui.painter(), &placed, picked, t.accent);
+            }
             if let Some(sel) = selection.filter(|s| !s.is_empty()) {
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
             follow = did.follow;
             let on_mark = |p: Option<Pos2>| p.and_then(|p| study::marks::hit(&placed, p));
-            if let Some(m) = on_mark(did.click) {
+            // A long press picks; the click its release makes does nothing.
+            if study::marks::swallowed(ui, did.click.is_some()) {
                 follow = None;
-                gloss.push(Gloss::Open {
-                    mark: m.id,
-                    at: m.bounds(),
+            } else if let Some(m) = on_mark(did.click) {
+                follow = None;
+                gloss.push(match cx.picked {
+                    Some(_) => Gloss::Toggle(m.id),
+                    None => Gloss::Open {
+                        mark: m.id,
+                        at: m.bounds(),
+                    },
                 });
             }
-            if let (Some(m), Some(at)) = (on_mark(did.context), did.context) {
+            if let Some(id) = study::marks::long_press(ui, &placed) {
+                gloss.push(Gloss::Pick(id));
+            }
+            if let (Some(m), Some(at), None) = (on_mark(did.context), did.context, &cx.picked) {
                 gloss.push(Gloss::Menu { mark: m.id, at });
+            }
+            if cx.picked.is_some() {
+                // A mark across two pages is placed on each.
+                let mut page: Vec<MarkId> = Vec::new();
+                for m in &placed {
+                    if !page.contains(&m.id) {
+                        page.push(m.id);
+                    }
+                }
+                let all = cx.marks.iter().map(|m| m.id).collect();
+                gloss.push(Gloss::Seen { page, all });
             }
             if let Some(m) = placed.iter().find(|m| Some(m.id) == cx.card) {
                 gloss.push(Gloss::Anchor(Some(m.bounds())));
