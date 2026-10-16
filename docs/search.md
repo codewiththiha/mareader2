@@ -115,10 +115,18 @@ in modals. egui moves focus and fakes clicks but draws no ring, so
 - **Keys and focus.** Only a text field takes typing keys. A focused
   button takes Space and the arrows, which move focus as egui does;
   zoom, page keys, Home and End still reach the reader.
+- **Auto-scroll.** Shift+A, or the row under zoom in the View menu,
+  drifts the focused pane down the strip at mareader's 72 px a second,
+  in the scrolling views only; in a paged view a toast says so. The step
+  follows the real frame time, so the pace holds at any refresh rate,
+  where mareader rounded each frame's step to whole pixels. Keys and the
+  wheel add to the drift, a held press (as a selection's drag) pauses
+  it, and it stops at the strip's end, on Escape, on Shift+A, on a paged
+  view, or when another pane takes focus. Its speed may become a setting.
 
 
 | # | Slice | Check |
 |---|---|---|
 | 1 | Document search: the `search` crate, threaded lazy index, bar with count, steps and results, hit painting, reveal | `crates/search` unit tests; `crates/ui/tests/find.rs` |
 | 2 | Keyboard-only operation and focus rings | `crates/ui/tests/focus.rs`; `reach.rs` unit test |
-| 3 | Auto-scroll | planned |
+| 3 | Auto-scroll: Shift+A, the View menu row, Escape, stops at the end | `crates/ui/tests/auto_scroll.rs` |

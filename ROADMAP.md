@@ -129,6 +129,9 @@ appearance effects to that same pass.
    your level are shaded in their own reserved look; a click explains
    one, a rest opens its dictionary card. Landed; M6 is done. Next is
    M7, search and keyboard.
+7. **M7, search and keyboard** (`docs/search.md`): document search,
+   keyboard-only operation and auto-scroll. Landed; M7 is done. Next is
+   M8, polish and packaging.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -221,3 +224,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M6 slice 5, CEFR (`crates/cefr`, L1, and `crates/fetch`, L0, the downloader both features share). The word levels and the role tagger come from the cefr-rs repository with mirrors and resume; the parquet converts to SQLite. Words above My level (A2 to C2) are shaded on PDFs and books in a look reserved like the AI's, under your marks. A click explains a shaded word; the card shows its tagged class and that sense's level. Resting 160 ms opens its dictionary card, closed when the pointer leaves. Settings › Vocabulary holds the switches, the level, the look and the downloads |
 | 2026-10-16 | M7 slice 1, document search (`crates/search`, L0, which the library's search now folds with). The first query starts a thread that reads the document's pages, answering as they arrive; the count ends in "…" until all are in. Matches cross lines and line-end hyphens and fold accents, quotes and ligatures. The bar counts, steps with Enter and Shift+Enter from the page read, lists hits with snippets, paints them in its pane with the current one amber, and scrolls a hit into view only when it isn't (`docs/search.md`) |
 | 2026-10-16 | M7 slice 2, keyboard-only operation. Tab shows a 2 px accent ring (cards ring their backing, page stops ring outside, links tinted) that a pointer press hides, and brings the hidden title bar and page bar up, held while focus is in them or the sidebar. Links, marks and click-explain words on screen are Tab stops in reading order; Enter or Space acts, Shift+F10 opens a card's or mark's menu. Surfaces, drag bands and popup frames are no longer stops. Library cards open with Enter and pick with Shift+Enter; modals keep Tab inside. F6 cycles panes, and tabbing into one focuses it; F3 and Cmd/Ctrl+G step matches (`docs/search.md` § Keyboard) |
+| 2026-10-16 | M7 slice 3, auto-scroll. Shift+A or the View menu's Auto-scroll row drifts the focused pane at 72 px a second in the scrolling views (a toast explains the paged ones). The pace follows frame time, so it holds at any refresh rate; keys and the wheel add to it, a held press pauses it, and it stops at the strip's end, on Escape, on a paged view or on pane blur. M7 is done (`docs/search.md` § Keyboard) |
