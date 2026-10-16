@@ -23,6 +23,8 @@ pub enum Tone {
     Info,
     /// Something failed: an alert in the danger colour.
     Error,
+    /// It worked, but not wholly: an alert in the accent colour.
+    Warning,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +48,14 @@ impl Toast {
         Self {
             message: message.into(),
             tone: Tone::Error,
+            undo: None,
+        }
+    }
+
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: Tone::Warning,
             undo: None,
         }
     }
@@ -156,6 +166,7 @@ fn panel(ui: &mut egui::Ui, toast: &Toast, room: f32, out: &mut Commands) {
     let (icon, tint, edge) = match toast.tone {
         Tone::Info => (Icon::Done, t.accent, t.line),
         Tone::Error => (Icon::Alert, t.danger, t.danger.gamma_multiply(0.5)),
+        Tone::Warning => (Icon::Alert, t.accent, t.accent.gamma_multiply(0.5)),
     };
     let width = MAX_WIDTH.min(room * 0.9);
     Frame::popup(ui.style())

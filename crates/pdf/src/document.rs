@@ -6,15 +6,18 @@ use std::sync::Arc;
 use hayro::hayro_interpret::{
     Context, InterpreterCache, InterpreterSettings, TransformExt as _, interpret_page,
 };
-use hayro::hayro_syntax::{LoadPdfError, Pdf};
+use hayro::hayro_syntax::Pdf;
 use hayro::kurbo::{Affine, Rect};
 use hayro::vello_cpu::color::palette::css::WHITE;
 use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 
+use crate::check;
+pub use crate::check::OpenError;
 use crate::dest::{self, PageIds, Targets};
 use crate::links;
 use crate::outline::{self, OutlineEntry};
+use crate::strings::decode_text;
 use crate::text::{Collector, PageText, TextLayer};
 use crate::tiles::Tiling;
 
@@ -32,16 +35,6 @@ const FALLBACK: PageSize = PageSize {
     width: 612.0,
     height: 792.0,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum OpenError {
-    #[error("the file is password-protected")]
-    Encrypted,
-    #[error("the file isn't a readable PDF")]
-    Invalid,
-    #[error("the PDF has no pages")]
-    Empty,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RenderError {
@@ -100,6 +93,7 @@ impl Raster {
 /// An open PDF. `Send + Sync`: workers share one through an `Arc`.
 pub struct Document {
     pdf: Pdf,
+    cut_short: bool,
     sizes: Vec<PageSize>,
     title: Option<String>,
     author: Option<String>,
@@ -116,20 +110,21 @@ impl std::fmt::Debug for Document {
 impl Document {
     /// Parses the file and measures every page; never panics.
     pub fn open(bytes: Arc<Vec<u8>>) -> Result<Self, OpenError> {
-        catch_unwind(AssertUnwindSafe(|| Self::parse(bytes))).unwrap_or(Err(OpenError::Invalid))
+        catch_unwind(AssertUnwindSafe(|| Self::parse(bytes))).unwrap_or(Err(OpenError::Damaged))
     }
 
     fn parse(bytes: Arc<Vec<u8>>) -> Result<Self, OpenError> {
-        let pdf = Pdf::new(bytes).map_err(|e| match e {
-            LoadPdfError::Decryption(_) => OpenError::Encrypted,
-            LoadPdfError::Invalid => OpenError::Invalid,
-        })?;
+        let cut_short = check::cut_short(&bytes);
+        let pdf = Pdf::new(Arc::clone(&bytes)).map_err(|e| check::diagnose(&bytes, &e))?;
         let pages = pdf.pages();
+        if pages.is_empty() && cut_short {
+            return Err(OpenError::CutShort);
+        }
         if pages.is_empty() {
-            return Err(OpenError::Empty);
+            return Err(OpenError::NoPages);
         }
         if pages.len() > MAX_PAGES {
-            return Err(OpenError::Invalid);
+            return Err(OpenError::TooManyPages);
         }
         let sizes = pages
             .iter()
@@ -144,12 +139,18 @@ impl Document {
         let outline = outline::read(&pdf, &page_ids);
         Ok(Self {
             pdf,
+            cut_short,
             sizes,
             title,
             author,
             outline,
             page_ids,
         })
+    }
+
+    /// Opened, but with no end marker: pages may be missing.
+    pub fn cut_short(&self) -> bool {
+        self.cut_short
     }
 
     pub fn page_count(&self) -> usize {
@@ -308,23 +309,6 @@ fn fit_scale(size: PageSize, scale: f32) -> f32 {
     scale.min(side).min(area).max(1.0 / 64.0)
 }
 
-/// A PDF text string: UTF-16 with a BOM, UTF-8 with one, else Latin-1.
-pub(crate) fn decode_text(bytes: &[u8]) -> String {
-    match bytes {
-        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
-        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
-        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
-        _ => bytes.iter().map(|&b| char::from(b)).collect(),
-    }
-}
-
-fn utf16(bytes: &[u8], word: fn([u8; 2]) -> u16) -> String {
-    let units = bytes.as_chunks::<2>().0.iter().map(|c| word(*c));
-    char::decode_utf16(units)
-        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,15 +419,32 @@ mod tests {
     #[test]
     fn garbage_and_truncation_are_refused_not_panics() {
         let junk = Document::open(Arc::new(b"not a pdf".to_vec()));
-        assert_eq!(junk.err(), Some(OpenError::Invalid));
+        assert_eq!(junk.err(), Some(OpenError::NotPdf));
+        let empty = Document::open(Arc::new(Vec::new()));
+        assert_eq!(empty.err(), Some(OpenError::EmptyFile));
         let full = sample::pdf(2, "Cut");
         for cut in [0, 9, full.len() / 3, full.len() / 2, full.len() - 10] {
             let part = full.get(..cut).unwrap_or_default().to_vec();
             // hayro may recover a truncated file; it must not panic.
-            if let Ok(doc) = Document::open(Arc::new(part)) {
-                let _ = doc.render(0, 0.25);
+            match Document::open(Arc::new(part)) {
+                Ok(doc) => {
+                    assert!(doc.cut_short(), "a part says so");
+                    let _ = doc.render(0, 0.25);
+                }
+                Err(e) => assert!(cut == 0 || e == OpenError::CutShort, "{cut}: {e}"),
             }
         }
+    }
+
+    #[test]
+    fn a_file_missing_only_its_end_marker_opens_cut_short() -> Out {
+        let mut bytes = sample::pdf(3, "Partial");
+        assert!(!sample_doc(3)?.cut_short());
+        bytes.truncate(bytes.len() - b"%%EOF\n".len());
+        let doc = Document::open(Arc::new(bytes))?;
+        assert!(doc.cut_short());
+        assert_eq!(doc.page_count(), 3);
+        Ok(())
     }
 
     #[test]
@@ -451,13 +452,5 @@ mod tests {
         assert_eq!(PageSize::sane(f32::NAN, 10.0), FALLBACK);
         assert_eq!(PageSize::sane(0.0, 10.0), FALLBACK);
         assert_eq!(PageSize::sane(1e9, 100.0).width, MAX_PAGE_PT);
-    }
-
-    #[test]
-    fn text_strings_decode_from_each_encoding() {
-        assert_eq!(decode_text(b"Plain"), "Plain");
-        assert_eq!(decode_text(&[0xFE, 0xFF, 0, b'H', 0, b'i']), "Hi");
-        assert_eq!(decode_text(&[0xFE, 0xFF, 0xD8, 0x00]), "\u{FFFD}");
-        assert_eq!(decode_text(&[0xE9]), "é");
     }
 }
