@@ -22,8 +22,10 @@ const ROOM_BELOW: f32 = 240.0;
 
 pub enum Answer<'a> {
     Waiting,
+    /// Filling in as the model streams.
+    Partial(&'a WordInfo),
     Ready(&'a WordInfo),
-    Failed(Failure),
+    Failed(&'a Failure),
 }
 
 pub struct View<'a> {
@@ -79,7 +81,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
                 .strong()
                 .color(t.ink),
         );
-        if let Answer::Ready(info) = &view.answer
+        if let Answer::Ready(info) | Answer::Partial(info) = &view.answer
             && !info.pos.is_empty()
         {
             ui.label(RichText::new(&info.pos).italics().color(t.muted));
@@ -92,6 +94,10 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
     });
     match &view.answer {
         Answer::Waiting => shimmer(ui, t),
+        Answer::Partial(info) => {
+            answer(ui, info, t);
+            explaining(ui, t);
+        }
         Answer::Ready(info) => answer(ui, info, t),
         Answer::Failed(e) => {
             ui.horizontal_wrapped(|ui| {
@@ -99,6 +105,9 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
                 Icon::Alert.paint(ui, rect, t.danger);
                 ui.label(RichText::new(e.why.message()).color(t.muted));
             });
+            if let Some(detail) = &e.detail {
+                ui.label(RichText::new(detail).size(t.text_small).color(t.muted));
+            }
             if e.why.retry() && ui.button("Try again").clicked() {
                 out.push(Command::Study(Action::Retry));
             }
@@ -162,6 +171,10 @@ fn shimmer(ui: &mut Ui, t: &Tokens) {
         let bar = Rect::from_min_size(rect.min, vec2(WIDTH * share, rect.height()));
         ui.painter().rect_filled(bar, 4.0, tint);
     }
+    explaining(ui, t);
+}
+
+fn explaining(ui: &mut Ui, t: &Tokens) {
     ui.label(
         RichText::new("Explaining…")
             .size(t.text_small)
