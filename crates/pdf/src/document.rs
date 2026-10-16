@@ -233,6 +233,7 @@ impl Document {
         Ok(TextLayer {
             text: PageText::from_glyphs(collector.glyphs),
             links,
+            places: Vec::new(),
         })
     }
 

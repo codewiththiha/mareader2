@@ -184,6 +184,8 @@ pub(crate) struct Para {
     /// The text as set, soft hyphens included.
     pub(crate) text: String,
     pub(crate) hyphens: Vec<usize>,
+    /// Where soft hyphens were put in, ascending; see `Hyphenated`.
+    pub(crate) marks: Vec<usize>,
     starts: Vec<usize>,
     /// Linked runs, in bytes of the text as set.
     links: Vec<Link>,
@@ -271,7 +273,7 @@ pub const MAX_LAID: usize = 32 << 20;
 /// One block set: `x` and `width` within the column.
 pub(crate) struct Set {
     /// The block's index in the book, blank ones counted.
-    source: usize,
+    pub(crate) source: usize,
     pub(crate) x: f32,
     pub(crate) width: f32,
     /// Quote bars' left edges within the column.
@@ -839,6 +841,10 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
         layout,
         text: text.text.clone(),
         hyphens,
+        marks: hyphenated
+            .as_ref()
+            .map(|h| h.marks.clone())
+            .unwrap_or_default(),
         starts,
         links: text.links.clone(),
     }
