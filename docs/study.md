@@ -1,0 +1,103 @@
+# Study tools (M6)
+
+Reading aids: explain a word in place, keep it marked, look words up in
+offline dictionaries, and shade words above a chosen CEFR level. The parity
+entries are `study.*` in `parity/mareader-features.toml`.
+
+## What mareader does
+
+- **Selection menu.** Any non-empty selection gets a small icon bar
+  centred 10 px under it: Copy, Explain with AI, Look up. It hides while a
+  card is open and when the selection scrolls away. A right-click on a live
+  selection belongs to the bar, not the system menu.
+- **Explain.** Only one word: trimmed, no inner whitespace, at most 60
+  characters; anything else gets a toast saying so. The word and about 60
+  characters either side go to the model, which answers part of speech,
+  meaning in context, 2–5 synonyms and 2–3 usages, as JSON.
+- **Marks.** Explaining a word marks it where it stands. The same word in
+  the same spot reuses its mark. A click on a mark opens its card again; a
+  right-click offers "Remove highlight", with Undo in the toast. Long press
+  selects many marks to remove at once.
+- **Card.** The word, then Meaning, Synonyms (chips) and Usages; a shimmer
+  while waiting; an error with Retry when retrying can help. Escape or a
+  press outside closes it. Answers are kept for the session by mark;
+  failures are not kept.
+- **Answers.** Apple Intelligence through the `fm-bridge` helper on macOS
+  with Apple silicon; elsewhere the card says why it can't answer.
+- **Dictionaries.** Parquet packs downloaded with mirrors and resume,
+  converted to SQLite, looked up on click or hover.
+- **CEFR.** A tagger and a word-level table shade words at or above a
+  chosen level; a click explains.
+
+## Where it lives
+
+| Piece | Home | Why |
+|---|---|---|
+| The one-word rule, context, the answer's shape and limits, the `Explainer` contract | `crates/study` (L1) | pure rules, no egui, tested alone |
+| Mark records | `crates/library` | every synced row lives in one store, merged and absorbed alike (`docs/sync.md`) |
+| Bar, card, mark layer | `crates/ui/src/study/` | egui; one place hooks into the page view |
+
+The `study` crate is the "gloss requests and marks" row of
+`docs/architecture.md`; the marks' records join the library's rows so a
+sync carries them with the books they belong to.
+
+## Marks
+
+A mark is a synced record: an id, its book (stamped, so merging two
+copies of one book can move marks), the word, its context, where it is,
+when it was made, and `alive` (stamped, so a removal and an Undo merge
+like a membership). Unknown fields from newer builds are kept.
+
+Where a mark is depends on the page:
+
+- **A PDF** keeps the page and the word's box in page units. Text read
+  again lands in the same place, whatever the zoom.
+- **A book** keeps the block and the byte range in its text, the same
+  terms as a position. Re-typesetting moves the word to another page; the
+  mark follows, because the page is found from the block each time.
+
+Every character of a book's page knows its block and byte, so a selection
+turns into a range and a range back into boxes on whichever page shows it.
+Table cells have no such place; a word in one is explained, not marked.
+
+## The answer
+
+`Explainer::explain(word, context)` answers once, on a worker thread:
+`Ok(WordInfo)` or an error with a kind, a message for the card and whether
+Retry can help. `WordInfo` is clamped as mareader clamps it: meaning 1200
+characters, 16 synonyms of 80, 8 usages of 400, cut text ending in "…".
+
+- `Unavailable` explains nothing and says why. It is what every build has
+  until the Apple bridge lands.
+- `Canned` answers from a small table, for tests and shots
+  (`explain=canned`); the word `fail` gives a retryable error.
+
+## Slices
+
+| # | Slice | Check |
+|---|---|---|
+| 1 | Selection bar (Copy, Explain) on PDFs and books; Explain marks the word and opens its card; marks drawn in the gloss colour and opacity, kept per book as synced records; a click opens a mark's card, a right-click removes it with Undo | select a word, click Explain: it's shaded and a card opens; click elsewhere, click the shading: the card is back; right-click it, Remove highlight, then Undo; `pdf=sample:5 explain=canned selection=0:quick gloss=open` in shots |
+| 2 | Apple Intelligence through `fm-bridge` (macOS, Apple silicon, feature `ai`), the card filling as the answer streams, Retry | on a Mac with Apple Intelligence, Explain answers in place |
+| 3 | Gloss settings: colour, opacity, density; selecting many marks to remove at once | change the colour and the marks follow while the slider moves |
+| 4 | Dictionary packs: download with mirrors and resume, convert, Look up in the bar, a lookup card | download a pack, select a word, Look up |
+| 5 | CEFR shading: the dataset and tagger, a level setting, click to explain | turn CEFR on at B2: harder words are shaded |
+
+Look up stays out of the bar until slice 4 gives it something to do.
+
+## Slice 1 behaviour
+
+- **The bar** sits under the selection's last line, centred on it, or above
+  its first line when there's no room below. It shows once the button is
+  up, for any non-empty selection in the focused pane, and goes with the
+  selection. Copy writes the clipboard and toasts "Copied".
+- **Explain** checks the one-word rule (surrounding punctuation trimmed),
+  marks the word unless the same word in the same spot is marked, clears
+  the selection and opens the card. With no library (a browser build),
+  the card opens without a mark.
+- **The card** opens under the mark (above when there's no room), 320
+  points wide, and closes on Escape or a press outside it. Each mark's
+  answer is asked once per session; a failed answer is asked again next
+  time.
+- **Marks** paint as rounded fills under the word in the gloss colour at
+  the gloss opacity. A click opens the card; a right-click opens a menu
+  with Remove highlight; the toast offers Undo for six seconds.
