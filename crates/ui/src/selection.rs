@@ -125,6 +125,10 @@ impl Sheet {
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub follow: Option<LinkTarget>,
+    /// Where a plain click landed.
+    pub click: Option<Pos2>,
+    /// Where a right-click landed.
+    pub context: Option<Pos2>,
 }
 
 /// The pages' texts as one pane sees them.
@@ -220,7 +224,11 @@ pub fn interact(
         } else {
             *selection = None;
             out.follow = link;
+            out.click = p;
         }
+    }
+    if response.secondary_clicked() {
+        out.context = response.interact_pointer_pos();
     }
     out
 }

@@ -125,6 +125,10 @@ fn dragging_over_text_selects_it_and_copy_takes_exactly_that() -> Out {
     );
     assert!(selected(&h));
     assert_eq!(copy(&mut h).as_deref(), Some("The quick brown fox"));
+    // Escape lets go first: the bar under the line would take the press.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(!selected(&h));
     // Dragged backwards, across lines, it's the same text in order.
     let sphinx = find(&layer, "Sphinx")?;
     drag(

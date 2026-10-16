@@ -37,6 +37,7 @@ use crate::platform::{NativeLights, Platform};
 use crate::route::Route;
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
+use crate::study::{Explained, Gloss, Study};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
@@ -72,6 +73,10 @@ pub struct MareaderApp {
     settings_window: SettingsWindow,
     find: FindBar,
     toasts: Toasts,
+    /// The selection bar's answers, marks and the word card.
+    study: Study,
+    /// A selection the options asked for, made once its page is laid out.
+    staged: Option<Staged>,
     lights: NativeLights,
     documents: Documents,
     files: Files,
@@ -114,6 +119,15 @@ enum FontState {
     Ready,
 }
 
+/// A selection from the options: `text` on `page`, maybe explained.
+struct Staged {
+    page: usize,
+    text: String,
+    explain: bool,
+    /// Its page was asked for once; the view is on its way there.
+    turned: bool,
+}
+
 impl Default for MareaderApp {
     fn default() -> Self {
         Self::with_settings(Settings::default())
@@ -133,6 +147,8 @@ impl MareaderApp {
             settings_window: SettingsWindow::default(),
             find: FindBar::default(),
             toasts: Toasts::default(),
+            study: Study::default(),
+            staged: None,
             lights: NativeLights::default(),
             documents: Documents::default(),
             files: Files::default(),
@@ -379,6 +395,18 @@ impl MareaderApp {
         &self.documents
     }
 
+    /// The study tools: the card, its answer, session marks.
+    pub fn study(&self) -> &Study {
+        &self.study
+    }
+
+    /// The marks `pane` shows, wherever they are kept.
+    pub fn marks(&self, pane: PaneId) -> Vec<(mareader_library::MarkId, mareader_library::Spot)> {
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default();
+        self.study.marks_of(self.library.model(), book, name)
+    }
+
     /// The bar's title: the active pane's document, else the app.
     pub fn title(&self) -> &str {
         self.documents.title(self.active).unwrap_or("Mareader")
@@ -432,6 +460,7 @@ impl MareaderApp {
                     .map_err(|_| "workers: a count, 0 runs inline")?;
                 self.documents.set_workers(n);
                 self.library.set_inline(n == 0);
+                self.study.set_inline(n == 0);
             }
             "library" => match value {
                 // After a queued open, which would otherwise leave it.
@@ -538,6 +567,33 @@ impl MareaderApp {
                 self.queue(Command::Open(request));
             }
             "blend" => self.settings.paper.blend = value == "true",
+            // Who explains words: a script for shots, or nobody.
+            "explain" => match value {
+                "canned" => self.study.set_explainer(Arc::new(mareader_study::Canned)),
+                "none" => self
+                    .study
+                    .set_explainer(Arc::new(mareader_study::Unavailable)),
+                _ => return Err("explain: canned or none".into()),
+            },
+            // The first such text on a page selected, as `page:words`.
+            "selection" => {
+                let hint = "selection: page:text, as 0:quick";
+                let (page, text) = value.split_once(':').ok_or(hint)?;
+                let page = page.parse().map_err(|_| hint)?;
+                let text = text.replace('_', " ");
+                let explain = self.staged.as_ref().is_some_and(|s| s.explain);
+                self.staged = Some(Staged {
+                    page,
+                    text,
+                    explain,
+                    turned: false,
+                });
+            }
+            // Explains the staged selection: its card opens.
+            "gloss" => match &mut self.staged {
+                Some(staged) => staged.explain = true,
+                None => return Err("gloss: after selection=page:text".into()),
+            },
             "grain" => {
                 self.settings.appearance.noise = match value {
                     "off" => NoiseMode::Off,
@@ -726,6 +782,86 @@ impl MareaderApp {
         Ok(())
     }
 
+    /// The pages' news for the study tools, then the card over them.
+    fn glosses(&mut self, ctx: &Context, out: &mut Commands) {
+        let pane = self.active;
+        let sheets = self.documents.sheets(pane);
+        let shown = |page| sheets.iter().any(|s| s.page == page);
+        match self.staged.take() {
+            // Its page is turned to first, then selected once laid out.
+            Some(mut staged) if !sheets.is_empty() && !shown(staged.page) => {
+                if !staged.turned {
+                    out.push(Command::GoTo {
+                        pane,
+                        page: staged.page,
+                    });
+                }
+                staged.turned = true;
+                self.staged = Some(staged);
+                ctx.request_repaint();
+            }
+            Some(Staged {
+                page,
+                text,
+                explain,
+                ..
+            }) if !sheets.is_empty() => {
+                out.push(Command::SelectText { pane, page, text });
+                if explain {
+                    out.push(Command::Explain(pane));
+                }
+            }
+            staged => self.staged = staged,
+        }
+        for (pane, gloss) in self.documents.take_gloss() {
+            match gloss {
+                Gloss::Explain => out.push(Command::Explain(pane)),
+                Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
+                Gloss::Open { mark, at } => {
+                    self.study
+                        .open_mark(ctx, self.library.model(), pane, mark, at);
+                }
+                Gloss::Menu { mark, at } => self.study.open_menu(mark, at),
+                Gloss::Anchor(at) => self.study.anchor(pane, at),
+            }
+        }
+        for (pane, _) in &self.pane_rects {
+            if self.documents.sheets(*pane).is_empty() {
+                self.study.hold(*pane);
+            }
+        }
+        self.study.receive();
+        let look = &self.settings.study.gloss;
+        self.study.show(ctx, &self.pane_rects, look, out);
+    }
+
+    /// Explain: the pane's selected word, marked, its card open.
+    fn explain(&mut self, ctx: &Context, pane: PaneId) {
+        if self.documents.selection(pane).is_none() {
+            return;
+        }
+        let Some((asked, rect)) = self.documents.asked(pane) else {
+            let rule = format!(
+                "Explain takes one word, up to {} characters.",
+                mareader_study::MAX_GLOSS_CHARS
+            );
+            self.toasts.push(Toast::info(rule));
+            return;
+        };
+        self.documents.clear_selection(pane);
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let at = Explained {
+            pane,
+            book,
+            name: &name,
+            asked,
+            rect,
+        };
+        let model = self.library.model_mut();
+        self.study.explain(ctx, model, at, library::wall_ms());
+    }
+
     fn apply(&mut self, ctx: &Context, command: Command) {
         if !self.route().allows(&command) {
             return;
@@ -838,6 +974,16 @@ impl MareaderApp {
             }),
             Command::Notify(toast) => self.toasts.push(toast),
             Command::DismissToast => self.toasts.dismiss(ctx.input(|i| i.time)),
+            Command::Study(action) => {
+                let mut out = Commands::new();
+                let model = self.library.model_mut();
+                self.study.act(ctx, model, action, &mut out);
+                self.queued.extend(out);
+            }
+            Command::Explain(pane) => self.explain(ctx, pane),
+            Command::SelectText { pane, page, text } => {
+                self.documents.select(pane, page, &text);
+            }
             Command::ShowAppearance => {
                 self.titlebar.reveal();
                 egui::Popup::open_id(ctx, egui::Id::new(crate::titlebar::APPEARANCE_POPOVER));
@@ -1442,6 +1588,9 @@ impl eframe::App for MareaderApp {
             }
             free = false;
         }
+        if free && self.study.escape() {
+            free = false;
+        }
         if free && self.find.is_open() {
             self.find.close();
             free = false;
@@ -1509,6 +1658,9 @@ impl eframe::App for MareaderApp {
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         let (library, library_view) = (&mut self.library, &self.settings.library);
+        let study = &mut self.study;
+        study.begin_frame();
+        let gloss = crate::study::tint(&self.settings.study.gloss, &tokens);
         self.library_rect = None;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
@@ -1527,11 +1679,19 @@ impl eframe::App for MareaderApp {
                     paper: style.and_then(|s| s.paper),
                     corner,
                     sample: blend && (every || id == view.active),
+                    marks: {
+                        let book = library.book_in(documents, id);
+                        let name = documents.title(id).unwrap_or_default();
+                        study.marks_of(library.model(), book, name)
+                    },
+                    gloss,
+                    card: study.card_mark(id),
                 };
                 documents.show(ui, id, &cx)
             });
         });
         self.library.end_frame(&ctx);
+        self.glosses(&ctx, &mut commands);
         self.drops_from_rail(ui, &mut commands);
         library::sheets::show(&ctx, &self.library, &mut commands);
         let backdrop = self.backdrop(&ctx, &view);

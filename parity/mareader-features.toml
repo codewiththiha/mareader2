@@ -1252,8 +1252,10 @@ title = "Saved gloss marks with colour, opacity and density"
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "planned"
+status = "partial"
+evidence = ["crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::a_right_click_removes_a_mark_and_undo_brings_it_back", "crates/ui/tests/study.rs::a_book_s_mark_is_found_again_after_the_type_changes", "crates/ui/tests/study.rs::a_library_book_keeps_its_marks", "crates/library/src/marks_tests.rs::marks_travel_and_a_removal_wins_over_an_older_keep"]
 reference = ["crates/ai-core/src/gloss/mark.rs", "crates/reader-core/src/settings/gloss.rs"]
+notes = "Marks are drawn, kept per book and synced as records (M6 slice 1); the colour, opacity and density settings page is slice 3"
 
 [[feature]]
 id = "study.cefr"
@@ -1279,8 +1281,10 @@ title = "Selection menu: copy, gloss, look up"
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "planned"
+status = "partial"
+evidence = ["crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::a_phrase_is_not_explained_and_nothing_is_marked", "crates/ui/tests/study.rs::a_failed_answer_says_why_and_offers_a_retry"]
 reference = ["crates/reader-runtime/src/components/ai/selection_menu.rs"]
+notes = "Copy and Explain (M6 slice 1); Look up arrives with the dictionary in slice 4"
 
 [[feature]]
 id = "settings.persist"

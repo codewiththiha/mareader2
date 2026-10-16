@@ -17,6 +17,7 @@ mareader-epub = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-session = { workspace = true }
 mareader-library = { workspace = true }
+mareader-study = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }

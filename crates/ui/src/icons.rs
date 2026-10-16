@@ -72,6 +72,9 @@ pub enum Icon {
     Link,
     Restore,
     More,
+    Copy,
+    /// Explain a word: sparkles, as an AI answer.
+    Explain,
 }
 
 impl Icon {
@@ -141,6 +144,8 @@ impl Icon {
             Self::Link => Lucide::Link,
             Self::Restore => Lucide::Undo2,
             Self::More => Lucide::Ellipsis,
+            Self::Copy => Lucide::Copy,
+            Self::Explain => Lucide::Sparkles,
         }
     }
 

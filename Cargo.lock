@@ -2315,6 +2315,7 @@ dependencies = [
  "mareader-pdf",
  "mareader-session",
  "mareader-settings",
+ "mareader-study",
  "mareader-workspace",
  "pollster 0.4.0",
  "rfd",

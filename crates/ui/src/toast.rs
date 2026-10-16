@@ -29,6 +29,8 @@ pub enum Tone {
 pub struct Toast {
     pub message: String,
     pub tone: Tone,
+    /// An Undo button, and what it sends; it keeps the toast up longer.
+    pub undo: Option<Box<Command>>,
 }
 
 impl Toast {
@@ -36,6 +38,7 @@ impl Toast {
         Self {
             message: message.into(),
             tone: Tone::Info,
+            undo: None,
         }
     }
 
@@ -43,6 +46,22 @@ impl Toast {
         Self {
             message: message.into(),
             tone: Tone::Error,
+            undo: None,
+        }
+    }
+
+    /// With an Undo button that sends `command`.
+    pub fn undo(self, command: Command) -> Self {
+        Self {
+            undo: Some(Box::new(command)),
+            ..self
+        }
+    }
+
+    fn lasts(&self) -> f64 {
+        match self.undo {
+            Some(_) => crate::study::UNDO_FOR,
+            None => SHOW_FOR,
         }
     }
 }
@@ -91,7 +110,7 @@ impl Toasts {
         };
         let now = ctx.input(|i| i.time);
         let born = *s.born.get_or_insert(now);
-        let until = *s.until.get_or_insert(now + SHOW_FOR);
+        let until = *s.until.get_or_insert(now + s.toast.lasts());
         let fade = f64::from(motion::secs(ctx, FADE));
         let opacity = if fade > 0.0 {
             ((now - born) / fade)
@@ -150,11 +169,21 @@ fn panel(ui: &mut egui::Ui, toast: &Toast, room: f32, out: &mut Commands) {
                 let (rect, _) =
                     ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
                 icon.paint(ui, rect, tint);
-                let text = width - 16.0 - 24.0 - 2.0 * t.gap;
+                let undo = if toast.undo.is_some() {
+                    56.0 + t.gap
+                } else {
+                    0.0
+                };
+                let text = width - 16.0 - 24.0 - 2.0 * t.gap - undo;
                 ui.scope(|ui| {
                     ui.set_max_width(text);
                     ui.add(egui::Label::new(RichText::new(&toast.message).color(t.ink)).wrap());
                 });
+                if let Some(command) = &toast.undo
+                    && ui.button(RichText::new("Undo").color(t.accent)).clicked()
+                {
+                    out.push((**command).clone());
+                }
                 let close = widgets::small_icon_button(ui, Icon::Close, "Dismiss");
                 if close.clicked() {
                     out.push(Command::DismissToast);
