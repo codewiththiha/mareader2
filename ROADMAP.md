@@ -114,11 +114,11 @@ appearance effects to that same pass.
    and underline looks, your own highlights, a configurable selection
    menu and reserved looks for AI marks and CEFR (`docs/study.md`
    § Highlighters). Landed; removing many marks at once moves to slice 4.
-3. **PDF lessons from pdf.js:** prefetch the next page in the scroll direction
-   first; thumbnails from page rasters already made; cap a page's raster
-   by the screen's area before tiling; a quick low-resolution pass for
-   pages slow to render; drop parsed caches after 30 s idle. Proposed to
-   the owner as a slice after the highlighters.
+3. **PDF edge cases** (owner: no password prompt): each refusal names its
+   cause and a next step, cut-short files open with a warning, text strings
+   decode by BOM, UTF-8, then PDFDocEncoding
+   (`docs/pdf.md`). Landed. Next is M6 slice 4, the dictionary and
+   removing many marks at once, then slice 5, CEFR.
 4. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -206,3 +206,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M6 slice 2, answers from any AI (owner widened it from Apple only). A new `assist` crate keeps tasks (a prompt with a JSON Schema and a lenient reader), providers (one `Backend` seam) and the app's service apart, so every provider gets the same prompt. Apple Intelligence answers through the fm-bridge helper on a Mac; OpenAI, Gemini, OpenRouter, Ollama, LM Studio and custom servers answer through ai-pool everywhere, falling back from strict schemas to JSON mode to plain text. Settings › AI chooses the provider, model (with the server's list) and address, tries it, and adds, rotates, sets aside and removes encrypted API keys. The card fills as the answer streams and failures name their reason. `tools/fm-helper.sh` builds the helper for packaging (`docs/assist.md`) |
 | 2026-10-16 | Fixes from the owner's Mac. ai-pool's adaptive structured output (schema in every prompt; JSON mode, then one plain prompt, remembered per address and model) fixes Ollama Cloud, which accepts a schema and ignores it; debug builds find the Apple Intelligence helper `tools/fm-helper.sh` builds. Then saved answers: a finished answer is a stamped `gloss` field on its mark, so it survives restarts and will sync; the card names who answered and offers Ask again; settings changes no longer drop answers (`docs/study.md` § Saved answers) |
 | 2026-10-16 | M6 slice 3, highlighters. A mark now has a kind, a pen and maybe a colour; highlights span pages as PDF chars or book block bytes, and older rows read as Explain marks. Full, half and underline are drawn as square highlights, highlights under AI marks; a click on your highlight offers Remove. The selection bar shows the menu's buttons in order, each pen with its colour beneath, and can open a colour row each time. Settings › Highlights sets each pen's colour from an eight-colour palette or a custom one, fill strength, the click choice, the menu's buttons and order, and the AI's reserved pen and colour, which no highlight can take. Parity 99.5 of 118 |
+| 2026-10-16 | PDF edge cases. A refused PDF is named as empty, not a PDF, cut short, damaged, locked, unreadable encryption, without pages or too long, and the toast suggests what to try; the checks run only after hayro refuses. A file without its end marker that still reads opens with a warning toast. Titles, authors and chapters decode BOM-less UTF-8 and PDFDocEncoding, and lose control characters. No password prompt (owner) (`docs/pdf.md`) |

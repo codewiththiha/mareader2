@@ -9,12 +9,14 @@
     clippy::indexing_slicing
 )]
 
+mod check;
 mod dest;
 mod document;
 mod links;
 mod outline;
 mod paper;
 pub mod sample;
+mod strings;
 mod text;
 mod tiles;
 mod title;

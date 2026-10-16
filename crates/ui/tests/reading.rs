@@ -93,11 +93,51 @@ fn a_broken_file_says_why_and_leaves_the_pane_empty() {
     h.state_mut().queue(Command::Open(junk));
     h.run();
     let toast = h.state().toast().map(|t| t.message.clone());
-    assert_eq!(
-        toast.as_deref(),
-        Some("Couldn't open Notes: the file isn't a readable PDF.")
-    );
+    let cut = "Couldn't open Notes: the PDF is cut short. \
+               It may not have finished downloading; download it again.";
+    assert_eq!(toast.as_deref(), Some(cut));
     assert_eq!(h.state().title(), "Mareader");
+}
+
+#[test]
+fn a_damaged_file_and_a_web_page_are_told_apart() {
+    let mut h = reader(&[]);
+    let broken = b"%PDF-1.7\nnonsense\n%%EOF\n".to_vec();
+    h.state_mut()
+        .queue(Command::Open(OpenRequest::bytes(broken, "Deed.pdf")));
+    h.run();
+    let toast = h.state().toast().map(|t| t.message.clone());
+    let said = toast.unwrap_or_default();
+    assert!(
+        said.starts_with("Couldn't open Deed: the PDF is damaged."),
+        "{said}"
+    );
+    let page = b"<html><body>Sign in</body></html>".to_vec();
+    h.state_mut()
+        .queue(Command::Open(OpenRequest::bytes(page, "Bill.pdf")));
+    h.run();
+    let toast = h.state().toast().map(|t| t.message.clone());
+    let said = toast.unwrap_or_default();
+    assert!(
+        said.starts_with("Couldn't open Bill: the file isn't a PDF."),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_cut_short_file_opens_with_a_warning() {
+    let mut h = reader(&[]);
+    let mut bytes = mareader_pdf::sample::pdf(3, "Partial");
+    bytes.truncate(bytes.len() - "%%EOF\n".len());
+    h.state_mut()
+        .queue(Command::Open(OpenRequest::bytes(bytes, "Partial.pdf")));
+    h.run();
+    let toast = h.state().toast().cloned();
+    let tone = toast.as_ref().map(|t| t.tone);
+    assert_eq!(tone, Some(mareader_ui::toast::Tone::Warning));
+    let said = toast.map(|t| t.message).unwrap_or_default();
+    assert_eq!(said, "Partial looks cut short; some pages may be missing.");
+    assert_ne!(h.state().title(), "Mareader", "it opened");
 }
 
 #[test]

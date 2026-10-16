@@ -103,8 +103,9 @@ fn a_broken_or_missing_file_reports_why() {
             _ => None,
         })
     };
-    let invalid = OpenError::Pdf(mareader_pdf::OpenError::Invalid);
-    assert_eq!(error(t), Some(invalid));
+    let cut = OpenError::Pdf(mareader_pdf::OpenError::CutShort);
+    assert_eq!(error(t), Some(cut));
+    assert!(error(t).and_then(|e| e.hint()).is_some());
     assert!(matches!(error(missing), Some(OpenError::Unreadable(_))));
     assert!(s.is_empty());
 }
