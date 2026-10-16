@@ -82,7 +82,7 @@ characters, 16 synonyms of 80, 8 usages of 400, cut text ending in "…".
 | 2 | Apple Intelligence through `fm-bridge` (macOS, Apple silicon, feature `ai`), the card filling as the answer streams, Retry | on a Mac with Apple Intelligence, Explain answers in place |
 | 3 | Highlighters (owner, 2026-10-16; see "Highlighters" below): full, half and underline looks; your own highlights from the selection menu on PDFs and books; Settings › Highlights for each highlighter's colour, the menu's buttons and the colour-on-click choice; AI marks on their own reserved look; density; selecting many marks to remove at once | select text, click Highlight or Underline: it stays after a relaunch; add Half in Settings and it joins the menu; change a colour and the highlights follow while the slider moves |
 | 4 | Dictionary packs: download with mirrors and resume, convert, Look up in the bar, a lookup card | download a pack, select a word, Look up |
-| 5 | CEFR shading: the dataset and tagger, a level setting, click to explain; drawn in its own reserved highlighter and colour (red, as mareader's, by default) | turn CEFR on at B2: harder words are shaded, and that look is no longer offered for your own highlights |
+| 5 | CEFR shading: the dataset and tagger, a level setting, click to explain; drawn in its own reserved highlighter and colour (red, as mareader's, by default) | turn CEFR on at B2: harder words are shaded, and that look is no longer offered for your own highlights; click one to explain it, rest on one to look it up; `pdf=sample:5 cefr=<dir> workers=0` in shots |
 
 Look up stays out of the bar until slice 4 gives it something to do.
 
@@ -255,3 +255,40 @@ slice 5.
   connection resumed, pause and cancel), and ask cards, bridges and
   searches; kittests look up from the bar, follow Get dictionaries…,
   remove a pack, search in the panel, and pick and remove marks.
+
+## Slice 5 behaviour
+
+- **The dataset.** Settings › Vocabulary downloads mareader's word levels
+  (about 2.9 MB, some 248,000 senses) and the role tagger (about 6.7 MB)
+  from the cefr-rs repository, then two jsDelivr mirrors, through the
+  same resumable fetch as the dictionary packs. The parquet becomes
+  `cefr.db` in `<data>/vocabulary/`; a whole download found at launch
+  converts then. Pause, Cancel, Resume, Remove and Try again act on both.
+- **Shading.** With the switch on, a word whose level is above My level
+  (A2 to C2, B2 by default; C2 shades nothing) is shaded on PDFs and
+  books alike, in the CEFR look: its own pen and colour, full red by
+  default, at the highlight opacity. A word counts as hard when it, a
+  contraction's base or a part of a hyphenated compound is.
+  Pages are planned once per text layer, level and dataset, and capped
+  at 5,000 words; levels not yet known are asked off the frame and the
+  page repaints when they land.
+- **Reserved.** Like the AI's look, the CEFR look can't be taken by a
+  highlighter, and the two can't share one. Settings › Vocabulary picks
+  its pen and colour, offering neither a pen's own colour nor the AI's.
+- **Under your marks.** Shading is drawn beneath highlights and AI marks;
+  a hover or click on a word under a mark goes to the mark.
+- **Click to explain** (on by default): a click on a shaded word asks the
+  AI as Explain does and marks the word, the AI mark drawn over the
+  shade. The card shows the word's class from the tagger until the AI's
+  arrives, then that sense's CEFR level beside it.
+- **Rest to look up** (`dictionary.hover`, on by default): resting on a
+  shaded word for 160 ms opens its dictionary card, once per rest. It
+  never replaces a Look up or Explain card and waits for a downloaded
+  pack; leaving the word and its card (8 points of slack) or a press
+  outside closes it.
+- **Left for later.** A browser shows the tab but can't download; word
+  roles for books in other languages.
+- **Checks.** The cefr crate converts a fixture parquet, plans hard words
+  and drives the service end to end; kittests shade a fixture page,
+  explain on a click, open the dictionary card on a rest, and set the
+  level, the look and Remove in the tab.
