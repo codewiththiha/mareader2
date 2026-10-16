@@ -73,6 +73,8 @@ pub struct LibraryState {
     /// The library page is up in place of the panes.
     pub showing: bool,
     pub scope: Scope,
+    /// Inside a chosen folder, the subfolders walked into.
+    pub trail: Vec<String>,
     /// The shelf open on the page; none is the top level.
     at: Option<ShelfId>,
     renaming: Option<ShelfId>,
@@ -100,6 +102,7 @@ impl Default for LibraryState {
             folders: sources::Folders::default(),
             showing: false,
             scope: Scope::All,
+            trail: Vec::new(),
             at: None,
             renaming: None,
             picks: Picks::default(),

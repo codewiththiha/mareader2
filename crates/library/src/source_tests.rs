@@ -367,6 +367,40 @@ fn a_folder_shelved_by_folder_files_books_on_nested_shelves() {
 }
 
 #[test]
+fn a_folder_is_browsed_by_its_own_subfolders_whatever_its_shelving() {
+    let mut lib = Library::new(DEVICE);
+    let s = lib.add_source("/s/Books".into(), 1_000).unwrap().id;
+    let files = [
+        found("/s/Books/a.pdf", 1),
+        found("/s/Books/Poe/b.pdf", 2),
+        found("/s/Books/Poe/Early/c.pdf", 3),
+        found("/s/Books/woolf/d.pdf", 4),
+    ];
+    scan(&mut lib, s, files.to_vec());
+    let names = |l: &[(String, usize)]| {
+        l.iter()
+            .map(|(n, c)| format!("{n} {c}"))
+            .collect::<Vec<_>>()
+    };
+    // Counts reach every book below; names sort as a person would.
+    assert_eq!(names(&lib.subfolders(s, &[])), ["Poe 2", "woolf 1"]);
+    let poe = ["Poe".to_owned()];
+    assert_eq!(names(&lib.subfolders(s, &poe)), ["Early 1"]);
+    let b = lib.book_at(Path::new("/s/Books/Poe/b.pdf")).unwrap();
+    let c = lib.book_at(Path::new("/s/Books/Poe/Early/c.pdf")).unwrap();
+    let (b, c) = (lib.book(b).unwrap(), lib.book(c).unwrap());
+    assert!(lib.in_trail(b, s, &poe, true));
+    assert!(!lib.in_trail(c, s, &poe, true), "deeper, so not directly");
+    assert!(lib.in_trail(c, s, &poe, false));
+    assert!(!lib.in_trail(b, s, &[], true));
+    assert_eq!(
+        lib.trails_of(c, s),
+        [vec!["Poe".to_owned(), "Early".to_owned()]]
+    );
+    assert!(lib.subfolders(s, &["Nowhere".to_owned()]).is_empty());
+}
+
+#[test]
 fn one_shelf_holds_a_whole_folder_and_books_known_before() {
     let mut lib = Library::new(DEVICE);
     let s = lib.add_source("/s/Books".into(), 1_000).unwrap().id;
