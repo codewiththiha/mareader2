@@ -1,0 +1,175 @@
+name: Installers
+# The id lets tools/ci.py find the run it dispatched.
+run-name: installers ${{ inputs.sha || github.ref_name }} ${{ inputs.id }}
+
+# Each platform's installers: built, installed, launched, removed there.
+# v* tags draft releases. See docs/packaging.md.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit to package (default the dispatched ref)
+        default: ""
+      id:
+        description: Request id from tools/ci.py
+        default: ""
+  push:
+    tags: ["v*"]
+    # Packaging changes are tried on a release/<slug> branch before a tag.
+    branches: ["release/**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PACKAGER_VERSION: 0.11.8
+
+jobs:
+  package:
+    name: Installers / ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04's older glibc lets the AppImage run on more systems.
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            formats: deb,appimage,pacman
+          - name: macos-arm64
+            os: macos-26
+            target: aarch64-apple-darwin
+            formats: app,dmg
+            helper: expected
+          - name: macos-x64
+            os: macos-26-intel
+            target: x86_64-apple-darwin
+            formats: app,dmg
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            formats: nsis,wix
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # cargo-packager's own build step reads it, and so finds the binary.
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      HELPER: ${{ matrix.helper }}
+      # Every runner draws (lavapipe, WARP, Metal): a launch that dies fails.
+      SMOKE: required
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installers-${{ matrix.target }}
+      - name: cargo-packager
+        run: |
+          cargo packager --version 2>/dev/null | grep -q "$PACKAGER_VERSION" ||
+            cargo install cargo-packager --locked --version "$PACKAGER_VERSION"
+      # Only Apple Silicon runs Apple Intelligence, and Xcode 26 builds it.
+      - name: Apple Intelligence helper
+        if: matrix.helper == 'expected'
+        run: tools/fm-helper.sh
+      - name: Signing identity
+        if: runner.os == 'macOS'
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # Ad hoc ("-") unless the repository holds a Developer ID.
+          [ -z "$IDENTITY" ] && exit 0
+          sed -i '' "s|^signing-identity = \"-\"|signing-identity = \"$IDENTITY\"|" \
+            apps/mareader/Cargo.toml
+      - name: Package
+        env:
+          SECRET_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SECRET_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # cargo-packager acts on any value, so empty secrets stay unset.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID \
+                      APPLE_PASSWORD APPLE_TEAM_ID; do
+            value=$(printenv "SECRET_$name" || true)
+            if [ -n "$value" ]; then export "$name=$value"; fi
+          done
+          cd apps/mareader
+          cargo packager --release --target "$CARGO_BUILD_TARGET" \
+            --formats "${{ matrix.formats }}"
+      - name: Linux check tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers imagemagick
+      - name: Install, launch, remove
+        run: |
+          out="target/$CARGO_BUILD_TARGET/release"
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1280x800x24" tools/check-installers.sh "$out"
+          else
+            tools/check-installers.sh "$out"
+          fi
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## ${{ matrix.name }}"
+            echo '```'
+            cat target/installers/checks.txt 2>/dev/null || echo "no checks ran"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect
+        run: |
+          mkdir -p dist
+          out="target/$CARGO_BUILD_TARGET/release"
+          for f in "$out"/*.deb "$out"/*.AppImage "$out"/*.tar.gz "$out"/PKGBUILD \
+                   "$out"/*.dmg "$out"/*-setup.exe "$out"/*.msi; do
+            if [ -f "$f" ]; then cp "$f" dist/; fi
+          done
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checks-${{ matrix.name }}
+          path: target/installers/
+
+  release:
+    name: Installers / draft release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag names this version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $version"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "Mareader ${GITHUB_REF_NAME#v}" --generate-notes dist/*
