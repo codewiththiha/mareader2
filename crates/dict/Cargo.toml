@@ -1,0 +1,23 @@
+[package]
+name = "mareader-dict"
+description = "Offline dictionary packs: download, convert, look words up"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+# A browser has no threads, files or downloads; it lists packs only.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rusqlite = { workspace = true }
+# Packs are parquet files; only their codecs, not arrow.
+parquet = { version = "59", default-features = false, features = ["snap", "zstd"] }
+# The TLS stack ai-pool already brings.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

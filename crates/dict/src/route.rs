@@ -1,0 +1,131 @@
+//! Ways between two languages: one pack either way round, or two
+//! meeting at English.
+
+use crate::lang;
+use crate::packs::Pack;
+
+/// The language every bridge passes through.
+pub const HUB: &str = "en";
+
+/// One pack, asked from its headwords or from its definitions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hop {
+    pub pack: &'static Pack,
+    /// Asked from the definition side, back to the headword.
+    pub reverse: bool,
+}
+
+/// One way from a language to another: one hop, or two through `HUB`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub hops: Vec<Hop>,
+}
+
+/// Every plan from `from` to `to` over `packs`, best first.
+pub fn plans(from: &str, to: &str, packs: &[&'static Pack]) -> Vec<Plan> {
+    let mut out = direct(from, to, packs);
+    if from != HUB && to != HUB {
+        for a in direct(from, HUB, packs) {
+            for b in direct(HUB, to, packs) {
+                let hops = a.hops.iter().chain(&b.hops).copied().collect();
+                out.push(Plan { hops });
+            }
+        }
+    }
+    out
+}
+
+fn direct(from: &str, to: &str, packs: &[&'static Pack]) -> Vec<Plan> {
+    let forward = packs.iter().filter(|p| p.source == from && p.target == to);
+    let back = packs.iter().filter(|p| p.source == to && p.target == from);
+    let hop = |reverse| {
+        move |pack: &&'static Pack| Plan {
+            hops: vec![Hop { pack, reverse }],
+        }
+    };
+    forward.map(hop(false)).chain(back.map(hop(true))).collect()
+}
+
+/// Every language the packs join, in pack order.
+pub fn languages(packs: &[&'static Pack]) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for lang in packs.iter().flat_map(|p| [p.source, p.target]) {
+        if !out.contains(&lang) {
+            out.push(lang);
+        }
+    }
+    out
+}
+
+/// Two languages a search names; none leaves each to be worked out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Pair {
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+/// Chosen languages stand; else script, then English, names `from`.
+pub fn settle(pair: &Pair, word: &str, packs: &[&'static Pack]) -> Option<(String, String)> {
+    let langs = languages(packs);
+    if langs.len() < 2 {
+        return None;
+    }
+    let known = |l: &Option<String>| l.clone().filter(|l| langs.contains(&l.as_str()));
+    let from = known(&pair.from)
+        .or_else(|| lang::detect(word, &langs).map(str::to_owned))
+        .unwrap_or_else(|| HUB.to_owned());
+    let to = known(&pair.to)
+        .filter(|t| *t != from)
+        .or_else(|| langs.iter().find(|l| **l != from).map(|l| (*l).to_owned()))?;
+    Some((from, to))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packs::PACKS;
+
+    fn all() -> Vec<&'static Pack> {
+        PACKS.iter().collect()
+    }
+
+    #[test]
+    fn a_pack_answers_both_ways_and_two_meet_at_english() {
+        let packs = all();
+        let en_jp = plans("en", "jp", &packs);
+        assert_eq!(en_jp.first().map(|p| p.hops.len()), Some(1));
+        let back = plans("my", "en", &packs);
+        assert!(
+            back.first()
+                .is_some_and(|p| p.hops.iter().all(|h| h.reverse))
+        );
+        let bridge = plans("my", "jp", &packs);
+        let hops = bridge.first().map(|p| p.hops.clone()).unwrap_or_default();
+        assert_eq!(hops.len(), 2);
+        assert!(
+            hops.first()
+                .is_some_and(|h| h.reverse && h.pack.target == "my")
+        );
+        assert!(
+            hops.get(1)
+                .is_some_and(|h| !h.reverse && h.pack.target == "jp")
+        );
+        assert!(plans("my", "de", &packs).is_empty());
+    }
+
+    #[test]
+    fn a_pair_settles_from_the_choice_then_the_word() {
+        let packs = all();
+        let none = Pair::default();
+        let got = settle(&none, "မီး", &packs);
+        assert_eq!(got, Some(("my".into(), "en".into())));
+        let got = settle(&none, "light", &packs);
+        assert_eq!(got, Some(("en".into(), "my".into())));
+        let chosen = Pair {
+            from: Some("en".into()),
+            to: Some("en".into()),
+        };
+        assert_eq!(settle(&chosen, "x", &packs).map(|p| p.1), Some("my".into()));
+        assert_eq!(settle(&none, "x", &[]), None);
+    }
+}
