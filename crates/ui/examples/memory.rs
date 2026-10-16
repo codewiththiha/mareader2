@@ -18,12 +18,12 @@ type App = Harness<'static, MareaderApp>;
 const MIB: f64 = 1024.0 * 1024.0;
 /// The library's cover textures, as `covers.rs` holds them.
 const COVER_BUDGET: usize = 64 << 20;
-/// Growth from the second round to the last that still reads as reuse.
+/// How far the later rounds' floor may rise over the earlier rounds' top.
 const ROUND_SLACK: f64 = 16.0;
-/// What a second pane on an open book may add.
-const SECOND_PANE: f64 = 8.0;
-/// What each book in the library may hold, file or not.
+/// What each book added to the library may hold, file or not.
 const PER_BOOK_KIB: f64 = 16.0;
+/// What scrolling a big library may add at its peak, covers included.
+const SCROLL_PEAK: f64 = 256.0;
 
 /// A `/proc/self/status` field, in MiB.
 fn status(field: &str) -> Option<f64> {
@@ -42,6 +42,7 @@ fn reset_peak() {
 #[derive(Clone, Copy, Debug, Default)]
 struct Row {
     rss: f64,
+    peak: f64,
     documents: usize,
     pages: usize,
     page_bytes: usize,
@@ -73,6 +74,7 @@ impl Audit {
         let m = app.documents().meter();
         let row = Row {
             rss: status("VmRSS:").unwrap_or(0.0),
+            peak: status("VmHWM:").unwrap_or(0.0),
             documents: m.documents,
             pages: m.pages,
             page_bytes: m.page_bytes,
@@ -82,7 +84,7 @@ impl Audit {
             cover_bytes: app.library_state().covers().bytes(),
         };
         let textures = h.ctx.tex_manager().read().num_allocated();
-        let peak = status("VmHWM:").unwrap_or(0.0);
+        let peak = row.peak;
         println!(
             "| {step} | {:.0} | {peak:.0} | {} | {} ({:.0}) | {} | {} | {} | {:.1} | {textures} |",
             row.rss,
@@ -182,7 +184,46 @@ fn emptied(r: &Row) -> bool {
     r.documents + r.pages + r.texts + r.jobs + r.searches == 0
 }
 
-fn book(path: &Path, rounds: usize) -> Result<bool, String> {
+/// A second's frames, drawn, so the GPU's deferred frees can land.
+fn settle(h: &mut App) {
+    for _ in 0..6 {
+        h.run_steps(10);
+        h.render().ok();
+    }
+}
+
+/// A leak raises every later round; memory kept for reuse only spikes.
+fn floor_rise(rounds: &[Row]) -> f64 {
+    let (early, late) = rounds.split_at(rounds.len() / 2);
+    let top = early.iter().map(|r| r.rss).fold(f64::MIN, f64::max);
+    let floor = late.iter().map(|r| r.rss).fold(f64::MAX, f64::min);
+    floor - top
+}
+
+/// Reads, searches and closes `path` in a new pane, `rounds` times.
+fn rounds(h: &mut App, audit: &mut Audit, path: &Path, rounds: usize) {
+    let mut kept = Vec::new();
+    for round in 2..=rounds.max(2) {
+        h.state_mut().queue(Command::Split(SplitAxis::Horizontal));
+        h.run();
+        let pane = h.state().active_pane();
+        open(h, pane, path);
+        read_through(h, pane);
+        search(h, "the");
+        close(h, pane);
+        kept.push(audit.row(h, &format!("round {round}: read, searched, closed")));
+    }
+    if kept.len() >= 2 {
+        let rise = floor_rise(&kept);
+        let value = format!("{rise:+.0} MiB over rounds 2 to {}", rounds.max(2));
+        let held = rise <= ROUND_SLACK;
+        audit.check("Later rounds' floor stays level (no leak)", value, held);
+    }
+    let all = kept.iter().all(emptied);
+    audit.check("Every round closes to nothing", "see rows".into(), all);
+}
+
+fn book(path: &Path, count: usize) -> Result<bool, String> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0")?;
     app.set_option("panes", "2")?;
@@ -193,17 +234,19 @@ fn book(path: &Path, rounds: usize) -> Result<bool, String> {
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();
-    audit.row(&mut h, "idle, two empty panes");
+    let idle = audit.row(&mut h, "idle, two empty panes");
     let panes = h.state().panes();
     let (left, right) = (panes[0], panes[1]);
     open(&mut h, right, path);
-    audit.row(&mut h, "opened in one pane");
+    let first = audit.row(&mut h, "opened in one pane");
     read_through(&mut h, right);
     audit.row(&mut h, "every page read");
     search(&mut h, "the");
     audit.row(&mut h, "searched for \"the\"");
     close(&mut h, right);
     let closed = audit.row(&mut h, "its pane closed");
+    settle(&mut h);
+    audit.row(&mut h, "a second later");
     let value = format!(
         "{} documents, {} searches",
         closed.documents, closed.searches
@@ -213,26 +256,7 @@ fn book(path: &Path, rounds: usize) -> Result<bool, String> {
         value,
         emptied(&closed),
     );
-    // A leak grows with each round; memory kept for reuse levels off.
-    let mut kept = Vec::new();
-    for round in 2..=rounds.max(2) {
-        h.state_mut().queue(Command::Split(SplitAxis::Horizontal));
-        h.run();
-        let pane = h.state().active_pane();
-        open(&mut h, pane, path);
-        read_through(&mut h, pane);
-        search(&mut h, "the");
-        close(&mut h, pane);
-        let row = audit.row(&mut h, &format!("round {round}: read, searched, closed"));
-        kept.push(row);
-    }
-    if let (Some(first), Some(last)) = (kept.first(), kept.last()) {
-        let grew = last.rss - first.rss;
-        let value = format!("{grew:+.0} MiB over rounds 2 to {}", rounds.max(2));
-        audit.check("Rounds level off (no leak)", value, grew <= ROUND_SLACK);
-        let all = kept.iter().all(emptied);
-        audit.check("Every round closes to nothing", "see rows".into(), all);
-    }
+    rounds(&mut h, &mut audit, path, count);
     // The same book twice: the second pane should cost nearly nothing.
     h.state_mut().queue(Command::FocusPane(left));
     h.state_mut().queue(Command::Split(SplitAxis::Horizontal));
@@ -243,58 +267,26 @@ fn book(path: &Path, rounds: usize) -> Result<bool, String> {
     open(&mut h, panes[1], path);
     let twice = audit.row(&mut h, "and in the second pane");
     let shared = twice.documents == once.documents && twice.pages <= once.pages + 1;
-    let grew = twice.rss - once.rss;
-    let value = format!("{grew:+.0} MiB, {} documents", twice.documents);
-    let held = shared && grew <= SECOND_PANE;
-    audit.check("A second pane on the book shares it", value, held);
+    // A second parse would cost about what the first open did.
+    let (grew, cost) = (twice.rss - once.rss, first.rss - idle.rss);
+    let value = format!("{grew:+.0} MiB of the first open's {cost:.0}");
+    let held = shared && grew <= cost / 4.0;
+    audit.check(
+        "A second pane shares the book (under a quarter)",
+        value,
+        held,
+    );
     Ok(audit.report())
 }
 
-/// A one-page PDF of its own colour and number, a few hundred bytes.
-fn tiny_pdf(n: usize) -> Vec<u8> {
-    let channel = |k: usize| ((n * k) % 200 + 40) as f32 / 255.0;
-    let (r, g, b) = (channel(37), channel(73), channel(151));
-    let content = format!(
-        "{r:.2} {g:.2} {b:.2} rg 0 0 300 420 re f 0 g \
-         BT /F1 32 Tf 40 300 Td (Book {n}) Tj ET"
-    );
-    let objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 420] /Contents 4 0 R \
-         /Resources << /Font << /F1 5 0 R >> >> >>"
-            .to_owned(),
-        format!(
-            "<< /Length {} >>\nstream\n{content}\nendstream",
-            content.len()
-        ),
-        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
-        format!("<< /Title (Book {n}) >>"),
-    ];
-    let mut out = b"%PDF-1.4\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, body) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend(format!("{} 0 obj\n{body}\nendobj\n", i + 1).into_bytes());
-    }
-    let xref = out.len();
-    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).into_bytes());
-    for at in offsets {
-        out.extend(format!("{at:010} 00000 n \n").into_bytes());
-    }
-    let size = objects.len() + 1;
-    let trailer = format!("trailer\n<< /Size {size} /Root 1 0 R /Info 6 0 R >>\n");
-    out.extend(format!("{trailer}startxref\n{xref}\n%%EOF\n").into_bytes());
-    out
-}
-
-/// Writes `count` books an hour old, so no scan waits for them to settle.
-fn write_books(dir: &Path, count: usize) -> Result<(), String> {
+/// Writes books `from..to`, an hour old so no scan waits for them.
+fn write_books(dir: &Path, from: usize, to: usize) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let old = SystemTime::now() - Duration::from_secs(3_600);
-    for n in 0..count {
+    for n in from..to {
         let path = dir.join(format!("book-{n:05}.pdf"));
-        std::fs::write(&path, tiny_pdf(n)).map_err(|e| e.to_string())?;
+        let pdf = mareader_pdf::sample::pdf(1, &format!("Book {n}"));
+        std::fs::write(&path, pdf).map_err(|e| e.to_string())?;
         let file = std::fs::File::options().write(true).open(&path);
         file.and_then(|f| f.set_modified(old))
             .map_err(|e| e.to_string())?;
@@ -317,6 +309,10 @@ fn scroll_to(h: &mut App, last: Option<&str>, bound: usize) -> usize {
             phase: egui::TouchPhase::Move,
         });
         h.run_steps(2);
+        // Like a real frame, a render submits the uploads queued so far.
+        if turn % 4 == 3 {
+            h.render().ok();
+        }
     }
     bound
 }
@@ -329,11 +325,20 @@ fn title_of(h: &App, file: &str) -> String {
     hit.map(|b| b.title.value.clone()).unwrap_or_default()
 }
 
+/// Covers are left out: they keep to a budget of their own.
 fn per_book(audit: &mut Audit, before: &Row, after: &Row, count: usize) {
-    let kib = (after.rss - before.rss) * 1024.0 / count.max(1) as f64;
-    let value = format!("{kib:.1} KiB a book over {count}");
+    let covers = (after.cover_bytes as f64 - before.cover_bytes as f64) / MIB;
+    let kib = (after.rss - before.rss - covers) * 1024.0 / count.max(1) as f64;
+    let value = format!("{kib:.1} KiB a book, {count} more");
     let held = kib <= PER_BOOK_KIB;
     audit.check("Each book's share of the library", value, held);
+}
+
+fn scroll_peak(audit: &mut Audit, view: &str, rest: &Row, done: &Row) {
+    let rise = done.peak - rest.rss;
+    let value = format!("+{rise:.0} MiB at its peak");
+    let budget = format!("Scrolling the {view} to the end, covers and all");
+    audit.check(&budget, value, rise <= SCROLL_PEAK);
 }
 
 /// Searches the page, then lets it go.
@@ -347,10 +352,32 @@ fn library_search(h: &mut App, audit: &mut Audit, text: &str) {
     h.run_steps(4);
 }
 
+/// Reads `root` in place, waiting until the library holds `total`.
+fn add_folder(h: &mut App, root: &Path, total: usize) {
+    let plan = FolderPlan {
+        keep: FolderKeep::InPlace,
+        walk: Walk::default(),
+    };
+    let roots = vec![root.to_path_buf()];
+    let add = Command::Library(Action::AddFolders { roots, plan });
+    h.state_mut().queue(add);
+    for _ in 0..200 {
+        h.run_steps(2);
+        if h.state().library().len() >= total {
+            break;
+        }
+    }
+}
+
 fn library(count: usize) -> Result<bool, String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let books = dir.path().join("Books");
-    write_books(&books, count)?;
+    // By the third folder, the store cache and allocator are paid for.
+    let (a, b) = (count / 3, count * 2 / 3);
+    let names = ["One", "Two", "Three"].map(|n| dir.path().join(n));
+    let [one, two, three] = &names;
+    write_books(one, 0, a)?;
+    write_books(two, a, b)?;
+    write_books(three, b, count)?;
     let mut app = MareaderApp::default();
     app.set_option("workers", "0")?;
     app.set_option("library", "show")?;
@@ -358,39 +385,32 @@ fn library(count: usize) -> Result<bool, String> {
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();
-    let empty = audit.row(&mut h, "library page, empty");
-    let plan = FolderPlan {
-        keep: FolderKeep::InPlace,
-        walk: Walk::default(),
-    };
-    let roots = vec![books.clone()];
-    h.state_mut()
-        .queue(Command::Library(Action::AddFolders { roots, plan }));
-    for _ in 0..200 {
-        h.run_steps(2);
-        if h.state().library().len() >= count {
-            break;
-        }
-    }
+    audit.row(&mut h, "library page, empty");
+    add_folder(&mut h, one, a);
+    audit.row(&mut h, &format!("{a} books read in place"));
+    add_folder(&mut h, two, b);
+    let second = audit.row(&mut h, &format!("{} more, from a second folder", b - a));
+    add_folder(&mut h, three, count);
     let found = h.state().library().len();
-    let added = audit.row(&mut h, &format!("{found} books read in place"));
-    audit.check(
-        "Every book is found",
-        format!("{found} of {count}"),
-        found == count,
-    );
-    per_book(&mut audit, &empty, &added, count);
+    let more = count - b;
+    let added = audit.row(&mut h, &format!("{more} more, from a third"));
+    let value = format!("{found} of {count}");
+    audit.check("Every book is found", value, found == count);
+    per_book(&mut audit, &second, &added, more);
     let last = title_of(&h, &format!("book-{:05}.pdf", count.saturating_sub(1)));
     if last.is_empty() {
         return Err("the last book has no title".into());
     }
     let turns = scroll_to(&mut h, Some(&last), 4_000);
-    audit.row(&mut h, &format!("grid scrolled to the end ({turns} turns)"));
+    let grid = audit.row(&mut h, &format!("grid scrolled to the end ({turns} turns)"));
+    scroll_peak(&mut audit, "grid", &added, &grid);
     library_search(&mut h, &mut audit, "Book 12");
     h.state_mut().set_option("layout", "list")?;
     h.run_steps(4);
+    let rest = audit.row(&mut h, "list shown");
     let turns = scroll_to(&mut h, Some(&last), 8_000);
-    audit.row(&mut h, &format!("list scrolled to the end ({turns} turns)"));
+    let list = audit.row(&mut h, &format!("list scrolled to the end ({turns} turns)"));
+    scroll_peak(&mut audit, "list", &rest, &list);
     h.state_mut().queue(Command::ShowLibrary);
     h.run_steps(4);
     audit.row(&mut h, "back to reading");
@@ -403,12 +423,17 @@ fn seeded(count: usize) -> Result<bool, String> {
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();
-    let before = audit.row(&mut h, "reader, no library");
-    h.state_mut().set_option("books", &count.to_string())?;
+    audit.row(&mut h, "reader, no library");
+    let half = count / 2;
+    h.state_mut().set_option("books", &half.to_string())?;
     h.state_mut().set_option("library", "show")?;
     h.run_steps(4);
-    let after = audit.row(&mut h, &format!("{count} books, page shown"));
-    per_book(&mut audit, &before, &after, count);
+    let before = audit.row(&mut h, &format!("{half} books, page shown"));
+    h.state_mut()
+        .set_option("books", &(count - half).to_string())?;
+    h.run_steps(4);
+    let after = audit.row(&mut h, &format!("{} more", count - half));
+    per_book(&mut audit, &before, &after, count - half);
     // Its titles repeat, so the end is a bound: about a row a turn.
     let turns = scroll_to(&mut h, None, count / 6 + 10);
     audit.row(&mut h, &format!("grid scrolled ({turns} turns)"));
