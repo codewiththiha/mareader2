@@ -103,6 +103,8 @@ jobs:
           ls -l books
       - name: Measure
         run: |
+          # Without it tee hides a breached budget.
+          set -o pipefail
           cargo build -q -p mareader-ui --example memory
           status=0
           run() {
@@ -123,6 +125,7 @@ jobs:
       - name: EPUB layout
         if: always()
         run: |
+          set -o pipefail
           cargo test -q -p mareader-epub --test layout_memory -- --ignored --nocapture \
             | tee -a out/layout.txt
       - uses: actions/upload-artifact@v4

@@ -358,7 +358,7 @@ impl LibraryState {
         })
     }
 
-    /// Made-up books for shots: some started, one missing.
+    /// Adds made-up books for shots: some started, one missing.
     pub fn seed(&mut self, count: usize) {
         const BOOKS: [(&str, Option<&str>); 10] = [
             ("The Raven", Some("Edgar Allan Poe")),
@@ -374,7 +374,8 @@ impl LibraryState {
         ];
         let formats = [Format::Epub, Format::Pdf, Format::Markdown, Format::Text];
         let now = wall_ms();
-        for i in 0..count {
+        let from = self.model.len();
+        for i in from..from + count {
             let (title, author) = BOOKS
                 .get(i % BOOKS.len())
                 .copied()
@@ -398,7 +399,7 @@ impl LibraryState {
             if i % 3 != 2 {
                 let pages = 40 + 37 * i;
                 let position = Position {
-                    page: pages * (i + 1) / (count + 2),
+                    page: pages * (i - from + 1) / (count + 2),
                     pages,
                     place: None,
                 };
