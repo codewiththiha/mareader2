@@ -672,7 +672,7 @@ frame, and stops repainting when nothing moves.
 - **Code.** `library/living.rs` holds the hole, springs and lift, and
   `library/view/grid.rs` draws the grid.
 
-## Slice 12: stacking and resting (2026-10-16)
+## Slice 12: stacking and resting (2026-10-15)
 
 Each rest is one `Aim` on the lift, timed from when the pointer settled
 on it; moving to another place restarts the clock.
@@ -704,7 +704,7 @@ on it; moving to another place restarts the clock.
 - **Code.** `Lift::aim` in `library/living.rs`; the crumb's rest is in
   `library/crumbs.rs`, kept in egui's memory with the frame it was seen.
 
-## Slice 13: many at once (2026-10-16)
+## Slice 13: many at once (2026-10-15)
 
 - **Long press picks.** A press held still for 0.45 s on a card or row
   picks it, as on a phone, and starts picking: plain clicks then toggle.
