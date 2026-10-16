@@ -113,6 +113,8 @@ pub enum Command {
     Dict(crate::dict::Action),
     /// The Dictionary panel's choices, saved with the settings.
     SetDictionary(Box<mareader_settings::DictionarySettings>),
+    /// The word-level dataset: download, pause, cancel, remove.
+    Vocab(crate::vocab::Action),
     /// Highlights the pane's selection; a colour if one was picked.
     Highlight {
         pane: PaneId,

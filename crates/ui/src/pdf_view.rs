@@ -18,6 +18,7 @@ use crate::selection::{self, Pages, Selection, Sheet};
 use crate::study::{self, BarPress, Gloss};
 use crate::texts::TextLayers;
 use crate::theme::Tokens;
+use crate::vocab;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
 use crate::{keymap, motion};
 use mareader_appearance::{PageTone, Rgb};
@@ -371,6 +372,8 @@ pub struct ViewContext {
     pub card: Option<MarkId>,
     /// The marks picked here, while picking several.
     pub picked: Option<Vec<MarkId>>,
+    /// How hard words are shaded; none while shading is off.
+    pub shading: Option<crate::vocab::Look>,
 }
 
 /// The Layout settings the pages follow.
@@ -430,6 +433,8 @@ pub struct Sinks<'a> {
     pub pass: Option<&'a std::sync::Arc<PagePass>>,
     /// What the pages tell the study tools.
     pub gloss: &'a mut Vec<Gloss>,
+    /// Which words are hard, for the pages that shade them.
+    pub vocab: Option<&'a mut crate::vocab::Vocab>,
 }
 
 pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: &ViewContext) {
@@ -440,6 +445,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         drawn,
         pass,
         gloss,
+        mut vocab,
     } = io;
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time);
@@ -757,6 +763,29 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 sideways: !down,
             };
             let placed = study::marks::place(&cx.marks, &text);
+            // Shading sits under the reader's own marks.
+            let shading = cx.shading.as_ref().zip(vocab.as_mut());
+            let shaded = shading.map_or_else(Vec::new, |(look, v)| v.place(look, &text));
+            let on_word = vocab::hovered(ui, &shaded).filter(|_| cx.picked.is_none());
+            if let Some(look) = &cx.shading {
+                let under_mark = |i: usize| {
+                    let w = shaded.get(i);
+                    w.is_some_and(|w| placed.iter().any(|m| m.contains(w.bounds().center())))
+                };
+                let lit = on_word.filter(|i| !under_mark(*i));
+                vocab::paint(ui, &shaded, look, lit);
+                let id = egui::Id::new(("shade-rest", doc_id));
+                if let Some(i) = vocab::dwell(ui, id, &shaded, lit, look)
+                    && let Some(w) = shaded.get(i)
+                    && let Some(layer) = texts.get(doc_id, w.page)
+                {
+                    let word = study::words::text_of(&layer, w.chars.clone());
+                    gloss.push(Gloss::Rest {
+                        word,
+                        at: w.bounds(),
+                    });
+                }
+            }
             study::marks::paint(ui, &placed, cx.highlights.opacity);
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
@@ -778,6 +807,16 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                         mark: m.id,
                         at: m.bounds(),
                     },
+                });
+            } else if let (Some(p), Some(look), None) = (did.click, &cx.shading, &cx.picked)
+                && look.click
+                && let Some(w) = vocab::hit(&shaded, p).and_then(|i| shaded.get(i))
+            {
+                follow = None;
+                gloss.push(Gloss::Shaded {
+                    page: w.page,
+                    chars: w.chars.clone(),
+                    at: w.bounds(),
                 });
             }
             if let Some(id) = study::marks::long_press(ui, &placed) {

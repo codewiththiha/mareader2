@@ -4,6 +4,7 @@ use egui::{
     Align, Align2, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, Stroke, Ui, pos2,
     vec2,
 };
+use mareader_cefr::Role;
 use mareader_library::MarkId;
 use mareader_settings::GlossDensity;
 use mareader_study::{Failure, WordInfo};
@@ -32,6 +33,8 @@ pub enum Answer<'a> {
 
 pub struct View<'a> {
     pub word: &'a str,
+    /// The tagger's role: its class until the AI's, and its level.
+    pub role: Option<&'a Role>,
     pub answer: Answer<'a>,
     /// The word on screen.
     pub at: Rect,
@@ -83,10 +86,25 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
                 .strong()
                 .color(t.ink),
         );
-        if let Answer::Ready(info, _) | Answer::Partial(info) = &view.answer
-            && !info.pos.is_empty()
-        {
-            ui.label(RichText::new(&info.pos).italics().color(t.muted));
+        let said = match &view.answer {
+            Answer::Ready(info, _) | Answer::Partial(info) => Some(info.pos.as_str()),
+            _ => None,
+        };
+        let class = said
+            .filter(|p| !p.is_empty())
+            .or(view.role.map(Role::class));
+        if let Some(class) = class {
+            ui.label(RichText::new(class).italics().color(t.muted));
+        }
+        if let Some(level) = view.role.and_then(Role::cefr) {
+            let tip = "This sense's CEFR level";
+            let r = ui.label(
+                RichText::new(level)
+                    .size(t.text_small)
+                    .strong()
+                    .color(t.muted),
+            );
+            widgets::tip(&r, tip, None);
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {

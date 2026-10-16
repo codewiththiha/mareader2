@@ -48,6 +48,7 @@ pub mod thumbnails;
 pub mod titlebar;
 pub mod toast;
 pub mod view_menu;
+pub mod vocab;
 pub mod widgets;
 pub mod zoom;
 

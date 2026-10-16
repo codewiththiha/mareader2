@@ -11,6 +11,9 @@ use mareader_workspace::PaneId;
 use crate::command::Commands;
 use crate::theme::Tokens;
 
+/// Room around a rested card's word and itself the pointer may cross.
+const LEAVE: f32 = 8.0;
+
 /// What the card, the panel and the settings ask of the dictionaries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -31,6 +34,8 @@ struct Card {
     offset: Option<Vec2>,
     ticket: Ticket,
     reply: Option<Reply>,
+    /// Opened by resting on a shaded word; leaving it closes the card.
+    rest: bool,
 }
 
 #[derive(Default)]
@@ -93,7 +98,34 @@ impl Dict {
             offset,
             ticket,
             reply: None,
+            rest: false,
         });
+    }
+
+    /// The pointer rested on a shaded word: its card, unless one was
+    /// asked for.
+    pub fn rest(
+        &mut self,
+        pane: PaneId,
+        word: String,
+        at: Rect,
+        offset: Option<Vec2>,
+        to: Option<String>,
+    ) {
+        match &self.card {
+            Some(c) if !c.rest || (c.word == word && c.at == at) => return,
+            _ => {}
+        }
+        self.look_up(pane, word, at, offset, to);
+        if let Some(card) = &mut self.card {
+            card.rest = true;
+        }
+        self.card_rect = None;
+    }
+
+    /// Whether the open card came from resting on a word, for tests.
+    pub fn card_rested(&self) -> bool {
+        self.card.as_ref().is_some_and(|c| c.rest)
     }
 
     /// The word the card shows, for tests.
@@ -166,11 +198,17 @@ impl Dict {
             (Some(a), Some(b)) => (a - b).length() > 0.5,
             _ => false,
         };
+        // A rested card stays while the pointer is on its word or itself.
+        let pointer = ctx.input(|i| i.pointer.latest_pos());
+        let left = |c: &Card| {
+            let near = self.card_rect.map_or(c.at, |r| r.union(c.at)).expand(LEAVE);
+            c.rest && !pointer.is_some_and(|p| near.contains(p))
+        };
         if outside
             || self
                 .card
                 .as_ref()
-                .is_some_and(|c| room(c.pane).is_none() || moved(c))
+                .is_some_and(|c| room(c.pane).is_none() || moved(c) || left(c))
         {
             self.card = None;
         }
