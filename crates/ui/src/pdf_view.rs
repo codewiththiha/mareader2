@@ -15,6 +15,7 @@ use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupF
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
 use crate::pages::{Lookup, PageCache, PageTexture};
+use crate::reach::{self, Press, Stop};
 use crate::selection::{self, Pages, Selection, Sheet};
 use crate::study::{self, BarPress, Gloss};
 use crate::texts::TextLayers;
@@ -880,6 +881,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             if let (Some(m), Some(at), None) = (on_mark(did.context), did.context, &cx.picked) {
                 gloss.push(Gloss::Menu { mark: m.id, at });
             }
+            let on = reach::On {
+                pages: &text,
+                placed: &placed,
+                shaded: &shaded,
+                words: cx.shading.as_ref().is_some_and(|l| l.click),
+                accent: t.accent,
+            };
+            let press = reach::show(ui, &on);
+            let picking = cx.picked.is_some();
+            if let Some(target) = at_stop(press, &placed, &shaded, picking, gloss) {
+                follow = Some(target);
+            }
             if cx.picked.is_some() {
                 // A mark across two pages is placed on each.
                 let mut page: Vec<MarkId> = Vec::new();
@@ -988,6 +1001,44 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         }
         _ => {}
     }
+}
+
+/// A key at a focused stop does what a click there would.
+fn at_stop(
+    press: Option<Press>,
+    placed: &[study::marks::Placed],
+    shaded: &[vocab::Shaded],
+    picking: bool,
+    gloss: &mut Vec<Gloss>,
+) -> Option<LinkTarget> {
+    let mark = |i: usize| placed.get(i);
+    match press? {
+        Press::Go(Stop::Link(target)) => return Some(target),
+        Press::Go(Stop::Mark(i)) => {
+            let m = mark(i)?;
+            gloss.push(match picking {
+                true => Gloss::Toggle(m.id),
+                false => Gloss::Open {
+                    mark: m.id,
+                    at: m.bounds(),
+                },
+            });
+        }
+        Press::Go(Stop::Word(i)) => {
+            let w = shaded.get(i).filter(|_| !picking)?;
+            gloss.push(Gloss::Shaded {
+                page: w.page,
+                chars: w.chars.clone(),
+                at: w.bounds(),
+            });
+        }
+        Press::Menu(i) => {
+            let m = mark(i).filter(|_| !picking)?;
+            let at = m.bounds().left_bottom();
+            gloss.push(Gloss::Menu { mark: m.id, at });
+        }
+    }
+    None
 }
 
 /// A key's glide along the strip. The view runs it, so quick presses add up.

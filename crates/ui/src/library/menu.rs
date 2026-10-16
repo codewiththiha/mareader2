@@ -19,6 +19,7 @@ pub fn button(ui: &mut Ui, view: &View, auto: u8, out: &mut Commands) {
     let r = widgets::icon_button(ui, Icon::ViewOptions, "View options", open);
     Popup::from_toggle_button_response(&r)
         .id(id)
+        .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
         .align(RectAlign::BOTTOM_END)
         .gap(6.0)

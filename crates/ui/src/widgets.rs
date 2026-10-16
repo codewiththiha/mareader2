@@ -9,6 +9,50 @@ use crate::command::WindowCommand;
 use crate::icons::Icon;
 use crate::theme::Tokens;
 
+/// A popup's own frame: clicks stay in it, but Tab skips it for its rows.
+pub const POPUP_SENSE: Sense = Sense::CLICK;
+
+/// Closes a menu when Enter or Space presses one of its rows.
+pub fn close_on_key(ui: &Ui) {
+    let ctx = ui.ctx();
+    let pressed = ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Space));
+    let focused = ctx.memory(|m| m.focused());
+    let layer =
+        focused.and_then(|id| ctx.viewport(|v| v.this_pass.widgets.get(id).map(|w| w.layer_id)));
+    if pressed && layer == Some(ui.layer_id()) {
+        ui.close();
+    }
+}
+
+/// A right-click menu that Shift+F10 also opens, under the focused widget.
+pub fn context_menu(resp: &Response, add: impl FnOnce(&mut Ui)) {
+    let ctx = &resp.ctx;
+    let id = egui::Popup::default_response_id(resp);
+    let keyed = id.with("keyed");
+    let shift_f10 = egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::F10);
+    if resp.has_focus() && ctx.input_mut(|i| i.consume_shortcut(&shift_f10)) {
+        egui::Popup::open_id(ctx, id);
+        ctx.data_mut(|d| d.insert_temp(keyed, true));
+        // Its rows follow the widget in Tab order: the first takes focus.
+        ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::Next));
+    }
+    let open = egui::Popup::is_id_open(ctx, id);
+    let by_key = open && ctx.data(|d| d.get_temp::<bool>(keyed)).unwrap_or(false);
+    if (resp.secondary_clicked() || !open) && by_key {
+        ctx.data_mut(|d| d.remove_temp::<bool>(keyed));
+    }
+    let popup = egui::Popup::context_menu(resp).sense(POPUP_SENSE);
+    // No pointer to open at: it hangs from the widget instead.
+    let popup = match by_key && !resp.secondary_clicked() {
+        true => popup.anchor(resp.rect),
+        false => popup,
+    };
+    popup.show(|ui| {
+        add(ui);
+        close_on_key(ui);
+    });
+}
+
 /// A borderless icon button; `selected` marks a toggle that is on.
 pub fn icon_button(ui: &mut Ui, icon: Icon, label: &str, selected: bool) -> Response {
     icon_button_keyed(ui, icon, label, selected, None)

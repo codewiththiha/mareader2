@@ -252,6 +252,11 @@ impl Sidebar {
             }
             return;
         }
+        // Keyboard focus in it holds it, as the pointer does.
+        if crate::focus::within(ctx, rail) {
+            self.left_at = None;
+            return;
+        }
         if pointer.is_some_and(|p| rail.contains(p)) {
             self.armed = true;
             self.left_at = None;
@@ -307,7 +312,7 @@ impl Sidebar {
 
     fn header(&self, ui: &mut Ui, rect: Rect, cx: &RailContext, out: &mut Commands) {
         // Registered before the buttons so they win the pointer.
-        let drag = ui.interact(rect, Id::new("sidebar-drag"), Sense::click_and_drag());
+        let drag = ui.interact(rect, Id::new("sidebar-drag"), Sense::CLICK | Sense::DRAG);
         if drag.double_clicked() {
             out.push(Command::Window(WindowCommand::ToggleMaximize));
         } else if drag.drag_started() {
