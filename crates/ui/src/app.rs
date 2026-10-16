@@ -848,7 +848,7 @@ impl MareaderApp {
         if let Some(explainer) = self.ai.follow(&self.settings.ai) {
             self.study.set_explainer(explainer);
         }
-        self.study.receive();
+        self.study.receive(self.library.model_mut());
         let look = &self.settings.study.gloss;
         self.study.show(ctx, &self.pane_rects, look, out);
     }

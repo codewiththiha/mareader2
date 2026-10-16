@@ -73,7 +73,7 @@ blind upload of the merged state converges even when a write is lost.
 | Position | Last writer wins; an open book shows "Read to p. 90 on another device" with Jump, and never moves the page by itself |
 | Shelf (name, parent) | Per field; a move that would make a cycle is dropped, keeping the older parent |
 | Membership | A record per (shelf, book): alive flag and sort key, each last writer wins |
-| Mark (M6) | A set by id; fields per stamp; tombstoned |
+| Mark (M6) | A set by id; fields per stamp (the saved answer, `gloss`, is one); tombstoned |
 | Removal | `removed` and `restored` stamps; alive while `restored > removed`. Field edits never revive a record; only restore does |
 | Settings | Per section, last writer wins; only the portable sections sync |
 
