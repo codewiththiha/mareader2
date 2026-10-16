@@ -106,7 +106,8 @@ appearance effects to that same pass.
 
 ## Next
 
-1. **Importing a mareader library** (deferred, 2026-10-15), then M6. The
+1. **M6, study tools** (`docs/study.md`). Importing a mareader library
+   was dropped (owner, 2026-10-16): mareader never shipped. The
    library redesign the owner asked for, M5 slices 8–13, is done
    (`docs/library.md` § Redesign).
 2. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
