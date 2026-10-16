@@ -14,6 +14,7 @@ pub const TABLE: &[(&str, Layer)] = &[
     ("library", Layer::Core(1)),
     ("study", Layer::Core(1)),
     ("dict", Layer::Core(1)),
+    ("cefr", Layer::Core(1)),
     ("epub", Layer::Core(2)),
     ("settings", Layer::Core(2)),
     ("session", Layer::Core(3)),

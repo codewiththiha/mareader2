@@ -29,6 +29,7 @@ the right place.
 | L1 | `library` | planned M5 | books, locations, shelves, sources, scans (`docs/library.md`) |
 | L1 | `study` | planned M6 | dictionary packs, CEFR levels, gloss requests and marks |
 | L1 | `dict` | **exists** | dictionary packs: download with mirrors and resume, parquet → SQLite, card lookups, search, bridges through English; downloads and lookups need the desktop |
+| L1 | `cefr` | **exists** | word levels: the CEFR dataset (download, parquet → SQLite), which words of a text are hard, a clicked word's role from the tagger; downloads and answers need the desktop |
 | L2 | `epub` | planned M4 | rbook container, spine, ToC, XHTML+CSS subset → `reflow` blocks |
 | L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
