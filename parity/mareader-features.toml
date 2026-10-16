@@ -1266,8 +1266,10 @@ title = "CEFR level highlighting with click-to-explain"
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "planned"
+status = "shipped"
+evidence = ["crates/cefr/tests/cefr.rs::the_dataset_becomes_a_table_that_answers", "crates/cefr/tests/cefr.rs::a_downloaded_dataset_converts_then_shades_hard_words", "crates/ui/tests/vocabulary.rs::a_click_on_a_shaded_word_explains_it_and_marks_it", "crates/ui/tests/vocabulary.rs::the_tab_sets_the_level_and_removes_the_dataset"]
 reference = ["crates/cefr-core/src/lib.rs", "crates/reader-core/src/settings/cefr.rs"]
+notes = "Dataset and tagger download with mirrors and resume; shading in a reserved look, click to explain with the tagged role and level (M6 slice 5)"
 
 [[feature]]
 id = "study.dictionary"
@@ -1275,10 +1277,10 @@ title = "Offline dictionary packs: download, hover lookup, language pairs"
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "partial"
-evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed"]
+status = "shipped"
+evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed", "crates/ui/tests/vocabulary.rs::resting_on_a_shaded_word_opens_its_dictionary_card"]
 reference = ["crates/dict-core/src/lib.rs", "crates/download-core/src/lib.rs", "crates/reader-core/src/settings/dict.rs"]
-notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4). Hover over CEFR words arrives with slice 5"
+notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4); resting on a shaded word opens its card (slice 5)"
 
 [[feature]]
 id = "study.selection-menu"
