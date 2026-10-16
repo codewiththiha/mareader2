@@ -69,3 +69,29 @@ second. Either way, the new launch runs as the primary and records itself.
 4. With Mareader running, double-click another PDF. It replaces the book
    in the focused pane, in the same window.
 5. `open -a Mareader book.pdf` does the same from a terminal.
+
+## The Apple Intelligence helper
+
+On a Mac, Explain can use the on-device model through `FMBridge`, a small
+Swift program from [fm-bridge](https://github.com/codewiththiha/fm-bridge).
+Only macOS 26 with Xcode 26 can build it, so it is not part of
+`cargo build`:
+
+```sh
+SIGN_IDENTITY="Developer ID Application: …" tools/fm-helper.sh
+cd apps/mareader && cargo packager --release
+```
+
+- **Which version.** The script builds the fm-bridge commit that
+  `Cargo.lock` pins, so the helper and the crate speak the same protocol.
+  Without `SIGN_IDENTITY` it signs ad hoc, enough for this Mac only.
+- **Where it goes.** The script writes `apps/mareader/helper/FMBridge`
+  (ignored by git). The packager's `resources` entry copies it to
+  `Mareader.app/Contents/Resources/`, where the app looks for it. Without
+  the file, packaging still works and Settings › AI says Apple
+  Intelligence is not available.
+- **While developing.** Debug builds also honour
+  `FM_BRIDGE_BIN=/path/to/FMBridge`, so `cargo run` can use the helper
+  without packaging.
+- **Other platforms.** The helper is never built or shipped; the AI tab
+  hides Apple Intelligence and offers the servers instead.
