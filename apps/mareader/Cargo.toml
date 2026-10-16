@@ -39,9 +39,8 @@ objc2-app-kit = { version = "0.3.2", optional = true, default-features = false, 
 objc2-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
 raw-window-handle = { version = "0.6", optional = true }
 
-# `cargo packager --release` (cargo install cargo-packager): installers that
-# register Mareader for PDFs. Files then arrive as an argument, or on macOS
-# as an Apple event (open_files.rs); see docs/packaging.md.
+# Installers that open Mareader's books: `cargo packager --release`.
+# See docs/packaging.md.
 [package.metadata.packager]
 product-name = "Mareader"
 identifier = "com.codewiththiha.mareader"
@@ -72,5 +71,26 @@ description = "EPUB electronic book"
 mime-type = "application/epub+zip"
 role = "viewer"
 
+# Text and Markdown open as EPUBs; mareader registered both.
+[[package.metadata.packager.file-associations]]
+extensions = ["txt", "text"]
+name = "Text Document"
+description = "Plain text document"
+mime-type = "text/plain"
+role = "viewer"
+
+[[package.metadata.packager.file-associations]]
+extensions = ["md", "markdown", "mdown"]
+name = "Markdown Document"
+description = "Markdown document"
+mime-type = "text/markdown"
+role = "viewer"
+
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
+# Ad hoc: Gatekeeper asks once. CI swaps in a Developer ID when it has one.
+signing-identity = "-"
+
+# Loaded at run time, so dpkg can't see them: fonts, keyboard, GPU.
+[package.metadata.packager.deb]
+depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1"]
