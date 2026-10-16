@@ -82,6 +82,12 @@ struct MarkMenu {
     at: Pos2,
 }
 
+/// What a worker sends back: the answer so far, then the end.
+enum Got {
+    Partial(WordInfo),
+    Done(Result<WordInfo, Failure>),
+}
+
 /// Answers, the open card and menu, and marks kept by no library.
 pub struct Study {
     explainer: Arc<dyn Explainer>,
@@ -92,8 +98,10 @@ pub struct Study {
     card: Option<Card>,
     menu: Option<MarkMenu>,
     answers: HashMap<Key, WordInfo>,
+    /// Answers still arriving, as far as they got.
+    partial: HashMap<Key, WordInfo>,
     failed: HashMap<Key, Failure>,
-    asking: HashMap<Key, Receiver<Result<WordInfo, Failure>>>,
+    asking: HashMap<Key, Receiver<Got>>,
     next_loose: u64,
     /// Last frame's card and menu, so a press outside closes them.
     card_rect: Option<Rect>,
@@ -109,6 +117,7 @@ impl Default for Study {
             card: None,
             menu: None,
             answers: HashMap::new(),
+            partial: HashMap::new(),
             failed: HashMap::new(),
             asking: HashMap::new(),
             next_loose: 0,
@@ -129,6 +138,7 @@ impl Study {
     pub fn set_explainer(&mut self, explainer: Arc<dyn Explainer>) {
         self.explainer = explainer;
         self.answers.clear();
+        self.partial.clear();
         self.failed.clear();
     }
 
@@ -254,8 +264,9 @@ impl Study {
 
     fn ask(&mut self, ctx: &Context, key: Key, word: &str, context: &str) {
         let explainer = Arc::clone(&self.explainer);
+        self.partial.remove(&key);
         if self.inline || cfg!(target_arch = "wasm32") {
-            match explainer.explain(word, context) {
+            match explainer.explain(word, context, &|_| {}) {
                 Ok(info) => {
                     self.answers.insert(key, info.clamped());
                 }
@@ -268,7 +279,12 @@ impl Study {
         let (tx, rx) = channel();
         let (word, context, ctx) = (word.to_owned(), context.to_owned(), ctx.clone());
         std::thread::spawn(move || {
-            let _ = tx.send(explainer.explain(&word, &context));
+            let partial = |info| {
+                let _ = tx.send(Got::Partial(info));
+                ctx.request_repaint();
+            };
+            let done = explainer.explain(&word, &context, &partial);
+            let _ = tx.send(Got::Done(done));
             ctx.request_repaint();
         });
         self.asking.insert(key, rx);
@@ -342,18 +358,30 @@ impl Study {
         }
     }
 
-    /// Takes in finished answers.
+    /// Takes in answers, finished or still filling in.
     pub fn receive(&mut self) {
         let mut done = Vec::new();
         for (key, rx) in &self.asking {
-            match rx.try_recv() {
-                Ok(answer) => done.push((*key, Some(answer))),
-                Err(TryRecvError::Disconnected) => done.push((*key, None)),
-                Err(TryRecvError::Empty) => {}
+            loop {
+                match rx.try_recv() {
+                    Ok(Got::Partial(info)) => {
+                        self.partial.insert(*key, info.clamped());
+                    }
+                    Ok(Got::Done(answer)) => {
+                        done.push((*key, Some(answer)));
+                        break;
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        done.push((*key, None));
+                        break;
+                    }
+                    Err(TryRecvError::Empty) => break,
+                }
             }
         }
         for (key, answer) in done {
             self.asking.remove(&key);
+            self.partial.remove(&key);
             match answer {
                 Some(Ok(info)) => {
                     self.answers.insert(key, info.clamped());
@@ -405,8 +433,11 @@ impl Study {
         self.card_rect = self.card.as_ref().and_then(|c| {
             let answer = match (self.answers.get(&c.key), self.failed.get(&c.key)) {
                 (Some(info), _) => card::Answer::Ready(info),
-                (None, Some(e)) => card::Answer::Failed(*e),
-                (None, None) => card::Answer::Waiting,
+                (None, Some(e)) => card::Answer::Failed(e),
+                (None, None) => match self.partial.get(&c.key) {
+                    Some(info) => card::Answer::Partial(info),
+                    None => card::Answer::Waiting,
+                },
             };
             let view = card::View {
                 word: &c.word,
