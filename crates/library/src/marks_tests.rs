@@ -1,0 +1,134 @@
+//! Marks: made once per spot, removed and brought back, saved, traded.
+
+use std::path::PathBuf;
+
+use crate::disk::Folder;
+use crate::tests::save;
+use crate::{
+    BookId, ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, NewMark, Opened, Row,
+    Spot,
+};
+
+const A: DeviceId = DeviceId(1);
+const B: DeviceId = DeviceId(2);
+
+fn opened(path: &str, content: u128) -> Opened {
+    Opened {
+        path: PathBuf::from(path),
+        measure: Measure {
+            content: ContentId(content),
+            stamp: FileStamp::default(),
+        },
+        format: Format::Pdf,
+        title: format!("Book {content}"),
+        author: None,
+    }
+}
+
+fn fox(x: f32) -> NewMark {
+    NewMark {
+        word: "fox".into(),
+        context: "the quick brown fox jumps".into(),
+        spot: Spot::Page {
+            page: 0,
+            rect: [x, 40.0, 18.0, 10.0],
+        },
+    }
+}
+
+fn words(lib: &Library, book: BookId) -> Vec<String> {
+    lib.marks(book).iter().map(|m| m.word.clone()).collect()
+}
+
+fn unsent(lib: &mut Library) -> Vec<Row> {
+    let dirty = lib.take_dirty();
+    let rows = lib.changes(&dirty).put.into_iter();
+    rows.filter(|r| r.kind.synced()).collect()
+}
+
+#[test]
+fn a_word_is_marked_once_per_spot() {
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let first = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    // A selection a hair off is the same spot; another place is not.
+    assert_eq!(lib.add_mark(book, fox(100.4), 2_100), Some(first));
+    let other = lib.add_mark(book, fox(300.0), 2_200).unwrap();
+    assert_ne!(other, first);
+    assert_eq!(words(&lib, book), ["fox", "fox"]);
+    // A book the library doesn't know gets none.
+    assert_eq!(lib.add_mark(BookId(99), fox(1.0), 2_300), None);
+}
+
+#[test]
+fn removing_and_undo_bring_a_mark_back_as_it_was() {
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let id = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    lib.take_dirty();
+    assert_eq!(lib.set_marks_alive(&[id], false, 3_000), 1);
+    assert!(lib.marks(book).is_empty() && lib.mark(id).is_none());
+    let kinds: Vec<Kind> = unsent(&mut lib).iter().map(|r| r.kind).collect();
+    assert_eq!(kinds, [Kind::Mark], "a removal is a tombstone row");
+    assert_eq!(lib.set_marks_alive(&[id], false, 3_100), 0, "already gone");
+    assert_eq!(lib.set_marks_alive(&[id], true, 3_200), 1);
+    assert_eq!(lib.mark(id).map(|m| m.word.as_str()), Some("fox"));
+}
+
+#[test]
+fn marks_are_saved_and_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.epub", 1), 1_000);
+    let word = NewMark {
+        word: "customs".into(),
+        context: "past the customs house".into(),
+        spot: Spot::Text {
+            block: 3,
+            start: 40,
+            end: 47,
+        },
+    };
+    let id = lib.add_mark(book, word.clone(), 2_000).unwrap();
+    save(&folder, &mut lib);
+    let back = folder.load(A).library;
+    let mark = back.mark(id).unwrap();
+    assert_eq!((mark.word.as_str(), mark.spot), ("customs", word.spot));
+    assert_eq!(mark.context, word.context);
+}
+
+#[test]
+fn marks_travel_and_a_removal_wins_over_an_older_keep() {
+    let mut a = Library::new(A);
+    let mut b = Library::new(B);
+    let book = a.record_open(opened("/a.pdf", 1), 1_000);
+    b.record_open(opened("/elsewhere/a.pdf", 1), 1_100);
+    let id = a.add_mark(book, fox(100.0), 2_000).unwrap();
+    b.absorb(unsent(&mut a), 2_500);
+    assert_eq!(words(&b, book), ["fox"]);
+    b.set_marks_alive(&[id], false, 3_000);
+    a.absorb(unsent(&mut b), 3_500);
+    assert!(a.marks(book).is_empty(), "the removal came across");
+}
+
+#[test]
+fn folding_two_originals_moves_the_marks_to_the_keeper() {
+    // Here a file edited in place; there the edited file, imported new.
+    let mut a = Library::new(A);
+    let kept = a.record_open(opened("/notes.md", 1), 1_000);
+    a.record_open(opened("/notes.md", 2), 2_000);
+    let mut b = Library::new(B);
+    let gone = b.record_open(opened("/elsewhere/notes.md", 2), 2_500);
+    let id = b.add_mark(gone, fox(100.0), 2_600).unwrap();
+    assert!(kept < gone);
+    for _ in 0..4 {
+        let (to_b, to_a) = (unsent(&mut a), unsent(&mut b));
+        a.absorb(to_a, 3_000);
+        b.absorb(to_b, 3_000);
+    }
+    for lib in [&a, &b] {
+        assert_eq!(lib.mark(id).map(|m| m.book.value), Some(kept));
+        assert_eq!(words(lib, kept), ["fox"]);
+    }
+}
