@@ -2296,6 +2296,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-study"
+version = "0.0.1"
+
+[[package]]
 name = "mareader-ui"
 version = "0.0.1"
 dependencies = [

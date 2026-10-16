@@ -1,0 +1,12 @@
+[package]
+name = "mareader-study"
+description = "Reading aids as rules: the one-word gate, a word's context and its explanation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
