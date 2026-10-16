@@ -329,7 +329,7 @@ mod tests {
         let text = PageText::from_lines([(wraps, line.collect())]);
         Arc::new(TextLayer {
             text,
-            links: Vec::new(),
+            ..TextLayer::default()
         })
     }
 

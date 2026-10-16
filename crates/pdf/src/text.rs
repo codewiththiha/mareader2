@@ -79,11 +79,20 @@ impl Bounds {
 pub struct TextLayer {
     pub text: PageText,
     pub links: Vec<Link>,
+    /// A book's: each character's block and byte; a PDF has none.
+    pub places: Vec<Option<(u32, u32)>>,
 }
 
 impl TextLayer {
     pub fn bytes(&self) -> usize {
-        self.text.bytes() + self.links.len() * size_of::<Link>()
+        let places = self.places.len() * size_of::<Option<(u32, u32)>>();
+        self.text.bytes() + self.links.len() * size_of::<Link>() + places
+    }
+
+    /// Character `i`'s block and byte in a book's text.
+    pub fn place(&self, i: usize) -> Option<(usize, usize)> {
+        let (block, byte) = self.places.get(i).copied().flatten()?;
+        Some((block as usize, byte as usize))
     }
 
     /// The last link listed under a point: later ones are drawn on top.

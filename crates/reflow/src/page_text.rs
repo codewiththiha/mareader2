@@ -12,6 +12,8 @@ pub struct PageChar {
     pub ch: char,
     /// Left, top, width, height: the line's full height.
     pub rect: [f32; 4],
+    /// Its block and byte in the book's text; none in a table.
+    pub at: Option<(usize, usize)>,
 }
 
 /// One line of a page's text, in reading order.
@@ -35,7 +37,8 @@ impl Flow {
             let y = PAD + piece.dy;
             match (&set.draw, &*self.laid(piece.block)) {
                 (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
-                    lines(para, piece.units.clone(), (x + pad, y), &mut out);
+                    let at = (x + pad, y);
+                    lines(para, piece.units.clone(), (at, Some(set.source)), &mut out);
                 }
                 (Draw::Table(grid), Laid::Table(rows)) => {
                     let [pad_x, pad_y] = grid.pad;
@@ -45,7 +48,7 @@ impl Flow {
                         };
                         for (c, cell) in cells.iter().enumerate() {
                             let at = (x + c as f32 * grid.column + pad_x, y + top + pad_y);
-                            lines(cell, 0..cell.layout.len(), at, &mut out);
+                            lines(cell, 0..cell.layout.len(), (at, None), &mut out);
                         }
                     }
                 }
@@ -73,9 +76,16 @@ impl Flow {
     }
 }
 
+/// Where lines are drawn, and the block they come from if it's text.
+type Origin = ((f32, f32), Option<usize>);
+
 /// Lines `range` of `para`, its origin at `x, y`, each char boxed.
-fn lines(para: &Para, range: Range<usize>, (x, y): (f32, f32), out: &mut Vec<PageLine>) {
+fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine>) {
+    let ((x, y), block) = place;
     let layout = &para.layout;
+    // Soft hyphens were put into the text; offsets skip them.
+    let marks = &para.marks;
+    let source = |i: usize| i - SHY.len_utf8() * marks.partition_point(|&m| m < i);
     for n in range {
         let Some(line) = layout.get(n) else {
             continue;
@@ -97,12 +107,17 @@ fn lines(para: &Para, range: Range<usize>, (x, y): (f32, f32), out: &mut Vec<Pag
         clusters.sort_by_key(|(r, ..)| r.start);
         let mut chars = Vec::new();
         for (r, left, w) in clusters {
+            let start = r.start;
             let s = para.text.get(r).unwrap_or_default();
-            let kept: Vec<char> = s.chars().filter(|&c| c != SHY && c != '\n').collect();
+            let kept: Vec<(usize, char)> = s
+                .char_indices()
+                .filter(|&(_, c)| c != SHY && c != '\n')
+                .collect();
             let share = w / kept.len().max(1) as f32;
-            for (i, ch) in kept.into_iter().enumerate() {
+            for (i, (byte, ch)) in kept.into_iter().enumerate() {
                 let rect = [left + share * i as f32, top, share, height];
-                chars.push(PageChar { ch, rect });
+                let at = block.map(|b| (b, source(start + byte)));
+                chars.push(PageChar { ch, rect, at });
             }
         }
         let wrapped = |b| matches!(b, BreakReason::Regular | BreakReason::Emergency);
@@ -248,5 +263,30 @@ mod tests {
             inside.as_ref().is_some_and(|c| c != &[255, 255, 255]),
             "{inside:?}"
         );
+    }
+
+    #[test]
+    fn each_letter_knows_its_block_and_byte_through_soft_hyphens() {
+        let typo = Typography {
+            justify: true,
+            hyphenate: true,
+            ..Typography::default()
+        };
+        let body = "Extraordinarily incomprehensible circumstances. ".repeat(30);
+        let blocks = [
+            Block::text(Role::Heading(1), "Héading"),
+            Block::text(Role::Paragraph, &body),
+        ];
+        let f = with(&blocks, &typo);
+        let texts = ["Héading", body.as_str()];
+        let mut seen = 0;
+        for c in f.text(0).iter().flat_map(|l| &l.chars) {
+            let (block, byte) = c.at.unwrap_or((9, 0));
+            let text = texts.get(block).copied().unwrap_or_default();
+            let found = text.get(byte..).and_then(|t| t.chars().next());
+            assert_eq!(found, Some(c.ch), "{c:?}");
+            seen += 1;
+        }
+        assert!(seen > 400, "{seen}");
     }
 }
