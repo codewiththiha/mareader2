@@ -644,8 +644,9 @@ title = "Import a mareader library (books, shelves, positions)"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "planned"
+status = "dropped"
 reference = ["crates/library-core/src/blob/migrate.rs"]
+notes = "mareader2 is a separate app; mareader never shipped, so no library needs carrying over (owner, 2026-10-16)"
 
 [[feature]]
 id = "library.name-conflicts"

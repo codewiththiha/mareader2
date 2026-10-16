@@ -525,7 +525,7 @@ What the first slice built, and where it stops short of the model above.
   so the card never needs closing. The worker sends a beat only when the
   ring moves a whole percent, so huge folders don't flood the queue.
 - **Not yet.** Importing a mareader library is deferred (owner,
-  2026-10-15); see § Optional below.
+  2026-10-15); see § Optional below. Dropped (owner, 2026-10-16).
 - **Shots.** `sidebar=library` opens the panel; `library_click=split`
   picks the click; `carry=x1,y1,x2,y2` holds a drag without letting go;
   `runs=demo` shows two cards: `pdf=sample:5 books=10 shelves=demo
@@ -784,6 +784,9 @@ Entering the library closes the find bar and the settings window.
 A one-time import of `mareader.library.v3` maps linked books to source
 locations, stored books to store copies, shelves to shelves, and keeps
 positions. Departed shelves become plain shelves; tombstones become `hidden`.
+
+Dropped (owner, 2026-10-16): mareader2 is a separate app and mareader
+never shipped, so there is no library to carry over.
 
 ## Size target
 
