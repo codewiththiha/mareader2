@@ -21,6 +21,7 @@ use crate::pages::{PageCache, PageTexture};
 use crate::paper::Papers;
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
 use crate::selection::{Selection, Sheet};
+use crate::study::{self, Asked, Gloss};
 use crate::texts::TextLayers;
 use crate::theme::{self, Tokens};
 use crate::thumbnails::{self, ThumbState};
@@ -164,6 +165,8 @@ pub struct Documents {
     demand: Demand,
     gpu: Option<Gpu>,
     drawn: Vec<Quad>,
+    /// What each pane's pages told the study tools this frame.
+    gloss: Vec<(PaneId, Gloss)>,
     /// What books are set in: the window's type, or a pane's own.
     window: Arc<Typography>,
     own: BTreeMap<PaneId, Arc<Typography>>,
@@ -189,6 +192,7 @@ impl Default for Documents {
             demand: Demand::new(),
             gpu: None,
             drawn: Vec::new(),
+            gloss: Vec::new(),
             window: Arc::new(typography(&TextSettings::default())),
             own: BTreeMap::new(),
             asked: BTreeMap::new(),
@@ -488,14 +492,17 @@ impl Documents {
         let (Some(entry), Some(Content::Pdf(view))) = (entry, self.panes.get_mut(&pane)) else {
             return false;
         };
+        let mut gloss = Vec::new();
         let io = Sinks {
             pages: &mut self.pages,
             demand: &mut self.demand,
             texts: &mut self.texts,
             drawn: &mut self.drawn,
             pass: self.gpu.as_ref().map(|g| &g.pass),
+            gloss: &mut gloss,
         };
         pdf_view::show(ui, view, &entry.doc, io, cx);
+        self.gloss.extend(gloss.into_iter().map(|g| (pane, g)));
         if cx.sample {
             let count = entry.doc.page_count();
             for page in self.papers.wanted(view.doc, view.visible.clone(), count) {
@@ -557,6 +564,7 @@ impl Documents {
             texts: &mut self.texts,
             drawn: &mut Vec::new(),
             pass: self.gpu.as_ref().map(|g| &g.pass),
+            gloss: &mut Vec::new(),
         };
         thumbnails::show(ui, &reading, io, state, recentre, out);
         true
@@ -607,6 +615,49 @@ impl Documents {
         match self.panes.get(&pane)? {
             Content::Pdf(v) => Some(v.as_ref()),
             Content::Opening { .. } => None,
+        }
+    }
+
+    /// What the panes' pages told the study tools this frame.
+    pub fn take_gloss(&mut self) -> Vec<(PaneId, Gloss)> {
+        std::mem::take(&mut self.gloss)
+    }
+
+    /// The selected word and its place on screen; none unless one word.
+    pub fn asked(&self, pane: PaneId) -> Option<(Asked, Rect)> {
+        let view = self.view(pane)?;
+        let sel = view.selection.filter(|s| !s.is_empty())?;
+        let doc = &self.session.as_ref()?.get(view.doc)?.doc;
+        let layer = |page| {
+            let held = self.texts.get(view.doc, page);
+            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
+        };
+        let asked = study::words::asked(sel, layer)?;
+        let sheet = view.sheets.iter().find(|s| s.page == asked.page)?;
+        let boxes = layer(asked.page)?.text.boxes(asked.chars.clone());
+        let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
+        let rect = on_screen.reduce(|a, b| a.union(b))?;
+        Some((asked, rect))
+    }
+
+    /// Selects the first `text` on `page` in the pane; false if absent.
+    pub fn select(&mut self, pane: PaneId, page: usize, text: &str) -> bool {
+        let doc = self.view(pane).map(|v| v.doc);
+        let entry = doc.and_then(|d| self.session.as_ref()?.get(d));
+        let Some(layer) = entry.and_then(|e| e.doc.text_layer(page).ok()) else {
+            return false;
+        };
+        let chars: Vec<char> = layer.text.chars().iter().map(|c| c.ch).collect();
+        let needle: Vec<char> = text.chars().collect();
+        let found = chars
+            .windows(needle.len().max(1))
+            .position(|w| w == needle.as_slice());
+        match (found, self.panes.get_mut(&pane)) {
+            (Some(at), Some(Content::Pdf(v))) => {
+                v.selection = Some(Selection::within(page, at..at + needle.len()));
+                true
+            }
+            _ => false,
         }
     }
 

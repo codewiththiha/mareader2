@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
-use mareader_library::BookId;
+use mareader_library::{BookId, MarkId, Spot};
 use mareader_pdf::{Bounds, LinkTarget, web_address};
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
 use mareader_settings::{ColumnAlign, LayoutSettings, StartupFit, TextSettings};
@@ -15,6 +15,7 @@ use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::selection::{self, Pages, Selection, Sheet};
+use crate::study::{self, BarPress, Gloss};
 use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
@@ -363,6 +364,11 @@ pub struct ViewContext {
     pub corner: f32,
     /// Read this pane's paper: blend is on and the pane is focused.
     pub sample: bool,
+    /// The book's marks, and their fill.
+    pub marks: Vec<(MarkId, Spot)>,
+    pub gloss: Color32,
+    /// The mark whose card is open here, to keep the card beside it.
+    pub card: Option<MarkId>,
 }
 
 /// The Layout settings the pages follow.
@@ -420,6 +426,8 @@ pub struct Sinks<'a> {
     /// GPU pages drawn this frame, for the glass to blur.
     pub drawn: &'a mut Vec<Quad>,
     pub pass: Option<&'a std::sync::Arc<PagePass>>,
+    /// What the pages tell the study tools.
+    pub gloss: &'a mut Vec<Gloss>,
 }
 
 pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: &ViewContext) {
@@ -429,6 +437,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         texts,
         drawn,
         pass,
+        gloss,
     } = io;
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time);
@@ -745,10 +754,36 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 texts,
                 sideways: !down,
             };
+            let placed = study::marks::place(&cx.marks, &text);
+            study::marks::paint(ui, &placed, cx.gloss);
             if let Some(sel) = selection.filter(|s| !s.is_empty()) {
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
-            follow = selection::interact(ui, ui.clip_rect(), &text, selection).follow;
+            let did = selection::interact(ui, ui.clip_rect(), &text, selection);
+            follow = did.follow;
+            let on_mark = |p: Option<Pos2>| p.and_then(|p| study::marks::hit(&placed, p));
+            if let Some(m) = on_mark(did.click) {
+                follow = None;
+                gloss.push(Gloss::Open {
+                    mark: m.id,
+                    at: m.bounds(),
+                });
+            }
+            if let (Some(m), Some(at)) = (on_mark(did.context), did.context) {
+                gloss.push(Gloss::Menu { mark: m.id, at });
+            }
+            if let Some(m) = placed.iter().find(|m| Some(m.id) == cx.card) {
+                gloss.push(Gloss::Anchor(Some(m.bounds())));
+            } else if cx.card.is_some() {
+                // A page whose text hasn't come may hold the mark.
+                let shown = sheets.iter().filter(|s| s.shown.is_positive());
+                if shown
+                    .into_iter()
+                    .any(|s| texts.get(doc_id, s.page).is_none())
+                {
+                    gloss.push(Gloss::Anchor(None));
+                }
+            }
             // A jump's landing renders while the glide is on its way.
             if let Some(landing) = &landing {
                 for page in landing.clone().filter(|p| !shown.contains(p)) {
@@ -811,6 +846,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     }
     if cx.active {
         copy(&ctx, view, doc, texts);
+        let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);
+        let pressed = selection_bar(&ctx, view, texts, room);
+        match pressed {
+            Some(BarPress::Copy) => {
+                if let Some(text) = selected_text(view, doc, texts) {
+                    ctx.copy_text(text);
+                    gloss.push(Gloss::Copied);
+                }
+            }
+            Some(BarPress::Explain) => gloss.push(Gloss::Explain),
+            None => {}
+        }
     }
     match follow {
         Some(LinkTarget::Page(page)) => view.go_to(page, sizes.len()),
@@ -907,20 +954,60 @@ fn keyed_scroll(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> 
 
 /// ⌘C or Ctrl+C copies the selection, unless a text field has focus.
 fn copy(ctx: &egui::Context, view: &PdfView, doc: &Document, texts: &TextLayers) {
-    let Some(sel) = view.selection.filter(|s| !s.is_empty()) else {
-        return;
-    };
     let asked = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy)));
     if !asked || ctx.egui_wants_keyboard_input() {
         return;
     }
+    if let Some(text) = selected_text(view, doc, texts) {
+        ctx.copy_text(text);
+    }
+}
+
+/// The selection's text; none if nothing is selected.
+fn selected_text(view: &PdfView, doc: &Document, texts: &TextLayers) -> Option<String> {
+    let sel = view.selection.filter(|s| !s.is_empty())?;
     // Pages scrolled out of the cache are read again, here.
-    let text = sel.text(|page| {
+    Some(sel.text(|page| {
         texts
             .get(view.doc, page)
             .or_else(|| doc.text_layer(page).ok().map(Arc::new))
-    });
-    ctx.copy_text(text);
+    }))
+}
+
+/// The bar under a finished selection, while any of it is on screen.
+fn selection_bar(
+    ctx: &egui::Context,
+    view: &PdfView,
+    texts: &TextLayers,
+    room: Rect,
+) -> Option<BarPress> {
+    let sel = view.selection.filter(|s| !s.is_empty())?;
+    let id = egui::Id::new(("study-bar", view.doc));
+    // Hidden while a press elsewhere may be selecting; a press on it stays.
+    let bar = egui::LayerId::new(egui::Order::Foreground, id);
+    let (down, from) = ctx.input(|i| (i.pointer.any_down(), i.pointer.press_origin()));
+    if down && from.and_then(|p| ctx.layer_id_at(p)) != Some(bar) {
+        return None;
+    }
+    let mut shown = Rect::NOTHING;
+    for sheet in &view.sheets {
+        let Some(layer) = texts.get(view.doc, sheet.page) else {
+            continue;
+        };
+        let Some(range) = sel.on_page(sheet.page, layer.text.len()) else {
+            continue;
+        };
+        for b in layer.text.boxes(range) {
+            let r = sheet.to_screen(b).intersect(sheet.shown).intersect(room);
+            if r.is_positive() {
+                shown = shown.union(r);
+            }
+        }
+    }
+    if !shown.is_positive() {
+        return None;
+    }
+    study::show_bar(ctx, id, shown, room)
 }
 
 /// The strips' scroll along their axis; the paged modes' page.
