@@ -94,3 +94,7 @@ signing-identity = "-"
 # Loaded at run time, so dpkg can't see them: fonts, keyboard, GPU.
 [package.metadata.packager.deb]
 depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1"]
+
+# The same for Arch; libglvnd gives EGL where Vulkan is missing.
+[package.metadata.packager.pacman]
+depends = ["fontconfig", "libxkbcommon", "libxkbcommon-x11", "libglvnd"]
