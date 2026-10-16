@@ -28,7 +28,7 @@ the right place.
 | L1 | `library` | planned M5 | books, locations, shelves, sources, scans (`docs/library.md`) |
 | L1 | `study` | planned M6 | dictionary packs, CEFR levels, gloss requests and marks |
 | L2 | `epub` | planned M4 | rbook container, spine, ToC, XHTML+CSS subset → `reflow` blocks |
-| L2 | `settings` | planned M1 | the persisted schema and defaults; optional import of a mareader settings file |
+| L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
 | L7 | `ui` | **exists** | egui: theme, icons, title bar, panes, every view and popover |
 | — | `apps/mareader` | **exists** | the window and `main` |
