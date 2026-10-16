@@ -86,6 +86,8 @@ pub struct Covers {
     asked: Vec<Want>,
     /// The asks last handed to the worker.
     sent: Vec<ContentId>,
+    /// Covers read and waiting for a texture that this frame asked for.
+    near: Vec<ContentId>,
     bytes: usize,
 }
 
@@ -138,7 +140,10 @@ impl Covers {
                 }
             }
             Some(Slot::Drawn) => Cover::Drawn,
-            Some(Slot::Read(_)) => Cover::Waiting,
+            Some(Slot::Read(_)) => {
+                self.near.push(book.content);
+                Cover::Waiting
+            }
             None => {
                 self.prefetch(book);
                 Cover::Waiting
@@ -148,7 +153,10 @@ impl Covers {
 
     /// Asks for `book`'s cover after those already asked this frame.
     pub fn prefetch(&mut self, book: &Book) {
-        if self.slots.contains_key(&book.content) {
+        if let Some(slot) = self.slots.get(&book.content) {
+            if matches!(slot, Slot::Read(_)) && !self.near.contains(&book.content) {
+                self.near.push(book.content);
+            }
             return;
         }
         if self.asked.iter().any(|w| w.content == book.content) {
@@ -162,15 +170,26 @@ impl Covers {
 
     /// Hands this frame's asks over and makes a few textures.
     pub fn end_frame(&mut self, ctx: &Context) {
+        // Best first: what waits already, then this frame's new asks.
+        let mut near = std::mem::take(&mut self.near);
+        near.extend(self.asked.iter().map(|w| w.content));
         if self.inline {
-            for want in std::mem::take(&mut self.asked) {
+            // As many as become textures, so none pile up waiting.
+            let take = self.asked.len().min(UPLOADS);
+            for want in self.asked.drain(..take).collect::<Vec<_>>() {
                 let art = load(&want, self.versioned().as_deref());
                 self.arrive(want.content, art);
+            }
+            if !self.asked.is_empty() {
+                ctx.request_repaint();
             }
         } else {
             self.trade(ctx);
         }
-        self.upload(ctx);
+        // Read for books scrolled past: the disk cache has them again.
+        let waits = |c: &ContentId, s: &mut Slot| !matches!(s, Slot::Read(_)) || near.contains(c);
+        self.slots.retain(waits);
+        self.upload(ctx, &near);
         self.evict();
         self.asked.clear();
         self.frame += 1;
@@ -228,14 +247,10 @@ impl Covers {
         self.sent.retain(|c| *c != content);
     }
 
-    fn upload(&mut self, ctx: &Context) {
+    fn upload(&mut self, ctx: &Context, near: &[ContentId]) {
         let now = ctx.input(|i| i.time);
-        let waiting: Vec<ContentId> = self
-            .slots
-            .iter()
-            .filter(|(_, s)| matches!(s, Slot::Read(_)))
-            .map(|(c, _)| *c)
-            .collect();
+        let read = |c: &&ContentId| matches!(self.slots.get(c), Some(Slot::Read(_)));
+        let waiting: Vec<ContentId> = near.iter().filter(read).copied().collect();
         if waiting.len() > UPLOADS {
             ctx.request_repaint();
         }
@@ -283,6 +298,12 @@ impl Covers {
     /// The cover textures' bytes, held under a 64 MiB budget.
     pub fn bytes(&self) -> usize {
         self.bytes
+    }
+
+    /// Covers read and waiting for a texture; for tests and meters.
+    pub fn waiting(&self) -> usize {
+        let read = |s: &&Slot| matches!(s, Slot::Read(_));
+        self.slots.values().filter(read).count()
     }
 
     /// Covers kept as textures; for tests.
