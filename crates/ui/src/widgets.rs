@@ -92,6 +92,37 @@ pub fn small_icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     resp
 }
 
+/// Names a control with no visible label, for screen readers.
+pub fn name(resp: &Response, label: &str) {
+    resp.ctx
+        .accesskit_node_builder(resp.id, |n| n.set_label(label));
+}
+
+/// Runs `add`, naming its nameless controls by `label` for screen readers.
+pub fn labelled<R>(ui: &mut Ui, label: egui::Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let layer = ui.layer_id();
+    let count = |ui: &Ui| {
+        ui.ctx()
+            .viewport(|v| v.this_pass.widgets.get_layer(layer).count())
+    };
+    let before = count(ui);
+    let out = add(ui);
+    let added: Vec<egui::Id> = ui.ctx().viewport(|v| {
+        let all = v.this_pass.widgets.get_layer(layer).skip(before);
+        all.filter(|w| w.sense.interactive())
+            .map(|w| w.id)
+            .collect()
+    });
+    for id in added {
+        ui.ctx().accesskit_node_builder(id, |n| {
+            if n.label().is_none() && n.labelled_by().is_empty() {
+                n.push_labelled_by(label.accesskit_id());
+            }
+        });
+    }
+    out
+}
+
 /// One menu row: icon, label, and its shortcut on the right.
 pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());

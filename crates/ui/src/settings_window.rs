@@ -696,7 +696,9 @@ fn row(ui: &mut Ui, label: &str, hint: &str, control: impl FnOnce(&mut Ui)) {
             if !hint.is_empty() {
                 widgets::tip(&r, hint, None);
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), control);
+            widgets::labelled(ui, r.id, |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
+            });
         },
     );
 }

@@ -183,6 +183,7 @@ fn contents(
         .font(FontId::proportional(t.text))
         .frame(egui::Frame::NONE);
     let r = ui.add(entry);
+    widgets::name(&r, "Page number");
     // A bordered field, as on the bar's glass egui's own frame vanishes.
     let edge = if r.has_focus() { t.accent } else { t.line };
     ui.painter().rect_stroke(
@@ -217,7 +218,9 @@ fn contents(
     let slider = Slider::new(&mut page, 1..=count)
         .show_value(false)
         .trailing_fill(true);
-    if ui.add(slider).changed() {
+    let r = ui.add(slider);
+    widgets::name(&r, "Page");
+    if r.changed() {
         out.push(Command::GoTo {
             pane,
             page: page - 1,

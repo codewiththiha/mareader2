@@ -161,9 +161,11 @@ fn slider<N: egui::emath::Numeric>(
     ui.horizontal(|ui| {
         let t = Tokens::get(ui.ctx());
         let text = egui::Label::new(RichText::new(label).color(t.muted));
-        ui.add_sized([64.0, 20.0], text);
+        let named = ui.add_sized([64.0, 20.0], text).id;
         ui.spacing_mut().slider_width = ui.available_width() - 56.0;
-        ui.add(egui::Slider::new(value, range).suffix(" %"));
+        widgets::labelled(ui, named, |ui| {
+            ui.add(egui::Slider::new(value, range).suffix(" %"));
+        });
     });
 }
 
@@ -467,10 +469,12 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
     frame.show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         let name = ui.add(field(&mut d.name, "Preset name"));
+        widgets::name(&name, "Preset name");
         if std::mem::take(&mut d.focus) {
             name.request_focus();
         }
         let group = ui.add(field(&mut d.group, "Section (optional)"));
+        widgets::name(&group, "Section");
         let sections = section_names(user);
         if !sections.is_empty() {
             ui.horizontal_wrapped(|ui| {
