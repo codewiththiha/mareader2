@@ -106,7 +106,7 @@ fn main() -> eframe::Result {
             let mut app = MareaderApp::from_creation(cc);
             if let Some(dir) = eframe::storage_dir("mareader") {
                 app.attach_library(dir.join("library"));
-                app.attach_ai(&cc.egui_ctx, dir.join("ai"));
+                app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
             }
             if let Some(dir) = cache_dir() {
                 app.attach_cache(dir);
@@ -138,4 +138,10 @@ fn cache_dir() -> Option<std::path::PathBuf> {
     }
     let base = var("XDG_CACHE_HOME").or_else(|| var("HOME").map(|h| h.join(".cache")));
     base.map(|d| d.join("mareader"))
+}
+
+/// Debug builds also find the helper `tools/fm-helper.sh` builds.
+fn dev_helper() -> Option<PathBuf> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/helper/FMBridge");
+    cfg!(debug_assertions).then(|| PathBuf::from(path))
 }

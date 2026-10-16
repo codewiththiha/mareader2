@@ -251,10 +251,10 @@ impl MareaderApp {
         self.library.attach(root);
     }
 
-    /// Starts the AI service, its keys kept in `root`.
+    /// Starts the AI service, its keys kept in `root`; `helper` as in `Ai`.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf) {
-        self.ai.attach(ctx, root);
+    pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf, helper: Option<PathBuf>) {
+        self.ai.attach(ctx, root, helper);
     }
 
     /// Keeps covers and other rebuildable files in `dir`.
