@@ -116,6 +116,11 @@ impl LibraryState {
         &self.model
     }
 
+    /// For edits outside the library's own: marks, from the study tools.
+    pub fn model_mut(&mut self) -> &mut Library {
+        &mut self.model
+    }
+
     pub fn loading(&self) -> bool {
         self.status == Status::Loading
     }

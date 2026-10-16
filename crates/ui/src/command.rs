@@ -103,6 +103,16 @@ pub enum Command {
     DeletePreset(String),
     SetTitlebarPinned(bool),
     Window(WindowCommand),
+    /// The word card's and the mark menu's asks.
+    Study(crate::study::Action),
+    /// Explains the word selected in the pane, marking it.
+    Explain(PaneId),
+    /// Selects the first `text` on `page` in the pane, as a drag does.
+    SelectText {
+        pane: PaneId,
+        page: usize,
+        text: String,
+    },
     /// Shows a toast, replacing the one on screen.
     Notify(Toast),
     DismissToast,

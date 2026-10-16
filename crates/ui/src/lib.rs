@@ -39,6 +39,7 @@ pub mod route;
 pub mod selection;
 pub mod settings_window;
 pub mod sidebar;
+pub mod study;
 pub mod texts;
 pub mod theme;
 pub mod thumbnails;
