@@ -93,6 +93,7 @@ pub enum Icon {
     Resume,
     LookUp,
     SelectSeveral,
+    AutoScroll,
 }
 
 impl Icon {
@@ -148,6 +149,7 @@ impl Icon {
             Self::List => Lucide::List,
             Self::Sort => Lucide::ArrowDownUp,
             Self::ViewOptions => Lucide::SlidersHorizontal,
+            Self::AutoScroll => Lucide::ArrowDown,
             Self::Folders => Lucide::Folders,
             Self::Folder => Lucide::Folder,
             Self::FolderPlus => Lucide::FolderPlus,

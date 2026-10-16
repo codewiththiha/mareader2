@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 33] {
+pub fn bindings(platform: Platform) -> [Binding; 34] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -52,6 +52,11 @@ pub fn bindings(platform: Platform) -> [Binding; 33] {
         page("Forward a screen", Modifiers::NONE, Key::PageDown, true),
         page("Back a screen", Modifiers::SHIFT, Key::Space, false),
         page("Forward a screen", Modifiers::NONE, Key::Space, true),
+        Binding {
+            label: "Auto-scroll",
+            shortcut: KeyboardShortcut::new(Modifiers::SHIFT, Key::A),
+            command: Command::AutoScroll,
+        },
         Binding {
             label: "First page",
             shortcut: KeyboardShortcut::new(Modifiers::NONE, Key::Home),
@@ -153,13 +158,14 @@ fn page(label: &'static str, modifiers: Modifiers, key: Key, forward: bool) -> B
 /// Keys that a focused text field types or moves its cursor by.
 fn types(shortcut: &KeyboardShortcut) -> bool {
     use Key::{
-        ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Equals, H, Home, J, K, L, Minus, PageDown,
-        PageUp, Plus, Space,
+        A, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Equals, H, Home, J, K, L, Minus,
+        PageDown, PageUp, Plus, Space,
     };
     let bare = shortcut.modifiers.is_none() || shortcut.modifiers == Modifiers::SHIFT;
     bare && matches!(
         shortcut.logical_key,
         Plus | Equals
+            | A
             | Minus
             | ArrowLeft
             | ArrowRight
