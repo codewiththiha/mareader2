@@ -76,12 +76,18 @@ shot() { # best effort: proof the window drew
 }
 
 linux() {
-  local deb appimage
+  local deb appimage pacman_tar
   deb=$(one "$out"/*.deb) || { bad "one .deb"; return; }
   appimage=$(one "$out"/*.AppImage) || { bad "one AppImage"; return; }
+  pacman_tar=$(one "$out"/*.tar.gz) || { bad "one pacman .tar.gz"; return; }
+  check "the pacman archive holds usr/bin/mareader" \
+    bash -c "tar -tzf '$pacman_tar' | grep -qE '^(\./)?usr/bin/mareader$'"
+  check "PKGBUILD names the archive" \
+    grep -qF "source=(\"$(basename "$pacman_tar")\")" "$out/PKGBUILD"
+  check "PKGBUILD names its libraries" grep -q "^depends=(fontconfig" "$out/PKGBUILD"
   check ".deb holds /usr/bin/mareader" \
     bash -c "dpkg-deb -c '$deb' | grep -qE ' (\./)?usr/bin/mareader$'"
-  # Its paths may or may not start with ./, so match either.
+  # The .deb paths may or may not start with ./, so match either.
   dpkg-deb --fsys-tarfile "$deb" |
     tar -xO --wildcards '*usr/share/applications/mareader.desktop' \
     >"$report/mareader.desktop" || bad ".deb has mareader.desktop"
