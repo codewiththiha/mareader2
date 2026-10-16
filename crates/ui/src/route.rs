@@ -57,6 +57,9 @@ fn reads(command: &Command) -> bool {
         C::Notify(_) | C::DismissToast => false,
         // Settings edits are inert while the window is shut.
         C::SetSidebarOverlay(_) | C::CloseSettings | C::SetSettings(_) => false,
+        // Key and model work finishes wherever the window went.
+        #[cfg(not(target_arch = "wasm32"))]
+        C::Ai(_) => false,
     }
 }
 

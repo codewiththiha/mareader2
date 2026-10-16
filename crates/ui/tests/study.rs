@@ -281,3 +281,19 @@ fn the_options_turn_to_the_page_and_open_the_card() -> Out {
     assert_eq!(marks(&h).len(), 1);
     Ok(())
 }
+
+#[test]
+fn the_ai_tab_picks_who_explains() {
+    use egui::accesskit::Role;
+    use mareader_settings::Provider;
+    use mareader_ui::settings_window::Tab;
+    let mut h = reader(&[("pdf", "sample")]);
+    h.state_mut().queue(Command::OpenSettings(Tab::Ai));
+    h.run();
+    h.get_by_role_and_label(Role::RadioButton, "OpenAI").click();
+    h.run();
+    let ai = &h.state().settings().ai;
+    assert_eq!(ai.provider, Provider::OpenAi);
+    // The preset's model field shows; its address waits under Advanced.
+    h.get_by_label("Advanced");
+}

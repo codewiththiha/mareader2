@@ -106,6 +106,7 @@ fn main() -> eframe::Result {
             let mut app = MareaderApp::from_creation(cc);
             if let Some(dir) = eframe::storage_dir("mareader") {
                 app.attach_library(dir.join("library"));
+                app.attach_ai(&cc.egui_ctx, dir.join("ai"));
             }
             if let Some(dir) = cache_dir() {
                 app.attach_cache(dir);
