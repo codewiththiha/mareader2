@@ -16,6 +16,8 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod ai;
 mod fonts;
 mod scope;
 
@@ -42,17 +44,20 @@ pub enum Tab {
     Fonts,
     Vocabulary,
     Dictionary,
+    /// Who explains words; desktop builds only.
+    Ai,
     Workspace,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 7] = [
+    pub const ALL: [Tab; 8] = [
         Tab::Layout,
         Tab::Theme,
         Tab::Animations,
         Tab::Fonts,
         Tab::Vocabulary,
         Tab::Dictionary,
+        Tab::Ai,
         Tab::Workspace,
     ];
 
@@ -64,6 +69,7 @@ impl Tab {
             Tab::Fonts => "Fonts",
             Tab::Vocabulary => "Vocabulary",
             Tab::Dictionary => "Dictionary",
+            Tab::Ai => "AI",
             Tab::Workspace => "Workspace",
         }
     }
@@ -82,6 +88,7 @@ impl Tab {
             Tab::Fonts => Icon::Type,
             Tab::Vocabulary => Icon::Levels,
             Tab::Dictionary => Icon::Dictionary,
+            Tab::Ai => Icon::Explain,
             Tab::Workspace => Icon::SplitRight,
         }
     }
@@ -90,6 +97,7 @@ impl Tab {
         match self {
             Tab::Animations => s.motion.enabled,
             Tab::Fonts => cx.applies(Applies::Book),
+            Tab::Ai => cfg!(not(target_arch = "wasm32")),
             _ => true,
         }
     }
@@ -133,6 +141,7 @@ impl SettingsWindow {
         ctx: &egui::Context,
         current: &Settings,
         cx: &Scope,
+        ai: &crate::ai::Ai,
         out: &mut Commands,
     ) {
         if !self.open {
@@ -174,7 +183,7 @@ impl SettingsWindow {
                     Frame::new().inner_margin(body).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let tab = self.tab(&draft, cx);
-                        tab_body(ui, tab, &mut draft, cx, out);
+                        tab_body(ui, tab, &mut draft, (cx, ai), out);
                     });
                 });
             });
@@ -223,7 +232,13 @@ impl SettingsWindow {
     }
 }
 
-fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &Scope, out: &mut Commands) {
+fn tab_body(
+    ui: &mut Ui,
+    tab: Tab,
+    s: &mut Settings,
+    (cx, ai): (&Scope, &crate::ai::Ai),
+    out: &mut Commands,
+) {
     match tab {
         Tab::Layout => layout(ui, s, cx),
         Tab::Theme => theme_tab(ui, s, cx, out),
@@ -237,8 +252,13 @@ fn tab_body(ui: &mut Ui, tab: Tab, s: &mut Settings, cx: &Scope, out: &mut Comma
             ui,
             "Hover lookup, language packs and languages arrive with the study tools (M6).",
         ),
+        #[cfg(not(target_arch = "wasm32"))]
+        Tab::Ai => ai::tab(ui, &mut s.ai, ai.board(), out),
+        #[cfg(target_arch = "wasm32")]
+        Tab::Ai => pending(ui, "AI answers need the desktop app."),
         Tab::Workspace => workspace(ui, s, cx),
     }
+    let _ = ai;
 }
 
 fn layout(ui: &mut Ui, s: &mut Settings, cx: &Scope) {

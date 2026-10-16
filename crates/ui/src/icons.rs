@@ -75,6 +75,10 @@ pub enum Icon {
     Copy,
     /// Explain a word: sparkles, as an AI answer.
     Explain,
+    /// An API key.
+    Key,
+    /// Sets a key aside.
+    Ban,
 }
 
 impl Icon {
@@ -138,6 +142,8 @@ impl Icon {
             Self::Offline => Lucide::HardDrive,
             Self::Remove => Lucide::Trash2,
             Self::Shelf => Lucide::SquareLibrary,
+            Self::Key => Lucide::KeyRound,
+            Self::Ban => Lucide::Ban,
             Self::Rename => Lucide::Pencil,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,

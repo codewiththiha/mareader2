@@ -75,6 +75,8 @@ pub struct MareaderApp {
     toasts: Toasts,
     /// The selection bar's answers, marks and the word card.
     study: Study,
+    /// Who answers Explain, and the AI settings' background work.
+    ai: crate::ai::Ai,
     /// A selection the options asked for, made once its page is laid out.
     staged: Option<Staged>,
     lights: NativeLights,
@@ -148,6 +150,7 @@ impl MareaderApp {
             find: FindBar::default(),
             toasts: Toasts::default(),
             study: Study::default(),
+            ai: crate::ai::Ai::default(),
             staged: None,
             lights: NativeLights::default(),
             documents: Documents::default(),
@@ -246,6 +249,12 @@ impl MareaderApp {
     /// Keeps the library in `root`; without one it lives in memory.
     pub fn attach_library(&mut self, root: PathBuf) {
         self.library.attach(root);
+    }
+
+    /// Starts the AI service, its keys kept in `root`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf) {
+        self.ai.attach(ctx, root);
     }
 
     /// Keeps covers and other rebuildable files in `dir`.
@@ -575,6 +584,12 @@ impl MareaderApp {
                     .set_explainer(Arc::new(mareader_study::Unavailable)),
                 _ => return Err("explain: canned or none".into()),
             },
+            // The AI tab's choice, by its saved name, e.g. `openai`.
+            "provider" => {
+                let name = serde_json::Value::String(value.to_owned());
+                self.settings.ai.provider =
+                    serde_json::from_value(name).map_err(|_| "provider: e.g. openai or ollama")?;
+            }
             // The first such text on a page selected, as `page:words`.
             "selection" => {
                 let hint = "selection: page:text, as 0:quick";
@@ -830,6 +845,9 @@ impl MareaderApp {
                 self.study.hold(*pane);
             }
         }
+        if let Some(explainer) = self.ai.follow(&self.settings.ai) {
+            self.study.set_explainer(explainer);
+        }
         self.study.receive();
         let look = &self.settings.study.gloss;
         self.study.show(ctx, &self.pane_rects, look, out);
@@ -1011,6 +1029,8 @@ impl MareaderApp {
             },
             Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
             Command::CloseSettings => self.settings_window.close(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Command::Ai(job) => self.ai.send(job),
             Command::SetSettings(s) => {
                 let mut s = *s;
                 s.sanitize();
@@ -1767,7 +1787,7 @@ impl eframe::App for MareaderApp {
         library::runs::show(&ctx, &mut self.library.runs, stage, lift);
         let window = self.settings_scope();
         self.settings_window
-            .show(&ctx, &self.settings, &window, &mut commands);
+            .show(&ctx, &self.settings, &window, &self.ai, &mut commands);
         self.film_grain(&ctx);
         self.fade.paint(&ctx);
         // Applied after drawing, so the next frame must show the result.

@@ -116,6 +116,9 @@ pub enum Command {
     /// Shows a toast, replacing the one on screen.
     Notify(Toast),
     DismissToast,
+    /// Background work for the AI settings: keys, models, a trial.
+    #[cfg(not(target_arch = "wasm32"))]
+    Ai(crate::ai::Job),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
