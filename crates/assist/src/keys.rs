@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ai_pool::{AiClient, ExposeSecret, KeyMetadata, KeyStatus, MasterKeyProvider, ResolvedKey};
+use ai_pool::ResolvedKey;
+use ai_pool::{AiClient, ExposeSecret, KeyMetadata, KeyStatus, MasterKeyProvider, ModeMemory};
 use ai_pool::{SecretBox, VaultError};
 use mareader_settings::Provider;
 use mareader_study::{Failure, Why};
@@ -16,6 +17,8 @@ use crate::board::{KeyRow, KeyState};
 /// The keychain entry's service; the app's bundle id.
 pub const KEYCHAIN_SERVICE: &str = "com.codewiththiha.mareader";
 const STORE: &str = "keys.sqlite";
+/// How each server's models take JSON requests, learnt as they answer.
+const MODES: &str = "json-modes.json";
 const MASTER_FILE: &str = "master.key";
 /// Marks a keychain key, so a locked keychain isn't replaced by a file.
 const IN_KEYCHAIN: &str = "keychain";
@@ -56,11 +59,13 @@ pub struct Clients {
     /// Kept once found; a locked keychain is asked again next time.
     master: OnceCell<SecretBox<[u8; 32]>>,
     built: Mutex<HashMap<(Provider, String, bool), Arc<AiClient>>>,
+    modes: Arc<ModeMemory>,
 }
 
 impl Clients {
     pub fn new(root: PathBuf) -> Self {
         Self {
+            modes: Arc::new(ModeMemory::open(root.join(MODES))),
             root,
             keychain: true,
             master: OnceCell::new(),
@@ -107,6 +112,7 @@ impl Clients {
         let local = p.local() || url.contains("://localhost") || url.contains("://127.");
         let mut b = AiClient::builder()
             .default_url(url)
+            .json_modes(Arc::clone(&self.modes))
             .request_timeout(Duration::from_secs(if local { 180 } else { 60 }))
             .connect_timeout(Duration::from_secs(if local { 3 } else { 10 }));
         if p == Provider::OpenRouter {

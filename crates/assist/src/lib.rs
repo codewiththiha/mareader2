@@ -9,7 +9,6 @@
     clippy::indexing_slicing
 )]
 
-mod answer;
 mod apple;
 mod backend;
 mod board;

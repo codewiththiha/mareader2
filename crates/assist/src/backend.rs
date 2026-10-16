@@ -37,7 +37,22 @@ pub async fn run<T: Task>(
     };
     let answer = backend.ask(&prompt, &seen).await?;
     task.read(&answer, true)
-        .ok_or_else(|| Failure::detailed(Why::BadAnswer, "the answer left fields empty"))
+        .ok_or_else(|| Failure::detailed(Why::BadAnswer, unread(&answer)))
+}
+
+/// What came instead of a readable answer, for the card's small print.
+fn unread(answer: &Value) -> String {
+    match answer {
+        Value::Object(fields) if fields.is_empty() => "the answer was an empty object".into(),
+        Value::Object(fields) => {
+            let keys: Vec<&str> = fields.keys().map(String::as_str).collect();
+            format!(
+                "the answer held {}, not the fields asked for",
+                keys.join(", ")
+            )
+        }
+        _ => "the answer was not an object".into(),
+    }
 }
 
 /// Answers nothing, always for one reason.
