@@ -147,8 +147,12 @@ title = "Distraction-free mode: the bar never shows"
 area = "A"
 tier = "P2"
 milestone = "M1"
-status = "partial"
-notes = "A TitleBar flag and a shot option; no command or shortcut yet"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/chrome.rs::distraction_free_hides_every_bar_until_escape_or_its_key",
+    "crates/ui/tests/chrome.rs::distraction_free_leaves_the_library_its_bar",
+]
+notes = "Cmd/Ctrl+Shift+F or the View menu; Esc leaves; page bars and sidebar hide too (M8 slice 2)"
 
 [[feature]]
 id = "chrome.sidebar"
@@ -252,8 +256,12 @@ title = "Launch shows the remembered theme from the first frame, no white flash"
 area = "A"
 tier = "P1"
 milestone = "M1"
-status = "planned"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/gpu.rs::the_window_opens_on_the_remembered_paper_without_a_dark_flash",
+]
 reference = ["crates/reader-core/src/settings/mod.rs"]
+notes = "The clear colour is the paper; the font-wait frame paints it (M8 slice 2)"
 
 [[feature]]
 id = "workspace.split"
@@ -524,8 +532,14 @@ title = "Browse a source folder's own subfolders"
 area = "C"
 tier = "P1"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+    "crates/library/src/source_tests.rs::a_folder_is_browsed_by_its_own_subfolders_whatever_its_shelving",
+    "crates/ui/tests/library.rs::a_folder_is_walked_through_its_own_subfolders",
+    "crates/library/src/source_tests.rs::a_folder_shelved_by_folder_files_books_on_nested_shelves",
+]
 reference = ["crates/library-core/src/folder.rs"]
+notes = "Subfolder chips and crumbs under a chosen folder, beside shelf-per-folder (M8 slice 2)"
 
 [[feature]]
 id = "library.grid-list"
