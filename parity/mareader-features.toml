@@ -1243,8 +1243,10 @@ title = "Select a word for a dictionary-style gloss card (AI on Apple Silicon, f
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "planned"
+status = "shipped"
+evidence = ["crates/assist/tests/service.rs::apple_intelligence_streams_through_the_helper", "crates/assist/tests/service.rs::a_local_server_answers_without_keys", "crates/assist/tests/service.rs::providers_that_cannot_answer_say_why", "crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::the_ai_tab_picks_who_explains"]
 reference = ["crates/ai-core/src/gloss/mod.rs", "src-tauri/src/ai"]
+notes = "Apple Intelligence through the fm-bridge helper on a Mac, and on every desktop OpenAI, Gemini, OpenRouter, Ollama, LM Studio or a custom server through ai-pool, chosen in Settings › AI with managed keys (M6 slice 2). The card fills as the answer streams"
 
 [[feature]]
 id = "study.gloss-marks"
