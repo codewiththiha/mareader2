@@ -109,9 +109,16 @@ title = "macOS native traffic lights inside the title bar"
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "partial"
+status = "shipped"
+evidence = [
+    "apps/mareader/src/traffic_lights.rs::the_lights_sit_centred_in_the_bar",
+    "apps/mareader/src/traffic_lights.rs::a_closing_rail_carries_them_off_the_left_edge",
+    "crates/ui/tests/shell.rs::closing_the_sidebar_slides_the_lights_away",
+    "crates/ui/tests/shell.rs::without_a_sidebar_the_lights_come_with_the_bar",
+    "crates/ui/tests/shell.rs::in_overlay_mode_the_lights_slide_in_with_the_rail_only",
+]
 reference = ["src-tauri/src/macos/traffic_light.rs", "crates/app-chrome/src/window/traffic_lights.rs"]
-notes = "Centred at x 20 in the bar. A drawn sidebar carries them and slides them away; otherwise they come with the bar, never in overlay mode (apps/mareader/src/traffic_lights.rs). Type-checked for macOS; not yet run on a Mac"
+notes = "Centred at x 20 in the bar. A drawn sidebar carries them and slides them away; otherwise they come with the bar, never in overlay mode (apps/mareader/src/traffic_lights.rs). The owner checked them on a Mac (2026-10-17, docs/verification.md)"
 
 [[feature]]
 id = "chrome.frameless-resize"
@@ -742,7 +749,7 @@ evidence = [
     "crates/pdf/src/check.rs::each_refusal_names_its_cause",
 ]
 reference = ["crates/reader-runtime/src/services/document/open"]
-notes = "Open dialog (rfd), Open beside, drag and drop into the pane under the pointer, the command line, and the system: cargo-packager registers .pdf, .epub, .txt and .md as mareader did (installers.yml installs each installer, checks the registration and opens a book with it on all three platforms), a second launch hands its files to the running window, and macOS Finder files arrive as an Apple event (open_files.rs; the owner checks it on a Mac). See docs/packaging.md"
+notes = "Open dialog (rfd), Open beside, drag and drop into the pane under the pointer, the command line, and the system: cargo-packager registers .pdf, .epub, .txt and .md as mareader did (installers.yml installs each installer, checks the registration and opens a book with it on all three platforms), a second launch hands its files to the running window, and macOS Finder files arrive as an Apple event (open_files.rs; the owner checked it on a Mac, 2026-10-17). See docs/packaging.md"
 
 [[feature]]
 id = "pdf.render"

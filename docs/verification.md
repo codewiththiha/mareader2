@@ -274,3 +274,9 @@ owner checks these on real machines before 1.0:
 | Traffic lights | macOS | sit in the bar at x 20, slide with the sidebar |
 | Open from the file manager | every OS, installed | the book opens in the running window |
 
+**2026-10-17, macOS:** the owner ran the Mac rows on a real Mac with an
+installed build: the bar drags and double-clicks, the traffic lights sit
+in the bar and slide with the sidebar, and books open from Finder into
+the running window. All passed. Each installer's launch is also checked
+in CI on every OS (`docs/packaging.md` § Installers from CI).
+
