@@ -51,6 +51,8 @@ pub enum Action {
     AskRemoveFolder(SourceId),
     RemoveFolder(SourceId),
     Scope(Scope),
+    /// Into a subfolder of the chosen folder, or back up its trail.
+    Trail(Vec<String>),
     FindAgain(BookId),
     /// Shows the file dialog for a lost book.
     PickFile(BookId),
@@ -175,6 +177,7 @@ impl LibraryState {
                 self.folders.offline.remove(&id);
                 if self.scope == Scope::Folder(id) {
                     self.scope = Scope::All;
+                    self.trail.clear();
                 }
                 let name = name.unwrap_or_default();
                 let note = match gone {
@@ -186,6 +189,11 @@ impl LibraryState {
             }
             Action::Scope(scope) => {
                 self.scope = scope;
+                self.trail.clear();
+                self.picks.apply(super::PickAction::Clear);
+            }
+            Action::Trail(trail) => {
+                self.trail = trail;
                 self.picks.apply(super::PickAction::Clear);
             }
             Action::FindAgain(book) => {

@@ -10,7 +10,8 @@ use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, Origin, 
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::library::{
-    Action, BookAction, FolderKeep, FolderPlan, Pick, PickAction, ShelfAction, Walk,
+    Action, BookAction, FolderKeep, FolderPlan, Pick, PickAction, Scope, SearchAction, ShelfAction,
+    Walk,
 };
 
 /// Canonical, as the library records it; opens take any spelling.
@@ -1289,6 +1290,56 @@ fn a_folder_read_in_place_keeps_the_sheets_choices() {
     let shelf = library(&h).children(None)[0];
     assert_eq!(shelf.name.value, "Shelf", "a shelf for the folder");
     assert_eq!(library(&h).shelf_books(shelf.id).len(), 1);
+}
+
+fn note(title: &str) -> Vec<u8> {
+    format!("---\ntitle: {title}\n---\n\n# {title}\n\nText.\n").into_bytes()
+}
+
+fn shows(h: &Harness<'static, MareaderApp>, label: &str) -> bool {
+    h.query_all_by_label(label).next().is_some()
+}
+
+#[test]
+fn a_folder_is_walked_through_its_own_subfolders() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Books");
+    put(&root, "top.md", &note("Top Note"));
+    put(&root, "Poe/raven.md", &note("Raven Note"));
+    put(&root, "Poe/Early/early.md", &note("Early Note"));
+    put(&root, "Woolf/waves.md", &note("Waves Note"));
+    let mut h = kept_in(dir.path());
+    act(&mut h, read_in(&root));
+    assert_eq!(library(&h).len(), 4, "{}", state(&h));
+    let id = library(&h).sources().next().unwrap().id;
+    act(&mut h, Action::Scope(Scope::Folder(id)));
+    // The folder's own books, and a chip for each subfolder.
+    assert!(shows(&h, "Top Note"));
+    assert!(!shows(&h, "Raven Note"), "below, so not here");
+    assert!(shows(&h, "Woolf · 1"));
+    h.get_by_label("Poe · 2").click();
+    h.run();
+    assert_eq!(h.state().library_state().trail, ["Poe"]);
+    assert!(shows(&h, "Raven Note"));
+    assert!(!shows(&h, "Top Note"));
+    assert!(shows(&h, "Early · 1"));
+    // A search reaches every subfolder below.
+    act(&mut h, Action::Search(SearchAction::Text("early".into())));
+    assert!(shows(&h, "Early Note"));
+    act(&mut h, Action::Search(SearchAction::Clear));
+    // The trail's first crumb, under the folder's chip, leads back up.
+    let crumb = (h.query_all_by_role_and_label(Role::Button, "Books"))
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .unwrap();
+    crumb.click();
+    h.run();
+    assert!(h.state().library_state().trail.is_empty());
+    assert!(shows(&h, "Top Note"));
+    // Another scope starts again at the top.
+    h.get_by_label("Woolf · 1").click();
+    h.run();
+    act(&mut h, Action::Scope(Scope::All));
+    assert!(h.state().library_state().trail.is_empty());
 }
 
 #[test]
