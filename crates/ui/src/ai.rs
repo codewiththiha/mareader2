@@ -1,5 +1,7 @@
 //! The AI service behind Explain and the AI settings; desktop only.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use mareader_settings::AiSettings;
@@ -17,12 +19,13 @@ pub struct Ai {
 }
 
 impl Ai {
-    /// Starts the service; keys live under `root`. False if it can't run.
+    /// Starts the service, keys under `root`, maybe an unbundled `helper`.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach(&mut self, ctx: &egui::Context, root: std::path::PathBuf) -> bool {
+    pub fn attach(&mut self, ctx: &egui::Context, root: PathBuf, helper: Option<PathBuf>) -> bool {
         let ctx = ctx.clone();
         let waker = Arc::new(move || ctx.request_repaint());
-        match mareader_assist::Assist::new(root, waker) {
+        let started = mareader_assist::Assist::new(root, waker);
+        match started.map(|a| helper.into_iter().fold(a, |a, h| a.with_helper(h))) {
             Ok(assist) => {
                 self.assist = Some(assist);
                 self.made_for = None;
