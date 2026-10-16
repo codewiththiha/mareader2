@@ -23,6 +23,7 @@ mareader-study = { path = "crates/study" }
 mareader-assist = { path = "crates/assist" }
 mareader-dict = { path = "crates/dict" }
 mareader-fetch = { path = "crates/fetch" }
+mareader-search = { path = "crates/search" }
 mareader-cefr = { path = "crates/cefr" }
 
 serde = { version = "1", features = ["derive"] }

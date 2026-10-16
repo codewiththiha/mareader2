@@ -9,6 +9,9 @@ use crate::id::{BookId, ShelfId};
 use crate::library::Library;
 use crate::view::natural;
 
+/// One folding for every search, the page's and the library's.
+pub(crate) use mareader_search::fold;
+
 /// Seven rows fill the suggestion panel without scrolling.
 pub const SUGGEST_LIMIT: usize = 7;
 
@@ -284,38 +287,4 @@ fn merge(spans: &mut Vec<Range<usize>>) {
         }
     }
     *spans = merged;
-}
-
-/// Char for char, so ranges map back: lower case, no accents.
-pub(crate) fn fold(c: char) -> char {
-    let c = c.to_lowercase().next().unwrap_or(c);
-    match c {
-        'à'..='å' => 'a',
-        'ç' => 'c',
-        'è'..='ë' => 'e',
-        'ì'..='ï' => 'i',
-        'ð' => 'd',
-        'ñ' => 'n',
-        'ò'..='ö' | 'ø' => 'o',
-        'ù'..='ü' => 'u',
-        'ý' | 'ÿ' => 'y',
-        '\u{2018}' | '\u{2019}' | '\u{02bc}' => '\'',
-        '\u{201c}' | '\u{201d}' => '"',
-        '\u{2010}'..='\u{2015}' => '-',
-        '\u{0100}'..='\u{017f}' => extended_a(c),
-        _ => c,
-    }
-}
-
-/// Latin Extended-A by base letter; `_` keeps the char (ligatures).
-const EXTENDED_A: &[u8; 128] = b"aaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiiiiiii\
-__jjkkkllllllllllnnnnnnnnnoooooo__rrrrrrsssssssstttttt\
-uuuuuuuuuuuuwwyyyzzzzzzs";
-
-fn extended_a(c: char) -> char {
-    let at = (c as usize).wrapping_sub(0x100);
-    match EXTENDED_A.get(at) {
-        Some(b'_') | None => c,
-        Some(&base) => char::from(base),
-    }
 }
