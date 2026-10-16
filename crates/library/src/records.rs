@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use crate::book::{Book, Location, State};
 use crate::clock::Clock;
 use crate::library::{Dirty, Library, Parts};
+use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 
@@ -23,6 +24,8 @@ pub enum Kind {
     Source,
     /// Where the reader is in one book.
     State,
+    /// A word explained in a book (M6).
+    Mark,
 }
 
 impl Kind {
@@ -34,6 +37,7 @@ impl Kind {
             Self::Locations => "locations",
             Self::Source => "source",
             Self::State => "state",
+            Self::Mark => "mark",
         }
     }
 
@@ -46,13 +50,21 @@ impl Kind {
             Self::Locations,
             Self::Source,
             Self::State,
+            Self::Mark,
         ];
         all.into_iter().find(|k| k.name() == name)
     }
 
     /// Shared by a reader's devices, once they sync.
     pub fn synced(self) -> bool {
-        matches!(self, Self::Book | Self::Shelf | Self::Member | Self::State)
+        let shared = [
+            Self::Book,
+            Self::Shelf,
+            Self::Member,
+            Self::State,
+            Self::Mark,
+        ];
+        shared.contains(&self)
     }
 }
 
@@ -135,6 +147,9 @@ fn changes(library: &Library, dirty: &Dirty) -> Changes {
     {
         out.put(Kind::State, id.to_string(), state);
     }
+    for mark in dirty.marks.iter().filter_map(|id| library.marks.get(id)) {
+        out.put(Kind::Mark, mark.id.to_string(), mark);
+    }
     if !out.is_empty() {
         out.clock = serde_json::to_string(&library.clock).ok();
     }
@@ -166,6 +181,9 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
             }),
             Kind::State => parse::<State>(&row).map(|s| {
                 states.insert(row.id.clone(), s);
+            }),
+            Kind::Mark => parse::<Mark>(&row).map(|m| {
+                parts.marks.insert(m.id, m);
             }),
         };
         skipped += usize::from(read.is_none());

@@ -48,6 +48,30 @@ impl TryFrom<String> for ShelfId {
     }
 }
 
+/// A marked word; random, so two machines never clash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct MarkId(pub u128);
+
+impl fmt::Display for MarkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl From<MarkId> for String {
+    fn from(id: MarkId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for MarkId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        parse_hex(&s, 32).map(Self)
+    }
+}
+
 impl BookId {
     /// Its first content's id: two machines agree unasked (`docs/sync.md`).
     pub fn original(content: ContentId) -> Self {

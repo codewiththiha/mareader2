@@ -2,6 +2,7 @@
 
 use crate::book::{Book, State};
 use crate::clock::{NEVER, Stamp};
+use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 
 pub trait Merge {
@@ -91,6 +92,18 @@ impl Merge for Membership {
     }
 }
 
+impl Merge for Mark {
+    fn merge(&mut self, other: Self) {
+        self.book.merge(other.book);
+        self.alive.merge(other.alive);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([Some(self.book.at), Some(self.alive.at), self.extra.latest()])
+    }
+}
+
 impl Merge for State {
     fn merge(&mut self, other: Self) {
         self.position.merge(other.position);
@@ -108,7 +121,8 @@ mod tests {
     use crate::book::{Format, Position};
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
-    use crate::id::{BookId, ContentId, DeviceId, ShelfId};
+    use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId};
+    use crate::marks::Spot;
 
     /// A small deterministic generator: the same cases every run.
     struct Rng(u64);
@@ -208,6 +222,24 @@ mod tests {
         }
     }
 
+    fn mark(rng: &mut Rng) -> Mark {
+        let (book, alive) = (rng.stamp(), rng.stamp());
+        Mark {
+            id: MarkId(1),
+            book: Field::new(BookId(u128::from(book.ms)), book),
+            word: "fox".into(),
+            context: "the quick brown fox".into(),
+            spot: Spot::Text {
+                block: 2,
+                start: 16,
+                end: 19,
+            },
+            added: 5,
+            alive: Field::new(alive.ms % 2 == 0, alive),
+            extra: extra(rng),
+        }
+    }
+
     fn state(rng: &mut Rng) -> State {
         let at = rng.stamp();
         let page = usize::try_from(at.ms).unwrap_or(0);
@@ -253,6 +285,11 @@ mod tests {
     #[test]
     fn memberships_merge_in_any_order() {
         laws(member);
+    }
+
+    #[test]
+    fn marks_merge_in_any_order() {
+        laws(mark);
     }
 
     #[test]

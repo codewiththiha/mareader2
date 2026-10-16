@@ -9,6 +9,7 @@ use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
 use crate::id::{BookId, ContentId, ShelfId};
 use crate::library::Library;
+use crate::marks::Mark;
 use crate::merge::Merge;
 use crate::records::{Kind, Row};
 use crate::shelves::{Membership, Shelf};
@@ -80,6 +81,15 @@ impl Library {
                 Some(merge_into(self.states.get(&id), state).is_some_and(|s| {
                     self.states.insert(id, s);
                     self.states_dirty.insert(id);
+                    true
+                }))
+            }
+            Kind::Mark => {
+                let mark: Mark = parse(row)?;
+                self.clock.observe(mark.latest());
+                let id = mark.id;
+                Some(merge_into(self.marks.get(&id), mark).is_some_and(|m| {
+                    self.marks.insert(id, m);
                     true
                 }))
             }
@@ -182,6 +192,7 @@ impl Library {
             into.merge(state);
             self.states_dirty.insert(keeper);
         }
+        self.move_marks(gone, keeper, at);
     }
 
     /// Breaks each loop of parents at its newest move, which goes back.
