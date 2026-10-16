@@ -104,6 +104,15 @@ appearance effects to that same pass.
 | 13 | Long press to select, carry many at once (a fanned stack), stack, file or move them together | **done** | click Library; press and hold a book until it's picked, let go, click another; press one of them, hold a moment and drag: both come as a fanned stack; hold them on a book's middle for one shelf, or drop them on a shelf |
 | 14 | Ready to merge: `absorb` takes in another machine's rows and mends what merging leaves (one book twice, loops of shelves, clashing names); fields from newer builds kept; `twin_of` stamped | **done** | no visible change; the library crate's `absorb_tests` trade rows between two libraries |
 
+## M8 slices
+
+| # | Slice | State | Try it |
+|---|---|---|---|
+| 1 | Proof sweep: window commands, title, dividers, popovers and idle frames tested; every control named for screen readers; the real-machine checks listed (`docs/verification.md`) | **done** | a screen reader names each settings slider and box; `cargo test -p mareader-ui --test chrome --test a11y` |
+| 2 | What is left of P1 and P2: the theme from the first frame, a source folder's own subfolders, distraction-free reading by command | planned | |
+| 3 | Memory budgets measured again over both formats and the library | planned | |
+| 4 | Installers built in CI for macOS, Windows and Linux | planned | |
+
 ## Next
 
 1. **M6, study tools** (`docs/study.md`). Importing a mareader library
@@ -132,6 +141,9 @@ appearance effects to that same pass.
 7. **M7, search and keyboard** (`docs/search.md`): document search,
    keyboard-only operation and auto-scroll. Landed; M7 is done. Next is
    M8, polish and packaging.
+8. **M8 slice 1, proof sweep** (§ M8 slices): stale partial entries
+   proved by tests, every control named. Landed. Next is slice 2, the
+   last P1 and P2 features.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -225,3 +237,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M7 slice 1, document search (`crates/search`, L0, which the library's search now folds with). The first query starts a thread that reads the document's pages, answering as they arrive; the count ends in "…" until all are in. Matches cross lines and line-end hyphens and fold accents, quotes and ligatures. The bar counts, steps with Enter and Shift+Enter from the page read, lists hits with snippets, paints them in its pane with the current one amber, and scrolls a hit into view only when it isn't (`docs/search.md`) |
 | 2026-10-16 | M7 slice 2, keyboard-only operation. Tab shows a 2 px accent ring (cards ring their backing, page stops ring outside, links tinted) that a pointer press hides, and brings the hidden title bar and page bar up, held while focus is in them or the sidebar. Links, marks and click-explain words on screen are Tab stops in reading order; Enter or Space acts, Shift+F10 opens a card's or mark's menu. Surfaces, drag bands and popup frames are no longer stops. Library cards open with Enter and pick with Shift+Enter; modals keep Tab inside. F6 cycles panes, and tabbing into one focuses it; F3 and Cmd/Ctrl+G step matches (`docs/search.md` § Keyboard) |
 | 2026-10-16 | M7 slice 3, auto-scroll. Shift+A or the View menu's Auto-scroll row drifts the focused pane at 72 px a second in the scrolling views (a toast explains the paged ones). The pace follows frame time, so it holds at any refresh rate; keys and the wheel add to it, a held press pauses it, and it stops at the strip's end, on Escape, on a paged view or on pane blur. M7 is done (`docs/search.md` § Keyboard) |
+| 2026-10-16 | M8 slice 1, proof sweep. Headless tests now prove the caption buttons, the bar's drag and double-click, frameless edges (none on a Mac), the title's centring, truncation and hiding, divider drags within their limits, popovers closing on Escape and outside presses, and that an idle window draws nothing. A sweep over the reader, its panels, every settings tab, the popover, menus, find and the library found 22 nameless controls; settings rows now name their controls by their label, and lone fields are named. A moved file keeps its shelves and marks. Real-machine checks are listed (`docs/verification.md`) |
