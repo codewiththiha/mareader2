@@ -23,6 +23,7 @@ mareader-study = { path = "crates/study" }
 mareader-assist = { path = "crates/assist" }
 mareader-dict = { path = "crates/dict" }
 mareader-fetch = { path = "crates/fetch" }
+mareader-cefr = { path = "crates/cefr" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,6 +33,8 @@ sha2 = "0.10"
 tempfile = "3"
 # The library store; bundled, so no system SQLite is needed.
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+# Word levels: the owner's crate, pinned; its pure modules unless asked.
+cefr = { git = "https://github.com/codewiththiha/cefr-rs.git", rev = "bb2dd66c2354944f3352154d3d2b15352df0e1af", default-features = false }
 
 parley = { version = "0.12", default-features = false, features = ["std", "system"] }
 # Fontconfig loads at run time, so Linux builds need no headers.

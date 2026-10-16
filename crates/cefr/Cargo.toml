@@ -1,0 +1,26 @@
+[package]
+name = "mareader-cefr"
+description = "Word levels: the CEFR dataset, which words are hard, a word's role"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Bands, contractions and word classes only; no parquet, sqlite or model.
+cefr = { workspace = true }
+
+# A browser has no threads, files or downloads; it plans only.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The tagger reads a clicked word's role in its sentence.
+cefr = { workspace = true, features = ["nlp"] }
+mareader-fetch = { workspace = true }
+rusqlite = { workspace = true }
+# The dataset is a parquet; only its codecs, not arrow.
+parquet = { version = "59", default-features = false, features = ["snap", "zstd"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
