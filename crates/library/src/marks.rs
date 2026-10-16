@@ -1,4 +1,4 @@
-//! Marks: words explained in a book, kept where they stand (M6).
+//! Marks: words explained and text highlighted in a book (M6).
 
 use std::hash::{BuildHasher, RandomState};
 
@@ -21,6 +21,45 @@ pub enum Spot {
         start: usize,
         end: usize,
     },
+    /// A PDF's text from `[page, char]` up to `[page, char]`, any pages.
+    Chars { from: [usize; 2], to: [usize; 2] },
+    /// A book's text from `[block, byte]` up to `[block, byte]`.
+    Blocks { from: [usize; 2], to: [usize; 2] },
+}
+
+/// How a highlight is drawn; see `docs/study.md` § Highlighters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Pen {
+    /// A fill over the whole line.
+    #[default]
+    Full,
+    /// A fill over the line's lower half.
+    Half,
+    Underline,
+}
+
+impl Pen {
+    pub const ALL: [Pen; 3] = [Pen::Full, Pen::Half, Pen::Underline];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Full => "Highlight",
+            Self::Half => "Half highlight",
+            Self::Underline => "Underline",
+        }
+    }
+}
+
+/// What made a mark.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkKind {
+    /// Explain: one word, drawn in the AI's reserved look.
+    #[default]
+    Explain,
+    /// The reader's own highlighter, over any text.
+    Highlight,
 }
 
 impl Spot {
@@ -57,6 +96,15 @@ pub struct Mark {
     pub id: MarkId,
     /// Stamped: a merge that folds two books moves their marks.
     pub book: Field<BookId>,
+    #[serde(default)]
+    pub kind: MarkKind,
+    /// A highlight's pen; an Explain mark follows the AI's look.
+    #[serde(default)]
+    pub pen: Pen,
+    /// A colour chosen for it, as sRGB; none follows the pen's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[u8; 3]>,
+    /// The word, or a highlight's text.
     pub word: String,
     /// The words around it, as sent to be explained.
     pub context: String,
@@ -75,9 +123,38 @@ pub struct Mark {
 /// A new mark's word, context and place.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewMark {
+    pub kind: MarkKind,
+    pub pen: Pen,
+    pub color: Option<[u8; 3]>,
     pub word: String,
     pub context: String,
     pub spot: Spot,
+}
+
+impl NewMark {
+    /// A word Explain marks.
+    pub fn explain(word: String, context: String, spot: Spot) -> Self {
+        Self {
+            kind: MarkKind::Explain,
+            pen: Pen::Full,
+            color: None,
+            word,
+            context,
+            spot,
+        }
+    }
+
+    /// The reader's highlight of `text` with `pen`.
+    pub fn highlight(text: String, spot: Spot, pen: Pen, color: Option<[u8; 3]>) -> Self {
+        Self {
+            kind: MarkKind::Highlight,
+            pen,
+            color,
+            word: text,
+            context: String::new(),
+            spot,
+        }
+    }
 }
 
 impl Library {
@@ -99,7 +176,9 @@ impl Library {
     /// Marks the word, or finds its mark; none for an unknown book.
     pub fn add_mark(&mut self, book: BookId, new: NewMark, wall_ms: u64) -> Option<MarkId> {
         self.book(book)?;
-        let same = |m: &&Mark| m.word == new.word && m.spot.near(&new.spot);
+        let same = |m: &&Mark| {
+            (m.kind, m.pen) == (new.kind, new.pen) && m.word == new.word && m.spot.near(&new.spot)
+        };
         if let Some(found) = self.marks(book).into_iter().find(same) {
             return Some(found.id);
         }
@@ -108,6 +187,9 @@ impl Library {
         let mark = Mark {
             id,
             book: Field::new(book, at),
+            kind: new.kind,
+            pen: new.pen,
+            color: new.color,
             word: new.word,
             context: new.context,
             spot: new.spot,

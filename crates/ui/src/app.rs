@@ -37,7 +37,7 @@ use crate::platform::{NativeLights, Platform};
 use crate::route::Route;
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
-use crate::study::{Explained, Gloss, Study};
+use crate::study::{Explained, Gloss, Highlighted, Study};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
@@ -78,7 +78,7 @@ pub struct MareaderApp {
     /// Who answers Explain, and the AI settings' background work.
     ai: crate::ai::Ai,
     /// A selection the options asked for, made once its page is laid out.
-    staged: Option<Staged>,
+    staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
     documents: Documents,
     files: Files,
@@ -126,6 +126,7 @@ struct Staged {
     page: usize,
     text: String,
     explain: bool,
+    pen: Option<mareader_library::Pen>,
     /// Its page was asked for once; the view is on its way there.
     turned: bool,
 }
@@ -151,7 +152,7 @@ impl MareaderApp {
             toasts: Toasts::default(),
             study: Study::default(),
             ai: crate::ai::Ai::default(),
-            staged: None,
+            staged: Default::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
             files: Files::default(),
@@ -410,10 +411,11 @@ impl MareaderApp {
     }
 
     /// The marks `pane` shows, wherever they are kept.
-    pub fn marks(&self, pane: PaneId) -> Vec<(mareader_library::MarkId, mareader_library::Spot)> {
+    pub fn marks(&self, pane: PaneId) -> Vec<crate::study::marks::Shown> {
         let book = self.library.book_in(&self.documents, pane);
         let name = self.documents.title(pane).unwrap_or_default();
-        self.study.marks_of(self.library.model(), book, name)
+        let look = &self.settings.study.highlights;
+        self.study.marks_of(self.library.model(), book, name, look)
     }
 
     /// The bar's title: the active pane's document, else the app.
@@ -596,19 +598,27 @@ impl MareaderApp {
                 let (page, text) = value.split_once(':').ok_or(hint)?;
                 let page = page.parse().map_err(|_| hint)?;
                 let text = text.replace('_', " ");
-                let explain = self.staged.as_ref().is_some_and(|s| s.explain);
-                self.staged = Some(Staged {
+                self.staged.push_back(Staged {
                     page,
                     text,
-                    explain,
+                    explain: false,
+                    pen: None,
                     turned: false,
                 });
             }
             // Explains the staged selection: its card opens.
-            "gloss" => match &mut self.staged {
+            "gloss" => match self.staged.back_mut() {
                 Some(staged) => staged.explain = true,
                 None => return Err("gloss: after selection=page:text".into()),
             },
+            // Highlights the staged selection with a pen.
+            "highlight" => {
+                let hint = "highlight: full, half or underline, after selection";
+                let pen = serde_json::from_value(serde_json::Value::String(value.into()))
+                    .map_err(|_| hint)?;
+                let staged = self.staged.back_mut().ok_or(hint)?;
+                staged.pen = Some(pen);
+            }
             "grain" => {
                 self.settings.appearance.noise = match value {
                     "off" => NoiseMode::Off,
@@ -802,7 +812,7 @@ impl MareaderApp {
         let pane = self.active;
         let sheets = self.documents.sheets(pane);
         let shown = |page| sheets.iter().any(|s| s.page == page);
-        match self.staged.take() {
+        match self.staged.pop_front() {
             // Its page is turned to first, then selected once laid out.
             Some(mut staged) if !sheets.is_empty() && !shown(staged.page) => {
                 if !staged.turned {
@@ -812,25 +822,36 @@ impl MareaderApp {
                     });
                 }
                 staged.turned = true;
-                self.staged = Some(staged);
+                self.staged.push_front(staged);
                 ctx.request_repaint();
             }
             Some(Staged {
                 page,
                 text,
                 explain,
+                pen,
                 ..
             }) if !sheets.is_empty() => {
                 out.push(Command::SelectText { pane, page, text });
                 if explain {
                     out.push(Command::Explain(pane));
                 }
+                if let Some(pen) = pen {
+                    let color = None;
+                    out.push(Command::Highlight { pane, pen, color });
+                }
+                // The next waits a frame, as each selection replaces the last.
+                if !self.staged.is_empty() {
+                    ctx.request_repaint();
+                }
             }
-            staged => self.staged = staged,
+            Some(staged) => self.staged.push_front(staged),
+            None => {}
         }
         for (pane, gloss) in self.documents.take_gloss() {
             match gloss {
                 Gloss::Explain => out.push(Command::Explain(pane)),
+                Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
                 Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
                 Gloss::Open { mark, at } => {
                     self.study
@@ -878,6 +899,26 @@ impl MareaderApp {
         };
         let model = self.library.model_mut();
         self.study.explain(ctx, model, at, library::wall_ms());
+    }
+
+    /// A highlighter: the pane's selection, marked in `pen`.
+    fn highlight(&mut self, pane: PaneId, pen: mareader_library::Pen, color: Option<Rgb>) {
+        let Some((spot, text)) = self.documents.highlighted(pane) else {
+            return;
+        };
+        self.documents.clear_selection(pane);
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let at = Highlighted {
+            book,
+            name: &name,
+            text,
+            spot,
+            pen,
+            color,
+        };
+        let model = self.library.model_mut();
+        self.study.highlight(model, at, library::wall_ms());
     }
 
     fn apply(&mut self, ctx: &Context, command: Command) {
@@ -999,6 +1040,7 @@ impl MareaderApp {
                 self.queued.extend(out);
             }
             Command::Explain(pane) => self.explain(ctx, pane),
+            Command::Highlight { pane, pen, color } => self.highlight(pane, pen, color),
             Command::SelectText { pane, page, text } => {
                 self.documents.select(pane, page, &text);
             }
@@ -1680,7 +1722,7 @@ impl eframe::App for MareaderApp {
         let (library, library_view) = (&mut self.library, &self.settings.library);
         let study = &mut self.study;
         study.begin_frame();
-        let gloss = crate::study::tint(&self.settings.study.gloss, &tokens);
+        let highlights = &self.settings.study.highlights;
         self.library_rect = None;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
@@ -1702,9 +1744,9 @@ impl eframe::App for MareaderApp {
                     marks: {
                         let book = library.book_in(documents, id);
                         let name = documents.title(id).unwrap_or_default();
-                        study.marks_of(library.model(), book, name)
+                        study.marks_of(library.model(), book, name, highlights)
                     },
-                    gloss,
+                    highlights: highlights.clone(),
                     card: study.card_mark(id),
                 };
                 documents.show(ui, id, &cx)
