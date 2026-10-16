@@ -124,6 +124,11 @@ appearance effects to that same pass.
    in the selection menu, a lookup card, the Dictionary panel and
    Settings › Dictionary; picking several marks to remove. Landed. Next
    is slice 5, CEFR, which brings lookup on hover over its words.
+6. **M6 slice 5, CEFR** (`docs/study.md` § Slice 5 behaviour): the word
+   levels and role tagger download in Settings › Vocabulary; words above
+   your level are shaded in their own reserved look; a click explains
+   one, a rest opens its dictionary card. Landed; M6 is done. Next is
+   M7, search and keyboard.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -213,3 +218,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M6 slice 3, highlighters. A mark now has a kind, a pen and maybe a colour; highlights span pages as PDF chars or book block bytes, and older rows read as Explain marks. Full, half and underline are drawn as PDFCraft does, highlights under AI marks; a click on your highlight offers Remove. The selection bar shows the menu's buttons in order, each pen with its colour beneath, and can open a colour row each time. Settings › Highlights sets each pen's colour from PDFCraft's palette or a custom one, fill strength, the click choice, the menu's buttons and order, and the AI's reserved pen and colour, which no highlight can take. Parity 99.5 of 118 |
 | 2026-10-16 | PDF edge cases from PDFCraft's own checks. A refused PDF is named as empty, not a PDF, cut short, damaged, locked, unreadable encryption, without pages or too long, and the toast suggests what to try; the checks run only after hayro refuses. A file without its end marker that still reads opens with a warning toast. Titles, authors and chapters decode BOM-less UTF-8 and PDFDocEncoding, and lose control characters. No password prompt (owner) (`docs/pdf.md`) |
 | 2026-10-16 | M6 slice 4, dictionaries (`crates/dict`, L1). Three packs download from GitHub then two jsDelivr mirrors, resuming a part file and refusing anything that isn't a parquet; each converts to its own SQLite table. Look up joins the selection menu (saved menus gain it after Explain, settings v3) and opens a card answering in Default language: exact entries, else prefixes, else near misses, one pack either way or two meeting at English. The Dictionary panel searches as you type across packs or between two languages; Settings › Dictionary downloads, pauses, resumes and removes packs. Marks can be picked several at once by long press or Select several, then removed with Undo. Parity 100.5 of 118 |
+| 2026-10-16 | M6 slice 5, CEFR (`crates/cefr`, L1, and `crates/fetch`, L0, the downloader both features share). The word levels and the role tagger come from the cefr-rs repository with mirrors and resume; the parquet converts to SQLite. Words above My level (A2 to C2) are shaded on PDFs and books in a look reserved like the AI's, under your marks. A click explains a shaded word; the card shows its tagged class and that sense's level. Resting 160 ms opens its dictionary card, closed when the pointer leaves. Settings › Vocabulary holds the switches, the level, the look and the downloads |
