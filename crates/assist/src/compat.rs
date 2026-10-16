@@ -1,36 +1,14 @@
-//! OpenAI-compatible servers, through `ai-pool`: cloud, local or custom.
+//! OpenAI-compatible servers through `ai-pool`, which adapts JSON per model.
 
 use std::sync::Arc;
 
-use ai_pool::{AiClient, AiError, ResponseFormat, StreamInterruption, VaultError};
+use ai_pool::{AiClient, AiError, StreamInterruption, StructuredEvent, VaultError};
 use futures_util::StreamExt;
 use mareader_study::{Failure, Why};
 use serde_json::Value;
 
-use crate::answer;
 use crate::backend::{Backend, BoxFuture, Partial};
 use crate::prompt::Prompt;
-
-/// How strictly the answer's shape is asked for; each step is a fallback.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Shape {
-    /// `json_schema`: the server enforces the schema.
-    Schema,
-    /// `json_object`: any object; the schema rides in the prompt.
-    Object,
-    /// No format at all, for servers that know neither.
-    Plain,
-}
-
-impl Shape {
-    fn weaker(self) -> Option<Self> {
-        match self {
-            Self::Schema => Some(Self::Object),
-            Self::Object => Some(Self::Plain),
-            Self::Plain => None,
-        }
-    }
-}
 
 /// One server and model; the client brings keys, retries and rotation.
 #[derive(Clone)]
@@ -59,68 +37,23 @@ impl Compat {
 
     async fn answer(&self, prompt: &Prompt, partial: Partial<'_>) -> Result<Value, Failure> {
         let model = self.model().await?;
-        let mut shape = Shape::Schema;
-        loop {
-            match self.stream(&model, prompt, shape, partial).await {
-                Err(e) if shape_refused(&e) => match shape.weaker() {
-                    Some(weaker) => shape = weaker,
-                    None => return Err(failure(&e)),
-                },
-                Err(e) => return Err(failure_with_keys(&self.client, e).await),
-                Ok(text) => {
-                    return answer::whole(&text)
-                        .ok_or_else(|| Failure::detailed(Why::BadAnswer, clip(&text)));
-                }
-            }
-        }
-    }
-
-    async fn stream(
-        &self,
-        model: &str,
-        prompt: &Prompt,
-        shape: Shape,
-        partial: Partial<'_>,
-    ) -> Result<String, AiError> {
-        let system = match shape {
-            Shape::Schema => prompt.system.clone(),
-            Shape::Object | Shape::Plain => prompt.system_with_schema(),
-        };
-        let mut chat = self
+        let mut events = self
             .client
             .chat_builder()
             .model(model)
-            .system(system)
-            .user(prompt.user.as_str());
-        chat = match shape {
-            Shape::Schema => chat.response_format(ResponseFormat::json_schema(
-                prompt.name,
-                prompt.schema.clone(),
-            )),
-            Shape::Object => chat.response_format(ResponseFormat::Json),
-            Shape::Plain => chat,
-        };
-        let mut chunks = chat.send_stream().await?;
-        let mut text = String::new();
-        let mut shown: Option<Value> = None;
-        while let Some(chunk) = chunks.next().await {
-            for choice in chunk?.choices {
-                text.push_str(choice.delta.content.as_deref().unwrap_or_default());
-                match choice.finish_reason.as_deref() {
-                    Some("length") => return Err(AiError::Truncated),
-                    Some("content_filter") => return Err(AiError::Refused(clip(&text))),
-                    _ => {}
-                }
-            }
-            let now = answer::partial(&text);
-            if now.is_some() && now != shown {
-                if let Some(v) = &now {
-                    partial(v.clone());
-                }
-                shown = now;
+            .system(prompt.system.as_str())
+            .user(prompt.user.as_str())
+            .structured(prompt.name, prompt.schema.clone())
+            .send_stream();
+        while let Some(event) = events.next().await {
+            match event {
+                Ok(StructuredEvent::Partial(v)) => partial(v),
+                Ok(StructuredEvent::Retry(_)) => {}
+                Ok(StructuredEvent::Done(answer)) => return Ok(answer.value),
+                Err(e) => return Err(failure_with_keys(&self.client, e).await),
             }
         }
-        Ok(text)
+        Err(Failure::detailed(Why::BadAnswer, "the answer ended early"))
     }
 }
 
@@ -143,18 +76,6 @@ pub async fn failure_with_keys(client: &AiClient, e: AiError) -> Failure {
         };
     }
     failure(&e)
-}
-
-/// Whether the server refused the answer format rather than the request.
-fn shape_refused(e: &AiError) -> bool {
-    let AiError::BadRequest { status, body } = e else {
-        return false;
-    };
-    let body = body.to_ascii_lowercase();
-    matches!(status, 400 | 422)
-        && ["response_format", "json_schema", "json_object", "schema"]
-            .iter()
-            .any(|w| body.contains(w))
 }
 
 /// What the card says for `e`.
@@ -205,16 +126,6 @@ fn provider_message(body: &str) -> String {
     message.map_or_else(|| body.trim().to_owned(), str::to_owned)
 }
 
-/// Small print from model text.
-fn clip(text: &str) -> String {
-    let cut: String = text.chars().take(Failure::DETAIL_CHARS).collect();
-    if cut.trim().is_empty() {
-        "the answer was empty".to_owned()
-    } else {
-        cut
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,27 +138,6 @@ mod tests {
         assert_eq!(provider_message(gemini), "API key not valid");
         assert_eq!(provider_message(r#"{"error":"plain"}"#), "plain");
         assert_eq!(provider_message(" Bad Gateway "), "Bad Gateway");
-    }
-
-    #[test]
-    fn only_format_complaints_weaken_the_shape() {
-        let bad = |status, body: &str| AiError::BadRequest {
-            status,
-            body: body.into(),
-        };
-        assert!(shape_refused(&bad(
-            400,
-            "response_format json_schema unsupported"
-        )));
-        assert!(shape_refused(&bad(422, "Invalid schema for function")));
-        assert!(!shape_refused(&bad(
-            404,
-            "model not found: response_format"
-        )));
-        assert!(!shape_refused(&bad(400, "context length exceeded")));
-        assert!(!shape_refused(&AiError::Timeout));
-        assert_eq!(Shape::Schema.weaker(), Some(Shape::Object));
-        assert_eq!(Shape::Plain.weaker(), None);
     }
 
     #[test]

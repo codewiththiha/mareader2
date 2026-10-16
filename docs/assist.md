@@ -59,10 +59,14 @@ Implement `Backend::ask` for it, stream if it can, and map its errors to a
   not. Packaging the helper is in `docs/packaging.md`.
 - **`Compat`**, any OpenAI-compatible server through
   [ai-pool](https://github.com/codewiththiha/ai-pool), which brings keys,
-  rotation, retries and streaming. It asks for `json_schema` first. If the
-  server refuses the format, it retries with `json_object` and the schema
-  in the system text, then with no format at all. Answers are read from
-  the streamed text, cutting the JSON at the last point that parses.
+  rotation, retries and streaming. Its `structured` request sends the
+  schema as `json_schema` and in the system text. If the server refuses
+  the format, or the answer has no JSON or misses the schema (Ollama
+  Cloud accepts a schema and ignores it), it asks again with `json_object`,
+  then with one plain prompt that spells out the reply. The mode that
+  worked is kept per address and model in `ai/json-modes.json`. Answers
+  are read leniently: keys ignore case, and names like `definition` or
+  `examples` count. An unreadable answer names the keys it had.
 
 A server-shaped provider usually needs only a `Provider` preset in
 `crates/settings/src/ai.rs` (address, default model, whether it takes
