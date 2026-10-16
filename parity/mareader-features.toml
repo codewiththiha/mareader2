@@ -57,9 +57,12 @@ title = "Document title in the bar: centred, truncated when space runs out, hidd
 area = "A"
 tier = "P1"
 milestone = "M1"
-status = "partial"
+status = "shipped"
 reference = ["crates/app-chrome/src/titlebar/root.rs"]
-notes = "Centring, truncation and hiding are implemented; no test yet"
+evidence = [
+    "crates/ui/tests/chrome.rs::the_title_centres_truncates_and_hides_for_want_of_room",
+]
+notes = "Centred on the window, truncated to the gap, hidden without room or a document; named in full for screen readers"
 
 [[feature]]
 id = "chrome.titlebar-drag"
@@ -67,9 +70,12 @@ title = "Empty title bar drags the window; double-click toggles maximise"
 area = "A"
 tier = "P0"
 milestone = "M0"
-status = "partial"
+status = "shipped"
 reference = ["crates/app-chrome/src/window/api.rs"]
-notes = "Wired to ViewportCommand::StartDrag and Maximized; needs a real-window check on each OS"
+evidence = [
+    "crates/ui/tests/chrome.rs::the_empty_bar_drags_the_window_and_a_double_click_maximises",
+]
+notes = "A drag sends StartDrag, a double-click Maximized; the OS's part is a real-machine check (docs/verification.md)"
 
 [[feature]]
 id = "chrome.captions-windows"
@@ -77,9 +83,12 @@ title = "Windows-style minimise, maximise/restore and close buttons"
 area = "A"
 tier = "P0"
 milestone = "M0"
-status = "partial"
+status = "shipped"
 reference = ["crates/app-chrome/src/window/caption_windows.rs"]
-notes = "Drawn and checked by screenshot; no click test yet"
+evidence = [
+    "crates/ui/tests/chrome.rs::windows_captions_minimise_maximise_and_close",
+]
+notes = "Drawn, labelled and clicked: each sends its window command; real-machine check listed in docs/verification.md"
 
 [[feature]]
 id = "chrome.captions-gnome"
@@ -87,9 +96,12 @@ title = "GNOME-style window buttons on Linux"
 area = "A"
 tier = "P0"
 milestone = "M0"
-status = "partial"
+status = "shipped"
 reference = ["crates/app-chrome/src/window/caption_gnome.rs"]
-notes = "Drawn and checked by screenshot; no click test yet"
+evidence = [
+    "crates/ui/tests/chrome.rs::gnome_captions_minimise_and_close",
+]
+notes = "Drawn, labelled and clicked: each sends its window command; real-machine check listed in docs/verification.md"
 
 [[feature]]
 id = "chrome.traffic-lights"
@@ -107,10 +119,13 @@ title = "Frameless windows resize from their edges and corners"
 area = "A"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/ui/src/resize.rs::corners_win_over_edges_and_the_middle_is_free"]
+status = "shipped"
 reference = ["crates/app-chrome/src/window/mod.rs"]
-notes = "Hit-testing is tested; BeginResize needs a real-window check on Windows and Wayland"
+evidence = [
+    "crates/ui/src/resize.rs::corners_win_over_edges_and_the_middle_is_free",
+    "crates/ui/tests/chrome.rs::a_frameless_windows_edge_starts_a_resize_and_a_mac_leaves_it_to_the_system",
+]
+notes = "A press on the 5 pt edge sends BeginResize on Windows and Linux, never on a Mac; real-machine check listed in docs/verification.md"
 
 [[feature]]
 id = "chrome.glass-blur"
@@ -141,10 +156,20 @@ title = "Sidebar with outline, thumbnails and dictionary panels; docked or overl
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it", "crates/ui/tests/shell.rs::the_switcher_changes_panel_and_a_reclick_keeps_it", "crates/ui/tests/shell.rs::a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace", "crates/ui/tests/shell.rs::docking_a_floating_sidebar_keeps_it_open", "crates/ui/tests/shell.rs::escape_closes_the_sidebar"]
+status = "shipped"
 reference = ["crates/reader-runtime/src/components/shell/sidebar/container.rs"]
-notes = "The rail works: docked slide, floating slide with edge reveal and grace, header, switcher, Escape. Outline and thumbnails panels serve the focused pane (M2); library M5, dictionary M6"
+evidence = [
+    "crates/ui/tests/shell.rs::the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it",
+    "crates/ui/tests/shell.rs::the_switcher_changes_panel_and_a_reclick_keeps_it",
+    "crates/ui/tests/shell.rs::a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace",
+    "crates/ui/tests/shell.rs::docking_a_floating_sidebar_keeps_it_open",
+    "crates/ui/tests/shell.rs::escape_closes_the_sidebar",
+    "crates/ui/tests/navigation.rs::clicking_a_chapter_jumps_there_and_marks_it",
+    "crates/ui/tests/navigation.rs::the_thumbnails_follow_the_page_and_a_click_jumps",
+    "crates/ui/tests/panel.rs::shelves_open_in_place_and_list_their_shelves_and_books",
+    "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed",
+]
+notes = "Docked or floating, sliding, with the outline, thumbnails, library and dictionary panels serving the focused pane"
 
 [[feature]]
 id = "chrome.popovers"
@@ -152,10 +177,15 @@ title = "Popovers for appearance, view and menus; dismiss on outside click and E
 area = "A"
 tier = "P0"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar"]
+status = "shipped"
 reference = ["crates/app-chrome/src/floating/mod.rs"]
-notes = "egui Popup: the Appearance popover works; view and overflow menus to come"
+evidence = [
+    "crates/ui/tests/shell.rs::the_appearance_popover_switches_mode_and_keeps_the_bar",
+    "crates/ui/tests/chrome.rs::a_popover_closes_on_escape_and_on_a_press_outside",
+    "crates/ui/tests/modes.rs::the_menu_row_switches_modes_and_marks_the_current_one",
+    "crates/ui/tests/shell.rs::a_narrow_bar_folds_tools_into_the_menu",
+]
+notes = "Appearance popover, view menu and overflow menu as egui popups; Escape and a press outside close them"
 
 [[feature]]
 id = "chrome.tooltips"
@@ -251,10 +281,13 @@ title = "Drag a divider to resize panes, within sensible limits"
 area = "B"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/workspace/src/tree.rs::dividers_resize_within_limits"]
+status = "shipped"
 reference = ["crates/reader-runtime/src/host/tree.rs"]
-notes = "The model is tested; the egui drag is not covered by a kittest yet"
+evidence = [
+    "crates/workspace/src/tree.rs::dividers_resize_within_limits",
+    "crates/ui/tests/chrome.rs::dragging_a_divider_resizes_panes_within_limits",
+]
+notes = "Dragged with the pointer; the ratio stays 15 % from either end"
 
 [[feature]]
 id = "workspace.close-pane"
@@ -272,10 +305,14 @@ title = "Click focuses a pane; the focused pane has the outline"
 area = "B"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/ui/tests/reading.rs::a_press_on_a_pane_page_focuses_that_pane"]
+status = "shipped"
 reference = ["styles/components/shell.css", "crates/reader-runtime/src/pane/view.rs"]
-notes = "Focus and the outline are drawn; a press anywhere in a pane focuses it, its page too, as mareader's pointerdown. Keyboard focus routing comes with the viewer"
+evidence = [
+    "crates/ui/tests/reading.rs::a_press_on_a_pane_page_focuses_that_pane",
+    "crates/ui/tests/focus.rs::f3_steps_through_matches_and_f6_moves_between_panes",
+    "crates/ui/tests/shell.rs::closing_a_pane_from_its_button_focuses_the_survivor",
+]
+notes = "A press anywhere in a pane focuses it and draws the outline; F6 and Tab move focus between panes (M7)"
 
 [[feature]]
 id = "workspace.drop-to-split"
@@ -409,14 +446,15 @@ title = "Keep the app's own copy of a book (loose files, or a folder import that
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "partial"
-evidence = [
-  "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
-  "crates/library/src/removal_tests.rs::copies_land_in_the_store_and_only_store_files_are_deleted",
-  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
-]
+status = "shipped"
 reference = ["crates/library-core/src/store.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
-notes = "Import… and dropped files are copied into the library's files folder, known content kept once (M5 slice 5). Importing a whole folder as copies is not offered: folders are read in place"
+evidence = [
+    "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
+    "crates/library/src/removal_tests.rs::copies_land_in_the_store_and_only_store_files_are_deleted",
+    "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
+    "crates/ui/tests/library.rs::a_folder_copied_in_takes_only_what_counts",
+]
+notes = "Imports, dropped files and folders imported as copies go into the library's files folder, known content kept once"
 
 [[feature]]
 id = "library.follow-moves"
@@ -424,15 +462,16 @@ title = "A moved or renamed file is still the same book: position, shelves and m
 area = "C"
 tier = "P0"
 milestone = "M5"
-status = "partial"
-evidence = [
-  "crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place",
-  "crates/library/src/source_tests.rs::a_moved_file_is_followed_and_a_second_copy_is_a_second_place",
-  "crates/library/src/source_tests.rs::a_file_edited_in_place_keeps_its_book",
-  "crates/ui/tests/library.rs::a_file_moved_within_a_folder_keeps_its_book_and_place",
-]
+status = "shipped"
 reference = ["crates/library-core/src/hash.rs", "crates/library-core/src/ledger.rs"]
-notes = "Opens and folder scans follow moves and in-place edits with the position (M5 slice 3); shelves and marks are kept once they exist (slice 4, M6)"
+evidence = [
+    "crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place",
+    "crates/library/src/source_tests.rs::a_moved_file_is_followed_and_a_second_copy_is_a_second_place",
+    "crates/library/src/source_tests.rs::a_file_edited_in_place_keeps_its_book",
+    "crates/ui/tests/library.rs::a_file_moved_within_a_folder_keeps_its_book_and_place",
+    "crates/library/src/marks_tests.rs::a_moved_file_keeps_its_shelves_and_marks",
+]
+notes = "Opens and folder scans follow moves and in-place edits; the book keeps its place, shelves and marks"
 
 [[feature]]
 id = "library.missing"
@@ -1097,10 +1136,14 @@ title = "Appearance controls restyle the whole window, pages included, as they m
 area = "F"
 tier = "P0"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::an_appearance_change_restyles_on_the_frame_it_lands"]
+status = "shipped"
 reference = ["crates/app-ui/src/components/menus/appearance_menu/mod.rs", "crates/app-chrome/src/appearance_hooks.rs"]
-notes = "Command::SetAppearance restyles on the frame it lands; the controls (M1) and page uniforms (M3) are still to come"
+evidence = [
+    "crates/ui/tests/shell.rs::an_appearance_change_restyles_on_the_frame_it_lands",
+    "crates/ui/tests/shell.rs::a_preset_swatch_applies_its_look",
+    "crates/ui/tests/gpu.rs::a_mode_click_fades_from_the_old_look",
+]
+notes = "Popover and settings controls restyle the window and the page pass on the frame they move"
 
 [[feature]]
 id = "appearance.cross-fade"
@@ -1328,10 +1371,18 @@ title = "Settings window with Theme, Layout, Paper, Fonts, Workspace, Animations
 area = "J"
 tier = "P0"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them", "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch", "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips", "crates/ui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640", "crates/ui/src/settings_window/scope.rs::the_focused_document_decides_what_applies", "crates/ui/tests/reading.rs::layout_rows_follow_the_focused_document"]
+status = "shipped"
 reference = ["crates/reader-runtime/src/components/settings/modal.rs"]
-notes = "egui Modal with the tab strip; Layout, Theme, Animations and Workspace carry the settings that exist. Fonts appears with EPUB (M4); other rows join with their features. It takes 92 % by 86 % of the window up to 760 by 960 points, where mareader stops at 620 by 640. Rows follow the focused pane, as mareader's, from one `Scope` and `Applies` rule (docs/design.md)"
+evidence = [
+    "crates/ui/tests/shell.rs::the_gear_opens_settings_and_escape_closes_only_them",
+    "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch",
+    "crates/ui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips",
+    "crates/ui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640",
+    "crates/ui/src/settings_window/scope.rs::the_focused_document_decides_what_applies",
+    "crates/ui/tests/reading.rs::layout_rows_follow_the_focused_document",
+    "crates/ui/tests/a11y.rs::every_control_has_a_name",
+]
+notes = "Tabs: Layout, Theme (paper detection and blend), Animations, Fonts, Highlights, Vocabulary (CEFR), Dictionary, AI, Workspace. 92 % by 86 % of the window up to 760 by 960 points; rows follow the focused pane (docs/design.md)"
 
 [[feature]]
 id = "settings.migrate"
@@ -1374,10 +1425,16 @@ title = "Animations master switch: off skips the in-between frames, never the en
 area = "K"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch"]
+status = "shipped"
 reference = ["crates/reader-core/src/settings/animation.rs"]
-notes = "Settings, Layout, Animations; motion::set_enabled zeroes egui animation time. No end-state test yet"
+evidence = [
+    "crates/ui/tests/shell.rs::the_animations_tab_leaves_with_its_master_switch",
+    "crates/ui/tests/gpu.rs::with_animations_off_a_mode_click_lands_at_once",
+    "crates/ui/tests/keys.rs::with_scroll_to_page_off_a_jump_lands_at_once",
+    "crates/ui/tests/keys.rs::with_zoom_ease_off_a_step_lands_on_its_first_frame",
+    "crates/ui/tests/shell.rs::the_system_asking_for_less_motion_stills_it_like_the_master",
+]
+notes = "Off, every motion lands on its end state in the first frame; the system's reduced motion acts the same"
 
 [[feature]]
 id = "motion.per-switch"
@@ -1431,9 +1488,12 @@ title = "Every control has an accessible label and state (AccessKit)"
 area = "K"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-evidence = ["crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane"]
-notes = "Title bar and caption buttons are labelled and found by kittest; the rest arrive with their views"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane",
+    "crates/ui/tests/a11y.rs::every_control_has_a_name",
+]
+notes = "A sweep over the reader, panels, every settings tab, popover, menus, find and the library finds no nameless control"
 
 [[feature]]
 id = "a11y.keyboard-only"
@@ -1462,8 +1522,11 @@ title = "An idle window renders no frames; every deferral has its own wake"
 area = "L"
 tier = "P0"
 milestone = "M0"
-status = "partial"
-notes = "The title bar's grace schedules request_repaint_after; no frame-count test yet"
+status = "shipped"
+evidence = [
+    "crates/ui/tests/chrome.rs::an_idle_window_draws_nothing",
+]
+notes = "Reader, book with sidebar, library and a split with a toast all settle to no repaint and stay there"
 
 [[feature]]
 id = "perf.teardown"
