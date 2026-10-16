@@ -30,6 +30,7 @@ the right place.
 | L2 | `epub` | planned M4 | rbook container, spine, ToC, XHTML+CSS subset → `reflow` blocks |
 | L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
+| L3 | `assist` | **exists** | AI tasks and their prompts, the providers behind one `Backend` seam, API keys (`docs/assist.md`); desktop only, the one exception to rule 3 |
 | L7 | `ui` | **exists** | egui: theme, icons, title bar, panes, every view and popover |
 | — | `apps/mareader` | **exists** | the window and `main` |
 | — | `xtask` | **exists** | gates |

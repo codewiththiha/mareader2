@@ -101,3 +101,34 @@ Look up stays out of the bar until slice 4 gives it something to do.
 - **Marks** paint as rounded fills under the word in the gloss colour at
   the gloss opacity. A click opens the card; a right-click opens a menu
   with Remove highlight; the toast offers Undo for six seconds.
+
+## Slice 2 behaviour
+
+The owner widened this slice (2026-10-16): answers come from Apple
+Intelligence on a Mac or, on every desktop, from an OpenAI-compatible
+server, with no `ai` feature to turn on. How tasks, prompts and providers
+fit together is in `docs/assist.md`.
+
+- **Settings › AI** (between Dictionary and Workspace) picks who explains:
+  Automatic, Apple Intelligence (Macs only), OpenAI, Gemini, OpenRouter,
+  Ollama, LM Studio or a custom address. Off a Mac, Automatic reads None
+  and Explain says to choose one. Apple Intelligence's line says whether
+  the model is ready, downloading, switched off or missing.
+- **A server** shows its model, with the preset's default as the hint and
+  a Choose menu listing the server's models, and its address: in the main
+  group for local and custom servers, under Advanced for the cloud
+  presets. Try it explains a sample word and says how long it took, or why
+  it failed.
+- **API keys** (cloud presets; optional for Custom) are listed by their
+  ends with their state: ready, resting after a rate limit, or set aside
+  with the provider's reason. Each can be set aside, brought back or
+  removed. A password field adds one on Add or Enter. Keys are encrypted
+  on this computer and requests take turns among them.
+- **The card fills as the answer streams**: the meaning appears while the
+  synonyms and usages are still coming. A failure names the reason
+  (no key, keys turned away, offline, a model to check, a locked
+  keychain) with the provider's own words underneath, and Try again shows
+  only where asking again can help.
+- **Changing the AI settings** takes effect on the next Explain; answers
+  already shown are dropped, so a new provider answers afresh.
+- The browser preview hides the AI tab; `Unavailable` still answers there.
