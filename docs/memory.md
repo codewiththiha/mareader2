@@ -1,6 +1,6 @@
 # Memory
 
-> **Status:** M2 audit recorded · **Last updated:** 2026-10-13
+> **Status:** M8 audit recorded · **Last updated:** 2026-10-16
 
 Every memory claim in this repository needs:
 - what was measured (RSS peak, texture bytes, heap);
@@ -152,3 +152,87 @@ through the kept few. CI's Linux runner, VmRSS and VmHWM.
   1,000-character paragraph in about half a millisecond. Reading all 9,524 pages' text took
   1.2 s.
 - **Known limit:** each open book has its own 32 MiB of kept layouts.
+
+## 2026-10-16: M8 audit, both formats and the library (slice 3)
+
+- **What:** as at M2 (`VmRSS`, `VmHWM` reset after each row), plus open
+  searches, cover texture bytes and egui's texture count. Each workload ends
+  in a table of budgets, and a breach fails the run.
+- **How:** `crates/ui/examples/memory.rs`, in CI on Linux as the Remote
+  memory task (`tools/ci.py memory --ref BRANCH`), which also runs the EPUB
+  layout test. Run 38919011226 on `a2a844c`; tables in the `memory` artifact.
+  Modes: `memory BOOK [ROUNDS]`, `memory --library N` (N one-page PDFs read
+  in place, in three folders), `memory --seeded N` (books without files).
+- **Workload:** the M2 one, now searching each book for "the" before its
+  pane closes, and drawing a second of frames after the close. The library
+  is scrolled to its end by the wheel in the grid, then in the list,
+  rendering every fourth turn as frames do.
+- **Limits:** those of M2 (lavapipe counts VRAM as RSS; dev build; glibc
+  keeps freed memory). The harness only submits GPU uploads when it renders,
+  so a scroll that never renders holds every upload until it does (below).
+
+| Step | tracemonkey, 14 pp | arXiv, 15 pp | The Raven, EPUB | War and Peace, EPUB |
+|---|---|---|---|---|
+| Idle, two empty panes | 184 MiB | 177 MiB | 177 MiB | 177 MiB |
+| Opened in one pane | 243 | 231 | 240 | 247 |
+| Every page read (rasters) | 357 (104 MiB) | 365 (111) | 517 (251) | 600 (251) |
+| Its pane closed, a second later | 350 | 367 | 397 | 493 |
+| Later rounds (2 to last) | 396 to 412 | 405 | 542 | 621 (one round) |
+| Floor of the later rounds against the early top | −8 MiB | +0 | +1 | — |
+| A second pane on the same book | +0 MiB | +0 | +0 | +0 |
+
+| Library | RSS | Peak |
+|---|---|---|
+| Empty page | 186 MiB | 200 |
+| 1,000 PDFs read in place | 217 | 231 |
+| 1,000 more, second folder | 249 | 249 |
+| 1,000 more, third folder | 258 | 258 |
+| Grid scrolled to the end (401 turns; covers 63.3 MiB) | 410 | 410 |
+| List scrolled to the end (450 turns) | 411 | 411 |
+| 20,000 books without files, then scrolled | 255, then 332 | 332 |
+
+Budgets, all held:
+
+| Budget | Measured |
+|---|---|
+| A closed book leaves no document and no search | 0 and 0, every round |
+| Later rounds' floor rises at most 16 MiB (no leak) | −8 to +1 MiB |
+| A second pane adds under a quarter of the first open | +0 MiB of 54 to 70 |
+| Page rasters within 256 MiB | 251 MiB at most (EPUBs) |
+| Cover textures within 64 MiB | 63.3 MiB at most |
+| Each book's share of the library, covers aside, at most 16 KiB | 3.3 KiB read in place, 3.4 KiB without files |
+| A scroll to the end adds at most 256 MiB at its peak | +152 MiB grid, +0 list |
+
+EPUB layout (`crates/epub/tests/layout_memory.rs`): 4 million characters
+open in 1.39 s for +16 MB (peak 54); 200,000 paragraphs in 0.98 s for
++60 MB (peak 131).
+
+Findings:
+
+- **Covers no longer pile up when scrolled past.** Every cover asked for
+  stayed waiting even after its card left the view, so a fling over 3,000
+  books read and uploaded all of them. Now only covers asked for this frame
+  or last wait, at most four load inline a frame, and they upload nearest
+  first (`covers_scrolled_past_never_pile_up_waiting`).
+- **A closed book's search let go of it late.** The find state kept the
+  closed pane's document until the bar was used again; it is dropped on the
+  frame the pane closes (`a_book_set_again_or_closed_lets_its_old_search_go`).
+- **The 5 GB peak in the first run was the harness.** Run without rendering,
+  egui_kittest writes each texture to the wgpu queue but only submits on
+  render, so all 3,000 covers' staging buffers waited at once. Rendering
+  every fourth turn, as a real frame does, brought the grid's peak from
+  4,981 to 410 MiB with the same covers.
+- **The first books carry fixed costs.** The first 1,000 books in place
+  cost 31 MiB and the second 1,000 a further 32 (28 and 26 KiB a book,
+  covers aside): SQLite's page cache and the memory kept after scanning.
+  The third thousand cost 9 MiB, 6 of them covers: 3.3 KiB a book, as
+  without files.
+- **After a close, RSS stays higher than at M2** (350 against 236 MiB for
+  tracemonkey; rounds 396 to 412 against 254). The app's counts reach zero
+  and the later rounds stay level, so this is not a leak. A second of
+  drawn frames returned nothing, which rules out wgpu's deferred frees. The
+  difference is what lavapipe's allocator and glibc keep since the glass,
+  the search and EPUB landed. On a real GPU that part is VRAM, and the
+  rounds show it reused.
+- **Seeding the library adds books** instead of renumbering the same ones,
+  so `books=N` can grow a library in steps.
