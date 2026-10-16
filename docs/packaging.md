@@ -70,6 +70,8 @@ second. Either way, the new launch runs as the primary and records itself.
    in the focused pane, in the same window.
 5. `open -a Mareader book.pdf` does the same from a terminal.
 
+The owner ran these on a Mac on 2026-10-17; all passed.
+
 ## The Apple Intelligence helper
 
 On a Mac, Explain can use the on-device model through `FMBridge`, a small
@@ -125,7 +127,9 @@ How to run it:
   builds and checks the installers without a tag.
 - **A release:** push a `v<version>` tag that matches `Cargo.toml`. The
   same checks run, then a draft GitHub release collects the installers
-  with `SHA256SUMS`, for the owner to publish.
+  with `SHA256SUMS`, for the owner to publish. Its notes come from
+  `docs/releases/v<version>.md` when that file exists; otherwise GitHub
+  lists the changes.
 - **On your own machine:** after `cargo packager --release`,
   `tools/check-installers.sh target/release` runs the same checks for
   your platform (it installs and removes the app). Without a GPU, a
@@ -152,5 +156,7 @@ Signing:
 
 The Linux `.deb` declares what Mareader loads at run time, which `dpkg`
 can't see in the binary: fontconfig, xkbcommon (with its X11 part), and
-Vulkan or EGL. The AppImage expects the same from the system. It is built
+Vulkan or EGL. The pacman package's `PKGBUILD` names the Arch packages
+for the same (with `libglvnd` for EGL). The AppImage expects them from the
+system. It is built
 on Ubuntu 22.04, so it needs glibc 2.35 or newer.

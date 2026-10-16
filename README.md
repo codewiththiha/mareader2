@@ -6,10 +6,16 @@ smaller and cleaner codebase with a fraction of the memory: no webview, no
 JavaScript, pages rendered by [hayro](https://github.com/LaurenzV/hayro) and
 books laid out by [parley](https://github.com/linebender/parley).
 
-**Status:** foundation (M0). The shell runs: the hover-reveal title bar with
-pin, macOS, Windows and GNOME window controls, frameless resizing, split panes
-and the appearance model (light, dark, dim, tints, presets). Opening documents starts at M2. See
-[`ROADMAP.md`](ROADMAP.md).
+**Status:** M8, polish, is done, and v0.0.1 is out for macOS, Windows and
+Linux. Every P0 and P1 mareader feature is shipped. Sync between machines
+(M9) comes later.
+See [`ROADMAP.md`](ROADMAP.md).
+
+## Download
+
+Installers for each system are on the
+[releases page](https://github.com/codewiththiha/mareader2/releases), with
+which file to pick and how the first launch goes.
 
 ## What it will read
 
