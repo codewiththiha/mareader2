@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::disk::Folder;
 use crate::tests::save;
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, NewMark, Opened, Row,
-    Spot,
+    BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, Measure, NewMark, Opened,
+    Row, Spot,
 };
 
 const A: DeviceId = DeviceId(1);
@@ -130,5 +130,53 @@ fn folding_two_originals_moves_the_marks_to_the_keeper() {
     for lib in [&a, &b] {
         assert_eq!(lib.mark(id).map(|m| m.book.value), Some(kept));
         assert_eq!(words(lib, kept), ["fox"]);
+    }
+}
+
+fn said(meaning: &str) -> Option<Gloss> {
+    Some(Gloss {
+        meaning: meaning.into(),
+        by: "Ollama · gemma".into(),
+        ..Gloss::default()
+    })
+}
+
+#[test]
+fn an_answer_is_saved_with_its_mark_and_hides_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let id = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    assert!(lib.set_gloss(id, said("A wild dog."), 2_100));
+    save(&folder, &mut lib);
+    let mut back = folder.load(A).library;
+    let gloss = back.mark(id).and_then(|m| m.gloss.value.clone());
+    assert_eq!(gloss, said("A wild dog."));
+
+    back.set_marks_alive(&[id], false, 3_000);
+    assert!(
+        !back.set_gloss(id, said("Lost."), 3_100),
+        "a removed mark takes none"
+    );
+    back.set_marks_alive(&[id], true, 3_200);
+    let gloss = back.mark(id).and_then(|m| m.gloss.value.clone());
+    assert_eq!(gloss, said("A wild dog."), "Undo brings the answer back");
+}
+
+#[test]
+fn the_later_answer_wins_on_every_machine() {
+    let mut a = Library::new(A);
+    let mut b = Library::new(B);
+    let book = a.record_open(opened("/a.pdf", 1), 1_000);
+    b.record_open(opened("/elsewhere/a.pdf", 1), 1_100);
+    let id = a.add_mark(book, fox(100.0), 2_000).unwrap();
+    a.set_gloss(id, said("First."), 2_100);
+    b.absorb(unsent(&mut a), 2_500);
+    b.set_gloss(id, said("Asked again."), 3_000);
+    a.absorb(unsent(&mut b), 3_500);
+    for lib in [&a, &b] {
+        let gloss = lib.mark(id).and_then(|m| m.gloss.value.clone());
+        assert_eq!(gloss, said("Asked again."));
     }
 }

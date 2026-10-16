@@ -11,6 +11,11 @@ pub trait Explainer: Send + Sync {
         context: &str,
         partial: &(dyn Fn(WordInfo) + Sync),
     ) -> Result<WordInfo, Failure>;
+
+    /// Who answers, as the card's small print names them; blank for none.
+    fn by(&self) -> String {
+        String::new()
+    }
 }
 
 /// Why no answer came; the card shows [`Why::message`].
@@ -124,6 +129,10 @@ impl Explainer for Unavailable {
 pub struct Canned;
 
 impl Explainer for Canned {
+    fn by(&self) -> String {
+        "Sample answers".to_owned()
+    }
+
     fn explain(
         &self,
         word: &str,

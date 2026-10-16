@@ -96,11 +96,13 @@ impl Merge for Mark {
     fn merge(&mut self, other: Self) {
         self.book.merge(other.book);
         self.alive.merge(other.alive);
+        self.gloss.merge(other.gloss);
         self.extra.merge(other.extra);
     }
 
     fn latest(&self) -> Stamp {
-        newest([Some(self.book.at), Some(self.alive.at), self.extra.latest()])
+        let fields = [self.book.at, self.alive.at, self.gloss.at].map(Some);
+        newest(fields.into_iter().chain([self.extra.latest()]))
     }
 }
 
@@ -122,7 +124,7 @@ mod tests {
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
     use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId};
-    use crate::marks::Spot;
+    use crate::marks::{Gloss, Spot};
 
     /// A small deterministic generator: the same cases every run.
     struct Rng(u64);
@@ -223,7 +225,11 @@ mod tests {
     }
 
     fn mark(rng: &mut Rng) -> Mark {
-        let (book, alive) = (rng.stamp(), rng.stamp());
+        let (book, alive, said) = (rng.stamp(), rng.stamp(), rng.stamp());
+        let gloss = (said.ms % 3 != 0).then(|| Gloss {
+            meaning: format!("said at {}", said.ms),
+            ..Gloss::default()
+        });
         Mark {
             id: MarkId(1),
             book: Field::new(BookId(u128::from(book.ms)), book),
@@ -236,6 +242,7 @@ mod tests {
             },
             added: 5,
             alive: Field::new(alive.ms % 2 == 0, alive),
+            gloss: Field::new(gloss, said),
             extra: extra(rng),
         }
     }

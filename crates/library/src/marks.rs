@@ -39,7 +39,19 @@ impl Spot {
     }
 }
 
-/// One marked word. Only `book` and `alive` change after it's made.
+/// What the AI said about a marked word, and who said it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Gloss {
+    pub pos: String,
+    pub meaning: String,
+    pub synonyms: Vec<String>,
+    pub usages: Vec<String>,
+    /// The provider and model, as the card's small print names them.
+    pub by: String,
+}
+
+/// One marked word. Only `book`, `alive` and `gloss` change once made.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Mark {
     pub id: MarkId,
@@ -53,6 +65,9 @@ pub struct Mark {
     pub added: u64,
     /// Removing and Undo merge like a shelf's membership.
     pub alive: Field<bool>,
+    /// The saved answer; it hides and returns with the mark.
+    #[serde(default, skip_serializing_if = "Field::is_unset")]
+    pub gloss: Field<Option<Gloss>>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -98,6 +113,7 @@ impl Library {
             spot: new.spot,
             added: wall_ms,
             alive: Field::new(true, at),
+            gloss: Field::default(),
             extra: Extra::default(),
         };
         self.marks.insert(id, mark);
@@ -121,6 +137,21 @@ impl Library {
             }
         }
         ids.len()
+    }
+
+    /// Saves or clears a living mark's answer; false if there's no such mark.
+    pub fn set_gloss(&mut self, id: MarkId, gloss: Option<Gloss>, wall_ms: u64) -> bool {
+        let living = self
+            .mark(id)
+            .is_some_and(|m| self.book(m.book.value).is_some());
+        if !living {
+            return false;
+        }
+        let at = self.clock.tick(wall_ms);
+        if let Some(mark) = self.marks.get_mut(&id) {
+            mark.gloss = Field::new(gloss, at);
+        }
+        true
     }
 
     /// `gone`'s marks go to `keeper`, as a merge folding them decides.

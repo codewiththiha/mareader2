@@ -20,8 +20,8 @@ entries are `study.*` in `parity/mareader-features.toml`.
   selects many marks to remove at once.
 - **Card.** The word, then Meaning, Synonyms (chips) and Usages; a shimmer
   while waiting; an error with Retry when retrying can help. Escape or a
-  press outside closes it. Answers are kept for the session by mark;
-  failures are not kept.
+  press outside closes it. Answers are saved with their mark (see "Saved
+  answers" below); failures are not kept.
 - **Answers.** Apple Intelligence through the `fm-bridge` helper on macOS
   with Apple silicon; elsewhere the card says why it can't answer.
 - **Dictionaries.** Parquet packs downloaded with mirrors and resume,
@@ -95,8 +95,8 @@ Look up stays out of the bar until slice 4 gives it something to do.
   the selection and opens the card. With no library (a browser build),
   the card opens without a mark.
 - **The card** opens under the mark (above when there's no room), 320
-  points wide, and closes on Escape or a press outside it. Each mark's
-  answer is asked once per session; a failed answer is asked again next
+  points wide, and closes on Escape or a press outside it. A mark's answer
+  is asked once, then saved with it; a failed answer is asked again next
   time.
 - **Marks** paint as rounded fills under the word in the gloss colour at
   the gloss opacity. A click opens the card; a right-click opens a menu
@@ -129,6 +129,27 @@ fit together is in `docs/assist.md`.
   (no key, keys turned away, offline, a model to check, a locked
   keychain) with the provider's own words underneath, and Try again shows
   only where asking again can help.
-- **Changing the AI settings** takes effect on the next Explain; answers
-  already shown are dropped, so a new provider answers afresh.
+- **Changing the AI settings** takes effect on the next new word; saved
+  answers stay, and Ask again on a card reaches the new provider.
 - The browser preview hides the AI tab; `Unavailable` still answers there.
+
+## Saved answers
+
+The owner asked for this (2026-10-16): a click on a mark showed a new
+answer each launch, and a settings change dropped every answer.
+
+- **With the mark.** A finished answer is saved in the mark's library
+  record as its `gloss` field: part of speech, meaning, synonyms, usages
+  and who answered. It survives restarts and, once sync exists, travels
+  with the mark, so another machine doesn't pay to ask again. Answers
+  that merge keep the later one.
+- **Who answered.** The card's small print names the provider and model,
+  e.g. "Ollama · gemma4:31b-cloud", or "Apple Intelligence".
+- **Ask again** on a finished card asks the AI chosen now. The saved
+  answer stays until the new one arrives and replaces it, so a failed
+  retry loses nothing.
+- **Removing a mark** hides its answer with it; Undo brings both back.
+  Explaining the same spot afresh makes a new mark and asks again.
+- **Failures are never saved.** A book outside the library keeps its marks
+  and answers for the session only, as before.
+

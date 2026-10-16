@@ -138,6 +138,9 @@ fn explain_marks_the_word_and_its_card_comes_back_on_a_click() -> Out {
         "{spots:?}"
     );
     h.get_by_label("Synonyms");
+    // Who answered, and a way to ask the AI chosen now.
+    h.get_by_label("Sample answers");
+    h.get_by_label("Ask again");
 
     // A click elsewhere closes the card; a click on the mark brings it.
     let blank = sheet.rect.left_top() + egui::vec2(12.0, 12.0);
@@ -261,6 +264,14 @@ fn a_library_book_keeps_its_marks() -> Out {
     let book = lib.books().next().ok_or("not in the library")?.id;
     let kept: Vec<String> = lib.marks(book).iter().map(|m| m.word.clone()).collect();
     assert_eq!(kept, ["quick"]);
+    let said = lib.marks(book).first().and_then(|m| m.gloss.value.clone());
+    assert_eq!(said.map(|g| g.by).as_deref(), Some("Sample answers"));
+    // Another AI keeps the answer: the card comes back answered, unasked.
+    h.state_mut().set_option("explain", "none")?;
+    select(&mut h, 0, "quick");
+    h.state_mut().queue(Command::Explain(pane));
+    h.run();
+    assert!(h.state().study().card_answer().is_some());
     Ok(())
 }
 
