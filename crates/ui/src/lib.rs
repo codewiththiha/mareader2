@@ -38,6 +38,7 @@ pub mod platform;
 pub mod resize;
 pub mod reveal;
 pub mod route;
+pub mod search;
 pub mod selection;
 pub mod settings_window;
 pub mod sidebar;
