@@ -15,6 +15,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::{Context, Pos2, Rect};
 use mareader_appearance::Rgb;
+use mareader_cefr::Role;
 use mareader_library::Gloss as MarkGloss;
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, MarkKind, Measure, NewMark, Opened,
@@ -57,6 +58,14 @@ pub enum Gloss {
     Toggle(MarkId),
     /// While picking: the marks on screen, and every mark of the book.
     Seen { page: Vec<MarkId>, all: Vec<MarkId> },
+    /// A shaded word was clicked: its characters on `page`.
+    Shaded {
+        page: usize,
+        chars: std::ops::Range<usize>,
+        at: Rect,
+    },
+    /// The pointer rested on a shaded word.
+    Rest { word: String, at: Rect },
 }
 
 /// What the card and the mark menu ask of the app.
@@ -95,6 +104,8 @@ struct Card {
     at: Rect,
     /// Seen on screen this frame; a mark scrolled away closes it.
     seen: bool,
+    /// The word's role in its sentence, once the tagger said.
+    role: Option<Role>,
 }
 
 /// The right-click menu on a mark.
@@ -227,6 +238,24 @@ impl Study {
     /// The word the open card explains, for tests.
     pub fn card_word(&self) -> Option<&str> {
         self.card.as_ref().map(|c| c.word.as_str())
+    }
+
+    /// The open card's word and context, to ask for its role.
+    pub fn card_words(&self) -> Option<(&str, &str)> {
+        let c = self.card.as_ref()?;
+        Some((c.word.as_str(), c.context.as_str()))
+    }
+
+    /// The role the open card shows, for tests.
+    pub fn card_role(&self) -> Option<&Role> {
+        self.card.as_ref()?.role.as_ref()
+    }
+
+    /// The tagger's answer for the open card, if it is still `word`'s.
+    pub fn set_role(&mut self, word: &str, role: Role) {
+        if let Some(card) = self.card.as_mut().filter(|c| c.word == word) {
+            card.role = Some(role);
+        }
     }
 
     /// The open card's answer, once it came, for tests.
@@ -368,6 +397,7 @@ impl Study {
             context,
             at,
             seen: true,
+            role: None,
         });
     }
 
@@ -626,6 +656,7 @@ impl Study {
             };
             let view = card::View {
                 word: &c.word,
+                role: c.role.as_ref(),
                 answer,
                 at: c.at,
                 room: room(c.pane)?,

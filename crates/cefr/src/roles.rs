@@ -15,15 +15,24 @@ pub struct Role {
 }
 
 impl Role {
-    /// How a card names it: "verb · C1".
-    pub fn label(&self) -> String {
-        let class = match self.kind {
+    /// Its word class, else the bare tag.
+    pub fn class(&self) -> &str {
+        match self.kind {
             "other" => self.pos.as_str(),
             kind => kind,
-        };
-        match self.level {
-            Some(level) => format!("{class} · {}", cefr::level::level_to_cefr(level)),
-            None => class.to_owned(),
+        }
+    }
+
+    /// That sense's CEFR label, as "C1".
+    pub fn cefr(&self) -> Option<&'static str> {
+        self.level.map(cefr::level::level_to_cefr)
+    }
+
+    /// Both together, as "verb · C1".
+    pub fn label(&self) -> String {
+        match self.cefr() {
+            Some(level) => format!("{} · {level}", self.class()),
+            None => self.class().to_owned(),
         }
     }
 }

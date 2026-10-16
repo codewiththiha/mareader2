@@ -46,7 +46,7 @@ fn reads(command: &Command) -> bool {
         // Undo of a removal is offered by a toast, which shows anywhere.
         C::Study(_) => false,
         // Downloads go on behind the library; the card closes anywhere.
-        C::Dict(_) | C::SetDictionary(_) => false,
+        C::Dict(_) | C::SetDictionary(_) | C::Vocab(_) => false,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
         // Find searches the page in reading, the library on the shelf.

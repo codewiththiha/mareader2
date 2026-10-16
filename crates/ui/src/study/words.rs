@@ -22,7 +22,7 @@ pub struct Asked {
 }
 
 /// A page's text with gaps as spaces; each char's layer index, if any.
-fn read(layer: &TextLayer) -> (Vec<char>, Vec<Option<usize>>) {
+pub(crate) fn read(layer: &TextLayer) -> (Vec<char>, Vec<Option<usize>>) {
     let chars = layer.text.chars();
     let mut text = Vec::with_capacity(chars.len() + chars.len() / 4);
     let mut index = Vec::with_capacity(text.capacity());
@@ -68,6 +68,32 @@ pub fn asked(
         page,
         chars,
     })
+}
+
+/// The word at `chars` of a page, as Explain asks for it.
+pub fn asked_at(layer: &TextLayer, page: usize, chars: Range<usize>) -> Option<Asked> {
+    let (text, index) = read(layer);
+    let from = index.iter().position(|i| *i == Some(chars.start))?;
+    let last = chars.end.checked_sub(1)?;
+    let to = index.iter().rposition(|i| *i == Some(last))? + 1;
+    let full: String = text.iter().collect();
+    Some(Asked {
+        word: text.get(from..to)?.iter().collect(),
+        context: mareader_study::context(&full, from..to),
+        spot: spot(layer, page, chars.clone()),
+        page,
+        chars,
+    })
+}
+
+/// The characters `chars` of a page, as written.
+pub fn text_of(layer: &TextLayer, chars: Range<usize>) -> String {
+    let all = layer.text.chars();
+    all.get(chars)
+        .unwrap_or_default()
+        .iter()
+        .map(|c| c.ch)
+        .collect()
 }
 
 /// Where `chars` of a page stand, as a mark keeps it.

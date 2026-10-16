@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use eframe::Storage;
-use egui::{Context, ViewportCommand};
+use egui::{Context, Rect, ViewportCommand};
 use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
     builtin_presets,
@@ -79,6 +79,7 @@ pub struct MareaderApp {
     ai: crate::ai::Ai,
     /// Language packs, the lookup card and the Dictionary panel.
     dict: crate::dict::Dict,
+    vocab: crate::vocab::Vocab,
     /// A selection the options asked for, made once its page is laid out.
     staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
@@ -155,6 +156,7 @@ impl MareaderApp {
             study: Study::default(),
             ai: crate::ai::Ai::default(),
             dict: crate::dict::Dict::default(),
+            vocab: crate::vocab::Vocab::default(),
             staged: Default::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
@@ -269,6 +271,17 @@ impl MareaderApp {
         if let Err(e) = self.dict.attach(dir, waker) {
             self.toasts
                 .push(Toast::info(format!("Dictionaries are off: {e}")));
+        }
+    }
+
+    /// Keeps the word-level dataset in `dir`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach_vocabulary(&mut self, ctx: &Context, dir: PathBuf) {
+        let ctx = ctx.clone();
+        let waker = Arc::new(move || ctx.request_repaint());
+        if let Err(e) = self.vocab.attach(dir, waker) {
+            self.toasts
+                .push(Toast::info(format!("Word levels are off: {e}")));
         }
     }
 
@@ -424,6 +437,11 @@ impl MareaderApp {
         &self.dict
     }
 
+    /// The word levels: the dataset and the shaded words.
+    pub fn vocab(&self) -> &crate::vocab::Vocab {
+        &self.vocab
+    }
+
     pub fn study(&self) -> &Study {
         &self.study
     }
@@ -488,6 +506,13 @@ impl MareaderApp {
                 let inline = self.study.inline();
                 self.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
                 self.dict.set_inline(inline);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            "cefr" => {
+                let inline = self.study.inline();
+                self.vocab.attach(PathBuf::from(value), Arc::new(|| {}))?;
+                self.vocab.set_inline(inline);
+                self.settings.study.cefr.enabled = true;
             }
             "workers" => {
                 let n = value
@@ -882,7 +907,12 @@ impl MareaderApp {
                 Gloss::Open { mark, at } => {
                     self.study
                         .open_mark(ctx, self.library.model(), pane, mark, at);
+                    self.ask_role();
                 }
+                Gloss::Shaded { page, chars, at } => {
+                    self.explain_shaded(ctx, pane, page, chars, at)
+                }
+                Gloss::Rest { word, at } => self.rest(pane, word, at),
                 Gloss::Menu { mark, at } => self.study.open_menu(pane, mark, at),
                 Gloss::Anchor(at) => self.study.anchor(pane, at),
                 Gloss::Pick(mark) => self.study.pick(pane, mark),
@@ -899,12 +929,67 @@ impl MareaderApp {
             self.study.set_explainer(explainer);
         }
         self.study.receive(self.library.model_mut());
+        let (changed, role) = self.vocab.poll();
+        if changed {
+            // Answers came: the pages plan their shading again.
+            ctx.request_repaint();
+        }
+        let word = self.study.card_words().map(|(w, _)| w.to_owned());
+        if let (Some(role), Some(word)) = (role, word) {
+            self.study.set_role(&word, role);
+        }
         let look = &self.settings.study.gloss;
         self.study.show(ctx, &self.pane_rects, look, out);
         self.dict.poll();
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         self.dict.show(ctx, &self.pane_rects, offset, out);
+    }
+
+    /// Asks the tagger for the open card's word's role.
+    fn ask_role(&mut self) {
+        if let Some((word, context)) = self.study.card_words() {
+            self.vocab.ask_role(word, context);
+        }
+    }
+
+    /// A click on a shaded word: explained like a selected one.
+    fn explain_shaded(
+        &mut self,
+        ctx: &Context,
+        pane: PaneId,
+        page: usize,
+        chars: std::ops::Range<usize>,
+        rect: Rect,
+    ) {
+        let Some(asked) = self.documents.asked_at(pane, page, chars) else {
+            return;
+        };
+        self.documents.clear_selection(pane);
+        self.dict.escape();
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let at = Explained {
+            pane,
+            book,
+            name: &name,
+            asked,
+            rect,
+        };
+        let model = self.library.model_mut();
+        self.study.explain(ctx, model, at, library::wall_ms());
+        self.ask_role();
+    }
+
+    /// Resting on a shaded word looks it up, when a pack can answer.
+    fn rest(&mut self, pane: PaneId, word: String, at: Rect) {
+        if !self.settings.dictionary.hover || self.dict.ready().is_empty() || self.study.card_open()
+        {
+            return;
+        }
+        let offset = self.documents.offset(pane);
+        let to = self.settings.dictionary.default_lang.clone();
+        self.dict.rest(pane, word, at, offset, to);
     }
 
     /// Look up: the pane's selection, its card beside it.
@@ -952,6 +1037,7 @@ impl MareaderApp {
         };
         let model = self.library.model_mut();
         self.study.explain(ctx, model, at, library::wall_ms());
+        self.ask_role();
     }
 
     /// A highlighter: the pane's selection, marked in `pen`.
@@ -1095,6 +1181,7 @@ impl MareaderApp {
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(action) => self.dict.act(action),
+            Command::Vocab(action) => self.vocab.act(action),
             Command::SetDictionary(d) => {
                 self.settings.dictionary = *d;
                 self.settings.dictionary.sanitize();
@@ -1786,6 +1873,15 @@ impl eframe::App for MareaderApp {
         let study = &mut self.study;
         study.begin_frame();
         let highlights = &self.settings.study.highlights;
+        let vocab = &mut self.vocab;
+        let cefr = &self.settings.study.cefr;
+        let shading = cefr.enabled.then_some(crate::vocab::Look {
+            level: cefr.level.band(),
+            click: cefr.click_explain,
+            hover: self.settings.dictionary.hover,
+            ink: highlights.cefr,
+            opacity: highlights.opacity,
+        });
         self.library_rect = None;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
@@ -1812,8 +1908,9 @@ impl eframe::App for MareaderApp {
                     highlights: highlights.clone(),
                     card: study.card_mark(id),
                     picked: study.picked(id),
+                    shading,
                 };
-                documents.show(ui, id, &cx)
+                documents.show(ui, id, &cx, Some(&mut *vocab))
             });
         });
         self.library.end_frame(&ctx);
@@ -1896,7 +1993,7 @@ impl eframe::App for MareaderApp {
             &ctx,
             &self.settings,
             &window,
-            (&self.ai, &self.dict),
+            (&self.ai, &self.dict, &self.vocab),
             &mut commands,
         );
         self.film_grain(&ctx);
