@@ -10,7 +10,6 @@
 )]
 
 mod load;
-mod mareader;
 mod reader;
 mod study;
 mod swatch;
@@ -22,7 +21,6 @@ use mareader_library::View;
 use serde::{Deserialize, Serialize};
 
 pub use load::{Loaded, load, to_json};
-pub use mareader::{ImportError, import_mareader};
 pub use reader::{
     ChromeSettings, FloatingLabelStyle, LayoutSettings, MotionSettings, PageIndicatorStyle,
     PaperArea, PaperSettings, StartupFit,

@@ -1314,10 +1314,9 @@ title = "Import a mareader settings file"
 area = "J"
 tier = "P2"
 milestone = "M1"
-status = "partial"
-evidence = ["crates/settings/src/mareader.rs::a_mareader_blob_maps_onto_every_section", "crates/settings/src/mareader.rs::halved_blobs_keep_their_strength", "crates/settings/src/load.rs::the_v0_shell_blob_migrates"]
+status = "dropped"
 reference = ["crates/reader-core/src/settings/mod.rs"]
-notes = "`import_mareader` maps every section and the old tint curve; choosing the file waits for file dialogs (M5)"
+notes = "mareader2 is a separate app with its own settings; nothing to carry over (owner, 2026-10-16)"
 
 [[feature]]
 id = "settings.debounce"
