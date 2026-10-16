@@ -1,0 +1,239 @@
+//! The service over fixture packs: cards, bridges, searches, start.
+#![cfg(not(target_arch = "wasm32"))]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use mareader_dict::{
+    Dictionaries, PACKS, Pack, Pair, Query, Reply, State, WordMatch, build, db_file,
+};
+
+fn pack(id: &str) -> &'static Pack {
+    PACKS.iter().find(|p| p.id == id).unwrap()
+}
+
+fn fixture(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// A folder with the Burmese and French packs converted.
+fn shelf() -> (tempfile::TempDir, Dictionaries) {
+    let dir = tempfile::tempdir().unwrap();
+    build(
+        &fixture("en-my.parquet"),
+        &db_file(dir.path(), pack("mcfnlp-en-my")),
+    )
+    .unwrap();
+    build(
+        &fixture("en-fr.parquet"),
+        &db_file(dir.path(), pack("wiktionary-en-fr")),
+    )
+    .unwrap();
+    let mut dicts = Dictionaries::default();
+    dicts
+        .attach(dir.path().to_owned(), Arc::new(|| {}))
+        .unwrap();
+    dicts.set_inline(true);
+    (dir, dicts)
+}
+
+fn ask(dicts: &mut Dictionaries, query: Query) -> Reply {
+    let ticket = dicts.ask(query);
+    let (_, mut replies) = dicts.poll();
+    assert_eq!(replies.len(), 1);
+    let reply = replies.remove(0);
+    assert_eq!(reply.ticket, ticket);
+    reply
+}
+
+fn look_up(word: &str, to: Option<&str>) -> Query {
+    Query::LookUp {
+        word: word.into(),
+        to: to.map(Into::into),
+    }
+}
+
+/// Polls until `done` holds, or fails after a few seconds.
+fn wait(dicts: &mut Dictionaries, done: impl Fn(&Dictionaries) -> bool) {
+    let start = Instant::now();
+    while !done(dicts) {
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+        dicts.poll();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn converted_packs_are_ready_at_start() {
+    let (_dir, dicts) = shelf();
+    assert!(dicts.attached());
+    let ready: Vec<_> = dicts.ready().iter().map(|p| p.id).collect();
+    assert_eq!(ready, ["mcfnlp-en-my", "wiktionary-en-fr"]);
+    assert_eq!(*dicts.state(pack("jmdict-en-jp")), State::Absent);
+}
+
+#[test]
+fn a_card_answers_in_the_first_other_language_without_repeats() {
+    let (_dir, mut dicts) = shelf();
+    let reply = ask(&mut dicts, look_up("Run", None));
+    assert_eq!(
+        (reply.from.as_deref(), reply.to.as_deref()),
+        (Some("en"), Some("my"))
+    );
+    let answers: Vec<_> = reply
+        .entries
+        .iter()
+        .map(|e| (e.pos.as_deref(), e.answer()))
+        .collect();
+    assert_eq!(answers, [(Some("v"), "ပြေးသည်"), (Some("n"), "ပြေးခြင်း")]);
+    assert_eq!(reply.ready, 2);
+}
+
+#[test]
+fn a_card_can_answer_in_a_chosen_language() {
+    let (_dir, mut dicts) = shelf();
+    let reply = ask(&mut dicts, look_up("light", Some("fr")));
+    let answers: Vec<_> = reply.entries.iter().map(|e| e.answer()).collect();
+    assert_eq!(answers, ["lumière", "clair"]);
+    assert!(reply.entries.iter().all(|e| e.fit == WordMatch::Exact));
+}
+
+#[test]
+fn burmese_reaches_french_through_english() {
+    let (_dir, mut dicts) = shelf();
+    let reply = ask(&mut dicts, look_up("အလင်း", Some("fr")));
+    assert_eq!(reply.from.as_deref(), Some("my"));
+    let answers: Vec<_> = reply
+        .entries
+        .iter()
+        .map(|e| (e.answer(), e.via.as_deref()))
+        .collect();
+    assert_eq!(
+        answers,
+        [("lumière", Some("light")), ("clair", Some("light"))]
+    );
+}
+
+#[test]
+fn a_near_miss_is_marked_as_one() {
+    let (_dir, mut dicts) = shelf();
+    let reply = ask(&mut dicts, look_up("colur", Some("my")));
+    assert_eq!(reply.entries.len(), 1);
+    assert_eq!(reply.entries[0].word, "colour");
+    assert_eq!(reply.entries[0].fit, WordMatch::Fuzzy);
+}
+
+#[test]
+fn a_search_from_french_answers_with_the_headword() {
+    let (_dir, mut dicts) = shelf();
+    let pair = Pair {
+        from: Some("fr".into()),
+        to: Some("en".into()),
+    };
+    let query = Query::Search {
+        text: "clair".into(),
+        pair: Some(pair),
+        pack: None,
+    };
+    let reply = ask(&mut dicts, query);
+    assert_eq!(reply.entries.len(), 1);
+    assert!(reply.entries[0].flipped);
+    assert_eq!(reply.entries[0].answer(), "light");
+}
+
+#[test]
+fn a_search_without_a_pair_spans_packs_or_keeps_to_one() {
+    let (_dir, mut dicts) = shelf();
+    let all = Query::Search {
+        text: "ight".into(),
+        pair: None,
+        pack: None,
+    };
+    let reply = ask(&mut dicts, all);
+    assert_eq!(reply.entries.len(), 4);
+    let one = Query::Search {
+        text: "ight".into(),
+        pair: None,
+        pack: Some("wiktionary-en-fr".into()),
+    };
+    let reply = ask(&mut dicts, one);
+    assert!(reply.entries.iter().all(|e| e.pack == "wiktionary-en-fr"));
+    assert_eq!(reply.entries.len(), 2);
+    let blank = Query::Search {
+        text: "  ".into(),
+        pair: None,
+        pack: None,
+    };
+    assert!(ask(&mut dicts, blank).entries.is_empty());
+}
+
+#[test]
+fn asks_on_the_worker_come_back_by_ticket() {
+    let (_dir, mut dicts) = shelf();
+    dicts.set_inline(false);
+    let ticket = dicts.ask(look_up("quick", Some("fr")));
+    let start = Instant::now();
+    let reply = loop {
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+        if let Some(r) = dicts.poll().1.pop() {
+            break r;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(reply.ticket, ticket);
+    assert_eq!(reply.entries[0].answer(), "rapide");
+}
+
+#[test]
+fn removing_a_pack_deletes_it() {
+    let (dir, mut dicts) = shelf();
+    let fr = pack("wiktionary-en-fr");
+    dicts.remove(fr);
+    assert_eq!(*dicts.state(fr), State::Absent);
+    let db = db_file(dir.path(), fr);
+    let start = Instant::now();
+    while db.exists() {
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let reply = ask(&mut dicts, look_up("light", Some("fr")));
+    assert_eq!(reply.to.as_deref(), Some("my"));
+}
+
+#[test]
+fn a_whole_download_converts_and_a_partial_one_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let fr = pack("wiktionary-en-fr");
+    let my = pack("mcfnlp-en-my");
+    let part = |p: &Pack| dir.path().join(format!("{}.parquet.part", p.id));
+    std::fs::copy(fixture("en-fr.parquet"), part(fr)).unwrap();
+    std::fs::write(part(my), b"PAR1 and then nothing").unwrap();
+    let mut dicts = Dictionaries::default();
+    dicts
+        .attach(dir.path().to_owned(), Arc::new(|| {}))
+        .unwrap();
+    assert_eq!(
+        *dicts.state(my),
+        State::Paused {
+            got: 21,
+            total: None
+        }
+    );
+    wait(&mut dicts, |d| *d.state(fr) != State::Converting);
+    assert_eq!(*dicts.state(fr), State::Ready);
+    assert!(!part(fr).exists());
+}
+
+#[test]
+fn unattached_dictionaries_answer_nothing() {
+    let mut dicts = Dictionaries::default();
+    assert!(!dicts.attached());
+    assert!(dicts.ready().is_empty());
+    let reply = ask(&mut dicts, look_up("run", None));
+    assert!(reply.entries.is_empty());
+    assert_eq!(reply.ready, 0);
+}
