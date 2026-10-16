@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::{Context, Pos2, Rect};
+use mareader_library::Gloss as MarkGloss;
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, Measure, NewMark, Opened, Spot,
 };
@@ -53,6 +54,8 @@ pub enum Action {
     Restore(Vec<MarkId>),
     /// Asks again after a failure.
     Retry,
+    /// Asks the AI chosen now; its answer replaces the saved one.
+    AskAgain,
     Close,
 }
 
@@ -85,7 +88,40 @@ struct MarkMenu {
 /// What a worker sends back: the answer so far, then the end.
 enum Got {
     Partial(WordInfo),
-    Done(Result<WordInfo, Failure>),
+    Done(Result<Said, Failure>),
+}
+
+/// A finished answer and who gave it.
+#[derive(Clone, Debug, PartialEq)]
+struct Said {
+    info: WordInfo,
+    by: String,
+}
+
+impl Said {
+    fn of(mark: &Mark) -> Option<Self> {
+        let g = mark.gloss.value.as_ref()?;
+        let info = WordInfo {
+            pos: g.pos.clone(),
+            meaning: g.meaning.clone(),
+            synonyms: g.synonyms.clone(),
+            usages: g.usages.clone(),
+        };
+        Some(Self {
+            info,
+            by: g.by.clone(),
+        })
+    }
+
+    fn gloss(&self) -> MarkGloss {
+        MarkGloss {
+            pos: self.info.pos.clone(),
+            meaning: self.info.meaning.clone(),
+            synonyms: self.info.synonyms.clone(),
+            usages: self.info.usages.clone(),
+            by: self.by.clone(),
+        }
+    }
 }
 
 /// Answers, the open card and menu, and marks kept by no library.
@@ -97,11 +133,14 @@ pub struct Study {
     loose: Library,
     card: Option<Card>,
     menu: Option<MarkMenu>,
-    answers: HashMap<Key, WordInfo>,
+    /// Answers this session; a mark's are saved with it too.
+    answers: HashMap<Key, Said>,
     /// Answers still arriving, as far as they got.
     partial: HashMap<Key, WordInfo>,
     failed: HashMap<Key, Failure>,
     asking: HashMap<Key, Receiver<Got>>,
+    /// Finished answers not yet filed, as inline asks leave them.
+    done: Vec<(Key, Said)>,
     next_loose: u64,
     /// Last frame's card and menu, so a press outside closes them.
     card_rect: Option<Rect>,
@@ -120,6 +159,7 @@ impl Default for Study {
             partial: HashMap::new(),
             failed: HashMap::new(),
             asking: HashMap::new(),
+            done: Vec::new(),
             next_loose: 0,
             card_rect: None,
             menu_rect: None,
@@ -136,9 +176,8 @@ fn loose_content(name: &str) -> ContentId {
 
 impl Study {
     pub fn set_explainer(&mut self, explainer: Arc<dyn Explainer>) {
+        // Saved answers stay; Ask again reaches the new AI.
         self.explainer = explainer;
-        self.answers.clear();
-        self.partial.clear();
         self.failed.clear();
     }
 
@@ -165,7 +204,14 @@ impl Study {
 
     /// The open card's answer, once it came, for tests.
     pub fn card_answer(&self) -> Option<&WordInfo> {
-        self.answers.get(&self.card.as_ref()?.key)
+        self.answers.get(&self.card.as_ref()?.key).map(|s| &s.info)
+    }
+
+    /// Who gave the open card's answer, for tests.
+    pub fn card_by(&self) -> Option<&str> {
+        self.answers
+            .get(&self.card.as_ref()?.key)
+            .map(|s| s.by.as_str())
     }
 
     /// The book's library: the app's, else the session's for `name`.
@@ -232,7 +278,7 @@ impl Study {
                 Key::Loose(self.next_loose)
             }
         };
-        self.open(ctx, pane, key, (asked.word, asked.context), rect);
+        self.open(ctx, main, pane, key, (asked.word, asked.context), rect);
     }
 
     /// A click on a mark: its card again.
@@ -241,14 +287,28 @@ impl Study {
             return;
         };
         let words = (m.word.clone(), m.context.clone());
-        self.open(ctx, pane, Key::Mark(id), words, at);
+        self.open(ctx, main, pane, Key::Mark(id), words, at);
     }
 
-    fn open(&mut self, ctx: &Context, pane: PaneId, key: Key, words: (String, String), at: Rect) {
+    fn open(
+        &mut self,
+        ctx: &Context,
+        main: &Library,
+        pane: PaneId,
+        key: Key,
+        words: (String, String),
+        at: Rect,
+    ) {
         let (word, context) = words;
         self.menu = None;
-        // A failed answer is asked for again.
+        // A failed answer is asked for again; a saved one is shown.
         self.failed.remove(&key);
+        if let Key::Mark(id) = key
+            && !self.answers.contains_key(&key)
+            && let Some(said) = self.mark(main, id).and_then(Said::of)
+        {
+            self.answers.insert(key, said);
+        }
         if !self.answers.contains_key(&key) && !self.asking.contains_key(&key) {
             self.ask(ctx, key, &word, &context);
         }
@@ -264,11 +324,13 @@ impl Study {
 
     fn ask(&mut self, ctx: &Context, key: Key, word: &str, context: &str) {
         let explainer = Arc::clone(&self.explainer);
+        let by = explainer.by();
         self.partial.remove(&key);
         if self.inline || cfg!(target_arch = "wasm32") {
             match explainer.explain(word, context, &|_| {}) {
                 Ok(info) => {
-                    self.answers.insert(key, info.clamped());
+                    let info = info.clamped();
+                    self.done.push((key, Said { info, by }));
                 }
                 Err(e) => {
                     self.failed.insert(key, e);
@@ -284,7 +346,11 @@ impl Study {
                 ctx.request_repaint();
             };
             let done = explainer.explain(&word, &context, &partial);
-            let _ = tx.send(Got::Done(done));
+            let said = done.map(|i| Said {
+                info: i.clamped(),
+                by,
+            });
+            let _ = tx.send(Got::Done(said));
             ctx.request_repaint();
         });
         self.asking.insert(key, rx);
@@ -351,6 +417,17 @@ impl Study {
                     self.ask(ctx, card.key, &card.word, &card.context);
                 }
             }
+            Action::AskAgain => {
+                // The saved answer stays until a new one replaces it.
+                if let Some(card) = self.card.clone()
+                    && !self.asking.contains_key(&card.key)
+                {
+                    self.answers.remove(&card.key);
+                    self.failed.remove(&card.key);
+                    self.ask(ctx, card.key, &card.word, &card.context);
+                }
+                self.save(main);
+            }
             Action::Close => {
                 self.card = None;
                 self.menu = None;
@@ -358,8 +435,8 @@ impl Study {
         }
     }
 
-    /// Takes in answers, finished or still filling in.
-    pub fn receive(&mut self) {
+    /// Takes in answers, finished or still filling in; marks keep theirs.
+    pub fn receive(&mut self, main: &mut Library) {
         let mut done = Vec::new();
         for (key, rx) in &self.asking {
             loop {
@@ -383,14 +460,27 @@ impl Study {
             self.asking.remove(&key);
             self.partial.remove(&key);
             match answer {
-                Some(Ok(info)) => {
-                    self.answers.insert(key, info.clamped());
-                }
+                Some(Ok(said)) => self.done.push((key, said)),
                 Some(Err(e)) => {
                     self.failed.insert(key, e);
                 }
                 None => {}
             }
+        }
+        self.save(main);
+    }
+
+    /// Files finished answers: in the session, and with their marks.
+    fn save(&mut self, main: &mut Library) {
+        let wall = crate::library::wall_ms();
+        for (key, said) in std::mem::take(&mut self.done) {
+            if let Key::Mark(id) = key {
+                let gloss = Some(said.gloss());
+                if !main.set_gloss(id, gloss.clone(), wall) {
+                    self.loose.set_gloss(id, gloss, wall);
+                }
+            }
+            self.answers.insert(key, said);
         }
     }
 
@@ -432,7 +522,7 @@ impl Study {
         let t = Tokens::get(ctx);
         self.card_rect = self.card.as_ref().and_then(|c| {
             let answer = match (self.answers.get(&c.key), self.failed.get(&c.key)) {
-                (Some(info), _) => card::Answer::Ready(info),
+                (Some(said), _) => card::Answer::Ready(&said.info, &said.by),
                 (None, Some(e)) => card::Answer::Failed(e),
                 (None, None) => match self.partial.get(&c.key) {
                     Some(info) => card::Answer::Partial(info),
@@ -470,4 +560,65 @@ pub fn tint(look: &GlossSettings, t: &Tokens) -> egui::Color32 {
         .rgb(look.custom)
         .map_or(t.accent, crate::theme::color);
     base.gamma_multiply(look.opacity.clamp(0.0, 1.0))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use mareader_study::Canned;
+
+    use super::*;
+
+    fn marked(said: &str) -> (Library, MarkId) {
+        let mut main = Library::new(DeviceId(1));
+        let opened = Opened {
+            path: PathBuf::from("/a.pdf"),
+            measure: Measure {
+                content: ContentId(7),
+                stamp: Default::default(),
+            },
+            format: Format::Pdf,
+            title: "A".into(),
+            author: None,
+        };
+        let book = main.record_open(opened, 1);
+        let spot = Spot::Page {
+            page: 0,
+            rect: [1.0, 2.0, 3.0, 4.0],
+        };
+        let new = NewMark {
+            word: "quick".into(),
+            context: "the quick fox".into(),
+            spot,
+        };
+        let id = main.add_mark(book, new, 2).unwrap();
+        let gloss = MarkGloss {
+            meaning: said.into(),
+            by: "Ollama · gemma".into(),
+            ..MarkGloss::default()
+        };
+        main.set_gloss(id, Some(gloss), 3);
+        (main, id)
+    }
+
+    #[test]
+    fn a_saved_answer_shows_without_asking_and_ask_again_replaces_it() {
+        let (mut main, id) = marked("Fast.");
+        let ctx = Context::default();
+        // A fresh session whose AI can't answer: the saved answer shows.
+        let mut study = Study::default();
+        study.set_inline(true);
+        study.open_mark(&ctx, &main, PaneId(1), id, Rect::ZERO);
+        let meaning = study.card_answer().map(|a| a.meaning.clone());
+        assert_eq!(meaning.as_deref(), Some("Fast."));
+        assert_eq!(study.card_by(), Some("Ollama · gemma"));
+
+        study.set_explainer(Arc::new(Canned));
+        let mut out = Commands::new();
+        study.act(&ctx, &mut main, Action::AskAgain, &mut out);
+        assert_eq!(study.card_by(), Some("Sample answers"));
+        let saved = main.mark(id).and_then(|m| m.gloss.value.clone()).unwrap();
+        assert_eq!(saved.by, "Sample answers");
+        assert_ne!(saved.meaning, "Fast.");
+    }
 }

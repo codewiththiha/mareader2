@@ -1244,9 +1244,9 @@ area = "I"
 tier = "P1"
 milestone = "M6"
 status = "shipped"
-evidence = ["crates/assist/tests/service.rs::apple_intelligence_streams_through_the_helper", "crates/assist/tests/service.rs::a_local_server_answers_without_keys", "crates/assist/tests/service.rs::providers_that_cannot_answer_say_why", "crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::the_ai_tab_picks_who_explains"]
+evidence = ["crates/assist/tests/service.rs::apple_intelligence_streams_through_the_helper", "crates/assist/tests/service.rs::a_local_server_answers_without_keys", "crates/assist/tests/service.rs::providers_that_cannot_answer_say_why", "crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::the_ai_tab_picks_who_explains", "crates/ui/src/study/mod.rs::a_saved_answer_shows_without_asking_and_ask_again_replaces_it", "crates/library/src/marks_tests.rs::an_answer_is_saved_with_its_mark_and_hides_with_it"]
 reference = ["crates/ai-core/src/gloss/mod.rs", "src-tauri/src/ai"]
-notes = "Apple Intelligence through the fm-bridge helper on a Mac, and on every desktop OpenAI, Gemini, OpenRouter, Ollama, LM Studio or a custom server through ai-pool, chosen in Settings › AI with managed keys (M6 slice 2). The card fills as the answer streams"
+notes = "Apple Intelligence through the fm-bridge helper on a Mac, and on every desktop OpenAI, Gemini, OpenRouter, Ollama, LM Studio or a custom server through ai-pool, chosen in Settings › AI with managed keys (M6 slice 2). The card fills as the answer streams; answers are saved with their marks, name who answered and can be asked again"
 
 [[feature]]
 id = "study.gloss-marks"

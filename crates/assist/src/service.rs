@@ -106,7 +106,20 @@ impl Assist {
         Arc::new(AiExplainer {
             engine: Arc::clone(&self.engine),
             backend: self.backend(ai.provider),
+            by: self.by(ai.provider),
         })
+    }
+
+    /// Who answers for `p`, as the card's small print names them.
+    fn by(&self, p: Provider) -> String {
+        match (p, &self.apple) {
+            (Provider::Auto | Provider::Apple, Some(_)) => Provider::Apple.label().to_owned(),
+            (Provider::Auto | Provider::Apple, None) => String::new(),
+            (server, _) => match self.ai.model(server).trim() {
+                "" => server.label().to_owned(),
+                model => format!("{} · {model}", server.label()),
+            },
+        }
     }
 
     /// Who answers for `p`, as configured.
@@ -208,6 +221,7 @@ impl Backend for Server {
 struct AiExplainer {
     engine: Arc<Engine>,
     backend: Arc<dyn Backend>,
+    by: String,
 }
 
 impl Explainer for AiExplainer {
@@ -220,6 +234,10 @@ impl Explainer for AiExplainer {
         let rt = self.engine.rt().ok_or(Why::NotHere)?;
         let task = Explain { word, context };
         rt.block_on(run(self.backend.as_ref(), &task, partial))
+    }
+
+    fn by(&self) -> String {
+        self.by.clone()
     }
 }
 

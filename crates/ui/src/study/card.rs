@@ -24,7 +24,8 @@ pub enum Answer<'a> {
     Waiting,
     /// Filling in as the model streams.
     Partial(&'a WordInfo),
-    Ready(&'a WordInfo),
+    /// Done, with who answered; saved with the mark.
+    Ready(&'a WordInfo, &'a str),
     Failed(&'a Failure),
 }
 
@@ -81,7 +82,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
                 .strong()
                 .color(t.ink),
         );
-        if let Answer::Ready(info) | Answer::Partial(info) = &view.answer
+        if let Answer::Ready(info, _) | Answer::Partial(info) = &view.answer
             && !info.pos.is_empty()
         {
             ui.label(RichText::new(&info.pos).italics().color(t.muted));
@@ -98,7 +99,10 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
             answer(ui, info, t);
             explaining(ui, t);
         }
-        Answer::Ready(info) => answer(ui, info, t),
+        Answer::Ready(info, by) => {
+            answer(ui, info, t);
+            footer(ui, by, t, out);
+        }
         Answer::Failed(e) => {
             ui.horizontal_wrapped(|ui| {
                 let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), egui::Sense::hover());
@@ -113,6 +117,28 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
             }
         }
     }
+}
+
+/// Who answered, and a way to ask the AI chosen now instead.
+fn footer(ui: &mut Ui, by: &str, t: &Tokens, out: &mut Commands) {
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        if !by.is_empty() {
+            ui.label(RichText::new(by).size(t.text_small).color(t.muted));
+        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let text = RichText::new("Ask again")
+                .size(t.text_small)
+                .color(t.accent);
+            let again = ui.add(egui::Button::new(text).frame(false));
+            if again
+                .on_hover_text("Ask the AI chosen in Settings")
+                .clicked()
+            {
+                out.push(Command::Study(Action::AskAgain));
+            }
+        });
+    });
 }
 
 fn heading(ui: &mut Ui, text: &str, t: &Tokens) {

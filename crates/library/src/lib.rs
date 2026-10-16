@@ -38,7 +38,7 @@ pub use clock::{Clock, Field, Stamp};
 pub use extra::Extra;
 pub use id::{BookId, ContentId, DeviceId, MarkId, ShelfId, SourceId};
 pub use library::{Dirty, Library, Measure, Opened};
-pub use marks::{Mark, NewMark, Spot};
+pub use marks::{Gloss, Mark, NewMark, Spot};
 pub use merge::Merge;
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use records::{Changes, Kind, Row};
