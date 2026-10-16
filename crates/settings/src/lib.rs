@@ -37,7 +37,7 @@ pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};
 
 /// Bumped with every migration step in `load.rs`.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The whole persisted state of the user's choices.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -90,6 +90,7 @@ impl Settings {
         self.layout.sanitize();
         self.text.sanitize();
         self.study.sanitize();
+        self.dictionary.sanitize();
         self.ai.sanitize();
         self.workspace.look.sanitize();
         self.library.sanitize();

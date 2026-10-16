@@ -107,6 +107,12 @@ pub enum Command {
     Study(crate::study::Action),
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
+    /// Looks the pane's selection up in the dictionaries.
+    LookUp(PaneId),
+    /// Packs to download or remove, and the lookup card.
+    Dict(crate::dict::Action),
+    /// The Dictionary panel's choices, saved with the settings.
+    SetDictionary(Box<mareader_settings::DictionarySettings>),
     /// Highlights the pane's selection; a colour if one was picked.
     Highlight {
         pane: PaneId,

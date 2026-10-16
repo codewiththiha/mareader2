@@ -37,14 +37,16 @@ pub struct GlossSettings {
 pub enum BarItem {
     Copy,
     Explain,
+    LookUp,
     Highlight(Pen),
 }
 
 impl BarItem {
     /// Every button, in the order a new menu lists them.
-    pub const ALL: [BarItem; 5] = [
+    pub const ALL: [BarItem; 6] = [
         BarItem::Copy,
         BarItem::Explain,
+        BarItem::LookUp,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),
         BarItem::Highlight(Pen::Half),
@@ -54,6 +56,7 @@ impl BarItem {
         match self {
             Self::Copy => "Copy",
             Self::Explain => "Explain",
+            Self::LookUp => "Look up",
             Self::Highlight(pen) => pen.label(),
         }
     }
@@ -173,6 +176,7 @@ impl Default for HighlightSettings {
             bar: vec![
                 BarItem::Copy,
                 BarItem::Explain,
+                BarItem::LookUp,
                 BarItem::Highlight(Pen::Full),
                 BarItem::Highlight(Pen::Underline),
             ],
@@ -272,12 +276,23 @@ pub struct DictionarySettings {
     /// Looks a word up on hover rather than only on click.
     pub hover: bool,
     pub default_lang: Option<String>,
-    /// Installed dictionary ids, in lookup order.
+    /// The packs the Dictionary panel searches; none means every one.
     pub langs: Vec<String>,
     /// Translate between a fixed `from` and `to` language.
     pub pair: bool,
     pub from: Option<String>,
     pub to: Option<String>,
+}
+
+impl DictionarySettings {
+    pub fn sanitize(&mut self) {
+        let mut seen = Vec::with_capacity(self.langs.len());
+        self.langs.retain(|id| {
+            let new = !seen.contains(id);
+            seen.push(id.clone());
+            new
+        });
+    }
 }
 
 impl Default for DictionarySettings {

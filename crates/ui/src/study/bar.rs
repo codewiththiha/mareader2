@@ -1,4 +1,4 @@
-//! The small bar under a selection: Copy, Explain and the highlighters.
+//! The small bar under a selection: Copy, Explain, Look up, highlighters.
 
 use egui::{
     Align2, Context, CornerRadius, Frame, Id, Margin, Order, Rect, Sense, Stroke, Ui, pos2, vec2,
@@ -22,6 +22,7 @@ const SWATCH: f32 = 20.0;
 pub enum BarPress {
     Copy,
     Explain,
+    LookUp,
     /// A highlighter; a colour if the reader picked one.
     Highlight(Pen, Option<Rgb>),
 }
@@ -114,6 +115,9 @@ fn button(
         BarItem::Explain => widgets::icon_button(ui, Icon::Explain, "Explain", false)
             .clicked()
             .then_some(BarPress::Explain),
+        BarItem::LookUp => widgets::icon_button(ui, Icon::LookUp, "Look up", false)
+            .clicked()
+            .then_some(BarPress::LookUp),
         BarItem::Highlight(pen) => {
             let resp = widgets::icon_button(ui, pen_icon(pen), pen.label(), *open == Some(pen));
             let strip =
