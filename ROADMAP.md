@@ -111,6 +111,7 @@ appearance effects to that same pass.
 | 1 | Proof sweep: window commands, title, dividers, popovers and idle frames tested; every control named for screen readers; the real-machine checks listed (`docs/verification.md`) | **done** | a screen reader names each settings slider and box; `cargo test -p mareader-ui --test chrome --test a11y` |
 | 2 | What is left of P1 and P2: the theme from the first frame, a source folder's own subfolders, distraction-free reading by command | **done** | launch on a light theme: no dark flash; choose a folder's chip, then a subfolder chip under it, and its crumbs back up; ⌘/Ctrl+Shift+F or the View menu's Distraction-free, Esc to leave |
 | 3 | Memory budgets measured again over both formats and the library | **done** | `python3 tools/ci.py memory --ref BRANCH`, or `cargo run -p mareader-ui --example memory -- BOOK [ROUNDS]` (`--library N`, `--seeded N`); `docs/memory.md` § 2026-10-16 |
+| 5 | Closing M8: the owner's Mac check recorded, the Arch package's libraries, release notes, and v0.0.1 published for all three systems | **done** | the release page lists an installer per system with install steps; `docs/releases/v0.0.1.md` |
 | 4 | Installers built in CI for macOS, Windows and Linux | **done** | `python3 tools/ci.py installers`, or push a `release/<slug>` branch; a `v<version>` tag drafts a release; `docs/packaging.md` § Installers from CI |
 
 ## Next
@@ -154,6 +155,10 @@ appearance effects to that same pass.
     pacman; `.dmg` for Apple Silicon and Intel; NSIS and MSI, each
     installed, launched with a book and removed in CI. Landed. M8 is
     done but for the Mac run of the traffic lights.
+12. **Closing M8** (§ M8 slices, row 5): the owner checked the Mac rows
+    of `docs/verification.md` (2026-10-17), so the traffic lights are
+    shipped, and v0.0.1 is published for macOS, Windows and Linux. M8
+    is done. Next is M9, sync, when the owner asks for it.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -171,7 +176,8 @@ appearance effects to that same pass.
 - **Closing M2.** Answered: finish all seven. Slices 8 to 11 shipped page
   chrome, mixed sizes, the vertical view, tiles, capped caches, the find key
   and opening files from the system. Left: the owner checks Finder opens on
-  a Mac (docs/packaging.md § Checking it on a Mac).
+  a Mac (docs/packaging.md § Checking it on a Mac). Done (owner,
+  2026-10-17): Finder opens and the traffic lights both passed.
 
 - **EPUB spike (M4).** The open questions at the end of ADR 0002 (glyph-run
   drawing, reading fonts). Answered by slice 1; see the ADR's answers.
@@ -251,3 +257,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M8 slice 2, the last P1 and P2 features. The window clears to the remembered paper and paints it on the frame that waits for fonts, so a light theme never opens dark. A chosen folder shows its own books with a chip per subfolder (counting every book below) and crumbs back up, whatever its shelving; a search covers the subfolder and all below it, and choosing a deeper result walks there. Distraction-free reading (⌘/Ctrl+Shift+F or the View menu) hides the title bar, page bars and sidebar while reading, keeps the floating label, leaves the library its bar, and ends with Esc or the same key |
 | 2026-10-16 | M8 slice 3, memory budgets. The memory example now covers PDFs, EPUBs, a 3,000-PDF library read in place and 20,000 books without files, and ends each workload with a table of budgets that fails the run on a breach: closed books leave no document or search, later rounds' floor stays level, a second pane costs under a quarter of the first open, page and cover caps hold, a book costs at most 16 KiB (3.3 measured) and a scroll to the end adds at most 256 MiB at its peak (152 measured). CI runs it as the Remote memory task (`tools/ci.py memory`), with the EPUB layout test; the step keeps a breach's exit status. Found by it: covers scrolled past stayed queued, so a fling over a big library read and uploaded every cover it passed (only covers asked for this frame or last wait now, four inline loads a frame at most, nearest first); a closed pane's search kept its book until the bar was used again. A 5 GB scroll peak was the test harness, which submits uploads only when it renders. `docs/memory.md` § 2026-10-16 |
 | 2026-10-16 | M8 slice 4, installers. `.github/workflows/installers.yml` builds each platform's installers on that platform: `.deb`, AppImage and pacman on Ubuntu 22.04 (glibc 2.35, so the AppImage runs widely), `.dmg` on Apple Silicon (with the Apple Intelligence helper built by Xcode 26) and on Intel, NSIS and MSI on Windows. `tools/check-installers.sh` then installs each one, checks what it registers (PDF, EPUB, text and Markdown, as mareader did; text and Markdown are new here), opens a book with it on the runner's software GPU or Metal, and removes it. The Mac app is signed ad hoc, so a download asks once instead of being called damaged, and a Developer ID and notarization switch on with repository secrets. The `.deb` names the libraries Mareader loads at run time. A `v<version>` tag drafts a release with every installer and `SHA256SUMS`; a `release/<slug>` branch tries packaging changes; `tools/ci.py installers` dispatches a run and prints each platform's checks. `docs/packaging.md` § Installers from CI |
+| 2026-10-17 | Closing M8 and v0.0.1. The owner checked the Mac rows of `docs/verification.md` on a real Mac: the bar drags, the traffic lights sit in it and slide with the sidebar, and books open from Finder. `chrome.traffic-lights` is shipped, so every P0 and P1 is. The Arch `PKGBUILD` now names the libraries Mareader loads (as the `.deb` does) and CI checks the pacman archive. A release takes its notes from `docs/releases/<tag>.md`; v0.0.1's say which file each system needs, how to install it, and what the first launch asks, as the builds are not signed by Apple or Microsoft. The `v0.0.1` tag built and checked every installer in CI, and the release is published. |
