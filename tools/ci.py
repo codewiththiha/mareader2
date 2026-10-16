@@ -7,6 +7,7 @@
   python3 tools/ci.py watch --detach       # in the background; --tail, --stop
   python3 tools/ci.py shots "grid texture=grid gap=false" "dark theme=dark"
   python3 tools/ci.py web                  # the browser preview, built + screenshot
+  python3 tools/ci.py memory --ref feat/x  # docs/memory.md's workloads and budgets
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
 
@@ -228,7 +229,7 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int) -> Run:
         run = refresh(repo, token, run)
         # A Remote run is named by its title: "task sha id".
         task = run.name.split()[0]
-        if task in ("shots", "web", "cache"):
+        if task in ("shots", "web", "memory", "cache"):
             run.name = f"Remote {task}"
         running = [j.name for j in run.jobs if j.status != "completed"]
         state = f"{run.status} {', '.join(running)}"
@@ -413,13 +414,14 @@ def pushed_sha(repo: str, token: str, rev: str) -> str:
     return sha
 
 
-def dispatch(repo: str, token: str, task: str, sha: str, **inputs: str) -> Run:
-    """Start a Remote run and find it by the id in its title."""
+def dispatch(repo: str, token: str, task: str, sha: str, ref: str = "main",
+             **inputs: str) -> Run:
+    """Start a Remote run, with `ref`'s workflow, found by its title's id."""
     if not token:
         raise SystemExit("dispatching needs a token: --token-file or $GITHUB_TOKEN")
     rid = secrets.token_hex(4)
     api(token, f"/repos/{repo}/actions/workflows/{REMOTE}/dispatches",
-        {"ref": "main", "inputs": {"task": task, "sha": sha, "id": rid, **inputs}})
+        {"ref": ref, "inputs": {"task": task, "sha": sha, "id": rid, **inputs}})
     log(f"== dispatched Remote {task} on {sha[:9]} (id {rid})")
     for _ in range(40):
         time.sleep(3)
@@ -462,9 +464,10 @@ def remote_task(args, task: str, name: str, **inputs: str) -> tuple[int, str]:
     """Dispatch, follow, and unpack a small artifact into the out dir."""
     token = token_from(args)
     sha = pushed_sha(args.repo, token, args.rev)
-    run = dispatch(args.repo, token, task, sha, **inputs)
+    run = dispatch(args.repo, token, task, sha, getattr(args, "ref", "main"), **inputs)
     run = follow(args.repo, token, run, args.timeout, args.poll)
-    if run.conclusion != "success":
+    # A broken budget still leaves its tables to read.
+    if run.conclusion != "success" and task != "memory":
         return 1, ""
     item = artifact(args.repo, token, run.id, name)
     raw = api(token, item["archive_download_url"], raw=True)
@@ -693,6 +696,16 @@ def token_from(args) -> str:
     return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
 
 
+def memory(args) -> int:
+    code, out = remote_task(args, "memory", "memory")
+    report = os.path.join(out, "memory.md")
+    if os.path.exists(report):
+        log(f"  tables and budgets: {report}")
+        held = "**no**" not in open(report).read()
+        return code if held else 1
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -716,6 +729,9 @@ def main() -> int:
     s = sub.add_parser("shots", help="render shots in CI and download them")
     s.add_argument("spec", nargs="+", help='"NAME key=value ...", the shot example\'s keys')
     wb = sub.add_parser("web", help="build the browser preview in CI and download it")
+    me = sub.add_parser("memory", help="measure memory and its budgets in CI")
+    me.add_argument("--ref", default="main",
+                    help="branch whose workflow runs (one with the memory task)")
     c = sub.add_parser("cache", help="a sandbox build cache made by CI")
     c.add_argument("action", choices=["build", "restore", "seed"],
                    help="seed is the cache job's own first step")
@@ -723,12 +739,12 @@ def main() -> int:
                    help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
     c.add_argument("--force", action="store_true", help="replace an existing cache")
-    for p in (w, s, wb, c):
+    for p in (w, s, wb, me, c):
         p.add_argument("--timeout", type=int, default=3600, help="seconds to wait")
         p.add_argument("--poll", type=int, default=15, help="seconds between polls")
-    for p in (s, wb, c):
+    for p in (s, wb, me, c):
         p.add_argument("--rev", default="HEAD", help="commit to use (must be pushed)")
-    for p in (s, wb):
+    for p in (s, wb, me):
         p.add_argument("--out", help="where to unpack (default target/remote/<task>)")
 
     args = ap.parse_args()
@@ -744,6 +760,8 @@ def main() -> int:
         return shots(args)
     if args.cmd == "web":
         return web(args)
+    if args.cmd == "memory":
+        return memory(args)
     if args.action == "seed":
         return cache_seed(args)
     return cache_build(args) if args.action == "build" else cache_restore(args)
