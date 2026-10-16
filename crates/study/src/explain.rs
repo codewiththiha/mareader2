@@ -4,13 +4,19 @@ use crate::answer::WordInfo;
 
 /// Explains a word in context; runs on a worker, so it may block.
 pub trait Explainer: Send + Sync {
-    fn explain(&self, word: &str, context: &str) -> Result<WordInfo, Failure>;
+    /// The answer; `partial` sees it fill in, when the answerer streams.
+    fn explain(
+        &self,
+        word: &str,
+        context: &str,
+        partial: &(dyn Fn(WordInfo) + Sync),
+    ) -> Result<WordInfo, Failure>;
 }
 
 /// Why no answer came; the card shows [`Why::message`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Why {
-    /// This machine has nothing to explain with.
+    /// No AI is set up, or the chosen one can't run here.
     NotHere,
     /// The model is there but not ready yet.
     NotReady,
@@ -20,36 +26,81 @@ pub enum Why {
     Busy,
     /// An answer came that couldn't be read.
     BadAnswer,
+    /// The provider needs an API key and has none.
+    NoKey,
+    /// Every key was turned away.
+    KeysRejected,
+    /// The provider couldn't be reached.
+    Offline,
+    /// The provider turned the request down, as for an unknown model.
+    Setup,
+    /// The model can't work in the text's language.
+    Language,
+    /// The system keychain holding the keys is locked.
+    Locked,
 }
 
 impl Why {
     pub fn message(self) -> &'static str {
         match self {
-            Self::NotHere => {
-                "Explaining words needs Apple Intelligence, on a Mac with Apple silicon."
-            }
+            Self::NotHere => "No AI is set up to explain words. Choose one in Settings › AI.",
             Self::NotReady => "The model isn't ready yet. Try again in a moment.",
             Self::Refused => "The model declined to explain this word.",
             Self::TimedOut => "The answer took too long.",
             Self::Busy => "The model is busy. Try again in a moment.",
             Self::BadAnswer => "The answer couldn't be read.",
+            Self::NoKey => "This provider needs an API key. Add one in Settings › AI.",
+            Self::KeysRejected => "Every API key was turned away. Check them in Settings › AI.",
+            Self::Offline => "The AI couldn't be reached. Check the connection or the server.",
+            Self::Setup => "The AI turned the request down. Check the model in Settings › AI.",
+            Self::Language => "The model can't explain words in this language.",
+            Self::Locked => "The keychain holding the API keys is locked.",
         }
     }
 
-    /// Whether asking again may help.
+    /// Whether asking again, unchanged, may help.
     pub fn retry(self) -> bool {
-        !matches!(self, Self::NotHere | Self::Refused)
+        !matches!(
+            self,
+            Self::NotHere
+                | Self::Refused
+                | Self::NoKey
+                | Self::KeysRejected
+                | Self::Setup
+                | Self::Language
+        )
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub why: Why,
+    /// What the provider said, for the card's small print.
+    pub detail: Option<String>,
+}
+
+impl Failure {
+    /// Small print longer than this is cut.
+    pub const DETAIL_CHARS: usize = 240;
+
+    /// `why`, with the provider's words cut to [`Self::DETAIL_CHARS`].
+    pub fn detailed(why: Why, detail: impl Into<String>) -> Self {
+        let detail: String = detail.into();
+        let detail = detail.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut cut: String = detail.chars().take(Self::DETAIL_CHARS).collect();
+        if cut.len() < detail.len() {
+            cut.push('…');
+        }
+        Self {
+            why,
+            detail: Some(cut).filter(|d| !d.is_empty()),
+        }
+    }
 }
 
 impl From<Why> for Failure {
     fn from(why: Why) -> Self {
-        Self { why }
+        Self { why, detail: None }
     }
 }
 
@@ -58,7 +109,12 @@ impl From<Why> for Failure {
 pub struct Unavailable;
 
 impl Explainer for Unavailable {
-    fn explain(&self, _word: &str, _context: &str) -> Result<WordInfo, Failure> {
+    fn explain(
+        &self,
+        _: &str,
+        _: &str,
+        _: &(dyn Fn(WordInfo) + Sync),
+    ) -> Result<WordInfo, Failure> {
         Err(Why::NotHere.into())
     }
 }
@@ -68,9 +124,14 @@ impl Explainer for Unavailable {
 pub struct Canned;
 
 impl Explainer for Canned {
-    fn explain(&self, word: &str, context: &str) -> Result<WordInfo, Failure> {
+    fn explain(
+        &self,
+        word: &str,
+        context: &str,
+        partial: &(dyn Fn(WordInfo) + Sync),
+    ) -> Result<WordInfo, Failure> {
         if word.eq_ignore_ascii_case("fail") {
-            return Err(Why::NotReady.into());
+            return Err(Failure::detailed(Why::NotReady, "scripted failure"));
         }
         let lower = word.to_lowercase();
         let info = match lower.as_str() {
@@ -90,22 +151,53 @@ impl Explainer for Canned {
                 usages: vec![format!("As in: {context}")],
             },
         };
+        // As a streaming model would: the meaning first.
+        partial(WordInfo {
+            pos: info.pos.clone(),
+            meaning: info.meaning.clone(),
+            ..WordInfo::default()
+        });
         Ok(info.clamped())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
 
     #[test]
     fn the_stand_ins_answer_as_promised() {
-        let none = Unavailable.explain("fox", "the fox");
+        let none = Unavailable.explain("fox", "the fox", &|_| {});
         assert_eq!(none, Err(Why::NotHere.into()));
         assert!(!Why::NotHere.retry());
-        let quick = Canned.explain("Quick", "The quick fox").map(|i| i.pos);
-        assert_eq!(quick.as_deref(), Ok("adjective"));
-        assert_eq!(Canned.explain("fail", ""), Err(Why::NotReady.into()));
+        let seen = Mutex::new(Vec::new());
+        let quick = Canned.explain("Quick", "The quick fox", &|p| {
+            if let Ok(mut s) = seen.lock() {
+                s.push(p);
+            }
+        });
+        assert_eq!(quick.map(|i| i.pos).as_deref(), Ok("adjective"));
+        let seen = seen.into_inner().unwrap_or_default();
+        assert_eq!(seen.len(), 1);
+        assert!(
+            seen.iter()
+                .all(|p| p.synonyms.is_empty() && !p.meaning.is_empty())
+        );
+        let failed = Canned.explain("fail", "", &|_| {});
+        assert_eq!(failed.map_err(|f| f.why), Err(Why::NotReady));
         assert!(Why::NotReady.retry());
+    }
+
+    #[test]
+    fn small_print_is_one_trimmed_line_and_cut() {
+        let f = Failure::detailed(Why::Setup, "  model\n  not   found ");
+        assert_eq!(f.detail.as_deref(), Some("model not found"));
+        let long = Failure::detailed(Why::Setup, "é".repeat(500));
+        let shown = long.detail.unwrap_or_default();
+        assert_eq!(shown.chars().count(), Failure::DETAIL_CHARS + 1);
+        assert!(shown.ends_with('…'));
+        assert_eq!(Failure::detailed(Why::Busy, "  ").detail, None);
     }
 }
