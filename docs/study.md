@@ -175,3 +175,36 @@ slice 5.
   highlights, so nothing you highlight can pass for an AI mark or a CEFR
   word. AI marks default to a full violet highlight.
 
+
+## Slice 3 behaviour
+
+- **Records.** A highlight is a mark with `kind: highlight`, its `pen` and
+  maybe a `color`; marks saved before keep reading as Explain marks. Its
+  spot spans pages: `Chars` keeps a PDF's `[page, char]` from and to,
+  `Blocks` a book's `[block, byte]`, so type changes find it again. The
+  same text with the same pen is one highlight; another pen is another.
+- **Colours.** A highlight made with "Use its colour" keeps none and
+  follows its pen's colour in Settings. One picked from the colour row
+  keeps it. A kept colour that later meets a reserved look is drawn in
+  its pen's colour instead.
+- **Drawing.** Fills are square, at Fill strength (50% by default, 20 to
+  80%); half fills the lower half of each line; underlines are solid, about
+  8% of the line high. Highlights are drawn first and AI marks over them.
+- **Clicks.** A click on an AI mark opens its card, as before; a click on
+  your highlight opens its menu with Remove highlight, with Undo.
+- **The bar** shows the menu's buttons in order, each pen's button with
+  its colour underneath. With every button hidden no bar shows; Copy's
+  shortcut still works. With "Choose a colour each time" a pen opens a
+  colour row: its own colour, then the palette, without reserved pairs.
+- **Settings › Highlights.** Each pen's colour (eight PDFCraft colours or
+  a custom one), Fill strength, the click choice, the menu's buttons with
+  show switches and up and down, then the AI's pen, colour and the card's
+  spacing. Reserved pairs show crossed out. The AI cannot take a pen's own
+  colour; if the AI moves to a pen whose colour it holds, that pen moves
+  to the next free colour.
+- **Left for later.** Selecting many marks to remove at once moves to the
+  next study slice.
+- **Checks.** Unit tests cover the records, old rows, spans and reserved
+  pairs; kittests highlight and underline from the bar, remove with a
+  click, pick from the colour row, set the tab, and stage highlights with
+  the `highlight=full|half|underline` option after `selection=`.

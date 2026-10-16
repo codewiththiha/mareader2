@@ -112,7 +112,7 @@ fn select(h: &mut H, page: usize, text: &str) {
 
 fn marks(h: &H) -> Vec<Spot> {
     let pane = h.state().active_pane();
-    h.state().marks(pane).into_iter().map(|(_, s)| s).collect()
+    h.state().marks(pane).into_iter().map(|m| m.spot).collect()
 }
 
 #[test]
@@ -291,6 +291,134 @@ fn the_options_turn_to_the_page_and_open_the_card() -> Out {
     assert_eq!(h.state().study().card_word(), Some("customs"), "{state}");
     assert_eq!(marks(&h).len(), 1);
     Ok(())
+}
+
+#[test]
+fn the_bar_highlights_and_underlines_and_a_click_offers_removal() -> Out {
+    use mareader_library::Pen;
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let (layer, sheet) = page(&h, 0)?;
+    let quick = find(&layer, "quick brown")?;
+    select(&mut h, 0, "quick brown");
+    // Half is offered only once the reader adds it to the menu.
+    assert!(h.query_by_label("Half highlight").is_none());
+    h.get_by_label("Highlight").click();
+    h.run();
+    let pane = h.state().active_pane();
+    assert!(h.state().documents().selection(pane).is_none());
+    let (from, to) = ([0, quick], [0, quick + 11]);
+    assert_eq!(marks(&h), [Spot::Chars { from, to }]);
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Underline").click();
+    h.run();
+    let pens: Vec<Pen> = h.state().marks(pane).iter().map(|m| m.ink.pen).collect();
+    assert_eq!(pens, [Pen::Full, Pen::Underline]);
+    let yellow = h.state().settings().study.highlights.full;
+    assert_eq!(
+        h.state().marks(pane).first().map(|m| m.ink.color),
+        Some(yellow)
+    );
+    // A click on the reader's own highlight offers removal, not a card.
+    press(
+        &mut h,
+        middle(&layer, sheet, quick + 2)?,
+        PointerButton::Primary,
+    );
+    assert_eq!(h.state().study().card_word(), None);
+    h.get_by_label("Remove highlight").click();
+    h.run();
+    assert_eq!(marks(&h).len(), 1);
+    Ok(())
+}
+
+#[test]
+fn asking_for_a_colour_each_time_never_offers_the_ai_look() -> Out {
+    use mareader_library::Pen;
+    use mareader_settings::{BarItem, PickColor};
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let look = &mut h.state_mut().settings_mut().study.highlights;
+    look.pick = PickColor::Ask;
+    look.bar.push(BarItem::Highlight(Pen::Half));
+    let violet = look.ai.color.to_hex();
+    select(&mut h, 0, "quick");
+    h.get_by_label("Highlight").click();
+    h.run();
+    // The AI marks words in violet with this pen, so it is left out.
+    assert!(h.query_by_label(&violet).is_none());
+    h.get_by_label("#ffbe00").click();
+    h.run();
+    let pane = h.state().active_pane();
+    let shown = h.state().marks(pane);
+    let ink = shown.first().map(|m| (m.ink.pen, m.ink.color.to_hex()));
+    assert_eq!(ink, Some((Pen::Full, "#ffbe00".to_owned())));
+    // Half was added to the menu, where the AI's colour is fine.
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Half highlight").click();
+    h.run();
+    h.get_by_label(&violet);
+    Ok(())
+}
+
+#[test]
+fn the_options_highlight_a_book_across_its_blocks() -> Out {
+    let opts = [
+        ("epub", "sample:2"),
+        ("selection", "1:customs"),
+        ("highlight", "underline"),
+    ];
+    let mut h = reader(&opts);
+    h.run_steps(10);
+    let spots = marks(&h);
+    assert!(
+        matches!(spots.as_slice(), [Spot::Blocks { .. }]),
+        "{spots:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
+    use egui::accesskit::Role;
+    use mareader_appearance::Rgb;
+    use mareader_library::Pen;
+    use mareader_settings::BarItem;
+    use mareader_ui::settings_window::Tab;
+    let mut h = reader(&[("pdf", "sample")]);
+    h.set_size(egui::vec2(1000.0, 1200.0));
+    h.state_mut().queue(Command::OpenSettings(Tab::Highlights));
+    h.run();
+    // The AI marks words with this pen and colour: it can't be picked.
+    h.get_by_label("Highlight #a58af0").click();
+    h.get_by_label("Highlight #ffbe00").click();
+    h.run();
+    let look = &h.state().settings().study.highlights;
+    assert_eq!(look.full, Rgb(0xff, 0xbe, 0x00));
+    // Half joins the menu; Copy moves down past Explain.
+    h.get_by_role_and_label(Role::CheckBox, "Half highlight")
+        .click();
+    h.get_by_label("Move Copy down").click();
+    h.run();
+    let bar = &h.state().settings().study.highlights.bar;
+    let want = [
+        BarItem::Explain,
+        BarItem::Copy,
+        BarItem::Highlight(Pen::Full),
+        BarItem::Highlight(Pen::Underline),
+        BarItem::Highlight(Pen::Half),
+    ];
+    assert_eq!(bar.as_slice(), want);
+    // Half takes violet, then the AI takes Half: Half moves on.
+    h.get_by_label("Half highlight #a58af0").click();
+    h.run();
+    let ai_half = h.get_by_role_and_label(Role::Button, "Half highlight");
+    ai_half.scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "Half highlight")
+        .click();
+    h.run();
+    let look = &h.state().settings().study.highlights;
+    assert_eq!(look.ai.pen, Pen::Half);
+    assert_ne!(look.half, look.ai.color);
 }
 
 #[test]

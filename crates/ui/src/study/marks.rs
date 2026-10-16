@@ -1,17 +1,38 @@
 //! Marks on the pages on screen: where each lands, drawn and hit.
 
-use egui::{Color32, Pos2, Rect, Ui};
-use mareader_library::{MarkId, Spot};
-use mareader_pdf::Bounds;
+use std::ops::Range;
+
+use egui::{Painter, Pos2, Rect, Ui, pos2};
+use mareader_appearance::Rgb;
+use mareader_library::{MarkId, Pen, Spot};
+use mareader_pdf::{Bounds, TextLayer};
 
 use super::words::find;
-use crate::selection::Pages;
+use crate::selection::{Caret, Pages, Selection};
+
+/// How a mark is drawn, resolved from its record and the settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ink {
+    pub pen: Pen,
+    pub color: Rgb,
+    /// An Explain mark: drawn last, and a click opens its card.
+    pub ai: bool,
+}
+
+/// A mark to draw: which, where and how.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shown {
+    pub id: MarkId,
+    pub spot: Spot,
+    pub ink: Ink,
+}
 
 /// One mark on screen: a box per line it covers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub id: MarkId,
     pub rects: Vec<Rect>,
+    pub ink: Ink,
 }
 
 impl Placed {
@@ -27,7 +48,7 @@ impl Placed {
 }
 
 /// Where `marks` fall on the pages on screen; ones off screen are left out.
-pub fn place(marks: &[(MarkId, Spot)], pages: &Pages<'_>) -> Vec<Placed> {
+pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
     let mut out = Vec::new();
     for sheet in pages.sheets {
         let layer = pages.texts.get(pages.doc, sheet.page);
@@ -37,8 +58,8 @@ pub fn place(marks: &[(MarkId, Spot)], pages: &Pages<'_>) -> Vec<Placed> {
             let last = (0..l.places.len()).rev().find_map(|i| l.place(i))?;
             Some((first, last))
         });
-        for (id, spot) in marks {
-            let boxes = match *spot {
+        for mark in marks {
+            let boxes = match mark.spot {
                 Spot::Page { page, rect } if page == sheet.page => {
                     let [x, y, w, h] = rect;
                     vec![Bounds {
@@ -60,6 +81,26 @@ pub fn place(marks: &[(MarkId, Spot)], pages: &Pages<'_>) -> Vec<Placed> {
                     };
                     layer.text.boxes(chars)
                 }
+                Spot::Chars { from, to } => {
+                    let Some(layer) = &layer else { continue };
+                    let Some(chars) = chars(from, to).on_page(sheet.page, layer.text.len()) else {
+                        continue;
+                    };
+                    layer.text.boxes(chars)
+                }
+                Spot::Blocks { from, to } => {
+                    let (Some(layer), Some((first, last))) = (&layer, span) else {
+                        continue;
+                    };
+                    let (from, to) = ((from[0], from[1]), (to[0], to[1]));
+                    if to <= first || from > last {
+                        continue;
+                    }
+                    let Some(chars) = between(layer, from, to) else {
+                        continue;
+                    };
+                    layer.text.boxes(chars)
+                }
                 Spot::Page { .. } => continue,
             };
             let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
@@ -68,19 +109,61 @@ pub fn place(marks: &[(MarkId, Spot)], pages: &Pages<'_>) -> Vec<Placed> {
                 .filter(|r| r.is_positive())
                 .collect();
             if !rects.is_empty() {
-                out.push(Placed { id: *id, rects });
+                out.push(Placed {
+                    id: mark.id,
+                    rects,
+                    ink: mark.ink,
+                });
             }
         }
     }
     out
 }
 
-/// Soft rounded fills under each marked word.
-pub fn paint(ui: &Ui, placed: &[Placed], tint: Color32) {
+/// A PDF highlight's span, as the selection it was made from.
+pub fn chars(from: [usize; 2], to: [usize; 2]) -> Selection {
+    let caret = |[page, index]: [usize; 2]| Caret { page, index };
+    Selection {
+        anchor: caret(from),
+        focus: caret(to),
+    }
+}
+
+/// The chars whose `(block, byte)` lie from `from` up to `to`.
+fn between(layer: &TextLayer, from: (usize, usize), to: (usize, usize)) -> Option<Range<usize>> {
+    let within = |i: usize| layer.place(i).is_some_and(|p| from <= p && p < to);
+    let n = layer.places.len();
+    let start = (0..n).find(|&i| within(i))?;
+    let end = (start..n).rev().find(|&i| within(i))?;
+    Some(start..end + 1)
+}
+
+/// Each mark in its pen: fills at `opacity`, underlines solid.
+pub fn paint(ui: &Ui, placed: &[Placed], opacity: f32) {
     let painter = ui.painter();
     for mark in placed {
         for r in &mark.rects {
-            painter.rect_filled(r.expand2(egui::vec2(1.5, 0.5)), 3.0, tint);
+            draw(painter, *r, mark.ink.pen, mark.ink.color, opacity);
+        }
+    }
+}
+
+/// One line's box in `pen`, after PDFCraft's square highlights.
+pub fn draw(painter: &Painter, r: Rect, pen: Pen, color: Rgb, opacity: f32) {
+    let solid = crate::theme::color(color);
+    let fill = solid.gamma_multiply(opacity.clamp(0.0, 1.0));
+    match pen {
+        Pen::Full => {
+            painter.rect_filled(r, 0.0, fill);
+        }
+        Pen::Half => {
+            let lower = Rect::from_min_max(pos2(r.left(), r.center().y), r.max);
+            painter.rect_filled(lower, 0.0, fill);
+        }
+        Pen::Underline => {
+            let thick = (r.height() * 0.08).max(1.0);
+            let line = Rect::from_min_max(pos2(r.left(), r.bottom() - thick), r.max);
+            painter.rect_filled(line, 0.0, solid);
         }
     }
 }

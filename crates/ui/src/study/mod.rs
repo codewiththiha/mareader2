@@ -13,11 +13,13 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::{Context, Pos2, Rect};
+use mareader_appearance::Rgb;
 use mareader_library::Gloss as MarkGloss;
 use mareader_library::{
-    BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, Measure, NewMark, Opened, Spot,
+    BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, MarkKind, Measure, NewMark, Opened,
+    Pen, Spot,
 };
-use mareader_settings::GlossSettings;
+use mareader_settings::{GlossSettings, HighlightSettings};
 use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
 use mareader_workspace::PaneId;
 
@@ -42,6 +44,8 @@ pub enum Gloss {
     Open { mark: MarkId, at: Rect },
     /// A mark was right-clicked.
     Menu { mark: MarkId, at: Pos2 },
+    /// A highlighter in the selection bar; a colour if one was picked.
+    Highlight(Pen, Option<Rgb>),
     /// Where the open card's mark is now; none while its text loads.
     Anchor(Option<Rect>),
 }
@@ -238,18 +242,37 @@ impl Study {
         (&mut self.loose, id)
     }
 
-    /// `book`'s marks, or those of the session's document called `name`.
+    /// `book`'s marks, else the session document `name`'s; AI marks last.
     pub fn marks_of(
         &self,
         main: &Library,
         book: Option<BookId>,
         name: &str,
-    ) -> Vec<(MarkId, Spot)> {
+        look: &HighlightSettings,
+    ) -> Vec<marks::Shown> {
         let (lib, id) = match book.filter(|b| main.book(*b).is_some()) {
             Some(id) => (main, id),
             None => (&self.loose, BookId::original(loose_content(name))),
         };
-        lib.marks(id).into_iter().map(|m| (m.id, m.spot)).collect()
+        let mut out: Vec<marks::Shown> = lib
+            .marks(id)
+            .into_iter()
+            .map(|m| marks::Shown {
+                id: m.id,
+                spot: m.spot,
+                ink: ink(m, look),
+            })
+            .collect();
+        out.sort_by_key(|m| m.ink.ai);
+        out
+    }
+
+    /// The reader's highlighter: marks the text in `pen`.
+    pub fn highlight(&mut self, main: &mut Library, at: Highlighted<'_>, wall_ms: u64) {
+        let color = at.color.map(|Rgb(r, g, b)| [r, g, b]);
+        let new = NewMark::highlight(at.text, at.spot, at.pen, color);
+        let (lib, book) = self.shelf(main, at.book, at.name);
+        lib.add_mark(book, new, wall_ms);
     }
 
     fn mark<'a>(&'a self, main: &'a Library, id: MarkId) -> Option<&'a Mark> {
@@ -265,11 +288,9 @@ impl Study {
             asked,
             rect,
         } = at;
-        let new = asked.spot.map(|spot| NewMark {
-            word: asked.word.clone(),
-            context: asked.context.clone(),
-            spot,
-        });
+        let new = asked
+            .spot
+            .map(|spot| NewMark::explain(asked.word.clone(), asked.context.clone(), spot));
         let (lib, book) = self.shelf(main, book, name);
         let key = match new.and_then(|n| lib.add_mark(book, n, wall_ms)) {
             Some(id) => Key::Mark(id),
@@ -281,11 +302,16 @@ impl Study {
         self.open(ctx, main, pane, key, (asked.word, asked.context), rect);
     }
 
-    /// A click on a mark: its card again.
+    /// A click on a mark: its card again; a highlight's menu.
     pub fn open_mark(&mut self, ctx: &Context, main: &Library, pane: PaneId, id: MarkId, at: Rect) {
         let Some(m) = self.mark(main, id) else {
             return;
         };
+        if m.kind == MarkKind::Highlight {
+            let p = ctx.pointer_latest_pos().unwrap_or(at.left_bottom());
+            self.open_menu(id, p);
+            return;
+        }
         let words = (m.word.clone(), m.context.clone());
         self.open(ctx, main, pane, Key::Mark(id), words, at);
     }
@@ -553,13 +579,35 @@ pub struct Explained<'a> {
     pub rect: Rect,
 }
 
-/// The marks' fill: the gloss colour, or the accent, at its opacity.
-pub fn tint(look: &GlossSettings, t: &Tokens) -> egui::Color32 {
-    let base = look
-        .color
-        .rgb(look.custom)
-        .map_or(t.accent, crate::theme::color);
-    base.gamma_multiply(look.opacity.clamp(0.0, 1.0))
+/// The reader's highlight, as the app gathers it.
+pub struct Highlighted<'a> {
+    pub book: Option<BookId>,
+    pub name: &'a str,
+    pub text: String,
+    pub spot: Spot,
+    pub pen: Pen,
+    /// A colour picked for it; none follows the pen's.
+    pub color: Option<Rgb>,
+}
+
+/// How `m` is drawn; a highlight never takes a reserved look.
+fn ink(m: &Mark, look: &HighlightSettings) -> marks::Ink {
+    if m.kind == MarkKind::Explain {
+        return marks::Ink {
+            pen: look.ai.pen,
+            color: look.ai.color,
+            ai: true,
+        };
+    }
+    let picked = m.color.map(|[r, g, b]| Rgb(r, g, b));
+    let color = picked
+        .filter(|c| look.allowed(m.pen, *c))
+        .unwrap_or(look.color(m.pen));
+    marks::Ink {
+        pen: m.pen,
+        color,
+        ai: false,
+    }
 }
 
 #[cfg(test)]
@@ -586,11 +634,7 @@ mod tests {
             page: 0,
             rect: [1.0, 2.0, 3.0, 4.0],
         };
-        let new = NewMark {
-            word: "quick".into(),
-            context: "the quick fox".into(),
-            spot,
-        };
+        let new = NewMark::explain("quick".into(), "the quick fox".into(), spot);
         let id = main.add_mark(book, new, 2).unwrap();
         let gloss = MarkGloss {
             meaning: said.into(),

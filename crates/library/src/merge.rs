@@ -124,7 +124,7 @@ mod tests {
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
     use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId};
-    use crate::marks::{Gloss, Spot};
+    use crate::marks::{Gloss, MarkKind, Pen, Spot};
 
     /// A small deterministic generator: the same cases every run.
     struct Rng(u64);
@@ -233,6 +233,9 @@ mod tests {
         Mark {
             id: MarkId(1),
             book: Field::new(BookId(u128::from(book.ms)), book),
+            kind: MarkKind::Explain,
+            pen: Pen::Full,
+            color: None,
             word: "fox".into(),
             context: "the quick brown fox".into(),
             spot: Spot::Text {
