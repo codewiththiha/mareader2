@@ -1,9 +1,13 @@
 //! `shot OUT.png [key=value ...]`: renders the app headlessly to look at.
 
+use std::time::{Duration, Instant};
+
 use egui_kittest::Harness;
+use mareader_cefr::{Part, State};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::layout::{Arrow, ViewMode};
+use mareader_ui::vocab::Action;
 use mareader_ui::zoom::{Fit, Step, ZoomCommand};
 
 fn main() -> Result<(), String> {
@@ -17,6 +21,7 @@ fn main() -> Result<(), String> {
     let mut scroll = 0.0;
     let mut drag = None;
     let mut carry = None;
+    let mut words = false;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -92,6 +97,12 @@ fn main() -> Result<(), String> {
             }
             // The find bar, once open: `find=true`.
             "find" => queued.push(Command::ShowFind),
+            // The real word levels, fetched into a temporary folder.
+            "cefr" if v == "download" => {
+                let dir = std::env::temp_dir().join("mareader-shot-cefr");
+                app.set_option(k, &dir.to_string_lossy())?;
+                words = true;
+            }
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -110,6 +121,10 @@ fn main() -> Result<(), String> {
         .with_max_steps(64)
         .build_eframe(|_| app);
     harness.run_steps(4);
+    if words {
+        harness.state_mut().queue(Command::Vocab(Action::Download));
+        wait_for_words(&mut harness)?;
+    }
     for c in queued {
         harness.state_mut().queue(c);
         harness.run_steps(8);
@@ -157,5 +172,22 @@ fn main() -> Result<(), String> {
     let image = harness.render()?;
     image.save(&out).map_err(|e| e.to_string())?;
     println!("{out}");
+    Ok(())
+}
+
+/// Steps until the word levels are in, for two minutes at most.
+fn wait_for_words(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(120);
+    loop {
+        harness.run_steps(1);
+        match harness.state().vocab().state(Part::Dataset) {
+            State::Ready => break,
+            State::Failed(why) => return Err(format!("word levels: {why}")),
+            _ if Instant::now() > until => return Err("word levels: timed out".into()),
+            _ => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+    // Pages ask for their levels, then repaint shaded.
+    harness.run_steps(12);
     Ok(())
 }
