@@ -78,9 +78,9 @@ characters, 16 synonyms of 80, 8 usages of 400, cut text ending in "…".
 |---|---|---|
 | 1 | Selection bar (Copy, Explain) on PDFs and books; Explain marks the word and opens its card; marks drawn in the gloss colour and opacity, kept per book as synced records; a click opens a mark's card, a right-click removes it with Undo | select a word, click Explain: it's shaded and a card opens; click elsewhere, click the shading: the card is back; right-click it, Remove highlight, then Undo; `pdf=sample:5 explain=canned selection=0:quick gloss=open` in shots |
 | 2 | Apple Intelligence through `fm-bridge` (macOS, Apple silicon, feature `ai`), the card filling as the answer streams, Retry | on a Mac with Apple Intelligence, Explain answers in place |
-| 3 | Gloss settings: colour, opacity, density; selecting many marks to remove at once | change the colour and the marks follow while the slider moves |
+| 3 | Highlighters (owner, 2026-10-16; see "Highlighters" below): full, half and underline looks; your own highlights from the selection menu on PDFs and books; Settings › Highlights for each highlighter's colour, the menu's buttons and the colour-on-click choice; AI marks on their own reserved look; density; selecting many marks to remove at once | select text, click Highlight or Underline: it stays after a relaunch; add Half in Settings and it joins the menu; change a colour and the highlights follow while the slider moves |
 | 4 | Dictionary packs: download with mirrors and resume, convert, Look up in the bar, a lookup card | download a pack, select a word, Look up |
-| 5 | CEFR shading: the dataset and tagger, a level setting, click to explain | turn CEFR on at B2: harder words are shaded |
+| 5 | CEFR shading: the dataset and tagger, a level setting, click to explain; drawn in its own reserved highlighter and colour (red, as mareader's, by default) | turn CEFR on at B2: harder words are shaded, and that look is no longer offered for your own highlights |
 
 Look up stays out of the bar until slice 4 gives it something to do.
 
@@ -152,4 +152,26 @@ answer each launch, and a settings change dropped every answer.
   Explaining the same spot afresh makes a new mark and asks again.
 - **Failures are never saved.** A book outside the library keeps its marks
   and answers for the session only, as before.
+
+## Highlighters
+
+Asked for by the owner (2026-10-16) for slice 3; the CEFR half lands with
+slice 5.
+
+- **Three looks:** **full**, a square fill per
+  line of text at half opacity; **half**, the same fill over the lower half
+  of the line only; **underline**, a thin line under the text. No
+  strikethrough (owner). They replace today's rounded mark fills.
+- **Your own highlights.** The selection menu offers Highlight and
+  Underline by default; Half can be added. A highlight covers any
+  selection, not just one word, on PDFs and books alike, and is a synced
+  record like a mark.
+- **Settings › Highlights.** Each highlighter's default colour; which
+  buttons the selection menu shows and in what order (Copy and Explain
+  too); and what a click does: use the default colour, or show a colour
+  row each time.
+- **Reserved looks.** AI marks (owner) and, from slice 5, CEFR each pick
+  a highlighter and a colour. That pair is then not offered for your own
+  highlights, so nothing you highlight can pass for an AI mark or a CEFR
+  word. AI marks default to a full violet highlight.
 
