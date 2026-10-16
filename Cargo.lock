@@ -2942,6 +2942,7 @@ dependencies = [
 name = "mareader-library"
 version = "0.0.1"
 dependencies = [
+ "mareader-search",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2970,6 +2971,10 @@ dependencies = [
  "thiserror 2.0.21",
  "vello_cpu 0.3.0",
 ]
+
+[[package]]
+name = "mareader-search"
+version = "0.0.1"
 
 [[package]]
 name = "mareader-session"
