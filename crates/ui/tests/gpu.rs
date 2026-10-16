@@ -47,6 +47,38 @@ fn luma(image: &RgbaImage, x: u32, y: u32) -> i32 {
 }
 
 #[test]
+fn the_window_opens_on_the_remembered_paper_without_a_dark_flash() -> Out {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0")?;
+    app.set_option("preset", "sepia")?;
+    // What the window clears to before a single frame is drawn.
+    let clear = eframe::App::clear_color(&app, &egui::Visuals::dark());
+    let paper = clear.map(|c| (c * 255.0).round() as i32);
+    assert_eq!(paper[3], 255, "opaque, so nothing shows through");
+    let mut h = Harness::builder()
+        .with_size(SIZE)
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .wgpu()
+        .build_eframe(|_| app);
+    // The builder ran the first frame, the one fonts aren't ready for.
+    let first = h.render()?;
+    let at = |image: &RgbaImage| image.get_pixel(450, 640).0.map(i32::from);
+    let close = |a: [i32; 4], b: [i32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 3);
+    assert!(close(at(&first), paper), "{:?} vs {paper:?}", at(&first));
+    assert!(luma(&first, 450, 640) > 180, "sepia is light paper");
+    h.run_steps(3);
+    let settled = h.render()?;
+    assert!(
+        close(at(&settled), at(&first)),
+        "{:?} then {:?}",
+        at(&first),
+        at(&settled)
+    );
+    Ok(())
+}
+
+#[test]
 fn pages_reach_the_screen_through_the_page_pass() -> Out {
     let mut h = reader(&[("pdf", "sample")]);
     assert!(h.state().documents().gpu().is_some(), "a device was found");

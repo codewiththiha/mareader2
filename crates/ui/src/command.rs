@@ -73,6 +73,8 @@ pub enum Command {
     },
     /// Shift+A: the active pane's auto-scroll on or off.
     AutoScroll,
+    /// Distraction-free reading: every bar hidden until asked back.
+    Chromeless,
     /// Home and End: the active document's first or last page.
     FirstPage,
     LastPage,
