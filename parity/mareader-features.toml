@@ -1434,7 +1434,20 @@ title = "Full keyboard operation, visible focus rings"
 area = "K"
 tier = "P1"
 milestone = "M7"
-status = "planned"
+status = "shipped"
+reference = [
+    "crates/app-ui/src/components/primitives/overlay/modal_shell.rs",
+    "crates/reader-runtime/src/host/library/view.rs",
+]
+evidence = [
+    "crates/ui/tests/focus.rs::tab_brings_up_the_title_bar_rings_its_buttons_and_a_press_hides_the_ring",
+    "crates/ui/tests/focus.rs::enter_on_a_focused_link_follows_it",
+    "crates/ui/tests/focus.rs::shift_f10_opens_a_mark_s_menu_and_enter_its_card",
+    "crates/ui/tests/focus.rs::a_library_card_picks_on_shift_enter_and_opens_on_enter",
+    "crates/ui/tests/focus.rs::tab_stays_in_the_settings_window_and_comes_round",
+    "crates/ui/tests/focus.rs::f3_steps_through_matches_and_f6_moves_between_panes",
+]
+notes = "focus.rs rings keyboard focus after Tab; reach.rs makes links, marks and words Tab stops. Beyond mareader: Tab reveals hidden chrome, F6 cycles panes, F3 steps matches"
 
 [[feature]]
 id = "perf.idle-zero"
