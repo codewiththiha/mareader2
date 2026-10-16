@@ -171,5 +171,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           (cd dist && sha256sum * > SHA256SUMS)
+          # Written notes win; without them GitHub lists the changes.
+          notes="docs/releases/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then set -- --notes-file "$notes"; else set -- --generate-notes; fi
           gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
-            --title "Mareader ${GITHUB_REF_NAME#v}" --generate-notes dist/*
+            --title "Mareader ${GITHUB_REF_NAME#v}" "$@" dist/*
