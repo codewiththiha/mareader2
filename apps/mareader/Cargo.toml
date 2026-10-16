@@ -48,6 +48,8 @@ identifier = "com.codewiththiha.mareader"
 authors = ["codewiththiha <codewiththiha@users.noreply.github.com>"]
 category = "Productivity"
 before-packaging-command = "cargo build --release -p mareader"
+# The Apple Intelligence helper, when tools/fm-helper.sh built it.
+resources = ["helper/FMBridge"]
 icons = [
     "icons/32x32.png",
     "icons/128x128.png",
