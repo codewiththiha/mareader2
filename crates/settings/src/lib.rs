@@ -9,6 +9,7 @@
     clippy::indexing_slicing
 )]
 
+mod ai;
 mod load;
 mod reader;
 mod study;
@@ -20,6 +21,7 @@ use mareader_appearance::{Appearance, Preset, builtin_presets, preset_id};
 use mareader_library::View;
 use serde::{Deserialize, Serialize};
 
+pub use ai::{AiSettings, Endpoint, Provider};
 pub use load::{Loaded, load, to_json};
 pub use reader::{
     ChromeSettings, FloatingLabelStyle, LayoutSettings, MotionSettings, PageIndicatorStyle,
@@ -50,6 +52,8 @@ pub struct Settings {
     pub text: TextSettings,
     pub study: StudySettings,
     pub dictionary: DictionarySettings,
+    /// Who explains words; keys are kept apart, encrypted.
+    pub ai: AiSettings,
     pub workspace: WorkspaceSettings,
     /// The library page's layout and order.
     pub library: View,
@@ -68,6 +72,7 @@ impl Default for Settings {
             text: TextSettings::default(),
             study: StudySettings::default(),
             dictionary: DictionarySettings::default(),
+            ai: AiSettings::default(),
             workspace: WorkspaceSettings::default(),
             library: View::default(),
         }
@@ -82,6 +87,7 @@ impl Settings {
         self.layout.sanitize();
         self.text.sanitize();
         self.study.sanitize();
+        self.ai.sanitize();
         self.workspace.look.sanitize();
         self.library.sanitize();
         let builtin: Vec<String> = builtin_presets().into_iter().map(|p| p.id).collect();
