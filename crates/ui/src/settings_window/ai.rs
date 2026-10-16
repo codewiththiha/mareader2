@@ -66,6 +66,10 @@ fn describe(p: Provider, mac: bool, board: Option<&Board>) -> (&'static str, Str
                 Some(AppleState::Ready) => "Ready, on this Mac, private and offline",
                 Some(AppleState::NotReady(_)) => "Getting ready; the model is downloading",
                 Some(AppleState::Off(_)) => "Turn on Apple Intelligence in System Settings",
+                // The reason tells a missing helper from an unsupported Mac.
+                Some(AppleState::Missing(why)) if !why.is_empty() => {
+                    return (p.label(), format!("Not available: {why}"));
+                }
                 Some(AppleState::Missing(_)) => "Not available on this Mac",
                 None => p.detail(),
             };

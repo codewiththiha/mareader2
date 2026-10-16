@@ -91,7 +91,8 @@ cd apps/mareader && cargo packager --release
   the file, packaging still works and Settings › AI says Apple
   Intelligence is not available.
 - **While developing.** Debug builds also honour
-  `FM_BRIDGE_BIN=/path/to/FMBridge`, so `cargo run` can use the helper
-  without packaging.
+  `FM_BRIDGE_BIN=/path/to/FMBridge`, else the helper the script wrote in
+  `apps/mareader/helper/`, so `cargo run` can use it without packaging.
+  When none is found, Settings › AI says so under Apple Intelligence.
 - **Other platforms.** The helper is never built or shipped; the AI tab
   hides Apple Intelligence and offers the servers instead.

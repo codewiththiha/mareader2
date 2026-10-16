@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 
+use fm_bridge::Bridge;
 use mareader_settings::{AiSettings, Provider};
 use mareader_study::{Explainer, Failure, Why, WordInfo};
 use serde_json::Value;
@@ -85,6 +86,14 @@ impl Assist {
         self
     }
 
+    /// Uses the helper at `path` when the app bundle has none.
+    pub fn with_helper(mut self, path: PathBuf) -> Self {
+        if cfg!(target_os = "macos") && self.apple.is_none() && path.is_file() {
+            self.apple = Some(Arc::new(crate::Apple::new(Bridge::new(path))));
+        }
+        self
+    }
+
     /// Uses `apple` for Apple Intelligence, as tests do with a mock.
     pub fn with_apple(mut self, apple: crate::Apple) -> Self {
         self.apple = Some(Arc::new(apple));
@@ -106,6 +115,7 @@ impl Assist {
             (Provider::Auto | Provider::Apple, Some(apple)) => {
                 Arc::clone(apple) as Arc<dyn Backend>
             }
+            (Provider::Auto, None) if cfg!(target_os = "macos") => Arc::new(Nobody(no_apple())),
             (Provider::Auto, None) => Arc::new(Nobody(Why::NotHere.into())),
             (Provider::Apple, None) => Arc::new(Nobody(no_apple())),
             (server, _) => Arc::new(Server {
@@ -166,7 +176,7 @@ fn locate_apple() -> Option<Arc<crate::Apple>> {
 
 fn no_apple() -> Failure {
     let why = match cfg!(target_os = "macos") {
-        true => "this build has no Apple Intelligence helper",
+        true => "the FMBridge helper wasn't found; see docs/packaging.md",
         false => "Apple Intelligence runs only on a Mac",
     };
     Failure::detailed(Why::NotHere, why)
