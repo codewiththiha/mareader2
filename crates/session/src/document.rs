@@ -199,13 +199,23 @@ impl Document {
                 target,
             })
         });
-        let lines = book.text(page).into_iter().map(|l| {
+        let lines = book.text(page);
+        let narrow =
+            |(b, i): (usize, usize)| Some((u32::try_from(b).ok()?, u32::try_from(i).ok()?));
+        let mut places: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.chars.iter().map(|c| c.at.and_then(narrow)))
+            .collect();
+        let lines = lines.into_iter().map(|l| {
             let chars = l.chars.into_iter().map(|c| (c.ch, bounds(c.rect)));
             (l.wraps, chars.collect())
         });
+        let text = PageText::from_lines(lines);
+        places.truncate(text.len());
         Ok(TextLayer {
-            text: PageText::from_lines(lines),
+            text,
             links: links.collect(),
+            places,
         })
     }
 
