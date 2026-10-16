@@ -18,6 +18,7 @@ use crate::widgets;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod ai;
+mod dictionary;
 mod fonts;
 mod highlights;
 mod scope;
@@ -147,7 +148,7 @@ impl SettingsWindow {
         ctx: &egui::Context,
         current: &Settings,
         cx: &Scope,
-        ai: &crate::ai::Ai,
+        (ai, dict): (&crate::ai::Ai, &crate::dict::Dict),
         out: &mut Commands,
     ) {
         if !self.open {
@@ -189,7 +190,7 @@ impl SettingsWindow {
                     Frame::new().inner_margin(body).show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         let tab = self.tab(&draft, cx);
-                        tab_body(ui, tab, &mut draft, (cx, ai), out);
+                        tab_body(ui, tab, &mut draft, (cx, ai, dict), out);
                     });
                 });
             });
@@ -242,7 +243,7 @@ fn tab_body(
     ui: &mut Ui,
     tab: Tab,
     s: &mut Settings,
-    (cx, ai): (&Scope, &crate::ai::Ai),
+    (cx, ai, dict): (&Scope, &crate::ai::Ai, &crate::dict::Dict),
     out: &mut Commands,
 ) {
     match tab {
@@ -258,10 +259,7 @@ fn tab_body(
             ui,
             "CEFR level highlighting and its word lists arrive with the study tools (M6).",
         ),
-        Tab::Dictionary => pending(
-            ui,
-            "Hover lookup, language packs and languages arrive with the study tools (M6).",
-        ),
+        Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]
         Tab::Ai => ai::tab(ui, &mut s.ai, ai.board(), out),
         #[cfg(target_arch = "wasm32")]

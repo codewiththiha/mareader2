@@ -642,6 +642,29 @@ impl Documents {
         Some((asked, rect))
     }
 
+    /// The pane's selected text for a lookup, and where it shows.
+    pub fn looked_up(&self, pane: PaneId) -> Option<(String, Rect)> {
+        let view = self.view(pane)?;
+        let sel = view.selection.filter(|s| !s.is_empty())?;
+        let doc = &self.session.as_ref()?.get(view.doc)?.doc;
+        let layer = |page| {
+            let held = self.texts.get(view.doc, page);
+            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
+        };
+        let on_sheet = |sheet: &crate::selection::Sheet| {
+            let l = layer(sheet.page)?;
+            let range = sel.on_page(sheet.page, l.text.len())?;
+            let boxes = l.text.boxes(range).into_iter().map(|b| sheet.to_screen(b));
+            boxes.reduce(|a, b| a.union(b))
+        };
+        let rect = view
+            .sheets
+            .iter()
+            .filter_map(on_sheet)
+            .reduce(|a, b| a.union(b))?;
+        Some((sel.text(layer), rect))
+    }
+
     /// The pane's selection as a highlight's spot and text.
     pub fn highlighted(&self, pane: PaneId) -> Option<(Spot, String)> {
         let view = self.view(pane)?;

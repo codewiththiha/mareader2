@@ -42,8 +42,11 @@ fn reads(command: &Command) -> bool {
         C::SetIndependence(_) | C::SetInkContrast(_) => true,
         // Selecting and explaining act on a pane's text.
         C::Explain(_) | C::Highlight { .. } | C::SelectText { .. } => true,
+        C::LookUp(_) => true,
         // Undo of a removal is offered by a toast, which shows anywhere.
         C::Study(_) => false,
+        // Downloads go on behind the library; the card closes anywhere.
+        C::Dict(_) | C::SetDictionary(_) => false,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
         // Find searches the page in reading, the library on the shelf.
