@@ -1,0 +1,143 @@
+//! Marks: words explained in a book, kept where they stand (M6).
+
+use std::hash::{BuildHasher, RandomState};
+
+use serde::{Deserialize, Serialize};
+
+use crate::clock::{Field, Stamp};
+use crate::extra::Extra;
+use crate::id::{BookId, MarkId};
+use crate::library::Library;
+
+/// Where a marked word stands; see `docs/study.md` § Marks.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Spot {
+    /// A PDF's page and the word's box: left, top, width, height.
+    Page { page: usize, rect: [f32; 4] },
+    /// A book's block and the word's bytes in its text.
+    Text {
+        block: usize,
+        start: usize,
+        end: usize,
+    },
+}
+
+impl Spot {
+    /// The same place, give or take a point of a PDF's box.
+    pub fn near(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Page { page: a, rect: r }, Self::Page { page: b, rect: s }) => {
+                let close = |i: usize| match (r.get(i), s.get(i)) {
+                    (Some(x), Some(y)) => (x - y).abs() < 1.0,
+                    _ => false,
+                };
+                a == b && close(0) && close(1)
+            }
+            _ => self == other,
+        }
+    }
+}
+
+/// One marked word. Only `book` and `alive` change after it's made.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Mark {
+    pub id: MarkId,
+    /// Stamped: a merge that folds two books moves their marks.
+    pub book: Field<BookId>,
+    pub word: String,
+    /// The words around it, as sent to be explained.
+    pub context: String,
+    pub spot: Spot,
+    /// When it was made, in wall milliseconds.
+    pub added: u64,
+    /// Removing and Undo merge like a shelf's membership.
+    pub alive: Field<bool>,
+    #[serde(flatten)]
+    pub extra: Extra,
+}
+
+/// A new mark's word, context and place.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewMark {
+    pub word: String,
+    pub context: String,
+    pub spot: Spot,
+}
+
+impl Library {
+    /// `book`'s living marks, oldest first.
+    pub fn marks(&self, book: BookId) -> Vec<&Mark> {
+        let mut out: Vec<&Mark> = self
+            .marks
+            .values()
+            .filter(|m| m.alive.value && m.book.value == book)
+            .collect();
+        out.sort_by_key(|m| (m.added, m.id));
+        out
+    }
+
+    pub fn mark(&self, id: MarkId) -> Option<&Mark> {
+        self.marks.get(&id).filter(|m| m.alive.value)
+    }
+
+    /// Marks the word, or finds its mark; none for an unknown book.
+    pub fn add_mark(&mut self, book: BookId, new: NewMark, wall_ms: u64) -> Option<MarkId> {
+        self.book(book)?;
+        let same = |m: &&Mark| m.word == new.word && m.spot.near(&new.spot);
+        if let Some(found) = self.marks(book).into_iter().find(same) {
+            return Some(found.id);
+        }
+        let at = self.clock.tick(wall_ms);
+        let id = self.new_mark_id(at);
+        let mark = Mark {
+            id,
+            book: Field::new(book, at),
+            word: new.word,
+            context: new.context,
+            spot: new.spot,
+            added: wall_ms,
+            alive: Field::new(true, at),
+            extra: Extra::default(),
+        };
+        self.marks.insert(id, mark);
+        Some(id)
+    }
+
+    /// Removes or brings back marks; how many changed.
+    pub fn set_marks_alive(&mut self, ids: &[MarkId], alive: bool, wall_ms: u64) -> usize {
+        let flips = |id: &&MarkId| {
+            let mark = self.marks.get(id);
+            mark.is_some_and(|m| m.alive.value != alive && self.book(m.book.value).is_some())
+        };
+        let ids: Vec<MarkId> = ids.iter().filter(flips).copied().collect();
+        if ids.is_empty() {
+            return 0;
+        }
+        let at = self.clock.tick(wall_ms);
+        for id in &ids {
+            if let Some(mark) = self.marks.get_mut(id) {
+                mark.alive = Field::new(alive, at);
+            }
+        }
+        ids.len()
+    }
+
+    /// `gone`'s marks go to `keeper`, as a merge folding them decides.
+    pub(crate) fn move_marks(&mut self, gone: BookId, keeper: BookId, at: Stamp) {
+        for mark in self.marks.values_mut_where(|m| m.book.value == gone) {
+            mark.book = Field::new(keeper, at);
+        }
+    }
+
+    fn new_mark_id(&self, at: Stamp) -> MarkId {
+        let state = RandomState::new();
+        let seed = (at.ms, at.counter, self.device().0);
+        let half = |salt: u8| u128::from(state.hash_one((seed, salt)));
+        let mut id = MarkId(half(1) << 64 | half(2));
+        while self.marks.contains_key(&id) {
+            id = MarkId(id.0.wrapping_add(1));
+        }
+        id
+    }
+}

@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
 use crate::extra::Extra;
-use crate::id::{BookId, ContentId, DeviceId, ShelfId, SourceId};
+use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId, SourceId};
+use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
 use crate::tracked::Tracked;
@@ -40,6 +41,7 @@ pub struct Dirty {
     pub sources: BTreeSet<SourceId>,
     /// `state/<id>.json`: one book's position each.
     pub states: BTreeSet<BookId>,
+    pub marks: BTreeSet<MarkId>,
 }
 
 impl Dirty {
@@ -53,6 +55,7 @@ impl Dirty {
             && self.shelves.is_empty()
             && self.members.is_empty()
             && self.sources.is_empty()
+            && self.marks.is_empty()
     }
 }
 
@@ -64,6 +67,7 @@ pub struct Library {
     pub(crate) sources: Tracked<SourceId, Source>,
     pub(crate) shelves: Tracked<ShelfId, Shelf>,
     pub(crate) members: Tracked<(ShelfId, BookId), Membership>,
+    pub(crate) marks: Tracked<MarkId, Mark>,
     /// Each location's path to its book; rebuilt, never saved.
     pub(crate) at: HashMap<PathBuf, BookId>,
     /// Positions to write; the maps track their own changes.
@@ -95,6 +99,7 @@ impl Library {
             sources: Tracked::new(parts.sources),
             shelves: Tracked::new(parts.shelves),
             members: Tracked::new(parts.members),
+            marks: Tracked::new(parts.marks),
             at: HashMap::new(),
             states_dirty: BTreeSet::new(),
             revision: next_revision(),
@@ -363,6 +368,7 @@ impl Library {
             members: self.members.take_changed(),
             sources: self.sources.take_changed(),
             states: std::mem::take(&mut self.states_dirty),
+            marks: self.marks.take_changed(),
         }
     }
 
@@ -371,6 +377,7 @@ impl Library {
             || self.shelves.has_changes()
             || self.members.has_changes()
             || self.sources.has_changes()
+            || self.marks.has_changes()
             || !self.states_dirty.is_empty()
     }
 
@@ -380,6 +387,7 @@ impl Library {
         self.shelves.mark_all();
         self.members.mark_all();
         self.sources.mark_all();
+        self.marks.mark_all();
     }
 }
 
@@ -392,6 +400,7 @@ pub(crate) struct Parts {
     pub sources: BTreeMap<SourceId, Source>,
     pub shelves: BTreeMap<ShelfId, Shelf>,
     pub members: BTreeMap<(ShelfId, BookId), Membership>,
+    pub marks: BTreeMap<MarkId, Mark>,
 }
 
 impl Parts {
@@ -403,6 +412,7 @@ impl Parts {
             sources: BTreeMap::new(),
             shelves: BTreeMap::new(),
             members: BTreeMap::new(),
+            marks: BTreeMap::new(),
         }
     }
 }
