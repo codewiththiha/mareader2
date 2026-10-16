@@ -8,6 +8,7 @@
   python3 tools/ci.py shots "grid texture=grid gap=false" "dark theme=dark"
   python3 tools/ci.py web                  # the browser preview, built + screenshot
   python3 tools/ci.py memory --ref feat/x  # docs/memory.md's workloads and budgets
+  python3 tools/ci.py installers --ref ci/x # every platform's installers, checked
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
 
@@ -50,6 +51,7 @@ API = "https://api.github.com"
 REPO_DEFAULT = "codewiththiha/mareader2"
 GATE = "CI"
 REMOTE = "remote.yml"
+INSTALLERS = "installers.yml"
 # Below either, a cold build takes half an hour; CI takes minutes.
 LOCAL_MIN_GIB = 8
 LOCAL_MIN_CORES = 4
@@ -221,8 +223,12 @@ def summarize(run: Run) -> str:
     return f"{run.name}: {state}" + (" — failed: " + ", ".join(bad) if bad else "")
 
 
-def follow(repo: str, token: str, run: Run, timeout: int, poll: int) -> Run:
-    """Wait for one run; a red job ends the wait with its digest."""
+def follow(repo: str, token: str, run: Run, timeout: int, poll: int,
+           whole: bool = False) -> Run:
+    """Wait for one run; a red job ends the wait with its digest.
+
+    With `whole`, siblings of a red job still run to the end.
+    """
     deadline = time.time() + timeout
     noted = ""
     while True:
@@ -236,7 +242,8 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int) -> Run:
         if state != noted:
             noted = state
             log(f"  {run.name} {run.status}" + (f": {', '.join(running)}" if running else ""))
-        if any(is_red(j.conclusion) for j in run.jobs) or run.finished:
+        red = any(is_red(j.conclusion) for j in run.jobs)
+        if (red and not whole) or run.finished:
             log("  " + summarize(run))
             if any(is_red(j.conclusion) for j in run.jobs):
                 log(f"\n########## failure digest ({run.url}) ##########")
@@ -415,17 +422,23 @@ def pushed_sha(repo: str, token: str, rev: str) -> str:
 
 
 def dispatch(repo: str, token: str, task: str, sha: str, ref: str = "main",
-             **inputs: str) -> Run:
-    """Start a Remote run, with `ref`'s workflow, found by its title's id."""
+             workflow: str = REMOTE, **inputs: str) -> Run:
+    """Start a run of `ref`'s `workflow`, found by its title's id.
+
+    Remote runs take a `task`; other workflows get none (task "").
+    """
     if not token:
         raise SystemExit("dispatching needs a token: --token-file or $GITHUB_TOKEN")
     rid = secrets.token_hex(4)
-    api(token, f"/repos/{repo}/actions/workflows/{REMOTE}/dispatches",
-        {"ref": ref, "inputs": {"task": task, "sha": sha, "id": rid, **inputs}})
-    log(f"== dispatched Remote {task} on {sha[:9]} (id {rid})")
+    fields = {"sha": sha, "id": rid, **inputs}
+    if task:
+        fields["task"] = task
+    api(token, f"/repos/{repo}/actions/workflows/{workflow}/dispatches",
+        {"ref": ref, "inputs": fields})
+    log(f"== dispatched {task or workflow} on {sha[:9]} (id {rid})")
     for _ in range(40):
         time.sleep(3)
-        payload = api(token, f"/repos/{repo}/actions/workflows/{REMOTE}/runs"
+        payload = api(token, f"/repos/{repo}/actions/workflows/{workflow}/runs"
                              "?event=workflow_dispatch&per_page=20")
         for item in (payload or {}).get("workflow_runs", []):
             if item.get("display_title", "").endswith(rid):
@@ -706,6 +719,33 @@ def memory(args) -> int:
     return 1
 
 
+def installers(args) -> int:
+    """Every platform's installers and their checks, from installers.yml."""
+    token = token_from(args)
+    sha = pushed_sha(args.repo, token, args.rev)
+    run = dispatch(args.repo, token, "", sha, args.ref, INSTALLERS)
+    # Each platform's report is worth reading, whichever failed.
+    run = follow(args.repo, token, run, args.timeout, args.poll, whole=True)
+    out = os.path.abspath(args.out or os.path.join("target", "remote", "installers"))
+    shutil.rmtree(out, ignore_errors=True)
+    payload = api(token, f"/repos/{args.repo}/actions/runs/{run.id}/artifacts?per_page=50")
+    # A failed check still leaves its report to read.
+    for item in (payload or {}).get("artifacts", []):
+        name = item["name"]
+        wanted = name.startswith("checks-") or (args.download and
+                                                name.startswith("installers-"))
+        if not wanted or item["expired"]:
+            continue
+        log(f"  {name}: {item['size_in_bytes'] >> 20} MB")
+        raw = api(token, item["archive_download_url"], raw=True)
+        zipfile.ZipFile(io.BytesIO(raw)).extractall(os.path.join(out, name))
+    for path in sorted(glob.glob(os.path.join(out, "checks-*", "checks.txt"))):
+        log(f"-- {os.path.basename(os.path.dirname(path))}")
+        log(open(path, encoding="utf-8").read().rstrip())
+    log(f"  reports: {out}")
+    return 0 if run.conclusion == "success" else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -732,6 +772,11 @@ def main() -> int:
     me = sub.add_parser("memory", help="measure memory and its budgets in CI")
     me.add_argument("--ref", default="main",
                     help="branch whose workflow runs (one with the memory task)")
+    ins = sub.add_parser("installers", help="build and check every platform's installers")
+    ins.add_argument("--ref", default="main",
+                     help="branch whose workflow runs (one with installers.yml)")
+    ins.add_argument("--download", action="store_true",
+                     help="also download the installers (tens of MB each)")
     c = sub.add_parser("cache", help="a sandbox build cache made by CI")
     c.add_argument("action", choices=["build", "restore", "seed"],
                    help="seed is the cache job's own first step")
@@ -739,12 +784,12 @@ def main() -> int:
                    help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
     c.add_argument("--force", action="store_true", help="replace an existing cache")
-    for p in (w, s, wb, me, c):
+    for p in (w, s, wb, me, ins, c):
         p.add_argument("--timeout", type=int, default=3600, help="seconds to wait")
         p.add_argument("--poll", type=int, default=15, help="seconds between polls")
-    for p in (s, wb, me, c):
+    for p in (s, wb, me, ins, c):
         p.add_argument("--rev", default="HEAD", help="commit to use (must be pushed)")
-    for p in (s, wb, me):
+    for p in (s, wb, me, ins):
         p.add_argument("--out", help="where to unpack (default target/remote/<task>)")
 
     args = ap.parse_args()
@@ -762,6 +807,8 @@ def main() -> int:
         return web(args)
     if args.cmd == "memory":
         return memory(args)
+    if args.cmd == "installers":
+        return installers(args)
     if args.action == "seed":
         return cache_seed(args)
     return cache_build(args) if args.action == "build" else cache_restore(args)
