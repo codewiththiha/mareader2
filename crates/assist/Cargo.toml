@@ -1,0 +1,25 @@
+[package]
+name = "mareader-assist"
+description = "AI answers for the study tools: one prompt set, any provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mareader-settings = { workspace = true }
+mareader-study = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false }
+# Apple Intelligence through a Swift helper; a Mac answers, others say why.
+fm-bridge = { git = "https://github.com/codewiththiha/fm-bridge", rev = "55b8c43e82c0c4fb21bf43a65d240ef8733d90cb" }
+# OpenAI-compatible servers, with keys encrypted in one SQLite file.
+ai-pool = { git = "https://github.com/codewiththiha/ai-pool", rev = "68b8a9d893b4dd3e9d5a3f7285a3723d08774346", default-features = false, features = ["sqlite", "os-keychain", "stream"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { version = "1.48", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
