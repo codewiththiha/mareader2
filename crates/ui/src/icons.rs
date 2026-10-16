@@ -75,6 +75,13 @@ pub enum Icon {
     Copy,
     /// Explain a word: sparkles, as an AI answer.
     Explain,
+    /// The full highlighter.
+    Highlight,
+    /// The half highlighter: a letter on a bar.
+    HalfHighlight,
+    Underline,
+    MoveUp,
+    MoveDown,
     /// An API key.
     Key,
     /// Sets a key aside.
@@ -152,6 +159,11 @@ impl Icon {
             Self::More => Lucide::Ellipsis,
             Self::Copy => Lucide::Copy,
             Self::Explain => Lucide::Sparkles,
+            Self::Highlight => Lucide::Highlighter,
+            Self::HalfHighlight => Lucide::Baseline,
+            Self::Underline => Lucide::Underline,
+            Self::MoveUp => Lucide::ArrowUp,
+            Self::MoveDown => Lucide::ArrowDown,
         }
     }
 

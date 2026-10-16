@@ -19,6 +19,7 @@ use crate::widgets;
 #[cfg(not(target_arch = "wasm32"))]
 mod ai;
 mod fonts;
+mod highlights;
 mod scope;
 
 pub use scope::{Applies, Scope, Shown};
@@ -42,6 +43,8 @@ pub enum Tab {
     Animations,
     /// Shown only while an EPUB is focused.
     Fonts,
+    /// The pens, the selection menu and the AI's reserved look.
+    Highlights,
     Vocabulary,
     Dictionary,
     /// Who explains words; desktop builds only.
@@ -50,11 +53,12 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 8] = [
+    pub const ALL: [Tab; 9] = [
         Tab::Layout,
         Tab::Theme,
         Tab::Animations,
         Tab::Fonts,
+        Tab::Highlights,
         Tab::Vocabulary,
         Tab::Dictionary,
         Tab::Ai,
@@ -67,6 +71,7 @@ impl Tab {
             Tab::Theme => "Theme",
             Tab::Animations => "Animations",
             Tab::Fonts => "Fonts",
+            Tab::Highlights => "Highlights",
             Tab::Vocabulary => "Vocabulary",
             Tab::Dictionary => "Dictionary",
             Tab::Ai => "AI",
@@ -86,6 +91,7 @@ impl Tab {
             Tab::Theme => Icon::Appearance,
             Tab::Animations => Icon::Motion,
             Tab::Fonts => Icon::Type,
+            Tab::Highlights => Icon::Highlight,
             Tab::Vocabulary => Icon::Levels,
             Tab::Dictionary => Icon::Dictionary,
             Tab::Ai => Icon::Explain,
@@ -244,6 +250,10 @@ fn tab_body(
         Tab::Theme => theme_tab(ui, s, cx, out),
         Tab::Animations => animations(ui, s, cx),
         Tab::Fonts => fonts::tab(ui, &mut s.text),
+        Tab::Highlights => {
+            let study = &mut s.study;
+            highlights::tab(ui, &mut study.highlights, &mut study.gloss);
+        }
         Tab::Vocabulary => pending(
             ui,
             "CEFR level highlighting and its word lists arrive with the study tools (M6).",

@@ -28,7 +28,10 @@ pub use reader::{
     PaperArea, PaperSettings, StartupFit,
 };
 pub use study::StudySettings;
-pub use study::{CefrLevel, CefrSettings, DictionarySettings, GlossDensity, GlossSettings};
+pub use study::{
+    BarItem, CefrLevel, CefrSettings, DictionarySettings, GlossDensity, GlossSettings,
+    HighlightSettings, Pen, PickColor, Reserved,
+};
 pub use swatch::Swatch;
 pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};

@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
-use mareader_library::{BookId, MarkId, Spot};
+use mareader_library::{BookId, MarkId};
 use mareader_pdf::{Bounds, LinkTarget, web_address};
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
-use mareader_settings::{ColumnAlign, LayoutSettings, StartupFit, TextSettings};
+use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupFit, TextSettings};
 
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
@@ -364,9 +364,9 @@ pub struct ViewContext {
     pub corner: f32,
     /// Read this pane's paper: blend is on and the pane is focused.
     pub sample: bool,
-    /// The book's marks, and their fill.
-    pub marks: Vec<(MarkId, Spot)>,
-    pub gloss: Color32,
+    /// The book's marks, and how marks and the selection bar look.
+    pub marks: Vec<study::marks::Shown>,
+    pub highlights: HighlightSettings,
     /// The mark whose card is open here, to keep the card beside it.
     pub card: Option<MarkId>,
 }
@@ -755,7 +755,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 sideways: !down,
             };
             let placed = study::marks::place(&cx.marks, &text);
-            study::marks::paint(ui, &placed, cx.gloss);
+            study::marks::paint(ui, &placed, cx.highlights.opacity);
             if let Some(sel) = selection.filter(|s| !s.is_empty()) {
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
@@ -847,7 +847,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     if cx.active {
         copy(&ctx, view, doc, texts);
         let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);
-        let pressed = selection_bar(&ctx, view, texts, room);
+        let pressed = selection_bar(&ctx, view, texts, room, &cx.highlights);
         match pressed {
             Some(BarPress::Copy) => {
                 if let Some(text) = selected_text(view, doc, texts) {
@@ -856,6 +856,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 }
             }
             Some(BarPress::Explain) => gloss.push(Gloss::Explain),
+            Some(BarPress::Highlight(pen, color)) => gloss.push(Gloss::Highlight(pen, color)),
             None => {}
         }
     }
@@ -980,6 +981,7 @@ fn selection_bar(
     view: &PdfView,
     texts: &TextLayers,
     room: Rect,
+    look: &HighlightSettings,
 ) -> Option<BarPress> {
     let sel = view.selection.filter(|s| !s.is_empty())?;
     let id = egui::Id::new(("study-bar", view.doc));
@@ -1007,7 +1009,7 @@ fn selection_bar(
     if !shown.is_positive() {
         return None;
     }
-    study::show_bar(ctx, id, shown, room)
+    study::show_bar(ctx, id, shown, room, look)
 }
 
 /// The strips' scroll along their axis; the paged modes' page.

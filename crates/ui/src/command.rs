@@ -107,6 +107,12 @@ pub enum Command {
     Study(crate::study::Action),
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
+    /// Highlights the pane's selection; a colour if one was picked.
+    Highlight {
+        pane: PaneId,
+        pen: mareader_library::Pen,
+        color: Option<mareader_appearance::Rgb>,
+    },
     /// Selects the first `text` on `page` in the pane, as a drag does.
     SelectText {
         pane: PaneId,

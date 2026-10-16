@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::disk::Folder;
 use crate::tests::save;
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, Measure, NewMark, Opened,
-    Row, Spot,
+    BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, MarkKind, Measure,
+    NewMark, Opened, Pen, Row, Spot,
 };
 
 const A: DeviceId = DeviceId(1);
@@ -26,14 +26,11 @@ fn opened(path: &str, content: u128) -> Opened {
 }
 
 fn fox(x: f32) -> NewMark {
-    NewMark {
-        word: "fox".into(),
-        context: "the quick brown fox jumps".into(),
-        spot: Spot::Page {
-            page: 0,
-            rect: [x, 40.0, 18.0, 10.0],
-        },
-    }
+    let spot = Spot::Page {
+        page: 0,
+        rect: [x, 40.0, 18.0, 10.0],
+    };
+    NewMark::explain("fox".into(), "the quick brown fox jumps".into(), spot)
 }
 
 fn words(lib: &Library, book: BookId) -> Vec<String> {
@@ -81,15 +78,12 @@ fn marks_are_saved_and_read_back() {
     let folder = Folder::new(dir.path());
     let mut lib = folder.load(A).library;
     let book = lib.record_open(opened("/a.epub", 1), 1_000);
-    let word = NewMark {
-        word: "customs".into(),
-        context: "past the customs house".into(),
-        spot: Spot::Text {
-            block: 3,
-            start: 40,
-            end: 47,
-        },
+    let spot = Spot::Text {
+        block: 3,
+        start: 40,
+        end: 47,
     };
+    let word = NewMark::explain("customs".into(), "past the customs house".into(), spot);
     let id = lib.add_mark(book, word.clone(), 2_000).unwrap();
     save(&folder, &mut lib);
     let back = folder.load(A).library;
@@ -179,4 +173,46 @@ fn the_later_answer_wins_on_every_machine() {
         let gloss = lib.mark(id).and_then(|m| m.gloss.value.clone());
         assert_eq!(gloss, said("Asked again."));
     }
+}
+
+#[test]
+fn highlights_span_pages_and_keep_their_pen_and_colour() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let spot = Spot::Chars {
+        from: [0, 120],
+        to: [1, 30],
+    };
+    let text = "the end of one page and the start of the next".to_owned();
+    let new = NewMark::highlight(text.clone(), spot, Pen::Half, Some([255, 190, 0]));
+    let id = lib.add_mark(book, new.clone(), 2_000).unwrap();
+    // The same text with the same pen is one highlight; another pen is not.
+    assert_eq!(lib.add_mark(book, new.clone(), 2_100), Some(id));
+    let under = NewMark::highlight(text, spot, Pen::Underline, None);
+    assert_ne!(lib.add_mark(book, under, 2_200), Some(id));
+    save(&folder, &mut lib);
+    let back = folder.load(A).library;
+    let mark = back.mark(id).unwrap();
+    assert_eq!((mark.kind, mark.pen), (MarkKind::Highlight, Pen::Half));
+    assert_eq!((mark.spot, mark.color), (spot, Some([255, 190, 0])));
+    assert_eq!(back.marks(book).len(), 2);
+}
+
+#[test]
+fn a_mark_saved_before_highlights_reads_as_an_explain_mark() {
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let id = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    let mut row = serde_json::to_value(lib.mark(id).unwrap()).unwrap();
+    let fields = row.as_object_mut().unwrap();
+    for gone in ["kind", "pen", "color"] {
+        fields.remove(gone);
+    }
+    let mark: crate::Mark = serde_json::from_value(row).unwrap();
+    assert_eq!(
+        (mark.kind, mark.pen, mark.color),
+        (MarkKind::Explain, Pen::Full, None)
+    );
 }

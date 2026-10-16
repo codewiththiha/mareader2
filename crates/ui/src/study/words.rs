@@ -102,6 +102,34 @@ pub fn find(layer: &TextLayer, block: usize, bytes: Range<usize>) -> Option<Rang
     Some(start..end + 1)
 }
 
+/// Where a highlight of `sel` is kept: chars on a PDF, bytes in a book.
+pub fn span(sel: Selection, layer: impl Fn(usize) -> Option<Arc<TextLayer>>) -> Option<Spot> {
+    let (a, b) = sel.ordered();
+    if layer(a.page)?.places.is_empty() {
+        let (from, to) = ([a.page, a.index], [b.page, b.index]);
+        return Some(Spot::Chars { from, to });
+    }
+    // A book's first and last placed chars; gaps between blocks have none.
+    let placed = |page: usize| {
+        let l = layer(page)?;
+        let range = sel.on_page(page, l.text.len())?;
+        Some((l, range))
+    };
+    let start = (a.page..=b.page).find_map(|p| {
+        let (l, range) = placed(p)?;
+        range.into_iter().find_map(|i| l.place(i))
+    })?;
+    let (end, width) = (a.page..=b.page).rev().find_map(|p| {
+        let (l, range) = placed(p)?;
+        range.rev().find_map(|i| {
+            let width = l.text.chars().get(i)?.ch.len_utf8();
+            Some((l.place(i)?, width))
+        })
+    })?;
+    let (from, to) = ([start.0, start.1], [end.0, end.1 + width]);
+    Some(Spot::Blocks { from, to })
+}
+
 #[cfg(test)]
 mod tests {
     use mareader_pdf::PageText;
@@ -164,5 +192,22 @@ mod tests {
         assert_eq!(got.spot, Some(spot));
         assert_eq!(find(&page, 4, 104..109), Some(4..9));
         assert_eq!(find(&page, 5, 104..109), None);
+    }
+
+    #[test]
+    fn a_highlight_spans_pages_by_char_on_a_pdf_and_by_byte_in_a_book() {
+        use crate::selection::Caret;
+        let pdf = layer("The quick fox", false);
+        let over = Selection {
+            anchor: Caret { page: 2, index: 9 },
+            focus: Caret { page: 1, index: 4 },
+        };
+        let got = span(over, |_| Some(Arc::clone(&pdf)));
+        let (from, to) = ([1, 4], [2, 9]);
+        assert_eq!(got, Some(Spot::Chars { from, to }));
+        let book = layer("The quick fox", true);
+        let got = span(Selection::within(0, 4..13), |_| Some(Arc::clone(&book)));
+        let (from, to) = ([4, 104], [4, 113]);
+        assert_eq!(got, Some(Spot::Blocks { from, to }));
     }
 }

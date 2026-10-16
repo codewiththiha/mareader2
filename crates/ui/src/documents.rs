@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui};
 use mareader_appearance::Rgb;
-use mareader_library::BookId;
+use mareader_library::{BookId, Spot};
 use mareader_session::{
     Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
 };
@@ -638,6 +638,19 @@ impl Documents {
         let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
         let rect = on_screen.reduce(|a, b| a.union(b))?;
         Some((asked, rect))
+    }
+
+    /// The pane's selection as a highlight's spot and text.
+    pub fn highlighted(&self, pane: PaneId) -> Option<(Spot, String)> {
+        let view = self.view(pane)?;
+        let sel = view.selection.filter(|s| !s.is_empty())?;
+        let doc = &self.session.as_ref()?.get(view.doc)?.doc;
+        let layer = |page| {
+            let held = self.texts.get(view.doc, page);
+            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
+        };
+        let spot = study::words::span(sel, layer)?;
+        Some((spot, sel.text(layer)))
     }
 
     /// Selects the first `text` on `page` in the pane; false if absent.
