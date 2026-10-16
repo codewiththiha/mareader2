@@ -2751,8 +2751,8 @@ dependencies = [
 name = "mareader-dict"
 version = "0.0.1"
 dependencies = [
+ "mareader-fetch",
  "parquet",
- "reqwest",
  "rusqlite",
  "tempfile",
 ]
@@ -2771,6 +2771,14 @@ dependencies = [
  "rbook",
  "thiserror 2.0.21",
  "zip",
+]
+
+[[package]]
+name = "mareader-fetch"
+version = "0.0.1"
+dependencies = [
+ "reqwest",
+ "tempfile",
 ]
 
 [[package]]

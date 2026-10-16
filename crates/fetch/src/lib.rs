@@ -1,5 +1,15 @@
-//! One pack's download: mirrors in turn, resumable, checked before
-//! it is kept.
+//! Downloads (L0): mirrors in turn, resumable, checked before kept.
+//! Desktop only; see `docs/architecture.md`.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::unreachable,
+    clippy::indexing_slicing
+)]
+#![cfg(not(target_arch = "wasm32"))]
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -11,8 +21,10 @@ use reqwest::StatusCode;
 use reqwest::header::{CONTENT_RANGE, RANGE};
 
 /// A parquet starts and ends with this; an error page does neither.
-const MAGIC: &[u8; 4] = b"PAR1";
-/// No pack comes near this; a bigger body is something else.
+const PARQUET: &[u8; 4] = b"PAR1";
+/// Every zstd frame starts with this.
+const ZSTD: &[u8; 4] = &[0x28, 0xb5, 0x2f, 0xfd];
+/// No download comes near this; a bigger body is something else.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// Tries per address before the next mirror.
 const TRIES: usize = 2;
@@ -46,10 +58,47 @@ pub enum Stopped {
     Failed(String),
 }
 
-/// Fetches the first parquet `urls` serve into `part`, with progress.
+/// What a whole download must look like to be kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// The magic at both ends, so a cut-short file shows.
+    Parquet,
+    /// The frame magic at the start; length comes from the server.
+    Zstd,
+}
+
+impl Kind {
+    /// Whether the file at `path` is this kind, in the reader's words.
+    pub fn check(self, path: &Path) -> Result<(), String> {
+        let mut file = File::open(path).map_err(|e| e.to_string())?;
+        let len = file.metadata().map_err(|e| e.to_string())?.len();
+        let mut head = [0; 4];
+        file.read_exact(&mut head)
+            .map_err(|_| "the file is empty")?;
+        let wrong = || Err("the server sent the wrong kind of file".into());
+        match self {
+            Self::Zstd if &head == ZSTD => Ok(()),
+            Self::Zstd => wrong(),
+            Self::Parquet if &head != PARQUET => wrong(),
+            Self::Parquet => {
+                let mut tail = [0; 4];
+                file.seek(SeekFrom::End(-4)).map_err(|e| e.to_string())?;
+                file.read_exact(&mut tail).map_err(|e| e.to_string())?;
+                if &tail == PARQUET && len >= 8 {
+                    Ok(())
+                } else {
+                    Err("the file is cut short".into())
+                }
+            }
+        }
+    }
+}
+
+/// Fetches the first `kind` file `urls` serve into `part`, with progress.
 pub fn fetch(
     urls: &[String],
     part: &Path,
+    kind: Kind,
     halt: &AtomicU8,
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<(), Stopped> {
@@ -62,11 +111,11 @@ pub fn fetch(
     let mut why = String::from("no address to fetch from");
     for url in urls {
         for _ in 0..TRIES {
-            match one(&client, url, part, halt, progress) {
-                Ok(()) => match check(part) {
+            match one(&client, url, part, kind, halt, progress) {
+                Ok(()) => match kind.check(part) {
                     Ok(()) => return Ok(()),
                     Err(e) => {
-                        // A whole body that isn't a parquet: try the next.
+                        // A whole body of the wrong kind: try the next.
                         let _ = std::fs::remove_file(part);
                         why = e;
                         break;
@@ -90,6 +139,7 @@ fn one(
     client: &reqwest::blocking::Client,
     url: &str,
     part: &Path,
+    kind: Kind,
     halt: &AtomicU8,
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<(), Stopped> {
@@ -107,7 +157,7 @@ fn one(
         }
         StatusCode::RANGE_NOT_SATISFIABLE if have > 0 => {
             // Already whole, or the part is longer than the file.
-            return match check(part) {
+            return match kind.check(part) {
                 Ok(()) => Ok(()),
                 Err(_) => {
                     let _ = std::fs::remove_file(part);
@@ -159,23 +209,6 @@ fn starts_at(response: &reqwest::blocking::Response) -> Option<u64> {
     let range = response.headers().get(CONTENT_RANGE)?.to_str().ok()?;
     let rest = range.strip_prefix("bytes ")?;
     rest.split('-').next()?.trim().parse().ok()
-}
-
-/// A parquet at both ends; anything else isn't kept.
-pub fn check(path: &Path) -> Result<(), String> {
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let len = file.metadata().map_err(|e| e.to_string())?.len();
-    let mut head = [0; 4];
-    let mut tail = [0; 4];
-    file.read_exact(&mut head)
-        .map_err(|_| "the file is empty")?;
-    file.seek(SeekFrom::End(-4)).map_err(|e| e.to_string())?;
-    file.read_exact(&mut tail).map_err(|e| e.to_string())?;
-    match (&head == MAGIC, &tail == MAGIC && len >= 8) {
-        (true, true) => Ok(()),
-        (true, false) => Err("the file is cut short".into()),
-        (false, _) => Err("the server sent something other than a dictionary".into()),
-    }
 }
 
 #[cfg(test)]
@@ -267,20 +300,20 @@ mod tests {
             format!("{base}/pack"),
         ];
         let mut seen = Vec::new();
-        fetch(&urls, &part, &go, &mut |got, total| seen.push((got, total))).unwrap();
+        let parquet = Kind::Parquet;
+        fetch(&urls, &part, parquet, &go, &mut |got, total| {
+            seen.push((got, total));
+        })
+        .unwrap();
         assert_eq!(std::fs::read(&part).unwrap(), body());
         assert_eq!(
             seen.last(),
             Some(&(body().len() as u64, Some(body().len() as u64)))
         );
         let only_bad = [format!("{base}/page")];
-        let err = fetch(&only_bad, &part, &go, &mut |_, _| {});
-        assert_eq!(
-            err,
-            Err(Stopped::Failed(
-                "the server sent something other than a dictionary".into()
-            ))
-        );
+        let err = fetch(&only_bad, &part, parquet, &go, &mut |_, _| {});
+        let wrong = "the server sent the wrong kind of file";
+        assert_eq!(err, Err(Stopped::Failed(wrong.into())));
         assert!(!part.exists());
     }
 
@@ -291,7 +324,7 @@ mod tests {
         let part = dir.path().join("p.part");
         let go = AtomicU8::new(0);
         let urls = [format!("{base}/cut")];
-        fetch(&urls, &part, &go, &mut |_, _| {}).unwrap();
+        fetch(&urls, &part, Kind::Parquet, &go, &mut |_, _| {}).unwrap();
         assert_eq!(std::fs::read(&part).unwrap(), body());
         assert_eq!(resumes.load(Ordering::Relaxed), 1);
     }
@@ -303,11 +336,11 @@ mod tests {
         let part = dir.path().join("p.part");
         let urls = [format!("{base}/pack")];
         let pause = AtomicU8::new(Halt::Pause as u8);
-        let err = fetch(&urls, &part, &pause, &mut |_, _| {});
+        let err = fetch(&urls, &part, Kind::Parquet, &pause, &mut |_, _| {});
         assert_eq!(err, Err(Stopped::Halted(Halt::Pause)));
         assert!(part.exists());
         let cancel = AtomicU8::new(Halt::Cancel as u8);
-        let err = fetch(&urls, &part, &cancel, &mut |_, _| {});
+        let err = fetch(&urls, &part, Kind::Parquet, &cancel, &mut |_, _| {});
         assert_eq!(err, Err(Stopped::Halted(Halt::Cancel)));
         assert!(!part.exists());
     }
@@ -316,11 +349,23 @@ mod tests {
     fn a_parquet_is_checked_at_both_ends() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("x");
-        std::fs::write(&path, b"PAR1 half").unwrap();
-        assert_eq!(check(&path), Err("the file is cut short".into()));
-        std::fs::write(&path, b"").unwrap();
-        assert!(check(&path).is_err());
-        std::fs::write(&path, b"PAR1PAR1").unwrap();
-        assert_eq!(check(&path), Ok(()));
+        let check = |bytes: &[u8]| {
+            std::fs::write(&path, bytes).unwrap();
+            Kind::Parquet.check(&path)
+        };
+        assert_eq!(check(b"PAR1 half"), Err("the file is cut short".into()));
+        assert!(check(b"").is_err());
+        assert_eq!(check(b"PAR1PAR1"), Ok(()));
+    }
+
+    #[test]
+    fn a_zstd_frame_is_checked_by_its_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x");
+        std::fs::write(&path, [0x28, 0xb5, 0x2f, 0xfd, 1, 2]).unwrap();
+        assert_eq!(Kind::Zstd.check(&path), Ok(()));
+        std::fs::write(&path, b"<html>").unwrap();
+        assert!(Kind::Zstd.check(&path).is_err());
+        assert!(Kind::Parquet.check(&path).is_err());
     }
 }

@@ -1276,7 +1276,7 @@ area = "I"
 tier = "P1"
 milestone = "M6"
 status = "partial"
-evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/dict/src/fetch.rs::a_dropped_connection_resumes_where_it_stopped", "crates/dict/src/fetch.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed"]
+evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed"]
 reference = ["crates/dict-core/src/lib.rs", "crates/download-core/src/lib.rs", "crates/reader-core/src/settings/dict.rs"]
 notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4). Hover over CEFR words arrives with slice 5"
 

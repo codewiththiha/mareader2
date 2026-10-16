@@ -16,8 +16,7 @@ workspace = true
 rusqlite = { workspace = true }
 # Packs are parquet files; only their codecs, not arrow.
 parquet = { version = "59", default-features = false, features = ["snap", "zstd"] }
-# The TLS stack ai-pool already brings.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+mareader-fetch = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
