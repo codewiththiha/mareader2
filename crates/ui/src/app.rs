@@ -1164,6 +1164,13 @@ impl MareaderApp {
                 self.documents.arrow(self.active, arrow, now);
             }
             Command::Page { forward } => self.documents.page_key(self.active, forward),
+            Command::AutoScroll => {
+                let now = ctx.input(|i| i.time);
+                if !self.documents.toggle_drift(self.active, now) {
+                    let why = "Auto-scroll runs in the scrolling views";
+                    self.toasts.push(Toast::info(why));
+                }
+            }
             Command::FirstPage => self.documents.go_to(self.active, 0),
             Command::LastPage => self.documents.go_to(self.active, usize::MAX),
             Command::GoTo { pane, page } => self.documents.go_to(pane, page),
@@ -1750,6 +1757,7 @@ impl MareaderApp {
             }),
             zoom: self.documents.zoom_state(self.active),
             mode: self.documents.mode(self.active),
+            auto_scroll: self.documents.drifting(self.active),
             ink: (self.documents.reflowable(self.active))
                 .then_some(self.settings.text.ink_contrast),
         }
@@ -1875,6 +1883,9 @@ impl eframe::App for MareaderApp {
             free = false;
         }
         if free && (self.dict.escape() || self.study.escape()) {
+            free = false;
+        }
+        if free && self.documents.stop_drift(self.active) {
             free = false;
         }
         if free && self.find.is_open() {

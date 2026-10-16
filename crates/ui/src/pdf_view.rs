@@ -32,6 +32,8 @@ const HOLD_DELAY: f64 = 0.35;
 const HOLD_SPEED: f32 = 1000.0;
 /// A slow frame moves a held glide no further than this one would.
 const MAX_FRAME: f64 = 0.05;
+/// Auto-scroll's pace along the strip, as mareader's 72 px a second.
+pub const AUTO_SPEED: f32 = 72.0;
 /// Along a strip, a page of another size refits once read this long.
 const RESIZE_SETTLE: f64 = 0.25;
 /// Tiles wait for the view to rest this long, so a pan queues none.
@@ -150,6 +152,8 @@ pub struct PdfView {
     /// Where the last key's glide is heading along the strip, and until when.
     aim: Option<Glide>,
     hold: Option<Hold>,
+    /// Auto-scroll is on: when it last moved the strip.
+    drift: Option<f64>,
     jump: Option<Jump>,
     /// Zoom steps ease, as of last frame's motion settings.
     ease: bool,
@@ -188,6 +192,7 @@ impl PdfView {
             nudge: None,
             aim: None,
             hold: None,
+            drift: None,
             jump: None,
             ease: true,
             place: None,
@@ -250,6 +255,27 @@ impl PdfView {
             self.zoom.unfit();
         }
         self.go(self.current);
+    }
+
+    /// Shift+A: auto-scroll on or off; false in a paged mode.
+    pub fn toggle_drift(&mut self, now: f64) -> bool {
+        if self.mode.paged() {
+            return false;
+        }
+        self.drift = match self.drift {
+            Some(_) => None,
+            None => Some(now),
+        };
+        true
+    }
+
+    /// Stops auto-scroll; true if it was running.
+    pub fn stop_drift(&mut self) -> bool {
+        self.drift.take().is_some()
+    }
+
+    pub fn drifting(&self) -> bool {
+        self.drift.is_some()
     }
 
     /// An arrow key: a turn, or along a strip a line and then a glide.
@@ -624,6 +650,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let sideways = view.mode == ViewMode::Horizontal;
     let along = |d: f32| if sideways { vec2(d, 0.0) } else { vec2(0.0, d) };
     let len = if sideways { viewport.x } else { viewport.y };
+    // Auto-scroll belongs to the focused pane, as in mareader.
+    if !cx.active {
+        view.drift = None;
+    }
     let keyed = keyed_scroll(view, &ctx, len, now);
     let Some(layout) = &view.layout else {
         return;
@@ -1064,6 +1094,13 @@ impl Glide {
         }
     }
 
+    /// Moves the whole glide `d` along, as auto-scroll moves the strip.
+    fn shift(&mut self, d: f32) {
+        self.from += d;
+        self.to += d;
+        self.at += d;
+    }
+
     /// This frame's position, and whether the glide is over.
     fn step(&mut self, now: f64) -> (f32, bool) {
         let t = ((now - self.start) / self.secs.max(1e-6)).clamp(0.0, 1.0) as f32;
@@ -1072,8 +1109,45 @@ impl Glide {
     }
 }
 
-/// This frame's keyed scroll along the strip, in points.
+/// This frame's move along the strip: the keys' and auto-scroll's together.
 fn keyed_scroll(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
+    let keyed = steered(view, ctx, len, now);
+    let drift = drifted(view, ctx, now);
+    // A key's glide rides along, or it would read the drift as a wheel.
+    if let (Some(d), Some(g)) = (drift, &mut view.aim) {
+        g.shift(d);
+    }
+    match (keyed, drift) {
+        (None, None) => None,
+        (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+    }
+}
+
+/// Auto-scroll's step, at the same pace whatever the frame rate.
+fn drifted(view: &mut PdfView, ctx: &egui::Context, now: f64) -> Option<f32> {
+    let last = view.drift?;
+    let size = view.layout.as_ref()?.size;
+    let (here, end) = match view.mode {
+        ViewMode::Horizontal => (view.offset.x, size.x - view.viewport.x),
+        _ => (view.offset.y, size.y - view.viewport.y),
+    };
+    // Paged modes have nowhere to drift; at the strip's end it is done.
+    if view.mode.paged() || here >= end - 0.5 {
+        view.drift = None;
+        return None;
+    }
+    view.drift = Some(now);
+    ctx.request_repaint();
+    // A held press, as a selection's drag, holds it still; so does a jump.
+    if view.jump.is_some() || ctx.input(|i| i.pointer.any_down()) {
+        return None;
+    }
+    let dt = (now - last).clamp(0.0, MAX_FRAME) as f32;
+    Some((AUTO_SPEED * dt).min(end - here))
+}
+
+/// The keys' scroll along the strip, in points.
+fn steered(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
     if view.mode.paged() {
         view.hold = None;
         view.nudge = None;

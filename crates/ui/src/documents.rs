@@ -811,6 +811,30 @@ impl Documents {
         }
     }
 
+    /// Auto-scroll on or off in `pane`; false where it can't run.
+    pub fn toggle_drift(&mut self, pane: PaneId, now: f64) -> bool {
+        match self.panes.get_mut(&pane) {
+            Some(Content::Pdf(view)) => view.toggle_drift(now),
+            _ => false,
+        }
+    }
+
+    /// Stops `pane`'s auto-scroll; true if it was running.
+    pub fn stop_drift(&mut self, pane: PaneId) -> bool {
+        match self.panes.get_mut(&pane) {
+            Some(Content::Pdf(view)) => view.stop_drift(),
+            _ => false,
+        }
+    }
+
+    /// Whether `pane` auto-scrolls, if it shows a document.
+    pub fn drifting(&self, pane: PaneId) -> Option<bool> {
+        match self.panes.get(&pane)? {
+            Content::Pdf(v) => Some(v.drifting()),
+            Content::Opening { .. } => None,
+        }
+    }
+
     /// The mode `pane` shows its document in.
     pub fn mode(&self, pane: PaneId) -> Option<ViewMode> {
         match self.panes.get(&pane)? {

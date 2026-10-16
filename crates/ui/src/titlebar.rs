@@ -72,6 +72,8 @@ pub struct ReaderBar {
     /// The active document's zoom, for the menu's zoom row.
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
+    /// Whether the active pane auto-scrolls, if it shows a document.
+    pub auto_scroll: Option<bool>,
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
 }
@@ -347,6 +349,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
                 platform: bar.platform,
                 zoom: reader.zoom,
                 mode: reader.mode,
+                auto_scroll: reader.auto_scroll,
             };
             view_menu::button(ui, &menu, &mut out);
         }
