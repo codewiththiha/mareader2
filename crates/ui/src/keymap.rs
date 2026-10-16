@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 34] {
+pub fn bindings(platform: Platform) -> [Binding; 35] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -76,6 +76,12 @@ pub fn bindings(platform: Platform) -> [Binding; 34] {
             label: "Full screen",
             shortcut: fullscreen,
             command: Command::Window(WindowCommand::ToggleFullscreen),
+        },
+        // Before Find, whose pattern would take Shift too.
+        Binding {
+            label: "Distraction-free",
+            shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::F),
+            command: Command::Chromeless,
         },
         // After full screen, which macOS puts on Ctrl+Cmd+F.
         Binding {

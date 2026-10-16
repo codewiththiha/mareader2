@@ -34,6 +34,10 @@ fn open_latest(app: &mut MareaderApp, paths: Vec<PathBuf>) -> bool {
 }
 
 impl eframe::App for Desktop {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        self.app.clear_color(visuals)
+    }
+
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let mail = self.inbox.take();
         if mail.raise {

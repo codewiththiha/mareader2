@@ -99,6 +99,13 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         out.push(full);
         ui.close();
     }
+    // The bar it sits on hides too, so it only ever turns it on.
+    let keys = keymap::hint(cx.platform, &Command::Chromeless);
+    let label = "Distraction-free";
+    if widgets::menu_row(ui, Icon::Chromeless, label, keys.as_deref(), false).clicked() {
+        out.push(Command::Chromeless);
+        ui.close();
+    }
     ui.separator();
     shortcuts(ui, cx.platform);
     ui.separator();
