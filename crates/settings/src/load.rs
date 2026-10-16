@@ -3,7 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
-use crate::{SCHEMA_VERSION, Settings, mareader};
+use crate::{SCHEMA_VERSION, Settings};
 
 /// Loaded settings plus what had to be repaired, for the log.
 #[derive(Debug, Default)]
@@ -15,7 +15,7 @@ pub struct Loaded {
 /// Never fails: anything unreadable falls back to defaults, section by section.
 pub fn load(json: &str) -> Loaded {
     let mut notes = Vec::new();
-    let mut root = match serde_json::from_str::<Value>(json) {
+    let root = match serde_json::from_str::<Value>(json) {
         Ok(Value::Object(root)) => root,
         Ok(_) | Err(_) => {
             notes.push("settings unreadable; using defaults".to_owned());
@@ -25,15 +25,12 @@ pub fn load(json: &str) -> Loaded {
             };
         }
     };
-    if mareader::looks_like_mareader(&root) {
-        root = mareader::to_current(root, &mut notes);
-    }
     let settings = finish(root, &mut notes);
     Loaded { settings, notes }
 }
 
 /// Brings a JSON object up to date, then parses it.
-pub(crate) fn finish(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Settings {
+fn finish(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Settings {
     migrate(&mut root, notes);
     parse_sections(root, notes)
 }
@@ -100,7 +97,7 @@ fn v0_to_v1(root: &mut Map<String, Value>) {
 }
 
 /// Sets `root[section][field]`, creating the section when missing.
-pub(crate) fn put(root: &mut Map<String, Value>, section: &str, field: &str, v: Value) {
+fn put(root: &mut Map<String, Value>, section: &str, field: &str, v: Value) {
     let entry = root.entry(section).or_insert_with(|| json!({}));
     if !entry.is_object() {
         *entry = json!({});
