@@ -40,6 +40,12 @@ struct Pager {
     spent: bool,
     /// Last frame's entry was scrolled to its top, and to its bottom.
     edges: (bool, bool),
+    /// The shown entry's full height, last frame; 0 before it is drawn.
+    need: f32,
+}
+
+fn pager_id(word: &str, n: usize) -> Id {
+    Id::new(("dict-page", word, n))
 }
 
 pub struct View<'a> {
@@ -53,7 +59,11 @@ pub struct View<'a> {
 
 pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> Rect {
     let (at, room) = (view.at, view.room);
-    let below = room.bottom() - at.bottom() >= ROOM_BELOW || at.top() - room.top() < ROOM_BELOW;
+    let n = view.reply.map_or(0, |r| r.entries.len());
+    let need = ctx.data(|d| d.get_temp::<Pager>(pager_id(view.word, n)));
+    let need = need.map_or(0.0, |p| p.need);
+    let rooms = (room.bottom() - at.bottom(), at.top() - room.top());
+    let below = side(rooms, HEAD + GAP + need);
     let half = WIDTH / 2.0 + GAP;
     let x = at.center().x.clamp(
         room.left() + half,
@@ -63,10 +73,14 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         true => (pos2(x, at.bottom() + GAP), Align2::CENTER_TOP),
         false => (pos2(x, at.top() - GAP), Align2::CENTER_BOTTOM),
     };
-    let space = match below {
+    let mut space = match below {
         true => room.bottom() - pos.y,
         false => pos.y - room.top(),
     };
+    if HEAD + need > space {
+        // Too tall for either side: the card slides over the words instead.
+        space = room.height() - 2.0 * GAP;
+    }
     let list = (space - HEAD).max(ENTRY_MIN);
     egui::Area::new(Id::new(CARD))
         .order(Order::Foreground)
@@ -87,6 +101,15 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         })
         .response
         .rect
+}
+
+/// Below the words if the card fits there, or fits above neither; else above.
+fn side((below, above): (f32, f32), need: f32) -> bool {
+    if need <= GAP + HEAD {
+        // Not measured yet: below unless that leaves too little.
+        return below >= ROOM_BELOW || above < ROOM_BELOW;
+    }
+    below >= need || (above < need && below >= above)
 }
 
 fn body(ui: &mut Ui, view: &View<'_>, list: f32, t: &Tokens, out: &mut Commands) {
@@ -114,7 +137,7 @@ fn body(ui: &mut Ui, view: &View<'_>, list: f32, t: &Tokens, out: &mut Commands)
         return;
     };
     let n = reply.entries.len();
-    let id = Id::new(("dict-page", view.word, n));
+    let id = pager_id(view.word, n);
     let mut p: Pager = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     p.at = p.at.min(n.saturating_sub(1));
     let way = match (&reply.from, &reply.to) {
@@ -200,6 +223,7 @@ fn show_entry(
             }
             entry_rows(ui, e, t);
         });
+    p.need = out.content_size.y;
     let room = (out.content_size.y - out.inner_rect.height()).max(0.0);
     let off = out.state.offset.y;
     p.edges = (off <= 0.5, off >= room - 0.5);
@@ -355,6 +379,18 @@ mod tests {
             last: -1.0,
             ..Pager::default()
         }
+    }
+
+    #[test]
+    fn a_tall_entry_takes_the_side_it_fits() {
+        // Burmese lines run tall: 400 points fit above, not below.
+        assert!(!side((300.0, 500.0), 400.0));
+        assert!(side((500.0, 300.0), 400.0));
+        // Neither fits: the roomier side, the card sliding over the words.
+        assert!(side((350.0, 300.0), 600.0));
+        assert!(!side((300.0, 350.0), 600.0));
+        // Unmeasured, below wins while it leaves room.
+        assert!(side((300.0, 500.0), 0.0));
     }
 
     #[test]
