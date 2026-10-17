@@ -277,8 +277,9 @@ area = "B"
 tier = "P0"
 milestone = "M0"
 status = "shipped"
-evidence = ["crates/workspace/src/tree.rs::splits_stop_at_four", "crates/workspace/src/tree.rs::a_narrow_pane_refuses_to_split", "crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane"]
+evidence = ["crates/workspace/src/tree.rs::splits_stop_at_four", "crates/workspace/src/tree.rs::a_narrow_pane_refuses_to_split", "crates/ui/tests/shell.rs::a_split_adds_and_focuses_a_pane", "crates/ui/tests/panel.rs::a_book_dropped_on_a_pane_edge_splits_there", "crates/ui/tests/shell.rs::the_bar_has_no_split_buttons"]
 reference = ["crates/reader-runtime/src/host/tree.rs"]
+notes = "A book dragged from the sidebar's Library panel onto a pane's right or bottom edge splits it there. The title bar has no split buttons (owner, 2026-10-17)"
 
 [[feature]]
 id = "workspace.layout"
@@ -1511,7 +1512,7 @@ tier = "P0"
 milestone = "M0"
 status = "shipped"
 evidence = [
-    "crates/ui/tests/shell.rs::split_right_from_the_bar_adds_and_focuses_a_pane",
+    "crates/ui/tests/shell.rs::the_bar_has_no_split_buttons",
     "crates/ui/tests/a11y.rs::every_control_has_a_name",
 ]
 notes = "A sweep over the reader, panels, every settings tab, popover, menus, find and the library finds no nameless control"

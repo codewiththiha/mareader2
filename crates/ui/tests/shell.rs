@@ -36,14 +36,28 @@ fn the_bar_appears_on_hover_and_hides_after_the_grace() {
 }
 
 #[test]
-fn split_right_from_the_bar_adds_and_focuses_a_pane() {
+fn a_split_adds_and_focuses_a_pane() {
     let mut h = harness(MareaderApp::default());
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(8);
-    h.get_by_label("Split right").click();
+    h.state_mut().queue(mareader_ui::command::Command::Split(
+        mareader_workspace::SplitAxis::Horizontal,
+    ));
     h.run_steps(2);
     assert_eq!(h.state().panes().len(), 2);
     assert_eq!(h.state().active_pane(), h.state().panes()[1]);
+}
+
+#[test]
+fn the_bar_has_no_split_buttons() {
+    let mut h = with(&[("platform", "windows")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    assert!(h.query_by_label("Search").is_some(), "the bar is up");
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    // Panes split by dragging a book from the sidebar onto an edge.
+    for gone in ["Split right", "Split down"] {
+        assert!(h.query_by_label(gone).is_none(), "{gone}");
+    }
 }
 
 #[test]
@@ -408,19 +422,28 @@ fn a_toolbar_tooltip_names_the_control_and_its_shortcut() {
 fn a_narrow_bar_folds_tools_into_the_menu() {
     let mut app = MareaderApp::default();
     app.set_option("platform", "windows").ok();
-    let mut h = sized(app, egui::vec2(640.0, 600.0));
-    h.hover_at(egui::pos2(320.0, 20.0));
+    // Room for Settings alone: Search folds first.
+    let mut h = sized(app, egui::vec2(560.0, 600.0));
+    h.hover_at(egui::pos2(280.0, 20.0));
     h.run_steps(8);
-    assert!(h.query_by_label("Search").is_some(), "the first tools stay");
     assert!(
-        h.query_by_label("Split right").is_none(),
-        "the last ones fold"
+        h.query_by_label("Settings").is_some(),
+        "the first tool stays"
     );
+    assert!(h.query_by_label("Search").is_none(), "the last one folds");
+    // Narrower still, both fold, and work from the menu.
+    h.set_size(egui::vec2(480.0, 600.0));
+    h.hover_at(egui::pos2(240.0, 20.0));
+    h.run_steps(8);
+    assert!(h.query_by_label("Settings").is_none(), "both fold");
     h.get_by_label("View & tools").click();
     h.run_steps(3);
-    h.get_by_label("Split right").click();
+    h.get_by_label("Settings").click();
     h.run_steps(3);
-    assert_eq!(h.state().panes().len(), 2, "a folded tool still works");
+    assert!(
+        h.state().settings_window().is_open(),
+        "a folded tool still works"
+    );
 }
 
 #[test]
@@ -430,7 +453,7 @@ fn a_wide_bar_keeps_every_tool_out_of_the_menu() {
     h.run_steps(8);
     h.get_by_label("View & tools").click();
     h.run_steps(3);
-    assert_eq!(h.query_all_by_label("Split right").count(), 1, "bar only");
+    assert_eq!(h.query_all_by_label("Search").count(), 1, "bar only");
     assert!(h.query_by_label("Full screen").is_some());
 }
 

@@ -4,7 +4,6 @@ use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::{Appearance, Preset};
 use mareader_library::{ShelfId, View};
-use mareader_workspace::SplitAxis;
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, Independence, WindowCommand};
@@ -92,8 +91,8 @@ pub struct LibraryBar<'a> {
     pub search: Field,
 }
 
-/// The tools that may fold, rightmost first: the leftmost folds first.
-fn tools() -> [Tool; 4] {
+/// Foldable tools, rightmost first; no split buttons, panes split by drag.
+fn tools() -> [Tool; 2] {
     let tool = |icon, label, command| Tool {
         icon,
         label,
@@ -102,16 +101,6 @@ fn tools() -> [Tool; 4] {
     [
         tool(Icon::Settings, "Settings", Command::ShowSettings),
         tool(Icon::Search, "Search", Command::ShowSearch),
-        tool(
-            Icon::SplitDown,
-            "Split down",
-            Command::Split(SplitAxis::Vertical),
-        ),
-        tool(
-            Icon::SplitRight,
-            "Split right",
-            Command::Split(SplitAxis::Horizontal),
-        ),
     ]
 }
 

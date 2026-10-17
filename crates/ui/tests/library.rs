@@ -296,8 +296,6 @@ fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
         "Toggle sidebar",
         "Settings",
         "Search",
-        "Split down",
-        "Split right",
         "View & tools",
     ];
     for gone in reader_only {
