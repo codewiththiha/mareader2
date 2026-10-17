@@ -6,7 +6,7 @@ use crate::disk::Folder;
 use crate::tests::save;
 use crate::{
     BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, MarkId, MarkKind,
-    Measure, NewMark, Opened, Pen, Row, Spot,
+    Measure, NewMark, Opened, Pen, Row, Spot, Style,
 };
 
 const A: DeviceId = DeviceId(1);
@@ -264,4 +264,61 @@ fn a_mark_saved_before_highlights_reads_as_an_explain_mark() {
         (mark.kind, mark.pen, mark.color),
         (MarkKind::Explain, Pen::Full, None)
     );
+}
+
+fn quick() -> NewMark {
+    let spot = Spot::Chars {
+        from: [0, 4],
+        to: [0, 15],
+    };
+    NewMark::highlight("quick brown".into(), spot, Pen::Full, None)
+}
+
+#[test]
+fn a_highlight_is_restyled_and_keeps_it_after_a_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let id = lib.add_mark(book, quick(), 2_000).unwrap();
+    let style = Style {
+        pen: Pen::Underline,
+        color: Some([0xff, 0, 0]),
+    };
+    assert!(lib.set_style(id, style, 2_100));
+    save(&folder, &mut lib);
+    let back = folder.load(A).library;
+    let mark = back.mark(id).unwrap();
+    assert_eq!(mark.look(), style);
+    assert_eq!(mark.pen, Pen::Full, "the look as made is kept");
+    // The AI's marks keep its look; a removed mark takes no style.
+    let explained = lib.add_mark(book, fox(100.0), 2_200).unwrap();
+    assert!(!lib.set_style(explained, style, 2_300));
+    lib.set_marks_alive(&[id], false, 3_000);
+    assert!(!lib.set_style(id, style, 3_100));
+}
+
+#[test]
+fn the_later_style_wins_on_every_machine() {
+    let mut a = Library::new(A);
+    let mut b = Library::new(B);
+    let book = a.record_open(opened("/a.pdf", 1), 1_000);
+    b.record_open(opened("/elsewhere/a.pdf", 1), 1_100);
+    let id = a.add_mark(book, quick(), 2_000).unwrap();
+    let half = Style {
+        pen: Pen::Half,
+        color: None,
+    };
+    a.set_style(id, half, 2_100);
+    b.absorb(unsent(&mut a), 2_500);
+    let under = Style {
+        pen: Pen::Underline,
+        color: Some([0, 0xb2, 0xf4]),
+    };
+    b.set_style(id, under, 3_000);
+    a.absorb(unsent(&mut b), 3_500);
+    for lib in [&a, &b] {
+        let mark = lib.mark(id).unwrap();
+        assert_eq!(mark.look(), under);
+    }
 }

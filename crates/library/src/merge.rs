@@ -98,11 +98,19 @@ impl Merge for Mark {
         self.alive.merge(other.alive);
         self.gloss.merge(other.gloss);
         self.note.merge(other.note);
+        self.style.merge(other.style);
         self.extra.merge(other.extra);
     }
 
     fn latest(&self) -> Stamp {
-        let fields = [self.book.at, self.alive.at, self.gloss.at, self.note.at].map(Some);
+        let fields = [
+            self.book.at,
+            self.alive.at,
+            self.gloss.at,
+            self.note.at,
+            self.style.at,
+        ];
+        let fields = fields.map(Some);
         newest(fields.into_iter().chain([self.extra.latest()]))
     }
 }
@@ -125,7 +133,7 @@ mod tests {
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
     use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId};
-    use crate::marks::{Gloss, MarkKind, Pen, Spot};
+    use crate::marks::{Gloss, MarkKind, Pen, Spot, Style};
 
     /// A small deterministic generator: the same cases every run.
     struct Rng(u64);
@@ -232,6 +240,11 @@ mod tests {
             .ms
             .is_multiple_of(2)
             .then(|| format!("noted at {}", wrote.ms));
+        let styled = rng.stamp();
+        let style = (!styled.ms.is_multiple_of(3)).then(|| Style {
+            pen: Pen::ALL[usize::try_from(styled.ms % 3).unwrap_or(0)],
+            color: Some([0, 0, u8::try_from(styled.ms % 200).unwrap_or(0)]),
+        });
         let gloss = (said.ms % 3 != 0).then(|| Gloss {
             meaning: format!("said at {}", said.ms),
             ..Gloss::default()
@@ -253,6 +266,7 @@ mod tests {
             alive: Field::new(alive.ms % 2 == 0, alive),
             gloss: Field::new(gloss, said),
             note: Field::new(note, wrote),
+            style: Field::new(style, styled),
             extra: extra(rng),
         }
     }
