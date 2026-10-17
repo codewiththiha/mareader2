@@ -136,6 +136,7 @@ fn choices(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static mareader_d
             .and_then(|id| ready.iter().find(|p| p.id == id));
         let shown = chosen.map_or("Every dictionary".to_owned(), |p| p.label());
         let pick = egui::ComboBox::from_id_salt("dict-pack")
+            .icon(crate::widgets::combo_chevron)
             .width(ui.available_width())
             .selected_text(shown)
             .show_ui(ui, |ui| {
@@ -184,6 +185,7 @@ fn language_box(
 ) {
     let shown = value.as_deref().map_or("Automatic".to_owned(), language);
     let pick = egui::ComboBox::from_id_salt(id.0)
+        .icon(crate::widgets::combo_chevron)
         .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {

@@ -337,3 +337,46 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         .circle_filled(pos2(x, rect.center().y), 8.0, Color32::WHITE);
     resp
 }
+
+/// A combo box's Lucide chevron, in place of egui's triangle.
+pub fn combo_chevron(ui: &Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, open: bool) {
+    let icon = if open {
+        Icon::ChevronUp
+    } else {
+        Icon::ChevronDown
+    };
+    let at = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(14.0));
+    icon.image(14.0)
+        .tint(visuals.fg_stroke.color)
+        .paint_at(ui, at);
+}
+
+/// Fades `fill` over a scroll area's edges while content is cut off.
+pub fn scroll_fades<R>(ui: &Ui, out: &egui::scroll_area::ScrollAreaOutput<R>, fill: Color32) {
+    const FADE: f32 = 24.0;
+    let rect = out.inner_rect;
+    let above = out.state.offset.y;
+    let below = out.content_size.y - rect.height() - above;
+    let painter = ui.painter_at(rect);
+    if above > 1.0 {
+        let top = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), FADE.min(above)));
+        fade(&painter, top, fill, Color32::TRANSPARENT);
+    }
+    if below > 1.0 {
+        let h = FADE.min(below);
+        let bottom = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - h), rect.max);
+        fade(&painter, bottom, Color32::TRANSPARENT, fill);
+    }
+}
+
+/// A vertical gradient over `rect`, `top` colour to `bottom`.
+fn fade(painter: &egui::Painter, rect: egui::Rect, top: Color32, bottom: Color32) {
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.colored_vertex(rect.right_bottom(), bottom);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    painter.add(mesh);
+}

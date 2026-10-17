@@ -67,7 +67,7 @@ pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) {
     });
     section(ui, "Selection menu");
     group(ui, |ui| menu(ui, &mut h.bar));
-    note(ui, "Hidden buttons stay off the bar under a selection.");
+    note(ui, "Hidden buttons stay off the selection bar.");
     section(ui, "Words the AI explained");
     group(ui, |ui| ai_rows(ui, h, gloss));
     let kept = "Highlights can't take the AI's look, so none passes for an AI mark.";
