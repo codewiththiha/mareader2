@@ -128,7 +128,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     header(&mut ui, at, counts, view, &shown, &t);
     ui.add_space(12.0);
     if at.is_none() {
-        folders::chips(&mut ui, &shown, &t, out);
+        folders::chips(&mut ui, inset(view), &shown, &t, out);
     }
     // The plus card ends the page, unless it shows found or lost books.
     let adding =
@@ -289,6 +289,14 @@ fn counted(n: usize, one: &str, many: &str) -> String {
     }
 }
 
+/// One left edge for the title, the chips and the covers or thumbnails.
+fn inset(view: &View) -> f32 {
+    match view.layout {
+        Layout::Grid => 0.0,
+        Layout::List => ROW_INSET,
+    }
+}
+
 fn header(
     ui: &mut Ui,
     at: Option<ShelfId>,
@@ -297,11 +305,6 @@ fn header(
     shown: &Shown<'_>,
     t: &Tokens,
 ) {
-    // Lined up with the list rows' text, which sits in from their edges.
-    let inset = match view.layout {
-        Layout::Grid => 0.0,
-        Layout::List => ROW_INSET,
-    };
     let shelf = at.and_then(|id| shown.model.shelf(id));
     let name = shelf.map_or("Library", |s| s.name.value.as_str());
     // Unshelved, the top level counts only what it shows.
@@ -315,7 +318,7 @@ fn header(
         count = format!("{count} · {}", counted(shelves, "shelf", "shelves"));
     }
     ui.horizontal(|ui| {
-        ui.add_space(inset);
+        ui.add_space(inset(view));
         let title = egui::RichText::new(name).font(theme::medium(22.0));
         ui.add(egui::Label::new(title.color(t.ink)).truncate());
         ui.label(egui::RichText::new(count).color(t.muted));
@@ -779,6 +782,12 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         );
         p.rect_filled(pill, t.radius, t.surface);
         p.galley(pill.min + vec2(6.0, 3.0), tag, t.ink);
+        // The pill says what; hovering says why and what to do.
+        let why = match offline {
+            true => "Its drive isn't connected.",
+            false => "Moved or deleted. Click to find it.",
+        };
+        resp.clone().on_hover_text(why);
     }
     let width = rect.width();
     let mut y = bounds.bottom() + 8.0;
@@ -791,7 +800,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         (rect.left(), y),
         width,
     );
-    let detail = card_detail(cx.model, book, offline);
+    let detail = card_detail(cx.model, book);
     let small = FontId::proportional(12.0);
     y += line(
         p,
@@ -801,7 +810,9 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         (rect.left(), y + 1.0),
         width,
     );
-    if let Some(done) = cx.model.position(book.id).and_then(|p| p.fraction()) {
+    let done = cx.model.position(book.id).and_then(|p| p.fraction());
+    // An unopened book shows no empty track; its caption says so.
+    if let Some(done) = done.filter(|d| *d > 0.0) {
         let track = Rect::from_min_size(pos2(rect.left(), y + 7.0), vec2(width, 3.0));
         p.rect_filled(track, 1.5, faded(t.line, fade));
         let read = Rect::from_min_size(track.min, vec2(width * done, 3.0));
@@ -977,7 +988,7 @@ fn paper(book: &Book, t: &Tokens) -> Color32 {
     tone.lerp_to_gamma(t.surface, 0.3)
 }
 
-/// A cover for a book without art: a tinted card with its names.
+/// A cover for a book without art: a tinted card with its initial.
 fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: bool) {
     let radius = if small { 3.0 } else { t.radius.min(6.0) };
     let paper = paper(book, t);
@@ -996,54 +1007,43 @@ fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: boo
         Stroke::new(1.0, faded(t.line, fade)),
         StrokeKind::Inside,
     );
+    // The caption under the card names the book, so the cover doesn't.
+    let initial = book
+        .title
+        .value
+        .chars()
+        .find(|c| c.is_alphanumeric())
+        .map(|c| c.to_uppercase().collect::<String>())
+        .unwrap_or_default();
+    let ink = faded(t.ink, 0.55 * fade);
+    let middle = pos2(spine.right() + (rect.right() - spine.right()) / 2.0, 0.0);
     if small {
+        let size = rect.width() * 0.5;
+        let at = pos2(middle.x, rect.center().y);
+        p.text(at, Align2::CENTER_CENTER, initial, theme::medium(size), ink);
         return;
     }
-    let pad = rect.width() * 0.12;
-    let left = spine.right() + pad * 0.8;
-    let width = rect.right() - pad - left;
-    let size = (rect.width() / 9.0).clamp(11.0, 22.0);
-    let block = |text: &str, font: FontId, color: Color32, rows: usize| {
-        let mut job = LayoutJob::single_section(text.to_owned(), TextFormat::simple(font, color));
-        job.wrap = TextWrapping {
-            max_width: width.max(8.0),
-            max_rows: rows,
-            break_anywhere: false,
-            overflow_character: Some('…'),
-        };
-        p.layout_job(job)
-    };
-    let ink = faded(t.ink, fade);
-    let title = block(&book.title.value, theme::medium(size), ink, 5);
-    let mut y = rect.top() + pad * 1.2;
-    let title_h = title.size().y;
-    p.galley(pos2(left, y), title, ink);
-    y += title_h + size * 0.6;
-    let rule = Rect::from_min_size(pos2(left, y), vec2(width.min(size * 2.0), 2.0));
+    let size = (rect.width() * 0.42).clamp(16.0, 96.0);
+    let at = pos2(middle.x, rect.top() + rect.height() * 0.42);
+    let glyph = p.text(at, Align2::CENTER_CENTER, initial, theme::medium(size), ink);
+    let rule_w = (rect.width() * 0.16).max(12.0);
+    let rule = Rect::from_center_size(
+        pos2(middle.x, glyph.bottom() + size * 0.22),
+        vec2(rule_w, 2.0),
+    );
     p.rect_filled(rule, 1.0, faded(t.accent, fade));
-    y += size * 0.6;
-    if let Some(author) = book.author.value.as_deref() {
-        let muted = faded(t.muted, fade);
-        let g = block(author, FontId::proportional(size * 0.72), muted, 2);
-        p.galley(pos2(left, y), g, muted);
-    }
+    let pad = rect.width() * 0.1;
     p.text(
-        pos2(left, rect.bottom() - pad),
-        Align2::LEFT_BOTTOM,
+        pos2(middle.x, rect.bottom() - pad),
+        Align2::CENTER_BOTTOM,
         book.format.label(),
-        theme::medium((size * 0.55).max(9.0)),
+        theme::medium((rect.width() / 16.0).clamp(9.0, 13.0)),
         faded(t.muted, fade),
     );
 }
 
 /// Under a card's title: the author, else how far through.
-fn card_detail(model: &Library, book: &Book, offline: bool) -> String {
-    if offline {
-        return "Drive not connected".into();
-    }
-    if book.missing() {
-        return "Moved or deleted".into();
-    }
+fn card_detail(model: &Library, book: &Book) -> String {
     let author = book.author.value.as_deref().map(str::trim);
     if let Some(author) = author.filter(|a| !a.is_empty()) {
         return author.to_owned();

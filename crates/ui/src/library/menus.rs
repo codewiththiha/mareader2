@@ -1,6 +1,6 @@
 //! Right-click menus on the page, the selection bar, and picked marks.
 
-use egui::{Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{Button, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use mareader_library::{Book, Library, Shelf, ShelfId};
 
 use super::books::counted;
@@ -189,10 +189,13 @@ pub fn selection_bar(
             if clear.clicked() {
                 act(out, Action::Pick(PickAction::Clear));
             }
+            // Removal waits last, quiet and apart from the everyday actions.
             let (books, shelves) = (picks.books(), picks.shelves());
-            if danger(ui, "Remove…", t) {
+            let remove = Button::new(RichText::new("Remove…").color(t.danger)).frame(false);
+            if ui.add(remove).clicked() {
                 book(out, BookAction::AskRemove { books, shelves });
             }
+            ui.separator();
             let books = picks.books();
             if at.is_some() && !books.is_empty() && ui.button("Take off this shelf").clicked() {
                 book(out, BookAction::TakeOff(books));

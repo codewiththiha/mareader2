@@ -197,7 +197,7 @@ pub fn what_counts(
 }
 
 /// All, Missing and each folder, when there's more than one place.
-pub fn chips(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
+pub fn chips(ui: &mut Ui, inset: f32, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
     let missing = shown.model.missing();
     let mut sources: Vec<&Source> = shown.model.sources().collect();
     if sources.is_empty() && missing == 0 && shown.scope == Scope::All {
@@ -205,6 +205,7 @@ pub fn chips(ui: &mut Ui, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
     }
     sources.sort_by_key(|s| s.name().to_lowercase());
     ui.horizontal_wrapped(|ui| {
+        ui.add_space(inset);
         ui.spacing_mut().item_spacing.x = 6.0;
         let chip = |ui: &mut Ui, scope: Scope, label: egui::Atoms<'static>, out: &mut Commands| {
             let on = shown.scope == scope;
