@@ -353,3 +353,21 @@ list as shown: with the Notes filter on, only noted highlights go.
   Each has its words on one line (a PDF's line breaks are layout), its
   note, and its page. JSON adds the pen, the colour and when it was made.
 - The browser preview can't write files; it says so.
+
+## Bookmarks
+
+A bookmark keeps a page to come back to.
+
+- **Bookmark this page** is the ribbon at the end of the page bar, or
+  Cmd+D (Ctrl+D). On a bookmarked page the button shows pressed, and
+  the same button or key takes the bookmark back, with Undo.
+- A bookmarked page hangs a ribbon from its top edge, in the accent.
+- A PDF bookmark keeps its page. A book's keeps the text its page
+  started with, so it stays with that text when the type changes.
+- The Notes panel lists bookmarks among the highlights in reading order,
+  each with its page and chapter. A **Bookmarks** filter appears once
+  there is one. Click goes to the page; right-click adds a note or
+  removes the bookmark.
+- Exports and Copy all carry highlights only.
+- Bookmarks are stored as marks and sync like them. An older build
+  skips them rather than failing to load.

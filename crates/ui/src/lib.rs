@@ -12,6 +12,7 @@ pub mod ai;
 pub mod app;
 pub mod appearance_menu;
 pub mod backdrop;
+pub mod bookmarks;
 pub mod bubble;
 pub mod command;
 pub mod crossfade;
