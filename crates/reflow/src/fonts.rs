@@ -11,7 +11,8 @@ pub const SANS: &str = "Inter";
 /// Code and preformatted text.
 pub const MONO: &str = "JetBrains Mono";
 
-const FILES: [&[u8]; 6] = [
+/// Our own font files; a static, so their bytes have one address.
+pub(crate) static BUNDLED: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/Literata-Variable.ttf"),
     include_bytes!("../../../assets/fonts/Literata-Italic-Variable.ttf"),
     include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
@@ -126,7 +127,7 @@ impl std::fmt::Debug for Fonts {
 }
 
 fn register(collection: &mut Collection) {
-    for file in FILES {
+    for file in BUNDLED {
         collection.register_fonts(Blob::new(Arc::new(file)), None);
     }
 }
