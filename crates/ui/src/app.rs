@@ -1821,6 +1821,7 @@ impl MareaderApp {
         let routing = self.routing();
         ReaderBar {
             sidebar_toggle: !overlay && !self.sidebar.is_open(),
+            rail_docked: !overlay && self.sidebar.is_open(),
             independence: routing.split.then_some(Independence {
                 themes: routing.themes,
                 textures: routing.textures,

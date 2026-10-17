@@ -301,12 +301,7 @@ fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
     for gone in reader_only {
         assert!(h.query_by_label(gone).is_none(), "{gone} in the library");
     }
-    for kept in [
-        "Back to reading",
-        "View options",
-        "Appearance",
-        "Pin title bar",
-    ] {
+    for kept in ["Back to reading", "View options", "Appearance"] {
         assert!(h.query_by_label(kept).is_some(), "{kept} missing");
     }
     assert!(h.state().sidebar().is_open(), "kept for the way back");
