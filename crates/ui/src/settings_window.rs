@@ -195,7 +195,7 @@ impl SettingsWindow {
                         ui.set_width(size.x - NAV_W - 1.0);
                         let tab = self.tab();
                         close = header(ui, tab);
-                        // Ends short of the window's rounded corner, fade and all.
+                        // Short of the rounded corner, fade and all.
                         let room = ui.available_height() - FOOT_H;
                         let body = ScrollArea::vertical()
                             .id_salt(("settings-body", tab.label()))
