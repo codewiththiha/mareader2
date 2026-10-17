@@ -3,8 +3,8 @@
 use egui::emath::GuiRounding as _;
 use egui::style::ScrollAnimation;
 use egui::{
-    Align, Align2, Color32, CornerRadius, FontId, Id, Rect, ScrollArea, Sense, Stroke, StrokeKind,
-    Ui, Vec2, pos2, vec2,
+    Align, Align2, CornerRadius, FontId, Id, Rect, ScrollArea, Sense, Stroke, StrokeKind, Ui, Vec2,
+    pos2, vec2,
 };
 use mareader_session::{DocId, PageKey, Part, Scale};
 use mareader_workspace::PaneId;
@@ -270,11 +270,10 @@ fn decorate(ui: &Ui, page: Rect, cell: Rect, index: usize, on: bool, hovered: bo
     let centre = pos2(cell.center().x, cell.bottom() - BAND / 2.0 + 2.0);
     let font = FontId::proportional(t.text_small);
     let number = (index + 1).to_string();
+    // The ring marks the page; its number just takes the accent.
     if on {
-        let galley = painter.layout_no_wrap(number, font, Color32::WHITE);
-        let pill = Rect::from_center_size(centre, galley.size() + vec2(12.0, 2.0));
-        painter.rect_filled(pill, CornerRadius::same(255), t.accent);
-        painter.galley(pill.center() - galley.size() / 2.0, galley, Color32::WHITE);
+        let font = crate::theme::medium(t.text_small);
+        painter.text(centre, Align2::CENTER_CENTER, number, font, t.accent);
     } else {
         painter.text(centre, Align2::CENTER_CENTER, number, font, t.muted);
     }
