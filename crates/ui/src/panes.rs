@@ -4,6 +4,7 @@ use egui::{
     Color32, CornerRadius, CursorIcon, Rect, Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
 };
 use mareader_appearance::Rgb;
+use mareader_library::BookId;
 use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
@@ -21,6 +22,8 @@ pub struct PaneView {
     /// Where dragged files would land, outlined while they hover.
     pub drop_target: Option<PaneId>,
     pub styles: Vec<(PaneId, PaneStyle)>,
+    /// Books an empty pane offers to reopen, newest first.
+    pub recent: Vec<(BookId, String)>,
 }
 
 /// How one pane is themed; the frame around it stays the window's.
@@ -82,6 +85,9 @@ pub fn show(
         rects.push((id, rect));
     }
     dividers(ui, tree, area, out);
+    if split && gap < 1.0 {
+        seams(ui, tree, area);
+    }
     rects
 }
 
@@ -115,7 +121,7 @@ fn pane(
     let mut inner = ui.new_child(UiBuilder::new().max_rect(rect));
     inner.set_clip_rect(rect);
     if !content(&mut inner, id) {
-        empty_state(ui, rect, &t, out);
+        empty_state(ui, rect, id, (&t, &view.recent), out);
     }
     // Any press focuses the pane, even one its page widgets take.
     let pressed = ui.input(|i| i.pointer.any_pressed());
@@ -144,6 +150,23 @@ fn pane(
             ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(at, vec2(size, size))));
         if widgets::icon_button(&mut child, Icon::Close, "Close pane", false).clicked() {
             out.push(Command::ClosePane(id));
+        }
+    }
+}
+
+/// A hairline where panes touch, so the split shows without a gap.
+fn seams(ui: &Ui, tree: &PaneTree, area: Rect) {
+    let t = Tokens::get(ui.ctx());
+    let line = Stroke::new(1.0, t.line);
+    for d in tree.dividers(to_bounds(area)) {
+        let p = d.parent;
+        match d.axis {
+            SplitAxis::Horizontal => {
+                ui.painter().vline(d.at, p.y..=p.y + p.h, line);
+            }
+            SplitAxis::Vertical => {
+                ui.painter().hline(p.x..=p.x + p.w, d.at, line);
+            }
         }
     }
 }
@@ -181,8 +204,17 @@ fn dividers(ui: &mut Ui, tree: &PaneTree, area: Rect, out: &mut Commands) {
     }
 }
 
-fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
-    let c = rect.center();
+/// What opens here: every format named, Open…, and recent books.
+fn empty_state(
+    ui: &mut Ui,
+    rect: Rect,
+    pane: PaneId,
+    (t, recent): (&Tokens, &[(BookId, String)]),
+    out: &mut Commands,
+) {
+    // Lifted to stay centred with the recent books under it.
+    let lift = if recent.is_empty() { 0.0 } else { 56.0 };
+    let c = rect.center() - vec2(0.0, lift);
     let icon = Rect::from_center_size(c - vec2(0.0, 22.0), vec2(28.0, 28.0));
     Icon::Book.paint(ui, icon, t.muted);
     let painter = ui.painter();
@@ -193,7 +225,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
         theme::medium(14.0),
         t.ink,
     );
-    let hint = "Drop a PDF here, or open one from your files";
+    let hint = "Drop a PDF, EPUB, Markdown or text file here";
     painter.text(
         c + vec2(0.0, 32.0),
         egui::Align2::CENTER_CENTER,
@@ -210,4 +242,46 @@ fn empty_state(ui: &mut Ui, rect: Rect, t: &Tokens, out: &mut Commands) {
     if ui.put(at, button).clicked() {
         out.push(Command::ShowOpenDialog(Placement::Into));
     }
+    if recent.is_empty() {
+        return;
+    }
+    let width = (rect.width() - 48.0).clamp(120.0, 280.0);
+    let left = c.x - width / 2.0;
+    let mut y = c.y + 112.0;
+    let small = theme::medium(t.text_small);
+    let heading = pos2(left + 8.0, y);
+    ui.painter()
+        .text(heading, egui::Align2::LEFT_CENTER, "Recent", small, t.muted);
+    y += 12.0;
+    for (book, title) in recent {
+        let row = Rect::from_min_size(pos2(left, y), vec2(width, 30.0));
+        if recent_row(ui, row, (*book, title), t) {
+            out.push(Command::PlaceBook {
+                book: *book,
+                pane: Some(pane),
+                placement: Placement::Into,
+            });
+        }
+        y += 30.0;
+    }
+}
+
+/// A recent book's row: its title, cut to fit; true when clicked.
+fn recent_row(ui: &mut Ui, row: Rect, (book, title): (BookId, &str), t: &Tokens) -> bool {
+    let r = ui.interact(row, ui.id().with(("recent", book)), Sense::click());
+    // Named as a reopen, so it never collides with the library's row.
+    let name = format!("Reopen {title}");
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+    let painter = ui.painter();
+    if r.hovered() {
+        painter.rect_filled(row, t.radius, t.hover);
+    }
+    let ink = if r.hovered() { t.ink } else { t.muted };
+    let font = egui::FontId::proportional(t.text);
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), font, ink);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(row.width() - 16.0);
+    let galley = painter.layout_job(job);
+    let at = pos2(row.left() + 8.0, row.center().y - galley.size().y / 2.0);
+    painter.galley(at, galley, ink);
+    r.clicked()
 }
