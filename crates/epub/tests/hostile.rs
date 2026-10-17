@@ -2,7 +2,7 @@
 use std::io::{Cursor, Write};
 use std::sync::Arc;
 
-use mareader_epub::{Book, MAX_BLOCKS, MAX_ENTRIES, MAX_ENTRY, OpenError, sample};
+use mareader_epub::{Book, Destination, MAX_BLOCKS, MAX_ENTRIES, MAX_ENTRY, OpenError, sample};
 use mareader_reflow::Typography;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
@@ -476,4 +476,44 @@ fn mangled_copies_of_a_book_never_crash() {
         // Either result is fine; only a crash or a hang fails.
         let _ = open(copy);
     }
+}
+
+/// Each link on the book's pages and where it leads.
+fn destinations(book: &Book) -> Vec<Destination> {
+    let pages = 0..book.page_count();
+    pages.flat_map(|p| book.links(p)).map(|l| l.to).collect()
+}
+
+#[test]
+fn footnotes_open_in_place_and_cross_references_still_jump() {
+    let one = "<h1>One</h1>\
+        <p>Rice<a epub:type=\"noteref\" href=\"c2.xhtml#n1\">1</a>, \
+        boats<a href=\"c2.xhtml#n2\">[2]</a>, \
+        an aside<a href=\"#a\">*</a>, \
+        <a href=\"c2.xhtml#two\">3</a> and <a href=\"c2.xhtml#n1\">the notes</a>.</p>\
+        <aside id=\"a\" epub:type=\"footnote\"><p>First part.</p><p>Second ↩</p></aside>";
+    let two = "<h1 id=\"two\">Two</h1>\
+        <ol><li id=\"n1\">Grown in the delta.</li>\
+        <li id=\"n2\"><p>Out at dawn.</p></li></ol>";
+    let book = open(Spec::new(&[one, two]).build()).ok();
+    let to = book.as_ref().map(destinations).unwrap_or_default();
+    let note = |text: &str| {
+        to.iter()
+            .any(|d| matches!(d, Destination::Note { text: t, .. } if t == text))
+    };
+    assert!(note("Grown in the delta."), "a marked noteref: {to:?}");
+    assert!(
+        note("Out at dawn."),
+        "a mark-like link to a list item: {to:?}"
+    );
+    assert!(
+        note("First part.\n\nSecond"),
+        "a semantic aside, arrow dropped"
+    );
+    // A number pointing at a heading is a cross-reference; words are links.
+    let jumps = to
+        .iter()
+        .filter(|d| matches!(d, Destination::Page(_)))
+        .count();
+    assert_eq!(jumps, 2, "{to:?}");
 }

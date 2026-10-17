@@ -421,6 +421,24 @@ packed. Legacy encodings are guessed.
   library relies on this to cache the result (`docs/library.md` § Text
   files in the library).
 
+## Footnotes (owner request, 2026-10-18)
+
+A click on a footnote's mark opens the note in a card on the mark, its
+caret pointing there, instead of jumping away from the page.
+
+- **Which links.** A link marked `epub:type="noteref"` or
+  `role="doc-noteref"`; one to an element marked as a footnote, endnote
+  or note (EPUB or ARIA); or a link whose words look like a mark ("3",
+  "[12]", "*", "iv") pointing at an id. A mark-like link to a heading,
+  or to more than three blocks, is a cross-reference and still jumps.
+- **What shows.** The element the id is on: every block it holds, up to
+  12 blocks and 2,000 characters. An id inside a paragraph shows that
+  paragraph from the id on. Arrows back to the mark are dropped.
+- **The card** reads at the page's size, scrolls when long, and has
+  **Go to page N** for the note in its place. Escape, × or a press
+  outside closes it; so does scrolling its mark off screen.
+- Markdown files mark their footnotes this way when converted.
+
 ## Revision history
 
 | Date | Summary |
@@ -436,3 +454,4 @@ packed. Legacy encodings are guessed.
 | 2026-10-14 | Added text files as EPUBs: Markdown and plain text converted on open |
 | 2026-10-15 | Added text for each pane; Column Width moved to the Fonts tab |
 | 2026-10-15 | Added text file edge cases: names, labelled heads, Chinese headings, repeatable bytes |
+| 2026-10-18 | Added footnotes shown in place |

@@ -140,7 +140,8 @@ fn href(e: &Entry) -> String {
 fn page(title: &str, body: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n\
-         <html xmlns=\"http://www.w3.org/1999/xhtml\">\n\
+         <html xmlns=\"http://www.w3.org/1999/xhtml\" \
+         xmlns:epub=\"http://www.idpf.org/2007/ops\">\n\
          <head><title>{}</title></head>\n<body>\n{body}\n</body>\n</html>\n",
         escape(title)
     )

@@ -163,6 +163,8 @@ pub struct PdfView {
     resize: Option<(usize, f64)>,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
+    /// A book's footnote open in a card on its mark.
+    pub footnote: Option<crate::footnote::Footnote>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
 }
@@ -189,6 +191,7 @@ impl PdfView {
             fresh: true,
             resize: None,
             moved_at: 0.0,
+            footnote: None,
             nudge: None,
             aim: None,
             hold: None,
@@ -731,6 +734,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let mut sheets = Vec::new();
     let mut paper_at = None;
     let mut follow = None;
+    // Where a link was clicked, for a footnote's card to point at.
+    let mut clicked = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
     let out = area
@@ -904,6 +909,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             }
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
             follow = did.follow;
+            clicked = did.click;
             let on_mark = |p: Option<Pos2>| p.and_then(|p| study::marks::hit(&placed, p));
             // A long press picks; the click its release makes does nothing.
             if study::marks::swallowed(ui, did.click.is_some()) {
@@ -1062,14 +1068,93 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             None => {}
         }
     }
+    if !cx.active {
+        view.footnote = None;
+    }
     match follow {
         Some(LinkTarget::Page(page)) => view.go_to(page, sizes.len()),
+        Some(LinkTarget::Note { page, text }) => {
+            let target = LinkTarget::Note {
+                page,
+                text: text.clone(),
+            };
+            match mark_of(&view.sheets, texts, view.doc, &target, clicked) {
+                Some((on, at)) => {
+                    view.footnote = Some(crate::footnote::Footnote {
+                        page: on,
+                        at,
+                        text,
+                        target: page,
+                    });
+                }
+                None => view.go_to(page, sizes.len()),
+            }
+        }
         // Checked when read; checked again before leaving the app.
         Some(LinkTarget::Web(url)) if web_address(url.as_bytes()).is_some() => {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
         _ => {}
     }
+    if cx.active {
+        let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);
+        footnote(&ctx, view, room, sizes.len(), &cx.tokens);
+    }
+}
+
+/// The open footnote's card; a press outside or Escape closes it.
+fn footnote(ctx: &egui::Context, view: &mut PdfView, room: Rect, count: usize, t: &Tokens) {
+    use crate::footnote::{self, Press};
+    let Some(note) = &view.footnote else {
+        return;
+    };
+    // Its page scrolled away, the card has nothing to point at.
+    let Some(at) = footnote::anchor(note, &view.sheets) else {
+        view.footnote = None;
+        return;
+    };
+    let id = egui::Id::new(("footnote", view.doc, note.page, note.text.as_str()));
+    let (card, press) = footnote::show(ctx, id, (note, at, room), t);
+    // The press that opened it lands on its mark, maybe this very frame.
+    let outside = ctx.input(|i| {
+        let origin = i.pointer.press_origin();
+        let away = |p: Pos2| !card.contains(p) && !at.expand(4.0).contains(p);
+        i.pointer.any_pressed() && origin.is_some_and(away)
+    });
+    let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+    match press {
+        Some(Press::Go(page)) => {
+            view.footnote = None;
+            view.go_to(page, count);
+        }
+        Some(Press::Close) => view.footnote = None,
+        None if outside || escape => view.footnote = None,
+        None => {}
+    }
+}
+
+/// The page and box of the shown link to `target` nearest `near`.
+fn mark_of(
+    sheets: &[Sheet],
+    texts: &TextLayers,
+    doc: DocId,
+    target: &LinkTarget,
+    near: Option<Pos2>,
+) -> Option<(usize, Bounds)> {
+    let mut best: Option<(f32, usize, Bounds)> = None;
+    for sheet in sheets {
+        let Some(layer) = texts.get(doc, sheet.page) else {
+            continue;
+        };
+        for link in layer.links.iter().filter(|l| l.target == *target) {
+            let rect = sheet.to_screen(link.bounds);
+            let d = near.map_or(0.0, |p| rect.distance_to_pos(p));
+            if best.is_none_or(|(b, ..)| d < b) {
+                best = Some((d, sheet.page, link.bounds));
+            }
+        }
+    }
+    best.map(|(_, page, at)| (page, at))
 }
 
 /// A key at a focused stop does what a click there would.

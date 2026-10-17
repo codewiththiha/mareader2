@@ -196,6 +196,7 @@ impl Document {
         let links = book.links(page).into_iter().filter_map(|l| {
             let target = match l.to {
                 Destination::Page(page) => LinkTarget::Page(page),
+                Destination::Note { page, text } => LinkTarget::Note { page, text },
                 // The same schemes a PDF's links may use.
                 Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
             };

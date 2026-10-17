@@ -38,6 +38,11 @@ pub struct TocEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Destination {
     Page(usize),
+    /// A footnote: shown where its mark is, its page to go to.
+    Note {
+        page: usize,
+        text: String,
+    },
     /// An address outside the book, its scheme not yet checked.
     Outside(String),
 }
@@ -93,6 +98,8 @@ pub struct Book {
     blocks: Arc<Vec<Block>>,
     flow: Flow,
     refs: Arc<Refs>,
+    /// What each note link shows, by its target.
+    notes: Arc<HashMap<u32, String>>,
     toc: Arc<Vec<TocEntry>>,
     title: Option<String>,
     author: Option<String>,
@@ -121,6 +128,7 @@ impl Book {
                 blocks: Arc::clone(&self.blocks),
                 flow: flow.keep_pictures(&self.flow),
                 refs: Arc::clone(&self.refs),
+                notes: Arc::clone(&self.notes),
                 toc: Arc::clone(&self.toc),
                 title: self.title.clone(),
                 author: self.author.clone(),
@@ -177,6 +185,9 @@ impl Book {
             for at in refs.places.values_mut() {
                 at.block += 1;
             }
+            for e in refs.extents.values_mut() {
+                e.blocks = e.blocks.start + 1..e.blocks.end + 1;
+            }
         }
         if blocks.is_empty() {
             return Err(OpenError::Empty);
@@ -184,10 +195,12 @@ impl Book {
         let blocks = Arc::new(blocks);
         let flow = set(&blocks, typo, language.as_deref());
         let toc = contents(&epub, &refs, &blocks);
+        let notes = crate::notes::find(&blocks, &refs);
         Ok(Self {
             blocks,
             flow,
             refs: Arc::new(refs),
+            notes: Arc::new(notes),
             toc: Arc::new(toc),
             title,
             author,
@@ -234,7 +247,16 @@ impl Book {
         let lead = |target: u32| {
             let href = self.refs.hrefs.get(usize::try_from(target).ok()?)?;
             Some(match href {
-                Href::Inside(key) => Destination::Page(self.locate(self.refs.place(key)?)),
+                Href::Inside(key) => {
+                    let page = self.locate(self.refs.place(key)?);
+                    match self.notes.get(&target) {
+                        Some(text) => Destination::Note {
+                            page,
+                            text: text.clone(),
+                        },
+                        None => Destination::Page(page),
+                    }
+                }
                 Href::Outside(address) => Destination::Outside(address.clone()),
             })
         };
