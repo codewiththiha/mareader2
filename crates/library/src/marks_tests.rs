@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::disk::Folder;
 use crate::tests::save;
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, MarkKind, Measure,
-    NewMark, Opened, Pen, Row, Spot,
+    BookId, ContentId, DeviceId, FileStamp, Format, Gloss, Kind, Library, MarkId, MarkKind,
+    Measure, NewMark, Opened, Pen, Row, Spot,
 };
 
 const A: DeviceId = DeviceId(1);
@@ -184,6 +184,43 @@ fn the_later_answer_wins_on_every_machine() {
     for lib in [&a, &b] {
         let gloss = lib.mark(id).and_then(|m| m.gloss.value.clone());
         assert_eq!(gloss, said("Asked again."));
+    }
+}
+
+fn note_of(lib: &Library, id: MarkId) -> Option<String> {
+    lib.mark(id).and_then(|m| m.note.value.clone())
+}
+
+#[test]
+fn a_note_is_trimmed_saved_and_cleared_by_blank() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let id = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    assert!(lib.set_note(id, Some("  Check the date.\n".into()), 2_100));
+    save(&folder, &mut lib);
+    let mut back = folder.load(A).library;
+    assert_eq!(note_of(&back, id).as_deref(), Some("Check the date."));
+    assert!(back.set_note(id, Some(" \n ".into()), 2_200));
+    assert_eq!(note_of(&back, id), None, "blank clears it");
+    back.set_marks_alive(&[id], false, 3_000);
+    assert!(!back.set_note(id, Some("Lost.".into()), 3_100));
+}
+
+#[test]
+fn the_later_note_wins_on_every_machine() {
+    let mut a = Library::new(A);
+    let mut b = Library::new(B);
+    let book = a.record_open(opened("/a.pdf", 1), 1_000);
+    b.record_open(opened("/elsewhere/a.pdf", 1), 1_100);
+    let id = a.add_mark(book, fox(100.0), 2_000).unwrap();
+    a.set_note(id, Some("First.".into()), 2_100);
+    b.absorb(unsent(&mut a), 2_500);
+    b.set_note(id, Some("Rewritten.".into()), 3_000);
+    a.absorb(unsent(&mut b), 3_500);
+    for lib in [&a, &b] {
+        assert_eq!(note_of(lib, id).as_deref(), Some("Rewritten."));
     }
 }
 

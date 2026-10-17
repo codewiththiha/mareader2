@@ -90,7 +90,7 @@ pub struct Gloss {
     pub by: String,
 }
 
-/// One marked word. Only `book`, `alive` and `gloss` change once made.
+/// One marked word. Only `book`, `alive`, `gloss` and `note` change.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Mark {
     pub id: MarkId,
@@ -116,6 +116,9 @@ pub struct Mark {
     /// The saved answer; it hides and returns with the mark.
     #[serde(default, skip_serializing_if = "Field::is_unset")]
     pub gloss: Field<Option<Gloss>>,
+    /// The reader's own words about a highlight.
+    #[serde(default, skip_serializing_if = "Field::is_unset")]
+    pub note: Field<Option<String>>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -196,6 +199,7 @@ impl Library {
             added: wall_ms,
             alive: Field::new(true, at),
             gloss: Field::default(),
+            note: Field::default(),
             extra: Extra::default(),
         };
         self.marks.insert(id, mark);
@@ -232,6 +236,22 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         if let Some(mark) = self.marks.get_mut(&id) {
             mark.gloss = Field::new(gloss, at);
+        }
+        true
+    }
+
+    /// Writes or clears a living mark's note; blank clears it.
+    pub fn set_note(&mut self, id: MarkId, note: Option<String>, wall_ms: u64) -> bool {
+        let living = self
+            .mark(id)
+            .is_some_and(|m| self.book(m.book.value).is_some());
+        if !living {
+            return false;
+        }
+        let note = note.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty());
+        let at = self.clock.tick(wall_ms);
+        if let Some(mark) = self.marks.get_mut(&id) {
+            mark.note = Field::new(note, at);
         }
         true
     }

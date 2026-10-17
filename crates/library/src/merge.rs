@@ -97,11 +97,12 @@ impl Merge for Mark {
         self.book.merge(other.book);
         self.alive.merge(other.alive);
         self.gloss.merge(other.gloss);
+        self.note.merge(other.note);
         self.extra.merge(other.extra);
     }
 
     fn latest(&self) -> Stamp {
-        let fields = [self.book.at, self.alive.at, self.gloss.at].map(Some);
+        let fields = [self.book.at, self.alive.at, self.gloss.at, self.note.at].map(Some);
         newest(fields.into_iter().chain([self.extra.latest()]))
     }
 }
@@ -226,6 +227,11 @@ mod tests {
 
     fn mark(rng: &mut Rng) -> Mark {
         let (book, alive, said) = (rng.stamp(), rng.stamp(), rng.stamp());
+        let wrote = rng.stamp();
+        let note = wrote
+            .ms
+            .is_multiple_of(2)
+            .then(|| format!("noted at {}", wrote.ms));
         let gloss = (said.ms % 3 != 0).then(|| Gloss {
             meaning: format!("said at {}", said.ms),
             ..Gloss::default()
@@ -246,6 +252,7 @@ mod tests {
             added: 5,
             alive: Field::new(alive.ms % 2 == 0, alive),
             gloss: Field::new(gloss, said),
+            note: Field::new(note, wrote),
             extra: extra(rng),
         }
     }
