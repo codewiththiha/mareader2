@@ -15,7 +15,9 @@ use mareader_session::Anchor;
 use mareader_settings::{
     ColumnAlign, FontChoice, LibraryClick, MotionSettings, PaperArea, Settings,
 };
-use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
+use mareader_workspace::{
+    Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
+};
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
@@ -105,6 +107,8 @@ pub struct MareaderApp {
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
+    /// A pane held up to be moved, till the press ends.
+    lifting: Option<PaneId>,
     /// The library page's rect while it is up, for the glass behind bars.
     library_rect: Option<egui::Rect>,
     /// What an empty pane offers, as of a library revision.
@@ -193,6 +197,7 @@ impl MareaderApp {
             shelf_tree: PanelState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
+            lifting: None,
             library_rect: None,
             reopen: (u64::MAX, Vec::new()),
             looks: PaneLooks::default(),
@@ -1081,6 +1086,11 @@ impl MareaderApp {
                 Gloss::Pick(mark) => self.study.pick(pane, mark),
                 Gloss::Toggle(mark) => self.study.toggle(pane, mark),
                 Gloss::Seen { page, all } => self.study.seen(pane, page, all),
+                Gloss::Lift(_) if self.tree.len() > 1 => {
+                    self.lifting = Some(pane);
+                    self.active = pane;
+                }
+                Gloss::Lift(_) => {}
             }
         }
         for (pane, _) in &self.pane_rects {
@@ -1699,6 +1709,36 @@ impl MareaderApp {
         Bounds::new(r.left(), r.top(), r.width(), r.height())
     }
 
+    /// The lifted pane follows the pointer; letting go moves it there.
+    fn lifted(&mut self, ctx: &Context) {
+        let Some(pane) = self.lifting else {
+            return;
+        };
+        if !self.tree.panes().contains(&pane) {
+            self.lifting = None;
+            return;
+        }
+        let title = self.documents.title(pane).unwrap_or("this pane").to_owned();
+        let target = match crate::lift::show(ctx, pane, &self.pane_rects, &title) {
+            crate::lift::Lifted::Held => return,
+            crate::lift::Lifted::Cancelled => None,
+            crate::lift::Lifted::Dropped(target) => Some(target),
+        };
+        self.lifting = None;
+        let moved = match target {
+            None => return,
+            Some(LiftTarget::Swap(other)) => self.tree.swap(pane, other),
+            Some(LiftTarget::Dock(other, edge)) => {
+                self.tree.move_to(pane, other, edge, Self::area(ctx))
+            }
+        };
+        if moved.is_err() {
+            let note = "There's no room for the pane there.";
+            self.toasts.push(Toast::info(note));
+        }
+        ctx.request_repaint();
+    }
+
     /// A new pane on `edge` of `pane`; a refusal is a note.
     fn split_at(&mut self, ctx: &Context, pane: PaneId, edge: Edge) -> Option<PaneId> {
         let area = Self::area(ctx);
@@ -2118,7 +2158,8 @@ impl eframe::App for MareaderApp {
             || self.library.sheet().is_some()
             || self.library.renaming().is_some()
             || (route == Route::Library && library::search::focused(&ctx))
-            || crate::image_viewer::is_open(&ctx);
+            || crate::image_viewer::is_open(&ctx)
+            || self.lifting.is_some();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
@@ -2244,6 +2285,7 @@ impl eframe::App for MareaderApp {
         });
         self.library_rect = None;
         let menu_shot = self.menu_shot;
+        let lift = self.tree.len() > 1;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
                 self.pane_rects.clear();
@@ -2255,6 +2297,7 @@ impl eframe::App for MareaderApp {
                 let style = view.style(id);
                 let cx = ViewContext {
                     active: id == view.active,
+                    lift,
                     tokens: style.map_or(tokens, |s| s.tokens),
                     top_inset: (pinned_bottom - ui.max_rect().top()).max(0.0),
                     page: PageLook::new(layout, texts.of(id, window)),
@@ -2285,6 +2328,7 @@ impl eframe::App for MareaderApp {
         });
         self.library.end_frame(&ctx);
         self.glosses(&ctx, &mut commands);
+        self.lifted(&ctx);
         self.drops_from_rail(ui, &mut commands);
         library::sheets::show(&ctx, &self.library, &mut commands);
         let backdrop = self.backdrop(&ctx, &view);

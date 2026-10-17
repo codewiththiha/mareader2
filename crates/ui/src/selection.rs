@@ -133,6 +133,8 @@ pub struct Outcome {
     pub context: Option<Pos2>,
     /// Where a double click found no word, maybe on a picture.
     pub double: Option<Pos2>,
+    /// Where a hold on empty space lifted the pane.
+    pub lift: Option<Pos2>,
 }
 
 /// The pages' texts as one pane sees them.
@@ -142,6 +144,8 @@ pub struct Pages<'a> {
     pub texts: &'a TextLayers,
     /// The strip scrolls only sideways, so the wheel turns that way.
     pub sideways: bool,
+    /// The pane shares the window, so a hold on empty space lifts it.
+    pub lift: bool,
 }
 
 impl Pages<'_> {
@@ -211,7 +215,10 @@ pub fn interact(
         layer.link_at(x, y).map(|l| l.target.clone())
     });
     let origin = ui.input(|i| i.pointer.press_origin());
-    if grab::pan(ui, &response, origin.is_some_and(|p| pages.empty(p))) {
+    let empty = origin.is_some_and(|p| pages.empty(p));
+    let grabbed = grab::pan(ui, &response, empty, pages.lift);
+    out.lift = grabbed.lift;
+    if grabbed.busy {
         return out;
     }
     if response.hover_pos().is_some_and(|p| pages.empty(p)) {

@@ -126,7 +126,7 @@ impl Bounds {
         }
     }
 
-    fn extent(self, axis: SplitAxis) -> f32 {
+    pub(crate) fn extent(self, axis: SplitAxis) -> f32 {
         match axis {
             SplitAxis::Horizontal => self.w,
             SplitAxis::Vertical => self.h,
@@ -144,6 +144,8 @@ pub enum TreeError {
     NoRoom(PaneId),
     #[error("the last pane cannot be closed")]
     LastPane,
+    #[error("a pane cannot move beside itself")]
+    Itself,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -226,6 +228,60 @@ impl PaneTree {
         if self.len() >= MAX_PANES {
             return Err(TreeError::Full);
         }
+        let new = PaneId(self.next);
+        self.insert(of, (axis, side), area, new)?;
+        self.next = self.next.saturating_add(1);
+        Ok(new)
+    }
+
+    /// Trades the places of `a` and `b`, each keeping its own box size.
+    pub fn swap(&mut self, a: PaneId, b: PaneId) -> Result<(), TreeError> {
+        for id in [a, b] {
+            if !self.panes().contains(&id) {
+                return Err(TreeError::Missing(id));
+            }
+        }
+        fn walk(n: &mut Node, a: PaneId, b: PaneId) {
+            match n {
+                Node::Leaf(id) if *id == a => *id = b,
+                Node::Leaf(id) if *id == b => *id = a,
+                Node::Leaf(_) => {}
+                Node::Split { first, second, .. } => {
+                    walk(first, a, b);
+                    walk(second, a, b);
+                }
+            }
+        }
+        walk(&mut self.root, a, b);
+        Ok(())
+    }
+
+    /// Moves `pane` to `edge` of `target`; unchanged if it won't fit.
+    pub fn move_to(
+        &mut self,
+        pane: PaneId,
+        target: PaneId,
+        edge: Edge,
+        area: Bounds,
+    ) -> Result<(), TreeError> {
+        if pane == target {
+            return Err(TreeError::Itself);
+        }
+        let mut next = self.clone();
+        next.close(pane)?;
+        next.insert(target, edge.placement(), area, pane)?;
+        *self = next;
+        Ok(())
+    }
+
+    /// Puts `new` on `side` of `of`, if both halves stay usable.
+    fn insert(
+        &mut self,
+        of: PaneId,
+        (axis, side): (SplitAxis, Side),
+        area: Bounds,
+        new: PaneId,
+    ) -> Result<(), TreeError> {
         let bounds = self
             .layout(area)
             .into_iter()
@@ -235,7 +291,6 @@ impl PaneTree {
         if bounds.extent(axis) > 0.0 && bounds.extent(axis) / 2.0 < MIN_PANE_PX {
             return Err(TreeError::NoRoom(of));
         }
-        let new = PaneId(self.next);
         fn replace(n: &mut Node, of: PaneId, new: PaneId, axis: SplitAxis, side: Side) -> bool {
             match n {
                 Node::Leaf(id) if *id == of => {
@@ -260,8 +315,7 @@ impl PaneTree {
         if !replace(&mut self.root, of, new, axis, side) {
             return Err(TreeError::Missing(of));
         }
-        self.next = self.next.saturating_add(1);
-        Ok(new)
+        Ok(())
     }
 
     /// Closes `pane`; its sibling takes the whole of their split.
@@ -457,5 +511,57 @@ mod tests {
         assert_eq!(Edge::nearest(r, (50.0, 97.0)), Edge::Bottom);
         assert_eq!(Edge::nearest(r, (50.0, 50.0)), Edge::Right);
         assert_eq!(Edge::nearest(r, (f32::NAN, 50.0)), Edge::Right);
+    }
+
+    #[test]
+    fn a_swap_trades_places_and_keeps_the_boxes() {
+        let mut t = PaneTree::new();
+        let b = t
+            .split(PaneId(1), SplitAxis::Horizontal, Side::After, AREA)
+            .unwrap();
+        let before = t.layout(AREA);
+        t.swap(PaneId(1), b).unwrap();
+        let after = t.layout(AREA);
+        assert_eq!(after[0], (b, before[0].1));
+        assert_eq!(after[1], (PaneId(1), before[1].1));
+        assert_eq!(
+            t.swap(PaneId(1), PaneId(9)),
+            Err(TreeError::Missing(PaneId(9)))
+        );
+    }
+
+    #[test]
+    fn a_moved_pane_halves_its_target_and_keeps_its_id() {
+        // 1 | 2, then 1 moves below 2: one column, 2 over 1.
+        let mut t = PaneTree::new();
+        let b = t
+            .split(PaneId(1), SplitAxis::Horizontal, Side::After, AREA)
+            .unwrap();
+        t.move_to(PaneId(1), b, Edge::Bottom, AREA).unwrap();
+        let boxes = t.layout(AREA);
+        assert_eq!(boxes[0], (b, Bounds::new(0.0, 0.0, 1600.0, 500.0)));
+        assert_eq!(
+            boxes[1],
+            (PaneId(1), Bounds::new(0.0, 500.0, 1600.0, 500.0))
+        );
+        // New panes still get fresh ids.
+        let c = t
+            .split(b, SplitAxis::Horizontal, Side::After, AREA)
+            .unwrap();
+        assert!(c != b && c != PaneId(1));
+    }
+
+    #[test]
+    fn a_move_that_will_not_fit_changes_nothing() {
+        let mut t = PaneTree::new();
+        let b = t
+            .split(PaneId(1), SplitAxis::Horizontal, Side::After, AREA)
+            .unwrap();
+        let small = Bounds::new(0.0, 0.0, 1600.0, 300.0);
+        let before = t.clone();
+        let refused = t.move_to(PaneId(1), b, Edge::Bottom, small);
+        assert_eq!(refused, Err(TreeError::NoRoom(b)));
+        assert_eq!(t, before);
+        assert_eq!(t.move_to(b, b, Edge::Left, AREA), Err(TreeError::Itself));
     }
 }
