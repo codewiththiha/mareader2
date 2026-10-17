@@ -36,6 +36,16 @@ impl ViewMode {
         }
     }
 
+    /// A word for under its icon, inside its full label.
+    pub fn short(self) -> &'static str {
+        match self {
+            Self::Single => "Single",
+            Self::Spread => "Two pages",
+            Self::Vertical => "Vertical",
+            Self::Horizontal => "Horizontal",
+        }
+    }
+
     /// The first page of what shows with `page` in it.
     pub fn start(self, page: usize) -> usize {
         match self {

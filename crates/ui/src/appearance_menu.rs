@@ -63,7 +63,8 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.set_width(WIDTH);
     let max = (ui.ctx().content_rect().height() * 0.7).min(MAX_HEIGHT);
     // egui caps a popup's first frame; claiming the height lifts it.
-    egui::ScrollArea::vertical()
+    let t = Tokens::get(ui.ctx());
+    let body = egui::ScrollArea::vertical()
         .max_height(max)
         .min_scrolled_height(max)
         .auto_shrink([false, true])
@@ -109,6 +110,8 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
                 out.push(Command::SetIndependence(i));
             }
         });
+    // Rows past the edge fade, so the cut reads as more to scroll.
+    widgets::scroll_fades(ui, &body, t.surface);
     if a != *cx.current {
         out.push(Command::SetAppearance(a));
     }
@@ -172,7 +175,7 @@ fn slider<N: egui::emath::Numeric>(
         });
         // Painted and clipped in a fixed box: a widget here could outgrow it.
         let (rect, _) = ui.allocate_exact_size(vec2(VALUE_W, 20.0), Sense::hover());
-        let shown = format!("{:.0} %", value.to_f64());
+        let shown = format!("{:.0}%", value.to_f64());
         let font = egui::FontId::proportional(t.text);
         let painter = ui.painter_at(rect);
         painter.text(
@@ -229,10 +232,11 @@ fn mode(ui: &mut Ui, a: &mut Appearance) {
 /// The hue, read out in degrees: a strip and one-click landmarks.
 fn hue(ui: &mut Ui, a: &mut Appearance) {
     let t = Tokens::get(ui.ctx());
+    // Named and read out as the sliders are: muted name, ink value.
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Hue").size(t.text_small).color(t.muted));
+        ui.label(RichText::new("Hue").color(t.muted));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(format!("{}°", a.tint_hue)).size(t.text_small));
+            ui.label(RichText::new(format!("{}°", a.tint_hue)).color(t.ink));
         });
     });
     let mut changed = hue_strip(ui, &mut a.tint_hue).changed();
@@ -333,23 +337,38 @@ fn hue_swatch(ui: &mut Ui, h: u16, name: &str, on: bool) -> Response {
     resp.on_hover_text(name)
 }
 
-/// Every preset as a small page, four to a row, under its section.
+/// Every preset as a small page; a section is named only beside others.
 fn presets(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
-    for group in group_presets(cx.presets) {
-        let title = RichText::new(group.name.to_uppercase())
-            .size(t.text_small - 2.0)
-            .strong()
-            .color(t.muted);
-        ui.label(title);
-        for row in group.presets.chunks(4) {
-            ui.columns(4, |cols| {
-                for (ui, p) in cols.iter_mut().zip(row) {
-                    card(ui, cx, p, a, out);
-                }
-            });
+    let groups = group_presets(cx.presets);
+    let named = groups.len() > 1;
+    for group in groups {
+        if named {
+            let title = RichText::new(group.name).size(t.text_small).color(t.muted);
+            ui.label(title);
+        }
+        let cols = columns(group.presets.len());
+        let gap = ui.spacing().item_spacing.x;
+        let w = (ui.available_width() - gap * (cols - 1) as f32) / cols as f32;
+        for row in group.presets.chunks(cols) {
+            // A short last row is centred rather than left hanging.
+            let used = row.len() as f32 * w + (row.len().max(1) - 1) as f32 * gap;
+            let h = w * 0.75 + 16.0;
+            let (band, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+            let mut x = band.left() + (band.width() - used) / 2.0;
+            for p in row {
+                let cell = Rect::from_min_size(pos2(x, band.top()), vec2(w, h));
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(cell));
+                card(&mut child, cx, p, a, out);
+                x += w + gap;
+            }
         }
     }
+}
+
+/// Columns for `n` cards: four, or three when four would orphan one.
+fn columns(n: usize) -> usize {
+    if n > 4 && n % 4 == 1 { 3 } else { 4 }
 }
 
 /// One preset; picks it on click, and the user's own show a delete.
