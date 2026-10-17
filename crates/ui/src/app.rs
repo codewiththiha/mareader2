@@ -73,6 +73,8 @@ pub struct MareaderApp {
     chromeless: bool,
     tree: PaneTree,
     active: PaneId,
+    /// Panes by last focus, latest first: blend's paper follows them.
+    recent: Vec<PaneId>,
     sidebar: Sidebar,
     settings_window: SettingsWindow,
     find: FindBar,
@@ -157,6 +159,7 @@ impl MareaderApp {
             chromeless: false,
             tree: PaneTree::new(),
             active: PaneId(1),
+            recent: Vec::new(),
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
             find: FindBar::default(),
@@ -1639,18 +1642,41 @@ impl MareaderApp {
         })
     }
 
-    /// Blend's raw paper: the focused PDF's in every pane, or each its own.
-    fn blend_paper(&self, pane: PaneId) -> Option<Rgb> {
+    /// Blend's raw paper: each pane's own, or else shared by every pane.
+    pub fn blend_paper(&self, pane: PaneId) -> Option<Rgb> {
         let paper = &self.settings.paper;
-        let from = if self.routing().colour() {
-            pane
-        } else {
-            self.active
-        };
-        paper
-            .blend
-            .then(|| self.documents.paper(from, paper.area))
-            .flatten()
+        if !paper.blend {
+            return None;
+        }
+        if self.routing().colour() {
+            return self.documents.paper(pane, paper.area);
+        }
+        // The latest focused pane with a paper: a book's has none, as mareader.
+        self.recent
+            .iter()
+            .find_map(|&p| self.documents.paper(p, paper.area))
+    }
+
+    /// The latest focused pane showing a PDF: shared blend reads its paper.
+    fn paper_source(&self) -> Option<PaneId> {
+        let d = &self.documents;
+        self.recent
+            .iter()
+            .copied()
+            .find(|&p| d.page_count(p).is_some() && !d.reflowable(p))
+    }
+
+    /// Puts the focused pane first in `recent`, dropping closed panes.
+    fn note_focus(&mut self) {
+        let placed = self.tree.panes();
+        self.recent
+            .retain(|p| placed.contains(p) && *p != self.active);
+        self.recent.insert(0, self.active);
+        let unseen: Vec<PaneId> = placed
+            .into_iter()
+            .filter(|p| !self.recent.contains(p))
+            .collect();
+        self.recent.extend(unseen);
     }
 
     /// The library keeps its own pin; the reader's is the other.
@@ -1858,6 +1884,7 @@ impl eframe::App for MareaderApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.note_focus();
         if self.documents.gpu().is_none()
             && let Some(render) = frame.wgpu_render_state()
         {
@@ -1999,6 +2026,7 @@ impl eframe::App for MareaderApp {
         };
         // Each pane reads its own paper while it has a colour of its own.
         let every = self.routing().colour();
+        let source = self.paper_source();
         let corner = view.corner(self.tree.len() > 1, &tokens);
         let blend = self.settings.paper.blend;
         // A pinned bar covers the panes' top; documents start below it.
@@ -2045,7 +2073,7 @@ impl eframe::App for MareaderApp {
                     page: PageLook::new(layout, texts.of(id, window)),
                     paper: style.and_then(|s| s.paper),
                     corner,
-                    sample: blend && (every || id == view.active),
+                    sample: blend && (every || Some(id) == source),
                     marks: {
                         let book = library.book_in(documents, id);
                         let name = documents.title(id).unwrap_or_default();
