@@ -1,7 +1,7 @@
 # Roadmap
 
-**Stage:** M1 to M5 done; M6 (Study tools) under way.
-**Parity:** 99.5 of 118 features (84.3 %, partial counts half). Run
+**Stage:** M0 to M8 done; v0.0.1 released. M9 (sync) is optional.
+**Parity:** 117 of 118 features (99.2 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
 ## Milestones
@@ -17,7 +17,14 @@
 | M6 | Study tools | Gloss cards and marks, CEFR highlighting, offline dictionaries, selection menu |
 | M7 | Search and keyboard | Document search for both formats, lazy index, auto-scroll, full keyboard operation |
 | M8 | Polish and 1.0 | Every P0 and P1 shipped; memory budgets held; packaging for macOS, Windows, Linux |
-| M9 | Sync (after 1.0) | Per `docs/sync.md`: one library on several machines through a synced folder, WebDAV, S3, Google Drive or OneDrive; hybrid-clock merge; covers and files on demand |
+
+### Optional milestones
+
+Not planned; taken up only if the owner asks, and not soon.
+
+| | Milestone | Done when |
+|---|---|---|
+| M9 (optional) | Sync | Per `docs/sync.md`: one library on several machines through a synced folder, WebDAV, S3, Google Drive or OneDrive; hybrid-clock merge; covers and files on demand. The database already keeps ids, stamps and tombstones for it |
 
 A milestone is done when every P0 entry for it is `shipped` and the P1 entries
 are `shipped` or explicitly deferred with notes. Parity means the capability,
@@ -158,7 +165,8 @@ appearance effects to that same pass.
 12. **Closing M8** (§ M8 slices, row 5): the owner checked the Mac rows
     of `docs/verification.md` (2026-10-17), so the traffic lights are
     shipped, and v0.0.1 is published for macOS, Windows and Linux. M8
-    is done. Next is M9, sync, when the owner asks for it.
+    is done. Sync (M9) is optional and much later (owner, 2026-10-17);
+    small fixes come as the owner finds them.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -258,3 +266,4 @@ appearance effects to that same pass.
 | 2026-10-16 | M8 slice 3, memory budgets. The memory example now covers PDFs, EPUBs, a 3,000-PDF library read in place and 20,000 books without files, and ends each workload with a table of budgets that fails the run on a breach: closed books leave no document or search, later rounds' floor stays level, a second pane costs under a quarter of the first open, page and cover caps hold, a book costs at most 16 KiB (3.3 measured) and a scroll to the end adds at most 256 MiB at its peak (152 measured). CI runs it as the Remote memory task (`tools/ci.py memory`), with the EPUB layout test; the step keeps a breach's exit status. Found by it: covers scrolled past stayed queued, so a fling over a big library read and uploaded every cover it passed (only covers asked for this frame or last wait now, four inline loads a frame at most, nearest first); a closed pane's search kept its book until the bar was used again. A 5 GB scroll peak was the test harness, which submits uploads only when it renders. `docs/memory.md` § 2026-10-16 |
 | 2026-10-16 | M8 slice 4, installers. `.github/workflows/installers.yml` builds each platform's installers on that platform: `.deb`, AppImage and pacman on Ubuntu 22.04 (glibc 2.35, so the AppImage runs widely), `.dmg` on Apple Silicon (with the Apple Intelligence helper built by Xcode 26) and on Intel, NSIS and MSI on Windows. `tools/check-installers.sh` then installs each one, checks what it registers (PDF, EPUB, text and Markdown, as mareader did; text and Markdown are new here), opens a book with it on the runner's software GPU or Metal, and removes it. The Mac app is signed ad hoc, so a download asks once instead of being called damaged, and a Developer ID and notarization switch on with repository secrets. The `.deb` names the libraries Mareader loads at run time. A `v<version>` tag drafts a release with every installer and `SHA256SUMS`; a `release/<slug>` branch tries packaging changes; `tools/ci.py installers` dispatches a run and prints each platform's checks. `docs/packaging.md` § Installers from CI |
 | 2026-10-17 | Closing M8 and v0.0.1. The owner checked the Mac rows of `docs/verification.md` on a real Mac: the bar drags, the traffic lights sit in it and slide with the sidebar, and books open from Finder. `chrome.traffic-lights` is shipped, so every P0 and P1 is. The Arch `PKGBUILD` now names the libraries Mareader loads (as the `.deb` does) and CI checks the pacman archive. A release takes its notes from `docs/releases/<tag>.md`; v0.0.1's say which file each system needs, how to install it, and what the first launch asks, as the builds are not signed by Apple or Microsoft. The `v0.0.1` tag built and checked every installer in CI, and the release is published. |
+| 2026-10-17 | Small fixes. Dictionary words in any script now show glyphs: the bundled fonts fall back to fonts on the machine, and dictionary text is shaped with parley, so Burmese, Thai and Arabic join properly. Long dictionary cards scroll in a list sized to the room, with one muted "≈ word" heading per group. The bar loses its split buttons; panes split by dragging a book from the sidebar. The appearance menu keeps one width while sliders move. M9 is now optional |

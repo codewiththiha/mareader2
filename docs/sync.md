@@ -1,6 +1,6 @@
 # Sync: design
 
-> **Status:** design for after 1.0 (M9); M5 lays its ground · **Last updated:** 2026-10-16
+> **Status:** design for an optional milestone (M9), much later; M5 lays its ground · **Last updated:** 2026-10-17
 
 mareader has no sync. mareader2 will sync one library across machines
 through several backends. Sync itself comes after 1.0, but the library's
