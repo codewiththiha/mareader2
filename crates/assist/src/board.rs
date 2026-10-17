@@ -1,6 +1,6 @@
 //! What the AI settings show, and the jobs they start. Plain data.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use mareader_settings::Provider;
 use mareader_study::Failure;
@@ -124,6 +124,8 @@ pub struct Board {
     /// The last key change that failed, per provider.
     pub problems: HashMap<Provider, Failure>,
     pub models: HashMap<Provider, Load<Vec<String>>>,
+    /// Lists fetched again; the old one stays shown meanwhile.
+    pub refreshing: HashSet<Provider>,
     pub tried: HashMap<Provider, Load<Tried>>,
 }
 
@@ -134,6 +136,11 @@ impl Board {
 
     pub fn models(&self, p: Provider) -> &Load<Vec<String>> {
         self.models.get(&p).unwrap_or(&Load::Idle)
+    }
+
+    /// Whether `p`'s models are on their way, with or without a list.
+    pub fn fetching(&self, p: Provider) -> bool {
+        self.refreshing.contains(&p) || matches!(self.models(p), Load::Busy)
     }
 
     pub fn tried(&self, p: Provider) -> &Load<Tried> {
@@ -153,9 +160,14 @@ impl Board {
                 self.keys.entry(*p).or_insert(Load::Busy);
                 self.problems.remove(p);
             }
-            Job::Models(p) => {
-                self.models.insert(*p, Load::Busy);
-            }
+            Job::Models(p) => match self.models(*p) {
+                Load::Ready(_) => {
+                    self.refreshing.insert(*p);
+                }
+                _ => {
+                    self.models.insert(*p, Load::Busy);
+                }
+            },
             Job::Try(p) => {
                 self.tried.insert(*p, Load::Busy);
             }
@@ -176,6 +188,7 @@ impl Board {
                 }
             }
             Reply::Models(p, models) => {
+                self.refreshing.remove(&p);
                 self.models.insert(p, Load::of(models));
             }
             Reply::Tried(p, tried) => {
@@ -190,6 +203,24 @@ mod tests {
     use mareader_study::Why;
 
     use super::*;
+
+    #[test]
+    fn a_refresh_keeps_the_old_list_until_the_new_one() {
+        let mut b = Board::default();
+        let p = Provider::Ollama;
+        b.start(&Job::Models(p));
+        assert!(b.fetching(p));
+        let old = vec!["llama3.2:latest".to_owned()];
+        b.finish(Reply::Models(p, Ok(old.clone())));
+        assert!(!b.fetching(p));
+        b.start(&Job::Models(p));
+        assert!(b.fetching(p));
+        assert_eq!(b.models(p), &Load::Ready(old));
+        let new = vec!["qwen3:4b".to_owned()];
+        b.finish(Reply::Models(p, Ok(new.clone())));
+        assert!(!b.fetching(p));
+        assert_eq!(b.models(p), &Load::Ready(new));
+    }
 
     #[test]
     fn jobs_mark_what_they_refresh_and_replies_land() {

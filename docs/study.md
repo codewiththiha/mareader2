@@ -121,6 +121,10 @@ fit together is in `docs/assist.md`.
   group for local and custom servers, under Advanced for the cloud
   presets. Try it explains a sample word and says how long it took, or why
   it failed.
+- **Model list.** A refresh button beside Choose asks again; the old list
+  stays shown meanwhile. Ollama and LM Studio are asked each time the tab
+  opens. The chosen model is saved; one the server no longer lists is
+  dimmed, with a note to choose another ("x" matches "x:latest").
 - **API keys** (cloud presets; optional for Custom) are listed by their
   ends with their state: ready, resting after a rate limit, or set aside
   with the provider's reason. Each can be set aside, brought back or
