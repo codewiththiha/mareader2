@@ -138,6 +138,7 @@ struct Staged {
     page: usize,
     text: String,
     explain: bool,
+    look_up: bool,
     pen: Option<mareader_library::Pen>,
     /// Its page was asked for once; the view is on its way there.
     turned: bool,
@@ -718,6 +719,7 @@ impl MareaderApp {
                     page,
                     text,
                     explain: false,
+                    look_up: false,
                     pen: None,
                     turned: false,
                 });
@@ -726,6 +728,11 @@ impl MareaderApp {
             "gloss" => match self.staged.back_mut() {
                 Some(staged) => staged.explain = true,
                 None => return Err("gloss: after selection=page:text".into()),
+            },
+            // Looks the staged selection up: the dictionary card opens.
+            "lookup" => match self.staged.back_mut() {
+                Some(staged) => staged.look_up = true,
+                None => return Err("lookup: after selection=page:text".into()),
             },
             // Highlights the staged selection with a pen.
             "highlight" => {
@@ -948,12 +955,16 @@ impl MareaderApp {
                 page,
                 text,
                 explain,
+                look_up,
                 pen,
                 ..
             }) if !sheets.is_empty() => {
                 out.push(Command::SelectText { pane, page, text });
                 if explain {
                     out.push(Command::Explain(pane));
+                }
+                if look_up {
+                    out.push(Command::LookUp(pane));
                 }
                 if let Some(pen) = pen {
                     let color = None;
