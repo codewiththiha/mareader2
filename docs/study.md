@@ -318,3 +318,24 @@ hides and returns with the mark.
   with its page and note. All and Notes filter the list. A click goes to
   the page; the right-click menu edits, deletes or removes.
 - Settings v4 adds Note to saved selection bars after Look up.
+
+## Restyling a highlight
+
+Right-click a highlight to change its look at any time. The menu opens on
+its pen and colour; each choice applies at once, and the menu stays open so
+looks can be compared.
+It opens under the highlight, or above it near the window's foot, so it
+never hides the words being restyled.
+
+- **Pens.** Highlight, Half and Underline sit in one segmented row, named
+  under their icons. Each shows the colour the highlight would take.
+- **Colours.** The pen's own colour comes first, then the palette. The
+  colour shown is ringed. Choosing the pen's own colour stores none, so the
+  highlight follows the pen if Settings change it later.
+- **Reserved looks.** A pen and colour pair kept for AI marks or CEFR
+  shading is shown struck out and can't be chosen; its tooltip says what
+  keeps it. A new pen keeps the colour unless that pair is reserved; then
+  it takes the pen's own colour.
+- AI marks keep the AI's look: their menu has no pens or colours.
+- The look is a stamped field of the mark (`style`), so the latest restyle
+  wins when libraries merge.
