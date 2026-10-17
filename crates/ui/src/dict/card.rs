@@ -10,6 +10,7 @@ use super::Action;
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
+use crate::shaped;
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -17,8 +18,11 @@ const WIDTH: f32 = 320.0;
 const GAP: f32 = 8.0;
 /// Below the words unless less than this is left there.
 const ROOM_BELOW: f32 = 240.0;
-/// Entries past this height scroll.
-const LIST_HEIGHT: f32 = 280.0;
+/// Entries scroll past this height, or past the room the window leaves.
+const LIST_HEIGHT: f32 = 340.0;
+const LIST_MIN: f32 = 120.0;
+/// The word, the languages and the card's margins above the list.
+const HEAD: f32 = 96.0;
 
 pub struct View<'a> {
     pub word: &'a str,
@@ -41,6 +45,11 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         true => (pos2(x, at.bottom() + GAP), Align2::CENTER_TOP),
         false => (pos2(x, at.top() - GAP), Align2::CENTER_BOTTOM),
     };
+    let space = match below {
+        true => room.bottom() - pos.y,
+        false => pos.y - room.top(),
+    };
+    let list = (space - HEAD).clamp(LIST_MIN, LIST_HEIGHT);
     egui::Area::new(Id::new("dict-card"))
         .order(Order::Foreground)
         .pivot(pivot)
@@ -55,24 +64,31 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
                 .show(ui, |ui| {
                     ui.set_width(WIDTH);
                     ui.spacing_mut().item_spacing.y = 6.0;
-                    body(ui, view, t, out);
+                    body(ui, view, list, t, out);
                 });
         })
         .response
         .rect
 }
 
-fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
+fn body(ui: &mut Ui, view: &View<'_>, list: f32, t: &Tokens, out: &mut Commands) {
     ui.horizontal(|ui| {
-        let word = RichText::new(view.word)
-            .size(t.text * 1.35)
-            .strong()
-            .color(t.ink);
-        ui.add(egui::Label::new(word).truncate());
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        // The close button claims its room first; the word takes the rest.
+        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                 out.push(Command::Dict(Action::CloseCard));
             }
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                if shaped::needs_shaping(view.word) {
+                    shaped::label(ui, view.word, t.text * 1.35, t.ink);
+                } else {
+                    let word = RichText::new(view.word)
+                        .size(t.text * 1.35)
+                        .strong()
+                        .color(t.ink);
+                    ui.add(egui::Label::new(word).truncate());
+                }
+            });
         });
     });
     let Some(reply) = view.reply else {
@@ -103,44 +119,61 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
         return;
     }
     ScrollArea::vertical()
-        .max_height(LIST_HEIGHT)
+        .max_height(list)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            for (i, entry) in reply.entries.iter().enumerate() {
-                if i > 0 {
-                    ui.separator();
-                }
-                entry_rows(ui, entry, view.word, t);
-            }
+            entries(ui, &reply.entries, view.word, t, |_, _| {})
         });
 }
 
-/// One entry: its answer first, then what qualifies it.
-pub fn entry_rows(ui: &mut Ui, e: &Entry, asked: &str, t: &Tokens) {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+/// Entries under one heading per nearest word; `after` adds to each.
+pub fn entries(
+    ui: &mut Ui,
+    list: &[Entry],
+    asked: &str,
+    t: &Tokens,
+    mut after: impl FnMut(&mut Ui, &Entry),
+) {
+    let mut heading: Option<&str> = None;
+    for (i, e) in list.iter().enumerate() {
         // A bridge's asked side is the English between, not the ask.
         let other = e.via.is_none() && fold(e.asked()) != fold(asked);
-        if e.fit != WordMatch::Exact || other {
-            let near = RichText::new(format!("≈ {}", e.asked())).color(t.muted);
-            ui.label(near).on_hover_text("The nearest entry");
+        let near = (e.fit != WordMatch::Exact || other).then(|| e.asked());
+        let new_group = near.is_some() && near != heading;
+        if i > 0 {
+            ui.separator();
         }
-        let tags = e.tags();
-        if !tags.is_empty() {
-            ui.label(
-                RichText::new(tags)
-                    .italics()
-                    .size(t.text_small)
-                    .color(t.muted),
-            );
+        if new_group && let Some(word) = near {
+            let text = format!("≈ {word}");
+            shaped::label(ui, &text, t.text_small, t.muted).on_hover_text("The nearest entry");
         }
-    });
-    ui.label(RichText::new(e.answer()).color(t.ink));
+        heading = near;
+        entry_rows(ui, e, t);
+        after(ui, e);
+    }
+}
+
+/// One entry: tags, answer, then qualifiers, each row as tall as its text.
+fn entry_rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
+    let tags = e.tags();
+    if !tags.is_empty() {
+        ui.label(
+            RichText::new(tags)
+                .italics()
+                .size(t.text_small)
+                .color(t.muted),
+        );
+    }
+    shaped::label(ui, e.answer(), t.text, t.ink);
     if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {
-        ui.label(RichText::new(r).size(t.text_small).color(t.muted));
+        shaped::label(ui, r, t.text_small, t.muted);
     }
     if let Some(s) = e.sense.as_deref().filter(|s| !s.is_empty()) {
-        ui.label(RichText::new(s).italics().size(t.text_small).color(t.muted));
+        if shaped::needs_shaping(s) {
+            shaped::label(ui, s, t.text_small, t.muted);
+        } else {
+            ui.label(RichText::new(s).italics().size(t.text_small).color(t.muted));
+        }
     }
     if let Some(via) = &e.via {
         ui.label(

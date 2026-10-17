@@ -3019,6 +3019,7 @@ dependencies = [
  "mareader-epub",
  "mareader-library",
  "mareader-pdf",
+ "mareader-reflow",
  "mareader-search",
  "mareader-session",
  "mareader-settings",
