@@ -160,27 +160,36 @@ fn answer(ui: &mut Ui, info: &WordInfo, t: &Tokens) {
     if !info.synonyms.is_empty() {
         heading(ui, "Synonyms", t);
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+            ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
             for s in &info.synonyms {
-                Frame::new()
-                    .fill(t.accent_soft)
-                    .corner_radius(t.radius)
-                    .inner_margin(Margin::symmetric(8, 2))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(s).size(t.text_small).color(t.ink));
-                    });
+                chip(ui, s, t);
             }
         });
     }
     if !info.usages.is_empty() {
         heading(ui, "Usages", t);
         for u in &info.usages {
-            ui.horizontal_wrapped(|ui| {
+            // Hanging indent: wrapped lines start under the text.
+            ui.horizontal_top(|ui| {
                 ui.label(RichText::new("•").color(t.muted));
-                ui.label(RichText::new(u).italics().color(t.ink));
+                ui.add(egui::Label::new(RichText::new(u).italics().color(t.ink)).wrap());
             });
         }
     }
+}
+
+/// A synonym in a pill, moved whole to the next line when it doesn't fit.
+fn chip(ui: &mut Ui, text: &str, t: &Tokens) {
+    let pad = vec2(8.0, 3.0);
+    // Only a word wider than the whole card wraps inside its pill.
+    let widest = (ui.max_rect().width() - 2.0 * pad.x).max(0.0);
+    let font = egui::FontId::proportional(t.text_small);
+    let galley = ui.painter().layout(text.to_owned(), font, t.ink, widest);
+    let size = galley.size() + 2.0 * pad;
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(rect, t.radius, t.accent_soft);
+    ui.painter().galley(rect.min + pad, galley, t.ink);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
 }
 
 /// Grey bars that breathe while the answer is on its way.
