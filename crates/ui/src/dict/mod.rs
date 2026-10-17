@@ -1,6 +1,7 @@
 //! Dictionaries in the app: the lookup card, the panel, the packs.
 
 mod card;
+mod entry;
 pub mod panel;
 
 use egui::{Context, Rect, Vec2};
@@ -131,6 +132,11 @@ impl Dict {
     /// The word the card shows, for tests.
     pub fn card_word(&self) -> Option<&str> {
         self.card.as_ref().map(|c| c.word.as_str())
+    }
+
+    /// Where the card was drawn and the words it points at, for tests.
+    pub fn card_place(&self) -> Option<(Rect, Rect)> {
+        Some((self.card_rect?, self.card.as_ref()?.at))
     }
 
     /// The card's answers once they came, for tests.

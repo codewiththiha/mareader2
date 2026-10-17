@@ -73,6 +73,10 @@ fn look_up_answers_from_the_packs_in_the_default_language() {
     // No default yet: the first language other than English.
     assert_eq!(dict.card_answers(), Some(vec!["မြန်သော".to_owned()]));
     h.get_by_label("English → Burmese");
+    // The card points at its words from beside them, never over them.
+    let (card, at) = h.state().dict().card_place().expect("a drawn card");
+    assert!(!card.intersects(at), "{card:?} covers {at:?}");
+    assert!(card.top() >= at.bottom() || card.bottom() <= at.top());
     h.key_press(egui::Key::Escape);
     h.run();
     assert_eq!(h.state().dict().card_word(), None);
