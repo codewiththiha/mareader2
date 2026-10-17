@@ -94,6 +94,8 @@ pub enum Icon {
     LookUp,
     SelectSeveral,
     AutoScroll,
+    /// A highlight's note, and the panel that gathers them.
+    Note,
 }
 
 impl Icon {
@@ -168,6 +170,7 @@ impl Icon {
             Self::LookUp => Lucide::BookSearch,
             Self::SelectSeveral => Lucide::ListChecks,
             Self::Rename => Lucide::Pencil,
+            Self::Note => Lucide::StickyNote,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,

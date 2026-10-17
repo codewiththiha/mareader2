@@ -34,19 +34,27 @@ pub enum Panel {
     Thumbnails,
     Outline,
     Library,
+    /// The book's highlights and their notes.
+    Notes,
     /// Joins the switcher once a language pack is built (M6).
     Dictionary,
 }
 
 impl Panel {
     /// The switcher's buttons, in order.
-    pub const SWITCHER: [Panel; 3] = [Panel::Thumbnails, Panel::Outline, Panel::Library];
+    pub const SWITCHER: [Panel; 4] = [
+        Panel::Thumbnails,
+        Panel::Outline,
+        Panel::Notes,
+        Panel::Library,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Panel::Thumbnails => "Thumbnails",
             Panel::Outline => "Outline",
             Panel::Library => "Library",
+            Panel::Notes => "Notes",
             Panel::Dictionary => "Dictionary",
         }
     }
@@ -56,6 +64,7 @@ impl Panel {
             Panel::Thumbnails,
             Panel::Outline,
             Panel::Library,
+            Panel::Notes,
             Panel::Dictionary,
         ]
         .into_iter()
@@ -67,6 +76,7 @@ impl Panel {
             Panel::Thumbnails => Icon::Thumbnails,
             Panel::Outline => Icon::Outline,
             Panel::Library => Icon::Library,
+            Panel::Notes => Icon::Note,
             Panel::Dictionary => Icon::Dictionary,
         }
     }
@@ -77,6 +87,7 @@ impl Panel {
             Panel::Thumbnails => "Open a PDF to browse its pages here.",
             Panel::Outline => "Open a book to see its chapters here.",
             Panel::Library => "Your library as a tree, with the open tabs, arrives in M5.",
+            Panel::Notes => "Open a book to see its highlights and notes here.",
             Panel::Dictionary => "Look words up in your language packs (M6).",
         }
     }

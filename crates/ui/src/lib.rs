@@ -30,6 +30,7 @@ pub mod library_panel;
 pub mod loading_mark;
 pub mod machine_fonts;
 pub mod motion;
+pub mod notes_panel;
 pub mod outline_panel;
 pub mod page_bar;
 pub mod pages;
