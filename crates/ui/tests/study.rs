@@ -716,3 +716,40 @@ fn the_notes_panel_copies_and_offers_to_export_what_it_shows() -> Out {
     }
     Ok(())
 }
+
+fn current(h: &H) -> Option<usize> {
+    let pane = h.state().active_pane();
+    h.state().documents().reading(pane).map(|r| r.current)
+}
+
+#[test]
+fn a_page_is_bookmarked_listed_and_taken_back_with_undo() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "notes")]);
+    h.run();
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::D);
+    h.run();
+    h.get_by_label_contains("Bookmark, page 1: ");
+    // A ribbon on the page, not a mark over its words.
+    let pane = h.state().active_pane();
+    assert!(h.state().marks(pane).is_empty());
+    h.key_press(egui::Key::ArrowRight);
+    h.run();
+    assert_eq!(current(&h), Some(1));
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::D);
+    h.run();
+    h.get_by_label("Bookmarks · 2").click();
+    h.run();
+    h.get_by_label_contains("Bookmark, page 1: ").click();
+    h.run();
+    assert_eq!(current(&h), Some(0), "a bookmark goes to its page");
+    // Again on a bookmarked page takes it back.
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::D);
+    h.run();
+    assert!(h.query_by_label_contains("Bookmark, page 1: ").is_none());
+    h.get_by_label("Removed bookmark");
+    h.get_by_label("Undo").click();
+    h.run();
+    h.get_by_label_contains("Bookmark, page 1: ");
+    h.get_by_label_contains("Bookmark, page 2: ");
+    Ok(())
+}

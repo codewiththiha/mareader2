@@ -20,6 +20,8 @@ use crate::widgets;
 pub const BAR_H: f32 = 40.0;
 /// The strip along a pane's bottom edge that brings the bar up.
 pub const EDGE: f32 = 8.0;
+/// An icon button's width, as the bookmark takes at the bar's end.
+const BOOKMARK_W: f32 = 28.0;
 /// Narrower than this, the bar keeps its buttons and drops the slider.
 const SLIDER_MIN_PANE: f32 = 260.0;
 
@@ -81,7 +83,7 @@ pub fn show(
     ctx: &Context,
     pane: Rect,
     reading: &Reading,
-    look: &BarLook<'_>,
+    (look, marked): (&BarLook<'_>, bool),
     bar: &mut PageBar,
     out: &mut Commands,
 ) {
@@ -151,7 +153,7 @@ pub fn show(
                 .layout(Layout::left_to_right(Align::Center));
             ui.scope_builder(builder, |ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                contents(ui, reading, bar, entry_id, pane.width(), out);
+                contents(ui, reading, bar, entry_id, (pane.width(), marked), out);
             });
             if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect) {
                 out.push(Command::FocusPane(reading.pane));
@@ -164,7 +166,7 @@ fn contents(
     reading: &Reading,
     bar: &mut PageBar,
     entry_id: Id,
-    pane_width: f32,
+    (pane_width, marked): (f32, bool),
     out: &mut Commands,
 ) {
     let t = Tokens::get(ui.ctx());
@@ -214,21 +216,33 @@ fn contents(
             forward: true,
         });
     }
-    if pane_width < SLIDER_MIN_PANE || count < 2 {
-        return;
+    if pane_width >= SLIDER_MIN_PANE && count >= 2 {
+        let mut page = reading.current + 1;
+        // Room is kept at the end for the bookmark.
+        let room = ui.available_width() - BOOKMARK_W - 10.0;
+        ui.spacing_mut().slider_width = room.max(40.0);
+        let slider = Slider::new(&mut page, 1..=count)
+            .show_value(false)
+            .trailing_fill(true);
+        let r = ui.add(slider);
+        widgets::name(&r, "Page");
+        if r.changed() {
+            out.push(Command::GoTo {
+                pane,
+                page: page - 1,
+            });
+        }
     }
-    let mut page = reading.current + 1;
-    ui.spacing_mut().slider_width = (ui.available_width() - 4.0).max(40.0);
-    let slider = Slider::new(&mut page, 1..=count)
-        .show_value(false)
-        .trailing_fill(true);
-    let r = ui.add(slider);
-    widgets::name(&r, "Page");
-    if r.changed() {
-        out.push(Command::GoTo {
-            pane,
-            page: page - 1,
-        });
+    let tip = if marked {
+        "Remove bookmark"
+    } else {
+        "Bookmark this page"
+    };
+    let platform = crate::platform::Platform::current();
+    let keys = crate::keymap::hint(platform, &Command::Bookmark(None));
+    let r = widgets::icon_button_keyed(ui, Icon::Bookmark, tip, marked, keys.as_deref());
+    if r.clicked() {
+        out.push(Command::Bookmark(Some(pane)));
     }
 }
 

@@ -322,3 +322,34 @@ fn the_later_style_wins_on_every_machine() {
         assert_eq!(mark.look(), under);
     }
 }
+
+#[test]
+fn a_bookmark_is_kept_once_carries_a_note_and_takes_no_style() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let mut lib = folder.load(A).library;
+    let book = lib.record_open(opened("/a.epub", 1), 1_000);
+    let spot = Spot::Text {
+        block: 4,
+        start: 120,
+        end: 120,
+    };
+    let id = lib
+        .add_mark(book, NewMark::bookmark("Two".into(), spot), 2_000)
+        .unwrap();
+    let again = lib.add_mark(book, NewMark::bookmark("Two".into(), spot), 2_100);
+    assert_eq!(again, Some(id), "one bookmark per place");
+    assert!(lib.set_note(id, Some("Reread".into()), 2_200));
+    let style = Style {
+        pen: Pen::Half,
+        color: None,
+    };
+    assert!(!lib.set_style(id, style, 2_300));
+    save(&folder, &mut lib);
+    let back = folder.load(A).library;
+    let mark = back.mark(id).unwrap();
+    assert_eq!(
+        (mark.kind, mark.note.value.as_deref()),
+        (MarkKind::Bookmark, Some("Reread"))
+    );
+}

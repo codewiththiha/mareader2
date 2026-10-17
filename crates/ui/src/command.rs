@@ -135,6 +135,9 @@ pub enum Command {
     },
     /// Highlights the pane's selection and opens a note on it.
     Note(PaneId),
+    /// Bookmarks the pane's page, or takes its bookmark back; none is
+    /// the focused pane.
+    Bookmark(Option<PaneId>),
     /// Selects the first `text` on `page` in the pane, as a drag does.
     SelectText {
         pane: PaneId,
