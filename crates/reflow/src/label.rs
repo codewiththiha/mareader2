@@ -156,4 +156,14 @@ mod tests {
         assert!(label("x", f32::NAN, 100.0).is_none());
         assert!(label("x", 16.0, 0.0).is_none());
     }
+
+    #[test]
+    fn scripts_without_spaces_break_between_words() {
+        // Thai and Burmese leave out spaces; a dictionary finds the breaks.
+        for text in ["ภาษาไทยเป็นภาษาที่ไม่เว้นวรรคระหว่างคำ", "မြန်မာဘာသာစကားသည်လှပသည်"]
+        {
+            let laid = lay_out(&mut Fonts::system(), text, 16.0, Some(80.0));
+            assert!(laid.len() > 1, "{text}: no break found");
+        }
+    }
 }
