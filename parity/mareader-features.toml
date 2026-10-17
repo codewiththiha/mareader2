@@ -1346,9 +1346,9 @@ area = "I"
 tier = "P1"
 milestone = "M6"
 status = "shipped"
-evidence = ["crates/assist/tests/service.rs::apple_intelligence_streams_through_the_helper", "crates/assist/tests/service.rs::a_local_server_answers_without_keys", "crates/assist/tests/service.rs::providers_that_cannot_answer_say_why", "crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::the_ai_tab_picks_who_explains", "crates/ui/src/study/mod.rs::a_saved_answer_shows_without_asking_and_ask_again_replaces_it", "crates/library/src/marks_tests.rs::an_answer_is_saved_with_its_mark_and_hides_with_it"]
+evidence = ["crates/assist/tests/service.rs::apple_intelligence_streams_through_the_helper", "crates/assist/tests/service.rs::a_local_server_answers_without_keys", "crates/assist/tests/service.rs::providers_that_cannot_answer_say_why", "crates/ui/tests/study.rs::explain_marks_the_word_and_its_card_comes_back_on_a_click", "crates/ui/tests/study.rs::the_ai_tab_picks_who_explains", "crates/ui/src/study/mod.rs::a_saved_answer_shows_without_asking_and_ask_again_replaces_it", "crates/library/src/marks_tests.rs::an_answer_is_saved_with_its_mark_and_hides_with_it", "crates/ui/src/bubble.rs::a_placed_card_keeps_its_side_while_it_fits"]
 reference = ["crates/ai-core/src/gloss/mod.rs", "src-tauri/src/ai"]
-notes = "Apple Intelligence through the fm-bridge helper on a Mac, and on every desktop OpenAI, Gemini, OpenRouter, Ollama, LM Studio or a custom server through ai-pool, chosen in Settings › AI with managed keys (M6 slice 2). The card fills as the answer streams; answers are saved with their marks, name who answered and can be asked again"
+notes = "Apple Intelligence through the fm-bridge helper on a Mac, and on every desktop OpenAI, Gemini, OpenRouter, Ollama, LM Studio or a custom server through ai-pool, chosen in Settings › AI with managed keys (M6 slice 2). The card fills as the answer streams; answers are saved with their marks, name who answered and can be asked again. The card points at its word with a caret"
 
 [[feature]]
 id = "study.gloss-marks"
@@ -1379,9 +1379,9 @@ area = "I"
 tier = "P1"
 milestone = "M6"
 status = "shipped"
-evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed", "crates/ui/tests/vocabulary.rs::resting_on_a_shaded_word_opens_its_dictionary_card"]
+evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed", "crates/ui/tests/vocabulary.rs::resting_on_a_shaded_word_opens_its_dictionary_card", "crates/ui/src/bubble.rs::a_card_takes_the_side_it_fits"]
 reference = ["crates/dict-core/src/lib.rs", "crates/download-core/src/lib.rs", "crates/reader-core/src/settings/dict.rs"]
-notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4); resting on a shaded word opens its card (slice 5)"
+notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4); resting on a shaded word opens its card (slice 5). The card shows one entry at a time beside its word, a caret pointing at it, as mareader's anchored bubble"
 
 [[feature]]
 id = "study.selection-menu"

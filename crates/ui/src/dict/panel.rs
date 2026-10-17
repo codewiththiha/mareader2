@@ -111,7 +111,7 @@ impl Panel {
         }
         let asked = self.text.trim().to_owned();
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            super::card::entries(ui, &reply.entries, &asked, &t, |ui, entry| {
+            super::entry::entries(ui, &reply.entries, &asked, &t, |ui, entry| {
                 if !draft.pair && ready.len() > 1 {
                     let from = PACKS.iter().find(|p| p.id == entry.pack);
                     if let Some(p) = from {
