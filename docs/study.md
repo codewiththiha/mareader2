@@ -339,3 +339,17 @@ never hides the words being restyled.
 - AI marks keep the AI's look: their menu has no pens or colours.
 - The look is a stamped field of the mark (`style`), so the latest restyle
   wins when libraries merge.
+
+## Exporting highlights and notes
+
+The Notes panel's header has **Copy all** and **Export…**. Both take the
+list as shown: with the Notes filter on, only noted highlights go.
+
+- **Copy all** puts Markdown on the clipboard and says how much it copied.
+- **Export…** offers Markdown (.md), Plain text (.txt) and JSON (.json),
+  then the system save dialog, named after the book. A toast says where
+  it went, or why it couldn't be written.
+- Highlights follow reading order, under their chapter from the outline.
+  Each has its words on one line (a PDF's line breaks are layout), its
+  note, and its page. JSON adds the pen, the colour and when it was made.
+- The browser preview can't write files; it says so.

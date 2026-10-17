@@ -397,6 +397,8 @@ impl Study {
                 quote: m.word.clone(),
                 note: m.note.value.clone(),
                 ink: ink(m, look).color,
+                pen: m.look().pen,
+                added: m.added,
             })
             .collect();
         out.sort_by_key(|r| crate::notes_panel::order(&r.spot));

@@ -60,6 +60,8 @@ fn reads(command: &Command) -> bool {
         C::SavePreset { .. } | C::DeletePreset(_) => false,
         C::SetTitlebarPinned(_) | C::Window(_) => false,
         C::Notify(_) | C::DismissToast => false,
+        // A save dialog finishes wherever the window went.
+        C::Export { .. } => false,
         // Settings edits are inert while the window is shut.
         C::SetSidebarOverlay(_) | C::CloseSettings | C::SetSettings(_) => false,
         // Key and model work finishes wherever the window went.

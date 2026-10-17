@@ -3,12 +3,14 @@
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, FontId, Galley, Id, Rect, RichText, ScrollArea, Sense, TextFormat, Ui, vec2};
 use mareader_appearance::Rgb;
-use mareader_library::{MarkId, Spot};
+use mareader_library::{MarkId, Pen, Spot};
+use mareader_pdf::active_entry;
 use mareader_session::{Anchor, Document};
 use std::sync::Arc;
 
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
+use crate::export::{self, Entry, Format, Sheet};
 use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
@@ -27,6 +29,9 @@ pub struct Row {
     pub quote: String,
     pub note: Option<String>,
     pub ink: Rgb,
+    pub pen: Pen,
+    /// When it was made, in wall milliseconds.
+    pub added: u64,
 }
 
 /// Which rows show: every highlight, or only those with notes.
@@ -52,6 +57,10 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
         );
         return;
     }
+    let shown: Vec<&Row> = rows
+        .iter()
+        .filter(|r| filter == Filter::All || r.note.is_some())
+        .collect();
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.add_space(PAD_X);
@@ -63,13 +72,15 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
                 filter = f;
             }
         }
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(PAD_X - 6.0);
+            ui.add_enabled_ui(!shown.is_empty(), |ui| {
+                share(ui, reading, &shown, &t, out);
+            });
+        });
     });
     ui.data_mut(|d| d.insert_temp(id, filter));
     ui.add_space(4.0);
-    let shown: Vec<&Row> = rows
-        .iter()
-        .filter(|r| filter == Filter::All || r.note.is_some())
-        .collect();
     if shown.is_empty() {
         empty(ui, "No notes yet", "Select text and choose Note.", &t);
         return;
@@ -84,6 +95,77 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
             }
             ui.add_space(12.0);
         });
+}
+
+/// Export, then Copy all: the list as shown, so a filter narrows both.
+fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], t: &Tokens, out: &mut Commands) {
+    let notes = shown.iter().filter(|r| r.note.is_some()).count();
+    let tally = export::tally(shown.len(), notes);
+    // Written only when asked for, not each frame.
+    let render = |format| {
+        let entries = entries(reading, shown);
+        let sheet = Sheet {
+            title: &reading.name,
+            entries: &entries,
+            now_ms: crate::library::wall_ms(),
+        };
+        export::render(&sheet, format)
+    };
+    let menu = Id::new(("notes-export", reading.doc));
+    let open = egui::Popup::is_id_open(ui.ctx(), menu);
+    let r = widgets::icon_button(ui, Icon::Download, "Export…", open);
+    egui::Popup::from_toggle_button_response(&r)
+        .id(menu)
+        .sense(widgets::POPUP_SENSE)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::BOTTOM_END)
+        .gap(4.0)
+        .show(|ui| {
+            ui.set_width(200.0);
+            let what = format!("Export {tally}");
+            ui.label(RichText::new(what).size(t.text_small).color(t.muted));
+            ui.add_space(2.0);
+            for format in Format::ALL {
+                let label = format!("{} (.{})", format.label(), format.extension());
+                if widgets::menu_row(ui, Icon::Download, &label, None, false).clicked() {
+                    out.push(Command::Export {
+                        name: export::file_name(&reading.name, format),
+                        format,
+                        contents: render(format),
+                    });
+                    ui.close();
+                }
+            }
+            widgets::close_on_key(ui);
+        });
+    if widgets::icon_button(ui, Icon::Copy, "Copy all as Markdown", false).clicked() {
+        ui.ctx().copy_text(render(Format::Markdown));
+        let copied = format!("Copied {tally}");
+        out.push(Command::Notify(crate::toast::Toast::info(copied)));
+    }
+}
+
+/// The rows as exported, each with its page and chapter.
+fn entries(reading: &Reading, rows: &[&Row]) -> Vec<Entry> {
+    let outline = reading.document.outline();
+    let chapter = |page| {
+        let i = active_entry(outline, page)?;
+        outline.get(i).map(|e| e.title.clone())
+    };
+    rows.iter()
+        .map(|r| {
+            let page = page_of(&reading.document, r.spot);
+            Entry {
+                quote: r.quote.clone(),
+                note: r.note.clone(),
+                page,
+                chapter: page.and_then(chapter),
+                pen: r.pen,
+                color: r.ink,
+                added: r.added,
+            }
+        })
+        .collect()
 }
 
 /// One highlight: its page, the words, and the note under them.
