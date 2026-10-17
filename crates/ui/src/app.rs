@@ -29,6 +29,7 @@ use crate::layout::ViewMode;
 use crate::library::{self, LibraryState};
 use crate::library_panel::{self, PaneTab, PanelContext, PanelState};
 use crate::machine_fonts::MachineFonts;
+use crate::notes_panel;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
 use crate::pane_texts::PaneTexts;
@@ -985,6 +986,7 @@ impl MareaderApp {
             match gloss {
                 Gloss::Explain => out.push(Command::Explain(pane)),
                 Gloss::LookUp => out.push(Command::LookUp(pane)),
+                Gloss::Note => out.push(Command::Note(pane)),
                 Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
                 Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
                 Gloss::Open { mark, at } => {
@@ -996,7 +998,10 @@ impl MareaderApp {
                     self.explain_shaded(ctx, pane, page, chars, at)
                 }
                 Gloss::Rest { word, at } => self.rest(pane, word, at),
-                Gloss::Menu { mark, at } => self.study.open_menu(pane, mark, at),
+                Gloss::Menu { mark, at } => {
+                    let model = self.library.model();
+                    self.study.open_menu(model, pane, mark, at);
+                }
                 Gloss::Anchor(at) => self.study.anchor(pane, at),
                 Gloss::Pick(mark) => self.study.pick(pane, mark),
                 Gloss::Toggle(mark) => self.study.toggle(pane, mark),
@@ -1021,8 +1026,8 @@ impl MareaderApp {
         if let (Some(role), Some(word)) = (role, word) {
             self.study.set_role(&word, role);
         }
-        let look = &self.settings.study.gloss;
-        self.study.show(ctx, &self.pane_rects, look, out);
+        let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
+        self.study.show(ctx, &self.pane_rects, looks, out);
         self.dict.poll();
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
@@ -1088,7 +1093,7 @@ impl MareaderApp {
         };
         self.documents.clear_selection(pane);
         // One card at a time.
-        self.study.escape();
+        self.study.escape(self.library.model_mut());
         let offset = self.documents.offset(pane);
         let to = self.settings.dictionary.default_lang.clone();
         self.dict.look_up(pane, word, rect, offset, to);
@@ -1141,6 +1146,35 @@ impl MareaderApp {
         };
         let model = self.library.model_mut();
         self.study.highlight(model, at, library::wall_ms());
+    }
+
+    /// Note: highlights the selection in the bar's first pen, then
+    /// opens a draft on it.
+    fn note(&mut self, pane: PaneId) {
+        let Some((spot, text)) = self.documents.highlighted(pane) else {
+            return;
+        };
+        let rect = self.documents.looked_up(pane).map(|(_, r)| r);
+        self.documents.clear_selection(pane);
+        let look = &self.settings.study.highlights;
+        let pen = look.bar.iter().find_map(|i| match i {
+            mareader_settings::BarItem::Highlight(pen) => Some(*pen),
+            _ => None,
+        });
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let at = Highlighted {
+            book,
+            name: &name,
+            text,
+            spot,
+            pen: pen.unwrap_or_default(),
+            color: None,
+        };
+        let model = self.library.model_mut();
+        let rect = rect.unwrap_or(Rect::NOTHING);
+        self.study
+            .write_note(model, pane, at, rect, library::wall_ms());
     }
 
     fn apply(&mut self, ctx: &Context, command: Command) {
@@ -1298,6 +1332,7 @@ impl MareaderApp {
                 self.settings.dictionary.sanitize();
             }
             Command::Highlight { pane, pen, color } => self.highlight(pane, pen, color),
+            Command::Note(pane) => self.note(pane),
             Command::SelectText { pane, page, text } => {
                 self.documents.select(pane, page, &text);
             }
@@ -1983,7 +2018,7 @@ impl eframe::App for MareaderApp {
             }
             free = false;
         }
-        if free && (self.dict.escape() || self.study.escape()) {
+        if free && (self.dict.escape() || self.study.escape(self.library.model_mut())) {
             free = false;
         }
         if free && self.documents.stop_drift(self.active) {
@@ -2015,6 +2050,16 @@ impl eframe::App for MareaderApp {
             click: self.settings.workspace.library_click,
             home: self.settings.library.home,
         };
+        // Gathered only while the panel shows.
+        let notes = match self.sidebar.is_open() && self.sidebar.panel() == Panel::Notes {
+            true => {
+                let book = self.library.book_in(&self.documents, self.active);
+                let name = self.documents.title(self.active).unwrap_or_default();
+                let look = &self.settings.study.highlights;
+                self.study.notes_of(self.library.model(), book, name, look)
+            }
+            false => Vec::new(),
+        };
         let shelf_tree = &mut self.shelf_tree;
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
@@ -2028,6 +2073,10 @@ impl eframe::App for MareaderApp {
                 }),
                 Panel::Thumbnails => documents.thumbnails(ui, active, thumbs, recentre, out),
                 Panel::Library => library_panel::show(ui, &shelves, shelf_tree, out),
+                Panel::Notes => documents.reading(active).is_some_and(|r| {
+                    notes_panel::show(ui, &r, &notes, out);
+                    true
+                }),
                 Panel::Dictionary => {
                     dict.panel(ui, dictionary, out);
                     true

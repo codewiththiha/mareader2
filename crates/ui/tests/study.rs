@@ -403,6 +403,7 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
         BarItem::Explain,
         BarItem::Copy,
         BarItem::LookUp,
+        BarItem::Note,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),
         BarItem::Highlight(Pen::Half),
@@ -497,5 +498,109 @@ fn several_marks_are_picked_and_removed_together() -> Out {
     h.run();
     assert!(!h.state().study().picking());
     assert_eq!(marks(&h).len(), 2, "nothing removed");
+    Ok(())
+}
+
+fn noted(h: &H) -> Vec<bool> {
+    let pane = h.state().active_pane();
+    h.state().marks(pane).iter().map(|m| m.noted).collect()
+}
+
+#[test]
+fn a_note_is_written_read_deleted_and_brought_back() -> Out {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let (layer, sheet) = page(&h, 0)?;
+    let quick = find(&layer, "quick brown")?;
+    select(&mut h, 0, "quick brown");
+    h.get_by_label("Note").click();
+    h.run();
+    // The words are highlighted at once, under an empty draft.
+    assert_eq!(noted(&h), [false]);
+    let draft = h
+        .state()
+        .study()
+        .note_open()
+        .map(|(_, d)| d.map(str::to_owned));
+    assert_eq!(draft, Some(Some(String::new())));
+    h.event(Event::Text("Check the fox.".into()));
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(h.state().study().note_open().is_none());
+    assert_eq!(noted(&h), [true]);
+    // A click on a noted highlight reads the note.
+    press(
+        &mut h,
+        middle(&layer, sheet, quick + 2)?,
+        PointerButton::Primary,
+    );
+    h.get_by_label("Check the fox.");
+    h.get_by_label("Edit").click();
+    h.run();
+    let draft = h
+        .state()
+        .study()
+        .note_open()
+        .and_then(|(_, d)| d.map(str::to_owned));
+    assert_eq!(draft.as_deref(), Some("Check the fox."));
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(noted(&h), [true], "Escape keeps the saved note");
+    press(
+        &mut h,
+        middle(&layer, sheet, quick + 2)?,
+        PointerButton::Primary,
+    );
+    h.get_by_label("Delete note").click();
+    h.run();
+    assert_eq!(noted(&h), [false], "the highlight stays");
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!(noted(&h), [true]);
+    Ok(())
+}
+
+#[test]
+fn a_cancelled_note_takes_back_only_the_highlight_it_made() -> Out {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Note").click();
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(marks(&h).is_empty(), "the note's highlight went with it");
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Highlight").click();
+    h.run();
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Note").click();
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert_eq!(marks(&h).len(), 1, "a highlight made before stays");
+    Ok(())
+}
+
+#[test]
+fn the_notes_panel_lists_highlights_and_filters_to_notes() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "notes")]);
+    h.get_by_label("No highlights yet");
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Highlight").click();
+    h.run();
+    select(&mut h, 0, "quick brown");
+    h.get_by_label("Note").click();
+    h.run();
+    h.event(Event::Text("Check the fox.".into()));
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    // In reading order, the note read out with its words.
+    h.get_by_label("quick brown. Note: Check the fox.");
+    h.get_by_label("lazy");
+    h.get_by_label("Notes · 1").click();
+    h.run();
+    assert!(h.query_by_label("lazy").is_none());
+    h.get_by_label("quick brown. Note: Check the fox.");
     Ok(())
 }

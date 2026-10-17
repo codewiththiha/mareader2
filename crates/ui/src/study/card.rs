@@ -225,6 +225,7 @@ pub fn menu(
     ctx: &Context,
     (pane, mark): (PaneId, MarkId),
     at: egui::Pos2,
+    noted: Option<bool>,
     t: &Tokens,
     out: &mut Commands,
 ) -> Rect {
@@ -240,6 +241,13 @@ pub fn menu(
                 .inner_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.set_width(190.0);
+                    if let Some(noted) = noted {
+                        let label = if noted { "Edit note" } else { "Add note" };
+                        let row = widgets::menu_row(ui, Icon::Note, label, None, false);
+                        if row.clicked() {
+                            out.push(Command::Study(Action::WriteNote(mark)));
+                        }
+                    }
                     let several =
                         widgets::menu_row(ui, Icon::SelectSeveral, "Select several", None, false);
                     if several.clicked() {
