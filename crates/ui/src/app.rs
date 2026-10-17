@@ -72,6 +72,8 @@ pub struct MareaderApp {
     titlebar: TitleBar,
     /// Distraction-free: bars stay hidden while reading.
     chromeless: bool,
+    /// Shots: the newest mark's menu opens once it is drawn.
+    menu_shot: bool,
     tree: PaneTree,
     active: PaneId,
     /// Panes by last focus, latest first: blend's paper follows them.
@@ -163,6 +165,7 @@ impl MareaderApp {
             settings,
             platform: Platform::current(),
             chromeless: false,
+            menu_shot: false,
             tree: PaneTree::new(),
             active: PaneId(1),
             recent: Vec::new(),
@@ -781,6 +784,7 @@ impl MareaderApp {
                 }
             }
             "chromeless" => self.chromeless = value == "true",
+            "menu" => self.menu_shot = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -1011,9 +1015,10 @@ impl MareaderApp {
                     self.explain_shaded(ctx, pane, page, chars, at)
                 }
                 Gloss::Rest { word, at } => self.rest(pane, word, at),
-                Gloss::Menu { mark, at } => {
+                Gloss::Menu { mark, at, words } => {
+                    self.menu_shot = false;
                     let model = self.library.model();
-                    self.study.open_menu(model, pane, mark, at);
+                    self.study.open_menu(model, pane, mark, at, words);
                 }
                 Gloss::Anchor(at) => self.study.anchor(pane, at),
                 Gloss::Pick(mark) => self.study.pick(pane, mark),
@@ -2147,6 +2152,7 @@ impl eframe::App for MareaderApp {
             opacity: highlights.opacity,
         });
         self.library_rect = None;
+        let menu_shot = self.menu_shot;
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
                 self.pane_rects.clear();
@@ -2173,6 +2179,7 @@ impl eframe::App for MareaderApp {
                     card: study.card_mark(id),
                     picked: study.picked(id),
                     shading,
+                    menu_shot: menu_shot && id == view.active,
                     found: lit
                         .as_ref()
                         .filter(|(p, _)| *p == id)

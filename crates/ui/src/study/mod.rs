@@ -6,6 +6,7 @@ mod card;
 pub mod marks;
 mod note;
 mod picking;
+mod restyle;
 pub mod words;
 
 use std::collections::HashMap;
@@ -20,7 +21,7 @@ use mareader_cefr::Role;
 use mareader_library::Gloss as MarkGloss;
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, MarkKind, Measure, NewMark, Opened,
-    Pen, Spot,
+    Pen, Spot, Style,
 };
 use mareader_settings::{GlossSettings, HighlightSettings};
 use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
@@ -49,8 +50,8 @@ pub enum Gloss {
     Copied,
     /// A mark was clicked: its card, beside it.
     Open { mark: MarkId, at: Rect },
-    /// A mark was right-clicked.
-    Menu { mark: MarkId, at: Pos2 },
+    /// A mark was right-clicked at `at`; `words` are its bounds.
+    Menu { mark: MarkId, at: Pos2, words: Rect },
     /// A highlighter in the selection bar; a colour if one was picked.
     Highlight(Pen, Option<Rgb>),
     /// Where the open card's mark is now; none while its text loads.
@@ -100,6 +101,8 @@ pub enum Action {
     DeleteNote(MarkId),
     /// Undo: a deleted note's text comes back.
     RestoreNote(MarkId, String),
+    /// A highlight's new pen and colour, from its menu.
+    Restyle(MarkId, Style),
     /// Shots: types into the open draft, then saves it if asked.
     TypeNote(String, bool),
 }
@@ -135,6 +138,8 @@ struct MarkMenu {
     rect: Rect,
     /// A highlight's: whether it has a note; none for an AI mark.
     noted: Option<bool>,
+    /// A highlight's look, to change; none for an AI mark.
+    style: Option<Style>,
 }
 
 /// A highlight's note beside it: read, or being written.
@@ -566,16 +571,16 @@ impl Study {
     }
 
     /// The right-click menu on a mark.
-    pub fn open_menu(&mut self, main: &Library, pane: PaneId, mark: MarkId, at: Pos2) {
-        let rect = Rect::from_center_size(at, egui::Vec2::splat(1.0));
-        self.menu_at(main, pane, mark, at, rect);
+    pub fn open_menu(&mut self, main: &Library, pane: PaneId, mark: MarkId, at: Pos2, words: Rect) {
+        self.menu_at(main, pane, mark, at, words);
     }
 
     fn menu_at(&mut self, main: &Library, pane: PaneId, mark: MarkId, at: Pos2, rect: Rect) {
-        let noted = self
+        let highlight = self
             .mark(main, mark)
-            .filter(|m| m.kind == MarkKind::Highlight)
-            .map(|m| m.note.value.is_some());
+            .filter(|m| m.kind == MarkKind::Highlight);
+        let noted = highlight.map(|m| m.note.value.is_some());
+        let style = highlight.map(Mark::look);
         self.card = None;
         self.note = None;
         self.menu = Some(MarkMenu {
@@ -584,6 +589,7 @@ impl Study {
             at,
             rect,
             noted,
+            style,
         });
     }
 
@@ -705,6 +711,15 @@ impl Study {
                 self.menu = None;
             }
             Action::SelectSeveral(pane, mark) => self.pick(pane, mark),
+            Action::Restyle(id, style) => {
+                if !main.set_style(id, style, wall) {
+                    self.loose.set_style(id, style, wall);
+                }
+                // The menu stays, showing the new look.
+                if let Some(m) = self.menu.as_mut().filter(|m| m.mark == id) {
+                    m.style = Some(style);
+                }
+            }
             Action::PickPage | Action::PickAll => {
                 if let Some(p) = &mut self.picking {
                     let more = match action {
@@ -921,9 +936,17 @@ impl Study {
             };
             Some(card::show(ctx, &view, &t, out))
         });
-        self.menu_rect = self
-            .menu
-            .map(|m| card::menu(ctx, (m.pane, m.mark), m.at, m.noted, &t, out));
+        self.menu_rect = self.menu.map(|m| {
+            card::menu(
+                ctx,
+                (m.pane, m.mark),
+                (m.at, m.rect),
+                m.noted,
+                (m.style, pens),
+                &t,
+                out,
+            )
+        });
         self.note_rect = match &mut self.note {
             Some(n) => room(n.pane).map(|room| {
                 // Opened from the panel, before its words were placed.
@@ -992,12 +1015,10 @@ fn ink(m: &Mark, look: &HighlightSettings) -> marks::Ink {
             ai: true,
         };
     }
-    let picked = m.color.map(|[r, g, b]| Rgb(r, g, b));
-    let color = picked
-        .filter(|c| look.allowed(m.pen, *c))
-        .unwrap_or(look.color(m.pen));
+    let style = m.look();
+    let color = restyle::shown(style, look);
     marks::Ink {
-        pen: m.pen,
+        pen: style.pen,
         color,
         ai: false,
     }
