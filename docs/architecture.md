@@ -132,6 +132,10 @@ EPUB: parley → vello_cpu ┘                                    filter · blen
 - **Text overlays are geometry.** Selection, search hits and gloss marks are
   rectangles from the page's glyph index (hayro text extraction or parley
   clusters), painted over the texture.
+- **Grabbing empty space pans.** A drag begun off the text lines and links
+  (margins, gutters, pictures; word gaps count as text) scrolls the pane
+  both ways with a hand cursor. A release while still moving flings it on,
+  slowing to a stop; any press halts it. A click there acts as before.
 
 ### Scrolling long documents
 
