@@ -1,8 +1,7 @@
 //! The word card and the mark menu.
 
 use egui::{
-    Align, Align2, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, Stroke, Ui, pos2,
-    vec2,
+    Align, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, Stroke, Ui, vec2,
 };
 use mareader_cefr::Role;
 use mareader_library::MarkId;
@@ -11,16 +10,13 @@ use mareader_study::{Failure, WordInfo};
 use mareader_workspace::PaneId;
 
 use super::Action;
+use crate::bubble::Bubble;
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::{motion, widgets};
 
 const WIDTH: f32 = 320.0;
-/// Space between the word and the card.
-const GAP: f32 = 8.0;
-/// Below the word unless less than this is left there.
-const ROOM_BELOW: f32 = 240.0;
 
 pub enum Answer<'a> {
     Waiting,
@@ -43,39 +39,25 @@ pub struct View<'a> {
     pub density: GlossDensity,
 }
 
-/// Draws the card beside its word; returns where it went.
+/// Draws the card under or over its word, pointing at it.
 pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> Rect {
-    let (at, room) = (view.at, view.room);
-    let below = room.bottom() - at.bottom() >= ROOM_BELOW || at.top() - room.top() < ROOM_BELOW;
-    let half = WIDTH / 2.0 + GAP;
-    let x = at.center().x.clamp(
-        room.left() + half,
-        (room.right() - half).max(room.left() + half),
-    );
-    let (pos, pivot) = match below {
-        true => (pos2(x, at.bottom() + GAP), Align2::CENTER_TOP),
-        false => (pos2(x, at.top() - GAP), Align2::CENTER_BOTTOM),
-    };
     let comfy = view.density == GlossDensity::Comfortable;
-    egui::Area::new(Id::new("study-card"))
-        .order(Order::Foreground)
-        .pivot(pivot)
-        .fixed_pos(pos)
-        .constrain_to(room)
-        .show(ctx, |ui| {
-            Frame::popup(ui.style())
-                .fill(t.surface)
-                .stroke(Stroke::new(1.0, t.line))
-                .corner_radius(t.radius_lg)
-                .inner_margin(Margin::same(if comfy { 18 } else { 14 }))
-                .show(ui, |ui| {
-                    ui.set_width(WIDTH);
-                    ui.spacing_mut().item_spacing.y = if comfy { 10.0 } else { 6.0 };
-                    body(ui, view, t, out);
-                });
-        })
-        .response
-        .rect
+    let bubble = Bubble {
+        id: Id::new(("study-card", view.word)),
+        at: view.at,
+        room: view.room,
+        width: WIDTH,
+        margin: Margin::same(if comfy { 18 } else { 14 }),
+    };
+    let shown = bubble.show(ctx, t, |ui, cap| {
+        ui.spacing_mut().item_spacing.y = if comfy { 10.0 } else { 6.0 };
+        // Only an answer taller than the room scrolls.
+        ScrollArea::vertical()
+            .max_height(cap)
+            .auto_shrink([false, true])
+            .show(ui, |ui| body(ui, view, t, out));
+    });
+    shown.0
 }
 
 fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
