@@ -39,7 +39,8 @@ parquet = { version = "59", default-features = false, features = ["snap", "zstd"
 # Word levels: the owner's crate, pinned; its pure modules unless asked.
 cefr = { git = "https://github.com/codewiththiha/cefr-rs.git", rev = "bb2dd66c2354944f3352154d3d2b15352df0e1af", default-features = false }
 
-parley = { version = "0.12", default-features = false, features = ["std", "system"] }
+# complex-scripts: dictionaries that break Thai, Lao, Khmer and Burmese lines.
+parley = { version = "0.12", default-features = false, features = ["std", "system", "complex-scripts"] }
 # Fontconfig loads at run time, so Linux builds need no headers.
 fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
