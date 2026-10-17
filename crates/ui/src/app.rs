@@ -1334,6 +1334,11 @@ impl MareaderApp {
                 }
             }),
             Command::Notify(toast) => self.toasts.push(toast),
+            Command::Export {
+                name,
+                format,
+                contents,
+            } => self.files.save(ctx, name, format, contents),
             Command::DismissToast => self.toasts.dismiss(ctx.input(|i| i.time)),
             Command::Study(action) => {
                 let mut out = Commands::new();

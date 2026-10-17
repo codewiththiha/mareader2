@@ -9,6 +9,8 @@ use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
 use crate::documents::{OpenRequest, Placement};
+use crate::export::Format;
+use crate::toast::Toast;
 
 /// What the open dialog admits.
 /// Markdown and plain text open converted to books.
@@ -119,6 +121,39 @@ impl Files {
         }
     }
 
+    /// Asks where to save `contents` as `name`, then writes it there.
+    pub fn save(&self, ctx: &Context, name: String, format: Format, contents: String) {
+        if self.picking.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let make = move || {
+            rfd::AsyncFileDialog::new()
+                .set_title("Export highlights")
+                .set_file_name(name)
+                .add_filter(format.label(), &[format.extension()])
+        };
+        let (files, cx) = (self.clone(), ctx.clone());
+        let done = move |path: Option<PathBuf>| {
+            files.picking.store(false, Ordering::Release);
+            // Cancelling is silent.
+            let Some(path) = path else { return };
+            let name = path.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            let toast = match std::fs::write(&path, contents) {
+                Ok(()) => Toast::info(format!("Exported to {name}")),
+                Err(e) => Toast::error(format!("Couldn't export to {name}: {e}")),
+            };
+            files.deliver(&cx, Command::Notify(toast));
+        };
+        if !dialog::save(make, done) {
+            self.picking.store(false, Ordering::Release);
+            let toast = Toast::error("Exporting needs the desktop app.");
+            self.deliver(ctx, Command::Notify(toast));
+        }
+    }
+
     /// Opens a dropped file in `pane`.
     pub fn dropped(&self, ctx: &Context, file: &DroppedFileHandle, pane: PaneId) {
         let place = move |request: OpenRequest| OpenRequest {
@@ -186,6 +221,20 @@ mod dialog {
             .is_ok()
     }
 
+    /// The save dialog, on a helper thread.
+    pub(super) fn save(
+        make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
+        done: impl FnOnce(Option<PathBuf>) + Send + 'static,
+    ) -> bool {
+        std::thread::Builder::new()
+            .name("mareader-save-dialog".into())
+            .spawn(move || {
+                let picked = pollster::block_on(make().save_file());
+                done(picked.map(|f| f.path().to_path_buf()));
+            })
+            .is_ok()
+    }
+
     /// A desktop drop has a real path; a worker reads it.
     pub(super) fn read_drop(
         files: &Files,
@@ -220,6 +269,14 @@ mod dialog {
         _make: impl FnOnce() -> rfd::AsyncFileDialog,
         _kind: Kind,
         _done: impl FnOnce(Vec<PathBuf>),
+    ) -> bool {
+        false
+    }
+
+    /// Browsers can't be handed a path to write.
+    pub(super) fn save(
+        _make: impl FnOnce() -> rfd::AsyncFileDialog,
+        _done: impl FnOnce(Option<PathBuf>),
     ) -> bool {
         false
     }

@@ -141,6 +141,12 @@ pub enum Command {
         page: usize,
         text: String,
     },
+    /// Asks where to save an export, then writes it.
+    Export {
+        name: String,
+        format: crate::export::Format,
+        contents: String,
+    },
     /// Shows a toast, replacing the one on screen.
     Notify(Toast),
     DismissToast,

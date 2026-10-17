@@ -664,3 +664,55 @@ fn an_ai_mark_s_menu_offers_no_restyle() -> Out {
     );
     Ok(())
 }
+
+/// What reached the clipboard this frame.
+fn copied(h: &H) -> Option<String> {
+    let commands = &h.output().platform_output.commands;
+    commands.iter().find_map(|c| match c {
+        egui::OutputCommand::CopyText(t) => Some(t.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_notes_panel_copies_and_offers_to_export_what_it_shows() -> Out {
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("sidebar", "notes"),
+        ("selection", "0:lazy"),
+        ("highlight", "full"),
+        ("selection", "0:quick_brown"),
+        ("noted", "Check_the_fox."),
+    ]);
+    for _ in 0..4 {
+        h.run();
+    }
+    h.get_by_label("Copy all as Markdown").click();
+    h.step();
+    let md = copied(&h).ok_or("nothing copied")?;
+    assert!(
+        md.contains("> quick brown\n\n**Note:** Check the fox.\n\n*Page 1*"),
+        "{md}"
+    );
+    assert!(
+        md.find("quick brown") < md.find("> lazy"),
+        "in reading order"
+    );
+    h.run();
+    h.get_by_label("Copied 2 highlights · 1 note");
+    // The Notes filter narrows both.
+    h.get_by_label("Notes · 1").click();
+    h.run();
+    h.get_by_label("Copy all as Markdown").click();
+    h.step();
+    let md = copied(&h).ok_or("nothing copied")?;
+    assert!(!md.contains("lazy"), "{md}");
+    h.run();
+    h.get_by_label("Export…").click();
+    h.run();
+    h.get_by_label("Export 1 highlight · 1 note");
+    for format in ["Markdown (.md)", "Plain text (.txt)", "JSON (.json)"] {
+        h.get_by_label(format);
+    }
+    Ok(())
+}
