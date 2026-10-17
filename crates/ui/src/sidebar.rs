@@ -2,8 +2,8 @@
 
 use egui::emath::easing;
 use egui::{
-    Align, Area, Button, Context, CornerRadius, Id, Layout, Order, Rect, RichText, Sense, Stroke,
-    Ui, UiBuilder, Vec2, pos2, vec2,
+    Align, Area, Context, CornerRadius, Id, Layout, Order, Rect, RichText, Sense, Stroke, Ui,
+    UiBuilder, Vec2, pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ pub const SLIDE: f32 = 0.3;
 pub const HOVER_GRACE: f64 = 0.25;
 /// The floating rail's reveal strip at the window's left edge.
 pub const EDGE: f32 = 6.0;
-const SWITCHER_H: f32 = 48.0;
+const SWITCHER_H: f32 = 54.0;
 
 /// Draws a panel; false shows the placeholder. The flag: reveal the
 /// reading place.
@@ -347,21 +347,37 @@ impl Sidebar {
         });
     }
 
+    /// The panels, each named under its icon.
     fn switcher(&mut self, ui: &mut Ui, rect: Rect, out: &mut Commands) {
+        let t = Tokens::get(ui.ctx());
         let slot = rect.width() / Panel::SWITCHER.len() as f32;
         for (i, panel) in Panel::SWITCHER.into_iter().enumerate() {
             let centre = pos2(rect.left() + slot * (i as f32 + 0.5), rect.center().y);
-            let at = Rect::from_center_size(centre, vec2(56.0, 36.0));
+            let at = Rect::from_center_size(centre, vec2(slot - 8.0, SWITCHER_H - 10.0));
             let on = panel == self.panel;
-            let button = Button::image(panel.icon().image(16.0))
-                .image_tint_follows_text_color(true)
-                .frame_when_inactive(false)
-                .selected(on)
-                .min_size(Vec2::new(56.0, 36.0));
-            let r = ui.put(at, button);
             let label = panel.label();
+            let r = ui.interact(at, Id::new(("sidebar-switch", label)), Sense::click());
             r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
-            widgets::tip(&r, label, None);
+            if r.hovered() && !on {
+                ui.painter().rect_filled(at, t.radius, t.hover);
+            }
+            let ink = if on {
+                t.accent
+            } else if r.hovered() {
+                t.ink
+            } else {
+                t.muted
+            };
+            let icon = Rect::from_center_size(at.center() - vec2(0.0, 8.0), Vec2::splat(16.0));
+            panel.icon().paint(ui, icon, ink);
+            let font = if on {
+                theme::medium(11.0)
+            } else {
+                egui::FontId::proportional(11.0)
+            };
+            let name = at.center() + vec2(0.0, 10.0);
+            ui.painter()
+                .text(name, egui::Align2::CENTER_CENTER, label, font, ink);
             if r.clicked() && on {
                 self.recentre = true;
             } else if r.clicked() {
