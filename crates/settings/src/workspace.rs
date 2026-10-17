@@ -68,7 +68,8 @@ impl Default for PaneLook {
     fn default() -> Self {
         Self {
             gap: 0.0,
-            outline_width: 2.0,
+            // A seam shows the split; the outline only marks focus.
+            outline_width: 1.0,
             outline_color: Swatch::Auto,
             outline_custom: Rgb(0x6b, 0xa3, 0xf5),
             corners: Corners::Square,

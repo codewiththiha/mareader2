@@ -103,6 +103,8 @@ pub struct MareaderApp {
     pane_rects: Vec<(PaneId, egui::Rect)>,
     /// The library page's rect while it is up, for the glass behind bars.
     library_rect: Option<egui::Rect>,
+    /// What an empty pane offers, as of a library revision.
+    reopen: (u64, Vec<(mareader_library::BookId, String)>),
     /// Split panes' own looks, and the routing they were last fitted to.
     looks: PaneLooks<PaneId>,
     routed: Routing,
@@ -181,6 +183,7 @@ impl MareaderApp {
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
             library_rect: None,
+            reopen: (u64::MAX, Vec::new()),
             looks: PaneLooks::default(),
             routed: Routing::default(),
             texts: PaneTexts::default(),
@@ -1370,6 +1373,18 @@ impl MareaderApp {
 }
 
 impl MareaderApp {
+    /// The last three books opened, rebuilt only as the library changes.
+    fn recent_books(&mut self) -> Vec<(mareader_library::BookId, String)> {
+        let model = self.library.model();
+        if self.reopen.0 != model.revision() {
+            let books = model.recent().into_iter();
+            let opened = books.filter(|b| b.opened.value > 0 && !b.missing());
+            let three = opened.take(3).map(|b| (b.id, b.title.value.clone()));
+            self.reopen = (model.revision(), three.collect());
+        }
+        self.reopen.1.clone()
+    }
+
     /// Library work; its dialogs need the app's files.
     fn library_action(&mut self, ctx: &Context, action: library::Action) {
         use library::Action as A;
@@ -2035,6 +2050,7 @@ impl eframe::App for MareaderApp {
             chrome_bottom: self.titlebar.band_bottom(&ctx),
             drop_target,
             styles: self.pane_styles(&tokens),
+            recent: self.recent_books(),
         };
         // Each pane reads its own paper while it has a colour of its own.
         let every = self.routing().colour();

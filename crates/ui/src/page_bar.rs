@@ -13,7 +13,7 @@ use crate::documents::Reading;
 use crate::gpu::{Look, Reach};
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::Tokens;
+use crate::theme::{self, Tokens};
 use crate::titlebar::{FADE, HIDE_GRACE};
 use crate::widgets;
 
@@ -108,14 +108,18 @@ pub fn show(
     }
     // The counter gives way to the bar rather than sit under it.
     if layout.page_indicator && fade < 1.0 {
+        // A pill of the bars' glass, so it belongs with them.
         let text = counter(reading, layout.page_indicator_style);
-        let white = egui::Color32::from_white_alpha(230).gamma_multiply(1.0 - fade);
-        let galley = painter.layout_no_wrap(text, FontId::proportional(11.0), white);
-        let size = galley.size() + vec2(16.0, 4.0);
+        let show = 1.0 - fade;
+        let ink = t.ink.gamma_multiply(0.85 * show);
+        let galley = painter.layout_no_wrap(text, theme::medium(11.0), ink);
+        let size = galley.size() + vec2(18.0, 6.0);
         let badge = Rect::from_min_size(pane.max - size - vec2(12.0, 12.0), size);
-        let fill = egui::Color32::from_black_alpha(150).gamma_multiply(1.0 - fade);
-        painter.rect_filled(badge, CornerRadius::same(6), fill);
-        painter.galley(badge.center() - galley.size() / 2.0, galley, white);
+        let round = CornerRadius::same(255);
+        painter.rect_filled(badge, round, t.glass.gamma_multiply(show));
+        let edge = egui::Stroke::new(1.0, t.line.gamma_multiply(show));
+        painter.rect_stroke(badge, round, edge, egui::StrokeKind::Inside);
+        painter.galley(badge.center() - galley.size() / 2.0, galley, ink);
     }
     if fade <= 0.0 {
         return;
