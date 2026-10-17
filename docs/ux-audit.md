@@ -125,8 +125,10 @@ Severity: **P1** confuses or blocks, **P2** slows or looks broken,
 
 ## Order of work
 
-1. **Anchored cards** (this slice): §1.
-2. **Selection bar and title bar**: §2, §3.
+1. **Anchored cards**: §1. Done.
+2. **Selection bar and title bar**: §2, §3.1–3.3. Done. The pin icon
+   kept its look on the sidebar: with the bar's pin moved to the menus
+   it means one thing only. §3.4 waits for slice 4.
 3. **Settings window**: §8, the largest, most-seen surface.
 4. **Sidebar and reader canvas**: §4, §5.
 5. **Appearance, View menu and Library**: §6, §7, §9, §10.
