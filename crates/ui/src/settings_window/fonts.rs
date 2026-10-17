@@ -1,11 +1,11 @@
-//! The Fonts tab: how EPUBs are set; open books re-set as it changes.
+//! A book's text, in the Appearance tab; open books re-set as it changes.
 use std::sync::Arc;
 
 use egui::{Button, ComboBox, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
 use mareader_settings::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 
-use super::{divider, group, row, section, switch_row};
+use super::{disclosure, divider, group, row, section, switch_row};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -16,7 +16,7 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
     group(ui, |ui| typeface(ui, t));
     section(ui, "Spacing");
     group(ui, |ui| spacing(ui, t));
-    section(ui, "Layout");
+    section(ui, "Column");
     group(ui, |ui| {
         switch_row(
             ui,
@@ -59,7 +59,9 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
                     .suffix(" %"),
             );
         });
-        divider(ui);
+    });
+    section(ui, "Ink and pictures");
+    group(ui, |ui| {
         let hint = "How dark a book's text stays; its pictures keep their colours";
         let percent = |v: f32| format!("{v:.0} %");
         let ink = &mut t.ink_contrast;
@@ -83,16 +85,7 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
 
 fn typeface(ui: &mut Ui, t: &mut TextSettings) {
     let body = "The body text; Default follows the serif font";
-    picker(ui, "Font", body, &mut t.default_font, None);
-    divider(ui);
-    let serif = Some(FontFamily::Serif);
-    picker(ui, "Serif font", "", &mut t.serif_font, serif);
-    divider(ui);
-    let sans = Some(FontFamily::Sans);
-    picker(ui, "Sans-serif font", "Headings", &mut t.sans_font, sans);
-    divider(ui);
-    let mono = Some(FontFamily::Mono);
-    picker(ui, "Monospace font", "Code", &mut t.mono_font, mono);
+    picker(ui, "Body font", body, &mut t.default_font, None);
     divider(ui);
     let size = TextSettings::FONT_SIZE;
     let px = |v: f32| format!("{v:.0} px");
@@ -110,6 +103,21 @@ fn typeface(ui: &mut Ui, t: &mut TextSettings) {
         100.0,
         plain,
     );
+    divider(ui);
+    // Rarely changed: they stand in for faces the book itself names.
+    let hint = "Faces used where a book asks for serif, sans-serif or code";
+    if !disclosure(ui, "Book's own families", hint) {
+        return;
+    }
+    divider(ui);
+    let serif = Some(FontFamily::Serif);
+    picker(ui, "Serif font", "", &mut t.serif_font, serif);
+    divider(ui);
+    let sans = Some(FontFamily::Sans);
+    picker(ui, "Sans-serif font", "Headings", &mut t.sans_font, sans);
+    divider(ui);
+    let mono = Some(FontFamily::Mono);
+    picker(ui, "Monospace font", "Code", &mut t.mono_font, mono);
 }
 
 fn spacing(ui: &mut Ui, t: &mut TextSettings) {
@@ -196,6 +204,7 @@ fn kind(family: FontFamily) -> Kind {
 fn picker(ui: &mut Ui, name: &str, hint: &str, choice: &mut FontChoice, only: Option<FontFamily>) {
     row(ui, name, hint, |ui| {
         ComboBox::from_id_salt(name)
+            .icon(widgets::combo_chevron)
             .width(PICKER_WIDTH)
             .selected_text(label(choice))
             .show_ui(ui, |ui| {

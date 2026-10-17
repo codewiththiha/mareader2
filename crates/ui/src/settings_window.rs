@@ -1,4 +1,4 @@
-//! The settings window: a modal with one tab per area of the app.
+//! The settings window: a modal with a sidebar of tabs, grouped.
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
@@ -7,8 +7,8 @@ use mareader_settings::{
 };
 
 use egui::{
-    Align, Button, Color32, Frame, Id, Layout, Margin, Modal, RichText, ScrollArea, Sense, Stroke,
-    Ui, Vec2, pos2, vec2,
+    Align, Button, Color32, CornerRadius, Frame, Id, Layout, Margin, Modal, Rect, RichText,
+    ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 
 use crate::command::{Command, Commands};
@@ -35,16 +35,20 @@ pub fn window_size(screen: Vec2) -> Vec2 {
     (screen * SHARE).min(MAX_SIZE)
 }
 const ROW_H: f32 = 44.0;
+/// The sidebar of tabs, and each tab's row in it.
+const NAV_W: f32 = 184.0;
+const NAV_ROW_H: f32 = 32.0;
+/// The shown tab's name and the close button.
+const HEADER_H: f32 = 56.0;
+/// Clear space under the page, below the scroll's fade.
+const FOOT_H: f32 = 12.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
+    /// Colours, a book's text and a PDF's paper.
     #[default]
+    Appearance,
     Layout,
-    Theme,
-    /// Shown only while the Animations master switch is on.
-    Animations,
-    /// Shown only while an EPUB is focused.
-    Fonts,
     /// The pens, the selection menu and the AI's reserved look.
     Highlights,
     Vocabulary,
@@ -52,62 +56,72 @@ pub enum Tab {
     /// Who explains words; desktop builds only.
     Ai,
     Workspace,
+    /// The master switch, then each motion.
+    Motion,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 9] = [
+    pub const ALL: [Tab; 8] = [
+        Tab::Appearance,
         Tab::Layout,
-        Tab::Theme,
-        Tab::Animations,
-        Tab::Fonts,
         Tab::Highlights,
         Tab::Vocabulary,
         Tab::Dictionary,
         Tab::Ai,
         Tab::Workspace,
+        Tab::Motion,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
+            Tab::Appearance => "Appearance",
             Tab::Layout => "Layout",
-            Tab::Theme => "Theme",
-            Tab::Animations => "Animations",
-            Tab::Fonts => "Fonts",
             Tab::Highlights => "Highlights",
             Tab::Vocabulary => "Vocabulary",
             Tab::Dictionary => "Dictionary",
             Tab::Ai => "AI",
             Tab::Workspace => "Workspace",
+            Tab::Motion => "Motion",
         }
     }
 
+    /// A tab by its name; the old Theme, Fonts and Animations still work.
     pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|t| t.label().eq_ignore_ascii_case(s))
+        let s = s.to_ascii_lowercase();
+        match s.as_str() {
+            "theme" | "fonts" => Some(Tab::Appearance),
+            "animations" => Some(Tab::Motion),
+            _ => Self::ALL
+                .into_iter()
+                .find(|t| t.label().eq_ignore_ascii_case(&s)),
+        }
     }
 
     fn icon(self) -> Icon {
         match self {
+            Tab::Appearance => Icon::Appearance,
             Tab::Layout => Icon::Layout,
-            Tab::Theme => Icon::Appearance,
-            Tab::Animations => Icon::Motion,
-            Tab::Fonts => Icon::Type,
             Tab::Highlights => Icon::Highlight,
             Tab::Vocabulary => Icon::Levels,
             Tab::Dictionary => Icon::Dictionary,
             Tab::Ai => Icon::Explain,
             Tab::Workspace => Icon::SplitRight,
+            Tab::Motion => Icon::Motion,
         }
     }
 
-    fn available(self, s: &Settings, cx: &Scope) -> bool {
+    /// The heading the sidebar groups it under.
+    fn group(self) -> &'static str {
         match self {
-            Tab::Animations => s.motion.enabled,
-            Tab::Fonts => cx.applies(Applies::Book),
-            Tab::Ai => cfg!(not(target_arch = "wasm32")),
-            _ => true,
+            Tab::Appearance | Tab::Layout => "Reading",
+            Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
+            Tab::Workspace | Tab::Motion => "App",
         }
+    }
+
+    /// Every tab always shows, so the list never shifts under the pointer.
+    fn available(self) -> bool {
+        self != Tab::Ai || cfg!(not(target_arch = "wasm32"))
     }
 }
 
@@ -134,12 +148,12 @@ impl SettingsWindow {
         self.open = false;
     }
 
-    /// The tab on screen: a hidden tab falls back to Layout.
-    pub fn tab(&self, s: &Settings, cx: &Scope) -> Tab {
-        if self.tab.available(s, cx) {
+    /// The tab on screen: one this build lacks falls back to the first.
+    pub fn tab(&self) -> Tab {
+        if self.tab.available() {
             self.tab
         } else {
-            Tab::Layout
+            Tab::Appearance
         }
     }
 
@@ -171,27 +185,35 @@ impl SettingsWindow {
             .show(ctx, |ui| {
                 ui.set_width(size.x);
                 ui.set_height(size.y);
-                ui.spacing_mut().item_spacing.y = 0.0;
-                let header = Margin {
-                    left: 16,
-                    right: 16,
-                    top: 16,
-                    bottom: 8,
-                };
-                Frame::new().inner_margin(header).show(ui, |ui| {
-                    close = self.tabs(ui, &draft, cx);
-                });
-                ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                    let body = Margin {
-                        left: 16,
-                        right: 16,
-                        top: 4,
-                        bottom: 20,
-                    };
-                    Frame::new().inner_margin(body).show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        let tab = self.tab(&draft, cx);
-                        tab_body(ui, tab, &mut draft, (cx, ai, dict, vocab), out);
+                ui.spacing_mut().item_spacing = Vec2::ZERO;
+                ui.horizontal_top(|ui| {
+                    self.nav(ui, size.y);
+                    let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
+                    let edge = Stroke::new(1.0, t.line);
+                    ui.painter().vline(line.center().x, line.y_range(), edge);
+                    ui.vertical(|ui| {
+                        ui.set_width(size.x - NAV_W - 1.0);
+                        let tab = self.tab();
+                        close = header(ui, tab);
+                        // Ends short of the window's rounded corner, fade and all.
+                        let room = ui.available_height() - FOOT_H;
+                        let body = ScrollArea::vertical()
+                            .id_salt(("settings-body", tab.label()))
+                            .max_height(room)
+                            .auto_shrink(false)
+                            .show(ui, |ui| {
+                                let margin = Margin {
+                                    left: 24,
+                                    right: 24,
+                                    top: 0,
+                                    bottom: 24,
+                                };
+                                Frame::new().inner_margin(margin).show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    tab_body(ui, tab, &mut draft, (cx, ai, dict, vocab), out);
+                                });
+                            });
+                        widgets::scroll_fades(ui, &body, t.surface);
                     });
                 });
             });
@@ -203,41 +225,96 @@ impl SettingsWindow {
         }
     }
 
-    /// The tab strip and the close button; true when close was clicked.
-    fn tabs(&mut self, ui: &mut Ui, s: &Settings, cx: &Scope) -> bool {
-        let shown = self.tab(s, cx);
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            for tab in Tab::ALL.into_iter().filter(|tab| tab.available(s, cx)) {
-                let on = tab == shown;
-                let image = tab.icon().image(17.0);
-                // The active tab names itself; the others are icons.
-                let button = if on {
-                    Button::selectable(true, (image, tab.label()))
-                } else {
-                    Button::image(image).frame_when_inactive(false)
-                };
-                let r = ui.add(
-                    button
-                        .image_tint_follows_text_color(true)
-                        .min_size(Vec2::splat(36.0)),
-                );
-                let label = tab.label();
-                r.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label)
-                });
-                widgets::tip(&r, label, None);
-                if r.clicked() {
-                    self.tab = tab;
-                }
+    /// The sidebar: every tab named, under its group's heading.
+    fn nav(&mut self, ui: &mut Ui, height: f32) {
+        let t = Tokens::get(ui.ctx());
+        let (rect, _) = ui.allocate_exact_size(vec2(NAV_W, height), Sense::hover());
+        let r = t.radius_lg as u8;
+        let corners = CornerRadius {
+            nw: r,
+            sw: r,
+            ne: 0,
+            se: 0,
+        };
+        ui.painter()
+            .rect_filled(rect, corners, t.hover.gamma_multiply(0.5));
+        let inner = rect.shrink2(vec2(10.0, 12.0));
+        let layout = Layout::top_down(Align::Min);
+        let mut ui = ui.new_child(UiBuilder::new().max_rect(inner).layout(layout));
+        ui.spacing_mut().item_spacing.y = 2.0;
+        let shown = self.tab();
+        let mut group = None;
+        for tab in Tab::ALL.into_iter().filter(|tab| tab.available()) {
+            if group != Some(tab.group()) {
+                ui.add_space(if group.is_some() { 14.0 } else { 6.0 });
+                nav_heading(&mut ui, tab.group());
+                group = Some(tab.group());
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                widgets::icon_button(ui, Icon::Close, "Close settings", false).clicked()
-            })
-            .inner
-        })
-        .inner
+            if nav_row(&mut ui, tab, tab == shown).clicked() {
+                self.tab = tab;
+            }
+        }
     }
+}
+
+/// A small muted heading over a group of tabs.
+fn nav_heading(ui: &mut Ui, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        let text = RichText::new(text)
+            .font(theme::medium(t.text_small))
+            .color(t.muted);
+        ui.label(text);
+    });
+    ui.add_space(4.0);
+}
+
+/// A tab in the sidebar: its icon and name, filled while shown.
+fn nav_row(ui: &mut Ui, tab: Tab, on: bool) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), NAV_ROW_H);
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    let label = tab.label();
+    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+    let fill = if on {
+        t.accent_soft
+    } else if r.hovered() {
+        t.hover
+    } else {
+        Color32::TRANSPARENT
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, t.radius, fill);
+    let icon = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(16.0));
+    let tint = if on { t.accent } else { t.muted };
+    tab.icon().image(16.0).tint(tint).paint_at(ui, icon);
+    let font = if on {
+        theme::medium(t.text)
+    } else {
+        egui::FontId::proportional(t.text)
+    };
+    let at = pos2(rect.left() + 38.0, rect.center().y);
+    painter.text(at, egui::Align2::LEFT_CENTER, label, font, t.ink);
+    r
+}
+
+/// The shown tab's name over its page, and the close button; true on close.
+fn header(ui: &mut Ui, tab: Tab) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), HEADER_H);
+    ui.allocate_ui_with_layout(size, Layout::right_to_left(Align::Center), |ui| {
+        ui.set_min_height(HEADER_H);
+        ui.add_space(12.0);
+        let close = widgets::icon_button(ui, Icon::Close, "Close settings", false).clicked();
+        // Painted, not a label: the sidebar already names the tab.
+        let at = pos2(ui.max_rect().left() + 24.0, ui.max_rect().center().y);
+        let font = theme::medium(18.0);
+        ui.painter()
+            .text(at, egui::Align2::LEFT_CENTER, tab.label(), font, t.ink);
+        close
+    })
+    .inner
 }
 
 fn tab_body(
@@ -253,10 +330,9 @@ fn tab_body(
     out: &mut Commands,
 ) {
     match tab {
+        Tab::Appearance => appearance(ui, s, cx, out),
         Tab::Layout => layout(ui, s, cx),
-        Tab::Theme => theme_tab(ui, s, cx, out),
-        Tab::Animations => animations(ui, s, cx),
-        Tab::Fonts => fonts::tab(ui, &mut s.text),
+        Tab::Motion => motion(ui, s, cx),
         Tab::Highlights => {
             let study = &mut s.study;
             highlights::tab(ui, &mut study.highlights, &mut study.gloss);
@@ -297,65 +373,57 @@ fn layout(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
             let hint = "A page counter in the corner of each pane";
             switch_row(ui, "Page indicator", hint, &mut l.page_indicator);
         });
-        let on = l.page_indicator;
-        r.always(|ui| {
-            row(ui, "Indicator shows", "", |ui| {
-                ui.add_enabled_ui(on, |ui| {
+        if l.page_indicator {
+            r.always(|ui| {
+                row(ui, "Indicator shows", "", |ui| {
                     let style = &mut l.page_indicator_style;
                     ui.selectable_value(style, PageIndicatorStyle::Percentage, "Percent");
                     ui.selectable_value(style, PageIndicatorStyle::PageNumber, "Pages");
                 });
             });
-        });
-        label_rows(r, l);
+        }
         r.always(|ui| {
             let hint = "A thin line along each pane's bottom edge";
             switch_row(ui, "Progress bar", hint, &mut l.progress_bar);
         });
     });
+    rows(ui, cx, Applies::Always, "Page label", |r| {
+        label_rows(r, &mut s.layout)
+    });
     rows(ui, cx, Applies::Always, "Pages", |r| {
         page_rows(r, &mut s.layout)
     });
-    rows(ui, cx, Applies::Always, "Motion", |r| {
-        r.always(|ui| {
-            let hint = "Everything that moves. Off, a change lands as its end frame.";
-            switch_row(ui, "Animations", hint, &mut s.motion.enabled);
-        });
-    });
 }
 
-/// The floating document label and how it behaves.
+/// The floating document label; its options show once it's on.
 fn label_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
     r.always(|ui| {
         let hint = "The document's name in each pane's corner while the title bar hides";
         switch_row(ui, "Floating label", hint, &mut l.floating_label);
     });
-    let on = l.floating_label;
+    if !l.floating_label {
+        return;
+    }
     r.always(|ui| {
         row(ui, "Label shows", "", |ui| {
-            ui.add_enabled_ui(on, |ui| {
-                let style = &mut l.floating_label_style;
-                ui.selectable_value(style, FloatingLabelStyle::Chapter, "Chapter");
-                ui.selectable_value(style, FloatingLabelStyle::FileName, "File name");
-            });
+            let style = &mut l.floating_label_style;
+            ui.selectable_value(style, FloatingLabelStyle::Chapter, "Chapter");
+            ui.selectable_value(style, FloatingLabelStyle::FileName, "File name");
         });
     });
     r.always(|ui| {
         let hint = "Keep it while the title bar shows, however narrow the side";
-        row(ui, "Always show label", hint, |ui| {
-            ui.add_enabled_ui(on, |ui| {
-                widgets::switch(ui, &mut l.floating_label_persist, "Always show label");
-            });
-        });
+        switch_row(ui, "Always show label", hint, &mut l.floating_label_persist);
     });
+    if l.floating_label_persist {
+        return;
+    }
     r.always(|ui| {
         let hint = "How much of the room beside the page the label may take";
         row(ui, "Label width limit", hint, |ui| {
-            ui.add_enabled_ui(on && !l.floating_label_persist, |ui| {
-                let pct = &mut l.floating_label_max_pct;
-                let show = |v: f32| format!("{v:.0}%");
-                widgets::stepper(ui, pct, 10.0..=100.0, 10.0, show, "label width");
-            });
+            let pct = &mut l.floating_label_max_pct;
+            let show = |v: f32| format!("{v:.0}%");
+            widgets::stepper(ui, pct, 10.0..=100.0, 10.0, show, "label width");
         });
     });
 }
@@ -408,9 +476,19 @@ fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
     });
 }
 
-fn animations(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
-    rows(ui, cx, Applies::Always, "Reader motion", |r| {
-        let m = &mut s.motion;
+fn motion(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
+    let m = &mut s.motion;
+    rows(ui, cx, Applies::Always, "All motion", |r| {
+        r.always(|ui| {
+            let hint = "Everything that moves. Off, a change lands as its end frame.";
+            switch_row(ui, "Animations", hint, &mut m.enabled);
+        });
+    });
+    if !m.enabled {
+        note(ui, "Turn Animations on to choose each motion.");
+        return;
+    }
+    rows(ui, cx, Applies::Always, "Each motion", |r| {
         r.always(|ui| {
             let hint = "The sidebar slides in and out, docked or floating";
             switch_row(ui, "Sidebar animation", hint, &mut m.sidebar_slide);
@@ -428,16 +506,15 @@ fn animations(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
             switch_row(ui, "Scroll to page", hint, &mut m.scroll_jumps);
         });
     });
-    note(
-        ui,
-        "Anything switched off still changes, in one frame. The master switch is in Layout.",
-    );
+    note(ui, "Anything switched off still changes, in one frame.");
 }
 
-fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
+/// Colours stay in the popover, where the page shows each change.
+fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     rows(ui, cx, Applies::Always, "Colours", |r| {
         r.always(|ui| {
-            row(ui, "Mode, tint, texture and presets", "", |ui| {
+            let hint = "Opens over the page, so each change shows as you make it";
+            row(ui, "Mode, tint, texture and presets", hint, |ui| {
                 let t = Tokens::get(ui.ctx());
                 let text = RichText::new("Open Appearance").color(t.accent);
                 if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
@@ -447,6 +524,12 @@ fn theme_tab(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
             });
         });
     });
+    if cx.applies(Applies::Book) {
+        fonts::tab(ui, &mut s.text);
+    } else {
+        section(ui, "Text");
+        note(ui, "Open an EPUB, Markdown or text file to set its type.");
+    }
     let title = "Split pane appearance";
     rows(ui, cx, Applies::Split, title, |r| pane_look(r, s));
     // Read from page rasters, so only PDFs have it.
@@ -590,14 +673,14 @@ fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
             let label = "Independent theme for each pane";
             switch_row(ui, label, hint, &mut w.independent_themes);
         });
-        let themes = w.independent_themes;
-        r.always(|ui| {
-            ui.add_enabled_ui(themes, |ui| {
+        // Only means something once each pane has its own theme.
+        if w.independent_themes {
+            r.always(|ui| {
                 let hint = "Off: each pane keeps its own mode too";
                 let label = "Light, Dark and Dim change every pane";
                 switch_row(ui, label, hint, &mut w.shared_base_mode);
             });
-        });
+        }
         r.always(|ui| {
             let hint = "While split, each pane keeps its own texture and dials";
             let label = "Independent page texture for each pane";
@@ -707,6 +790,36 @@ fn switch_row(ui: &mut Ui, label: &str, hint: &str, on: &mut bool) {
     row(ui, label, hint, |ui| {
         widgets::switch(ui, on, label);
     });
+}
+
+/// A row that shows the rows under it; true while open.
+fn disclosure(ui: &mut Ui, label: &str, hint: &str) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let id = ui.id().with(("disclosure", label));
+    let mut open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let size = vec2(ui.available_width(), ROW_H);
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, label));
+    if !hint.is_empty() {
+        widgets::tip(&r, hint, None);
+    }
+    if r.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(id, open));
+    }
+    let ink = if r.hovered() { t.ink } else { t.muted };
+    let font = egui::FontId::proportional(t.text);
+    let left = pos2(rect.left(), rect.center().y);
+    ui.painter()
+        .text(left, egui::Align2::LEFT_CENTER, label, font, ink);
+    let chevron = if open {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    };
+    let mark = Rect::from_center_size(pos2(rect.right() - 9.0, rect.center().y), Vec2::splat(16.0));
+    chevron.image(16.0).tint(ink).paint_at(ui, mark);
+    open
 }
 
 /// A titled choice with its detail and a radio mark; true when picked.

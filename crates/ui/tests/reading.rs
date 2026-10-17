@@ -275,8 +275,18 @@ fn the_fonts_tab_steps_the_size_and_switches_justification() {
     h.get_by_role_and_label(Role::CheckBox, book).click();
     h.run();
     assert!(h.state().settings().text.book_layout);
-    // Four font slots, each a picker.
-    for slot in ["Font", "Serif font", "Sans-serif font", "Monospace font"] {
+    // The body font, and the book's own families behind a disclosure.
+    let families = "Book's own families";
+    h.get_by_label(families).scroll_to_me();
+    h.run();
+    h.get_by_label(families).click();
+    h.run();
+    for slot in [
+        "Body font",
+        "Serif font",
+        "Sans-serif font",
+        "Monospace font",
+    ] {
         assert!(h.query_by_label(slot).is_some(), "{slot}");
     }
 }
