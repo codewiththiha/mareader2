@@ -308,7 +308,9 @@ hides and returns with the mark.
 - A press outside the draft keeps it: typed words are never lost by a
   stray click. While a draft is open it stays, even if its words scroll
   away.
-- A noted highlight shows a small badge in its colour after its last line.
+- A noted highlight shows a small badge in its colour in the margin beside
+  its last line, never over text; with no margin it sits raised and small
+  over the line's end.
   Clicking the highlight or the badge shows the note, with Edit and Delete.
   Delete offers Undo.
 - The mark menu offers Add note or Edit note; AI marks take no notes.
