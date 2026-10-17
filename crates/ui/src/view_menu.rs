@@ -1,6 +1,9 @@
 //! The title bar's menu: crowded-out tools, full screen, the shortcut list.
 
-use egui::{Align, Button, Id, Layout, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
+use egui::{
+    Align, Button, Id, Layout, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Ui,
+    pos2, vec2,
+};
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::documents::Placement;
@@ -63,27 +66,18 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         ui.close();
     }
     ui.separator();
+    // Layout, zoom and reading each under a name of their own.
     if let Some(mode) = cx.mode {
+        heading(ui, "Layout");
         view_row(ui, mode, cx.platform, out);
     }
     if let Some(zoom) = cx.zoom {
+        heading(ui, "Zoom");
         zoom_row(ui, zoom, cx.platform, out);
     }
+    heading(ui, "Reading");
     if let (Some(on), Some(mode)) = (cx.auto_scroll, cx.mode) {
         auto_scroll_row(ui, on, !mode.paged(), cx.platform, out);
-    }
-    if cx.zoom.is_some() {
-        ui.separator();
-    }
-    for tool in cx.folded {
-        let keys = keymap::hint(cx.platform, &tool.command);
-        if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
-            out.push(tool.command.clone());
-            ui.close();
-        }
-    }
-    if !cx.folded.is_empty() {
-        ui.separator();
     }
     let full = Command::Window(WindowCommand::ToggleFullscreen);
     let (icon, label) = if cx.fullscreen {
@@ -105,6 +99,13 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     }
     pin_row(ui, cx.pinned, out);
     ui.separator();
+    for tool in cx.folded {
+        let keys = keymap::hint(cx.platform, &tool.command);
+        if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
+            out.push(tool.command.clone());
+            ui.close();
+        }
+    }
     let keys = keymap::hint(cx.platform, &Command::ShowSettings);
     if widgets::menu_row(ui, Icon::Settings, "Settings", keys.as_deref(), false).clicked() {
         out.push(Command::ShowSettings);
@@ -141,26 +142,61 @@ fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &m
     });
 }
 
-/// The four view modes, the current one pressed; the menu stays open.
-fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Commands) {
+/// A small muted name over a group of rows.
+fn heading(ui: &mut Ui, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        ui.add_space(4.0);
-        for mode in ViewMode::ALL {
-            let icon = match mode {
-                ViewMode::Single => Icon::SinglePage,
-                ViewMode::Spread => Icon::Spread,
-                ViewMode::Vertical => Icon::ScrollVertical,
-                ViewMode::Horizontal => Icon::ScrollHorizontal,
-            };
-            let command = Command::View(mode);
-            let keys = keymap::hint(platform, &command);
-            let on = mode == current;
-            if widgets::icon_button_keyed(ui, icon, mode.label(), on, keys.as_deref()).clicked() {
-                out.push(command);
-            }
-        }
+        ui.add_space(8.0);
+        ui.label(RichText::new(text).size(t.text_small).color(t.muted));
     });
+}
+
+/// The four view modes, each named under its icon; the menu stays open.
+fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), 46.0);
+    let (band, _) = ui.allocate_exact_size(size, Sense::hover());
+    let band = band.shrink2(vec2(4.0, 0.0));
+    let slot = band.width() / ViewMode::ALL.len() as f32;
+    for (i, mode) in ViewMode::ALL.into_iter().enumerate() {
+        let icon = match mode {
+            ViewMode::Single => Icon::SinglePage,
+            ViewMode::Spread => Icon::Spread,
+            ViewMode::Vertical => Icon::ScrollVertical,
+            ViewMode::Horizontal => Icon::ScrollHorizontal,
+        };
+        let cell = Rect::from_min_size(
+            pos2(band.left() + slot * i as f32, band.top()),
+            vec2(slot, band.height()),
+        )
+        .shrink(1.0);
+        let on = mode == current;
+        let label = mode.label();
+        let r = ui.interact(cell, ui.id().with(("view-mode", label)), Sense::click());
+        r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+        let command = Command::View(mode);
+        let keys = keymap::hint(platform, &command);
+        widgets::tip(&r, label, keys.as_deref());
+        let fill = if on {
+            t.accent_soft
+        } else if r.hovered() {
+            t.hover
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(cell, t.radius, fill);
+        let ink = if on { t.accent } else { t.ink };
+        let mark = Rect::from_center_size(cell.center() - vec2(0.0, 8.0), egui::Vec2::splat(16.0));
+        icon.paint(ui, mark, ink);
+        let at = cell.center() + vec2(0.0, 11.0);
+        let font = egui::FontId::proportional(11.0);
+        ui.painter()
+            .text(at, egui::Align2::CENTER_CENTER, mode.short(), font, ink);
+        if r.clicked() {
+            out.push(command);
+        }
+    }
 }
 
 /// Zoom steps, then the fits; the menu stays open so presses chain.
