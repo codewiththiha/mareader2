@@ -17,6 +17,7 @@ pub mod command;
 pub mod crossfade;
 pub mod dict;
 pub mod documents;
+pub mod export;
 pub mod files;
 pub mod find_bar;
 pub mod floating_label;
