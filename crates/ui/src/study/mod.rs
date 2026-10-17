@@ -4,6 +4,7 @@
 mod bar;
 mod card;
 pub mod marks;
+mod note;
 mod picking;
 pub mod words;
 
@@ -42,6 +43,8 @@ pub enum Gloss {
     Explain,
     /// Look up was pressed on the pane's selection.
     LookUp,
+    /// Note was pressed on the pane's selection.
+    Note,
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.
@@ -85,6 +88,18 @@ pub enum Action {
     PickPage,
     PickAll,
     DonePicking,
+    /// The mark menu's Add note or Edit note.
+    WriteNote(MarkId),
+    /// The notes panel's: a draft in `PaneId`, placed once its words show.
+    WriteNoteIn(PaneId, MarkId),
+    /// The open note's Edit: its text becomes a draft.
+    EditNote,
+    /// Keeps the draft on `MarkId`'s note; blank deletes it.
+    SaveNote(MarkId),
+    CancelNote,
+    DeleteNote(MarkId),
+    /// Undo: a deleted note's text comes back.
+    RestoreNote(MarkId, String),
 }
 
 /// Which answer a card shows: a mark's, or one kept by nothing.
@@ -114,6 +129,26 @@ struct MarkMenu {
     pane: PaneId,
     mark: MarkId,
     at: Pos2,
+    /// The mark's words on screen, for a note opened from here.
+    rect: Rect,
+    /// A highlight's: whether it has a note; none for an AI mark.
+    noted: Option<bool>,
+}
+
+/// A highlight's note beside it: read, or being written.
+#[derive(Clone, Debug, PartialEq)]
+struct Note {
+    pane: PaneId,
+    /// The mark as it was opened, its note kept up to date here.
+    mark: Mark,
+    at: Rect,
+    seen: bool,
+    /// The text being written; none while the note is only read.
+    draft: Option<String>,
+    /// The highlight was made for this note: Cancel takes it back.
+    placeholder: bool,
+    /// Frames left to give the field focus, as the card measures first.
+    focus: u8,
 }
 
 /// What a worker sends back: the answer so far, then the end.
@@ -164,6 +199,7 @@ pub struct Study {
     loose: Library,
     card: Option<Card>,
     menu: Option<MarkMenu>,
+    note: Option<Note>,
     /// Marks picked to remove together, in one pane.
     picking: Option<picking::Picking>,
     /// Answers this session; a mark's are saved with it too.
@@ -178,6 +214,7 @@ pub struct Study {
     /// Last frame's card and menu, so a press outside closes them.
     card_rect: Option<Rect>,
     menu_rect: Option<Rect>,
+    note_rect: Option<Rect>,
 }
 
 impl Default for Study {
@@ -188,6 +225,7 @@ impl Default for Study {
             loose: Library::new(DeviceId(0)),
             card: None,
             menu: None,
+            note: None,
             picking: None,
             answers: HashMap::new(),
             partial: HashMap::new(),
@@ -197,6 +235,7 @@ impl Default for Study {
             next_loose: 0,
             card_rect: None,
             menu_rect: None,
+            note_rect: None,
         }
     }
 }
@@ -223,8 +262,11 @@ impl Study {
         self.inline
     }
 
-    /// The mark whose card is open in `pane`.
+    /// The mark whose card or note is open in `pane`.
     pub fn card_mark(&self, pane: PaneId) -> Option<MarkId> {
+        if let Some(n) = self.note.as_ref().filter(|n| n.pane == pane) {
+            return Some(n.mark.id);
+        }
         match self.card.as_ref().filter(|c| c.pane == pane)?.key {
             Key::Mark(id) => Some(id),
             Key::Loose(_) => None,
@@ -233,6 +275,12 @@ impl Study {
 
     pub fn card_open(&self) -> bool {
         self.card.is_some()
+    }
+
+    /// The open note's mark, and its draft while written; for tests.
+    pub fn note_open(&self) -> Option<(MarkId, Option<&str>)> {
+        let n = self.note.as_ref()?;
+        Some((n.mark.id, n.draft.as_deref()))
     }
 
     /// The word the open card explains, for tests.
@@ -313,18 +361,93 @@ impl Study {
                 id: m.id,
                 spot: m.spot,
                 ink: ink(m, look),
+                noted: m.note.value.is_some(),
             })
             .collect();
         out.sort_by_key(|m| m.ink.ai);
         out
     }
 
-    /// The reader's highlighter: marks the text in `pen`.
-    pub fn highlight(&mut self, main: &mut Library, at: Highlighted<'_>, wall_ms: u64) {
+    /// The book's highlights for the notes panel, in reading order.
+    pub fn notes_of(
+        &self,
+        main: &Library,
+        book: Option<BookId>,
+        name: &str,
+        look: &HighlightSettings,
+    ) -> Vec<crate::notes_panel::Row> {
+        let (lib, id) = match book.filter(|b| main.book(*b).is_some()) {
+            Some(id) => (main, id),
+            None => (&self.loose, BookId::original(loose_content(name))),
+        };
+        let mut out: Vec<crate::notes_panel::Row> = lib
+            .marks(id)
+            .into_iter()
+            .filter(|m| m.kind == MarkKind::Highlight)
+            .map(|m| crate::notes_panel::Row {
+                id: m.id,
+                spot: m.spot,
+                quote: m.word.clone(),
+                note: m.note.value.clone(),
+                ink: ink(m, look).color,
+            })
+            .collect();
+        out.sort_by_key(|r| crate::notes_panel::order(&r.spot));
+        out
+    }
+
+    /// The reader's highlighter: marks the text in `pen`; the mark and
+    /// whether it is new.
+    pub fn highlight(
+        &mut self,
+        main: &mut Library,
+        at: Highlighted<'_>,
+        wall_ms: u64,
+    ) -> Option<(MarkId, bool)> {
         let color = at.color.map(|Rgb(r, g, b)| [r, g, b]);
         let new = NewMark::highlight(at.text, at.spot, at.pen, color);
         let (lib, book) = self.shelf(main, at.book, at.name);
-        lib.add_mark(book, new, wall_ms);
+        let before = lib.marks(book).len();
+        let id = lib.add_mark(book, new, wall_ms)?;
+        Some((id, lib.marks(book).len() > before))
+    }
+
+    /// Note pressed: highlights the text and opens a draft on it.
+    pub fn write_note(
+        &mut self,
+        main: &mut Library,
+        pane: PaneId,
+        at: Highlighted<'_>,
+        rect: Rect,
+        wall_ms: u64,
+    ) {
+        let Some((id, made)) = self.highlight(main, at, wall_ms) else {
+            return;
+        };
+        self.open_note(main, pane, id, rect, true);
+        if let Some(n) = &mut self.note {
+            n.placeholder = made;
+        }
+    }
+
+    /// Opens `id`'s note beside `at`: a draft if `write`, else to read.
+    fn open_note(&mut self, main: &Library, pane: PaneId, id: MarkId, at: Rect, write: bool) {
+        let Some(mark) = self.mark(main, id).cloned() else {
+            return;
+        };
+        self.card = None;
+        self.menu = None;
+        self.note_rect = None;
+        let draft = write.then(|| mark.note.value.clone().unwrap_or_default());
+        self.note = Some(Note {
+            pane,
+            mark,
+            at,
+            seen: true,
+            draft,
+            placeholder: false,
+            focus: 2,
+        });
     }
 
     fn mark<'a>(&'a self, main: &'a Library, id: MarkId) -> Option<&'a Mark> {
@@ -354,14 +477,18 @@ impl Study {
         self.open(ctx, main, pane, key, (asked.word, asked.context), rect);
     }
 
-    /// A click on a mark: its card again; a highlight's menu.
+    /// A click on a mark: its card again; a highlight's note or menu.
     pub fn open_mark(&mut self, ctx: &Context, main: &Library, pane: PaneId, id: MarkId, at: Rect) {
         let Some(m) = self.mark(main, id) else {
             return;
         };
+        if m.kind == MarkKind::Highlight && m.note.value.is_some() {
+            self.open_note(main, pane, id, at, false);
+            return;
+        }
         if m.kind == MarkKind::Highlight {
             let p = ctx.pointer_latest_pos().unwrap_or(at.left_bottom());
-            self.open_menu(pane, id, p);
+            self.menu_at(main, pane, id, p, at);
             return;
         }
         let words = (m.word.clone(), m.context.clone());
@@ -379,6 +506,7 @@ impl Study {
     ) {
         let (word, context) = words;
         self.menu = None;
+        self.note = None;
         // A failed answer is asked for again; a saved one is shown.
         self.failed.remove(&key);
         if let Key::Mark(id) = key
@@ -436,15 +564,32 @@ impl Study {
     }
 
     /// The right-click menu on a mark.
-    pub fn open_menu(&mut self, pane: PaneId, mark: MarkId, at: Pos2) {
+    pub fn open_menu(&mut self, main: &Library, pane: PaneId, mark: MarkId, at: Pos2) {
+        let rect = Rect::from_center_size(at, egui::Vec2::splat(1.0));
+        self.menu_at(main, pane, mark, at, rect);
+    }
+
+    fn menu_at(&mut self, main: &Library, pane: PaneId, mark: MarkId, at: Pos2, rect: Rect) {
+        let noted = self
+            .mark(main, mark)
+            .filter(|m| m.kind == MarkKind::Highlight)
+            .map(|m| m.note.value.is_some());
         self.card = None;
-        self.menu = Some(MarkMenu { pane, mark, at });
+        self.note = None;
+        self.menu = Some(MarkMenu {
+            pane,
+            mark,
+            at,
+            rect,
+            noted,
+        });
     }
 
     /// Picking several marks begins with `mark`, or takes it in.
     pub fn pick(&mut self, pane: PaneId, mark: MarkId) {
         self.card = None;
         self.menu = None;
+        self.note = None;
         match &mut self.picking {
             Some(p) if p.pane == pane => p.add(&[mark]),
             _ => self.picking = Some(picking::Picking::new(pane, mark)),
@@ -479,6 +624,10 @@ impl Study {
             card.at = at.unwrap_or(card.at);
             card.seen = true;
         }
+        if let Some(note) = self.note.as_mut().filter(|n| n.pane == pane) {
+            note.at = at.unwrap_or(note.at);
+            note.seen = true;
+        }
     }
 
     /// `pane` drew no pages this frame, as while it re-sets: the card stays.
@@ -486,10 +635,17 @@ impl Study {
         if let Some(card) = self.card.as_mut().filter(|c| c.pane == pane) {
             card.seen = true;
         }
+        if let Some(note) = self.note.as_mut().filter(|n| n.pane == pane) {
+            note.seen = true;
+        }
     }
 
-    /// Escape: closes the card or menu, else stops picking.
-    pub fn escape(&mut self) -> bool {
+    /// Escape: drops a draft, closes the card or menu, else stops picking.
+    pub fn escape(&mut self, main: &mut Library) -> bool {
+        if self.note.is_some() {
+            self.cancel_note(main);
+            return true;
+        }
         if self.card.is_some() || self.menu.is_some() {
             self.card = None;
             self.menu = None;
@@ -557,7 +713,83 @@ impl Study {
                 }
             }
             Action::DonePicking => self.picking = None,
+            Action::WriteNote(id) => {
+                if let Some(m) = self.menu.take() {
+                    self.open_note(main, m.pane, id, m.rect, true);
+                }
+            }
+            Action::WriteNoteIn(pane, id) => {
+                self.open_note(main, pane, id, Rect::NOTHING, true);
+            }
+            Action::EditNote => {
+                if let Some(n) = &mut self.note {
+                    n.draft = Some(n.mark.note.value.clone().unwrap_or_default());
+                    n.focus = 2;
+                }
+            }
+            Action::SaveNote(id) => self.save_note(main, id, out),
+            Action::CancelNote => self.cancel_note(main),
+            Action::DeleteNote(id) => {
+                self.note = None;
+                self.forget_note(main, id, out);
+            }
+            Action::RestoreNote(id, text) => {
+                if !main.set_note(id, Some(text.clone()), wall) {
+                    self.loose.set_note(id, Some(text), wall);
+                }
+                out.push(Command::DismissToast);
+            }
         }
+    }
+
+    /// Keeps the open draft; blank deletes the note or its new highlight.
+    fn save_note(&mut self, main: &mut Library, id: MarkId, out: &mut Commands) {
+        let Some(n) = self.note.take_if(|n| n.mark.id == id) else {
+            return;
+        };
+        let Some(draft) = n.draft else {
+            return;
+        };
+        let text = draft.trim();
+        if text.is_empty() {
+            if n.placeholder {
+                self.drop_marks(main, &[id]);
+            } else if n.mark.note.value.is_some() {
+                self.forget_note(main, id, out);
+            }
+            return;
+        }
+        let wall = crate::library::wall_ms();
+        if !main.set_note(id, Some(text.to_owned()), wall) {
+            self.loose.set_note(id, Some(text.to_owned()), wall);
+        }
+    }
+
+    /// Closes the note unsaved; a highlight made for it goes too.
+    fn cancel_note(&mut self, main: &mut Library) {
+        if let Some(n) = self.note.take().filter(|n| n.placeholder) {
+            self.drop_marks(main, &[n.mark.id]);
+        }
+    }
+
+    /// Deletes `id`'s note, with Undo bringing its text back.
+    fn forget_note(&mut self, main: &mut Library, id: MarkId, out: &mut Commands) {
+        let was = self.mark(main, id).and_then(|m| m.note.value.clone());
+        let wall = crate::library::wall_ms();
+        if !main.set_note(id, None, wall) {
+            self.loose.set_note(id, None, wall);
+        }
+        if let Some(text) = was {
+            let undo = Command::Study(Action::RestoreNote(id, text));
+            out.push(Command::Notify(Toast::info("Deleted note").undo(undo)));
+        }
+    }
+
+    /// Removes marks quietly, as a cancelled note's highlight.
+    fn drop_marks(&mut self, main: &mut Library, ids: &[MarkId]) {
+        let wall = crate::library::wall_ms();
+        main.set_marks_alive(ids, false, wall);
+        self.loose.set_marks_alive(ids, false, wall);
     }
 
     /// Takes in answers, finished or still filling in; marks keep theirs.
@@ -614,6 +846,10 @@ impl Study {
         if let Some(card) = &mut self.card {
             card.seen = matches!(card.key, Key::Loose(_));
         }
+        // A draft stays while its words scroll away; a read note goes.
+        if let Some(note) = &mut self.note {
+            note.seen = note.draft.is_some();
+        }
     }
 
     /// After the panes: the card and the mark menu, over them.
@@ -621,7 +857,7 @@ impl Study {
         &mut self,
         ctx: &Context,
         panes: &[(PaneId, Rect)],
-        look: &GlossSettings,
+        (look, pens): (&GlossSettings, &HighlightSettings),
         out: &mut Commands,
     ) {
         let pressed = ctx.input(|i| {
@@ -635,8 +871,17 @@ impl Study {
         if self.menu.is_some() && outside(self.menu_rect) {
             self.menu = None;
         }
-        // A mark that scrolled away, or a pane that closed, takes its card.
+        // A press elsewhere keeps a draft; a note only read just closes.
         let room = |pane| panes.iter().find(|(p, _)| *p == pane).map(|(_, r)| *r);
+        if let Some(n) = &self.note
+            && (outside(self.note_rect) || room(n.pane).is_none() || !n.seen)
+        {
+            match n.draft {
+                Some(_) => out.push(Command::Study(Action::SaveNote(n.mark.id))),
+                None => self.note = None,
+            }
+        }
+        // A mark that scrolled away, or a pane that closed, takes its card.
         if self
             .card
             .as_ref()
@@ -666,7 +911,29 @@ impl Study {
         });
         self.menu_rect = self
             .menu
-            .map(|m| card::menu(ctx, (m.pane, m.mark), m.at, &t, out));
+            .map(|m| card::menu(ctx, (m.pane, m.mark), m.at, m.noted, &t, out));
+        self.note_rect = match &mut self.note {
+            Some(n) => room(n.pane).map(|room| {
+                // Opened from the panel, before its words were placed.
+                let at = match n.at.is_finite() {
+                    true => n.at,
+                    false => Rect::from_center_size(room.center(), egui::Vec2::splat(1.0)),
+                };
+                let view = note::View {
+                    mark: n.mark.id,
+                    quote: &n.mark.word,
+                    ink: ink(&n.mark, pens).color,
+                    saved: n.mark.note.value.as_deref(),
+                    draft: n.draft.as_mut(),
+                    fresh: n.focus > 0,
+                    at,
+                    room,
+                };
+                n.focus = n.focus.saturating_sub(1);
+                note::show(ctx, view, &t, out)
+            }),
+            None => None,
+        };
         if self
             .picking
             .as_ref()

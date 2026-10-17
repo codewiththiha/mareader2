@@ -133,6 +133,8 @@ pub enum Command {
         pen: mareader_library::Pen,
         color: Option<mareader_appearance::Rgb>,
     },
+    /// Highlights the pane's selection and opens a note on it.
+    Note(PaneId),
     /// Selects the first `text` on `page` in the pane, as a drag does.
     SelectText {
         pane: PaneId,

@@ -56,7 +56,32 @@ fn migrate(root: &mut Map<String, Value>, notes: &mut Vec<String>) {
     if stored < 3 {
         v2_to_v3(root);
     }
+    if stored < 4 {
+        v3_to_v4(root);
+    }
     root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+}
+
+/// v4 added Note to the selection menu, after Look up if shown.
+fn v3_to_v4(root: &mut Map<String, Value>) {
+    let bar = root
+        .get_mut("study")
+        .and_then(|s| s.get_mut("highlights"))
+        .and_then(|h| h.get_mut("bar"))
+        .and_then(Value::as_array_mut);
+    let Some(bar) = bar else {
+        return;
+    };
+    let item = json!("note");
+    if bar.contains(&item) {
+        return;
+    }
+    let near = |name: &str| bar.iter().position(|v| v == name);
+    let at = near("look_up")
+        .or_else(|| near("explain"))
+        .or_else(|| near("copy"))
+        .map_or(0, |i| i + 1);
+    bar.insert(at, item);
 }
 
 /// v3 added Look up to the selection menu, after Explain if shown.
@@ -238,15 +263,29 @@ mod tests {
         let want = [
             BarItem::Explain,
             BarItem::LookUp,
+            BarItem::Note,
             BarItem::Highlight(Pen::Full),
             BarItem::Copy,
         ];
         assert_eq!(bar, want);
         let bare = r#"{"version":2,"study":{"highlights":{"bar":[]}}}"#;
         let bar = load(bare).settings.study.highlights.bar;
-        assert_eq!(bar, [BarItem::LookUp]);
-        let v3 = r#"{"version":3,"study":{"highlights":{"bar":["copy"]}}}"#;
-        assert_eq!(load(v3).settings.study.highlights.bar, [BarItem::Copy]);
+        assert_eq!(bar, [BarItem::LookUp, BarItem::Note]);
+        let v4 = r#"{"version":4,"study":{"highlights":{"bar":["copy"]}}}"#;
+        assert_eq!(load(v4).settings.study.highlights.bar, [BarItem::Copy]);
+    }
+
+    #[test]
+    fn v3_menus_gain_note_after_look_up() {
+        use crate::{BarItem, Pen};
+        let v3 = r#"{"version":3,"study":{"highlights":{"bar":["look_up",{"highlight":"full"}]}}}"#;
+        let bar = load(v3).settings.study.highlights.bar;
+        let want = [
+            BarItem::LookUp,
+            BarItem::Note,
+            BarItem::Highlight(Pen::Full),
+        ];
+        assert_eq!(bar, want);
     }
 
     #[test]

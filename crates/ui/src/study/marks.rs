@@ -25,6 +25,8 @@ pub struct Shown {
     pub id: MarkId,
     pub spot: Spot,
     pub ink: Ink,
+    /// It has a note: a badge marks where it ends.
+    pub noted: bool,
 }
 
 /// One mark on screen: a box per line it covers.
@@ -33,11 +35,14 @@ pub struct Placed {
     pub id: MarkId,
     pub rects: Vec<Rect>,
     pub ink: Ink,
+    /// A noted mark's badge, after its last line.
+    pub badge: Option<Rect>,
 }
 
 impl Placed {
     pub fn contains(&self, p: Pos2) -> bool {
-        self.rects.iter().any(|r| r.expand(2.0).contains(p))
+        let on_badge = self.badge.is_some_and(|b| b.expand(2.0).contains(p));
+        on_badge || self.rects.iter().any(|r| r.expand(2.0).contains(p))
     }
 
     /// Every box at once, for a card to sit beside.
@@ -109,15 +114,24 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
                 .filter(|r| r.is_positive())
                 .collect();
             if !rects.is_empty() {
+                let badge = rects.last().filter(|_| mark.noted).map(|r| badge(*r));
                 out.push(Placed {
                     id: mark.id,
                     rects,
                     ink: mark.ink,
+                    badge,
                 });
             }
         }
     }
     out
+}
+
+/// A round badge just past a line's end, sized to its text.
+fn badge(line: Rect) -> Rect {
+    let d = (line.height() * 0.8).clamp(10.0, 18.0);
+    let centre = pos2(line.right() + d * 0.5 + 2.0, line.center().y);
+    Rect::from_center_size(centre, egui::Vec2::splat(d))
 }
 
 /// A PDF highlight's span, as the selection it was made from.
@@ -145,7 +159,29 @@ pub fn paint(ui: &Ui, placed: &[Placed], opacity: f32) {
         for r in &mark.rects {
             draw(painter, *r, mark.ink.pen, mark.ink.color, opacity);
         }
+        if let Some(b) = mark.badge {
+            note_badge(ui, b, mark.ink.color);
+        }
     }
+}
+
+/// A note's badge: a disc in the mark's colour holding a note glyph.
+fn note_badge(ui: &Ui, b: Rect, color: Rgb) {
+    let fill = crate::theme::color(color);
+    let edge = fill.lerp_to_gamma(Color32::BLACK, 0.35);
+    let r = b.width() * 0.5;
+    ui.painter()
+        .circle(b.center(), r, fill, Stroke::new(1.0, edge));
+    // Dark ink on a light disc, light on a dark one.
+    let Rgb(red, green, blue) = color;
+    let light = 0.299 * f32::from(red) + 0.587 * f32::from(green) + 0.114 * f32::from(blue);
+    let ink = if light > 140.0 {
+        Color32::from_black_alpha(200)
+    } else {
+        Color32::from_white_alpha(230)
+    };
+    let glyph = Rect::from_center_size(b.center(), egui::Vec2::splat(b.width() * 0.62));
+    crate::icons::Icon::Note.paint(ui, glyph, ink);
 }
 
 /// One line's box in `pen`, after PDFCraft's square highlights.

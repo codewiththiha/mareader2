@@ -38,15 +38,18 @@ pub enum BarItem {
     Copy,
     Explain,
     LookUp,
+    /// Highlights the text and opens a note on it.
+    Note,
     Highlight(Pen),
 }
 
 impl BarItem {
     /// Every button, in the order a new menu lists them.
-    pub const ALL: [BarItem; 6] = [
+    pub const ALL: [BarItem; 7] = [
         BarItem::Copy,
         BarItem::Explain,
         BarItem::LookUp,
+        BarItem::Note,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),
         BarItem::Highlight(Pen::Half),
@@ -57,6 +60,7 @@ impl BarItem {
             Self::Copy => "Copy",
             Self::Explain => "Explain",
             Self::LookUp => "Look up",
+            Self::Note => "Note",
             Self::Highlight(pen) => pen.label(),
         }
     }
@@ -185,6 +189,7 @@ impl Default for HighlightSettings {
                 BarItem::Copy,
                 BarItem::Explain,
                 BarItem::LookUp,
+                BarItem::Note,
                 BarItem::Highlight(Pen::Full),
                 BarItem::Highlight(Pen::Underline),
             ],

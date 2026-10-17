@@ -1035,6 +1035,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             }
             Some(BarPress::Explain) => gloss.push(Gloss::Explain),
             Some(BarPress::LookUp) => gloss.push(Gloss::LookUp),
+            Some(BarPress::Note) => gloss.push(Gloss::Note),
             Some(BarPress::Highlight(pen, color)) => gloss.push(Gloss::Highlight(pen, color)),
             None => {}
         }
