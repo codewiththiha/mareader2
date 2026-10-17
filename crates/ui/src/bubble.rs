@@ -121,6 +121,8 @@ impl Bubble {
                     .inner_margin(self.margin)
                     .show(ui, |ui| {
                         ui.set_width(width);
+                        // Areas offer last frame's size; streamed text grows.
+                        ui.set_max_height(cap);
                         add(ui, cap)
                     });
                 caret(ui, frame.response.rect, at.center().x, side, t);
@@ -213,6 +215,54 @@ mod tests {
         // Unmeasured, below wins while it leaves room.
         assert_eq!(side((300.0, 500.0), None, None), Side::Below);
         assert_eq!(side((100.0, 500.0), None, None), Side::Above);
+    }
+
+    /// One frame of a card whose scrolling body holds `rows` lines.
+    fn frame(ctx: &Context, rows: usize) -> Rect {
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(800.0, 800.0));
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        };
+        let mut card = Rect::NOTHING;
+        let mut out = ctx.run_ui(input, |ui| {
+            let t = Tokens::get(ui.ctx());
+            let bubble = Bubble {
+                id: Id::new("grows"),
+                at: Rect::from_min_size(pos2(300.0, 100.0), egui::vec2(40.0, 16.0)),
+                room: screen,
+                width: 200.0,
+                margin: Margin::same(8),
+            };
+            card = bubble
+                .show(ui.ctx(), &t, |ui, cap| {
+                    egui::ScrollArea::vertical()
+                        .max_height(cap)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            (0..rows).for_each(|i| _ = ui.label(format!("row {i}")))
+                        });
+                })
+                .0;
+        });
+        out.textures_delta.clear();
+        card
+    }
+
+    /// The card's height once a few frames have shown `rows` lines.
+    fn settled(ctx: &Context, rows: usize) -> f32 {
+        for _ in 0..3 {
+            frame(ctx, rows);
+        }
+        frame(ctx, rows).height()
+    }
+
+    #[test]
+    fn a_card_grows_as_its_answer_streams_in() {
+        let ctx = Context::default();
+        let small = settled(&ctx, 1);
+        let big = settled(&ctx, 12);
+        assert!(big > small + 100.0, "{small} grew only to {big}");
     }
 
     #[test]
