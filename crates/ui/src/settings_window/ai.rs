@@ -34,6 +34,9 @@ pub fn tab(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>, out: &mut Co
         }
     });
     let p = ai.provider;
+    if let Some(board) = board {
+        fetch_models(ui, p, board, out);
+    }
     match (p, board) {
         (Provider::Auto | Provider::Apple, _) => {
             if mac || p == Provider::Apple {
@@ -42,9 +45,8 @@ pub fn tab(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>, out: &mut Co
         }
         (server, board) => {
             let label = server.label();
-            let models = board.map(|b| b.models(server));
             if let Some(e) = ai.endpoint_mut(server) {
-                server_rows(ui, server, label, e, models, out);
+                server_rows(ui, server, label, e, board, out);
             }
             trial(ui, server, board, out);
             if server.takes_keys() {
@@ -77,25 +79,73 @@ fn describe(p: Provider, mac: bool, board: Option<&Board>) -> (&'static str, Str
     }
 }
 
+/// Local servers list their models afresh each time the tab opens.
+fn fetch_models(ui: &Ui, p: Provider, board: &Board, out: &mut Commands) {
+    // The tab was hidden if it wasn't drawn the frame before.
+    let seen = egui::Id::new("ai-tab-frame");
+    let frame = ui.ctx().cumulative_frame_nr();
+    let last: Option<u64> = ui.data(|d| d.get_temp(seen));
+    ui.data_mut(|d| d.insert_temp(seen, frame));
+    let opened = last.is_none_or(|l| l + 1 < frame);
+    let idle = *board.models(p) == Load::Idle;
+    if p.local() && !board.fetching(p) && (opened || idle) {
+        out.push(Command::Ai(Job::Models(p)));
+    }
+}
+
+/// Whether the server's list lacks `model`; Ollama may add ":latest".
+fn missing(model: &str, models: &Load<Vec<String>>) -> bool {
+    let model = model.trim();
+    let Load::Ready(list) = models else {
+        return false;
+    };
+    !model.is_empty() && !list.iter().any(|m| same(model, m))
+}
+
+/// Whether `model` names `listed`; Ollama reads "x" as "x:latest".
+fn same(model: &str, listed: &str) -> bool {
+    let model = model.trim();
+    listed == model || listed.strip_suffix(":latest") == Some(model)
+}
+
 fn server_rows(
     ui: &mut Ui,
     p: Provider,
     label: &str,
     e: &mut Endpoint,
-    models: Option<&Load<Vec<String>>>,
+    board: Option<&Board>,
     out: &mut Commands,
 ) {
+    let t = Tokens::get(ui.ctx());
+    let lost = board.is_some_and(|b| missing(&e.model, b.models(p)));
+    let gone = format!(
+        "{} isn't on the server now; choose another.",
+        e.model.trim()
+    );
     section(ui, label);
     group(ui, |ui| {
-        row(ui, "Model", "Blank uses the default", |ui| {
-            if let Some(models) = models {
-                model_menu(ui, p, &mut e.model, models, out);
+        let tip = if lost {
+            &gone
+        } else {
+            "Blank uses the default"
+        };
+        row(ui, "Model", tip, |ui| {
+            if let Some(b) = board {
+                refresh(ui, p, b, out);
+                model_menu(ui, p, &mut e.model, b.models(p), out);
             }
             let hint = match p.default_model() {
                 "" => "The server's first",
                 m => m,
             };
-            field(ui, TextEdit::singleline(&mut e.model).hint_text(hint));
+            let mut edit = TextEdit::singleline(&mut e.model).hint_text(hint);
+            if lost {
+                edit = edit.text_color(t.muted);
+            }
+            let r = field(ui, edit);
+            if lost {
+                widgets::tip(&r, &gone, None);
+            }
         });
         // Presets know their address; local and custom servers vary.
         if !p.needs_key() {
@@ -103,6 +153,9 @@ fn server_rows(
             address(ui, p, e);
         }
     });
+    if lost {
+        note(ui, &gone);
+    }
     if p.needs_key() {
         egui::CollapsingHeader::new("Advanced")
             .id_salt(("ai-advanced", p.scope()))
@@ -118,6 +171,16 @@ fn address(ui: &mut Ui, p: Provider, e: &mut Endpoint) {
         };
         field(ui, TextEdit::singleline(&mut e.url).hint_text(hint));
     });
+}
+
+/// Asks the server for its models again; a spinner while it answers.
+fn refresh(ui: &mut Ui, p: Provider, board: &Board, out: &mut Commands) {
+    if board.fetching(p) {
+        let r = ui.add_sized(vec2(24.0, 24.0), egui::Spinner::new().size(12.0));
+        widgets::name(&r, "Refreshing models");
+    } else if widgets::small_icon_button(ui, Icon::Rescan, "Refresh models").clicked() {
+        out.push(Command::Ai(Job::Models(p)));
+    }
 }
 
 /// The server's models, fetched when the menu first opens.
@@ -146,7 +209,7 @@ fn model_menu(
             Load::Ready(list) => {
                 ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                     for id in list {
-                        if ui.selectable_label(*model == *id, id).clicked() {
+                        if ui.selectable_label(same(model, id), id).clicked() {
                             model.clone_from(id);
                             ui.close();
                         }
@@ -306,4 +369,89 @@ fn failure(ui: &mut Ui, f: &Failure) {
             ui.label(RichText::new(detail).size(t.text_small).color(t.muted));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable as _;
+    use mareader_assist::Reply;
+
+    use super::*;
+
+    #[test]
+    fn a_model_off_the_list_is_missing() {
+        let list = Load::Ready(vec!["llama3.2:latest".to_owned()]);
+        assert!(!missing("llama3.2", &list));
+        assert!(!missing("llama3.2:latest", &list));
+        assert!(!missing("", &list));
+        assert!(missing("qwen3:4b", &list));
+        // Unknown until the server answers.
+        assert!(!missing("qwen3:4b", &Load::Busy));
+    }
+
+    struct State {
+        ai: AiSettings,
+        board: Board,
+        out: Commands,
+        shown: bool,
+        fonts: bool,
+    }
+
+    fn asked(s: &State) -> usize {
+        let models = |c: &&Command| matches!(c, Command::Ai(Job::Models(_)));
+        s.out.iter().filter(models).count()
+    }
+
+    #[test]
+    fn opening_the_tab_asks_ollama_for_its_models() {
+        let mut ai = AiSettings {
+            provider: Provider::Ollama,
+            ..AiSettings::default()
+        };
+        if let Some(e) = ai.endpoint_mut(Provider::Ollama) {
+            e.model = "llama3:8b".to_owned();
+        }
+        let state = State {
+            ai,
+            board: Board::default(),
+            out: Vec::new(),
+            shown: true,
+            fonts: false,
+        };
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut State| {
+                // Named fonts work from the frame after they're installed.
+                if !s.fonts {
+                    crate::theme::install_fonts(ui.ctx());
+                    s.fonts = true;
+                    ui.ctx().request_repaint();
+                } else if s.shown {
+                    tab(ui, &mut s.ai, Some(&s.board), &mut s.out);
+                }
+            },
+            state,
+        );
+        h.step();
+        h.step();
+        // This board never starts the job, so each frame asks again.
+        assert!(asked(h.state()) > 0);
+        let p = Provider::Ollama;
+        let s = h.state_mut();
+        s.board.start(&Job::Models(p));
+        let list = vec!["qwen3:4b".to_owned()];
+        s.board.finish(Reply::Models(p, Ok(list)));
+        s.out.clear();
+        h.step();
+        h.step();
+        assert_eq!(asked(h.state()), 0, "no refetch while the tab stays open");
+        // The saved model is gone from the server: the tab says so.
+        h.get_by_label("Refresh models");
+        h.get_by_label("llama3:8b isn't on the server now; choose another.");
+        h.state_mut().shown = false;
+        h.step();
+        h.state_mut().shown = true;
+        h.step();
+        assert_eq!(asked(h.state()), 1, "reopening fetches again");
+    }
 }
