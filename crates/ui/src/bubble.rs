@@ -13,8 +13,8 @@ const CARET: f32 = 8.0;
 const CORNER: f32 = 16.0;
 /// The card keeps this far inside its room.
 const MARGIN: f32 = 8.0;
-/// Unmeasured, below wins while this much is left there.
-const ROOM_BELOW: f32 = 240.0;
+/// Unmeasured, the preferred side wins while this much is left there.
+const ROOM_FIRST: f32 = 240.0;
 /// How far the card rises into place as it opens.
 const LIFT: f32 = 4.0;
 /// Seconds the opening takes.
@@ -35,15 +35,21 @@ pub struct Bubble {
     pub at: Rect,
     /// Where the card must stay, as its pane.
     pub room: Rect,
-    /// The content's width inside the margins.
+    /// The content's width inside the margins; the most, when snug.
     pub width: f32,
     pub margin: Margin,
+    /// As wide as the content, as a toolbar, instead of `width` exactly.
+    pub snug: bool,
+    /// The side tried first.
+    pub prefer: Side,
 }
 
 /// Last frame's height and side, and when the card opened.
 #[derive(Clone, Copy, Debug, Default)]
 struct Memo {
     height: f32,
+    /// Last frame's whole width, for centring a snug card.
+    width: f32,
     side: Option<Side>,
     opened: f64,
     /// The frame it was last drawn in; a gap means it reopened.
@@ -79,7 +85,7 @@ impl Bubble {
         let still = |a: Rect, b: Rect| (a.min - b.min).length() + (a.max - b.max).length() < 1.0;
         let unmoved = |(a, r): (Rect, Rect)| still(a, at) && still(r, room);
         let was = memo.side.filter(|_| memo.placed.is_some_and(unmoved));
-        let side = side(rooms, need, was);
+        let side = side(rooms, need, was, self.prefer);
         let space = match side {
             Side::Below => rooms.0,
             Side::Above => rooms.1,
@@ -96,7 +102,8 @@ impl Bubble {
             .width
             .min(room.width() - 2.0 * MARGIN - sides.x)
             .max(0.0);
-        let half = (width + sides.x) / 2.0;
+        let snug = (self.snug && memo.width > 0.0).then_some(memo.width);
+        let half = snug.unwrap_or(width + sides.x) / 2.0;
         let lo = room.left() + MARGIN + half;
         let x = at
             .center()
@@ -120,7 +127,11 @@ impl Bubble {
                     .corner_radius(t.radius_lg)
                     .inner_margin(self.margin)
                     .show(ui, |ui| {
-                        ui.set_width(width);
+                        if self.snug {
+                            ui.set_max_width(width);
+                        } else {
+                            ui.set_width(width);
+                        }
                         // Areas offer last frame's size; streamed text grows.
                         ui.set_max_height(cap);
                         add(ui, cap)
@@ -129,7 +140,9 @@ impl Bubble {
                 frame.inner
             });
         memo.height = shown.response.rect.height();
-        memo.side = Some(side);
+        memo.width = shown.response.rect.width();
+        // A side picked unmeasured is a guess, not one to keep.
+        memo.side = need.is_some().then_some(side);
         memo.pass = pass;
         memo.placed = Some((at, room));
         ctx.data_mut(|d| d.insert_temp(memo_id, memo));
@@ -137,22 +150,32 @@ impl Bubble {
     }
 }
 
-/// Where the card fits, below first; a placed card stays while it fits.
-pub fn side((below, above): (f32, f32), need: Option<f32>, was: Option<Side>) -> Side {
+/// Where the card fits, `prefer` first; a placed card stays while it fits.
+pub fn side(
+    (below, above): (f32, f32),
+    need: Option<f32>,
+    was: Option<Side>,
+    prefer: Side,
+) -> Side {
+    let room = |s: Side| match s {
+        Side::Below => below,
+        Side::Above => above,
+    };
+    let other = match prefer {
+        Side::Below => Side::Above,
+        Side::Above => Side::Below,
+    };
     let Some(need) = need else {
-        let below_wins = below >= ROOM_BELOW || below >= above;
-        return if below_wins { Side::Below } else { Side::Above };
+        let first = room(prefer) >= ROOM_FIRST || room(prefer) >= room(other);
+        return if first { prefer } else { other };
     };
-    let fits = |s: Side| match s {
-        Side::Below => below >= need,
-        Side::Above => above >= need,
-    };
+    let fits = |s: Side| room(s) >= need;
     match was {
         Some(s) if fits(s) => s,
-        _ if fits(Side::Below) => Side::Below,
-        _ if fits(Side::Above) => Side::Above,
-        _ if below >= above => Side::Below,
-        _ => Side::Above,
+        _ if fits(prefer) => prefer,
+        _ if fits(other) => other,
+        _ if room(prefer) >= room(other) => prefer,
+        _ => other,
     }
 }
 
@@ -206,15 +229,16 @@ mod tests {
 
     #[test]
     fn a_card_takes_the_side_it_fits() {
+        let below = |rooms, need| side(rooms, need, None, Side::Below);
         // Burmese lines run tall: 400 points fit above, not below.
-        assert_eq!(side((300.0, 500.0), Some(400.0), None), Side::Above);
-        assert_eq!(side((500.0, 300.0), Some(400.0), None), Side::Below);
+        assert_eq!(below((300.0, 500.0), Some(400.0)), Side::Above);
+        assert_eq!(below((500.0, 300.0), Some(400.0)), Side::Below);
         // Neither fits: the roomier side, the content scrolling.
-        assert_eq!(side((350.0, 300.0), Some(600.0), None), Side::Below);
-        assert_eq!(side((300.0, 350.0), Some(600.0), None), Side::Above);
+        assert_eq!(below((350.0, 300.0), Some(600.0)), Side::Below);
+        assert_eq!(below((300.0, 350.0), Some(600.0)), Side::Above);
         // Unmeasured, below wins while it leaves room.
-        assert_eq!(side((300.0, 500.0), None, None), Side::Below);
-        assert_eq!(side((100.0, 500.0), None, None), Side::Above);
+        assert_eq!(below((300.0, 500.0), None), Side::Below);
+        assert_eq!(below((100.0, 500.0), None), Side::Above);
     }
 
     /// One frame of a card whose scrolling body holds `rows` lines.
@@ -233,6 +257,8 @@ mod tests {
                 room: screen,
                 width: 200.0,
                 margin: Margin::same(8),
+                snug: false,
+                prefer: Side::Below,
             };
             card = bubble
                 .show(ui.ctx(), &t, |ui, cap| {
@@ -268,8 +294,22 @@ mod tests {
     #[test]
     fn a_placed_card_keeps_its_side_while_it_fits() {
         let was = Some(Side::Above);
-        assert_eq!(side((500.0, 300.0), Some(200.0), was), Side::Above);
+        assert_eq!(
+            side((500.0, 300.0), Some(200.0), was, Side::Below),
+            Side::Above
+        );
         // Grown past its side, it moves where it fits.
-        assert_eq!(side((500.0, 300.0), Some(400.0), was), Side::Below);
+        assert_eq!(
+            side((500.0, 300.0), Some(400.0), was, Side::Below),
+            Side::Below
+        );
+    }
+
+    #[test]
+    fn a_toolbar_goes_above_its_selection_unless_there_is_no_room() {
+        let above = |rooms| side(rooms, Some(44.0), None, Side::Above);
+        assert_eq!(above((500.0, 300.0)), Side::Above);
+        // At the top of the pane it drops under the words.
+        assert_eq!(above((500.0, 20.0)), Side::Below);
     }
 }

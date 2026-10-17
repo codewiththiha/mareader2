@@ -7,7 +7,7 @@ use egui::{
 use mareader_dict::{Entry, Reply, language};
 
 use super::{Action, entry};
-use crate::bubble::Bubble;
+use crate::bubble::{Bubble, Side};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
@@ -60,6 +60,8 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         room: view.room,
         width: WIDTH,
         margin: Margin::ZERO,
+        snug: false,
+        prefer: Side::Below,
     };
     bubble
         .show(ctx, t, |ui, cap| card(ui, id, view, cap, t, out))

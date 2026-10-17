@@ -10,7 +10,7 @@ use mareader_study::{Failure, WordInfo};
 use mareader_workspace::PaneId;
 
 use super::Action;
-use crate::bubble::Bubble;
+use crate::bubble::{Bubble, Side};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -48,6 +48,8 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         room: view.room,
         width: WIDTH,
         margin: Margin::same(if comfy { 18 } else { 14 }),
+        snug: false,
+        prefer: Side::Below,
     };
     let shown = bubble.show(ctx, t, |ui, cap| {
         ui.spacing_mut().item_spacing.y = if comfy { 10.0 } else { 6.0 };
