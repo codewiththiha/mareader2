@@ -76,6 +76,11 @@ pub fn card(ui: &mut Ui, cover: Rect, here: Here<'_>, t: &Tokens, out: &mut Comm
     let size = (cover.width() * 0.22).clamp(20.0, 36.0);
     let mark = Rect::from_center_size(cover.center(), vec2(size, size));
     Icon::Plus.paint(ui, mark, if lit { t.ink } else { t.muted });
+    // Captioned like a book; the button's own label already reads it.
+    let at = pos2(cover.left(), cover.bottom() + 8.0);
+    let ink = if lit { t.ink } else { t.muted };
+    ui.painter()
+        .text(at, Align2::LEFT_TOP, "Add books", theme::medium(13.0), ink);
     menu(&resp, here, t, out);
 }
 
@@ -126,7 +131,7 @@ fn menu(anchor: &Response, here: Here<'_>, t: &Tokens, out: &mut Commands) {
 fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
-    let import = "Copied into the library; the originals can go";
+    let import = "Copies the files into your library";
     if entry(ui, Icon::Import, "Import files…", import, t).clicked() {
         out.push(Command::Library(Action::Book(BookAction::PickImport)));
     }

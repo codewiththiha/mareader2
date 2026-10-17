@@ -15,7 +15,8 @@ pub const SHOW_FOR: f64 = 3.5;
 pub const HOVER_GRACE: f64 = 1.5;
 pub const FADE: f32 = 0.2;
 const MAX_WIDTH: f32 = 480.0;
-const MARGIN: f32 = 24.0;
+// Clears the page bar and the library's selection bar beneath.
+const MARGIN: f32 = 68.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
