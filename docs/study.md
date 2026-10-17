@@ -396,3 +396,14 @@ pens and colours as a highlight's menu, for every highlight picked.
 - AI marks in the selection keep their look. Style… is off when no
   highlight is picked.
 - Undo in the toast puts every look back. Picking goes on after either.
+
+## Finding notes
+
+The Notes panel reads like a notebook as a book's highlights grow.
+
+- **Chapters.** Rows sit under their chapter from the outline, each heading
+  with how many rows follow. A book with no outline lists them unheaded.
+- **Search.** The field under the filters keeps rows whose words, note or
+  chapter hold every word typed, in any case; matches are washed in the
+  accent. Escape or × clears it. It narrows within the filter chosen.
+- Copy all and Export take what the search leaves, like the filters.

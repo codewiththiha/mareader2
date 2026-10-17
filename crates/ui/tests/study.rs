@@ -717,6 +717,49 @@ fn the_notes_panel_copies_and_offers_to_export_what_it_shows() -> Out {
     Ok(())
 }
 
+#[test]
+fn the_notes_panel_groups_by_chapter_and_searches() -> Out {
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("sidebar", "notes"),
+        ("selection", "0:lazy"),
+        ("highlight", "full"),
+        ("selection", "1:quick_brown"),
+        ("noted", "Check_the_fox."),
+    ]);
+    for _ in 0..4 {
+        h.run();
+    }
+    // Headed by the outline's chapters, each with its count.
+    h.get_by_label("Chapter 1: Opening, 1");
+    h.get_by_label("1.1 Scrolling, 1");
+    // A search reads quotes and notes, in any case.
+    h.get_by_label("Search notes").click();
+    h.run();
+    h.event(Event::Text("FOX".into()));
+    h.run();
+    assert!(h.query_by_label("lazy").is_none());
+    assert!(h.query_by_label("Chapter 1: Opening, 1").is_none());
+    h.get_by_label("quick brown. Note: Check the fox.");
+    // Exports follow the search too.
+    h.get_by_label("Copy all as Markdown").click();
+    h.step();
+    let md = copied(&h).ok_or("nothing copied")?;
+    assert!(!md.contains("lazy"), "{md}");
+    h.run();
+    // Copy took the focus; back to the field to type on.
+    h.get_by_label("Search notes").click();
+    h.run();
+    h.event(Event::Text(" zebra".into()));
+    h.run();
+    h.get_by_label("No matches");
+    h.get_by_label("Clear search").click();
+    h.run();
+    h.get_by_label("lazy");
+    h.get_by_label("quick brown. Note: Check the fox.");
+    Ok(())
+}
+
 fn current(h: &H) -> Option<usize> {
     let pane = h.state().active_pane();
     h.state().documents().reading(pane).map(|r| r.current)
