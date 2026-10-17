@@ -135,5 +135,9 @@ Severity: **P1** confuses or blocks, **P2** slows or looks broken,
    merging Vocabulary and Dictionary, so each page stays short and
    lookup links land on their own tab. Colours stay in the popover:
    the modal's backdrop would hide the page each change is judged on.
-4. **Sidebar and reader canvas**: §4, §5.
+4. **Sidebar and reader canvas**: §4, §5.1–5.3. Done. §3.4 is the
+   gutter above the first page: the pane's paper, as between pages,
+   darker than a dark page; No gap removes it. Still open: §5.4, a
+   located book's Locate action (§4.4), and centring PDF pages in a
+   split (§5.2).
 5. **Appearance, View menu and Library**: §6, §7, §9, §10.
