@@ -16,6 +16,9 @@ use crate::theme::Tokens;
 use crate::widgets;
 
 pub const WIDTH: f32 = 300.0;
+/// A slider row's name and value boxes: fixed, so no value widens it.
+const NAME_W: f32 = 64.0;
+const VALUE_W: f32 = 52.0;
 /// A hue picked at zero strength would show nothing.
 const STRENGTH_ON_HUE: u8 = 18;
 /// Grain switched on at zero intensity would read as a dead control.
@@ -151,7 +154,7 @@ fn section(ui: &mut Ui, title: &str) {
     ui.label(RichText::new(title).size(t.text_small).color(t.muted));
 }
 
-/// Label left, full-width slider, value in percent on the right.
+/// Label left, slider, then its percent in a fixed box on the right.
 fn slider<N: egui::emath::Numeric>(
     ui: &mut Ui,
     label: &str,
@@ -160,12 +163,25 @@ fn slider<N: egui::emath::Numeric>(
 ) {
     ui.horizontal(|ui| {
         let t = Tokens::get(ui.ctx());
-        let text = egui::Label::new(RichText::new(label).color(t.muted));
-        let named = ui.add_sized([64.0, 20.0], text).id;
-        ui.spacing_mut().slider_width = ui.available_width() - 56.0;
+        let text = egui::Label::new(RichText::new(label).color(t.muted)).truncate();
+        let named = ui.add_sized([NAME_W, 20.0], text).id;
+        let gap = ui.spacing().item_spacing.x;
+        ui.spacing_mut().slider_width = (ui.available_width() - VALUE_W - gap).max(40.0);
         widgets::labelled(ui, named, |ui| {
-            ui.add(egui::Slider::new(value, range).suffix(" %"));
+            ui.add(egui::Slider::new(value, range).show_value(false));
         });
+        // Painted and clipped in a fixed box: a widget here could outgrow it.
+        let (rect, _) = ui.allocate_exact_size(vec2(VALUE_W, 20.0), Sense::hover());
+        let shown = format!("{:.0} %", value.to_f64());
+        let font = egui::FontId::proportional(t.text);
+        let painter = ui.painter_at(rect);
+        painter.text(
+            rect.right_center(),
+            egui::Align2::RIGHT_CENTER,
+            shown,
+            font,
+            t.ink,
+        );
     });
 }
 
