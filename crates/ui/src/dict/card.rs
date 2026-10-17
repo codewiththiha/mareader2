@@ -18,11 +18,29 @@ const WIDTH: f32 = 320.0;
 const GAP: f32 = 8.0;
 /// Below the words unless less than this is left there.
 const ROOM_BELOW: f32 = 240.0;
-/// Entries scroll past this height, or past the room the window leaves.
-const LIST_HEIGHT: f32 = 340.0;
-const LIST_MIN: f32 = 120.0;
-/// The word, the languages and the card's margins above the list.
+/// An entry taller than the room left scrolls, never below this.
+const ENTRY_MIN: f32 = 120.0;
+/// The word, the languages and the card's margins above the entry.
 const HEAD: f32 = 96.0;
+/// Wheel travel that turns to the next entry.
+const STEP: f32 = 24.0;
+/// A pause this long, in seconds, ends one flick of the wheel.
+const SETTLE: f64 = 0.15;
+/// Points in one line of a mouse wheel, as egui's default.
+const LINE: f32 = 40.0;
+const CARD: &str = "dict-card";
+
+/// Which entry the card shows, and the wheel flick turning it.
+#[derive(Clone, Copy, Debug, Default)]
+struct Pager {
+    at: usize,
+    pull: f32,
+    last: f64,
+    /// This flick has turned an entry, or scrolled one: it turns no more.
+    spent: bool,
+    /// Last frame's entry was scrolled to its top, and to its bottom.
+    edges: (bool, bool),
+}
 
 pub struct View<'a> {
     pub word: &'a str,
@@ -49,8 +67,8 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
         true => room.bottom() - pos.y,
         false => pos.y - room.top(),
     };
-    let list = (space - HEAD).clamp(LIST_MIN, LIST_HEIGHT);
-    egui::Area::new(Id::new("dict-card"))
+    let list = (space - HEAD).max(ENTRY_MIN);
+    egui::Area::new(Id::new(CARD))
         .order(Order::Foreground)
         .pivot(pivot)
         .fixed_pos(pos)
@@ -95,9 +113,31 @@ fn body(ui: &mut Ui, view: &View<'_>, list: f32, t: &Tokens, out: &mut Commands)
         muted(ui, t, "Looking up…");
         return;
     };
-    if let (Some(from), Some(to)) = (&reply.from, &reply.to) {
-        let way = format!("{} → {}", language(from), language(to));
-        ui.label(RichText::new(way).size(t.text_small).color(t.muted));
+    let n = reply.entries.len();
+    let id = Id::new(("dict-page", view.word, n));
+    let mut p: Pager = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    p.at = p.at.min(n.saturating_sub(1));
+    let way = match (&reply.from, &reply.to) {
+        (Some(from), Some(to)) => Some(format!("{} → {}", language(from), language(to))),
+        _ => None,
+    };
+    let paged = n > 1 && view.attached;
+    if way.is_some() || paged {
+        ui.horizontal(|ui| {
+            if let Some(way) = way {
+                ui.label(RichText::new(way).size(t.text_small).color(t.muted));
+            }
+            if paged {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    pager(ui, &mut p, n, t);
+                });
+            }
+        });
+    }
+    let shown = show_entry(ui, view, reply, (&mut p, list), t);
+    ui.data_mut(|d| d.insert_temp(id, p));
+    if shown {
+        return;
     }
     if !view.attached {
         muted(ui, t, "Dictionaries need the desktop app.");
@@ -116,14 +156,126 @@ fn body(ui: &mut Ui, view: &View<'_>, list: f32, t: &Tokens, out: &mut Commands)
             None => format!("No entry for “{}”.", view.word),
         };
         muted(ui, t, &why);
-        return;
     }
-    ScrollArea::vertical()
+}
+
+/// The previous and next buttons around "2 / 5", laid right to left.
+fn pager(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
+    ui.spacing_mut().item_spacing.x = 2.0;
+    let next = ui.add_enabled_ui(p.at + 1 < n, |ui| {
+        widgets::small_icon_button(ui, Icon::ChevronDown, "Next entry").clicked()
+    });
+    let count = format!("{} / {n}", p.at + 1);
+    ui.label(RichText::new(count).size(t.text_small).color(t.muted));
+    let back = ui.add_enabled_ui(p.at > 0, |ui| {
+        widgets::small_icon_button(ui, Icon::ChevronUp, "Previous entry").clicked()
+    });
+    if next.inner {
+        p.at += 1;
+    }
+    if back.inner {
+        p.at = p.at.saturating_sub(1);
+    }
+}
+
+/// The entry turned to, sized to its text; false if there is none.
+fn show_entry(
+    ui: &mut Ui,
+    view: &View<'_>,
+    reply: &Reply,
+    (p, list): (&mut Pager, f32),
+    t: &Tokens,
+) -> bool {
+    let Some(e) = reply.entries.get(p.at).filter(|_| view.attached) else {
+        return false;
+    };
+    // An entry fits whole; only one taller than the room scrolls.
+    let out = ScrollArea::vertical()
+        .id_salt(("dict-entry", p.at))
         .max_height(list)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            entries(ui, &reply.entries, view.word, t, |_, _| {})
+            if let Some(word) = near(e, view.word) {
+                heading(ui, word, t);
+            }
+            entry_rows(ui, e, t);
         });
+    let room = (out.content_size.y - out.inner_rect.height()).max(0.0);
+    let off = out.state.offset.y;
+    p.edges = (off <= 0.5, off >= room - 0.5);
+    let wheel = wheel_over_card(ui.ctx());
+    turn(p, reply.entries.len(), wheel, ui.input(|i| i.time));
+    true
+}
+
+/// This frame's wheel, if the pointer is over the card.
+fn wheel_over_card(ctx: &Context) -> f32 {
+    let card = ctx.memory(|m| m.area_rect(Id::new(CARD)));
+    let over = ctx.pointer_hover_pos();
+    match (card, over) {
+        (Some(card), Some(at)) if card.contains(at) => ctx.input(wheel_points),
+        _ => 0.0,
+    }
+}
+
+/// The wheel's own travel this frame, before egui smooths it.
+fn wheel_points(i: &egui::InputState) -> f32 {
+    let one = |e: &egui::Event| match e {
+        egui::Event::MouseWheel { unit, delta, .. } => match unit {
+            egui::MouseWheelUnit::Point => delta.y,
+            egui::MouseWheelUnit::Line => delta.y * LINE,
+            egui::MouseWheelUnit::Page => delta.y * STEP * 4.0,
+        },
+        _ => 0.0,
+    };
+    i.events.iter().map(one).sum()
+}
+
+/// One flick turns one entry, once a scrolled entry has reached its edge.
+fn turn(p: &mut Pager, n: usize, dy: f32, now: f64) {
+    if dy == 0.0 {
+        return;
+    }
+    if now - p.last > SETTLE {
+        (p.spent, p.pull) = (false, 0.0);
+    }
+    p.last = now;
+    let onward = dy < 0.0;
+    let edge = if onward { p.edges.1 } else { p.edges.0 };
+    if !edge {
+        // The flick scrolls the entry; the next one may turn it.
+        p.spent = true;
+        return;
+    }
+    if p.spent {
+        return;
+    }
+    p.pull += dy;
+    if p.pull.abs() < STEP {
+        return;
+    }
+    let to = if onward {
+        Some(p.at + 1).filter(|&to| to < n)
+    } else {
+        p.at.checked_sub(1)
+    };
+    if let Some(to) = to {
+        p.at = to;
+        p.edges = (true, true);
+    }
+    (p.spent, p.pull) = (true, 0.0);
+}
+
+/// The headword an entry stands for when it isn't the word asked.
+fn near<'a>(e: &'a Entry, asked: &str) -> Option<&'a str> {
+    // A bridge's asked side is the English between, not the ask.
+    let other = e.via.is_none() && fold(e.asked()) != fold(asked);
+    (e.fit != WordMatch::Exact || other).then(|| e.asked())
+}
+
+fn heading(ui: &mut Ui, word: &str, t: &Tokens) {
+    let text = format!("≈ {word}");
+    shaped::label(ui, &text, t.text_small, t.muted).on_hover_text("The nearest entry");
 }
 
 /// Entries under one heading per nearest word; `after` adds to each.
@@ -134,20 +286,17 @@ pub fn entries(
     t: &Tokens,
     mut after: impl FnMut(&mut Ui, &Entry),
 ) {
-    let mut heading: Option<&str> = None;
+    let mut shown: Option<&str> = None;
     for (i, e) in list.iter().enumerate() {
-        // A bridge's asked side is the English between, not the ask.
-        let other = e.via.is_none() && fold(e.asked()) != fold(asked);
-        let near = (e.fit != WordMatch::Exact || other).then(|| e.asked());
-        let new_group = near.is_some() && near != heading;
+        let near = near(e, asked);
+        let new_group = near.is_some() && near != shown;
         if i > 0 {
             ui.separator();
         }
         if new_group && let Some(word) = near {
-            let text = format!("≈ {word}");
-            shaped::label(ui, &text, t.text_small, t.muted).on_hover_text("The nearest entry");
+            heading(ui, word, t);
         }
-        heading = near;
+        shown = near;
         entry_rows(ui, e, t);
         after(ui, e);
     }
@@ -186,4 +335,65 @@ fn entry_rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
 
 fn muted(ui: &mut Ui, t: &Tokens, text: &str) {
     ui.label(RichText::new(text).color(t.muted));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `p` after wheel `steps` of `(dy, seconds)`, `n` entries.
+    fn wheel(mut p: Pager, n: usize, steps: &[(f32, f64)]) -> Pager {
+        for &(dy, now) in steps {
+            turn(&mut p, n, dy, now);
+        }
+        p
+    }
+
+    fn fits() -> Pager {
+        Pager {
+            edges: (true, true),
+            last: -1.0,
+            ..Pager::default()
+        }
+    }
+
+    #[test]
+    fn each_notch_turns_one_entry_and_stops_at_the_ends() {
+        let p = wheel(fits(), 3, &[(-50.0, 0.0), (-50.0, 0.3)]);
+        assert_eq!(p.at, 2);
+        let p = wheel(p, 3, &[(-50.0, 0.6)]);
+        assert_eq!(p.at, 2, "no entry past the last");
+        let p = wheel(p, 3, &[(50.0, 0.9), (50.0, 1.2), (50.0, 1.5)]);
+        assert_eq!(p.at, 0, "and none before the first");
+    }
+
+    #[test]
+    fn a_long_trackpad_flick_turns_only_one_entry() {
+        let flick: Vec<(f32, f64)> = (0..60).map(|i| (-6.0, f64::from(i) / 60.0)).collect();
+        assert_eq!(wheel(fits(), 5, &flick).at, 1);
+        // A small nudge turns nothing.
+        assert_eq!(wheel(fits(), 5, &[(-6.0, 0.0), (-6.0, 0.02)]).at, 0);
+    }
+
+    #[test]
+    fn a_tall_entry_scrolls_to_its_end_before_the_next_flick_turns() {
+        let tall = Pager {
+            edges: (true, false),
+            ..fits()
+        };
+        let p = wheel(tall, 3, &[(-50.0, 0.0)]);
+        assert_eq!(p.at, 0, "the entry scrolls instead");
+        // Scrolled to its end, the same flick still doesn't turn.
+        let p = wheel(
+            Pager {
+                edges: (false, true),
+                ..p
+            },
+            3,
+            &[(-50.0, 0.05)],
+        );
+        assert_eq!(p.at, 0);
+        let p = wheel(p, 3, &[(-50.0, 0.5)]);
+        assert_eq!(p.at, 1, "a fresh flick at the end turns");
+    }
 }
