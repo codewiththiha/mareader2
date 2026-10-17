@@ -123,8 +123,9 @@ over the panes, so content never moves when it appears.
 - **Window moves.** Dragging the empty bar moves the window; double-click
   toggles maximise.
 - **Layout.** `egui::Sides`: leading cluster (sidebar, library) and trailing
-  cluster (split right, split down, search, appearance, settings, pin, then the
-  captions). The title is centred on the window when it fits, else in the gap,
+  cluster (search, appearance, settings, pin, then the captions). No split
+  buttons (owner, 2026-10-17): panes split by dragging a book from the
+  sidebar's Library panel onto a pane edge. The title is centred on the window when it fits, else in the gap,
   truncated with an ellipsis, and hidden when the gap is under 48 pt.
 - **Document controls.** When documents open (M2), the trailing cluster gains
   the pane's own controls (zoom, view mode).
