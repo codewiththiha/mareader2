@@ -694,6 +694,32 @@ fn the_appearance_popover_grows_to_its_cap_then_scrolls() {
 }
 
 #[test]
+fn slider_values_never_widen_the_appearance_popover() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    let id = egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER);
+    let width = |h: &Harness<'static, MareaderApp>| {
+        h.ctx.memory(|m| m.area_rect(id)).map_or(0.0, |r| r.width())
+    };
+    let mut a = h.state().settings().appearance;
+    (a.tint_strength, a.texture_scale, a.noise_intensity) = (0, 25, 0);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::SetAppearance(a));
+    h.run_steps(3);
+    let narrow = width(&h);
+    (a.tint_strength, a.texture_scale, a.noise_intensity) = (100, 400, 100);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::SetAppearance(a));
+    h.run_steps(3);
+    assert!(narrow > 0.0, "the popover is open");
+    assert_eq!(
+        width(&h),
+        narrow,
+        "\"400 %\" takes no more room than \"25 %\""
+    );
+}
+
+#[test]
 fn the_popover_offers_pane_modes_only_while_split() {
     let modes = ["Independent theme for each", "Texture for each"];
     let mut h = harness(MareaderApp::default());
