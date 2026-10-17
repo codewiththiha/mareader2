@@ -96,6 +96,7 @@ pub enum Icon {
     AutoScroll,
     /// A highlight's note, and the panel that gathers them.
     Note,
+    Bookmark,
 }
 
 impl Icon {
@@ -171,6 +172,7 @@ impl Icon {
             Self::SelectSeveral => Lucide::ListChecks,
             Self::Rename => Lucide::Pencil,
             Self::Note => Lucide::StickyNote,
+            Self::Bookmark => Lucide::Bookmark,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,

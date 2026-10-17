@@ -44,7 +44,7 @@ fn reads(command: &Command) -> bool {
         C::SetIndependence(_) | C::SetInkContrast(_) => true,
         // Selecting and explaining act on a pane's text.
         C::Explain(_) | C::Highlight { .. } | C::SelectText { .. } => true,
-        C::LookUp(_) | C::Note(_) => true,
+        C::LookUp(_) | C::Note(_) | C::Bookmark(_) => true,
         // Undo of a removal is offered by a toast, which shows anywhere.
         C::Study(_) => false,
         // Downloads go on behind the library; the card closes anywhere.

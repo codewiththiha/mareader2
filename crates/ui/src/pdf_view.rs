@@ -444,6 +444,8 @@ pub struct ViewContext {
     pub sample: bool,
     /// The book's marks, and how marks and the selection bar look.
     pub marks: Vec<study::marks::Shown>,
+    /// Pages with a bookmark, which hang a ribbon.
+    pub bookmarks: Vec<usize>,
     pub highlights: HighlightSettings,
     /// The mark whose card is open here, to keep the card beside it.
     pub card: Option<MarkId>,
@@ -888,6 +890,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 }
             }
             study::marks::paint(ui, &placed, cx.highlights.opacity);
+            for s in sheets.iter().filter(|s| cx.bookmarks.contains(&s.page)) {
+                crate::bookmarks::ribbon(ui.painter(), s.rect, t.accent);
+            }
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
             }

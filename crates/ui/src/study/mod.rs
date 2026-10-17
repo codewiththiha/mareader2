@@ -350,6 +350,7 @@ impl Study {
     }
 
     /// `book`'s marks, else the session document `name`'s; AI marks last.
+    /// Bookmarks hang ribbons instead.
     pub fn marks_of(
         &self,
         main: &Library,
@@ -364,6 +365,7 @@ impl Study {
         let mut out: Vec<marks::Shown> = lib
             .marks(id)
             .into_iter()
+            .filter(|m| m.kind != MarkKind::Bookmark)
             .map(|m| marks::Shown {
                 id: m.id,
                 spot: m.spot,
@@ -375,7 +377,39 @@ impl Study {
         out
     }
 
-    /// The book's highlights for the notes panel, in reading order.
+    /// `book`'s bookmarks, each with where it is.
+    pub fn bookmarks_of(
+        &self,
+        main: &Library,
+        book: Option<BookId>,
+        name: &str,
+    ) -> Vec<(MarkId, Spot)> {
+        let (lib, id) = match book.filter(|b| main.book(*b).is_some()) {
+            Some(id) => (main, id),
+            None => (&self.loose, BookId::original(loose_content(name))),
+        };
+        let marks = lib.marks(id).into_iter();
+        let kept = marks.filter(|m| m.kind == MarkKind::Bookmark);
+        kept.map(|m| (m.id, m.spot)).collect()
+    }
+
+    /// Bookmarks the page, or takes back its bookmark with Undo offered.
+    pub fn toggle_bookmark(
+        &mut self,
+        main: &mut Library,
+        at: Bookmarking<'_>,
+        wall_ms: u64,
+        out: &mut Commands,
+    ) {
+        if let Some(id) = at.existing {
+            self.act_remove(main, vec![id], wall_ms, out);
+            return;
+        }
+        let (lib, book) = self.shelf(main, at.book, at.name);
+        lib.add_mark(book, NewMark::bookmark(at.label, at.spot), wall_ms);
+    }
+
+    /// The book's highlights and bookmarks for the panel, in reading order.
     pub fn notes_of(
         &self,
         main: &Library,
@@ -390,7 +424,7 @@ impl Study {
         let mut out: Vec<crate::notes_panel::Row> = lib
             .marks(id)
             .into_iter()
-            .filter(|m| m.kind == MarkKind::Highlight)
+            .filter(|m| m.kind != MarkKind::Explain)
             .map(|m| crate::notes_panel::Row {
                 id: m.id,
                 spot: m.spot,
@@ -399,6 +433,7 @@ impl Study {
                 ink: ink(m, look).color,
                 pen: m.look().pen,
                 added: m.added,
+                bookmark: m.kind == MarkKind::Bookmark,
             })
             .collect();
         out.sort_by_key(|r| crate::notes_panel::order(&r.spot));
@@ -668,24 +703,7 @@ impl Study {
     pub fn act(&mut self, ctx: &Context, main: &mut Library, action: Action, out: &mut Commands) {
         let wall = crate::library::wall_ms();
         match action {
-            Action::Remove(ids) => {
-                let n = main.set_marks_alive(&ids, false, wall)
-                    + self.loose.set_marks_alive(&ids, false, wall);
-                let gone = |c: &Card| matches!(c.key, Key::Mark(id) if ids.contains(&id));
-                if self.card.as_ref().is_some_and(gone) {
-                    self.card = None;
-                }
-                self.menu = None;
-                self.picking = None;
-                if n > 0 {
-                    let message = match n {
-                        1 => "Removed highlight".to_owned(),
-                        n => format!("Removed {n} highlights"),
-                    };
-                    let undo = Command::Study(Action::Restore(ids));
-                    out.push(Command::Notify(Toast::info(message).undo(undo)));
-                }
-            }
+            Action::Remove(ids) => self.act_remove(main, ids, wall, out),
             Action::Restore(ids) => {
                 main.set_marks_alive(&ids, true, wall);
                 self.loose.set_marks_alive(&ids, true, wall);
@@ -768,6 +786,35 @@ impl Study {
                 }
                 out.push(Command::DismissToast);
             }
+        }
+    }
+
+    /// Removes marks, saying which kind went, with Undo.
+    fn act_remove(&mut self, main: &mut Library, ids: Vec<MarkId>, wall: u64, out: &mut Commands) {
+        let bookmark = |id: &MarkId| {
+            let mark = self.mark(main, *id);
+            mark.is_some_and(|m| m.kind == MarkKind::Bookmark)
+        };
+        let what = if ids.iter().all(bookmark) {
+            "bookmark"
+        } else {
+            "highlight"
+        };
+        let n =
+            main.set_marks_alive(&ids, false, wall) + self.loose.set_marks_alive(&ids, false, wall);
+        let gone = |c: &Card| matches!(c.key, Key::Mark(id) if ids.contains(&id));
+        if self.card.as_ref().is_some_and(gone) {
+            self.card = None;
+        }
+        self.menu = None;
+        self.picking = None;
+        if n > 0 {
+            let message = match n {
+                1 => format!("Removed {what}"),
+                n => format!("Removed {n} {what}s"),
+            };
+            let undo = Command::Study(Action::Restore(ids));
+            out.push(Command::Notify(Toast::info(message).undo(undo)));
         }
     }
 
@@ -995,6 +1042,16 @@ pub struct Explained<'a> {
     pub asked: Asked,
     /// The word on screen.
     pub rect: Rect,
+}
+
+/// A page to bookmark, or the bookmark already on it.
+pub struct Bookmarking<'a> {
+    pub book: Option<BookId>,
+    pub name: &'a str,
+    pub spot: Spot,
+    /// Where it is, e.g. its chapter, kept with it.
+    pub label: String,
+    pub existing: Option<MarkId>,
 }
 
 /// The reader's highlight, as the app gathers it.

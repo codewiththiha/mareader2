@@ -18,6 +18,7 @@ use mareader_settings::{
 use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
+use crate::bookmarks;
 use crate::command::{Command, Commands, Independence, WindowCommand};
 use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest, Placement};
@@ -40,7 +41,7 @@ use crate::route::Route;
 use crate::search::{Found, Lit, Search};
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
-use crate::study::{Explained, Gloss, Highlighted, Study};
+use crate::study::{self, Explained, Gloss, Highlighted, Study};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
@@ -149,6 +150,8 @@ struct Staged {
     note: Option<(String, bool)>,
     /// Its page was asked for once; the view is on its way there.
     turned: bool,
+    /// Bookmarks the page instead of selecting on it.
+    bookmark: bool,
 }
 
 impl Default for MareaderApp {
@@ -732,6 +735,21 @@ impl MareaderApp {
                     pen: None,
                     note: None,
                     turned: false,
+                    bookmark: false,
+                });
+            }
+            // Bookmarks a page, as `bookmark=2`.
+            "bookmark" => {
+                let page = value.parse().map_err(|_| "bookmark: a page index")?;
+                self.staged.push_back(Staged {
+                    page,
+                    text: String::new(),
+                    explain: false,
+                    look_up: false,
+                    pen: None,
+                    note: None,
+                    turned: false,
+                    bookmark: true,
                 });
             }
             // Explains the staged selection: its card opens.
@@ -974,9 +992,13 @@ impl MareaderApp {
                 look_up,
                 pen,
                 note,
+                bookmark,
                 ..
             }) if !sheets.is_empty() => {
-                out.push(Command::SelectText { pane, page, text });
+                match bookmark {
+                    true => out.push(Command::Bookmark(Some(pane))),
+                    false => out.push(Command::SelectText { pane, page, text }),
+                }
                 if explain {
                     out.push(Command::Explain(pane));
                 }
@@ -1195,6 +1217,30 @@ impl MareaderApp {
             .write_note(model, pane, at, rect, library::wall_ms());
     }
 
+    /// Bookmarks the pane's page, or takes back the bookmark on it.
+    fn bookmark(&mut self, pane: PaneId) {
+        let Some(reading) = self.documents.reading(pane) else {
+            return;
+        };
+        let page = reading.current;
+        let doc = &reading.document;
+        let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, pane);
+        let existing = kept.iter().find(|(_, p)| *p == page).map(|(id, _)| *id);
+        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let at = study::Bookmarking {
+            book: self.library.book_in(&self.documents, pane),
+            name: &name,
+            spot: bookmarks::spot(doc, page),
+            label: bookmarks::label(doc, page),
+            existing,
+        };
+        let mut out = Commands::new();
+        let model = self.library.model_mut();
+        self.study
+            .toggle_bookmark(model, at, library::wall_ms(), &mut out);
+        self.queued.extend(out);
+    }
+
     fn apply(&mut self, ctx: &Context, command: Command) {
         if !self.route().allows(&command) {
             return;
@@ -1356,6 +1402,7 @@ impl MareaderApp {
             }
             Command::Highlight { pane, pen, color } => self.highlight(pane, pen, color),
             Command::Note(pane) => self.note(pane),
+            Command::Bookmark(pane) => self.bookmark(pane.unwrap_or(self.active)),
             Command::SelectText { pane, page, text } => {
                 self.documents.select(pane, page, &text);
             }
@@ -1693,8 +1740,10 @@ impl MareaderApp {
                     backdrop,
                     slot: i + 1,
                 };
+                let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, *id);
+                let marked = kept.iter().any(|(_, p)| *p == reading.current);
                 let bar = self.page_bars.entry(*id).or_default();
-                page_bar::show(ctx, *rect, &reading, &look, bar, out);
+                page_bar::show(ctx, *rect, &reading, (&look, marked), bar, out);
                 floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
             }
         }
@@ -2180,6 +2229,10 @@ impl eframe::App for MareaderApp {
                         let name = documents.title(id).unwrap_or_default();
                         study.marks_of(library.model(), book, name, highlights)
                     },
+                    bookmarks: bookmarks::on_pages(study, library, documents, id)
+                        .into_iter()
+                        .map(|(_, page)| page)
+                        .collect(),
                     highlights: highlights.clone(),
                     card: study.card_mark(id),
                     picked: study.picked(id),

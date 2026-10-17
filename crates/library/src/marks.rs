@@ -60,6 +60,8 @@ pub enum MarkKind {
     Explain,
     /// The reader's own highlighter, over any text.
     Highlight,
+    /// A page kept to come back to; drawn as a ribbon, not over text.
+    Bookmark,
 }
 
 impl Spot {
@@ -165,6 +167,18 @@ impl NewMark {
             color: None,
             word,
             context,
+            spot,
+        }
+    }
+
+    /// A bookmark at `spot`, named after where it is, e.g. its chapter.
+    pub fn bookmark(name: String, spot: Spot) -> Self {
+        Self {
+            kind: MarkKind::Bookmark,
+            pen: Pen::Full,
+            color: None,
+            word: name,
+            context: String::new(),
             spot,
         }
     }
