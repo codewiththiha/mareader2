@@ -6,7 +6,7 @@ use mareader_epub::{Book, Destination, Format, MAX_PICTURE_FILE};
 use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError};
-use mareader_reflow::{Anchor, Typography};
+use mareader_reflow::{Anchor, Picture, Typography};
 
 use crate::OpenError;
 
@@ -222,6 +222,7 @@ impl Document {
             text,
             links: links.collect(),
             places,
+            figures: Vec::new(),
         })
     }
 
@@ -230,6 +231,22 @@ impl Document {
         match self {
             Self::Pdf(_) => Vec::new(),
             Self::Epub { book, .. } => book.pictures(page).into_iter().map(bounds).collect(),
+        }
+    }
+
+    /// Box `at` of a PDF's page drawn large; a book's pictures are its own.
+    pub fn render_region(&self, page: usize, at: Bounds, side: u32) -> Result<Raster, RenderError> {
+        match self {
+            Self::Pdf(d) => d.render_region(page, at, side),
+            Self::Epub { .. } => Err(RenderError::Failed),
+        }
+    }
+
+    /// A book's picture at a point of page `page`; a PDF has none.
+    pub fn picture_at(&self, page: usize, (x, y): (f32, f32)) -> Option<Arc<Picture>> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.picture_at(page, x, y),
         }
     }
 

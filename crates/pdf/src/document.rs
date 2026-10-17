@@ -18,7 +18,7 @@ use crate::dest::{self, PageIds, Targets};
 use crate::links;
 use crate::outline::{self, OutlineEntry};
 use crate::strings::decode_text;
-use crate::text::{Collector, PageText, TextLayer};
+use crate::text::{Bounds, Collector, PageText, TextLayer};
 use crate::tiles::Tiling;
 
 /// More pages than this is treated as a broken file.
@@ -27,6 +27,8 @@ pub const MAX_PAGES: usize = 100_000;
 pub const MAX_RASTER_SIDE: u32 = 4096;
 /// A raster's pixel count, so a long strip can't take 4096².
 pub const MAX_RASTER_PIXELS: u64 = 4096 * 4096;
+/// A region is drawn no larger than this many pixels per point.
+const REGION_SCALE: f32 = 8.0;
 
 /// PDF user space allows at most 14,400 points a side.
 const MAX_PAGE_PT: f32 = 14_400.0;
@@ -205,6 +207,22 @@ impl Document {
             .unwrap_or(Err(RenderError::Failed))
     }
 
+    /// Box `at` of page `page`, `side` pixels on its long edge at most.
+    pub fn render_region(&self, page: usize, at: Bounds, side: u32) -> Result<Raster, RenderError> {
+        let size = *self.sizes.get(page).ok_or(RenderError::NoPage(page))?;
+        let x0 = at.x0.clamp(0.0, size.width);
+        let y0 = at.y0.clamp(0.0, size.height);
+        let (w, h) = (at.x1.min(size.width) - x0, at.y1.min(size.height) - y0);
+        if !(w >= 1.0 && h >= 1.0) {
+            return Err(RenderError::Failed);
+        }
+        let scale = (side.min(MAX_RASTER_SIDE) as f32 / w.max(h)).min(REGION_SCALE);
+        let px = |v: f32| (v * scale).round() as u32;
+        let rect = [px(x0), px(y0), px(w).max(1), px(h).max(1)];
+        catch_unwind(AssertUnwindSafe(|| self.tile(page, scale, rect)))
+            .unwrap_or(Err(RenderError::Failed))
+    }
+
     /// Page `page`'s characters and links; never panics.
     pub fn text_layer(&self, page: usize) -> Result<TextLayer, RenderError> {
         if page >= self.sizes.len() {
@@ -235,6 +253,7 @@ impl Document {
             text: PageText::from_glyphs(collector.glyphs),
             links,
             places: Vec::new(),
+            figures: collector.figures,
         })
     }
 
@@ -452,5 +471,38 @@ mod tests {
         assert_eq!(PageSize::sane(f32::NAN, 10.0), FALLBACK);
         assert_eq!(PageSize::sane(0.0, 10.0), FALLBACK);
         assert_eq!(PageSize::sane(1e9, 100.0).width, MAX_PAGE_PT);
+    }
+
+    #[test]
+    fn a_page_s_figures_are_found_and_drawn_large() -> Out {
+        let doc = Document::open(Arc::new(sample::figures(1, "Figures")))?;
+        let layer = doc.text_layer(0)?;
+        let [x, y, w, h] = sample::FIGURE.map(|v| v as f32);
+        let top = 792.0 - y - h;
+        let found = layer.figures.first().copied().ok_or("no figure")?;
+        let near = |a: f32, b: f32| (a - b).abs() < 0.5;
+        assert!(near(found.x0, x) && near(found.y0, top), "{found:?}");
+        assert!(
+            near(found.x1, x + w) && near(found.y1, top + h),
+            "{found:?}"
+        );
+        // Drawn at most 8 pixels a point: 1920 × 1280.
+        let raster = doc.render_region(0, found, 4096)?;
+        assert_eq!((raster.width, raster.height), (1920, 1280));
+        let px = |x: u32, y: u32| {
+            let i = ((y * raster.width + x) * 4) as usize;
+            raster.pixels.get(i..i + 3).map(<[u8]>::to_vec)
+        };
+        // Top left is the image's first pixel; bottom right, its last.
+        assert_eq!(px(20, 20), Some(vec![40, 40, 180]));
+        assert_eq!(px(1900, 1260), Some(vec![220, 220, 180]));
+        let off = Bounds {
+            x0: 900.0,
+            y0: 0.0,
+            x1: 1000.0,
+            y1: 10.0,
+        };
+        assert!(doc.render_region(0, off, 4096).is_err(), "off the page");
+        Ok(())
     }
 }

@@ -439,6 +439,29 @@ caret pointing there, instead of jumping away from the page.
   outside closes it; so does scrolling its mark off screen.
 - Markdown files mark their footnotes this way when converted.
 
+## Pictures opened large (owner request, 2026-10-18)
+
+A double click on a book's picture opens it over the window, dimmed
+behind, at its own pixels rather than the page's size for it.
+
+- **Zoom and pan.** The wheel or a pinch zooms about the pointer; a drag
+  pans once the picture outgrows the window. A double click switches
+  between fitting the window and one pixel per point (or twice the fit,
+  for a picture already enlarged). Fitting enlarges at most four times;
+  zoom stops at eight points a pixel.
+- **The bar** at the foot: Zoom out, the zoom (pressed, one pixel a
+  point), Zoom in, Fit to window, Close. Keys: `+` and `-` zoom, `0` fits, Escape closes; a click
+  beside the picture closes it too. The app's other shortcuts wait
+  while it's open.
+- **Decoding** runs on its own thread, up to 4096 pixels on the long
+  edge (less if the graphics card's textures are smaller), so a large
+  picture never stalls a frame; a spinner shows until it's ready.
+- **PDFs.** The text layer also lists where a page draws its images. A
+  double click on one, away from any word, draws that box of the page
+  at up to eight pixels a point and opens it the same way. Where images
+  overlap, the smallest is taken, so a figure on a scanned page opens
+  rather than the whole scan.
+
 ## Revision history
 
 | Date | Summary |
@@ -455,3 +478,4 @@ caret pointing there, instead of jumping away from the page.
 | 2026-10-15 | Added text for each pane; Column Width moved to the Fonts tab |
 | 2026-10-15 | Added text file edge cases: names, labelled heads, Chinese headings, repeatable bytes |
 | 2026-10-18 | Added footnotes shown in place |
+| 2026-10-18 | Added pictures opened large, and PDF figures |

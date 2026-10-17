@@ -165,6 +165,8 @@ pub struct PdfView {
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
     pub footnote: Option<crate::footnote::Footnote>,
+    /// A book's picture opened large over the window.
+    pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
 }
@@ -192,6 +194,7 @@ impl PdfView {
             resize: None,
             moved_at: 0.0,
             footnote: None,
+            viewer: None,
             nudge: None,
             aim: None,
             hold: None,
@@ -526,7 +529,7 @@ pub struct Sinks<'a> {
     pub vocab: Option<&'a mut crate::vocab::Vocab>,
 }
 
-pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: &ViewContext) {
+pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>, cx: &ViewContext) {
     let Sinks {
         pages,
         demand,
@@ -736,6 +739,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
     let mut follow = None;
     // Where a link was clicked, for a footnote's card to point at.
     let mut clicked = None;
+    let mut double = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
     let out = area
@@ -910,6 +914,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
             follow = did.follow;
             clicked = did.click;
+            double = did.double;
             let on_mark = |p: Option<Pos2>| p.and_then(|p| study::marks::hit(&placed, p));
             // A long press picks; the click its release makes does nothing.
             if study::marks::swallowed(ui, did.click.is_some()) {
@@ -1100,6 +1105,40 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);
         footnote(&ctx, view, room, sizes.len(), &cx.tokens);
     }
+    if let Some(p) = double {
+        view.viewer =
+            open_picture(&ctx, (&view.sheets, texts, view.doc), doc, p).or(view.viewer.take());
+    }
+    if let Some(viewer) = &mut view.viewer
+        && !crate::image_viewer::show(&ctx, viewer, &cx.tokens)
+    {
+        view.viewer = None;
+    }
+}
+
+/// A book's picture, or a PDF's figure, under a double click at `p`.
+fn open_picture(
+    ctx: &egui::Context,
+    (sheets, texts, id): (&[Sheet], &TextLayers, DocId),
+    doc: &Arc<Document>,
+    p: Pos2,
+) -> Option<crate::image_viewer::Viewer> {
+    use crate::image_viewer::Viewer;
+    let sheet = sheets.iter().find(|s| s.shown.contains(p))?;
+    let (x, y) = sheet.to_page(p);
+    if let Some(picture) = doc.picture_at(sheet.page, (x, y)) {
+        return Some(Viewer::picture(ctx, picture));
+    }
+    let layer = texts.get(id, sheet.page)?;
+    let inside = |b: &&Bounds| (b.x0..=b.x1).contains(&x) && (b.y0..=b.y1).contains(&y);
+    // The smallest is the figure, not the scan's page behind it.
+    let area = |b: &&Bounds| (b.x1 - b.x0) * (b.y1 - b.y0);
+    let at = *layer
+        .figures
+        .iter()
+        .filter(inside)
+        .min_by(|a, b| area(a).total_cmp(&area(b)))?;
+    Some(Viewer::figure(ctx, Arc::clone(doc), sheet.page, at))
 }
 
 /// The open footnote's card; a press outside or Escape closes it.

@@ -281,6 +281,11 @@ impl Book {
         self.flow.pictures(page)
     }
 
+    /// The picture drawn at a point of page `page`, in page units.
+    pub fn picture_at(&self, page: usize, x: f32, y: f32) -> Option<Arc<Picture>> {
+        self.flow.picture_at(page, x, y)
+    }
+
     /// Page `page`'s colour glyphs, which keep their colours too.
     pub fn emojis(&self, page: usize) -> Vec<[f32; 4]> {
         self.flow.emojis(page)
