@@ -259,6 +259,11 @@ impl Book {
         self.flow.pictures(page)
     }
 
+    /// Page `page`'s colour glyphs, which keep their colours too.
+    pub fn emojis(&self, page: usize) -> Vec<[f32; 4]> {
+        self.flow.emojis(page)
+    }
+
     /// What of each page a stream shows.
     pub fn bands(&self) -> &[mareader_reflow::Band] {
         self.flow.bands()

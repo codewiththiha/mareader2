@@ -780,6 +780,7 @@ impl MareaderApp {
             }
             "justify" => self.settings.text.justify = value == "true",
             "theme_pictures" => self.settings.text.theme_pictures = value == "true",
+            "theme_emojis" => self.settings.text.theme_emojis = value == "true",
             "column_width" => {
                 let pct = value.parse().map_err(|_| "column_width: %")?;
                 self.settings.text.column_width_pct = pct;
@@ -1747,7 +1748,12 @@ impl MareaderApp {
                 *window
             };
             let paper = self.blend_paper(id);
-            let fill = paper.map_or(tokens.paper, |raw| baked(&tokens, raw));
+            // A book's pane takes its page's paper, as mareader's text panes.
+            let plain = match self.documents.reflowable(id) {
+                true => theme::color(Rgb::from_unit(tokens.book.paper)),
+                false => tokens.paper,
+            };
+            let fill = paper.map_or(plain, |raw| baked(&tokens, raw));
             let style = PaneStyle {
                 tokens,
                 paper,

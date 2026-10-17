@@ -71,6 +71,13 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             "Tint a book's pictures with the page; off, they keep their colours",
             &mut t.theme_pictures,
         );
+        divider(ui);
+        switch_row(
+            ui,
+            "Theme emoji",
+            "Tint emoji with the page; off, they keep their colours",
+            &mut t.theme_emojis,
+        );
     });
 }
 

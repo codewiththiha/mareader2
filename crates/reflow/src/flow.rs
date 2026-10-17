@@ -1364,9 +1364,10 @@ mod tests {
         let width = px.width.max(1) as usize;
         px.rgba
             .iter()
+            .skip(3)
             .step_by(4)
             .enumerate()
-            .filter(|(_, r)| **r < 128)
+            .filter(|(_, a)| **a > 128)
             .map(|(i, _)| (i % width) as u32)
             .min()
     }

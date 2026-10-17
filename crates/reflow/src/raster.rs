@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use parley::{GlyphRun, Layout, PositionedLayoutItem};
 use skrifa::{FontRef, MetadataProvider};
-use vello_cpu::color::palette::css::WHITE;
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{ImageQuality, ImageSampler};
@@ -20,7 +19,7 @@ pub const MAX_SIDE: u32 = 4096;
 
 type Color = AlphaColor<Srgb>;
 
-// mareader's text inks, as greys on white.
+// mareader's text inks as greys: the page pass maps black to the ink.
 const BODY: Color = Color::from_rgba8(0, 0, 0, 255);
 const SOFT: Color = Color::from_rgba8(85, 85, 85, 255);
 const MUTED: Color = Color::from_rgba8(107, 107, 107, 255);
@@ -45,7 +44,7 @@ fn tone(t: Tone) -> Color {
     }
 }
 
-/// Premultiplied, opaque RGBA8 rows, `width × height`.
+/// Premultiplied RGBA8 rows, `width × height`; clear where nothing is drawn.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Pixels {
     pub width: u32,
@@ -80,10 +79,8 @@ impl Flow {
     fn draw(&self, pieces: &[Piece], (scale, left): (f32, f32), region: Region) -> Option<Pixels> {
         let [x, y, w, h] = region;
         let (w16, h16) = (u16::try_from(w).ok()?, u16::try_from(h).ok()?);
-        let mut ctx = RenderContext::new(w16, h16);
+        let ctx = RenderContext::new(w16, h16);
         let resources = Resources::new();
-        ctx.set_paint(WHITE);
-        ctx.fill_rect(&Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
         let s = f64::from(scale);
         let mut p = Painter {
             ctx,
@@ -386,7 +383,10 @@ mod tests {
 
     fn ink(px: &super::Pixels) -> usize {
         let (pixels, _) = px.rgba.as_chunks::<4>();
-        pixels.iter().filter(|&&[r, ..]| r < 128).count()
+        pixels
+            .iter()
+            .filter(|&&[r, .., a]| a > 128 && r < 128)
+            .count()
     }
 
     fn pixel(p: &super::Pixels, x: u32, y: u32) -> Option<[u8; 4]> {
@@ -395,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn a_page_draws_dark_text_on_white() {
+    fn a_page_draws_dark_text_on_clear() {
         let f = sample();
         let (w, h) = (PAGE_WIDTH as u32 / 2, PAGE_HEIGHT as u32 / 2);
         let px = f.render(0, 0.5, [0, 0, w, h]);
@@ -403,8 +403,8 @@ mod tests {
         assert_eq!(px.map(|p| (p.width, p.height)), Some((w, h)));
         let dark = px.map_or(0, ink);
         assert!(dark > 200, "{dark} dark pixels");
-        // The corner is margin: paper white.
-        assert_eq!(px.and_then(|p| pixel(p, 0, 0)), Some([255, 255, 255, 255]));
+        // The corner is margin: clear, so the paper shows through.
+        assert_eq!(px.and_then(|p| pixel(p, 0, 0)), Some([0, 0, 0, 0]));
     }
 
     #[test]
@@ -462,6 +462,6 @@ mod tests {
         );
         let gap = 17;
         let grey = px.as_ref().and_then(|p| pixel(p, 72, 72 + 100 + gap));
-        assert!(grey.is_some_and(|[r, ..]| r < 250 && r > 200), "{grey:?}");
+        assert!(grey.is_some_and(|[.., a]| a > 10 && a < 50), "{grey:?}");
     }
 }
