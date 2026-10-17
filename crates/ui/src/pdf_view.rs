@@ -437,6 +437,8 @@ fn hold(old: &Layout, new: &Layout, offset: Vec2, pivots: (Vec2, Vec2)) -> Optio
 /// What the pane needs from the app this frame.
 pub struct ViewContext {
     pub active: bool,
+    /// The pane shares the window, so a hold can lift it.
+    pub lift: bool,
     /// The pane's look: the window's, or its own while split.
     pub tokens: Tokens,
     /// Space a pinned title bar takes from the pane's top.
@@ -873,6 +875,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 sheets: &sheets,
                 texts,
                 sideways: !down,
+                lift: cx.lift,
             };
             let placed = study::marks::place(&cx.marks, &text);
             // Shading sits under the reader's own marks.
@@ -915,6 +918,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             follow = did.follow;
             clicked = did.click;
             double = did.double;
+            if let Some(at) = did.lift {
+                gloss.push(Gloss::Lift(at));
+            }
             let on_mark = |p: Option<Pos2>| p.and_then(|p| study::marks::hit(&placed, p));
             // A long press picks; the click its release makes does nothing.
             if study::marks::swallowed(ui, did.click.is_some()) {

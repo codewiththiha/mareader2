@@ -31,6 +31,7 @@ pub mod keymap;
 pub mod layout;
 pub mod library;
 pub mod library_panel;
+pub mod lift;
 pub mod loading_mark;
 pub mod machine_fonts;
 pub mod motion;

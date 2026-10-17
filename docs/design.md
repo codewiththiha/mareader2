@@ -172,6 +172,25 @@ documents, caches and workers (ADR 0006).
 - A close button appears at the top right of a hovered pane, below the hover
   band.
 
+### Lifting a pane (owner request, 2026-10-18)
+
+In a split, pressing empty space in a pane (off the pages, or away from
+their words) and holding still for a second lifts the pane; moving more
+than 4 pt first makes the press a pan instead. A ring fills round the
+press from a fifth of a second on, so plain clicks never flash it.
+
+- While lifted, the pane dims where it was, a chip "Moving <title>"
+  follows the pointer, and the box it would get lights in the accent
+  with the move in words.
+- Over another pane's middle third it swaps with that pane; elsewhere it
+  docks beside the nearest edge with room for two 200 pt halves. A pane
+  too small to halve either way swaps.
+- Letting go moves it (`PaneTree::swap`, `PaneTree::move_to`); the pane
+  keeps its id, so its document, page bar and look go with it. Letting
+  go off any pane, or Escape, leaves everything as it was.
+- One pane alone never lifts; a move that would not fit is refused
+  whole, with a note.
+
 ## Settings that follow the focused pane
 
 The settings window shows only what reaches the focused pane, as mareader
@@ -247,3 +266,4 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 | 2026-10-13 | Became `design.md`: our own design system (ADR 0005); one-hue tints; egui-native controls |
 | 2026-10-13 | How the theme works: shape tokens, one apply, instant restyle, live token file |
 | 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |
+| 2026-10-18 | Lifting a pane to move or swap it |

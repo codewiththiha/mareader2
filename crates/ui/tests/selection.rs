@@ -677,3 +677,90 @@ fn a_double_click_opens_a_pdf_s_figure_large() -> Out {
     assert!(h.query_by_label("Zoom in").is_none(), "Close closes it");
     Ok(())
 }
+
+#[test]
+fn a_held_pane_lifts_and_moves_where_it_is_let_go() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("animations", "false"),
+        ("panes", "2"),
+        ("focus", "1"),
+        ("pdf", "sample:5"),
+        ("focus", "2"),
+        ("pdf", "sample:5"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let [first, second] = h.state().panes()[..] else {
+        return Err("two panes".into());
+    };
+    let rect = |h: &H, pane| {
+        let rects = h.state().pane_rects().to_vec();
+        rects
+            .into_iter()
+            .find(|(id, _)| *id == pane)
+            .map(|(_, r)| r)
+    };
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(first)
+        .first()
+        .ok_or("no sheet")?;
+    // The page's right margin, level with its body: no text there.
+    let blank = mareader_pdf::Bounds {
+        x0: 560.0,
+        y0: 300.0,
+        x1: 580.0,
+        y1: 320.0,
+    };
+    let at = sheet.to_screen(blank).center();
+    h.hover_at(at);
+    h.run();
+    button(&mut h, at, true);
+    // Held still past a second, the pane lifts.
+    for _ in 0..70 {
+        h.step();
+    }
+    assert!(h.query_by_label_contains("Moving ").is_some(), "lifted");
+    let to = rect(&h, second).ok_or("no second pane")?;
+    let right = egui::pos2(to.right() - 20.0, to.center().y);
+    h.hover_at(right);
+    h.step();
+    h.get_by_label("Release to move right of this pane");
+    button(&mut h, right, false);
+    h.run();
+    assert_eq!(h.state().panes(), [second, first]);
+    assert!(h.query_by_label_contains("Moving ").is_none());
+    // Over the middle it would swap; Escape puts it back instead.
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(first)
+        .first()
+        .ok_or("no sheet")?;
+    let at = sheet.to_screen(blank).center();
+    h.hover_at(at);
+    h.run();
+    button(&mut h, at, true);
+    for _ in 0..70 {
+        h.step();
+    }
+    let middle = rect(&h, second).ok_or("no second pane")?.center();
+    h.hover_at(middle);
+    h.step();
+    h.get_by_label("Release to swap panes");
+    h.key_press(egui::Key::Escape);
+    button(&mut h, middle, false);
+    h.run();
+    assert_eq!(h.state().panes(), [second, first], "Escape keeps them");
+    Ok(())
+}

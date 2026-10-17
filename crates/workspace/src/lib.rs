@@ -10,9 +10,11 @@
 )]
 
 mod drop;
+mod lift;
 mod tree;
 
 pub use drop::DropTarget;
+pub use lift::{LiftTarget, resolve as lift_target};
 
 pub use tree::{
     Bounds, Divider, DividerPath, Edge, MAX_PANES, MIN_PANE_PX, MIN_RATIO, PaneId, PaneTree, Side,

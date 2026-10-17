@@ -432,7 +432,12 @@ title = "Lift a pane to rearrange it"
 area = "B"
 tier = "P2"
 milestone = "M5"
-status = "planned"
+status = "shipped"
+evidence = [
+  "crates/ui/tests/selection.rs::a_held_pane_lifts_and_moves_where_it_is_let_go",
+  "crates/workspace/src/lift.rs::a_pane_docks_beside_the_nearest_edge_and_swaps_in_the_middle",
+  "crates/workspace/src/tree.rs::a_moved_pane_halves_its_target_and_keeps_its_id",
+]
 reference = ["crates/reader-runtime/src/host/lift.rs"]
 
 [[feature]]

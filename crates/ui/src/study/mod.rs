@@ -71,6 +71,8 @@ pub enum Gloss {
     },
     /// The pointer rested on a shaded word.
     Rest { word: String, at: Rect },
+    /// A hold on empty space lifted the pane, to be moved.
+    Lift(Pos2),
 }
 
 /// What the card and the mark menu ask of the app.
