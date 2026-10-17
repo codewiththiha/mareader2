@@ -753,3 +753,56 @@ fn a_page_is_bookmarked_listed_and_taken_back_with_undo() -> Out {
     h.get_by_label_contains("Bookmark, page 2: ");
     Ok(())
 }
+
+#[test]
+fn picked_highlights_are_restyled_together_where_each_may_be() -> Out {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let pane = h.state().active_pane();
+    for (word, pen) in [("quick", Pen::Full), ("lazy", Pen::Underline)] {
+        select(&mut h, 0, word);
+        let color = None;
+        h.state_mut().queue(Command::Highlight { pane, pen, color });
+        h.run();
+    }
+    let (layer, sheet) = page(&h, 0)?;
+    let quick = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
+    let lazy = middle(&layer, sheet, find(&layer, "lazy")? + 1)?;
+    press(&mut h, quick, PointerButton::Secondary);
+    h.get_by_label("Select several").click();
+    h.run();
+    press(&mut h, lazy, PointerButton::Primary);
+    h.get_by_label("Style…").click();
+    h.run();
+    h.get_by_label("Style of 2 highlights");
+    let sorted = |h: &H| {
+        let mut v = ink(h);
+        v.sort_by(|a, b| a.1.cmp(&b.1));
+        v
+    };
+    let before = sorted(&h);
+    // A pen: each keeps its colour.
+    h.get_by_label("Half highlight").click();
+    h.run();
+    let half = [
+        (Pen::Half, "#1677ff".to_owned()),
+        (Pen::Half, "#ffff00".to_owned()),
+    ];
+    assert_eq!(sorted(&h), half);
+    h.get_by_label("Restyled 2 highlights");
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!(sorted(&h), before);
+    assert!(h.state().study().picking(), "still picking");
+    // Full red is CEFR's: only the underline takes it.
+    h.get_by_label("Style…").click();
+    h.run();
+    h.get_by_label("#ff0000").click();
+    h.run();
+    let red = [
+        (Pen::Underline, "#ff0000".to_owned()),
+        (Pen::Full, "#ffff00".to_owned()),
+    ];
+    assert_eq!(sorted(&h), red);
+    h.get_by_label("Restyled 1 of 2 highlights");
+    Ok(())
+}

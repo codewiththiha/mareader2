@@ -152,6 +152,8 @@ struct Staged {
     turned: bool,
     /// Bookmarks the page instead of selecting on it.
     bookmark: bool,
+    /// Picks every mark and opens Style… instead.
+    pick: bool,
 }
 
 impl Default for MareaderApp {
@@ -736,6 +738,21 @@ impl MareaderApp {
                     note: None,
                     turned: false,
                     bookmark: false,
+                    pick: false,
+                });
+            }
+            // Picks marks, as `pick=on pick=on pick=style`: Style… opens.
+            "pick" => {
+                self.staged.push_back(Staged {
+                    page: 0,
+                    text: String::new(),
+                    explain: false,
+                    look_up: false,
+                    pen: None,
+                    note: None,
+                    turned: true,
+                    bookmark: false,
+                    pick: value == "style",
                 });
             }
             // Bookmarks a page, as `bookmark=2`.
@@ -750,6 +767,7 @@ impl MareaderApp {
                     note: None,
                     turned: false,
                     bookmark: true,
+                    pick: false,
                 });
             }
             // Explains the staged selection: its card opens.
@@ -993,11 +1011,24 @@ impl MareaderApp {
                 pen,
                 note,
                 bookmark,
+                pick,
                 ..
             }) if !sheets.is_empty() => {
-                match bookmark {
-                    true => out.push(Command::Bookmark(Some(pane))),
-                    false => out.push(Command::SelectText { pane, page, text }),
+                let first = self.marks(pane).first().map(|m| m.id);
+                match (bookmark, first) {
+                    (true, _) => out.push(Command::Bookmark(Some(pane))),
+                    // Picking starts, then a later `pick` takes all in.
+                    (false, Some(id)) if text.is_empty() && !self.study.picking() => {
+                        let start = crate::study::Action::SelectSeveral(pane, id);
+                        out.push(Command::Study(start));
+                    }
+                    (false, Some(_)) if text.is_empty() => {
+                        out.push(Command::Study(crate::study::Action::PickAll));
+                        if pick {
+                            egui::Popup::open_id(ctx, egui::Id::new(crate::study::PICK_STYLE));
+                        }
+                    }
+                    _ => out.push(Command::SelectText { pane, page, text }),
                 }
                 if explain {
                     out.push(Command::Explain(pane));
@@ -1067,7 +1098,8 @@ impl MareaderApp {
             self.study.set_role(&word, role);
         }
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
-        self.study.show(ctx, &self.pane_rects, looks, out);
+        let model = self.library.model();
+        self.study.show(ctx, model, &self.pane_rects, looks, out);
         self.dict.poll();
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);

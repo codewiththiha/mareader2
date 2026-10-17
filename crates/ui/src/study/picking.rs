@@ -1,12 +1,16 @@
-//! Picking several marks at once, to remove them together.
+//! Picking several marks at once, to restyle or remove them together.
 
 use egui::{Align2, Context, Frame, Id, Margin, Order, Rect, RichText, Stroke, vec2};
-use mareader_library::MarkId;
+use mareader_library::{MarkId, Style};
+use mareader_settings::HighlightSettings;
 use mareader_workspace::PaneId;
 
-use super::Action;
+use super::{Action, restyle};
 use crate::command::{Command, Commands};
 use crate::theme::Tokens;
+
+/// The Style… popover's id, for shots to open it.
+pub const STYLE_ID: &str = "study-picking-style";
 
 /// Below the pane's top, clear of the title bar.
 const DOWN: f32 = 56.0;
@@ -49,10 +53,15 @@ impl Picking {
     }
 }
 
-/// The bar over the pane: the count, ways to pick more, Remove, Done.
-pub fn bar(ctx: &Context, picking: &Picking, room: Rect, t: &Tokens, out: &mut Commands) {
+/// The bar over the pane; `looks` are the picked highlights'.
+pub fn bar(
+    ctx: &Context,
+    picking: &Picking,
+    (room, looks, pens): (Rect, &[(MarkId, Style)], &HighlightSettings),
+    t: &Tokens,
+    out: &mut Commands,
+) {
     let n = picking.ids.len();
-    let mut act = |a| out.push(Command::Study(a));
     egui::Area::new(Id::new("study-picking"))
         .order(Order::Foreground)
         .pivot(Align2::CENTER_TOP)
@@ -68,21 +77,55 @@ pub fn bar(ctx: &Context, picking: &Picking, room: Rect, t: &Tokens, out: &mut C
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("{n} selected")).color(t.ink));
                         ui.separator();
+                        let act = |out: &mut Commands, a| out.push(Command::Study(a));
                         if ui.button("This page").clicked() {
-                            act(Action::PickPage);
+                            act(out, Action::PickPage);
                         }
                         if ui.button("All").clicked() {
-                            act(Action::PickAll);
+                            act(out, Action::PickAll);
                         }
+                        style(ui, looks, pens, t, out);
                         let remove = RichText::new(format!("Remove ({n})")).color(t.danger);
                         let button = ui.add_enabled(n > 0, egui::Button::new(remove));
                         if button.clicked() {
-                            act(Action::Remove(picking.ids.clone()));
+                            act(out, Action::Remove(picking.ids.clone()));
                         }
                         if ui.button("Done").clicked() {
-                            act(Action::DonePicking);
+                            act(out, Action::DonePicking);
                         }
                     });
                 });
+        });
+}
+
+/// Style: the picked highlights' pens and colours, in a popover.
+fn style(
+    ui: &mut egui::Ui,
+    looks: &[(MarkId, Style)],
+    pens: &HighlightSettings,
+    t: &Tokens,
+    out: &mut Commands,
+) {
+    let button = ui.add_enabled(!looks.is_empty(), egui::Button::new("Style…"));
+    let button = match looks.len() {
+        0 => button.on_disabled_hover_text("Pick a highlight to restyle it"),
+        _ => button,
+    };
+    egui::Popup::from_toggle_button_response(&button)
+        .id(Id::new(STYLE_ID))
+        .sense(crate::widgets::POPUP_SENSE)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::BOTTOM_START)
+        .gap(6.0)
+        .show(|ui| {
+            ui.set_width(232.0);
+            let what = match looks.len() {
+                1 => "Style of 1 highlight".to_owned(),
+                n => format!("Style of {n} highlights"),
+            };
+            ui.label(RichText::new(what).size(t.text_small).color(t.muted));
+            ui.add_space(4.0);
+            restyle::group(ui, looks, pens, t, out);
+            crate::widgets::close_on_key(ui);
         });
 }
