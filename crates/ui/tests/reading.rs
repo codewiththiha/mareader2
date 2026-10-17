@@ -842,3 +842,18 @@ fn independent_text_sets_each_pane_in_its_own_type() {
     assert_eq!(doc(&h, a), doc(&h, b));
     assert_eq!(h.state().documents().stats().0, 1, "the other type closed");
 }
+
+#[test]
+fn an_empty_pane_offers_the_books_read_lately() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../epub/tests/books");
+    let raven = dir.join("the-raven-gutenberg-17192.epub");
+    let raven = raven.canonicalize().unwrap_or(raven);
+    let path = raven.to_str().unwrap_or_default();
+    let mut h = reader(&[("epub", path), ("panes", "2")]);
+    let title = h.state().library().recent()[0].title.value.clone();
+    let reopen = format!("Reopen {title}");
+    h.get_by_label(&reopen).click();
+    h.run();
+    assert!(h.query_by_label(&reopen).is_none(), "the pane took it");
+    assert_eq!(h.state().panes().len(), 2);
+}
