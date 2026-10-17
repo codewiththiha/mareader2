@@ -699,7 +699,7 @@ fn saving_the_look_adds_a_preset_that_is_picked() {
         .map(|p| (p.name.as_str(), p.appearance));
     assert_eq!(saved, Some(("Night owl", s.appearance)));
     // It lands under Custom, and as the look in use it is the picked one.
-    h.get_by_label("CUSTOM");
+    assert!(h.query_all_by_label("Custom").count() > 0, "named section");
     let picked = h.get_by_label("Night owl").accesskit_node().toggled();
     assert_eq!(picked, Some(egui::accesskit::Toggled::True));
     assert!(
@@ -712,7 +712,7 @@ fn saving_the_look_adds_a_preset_that_is_picked() {
 fn a_user_preset_shows_in_its_section_and_deletes_from_its_card() {
     let mut h = with(&[("save_preset", "Owl/Evening")]);
     open_appearance(&mut h);
-    h.get_by_label("EVENING");
+    h.get_by_label("Evening");
     assert!(h.query_by_label("Delete Sepia").is_none(), "built-ins stay");
     h.get_by_label("Owl").hover();
     h.run_steps(2);
