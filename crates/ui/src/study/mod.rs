@@ -100,6 +100,8 @@ pub enum Action {
     DeleteNote(MarkId),
     /// Undo: a deleted note's text comes back.
     RestoreNote(MarkId, String),
+    /// Shots: types into the open draft, then saves it if asked.
+    TypeNote(String, bool),
 }
 
 /// Which answer a card shows: a mark's, or one kept by nothing.
@@ -732,6 +734,16 @@ impl Study {
             Action::DeleteNote(id) => {
                 self.note = None;
                 self.forget_note(main, id, out);
+            }
+            Action::TypeNote(text, save) => {
+                let Some(n) = self.note.as_mut() else {
+                    return;
+                };
+                n.draft = Some(text);
+                if save {
+                    let id = n.mark.id;
+                    self.save_note(main, id, out);
+                }
             }
             Action::RestoreNote(id, text) => {
                 if !main.set_note(id, Some(text.clone()), wall) {

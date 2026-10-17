@@ -143,6 +143,8 @@ struct Staged {
     explain: bool,
     look_up: bool,
     pen: Option<mareader_library::Pen>,
+    /// A note's words, and whether it is saved or left as a draft.
+    note: Option<(String, bool)>,
     /// Its page was asked for once; the view is on its way there.
     turned: bool,
 }
@@ -725,6 +727,7 @@ impl MareaderApp {
                     explain: false,
                     look_up: false,
                     pen: None,
+                    note: None,
                     turned: false,
                 });
             }
@@ -738,6 +741,11 @@ impl MareaderApp {
                 Some(staged) => staged.look_up = true,
                 None => return Err("lookup: after selection=page:text".into()),
             },
+            // Notes the staged selection: a draft, or saved with `noted`.
+            "note" | "noted" => {
+                let staged = self.staged.back_mut().ok_or("note: after selection")?;
+                staged.note = Some((value.replace('_', " "), key == "noted"));
+            }
             // Highlights the staged selection with a pen.
             "highlight" => {
                 let hint = "highlight: full, half or underline, after selection";
@@ -961,6 +969,7 @@ impl MareaderApp {
                 explain,
                 look_up,
                 pen,
+                note,
                 ..
             }) if !sheets.is_empty() => {
                 out.push(Command::SelectText { pane, page, text });
@@ -973,6 +982,10 @@ impl MareaderApp {
                 if let Some(pen) = pen {
                     let color = None;
                     out.push(Command::Highlight { pane, pen, color });
+                }
+                if let Some((text, save)) = note {
+                    out.push(Command::Note(pane));
+                    out.push(Command::Study(crate::study::Action::TypeNote(text, save)));
                 }
                 // The next waits a frame, as each selection replaces the last.
                 if !self.staged.is_empty() {
