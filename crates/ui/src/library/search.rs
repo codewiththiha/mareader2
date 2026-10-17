@@ -278,7 +278,7 @@ impl LibraryState {
         }
     }
 
-    /// "Search 12 books", or what the search is limited to.
+    /// "Search", or what the search is limited to.
     fn placeholder(&self) -> String {
         let shelf = self.at.and_then(|id| self.model.shelf(id));
         if let Some(shelf) = shelf {
@@ -291,11 +291,7 @@ impl LibraryState {
                 (None, Some(source)) => format!("Search “{}”", source.name()),
                 (None, None) => "Search".into(),
             },
-            Scope::All => match self.model.len() {
-                0 => "Search".into(),
-                1 => "Search 1 book".into(),
-                n => format!("Search {n} books"),
-            },
+            Scope::All => "Search".into(),
         }
     }
 
