@@ -38,8 +38,6 @@ pub fn tab(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>, out: &mut Co
         (Provider::Auto | Provider::Apple, _) => {
             if mac || p == Provider::Apple {
                 trial(ui, p, board, out);
-            } else {
-                note(ui, "Choose a provider to explain words.");
             }
         }
         (server, board) => {

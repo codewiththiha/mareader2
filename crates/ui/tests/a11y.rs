@@ -69,15 +69,14 @@ fn every_control_has_a_name() {
         missing.extend(nameless(&h, panel));
     }
     let tabs = [
+        "appearance",
         "layout",
-        "theme",
-        "animations",
-        "fonts",
         "highlights",
         "vocabulary",
         "dictionary",
         "ai",
         "workspace",
+        "motion",
     ];
     for tab in tabs {
         let h = with(&[("epub", "sample:3"), ("panes", "2"), ("settings", tab)]);

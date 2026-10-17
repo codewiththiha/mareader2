@@ -317,29 +317,55 @@ fn the_glass_switch_starts_on_and_turns_it_off() {
 }
 
 #[test]
-fn the_animations_tab_leaves_with_its_master_switch() {
+fn the_motion_tab_hides_each_switch_with_the_master() {
     use mareader_ui::settings_window::Tab;
     let mut h = with(&[("settings", "animations")]);
-    assert!(
-        h.query_by_role_and_label(Role::CheckBox, "Sidebar animation")
-            .is_some()
-    );
-    h.get_by_role_and_label(Role::Button, "Layout").click();
-    h.run_steps(2);
-    // Below the Pages rows, it scrolls into view first.
-    h.get_by_role_and_label(Role::CheckBox, "Animations")
-        .scroll_to_me();
-    h.run();
+    let each = "Sidebar animation";
+    assert!(h.query_by_role_and_label(Role::CheckBox, each).is_some());
     h.get_by_role_and_label(Role::CheckBox, "Animations")
         .click();
     h.run_steps(2);
-    assert!(
-        h.query_by_role_and_label(Role::Button, "Animations")
-            .is_none()
-    );
-    let cx = h.state().settings_scope();
-    let tab = h.state().settings_window().tab(h.state().settings(), &cx);
-    assert_eq!(tab, Tab::Layout);
+    assert!(!h.state().settings().motion.enabled);
+    assert!(h.query_by_role_and_label(Role::CheckBox, each).is_none());
+    // The tab stays put, so the list never shifts.
+    let tab = h.state().settings_window().tab();
+    assert_eq!(tab, Tab::Motion);
+}
+
+#[test]
+fn every_settings_tab_is_named_in_its_sidebar() {
+    use mareader_ui::settings_window::Tab;
+    let mut h = with(&[("settings", "layout")]);
+    for tab in Tab::ALL {
+        let label = tab.label();
+        let named = h.query_all_by_role_and_label(Role::Button, label);
+        assert!(named.count() >= 1, "{label}");
+    }
+    h.get_by_role_and_label(Role::Button, "Workspace").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings_window().tab(), Tab::Workspace);
+    // The old names land on their new homes.
+    assert_eq!(Tab::parse("fonts"), Some(Tab::Appearance));
+    assert_eq!(Tab::parse("Theme"), Some(Tab::Appearance));
+    assert_eq!(Tab::parse("animations"), Some(Tab::Motion));
+}
+
+#[test]
+fn a_dependent_setting_shows_once_its_parent_is_on() {
+    let mut h = with(&[("settings", "layout")]);
+    let on = h.state().settings().layout.floating_label;
+    assert_eq!(h.query_by_label("Label shows").is_some(), on);
+    h.get_by_role_and_label(Role::CheckBox, "Floating label")
+        .click();
+    h.run_steps(2);
+    assert_eq!(h.query_by_label("Label shows").is_some(), !on);
+    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    let shared = "Light, Dark and Dim change every pane";
+    assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_none());
+    h.get_by_role_and_label(Role::CheckBox, "Independent theme for each pane")
+        .click();
+    h.run_steps(2);
+    assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_some());
 }
 
 #[test]
