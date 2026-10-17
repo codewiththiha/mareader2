@@ -10,29 +10,31 @@ use crate::{SCHEMA_VERSION, Settings};
 pub struct Loaded {
     pub settings: Settings,
     pub notes: Vec<String>,
+    /// Top-level keys nothing read, as a newer build's.
+    pub unknown: Vec<String>,
 }
 
 /// Never fails: anything unreadable falls back to defaults, section by section.
 pub fn load(json: &str) -> Loaded {
     let mut notes = Vec::new();
-    let root = match serde_json::from_str::<Value>(json) {
+    let mut root = match serde_json::from_str::<Value>(json) {
         Ok(Value::Object(root)) => root,
         Ok(_) | Err(_) => {
             notes.push("settings unreadable; using defaults".to_owned());
             return Loaded {
                 settings: Settings::default(),
                 notes,
+                unknown: Vec::new(),
             };
         }
     };
-    let settings = finish(root, &mut notes);
-    Loaded { settings, notes }
-}
-
-/// Brings a JSON object up to date, then parses it.
-fn finish(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Settings {
-    migrate(&mut root, notes);
-    parse_sections(root, notes)
+    migrate(&mut root, &mut notes);
+    let (settings, unknown) = parse_sections(root, &mut notes);
+    Loaded {
+        settings,
+        notes,
+        unknown,
+    }
 }
 
 /// Compact JSON in the current schema.
@@ -157,7 +159,10 @@ fn put(root: &mut Map<String, Value>, section: &str, field: &str, v: Value) {
 }
 
 /// One bad section resets only itself, never its neighbours.
-fn parse_sections(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Settings {
+fn parse_sections(
+    mut root: Map<String, Value>,
+    notes: &mut Vec<String>,
+) -> (Settings, Vec<String>) {
     let mut s = Settings::default();
     macro_rules! sections {
         ($($field:ident),+) => {$(
@@ -176,11 +181,14 @@ fn parse_sections(mut root: Map<String, Value>, notes: &mut Vec<String>) -> Sett
         text,
         study,
         dictionary,
+        ai,
         workspace,
         library
     );
+    // What's left was never read: a section missing above resets each launch.
+    root.remove("version");
     s.sanitize();
-    s
+    (s, root.into_iter().map(|(k, _)| k).collect())
 }
 
 fn section<T: DeserializeOwned>(slot: &mut T, v: Value, key: &str, notes: &mut Vec<String>) {
@@ -194,6 +202,18 @@ fn section<T: DeserializeOwned>(slot: &mut T, v: Value, key: &str, notes: &mut V
 mod tests {
     use super::*;
     use crate::{Corners, Swatch};
+
+    #[test]
+    fn every_saved_section_is_read_back() {
+        use crate::Provider;
+        let mut saved = Settings::default();
+        saved.ai.provider = Provider::Ollama;
+        saved.ai.ollama.model = "llama3.2:latest".to_owned();
+        let got = load(&to_json(&saved));
+        assert!(got.notes.is_empty(), "{:?}", got.notes);
+        assert!(got.unknown.is_empty(), "never read: {:?}", got.unknown);
+        assert_eq!(got.settings.ai, saved.ai);
+    }
 
     #[test]
     fn an_empty_object_is_all_defaults() {
