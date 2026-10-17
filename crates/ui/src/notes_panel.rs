@@ -1,7 +1,10 @@
-//! The notes panel: a book's highlights and notes, in reading order.
+//! The notes panel: a book's highlights and notes, by chapter, searchable.
 
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align, FontId, Galley, Id, Rect, RichText, ScrollArea, Sense, TextFormat, Ui, vec2};
+use egui::{
+    Align, Color32, FontId, Galley, Id, Key, Rect, RichText, ScrollArea, Sense, TextEdit,
+    TextFormat, Ui, vec2,
+};
 use mareader_appearance::Rgb;
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::active_entry;
@@ -15,6 +18,8 @@ use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
 use crate::widgets;
+
+mod query;
 
 const PAD_X: f32 = 12.0;
 /// The colour rule's width and the gap after it.
@@ -55,6 +60,24 @@ impl Filter {
     }
 }
 
+/// The search's words, and the wash that marks them.
+#[derive(Clone, Copy)]
+struct Find<'a> {
+    words: &'a [String],
+    wash: Color32,
+}
+
+impl Find<'_> {
+    /// More lines show while searching, so a match isn't cut off.
+    fn rows(self, rows: usize) -> usize {
+        if self.words.is_empty() {
+            rows
+        } else {
+            rows + 6
+        }
+    }
+}
+
 /// Draws the panel for `reading`'s document and its `rows`.
 pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
@@ -75,7 +98,23 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
     if kept == 0 && filter == Filter::Bookmarks {
         filter = Filter::All;
     }
-    let shown: Vec<&Row> = rows.iter().filter(|r| filter.keeps(r)).collect();
+    let query_id = Id::new(("notes-query", reading.doc));
+    let mut typed: String = ui.data(|d| d.get_temp(query_id)).unwrap_or_default();
+    let words = query::terms(&typed);
+    let book = reading.document.as_ref();
+    let chapter = |r: &Row| page_of(book, r.spot).and_then(|p| crate::bookmarks::chapter(book, p));
+    // Each row with its chapter, which a search reads too.
+    let placed: Vec<(Option<String>, &Row)> = rows
+        .iter()
+        .filter(|r| filter.keeps(r))
+        .map(|r| (chapter(r), r))
+        .filter(|(c, r)| {
+            let note = r.note.as_deref().unwrap_or_default();
+            let texts = [r.quote.as_str(), note, c.as_deref().unwrap_or_default()];
+            query::keeps(&words, &texts)
+        })
+        .collect();
+    let shown: Vec<&Row> = placed.iter().map(|(_, r)| *r).collect();
     ui.add_space(8.0);
     // The book and its tools, then the filters on a row of their own.
     ui.horizontal(|ui| {
@@ -111,26 +150,107 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
         });
     });
     ui.data_mut(|d| d.insert_temp(id, filter));
+    ui.add_space(6.0);
+    search(ui, &mut typed, &t);
+    ui.data_mut(|d| d.insert_temp(query_id, typed));
     ui.add_space(4.0);
+    if shown.is_empty() && !words.is_empty() {
+        empty(ui, "No matches", "Try fewer or other words.", &t);
+        return;
+    }
     if shown.is_empty() {
         empty(ui, "No notes yet", "Select text and choose Note.", &t);
         return;
     }
-    let book = reading.document.as_ref();
+    let find = Find {
+        words: &words,
+        wash: t.accent_soft,
+    };
     ScrollArea::vertical()
         .id_salt(("notes-list", reading.doc))
         .auto_shrink(false)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            for row in shown {
+            let mut last: Option<&str> = None;
+            for (i, (chapter, row)) in placed.iter().enumerate() {
+                let chapter = chapter.as_deref();
+                if let Some(c) = chapter
+                    && last != Some(c)
+                {
+                    let rest = placed.iter().skip(i);
+                    let n = rest.take_while(|(d, _)| d.as_deref() == Some(c)).count();
+                    heading(ui, c, n, find, &t);
+                }
+                last = chapter;
                 if row.bookmark {
-                    bookmark(ui, reading, book, row, &t, out);
+                    bookmark(ui, reading, book, row, find, &t, out);
                 } else {
-                    entry(ui, reading, row, &t, out);
+                    entry(ui, reading, row, find, &t, out);
                 }
             }
             ui.add_space(12.0);
         });
+}
+
+/// The search over quotes, notes and chapters; Escape clears it.
+fn search(ui: &mut Ui, typed: &mut String, t: &Tokens) {
+    let pad = egui::Margin::symmetric(PAD_X as i8, 0);
+    let frame = egui::Frame::new()
+        .stroke(egui::Stroke::new(1.0, t.line))
+        .corner_radius(6)
+        .inner_margin(egui::Margin::symmetric(8, 2));
+    egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
+        frame.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                Icon::Search.paint(ui, r, t.muted);
+                let clear = !typed.is_empty();
+                let w = ui.available_width() - if clear { 28.0 } else { 0.0 };
+                let edit = TextEdit::singleline(typed)
+                    .hint_text("Search highlights and notes")
+                    .frame(egui::Frame::NONE)
+                    .desired_width(w);
+                let field = ui.add(edit);
+                widgets::name(&field, "Search notes");
+                // The list read the old words this frame; draw again.
+                if field.changed() {
+                    ui.ctx().request_repaint();
+                }
+                let escaped = ui.input(|i| i.key_pressed(Key::Escape));
+                let cleared =
+                    clear && widgets::small_icon_button(ui, Icon::Close, "Clear search").clicked();
+                if (field.lost_focus() && escaped) || cleared {
+                    typed.clear();
+                    ui.ctx().request_repaint();
+                }
+            });
+        });
+    });
+}
+
+/// A chapter's heading and how many of the rows under it are its.
+fn heading(ui: &mut Ui, title: &str, n: usize, find: Find<'_>, t: &Tokens) {
+    let pad = egui::Margin {
+        left: PAD_X as i8,
+        right: PAD_X as i8,
+        top: 10,
+        bottom: 2,
+    };
+    egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                let count = RichText::new(n.to_string())
+                    .size(t.text_small)
+                    .color(t.muted);
+                ui.label(count);
+                let font = theme::medium(12.0);
+                let job = styled(title, font, t.muted, find);
+                let r = ui.add(egui::Label::new(job).truncate());
+                let label = format!("{title}, {n}");
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+            });
+        });
+    });
 }
 
 /// Export, then Copy all: the list as shown, so a filter narrows both.
@@ -205,15 +325,23 @@ fn entries(reading: &Reading, rows: &[&Row]) -> Vec<Entry> {
 }
 
 /// One highlight: its page, the words, and the note under them.
-fn entry(ui: &mut Ui, reading: &Reading, row: &Row, t: &Tokens, out: &mut Commands) {
+fn entry(
+    ui: &mut Ui,
+    reading: &Reading,
+    row: &Row,
+    find: Find<'_>,
+    t: &Tokens,
+    out: &mut Commands,
+) {
     let page = page_of(&reading.document, row.spot);
     let full = ui.available_width();
     let text_w = (full - PAD_X * 2.0 - RULE - RULE_GAP).max(40.0);
-    let quote = clamp(ui, &row.quote, FontId::proportional(13.5), t.ink, text_w, 3);
-    let note = row
-        .note
-        .as_deref()
-        .map(|n| clamp(ui, n, FontId::proportional(13.0), t.muted, text_w - 18.0, 4));
+    let job = styled(&row.quote, FontId::proportional(13.5), t.ink, find);
+    let quote = clamp(ui, job, text_w, find.rows(3));
+    let note = row.note.as_deref().map(|n| {
+        let job = styled(n, FontId::proportional(13.0), t.muted, find);
+        clamp(ui, job, text_w - 18.0, find.rows(4))
+    });
     let meta = page.map(|p| format!("Page {}", p + 1)).unwrap_or_default();
     let meta_h = 16.0;
     let note_h = note.as_ref().map_or(0.0, |g| g.size().y + 6.0);
@@ -290,6 +418,7 @@ fn bookmark(
     reading: &Reading,
     doc: &Document,
     row: &Row,
+    find: Find<'_>,
     t: &Tokens,
     out: &mut Commands,
 ) {
@@ -304,11 +433,12 @@ fn bookmark(
         (None, Some(at)) => (at, "Bookmark".to_owned()),
         (_, None) => (row.quote.clone(), "Bookmark".to_owned()),
     };
-    let title = clamp(ui, &name, FontId::proportional(13.5), t.ink, text_w, 2);
-    let note = row
-        .note
-        .as_deref()
-        .map(|n| clamp(ui, n, FontId::proportional(13.0), t.muted, text_w - 18.0, 4));
+    let job = styled(&name, FontId::proportional(13.5), t.ink, find);
+    let title = clamp(ui, job, text_w, 2);
+    let note = row.note.as_deref().map(|n| {
+        let job = styled(n, FontId::proportional(13.0), t.muted, find);
+        clamp(ui, job, text_w - 18.0, find.rows(4))
+    });
     let meta_h = 16.0;
     let note_h = note.as_ref().map_or(0.0, |g| g.size().y + 6.0);
     let height = 10.0 + meta_h + title.size().y + note_h + 10.0;
@@ -381,17 +511,33 @@ fn bookmark(
     });
 }
 
-/// `text` on one line's words, wrapped to `rows` at most.
-fn clamp(
-    ui: &Ui,
-    text: &str,
-    font: FontId,
-    ink: egui::Color32,
-    w: f32,
-    rows: usize,
-) -> Arc<Galley> {
+/// `text` with its spacing evened, the search's words washed.
+fn styled(text: &str, font: FontId, ink: Color32, find: Find<'_>) -> LayoutJob {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut job = LayoutJob::single_section(flat, TextFormat::simple(font, ink));
+    let plain = TextFormat::simple(font, ink);
+    let lit = TextFormat {
+        background: find.wash,
+        ..plain.clone()
+    };
+    let mut job = LayoutJob::default();
+    let mut at = 0;
+    for r in query::marks(&flat, find.words) {
+        if let Some(s) = flat.get(at..r.start) {
+            job.append(s, 0.0, plain.clone());
+        }
+        if let Some(s) = flat.get(r.clone()) {
+            job.append(s, 0.0, lit.clone());
+        }
+        at = r.end;
+    }
+    if let Some(s) = flat.get(at..) {
+        job.append(s, 0.0, plain);
+    }
+    job
+}
+
+/// A laid-out `job` wrapped to `rows` at most.
+fn clamp(ui: &Ui, mut job: LayoutJob, w: f32, rows: usize) -> Arc<Galley> {
     job.wrap = TextWrapping {
         max_width: w,
         max_rows: rows,
