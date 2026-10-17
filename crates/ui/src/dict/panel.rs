@@ -111,18 +111,14 @@ impl Panel {
         }
         let asked = self.text.trim().to_owned();
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for (i, entry) in reply.entries.iter().enumerate() {
-                if i > 0 {
-                    ui.separator();
-                }
-                super::card::entry_rows(ui, entry, &asked, &t);
+            super::card::entries(ui, &reply.entries, &asked, &t, |ui, entry| {
                 if !draft.pair && ready.len() > 1 {
                     let from = PACKS.iter().find(|p| p.id == entry.pack);
                     if let Some(p) = from {
                         ui.label(RichText::new(p.label()).size(t.text_small).color(t.muted));
                     }
                 }
-            }
+            });
         });
     }
 }

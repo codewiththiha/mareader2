@@ -28,6 +28,7 @@ use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
 use crate::layout::ViewMode;
 use crate::library::{self, LibraryState};
 use crate::library_panel::{self, PaneTab, PanelContext, PanelState};
+use crate::machine_fonts::MachineFonts;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
 use crate::pane_texts::PaneTexts;
@@ -115,6 +116,8 @@ pub struct MareaderApp {
     /// Read from storage; [`MareaderApp::resume`] opens it.
     last: Option<LastDocument>,
     fonts: FontState,
+    /// Fills in letters no bundled face has from the machine's fonts.
+    machine_fonts: MachineFonts,
     /// Commands from outside a view: tests, OS drops, later the keymap.
     queued: Commands,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
@@ -183,6 +186,7 @@ impl MareaderApp {
             reduced_motion: Arc::new(AtomicBool::new(false)),
             last: None,
             fonts: FontState::Missing,
+            machine_fonts: MachineFonts::default(),
             queued: Commands::new(),
             #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             live: theme::live::LiveTokens::from_env(),
@@ -2172,6 +2176,7 @@ impl eframe::App for MareaderApp {
         if self.restyle(&ctx) {
             ctx.request_repaint();
         }
+        self.machine_fonts.after_frame(&ctx);
     }
 
     /// Writes happen on eframe's persist thread, and only when changed.
