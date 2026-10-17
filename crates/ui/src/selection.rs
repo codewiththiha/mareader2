@@ -257,6 +257,7 @@ fn tooltip(response: &Response, target: &LinkTarget) {
     let text = match target {
         LinkTarget::Page(page) => format!("Go to page {}", page + 1),
         LinkTarget::Web(url) => url.clone(),
+        LinkTarget::Note { .. } => "Show the note".to_owned(),
     };
     response.clone().on_hover_text_at_pointer(text);
 }

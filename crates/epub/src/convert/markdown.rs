@@ -323,7 +323,7 @@ fn write<'a>(events: Vec<Event<'a>>, s: &Scan) -> Vec<String> {
                 ruled = true;
                 pending_note = Some(number);
                 out.push(Event::Html(
-                    format!("{rule}<div id=\"fn-{number}\">\n").into(),
+                    format!("{rule}<div id=\"fn-{number}\" epub:type=\"footnote\">\n").into(),
                 ));
             }
             Event::End(TagEnd::FootnoteDefinition) => {
@@ -379,8 +379,13 @@ fn reference(label: &str, chapter: usize, s: &Scan) -> String {
     };
     let n = note.number;
     match note.chapter {
-        Some(at) if at == chapter => format!("<sup><a href=\"#fn-{n}\">{n}</a></sup>"),
-        Some(at) => format!("<sup><a href=\"{}#fn-{n}\">{n}</a></sup>", chapter_file(at)),
+        Some(at) if at == chapter => {
+            format!("<sup><a epub:type=\"noteref\" href=\"#fn-{n}\">{n}</a></sup>")
+        }
+        Some(at) => format!(
+            "<sup><a epub:type=\"noteref\" href=\"{}#fn-{n}\">{n}</a></sup>",
+            chapter_file(at)
+        ),
         None => format!("<sup>{n}</sup>"),
     }
 }

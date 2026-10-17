@@ -24,7 +24,8 @@ const FEATURES: &str = r##"
 <h2>Things a book holds</h2>
 <p>Links read as underlined words: on <a href="chapter-2.xhtml">to the next
 chapter</a>, down <a href="#part-2">to Part 1.2</a>, or out
-<a href="https://github.com/codewiththiha/mareader2">to the web</a>.</p>
+<a href="https://github.com/codewiththiha/mareader2">to the web</a>. Notes
+stay beside their mark<a epub:type="noteref" href="#note-1">1</a>.</p>
 <p>Lists hang their markers in the margin:</p>
 <ul>
   <li>Rice and timber at dawn</li>
@@ -52,6 +53,7 @@ asked.</p></blockquote>
 <hr/>
 <div class="figure"><img src="../images/river.png" alt="The river at dusk"/></div>
 <p class="caption">The river at dusk.</p>
+<aside id="note-1" epub:type="footnote"><p>A note opens in a card on its mark.</p></aside>
 "##;
 
 /// A dusk landscape `w × h`: sky, sun, and a rippled river.

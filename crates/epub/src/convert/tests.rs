@@ -398,7 +398,12 @@ fn footnotes_link_across_chapters_and_tasks_show_their_boxes() {
         .unwrap();
     assert!(note_page > river);
     let links: Vec<Destination> = book.links(river).into_iter().map(|l| l.to).collect();
-    assert!(links.contains(&Destination::Page(note_page)), "{links:?}");
+    // The mark opens the note in place; its page is kept for going there.
+    let note = Destination::Note {
+        page: note_page,
+        text: "1 Before the sun is up.".into(),
+    };
+    assert!(links.contains(&note), "{links:?}");
 }
 
 fn text_on(book: &Book, page: usize) -> String {

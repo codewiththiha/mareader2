@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use egui::{Event, Modifiers, OutputCommand, PointerButton, Pos2, pos2};
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -481,5 +482,67 @@ fn dragging_empty_space_pans_and_a_quick_release_flings() -> Out {
     // Page one may glide off screen altogether.
     let flung = top(&h).unwrap_or(f32::NEG_INFINITY);
     assert!(after - flung > 160.0, "{after} -> {flung}");
+    Ok(())
+}
+
+#[test]
+fn a_book_s_footnote_opens_in_place_and_can_be_followed() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("epub", "sample:2"),
+        ("view", "single"),
+        ("animations", "false"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    let doc = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or("no book")?
+        .document;
+    let note = |l: &mareader_pdf::Link| match &l.target {
+        LinkTarget::Note { page, text } => Some((l.bounds, *page, text.clone())),
+        _ => None,
+    };
+    let (page, (bounds, to, text)) = (0..doc.page_count())
+        .find_map(|p| Some((p, doc.text_layer(p).ok()?.links.iter().find_map(note)?)))
+        .ok_or("no footnote")?;
+    assert_eq!(text, "A note opens in a card on its mark.");
+    h.state_mut().queue(Command::GoTo { pane, page });
+    h.run();
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(pane)
+        .first()
+        .ok_or("no sheet")?;
+    let mark = sheet.to_screen(bounds).center();
+    clicks(&mut h, mark, 1);
+    h.run();
+    // The note shows on its mark; the page stays.
+    h.get_by_label(&text);
+    assert_eq!(h.state().documents().current(pane), Some(page));
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label(&text).is_none(), "Escape closes it");
+    // Clicked again at once, the mark would count as a double click.
+    h.run_steps(40);
+    clicks(&mut h, mark, 1);
+    h.run();
+    h.get_by_label(&format!("Go to page {}", to + 1)).click();
+    h.run_steps(10);
+    h.run();
+    assert!(h.query_by_label(&text).is_none());
+    assert_eq!(h.state().documents().current(pane), Some(to));
     Ok(())
 }

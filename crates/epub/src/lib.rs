@@ -14,6 +14,7 @@ mod convert;
 mod css;
 mod guard;
 mod href;
+mod notes;
 pub mod sample;
 mod xhtml;
 

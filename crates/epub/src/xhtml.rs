@@ -1,6 +1,7 @@
 //! Chapter XHTML to blocks: html5ever's tokenizer, our element stack, no DOM.
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::Arc;
 
 use html5ever::tendril::StrTendril;
@@ -46,6 +47,17 @@ pub(crate) struct Refs {
     pub(crate) places: HashMap<String, Anchor>,
     /// Indexed by the target a link's text carries.
     pub(crate) hrefs: Vec<Href>,
+    /// `path#id` of block elements to the blocks they hold.
+    pub(crate) extents: HashMap<String, Extent>,
+    /// Links marked as leading to a note.
+    pub(crate) noterefs: HashSet<u32>,
+}
+
+/// The blocks an element with an id holds, and whether it is a note.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Extent {
+    pub(crate) blocks: Range<usize>,
+    pub(crate) note: bool,
 }
 
 impl Refs {
@@ -107,6 +119,8 @@ struct Open {
     style: Style,
     /// An ordered list's last item number.
     counter: u32,
+    /// Its `path#id`, first block and whether it is a note.
+    extent: Option<(String, usize, bool)>,
 }
 
 fn is_void(name: &str) -> bool {
@@ -197,6 +211,26 @@ fn attr<'t>(tag: &'t Tag, name: &str) -> Option<&'t str> {
         .iter()
         .find(|a| &*a.name.local == name)
         .map(|a| &*a.value)
+}
+
+/// Whether attribute `name` lists one of `words`, as `epub:type` does.
+fn typed(tag: &Tag, name: &str, words: &[&str]) -> bool {
+    let listed = |w: &str| words.iter().any(|x| w.eq_ignore_ascii_case(x));
+    attr(tag, name).is_some_and(|v| v.split_whitespace().any(listed))
+}
+
+/// An element holding a note, by EPUB or ARIA semantics.
+fn is_note(tag: &Tag) -> bool {
+    typed(
+        tag,
+        "epub:type",
+        &["footnote", "endnote", "rearnote", "note"],
+    ) || typed(tag, "role", &["doc-footnote", "doc-endnote"])
+}
+
+/// A link to a note, by EPUB or ARIA semantics.
+fn is_noteref(tag: &Tag) -> bool {
+    typed(tag, "epub:type", &["noteref"]) || typed(tag, "role", &["doc-noteref"])
 }
 
 /// The table being read; only the outermost one builds rows.
@@ -476,7 +510,7 @@ impl State<'_> {
             if !innermost.is_some_and(|n| closes.contains(&n)) {
                 break;
             }
-            self.stack.truncate(at);
+            self.close_from(at);
         }
     }
 
@@ -733,10 +767,13 @@ impl State<'_> {
             }
             _ => {}
         }
+        let mut extent = None;
         if is_block(name) {
             self.boundary(name);
             if let Some(id) = id {
                 self.mark(id);
+                let key = format!("{}#{}", self.base, id.trim());
+                extent = Some((key, self.first + self.blocks.len(), is_note(tag)));
             }
         }
         if matches!(
@@ -762,12 +799,16 @@ impl State<'_> {
         }
         if let Some(href) = attr(tag, "href").filter(|_| name == "a") {
             style.link = self.link_to(href);
+            if let Some(i) = style.link.filter(|_| is_noteref(tag)) {
+                self.refs.noterefs.insert(i);
+            }
         }
         self.pre_opened = name == "pre";
         self.stack.push(Open {
             name: name.to_owned(),
             style,
             counter,
+            extent,
         });
         if name == "style" {
             self.style_text.clear();
@@ -786,16 +827,34 @@ impl State<'_> {
         self.end_table(name);
         // Close the innermost match and anything left open in it.
         if let Some(at) = self.stack.iter().rposition(|o| o.name == name) {
-            self.stack.truncate(at);
+            self.close_from(at);
         }
         if matches!(name, "ul" | "ol") && !self.in_list() {
             self.list_opened = false;
         }
     }
 
+    /// Pops the open elements from `at`, ending their extents.
+    fn close_from(&mut self, at: usize) {
+        // A block about to close may still be open text; it counts.
+        let ends = self.stack.iter().skip(at).any(|o| o.extent.is_some());
+        if ends && self.table.is_none() {
+            self.finish();
+        }
+        let end = self.first + self.blocks.len();
+        let closed: Vec<Open> = self.stack.drain(at..).collect();
+        for (key, start, note) in closed.into_iter().filter_map(|o| o.extent) {
+            if end > start && self.refs.extents.len() < MAX_PLACES {
+                let blocks = start..end;
+                self.refs.extents.insert(key, Extent { blocks, note });
+            }
+        }
+    }
+
     fn eof(&mut self) {
         self.finish();
         self.flush_table();
+        self.close_from(0);
         // Ids after the last block mark where the next chapter starts.
         let at = Anchor {
             block: self.first + self.blocks.len(),

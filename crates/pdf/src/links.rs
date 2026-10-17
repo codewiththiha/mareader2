@@ -18,6 +18,8 @@ const SCHEMES: [&str; 3] = ["http://", "https://", "mailto:"];
 pub enum LinkTarget {
     /// A 0-based page in this file.
     Page(usize),
+    /// A book's footnote: what it says, shown in place, and its page.
+    Note { page: usize, text: String },
     /// An address for the browser or mail app, scheme already checked.
     Web(String),
 }
