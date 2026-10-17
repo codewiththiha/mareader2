@@ -210,8 +210,24 @@ fn the_tab_sets_the_level_and_removes_the_dataset() {
     assert!(!study.cefr.enabled);
     assert_eq!(study.cefr.level, CefrLevel::default());
     assert_eq!(study.highlights.cefr.color.to_hex(), "#00b2f4");
-    h.get_by_label("Remove word levels").click();
+    h.get_by_label("Remove word data").click();
     h.run();
     assert_eq!(h.state().vocab().state(Part::Dataset), &State::Absent);
-    h.get_by_label("Download word levels");
+    h.get_by_label("Download word data");
+    // Without the data its options go, until it is back.
+    assert!(h.query_by_label("Reading level").is_none());
+    assert!(h.query_by_label("Shade words above my level").is_none());
+}
+
+#[test]
+fn the_tab_offers_only_the_download_until_the_data_is_in() {
+    let empty = tempfile::tempdir().unwrap();
+    let mut h = reader(empty.path(), None);
+    h.set_size(egui::vec2(1000.0, 1200.0));
+    h.state_mut().queue(Command::OpenSettings(Tab::Vocabulary));
+    h.run();
+    h.get_by_label("Download word data");
+    assert!(h.query_by_label("Word roles").is_none(), "one download");
+    assert!(h.query_by_label("Reading level").is_none());
+    assert!(h.query_by_label("Shading look").is_none());
 }

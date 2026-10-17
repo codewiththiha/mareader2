@@ -1,5 +1,4 @@
-//! The Vocabulary tab: shading words above the reader's level, its look
-//! and the word dataset.
+//! The Vocabulary tab: the word data, then shading once it is in.
 
 use egui::{ProgressBar, RichText, Slider, Ui};
 use mareader_cefr::{DATASET, Part, State, TAGGER};
@@ -21,6 +20,22 @@ pub fn tab(
     vocab: &Vocab,
     out: &mut Commands,
 ) {
+    section(ui, "Word data");
+    group(ui, |ui| data_row(ui, vocab, out));
+    // Shading needs the levels: its options wait for them.
+    let ready = *vocab.state(Part::Dataset) == State::Ready;
+    if !vocab.attached() {
+        note(ui, "Downloads need the desktop app.");
+    } else if !ready {
+        note(
+            ui,
+            "Download it to shade words above your level. It works offline, \
+             and a paused download resumes where it stopped.",
+        );
+    }
+    if !ready {
+        return;
+    }
     section(ui, "Vocabulary highlighter");
     group(ui, |ui| {
         let c = &mut study.cefr;
@@ -51,19 +66,60 @@ pub fn tab(
         ui,
         "Highlights can't take this look, so none passes for shading.",
     );
-    section(ui, "Word dataset");
-    group(ui, |ui| {
-        dataset_row(ui, vocab, out);
-        divider(ui);
-        roles_row(ui, vocab, out);
+}
+
+/// Both files as the one download the reader sees.
+#[derive(Clone, Debug, PartialEq)]
+enum Whole<'a> {
+    Absent,
+    Fetching {
+        got: u64,
+        total: u64,
+    },
+    Paused {
+        got: u64,
+        total: u64,
+    },
+    Preparing,
+    /// The levels are in; the roles model is still to come.
+    Partial,
+    Ready,
+    Failed(&'a str),
+}
+
+/// How the levels and the roles model stand together.
+fn whole<'a>(levels: &'a State, roles: &'a State) -> Whole<'a> {
+    let parts = [(levels, DATASET.bytes), (roles, TAGGER.bytes)];
+    let size = |s: &State, guess: u64| match s {
+        State::Fetching { got, total } | State::Paused { got, total } => {
+            (*got, total.unwrap_or(guess))
+        }
+        State::Ready | State::Converting => (guess, guess),
+        State::Absent | State::Failed(_) => (0, guess),
+    };
+    let (got, total) = parts.iter().fold((0, 0), |(g, t), (s, guess)| {
+        let (a, b) = size(s, *guess);
+        (g + a, t + b)
     });
-    if vocab.attached() {
-        note(
-            ui,
-            "Both work offline once downloaded. A paused download resumes where it stopped.",
-        );
+    let any = |f: fn(&State) -> bool| parts.iter().any(|(s, _)| f(s));
+    let failed = parts.iter().find_map(|(s, _)| match s {
+        State::Failed(why) => Some(why.as_str()),
+        _ => None,
+    });
+    if let Some(why) = failed {
+        Whole::Failed(why)
+    } else if any(|s| matches!(s, State::Fetching { .. })) {
+        Whole::Fetching { got, total }
+    } else if any(|s| matches!(s, State::Paused { .. })) {
+        Whole::Paused { got, total }
+    } else if any(|s| *s == State::Converting) {
+        Whole::Preparing
     } else {
-        note(ui, "Downloads need the desktop app.");
+        match (levels, roles) {
+            (State::Ready, State::Ready) => Whole::Ready,
+            (State::Ready, _) => Whole::Partial,
+            _ => Whole::Absent,
+        }
     }
 }
 
@@ -116,7 +172,7 @@ fn look_rows(ui: &mut Ui, study: &mut StudySettings) {
 }
 
 fn press(ui: &mut Ui, out: &mut Commands, (icon, name): (Icon, &str), action: Action) {
-    let label = format!("{name} word levels");
+    let label = format!("{name} word data");
     if widgets::icon_button(ui, icon, &label, false).clicked() {
         out.push(Command::Vocab(action));
     }
@@ -129,69 +185,62 @@ fn progress(ui: &mut Ui, got: u64, total: Option<u64>, guess: u64) {
     ui.add(ProgressBar::new(done).desired_width(150.0).text(text));
 }
 
-fn dataset_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
+/// The levels and the roles model, downloaded, paused and removed as one.
+fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
-    let hint = "Each word's CEFR level, one small file";
-    row(ui, "Word levels", hint, |ui| {
+    let hint = "Each word's CEFR level, and a model of its role in a sentence";
+    let all = DATASET.bytes + TAGGER.bytes;
+    row(ui, "Word data", hint, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !vocab.attached() {
-            muted(ui, &t, &megabytes(DATASET.bytes));
+            muted(ui, &t, &megabytes(all));
             return;
         }
-        match vocab.state(Part::Dataset) {
-            State::Absent => {
+        let levels = vocab.state(Part::Dataset);
+        match whole(levels, vocab.state(Part::Tagger)) {
+            Whole::Absent => {
                 press(ui, out, (Icon::Download, "Download"), Action::Download);
-                muted(ui, &t, &megabytes(DATASET.bytes + TAGGER.bytes));
+                muted(ui, &t, &megabytes(all));
             }
-            State::Fetching { got, total } => {
+            Whole::Fetching { got, total } => {
                 press(ui, out, (Icon::Close, "Cancel"), Action::Cancel);
                 press(ui, out, (Icon::Pause, "Pause"), Action::Pause);
-                progress(ui, *got, *total, DATASET.bytes);
+                progress(ui, got, Some(total), all);
             }
-            State::Paused { got, .. } => {
+            Whole::Paused { got, .. } => {
                 press(ui, out, (Icon::Close, "Cancel"), Action::Cancel);
                 press(ui, out, (Icon::Resume, "Resume"), Action::Download);
-                muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
+                muted(ui, &t, &format!("Paused at {}", megabytes(got)));
             }
-            State::Converting => {
+            Whole::Preparing => {
                 ui.spinner();
                 muted(ui, &t, "Preparing…");
             }
-            State::Ready => {
-                ui.visuals_mut().override_text_color = Some(t.danger);
-                press(ui, out, (Icon::Remove, "Remove"), Action::Remove);
-                ui.visuals_mut().override_text_color = None;
-                let words = vocab.words().map(|n| format!("{} words", count(n)));
-                muted(ui, &t, words.as_deref().unwrap_or("Downloaded"));
+            Whole::Partial => {
+                remove(ui, &t, out);
+                // The roles came later: shading works, a click's role waits.
+                press(ui, out, (Icon::Download, "Download"), Action::Download);
+                muted(ui, &t, "Word roles missing");
+                words(ui, vocab, &t);
             }
-            State::Failed(why) => failed(ui, &t, why, out),
+            Whole::Ready => {
+                remove(ui, &t, out);
+                words(ui, vocab, &t);
+            }
+            Whole::Failed(why) => failed(ui, &t, why, out),
         }
     });
 }
 
-/// The tagger comes with the dataset; it only shows how it stands.
-fn roles_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
-    let t = Tokens::get(ui.ctx());
-    let hint = "A clicked word's role in its sentence, and that sense's level";
-    row(ui, "Word roles", hint, |ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        if !vocab.attached() {
-            muted(ui, &t, &megabytes(TAGGER.bytes));
-            return;
-        }
-        match vocab.state(Part::Tagger) {
-            State::Absent => muted(ui, &t, "Comes with the word levels"),
-            State::Fetching { got, total } => progress(ui, *got, *total, TAGGER.bytes),
-            State::Paused { got, .. } => {
-                muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
-            }
-            State::Converting => {
-                ui.spinner();
-            }
-            State::Ready => muted(ui, &t, "Downloaded"),
-            State::Failed(why) => failed(ui, &t, why, out),
-        }
-    });
+fn remove(ui: &mut Ui, t: &Tokens, out: &mut Commands) {
+    ui.visuals_mut().override_text_color = Some(t.danger);
+    press(ui, out, (Icon::Remove, "Remove"), Action::Remove);
+    ui.visuals_mut().override_text_color = None;
+}
+
+fn words(ui: &mut Ui, vocab: &Vocab, t: &Tokens) {
+    let words = vocab.words().map(|n| format!("{} words", count(n)));
+    muted(ui, t, words.as_deref().unwrap_or("Downloaded"));
 }
 
 fn failed(ui: &mut Ui, t: &Tokens, why: &str, out: &mut Commands) {
@@ -202,4 +251,31 @@ fn failed(ui: &mut Ui, t: &Tokens, why: &str, out: &mut Commands) {
 
 fn muted(ui: &mut Ui, t: &Tokens, text: &str) {
     ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_files_read_as_one_download() {
+        let fetching = |got| State::Fetching {
+            got,
+            total: Some(1_000),
+        };
+        let (a, b) = (fetching(250), fetching(500));
+        let both = whole(&a, &b);
+        let (got, total) = (750, 2_000);
+        assert_eq!(both, Whole::Fetching { got, total });
+        let levels = State::Ready;
+        let ready = whole(&levels, &b);
+        let got = DATASET.bytes + 500;
+        let total = DATASET.bytes + 1_000;
+        assert_eq!(ready, Whole::Fetching { got, total });
+        let why = State::Failed("offline".into());
+        assert_eq!(whole(&State::Ready, &why), Whole::Failed("offline"));
+        assert_eq!(whole(&State::Ready, &State::Absent), Whole::Partial);
+        assert_eq!(whole(&State::Ready, &State::Ready), Whole::Ready);
+        assert_eq!(whole(&State::Absent, &State::Absent), Whole::Absent);
+    }
 }

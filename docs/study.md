@@ -264,6 +264,11 @@ slice 5.
   same resumable fetch as the dictionary packs. The parquet becomes
   `cefr.db` in `<data>/vocabulary/`; a whole download found at launch
   converts then. Pause, Cancel, Resume, Remove and Try again act on both.
+- **One download.** The tab shows both files as one Word data row at its
+  top, with one progress bar over both. The shading options appear only
+  once the levels are in, and go again when they are removed. Levels kept
+  from before the roles model existed say "Word roles missing" and offer
+  Download for the rest.
 - **Shading.** With the switch on, a word whose level is above My level
   (A2 to C2, B2 by default; C2 shades nothing) is shaded on PDFs and
   books alike, in the CEFR look: its own pen and colour, full red by
