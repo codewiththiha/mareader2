@@ -147,7 +147,7 @@ fn the_title_centres_truncates_and_hides_for_want_of_room() {
     let centre = (l + r) / 2.0;
     assert!((centre - SIZE.x / 2.0).abs() < 2.0, "{l}..{r} off centre");
     let pinned = [("pdf", "sample:3"), ("pinned", "true")];
-    let narrow = with(&pinned, egui::vec2(420.0, 600.0));
+    let narrow = with(&pinned, egui::vec2(380.0, 600.0));
     let at = title_box(&narrow, title);
     let full = r - l;
     assert!(
@@ -274,7 +274,7 @@ fn an_idle_window_draws_nothing() {
 fn bars(h: &mut Harness<'static, MareaderApp>) -> (bool, bool) {
     h.hover_at(pos2(600.0, 10.0));
     h.run_steps(30);
-    let top = h.query_by_label("Pin title bar").is_some();
+    let top = h.query_by_label("Appearance").is_some();
     h.hover_at(pos2(600.0, SIZE.y - 4.0));
     h.run_steps(30);
     let bottom = h.query_by_label("Next page").is_some();

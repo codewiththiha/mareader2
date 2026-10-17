@@ -33,6 +33,8 @@ pub struct MenuContext<'a> {
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
     pub auto_scroll: Option<bool>,
+    /// The title bar stays shown instead of waiting for a hover.
+    pub pinned: bool,
 }
 
 /// The menu button and its popup.
@@ -101,7 +103,13 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         out.push(Command::Chromeless);
         ui.close();
     }
+    pin_row(ui, cx.pinned, out);
     ui.separator();
+    let keys = keymap::hint(cx.platform, &Command::ShowSettings);
+    if widgets::menu_row(ui, Icon::Settings, "Settings", keys.as_deref(), false).clicked() {
+        out.push(Command::ShowSettings);
+        ui.close();
+    }
     shortcuts(ui, cx.platform);
     ui.separator();
     let t = Tokens::get(ui.ctx());
@@ -111,6 +119,14 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         ui.add_space(8.0);
         ui.label(RichText::new(version).size(t.text_small).color(t.muted));
     });
+}
+
+/// Keeps the title bar shown; both routes' menus offer it.
+pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
+    let label = "Keep title bar shown";
+    if widgets::menu_row(ui, Icon::Pin, label, None, pinned).clicked() {
+        out.push(Command::SetTitlebarPinned(!pinned));
+    }
 }
 
 /// Auto-scroll's switch, dimmed in the paged modes, as in mareader.

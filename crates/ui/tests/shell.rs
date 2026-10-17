@@ -75,11 +75,13 @@ fn a_pinned_bar_stays_after_the_pointer_leaves() {
 }
 
 #[test]
-fn the_pin_button_keeps_the_bar_after_the_pointer_leaves() {
+fn keep_title_bar_shown_holds_it_after_the_pointer_leaves() {
     let mut h = harness(MareaderApp::default());
     h.hover_at(egui::pos2(600.0, 20.0));
     h.run_steps(8);
-    h.get_by_label("Pin title bar").click();
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    h.get_by_label("Keep title bar shown").click();
     h.run_steps(2);
     h.hover_at(egui::pos2(600.0, 500.0));
     for _ in 0..40 {
@@ -256,7 +258,11 @@ fn a_command_schedules_the_frame_that_shows_it() {
 fn open_settings(h: &mut Harness<'static, MareaderApp>) {
     h.hover_at(egui::pos2(700.0, 20.0));
     h.run_steps(8);
-    // The bar's gear; a docked sidebar's header has one too.
+    // A docked sidebar's header has a gear; else it's in the menu.
+    if h.query_by_label("Settings").is_none() {
+        h.get_by_label("View & tools").click();
+        h.run_steps(3);
+    }
     if let Some(gear) = h.query_all_by_label("Settings").last() {
         gear.click();
     }
@@ -407,9 +413,10 @@ fn wait(h: &mut Harness<'static, MareaderApp>, secs: f32) {
 
 #[test]
 fn a_toolbar_tooltip_names_the_control_and_its_shortcut() {
-    let mut h = with(&[("platform", "gnome")]);
+    let mut h = with(&[("platform", "gnome"), ("sidebar", "outline")]);
     h.hover_at(egui::pos2(700.0, 20.0));
     h.run_steps(8);
+    // The sidebar header's gear; the bar keeps Settings in its menu.
     h.get_by_label("Settings").hover();
     wait(&mut h, 0.6);
     assert!(
@@ -422,28 +429,50 @@ fn a_toolbar_tooltip_names_the_control_and_its_shortcut() {
 fn a_narrow_bar_folds_tools_into_the_menu() {
     let mut app = MareaderApp::default();
     app.set_option("platform", "windows").ok();
-    // Room for Settings alone: Search folds first.
-    let mut h = sized(app, egui::vec2(560.0, 600.0));
-    h.hover_at(egui::pos2(280.0, 20.0));
+    app.set_option("workers", "0").ok();
+    app.set_option("pdf", "sample:3").ok();
+    let mut h = sized(app, egui::vec2(600.0, 600.0));
+    h.hover_at(egui::pos2(300.0, 20.0));
     h.run_steps(8);
-    assert!(
-        h.query_by_label("Settings").is_some(),
-        "the first tool stays"
-    );
-    assert!(h.query_by_label("Search").is_none(), "the last one folds");
-    // Narrower still, both fold, and work from the menu.
+    assert!(h.query_by_label("Search").is_some(), "room for Search");
+    // Narrower, Search folds, and works from the menu.
     h.set_size(egui::vec2(480.0, 600.0));
     h.hover_at(egui::pos2(240.0, 20.0));
     h.run_steps(8);
-    assert!(h.query_by_label("Settings").is_none(), "both fold");
+    assert!(h.query_by_label("Search").is_none(), "it folds");
     h.get_by_label("View & tools").click();
     h.run_steps(3);
+    h.get_by_label("Search").click();
+    h.run_steps(3);
+    assert!(h.state().find().is_open(), "a folded tool still works");
+}
+
+#[test]
+fn settings_and_the_pin_live_in_the_menu() {
+    let mut h = with(&[("platform", "windows")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    for gone in ["Settings", "Pin title bar"] {
+        assert!(h.query_by_label(gone).is_none(), "{gone} on the bar");
+    }
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    h.get_by_label("Keep title bar shown");
     h.get_by_label("Settings").click();
     h.run_steps(3);
-    assert!(
-        h.state().settings_window().is_open(),
-        "a folded tool still works"
-    );
+    assert!(h.state().settings_window().is_open());
+}
+
+#[test]
+fn a_docked_sidebar_takes_the_bar_s_tools() {
+    let mut h = with(&[("platform", "windows"), ("sidebar", "outline")]);
+    h.hover_at(egui::pos2(700.0, 20.0));
+    h.run_steps(8);
+    // One Search, the header's: the bar shows no second copy.
+    assert_eq!(h.query_all_by_label("Search").count(), 1);
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    assert_eq!(h.query_all_by_label("Search").count(), 1, "nor its menu");
 }
 
 #[test]
