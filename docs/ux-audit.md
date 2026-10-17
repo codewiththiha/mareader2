@@ -139,4 +139,9 @@ Severity: **P1** confuses or blocks, **P2** slows or looks broken,
    darker than a dark page; No gap removes it. Still open: §5.4, a
    located book's Locate action (§4.4), and centring PDF pages in a
    split (§5.2).
-5. **Appearance, View menu and Library**: §6, §7, §9, §10.
+5. **Appearance, View menu and Library**: §6, §7, §9, §10. Done.
+   Preset sections are named only beside the user's own; a short last
+   row is centred. View modes carry captions; the menu groups Layout,
+   Zoom and Reading. Drawn covers show an initial, and a book's
+   caption names it. §10.2 already held: a failed open names the file
+   and the reason. Toasts rise clear of the page and selection bars.
