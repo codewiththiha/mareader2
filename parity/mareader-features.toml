@@ -750,7 +750,7 @@ evidence = [
     "crates/pdf/src/check.rs::each_refusal_names_its_cause",
 ]
 reference = ["crates/reader-runtime/src/services/document/open"]
-notes = "Open dialog (rfd), Open beside, drag and drop into the pane under the pointer, the command line, and the system: cargo-packager registers .pdf, .epub, .txt and .md as mareader did (installers.yml installs each installer, checks the registration and opens a book with it on all three platforms), a second launch hands its files to the running window, and macOS Finder files arrive as an Apple event (open_files.rs; the owner checked it on a Mac, 2026-10-17). See docs/packaging.md"
+notes = "Open dialog (rfd), a drag from the Library panel to split (the owner dropped Open beside, 2026-10-17), drag and drop into the pane under the pointer, the command line, and the system: cargo-packager registers .pdf, .epub, .txt and .md as mareader did (installers.yml installs each installer, checks the registration and opens a book with it on all three platforms), a second launch hands its files to the running window, and macOS Finder files arrive as an Apple event (open_files.rs; the owner checked it on a Mac, 2026-10-17). See docs/packaging.md"
 
 [[feature]]
 id = "pdf.render"
@@ -1130,8 +1130,10 @@ evidence = [
   "crates/ui/tests/blend.rs::the_gutter_takes_the_page_paper_through_the_theme",
   "crates/ui/tests/blend.rs::the_texture_runs_from_the_page_into_the_gutter",
   "crates/ui/tests/blend.rs::scrolling_between_chapters_mixes_their_papers",
+  "crates/ui/tests/blend.rs::a_book_focused_beside_a_pdf_keeps_the_pdf_s_paper",
 ]
-reference = ["crates/pdf-paper/src/detect.rs", "crates/reader-runtime/src/effects/reader/blend_backdrop.rs"]
+reference = ["crates/pdf-paper/src/detect.rs", "crates/reader-runtime/src/effects/reader/blend_backdrop.rs", "crates/reader-runtime/src/frame_pane/mod.rs"]
+notes = "Split: the latest focused pane with a paper paints every pane, so a focused book keeps the last PDF's (docs/epub.md); independent themes keep each pane's own"
 
 [[feature]]
 id = "appearance.presets"

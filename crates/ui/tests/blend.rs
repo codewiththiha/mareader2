@@ -164,3 +164,34 @@ fn scrolling_between_chapters_mixes_their_papers() -> Out {
     assert!(between, "a mix on the way: {seen:?}");
     Ok(())
 }
+
+#[test]
+fn a_book_focused_beside_a_pdf_keeps_the_pdf_s_paper() -> Out {
+    let mut h = reader(&[
+        ("panes", "2"),
+        ("focus", "1"),
+        ("pdf", "scan:6"),
+        ("focus", "2"),
+        ("epub", "sample:3"),
+        ("blend", "true"),
+        ("blend_area", "edges"),
+    ]);
+    h.run_steps(3);
+    let panes = h.state().panes();
+    let (Some(&pdf), Some(&book)) = (panes.first(), panes.last()) else {
+        return Err("two panes".into());
+    };
+    let app = h.state();
+    assert_eq!(app.active_pane(), book, "the book is focused");
+    let raw = app.documents().paper(pdf, PaperArea::Edges);
+    assert!(raw.is_some(), "the scan's paper was read");
+    // The book has none, so every pane keeps the last PDF's.
+    assert_eq!(app.blend_paper(book), raw);
+    assert_eq!(app.blend_paper(pdf), raw);
+    // Each pane its own: the book goes back to its text paper.
+    h.state_mut().set_option("independent", "true")?;
+    h.run();
+    assert_eq!(h.state().blend_paper(book), None);
+    assert_eq!(h.state().blend_paper(pdf), raw);
+    Ok(())
+}

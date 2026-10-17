@@ -308,6 +308,11 @@ Owner decisions after M4, and what they changed.
   dictionary segmenters (about 5 MB of data in the binary). Without them
   ICU4X printed "No segmentation model for complex script" on every
   layout and broke lines only at spaces.
+- **Blend beside a PDF.** As mareader's shared paper, every pane shows the
+  paper of the most recently focused pane that has one. A book has none, so
+  focusing it keeps the last PDF's paper on it and on its neighbours; only
+  when no PDF is open does a book show its own text paper. With independent
+  themes each PDF keeps its own paper and each book its text paper.
 - **Column Width.** mareader's dial, 60 to 140 %. The owner moved it from
   Layout to Settings › Fonts › Layout (2026-10-15), so it is a text setting
   and follows "Independent text for each pane"; settings v2 carry the old
