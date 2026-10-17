@@ -44,7 +44,7 @@ struct Tone {
     mode: vec4<u32>,
     stroke: vec4<f32>,
     grain: vec4<f32>,
-    // x: the texture's opacity.
+    // x: the texture's opacity; yzw: a book's ink.
     params: vec4<f32>,
 };
 @group(1) @binding(0) var<uniform> tone: Tone;
@@ -73,7 +73,7 @@ fn soft_light(b: f32, s: f32) -> f32 {
     return b + (2.0 * s - 1.0) * (d - b);
 }
 
-// W3C blend modes: 1 multiply, 2 screen, 3 soft light.
+// W3C blend modes: 1 multiply, 2 screen, 3 soft light; 4 recolours.
 fn blend(b: vec3<f32>, s: vec3<f32>) -> vec3<f32> {
     switch tone.mode.y {
         case 1u: { return b * s; }
@@ -159,14 +159,24 @@ fn pattern_layer(p: vec2<f32>, fw: vec2<f32>, line: f32) -> vec4<f32> {
     }
 }
 
+// A book's greys, black to its ink and white to its paper.
+fn recolour(s: vec3<f32>) -> vec3<f32> {
+    let g = clamp(dot(s, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    return mix(tone.params.yzw, tone.paper.rgb, g);
+}
+
 // The page filtered, blended over opaque paper, then textured.
 fn themed(c: vec4<f32>, at: vec2<f32>, fw: vec2<f32>, line: f32) -> vec4<f32> {
     if (tone.mode.y == 0u) {
         return c;
     }
     let paper = tone.paper.rgb;
-    let s = filter_chain(c.rgb / max(c.a, 1e-5));
-    let page = mix(paper, blend(paper, s), c.a);
+    let raw = c.rgb / max(c.a, 1e-5);
+    var s = recolour(raw);
+    if (tone.mode.y != 4u) {
+        s = blend(paper, filter_chain(raw));
+    }
+    let page = mix(paper, s, c.a);
     let layer = pattern_layer(at, fw, line);
     let a = layer.a * tone.params.x;
     return vec4<f32>(page * (1.0 - a) + layer.rgb * a, 1.0);

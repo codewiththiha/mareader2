@@ -294,6 +294,20 @@ Owner decisions after M4, and what they changed.
   drawn again over their boxes untoned, as mareader leaves them. Settings ›
   Fonts › Theme pictures tints them with the page instead (the ink dial
   still leaves them at full strength). PDF pages are themed whole, as before.
+- **A book's own paper and ink.** As mareader's text pages, a book is not
+  filtered like a PDF: its page is drawn clear and the page pass paints the
+  theme's text palette under it and recolours the black text to its ink
+  (light .98/.15, dark .24/.92, dim .22/.12 OKLCH lightness, chroma growing
+  with the tint). The pane around it takes the same paper. With a blend
+  colour or bands on, the paper is the PDF's dominant colour as before.
+  Colour emoji (COLR, CBDT, sbix or SVG glyphs) are drawn again untoned like
+  pictures; Settings › Fonts › Theme emoji tints them instead (off by
+  default).
+- **Thai, Burmese, Khmer and Lao lines.** These scripts write no spaces
+  between words, so parley's `complex-scripts` feature brings ICU4X's
+  dictionary segmenters (about 5 MB of data in the binary). Without them
+  ICU4X printed "No segmentation model for complex script" on every
+  layout and broke lines only at spaces.
 - **Column Width.** mareader's dial, 60 to 140 %. The owner moved it from
   Layout to Settings › Fonts › Layout (2026-10-15), so it is a text setting
   and follows "Independent text for each pane"; settings v2 carry the old

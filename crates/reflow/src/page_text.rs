@@ -1,7 +1,8 @@
-//! A page's characters and pictures where they are drawn.
+//! A page's characters, pictures and colour glyphs where they are drawn.
 use std::ops::Range;
 
-use parley::BreakReason;
+use parley::{BreakReason, PositionedLayoutItem};
+use skrifa::{FontRef, Tag};
 
 use crate::flow::{Draw, Flow, Laid, PAD, Para};
 use crate::hyphen::SHY;
@@ -28,6 +29,23 @@ impl Flow {
     /// Page `page`'s text by line; list markers are left out.
     pub fn text(&self, page: usize) -> Vec<PageLine> {
         let mut out = Vec::new();
+        self.each_para(page, |para, range, place| {
+            lines(para, range, place, &mut out)
+        });
+        out
+    }
+
+    /// Page `page`'s colour glyphs, emoji mostly: boxes the theme spares.
+    pub fn emojis(&self, page: usize) -> Vec<[f32; 4]> {
+        let mut out = Vec::new();
+        self.each_para(page, |para, range, ((x, y), _)| {
+            colour_runs(para, range, (x, y), &mut out);
+        });
+        out
+    }
+
+    /// Each paragraph's lines on page `page`, with where they are drawn.
+    fn each_para(&self, page: usize, mut visit: impl FnMut(&Para, Range<usize>, Origin)) {
         let left = self.column(page).0;
         for piece in self.pages.get(page).map_or(&[][..], Vec::as_slice) {
             let Some(set) = self.blocks.get(piece.block) else {
@@ -38,7 +56,7 @@ impl Flow {
             match (&set.draw, &*self.laid(piece.block)) {
                 (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     let at = (x + pad, y);
-                    lines(para, piece.units.clone(), (at, Some(set.source)), &mut out);
+                    visit(para, piece.units.clone(), (at, Some(set.source)));
                 }
                 (Draw::Table(grid), Laid::Table(rows)) => {
                     let [pad_x, pad_y] = grid.pad;
@@ -48,14 +66,13 @@ impl Flow {
                         };
                         for (c, cell) in cells.iter().enumerate() {
                             let at = (x + c as f32 * grid.column + pad_x, y + top + pad_y);
-                            lines(cell, 0..cell.layout.len(), (at, None), &mut out);
+                            visit(cell, 0..cell.layout.len(), (at, None));
                         }
                     }
                 }
                 _ => {}
             }
         }
-        out
     }
 
     /// Page `page`'s pictures: left, top, width, height in page units.
@@ -78,6 +95,33 @@ impl Flow {
 
 /// Where lines are drawn, and the block they come from if it's text.
 type Origin = ((f32, f32), Option<usize>);
+
+/// The runs of lines `range` drawn from colour fonts, boxed line-tall.
+fn colour_runs(para: &Para, range: Range<usize>, (x, y): (f32, f32), out: &mut Vec<[f32; 4]>) {
+    for line in range.filter_map(|n| para.layout.get(n)) {
+        let m = line.metrics();
+        let (top, height) = (y + m.block_min_coord, m.block_max_coord - m.block_min_coord);
+        for item in line.items() {
+            let PositionedLayoutItem::GlyphRun(run) = item else {
+                continue;
+            };
+            let font = run.run().font();
+            if is_colour(font.data.as_ref(), font.index) {
+                out.push([x + run.offset(), top, run.advance(), height]);
+            }
+        }
+    }
+}
+
+/// Whether a font draws in colour: layered, bitmap or SVG glyphs.
+fn is_colour(data: &[u8], index: u32) -> bool {
+    let Ok(font) = FontRef::from_index(data, index) else {
+        return false;
+    };
+    [*b"COLR", *b"CBDT", *b"sbix", *b"SVG "]
+        .iter()
+        .any(|tag| font.table_data(Tag::new(tag)).is_some())
+}
 
 /// Lines `range` of `para`, its origin at `x, y`, each char boxed.
 fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine>) {
@@ -288,5 +332,32 @@ mod tests {
             seen += 1;
         }
         assert!(seen > 400, "{seen}");
+    }
+
+    /// A bare font file holding one table, `tag`.
+    fn font_with(tag: &[u8; 4]) -> Vec<u8> {
+        let mut f = vec![0, 1, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0];
+        f.extend_from_slice(tag);
+        f.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 28, 0, 0, 0, 4]);
+        f.extend_from_slice(&[0; 4]);
+        f
+    }
+
+    #[test]
+    fn colour_fonts_are_told_by_their_tables() {
+        for tag in [b"COLR", b"CBDT", b"sbix", b"SVG "] {
+            assert!(is_colour(&font_with(tag), 0), "{tag:?}");
+        }
+        assert!(!is_colour(&font_with(b"glyf"), 0));
+        assert!(!is_colour(b"not a font", 0));
+    }
+
+    #[test]
+    fn plain_text_has_no_colour_runs() {
+        let blocks = [Block::text(Role::Paragraph, "Plain words, no emoji.")];
+        let f = with(&blocks, &Typography::default());
+        assert_eq!(f.text(0).len(), 1);
+        assert!(f.emojis(0).is_empty());
+        assert!(f.emojis(99).is_empty());
     }
 }

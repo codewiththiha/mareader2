@@ -953,7 +953,7 @@ area = "E"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/reflow/src/flow.rs::tables_split_between_rows", "crates/epub/src/xhtml.rs::lists_indent_mark_and_tighten_their_items", "crates/epub/src/xhtml.rs::tables_read_rows_cells_and_heads", "crates/epub/src/xhtml.rs::stylesheets_style_by_tag_and_class", "crates/reflow/src/flow.rs::layouts_are_laid_for_the_pages_drawn_and_no_others", "crates/reflow/src/flow.rs::a_page_laid_again_draws_and_reads_the_same", "crates/reflow/src/flow.rs::kept_layouts_stay_under_the_cap_and_the_used_stay"]
+evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/reflow/src/flow.rs::tables_split_between_rows", "crates/epub/src/xhtml.rs::lists_indent_mark_and_tighten_their_items", "crates/epub/src/xhtml.rs::tables_read_rows_cells_and_heads", "crates/epub/src/xhtml.rs::stylesheets_style_by_tag_and_class", "crates/reflow/src/flow.rs::layouts_are_laid_for_the_pages_drawn_and_no_others", "crates/reflow/src/flow.rs::a_page_laid_again_draws_and_reads_the_same", "crates/reflow/src/flow.rs::kept_layouts_stay_under_the_cap_and_the_used_stay", "crates/reflow/src/label.rs::scripts_without_spaces_break_between_words"]
 notes = "docs/epub.md: headings, lists, quotes, pre, inline code, tables, rules, images and a CSS subset (M4 slice 2); justification and hyphenation are type.justify-hyphenate. Only line boxes stay set; layouts are laid again for the pages drawn, 32 MiB kept at most"
 reference = ["crates/reflow-core/src/pager.rs"]
 
@@ -975,7 +975,7 @@ area = "E"
 tier = "P1"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/reflow/src/picture.rs::junk_and_giants_are_refused", "crates/reflow/src/picture.rs::decodes_shrink_to_their_bucket_and_are_reused", "crates/reflow/src/flow.rs::images_shrink_to_the_column_and_the_page_never_split", "crates/reflow/src/raster.rs::images_draw_their_pixels_and_junk_draws_a_box", "crates/epub/src/xhtml.rs::rules_and_images_are_blocks_and_missing_images_show_alt", "crates/ui/tests/gpu.rs::a_book_s_pictures_keep_their_colours_in_the_dark_unless_themed", "crates/ui/tests/reading.rs::the_fonts_tab_switches_a_book_s_pictures_to_the_theme"]
+evidence = ["crates/reflow/src/picture.rs::junk_and_giants_are_refused", "crates/reflow/src/picture.rs::decodes_shrink_to_their_bucket_and_are_reused", "crates/reflow/src/flow.rs::images_shrink_to_the_column_and_the_page_never_split", "crates/reflow/src/raster.rs::images_draw_their_pixels_and_junk_draws_a_box", "crates/epub/src/xhtml.rs::rules_and_images_are_blocks_and_missing_images_show_alt", "crates/ui/tests/gpu.rs::a_book_s_pictures_keep_their_colours_in_the_dark_unless_themed", "crates/ui/tests/reading.rs::the_fonts_tab_switches_a_book_s_pictures_to_the_theme", "crates/reflow/src/page_text.rs::colour_fonts_are_told_by_their_tables", "crates/ui/tests/reading.rs::the_fonts_tab_switches_a_book_s_emoji_to_the_theme"]
 notes = "PNG, JPEG, GIF and WebP; header-probed caps, lazy decode into a 64 MB cache, alt text when refused (docs/epub.md). Pictures keep their colours in every theme, as mareader's; Settings › Fonts › Theme pictures tints them with the page"
 
 [[feature]]
@@ -1066,6 +1066,22 @@ evidence = [
 ]
 reference = ["crates/reader-core/src/appearance/raster", "styles/page_host.css"]
 notes = "The page pass runs the chain and the blend per quad; the CPU path stays unthemed"
+
+[[feature]]
+id = "appearance.text-pages"
+title = "Book pages take the text palette's paper and ink, not the PDF filter"
+area = "F"
+tier = "P0"
+milestone = "M4"
+status = "shipped"
+evidence = [
+  "crates/appearance/src/tokens.rs::book_pages_keep_mareader_s_paper_and_ink_lightness",
+  "crates/appearance/src/filter.rs::a_book_maps_black_to_its_ink_and_white_to_its_paper",
+  "crates/reflow/src/raster.rs::a_page_draws_dark_text_on_clear",
+  "crates/ui/tests/gpu.rs::a_book_page_takes_its_own_paper_not_the_pdf_filter",
+]
+reference = ["crates/reader-core/src/appearance/reflowable/palette.rs", "styles/text.css"]
+notes = "docs/epub.md: the raster is clear, the page pass lays the palette's paper under it and recolours ink; emoji and pictures stay untoned unless themed; blend keeps the PDF's dominant paper"
 
 [[feature]]
 id = "appearance.textures"

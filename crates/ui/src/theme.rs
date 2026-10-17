@@ -18,6 +18,8 @@ pub struct Tokens {
     pub paper: Color32,
     /// How the page pass themes a page.
     pub page: PageTone,
+    /// A book's page: paper and ink, no filter.
+    pub book: PageTone,
     pub ink: Color32,
     pub muted: Color32,
     pub surface: Color32,
@@ -60,6 +62,7 @@ impl Tokens {
         Self {
             paper: color(t.paper),
             page: a.page_tone(),
+            book: a.text_tone(),
             ink,
             muted: color(t.muted),
             surface,
