@@ -292,3 +292,27 @@ slice 5.
   and drives the service end to end; kittests shade a fixture page,
   explain on a click, open the dictionary card on a rest, and set the
   level, the look and Remove in the tab.
+
+## Notes
+
+A note is the reader's own words on a highlight. It is one more stamped
+field of the mark (`note`), so it saves, merges and syncs with it, and it
+hides and returns with the mark.
+
+- **Note** in the selection bar highlights the words in the bar's first
+  pen, then opens a draft beside them, with a caret pointing at them.
+  The draft quotes the words under a rule in the highlight's colour.
+  Save, or Ctrl+Enter (⌘Enter on a Mac), keeps it.
+- Cancel and Escape drop the draft. If Note made the highlight, the
+  highlight goes too; one made before stays.
+- A press outside the draft keeps it: typed words are never lost by a
+  stray click. While a draft is open it stays, even if its words scroll
+  away.
+- A noted highlight shows a small badge in its colour after its last line.
+  Clicking the highlight or the badge shows the note, with Edit and Delete.
+  Delete offers Undo.
+- The mark menu offers Add note or Edit note; AI marks take no notes.
+- The **Notes** panel lists the book's highlights in reading order, each
+  with its page and note. All and Notes filter the list. A click goes to
+  the page; the right-click menu edits, deletes or removes.
+- Settings v4 adds Note to saved selection bars after Look up.
