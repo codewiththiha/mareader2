@@ -58,13 +58,15 @@ impl Panel {
         let t = Tokens::get(ui.ctx());
         ui.spacing_mut().item_spacing.y = 8.0;
         if !service.attached() {
-            muted(ui, &t, "Dictionaries need the desktop app.");
+            let line = "Dictionaries need the desktop app.";
+            empty(ui, &t, "No dictionaries here", line, None);
             return;
         }
         let ready = service.ready();
         if ready.is_empty() {
-            muted(ui, &t, "No dictionary is downloaded.");
-            if ui.button("Get dictionaries…").clicked() {
+            let line = "No dictionary is downloaded.";
+            let get = Some("Get dictionaries…");
+            if empty(ui, &t, "No dictionaries yet", line, get) {
                 out.push(Command::OpenSettings(Tab::Dictionary));
             }
             return;
@@ -229,6 +231,24 @@ fn search_as(
     if draft != s {
         out.push(Command::SetDictionary(Box::new(draft.clone())));
     }
+}
+
+/// An empty panel: icon, title, a line of why, maybe an action.
+fn empty(ui: &mut Ui, t: &Tokens, title: &str, line: &str, action: Option<&str>) -> bool {
+    let mut clicked = false;
+    ui.vertical_centered(|ui| {
+        ui.add_space((ui.available_height() * 0.3).max(24.0));
+        ui.add(crate::icons::Icon::Dictionary.image(24.0).tint(t.muted));
+        ui.add_space(4.0);
+        let title = RichText::new(title).font(crate::theme::medium(14.0));
+        ui.label(title.color(t.ink));
+        ui.label(RichText::new(line).size(t.text_small).color(t.muted));
+        if let Some(action) = action {
+            ui.add_space(6.0);
+            clicked = ui.button(action).clicked();
+        }
+    });
+    clicked
 }
 
 fn muted(ui: &mut Ui, t: &Tokens, text: &str) {

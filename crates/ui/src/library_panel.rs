@@ -227,20 +227,14 @@ pub fn show(
     true
 }
 
-/// A small caps heading with a count at the right.
+/// A sentence-case heading with a count at the right.
 fn heading(ui: &mut Ui, title: &str, count: usize, t: &Tokens) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
     let painter = ui.painter();
-    let font = theme::medium(11.0);
+    let font = theme::medium(12.0);
     let y = rect.bottom() - 9.0;
     let left = pos2(rect.left() + PAD_X + 4.0, y);
-    painter.text(
-        left,
-        Align2::LEFT_CENTER,
-        title.to_uppercase(),
-        font,
-        t.muted,
-    );
+    painter.text(left, Align2::LEFT_CENTER, title, font, t.muted);
     let right = pos2(rect.right() - PAD_X - 4.0, y);
     let small = FontId::proportional(11.0);
     painter.text(
@@ -409,10 +403,8 @@ fn book_row(
         painter.rect_filled(row, CornerRadius::same(6), t.hover.gamma_multiply(0.6));
     }
     let ink = |c: Color32| c.gamma_multiply(fade);
-    let mut x = row.left() + indent(*depth) + CHEVRON_W;
-    let icon = Rect::from_center_size(pos2(x + 6.5, row.center().y), vec2(13.0, 13.0));
-    Icon::Book.paint(ui, icon, ink(t.muted).gamma_multiply(0.8));
-    x += 19.0;
+    // The format badge tells books apart; no icon repeats on every row.
+    let x = row.left() + indent(*depth) + CHEVRON_W + 4.0;
     let badge = badge_rect(ui, row, format.label(), t, fade);
     let dot = look.open && !look.active;
     let room = badge.left() - x - if dot { 14.0 } else { 6.0 };
@@ -435,7 +427,7 @@ fn book_row(
         resp.dnd_set_drag_payload(carried);
     }
     let tip = match missing {
-        true => Some(format!("{title} isn't where it was; open it to find it")),
+        true => Some(format!("Moved or deleted. Click to find {title}.")),
         false => elided.then(|| title.clone()),
     };
     let clicked = resp.clicked();

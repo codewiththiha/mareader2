@@ -114,12 +114,18 @@ fn entry_row(
     }
     let indent = PAD_X + INDENT * f32::from(entry.depth.min(MAX_DEPTH));
     let room = (rect.width() - indent - NUMBER_W).max(24.0);
-    let font = if on {
+    // Chapters read darker and heavier than the sections under them.
+    let chapter = entry.depth == 0;
+    let font = if on || chapter {
         theme::medium(13.0)
     } else {
         FontId::proportional(13.0)
     };
-    let colour = if on || r.hovered() { t.ink } else { t.muted };
+    let colour = if on || chapter || r.hovered() {
+        t.ink
+    } else {
+        t.muted
+    };
     let text = WidgetText::from(RichText::new(&entry.title).font(font).color(colour));
     let galley = text.into_galley(
         ui,
