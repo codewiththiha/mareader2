@@ -98,10 +98,10 @@ pub struct Mark {
     pub book: Field<BookId>,
     #[serde(default)]
     pub kind: MarkKind,
-    /// A highlight's pen; an Explain mark follows the AI's look.
+    /// A highlight's pen as made; `look` has it after any restyle.
     #[serde(default)]
     pub pen: Pen,
-    /// A colour chosen for it, as sRGB; none follows the pen's own.
+    /// Its colour as made, as sRGB; none follows the pen's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<[u8; 3]>,
     /// The word, or a highlight's text.
@@ -119,8 +119,30 @@ pub struct Mark {
     /// The reader's own words about a highlight.
     #[serde(default, skip_serializing_if = "Field::is_unset")]
     pub note: Field<Option<String>>,
+    /// A restyle, stamped so the latest wins over the look as made.
+    #[serde(default, skip_serializing_if = "Field::is_unset")]
+    pub style: Field<Option<Style>>,
     #[serde(flatten)]
     pub extra: Extra,
+}
+
+impl Mark {
+    /// How it is drawn: the latest restyle, else the look it was made with.
+    pub fn look(&self) -> Style {
+        let made = Style {
+            pen: self.pen,
+            color: self.color,
+        };
+        self.style.value.unwrap_or(made)
+    }
+}
+
+/// A highlight's look after a restyle: its pen, and a colour or none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Style {
+    pub pen: Pen,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[u8; 3]>,
 }
 
 /// A new mark's word, context and place.
@@ -180,7 +202,9 @@ impl Library {
     pub fn add_mark(&mut self, book: BookId, new: NewMark, wall_ms: u64) -> Option<MarkId> {
         self.book(book)?;
         let same = |m: &&Mark| {
-            (m.kind, m.pen) == (new.kind, new.pen) && m.word == new.word && m.spot.near(&new.spot)
+            (m.kind, m.look().pen) == (new.kind, new.pen)
+                && m.word == new.word
+                && m.spot.near(&new.spot)
         };
         if let Some(found) = self.marks(book).into_iter().find(same) {
             return Some(found.id);
@@ -200,6 +224,7 @@ impl Library {
             alive: Field::new(true, at),
             gloss: Field::default(),
             note: Field::default(),
+            style: Field::default(),
             extra: Extra::default(),
         };
         self.marks.insert(id, mark);
@@ -252,6 +277,21 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         if let Some(mark) = self.marks.get_mut(&id) {
             mark.note = Field::new(note, at);
+        }
+        true
+    }
+
+    /// Restyles a living highlight; AI marks keep the AI's look.
+    pub fn set_style(&mut self, id: MarkId, style: Style, wall_ms: u64) -> bool {
+        let living = self
+            .mark(id)
+            .is_some_and(|m| m.kind == MarkKind::Highlight && self.book(m.book.value).is_some());
+        if !living {
+            return false;
+        }
+        let at = self.clock.tick(wall_ms);
+        if let Some(mark) = self.marks.get_mut(&id) {
+            mark.style = Field::new(Some(style), at);
         }
         true
     }
