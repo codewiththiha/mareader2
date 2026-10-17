@@ -8,7 +8,7 @@ books laid out by [parley](https://github.com/linebender/parley).
 
 **Status:** M8, polish, is done, and v0.0.1 is out for macOS, Windows and
 Linux. Every P0 and P1 mareader feature is shipped. Sync between machines
-(M9) comes later.
+(M9) is optional and much later.
 See [`ROADMAP.md`](ROADMAP.md).
 
 ## Download
