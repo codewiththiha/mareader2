@@ -22,9 +22,9 @@ area = "A"
 tier = "P0"
 milestone = "M0"
 status = "shipped"
-evidence = ["crates/ui/tests/shell.rs::the_pin_button_keeps_the_bar_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin"]
+evidence = ["crates/ui/tests/shell.rs::keep_title_bar_shown_holds_it_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin"]
 reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/reader-core/src/settings/mod.rs"]
-notes = "The library keeps its own pin, starting pinned (M5 slice 2)"
+notes = "The library keeps its own pin, starting pinned (M5 slice 2). The pin is Keep title bar shown in each route's menu, off the bar itself"
 
 [[feature]]
 id = "chrome.titlebar-hold"

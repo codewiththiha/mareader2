@@ -66,6 +66,8 @@ pub enum BarPage<'a> {
 pub struct ReaderBar {
     /// The bar's sidebar toggle; the rail's own header closes it.
     pub sidebar_toggle: bool,
+    /// A docked, open sidebar, whose header has Search and Settings.
+    pub rail_docked: bool,
     /// The per-pane modes; offered only while the workspace is split.
     pub independence: Option<Independence>,
     /// The active document's zoom, for the menu's zoom row.
@@ -77,7 +79,7 @@ pub struct ReaderBar {
     pub ink: Option<f32>,
 }
 
-/// The shelf has no rail, panes or page: View, Appearance and Pin.
+/// The shelf has no rail, panes or page: View options and Appearance.
 pub struct LibraryBar<'a> {
     pub view: &'a View,
     /// The grid's automatic column count, for the menu's stepper.
@@ -91,17 +93,13 @@ pub struct LibraryBar<'a> {
     pub search: Field,
 }
 
-/// Foldable tools, rightmost first; no split buttons, panes split by drag.
-fn tools() -> [Tool; 2] {
-    let tool = |icon, label, command| Tool {
-        icon,
-        label,
-        command,
-    };
-    [
-        tool(Icon::Settings, "Settings", Command::ShowSettings),
-        tool(Icon::Search, "Search", Command::ShowSearch),
-    ]
+/// Foldable tools, rightmost first; Settings and the pin live in the menu.
+fn tools() -> [Tool; 1] {
+    [Tool {
+        icon: Icon::Search,
+        label: "Search",
+        command: Command::ShowSearch,
+    }]
 }
 
 /// How many folding tools fit beside the fixed controls and the title.
@@ -112,8 +110,8 @@ fn fitting(bar: &BarContext<'_>, reader: &ReaderBar, row_width: f32) -> usize {
         Some(CaptionStyle::Gnome) => 3.0 * 24.0 + 2.0 * 8.0 + 4.0,
         None => 0.0,
     };
-    // Pin, Appearance and the menu never fold.
-    let fixed = 3.0 * TOOL_W + 8.0;
+    // Appearance and the menu never fold.
+    let fixed = 2.0 * TOOL_W + 8.0;
     let room = row_width - lead - captions - fixed - TITLE_ROOM;
     ((room / TOOL_W).floor().max(0.0) as usize).min(tools().len())
 }
@@ -324,12 +322,17 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
         ui.add_space(4.0);
     }
     let tools = tools();
+    // A docked sidebar's header already holds the tools.
+    let tools: &[Tool] = match &bar.page {
+        BarPage::Reader(reader) if !reader.rail_docked => &tools,
+        _ => &[],
+    };
     let fit = match &bar.page {
-        BarPage::Reader(reader) => fitting(bar, reader, width),
+        BarPage::Reader(reader) => fitting(bar, reader, width).min(tools.len()),
         BarPage::Library(_) => 0,
     };
     let (shown, folded) = tools.split_at(fit);
-    // The end slot is the route's menu; Pin and Appearance stay put.
+    // The end slot is the route's menu; Appearance stays put.
     match &bar.page {
         BarPage::Reader(reader) => {
             let menu = MenuContext {
@@ -339,15 +342,15 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
                 zoom: reader.zoom,
                 mode: reader.mode,
                 auto_scroll: reader.auto_scroll,
+                pinned,
             };
             view_menu::button(ui, &menu, &mut out);
         }
         BarPage::Library(library) => {
-            library_menu::button(ui, library.view, library.auto_columns, &mut out);
+            let auto = library.auto_columns;
+            library_menu::button(ui, library.view, auto, pinned, &mut out);
         }
     }
-    let r = widgets::icon_button(ui, Icon::Pin, "Pin title bar", pinned);
-    out.extend(clicked(r, Command::SetTitlebarPinned(!pinned)));
     appearance_button(ui, bar, &mut out);
     if matches!(bar.page, BarPage::Library(_)) {
         return (ui.min_rect().left(), out);

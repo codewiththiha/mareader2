@@ -332,7 +332,9 @@ impl Sidebar {
                 (Icon::Settings, "Settings", Command::ShowSettings),
             ];
             for (icon, label, command) in buttons {
-                if widgets::icon_button(ui, icon, label, false).clicked() {
+                let keys = crate::keymap::hint(cx.platform, &command);
+                let r = widgets::icon_button_keyed(ui, icon, label, false, keys.as_deref());
+                if r.clicked() {
                     out.push(command);
                 }
             }
