@@ -426,3 +426,60 @@ fn a_book_s_text_selects_and_copies_with_wrapped_lines_joined() -> Out {
     assert!(paragraph.trim_end().ends_with("Bold end."), "{paragraph}");
     Ok(())
 }
+
+/// The first page's top on screen.
+fn top(h: &H) -> Option<f32> {
+    let pane = h.state().active_pane();
+    let sheets = h.state().documents().sheets(pane);
+    sheets.iter().find(|s| s.page == 0).map(|s| s.rect.top())
+}
+
+#[test]
+fn dragging_empty_space_pans_and_a_quick_release_flings() -> Out {
+    let mut h = reader();
+    let (layer, sheet) = page_one(&h)?;
+    // Text under the pointer first: the page's text layer loads.
+    h.hover_at(edge(&layer, sheet, find(&layer, "Sphinx")?, false)?);
+    h.run();
+    // The page's left margin, clear of the title bar: no text, no link.
+    let from = pos2(sheet.rect.left() + 6.0, sheet.rect.top() + 300.0);
+    h.hover_at(from);
+    h.run();
+    let cursor = h.output().platform_output.cursor_icon;
+    assert_eq!(cursor, egui::CursorIcon::Grab);
+    let before = top(&h).ok_or("page one off screen")?;
+    // A slow drag, resting before the release: the page follows exactly.
+    let to = from - egui::vec2(0.0, 120.0);
+    h.step();
+    button(&mut h, from, true);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+        h.step();
+    }
+    assert_eq!(
+        h.output().platform_output.cursor_icon,
+        egui::CursorIcon::Grabbing
+    );
+    h.run_steps(12);
+    button(&mut h, to, false);
+    h.run();
+    let after = top(&h).ok_or("page one scrolled away")?;
+    assert!((before - after - 120.0).abs() < 2.0, "{before} -> {after}");
+    assert!(!selected(&h), "panning selects nothing");
+    // A quick one glides on past the pointer.
+    let from = to;
+    let to = from - egui::vec2(0.0, 120.0);
+    h.hover_at(from);
+    h.step();
+    button(&mut h, from, true);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+        h.step();
+    }
+    button(&mut h, to, false);
+    h.run();
+    // Page one may glide off screen altogether.
+    let flung = top(&h).unwrap_or(f32::NEG_INFINITY);
+    assert!(after - flung > 160.0, "{after} -> {flung}");
+    Ok(())
+}

@@ -10,6 +10,8 @@ use mareader_session::{DocId, TextLayer};
 
 use crate::texts::TextLayers;
 
+mod grab;
+
 /// Fastest a drag past the pane's edge scrolls, in points per frame.
 const EDGE_SCROLL: f32 = 24.0;
 
@@ -146,6 +148,18 @@ impl Pages<'_> {
         Some((sheet, self.texts.get(self.doc, sheet.page)?))
     }
 
+    /// Off the pages, or away from text and links; unloaded text counts.
+    fn empty(&self, p: Pos2) -> bool {
+        let Some(sheet) = self.sheets.iter().find(|s| s.shown.contains(p)) else {
+            return true;
+        };
+        let Some(layer) = self.texts.get(self.doc, sheet.page) else {
+            return false;
+        };
+        let (x, y) = sheet.to_page(p);
+        !layer.text.on_line(x, y) && layer.link_at(x, y).is_none()
+    }
+
     /// The caret a drag at `p` means: on the nearest page, held to it.
     fn caret(&self, p: Pos2) -> Option<Caret> {
         let sheet = self
@@ -194,8 +208,14 @@ pub fn interact(
         }
         layer.link_at(x, y).map(|l| l.target.clone())
     });
+    let origin = ui.input(|i| i.pointer.press_origin());
+    if grab::pan(ui, &response, origin.is_some_and(|p| pages.empty(p))) {
+        return out;
+    }
+    if response.hover_pos().is_some_and(|p| pages.empty(p)) {
+        ui.ctx().set_cursor_icon(CursorIcon::Grab);
+    }
     if response.drag_started() {
-        let origin = ui.input(|i| i.pointer.press_origin());
         *selection = origin.and_then(|p| pages.caret(p)).map(|c| Selection {
             anchor: c,
             focus: c,

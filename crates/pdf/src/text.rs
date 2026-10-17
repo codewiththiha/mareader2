@@ -111,6 +111,16 @@ pub struct TextChar {
     pub space_before: bool,
 }
 
+/// A box grown by the point of slack a pointer gets.
+fn slack(b: Bounds) -> Bounds {
+    Bounds {
+        x0: b.x0 - 1.0,
+        y0: b.y0 - 1.0,
+        x1: b.x1 + 1.0,
+        y1: b.y1 + 1.0,
+    }
+}
+
 /// A run of characters on one baseline.
 #[derive(Debug, Clone, PartialEq)]
 struct Line {
@@ -147,15 +157,14 @@ impl PageText {
 
     /// The character drawn at a point, a little slack included.
     pub fn char_at(&self, x: f32, y: f32) -> Option<usize> {
-        let slack = |b: Bounds| Bounds {
-            x0: b.x0 - 1.0,
-            y0: b.y0 - 1.0,
-            x1: b.x1 + 1.0,
-            y1: b.y1 + 1.0,
-        };
         self.chars
             .iter()
             .position(|c| slack(c.bounds).contains(x, y))
+    }
+
+    /// Whether a point is on a line of text, gaps between words included.
+    pub fn on_line(&self, x: f32, y: f32) -> bool {
+        self.lines.iter().any(|l| slack(l.bounds).contains(x, y))
     }
 
     /// The caret nearest a point, from 0 to `len`, as a drag ends there.
@@ -516,6 +525,16 @@ mod tests {
             let row = row(text, 0.0, y).into_iter().map(|g| (g.ch, g.bounds));
             (*wraps, row.collect())
         }))
+    }
+
+    #[test]
+    fn lines_are_text_and_the_space_around_them_is_not() {
+        let p = set(&[(false, "ab cd"), (false, "ef")]);
+        assert!(p.on_line(25.0, -4.0), "the gap between words");
+        assert!(p.on_line(50.5, -4.0), "a point of slack");
+        assert!(!p.on_line(55.0, -4.0), "past the line's end");
+        assert!(!p.on_line(5.0, 6.0), "between the lines");
+        assert!(!p.on_line(35.0, 16.0), "past a shorter line");
     }
 
     #[test]
