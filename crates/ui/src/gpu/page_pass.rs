@@ -167,11 +167,12 @@ fn tone_bytes(tone: &PageTone) -> Vec<u8> {
     floats.extend(tone.paper);
     floats.push(1.0);
     let mut bytes: Vec<u8> = floats.iter().flat_map(|f| f.to_ne_bytes()).collect();
-    let blend = match tone.blend {
-        None => 0u32,
-        Some(Blend::Multiply) => 1,
-        Some(Blend::Screen) => 2,
-        Some(Blend::SoftLight) => 3,
+    let blend = match (tone.blend, tone.ink) {
+        (None, _) => 0u32,
+        (Some(_), Some(_)) => 4,
+        (Some(Blend::Multiply), None) => 1,
+        (Some(Blend::Screen), None) => 2,
+        (Some(Blend::SoftLight), None) => 3,
     };
     let count = tone.count.min(MAX_FILTER_OPS) as u32;
     let p = &tone.pattern;
@@ -188,7 +189,8 @@ fn tone_bytes(tone: &PageTone) -> Vec<u8> {
         bytes.extend_from_slice(&word.to_ne_bytes());
     }
     let tail = p.stroke.into_iter().chain(p.grain);
-    for f in tail.chain([p.opacity, 0.0, 0.0, 0.0]) {
+    let [r, g, b] = tone.ink.unwrap_or([0.0; 3]);
+    for f in tail.chain([p.opacity, r, g, b]) {
         bytes.extend_from_slice(&f.to_ne_bytes());
     }
     bytes

@@ -661,6 +661,32 @@ fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
 
 /// Pixels darker than `below` in the page's middle band.
 #[test]
+fn a_book_page_takes_its_own_paper_not_the_pdf_filter() -> Out {
+    for theme in ["light", "dark", "dim"] {
+        let options = [
+            ("epub", "sample:3"),
+            ("view", "single"),
+            ("animations", "false"),
+            ("theme", theme),
+        ];
+        let mut h = reader(&options);
+        let pane = h.state().active_pane();
+        h.state_mut()
+            .queue(mareader_ui::command::Command::GoTo { pane, page: 1 });
+        h.run();
+        h.run_steps(2);
+        let image = h.render()?;
+        let (w, ht) = image.dimensions();
+        let got = image.get_pixel(w / 20, ht * 3 / 7).0;
+        let p = h.state().settings().appearance.text_palette().paper;
+        let want = [p.0, p.1, p.2].map(i32::from);
+        let off = (0..3).map(|i| (i32::from(got[i]) - want[i]).abs()).max();
+        assert!(off <= Some(3), "{theme}: got {got:?}, want {want:?}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_book_s_pictures_keep_their_colours_in_the_dark_unless_themed() -> Out {
     let options = [
         ("epub", "sample:3"),

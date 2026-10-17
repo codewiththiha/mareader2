@@ -472,6 +472,8 @@ pub struct PageLook {
     pub ink: f32,
     /// A book's pictures take the page's theme, not their own colours.
     pub theme_pictures: bool,
+    /// So do its emoji, drawn from colour fonts.
+    pub theme_emojis: bool,
 }
 
 impl PageLook {
@@ -492,6 +494,7 @@ impl PageLook {
             },
             ink: (text.ink_contrast / 100.0).clamp(0.0, 1.0),
             theme_pictures: text.theme_pictures,
+            theme_emojis: text.theme_emojis,
         }
     }
 }
@@ -694,13 +697,19 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
         Urgency::OtherPane
     };
     let mut t = cx.tokens;
-    // A book's pictures keep their colours, or the pane's tone undimmed.
-    let mut picture_tone = t.page;
-    if doc.is_reflowable() {
-        if !cx.page.theme_pictures {
-            picture_tone = PageTone::NONE;
+    let reflow = doc.is_reflowable();
+    // A book's pictures and emoji keep their colours unless themed.
+    let (mut picture_tone, mut emoji_tone) = (PageTone::NONE, PageTone::NONE);
+    if reflow {
+        let mut text = t.book.inked(cx.page.ink);
+        // Blend's paper, as the PDF beside it shows it.
+        if let Some(raw) = cx.paper {
+            text.paper = t.page.apply(raw.to_unit());
         }
-        t.page = t.page.inked(cx.page.ink);
+        let themed = t.page.for_pictures(&text);
+        let pick = |on: bool| if on { themed } else { PageTone::NONE };
+        (picture_tone, emoji_tone) = (pick(cx.page.theme_pictures), pick(cx.page.theme_emojis));
+        t.page = text;
     }
     // egui turns a plain wheel sideways only if that's the sole direction.
     let down = view.mode != ViewMode::Horizontal || layout.size.y > frame.height() + 0.5;
@@ -752,7 +761,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 zoom: layout.zoom(),
             };
             // Blend's paper under the shadows; a stream always has its own.
-            let paper = cx.paper.or(bands.map(|_| Rgb(255, 255, 255)));
+            let white = Rgb(255, 255, 255);
+            let paper = match reflow {
+                // A book's tone holds its paper already.
+                true => (cx.paper.is_some() || bands.is_some()).then_some(white),
+                false => cx.paper.or(bands.map(|_| white)),
+            };
             if let (Some(paper), Some(pass)) = (paper, pass) {
                 let tone = t.page.backdrop(paper.to_unit());
                 let quad = Quad::backdrop(frame, cx.corner, tone, anchor);
@@ -808,7 +822,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     );
                 }
                 let width = sizes.get(page).map_or(1.0, |s| s.width);
-                if picture_tone != t.page {
+                if reflow {
                     let to_screen = |b: Bounds| {
                         let k = rect.width() / width;
                         Rect::from_min_max(
@@ -818,6 +832,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                     };
                     let shown = doc.pictures(page).into_iter().map(to_screen);
                     keep_pictures(&mut quads, first, shown, picture_tone);
+                    let emojis = doc.emojis(page).into_iter().map(to_screen);
+                    keep_pictures(&mut quads, first, emojis, emoji_tone);
                 }
                 sheets.push(Sheet {
                     page,

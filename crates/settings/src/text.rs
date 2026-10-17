@@ -154,6 +154,8 @@ pub struct TextSettings {
     pub ink_contrast: f32,
     /// A book's pictures take the page's theme; off, their own colours.
     pub theme_pictures: bool,
+    /// Emoji take the page's theme too; off, their own colours.
+    pub theme_emojis: bool,
 }
 
 impl TextSettings {
@@ -205,6 +207,7 @@ impl Default for TextSettings {
             column_width_pct: 100.0,
             ink_contrast: 100.0,
             theme_pictures: false,
+            theme_emojis: false,
         }
     }
 }

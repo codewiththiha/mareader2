@@ -92,7 +92,31 @@ fn tinted(token: Rgb, target_h: f64, t: f64, max_c: f64) -> Rgb {
         .to_rgb_in_gamut()
 }
 
+/// A book page's colours: mareader's text palette, not the PDF filter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextPalette {
+    pub paper: Rgb,
+    pub ink: Rgb,
+}
+
 impl Appearance {
+    /// Paper and ink lightness per mode, chroma growing with the tint.
+    pub fn text_palette(&self) -> TextPalette {
+        let t = self.tint_amount();
+        let h = ui_hue_oklch(f64::from(self.tint_hue));
+        // Lightness, then the chroma a full tint reaches, as mareader's.
+        let ((paper_l, paper_c), (ink_l, ink_c)) = match self.base {
+            BaseMode::Light => ((0.98, 0.08), (0.15, 0.03)),
+            BaseMode::Dark => ((0.24, 0.10), (0.92, 0.04)),
+            BaseMode::Dim => ((0.22, 0.08), (0.12, 0.03)),
+        };
+        let at = |l: f64, c: f64| Oklch { l, c: c * t, h }.to_rgb_in_gamut();
+        TextPalette {
+            paper: at(paper_l, paper_c),
+            ink: at(ink_l, ink_c),
+        }
+    }
+
     /// The UI palette for this look; untinted bases come back unchanged.
     pub fn ui_tokens(&self) -> UiTokens {
         let base = base_tokens(self.base);
@@ -178,5 +202,33 @@ mod tests {
     fn srgb_red_maps_near_oklch_29() {
         assert!((ui_hue_oklch(0.0) - 29.2).abs() < 1.0);
         assert!((ui_hue_oklch(360.0) - ui_hue_oklch(0.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn book_pages_keep_mareader_s_paper_and_ink_lightness() {
+        for (base, paper, ink) in [
+            (BaseMode::Light, 0.98, 0.15),
+            (BaseMode::Dark, 0.24, 0.92),
+            (BaseMode::Dim, 0.22, 0.12),
+        ] {
+            for strength in [0, 40, 100] {
+                let a = Appearance {
+                    base,
+                    tint_hue: 200,
+                    tint_strength: strength,
+                    ..Appearance::default()
+                };
+                let p = a.text_palette();
+                let (pl, il) = (p.paper.to_oklch().l, p.ink.to_oklch().l);
+                assert!((pl - paper).abs() < 0.02, "{base:?} {strength}: paper {pl}");
+                assert!((il - ink).abs() < 0.02, "{base:?} {strength}: ink {il}");
+                let chroma = p.paper.to_oklch().c;
+                assert_eq!(
+                    strength == 0,
+                    chroma < 0.005,
+                    "{base:?} {strength}: {chroma}"
+                );
+            }
+        }
     }
 }

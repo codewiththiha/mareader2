@@ -189,7 +189,18 @@ impl Appearance {
             count: ops.len().min(MAX_FILTER_OPS),
             blend: Some(self.page_blend()),
             paper: [p.0, p.1, p.2].map(|c| f32::from(c) / 255.0),
+            ink: None,
             pattern: self.pattern(),
+        }
+    }
+
+    /// A book's page: its palette's paper and ink, as mareader's text pages.
+    pub fn text_tone(&self) -> PageTone {
+        let p = self.text_palette();
+        PageTone {
+            ink: Some(p.ink.to_unit()),
+            paper: p.paper.to_unit(),
+            ..self.page_tone().flat()
         }
     }
 
@@ -200,6 +211,20 @@ impl Appearance {
             BaseMode::Dim => Blend::SoftLight,
         }
     }
+}
+
+/// `a` moved toward `b` by `t`.
+fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    let mut out = a;
+    for (o, (x, y)) in out.iter_mut().zip(a.into_iter().zip(b)) {
+        *o = x + (y - x) * t;
+    }
+    out
+}
+
+/// Rec. 709 luma of a grey-on-white raster colour.
+fn luma(c: [f32; 3]) -> f32 {
+    (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).clamp(0.0, 1.0)
 }
 
 const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -214,6 +239,8 @@ pub struct PageTone {
     pub blend: Option<Blend>,
     /// sRGB-encoded, 0..1.
     pub paper: [f32; 3],
+    /// A book's ink: greys map from it to the paper, with no filter.
+    pub ink: Option<[f32; 3]>,
     /// The texture laid over the themed page.
     pub pattern: Pattern,
 }
@@ -229,6 +256,7 @@ impl PageTone {
         count: 0,
         blend: None,
         paper: [1.0; 3],
+        ink: None,
         pattern: Pattern::NONE,
     };
 
@@ -237,6 +265,9 @@ impl PageTone {
         let Some(blend) = self.blend else {
             return c;
         };
+        if let Some(ink) = self.ink {
+            return mix(ink, self.paper, luma(c));
+        }
         let chain = self.matrices.iter().take(self.count);
         let s = chain.fold(c, |c, m| m.apply(c));
         blend.apply(self.paper, s)
@@ -249,6 +280,10 @@ impl PageTone {
         if keep >= 1.0 || self.blend.is_none() {
             return self;
         }
+        if let Some(ink) = &mut self.ink {
+            *ink = mix(*ink, self.paper, 1.0 - keep);
+            return self;
+        }
         // A mix toward white stays in range, so it folds into the first.
         let ink = ColorMatrix::scale_offset(keep, 1.0 - keep);
         if let Some(m) = self.matrices.first_mut() {
@@ -256,6 +291,23 @@ impl PageTone {
         }
         self.count = self.count.max(1);
         self
+    }
+
+    /// No filter chain: a book's tone keeps only blend, paper and pattern.
+    fn flat(self) -> Self {
+        Self {
+            matrices: Self::NONE.matrices,
+            count: 0,
+            ..self
+        }
+    }
+
+    /// Spares a book's pictures the ink: its filter and blend, its paper.
+    pub fn for_pictures(self, page: &Self) -> Self {
+        Self {
+            paper: page.paper,
+            ..self
+        }
     }
 
     /// A blank page themed: what a page shows before it is drawn.
@@ -433,5 +485,31 @@ mod tests {
         assert_eq!(back.paper, [0.5, 0.6, 0.7]);
         assert_eq!(back.apply([1.0; 3]), [0.5, 0.6, 0.7]);
         assert_eq!(back.pattern, Pattern::NONE);
+    }
+
+    #[test]
+    fn a_book_maps_black_to_its_ink_and_white_to_its_paper() {
+        for base in BaseMode::ALL {
+            let a = Appearance {
+                base,
+                tint_strength: 60,
+                ..Appearance::default()
+            };
+            let p = a.text_palette();
+            let tone = a.text_tone();
+            assert!(close(tone.apply([0.0; 3]), p.ink.to_unit()), "{base:?}");
+            assert!(close(tone.apply([1.0; 3]), p.paper.to_unit()), "{base:?}");
+            assert!(close(tone.blank(), p.paper.to_unit()), "{base:?}");
+            // The dial fades ink toward the paper, and never past it.
+            let half = tone.inked(0.5).apply([0.0; 3]);
+            let mid = mix(p.ink.to_unit(), p.paper.to_unit(), 0.5);
+            assert!(close(half, mid), "{base:?}");
+            assert!(close(tone.inked(0.0).apply([0.0; 3]), p.paper.to_unit()));
+            // Pictures take the PDF filter over the book's paper.
+            let pictures = a.page_tone().for_pictures(&tone);
+            assert_eq!(pictures.ink, None);
+            assert_eq!(pictures.paper, tone.paper);
+            assert_eq!(pictures.count, a.page_tone().count);
+        }
     }
 }

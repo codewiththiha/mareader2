@@ -5,7 +5,7 @@ use std::sync::Arc;
 use mareader_epub::{Book, Destination, Format, MAX_PICTURE_FILE};
 use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
-use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError, SAMPLE_SIDE};
+use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError};
 use mareader_reflow::{Anchor, Typography};
 
 use crate::OpenError;
@@ -232,14 +232,21 @@ impl Document {
         }
     }
 
-    /// Page `page`'s paper colour, read from a small drawing of it.
+    /// Page `page`'s colour glyphs, emoji mostly; a PDF lists none.
+    pub fn emojis(&self, page: usize) -> Vec<Bounds> {
+        match self {
+            Self::Pdf(_) => Vec::new(),
+            Self::Epub { book, .. } => book.emojis(page).into_iter().map(bounds).collect(),
+        }
+    }
+
+    /// Page `page`'s paper colour; a book's is the theme's, so it has none.
     pub fn paper(&self, page: usize) -> Result<Paper, RenderError> {
         if let Self::Pdf(d) = self {
             return d.paper(page);
         }
-        let size = self.size(page)?;
-        let scale = SAMPLE_SIDE / size.width.max(size.height);
-        Ok(Paper::detect(&self.render(page, scale)?))
+        self.size(page)?;
+        Ok(Paper::default())
     }
 
     fn size(&self, page: usize) -> Result<PageSize, RenderError> {

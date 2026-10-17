@@ -145,6 +145,9 @@ pub fn show(
     }
     let goal = follow(state, reading, recentre, now, &ctx);
     let mut t = Tokens::get(&ctx);
+    if reading.document.is_reflowable() {
+        t.page = t.book;
+    }
     // As in mareader: thumbnails take the theme but not the texture.
     t.page.pattern = Pattern::NONE;
     ScrollArea::vertical()
