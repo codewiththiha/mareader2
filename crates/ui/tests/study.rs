@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
+use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
-use mareader_library::Spot;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_library::{Pen, Spot};
 use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui::MareaderApp;
@@ -295,7 +296,6 @@ fn the_options_turn_to_the_page_and_open_the_card() -> Out {
 
 #[test]
 fn the_bar_highlights_and_underlines_and_a_click_offers_removal() -> Out {
-    use mareader_library::Pen;
     let mut h = reader(&[("pdf", "sample:5")]);
     let (layer, sheet) = page(&h, 0)?;
     let quick = find(&layer, "quick brown")?;
@@ -333,7 +333,6 @@ fn the_bar_highlights_and_underlines_and_a_click_offers_removal() -> Out {
 
 #[test]
 fn asking_for_a_colour_each_time_never_offers_the_ai_look() -> Out {
-    use mareader_library::Pen;
     use mareader_settings::{BarItem, PickColor};
     let mut h = reader(&[("pdf", "sample:5")]);
     let look = &mut h.state_mut().settings_mut().study.highlights;
@@ -378,9 +377,7 @@ fn the_options_highlight_a_book_across_its_blocks() -> Out {
 
 #[test]
 fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
-    use egui::accesskit::Role;
     use mareader_appearance::Rgb;
-    use mareader_library::Pen;
     use mareader_settings::BarItem;
     use mareader_ui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
@@ -425,7 +422,6 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
 
 #[test]
 fn the_ai_tab_picks_who_explains() {
-    use egui::accesskit::Role;
     use mareader_settings::Provider;
     use mareader_ui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
@@ -441,7 +437,6 @@ fn the_ai_tab_picks_who_explains() {
 
 #[test]
 fn several_marks_are_picked_and_removed_together() -> Out {
-    use mareader_library::Pen;
     let mut h = reader(&[("pdf", "sample:5")]);
     let pane = h.state().active_pane();
     for word in ["quick", "lazy"] {
@@ -602,5 +597,70 @@ fn the_notes_panel_lists_highlights_and_filters_to_notes() -> Out {
     h.run();
     assert!(h.query_by_label("lazy").is_none());
     h.get_by_label("quick brown. Note: Check the fox.");
+    Ok(())
+}
+
+fn ink(h: &H) -> Vec<(Pen, String)> {
+    let pane = h.state().active_pane();
+    let shown = h.state().marks(pane);
+    shown
+        .iter()
+        .map(|m| (m.ink.pen, m.ink.color.to_hex()))
+        .collect()
+}
+
+#[test]
+fn a_highlight_is_restyled_from_its_menu_but_never_as_the_ai() -> Out {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let pane = h.state().active_pane();
+    select(&mut h, 0, "quick");
+    let (pen, color) = (Pen::Full, None);
+    h.state_mut().queue(Command::Highlight { pane, pen, color });
+    h.run();
+    let (layer, sheet) = page(&h, 0)?;
+    let quick = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
+    press(&mut h, quick, PointerButton::Secondary);
+    // Another pen keeps the colour; the menu stays to try more.
+    h.get_by_role_and_label(Role::RadioButton, "Underline")
+        .click();
+    h.run();
+    assert_eq!(ink(&h), [(Pen::Underline, "#ffff00".to_owned())]);
+    h.get_by_label("#ff0000").click();
+    h.run();
+    assert_eq!(ink(&h), [(Pen::Underline, "#ff0000".to_owned())]);
+    // Half in violet is free, but full violet is the AI's.
+    h.get_by_role_and_label(Role::RadioButton, "Half highlight")
+        .click();
+    h.run();
+    h.get_by_label("#a58af0").click();
+    h.run();
+    assert_eq!(ink(&h), [(Pen::Half, "#a58af0".to_owned())]);
+    h.get_by_role_and_label(Role::RadioButton, "Highlight")
+        .click();
+    h.run();
+    assert_eq!(ink(&h), [(Pen::Full, "#ffff00".to_owned())], "its own");
+    assert!(h.get_by_label("#a58af0").accesskit_node().is_disabled());
+    h.get_by_label("#a58af0").click();
+    h.run();
+    assert_eq!(ink(&h), [(Pen::Full, "#ffff00".to_owned())]);
+    Ok(())
+}
+
+#[test]
+fn an_ai_mark_s_menu_offers_no_restyle() -> Out {
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("selection", "0:quick"),
+        ("gloss", "open"),
+    ]);
+    h.run();
+    let (layer, sheet) = page(&h, 0)?;
+    let at = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
+    press(&mut h, at, PointerButton::Secondary);
+    h.get_by_label("Remove highlight");
+    assert!(
+        h.query_by_role_and_label(Role::RadioButton, "Underline")
+            .is_none()
+    );
     Ok(())
 }

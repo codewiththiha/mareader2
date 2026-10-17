@@ -453,6 +453,8 @@ pub struct ViewContext {
     pub shading: Option<crate::vocab::Look>,
     /// The find bar's hits, in the pane it searches.
     pub found: Option<crate::search::Lit>,
+    /// Shots: opens the newest drawn mark's menu.
+    pub menu_shot: bool,
 }
 
 /// The Layout settings the pages follow.
@@ -925,7 +927,22 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Document, io: Sinks<'_>, cx: 
                 gloss.push(Gloss::Pick(id));
             }
             if let (Some(m), Some(at), None) = (on_mark(did.context), did.context, &cx.picked) {
-                gloss.push(Gloss::Menu { mark: m.id, at });
+                let words = m.bounds();
+                gloss.push(Gloss::Menu {
+                    mark: m.id,
+                    at,
+                    words,
+                });
+            } else if cx.menu_shot
+                && let Some(m) = placed.last()
+            {
+                let at = m.bounds().center_bottom();
+                let words = m.bounds();
+                gloss.push(Gloss::Menu {
+                    mark: m.id,
+                    at,
+                    words,
+                });
             }
             let on = reach::On {
                 pages: &text,
@@ -1082,7 +1099,12 @@ fn at_stop(
         Press::Menu(i) => {
             let m = mark(i).filter(|_| !picking)?;
             let at = m.bounds().left_bottom();
-            gloss.push(Gloss::Menu { mark: m.id, at });
+            let words = m.bounds();
+            gloss.push(Gloss::Menu {
+                mark: m.id,
+                at,
+                words,
+            });
         }
     }
     None

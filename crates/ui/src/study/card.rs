@@ -1,11 +1,12 @@
 //! The word card and the mark menu.
 
 use egui::{
-    Align, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, Stroke, Ui, vec2,
+    Align, Align2, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, Sense,
+    Stroke, Ui, vec2,
 };
 use mareader_cefr::Role;
-use mareader_library::MarkId;
-use mareader_settings::GlossDensity;
+use mareader_library::{MarkId, Style};
+use mareader_settings::{GlossDensity, HighlightSettings};
 use mareader_study::{Failure, WordInfo};
 use mareader_workspace::PaneId;
 
@@ -220,18 +221,41 @@ fn explaining(ui: &mut Ui, t: &Tokens) {
     );
 }
 
+/// Below the words, else above, keeping a restyle in view.
+fn menu_place(ctx: &Context, id: Id, at: egui::Pos2, words: Rect) -> (egui::Pos2, Align2) {
+    let h = ctx
+        .memory(|m| m.area_rect(id))
+        .map_or(300.0, |r| r.height());
+    let screen = ctx.content_rect();
+    let below = words.bottom() + 6.0;
+    let above = words.top() - 6.0;
+    if !words.is_positive() {
+        (at, Align2::LEFT_TOP)
+    } else if below + h <= screen.bottom() - 4.0 {
+        (egui::pos2(at.x, below), Align2::LEFT_TOP)
+    } else if above - h >= screen.top() + 4.0 {
+        (egui::pos2(at.x, above), Align2::LEFT_BOTTOM)
+    } else {
+        (at, Align2::LEFT_TOP)
+    }
+}
+
 /// The right-click menu on a mark; returns where it went.
 pub fn menu(
     ctx: &Context,
     (pane, mark): (PaneId, MarkId),
-    at: egui::Pos2,
+    (at, words): (egui::Pos2, Rect),
     noted: Option<bool>,
+    (style, look): (Option<Style>, &HighlightSettings),
     t: &Tokens,
     out: &mut Commands,
 ) -> Rect {
-    egui::Area::new(Id::new("study-mark-menu"))
+    let id = Id::new("study-mark-menu");
+    let (pos, pivot) = menu_place(ctx, id, at, words);
+    egui::Area::new(id)
         .order(Order::Foreground)
-        .fixed_pos(at)
+        .pivot(pivot)
+        .fixed_pos(pos)
         .constrain(true)
         .show(ctx, |ui| {
             Frame::menu(ui.style())
@@ -240,7 +264,17 @@ pub fn menu(
                 .corner_radius(t.radius_lg)
                 .inner_margin(Margin::same(4))
                 .show(ui, |ui| {
-                    ui.set_width(190.0);
+                    // A highlight's look leads: pen, then colour.
+                    let wide = style.is_some();
+                    ui.set_width(if wide { 218.0 } else { 190.0 });
+                    if let Some(now) = style {
+                        super::restyle::section(ui, mark, now, look, t, out);
+                        let (rule, _) =
+                            ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
+                        let y = rule.center().y;
+                        ui.painter()
+                            .hline(rule.x_range(), y, Stroke::new(1.0, t.line));
+                    }
                     if let Some(noted) = noted {
                         let label = if noted { "Edit note" } else { "Add note" };
                         let row = widgets::menu_row(ui, Icon::Note, label, None, false);
