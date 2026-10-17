@@ -6,6 +6,7 @@ mod card;
 pub mod marks;
 mod note;
 mod picking;
+pub use picking::STYLE_ID as PICK_STYLE;
 mod restyle;
 pub mod words;
 
@@ -103,6 +104,10 @@ pub enum Action {
     RestoreNote(MarkId, String),
     /// A highlight's new pen and colour, from its menu.
     Restyle(MarkId, Style),
+    /// Picked highlights' new looks, and how many couldn't take it.
+    RestyleAll(Vec<(MarkId, Style)>, usize),
+    /// Undo: the picked highlights' looks before.
+    Unstyle(Vec<(MarkId, Style)>),
     /// Shots: types into the open draft, then saves it if asked.
     TypeNote(String, bool),
 }
@@ -740,6 +745,37 @@ impl Study {
                     m.style = Some(style);
                 }
             }
+            Action::RestyleAll(changes, skipped) => {
+                let mut before = Vec::new();
+                for (id, style) in changes {
+                    let Some(was) = self.mark(main, id).map(Mark::look) else {
+                        continue;
+                    };
+                    if main.set_style(id, style, wall) || self.loose.set_style(id, style, wall) {
+                        before.push((id, was));
+                    }
+                }
+                let n = before.len();
+                let message = match (n, skipped) {
+                    (0, _) => "That look is kept for marks of their own".to_owned(),
+                    (1, 0) => "Restyled 1 highlight".to_owned(),
+                    (n, 0) => format!("Restyled {n} highlights"),
+                    (n, s) => format!("Restyled {n} of {} highlights", n + s),
+                };
+                let toast = match n {
+                    0 => Toast::info(message),
+                    _ => Toast::info(message).undo(Command::Study(Action::Unstyle(before))),
+                };
+                out.push(Command::Notify(toast));
+            }
+            Action::Unstyle(looks) => {
+                for (id, style) in looks {
+                    if !main.set_style(id, style, wall) {
+                        self.loose.set_style(id, style, wall);
+                    }
+                }
+                out.push(Command::DismissToast);
+            }
             Action::PickPage | Action::PickAll => {
                 if let Some(p) = &mut self.picking {
                     let more = match action {
@@ -932,6 +968,7 @@ impl Study {
     pub fn show(
         &mut self,
         ctx: &Context,
+        main: &Library,
         panes: &[(PaneId, Rect)],
         (look, pens): (&GlossSettings, &HighlightSettings),
         out: &mut Commands,
@@ -1028,7 +1065,11 @@ impl Study {
         if let Some(p) = &self.picking
             && let Some(r) = room(p.pane)
         {
-            picking::bar(ctx, p, r, &t, out);
+            // The highlights picked, with their looks; AI marks keep theirs.
+            let ids = p.ids.iter().filter_map(|id| self.mark(main, *id));
+            let words = ids.filter(|m| m.kind == MarkKind::Highlight);
+            let looks: Vec<_> = words.map(|m| (m.id, m.look())).collect();
+            picking::bar(ctx, p, (r, &looks, pens), &t, out);
         }
     }
 }
