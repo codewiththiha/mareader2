@@ -63,6 +63,8 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
             let last = (0..l.places.len()).rev().find_map(|i| l.place(i))?;
             Some((first, last))
         });
+        // The text's right edge on screen, worked out once a note needs it.
+        let mut edge: Option<Option<f32>> = None;
         for mark in marks {
             let boxes = match mark.spot {
                 Spot::Page { page, rect } if page == sheet.page => {
@@ -114,7 +116,18 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
                 .filter(|r| r.is_positive())
                 .collect();
             if !rects.is_empty() {
-                let badge = rects.last().filter(|_| mark.noted).map(|r| badge(*r));
+                let column = || {
+                    let l = layer.as_ref()?;
+                    let all = l.text.boxes(0..l.text.len()).into_iter();
+                    all.map(|b| sheet.to_screen(b).right()).reduce(f32::max)
+                };
+                let badge = match rects.last() {
+                    Some(r) if mark.noted => {
+                        let edge = *edge.get_or_insert_with(column);
+                        Some(badge(*r, edge, sheet.rect))
+                    }
+                    _ => None,
+                };
                 out.push(Placed {
                     id: mark.id,
                     rects,
@@ -127,10 +140,16 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
     out
 }
 
-/// A round badge just past a line's end, sized to its text.
-fn badge(line: Rect) -> Rect {
+/// A badge in the margin beside the line, else raised over its end.
+fn badge(line: Rect, edge: Option<f32>, page: Rect) -> Rect {
     let d = (line.height() * 0.8).clamp(10.0, 18.0);
-    let centre = pos2(line.right() + d * 0.5 + 2.0, line.center().y);
+    let x = edge.unwrap_or(line.right()).max(line.right()) + 6.0 + d * 0.5;
+    if x + d * 0.5 <= page.right() - 2.0 {
+        let centre = pos2(x, line.center().y);
+        return Rect::from_center_size(centre, egui::Vec2::splat(d));
+    }
+    let d = (line.height() * 0.5).clamp(8.0, 12.0);
+    let centre = pos2(line.right(), line.top());
     Rect::from_center_size(centre, egui::Vec2::splat(d))
 }
 
@@ -266,5 +285,22 @@ pub fn ring(painter: &Painter, placed: &[Placed], picked: &[MarkId], color: Colo
         for r in &m.rects {
             painter.rect_stroke(r.expand(2.0), 2.0, stroke, StrokeKind::Outside);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_badge_sits_in_the_margin_or_raised_over_the_end() {
+        let line = Rect::from_min_max(pos2(100.0, 50.0), pos2(200.0, 70.0));
+        let page = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 600.0));
+        let b = badge(line, Some(300.0), page);
+        assert!(b.left() > 300.0, "clear of the column: {b:?}");
+        assert!((b.center().y - line.center().y).abs() < 0.5);
+        let tight = Rect::from_min_max(pos2(0.0, 0.0), pos2(305.0, 600.0));
+        let b = badge(line, Some(300.0), tight);
+        assert!(b.width() <= 12.0 && b.center() == pos2(200.0, 50.0));
     }
 }
