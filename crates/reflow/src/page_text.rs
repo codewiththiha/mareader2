@@ -1,11 +1,13 @@
 //! A page's characters, pictures and colour glyphs where they are drawn.
 use std::ops::Range;
+use std::sync::Arc;
 
 use parley::{BreakReason, PositionedLayoutItem};
 use skrifa::{FontRef, Tag};
 
 use crate::flow::{Draw, Flow, Laid, PAD, Para};
 use crate::hyphen::SHY;
+use crate::picture::Picture;
 
 /// One character's box on a page, in page units.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -73,6 +75,22 @@ impl Flow {
                 _ => {}
             }
         }
+    }
+
+    /// The picture drawn at a point of page `page`, in page units.
+    pub fn picture_at(&self, page: usize, x: f32, y: f32) -> Option<Arc<Picture>> {
+        let left = self.column(page).0;
+        let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
+        pieces.iter().find_map(|piece| {
+            let set = self.blocks.get(piece.block)?;
+            let Draw::Image { rect, picture } = &set.draw else {
+                return None;
+            };
+            let [px, py, w, h] = *rect;
+            let (x0, y0) = (left + set.x + px, PAD + piece.dy + py);
+            let inside = (x0..=x0 + w).contains(&x) && (y0..=y0 + h).contains(&y);
+            inside.then(|| Arc::clone(picture))
+        })
     }
 
     /// Page `page`'s pictures: left, top, width, height in page units.
@@ -173,13 +191,10 @@ fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
     use crate::block::{Block, Content, Emphasis, Role, Text};
     use crate::flow::{PAGE_HEIGHT, PAGE_WIDTH, Typography};
     use crate::fonts::Fonts;
-    use crate::picture::Picture;
     use crate::picture::tests::png;
 
     fn with(blocks: &[Block], typo: &Typography) -> Flow {
@@ -294,6 +309,10 @@ mod tests {
             return;
         };
         assert_eq!((w, h), (200.0, 100.0));
+        // A point on it finds it; one beside it, nothing.
+        let found = f.picture_at(0, x + w / 2.0, y + h / 2.0);
+        assert!(found.is_some_and(|p| p.width == 200));
+        assert!(f.picture_at(0, x + w + 4.0, y + h / 2.0).is_none());
         assert!(x >= PAD && x + w <= PAGE_WIDTH - PAD, "{x}");
         assert!(y > PAD && y + h < PAGE_HEIGHT - PAD, "{y}");
         // The box holds the picture's pixels on the drawn page.

@@ -59,6 +59,36 @@ pub fn scan(pages: usize, title: &str) -> Vec<u8> {
     build(pages, title, "/Outlines {E0}", &extra, &links, &scanned)
 }
 
+/// Where each page's figure sits: left, bottom, width, height in points.
+pub const FIGURE: [u32; 4] = [72, 200, 240, 160];
+
+/// The sample with a figure on each page: a 4 × 4 image drawn large.
+pub fn figures(pages: usize, title: &str) -> Vec<u8> {
+    let pages = pages.max(1);
+    let extra = outline(&chapters(pages));
+    let links = |i| sample_links(i, pages);
+    build(
+        pages,
+        title,
+        "/Outlines {E0}",
+        &extra,
+        &links,
+        &|_, _, _| figure(),
+    )
+}
+
+/// An inline image in hex: red grows across, green down.
+fn figure() -> String {
+    let [x, y, w, h] = FIGURE;
+    let mut hex = String::new();
+    for row in 0..4u32 {
+        for col in 0..4u32 {
+            hex += &format!("{:02x}{:02x}b4", 40 + col * 60, 40 + row * 60);
+        }
+    }
+    format!("q {w} 0 0 {h} {x} {y} cm BI /W 4 /H 4 /BPC 8 /CS /RGB /F /AHx ID {hex}> EI Q\n")
+}
+
 /// Under a scan's text: its chapter's paper, and a plate over most of it.
 fn scanned(page: usize, w: u32, h: u32) -> String {
     const PAPERS: [&str; 4] = [

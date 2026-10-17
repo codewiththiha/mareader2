@@ -220,6 +220,10 @@ const LISTED: [(&str, &str); 4] = [
 
 /// Consumes this frame's shortcuts and queues their commands.
 pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands) {
+    // An open picture takes the keys it knows; the rest wait.
+    if crate::image_viewer::is_open(ctx) {
+        return;
+    }
     // A focused button wants Space and the arrows, not every key.
     let typing = ctx.text_edit_focused();
     let focused = ctx.memory(|m| m.focused().is_some()) || egui::Popup::is_any_open(ctx);

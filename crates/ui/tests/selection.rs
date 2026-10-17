@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{Event, Modifiers, OutputCommand, PointerButton, Pos2, pos2};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -544,5 +544,136 @@ fn a_book_s_footnote_opens_in_place_and_can_be_followed() -> Out {
     h.run();
     assert!(h.query_by_label(&text).is_none());
     assert_eq!(h.state().documents().current(pane), Some(to));
+    Ok(())
+}
+
+/// A point on `shown` away from the bars over the pane's top and foot.
+fn clear_of_bars(h: &H, shown: egui::Rect) -> Result<Pos2, String> {
+    let pane = h.state().pane_rects().first().map(|(_, r)| *r);
+    let clear = pane.ok_or("no pane")?.shrink2(egui::vec2(0.0, 90.0));
+    let both = shown.intersect(clear);
+    match both.is_positive() {
+        true => Ok(both.center()),
+        false => Err(format!("{shown:?} is under the bars of {clear:?}")),
+    }
+}
+
+#[test]
+fn a_double_click_opens_a_book_s_picture_large() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("epub", "sample:2"),
+        ("view", "single"),
+        ("animations", "false"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 1400.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    let doc = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or("no book")?
+        .document;
+    let (page, picture) = (0..doc.page_count())
+        .find_map(|p| Some((p, *doc.pictures(p).first()?)))
+        .ok_or("no picture")?;
+    h.state_mut().queue(Command::GoTo { pane, page });
+    h.run();
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(pane)
+        .iter()
+        .find(|s| s.page == page)
+        .ok_or("no sheet")?;
+    let at = clear_of_bars(&h, sheet.to_screen(picture))?;
+    clicks(&mut h, at, 2);
+    // Decoded on its own thread, then shown.
+    for _ in 0..200 {
+        h.step();
+        if h.query_by_label("Zoom in").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run();
+    let shown = h.query_by_label_contains("Picture, ").is_some();
+    assert!(shown, "the picture's viewer");
+    let zoom = |h: &H| {
+        h.query_by_label_contains("%")
+            .and_then(|n| n.accesskit_node().label())
+    };
+    let before = zoom(&h);
+    h.get_by_label("Zoom in").click();
+    h.run();
+    assert_ne!(zoom(&h), before, "zoomed");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("Zoom in").is_none(), "Escape closes it");
+    assert_eq!(h.state().documents().current(pane), Some(page));
+    Ok(())
+}
+
+#[test]
+fn a_double_click_opens_a_pdf_s_figure_large() -> Out {
+    let mut app = MareaderApp::default();
+    for (k, v) in [
+        ("workers", "0"),
+        ("pdf", "figures:3"),
+        ("view", "single"),
+        ("animations", "false"),
+    ] {
+        app.set_option(k, v).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 1400.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    let doc = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or("no pdf")?
+        .document;
+    let figure = *doc.text_layer(0)?.figures.first().ok_or("no figure")?;
+    let sheet = *h
+        .state()
+        .documents()
+        .sheets(pane)
+        .first()
+        .ok_or("no sheet")?;
+    // Its text layer is read, so the figure is known.
+    let at = clear_of_bars(&h, sheet.to_screen(figure))?;
+    h.hover_at(at);
+    h.run();
+    clicks(&mut h, at, 2);
+    for _ in 0..200 {
+        h.step();
+        if h.query_by_label("Zoom in").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run();
+    assert!(
+        h.query_by_label("Figure on page 1").is_some(),
+        "the figure's viewer"
+    );
+    h.get_by_label("Close picture").click();
+    h.run();
+    assert!(h.query_by_label("Zoom in").is_none(), "Close closes it");
     Ok(())
 }

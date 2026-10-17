@@ -18,6 +18,10 @@ const ASCENT: f64 = 800.0;
 const FALLBACK_ADVANCE: f64 = 500.0;
 /// Characters kept per page; past it a page is not text but noise.
 pub const MAX_CHARS: usize = 200_000;
+/// A page's figures past this many are not listed.
+const MAX_FIGURES: usize = 64;
+/// Smaller images are rules or icons, not figures, in points.
+const MIN_FIGURE: f32 = 24.0;
 
 /// An upright box in page points, origin top left, y down.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -81,12 +85,15 @@ pub struct TextLayer {
     pub links: Vec<Link>,
     /// A book's: each character's block and byte; a PDF has none.
     pub places: Vec<Option<(u32, u32)>>,
+    /// A PDF's images, where they're drawn; a book has none.
+    pub figures: Vec<Bounds>,
 }
 
 impl TextLayer {
     pub fn bytes(&self) -> usize {
         let places = self.places.len() * size_of::<Option<(u32, u32)>>();
-        self.text.bytes() + self.links.len() * size_of::<Link>() + places
+        let figures = self.figures.len() * size_of::<Bounds>();
+        self.text.bytes() + self.links.len() * size_of::<Link>() + places + figures
     }
 
     /// Character `i`'s block and byte in a book's text.
@@ -409,6 +416,7 @@ impl Placed {
 #[derive(Default)]
 pub(crate) struct Collector {
     pub glyphs: Vec<Placed>,
+    pub figures: Vec<Bounds>,
 }
 
 impl Collector {
@@ -463,7 +471,23 @@ impl<'a> Device<'a> for Collector {
     fn draw_path(&mut self, _: &BezPath, _: DrawProps<'a>, _: &DrawMode) {}
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'a>>, _: BlendMode) {}
-    fn draw_image(&mut self, _: Image<'a, '_>, _: ImageDrawProps<'a>) {}
+    // An image's transform maps its pixel grid onto the page.
+    fn draw_image(&mut self, image: Image<'a, '_>, props: ImageDrawProps<'a>) {
+        let (w, h) = match &image {
+            Image::Raster(r) => (r.width(), r.height()),
+            Image::Stencil(s) => (s.width(), s.height()),
+        };
+        let (w, h) = (f64::from(w), f64::from(h));
+        let corners = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
+        let corners = corners.map(|(x, y)| props.transform * Point::new(x, y));
+        let Some(b) = Bounds::around(corners) else {
+            return;
+        };
+        let big = b.x1 - b.x0 >= MIN_FIGURE && b.y1 - b.y0 >= MIN_FIGURE;
+        if big && self.figures.len() < MAX_FIGURES {
+            self.figures.push(b);
+        }
+    }
     fn pop_clip(&mut self) {}
     fn pop_transparency_group(&mut self) {}
 

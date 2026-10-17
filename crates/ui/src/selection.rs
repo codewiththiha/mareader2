@@ -131,6 +131,8 @@ pub struct Outcome {
     pub click: Option<Pos2>,
     /// Where a right-click landed.
     pub context: Option<Pos2>,
+    /// Where a double click found no word, maybe on a picture.
+    pub double: Option<Pos2>,
 }
 
 /// The pages' texts as one pane sees them.
@@ -241,6 +243,7 @@ pub fn interact(
             *selection = unit(true);
         } else if response.double_clicked() {
             *selection = unit(false);
+            out.double = p.filter(|_| selection.is_none());
         } else {
             *selection = None;
             out.follow = link;

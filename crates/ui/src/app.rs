@@ -695,6 +695,10 @@ impl MareaderApp {
                         mareader_pdf::sample::pdf(pages, "A Mareader Sample"),
                         "sample.pdf",
                     ),
+                    (_, "figures") => OpenRequest::bytes(
+                        mareader_pdf::sample::figures(pages, "A Mareader Sample"),
+                        "figures.pdf",
+                    ),
                     (_, "scan") => OpenRequest::bytes(
                         mareader_pdf::sample::scan(pages, "A Mareader Scan"),
                         "scan.pdf",
@@ -2113,7 +2117,8 @@ impl eframe::App for MareaderApp {
         let modal = self.settings_window.is_open()
             || self.library.sheet().is_some()
             || self.library.renaming().is_some()
-            || (route == Route::Library && library::search::focused(&ctx));
+            || (route == Route::Library && library::search::focused(&ctx))
+            || crate::image_viewer::is_open(&ctx);
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
