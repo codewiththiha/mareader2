@@ -371,3 +371,19 @@ A bookmark keeps a page to come back to.
 - Exports and Copy all carry highlights only.
 - Bookmarks are stored as marks and sync like them. An older build
   skips them rather than failing to load.
+
+## Restyling several highlights
+
+Select several's bar has **Style…** beside Remove. It opens the same
+pens and colours as a highlight's menu, for every highlight picked.
+
+- A pen restyles each highlight, keeping its colour unless that look
+  is reserved; then it takes the pen's own colour.
+- A colour goes to each highlight whose pen may take it; the rest stay.
+  The toast says so: "Restyled 1 of 2 highlights".
+- A colour is struck through only when every pen in the group keeps it
+  for AI marks or CEFR shading. With one pen in common, that pen and the
+  shared colour show as current; mixed, none does.
+- AI marks in the selection keep their look. Style… is off when no
+  highlight is picked.
+- Undo in the toast puts every look back. Picking goes on after either.
