@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The strength at which the tint is whole; more adds nothing.
+pub const FULL_TINT: u8 = 50;
+
 /// The structural half of a look: the filter family and blend direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -124,9 +127,9 @@ impl Appearance {
         self.tint_strength > 0
     }
 
-    /// The tint's effect, 0..=1. Full effect lands at strength 50.
+    /// The tint's effect, 0..=1. Full effect lands at FULL_TINT.
     pub fn tint_amount(&self) -> f64 {
-        (f64::from(self.tint_strength) / 50.0).min(1.0)
+        (f64::from(self.tint_strength) / f64::from(FULL_TINT)).min(1.0)
     }
 
     /// Whether going to `to` is a jump worth easing, not a dial's step.

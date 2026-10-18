@@ -21,7 +21,7 @@ mod tokens;
 pub use color::{Oklch, Rgb};
 pub use filter::{Blend, ColorMatrix, FilterOp, MAX_FILTER_OPS, PageTone, apply_filter};
 pub use grain::{CRAWL, CRAWL_SECS, FilmGrain, NOISE_FREQUENCY, NOISE_TILE, crawl, layer};
-pub use model::{Appearance, BaseMode, NoiseMode, TextureMode};
+pub use model::{Appearance, BaseMode, FULL_TINT, NoiseMode, TextureMode};
 pub use pane_looks::{PANE_TINT_STRENGTH, PaneLooks, Routing};
 pub use pattern::{
     DOT_PITCH, GRAIN_ALPHA, GRAIN_FREQUENCY, GRAIN_TILE, LINE_PITCH, PATTERN_PERIOD, Pattern,
