@@ -1,8 +1,8 @@
 //! Removal's alert: docked low, one line of meaning, then Remove.
 
 use egui::{
-    Align, Align2, Button, Color32, Context, Frame, Id, Key, Label, Layout, Margin, Modal,
-    RichText, Stroke, Ui, vec2,
+    Align, Align2, Button, Color32, Context, Frame, Id, Key, Label, Layout, Margin, Modal, Rect,
+    RichText, Stroke, Ui, pos2, vec2,
 };
 use mareader_library::{BookId, Library, LinkId, Receipt, Removing, ShelfId};
 
@@ -205,19 +205,22 @@ fn toggle(ui: &mut Ui, on: &mut bool, label: &str, note: &str, warn: Option<Colo
         .corner_radius(t.radius)
         .inner_margin(Margin::symmetric(12, 10))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let room = (ui.available_width() - SWITCH_ROOM).max(0.0);
-                let layout = Layout::top_down(Align::Min);
-                ui.allocate_ui_with_layout(vec2(room, 0.0), layout, |ui| {
-                    ui.set_width(room);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    let ink = hot.unwrap_or(t.ink);
-                    ui.add(Label::new(RichText::new(label).color(ink)).wrap());
-                    let small = RichText::new(note).size(t.text_small).color(t.muted);
-                    ui.add(Label::new(small).wrap());
-                });
-                widgets::switch(ui, on, label);
+            // Words in the flow, the switch beside them: a row would centre
+            // the words low.
+            ui.set_width(ui.available_width());
+            let room = (ui.available_width() - SWITCH_ROOM).max(0.0);
+            let layout = Layout::top_down(Align::Min);
+            let words = ui.allocate_ui_with_layout(vec2(room, 0.0), layout, |ui| {
+                ui.set_width(room);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                let ink = hot.unwrap_or(t.ink);
+                ui.add(Label::new(RichText::new(label).color(ink)).wrap());
+                let small = RichText::new(note).size(t.text_small).color(t.muted);
+                ui.add(Label::new(small).wrap());
             });
+            let mid = pos2(ui.max_rect().right() - 18.0, words.response.rect.center().y);
+            let at = Rect::from_center_size(mid, vec2(36.0, 20.0));
+            ui.put(at, |ui: &mut Ui| widgets::switch(ui, on, label));
         });
 }
 
