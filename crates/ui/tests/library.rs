@@ -12,7 +12,7 @@ use mareader_library::{
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::library::{
-    Action, BookAction, Named, Pick, PickAction, SearchAction, ShelfAction,
+    Action, BookAction, Named, Pick, PickAction, SearchAction, Sheet, ShelfAction,
 };
 
 /// Canonical, as the library records it; opens take any spelling.
@@ -446,11 +446,7 @@ fn a_folder_brings_in_its_books_where_they_are_and_says_how_many() {
     assert_eq!(top[0].name.value, "Books", "a shelf for the folder");
     // A subfolder of a tree read in place continues it: nothing new.
     act(&mut h, read_in(root.join("notes")));
-    assert!(
-        toast(&h).starts_with("Nothing new to import"),
-        "{}",
-        toast(&h)
-    );
+    nothing_new(&mut h);
     assert_eq!(library(&h).len(), 2);
     assert_eq!(
         library(&h).folders().count(),
@@ -557,6 +553,27 @@ fn a_namesake_with_other_content_is_offered_not_taken() {
     assert_eq!(library(&h).book_at(&edited), Some(id));
 }
 
+/// The note an import that found nothing new shows; closing lights its shelf.
+fn nothing_new(h: &mut Harness<'static, MareaderApp>) -> ShelfId {
+    let sheet = h.state().library_state().sheet().cloned();
+    let Some(Sheet::Note {
+        shelf,
+        returned: false,
+    }) = sheet
+    else {
+        panic!("no note: {sheet:?}\n{}", state(h));
+    };
+    assert!(shows(h, "Nothing new to import"));
+    h.get_by_label("Show the shelf").click();
+    h.run();
+    assert!(h.state().library_state().sheet().is_none());
+    assert_eq!(
+        h.state().library_state().revealed(),
+        Some(Pick::Shelf(shelf))
+    );
+    shelf
+}
+
 #[test]
 fn importing_a_folder_again_brings_nothing_twice() {
     let dir = tempfile::tempdir().unwrap();
@@ -567,11 +584,8 @@ fn importing_a_folder_again_brings_nothing_twice() {
     act(&mut h, read_in(root.clone()));
     let id = library(&h).book_at(&raven).unwrap();
     act(&mut h, read_in(root));
-    assert!(
-        toast(&h).starts_with("Nothing new to import"),
-        "{}",
-        toast(&h)
-    );
+    let shelf = nothing_new(&mut h);
+    assert_eq!(shelf, library(&h).children(None)[0].id, "its own shelf");
     assert_eq!(library(&h).len(), 2);
     assert_eq!(library(&h).book_at(&raven), Some(id), "the same book");
     assert_eq!(library(&h).children(None).len(), 1, "one shelf");

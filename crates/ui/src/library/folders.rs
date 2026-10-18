@@ -376,10 +376,22 @@ impl LibraryState {
             .extend(asks.into_iter().map(Question::Merge));
         let name =
             (self.model.folder(folder)).map_or_else(|| folder_name(&going.root), |f| f.name());
-        let note = landed_note(&name, &landed, going.found, waiting);
-        out.push(Command::Notify(Toast::info(note)));
-        if let Some(shelf) = landed.root {
-            self.reveal(Pick::Shelf(shelf), now);
+        let plan = &going.plan;
+        let nothing = landed.total() == 0 && waiting == 0;
+        let note = match (plan.fold.is_some(), plan.continuation) {
+            (true, _) => landed.root.map(|shelf| (shelf, true)),
+            (false, Some(shelf)) if nothing => Some((shelf, false)),
+            _ => None,
+        };
+        match note.filter(|_| self.folders.sheet.is_none()) {
+            Some((shelf, returned)) => self.folders.sheet = Some(Sheet::Note { shelf, returned }),
+            None => {
+                let note = landed_note(&name, &landed, going.found, waiting);
+                out.push(Command::Notify(Toast::info(note)));
+                if let Some(shelf) = landed.root {
+                    self.reveal(Pick::Shelf(shelf), now);
+                }
+            }
         }
     }
 

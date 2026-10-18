@@ -364,3 +364,51 @@ fn a_link_stands_among_its_level_and_moves_as_a_card() {
     };
     assert_eq!(lib.land_move(&gone, &[], 4_000).links, 0);
 }
+
+#[test]
+fn a_book_turned_copy_onto_the_librarys_own_may_become_a_link_to_it() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/a.pdf", 1)];
+    let (folder, _) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let (root, mine) = (
+        shelf_named(&lib, "books"),
+        lib.create_shelf("Mine", None, 5).unwrap(),
+    );
+    let a = titled(&lib, "a");
+    let mut own = copy_of(&lib, a);
+    own.path = PathBuf::from("/store/own.pdf");
+    own.measure.content = ContentId(9);
+    let kept = lib.duplicate_book(a, &own, 6).unwrap();
+    lib.unfile(kept, root, 7);
+    lib.file(kept, mine, 7);
+    lib.rename_book(kept, "a", 7);
+    let mv = Move {
+        books: vec![a],
+        from: Some(root),
+        to: Some(mine),
+        ..Move::default()
+    };
+    assert!(lib.depart(a, &copy_of(&lib, a), 8));
+    let moved = lib.land_move(&mv, &[a], 9);
+    let ask = moved.asks.first().unwrap();
+    assert_eq!(ask.offers(), Placement::MOVE_KEEPING_BOTH);
+    assert_eq!(
+        lib.answer_move(ask, Placement::Replace, 10),
+        Answer::Nothing
+    );
+    assert_eq!(
+        lib.answer_move(ask, Placement::LinkOnly, 10),
+        Answer::Linked
+    );
+    assert!(lib.book(a).is_none(), "the dragged copy dissolves");
+    assert!(lib.book(kept).is_some());
+    let link = lib.links().find(|l| l.level.value == Some(mine)).unwrap();
+    assert_eq!(link.target, crate::LinkTo::Book(kept));
+    let stone = lib.folder(folder).unwrap().tombstone(ContentId(1)).unwrap();
+    assert!(stone.moved, "the folder doesn't place it again");
+    // A book that was already a copy meets the plain question.
+    let b = opened_on(&mut lib, "b", 20, root);
+    let twin = opened_on(&mut lib, "b", 21, mine);
+    let plain = ask_moving(&mut lib, b, root, mine);
+    assert_eq!((plain.offers(), plain.existing), (Placement::MOVE, twin));
+}
