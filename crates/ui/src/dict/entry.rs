@@ -8,6 +8,18 @@ use crate::theme::Tokens;
 
 /// The answer reads a step larger than the interface, as on a page.
 pub const ANSWER: f32 = 1.15;
+/// Burmese and its kin run taller at a size, so read a step smaller.
+pub const TALL: f32 = 1.05;
+
+/// The answer's size: tall scripts take the smaller step.
+pub fn answer_size(text: &str, t: &Tokens) -> f32 {
+    t.text
+        * if shaped::needs_shaping(text) {
+            TALL
+        } else {
+            ANSWER
+        }
+}
 
 /// The headword an entry stands for when it isn't the word asked.
 pub fn near<'a>(e: &'a Entry, asked: &str) -> Option<&'a str> {
@@ -49,7 +61,7 @@ pub fn entries(
 /// Tags and source, the answer, then its romanization and sense.
 pub fn rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
     meta(ui, e, t);
-    shaped::label(ui, e.answer(), t.text * ANSWER, t.ink);
+    shaped::label(ui, e.answer(), answer_size(e.answer(), t), t.ink);
     if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {
         shaped::label(ui, r, t.text_small, t.muted);
     }

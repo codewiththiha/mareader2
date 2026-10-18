@@ -50,7 +50,7 @@ jobs:
         with:
           shared-key: test
           save-if: false
-      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers
+      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-core
       - name: Render
         env:
           SHOTS: ${{ inputs.shots }}
