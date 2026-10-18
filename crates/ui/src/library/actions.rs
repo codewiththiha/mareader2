@@ -2,9 +2,10 @@
 
 use std::path::PathBuf;
 
-use mareader_library::{BookId, ContentId, FolderId, Options, Placement, Receipt, ShelfId};
+use mareader_library::{BookId, ContentId, FolderId, LinkId, Options, Placement, ShelfId};
 
 use super::find::Finding;
+use super::moving::CopyWork;
 use super::{LibraryState, Pick, PickAction};
 use crate::command::Commands;
 
@@ -71,24 +72,35 @@ pub enum Action {
         folder: PathBuf,
     },
     CloseSheet,
+    /// Opens the one rename sheet for a book, a shelf or a link.
+    AskRename(Named),
+    Rename(Named, String),
     Shelf(super::ShelfAction),
     Pick(PickAction),
     Book(super::BookAction),
     Search(super::SearchAction),
 }
 
+/// Anything the library shows under a name of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Named {
+    Book(BookId),
+    Shelf(ShelfId),
+    Link(LinkId),
+}
+
 /// The sheet over the page, if any; questions wait behind it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Sheet {
     Find(Finding),
-    RemoveShelf(ShelfId),
-    /// Removing books, and maybe shelves, with what that does.
+    /// Removing books and shelves, with what that does.
     Removal {
         books: Vec<BookId>,
         shelves: Vec<ShelfId>,
-        receipt: Receipt,
     },
-    RenameBook(BookId),
+    Rename(Named),
+    /// Books read in place about to leave their folder: copy them first?
+    Copy(Box<CopyWork>),
     /// How a folder's books are taken in.
     Import(PathBuf),
     /// A book that left its folder's shelves: shown here, or gone to.
@@ -134,6 +146,12 @@ impl LibraryState {
             | Action::UseAnyway(_)
             | Action::Seek { .. } => self.find_act(action, out),
             Action::CloseSheet => self.close_sheet(),
+            Action::AskRename(named) => {
+                if self.name_of(named).is_some() {
+                    self.folders.sheet = Some(Sheet::Rename(named));
+                }
+            }
+            Action::Rename(named, name) => self.rename(named, &name),
             Action::Shelf(action) => self.shelf_act(action, out),
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.book_act(action, out),
@@ -144,6 +162,38 @@ impl LibraryState {
             | Action::PickFrom(_)
             | Action::PickFile(_)
             | Action::PickSearchFolder(_) => {}
+        }
+    }
+}
+
+impl LibraryState {
+    /// The name a book, shelf or link shows now; none once it's gone.
+    pub fn name_of(&self, named: Named) -> Option<String> {
+        let model = &self.model;
+        match named {
+            Named::Book(id) => model.book(id).map(|b| b.title.value.clone()),
+            Named::Shelf(id) => model.shelf(id).map(|s| s.name.value.clone()),
+            Named::Link(id) => model.link(id).map(|l| l.name.value.clone()),
+        }
+    }
+
+    /// Gives it the typed name; a blank one keeps the old.
+    fn rename(&mut self, named: Named, name: &str) {
+        if matches!(self.folders.sheet, Some(Sheet::Rename(_))) {
+            self.close_sheet();
+        }
+        self.renaming = None;
+        let now = super::wall_ms();
+        match named {
+            Named::Book(id) => {
+                self.model.rename_book(id, name, now);
+            }
+            Named::Shelf(id) => {
+                self.model.rename_shelf(id, name, now).ok();
+            }
+            Named::Link(id) => {
+                self.model.rename_link(id, name, now);
+            }
         }
     }
 }

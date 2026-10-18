@@ -726,7 +726,7 @@ impl Library {
     }
 
     /// Where a rung hangs by the disk; `None` for no rung.
-    pub(crate) fn seat(&self, id: ShelfId) -> Option<Option<ShelfId>> {
+    pub fn seat(&self, id: ShelfId) -> Option<Option<ShelfId>> {
         let (folder, key) = self.shelves.get(&id)?.kind.value.rung()?;
         let rungs: HashMap<String, ShelfId> = (self.shelves.values())
             .filter(|s| s.alive() && s.id != id)

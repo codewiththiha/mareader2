@@ -14,6 +14,7 @@ use mareader_library::{
 use super::asks::Question;
 use super::find::folder_name;
 use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
+use super::moving::CopyWork;
 use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
 use crate::command::{Command, Commands};
@@ -49,6 +50,8 @@ enum Pending {
     Loose(Box<Loose>),
     /// An answer's copy, then the answer written.
     Keep(Box<Question>, Placement),
+    /// Books read in place copied, then the gesture that owed them.
+    Depart(Box<CopyWork>),
     /// A removed book's file measured, then copied if its folder copies.
     Restore(FolderId, ContentId),
     Restored(FolderId, ContentId, Box<Found>),
@@ -396,12 +399,30 @@ impl LibraryState {
                 let copy = question.found().and_then(|f| done.copies.get(&f.path));
                 self.write_answer(*question, answer, copy, now, out);
             }
+            Some(Pending::Depart(work)) => self.departed(*work, &done.copies, out),
             Some(Pending::Restored(folder, content, found)) => {
                 let copy = done.copies.get(&found.path);
                 self.restored(folder, content, &found, copy, now, out);
             }
             _ => {}
         }
+    }
+
+    /// Copies books read in place, then finishes the gesture.
+    pub(super) fn copy_out(&mut self, work: Box<CopyWork>, files: Vec<Found>, out: &mut Commands) {
+        let Some(store) = self.store() else {
+            let note = "The library has no folder to keep books in.";
+            out.push(Command::Notify(Toast::error(note)));
+            return;
+        };
+        let tag = self.tag(Pending::Depart(work));
+        let run = None;
+        self.io.send(Job::Copy(Box::new(CopyIn {
+            tag,
+            run,
+            store,
+            files,
+        })));
     }
 
     /// Copies an answer's file first, then writes the answer.

@@ -300,12 +300,12 @@ impl Library {
         Ok(())
     }
 
-    /// Takes a shelf apart; a rung's books go to the rung above.
+    /// Takes a shelf apart; only a rung's books go up, to the rung above.
     pub fn remove_shelf(&mut self, id: ShelfId, wall_ms: u64) -> Option<ShelfRemoved> {
         let shelf = self.shelf(id)?;
         let parent = self.parent_of(shelf);
         let rung = shelf.kind.value.rung().map(|(f, _)| f);
-        let home = self.seat(id).unwrap_or(parent);
+        let home = self.seat(id).flatten();
         let inner: Vec<ShelfId> = (self.children(Some(id)).into_iter())
             .map(|s| s.id)
             .collect();

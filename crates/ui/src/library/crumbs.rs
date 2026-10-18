@@ -5,7 +5,7 @@ use egui::{Button, Id, Popup, PopupCloseBehavior, RectAlign, Response, Stroke, S
 use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
-use super::{Action, Carry, Crumb, ShelfAction};
+use super::{Action, Carry, Crumb, Named, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -140,7 +140,7 @@ fn folded(ui: &mut Ui, elided: &[Crumb], out: &mut Commands) {
         });
 }
 
-/// The open shelf's crumb: a menu to rename or remove it.
+/// The open shelf's crumb: a menu to rename it or take it apart.
 fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
     let menu = Id::new(CRUMB_MENU);
     let open = Popup::is_id_open(ui.ctx(), menu);
@@ -162,8 +162,8 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             if widgets::menu_row(ui, Icon::Rename, "Rename…", None, false).clicked() {
                 out.push(act(ShelfAction::StartRename(id)));
             }
-            if widgets::menu_row(ui, Icon::Remove, "Remove shelf…", None, false).clicked() {
-                out.push(act(ShelfAction::AskRemove(id)));
+            if widgets::menu_row(ui, Icon::Remove, "Remove shelf", None, false).clicked() {
+                out.push(act(ShelfAction::Apart(id)));
             }
             widgets::close_on_key(ui);
         });
@@ -202,8 +202,8 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
     }
     ui.data_mut(|d| d.remove::<String>(field));
     let action = match escape {
-        true => ShelfAction::CancelRename,
-        false => ShelfAction::Rename(id, text),
+        true => Action::Shelf(ShelfAction::CancelRename),
+        false => Action::Rename(Named::Shelf(id), text),
     };
-    out.push(Command::Library(Action::Shelf(action)));
+    out.push(Command::Library(action));
 }

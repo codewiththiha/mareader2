@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_library::{Home, Item, Library, ShelfId, SortKey};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
-use mareader_ui::library::{Action, ShelfAction};
+use mareader_ui::library::{Action, Named, ShelfAction};
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
@@ -48,7 +48,11 @@ fn on(h: &Harness<'static, MareaderApp>, item: Item, along: f32) -> egui::Pos2 {
 }
 
 fn shelve(h: &mut Harness<'static, MareaderApp>, action: ShelfAction) {
-    h.state_mut().queue(Command::Library(Action::Shelf(action)));
+    act(h, Action::Shelf(action));
+}
+
+fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
+    h.state_mut().queue(Command::Library(action));
     h.run();
     h.run();
 }
@@ -57,7 +61,7 @@ fn shelve(h: &mut Harness<'static, MareaderApp>, action: ShelfAction) {
 fn new_shelf(h: &mut Harness<'static, MareaderApp>, name: &str) -> Item {
     shelve(h, ShelfAction::New);
     let id = h.state().library_state().at().expect("a new shelf opens");
-    shelve(h, ShelfAction::Rename(id, name.into()));
+    act(h, Action::Rename(Named::Shelf(id), name.into()));
     shelve(h, ShelfAction::GoTo(None));
     Item::Shelf(id)
 }

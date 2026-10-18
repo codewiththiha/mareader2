@@ -6,10 +6,14 @@ use std::time::{Duration, SystemTime};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
-use mareader_library::{BookId, CoverFit, Format, Home, Layout, Library, Origin, ShelfId, SortKey};
+use mareader_library::{
+    BookId, CoverFit, Format, Home, Layout, Library, Move, Origin, ShelfId, SortKey,
+};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
-use mareader_ui::library::{Action, BookAction, Pick, PickAction, SearchAction, ShelfAction};
+use mareader_ui::library::{
+    Action, BookAction, Named, Pick, PickAction, SearchAction, ShelfAction,
+};
 
 /// Canonical, as the library records it; opens take any spelling.
 fn fixture(name: &str) -> PathBuf {
@@ -620,11 +624,23 @@ fn shelve(h: &mut Harness<'static, MareaderApp>, action: ShelfAction) {
     act(h, Action::Shelf(action));
 }
 
+/// Carries books from one level to another, as a drop does.
+fn file(books: &[BookId], from: Option<ShelfId>, to: Option<ShelfId>, keep: bool) -> ShelfAction {
+    ShelfAction::Carry(Move {
+        books: books.to_vec(),
+        shelves: Vec::new(),
+        from,
+        to,
+        keep,
+        before: None,
+    })
+}
+
 /// A shelf made through the page's own action, at the top level.
 fn new_shelf(h: &mut Harness<'static, MareaderApp>, name: &str) -> ShelfId {
     shelve(h, ShelfAction::New);
     let id = open_shelf(h).expect("a new shelf opens");
-    shelve(h, ShelfAction::Rename(id, name.into()));
+    act(h, Action::Rename(Named::Shelf(id), name.into()));
     shelve(h, ShelfAction::GoTo(None));
     id
 }
@@ -649,11 +665,23 @@ fn book_id(h: &Harness<'static, MareaderApp>, n: usize) -> BookId {
     ids[n]
 }
 
+/// Opens the crumb menu of the shelf on the page and picks Rename….
+fn rename_from_crumb(h: &mut Harness<'static, MareaderApp>, name: &str) {
+    let crumbs = h.get_all_by_role_and_label(Role::Button, name);
+    let crumb = crumbs.min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    crumb.expect("its crumb").click();
+    h.run();
+    h.get_by_label("Rename…").click();
+    h.run();
+}
+
 #[test]
 fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     from_add_menu(&mut h, "New shelf");
     let id = open_shelf(&h).expect("the new shelf opens");
+    assert_eq!(h.state().library_state().renaming(), None, "only opened");
+    rename_from_crumb(&mut h, "New shelf");
     assert_eq!(h.state().library_state().renaming(), Some(id));
     // Its whole name is selected, so typing replaces it.
     let field = name_field(&h);
@@ -679,6 +707,7 @@ fn escape_while_naming_keeps_the_old_name_and_the_page() {
     let mut h = reader(&[("books", "2"), ("library", "show")]);
     from_add_menu(&mut h, "New shelf");
     let id = open_shelf(&h).unwrap();
+    rename_from_crumb(&mut h, "New shelf");
     name_field(&h).type_text("Junk");
     h.run();
     h.key_press(egui::Key::Escape);
@@ -687,12 +716,7 @@ fn escape_while_naming_keeps_the_old_name_and_the_page() {
     assert_eq!(h.state().library_state().renaming(), None);
     assert!(h.state().library_showing(), "Escape only ended the naming");
     // The crumb's menu names it again.
-    let crumbs = h.get_all_by_role_and_label(Role::Button, "New shelf");
-    let crumb = crumbs.min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    crumb.unwrap().click();
-    h.run();
-    h.get_by_label("Rename…").click();
-    h.run();
+    rename_from_crumb(&mut h, "New shelf");
     assert_eq!(h.state().library_state().renaming(), Some(id));
 }
 
@@ -701,7 +725,7 @@ fn a_shelf_may_take_a_name_already_beside_it() {
     let mut h = reader(&[("books", "2"), ("library", "show")]);
     new_shelf(&mut h, "Poetry");
     let other = new_shelf(&mut h, "Other");
-    shelve(&mut h, ShelfAction::Rename(other, "poetry".into()));
+    act(&mut h, Action::Rename(Named::Shelf(other), "poetry".into()));
     assert_eq!(library(&h).shelf(other).unwrap().name.value, "poetry");
     assert_eq!(library(&h).children(None).len(), 2);
 }
@@ -777,51 +801,40 @@ fn a_shelf_moves_books_between_shelves_or_adds_them_with_alt() {
     let a = new_shelf(&mut h, "A");
     let b = new_shelf(&mut h, "B");
     let book = book_id(&h, 0);
-    let file = |to, from, keep| ShelfAction::File {
-        book,
-        to,
-        from,
-        keep,
-    };
-    shelve(&mut h, file(Some(a), None, false));
-    shelve(&mut h, file(Some(b), Some(a), false));
+    shelve(&mut h, file(&[book], None, Some(a), false));
+    shelve(&mut h, file(&[book], Some(a), Some(b), false));
     assert!(toast(&h).starts_with("Moved"), "{}", toast(&h));
     assert_eq!(
         library(&h).shelves_of(book).into_iter().collect::<Vec<_>>(),
         [b]
     );
-    shelve(&mut h, file(Some(a), Some(b), true));
+    shelve(&mut h, file(&[book], Some(b), Some(a), true));
     assert_eq!(library(&h).shelves_of(book).len(), 2, "Alt keeps it on B");
     // Dropped on the top level's crumb, it leaves the open shelf.
-    shelve(&mut h, file(None, Some(a), false));
+    shelve(&mut h, file(&[book], Some(a), None, false));
     assert_eq!(
         library(&h).shelves_of(book).into_iter().collect::<Vec<_>>(),
         [b]
     );
     // A shelf can't go inside its own shelves.
-    shelve(
-        &mut h,
-        ShelfAction::Move {
-            shelf: b,
-            to: Some(b),
-        },
-    );
+    let shelf = |shelf, to| {
+        ShelfAction::Carry(Move {
+            books: Vec::new(),
+            shelves: vec![shelf],
+            from: None,
+            to,
+            keep: false,
+            before: None,
+        })
+    };
     let inner = new_shelf(&mut h, "Inner");
-    shelve(
-        &mut h,
-        ShelfAction::Move {
-            shelf: inner,
-            to: Some(b),
-        },
-    );
-    shelve(
-        &mut h,
-        ShelfAction::Move {
-            shelf: b,
-            to: Some(inner),
-        },
-    );
-    assert_eq!(toast(&h), "A shelf can't go inside itself.");
+    shelve(&mut h, shelf(inner, Some(b)));
+    assert_eq!(toast(&h), "Moved “Inner” to “B”.");
+    shelve(&mut h, shelf(b, Some(inner)));
+    shelve(&mut h, shelf(b, Some(b)));
+    let parent = |id| library(&h).shelf(id).map(|s| s.parent.value);
+    assert_eq!(parent(b), Some(None), "B stays at the top");
+    assert_eq!(parent(inner), Some(Some(b)));
 }
 
 #[test]
@@ -829,13 +842,8 @@ fn home_can_leave_shelved_books_to_their_shelves() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     let shelf = new_shelf(&mut h, "Poetry");
     let shelved = title_of(&h, 0);
-    let file = ShelfAction::File {
-        book: book_id(&h, 0),
-        to: Some(shelf),
-        from: None,
-        keep: false,
-    };
-    shelve(&mut h, file);
+    let first = book_id(&h, 0);
+    shelve(&mut h, file(&[first], None, Some(shelf), false));
     assert!(
         h.query_by_label(&shelved).is_some(),
         "everything, by default"
@@ -850,33 +858,26 @@ fn home_can_leave_shelved_books_to_their_shelves() {
 }
 
 #[test]
-fn removing_a_shelf_asks_then_moves_its_shelves_up() {
+fn taking_a_shelf_apart_moves_its_shelves_up() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     let outer = new_shelf(&mut h, "Outer");
     shelve(&mut h, ShelfAction::GoTo(Some(outer)));
     shelve(&mut h, ShelfAction::New);
     let inner = open_shelf(&h).unwrap();
-    let file = ShelfAction::File {
-        book: book_id(&h, 0),
-        to: Some(outer),
-        from: None,
-        keep: false,
-    };
-    shelve(&mut h, file);
+    let first = book_id(&h, 0);
+    shelve(&mut h, file(&[first], None, Some(outer), false));
     shelve(&mut h, ShelfAction::GoTo(Some(outer)));
-    shelve(&mut h, ShelfAction::AskRemove(outer));
-    assert!(
-        library(&h).shelf(outer).is_some(),
-        "nothing goes before the answer"
-    );
-    h.get_by_label("Remove").click();
-    h.run();
+    // Nothing is read in place, so it goes without asking.
+    shelve(&mut h, ShelfAction::Apart(outer));
     assert!(library(&h).shelf(outer).is_none());
     assert_eq!(open_shelf(&h), None, "back up to where it was");
     let top: Vec<ShelfId> = library(&h).children(None).iter().map(|s| s.id).collect();
     assert_eq!(top, [inner]);
     assert_eq!(library(&h).len(), 4, "its books stay");
-    assert_eq!(toast(&h), "Removed “Outer”. Its books stay in the library.");
+    assert_eq!(
+        toast(&h),
+        "Took “Outer” apart. Its books stay in the library."
+    );
 }
 
 #[test]
@@ -885,7 +886,10 @@ fn a_long_trail_folds_its_middle_and_leads_back_up() {
     for n in 1..=5 {
         shelve(&mut h, ShelfAction::New);
         let id = open_shelf(&h).unwrap();
-        shelve(&mut h, ShelfAction::Rename(id, format!("Level {n}")));
+        act(
+            &mut h,
+            Action::Rename(Named::Shelf(id), format!("Level {n}")),
+        );
     }
     let trail = h.state().library_state().trail();
     assert_eq!(trail.len(), 6);
@@ -911,7 +915,7 @@ fn a_removed_open_shelf_gives_way_to_its_parent() {
     shelve(&mut h, ShelfAction::GoTo(Some(outer)));
     shelve(&mut h, ShelfAction::New);
     let inner = open_shelf(&h).unwrap();
-    shelve(&mut h, ShelfAction::Remove(inner));
+    shelve(&mut h, ShelfAction::Apart(inner));
     assert_eq!(open_shelf(&h), Some(outer));
     assert_eq!(h.state().library_state().renaming(), None);
 }
@@ -980,14 +984,11 @@ fn picks_go_on_a_new_shelf_together_and_come_off_it() {
     act(&mut h, Action::Pick(PickAction::Only(both)));
     h.get_by_label("New shelf from these").click();
     h.run();
-    let shelf = open_shelf(&h).expect("the new shelf opens");
-    assert_eq!(
-        h.state().library_state().renaming(),
-        Some(shelf),
-        "named next"
-    );
+    assert_eq!(open_shelf(&h), None, "the page stays where it was");
+    let shelf = library(&h).children(None)[0].id;
     assert_eq!(library(&h).shelf_books(shelf).len(), 2);
     assert!(picks(&h).is_empty());
+    shelve(&mut h, ShelfAction::GoTo(Some(shelf)));
     act(&mut h, Action::Pick(PickAction::Only(vec![Pick::Book(a)])));
     book(&mut h, BookAction::TakeOff(vec![a]));
     assert_eq!(library(&h).shelf_books(shelf).len(), 1);
@@ -1227,10 +1228,7 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     assert_eq!(open_shelf(&h), Some(shelf), "it shows where it is");
     let (books, shelves) = (vec![b.id], Vec::new());
     book(&mut h, BookAction::AskRemove { books, shelves });
-    assert!(
-        h.query_by_label("The copy Mareader keeps is deleted.")
-            .is_some()
-    );
+    assert!(h.query_by_label("The app's own copy").is_some());
     h.get_by_label("Remove").click();
     h.run();
     h.run();
@@ -1414,4 +1412,63 @@ fn the_plus_card_ends_the_page_but_not_a_search() {
     let text = mareader_ui::library::SearchAction::Text("b".into());
     act(&mut h, Action::Search(text));
     assert!(h.query_by_label("Add books").is_none());
+}
+
+#[test]
+fn a_book_read_in_place_asks_before_it_leaves_its_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Books");
+    put(&root, "top.md", &note("Top Note"));
+    let raven = put(&root, "Poe/raven.md", &note("Raven Note"));
+    let mut h = kept_in(dir.path());
+    act(&mut h, read_in(&root));
+    let books = library(&h).children(None)[0].id;
+    let poe = library(&h).children(Some(books))[0].id;
+    let id = library(&h).book_at(&raven).unwrap();
+    // Off the folder's shelves, it can only go as a copy: asked first.
+    shelve(&mut h, file(&[id], Some(poe), None, false));
+    assert!(shows(&h, "Copying books read in place"));
+    assert!(shows(&h, "1 book from “Books”"), "{}", state(&h));
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().library_state().sheet().is_none());
+    assert!(library(&h).shelves_of(id).contains(&poe), "left as it was");
+    shelve(&mut h, file(&[id], Some(poe), None, false));
+    h.get_by_label("Copy and move").click();
+    h.run();
+    h.run();
+    let book = library(&h).book(id).unwrap();
+    assert_eq!(book.locations[0].origin, Origin::Store, "{}", toast(&h));
+    assert!(library(&h).shelves_of(id).is_empty(), "{}", toast(&h));
+    assert!(raven.is_file(), "the folder on disk is untouched");
+    // A rung taken apart sends its books up; the copy is asked too.
+    let top = library(&h).book_at(&root.join("top.md").canonicalize().unwrap());
+    shelve(&mut h, ShelfAction::Apart(books));
+    assert!(shows(&h, "Take shelf apart"));
+    assert!(
+        library(&h).shelf(books).is_some(),
+        "nothing before the answer"
+    );
+    assert!(top.is_some());
+}
+
+#[test]
+fn a_move_onto_a_shelf_holding_the_name_asks_first() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let (a, b) = (new_shelf(&mut h, "A"), new_shelf(&mut h, "B"));
+    let (kept, moving) = (book_id(&h, 0), book_id(&h, 1));
+    let name = title_of(&h, 0);
+    act(&mut h, Action::Rename(Named::Book(moving), name.clone()));
+    shelve(&mut h, file(&[kept], None, Some(a), false));
+    shelve(&mut h, file(&[moving], None, Some(b), false));
+    shelve(&mut h, file(&[moving], Some(b), Some(a), false));
+    assert!(h.state().library_state().questions().next().is_some());
+    assert_eq!(library(&h).shelf_books(a).len(), 1, "nothing lands yet");
+    h.get_by_label("As new").click();
+    h.run();
+    assert!(h.state().library_state().questions().next().is_none());
+    assert_eq!(library(&h).shelf_books(a).len(), 2);
+    assert!(library(&h).shelf_books(b).is_empty(), "moved, not added");
+    let fresh = &library(&h).book(moving).unwrap().title.value;
+    assert_ne!(fresh, &name, "kept apart by a new name");
 }

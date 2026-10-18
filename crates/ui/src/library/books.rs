@@ -1,11 +1,11 @@
 //! Book work from menus, the selection bar and drops: removal,
-//! twins, renames and imports.
+//! twins and imports.
 
 use std::path::PathBuf;
 
-use mareader_library::{BookId, Data, ShelfId};
+use mareader_library::{BookId, Move, ShelfId};
 
-use super::{LibraryState, PickAction, Sheet, wall_ms};
+use super::{LibraryState, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
 
@@ -17,16 +17,15 @@ pub enum BookAction {
         books: Vec<BookId>,
         shelves: Vec<ShelfId>,
     },
-    /// `forget` deletes their marks and places with them.
+    /// `cascade` takes what's inside the shelves; `forget`, marks and places.
     Remove {
         books: Vec<BookId>,
         shelves: Vec<ShelfId>,
+        cascade: bool,
         forget: bool,
     },
     /// A separate book of the same file, with its own place.
     Twin(BookId),
-    AskRename(BookId),
-    Rename(BookId, String),
     /// Shows its file in the system's file manager.
     Reveal(BookId),
     /// Shows the file dialog; the picks come back as `Import`.
@@ -50,24 +49,14 @@ impl LibraryState {
         let now = wall_ms();
         match action {
             BookAction::AskRemove { books, shelves } => {
-                // One shelf alone keeps its own sheet.
-                if let ([], [shelf]) = (books.as_slice(), shelves.as_slice()) {
-                    self.folders.sheet = Some(Sheet::RemoveShelf(*shelf));
-                    return;
-                }
-                let receipt = self.model.receipt(&books);
-                let sheet = Sheet::Removal {
-                    books,
-                    shelves,
-                    receipt,
-                };
-                self.folders.sheet = Some(sheet);
+                self.folders.sheet = Some(Sheet::Removal { books, shelves });
             }
             BookAction::Remove {
                 books,
                 shelves,
+                cascade,
                 forget,
-            } => self.remove(&books, &shelves, forget, out),
+            } => self.remove_entries((&books, &shelves), cascade, forget, out),
             BookAction::Twin(id) => {
                 let Some(twin) = self.model.twin(id, now) else {
                     return;
@@ -81,15 +70,6 @@ impl LibraryState {
                 );
                 out.push(Command::Notify(Toast::info(note)));
             }
-            BookAction::AskRename(id) => {
-                if self.model.book(id).is_some() {
-                    self.folders.sheet = Some(Sheet::RenameBook(id));
-                }
-            }
-            BookAction::Rename(id, title) => {
-                self.folders.sheet = None;
-                self.model.rename_book(id, &title, now);
-            }
             BookAction::Import { paths, to } => self.import_files(paths, to, out),
             BookAction::ShelveTogether { books, shelves } => {
                 self.shelve_together(&books, &shelves, out);
@@ -100,84 +80,32 @@ impl LibraryState {
         }
     }
 
-    fn remove(&mut self, books: &[BookId], shelves: &[ShelfId], forget: bool, out: &mut Commands) {
-        self.folders.sheet = None;
-        let now = wall_ms();
-        let first = books.first().and_then(|id| self.model.book(*id));
-        let first = first.map(|b| b.title.value.clone()).unwrap_or_default();
-        let receipt = self.model.receipt(books);
-        let data = match forget {
-            true => Data::Delete,
-            false => Data::Keep,
-        };
-        let done = self.model.remove_books(books, data, now);
-        let shelves = (shelves.iter())
-            .filter(|id| self.model.remove_shelf(**id, now).is_some())
-            .count();
-        self.picks.apply(PickAction::Clear);
-        let gone = match (done, shelves) {
-            (0, 0) => return,
-            (1, 0) => format!("Removed “{first}”."),
-            (n, 0) => format!("Removed {n} books."),
-            (0, s) => format!("Removed {}.", counted(s, "shelf", "shelves")),
-            (n, s) => format!(
-                "Removed {} and {}.",
-                counted(n, "book", "books"),
-                counted(s, "shelf", "shelves")
-            ),
-        };
-        let note = match receipt.hidden {
-            0 => gone,
-            _ => format!("{gone} The folder's Add menu can give them back."),
-        };
-        out.push(Command::Notify(Toast::info(note)));
-    }
-
+    /// A new shelf where the reader is, the picks moved onto it.
     fn shelve_together(&mut self, books: &[BookId], shelves: &[ShelfId], out: &mut Commands) {
-        let now = wall_ms();
         let name = super::shelving::NEW_SHELF;
-        let Ok(id) = self.model.create_shelf(name, self.at, now) else {
+        let Ok(id) = self.model.create_shelf(name, self.at, wall_ms()) else {
             return;
         };
-        for &book in books {
-            self.model.file(book, id, now);
-            // Moved in from the shelf they were on.
-            if let Some(here) = self.at {
-                self.model.unfile(book, here, now);
-            }
-        }
-        let refused = (shelves.iter())
-            .filter(|s| self.model.move_shelf(**s, Some(id), now).is_err())
-            .count();
-        if refused > 0 {
-            let note = "A shelf that can't go there stayed where it was.";
-            out.push(Command::Notify(Toast::info(note)));
-        }
-        self.picks.apply(PickAction::Clear);
-        self.at = Some(id);
-        self.renaming = Some(id);
+        let mv = Move {
+            books: books.to_vec(),
+            shelves: shelves.to_vec(),
+            from: self.at,
+            to: Some(id),
+            ..Move::default()
+        };
+        self.carry(mv, out);
     }
 
     fn take_off(&mut self, books: &[BookId], out: &mut Commands) {
         let Some(shelf) = self.at else {
             return;
         };
-        let now = wall_ms();
-        let off = (books.iter())
-            .filter(|b| self.model.unfile(**b, shelf, now))
-            .count();
-        self.picks.apply(PickAction::Clear);
-        let name = self.model.shelf(shelf).map(|s| s.name.value.clone());
-        let name = name.unwrap_or_default();
-        let note = match (off, books.first()) {
-            (0, _) => return,
-            (1, Some(id)) => {
-                let title = self.model.book(*id).map(|b| b.title.value.clone());
-                format!("Took “{}” off “{name}”.", title.unwrap_or_default())
-            }
-            (n, _) => format!("Took {n} books off “{name}”."),
+        let mv = Move {
+            books: books.to_vec(),
+            from: Some(shelf),
+            ..Move::default()
         };
-        out.push(Command::Notify(Toast::info(note)));
+        self.carry(mv, out);
     }
 }
 

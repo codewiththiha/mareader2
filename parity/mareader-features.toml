@@ -477,6 +477,7 @@ evidence = [
   "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_the_last_book_reading_them",
   "crates/library/src/run_tests.rs::a_copying_folder_lands_store_copies_that_remember_their_source",
   "crates/ui/tests/library.rs::a_folder_copied_in_takes_only_what_counts",
+  "crates/ui/tests/library.rs::a_book_read_in_place_asks_before_it_leaves_its_folder",
 ]
 reference = ["crates/library-core/src/store.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
 notes = "Imports, dropped files and folders imported as copies go into the library's files folder, known content kept once"
@@ -539,7 +540,7 @@ evidence = [
   "crates/library/src/shelves_tests.rs::shelves_and_their_order_come_back_from_disk",
   "crates/library/src/key.rs::inserting_anywhere_keeps_every_key_in_order_and_valid",
   "crates/ui/tests/library.rs::a_new_shelf_opens_and_is_named_in_the_breadcrumb",
-  "crates/ui/tests/library.rs::removing_a_shelf_asks_then_moves_its_shelves_up",
+  "crates/ui/tests/library.rs::taking_a_shelf_apart_moves_its_shelves_up",
   "crates/ui/tests/library.rs::home_can_leave_shelved_books_to_their_shelves",
   "crates/library/src/arrange_tests.rs::shelves_and_books_mix_anywhere_and_moves_keep_their_order",
   "crates/library/src/arrange_tests.rs::a_level_from_before_keys_keeps_its_order_when_first_arranged",
@@ -737,8 +738,9 @@ title = "Ask what to do when a shelf level already holds a name"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "partial"
+status = "shipped"
 evidence = [
+  "crates/ui/tests/library.rs::a_move_onto_a_shelf_holding_the_name_asks_first",
   "crates/library/src/conflict_tests.rs::a_name_already_on_the_level_asks_and_an_empty_level_never_does",
   "crates/library/src/gate_tests.rs::a_held_name_asks_and_offers_by_how_the_folder_is_read",
   "crates/library/src/gate_tests.rs::the_shelf_answers_merge_link_and_add_as_new",
@@ -749,7 +751,7 @@ evidence = [
   "crates/library/src/moves_tests.rs::keep_both_lands_the_arrival_under_the_next_free_name",
 ]
 reference = ["crates/library-core/src/conflict.rs"]
-notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves ask merge, replace or keep both in the core; the page asks from library slice S3a-2"
+notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves onto a shelf ask merge, replace or keep both, and the page asks before landing them"
 
 [[feature]]
 id = "library.independent-twins"

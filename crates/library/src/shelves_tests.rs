@@ -202,3 +202,34 @@ fn shelves_and_their_order_come_back_from_disk() {
     // The tombstone is kept, so a merge can't bring the shelf back.
     assert!(back.shelves.get(&gone).is_some_and(|s| !s.alive()));
 }
+
+#[test]
+fn a_shelf_taken_apart_lets_its_books_go_and_a_rung_sends_them_up() {
+    let (mut lib, ids) = library(1);
+    let outer = lib.create_shelf("Outer", None, 10).unwrap();
+    let inner = lib.create_shelf("Inner", Some(outer), 11).unwrap();
+    lib.file(ids[0], inner, 12);
+    lib.remove_shelf(inner, 13).unwrap();
+    assert!(
+        lib.shelves_of(ids[0]).is_empty(),
+        "not onto the shelf above"
+    );
+    let mut lib = Library::new(DEVICE);
+    let files = [
+        crate::run_tests::found("/books/a.pdf", 1),
+        crate::run_tests::found("/books/sf/deep/b.pdf", 2),
+    ];
+    crate::run_tests::import(&mut lib, "/books", crate::folder::Mode::InPlace, &files);
+    let root = crate::run_tests::shelf_named(&lib, "books");
+    let sf = crate::run_tests::shelf_named(&lib, "sf");
+    let deep = crate::run_tests::shelf_named(&lib, "deep");
+    assert_eq!(lib.seat(deep), Some(Some(sf)));
+    lib.remove_shelf(deep, 14).unwrap();
+    assert_eq!(
+        crate::run_tests::titles_on(&lib, sf),
+        ["b"],
+        "the rung above"
+    );
+    lib.remove_shelf(sf, 15).unwrap();
+    assert_eq!(crate::run_tests::titles_on(&lib, root), ["a", "b"]);
+}

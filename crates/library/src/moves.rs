@@ -411,11 +411,10 @@ impl Library {
         wall_ms: u64,
     ) {
         match to {
+            // Off the shelf it left; its other shelves keep it.
             None => {
-                if from.is_some() {
-                    for shelf in self.shelves_of(id) {
-                        self.unfile(id, shelf, wall_ms);
-                    }
+                if let Some(from) = from {
+                    self.unfile(id, from, wall_ms);
                 }
             }
             Some(to) => {

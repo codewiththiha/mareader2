@@ -1,45 +1,28 @@
 //! Shelves on the page: where the reader is, and what drags and drops do.
 
-use mareader_library::{BookId, Item, Library, ShelfError, ShelfId};
+use mareader_library::{BookId, Item, Library, Move, ShelfId};
 
 use super::books::counted;
-use super::{Action, LibraryState, Scope, Sheet, wall_ms};
-use crate::command::{Command, Commands};
-use crate::toast::Toast;
+use super::moving::CopyAnswer;
+use super::{Action, LibraryState, Scope, wall_ms};
+use crate::command::Commands;
 
 /// Shelf work asked for by the page, its crumbs and its sheets.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShelfAction {
     /// Opens a shelf, or the library's top level.
     GoTo(Option<ShelfId>),
-    /// Makes one where the reader is, opens it and starts naming it.
+    /// Makes "New shelf" where the reader is and opens it.
     New,
+    /// Names the open shelf in its crumb; Escape cancels.
     StartRename(ShelfId),
-    Rename(ShelfId, String),
     CancelRename,
-    /// Asks before `Remove`.
-    AskRemove(ShelfId),
-    Remove(ShelfId),
-    /// A book dropped on a shelf, or off `from` when `to` is none.
-    File {
-        book: BookId,
-        to: Option<ShelfId>,
-        from: Option<ShelfId>,
-        /// Added beside `from` rather than moved from it.
-        keep: bool,
-    },
-    Move {
-        shelf: ShelfId,
-        to: Option<ShelfId>,
-    },
-    /// A selection dropped: its books filed as `File`, shelves moved.
-    FileMany {
-        books: Vec<BookId>,
-        shelves: Vec<ShelfId>,
-        to: Option<ShelfId>,
-        from: Option<ShelfId>,
-        keep: bool,
-    },
+    /// Takes a shelf apart, asking first if its books leave a folder.
+    Apart(ShelfId),
+    /// Books and shelves carried to a level, by a drop or a menu.
+    Carry(Move),
+    /// The copy ask's answer.
+    Copy(CopyAnswer),
     /// What's carried rested on a book: both go on a new shelf there.
     Stack {
         onto: BookId,
@@ -78,34 +61,21 @@ pub enum Carry {
 impl Carry {
     /// What dropping it on `target` (none: the top level) does.
     pub fn onto(&self, target: Option<ShelfId>, keep: bool) -> Option<Action> {
-        let action = match self {
-            Self::Book { from, .. } if *from == target => return None,
-            &Self::Book { id, from } => ShelfAction::File {
-                book: id,
-                to: target,
-                from,
-                keep,
-            },
-            Self::Shelf(shelf) if Some(*shelf) == target => return None,
-            &Self::Shelf(shelf) => ShelfAction::Move { shelf, to: target },
-            // Onto where it came from, or one of its own shelves: nothing.
-            Self::Many { from, .. } if *from == target => return None,
-            Self::Many { shelves, .. } if target.is_some_and(|t| shelves.contains(&t)) => {
-                return None;
-            }
-            Self::Many {
-                books,
-                shelves,
-                from,
-            } => ShelfAction::FileMany {
-                books: books.clone(),
-                shelves: shelves.clone(),
-                to: target,
-                from: *from,
-                keep,
-            },
+        let (books, shelves, from) = self.parts();
+        // Onto where it came from, or onto one of its own shelves: nothing.
+        let home = !matches!(self, Self::Shelf(_)) && from == target;
+        if home || target.is_some_and(|t| shelves.contains(&t)) {
+            return None;
+        }
+        let mv = Move {
+            books,
+            shelves,
+            from,
+            to: target,
+            keep,
+            before: None,
         };
-        Some(Action::Shelf(action))
+        Some(Action::Shelf(ShelfAction::Carry(mv)))
     }
 
     /// The cards it moves within `level`, if it came from there.
@@ -298,7 +268,6 @@ impl LibraryState {
 
     pub(super) fn shelf_act(&mut self, action: ShelfAction, out: &mut Commands) {
         let now = wall_ms();
-        let notify = |out: &mut Commands, toast| out.push(Command::Notify(toast));
         match action {
             ShelfAction::GoTo(at) => {
                 let at = at.filter(|&id| self.model.shelf(id).is_some());
@@ -316,59 +285,15 @@ impl LibraryState {
                     self.search.clear();
                     self.at = Some(id);
                     self.scope = Scope::All;
-                    self.renaming = Some(id);
                 }
             }
             ShelfAction::StartRename(id) => {
                 self.renaming = self.model.shelf(id).map(|s| s.id);
             }
             ShelfAction::CancelRename => self.renaming = None,
-            ShelfAction::Rename(id, name) => {
-                self.renaming = None;
-                // An empty name keeps the old one.
-                match self.model.rename_shelf(id, &name, now) {
-                    Ok(()) | Err(ShelfError::Blank | ShelfError::Gone) => {}
-                    Err(e) => notify(out, Toast::error(why(&e))),
-                }
-            }
-            ShelfAction::AskRemove(id) => {
-                self.renaming = None;
-                self.folders.sheet = Some(Sheet::RemoveShelf(id));
-            }
-            ShelfAction::Remove(id) => {
-                self.folders.sheet = None;
-                let name = self.shelf_name(id);
-                let parent = self.model.shelf(id).and_then(|s| self.model.parent_of(s));
-                let Some(done) = self.model.remove_shelf(id, now) else {
-                    return;
-                };
-                if self.at == Some(id) {
-                    self.at = parent;
-                }
-                let mut note = format!("Removed “{name}”.");
-                if done.books > 0 {
-                    note.push_str(" Its books stay in the library.");
-                }
-                notify(out, Toast::info(note));
-            }
-            ShelfAction::File {
-                book,
-                to,
-                from,
-                keep,
-            } => self.file(book, to, from, keep, out),
-            ShelfAction::Move { shelf, to } => {
-                if let Err(e) = self.model.move_shelf(shelf, to, now) {
-                    notify(out, Toast::error(why(&e)));
-                }
-            }
-            ShelfAction::FileMany {
-                books,
-                shelves,
-                to,
-                from,
-                keep,
-            } => self.file_many(&books, &shelves, (to, from), keep, out),
+            ShelfAction::Apart(id) => self.apart(id, out),
+            ShelfAction::Carry(mv) => self.carry(mv, out),
+            ShelfAction::Copy(answer) => self.answer_copy(answer, out),
             ShelfAction::Stack {
                 onto,
                 carry,
@@ -388,7 +313,7 @@ impl LibraryState {
         }
     }
 
-    /// Makes a shelf where `onto` sits on `level`, holding it and `carry`.
+    /// Makes a shelf where `onto` sits on `level`, and carries both onto it.
     fn stack(
         &mut self,
         onto: BookId,
@@ -398,7 +323,7 @@ impl LibraryState {
         out: &mut Commands,
     ) {
         let now = wall_ms();
-        let (books, shelves, from) = carry.parts();
+        let (books, shelves, _) = carry.parts();
         let books: Vec<BookId> = (books.into_iter()).filter(|&b| b != onto).collect();
         if books.is_empty() || self.model.book(onto).is_none() {
             return;
@@ -410,27 +335,15 @@ impl LibraryState {
         self.picks.apply(super::PickAction::Clear);
         let (shelf, book) = (Item::Shelf(id), Item::Book(onto));
         self.model.arrange(level, &[shelf], Some(book), now);
-        self.model.file(onto, id, now);
-        if let Some(level) = level {
-            self.model.unfile(onto, level, now);
-        }
-        let leave = from.filter(|_| !keep);
-        for &b in &books {
-            self.model.file(b, id, now);
-            if let Some(from) = leave {
-                self.model.unfile(b, from, now);
-            }
-        }
-        let moved = shelves
-            .iter()
-            .filter(|&&s| self.model.move_shelf(s, Some(id), now).is_ok());
-        let shelved = moved.count();
-        let mut what = counted(books.len() + 1, "book", "books");
-        if shelved > 0 {
-            what = format!("{what} and {}", counted(shelved, "shelf", "shelves"));
-        }
-        let note = format!("Made “{name}” of {what}.");
-        out.push(Command::Notify(Toast::info(note)));
+        let mv = Move {
+            books: std::iter::once(onto).chain(books).collect(),
+            shelves,
+            from: level,
+            to: Some(id),
+            keep,
+            before: None,
+        };
+        self.carry(mv, out);
     }
 
     /// The books' one shared author, else "New shelf".
@@ -441,102 +354,8 @@ impl LibraryState {
         shared.unwrap_or_else(|| NEW_SHELF.to_owned())
     }
 
-    /// Files a dropped selection: books as `file` does, shelves moved.
-    fn file_many(
-        &mut self,
-        books: &[BookId],
-        shelves: &[ShelfId],
-        (to, from): (Option<ShelfId>, Option<ShelfId>),
-        keep: bool,
-        out: &mut Commands,
-    ) {
-        let now = wall_ms();
-        self.picks.apply(super::PickAction::Clear);
-        let (mut filed, mut moved, mut off) = (0, 0, 0);
-        for &book in books {
-            let added = to.is_some_and(|t| self.model.file(book, t, now));
-            let leave = from
-                .filter(|_| !keep || to.is_none())
-                .filter(|&f| Some(f) != to);
-            let left = leave.is_some_and(|f| self.model.unfile(book, f, now));
-            match (added, left, to) {
-                (_, true, None) => off += 1,
-                (_, true, Some(_)) => moved += 1,
-                (true, false, _) => filed += 1,
-                (false, false, _) => {}
-            }
-        }
-        let mut refused = None;
-        let mut shelved = 0;
-        for &shelf in shelves {
-            match self.model.move_shelf(shelf, to, now) {
-                Ok(()) => shelved += 1,
-                Err(e) => refused = Some(why(&e)),
-            }
-        }
-        let name = |s: Option<ShelfId>| s.map_or("the library".into(), |s| self.shelf_name(s));
-        let books_done = counted(filed + moved + off, "book", "books");
-        let shelves_done = counted(shelved, "shelf", "shelves");
-        let what = match (filed + moved + off, shelved) {
-            (0, 0) => None,
-            (_, 0) => Some(books_done),
-            (0, _) => Some(shelves_done),
-            _ => Some(format!("{books_done} and {shelves_done}")),
-        };
-        let note = match (what, to) {
-            (None, _) => refused.unwrap_or_else(|| format!("They're already on “{}”.", name(to))),
-            (Some(what), None) if off > 0 => format!("Took {what} off “{}”.", name(from)),
-            (Some(what), _) if moved > 0 || shelved > 0 => {
-                format!("Moved {what} to “{}”.", name(to))
-            }
-            (Some(what), _) => format!("Added {what} to “{}”.", name(to)),
-        };
-        out.push(Command::Notify(Toast::info(note)));
-    }
-
-    /// Files, moves or unfiles a dropped book, and says what happened.
-    fn file(
-        &mut self,
-        book: BookId,
-        to: Option<ShelfId>,
-        from: Option<ShelfId>,
-        keep: bool,
-        out: &mut Commands,
-    ) {
-        let now = wall_ms();
-        let title = self.model.book(book).map(|b| b.title.value.clone());
-        let title = title.unwrap_or_default();
-        let note = match (to, from) {
-            (None, Some(from)) => {
-                self.model.unfile(book, from, now);
-                format!("Took “{title}” off “{}”.", self.shelf_name(from))
-            }
-            (None, None) => return,
-            (Some(to), from) => {
-                let filed = self.model.file(book, to, now);
-                let off = from.filter(|_| !keep).filter(|&f| f != to);
-                let moved = off.is_some_and(|f| self.model.unfile(book, f, now));
-                let shelf = self.shelf_name(to);
-                match (filed, moved) {
-                    (_, true) => format!("Moved “{title}” to “{shelf}”."),
-                    (true, false) => format!("Added “{title}” to “{shelf}”."),
-                    (false, false) => format!("“{title}” is already on “{shelf}”."),
-                }
-            }
-        };
-        out.push(Command::Notify(Toast::info(note)));
-    }
-
-    fn shelf_name(&self, id: ShelfId) -> String {
+    pub(super) fn shelf_name(&self, id: ShelfId) -> String {
         let shelf = self.model.shelf(id).map(|s| s.name.value.clone());
         shelf.unwrap_or_default()
-    }
-}
-
-fn why(error: &ShelfError) -> String {
-    match error {
-        ShelfError::Inside => "A shelf can't go inside itself.".into(),
-        ShelfError::Blank => "A shelf needs a name.".into(),
-        ShelfError::Gone => "That shelf was removed.".into(),
     }
 }
