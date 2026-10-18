@@ -930,8 +930,8 @@ impl MareaderApp {
                 "rename" => {
                     let first = self.library.model().recent().first().map(|b| b.id);
                     let first = first.ok_or("open=rename: no book")?;
-                    let ask = library::BookAction::AskRename(first);
-                    self.queue(Command::Library(library::Action::Book(ask)));
+                    let ask = library::Action::AskRename(library::Named::Book(first));
+                    self.queue(Command::Library(ask));
                 }
                 // The first missing book's find-again sheet.
                 "find_again" => {

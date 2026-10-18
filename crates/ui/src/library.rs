@@ -4,6 +4,7 @@ mod actions;
 mod add;
 pub mod asks;
 pub mod books;
+mod copying;
 mod covers;
 pub mod crumbs;
 mod find;
@@ -12,6 +13,7 @@ mod io;
 mod living;
 pub(crate) mod menu;
 mod menus;
+pub mod moving;
 pub mod picks;
 pub mod runs;
 pub mod search;
@@ -34,7 +36,7 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
-pub use actions::{Action, Scope, Sheet};
+pub use actions::{Action, Named, Scope, Sheet};
 pub use add::ADD_MENU;
 pub use books::BookAction;
 pub use covers::Covers;
@@ -77,6 +79,7 @@ pub struct LibraryState {
     pub scope: Scope,
     /// The shelf open on the page; none is the top level.
     at: Option<ShelfId>,
+    /// The shelf whose name the breadcrumb is editing in place.
     renaming: Option<ShelfId>,
     picks: Picks,
     /// The shelf under files dragged in from outside, if any.

@@ -4,7 +4,7 @@ use egui::{Button, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, p
 use mareader_library::{Book, Library, Shelf, ShelfId};
 
 use super::books::counted;
-use super::{Action, BookAction, Pick, PickAction, Picks, ShelfAction};
+use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -50,8 +50,11 @@ pub fn book_menu(ui: &mut Ui, b: &Book, at: Option<ShelfId>, t: &Tokens, out: &m
         act(out, Action::Pick(PickAction::Toggle(Pick::Book(id))));
     }
     ui.separator();
-    if ui.button("Rename…").clicked() {
-        book(out, BookAction::AskRename(id));
+    let rename = ui.button("Rename…");
+    let rename =
+        rename.on_hover_text("The name the library shows — the file on disk keeps its own");
+    if rename.clicked() {
+        act(out, Action::AskRename(Named::Book(id)));
     }
     if ui.button("Read separately").clicked() {
         book(out, BookAction::Twin(id));
@@ -80,17 +83,20 @@ pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
         act(out, Action::Pick(PickAction::Toggle(Pick::Shelf(id))));
     }
     ui.separator();
-    if ui.button("Rename…").clicked() {
-        shelf(out, ShelfAction::GoTo(Some(id)));
-        shelf(out, ShelfAction::StartRename(id));
+    let tip = match s.kind.value.rung() {
+        Some(_) => "The name the library shows — a folder on disk keeps its own",
+        None => "The name the library shows",
+    };
+    if ui.button("Rename…").on_hover_text(tip).clicked() {
+        act(out, Action::AskRename(Named::Shelf(id)));
     }
     if ui.button("New shelf inside").clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
         shelf(out, ShelfAction::New);
     }
     ui.separator();
-    if danger(ui, "Remove shelf…", t) {
-        shelf(out, ShelfAction::AskRemove(id));
+    if danger(ui, "Take shelf apart", t) {
+        shelf(out, ShelfAction::Apart(id));
     }
 }
 

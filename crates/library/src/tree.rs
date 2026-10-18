@@ -33,7 +33,7 @@ impl Library {
     }
 
     /// Books on `shelves`, each once, in no order.
-    fn books_on(&self, shelves: &[ShelfId]) -> Vec<BookId> {
+    pub(crate) fn books_on(&self, shelves: &[ShelfId]) -> Vec<BookId> {
         let on = |s: &ShelfId| {
             self.shelf_books(*s)
                 .into_iter()
@@ -44,7 +44,7 @@ impl Library {
         all.into_iter().collect()
     }
 
-    /// Removes shelves; with `inside`, everything on and below them too.
+    /// Removes shelves deepest first; `inside` takes what's on and below.
     pub fn remove_shelves(
         &mut self,
         ids: &[ShelfId],
@@ -52,24 +52,9 @@ impl Library {
         data: Data,
         wall_ms: u64,
     ) -> usize {
-        let mut done = 0;
-        if inside {
-            let mut all: Vec<ShelfId> = ids.to_vec();
-            all.extend(self.subtree(ids));
-            let books = self.books_on(&all);
-            done = self.remove_books(&books, data, wall_ms);
-            let at = self.clock.tick(wall_ms);
-            for shelf in self
-                .shelves
-                .values_mut_where(|s| s.alive() && all.contains(&s.id))
-            {
-                shelf.removed = Some(at);
-            }
-            self.drop_dangling_links(at);
-            self.bump();
-            return done;
-        }
-        for id in ids {
+        let going = self.removing(&[], ids, inside);
+        let done = self.remove_books(&going.books, data, wall_ms);
+        for id in &going.shelves {
             self.remove_shelf(*id, wall_ms);
         }
         done

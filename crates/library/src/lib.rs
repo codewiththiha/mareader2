@@ -63,7 +63,7 @@ pub use moves::{Departure, Move, MoveAsk, Moved};
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use records::{Changes, Kind, Row};
 pub use relink::RelinkError;
-pub use removal::{Data, Receipt};
+pub use removal::{Data, Receipt, Removing};
 pub use run::{Asked, Copied, Fold, Landed, MergeAsk, Plan, Planned};
 pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfKind, ShelfRemoved};
 pub use tree::Duplicated;

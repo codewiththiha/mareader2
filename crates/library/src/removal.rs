@@ -48,6 +48,19 @@ pub struct Receipt {
     pub size: u64,
 }
 
+/// What a removal takes, the cascade counted in.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Removing {
+    pub books: Vec<BookId>,
+    /// Deepest first, so each goes before the shelf it sits in.
+    pub shelves: Vec<ShelfId>,
+    /// Books on the asked shelves and below, and the shelves below.
+    pub inside_books: usize,
+    pub inside_shelves: usize,
+    /// Books read in place the removed rungs take: copies, or the folder's.
+    pub copies: Vec<BookId>,
+}
+
 impl Receipt {
     /// Whether the data switch means anything: marks or a place.
     pub fn has_data(&self) -> bool {
@@ -156,6 +169,38 @@ impl Library {
             }
         }
         receipt
+    }
+
+    /// What removing `books` and `shelves` takes; `cascade` takes the insides.
+    pub fn removing(&self, books: &[BookId], shelves: &[ShelfId], cascade: bool) -> Removing {
+        let asked: Vec<ShelfId> = (shelves.iter().copied())
+            .filter(|s| self.shelf(*s).is_some())
+            .collect();
+        let below = self.subtree(&asked);
+        let mut all = asked.clone();
+        all.extend(&below);
+        let inside = self.books_on(&all);
+        let mut out = Removing {
+            books: self.living(books).into_iter().collect(),
+            shelves: if cascade { all } else { asked },
+            inside_books: inside.len(),
+            inside_shelves: below.len(),
+            copies: Vec::new(),
+        };
+        if cascade {
+            out.books
+                .extend(inside.iter().filter(|b| !books.contains(b)));
+        }
+        out.shelves
+            .sort_by_key(|s| std::cmp::Reverse(self.path_to(*s).len()));
+        for &shelf in &out.shelves {
+            for book in self.rung_books(shelf, false) {
+                if !out.books.contains(&book) && !out.copies.contains(&book) {
+                    out.copies.push(book);
+                }
+            }
+        }
+        out
     }
 
     /// Removes books, tombstoning folder ones; returns how many.

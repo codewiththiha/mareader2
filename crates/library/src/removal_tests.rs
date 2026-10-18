@@ -222,3 +222,35 @@ fn a_newer_library_that_wont_parse_is_left_alone() {
     assert!(!loaded.writable);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), newer);
 }
+
+#[test]
+fn a_cascade_takes_the_insides_and_rungs_name_the_books_they_carry() {
+    let mut lib = Library::new(DEVICE);
+    let files = [
+        found("/books/a.pdf", 1),
+        found("/books/sf/b.pdf", 2),
+        found("/books/sf/deep/c.pdf", 3),
+    ];
+    import(&mut lib, "/books", Mode::InPlace, &files);
+    let shelf =
+        |lib: &Library, name: &str| lib.shelves().find(|s| s.name.value == name).unwrap().id;
+    let book =
+        |lib: &Library, title: &str| lib.books().find(|b| b.title.value == title).unwrap().id;
+    let (sf, deep) = (shelf(&lib, "sf"), shelf(&lib, "deep"));
+    let (b, c) = (book(&lib, "b"), book(&lib, "c"));
+    let apart = lib.removing(&[], &[sf], false);
+    assert_eq!((apart.inside_books, apart.inside_shelves), (2, 1));
+    assert_eq!(apart.shelves, [sf]);
+    assert!(apart.books.is_empty());
+    assert_eq!(apart.copies, [b], "only the books standing on it");
+    let all = lib.removing(&[], &[sf], true);
+    assert_eq!(all.shelves, [deep, sf], "deepest first");
+    let mut gone = all.books.clone();
+    gone.sort();
+    let mut want = vec![b, c];
+    want.sort();
+    assert_eq!(gone, want);
+    assert!(all.copies.is_empty(), "the books go, so nothing is copied");
+    assert_eq!(lib.remove_shelves(&[sf], true, Data::Keep, 9), 2);
+    assert!(lib.shelf(sf).is_none() && lib.shelf(deep).is_none());
+}

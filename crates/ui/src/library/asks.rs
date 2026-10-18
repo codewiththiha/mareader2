@@ -4,8 +4,11 @@ use egui::{Button, RichText, Ui};
 use mareader_library::conflict::next_name;
 use mareader_library::gate::{Answered, Clash};
 use mareader_library::screen::{Answer, FileAsk, Why};
-use mareader_library::{Copied, Entry, Found, Level, Library, MergeAsk, Options, Placement};
+use mareader_library::{
+    Copied, Entry, Found, Level, Library, MergeAsk, MoveAsk, Options, Placement,
+};
 
+use super::books::counted;
 use super::{Action, LibraryState, Pick, wall_ms};
 use crate::command::{Command, Commands};
 use crate::theme::{self, Tokens};
@@ -21,6 +24,8 @@ pub enum Question {
     },
     File(FileAsk),
     Merge(MergeAsk),
+    /// A moved book meets one of its name where it lands.
+    Move(MoveAsk),
 }
 
 /// Questions alike enough to share "apply to all" and a count.
@@ -37,6 +42,7 @@ impl Question {
         match self {
             Self::Clash { .. } => Kind::Clash,
             Self::File(ask) if ask.why == Why::Name => Kind::Name,
+            Self::Move(_) => Kind::Name,
             Self::File(_) => Kind::Held,
             Self::Merge(_) => Kind::Merge,
         }
@@ -47,13 +53,14 @@ impl Question {
             Self::Clash { clash, .. } => clash.offers(),
             Self::File(ask) => ask.offers(),
             Self::Merge(_) => Placement::FOLDER_MERGE,
+            Self::Move(ask) => ask.offers(),
         }
     }
 
     /// The arriving file, for an answer that copies it first.
     pub fn found(&self) -> Option<&Found> {
         match self {
-            Self::Clash { .. } => None,
+            Self::Clash { .. } | Self::Move(_) => None,
             Self::File(ask) => Some(&ask.found),
             Self::Merge(ask) => Some(&ask.found),
         }
@@ -62,7 +69,7 @@ impl Question {
     /// Whether `answer` lands a store copy that must be made first.
     fn copies(&self, answer: Placement, model: &Library) -> bool {
         match self {
-            Self::Clash { .. } => false,
+            Self::Clash { .. } | Self::Move(_) => false,
             Self::File(_) => answer == Placement::KeepBoth,
             Self::Merge(ask) => {
                 let copying = model.folder(ask.folder).is_some_and(|f| f.mode().copies());
@@ -133,6 +140,7 @@ impl LibraryState {
             Question::Clash { .. } => return,
             Question::File(ask) => self.model.answer_file(ask, answer, copy, wall),
             Question::Merge(ask) => self.model.answer_merge(ask, answer, copy, wall),
+            Question::Move(ask) => self.model.answer_move(ask, answer, wall),
         };
         match answered {
             Answer::Reveal(Entry::Book(id)) => self.reveal(Pick::Book(id), now),
@@ -219,6 +227,48 @@ fn words(model: &Library, question: &Question) -> Words {
         Question::Clash { clash, .. } => clash_words(model, clash),
         Question::File(ask) => file_words(model, ask),
         Question::Merge(ask) => merge_words(model, ask),
+        Question::Move(ask) => move_words(model, ask),
+    }
+}
+
+fn move_words(model: &Library, ask: &MoveAsk) -> Words {
+    let at = where_line(model, ask.arrival.level);
+    let existing = &ask.existing_name;
+    let fresh = free_on(model, ask.arrival.level, &ask.arrival.name);
+    let marks = model.marks(ask.existing).len();
+    let replace = match marks {
+        0 => format!(
+            "“{existing}” leaves the library — this one takes its place on every shelf it was on"
+        ),
+        n => format!(
+            "“{existing}” leaves the library, with its {} — this one takes its place on every \
+             shelf it was on",
+            counted(n, "highlight", "highlights")
+        ),
+    };
+    Words {
+        heading: ask.arrival.name.clone(),
+        subtitle: format!("Already {at}"),
+        question: format!(
+            "A book called “{existing}” is already {at}. Keep one book, keep this one instead, \
+             or keep both under a new name."
+        ),
+        choices: vec![
+            (
+                Placement::Merge,
+                "Merge",
+                format!(
+                    "One book — “{existing}” stays, and takes this one's shelves, its \
+                     highlights, and the further place in it"
+                ),
+            ),
+            (Placement::Replace, "Replace", replace),
+            (
+                Placement::KeepBoth,
+                "As new",
+                format!("Keeps both — this one becomes “{fresh}”"),
+            ),
+        ],
     }
 }
 

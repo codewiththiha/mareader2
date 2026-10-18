@@ -314,3 +314,17 @@ fn a_hand_moved_rung_stays_put_until_it_goes_back_to_its_seat() {
     lib.move_shelf(sf, Some(root), 6).unwrap();
     assert!(!lib.shelf(sf).unwrap().moved.value);
 }
+
+#[test]
+fn off_to_the_top_a_book_leaves_only_the_shelf_it_left() {
+    let (mut lib, _, moving, [_, there, also]) = two_dunes();
+    let mv = Move {
+        books: vec![moving],
+        from: Some(there),
+        ..Move::default()
+    };
+    assert!(lib.departure(&mv).is_empty(), "nothing read in place");
+    assert_eq!(lib.land_move(&mv, &[], 3).books, 1);
+    let shelves: Vec<ShelfId> = lib.shelves_of(moving).into_iter().collect();
+    assert_eq!(shelves, [also], "its other shelf keeps it");
+}
