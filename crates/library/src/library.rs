@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
 use crate::extra::Extra;
-use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId, SourceId};
+use crate::folder::Folder;
+use crate::id::{BookId, ContentId, DeviceId, LinkId, MarkId, ShelfId, SourceId};
+use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
@@ -39,6 +41,9 @@ pub struct Dirty {
     pub members: BTreeSet<(ShelfId, BookId)>,
     /// Gone ones included: their rows go too.
     pub sources: BTreeSet<SourceId>,
+    /// Gone ones included, as for sources.
+    pub folders: BTreeSet<SourceId>,
+    pub links: BTreeSet<LinkId>,
     /// `state/<id>.json`: one book's position each.
     pub states: BTreeSet<BookId>,
     pub marks: BTreeSet<MarkId>,
@@ -55,6 +60,8 @@ impl Dirty {
             && self.shelves.is_empty()
             && self.members.is_empty()
             && self.sources.is_empty()
+            && self.folders.is_empty()
+            && self.links.is_empty()
             && self.marks.is_empty()
     }
 }
@@ -65,6 +72,8 @@ pub struct Library {
     pub(crate) books: Tracked<BookId, Book>,
     pub(crate) states: BTreeMap<BookId, State>,
     pub(crate) sources: Tracked<SourceId, Source>,
+    pub(crate) folders: Tracked<SourceId, Folder>,
+    pub(crate) links: Tracked<LinkId, Link>,
     pub(crate) shelves: Tracked<ShelfId, Shelf>,
     pub(crate) members: Tracked<(ShelfId, BookId), Membership>,
     pub(crate) marks: Tracked<MarkId, Mark>,
@@ -97,6 +106,8 @@ impl Library {
             books: Tracked::new(parts.books),
             states: parts.states,
             sources: Tracked::new(parts.sources),
+            folders: Tracked::new(parts.folders),
+            links: Tracked::new(parts.links),
             shelves: Tracked::new(parts.shelves),
             members: Tracked::new(parts.members),
             marks: Tracked::new(parts.marks),
@@ -172,7 +183,7 @@ impl Library {
     pub fn record_open_as(&mut self, opened: Opened, wall_ms: u64, twin: Option<BookId>) -> BookId {
         let at = self.clock.tick(wall_ms);
         let content = opened.measure.content;
-        let original = |b: &&Book| b.content == content && b.twin_of.value.is_none();
+        let original = |b: &&Book| b.content == content && b.shared();
         let by_content = self.books().find(original).map(|b| b.id);
         // A file edited in place is the same book with new content.
         let id = by_content.or_else(|| self.book_at(&opened.path));
@@ -234,9 +245,18 @@ impl Library {
             removed: None,
             restored: None,
             twin_of: Field::default(),
+            independent: false,
+            forgot: None,
             extra: Extra::default(),
         });
         if !book.alive() {
+            // Removed with its data: it returns as a book never seen.
+            if book.forgot.is_some() && book.forgot >= book.removed {
+                book.title = Field::new(opened.title.clone(), at);
+                book.author = Field::new(opened.author.clone(), at);
+                book.opened = Field::new(0, at);
+                book.added = wall_ms;
+            }
             book.restored = Some(at);
             if opening {
                 book.opened = Field::new(wall_ms, at);
@@ -280,6 +300,18 @@ impl Library {
 
     /// Makes the path the book's newest location, and only its own.
     pub(crate) fn place(&mut self, id: BookId, path: &Path, stamp: FileStamp, origin: Origin) {
+        self.place_from(id, path, stamp, origin, None);
+    }
+
+    /// As [`Self::place`]; a store copy remembers the file it came from.
+    pub(crate) fn place_from(
+        &mut self,
+        id: BookId,
+        path: &Path,
+        stamp: FileStamp,
+        origin: Origin,
+        from: Option<PathBuf>,
+    ) {
         if let Some(old) = self.at.insert(path.to_path_buf(), id)
             && old != id
             && let Some(other) = self.books.get_mut(&old)
@@ -294,6 +326,7 @@ impl Library {
             path: path.to_path_buf(),
             origin,
             stamp,
+            from,
             present: true,
         };
         book.locations.insert(0, location);
@@ -367,6 +400,8 @@ impl Library {
             shelves: self.shelves.take_changed(),
             members: self.members.take_changed(),
             sources: self.sources.take_changed(),
+            folders: self.folders.take_changed(),
+            links: self.links.take_changed(),
             states: std::mem::take(&mut self.states_dirty),
             marks: self.marks.take_changed(),
         }
@@ -377,6 +412,8 @@ impl Library {
             || self.shelves.has_changes()
             || self.members.has_changes()
             || self.sources.has_changes()
+            || self.folders.has_changes()
+            || self.links.has_changes()
             || self.marks.has_changes()
             || !self.states_dirty.is_empty()
     }
@@ -387,6 +424,8 @@ impl Library {
         self.shelves.mark_all();
         self.members.mark_all();
         self.sources.mark_all();
+        self.folders.mark_all();
+        self.links.mark_all();
         self.marks.mark_all();
     }
 }
@@ -398,6 +437,8 @@ pub(crate) struct Parts {
     pub books: BTreeMap<BookId, Book>,
     pub states: BTreeMap<BookId, State>,
     pub sources: BTreeMap<SourceId, Source>,
+    pub folders: BTreeMap<SourceId, Folder>,
+    pub links: BTreeMap<LinkId, Link>,
     pub shelves: BTreeMap<ShelfId, Shelf>,
     pub members: BTreeMap<(ShelfId, BookId), Membership>,
     pub marks: BTreeMap<MarkId, Mark>,
@@ -410,6 +451,8 @@ impl Parts {
             books: BTreeMap::new(),
             states: BTreeMap::new(),
             sources: BTreeMap::new(),
+            folders: BTreeMap::new(),
+            links: BTreeMap::new(),
             shelves: BTreeMap::new(),
             members: BTreeMap::new(),
             marks: BTreeMap::new(),

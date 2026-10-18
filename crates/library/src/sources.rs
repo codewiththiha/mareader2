@@ -291,7 +291,7 @@ impl Library {
         Ok(Added { id, absorbed })
     }
 
-    fn new_source_id(&self, root: &Path, wall_ms: u64) -> SourceId {
+    pub(crate) fn new_source_id(&self, root: &Path, wall_ms: u64) -> SourceId {
         let mut hasher = DefaultHasher::new();
         (self.device(), root, wall_ms).hash(&mut hasher);
         let mut id = SourceId(hasher.finish());
@@ -509,7 +509,7 @@ impl Library {
     /// Each content's original book, living ones over removed ones.
     fn by_content(&self) -> HashMap<ContentId, BookId> {
         let mut map = HashMap::new();
-        let originals = self.books.values().filter(|b| b.twin_of.value.is_none());
+        let originals = self.books.values().filter(|b| b.shared());
         let (alive, removed): (Vec<&Book>, Vec<&Book>) = originals.partition(|b| b.alive());
         for book in removed.into_iter().chain(alive) {
             map.insert(book.content, book.id);

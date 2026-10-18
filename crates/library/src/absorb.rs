@@ -9,6 +9,7 @@ use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
 use crate::id::{BookId, ContentId, ShelfId};
 use crate::library::Library;
+use crate::link::Link;
 use crate::marks::Mark;
 use crate::merge::Merge;
 use crate::records::{Kind, Row};
@@ -93,7 +94,16 @@ impl Library {
                     true
                 }))
             }
-            Kind::Locations | Kind::Source => None,
+            Kind::Link => {
+                let link: Link = parse(row)?;
+                self.clock.observe(link.latest());
+                let id = link.id;
+                Some(merge_into(self.links.get(&id), link).is_some_and(|l| {
+                    self.links.insert(id, l);
+                    true
+                }))
+            }
+            Kind::Locations | Kind::Source | Kind::Folder => None,
         }
     }
 
@@ -116,7 +126,7 @@ impl Library {
     /// Two living originals of one content: the lower id keeps it all.
     fn fold_originals(&mut self, at: Stamp) -> usize {
         let mut by_content: BTreeMap<ContentId, Vec<BookId>> = BTreeMap::new();
-        for book in self.books().filter(|b| b.twin_of.value.is_none()) {
+        for book in self.books().filter(|b| b.shared()) {
             by_content.entry(book.content).or_default().push(book.id);
         }
         let mut folded = 0;

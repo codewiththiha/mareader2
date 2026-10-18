@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crate::disk::{self, Folder};
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Found, Imported, Library, Measure, Opened,
-    Origin, Position, Receipt, Scan, SourceId,
+    BookId, ContentId, Data, DeviceId, FileStamp, Format, Found, Imported, Library, Measure,
+    Opened, Origin, Position, Scan, SourceId,
 };
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -61,15 +61,16 @@ fn a_folder_book_removed_stays_hidden_until_restored_with_its_place() {
     let shelf = lib.create_shelf("Read", None, 2_000).unwrap();
     lib.file(id, shelf, 2_000);
     let receipt = lib.receipt(&[id]);
-    let want = Receipt {
-        books: 1,
-        positions: 1,
-        spots: 1,
-        copies: 0,
-        hidden: 1,
-    };
-    assert_eq!(receipt, want);
-    let removed = lib.remove_books(&[id], 3_000);
+    let got = (
+        receipt.books,
+        receipt.positions,
+        receipt.spots,
+        receipt.copies,
+        receipt.hidden,
+    );
+    assert_eq!(got, (1, 1, 1, 0, 1));
+    assert_eq!(receipt.filed, ["Read"]);
+    let removed = lib.remove_books(&[id], Data::Keep, 3_000);
     assert_eq!((removed.books, removed.delete.len()), (1, 0));
     assert!(lib.book(id).is_none() && lib.book_at("/s/a.pdf".as_ref()).is_none());
     // The file is still there; a rescan leaves it out.
@@ -80,7 +81,10 @@ fn a_folder_book_removed_stays_hidden_until_restored_with_its_place() {
     assert!(lib.restore(id, 4_000));
     assert!(lib.hidden_in(s).is_empty());
     assert_eq!(lib.position(id), Some(page(4)));
-    assert_eq!(lib.shelf_books(shelf).len(), 1);
+    assert!(
+        lib.shelf_books(shelf).is_empty(),
+        "a removal forgets its spots"
+    );
     assert_eq!(lib.book_at("/s/a.pdf".as_ref()), Some(id));
     assert!(!lib.restore(id, 5_000));
 }
@@ -90,7 +94,7 @@ fn opening_a_removed_folder_book_brings_it_back_unhidden() {
     let mut lib = Library::new(DEVICE);
     let s = lib.add_source("/s".into(), 1_000).unwrap().id;
     let id = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
-    lib.remove_books(&[id], 2_000);
+    lib.remove_books(&[id], Data::Keep, 2_000);
     assert_eq!(lib.record_open(opened("/s/a.pdf", 1), 3_000), id);
     assert!(lib.hidden_in(s).is_empty());
     assert!(lib.source(s).unwrap().hidden.is_empty());
@@ -135,7 +139,7 @@ fn removing_an_original_hands_its_files_to_a_twin() {
     let a = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
     let t = lib.twin(a, 2_000).unwrap();
     assert_eq!(lib.receipt(&[a]).hidden, 0);
-    lib.remove_books(&[a], 3_000);
+    lib.remove_books(&[a], Data::Keep, 3_000);
     assert!(lib.source(s).unwrap().hidden.is_empty());
     assert_eq!(lib.book(t).unwrap().twin_of.value, None);
     assert_eq!(lib.book_at("/s/a.pdf".as_ref()), Some(t));
@@ -145,7 +149,7 @@ fn removing_an_original_hands_its_files_to_a_twin() {
     // Both gone together, the file is hidden under each.
     let t2 = lib.twin(t, 4_000).unwrap();
     assert_eq!(lib.receipt(&[t, t2]).hidden, 2);
-    lib.remove_books(&[t, t2], 5_000);
+    lib.remove_books(&[t, t2], Data::Keep, 5_000);
     assert!(scan(&mut lib, s, &[("/s/a.pdf", 1)]).is_empty());
     assert!(lib.is_empty());
 }
@@ -156,7 +160,7 @@ fn a_restored_book_reads_beside_a_book_of_its_content() {
     let s = lib.add_source("/s".into(), 1_000).unwrap().id;
     let a = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
     let t = lib.twin(a, 2_000).unwrap();
-    lib.remove_books(&[a, t], 3_000);
+    lib.remove_books(&[a, t], Data::Keep, 3_000);
     // Imported again meanwhile: the same record comes back.
     let copy = opened("/lib/files/1/a.pdf", 1);
     assert_eq!(lib.import(copy, 4_000), Imported::New(a));
@@ -182,9 +186,9 @@ fn store_copies_are_deleted_with_their_book_and_known_content_is_kept() {
     assert_eq!(lib.import(opened("/x/a.pdf", 1), 2_000), Imported::Known(a));
     let t = lib.twin(a, 2_000).unwrap();
     assert_eq!(lib.receipt(&[a]).copies, 0);
-    assert!(lib.remove_books(&[a], 3_000).delete.is_empty());
+    assert!(lib.remove_books(&[a], Data::Keep, 3_000).delete.is_empty());
     assert_eq!(lib.receipt(&[t]).copies, 1);
-    let removed = lib.remove_books(&[t], 4_000);
+    let removed = lib.remove_books(&[t], Data::Keep, 4_000);
     assert_eq!(removed.delete, [PathBuf::from("/lib/files/1/a.pdf")]);
 }
 

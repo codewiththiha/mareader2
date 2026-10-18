@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use crate::disk::Folder;
 use crate::tests::save;
 use crate::{
-    Absorbed, Book, BookId, ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, Opened,
-    Position, Row, ShelfId,
+    Absorbed, Book, BookId, ContentId, Data, DeviceId, FileStamp, Format, Kind, Library, Measure,
+    Opened, Position, Row, ShelfId,
 };
 
 const A: DeviceId = DeviceId(1);
@@ -230,7 +230,7 @@ fn a_twin_promoted_on_one_machine_is_promoted_on_all() {
     let twin = a.twin(original, 1_100).unwrap();
     let mut b = Library::new(B);
     sync(&mut a, &mut b, 1_200);
-    a.remove_books(&[original], 2_000);
+    a.remove_books(&[original], Data::Keep, 2_000);
     sync(&mut a, &mut b, 2_100);
     assert!(b.book(original).is_none());
     assert_eq!(b.book(twin).unwrap().twin_of.value, None);

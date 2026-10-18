@@ -116,6 +116,9 @@ pub struct Location {
     pub path: PathBuf,
     pub origin: Origin,
     pub stamp: FileStamp,
+    /// For the library's own copy: the file it was copied from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<PathBuf>,
     /// Whether the file was there when last looked for; not saved.
     #[serde(skip, default = "present")]
     pub present: bool,
@@ -154,6 +157,12 @@ pub struct Book {
         skip_serializing_if = "Field::is_unset"
     )]
     pub twin_of: Field<Option<BookId>>,
+    /// Kept as new beside another of its content: lookups pass it by.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub independent: bool,
+    /// Removed with its data: a return lands as a new book.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forgot: Option<Stamp>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -182,6 +191,19 @@ impl Book {
     /// No location of it is there any more.
     pub fn missing(&self) -> bool {
         self.path().is_none()
+    }
+
+    /// Whether it is the one book its content names: no twin or own copy.
+    pub fn shared(&self) -> bool {
+        self.twin_of.value.is_none() && !self.independent
+    }
+
+    /// Its newest location: the file it reads, there or not.
+    pub fn home(&self) -> Option<&Location> {
+        self.locations
+            .iter()
+            .find(|l| l.present)
+            .or(self.locations.first())
     }
 }
 

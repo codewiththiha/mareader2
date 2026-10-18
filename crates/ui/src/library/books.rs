@@ -106,7 +106,9 @@ impl LibraryState {
         let first = books.first().and_then(|id| self.model.book(*id));
         let first = first.map(|b| b.title.value.clone()).unwrap_or_default();
         let receipt = self.model.receipt(books);
-        let done = self.model.remove_books(books, now);
+        let done = self
+            .model
+            .remove_books(books, mareader_library::Data::Keep, now);
         if !done.delete.is_empty()
             && let Some(store) = self.folder.as_ref().map(|f| f.store())
         {
