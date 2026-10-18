@@ -99,6 +99,17 @@ impl Page {
         self.typed_at = f64::NEG_INFINITY;
     }
 
+    /// The top answer to the search, for the folded window's glance.
+    pub fn glance(&self) -> Option<&str> {
+        let asked = self.text.trim();
+        let fresh = self.asked.as_ref().is_some_and(|(_, q)| match q {
+            Query::Search { text, .. } => text == asked,
+            _ => false,
+        });
+        let e = self.reply.as_ref()?.entries.first()?;
+        (fresh && !asked.is_empty()).then(|| e.answer())
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }
@@ -124,6 +135,21 @@ impl Page {
         let t = Tokens::get(ui.ctx());
         self.small = true;
         self.contents(ui, service, s, &t, out);
+    }
+
+    /// Asks again once typing settles and the ask has changed.
+    pub fn ask(&mut self, ctx: &egui::Context, service: &mut Dictionaries, s: &DictionarySettings) {
+        let now = ctx.input(|i| i.time);
+        let query = self.query(s);
+        let settled = now - self.typed_at >= DEBOUNCE;
+        let changed = self.asked.as_ref().is_none_or(|(_, q)| *q != query);
+        if changed && !settled {
+            let wait = (DEBOUNCE - (now - self.typed_at)) as f32;
+            ctx.request_repaint_after_secs(wait);
+        } else if changed {
+            let ticket = service.ask(query.clone());
+            self.asked = Some((ticket, query));
+        }
     }
 
     /// The ask the page's text and choices make now.
@@ -199,16 +225,7 @@ impl Page {
             true => narrow_choices(ui, &mut draft, &ready, reply, t, out),
             false => choices(ui, &mut draft, &ready, reply, t, out),
         }
-        let query = self.query(&draft);
-        let settled = now - self.typed_at >= DEBOUNCE;
-        let changed = self.asked.as_ref().is_none_or(|(_, q)| *q != query);
-        if changed && !settled {
-            let wait = (DEBOUNCE - (now - self.typed_at)) as f32;
-            ui.ctx().request_repaint_after_secs(wait);
-        } else if changed {
-            let ticket = service.ask(query.clone());
-            self.asked = Some((ticket, query));
-        }
+        self.ask(ui.ctx(), service, &draft);
         let asked = self.text.trim().to_owned();
         let act = if asked.is_empty() {
             home(ui, t, &ready, &mut draft)
@@ -328,6 +345,7 @@ impl Page {
                 .id_salt("dict-column")
                 .auto_shrink(false)
                 .show(ui, |ui| {
+                    clear_of_bar(ui);
                     entry::entries(ui, &reply.entries, asked, t, |ui, e| {
                         if packs {
                             pack_note(ui, e, t);
@@ -482,9 +500,11 @@ fn language_box(
 
 /// "via English" when a bridge answered, or the language detected.
 fn route_note(reply: &Reply, s: &DictionarySettings) -> Option<(String, String)> {
-    if let Some(via) = reply.entries.iter().find_map(|e| e.via.as_deref()) {
-        let why = "No dictionary joins these two; answers pass through it.";
-        return Some((format!("via {via}"), why.to_owned()));
+    // The rows name each English word between; this names the language.
+    if reply.entries.iter().any(|e| e.via.is_some()) {
+        let via = language(HUB);
+        let why = format!("No dictionary joins these two; answers pass through {via}.");
+        return Some((format!("via {via}"), why));
     }
     let from = reply
         .from
@@ -508,6 +528,7 @@ fn results_list(
         .id_salt("dict-results")
         .auto_shrink(false)
         .show(ui, |ui| {
+            clear_of_bar(ui);
             ui.spacing_mut().item_spacing.y = 2.0;
             let mut shown: Option<&str> = None;
             for (i, e) in list.iter().enumerate() {
@@ -590,6 +611,7 @@ fn full_entry(
         .id_salt("dict-entry")
         .auto_shrink(false)
         .show(ui, |ui| {
+            clear_of_bar(ui);
             ui.spacing_mut().item_spacing.y = 6.0;
             if shaped::needs_shaping(e.asked()) {
                 shaped::label(ui, e.asked(), 26.0, t.ink);
@@ -709,6 +731,13 @@ fn pack_note(ui: &mut Ui, e: &Entry, t: &Tokens) {
     if let Some(p) = PACKS.iter().find(|p| p.id == e.pack) {
         ui.label(RichText::new(p.label()).size(t.text_small).color(t.muted));
     }
+}
+
+/// Keeps scrolled content off the floating bar, which paints over it.
+pub fn clear_of_bar(ui: &mut Ui) {
+    let bar = ui.spacing().scroll;
+    let room = bar.bar_width + bar.bar_outer_margin + 2.0;
+    ui.set_max_width((ui.available_width() - room).max(0.0));
 }
 
 /// A small rounded tag.

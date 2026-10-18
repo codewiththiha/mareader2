@@ -450,3 +450,59 @@ fn the_shortcut_gives_an_idle_window_the_keys_then_closes_it() {
     h.run();
     assert_eq!(window_open(&h), (false, false));
 }
+
+#[test]
+fn the_pill_goes_anywhere_and_unfolds_onto_the_stage() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "ight")
+        .expect("a known option");
+    h.run_steps(30);
+    h.get_by_label(MINIMIZE).click();
+    h.run();
+    let pill = h.state().dict().window_rect().expect("a pill");
+    assert!(pill.height() < 60.0, "{pill:?}");
+    // To the bottom right, which the window couldn't reach; above the bar.
+    drag(
+        &mut h,
+        pill.center(),
+        egui::pos2(995.0, 795.0) - pill.center(),
+    );
+    let pill = h.state().dict().window_rect().expect("a pill");
+    assert!(pill.right() > 975.0 && pill.bottom() > 735.0, "{pill:?}");
+    assert!(
+        pill.bottom() <= 800.0 - 40.0,
+        "clear of the page bar: {pill:?}"
+    );
+    h.get_by_label(RESTORE).click();
+    h.run();
+    let open = h.state().dict().window_rect().expect("a window");
+    assert!(open.height() >= 240.0, "{open:?}");
+    assert!(open.right() <= 1000.0 && open.bottom() <= 800.0, "{open:?}");
+    // It grew up and left from the pill instead of hanging off.
+    assert!(
+        (open.right() - pill.right()).abs() < 1.0,
+        "{open:?} {pill:?}"
+    );
+    assert!(
+        (open.bottom() - pill.bottom()).abs() < 1.0,
+        "{open:?} {pill:?}"
+    );
+}
+
+#[test]
+fn a_bridge_names_english_and_each_answer_its_word() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let mut s = h.state().settings().dictionary.clone();
+    (s.pair, s.from, s.to) = (true, Some("fr".into()), Some("my".into()));
+    h.state_mut().queue(Command::SetDictionary(Box::new(s)));
+    h.run();
+    h.state_mut()
+        .set_option("dict_page", "lumière")
+        .expect("a known option");
+    h.run_steps(30);
+    h.get_by_label("via English");
+    assert!(h.query_all_by_label("via light").count() >= 1);
+}

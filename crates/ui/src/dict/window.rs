@@ -25,7 +25,7 @@ const START: Vec2 = vec2(380.0, 520.0);
 const HEAD: f32 = 38.0;
 /// The band along each edge that resizes.
 const GRIP: f32 = 6.0;
-const PILL_W: f32 = 240.0;
+const PILL: Vec2 = vec2(240.0, HEAD);
 /// Room kept between the window and the stage's edges.
 const INSET: f32 = 12.0;
 
@@ -35,6 +35,8 @@ pub struct Frame<'a> {
     pub page: &'a mut Page,
     /// Its rect while dragged or resized, saved on release.
     pub live: &'a mut Option<Rect>,
+    /// Folded when last drawn; a change moves the rect to suit.
+    pub was_folded: &'a mut Option<bool>,
     pub settings: &'a DictionarySettings,
     /// Where it may sit: below the bar, beside any rail.
     pub stage: Rect,
@@ -47,10 +49,24 @@ pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
     let saved = w
         .rect
         .map(|[x, y, wd, h]| Rect::from_min_size(pos2(x, y), vec2(wd, h)));
-    let mut rect = fit(f.live.or(saved).unwrap_or_else(|| start(f.stage)), f.stage);
     let folded = w.minimized;
+    let mut rect = f.live.or(saved).unwrap_or_else(|| start(f.stage));
+    // Folding puts the pill where the button was; unfolding grows from it.
+    let turned = f.was_folded.is_some_and(|was| was != folded);
+    if turned {
+        rect = match folded {
+            true => to_pill(rect, f.stage),
+            false => from_pill(rect, f.stage),
+        };
+    }
+    *f.was_folded = Some(folded);
+    let keep = |r: Rect| match folded {
+        true => keep_pill(r, f.stage),
+        false => fit(r, f.stage),
+    };
+    rect = keep(rect);
     let shown = match folded {
-        true => Rect::from_min_size(rect.min, vec2(PILL_W, HEAD)),
+        true => Rect::from_min_size(rect.min, PILL),
         false => rect,
     };
     let mut released = false;
@@ -76,8 +92,17 @@ pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
             } else if !folded && grab.double_clicked() {
                 out.push(Command::Dict(Action::Window(Window::Minimize(true))));
             }
-            header(ui, head, folded, f.page.text(), &t, out);
+            let named = Named {
+                word: f.page.text().trim(),
+                glance: f.page.glance().filter(|_| folded),
+            };
             if folded {
+                grab.clone().on_hover_text("Click to restore");
+            }
+            header(ui, head, folded, &named, &t, out);
+            if folded {
+                // Still asked, so the pill has its glance.
+                f.page.ask(ui.ctx(), f.service, f.settings);
                 return;
             }
             let line = Stroke::new(1.0, t.line);
@@ -96,8 +121,8 @@ pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
             // Last, so the edges win over what lies under them.
             released |= edges(ui, shown, &mut rect);
         });
-    let rect = fit(rect, f.stage);
-    if released {
+    let rect = keep(rect);
+    if released || turned {
         *f.live = None;
         out.push(Command::Dict(Action::Window(Window::Place(rect))));
     } else if Some(rect) != saved {
@@ -126,8 +151,14 @@ fn paint(ui: &Ui, r: Rect, folded: bool, t: &Tokens) {
     );
 }
 
+/// What the folded pill names: the word, and its top answer at a glance.
+struct Named<'a> {
+    word: &'a str,
+    glance: Option<&'a str>,
+}
+
 /// Icon and title, then open as a page, fold and close.
-fn header(ui: &mut Ui, head: Rect, folded: bool, word: &str, t: &Tokens, out: &mut Commands) {
+fn header(ui: &mut Ui, head: Rect, folded: bool, n: &Named<'_>, t: &Tokens, out: &mut Commands) {
     let row = head.shrink2(vec2(10.0, 0.0));
     let builder = UiBuilder::new()
         .max_rect(row)
@@ -153,15 +184,26 @@ fn header(ui: &mut Ui, head: Rect, folded: bool, word: &str, t: &Tokens, out: &m
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add(Icon::Dictionary.image(16.0).tint(t.accent));
-            // Folded, it names the word last searched.
-            let word = word.trim();
-            let title = if folded && !word.is_empty() {
-                word
-            } else {
-                "Dictionary"
+            // Folded, it names the word last searched and its answer.
+            let title = match folded && !n.word.is_empty() {
+                true => n.word,
+                false => "Dictionary",
             };
             let title = RichText::new(title).font(crate::theme::medium(t.text));
-            crate::shaped::line(ui, title, t.text, t.ink);
+            let Some(glance) = n.glance else {
+                crate::shaped::line(ui, title, t.text, t.ink);
+                return;
+            };
+            // The word keeps at most half, the answer the rest, on one line.
+            let half = vec2(
+                (ui.available_width() * 0.5).max(40.0),
+                ui.available_height(),
+            );
+            let lead = Layout::left_to_right(Align::Center);
+            ui.allocate_ui_with_layout(half, lead, |ui| {
+                crate::shaped::line(ui, title, t.text, t.ink);
+            });
+            crate::shaped::line(ui, glance, t.text_small, t.muted);
         });
     });
 }
@@ -236,6 +278,35 @@ fn start(stage: Rect) -> Rect {
     Rect::from_min_size(min, START)
 }
 
+/// Folded, the rect starts at the pill: top right on the right half.
+pub fn to_pill(r: Rect, stage: Rect) -> Rect {
+    let right = r.center().x > stage.center().x;
+    let x = if right { r.right() - PILL.x } else { r.left() };
+    Rect::from_min_size(pos2(x, r.top()), r.size())
+}
+
+/// Unfolded, it grows from the pill away from the nearer edges.
+pub fn from_pill(r: Rect, stage: Rect) -> Rect {
+    let pill = Rect::from_min_size(r.min, PILL);
+    let x = match pill.center().x > stage.center().x {
+        true => pill.right() - r.width(),
+        false => pill.left(),
+    };
+    let y = match pill.center().y > stage.center().y {
+        true => pill.bottom() - r.height(),
+        false => pill.top(),
+    };
+    fit(Rect::from_min_size(pos2(x, y), r.size()), stage)
+}
+
+/// The pill wholly on the stage, by its own size; the window's size kept.
+pub fn keep_pill(r: Rect, stage: Rect) -> Rect {
+    let room = stage.shrink(INSET);
+    let far = (room.max - PILL).max(room.min);
+    let min = r.min.clamp(room.min, far);
+    Rect::from_min_size(min, r.size())
+}
+
 /// `r` no larger than the stage and wholly on it.
 pub fn fit(r: Rect, stage: Rect) -> Rect {
     let room = stage.shrink(INSET);
@@ -262,5 +333,23 @@ mod tests {
         let shrunk = stretch(r, -1, 1, vec2(400.0, -400.0));
         assert_eq!(shrunk.size(), Vec2::from(WINDOW_MIN));
         assert_eq!(shrunk.max.x, r.max.x, "the right edge held");
+    }
+
+    #[test]
+    fn the_pill_reaches_every_edge_and_unfolds_onto_the_stage() {
+        let stage = Rect::from_min_size(pos2(0.0, 40.0), vec2(1000.0, 700.0));
+        let room = stage.shrink(INSET);
+        let window = Rect::from_min_size(pos2(600.0, 60.0), START);
+        // Folding on the right half keeps the pill under the − button.
+        let folded = to_pill(window, stage);
+        assert_eq!(folded.min.x + PILL.x, window.right());
+        // Dragged into the bottom right corner, the pill gets there.
+        let far = keep_pill(folded.translate(vec2(2000.0, 2000.0)), stage);
+        assert_eq!(far.min + PILL, room.max);
+        // And grows up and to the left from there, wholly on the stage.
+        let open = from_pill(far, stage);
+        assert!(stage.contains_rect(open), "{open:?}");
+        assert_eq!(open.size(), START);
+        assert_eq!(open.max, room.max);
     }
 }

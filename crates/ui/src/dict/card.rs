@@ -142,11 +142,17 @@ fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Comm
 
 /// The entry turned to, scrolling only when taller than the room.
 fn body(ui: &mut Ui, asked: &str, e: &Entry, (p, list): (&mut Pager, f32), t: &Tokens) {
+    // Only an entry that scrolls gives its bar the room.
+    let scrolls_id = Id::new((CARD, asked, p.at, "scrolls"));
+    let scrolls = ui.data(|d| d.get_temp::<bool>(scrolls_id).unwrap_or(false));
     let shown = ScrollArea::vertical()
         .id_salt((CARD, asked, p.at))
         .max_height(list)
         .auto_shrink([false, true])
         .show(ui, |ui| {
+            if scrolls {
+                super::page::clear_of_bar(ui);
+            }
             ui.spacing_mut().item_spacing.y = 4.0;
             if let Some(word) = entry::near(e, asked) {
                 entry::heading(ui, word, t);
@@ -154,6 +160,7 @@ fn body(ui: &mut Ui, asked: &str, e: &Entry, (p, list): (&mut Pager, f32), t: &T
             entry::rows(ui, e, t);
         });
     let room = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
+    ui.data_mut(|d| d.insert_temp(scrolls_id, room > 0.5));
     let off = shown.state.offset.y;
     p.edges = (off <= 0.5, off >= room - 0.5);
 }
