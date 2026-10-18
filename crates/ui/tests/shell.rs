@@ -734,7 +734,12 @@ fn a_hue_landmark_tints_at_a_gentle_strength() {
 
 #[test]
 fn the_appearance_popover_grows_to_its_cap_then_scrolls() {
-    let mut h = harness(MareaderApp::default());
+    // Compact by default, so enough sections of looks to overflow it.
+    let looks: Vec<_> = (0..12)
+        .map(|i| ("save_preset", format!("L{i}/S{}", i % 4)))
+        .collect();
+    let looks: Vec<_> = looks.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let mut h = with(&looks);
     open_appearance(&mut h);
     h.run_steps(4);
     let id = egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER);
@@ -776,7 +781,7 @@ fn slider_values_never_widen_the_appearance_popover() {
 
 #[test]
 fn the_popover_offers_pane_modes_only_while_split() {
-    let modes = ["Independent theme for each", "Texture for each"];
+    let modes = ["Theme per pane", "Texture per pane"];
     let mut h = harness(MareaderApp::default());
     open_appearance(&mut h);
     for label in modes {
@@ -784,9 +789,36 @@ fn the_popover_offers_pane_modes_only_while_split() {
     }
     let mut h = with(&[("panes", "2")]);
     open_appearance(&mut h);
+    // Together at the foot, below the last group's controls.
+    let last = h.get_by_label("Animated").rect().bottom();
     for label in modes {
-        assert!(h.query_by_role_and_label(Role::CheckBox, label).is_some());
+        let top = h.get_by_role_and_label(Role::CheckBox, label).rect().top();
+        assert!(top > last, "{label} sits at {top}, above {last}");
     }
+}
+
+#[test]
+fn clicking_a_group_label_folds_and_unfolds_it() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    for (group, inside) in [("Film grain", "Static"), ("Presets", "Sepia")] {
+        h.get_by_label(group).click();
+        h.run_steps(2);
+        assert!(h.query_by_label(inside).is_none(), "{group} folded");
+        h.get_by_label(group).click();
+        h.run_steps(2);
+        assert!(h.query_by_label(inside).is_some(), "{group} unfolded");
+    }
+}
+
+#[test]
+fn a_preset_section_folds_on_its_own() {
+    let mut h = with(&[("save_preset", "Owl/Evening")]);
+    open_appearance(&mut h);
+    h.get_by_label("Evening").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Owl").is_none(), "its cards fold away");
+    assert!(h.query_by_label("Sepia").is_some(), "other sections stay");
 }
 
 #[test]

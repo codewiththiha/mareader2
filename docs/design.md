@@ -84,6 +84,20 @@ first darken up to 0.06 L so a sepia paper is cream, not white. Taking the hue
 outright means no tint passes through other hues on the way (mareader's sepia
 went magenta).
 
+**Book paper.** A reflowed page's paper follows the same rule as the tokens: its
+target chroma is capped at what sRGB holds within 0.06 L of the mode's paper,
+then scaled by the strength, and near white it darkens rather than losing
+chroma. So every step of the slider shows in every mode and hue (light paper
+used to stop at `#fff7f0` by strength 10). The popover shows strength as a share
+of the full effect, 0–100 % over stored strengths 0–50.
+
+**Appearance popover.** Groups (Presets, each preset section, Mode & colour,
+Page texture, Film grain) fold from their header; a folded header reads out its
+setting, and folds persist. Presets are five-across cards with "Save current
+look" as the header's +. Choices are segmented tracks; texture and grain dials
+show only when they act. While split, the per-pane switches sit pinned under
+the scroll, together.
+
 **Derived in `theme.rs`:**
 - hover fill = `line`; selected = `accent-soft` with an accent icon;
 - glass (the title bar) = surface at 96 % until the blur pass (M2 slice 3) gives
