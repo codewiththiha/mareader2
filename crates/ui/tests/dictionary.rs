@@ -9,6 +9,7 @@ use mareader_dict::{PACKS, State, build, db_file};
 use mareader_settings::DictionaryOpens;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::dict::card::PURSUE;
 use mareader_ui::dict::page::LABEL;
 use mareader_ui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
 use mareader_ui::route::Route;
@@ -378,4 +379,74 @@ fn the_tab_chooses_how_the_reader_opens_it() {
     h.run();
     let opens = h.state().settings().dictionary.opens;
     assert_eq!(opens, DictionaryOpens::Page);
+}
+
+#[test]
+fn a_look_up_fills_the_open_window_and_keeps_the_selection() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("a known option");
+    h.run();
+    h.get_by_label(MINIMIZE).click();
+    h.run();
+    select(&mut h, "quick");
+    h.get_by_label("Look up").click();
+    h.run();
+    assert_eq!(window_open(&h), (true, false), "a folded window comes back");
+    let dict = h.state().dict();
+    assert_eq!(dict.page_text(), "quick");
+    assert_eq!(dict.card_word(), None, "no card over the page");
+    assert!(!dict.typing(), "the reader keeps the keys");
+    let pane = h.state().active_pane();
+    assert!(h.state().documents().selection(pane).is_some());
+}
+
+#[test]
+fn the_card_carries_its_word_into_the_window_or_the_page() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    select(&mut h, "quick");
+    h.get_by_label("Look up").click();
+    h.run();
+    h.get_by_label(PURSUE).click();
+    h.run();
+    assert_eq!(window_open(&h), (true, false));
+    assert_eq!(h.state().dict().card_word(), None);
+    assert_eq!(h.state().dict().page_text(), "quick");
+    assert!(h.state().dict().typing(), "ready to search on");
+
+    h.get_by_label(CLOSE).click();
+    let mut s = h.state().settings().clone();
+    s.dictionary.opens = DictionaryOpens::Page;
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    select(&mut h, "brown");
+    h.get_by_label("Look up").click();
+    h.run();
+    h.get_by_label(PURSUE).click();
+    h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
+    assert_eq!(h.state().dict().page_text(), "brown");
+}
+
+#[test]
+fn the_shortcut_gives_an_idle_window_the_keys_then_closes_it() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    h.key_press_modifiers(keys, egui::Key::D);
+    h.run();
+    assert!(h.state().dict().typing());
+    // Back to the book: the window stays, idle.
+    h.ctx.memory_mut(|m| m.stop_text_input());
+    h.run();
+    assert!(!h.state().dict().typing());
+    h.key_press_modifiers(keys, egui::Key::D);
+    h.run();
+    assert_eq!(window_open(&h), (true, false), "fetched, not closed");
+    assert!(h.state().dict().typing());
+    h.key_press_modifiers(keys, egui::Key::D);
+    h.run();
+    assert_eq!(window_open(&h), (false, false));
 }

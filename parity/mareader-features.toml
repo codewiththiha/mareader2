@@ -1451,6 +1451,9 @@ evidence = [
     "crates/ui/tests/dictionary.rs::open_as_a_page_carries_the_search_over",
     "crates/ui/tests/dictionary.rs::escape_in_the_window_clears_then_closes",
     "crates/ui/tests/dictionary.rs::the_tab_chooses_how_the_reader_opens_it",
+    "crates/ui/tests/dictionary.rs::a_look_up_fills_the_open_window_and_keeps_the_selection",
+    "crates/ui/tests/dictionary.rs::the_card_carries_its_word_into_the_window_or_the_page",
+    "crates/ui/tests/dictionary.rs::the_shortcut_gives_an_idle_window_the_keys_then_closes_it",
     "crates/ui/src/dict/window.rs::the_window_stays_on_the_stage_and_never_below_its_minimum",
     "crates/settings/src/study.rs::a_window_rect_is_finite_and_never_below_the_minimum",
 ]

@@ -1,6 +1,6 @@
 //! Dictionaries in the app: the lookup card, the page, the packs.
 
-mod card;
+pub mod card;
 mod entry;
 pub mod page;
 pub mod window;
@@ -24,6 +24,8 @@ pub enum Action {
     Cancel(&'static str),
     Remove(&'static str),
     CloseCard,
+    /// The card's word, carried on into the window or the page.
+    Pursue(String),
     /// The reader's floating window, which the app keeps.
     Window(Window),
 }
@@ -33,6 +35,8 @@ pub enum Action {
 pub enum Window {
     /// Shown if closed or folded, else closed.
     Toggle,
+    /// Shown, its field given the keys; the shortcut on an idle window.
+    Focus,
     Close,
     Minimize(bool),
     /// Let go after a drag or resize: saved.
@@ -184,7 +188,7 @@ impl Dict {
             Action::Cancel(id) => pack(id).map(|p| self.service.cancel(p)),
             Action::Remove(id) => pack(id).map(|p| self.service.remove(p)),
             Action::CloseCard => self.card.take().map(|_| ()),
-            Action::Window(_) => None,
+            Action::Pursue(_) | Action::Window(_) => None,
         };
         #[cfg(target_arch = "wasm32")]
         if action == Action::CloseCard {
@@ -314,6 +318,11 @@ impl Dict {
     /// Searches the page for `word` at once.
     pub fn search(&mut self, word: &str) {
         self.page.search(word);
+    }
+
+    /// Shows `word` in the window, leaving the keys where they are.
+    pub fn feed(&mut self, word: &str) {
+        self.page.feed(word);
     }
 
     /// What the page's field holds, for tests.
