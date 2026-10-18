@@ -2,6 +2,7 @@
 
 use crate::book::{Book, State};
 use crate::clock::{NEVER, Stamp};
+use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 
@@ -62,6 +63,8 @@ impl Merge for Shelf {
         }
         self.parent.merge(other.parent);
         self.key.merge(other.key);
+        self.kind.merge(other.kind);
+        self.moved.merge(other.moved);
         self.added = self.added.min(other.added);
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
@@ -73,8 +76,31 @@ impl Merge for Shelf {
             Some(self.name.at),
             Some(self.parent.at),
             Some(self.key.at),
+            Some(self.kind.at),
+            Some(self.moved.at),
             self.removed,
             self.restored,
+            self.extra.latest(),
+        ])
+    }
+}
+
+impl Merge for Link {
+    fn merge(&mut self, other: Self) {
+        self.name.merge(other.name);
+        self.level.merge(other.level);
+        self.key.merge(other.key);
+        self.added = self.added.min(other.added);
+        self.removed = self.removed.max(other.removed);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        newest([
+            Some(self.name.at),
+            Some(self.level.at),
+            Some(self.key.at),
+            self.removed,
             self.extra.latest(),
         ])
     }
@@ -132,8 +158,10 @@ mod tests {
     use crate::book::{Format, Position};
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
-    use crate::id::{BookId, ContentId, DeviceId, MarkId, ShelfId};
+    use crate::id::{BookId, ContentId, DeviceId, LinkId, MarkId, ShelfId};
+    use crate::link::LinkTo;
     use crate::marks::{Gloss, MarkKind, Pen, Spot, Style};
+    use crate::shelves::ShelfKind;
 
     /// A small deterministic generator: the same cases every run.
     struct Rng(u64);
@@ -216,8 +244,31 @@ mod tests {
             from: Some(ShelfId(u128::from(parent.counter))),
             added: rng.next(5),
             key: Field::new(word(key), key),
+            kind: Field::new(
+                if key.ms % 2 == 0 {
+                    ShelfKind::Departed
+                } else {
+                    ShelfKind::Own
+                },
+                key,
+            ),
+            moved: Field::new(parent.ms % 2 == 0, parent),
             removed: rng.maybe(),
             restored: rng.maybe(),
+            extra: extra(rng),
+        }
+    }
+
+    fn link(rng: &mut Rng) -> Link {
+        let (name, level, key) = (rng.stamp(), rng.stamp(), rng.stamp());
+        Link {
+            id: LinkId(1),
+            name: Field::new(word(name), name),
+            target: LinkTo::Book(BookId(1)),
+            level: Field::new(Some(ShelfId(u128::from(level.ms))), level),
+            key: Field::new(word(key), key),
+            added: rng.next(5),
+            removed: rng.maybe(),
             extra: extra(rng),
         }
     }
@@ -311,6 +362,11 @@ mod tests {
     #[test]
     fn shelves_merge_in_any_order() {
         laws(shelf);
+    }
+
+    #[test]
+    fn links_merge_in_any_order() {
+        laws(link);
     }
 
     #[test]

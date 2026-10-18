@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::book::Book;
 use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
-use crate::id::{BookId, ShelfId};
+use crate::id::{BookId, ShelfId, SourceId};
 use crate::library::Library;
 use crate::view::natural;
 
@@ -31,12 +31,41 @@ pub struct Shelf {
     /// Its place among the shelves and books beside it.
     #[serde(default)]
     pub key: Field<String>,
+    /// What made it: the reader, a folder's rung, or a rung that left.
+    #[serde(default)]
+    pub kind: Field<ShelfKind>,
+    /// A rung moved off its seat by hand; walks leave it where it is.
+    #[serde(default)]
+    pub moved: Field<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub removed: Option<Stamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restored: Option<Stamp>,
     #[serde(flatten)]
     pub extra: Extra,
+}
+
+/// What made a shelf, which decides the questions it asks.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "is")]
+pub enum ShelfKind {
+    /// Made by the reader; no folder answers for it.
+    #[default]
+    Own,
+    /// Cut from a folder's tree; `key` is the subfolder, `""` the root.
+    Rung { folder: SourceId, key: String },
+    /// A rung that left its tree: its books are the library's own.
+    Departed,
+}
+
+impl ShelfKind {
+    /// The folder and rung key this shelf stands for, if a rung.
+    pub fn rung(&self) -> Option<(SourceId, &str)> {
+        match self {
+            Self::Rung { folder, key } => Some((*folder, key)),
+            Self::Own | Self::Departed => None,
+        }
+    }
 }
 
 impl Shelf {
@@ -217,6 +246,8 @@ impl Library {
             from: None,
             added: wall_ms,
             key: Field::new(key, at),
+            kind: Field::default(),
+            moved: Field::default(),
             removed: None,
             restored: None,
             extra: Extra::default(),
