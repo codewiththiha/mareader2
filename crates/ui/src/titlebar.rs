@@ -353,7 +353,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
         }
         BarPage::Library(library) => {
             let auto = library.auto_columns;
-            library_menu::button(ui, library.view, auto, pinned, &mut out);
+            library_menu::button(ui, library.view, auto, pinned, bar.platform, &mut out);
         }
     }
     appearance_button(ui, bar, &mut out);

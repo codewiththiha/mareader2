@@ -52,6 +52,7 @@ pub mod search;
 pub mod selection;
 pub mod settings_window;
 pub mod shaped;
+pub mod shortcuts;
 pub mod sidebar;
 pub mod study;
 pub mod texts;

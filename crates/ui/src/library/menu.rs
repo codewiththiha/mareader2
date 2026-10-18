@@ -6,6 +6,7 @@ use mareader_library::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey
 use super::{Action, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
+use crate::platform::Platform;
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -13,7 +14,14 @@ pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
 const WIDTH: f32 = 248.0;
 
 /// The menu's button; `auto` is the grid's automatic column count.
-pub fn button(ui: &mut Ui, view: &View, auto: u8, pinned: bool, out: &mut Commands) {
+pub fn button(
+    ui: &mut Ui,
+    view: &View,
+    auto: u8,
+    pinned: bool,
+    platform: Platform,
+    out: &mut Commands,
+) {
     let id = Id::new(LIBRARY_VIEW_MENU);
     let open = Popup::is_id_open(ui.ctx(), id);
     let r = widgets::icon_button(ui, Icon::ViewOptions, "View options", open);
@@ -32,6 +40,7 @@ pub fn button(ui: &mut Ui, view: &View, auto: u8, pinned: bool, out: &mut Comman
                 ui.close();
             }
             crate::view_menu::pin_row(ui, pinned, out);
+            crate::view_menu::shortcuts_row(ui, platform, out);
             ui.separator();
             contents(ui, &mut next, auto);
             if next != *view {

@@ -1,4 +1,4 @@
-//! Keyboard shortcuts. One table drives the handler, tooltips and reference.
+//! Keyboard shortcuts. One table drives the handler, tooltips and cheat sheet.
 
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 36] {
+pub fn bindings(platform: Platform) -> [Binding; 37] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -71,6 +71,11 @@ pub fn bindings(platform: Platform) -> [Binding; 36] {
             label: "Settings",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma),
             command: Command::ShowSettings,
+        },
+        Binding {
+            label: "Keyboard shortcuts",
+            shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Slash),
+            command: Command::ShowShortcuts,
         },
         Binding {
             label: "Full screen",
@@ -224,6 +229,8 @@ pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands)
     if crate::image_viewer::is_open(ctx) {
         return;
     }
+    // Behind the cheat sheet only its own key, which shuts it, acts.
+    let sheet = crate::shortcuts::is_open(ctx);
     // A focused button wants Space and the arrows, not every key.
     let typing = ctx.text_edit_focused();
     let focused = ctx.memory(|m| m.focused().is_some()) || egui::Popup::is_any_open(ctx);
@@ -231,6 +238,7 @@ pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands)
     for b in bindings(platform)
         .into_iter()
         .filter(|b| route.allows(&b.command))
+        .filter(|b| !sheet || b.command == Command::ShowShortcuts)
     {
         if (typing && types(&b.shortcut)) || (focused && steers(&b)) {
             continue;
@@ -264,17 +272,79 @@ pub fn hint(platform: Platform, command: &Command) -> Option<String> {
         .map(|b| text(platform, &b.shortcut))
 }
 
-/// The menu's shortcut list: each action once, by its first key.
-pub fn reference(platform: Platform) -> Vec<(&'static str, String)> {
-    let mut rows: Vec<(&'static str, String)> = Vec::new();
+/// One action on the cheat sheet, with every key that sends it.
+pub struct Entry {
+    pub label: &'static str,
+    pub keys: Vec<String>,
+}
+
+/// A named group of the cheat sheet.
+pub struct Section {
+    pub name: &'static str,
+    pub entries: Vec<Entry>,
+}
+
+/// The cheat sheet's groups, in reading order.
+const SECTIONS: [&str; 6] = [
+    "Moving around",
+    "View",
+    "Find",
+    "General",
+    "Panes",
+    CONTROLS,
+];
+const CONTROLS: &str = "Controls";
+
+fn section_of(command: &Command) -> &'static str {
+    use Command as C;
+    match command {
+        C::Arrow(_) | C::Page { .. } | C::FirstPage | C::LastPage => "Moving around",
+        C::Zoom(_) | C::View(_) | C::AutoScroll | C::Chromeless | C::Window(_) => "View",
+        C::ShowFind | C::FindStep { .. } => "Find",
+        C::CyclePane { .. } => "Panes",
+        _ => "General",
+    }
+}
+
+/// The cheat sheet: each action once, under its group, with all its keys.
+pub fn sheet(platform: Platform) -> Vec<Section> {
+    let mut sections: Vec<Section> = SECTIONS
+        .iter()
+        .map(|&name| Section {
+            name,
+            entries: Vec::new(),
+        })
+        .collect();
     for b in bindings(platform) {
-        if !rows.iter().any(|(label, _)| *label == b.label) {
-            rows.push((b.label, text(platform, &b.shortcut)));
+        // `=` is the unshifted `+`: the same key, listed once.
+        if b.shortcut.logical_key == Key::Equals {
+            continue;
+        }
+        let name = section_of(&b.command);
+        let Some(section) = sections.iter_mut().find(|s| s.name == name) else {
+            continue;
+        };
+        let keys = text(platform, &b.shortcut);
+        match section.entries.iter_mut().find(|e| e.label == b.label) {
+            Some(e) if !e.keys.contains(&keys) => e.keys.push(keys),
+            Some(_) => {}
+            None => section.entries.push(Entry {
+                label: b.label,
+                keys: vec![keys],
+            }),
         }
     }
-    rows.push(("Zoom without a modifier", "+  −".to_owned()));
-    let listed = LISTED.iter().map(|&(label, keys)| (label, keys.to_owned()));
-    rows.into_iter().chain(listed).collect()
+    if let Some(controls) = sections.iter_mut().find(|s| s.name == CONTROLS) {
+        controls.entries = LISTED
+            .iter()
+            .map(|&(label, keys)| Entry {
+                label,
+                keys: keys.split("  ").map(str::to_owned).collect(),
+            })
+            .collect();
+    }
+    sections.retain(|s| !s.entries.is_empty());
+    sections
 }
 
 #[cfg(test)]
@@ -302,9 +372,19 @@ mod tests {
     }
 
     #[test]
-    fn the_reference_lists_each_action_once() {
-        let rows = reference(Platform::Mac);
-        let zoom_in = rows.iter().filter(|(label, _)| *label == "Zoom in").count();
-        assert_eq!(zoom_in, 1);
+    fn the_sheet_lists_each_action_once_with_all_its_keys() {
+        let sheet = sheet(Platform::Mac);
+        let entries = || sheet.iter().flat_map(|s| &s.entries);
+        let zoom_in: Vec<_> = entries().filter(|e| e.label == "Zoom in").collect();
+        assert_eq!(zoom_in.len(), 1);
+        assert_eq!(zoom_in[0].keys, ["⌘+", "+"], "= is listed as +");
+        let next = entries().find(|e| e.label == "Next page");
+        assert!(next.is_some_and(|e| e.keys.len() == 2), "the arrow and L");
+        let names: Vec<_> = sheet.iter().map(|s| s.name).collect();
+        assert_eq!(names, SECTIONS);
+        let tab = entries().find(|e| e.label == "Move between controls");
+        assert!(tab.is_some_and(|e| e.keys == ["Tab", "Shift+Tab"]));
+        let own = hint(Platform::Gnome, &Command::ShowShortcuts);
+        assert_eq!(own.as_deref(), Some("Ctrl+/"));
     }
 }

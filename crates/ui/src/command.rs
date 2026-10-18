@@ -49,6 +49,8 @@ pub enum Command {
     ShowViewMenu,
     /// Opens the settings window where it was left.
     ShowSettings,
+    /// Opens the keyboard shortcut cheat sheet, or shuts it.
+    ShowShortcuts,
     /// The find bar over the focused document; else the library.
     ShowFind,
     /// F3 and Cmd+G: the next or previous match, opening the bar if shut.

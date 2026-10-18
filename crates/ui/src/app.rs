@@ -905,6 +905,7 @@ impl MareaderApp {
             "open" => match value {
                 "appearance" => self.queue(Command::ShowAppearance),
                 "settings" => self.queue(Command::ShowSettings),
+                "shortcuts" => self.queue(Command::ShowShortcuts),
                 "menu" => self.queue(Command::ShowViewMenu),
                 "find" => self.queue(Command::ShowFind),
                 "search" => {
@@ -1472,6 +1473,7 @@ impl MareaderApp {
                 egui::Popup::open_id(ctx, egui::Id::new(menu));
             }
             Command::ShowSettings => self.settings_window.open(None),
+            Command::ShowShortcuts => crate::shortcuts::toggle(ctx),
             // With nothing to search in, find searches the library.
             Command::FindStep { forward } if self.find.is_open() => {
                 let found = found_in(&self.search, &self.documents, &self.find);
@@ -2146,7 +2148,9 @@ impl eframe::App for MareaderApp {
         // The library keeps its bar: it has no other way out.
         self.titlebar.chromeless = self.chromeless && route == Route::Reader;
         // Tab brings hidden chrome up, unless a dialog would sit below it.
-        let dialog = self.settings_window.is_open() || self.library.sheet_up();
+        let dialog = self.settings_window.is_open()
+            || self.library.sheet_up()
+            || crate::shortcuts::is_open(&ctx);
         if crate::focus::begin(&ctx) && !dialog {
             self.titlebar.reveal();
             self.page_bars.entry(self.active).or_default().reveal();
@@ -2161,6 +2165,7 @@ impl eframe::App for MareaderApp {
             || self.library.renaming().is_some()
             || (route == Route::Library && library::search::focused(&ctx))
             || crate::image_viewer::is_open(&ctx)
+            || crate::shortcuts::is_open(&ctx)
             || self.lifting.is_some();
         let mut free = escape && !modal && !egui::Popup::is_any_open(&ctx);
         // The library page lets go of a selection, else goes back to reading.
@@ -2419,6 +2424,7 @@ impl eframe::App for MareaderApp {
             (&self.ai, &self.dict, &self.vocab),
             &mut commands,
         );
+        crate::shortcuts::show(&ctx, self.platform);
         crate::focus::paint(&ctx);
         self.film_grain(&ctx);
         self.fade.paint(&ctx);
