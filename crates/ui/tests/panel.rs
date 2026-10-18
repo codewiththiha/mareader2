@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use egui::Key;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{BookId, Library};
 use mareader_settings::LibraryClick;
 use mareader_ui::MareaderApp;
@@ -258,4 +258,29 @@ fn the_workspace_tab_picks_what_a_click_does() {
     h.get_by_label("Do nothing").click();
     h.run();
     assert_eq!(click(&h), LibraryClick::DragOnly);
+}
+
+#[test]
+fn a_missing_book_is_shown_but_never_opened() {
+    let options = [
+        ("books", "4"),
+        ("pdf", "sample:3"),
+        ("float", "false"),
+        ("sidebar", "library"),
+    ];
+    let mut h = reader(&options);
+    let missing = library(&h).books().find(|b| b.missing()).unwrap();
+    let (id, title) = (missing.id, missing.title.value.clone());
+    let row = h.get_by_label(&title);
+    assert!(row.accesskit_node().is_disabled(), "marked unavailable");
+    let at = row.rect().center();
+    let before = h.state().panes().len();
+    tap(&mut h, at);
+    h.run();
+    assert_eq!(h.state().panes().len(), before);
+    assert!(
+        h.state().library_state().sheet().is_none(),
+        "no find sheet here"
+    );
+    assert!(library(&h).book(id).unwrap().missing());
 }

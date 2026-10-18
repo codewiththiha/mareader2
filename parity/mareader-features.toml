@@ -511,13 +511,14 @@ milestone = "M5"
 status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::a_missing_book_asks_where_it_went_instead_of_opening",
+  "crates/ui/tests/panel.rs::a_missing_book_is_shown_but_never_opened",
   "crates/ui/tests/library.rs::a_lost_book_is_found_again_by_choosing_its_file",
   "crates/ui/tests/library.rs::searching_a_folder_finds_a_lost_book_under_any_name",
   "crates/ui/tests/library.rs::a_namesake_with_other_content_is_offered_not_taken",
   "crates/library/src/ledger_tests.rs::a_missing_book_is_relinked_by_a_folder_that_never_placed_it",
 ]
 reference = ["crates/library-runtime/src/features/library/relink_modal.rs"]
-notes = "Missing books stay listed, faded (Offline when the drive is gone); clicking one opens find-again: choose the file or search a folder (M5 slice 3). Shelf membership is kept once shelves exist"
+notes = "Missing books stay listed, faded (Offline when the drive is gone); clicking one on the Library page opens find-again: choose the file or search a folder (M5 slice 3); in the reading sidebar it is shown but never opened. Shelf membership is kept once shelves exist"
 
 [[feature]]
 id = "library.shelves"
