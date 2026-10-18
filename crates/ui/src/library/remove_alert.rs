@@ -75,9 +75,10 @@ pub(super) fn show(ctx: &Context, model: &Library, asked: Asked<'_>, t: &Tokens)
             }
             let data = receipt.has_data();
             if data {
-                let note = match on.forget {
-                    true => "Erased for good. This can't be undone.",
-                    false => "Kept for when the book comes back.",
+                let note = match (on.forget, going.books.len()) {
+                    (true, _) => "Erased for good. This can't be undone.",
+                    (false, 1) => "Kept for when the book comes back.",
+                    (false, _) => "Kept for when the books come back.",
                 };
                 let label = "Erase highlights and reading position";
                 toggle(ui, &mut on.forget, label, note, Some(t.danger), t);
@@ -215,9 +216,7 @@ fn toggle(ui: &mut Ui, on: &mut bool, label: &str, note: &str, warn: Option<Colo
                     let small = RichText::new(note).size(t.text_small).color(t.muted);
                     ui.add(Label::new(small).wrap());
                 });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    widgets::switch(ui, on, label);
-                });
+                widgets::switch(ui, on, label);
             });
         });
 }
