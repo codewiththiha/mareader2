@@ -619,6 +619,20 @@ fn a_long_note_opens_whole_in_the_notes_panel() -> Out {
     Ok(())
 }
 
+#[test]
+fn a_notes_row_s_menu_is_menu_wide_not_sidebar_wide() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "notes")]);
+    select(&mut h, 0, "lazy");
+    h.get_by_label("Highlight").click();
+    h.run();
+    let row = h.get_by_label("lazy").rect();
+    press(&mut h, row.center(), PointerButton::Secondary);
+    let item = h.get_by_label("Remove highlight").rect();
+    assert!(item.width() <= 210.0, "{:.0} wide", item.width());
+    assert!(item.width() < row.width() - 40.0, "as wide as its row");
+    Ok(())
+}
+
 fn ink(h: &H) -> Vec<(Pen, String)> {
     let pane = h.state().active_pane();
     let shown = h.state().marks(pane);

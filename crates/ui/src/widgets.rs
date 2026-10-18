@@ -12,6 +12,9 @@ use crate::theme::Tokens;
 /// A popup's own frame: clicks stay in it, but Tab skips it for its rows.
 pub const POPUP_SENSE: Sense = Sense::CLICK;
 
+/// A context menu's width unless it sets its own; never its row's.
+pub const MENU_W: f32 = 200.0;
+
 /// Closes a menu when Enter or Space presses one of its rows.
 pub fn close_on_key(ui: &Ui) {
     let ctx = ui.ctx();
@@ -48,6 +51,8 @@ pub fn context_menu(resp: &Response, add: impl FnOnce(&mut Ui)) {
         false => popup,
     };
     popup.show(|ui| {
+        // Else rows stretch to the clicked widget: a whole sidebar wide.
+        ui.set_width(MENU_W);
         add(ui);
         close_on_key(ui);
     });
