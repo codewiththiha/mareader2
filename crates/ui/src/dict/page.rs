@@ -93,6 +93,12 @@ impl Page {
         self.focus = true;
     }
 
+    /// Searches `word` at once, but the reader keeps the keys.
+    pub fn feed(&mut self, word: &str) {
+        self.text = word.to_owned();
+        self.typed_at = f64::NEG_INFINITY;
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }

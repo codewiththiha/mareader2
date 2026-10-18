@@ -316,6 +316,10 @@ and returns where it came from; Library sits beside it.
   pill naming the last word (a click or a double-click on the head toggles),
   ⤢ opens the page with the search kept, ✕ closes. Esc in its field clears,
   then closes. Open, folded and its rect are saved with the settings.
+- **Feeding the window.** While it is open, Look up fills its search
+  instead of a card (a folded window comes back) and the selection stays.
+  A card's book button carries its word into the window, or the page. The
+  shortcut gives an idle window the keys; pressed while typing, it closes.
 
 ## Icons
 

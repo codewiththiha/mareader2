@@ -389,6 +389,7 @@ impl MareaderApp {
                 let show = !win.open || win.minimized;
                 (win.open, win.minimized) = (show, false);
             }
+            W::Focus => (win.open, win.minimized) = (true, false),
             W::Close => win.open = false,
             W::Minimize(folded) => win.minimized = folded,
             W::Place(r) => win.rect = Some([r.min.x, r.min.y, r.width(), r.height()]),
@@ -402,6 +403,18 @@ impl MareaderApp {
         if win.open && !win.minimized && !matches!(w, W::Place(_)) {
             self.dict.arrive();
         }
+    }
+
+    /// The card's word, searched where the Dictionary opens from here.
+    fn pursue(&mut self, word: &str) {
+        self.dict.escape();
+        let floats = self.settings.dictionary.opens == DictionaryOpens::Window;
+        if self.route() == Route::Reader && floats {
+            self.dict_window(crate::dict::Window::Focus);
+        } else {
+            self.go(Route::Dictionary);
+        }
+        self.dict.search(word);
     }
 
     /// Where the Dictionary page's pressed button returns.
@@ -1283,6 +1296,14 @@ impl MareaderApp {
             self.toasts.push(Toast::info(rule));
             return;
         };
+        // An open window answers instead; it covers nothing, so the
+        // selection stays.
+        if self.settings.dictionary.window.open && self.route() == Route::Reader {
+            self.settings.dictionary.window.minimized = false;
+            self.dict.escape();
+            self.dict.feed(&word);
+            return;
+        }
         self.documents.clear_selection(pane);
         // One card at a time.
         self.study.escape(self.library.model_mut());
@@ -1547,6 +1568,7 @@ impl MareaderApp {
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
+            Command::Dict(crate::dict::Action::Pursue(word)) => self.pursue(&word),
             Command::Dict(action) => self.dict.act(action),
             Command::Vocab(action) => self.vocab.act(action),
             Command::SetDictionary(d) => {
@@ -2271,7 +2293,19 @@ impl eframe::App for MareaderApp {
             self.titlebar.reveal();
             self.page_bars.entry(self.active).or_default().reveal();
         }
+        let read = commands.len();
         keymap::read(&ctx, self.platform, route, &mut commands);
+        // The shortcut gives an idle open window the keys before closing it.
+        let win = &self.settings.dictionary.window;
+        let floats = self.settings.dictionary.opens == DictionaryOpens::Window;
+        if route == Route::Reader && floats && win.open && !win.minimized && !self.dict.typing() {
+            let focus = Command::Dict(crate::dict::Action::Window(crate::dict::Window::Focus));
+            for c in commands.iter_mut().skip(read) {
+                if matches!(c, Command::ShowDictionary) {
+                    *c = focus.clone();
+                }
+            }
+        }
         let drop_target = self.drops(&ctx, &mut commands);
         // An open popup takes Escape first.
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));

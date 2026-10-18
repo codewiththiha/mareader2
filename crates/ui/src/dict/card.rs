@@ -102,6 +102,9 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
     ui.data_mut(|d| d.insert_temp(pager_id, p));
 }
 
+/// The button carrying the card's word into the Dictionary.
+pub const PURSUE: &str = "Open in the Dictionary";
+
 /// The word large, the close button, and the languages under them.
 fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Commands) {
     let margin = Margin {
@@ -116,6 +119,9 @@ fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Comm
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                     out.push(Command::Dict(Action::CloseCard));
+                }
+                if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
+                    out.push(Command::Dict(Action::Pursue(word.to_owned())));
                 }
                 // The languages ride the word's line, quiet, before the close.
                 if let Some(way) = way {
