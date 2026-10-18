@@ -659,7 +659,11 @@ fn a_double_click_opens_a_pdf_s_figure_large() -> Out {
     let at = clear_of_bars(&h, sheet.to_screen(figure))?;
     h.hover_at(at);
     h.run();
-    clicks(&mut h, at, 2);
+    // No `run` while the picture decodes: its spinner never settles.
+    for _ in 0..2 {
+        button(&mut h, at, true);
+        button(&mut h, at, false);
+    }
     for _ in 0..200 {
         h.step();
         if h.query_by_label("Zoom in").is_some() {
@@ -667,7 +671,7 @@ fn a_double_click_opens_a_pdf_s_figure_large() -> Out {
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    h.run();
+    h.run_steps(5);
     assert!(
         h.query_by_label("Figure on page 1").is_some(),
         "the figure's viewer"
