@@ -241,7 +241,7 @@ tier = "P1"
 milestone = "M1"
 status = "shipped"
 reference = ["crates/reader-runtime/src/components/menus/reader_menu.rs"]
-evidence = ["crates/ui/tests/shell.rs::a_narrow_bar_folds_tools_into_the_menu", "crates/ui/tests/shell.rs::the_menu_lists_the_shortcuts_that_exist"]
+evidence = ["crates/ui/tests/shell.rs::a_narrow_bar_folds_tools_into_the_menu", "crates/ui/tests/shell.rs::the_menu_opens_the_shortcut_sheet_in_the_middle"]
 notes = "View & tools menu: tools the bar has no room for, full screen, the shortcut list. Zoom, modes and fit join it with PDF viewing (M2)"
 
 [[feature]]
@@ -1548,7 +1548,7 @@ milestone = "M2"
 status = "shipped"
 reference = ["crates/reader-runtime/src/effects/reader/shortcuts"]
 evidence = [
-    "crates/ui/src/keymap.rs::the_reference_lists_each_action_once",
+    "crates/ui/src/keymap.rs::the_sheet_lists_each_action_once_with_all_its_keys",
     "crates/ui/tests/keys.rs::across_the_column_arrows_turn_and_paged_modes_turn_on_page_keys",
     "crates/ui/tests/keys.rs::find_opens_the_bar_which_holds_the_title_bar_until_escape",
     "crates/ui/tests/keys.rs::find_without_a_document_opens_the_library",

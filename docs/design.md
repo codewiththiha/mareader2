@@ -242,6 +242,13 @@ A new setting picks its `Applies` once; nothing else changes.
 - **Shortcuts.** `keymap.rs` is the only table: the handler, tooltips and
   the list all read it, so they cannot disagree. macOS shows symbols (⌘,),
   other desktops words (Ctrl+,).
+- **Shortcut sheet.** "Keyboard shortcuts" in either View menu, or Ctrl+/
+  (⌘/), opens a centred modal (`shortcuts.rs`) instead of unfolding a list in
+  the menu. Groups (Moving around, View, Find, General, Panes, Controls) sit
+  in two balanced columns, one when narrow; every key for an action shows as
+  a key cap. The filter takes focus, matching action names, group names or a
+  whole key. Esc, the backdrop, ✕ or its own key close it; page keys stay
+  inert behind it.
 
 ## Icons
 

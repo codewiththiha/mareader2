@@ -1,8 +1,7 @@
 //! The title bar's menu: crowded-out tools, full screen, the shortcut list.
 
 use egui::{
-    Align, Button, Id, Layout, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Ui,
-    pos2, vec2,
+    Align, Id, Layout, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Ui, pos2, vec2,
 };
 
 use crate::command::{Command, Commands, WindowCommand};
@@ -17,7 +16,6 @@ use crate::zoom::{Fit, Step, ZoomCommand, ZoomState};
 
 pub const VIEW_MENU: &str = "view-menu";
 const WIDTH: f32 = 272.0;
-const KEYS_OPEN: &str = "view-menu-keys";
 
 /// A title bar tool; folds into the menu when the bar runs out of room.
 #[derive(Clone, Debug, PartialEq)]
@@ -111,7 +109,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         out.push(Command::ShowSettings);
         ui.close();
     }
-    shortcuts(ui, cx.platform);
+    shortcuts_row(ui, cx.platform, out);
     ui.separator();
     let t = Tokens::get(ui.ctx());
     let version = format!("Mareader {}", env!("CARGO_PKG_VERSION"));
@@ -241,40 +239,12 @@ fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands
     });
 }
 
-/// A disclosure row; the list stays open between visits to the menu.
-fn shortcuts(ui: &mut Ui, platform: Platform) {
-    let t = Tokens::get(ui.ctx());
-    let id = Id::new(KEYS_OPEN);
-    let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    let chevron = if open {
-        Icon::ChevronDown
-    } else {
-        Icon::ChevronRight
-    };
-    let row = Button::image_and_text(Icon::Keyboard.image(16.0), "Keyboard shortcuts")
-        .right_text(chevron.image(14.0))
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .min_size(egui::vec2(ui.available_width(), 32.0));
-    let r = ui.add(row);
-    r.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, "Keyboard shortcuts")
-    });
-    if r.clicked() {
-        ui.data_mut(|d| d.insert_temp(id, !open));
-    }
-    if !open {
-        return;
-    }
-    for (label, keys) in keymap::reference(platform) {
-        ui.horizontal(|ui| {
-            ui.set_min_height(26.0);
-            ui.add_space(10.0);
-            ui.label(RichText::new(label).size(t.text_small));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.add_space(10.0);
-                ui.label(RichText::new(keys).size(t.text_small).color(t.muted));
-            });
-        });
+/// Opens the cheat sheet in the middle of the window; both menus offer it.
+pub fn shortcuts_row(ui: &mut Ui, platform: Platform, out: &mut Commands) {
+    let keys = keymap::hint(platform, &Command::ShowShortcuts);
+    let label = "Keyboard shortcuts";
+    if widgets::menu_row(ui, Icon::Keyboard, label, keys.as_deref(), false).clicked() {
+        out.push(Command::ShowShortcuts);
+        ui.close();
     }
 }

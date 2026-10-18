@@ -218,6 +218,16 @@ fn titles_with_numbers_sort_by_their_value() {
 }
 
 #[test]
+fn the_library_menu_offers_the_shortcut_sheet() {
+    let mut h = reader(&[("library", "show")]);
+    h.get_by_label("View options").click();
+    h.run();
+    h.get_by_label("Keyboard shortcuts").click();
+    h.run();
+    assert!(mareader_ui::shortcuts::is_open(&h.ctx));
+}
+
+#[test]
 fn the_view_menu_sets_layout_columns_covers_and_order() {
     let mut h = reader(&[("books", "4"), ("library", "show")]);
     let view = |h: &Harness<'static, MareaderApp>| h.state().settings().library;

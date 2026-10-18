@@ -513,17 +513,52 @@ fn a_wide_bar_keeps_every_tool_out_of_the_menu() {
 }
 
 #[test]
-fn the_menu_lists_the_shortcuts_that_exist() {
+fn the_menu_opens_the_shortcut_sheet_in_the_middle() {
     let mut h = with(&[("platform", "gnome")]);
     h.hover_at(egui::pos2(700.0, 20.0));
     h.run_steps(8);
     h.get_by_label("View & tools").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Esc").is_none(), "folded until asked");
+    assert!(h.query_by_label("Esc").is_none(), "no list in the menu");
     h.get_by_label("Keyboard shortcuts").click();
     h.run_steps(3);
+    assert!(mareader_ui::shortcuts::is_open(&h.ctx));
+    let menu = egui::Id::new(mareader_ui::view_menu::VIEW_MENU);
+    assert!(!egui::Popup::is_id_open(&h.ctx, menu), "the menu made way");
     assert!(h.query_by_label("Esc").is_some());
-    assert!(h.query_by_label("F11").is_some());
+    let f11 = h.get_by_label("F11").rect();
+    let middle = h.ctx.content_rect().center();
+    let sheet = h.get_by_label("Filter shortcuts").rect();
+    assert!(
+        (sheet.center().x - middle.x).abs() < 4.0,
+        "centred: {sheet:?}"
+    );
+    assert!(f11.top() > sheet.bottom(), "keys sit under the filter");
+}
+
+#[test]
+fn command_slash_toggles_the_sheet_and_escape_shuts_it() {
+    let mut h = with(&[("platform", "gnome")]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Slash);
+    h.run_steps(3);
+    assert!(mareader_ui::shortcuts::is_open(&h.ctx));
+    // Typing filters; the filter takes focus as the sheet opens.
+    h.event(egui::Event::Text("pane".into()));
+    h.run_steps(3);
+    assert!(h.query_by_label("Next pane").is_some());
+    assert!(
+        h.query_by_label("F11").is_none(),
+        "full screen filtered out"
+    );
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Slash);
+    h.run_steps(3);
+    assert!(!mareader_ui::shortcuts::is_open(&h.ctx), "its key shuts it");
+    h.state_mut()
+        .queue(mareader_ui::command::Command::ShowShortcuts);
+    h.run_steps(3);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!mareader_ui::shortcuts::is_open(&h.ctx), "Esc shuts it");
 }
 
 #[test]

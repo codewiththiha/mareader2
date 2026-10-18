@@ -55,6 +55,7 @@ fn reads(command: &Command) -> bool {
         C::ShowFind => false,
         C::Library(_) => false,
         C::Open(_) | C::ShowOpenDialog(_) | C::ShowViewMenu => false,
+        C::ShowShortcuts => false,
         // The window's look, chrome and notices.
         C::ShowAppearance | C::SetAppearance(_) => false,
         C::SavePreset { .. } | C::DeletePreset(_) => false,
