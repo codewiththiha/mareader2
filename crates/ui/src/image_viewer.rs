@@ -105,8 +105,10 @@ impl Viewer {
                 Err(_) => Pixels::Failed,
             }
         };
+        // Browsers have no threads: decoded at once, nothing to wake.
         #[cfg(target_arch = "wasm32")]
         let pixels = {
+            let _ = ctx;
             tx.send(decode()).ok();
             Pixels::Waiting(rx)
         };

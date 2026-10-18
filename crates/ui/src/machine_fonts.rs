@@ -23,6 +23,8 @@ pub struct MachineFonts {
     /// Letters waiting while a worker runs.
     waiting: String,
     busy: bool,
+    /// Workers send on it; browsers have none.
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     tx: Sender<Vec<mareader_reflow::Fallback>>,
     rx: Receiver<Vec<mareader_reflow::Fallback>>,
 }
