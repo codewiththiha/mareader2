@@ -702,15 +702,7 @@ impl Library {
                 (f == folder).then(|| (key.to_owned(), s.id))
             })
             .collect();
-        let above = |key: &str| {
-            let mut at = crate::folder::parent_key(key)?;
-            loop {
-                if let Some(id) = rungs.get(at) {
-                    return Some(*id);
-                }
-                at = crate::folder::parent_key(at)?;
-            }
-        };
+        let above = |key: &str| rung_above(&rungs, key);
         let moves: Vec<(ShelfId, Option<ShelfId>)> = (rungs.iter())
             .filter_map(|(key, id)| {
                 let shelf = self.shelves.get(id)?;
@@ -731,6 +723,19 @@ impl Library {
             }
         }
         self.bump();
+    }
+
+    /// Where a rung hangs by the disk; `None` for no rung.
+    pub(crate) fn seat(&self, id: ShelfId) -> Option<Option<ShelfId>> {
+        let (folder, key) = self.shelves.get(&id)?.kind.value.rung()?;
+        let rungs: HashMap<String, ShelfId> = (self.shelves.values())
+            .filter(|s| s.alive() && s.id != id)
+            .filter_map(|s| {
+                let (f, key) = s.kind.value.rung()?;
+                (f == folder).then(|| (key.to_owned(), s.id))
+            })
+            .collect();
+        Some(rung_above(&rungs, key))
     }
 
     /// Where a path stands: inside a folder read in place, or opened.
@@ -801,5 +806,16 @@ impl Library {
             .map(|b| (b.content, held(b)))
             .collect();
         ledger::recoverables(folder, &held)
+    }
+}
+
+/// The nearest living rung above `key`, by the folder's own keys.
+fn rung_above(rungs: &HashMap<String, ShelfId>, key: &str) -> Option<ShelfId> {
+    let mut at = crate::folder::parent_key(key)?;
+    loop {
+        if let Some(id) = rungs.get(at) {
+            return Some(*id);
+        }
+        at = crate::folder::parent_key(at)?;
     }
 }

@@ -26,8 +26,6 @@ pub struct Absorbed {
     pub folded: usize,
     /// Shelves moved back out of a loop of parents.
     pub unlooped: usize,
-    /// Shelves renamed apart from a sibling of the same name.
-    pub renamed: usize,
 }
 
 impl Library {
@@ -43,7 +41,6 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         done.folded = self.fold_originals(at);
         done.unlooped = self.unloop(at);
-        done.renamed = self.rename_apart(at);
         self.mirror_changed();
         self.index();
         self.bump();
@@ -244,44 +241,6 @@ impl Library {
             }
         }
         None
-    }
-
-    /// Siblings of one name: the first named keeps it, the rest count up.
-    fn rename_apart(&mut self, at: Stamp) -> usize {
-        let levels = std::iter::once(None).chain(self.shelves().map(|s| Some(s.id)));
-        let levels: Vec<Option<ShelfId>> = levels.collect();
-        let mut renamed = 0;
-        for level in levels {
-            let mut seen: BTreeMap<String, Vec<(Stamp, ShelfId)>> = BTreeMap::new();
-            for shelf in self.children(level) {
-                let named = (shelf.name.at, shelf.id);
-                seen.entry(shelf.name.value.to_lowercase())
-                    .or_default()
-                    .push(named);
-            }
-            for mut same in seen.into_values().filter(|s| s.len() > 1) {
-                same.sort();
-                for (_, id) in same.into_iter().skip(1) {
-                    renamed += usize::from(self.number_apart(id, level, at));
-                }
-            }
-        }
-        renamed
-    }
-
-    /// `Poetry` beside another `Poetry` becomes the first free `Poetry 2`.
-    fn number_apart(&mut self, id: ShelfId, level: Option<ShelfId>, at: Stamp) -> bool {
-        let Some(name) = self.shelf(id).map(|s| s.name.value.clone()) else {
-            return false;
-        };
-        let mut numbered = (2..).map(|n| format!("{name} {n}"));
-        let Some(fit) = numbered.find(|n| self.free(n, level, Some(id))) else {
-            return false;
-        };
-        if let Some(shelf) = self.shelves.get_mut(&id) {
-            shelf.name = Field::new(fit, at);
-        }
-        true
     }
 }
 

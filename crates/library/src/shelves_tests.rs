@@ -47,7 +47,7 @@ fn on(lib: &Library, shelf: ShelfId) -> Vec<BookId> {
 }
 
 #[test]
-fn shelves_nest_sort_by_name_and_keep_sibling_names_apart() {
+fn shelves_nest_sort_by_name_and_may_share_a_name() {
     let (mut lib, _) = library(0);
     let fiction = lib.create_shelf("  Fiction\n", None, 10).unwrap();
     assert_eq!(
@@ -57,10 +57,10 @@ fn shelves_nest_sort_by_name_and_keep_sibling_names_apart() {
     lib.create_shelf("Shelf 10", None, 11).unwrap();
     lib.create_shelf("shelf 9", None, 12).unwrap();
     assert_eq!(names(&lib, None), ["Fiction", "shelf 9", "Shelf 10"]);
-    assert_eq!(
-        lib.create_shelf("FICTION", None, 13),
-        Err(ShelfError::Taken("FICTION".into()))
-    );
+    // Two shelves may share a name, as two folders on disk can't.
+    let twin = lib.create_shelf("FICTION", None, 13).unwrap();
+    assert_ne!(twin, fiction);
+    lib.remove_shelf(twin, 13);
     assert_eq!(lib.create_shelf(" \t ", None, 13), Err(ShelfError::Blank));
     // The same name may sit one level down.
     let inner = lib.create_shelf("Fiction", Some(fiction), 14).unwrap();
@@ -73,7 +73,7 @@ fn shelves_nest_sort_by_name_and_keep_sibling_names_apart() {
 }
 
 #[test]
-fn renames_and_moves_refuse_clashes_and_loops() {
+fn moves_refuse_loops_and_names_may_repeat() {
     let (mut lib, _) = library(0);
     let a = lib.create_shelf("A", None, 10).unwrap();
     let b = lib.create_shelf("B", Some(a), 11).unwrap();
@@ -81,19 +81,14 @@ fn renames_and_moves_refuse_clashes_and_loops() {
     lib.create_shelf("C", None, 13).unwrap();
     assert_eq!(lib.move_shelf(a, Some(c), 14), Err(ShelfError::Inside));
     assert_eq!(lib.move_shelf(a, Some(a), 14), Err(ShelfError::Inside));
-    assert_eq!(
-        lib.move_shelf(c, None, 14),
-        Err(ShelfError::Taken("C".into()))
-    );
+    lib.move_shelf(c, None, 14).unwrap();
+    assert_eq!(names(&lib, None), ["A", "C", "C"]);
     lib.move_shelf(c, Some(a), 15).unwrap();
     assert_eq!(names(&lib, Some(a)), ["B", "C"]);
-    assert_eq!(
-        lib.rename_shelf(b, "c", 16),
-        Err(ShelfError::Taken("c".into()))
-    );
-    // Its own name in other letters is fine.
-    lib.rename_shelf(c, "c", 17).unwrap();
-    assert_eq!(names(&lib, Some(a)), ["B", "c"]);
+    lib.rename_shelf(b, "c", 16).unwrap();
+    let mut both = names(&lib, Some(a));
+    both.sort();
+    assert_eq!(both, ["C", "c"]);
     assert_eq!(lib.rename_shelf(ShelfId(1), "x", 18), Err(ShelfError::Gone));
 }
 
@@ -113,11 +108,10 @@ fn removing_a_shelf_keeps_its_books_and_moves_its_shelves_up() {
         ShelfRemoved {
             books: 2,
             shelves: 2,
-            renamed: vec!["Notes".into()],
         }
     );
     assert!(lib.shelf(doomed).is_none());
-    assert_eq!(names(&lib, None), ["Drafts", "Notes", "Notes 2"]);
+    assert_eq!(names(&lib, None), ["Drafts", "Notes", "Notes"]);
     assert_eq!(lib.books().count(), 2);
     assert!(lib.shelved().is_empty());
     assert!(lib.shelves_of(ids[0]).is_empty());
@@ -184,15 +178,6 @@ fn a_shelf_whose_parent_went_in_a_merge_is_top_level() {
     lib.shelves.get_mut(&a).unwrap().parent.value = Some(ShelfId(5));
     assert_eq!(names(&lib, None), ["A"]);
     assert_eq!(lib.path_to(b).len(), 2);
-}
-
-#[test]
-fn fresh_names_count_up_past_the_ones_taken() {
-    let (mut lib, _) = library(0);
-    assert_eq!(lib.fresh_shelf_name(None), "New shelf");
-    lib.create_shelf("new shelf", None, 10).unwrap();
-    lib.create_shelf("New shelf 2", None, 11).unwrap();
-    assert_eq!(lib.fresh_shelf_name(None), "New shelf 3");
 }
 
 #[test]

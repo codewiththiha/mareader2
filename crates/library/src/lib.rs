@@ -28,6 +28,7 @@ mod library;
 mod link;
 mod marks;
 mod merge;
+pub mod moves;
 mod query;
 mod records;
 mod relink;
@@ -58,6 +59,7 @@ pub use library::{Dirty, Library, Measure, Opened};
 pub use link::{Link, LinkTo};
 pub use marks::{Gloss, Mark, MarkKind, NewMark, Pen, Spot, Style};
 pub use merge::Merge;
+pub use moves::{Departure, Move, MoveAsk, Moved};
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use records::{Changes, Kind, Row};
 pub use relink::RelinkError;
@@ -86,6 +88,8 @@ mod ledger_tests;
 mod legacy_tests;
 #[cfg(test)]
 mod marks_tests;
+#[cfg(test)]
+mod moves_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]

@@ -161,12 +161,21 @@ impl Library {
     /// Removes books, tombstoning folder ones; returns how many.
     /// Freed store copies wait in [`Self::take_swept`].
     pub fn remove_books(&mut self, ids: &[BookId], data: Data, wall_ms: u64) -> usize {
+        self.purge(ids, data, true, wall_ms)
+    }
+
+    /// Takes rows out with their data and no tombstone, as an answer does.
+    pub(crate) fn drop_books(&mut self, ids: &[BookId], wall_ms: u64) -> usize {
+        self.purge(ids, Data::Delete, false, wall_ms)
+    }
+
+    fn purge(&mut self, ids: &[BookId], data: Data, stone: bool, wall_ms: u64) -> usize {
         let removing = self.living(ids);
         let at = self.clock.tick(wall_ms);
         let mut done = 0;
         for (id, fate) in self.fates(&removing) {
-            if !fate.kept {
-                self.tombstone_book(id, wall_ms);
+            if stone && !fate.kept {
+                self.tombstone_book(id, false, wall_ms);
             }
             self.swept.extend(fate.copies);
             if data == Data::Delete {
@@ -190,8 +199,8 @@ impl Library {
         done
     }
 
-    /// The removal written into every folder that placed the book.
-    fn tombstone_book(&mut self, id: BookId, wall_ms: u64) {
+    /// The removal, or a move-out, written into every folder that placed it.
+    pub(crate) fn tombstone_book(&mut self, id: BookId, moved: bool, wall_ms: u64) {
         let Some(book) = self.book(id) else {
             return;
         };
@@ -218,7 +227,7 @@ impl Library {
                 .unwrap_or_default(),
             shelf: home,
             removed_ms: wall_ms,
-            moved: false,
+            moved,
             returned: None,
             size: book.home().map_or(0, |l| l.stamp.size),
         };

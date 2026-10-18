@@ -55,6 +55,9 @@ pub enum ShelfAction {
     },
 }
 
+/// What every shelf made by hand is called until renamed.
+pub const NEW_SHELF: &str = "New shelf";
+
 /// What a drag carries; egui keeps it until the drop.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Carry {
@@ -309,8 +312,7 @@ impl LibraryState {
                 self.picks.apply(super::PickAction::Clear);
             }
             ShelfAction::New => {
-                let name = self.model.fresh_shelf_name(self.at);
-                if let Ok(id) = self.model.create_shelf(&name, self.at, now) {
+                if let Ok(id) = self.model.create_shelf(NEW_SHELF, self.at, now) {
                     self.search.clear();
                     self.at = Some(id);
                     self.scope = Scope::All;
@@ -346,13 +348,6 @@ impl LibraryState {
                 let mut note = format!("Removed “{name}”.");
                 if done.books > 0 {
                     note.push_str(" Its books stay in the library.");
-                }
-                if let Some(first) = done.renamed.first() {
-                    let more = done.renamed.len().saturating_sub(1);
-                    note.push_str(&match more {
-                        0 => format!(" “{first}” was renamed to fit beside its neighbours."),
-                        n => format!(" “{first}” and {n} more were renamed to fit."),
-                    });
                 }
                 notify(out, Toast::info(note));
             }
@@ -408,7 +403,7 @@ impl LibraryState {
         if books.is_empty() || self.model.book(onto).is_none() {
             return;
         }
-        let name = self.stack_name(onto, &books, level);
+        let name = self.stack_name(onto, &books);
         let Ok(id) = self.model.create_shelf(&name, level, now) else {
             return;
         };
@@ -438,20 +433,12 @@ impl LibraryState {
         out.push(Command::Notify(Toast::info(note)));
     }
 
-    /// The books' one shared author, if free there; else "New shelf".
-    fn stack_name(&self, onto: BookId, books: &[BookId], level: Option<ShelfId>) -> String {
+    /// The books' one shared author, else "New shelf".
+    fn stack_name(&self, onto: BookId, books: &[BookId]) -> String {
         let author = |b: &BookId| self.model.book(*b).and_then(|b| b.author.value.clone());
         let first = author(&onto).filter(|a| !a.trim().is_empty());
         let shared = first.filter(|a| books.iter().all(|b| author(b).as_ref() == Some(a)));
-        let taken = |name: &str| {
-            let here = self.model.children(level).into_iter();
-            here.into_iter()
-                .any(|s| s.name.value.eq_ignore_ascii_case(name))
-        };
-        match shared {
-            Some(name) if !taken(&name) => name,
-            _ => self.model.fresh_shelf_name(level),
-        }
+        shared.unwrap_or_else(|| NEW_SHELF.to_owned())
     }
 
     /// Files a dropped selection: books as `file` does, shelves moved.
@@ -548,7 +535,6 @@ impl LibraryState {
 
 fn why(error: &ShelfError) -> String {
     match error {
-        ShelfError::Taken(name) => format!("There's already a shelf called “{name}” there."),
         ShelfError::Inside => "A shelf can't go inside itself.".into(),
         ShelfError::Blank => "A shelf needs a name.".into(),
         ShelfError::Gone => "That shelf was removed.".into(),

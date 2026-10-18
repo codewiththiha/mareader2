@@ -94,8 +94,6 @@ pub struct Membership {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShelfError {
     Blank,
-    /// A shelf beside it has the name already.
-    Taken(String),
     /// A shelf can't go inside itself or its own shelves.
     Inside,
     Gone,
@@ -108,8 +106,6 @@ pub struct ShelfRemoved {
     pub books: usize,
     /// Shelves moved up a level.
     pub shelves: usize,
-    /// Moved-up shelves renamed to fit beside their new neighbours.
-    pub renamed: Vec<String>,
 }
 
 impl Library {
@@ -206,23 +202,6 @@ impl Library {
         (self.on(id).count(), self.children(Some(id)).len())
     }
 
-    /// "New shelf", else the first free "New shelf 2", "New shelf 3"…
-    pub fn fresh_shelf_name(&self, parent: Option<ShelfId>) -> String {
-        let free = |name: &str| self.free(name, parent, None);
-        let numbered = (2..).map(|n| format!("New shelf {n}"));
-        let mut names = std::iter::once("New shelf".to_owned()).chain(numbered);
-        names.find(|n| free(n)).unwrap_or_default()
-    }
-
-    /// No shelf beside `parent`'s others but `own` has `name`.
-    pub(crate) fn free(&self, name: &str, parent: Option<ShelfId>, own: Option<ShelfId>) -> bool {
-        let lower = name.to_lowercase();
-        let others = self.children(parent).into_iter();
-        !others
-            .filter(|s| Some(s.id) != own)
-            .any(|s| s.name.value.to_lowercase() == lower)
-    }
-
     pub fn create_shelf(
         &mut self,
         name: &str,
@@ -232,9 +211,6 @@ impl Library {
         let name = clean(name).ok_or(ShelfError::Blank)?;
         if parent.is_some_and(|p| self.shelf(p).is_none()) {
             return Err(ShelfError::Gone);
-        }
-        if !self.free(&name, parent, None) {
-            return Err(ShelfError::Taken(name));
         }
         let at = self.clock.tick(wall_ms);
         let id = self.new_shelf_id(at);
@@ -279,10 +255,6 @@ impl Library {
         if shelf.name.value == name {
             return Ok(());
         }
-        let parent = self.parent_of(shelf);
-        if !self.free(&name, parent, Some(id)) {
-            return Err(ShelfError::Taken(name));
-        }
         let at = self.clock.tick(wall_ms);
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.name = Field::new(name, at);
@@ -311,53 +283,44 @@ impl Library {
                 return Err(ShelfError::Inside);
             }
         }
-        let name = shelf.name.value.clone();
-        if !self.free(&name, parent, Some(id)) {
-            return Err(ShelfError::Taken(name));
-        }
         let at = self.clock.tick(wall_ms);
         // It joins its new level at the end.
         let key = self.next_key(parent);
+        // A rung off the seat its disk names stays where the hand put it.
+        let moved = self.seat(id).map(|seat| seat != parent);
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.from = shelf.parent.value;
             shelf.parent = Field::new(parent, at);
             shelf.key = Field::new(key, at);
+            if let Some(moved) = moved.filter(|m| *m != shelf.moved.value) {
+                shelf.moved = Field::new(moved, at);
+            }
         }
         self.bump();
         Ok(())
     }
 
-    /// Takes a shelf apart: its books stay, its shelves move up a level.
+    /// Takes a shelf apart; a rung's books go to the rung above.
     pub fn remove_shelf(&mut self, id: ShelfId, wall_ms: u64) -> Option<ShelfRemoved> {
         let shelf = self.shelf(id)?;
         let parent = self.parent_of(shelf);
-        let inner: Vec<(ShelfId, String)> = (self.children(Some(id)).into_iter())
-            .map(|s| (s.id, s.name.value.clone()))
+        let rung = shelf.kind.value.rung().map(|(f, _)| f);
+        let home = self.seat(id).unwrap_or(parent);
+        let inner: Vec<ShelfId> = (self.children(Some(id)).into_iter())
+            .map(|s| s.id)
             .collect();
         let at = self.clock.tick(wall_ms);
-        let mut done = ShelfRemoved {
+        let done = ShelfRemoved {
             books: self.on(id).count(),
             shelves: inner.len(),
-            renamed: Vec::new(),
         };
         if let Some(shelf) = self.shelves.get_mut(&id) {
             shelf.removed = Some(at);
         }
-        for (child, name) in inner {
-            // Beside the parent's own shelves, a clash gets a number.
-            let mut fit = name.clone();
-            let mut n = 2;
-            while !self.free(&fit, parent, Some(child)) {
-                fit = format!("{name} {n}");
-                n += 1;
-            }
+        for child in inner {
             if let Some(shelf) = self.shelves.get_mut(&child) {
                 shelf.from = shelf.parent.value;
                 shelf.parent = Field::new(parent, at);
-                if fit != name {
-                    shelf.name = Field::new(fit, at);
-                    done.renamed.push(name);
-                }
             }
         }
         let range = (id, BookId(0))..=(id, BookId(u128::MAX));
@@ -368,11 +331,18 @@ impl Library {
             }
             m.alive = Field::new(false, at);
         }
-        // Its books move up a level with its shelves.
-        if let Some(parent) = parent {
+        if let Some(home) = home {
             for book in lifted {
-                self.file(book, parent, wall_ms);
+                self.file(book, home, wall_ms);
             }
+        }
+        // The folder's other rungs hang as its next walk would.
+        if let Some(folder) = rung {
+            let unmapped = self.folders.values_mut_where(|f| f.id == folder);
+            for f in unmapped {
+                f.shelf_map.retain(|_, s| *s != id);
+            }
+            self.rehang(folder, wall_ms);
         }
         self.drop_dangling_links(at);
         self.bump();

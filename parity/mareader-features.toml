@@ -524,9 +524,16 @@ tier = "P0"
 milestone = "M5"
 status = "shipped"
 evidence = [
-  "crates/library/src/shelves_tests.rs::shelves_nest_sort_by_name_and_keep_sibling_names_apart",
-  "crates/library/src/shelves_tests.rs::renames_and_moves_refuse_clashes_and_loops",
+  "crates/library/src/shelves_tests.rs::shelves_nest_sort_by_name_and_may_share_a_name",
+  "crates/library/src/shelves_tests.rs::moves_refuse_loops_and_names_may_repeat",
   "crates/library/src/shelves_tests.rs::removing_a_shelf_keeps_its_books_and_moves_its_shelves_up",
+  "crates/library/src/moves_tests.rs::a_book_leaving_its_folder_shelf_owes_a_copy_and_lands_as_one",
+  "crates/library/src/moves_tests.rs::another_rung_of_its_folder_is_a_departure_and_alt_adding_is_not",
+  "crates/library/src/moves_tests.rs::a_rung_off_its_seat_departs_as_the_librarys_own_under_a_copy_name",
+  "crates/library/src/moves_tests.rs::a_member_folder_dropped_into_its_tree_can_fold_back_instead",
+  "crates/library/src/moves_tests.rs::a_rung_taken_apart_copies_only_the_books_standing_on_it",
+  "crates/library/src/moves_tests.rs::a_copy_back_on_its_folder_shelf_spends_the_move_out_log",
+  "crates/library/src/moves_tests.rs::a_hand_moved_rung_stays_put_until_it_goes_back_to_its_seat",
   "crates/library/src/shelves_tests.rs::filing_appends_once_and_a_book_can_sit_on_many_shelves",
   "crates/library/src/shelves_tests.rs::a_book_moves_anywhere_in_a_shelfs_order",
   "crates/library/src/shelves_tests.rs::shelves_and_their_order_come_back_from_disk",
@@ -737,9 +744,12 @@ evidence = [
   "crates/library/src/gate_tests.rs::the_shelf_answers_merge_link_and_add_as_new",
   "crates/library/src/gate_tests.rs::a_name_the_level_holds_asks_and_may_link",
   "crates/library/src/run_tests.rs::a_merge_asks_about_a_name_the_shelf_already_holds",
+  "crates/library/src/moves_tests.rs::merge_keeps_the_book_here_with_the_further_place_marks_and_shelves",
+  "crates/library/src/moves_tests.rs::replace_drops_the_book_here_and_the_arrival_takes_its_shelves",
+  "crates/library/src/moves_tests.rs::keep_both_lands_the_arrival_under_the_next_free_name",
 ]
 reference = ["crates/library-core/src/conflict.rs"]
-notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves ask from library slice S3"
+notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves ask merge, replace or keep both in the core; the page asks from library slice S3a-2"
 
 [[feature]]
 id = "library.independent-twins"
