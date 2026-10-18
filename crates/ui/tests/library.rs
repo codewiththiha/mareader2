@@ -1138,12 +1138,14 @@ fn removing_a_folder_book_hides_it_until_restored_from_its_menu() {
             links,
         },
     );
-    let says = "Some of these came from a watched folder. Removing keeps them out of \
-                future auto-imports — the folder's Add menu can give them back.";
+    let says = "The file stays on disk. Its folder won't add it back.";
     assert!(
         h.query_by_label(says).is_some(),
-        "the receipt says what stays"
+        "the alert says what stays"
     );
+    let name = library(&h).book(id).unwrap().title.value.clone();
+    let asks = format!("Remove “{name}”?");
+    assert!(h.query_by_label(&asks).is_some(), "one book goes by name");
     h.get_by_label("Remove").click();
     h.run();
     assert!(library(&h).book(id).is_none());
@@ -1325,7 +1327,11 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
             links,
         },
     );
-    assert!(h.query_by_label("The app's own copy").is_some());
+    let says = "The library's copy is deleted.";
+    assert!(
+        h.query_by_label(says).is_some(),
+        "the alert says the copy goes"
+    );
     h.get_by_label("Remove").click();
     h.run();
     h.run();
@@ -1623,16 +1629,53 @@ fn a_link_lights_what_it_points_at_and_goes_without_it() {
             links,
         },
     );
-    let says = "A link is a pointer: the book it goes to stays in the library";
+    let says = "The book it points to stays.";
     assert!(
         h.query_by_label(says).is_some(),
-        "the sheet says what stays"
+        "the alert says what stays"
     );
-    h.get_by_label("Remove the link").click();
+    assert!(h.query_by_label("Remove the link “Pointer”?").is_some());
+    h.get_by_label("Remove").click();
     h.run();
     assert!(library(&h).link(link).is_none());
     assert!(library(&h).book(dune).is_some(), "the book stays");
     assert_eq!(toast(&h), "Removed the link “Pointer”.");
+}
+
+#[test]
+fn removing_a_shelf_asks_in_a_short_alert_and_keeps_its_books() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    let dune = book_id(&h, 0);
+    let kept = new_shelf(&mut h, "Kept");
+    shelve(&mut h, file(&[dune], None, Some(kept), false));
+    shelve(&mut h, ShelfAction::GoTo(None));
+    let shelves = vec![kept];
+    book(
+        &mut h,
+        BookAction::AskRemove {
+            books: Vec::new(),
+            shelves,
+            links: Vec::new(),
+        },
+    );
+    assert!(h.query_by_label("Remove the shelf “Kept”?").is_some());
+    let off = "Off, its books stay in the library.";
+    assert!(
+        h.query_by_label(off).is_some(),
+        "the switch says what stays"
+    );
+    let inside = "Remove everything inside";
+    h.get_by_role_and_label(Role::CheckBox, inside).click();
+    h.run();
+    let on = "1 book goes too.";
+    assert!(h.query_by_label(on).is_some(), "on, it says what goes");
+    h.get_by_role_and_label(Role::CheckBox, inside).click();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(library(&h).shelf(kept).is_none());
+    assert!(library(&h).book(dune).is_some(), "its books stay");
+    assert_eq!(toast(&h), "Removed “Kept”.");
 }
 
 #[test]
