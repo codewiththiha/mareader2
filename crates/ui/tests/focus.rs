@@ -8,7 +8,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::focus;
-use mareader_ui::library::Pick;
+use mareader_ui::library::{Action, Pick, PickAction};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -182,6 +182,14 @@ fn a_library_card_picks_on_shift_enter_and_opens_on_enter() {
     assert!(picks(&h), "Shift+Enter starts picking");
     key(&mut h, Modifiers::NONE, Key::Enter);
     assert!(!picks(&h), "while picking, Enter toggles");
+    assert!(
+        h.state().library_state().picks().active(),
+        "still selecting"
+    );
+    // Done ends selecting; the card keeps its focus.
+    let done = Action::Pick(PickAction::Clear);
+    h.state_mut().queue(Command::Library(done));
+    h.run();
     key(&mut h, Modifiers::NONE, Key::Enter);
     h.run();
     assert!(!h.state().library_showing(), "Enter opens it");

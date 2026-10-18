@@ -55,7 +55,7 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
     let grid = view.layout == Layout::Grid;
     ui.add_enabled_ui(grid, |ui| columns(ui, view, auto));
     ui.separator();
-    heading(ui, "Covers");
+    heading(ui, "Book covers");
     ui.horizontal(|ui| {
         ui.add_space(4.0);
         for (fit, label) in [(CoverFit::Fit, "Fit"), (CoverFit::Crop, "Crop")] {
@@ -119,7 +119,7 @@ fn columns(ui: &mut Ui, view: &mut View, auto: u8) {
             });
             let auto_on = view.columns.is_none();
             if ui.add(egui::Button::selectable(auto_on, "Auto")).clicked() {
-                view.columns = if auto_on { Some(auto) } else { None };
+                view.columns = None;
             }
             if more.inner.clicked() {
                 view.columns = Some(shown.saturating_add(1).min(COLUMNS_MAX));

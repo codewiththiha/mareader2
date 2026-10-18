@@ -124,10 +124,10 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     // Empty space: a click lets go of the selection; a right-click offers more.
     let back = ui.available_rect_before_wrap();
     let back = ui.interact(back, Id::new("library-page"), Sense::CLICK);
-    if back.clicked() && !picks.is_empty() {
+    if back.clicked() && picks.active() {
         out.push(Command::Library(Action::Pick(PickAction::Clear)));
     }
-    back.context_menu(|ui| menus::page_menu(ui, model, sequence, out));
+    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, out));
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {
@@ -211,7 +211,13 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     }
     // While carried, the selection is in hand; the bar steps aside.
     if DragAndDrop::payload::<Carry>(ui.ctx()).is_none() {
-        menus::selection_bar(&mut ui, body, &picks, at, &t, cx.out);
+        let bar = menus::Bar {
+            model,
+            picks: &picks,
+            at,
+            sequence,
+        };
+        menus::selection_bar(&mut ui, body, &bar, &t, cx.out);
     }
     let target = cx.files.flatten();
     if hovering {
@@ -325,7 +331,7 @@ fn header_button(ui: &mut Ui, icon: Icon, label: &str, t: &Tokens) -> egui::Resp
 
 /// Room for the cards' rings above, and for the selection bar below.
 fn margin(cx: &Cx<'_>) -> egui::Margin {
-    let foot = if cx.picks.is_empty() { 8 } else { 76 };
+    let foot = if cx.picks.active() { 76 } else { 8 };
     egui::Margin {
         top: 8,
         bottom: foot,
@@ -394,8 +400,8 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
         lift(&resp, Pick::Book(book.id), cx);
     }
     crate::widgets::context_menu(&resp, |ui| match picked {
-        true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
-        false => menus::book_menu(ui, book, cx.at, cx.t, cx.out),
+        true => menus::picks_menu(ui, cx.picks, cx.t, cx.out),
+        false => menus::book_menu(ui, book, cx.t, cx.out),
     });
     resp
 }
@@ -445,7 +451,7 @@ fn picking(ui: &Ui, pick: Pick, cx: &mut Cx<'_>) -> bool {
     let m = ui.input(|i| i.modifiers);
     let action = match () {
         _ if m.shift && cx.picks.has_anchor() => PickAction::Add(cx.picks.range(cx.sequence, pick)),
-        _ if m.command || m.shift || !cx.picks.is_empty() => PickAction::Toggle(pick),
+        _ if m.command || m.shift || cx.picks.active() => PickAction::Toggle(pick),
         _ => return false,
     };
     cx.out.push(Command::Library(Action::Pick(action)));
@@ -552,7 +558,7 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
         target = true;
     }
     crate::widgets::context_menu(&resp, |ui| match picked {
-        true => menus::picks_menu(ui, cx.picks, cx.at, cx.t, cx.out),
+        true => menus::picks_menu(ui, cx.picks, cx.t, cx.out),
         false => menus::shelf_menu(ui, shelf, cx.t, cx.out),
     });
     (resp, target)
@@ -621,7 +627,7 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
     card_ring(&resp, t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     plate(ui, bounds, shelf.id, cx);
-    if !cx.picks.is_empty() {
+    if cx.picks.active() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
     }
     let p = ui.painter();
@@ -702,7 +708,7 @@ fn shelf_row(ui: &mut Ui, shelf: &Shelf, cx: &mut Cx<'_>) {
         vec2(34.0, 34.0 * A4),
     );
     // While picking, the mark takes the icon's place.
-    if cx.picks.is_empty() {
+    if !cx.picks.active() {
         let icon = Rect::from_center_size(thumb.center(), vec2(24.0, 24.0));
         Icon::Shelf.paint(ui, icon, t.muted);
     } else {
@@ -757,7 +763,7 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         fade,
         false,
     );
-    if !cx.picks.is_empty() {
+    if cx.picks.active() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
     }
     let p = ui.painter();
@@ -850,7 +856,7 @@ fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
         vec2(34.0, 34.0 * A4),
     );
     cover(ui, thumb, book, cx, fade, true);
-    if !cx.picks.is_empty() {
+    if cx.picks.active() {
         menus::mark(ui, thumb.center(), picked, t);
     }
     let p = ui.painter();

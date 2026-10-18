@@ -634,10 +634,11 @@ milestone = "M5"
 status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::a_long_trail_folds_its_middle_and_leads_back_up",
+  "crates/ui/tests/library.rs::the_breadcrumb_starts_at_home_and_names_its_way_back",
   "crates/ui/tests/library.rs::escape_while_naming_keeps_the_old_name_and_the_page",
 ]
 reference = ["crates/library-runtime/src/features/library/breadcrumb"]
-notes = "In the title bar on a shelf: the top, a folded … menu, the last two levels and the open shelf, each name capped; the open shelf's crumb renames or removes it (M5 slice 4)"
+notes = "Home, then each level; the oldest fold behind … by measured width (never one, three by count before a measure), opening on hover, a carry, a click or Down. The open shelf's crumb renames or removes it and notes a watched folder's cut"
 
 [[feature]]
 id = "library.context-menus"

@@ -1,57 +1,73 @@
-//! The breadcrumb in the title bar: the way back up from an open shelf.
+//! The title bar's breadcrumb: Home down to the open shelf, folding
+//! when cramped.
 
 use egui::text::{CCursor, CCursorRange};
-use egui::{Button, Id, Popup, PopupCloseBehavior, RectAlign, Response, Stroke, StrokeKind, Ui};
+use egui::{
+    Button, DragAndDrop, Id, Popup, PopupCloseBehavior, RectAlign, Response, RichText, Stroke,
+    StrokeKind, Ui,
+};
 use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
 use super::{Action, Carry, Crumb, Named, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
-use crate::theme::Tokens;
+use crate::theme::{self, Tokens};
 use crate::widgets;
 
 pub const CRUMB_MENU: &str = "library-crumb-menu";
 const ELIDED_MENU: &str = "library-crumb-elided";
-/// Past this many crumbs, the middle ones fold into "…".
-const SHOWN: usize = 4;
 /// A long name is cut, so the title bar keeps its buttons.
 const CRUMB_MAX: f32 = 160.0;
-const MENU_WIDTH: f32 = 200.0;
+const MENU_WIDTH: f32 = 224.0;
+/// The levels a fold keeps: three share the row with the search field.
+const KEEP: usize = 3;
+/// A shallower trail never folds: the smallest fold hides two levels.
+const FOLD_MIN: usize = 4;
+const GAP: f32 = 2.0;
+const CHEVRON: f32 = 14.0;
+/// The folded levels stay open this long after the pointer leaves.
+const GRACE: f64 = 0.22;
 
-/// The trail from the top level; the last crumb is the open shelf.
-pub fn show(ui: &mut Ui, trail: &[Crumb], renaming: Option<ShelfId>, out: &mut Commands) {
-    let Some((current, above)) = trail.split_last() else {
+/// The trail from Home to the open level, within `room` once measured.
+pub fn show(
+    ui: &mut Ui,
+    trail: &[Crumb],
+    renaming: Option<ShelfId>,
+    room: Option<f32>,
+    out: &mut Commands,
+) {
+    let Some((home, levels)) = trail.split_first() else {
         return;
     };
-    // Long trails keep the top and the last two levels.
-    let cut = above.len().saturating_sub(SHOWN - 1);
-    let (elided, kept) = match above.split_first() {
-        Some((top, rest)) if cut > 0 => {
-            let (elided, kept) = rest.split_at(cut.min(rest.len()));
-            (elided, std::iter::once(top).chain(kept).collect::<Vec<_>>())
-        }
-        _ => (&[][..], above.iter().collect()),
-    };
-    ui.spacing_mut().item_spacing.x = 2.0;
-    for (n, crumb) in kept.iter().enumerate() {
-        if n > 0 {
-            chevron(ui);
-        }
-        let r = crumb_button(ui, crumb, false);
-        if r.clicked() {
-            out.push(go(crumb.id));
-        }
-        take_drops(ui, &r, crumb.id, out);
-        if n == 0 && !elided.is_empty() {
-            chevron(ui);
-            folded(ui, elided, out);
-        }
+    ui.spacing_mut().item_spacing.x = GAP;
+    let r = crumb_button(ui, home, levels.is_empty());
+    let r = r.on_hover_text("The top of your library");
+    if r.clicked() {
+        out.push(go(None));
     }
-    chevron(ui);
-    match (renaming, current.id) {
-        (Some(editing), Some(id)) if editing == id => rename(ui, id, &current.name, out),
-        _ => current_menu(ui, current, out),
+    take_drops(ui, &r, None, out);
+    let Some((current, _)) = levels.split_last() else {
+        return;
+    };
+    let widths = measure(ui, levels);
+    let available = room.map(|room| room - r.rect.width() - GAP);
+    let split = choose_split(&widths, available, levels.len());
+    let (elided, shown) = levels.split_at(split.min(levels.len()));
+    if !elided.is_empty() {
+        chevron(ui);
+        folded(ui, elided, out);
+    }
+    for crumb in shown {
+        chevron(ui);
+        if crumb.id == current.id {
+            match (renaming, current.id) {
+                (Some(editing), Some(id)) if editing == id => rename(ui, id, &current.name, out),
+                _ => current_menu(ui, current, out),
+            }
+            continue;
+        }
+        level_crumb(ui, crumb, out);
     }
 }
 
@@ -61,21 +77,85 @@ fn go(id: Option<ShelfId>) -> Command {
 
 fn chevron(ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.add(Icon::ChevronRight.image(14.0).tint(t.muted));
+    ui.add(Icon::ChevronRight.image(CHEVRON).tint(t.muted));
 }
 
-/// A crumb: the top level shows the library's mark beside its name.
-fn crumb_button(ui: &mut Ui, crumb: &Crumb, open: bool) -> Response {
+/// The ellipsis, then each level with its chevron, as the bar draws them.
+fn measure(ui: &Ui, levels: &[Crumb]) -> Vec<f32> {
+    let pad = 2.0 * ui.spacing().button_padding.x;
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let wide = |text: &str| {
+        let t =
+            ui.fonts_mut(|f| f.layout_no_wrap(text.to_owned(), font.clone(), egui::Color32::WHITE));
+        t.size().x
+    };
+    let last = levels.len().saturating_sub(1);
+    let ellipsis = CHEVRON + GAP + CHEVRON + pad + GAP;
+    let crumbs = levels.iter().enumerate().map(|(n, c)| {
+        // The open level's crumb carries its menu's chevron.
+        let menu = if n == last { 11.0 + GAP } else { 0.0 };
+        CHEVRON + GAP + (wide(&c.name) + pad + menu).min(CRUMB_MAX) + GAP
+    });
+    std::iter::once(ellipsis).chain(crumbs).collect()
+}
+
+/// Never one: one hidden level costs a hover for the same bar width.
+fn elide_at(len: usize) -> usize {
+    match len.saturating_sub(KEEP) {
+        1 => 0,
+        split => split,
+    }
+}
+
+/// How many of the oldest levels fold: the fewest that let the rest fit.
+fn choose_split(widths: &[f32], available: Option<f32>, len: usize) -> usize {
+    if len < FOLD_MIN {
+        return 0;
+    }
+    let available = available.unwrap_or(0.0);
+    let (Some((&ellipsis, items)), true) = (widths.split_first(), available > 0.0) else {
+        return elide_at(len);
+    };
+    if items.len() != len {
+        return elide_at(len);
+    }
+    let gaps = |n: usize| GAP * n.saturating_sub(1) as f32;
+    if items.iter().sum::<f32>() + gaps(len) <= available {
+        return 0;
+    }
+    for split in 2..len {
+        let rest = items.get(split..).unwrap_or_default();
+        if ellipsis + rest.iter().sum::<f32>() + gaps(rest.len()) + GAP <= available {
+            return split;
+        }
+    }
+    (len - 1).max(2)
+}
+
+/// A crumb; the open level reads strong.
+fn crumb_button(ui: &mut Ui, crumb: &Crumb, current: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let text = match current {
+        true => RichText::new(&crumb.name)
+            .font(theme::medium(13.0))
+            .color(t.ink),
+        false => RichText::new(&crumb.name).color(t.muted),
+    };
     ui.scope(|ui| {
         ui.set_max_width(CRUMB_MAX);
-        let button = match crumb.id {
-            None => Button::image_and_text(Icon::Library.image(16.0), crumb.name.as_str())
-                .image_tint_follows_text_color(true),
-            Some(_) => Button::new(crumb.name.as_str()),
-        };
-        ui.add(button.truncate().frame_when_inactive(open).selected(open))
+        ui.add(Button::new(text).truncate().frame_when_inactive(false))
     })
     .inner
+}
+
+/// A level above the open one: a way back up, and a drop target.
+fn level_crumb(ui: &mut Ui, crumb: &Crumb, out: &mut Commands) {
+    let r = crumb_button(ui, crumb, false).on_hover_text(&crumb.name);
+    widgets::name(&r, &format!("Go back to {}", crumb.name));
+    if r.clicked() {
+        out.push(go(crumb.id));
+    }
+    take_drops(ui, &r, crumb.id, out);
 }
 
 /// A book or shelf dropped on a crumb moves there.
@@ -118,33 +198,100 @@ fn rest_to_go(ui: &Ui, id: Option<ShelfId>, out: &mut Commands) {
     out.push(go(id));
 }
 
-/// The folded middle of a long trail, listed in a menu.
+/// When the pointer last rested on the fold, and whether a press keeps
+/// it open.
+#[derive(Clone, Copy, Default)]
+struct Fold {
+    over: f64,
+    pinned: bool,
+}
+
+/// The folded levels: open on hover, a carry, a click or Down.
 fn folded(ui: &mut Ui, elided: &[Crumb], out: &mut Commands) {
-    let r = ui.add(Button::new("…").frame_when_inactive(false));
-    let r = r.on_hover_text("Shelves between");
-    Popup::from_toggle_button_response(&r)
-        .id(Id::new(ELIDED_MENU))
-        .sense(crate::widgets::POPUP_SENSE)
-        .close_behavior(PopupCloseBehavior::CloseOnClick)
+    let id = Id::new(ELIDED_MENU);
+    let now = ui.input(|i| i.time);
+    let mut fold = ui.data(|d| d.get_temp::<Fold>(id)).unwrap_or_default();
+    let t = Tokens::get(ui.ctx());
+    let tip = format!("Show the {} levels above", elided.len());
+    let open_before = fold.pinned || now - fold.over < GRACE;
+    let button = Button::image(Icon::More.image(CHEVRON).tint(t.muted));
+    let r = ui.add(
+        button
+            .frame_when_inactive(open_before)
+            .selected(open_before),
+    );
+    let r = r.on_hover_text(&tip);
+    widgets::name(&r, &tip);
+    if r.contains_pointer() {
+        fold.over = now;
+    }
+    let down = r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
+    if r.clicked() || down {
+        fold.pinned = !fold.pinned || down;
+    }
+    let open = fold.pinned || now - fold.over < GRACE;
+    let chosen = Popup::from_response(&r)
+        .id(id)
+        .open(open)
         .align(RectAlign::BOTTOM_START)
         .gap(6.0)
-        .width(MENU_WIDTH)
         .show(|ui| {
-            ui.set_width(MENU_WIDTH);
-            for crumb in elided {
-                if widgets::menu_row(ui, Icon::Shelf, &crumb.name, None, false).clicked() {
-                    out.push(go(crumb.id));
+            let wide = (ui.ctx().content_rect().width() - 24.0).max(160.0);
+            ui.set_max_width(wide);
+            ui.spacing_mut().item_spacing.x = GAP;
+            let mut chosen = false;
+            ui.horizontal_wrapped(|ui| {
+                for (n, crumb) in elided.iter().enumerate() {
+                    if n > 0 {
+                        chevron(ui);
+                    }
+                    let before = out.len();
+                    level_crumb(ui, crumb, out);
+                    chosen |= out.len() > before;
                 }
-            }
-            widgets::close_on_key(ui);
+            });
+            chosen
         });
+    let inside = chosen
+        .as_ref()
+        .is_some_and(|c| c.response.contains_pointer());
+    if inside {
+        fold.over = now;
+    }
+    let pressed_away = ui.input(|i| i.pointer.any_pressed()) && !inside && !r.contains_pointer();
+    let escape = open && ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if chosen.is_some_and(|c| c.inner) || pressed_away || escape {
+        fold = Fold::default();
+    }
+    let carrying = DragAndDrop::has_payload_of_type::<Carry>(ui.ctx());
+    if carrying && r.contains_pointer() {
+        fold.over = now;
+    }
+    let left = GRACE - (now - fold.over);
+    if !fold.pinned && left > 0.0 {
+        ui.ctx().request_repaint_after_secs(left as f32);
+    }
+    ui.data_mut(|d| d.insert_temp(id, fold));
 }
 
 /// The open shelf's crumb: a menu to rename it or take it apart.
 fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
     let menu = Id::new(CRUMB_MENU);
+    let t = Tokens::get(ui.ctx());
     let open = Popup::is_id_open(ui.ctx(), menu);
-    let r = crumb_button(ui, current, open);
+    let name = RichText::new(&current.name)
+        .font(theme::medium(13.0))
+        .color(t.ink);
+    let mark = Icon::ChevronDown.image(11.0).tint(t.muted);
+    let r = ui
+        .scope(|ui| {
+            ui.set_max_width(CRUMB_MAX + 16.0);
+            let button = Button::new((name, mark)).truncate();
+            ui.add(button.frame_when_inactive(open).selected(open))
+        })
+        .inner
+        .on_hover_text(&current.name);
+    widgets::name(&r, &format!("{} shelf options", current.name));
     take_drops(ui, &r, current.id, out);
     let Some(id) = current.id else {
         return;
@@ -162,8 +309,17 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             if widgets::menu_row(ui, Icon::Rename, "Rename…", None, false).clicked() {
                 out.push(act(ShelfAction::StartRename(id)));
             }
-            if widgets::menu_row(ui, Icon::Remove, "Remove shelf", None, false).clicked() {
+            let remove = RichText::new("Remove shelf").color(t.danger);
+            let remove = Button::image_and_text(Icon::Remove.image(16.0).tint(t.danger), remove)
+                .frame_when_inactive(false)
+                .min_size(egui::vec2(ui.available_width(), 32.0));
+            if ui.add(remove).clicked() {
                 out.push(act(ShelfAction::Apart(id)));
+            }
+            if current.watched {
+                let note = "Cut from a watched folder: removing takes it off the list, and it \
+                            returns if the folder places a book here again.";
+                ui.add(egui::Label::new(RichText::new(note).size(11.0).color(t.muted)).wrap());
             }
             widgets::close_on_key(ui);
         });
@@ -178,7 +334,7 @@ pub(super) fn select_all(field: &egui::Response, id: Id, text: &str) {
     state.store(&field.ctx, id);
 }
 
-/// The name in place: Enter or a click away keeps it, Escape doesn't.
+/// The name in place: Enter keeps it, Escape doesn't.
 fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
     let field = Id::new("library-shelf-name").with(id);
     let draft = ui.data(|d| d.get_temp::<String>(field));
@@ -189,14 +345,14 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
         .char_limit(NAME_MAX)
         .desired_width(CRUMB_MAX + 20.0);
     let r = ui.add(edit);
-    crate::widgets::name(&r, "Shelf name");
+    widgets::name(&r, "Shelf name");
     if fresh {
         // The whole name selected, so typing replaces it.
         select_all(&r, field, &text);
     }
     let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-    let done = escape || (r.lost_focus() && !fresh);
-    if !done {
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    if !escape && !enter {
         ui.data_mut(|d| d.insert_temp(field, text));
         return;
     }
@@ -206,4 +362,67 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
         false => Action::Rename(Named::Shelf(id), text),
     };
     out.push(Command::Library(action));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn measured(len: usize, ellipsis: f32, crumb: f32) -> Vec<f32> {
+        std::iter::once(ellipsis)
+            .chain(std::iter::repeat_n(crumb, len))
+            .collect()
+    }
+
+    #[test]
+    fn a_fold_never_hides_one_level_and_keeps_three_by_count() {
+        assert_eq!(elide_at(KEEP + 1), 0);
+        assert_eq!(elide_at(KEEP + 2), 2);
+        for len in (KEEP + 2)..=12 {
+            assert_eq!(len - elide_at(len), KEEP);
+        }
+    }
+
+    #[test]
+    fn a_shallow_trail_never_folds_however_cramped() {
+        for len in 0..FOLD_MIN {
+            for room in [None, Some(0.0), Some(40.0), Some(5000.0)] {
+                let widths = measured(len, 22.0, 900.0);
+                assert_eq!(choose_split(&widths, room, len), 0, "{len} at {room:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_cramped_bar_folds_the_oldest_levels_it_must_and_no_more() {
+        let widths = measured(4, 22.0, 200.0);
+        assert_eq!(choose_split(&widths, Some(1000.0), 4), 0, "it all fits");
+        assert_eq!(
+            choose_split(&widths, Some(426.0), 4),
+            2,
+            "the fit is inclusive"
+        );
+        assert_eq!(choose_split(&widths, Some(425.0), 4), 3);
+        assert_eq!(
+            choose_split(&widths, Some(100.0), 4),
+            3,
+            "never past the trail"
+        );
+    }
+
+    #[test]
+    fn unmeasured_widths_fold_by_count() {
+        assert_eq!(choose_split(&[], Some(500.0), 6), elide_at(6));
+        assert_eq!(
+            choose_split(&measured(4, 22.0, 9.0), Some(500.0), 6),
+            elide_at(6)
+        );
+        assert_eq!(choose_split(&measured(5, 22.0, 9.0), None, 5), elide_at(5));
+        for len in 1..8 {
+            for room in [Some(0.0), Some(24.0), Some(646.0)] {
+                let split = choose_split(&measured(len, 22.0, 300.0), room, len);
+                assert!(split != 1 && split <= len, "{split} of {len}");
+            }
+        }
+    }
 }

@@ -667,9 +667,8 @@ fn book_id(h: &Harness<'static, MareaderApp>, n: usize) -> BookId {
 
 /// Opens the crumb menu of the shelf on the page and picks Rename….
 fn rename_from_crumb(h: &mut Harness<'static, MareaderApp>, name: &str) {
-    let crumbs = h.get_all_by_role_and_label(Role::Button, name);
-    let crumb = crumbs.min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    crumb.expect("its crumb").click();
+    let options = format!("{name} shelf options");
+    h.get_by_role_and_label(Role::Button, &options).click();
     h.run();
     h.get_by_label("Rename…").click();
     h.run();
@@ -694,12 +693,35 @@ fn a_new_shelf_opens_and_is_named_in_the_breadcrumb() {
     assert_eq!(shelf.name.value, "Poetry");
     assert_eq!(h.state().library_state().renaming(), None);
     assert!(h.state().library_showing());
-    h.get_by_role_and_label(Role::Button, "Library").click();
+    h.get_by_role_and_label(Role::Button, "Home").click();
     h.run();
     assert_eq!(open_shelf(&h), None);
     h.get_by_label("Poetry").click();
     h.run();
     assert_eq!(open_shelf(&h), Some(id));
+}
+
+#[test]
+fn the_breadcrumb_starts_at_home_and_names_its_way_back() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    let trail = h.state().library_state().trail();
+    assert_eq!(trail.len(), 1, "the top is Home alone");
+    assert!(h.query_by_role_and_label(Role::Button, "Home").is_some());
+    let outer = new_shelf(&mut h, "Outer");
+    shelve(&mut h, ShelfAction::GoTo(Some(outer)));
+    let inner = new_shelf(&mut h, "Inner");
+    shelve(&mut h, ShelfAction::GoTo(Some(inner)));
+    assert!(h.query_by_label("Go back to Outer").is_some());
+    let options = h.get_by_label("Inner shelf options");
+    options.click();
+    h.run();
+    assert!(shows(&h, "Rename…") && shows(&h, "Remove shelf"));
+    assert!(!shows(&h, "Cut from a watched folder"), "a hand-made shelf");
+    h.get_by_label("Remove shelf").click();
+    h.run();
+    assert!(library(&h).shelf(inner).is_none());
+    assert_eq!(open_shelf(&h), Some(outer));
+    h.get_by_label("Outer shelf options");
 }
 
 #[test]
@@ -884,26 +906,25 @@ fn taking_a_shelf_apart_moves_its_shelves_up() {
 fn a_long_trail_folds_its_middle_and_leads_back_up() {
     let mut h = reader(&[("books", "1"), ("library", "show")]);
     for n in 1..=5 {
-        shelve(&mut h, ShelfAction::New);
-        let id = open_shelf(&h).unwrap();
-        act(
-            &mut h,
-            Action::Rename(Named::Shelf(id), format!("Level {n}")),
-        );
+        let id = new_shelf(&mut h, &format!("A shelf with a long name, level {n}"));
+        shelve(&mut h, ShelfAction::GoTo(Some(id)));
     }
+    h.run();
     let trail = h.state().library_state().trail();
-    assert_eq!(trail.len(), 6);
-    assert!(h.query_by_label("…").is_some());
-    // The top, then the last two above the open shelf: four crumbs.
-    let kept = &trail[trail.len() - 3].name;
-    assert!(h.query_by_role_and_label(Role::Button, kept).is_some());
-    h.get_by_label("…").click();
+    assert_eq!(trail.len(), 6, "Home and five levels");
+    // Too wide for the bar: the oldest levels fold, never just one.
+    assert!(h.query_by_label("Show the 1 levels above").is_none());
+    let fold = h.get_by_label_contains("levels above");
+    let open = format!("{} shelf options", trail[5].name);
+    assert!(h.query_by_label(&open).is_some(), "the open level shows");
+    fold.click();
     h.run();
     let second = trail[1].id;
-    h.get_by_label(&trail[1].name).click();
+    h.get_by_label(&format!("Go back to {}", trail[1].name))
+        .click();
     h.run();
     assert_eq!(open_shelf(&h), second);
-    h.get_by_role_and_label(Role::Button, "Library").click();
+    h.get_by_role_and_label(Role::Button, "Home").click();
     h.run();
     assert_eq!(open_shelf(&h), None);
 }
@@ -936,10 +957,7 @@ fn ctrl_click_starts_a_selection_that_plain_clicks_then_extend() {
         .click_modifiers(egui::Modifiers::COMMAND);
     h.run();
     assert_eq!(picks(&h), [book_id(&h, 1)]);
-    assert!(
-        h.query_by_label("1 book selected").is_some(),
-        "the bar shows"
-    );
+    assert!(h.query_by_label("1 selected").is_some(), "the bar shows");
     // While picking, a plain click picks too instead of opening.
     h.get_by_label(&two).click();
     h.run();
@@ -971,7 +989,7 @@ fn shift_click_picks_the_run_between_and_ctrl_a_picks_all() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.run();
     assert_eq!(picks(&h).len(), 6);
-    h.get_by_label("Clear selection").click();
+    h.get_by_label("Done").click();
     h.run();
     assert!(picks(&h).is_empty());
 }
@@ -982,7 +1000,9 @@ fn picks_go_on_a_new_shelf_together_and_come_off_it() {
     let (a, b) = (book_id(&h, 1), book_id(&h, 2));
     let both = vec![Pick::Book(a), Pick::Book(b)];
     act(&mut h, Action::Pick(PickAction::Only(both)));
-    h.get_by_label("New shelf from these").click();
+    h.get_by_label("Add to shelf").click();
+    h.run();
+    h.get_by_label("New shelf").click();
     h.run();
     assert_eq!(open_shelf(&h), None, "the page stays where it was");
     let shelf = library(&h).children(None)[0].id;
@@ -990,9 +1010,38 @@ fn picks_go_on_a_new_shelf_together_and_come_off_it() {
     assert!(picks(&h).is_empty());
     shelve(&mut h, ShelfAction::GoTo(Some(shelf)));
     act(&mut h, Action::Pick(PickAction::Only(vec![Pick::Book(a)])));
-    book(&mut h, BookAction::TakeOff(vec![a]));
+    shelve(&mut h, file(&[a], Some(shelf), None, false));
     assert_eq!(library(&h).shelf_books(shelf).len(), 1);
     assert!(toast(&h).starts_with("Took “"), "{}", toast(&h));
+}
+
+#[test]
+fn the_bar_adds_picks_to_a_shelf_they_may_go_on() {
+    let mut h = reader(&[("books", "4"), ("library", "show")]);
+    let poetry = new_shelf(&mut h, "Poetry");
+    let prose = new_shelf(&mut h, "Prose");
+    let a = book_id(&h, 1);
+    let picked = vec![Pick::Book(a), Pick::Shelf(poetry)];
+    act(&mut h, Action::Pick(PickAction::Only(picked)));
+    assert!(shows(&h, "2 selected"));
+    h.get_by_label("Add to shelf").click();
+    h.run();
+    // A shelf can't go inside itself: Poetry has its card only.
+    assert_eq!(h.query_all_by_label("Poetry").count(), 1);
+    let rows = h.get_all_by_label("Prose");
+    let row = rows.max_by(|x, y| x.rect().top().total_cmp(&y.rect().top()));
+    row.expect("offered").click();
+    h.run();
+    assert!(library(&h).shelf_books(prose).iter().any(|b| b.id == a));
+    let lib = library(&h);
+    assert_eq!(
+        lib.shelf(poetry).and_then(|s| lib.parent_of(s)),
+        Some(prose)
+    );
+    assert!(
+        !h.state().library_state().picks().active(),
+        "done selecting"
+    );
 }
 
 #[test]
@@ -1021,7 +1070,14 @@ fn a_card_menu_offers_what_a_book_can_do() {
     let title = title_of(&h, 1);
     h.get_by_label(&title).click_secondary();
     h.run();
-    for entry in ["Open", "Select", "Rename…", "Read separately", "Remove…"] {
+    let entries = [
+        "Open",
+        "Select",
+        "Rename…",
+        "Read separately",
+        "Remove from library",
+    ];
+    for entry in entries {
         assert!(h.query_by_label(entry).is_some(), "{entry}");
     }
     h.get_by_label("Rename…").click();

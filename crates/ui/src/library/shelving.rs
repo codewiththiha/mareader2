@@ -160,6 +160,8 @@ impl Carry {
 pub struct Crumb {
     pub id: Option<ShelfId>,
     pub name: String,
+    /// A watched folder's next walk would make this shelf again.
+    pub watched: bool,
 }
 
 impl LibraryState {
@@ -173,20 +175,20 @@ impl LibraryState {
         self.renaming
     }
 
-    /// From the top level to the open shelf; empty at the top.
+    /// Home, then each shelf down to the open one.
     pub fn trail(&self) -> Vec<Crumb> {
-        let Some(at) = self.at else {
-            return Vec::new();
-        };
-        let path = self.model.path_to(at).into_iter().map(|s| Crumb {
+        let path = self.at.map(|at| self.model.path_to(at)).unwrap_or_default();
+        let path = path.into_iter().map(|s| Crumb {
             id: Some(s.id),
             name: s.name.value.clone(),
+            watched: self.model.shelf_tracked(s.id),
         });
-        let top = Crumb {
+        let home = Crumb {
             id: None,
-            name: "Library".into(),
+            name: "Home".into(),
+            watched: false,
         };
-        std::iter::once(top).chain(path).collect()
+        std::iter::once(home).chain(path).collect()
     }
 
     /// A shelf removed, here or by a sync, gives way to its nearest parent.

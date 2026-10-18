@@ -118,6 +118,16 @@ impl Library {
         self.shelves.values().filter(|s| s.alive())
     }
 
+    /// Whether a watched folder's next walk makes this shelf again.
+    pub fn shelf_tracked(&self, id: ShelfId) -> bool {
+        let folders = self.folder_list();
+        let seat = crate::ground::seat_of(&self.shelves, &folders, id);
+        seat.is_some_and(|s| {
+            self.folder(s.folder)
+                .is_some_and(|f| f.tracks_rung(&s.rung))
+        })
+    }
+
     /// Where a shelf sits; a removed or unknown parent is the top.
     pub fn parent_of(&self, shelf: &Shelf) -> Option<ShelfId> {
         shelf.parent.value.filter(|p| self.shelf(*p).is_some())
