@@ -861,8 +861,8 @@ holds; in particular folders are no longer read-only source trees (see
   cells hatched.
 - **The panel.** The reading sidebar's tree also lists book links under
   their own names; a book on two open shelves is two rows. Counts include
-  links. A missing book still opens the find-again sheet (mareader only
-  pointed to the Library page).
+  links. A missing book is faded and does nothing: it is never opened or
+  dragged, and its tooltip sends the reader to the Library page to find it.
 - **Kept apart from mareader.** The progress card leaves when its run
   ends and the toast reports the outcome; mareader kept a finished card
   until dismissed. Twins stay independent ("Read separately").

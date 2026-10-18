@@ -424,14 +424,15 @@ fn book_row(
         return;
     };
     let row = rect.shrink2(vec2(6.0, 1.0));
+    // A missing book is shown, never opened or carried.
     let sense = match missing {
-        true => Sense::click(),
+        true => Sense::hover(),
         false => Sense::click_and_drag(),
     };
     let key = Id::new(("library-panel-book", id, level, link));
     let resp = ui.interact(row, key, sense);
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, look.active, title)
+        egui::WidgetInfo::selected(egui::WidgetType::Button, !missing, look.active, title)
     });
     let fade = if *missing || look.dragged { 0.4 } else { 1.0 };
     let painter = ui.painter();
@@ -465,7 +466,7 @@ fn book_row(
         resp.dnd_set_drag_payload(carried);
     }
     let tip = match missing {
-        true => Some(format!("Moved or deleted. Click to find {title}.")),
+        true => Some(format!("{title} — missing; relink it on the Library page")),
         false => elided.then(|| title.clone()),
     };
     let clicked = resp.clicked();
@@ -478,9 +479,10 @@ fn book_row(
     // A key press has no pointer click; Do nothing still lets keys open.
     let keyboard = !ui.input(|i| i.pointer.any_click());
     let placement = match click {
+        _ if *missing => return,
         LibraryClick::Replace => Placement::Into,
         LibraryClick::Split => Placement::Beside,
-        LibraryClick::DragOnly if keyboard || *missing => Placement::Beside,
+        LibraryClick::DragOnly if keyboard => Placement::Beside,
         LibraryClick::DragOnly => return,
     };
     out.push(Command::PlaceBook {
