@@ -630,6 +630,30 @@ impl MareaderApp {
                 let pick = library::Action::Pick(library::PickAction::Only(picks));
                 self.queue(Command::Library(pick));
             }
+            // Asks to remove the first books by last read, or a shelf by name.
+            "remove" => {
+                let model = self.library.model();
+                let (books, shelves) = match value.strip_prefix("shelf:") {
+                    Some(name) => {
+                        let found = model.shelves().find(|s| s.name.value == name);
+                        let id = found.map(|s| s.id).ok_or("remove: no shelf by that name")?;
+                        (Vec::new(), vec![id])
+                    }
+                    None => {
+                        let n: usize =
+                            value.parse().map_err(|_| "remove: a count or shelf:Name")?;
+                        let recent = model.recent().into_iter().take(n);
+                        (recent.map(|b| b.id).collect(), Vec::new())
+                    }
+                };
+                let links = Vec::new();
+                let ask = library::BookAction::AskRemove {
+                    books,
+                    shelves,
+                    links,
+                };
+                self.queue(Command::Library(library::Action::Book(ask)));
+            }
             // A folder read in place, as the sheet can add one.
             "folder" => {
                 let root = std::path::PathBuf::from(value);
