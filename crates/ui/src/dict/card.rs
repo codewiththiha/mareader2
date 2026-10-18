@@ -15,14 +15,14 @@ use crate::shaped;
 use crate::theme::Tokens;
 use crate::widgets;
 
-const WIDTH: f32 = 320.0;
+const WIDTH: f32 = 300.0;
 /// Room each section keeps from the card's sides, and above and below.
-const PAD: i8 = 16;
-const PAD_Y: i8 = 12;
+const PAD: i8 = 14;
+const PAD_Y: i8 = 10;
 /// An entry taller than the card's room scrolls, never below this.
 const ENTRY_MIN: f32 = 96.0;
 /// The pager row under a word with several entries.
-const FOOT: f32 = 40.0;
+const FOOT: f32 = 36.0;
 /// Wheel travel that turns to the next entry.
 const STEP: f32 = 24.0;
 /// A pause this long, in seconds, ends one flick of the wheel.
@@ -107,8 +107,8 @@ fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Comm
     let margin = Margin {
         left: PAD,
         right: 8,
-        top: 10,
-        bottom: 10,
+        top: 8,
+        bottom: 8,
     };
     Frame::new().inner_margin(margin).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -117,19 +117,20 @@ fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Comm
                 if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                     out.push(Command::Dict(Action::CloseCard));
                 }
+                // The languages ride the word's line, quiet, before the close.
+                if let Some(way) = way {
+                    ui.label(RichText::new(way).size(t.text_small).color(t.muted));
+                }
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     if shaped::needs_shaping(word) {
-                        shaped::label(ui, word, t.text * 1.3, t.ink);
+                        shaped::label(ui, word, t.text * 1.1, t.ink);
                     } else {
-                        let big = RichText::new(word).size(t.text * 1.3).strong();
+                        let big = RichText::new(word).size(t.text * 1.2).strong();
                         ui.add(egui::Label::new(big.color(t.ink)).truncate());
                     }
                 });
             });
         });
-        if let Some(way) = way {
-            ui.label(RichText::new(way).size(t.text_small).color(t.muted));
-        }
     });
 }
 
@@ -154,7 +155,7 @@ fn body(ui: &mut Ui, asked: &str, e: &Entry, (p, list): (&mut Pager, f32), t: &T
 /// ‹ 2 of 5 ›: the entries one at a time.
 fn footer(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
     Frame::new()
-        .inner_margin(Margin::symmetric(8, 7))
+        .inner_margin(Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
