@@ -2,18 +2,22 @@
 
 use crate::command::Command;
 
-/// The page in the window: the panes being read, or the library.
+/// The page in the window: the panes being read, the library, or the
+/// dictionary.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Route {
     #[default]
     Reader,
     Library,
+    Dictionary,
 }
 
 impl Route {
     /// Whether `command` means anything here; the rest are dropped.
     pub fn allows(self, command: &Command) -> bool {
-        self == Route::Reader || !reads(command)
+        // The dictionary's settings are a click away from its page.
+        let settings = matches!(command, Command::ShowSettings | Command::OpenSettings(_));
+        self == Route::Reader || !reads(command) || (self == Route::Dictionary && settings)
     }
 
     /// The rail serves reading; the library has none.
@@ -51,6 +55,8 @@ fn reads(command: &Command) -> bool {
         C::Dict(_) | C::SetDictionary(_) | C::Vocab(_) => false,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
+        // The dictionary comes up from every page.
+        C::ShowDictionary => false,
         // Find searches the page in reading, the library on the shelf.
         C::ShowFind => false,
         C::Library(_) => false,
@@ -88,5 +94,16 @@ mod tests {
         assert!(lib.allows(&Command::ShowViewMenu));
         assert!(lib.allows(&Command::Window(WindowCommand::Close)));
         assert!(Route::Reader.allows(&Command::ToggleSidebar));
+    }
+
+    #[test]
+    fn the_dictionary_keeps_its_settings_and_drops_reading() {
+        let page = Route::Dictionary;
+        assert!(page.allows(&Command::ShowSettings));
+        assert!(page.allows(&Command::ShowDictionary));
+        assert!(page.allows(&Command::ShowLibrary));
+        assert!(!page.allows(&Command::ToggleSidebar));
+        assert!(!page.allows(&Command::Bookmark(None)));
+        assert!(!page.has_rail());
     }
 }

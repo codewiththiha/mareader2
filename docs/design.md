@@ -291,6 +291,24 @@ A new setting picks its `Applies` once; nothing else changes.
   Heights come from a cheap measure; a texture is drawn only once on screen.
   Search does not wash words in shaped text.
 
+## Dictionary page
+
+A route of its own (`dict/page.rs`), like the library, in place of mareader's
+rail panel. The reader's and library's bars carry a Dictionary button, and
+Cmd/Ctrl+Shift+D toggles it from anywhere. On the page the button is pressed
+and returns where it came from; Library sits beside it.
+
+- **Layout.** A centred column up to 1080 px: a 20 pt search field with ✕,
+  then one wrapping row of choices (Dictionaries or Languages, the pack or
+  From ⇄ To, a "via English" or "Detected …" chip, Manage). From 640 px the
+  results list (300 px) sits beside the chosen entry; narrower, one column.
+- **Entry.** Headword large, tags and the pack as chips, the answer at 1.5×
+  its card size, romanization and sense, Copy, "Look up ⟨answer⟩" when the
+  answer is a word or two, and the word's other senses as small cards.
+- **Keys.** The field has focus on arrival; ↑ ↓ pick a result, Enter keeps
+  the search in Recent, Esc clears and then goes back. Cmd+F refocuses.
+- **Empty.** What is searched, the keys, and recent searches as chips.
+
 ## Icons
 
 Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).

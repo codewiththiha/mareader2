@@ -45,7 +45,7 @@ use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
 use crate::study::{self, Explained, Gloss, Highlighted, Study};
 use crate::thumbnails::ThumbState;
-use crate::titlebar::{self, BarContext, BarPage, LibraryBar, ReaderBar, TitleBar};
+use crate::titlebar::{self, BarContext, BarPage, DictionaryBar, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
 
@@ -99,6 +99,8 @@ pub struct MareaderApp {
     documents: Documents,
     files: Files,
     library: LibraryState,
+    /// On the Dictionary page: the route it was opened from.
+    dict_from: Option<Route>,
     /// The sidebar panels' scroll-following, for the focused pane.
     outline: OutlineState,
     thumbs: ThumbState,
@@ -192,6 +194,7 @@ impl MareaderApp {
             documents: Documents::default(),
             files: Files::default(),
             library: LibraryState::default(),
+            dict_from: None,
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
             shelf_tree: PanelState::default(),
@@ -343,9 +346,10 @@ impl MareaderApp {
 
     /// The page in the window; the library replaces the panes, not ends them.
     pub fn route(&self) -> Route {
-        match self.library.showing {
-            true => Route::Library,
-            false => Route::Reader,
+        match (self.dict_from, self.library.showing) {
+            (Some(_), _) => Route::Dictionary,
+            (None, true) => Route::Library,
+            (None, false) => Route::Reader,
         }
     }
 
@@ -358,10 +362,31 @@ impl MareaderApp {
     /// The one way between routes; leaving the reader ends its overlays.
     fn go(&mut self, route: Route) {
         if route == Route::Library {
-            self.find.close();
             self.settings_window.close();
         }
-        self.library.showing = route == Route::Library;
+        if route != Route::Reader {
+            self.find.close();
+        }
+        let here = self.route();
+        self.dict_from = match route {
+            Route::Dictionary if here == Route::Dictionary => self.dict_from,
+            Route::Dictionary => Some(here),
+            _ => None,
+        };
+        if route == Route::Dictionary {
+            self.dict.arrive();
+        } else {
+            self.library.showing = route == Route::Library;
+        }
+    }
+
+    /// Where the Dictionary page's pressed button returns.
+    fn dict_back(&self) -> Route {
+        match self.dict_from {
+            Some(Route::Reader) if !self.reading() => Route::Library,
+            Some(Route::Reader) => Route::Reader,
+            _ => Route::Library,
+        }
     }
 
     /// Covers held as textures, for tests.
@@ -613,6 +638,17 @@ impl MareaderApp {
                 self.study.set_inline(n == 0);
                 self.dict.set_inline(n == 0);
                 self.search.set_inline(n == 0);
+            }
+            // The Dictionary page, searching for any word given.
+            "dict_page" => {
+                // After a queued open, which would otherwise leave it.
+                match self.queued.iter().any(|c| matches!(c, Command::Open(_))) {
+                    true => self.queue(Command::ShowDictionary),
+                    false => self.go(Route::Dictionary),
+                }
+                if value != "show" {
+                    self.dict.search(value);
+                }
             }
             "library" => match value {
                 // After a queued open, which would otherwise leave it.
@@ -1425,7 +1461,7 @@ impl MareaderApp {
                 self.tree.set_ratio(&path, ratio);
             }
             // The shelf wears the window's look; no pane is in view.
-            Command::SetAppearance(a) if self.route() == Route::Library => {
+            Command::SetAppearance(a) if self.route() != Route::Reader => {
                 self.settings.appearance = a;
             }
             Command::SetAppearance(a) => {
@@ -1496,10 +1532,13 @@ impl MareaderApp {
             Command::ShowViewMenu => {
                 self.titlebar.reveal();
                 let menu = match self.route() {
-                    Route::Reader => crate::view_menu::VIEW_MENU,
-                    Route::Library => crate::library::menu::LIBRARY_VIEW_MENU,
+                    Route::Reader => Some(crate::view_menu::VIEW_MENU),
+                    Route::Library => Some(crate::library::menu::LIBRARY_VIEW_MENU),
+                    Route::Dictionary => None,
                 };
-                egui::Popup::open_id(ctx, egui::Id::new(menu));
+                if let Some(menu) = menu {
+                    egui::Popup::open_id(ctx, egui::Id::new(menu));
+                }
             }
             Command::ShowSettings => self.settings_window.open(None),
             Command::ShowShortcuts => crate::shortcuts::toggle(ctx),
@@ -1510,6 +1549,8 @@ impl MareaderApp {
             }
             Command::FindStep { .. } => self.apply(ctx, Command::ShowFind),
             Command::ShowFind => match (self.route(), self.documents.reading(self.active)) {
+                // The page's own field is its find.
+                (Route::Dictionary, _) => self.dict.arrive(),
                 (Route::Reader, Some(_)) => {
                     self.find.open(self.active);
                     self.titlebar.reveal();
@@ -1533,10 +1574,14 @@ impl MareaderApp {
             Command::ShowSearch if self.find.is_open() => self.find.close(),
             Command::ShowSearch => self.apply(ctx, Command::ShowFind),
             Command::ShowLibrary => match self.route() {
-                Route::Reader => self.go(Route::Library),
+                Route::Reader | Route::Dictionary => self.go(Route::Library),
                 // An empty reader is no place to go back to.
                 Route::Library if self.reading() => self.go(Route::Reader),
                 Route::Library => {}
+            },
+            Command::ShowDictionary => match self.route() {
+                Route::Dictionary => self.go(self.dict_back()),
+                _ => self.go(Route::Dictionary),
             },
             Command::SetLibraryView(view) => {
                 self.settings.library = view;
@@ -1677,7 +1722,7 @@ impl MareaderApp {
 
     /// A book carried from the rail lands where it's let go.
     fn drops_from_rail(&self, ui: &egui::Ui, out: &mut Commands) {
-        if self.library.showing {
+        if self.route() != Route::Reader {
             return;
         }
         let floating = self.settings.chrome.sidebar_overlay;
@@ -1926,7 +1971,7 @@ impl MareaderApp {
         let route = self.route();
         let chrome = &mut self.settings.chrome;
         match route {
-            Route::Library => &mut chrome.library_titlebar_pinned,
+            Route::Library | Route::Dictionary => &mut chrome.library_titlebar_pinned,
             Route::Reader => &mut chrome.titlebar_pinned,
         }
     }
@@ -2204,6 +2249,13 @@ impl eframe::App for MareaderApp {
             }
             free = false;
         }
+        // The dictionary clears its search, else goes back.
+        if free && route == Route::Dictionary {
+            if !self.dict.page_escape() {
+                commands.push(Command::ShowDictionary);
+            }
+            free = false;
+        }
         if free && (self.dict.escape() || self.study.escape(self.library.model_mut())) {
             free = false;
         }
@@ -2249,7 +2301,6 @@ impl eframe::App for MareaderApp {
         let shelf_tree = &mut self.shelf_tree;
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
-        let (dict, dictionary) = (&mut self.dict, &self.settings.dictionary);
         // The rail's panels serve the focused pane's document.
         let mut body =
             |ui: &mut egui::Ui, panel: Panel, recentre: bool, out: &mut Commands| match panel {
@@ -2263,10 +2314,6 @@ impl eframe::App for MareaderApp {
                     notes_panel::show(ui, &r, &notes, out);
                     true
                 }),
-                Panel::Dictionary => {
-                    dict.panel(ui, dictionary, out);
-                    true
-                }
             };
         // The rail serves reading; the library keeps it, unseen, for return.
         let inset = match (route.has_rail(), overlay) {
@@ -2322,7 +2369,15 @@ impl eframe::App for MareaderApp {
         self.library_rect = None;
         let menu_shot = self.menu_shot;
         let lift = self.tree.len() > 1;
+        let dictionary_page = (route == Route::Dictionary).then_some(&mut self.dict);
+        let dictionary = &self.settings.dictionary;
         egui::CentralPanel::no_frame().show(ui, |ui| {
+            if let Some(dict) = dictionary_page {
+                self.pane_rects.clear();
+                let top = ui.max_rect().top() + crate::theme::TITLE_BAR_H;
+                dict.page(ui, dictionary, top, &mut commands);
+                return;
+            }
             if library.showing {
                 self.pane_rects.clear();
                 self.library_rect = Some(ui.max_rect());
@@ -2380,7 +2435,9 @@ impl eframe::App for MareaderApp {
             .content_rect()
             .with_max_y(self.titlebar.band_bottom(&ctx));
         let tabbing = crate::focus::within(&ctx, band);
-        self.titlebar.hold = self.find.is_open() || searching || tabbing;
+        // The dictionary's bar is its only way out, so it stays.
+        let page = route == Route::Dictionary;
+        self.titlebar.hold = self.find.is_open() || searching || tabbing || page;
         self.follow_focus(&ctx, &mut commands);
         self.documents.end_frame();
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
@@ -2410,6 +2467,14 @@ impl eframe::App for MareaderApp {
                     ""
                 };
                 (title, self.settings.appearance, BarPage::Library(library))
+            }
+            Route::Dictionary => {
+                let back = match self.dict_back() {
+                    Route::Reader => "Back to reading",
+                    _ => "Back to the library",
+                };
+                let page = BarPage::Dictionary(DictionaryBar { back });
+                ("Dictionary", self.settings.appearance, page)
             }
         };
         let bar = BarContext {
@@ -2442,7 +2507,7 @@ impl eframe::App for MareaderApp {
         // A run outlives the page that started it, so cards show on both.
         let lift = match route {
             Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
-            Route::Library => 0.0,
+            Route::Library | Route::Dictionary => 0.0,
         };
         library::runs::show(&ctx, &mut self.library.runs, stage, lift);
         let window = self.settings_scope();

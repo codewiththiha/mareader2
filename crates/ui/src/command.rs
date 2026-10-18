@@ -29,6 +29,8 @@ pub enum Command {
     SetSidebarOverlay(bool),
     /// The library page in place of the panes, or back to them.
     ShowLibrary,
+    /// The Dictionary page, or back to where it was opened from.
+    ShowDictionary,
     /// Opens a library book as Settings › Workspace says, or focuses it.
     OpenBook(BookId),
     /// A library book placed from the rail: clicked, or dropped on a pane.
