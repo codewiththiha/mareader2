@@ -132,6 +132,9 @@ over the panes, so content never moves when it appears.
 - **Hide.** 400 ms after the pointer leaves, then a 200 ms fade.
 - **Held** while any popup is open, or while a press that began on it is down.
 - **Pinned** by the pin button; persisted. The library's bar starts pinned (M5).
+- **Pin, since the UX audit.** The bar has no pin button now: View ▸ "Keep
+  title bar shown" (also in Settings) pins it. The pin icon means one thing
+  only, docking the sidebar from its header.
 - **Chromeless** mode never shows it.
 - **Fading out, it ignores clicks**, so a click meant for the page lands there.
 - **Window moves.** Dragging the empty bar moves the window; double-click
@@ -261,6 +264,15 @@ A new setting picks its `Applies` once; nothing else changes.
   and the button to "Erase & remove". No counts, sizes or shelf lists. Enter
   removes, Esc or Cancel keeps; a showing toast is dismissed so nothing covers
   it, and a short toast follows.
+- **Import sheet.** A short form (`library/import_sheet.rs`, 460 px): the
+  folder as a field the whole row of which picks another; format checkboxes,
+  ticked ones counted; "File size larger than" with its dial on one line;
+  "Read books in place" with "Check for new books" nested under it; then the
+  folder structure as two radios. Each answer has one small line under it,
+  no paragraphs. Import stays off until a format is ticked; Enter imports.
+- **Dictionary card, compact.** 300 px wide with tighter padding; the
+  languages sit on the word's line before ✕. Burmese and other tall scripts
+  draw answers at 1.05× the text size, not 1.15×: they run taller at a size.
 
 ## Icons
 
