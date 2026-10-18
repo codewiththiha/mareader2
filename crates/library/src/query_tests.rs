@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
+use crate::folder::Mode;
 use crate::query::fold;
+use crate::run_tests::import;
 use crate::{
     BookId, ContentId, Data, DeviceId, FileStamp, Format, Found, Library, Measure, Opened, Query,
-    SUGGEST_LIMIT, Scan, Target,
+    SUGGEST_LIMIT, Target,
 };
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -157,7 +159,6 @@ fn ties_go_to_the_book_read_last() {
 #[test]
 fn the_address_is_the_path_inside_its_folder_not_the_whole_disk() {
     let mut lib = Library::new(DEVICE);
-    let source = lib.add_source("/home/me/Books".into(), 1).unwrap().id;
     let found = Found {
         path: "/home/me/Books/Scifi/1984-report.pdf".into(),
         format: Format::Pdf,
@@ -165,12 +166,8 @@ fn the_address_is_the_path_inside_its_folder_not_the_whole_disk() {
         title: Some("Untitled scan".into()),
         author: None,
     };
-    let scan = Scan {
-        source,
-        found: vec![found],
-        offline: false,
-    };
-    let id = lib.apply_scan(scan, 2).added[0];
+    let (_, landed) = import(&mut lib, "/home/me/Books", Mode::InPlace, &[found]);
+    let id = landed.placed[0];
     let loose = add(&mut lib, "/home/me/Downloads/paper.pdf", "A Paper", None, 3);
     let book = lib.book(id).unwrap();
     assert_eq!(lib.address(book), "Scifi/1984-report.pdf");

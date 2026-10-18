@@ -12,7 +12,7 @@ use crate::id::{BookId, LinkId, ShelfId};
 use crate::library::Library;
 use crate::link::{Link, LinkTo};
 use crate::marks::Mark;
-use crate::removal::{Data, Removed};
+use crate::removal::Data;
 use crate::run::Copied;
 use crate::shelves::ShelfKind;
 use crate::words::free_name;
@@ -51,8 +51,8 @@ impl Library {
         inside: bool,
         data: Data,
         wall_ms: u64,
-    ) -> Removed {
-        let mut done = Removed::default();
+    ) -> usize {
+        let mut done = 0;
         if inside {
             let mut all: Vec<ShelfId> = ids.to_vec();
             all.extend(self.subtree(ids));

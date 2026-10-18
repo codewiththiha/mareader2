@@ -7,8 +7,8 @@ use egui::Context;
 use mareader_library::disk::Known;
 use mareader_library::gate::Gate;
 use mareader_library::{
-    Asked, Book, BookId, ContentId, Copied, Found, Landed, Options, Origin, Placement, Plan,
-    Planned, ShelfId, SourceId,
+    Asked, Book, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Origin, Placement,
+    Plan, Planned, ShelfId,
 };
 
 use super::asks::Question;
@@ -40,7 +40,7 @@ struct Going {
 #[derive(Debug)]
 enum Pending {
     /// A folder walking; a rescan names the folder it walks.
-    Walk(Going, Option<SourceId>),
+    Walk(Going, Option<FolderId>),
     /// A planned walk's copies, landed once made.
     Land(Box<Planned>, Going),
     /// Loose files measured, then screened onto the level.
@@ -50,8 +50,8 @@ enum Pending {
     /// An answer's copy, then the answer written.
     Keep(Box<Question>, Placement),
     /// A removed book's file measured, then copied if its folder copies.
-    Restore(SourceId, ContentId),
-    Restored(SourceId, ContentId, Box<Found>),
+    Restore(FolderId, ContentId),
+    Restored(FolderId, ContentId, Box<Found>),
 }
 
 #[derive(Debug)]
@@ -70,14 +70,14 @@ pub(super) struct Folders {
     next: Tag,
     pending: HashMap<Tag, Pending>,
     /// Watched folders walking quietly now.
-    walking: BTreeSet<SourceId>,
+    walking: BTreeSet<FolderId>,
     /// A rescan asked for while one ran.
     again: bool,
     /// When the last rescan left, in egui seconds.
     last: Option<f64>,
     settle_at: Option<f64>,
     focused: bool,
-    offline: BTreeSet<SourceId>,
+    offline: BTreeSet<FolderId>,
     pub(super) sheet: Option<Sheet>,
     /// Folders dropped while a sheet was up, asked about in turn.
     later: VecDeque<PathBuf>,
@@ -93,7 +93,7 @@ impl LibraryState {
     }
 
     /// Folders whose drive wasn't there at the last look.
-    pub fn offline(&self) -> &BTreeSet<SourceId> {
+    pub fn offline(&self) -> &BTreeSet<FolderId> {
         &self.folders.offline
     }
 
@@ -174,7 +174,7 @@ impl LibraryState {
         self.folders.last = Some(now);
     }
 
-    fn send_walk(&mut self, going: Going, folder: Option<SourceId>) {
+    fn send_walk(&mut self, going: Going, folder: Option<FolderId>) {
         let (root, opts, run) = (going.root.clone(), going.opts.clone(), going.run);
         let (known, contents) = self.known();
         let tag = self.tag(Pending::Walk(going, folder));
@@ -214,7 +214,7 @@ impl LibraryState {
         }
         let living = (self.model.books()).flat_map(|b| b.locations.iter().map(|l| l.path.clone()));
         self.io.send(Job::Check(living.collect()));
-        let watched: Vec<(SourceId, PathBuf, Options)> = (self.model.folders())
+        let watched: Vec<(FolderId, PathBuf, Options)> = (self.model.folders())
             .filter(|f| f.owes_walk())
             .map(|f| (f.id, f.root.clone(), f.opts.clone()))
             .collect();
@@ -236,6 +236,16 @@ impl LibraryState {
 
     /// Rescans when the window comes back, and after files settle.
     pub fn tick(&mut self, ctx: &Context) {
+        // Removals and replacements free store copies; they go now.
+        let swept = self.model.take_swept();
+        if let Some(store) = self.folder.as_ref().map(|f| f.store())
+            && !swept.is_empty()
+        {
+            self.io.send(Job::Delete {
+                store,
+                paths: swept,
+            });
+        }
         let (now, focused) = ctx.input(|i| (i.time, i.focused));
         let back = focused && !self.folders.focused;
         self.folders.focused = focused;
@@ -297,7 +307,7 @@ impl LibraryState {
     }
 
     /// A quiet walk of a watched folder, landed as it found.
-    fn rescanned(&mut self, id: SourceId, done: Walked, now: f64) {
+    fn rescanned(&mut self, id: FolderId, done: Walked, now: f64) {
         self.folders.walking.remove(&id);
         match done.offline {
             true => self.folders.offline.insert(id),
@@ -552,7 +562,7 @@ impl LibraryState {
     }
 
     /// A removed book back: its file looked at, then copied or read.
-    pub(super) fn restore(&mut self, folder: SourceId, content: ContentId, out: &mut Commands) {
+    pub(super) fn restore(&mut self, folder: FolderId, content: ContentId, out: &mut Commands) {
         let stone = (self.model.folder(folder)).and_then(|f| f.tombstone(content));
         let Some(path) = stone.map(|s| s.last_path.clone()) else {
             return;
@@ -571,7 +581,7 @@ impl LibraryState {
 
     fn restore_measured(
         &mut self,
-        folder: SourceId,
+        folder: FolderId,
         content: ContentId,
         done: Measured,
         now: f64,
@@ -604,7 +614,7 @@ impl LibraryState {
 
     fn restored(
         &mut self,
-        folder: SourceId,
+        folder: FolderId,
         content: ContentId,
         found: &Found,
         copy: Option<&Copied>,
@@ -622,7 +632,7 @@ impl LibraryState {
     }
 
     /// A moved book shown on the open folder shelf too.
-    pub(super) fn show_moved(&mut self, folder: SourceId, book: BookId, now: f64) {
+    pub(super) fn show_moved(&mut self, folder: FolderId, book: BookId, now: f64) {
         self.folders.sheet = None;
         let rung = |s: ShelfId| self.model.shelf(s).and_then(|s| s.kind.value.rung());
         let here = self
@@ -636,10 +646,10 @@ impl LibraryState {
 }
 
 /// The folder an absent book's last address belongs to, if offline.
-pub fn offline(book: &Book, offline: &BTreeSet<SourceId>) -> bool {
+pub fn offline(book: &Book, offline: &BTreeSet<FolderId>) -> bool {
     book.missing()
         && book.locations.iter().any(|l| match l.origin {
-            Origin::Source(id) => offline.contains(&id),
+            Origin::Folder(id) => offline.contains(&id),
             Origin::Opened | Origin::Store => false,
         })
 }

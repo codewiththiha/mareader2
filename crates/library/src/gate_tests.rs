@@ -6,7 +6,7 @@ use crate::gate::{Answered, Gate};
 use crate::run::{Asked, Copied, Fold, Landed, Plan};
 use crate::run_tests::{DEVICE, found, import, opts, run, shelf_named, titles_on};
 use crate::screen::{Answer, Why};
-use crate::{BookId, Data, Entry, Found, Library, Origin, Placement, ShelfKind, SourceId};
+use crate::{BookId, Data, Entry, FolderId, Found, Library, Origin, Placement, ShelfKind};
 
 /// A whole explicit run with these options, copies made in `/store`.
 fn run_opts(lib: &mut Library, root: &str, o: Options, files: &[Found], plan: Plan) -> Landed {
@@ -183,6 +183,12 @@ fn replace_takes_the_shelf_s_books_out_and_files_the_folder_there() {
         !lib.book(x).is_some_and(|b| b.alive()),
         "the shelf's book left"
     );
+    let swept = lib.take_swept();
+    assert_eq!(
+        swept,
+        [std::path::PathBuf::from("/store/x.pdf")],
+        "its copy goes"
+    );
     assert_eq!(plan.into, Some(shelf));
     let files = [found("/books/a.pdf", 1)];
     run_opts(&mut lib, "/books", opts(Mode::Copy), &files, plan);
@@ -237,7 +243,7 @@ fn a_subfolder_imported_on_its_own_folds_into_the_tree_around_it() {
     let named_sub = lib.shelves().filter(|s| s.name.value == "sub").count();
     assert_eq!(named_sub, 1, "the member's shelf is reused, not minted");
     let a = lib.book(book_titled(&lib, "a")).unwrap();
-    assert_eq!(a.home().unwrap().origin, Origin::Source(tree));
+    assert_eq!(a.home().unwrap().origin, Origin::Folder(tree));
 }
 
 #[test]
@@ -307,7 +313,7 @@ fn the_same_shape_moves_nothing() {
     assert_eq!(lib.shelves().count(), shelves);
 }
 
-fn in_place_dune(lib: &mut Library) -> (SourceId, BookId) {
+fn in_place_dune(lib: &mut Library) -> (FolderId, BookId) {
     let (id, landed) = import(lib, "/books", Mode::InPlace, &[found("/books/dune.pdf", 1)]);
     (id, landed.placed[0])
 }
@@ -348,7 +354,7 @@ fn a_loose_file_a_tree_removed_comes_back_in_place() {
     assert_eq!(screened.restored.len(), 1);
     assert!(screened.asks.is_empty() && screened.clean.is_empty());
     let back = lib.book(screened.restored[0]).unwrap();
-    assert_eq!(back.home().unwrap().origin, Origin::Source(id));
+    assert_eq!(back.home().unwrap().origin, Origin::Folder(id));
     assert_eq!(titles_on(&lib, shelf), ["dune"], "on the shelf it left");
     assert!(lib.folder(id).unwrap().tombstone(back.content).is_none());
 }

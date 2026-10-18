@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::clock::{Field, Stamp, stamped_or_bare};
 use crate::extra::Extra;
-use crate::id::{BookId, ContentId, SourceId};
+use crate::id::{BookId, ContentId, FolderId};
 
 /// The file's own format; text and Markdown open converted to EPUB.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -105,7 +105,8 @@ pub enum Origin {
     /// Opened in the reader and read in place; never moved or deleted.
     Opened,
     /// Found in a folder the library reads in place; never touched.
-    Source(SourceId),
+    #[serde(alias = "source")]
+    Folder(FolderId),
     /// Copied into the library's own folder; deleted with the book.
     Store,
 }

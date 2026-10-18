@@ -1,4 +1,4 @@
-//! Removing books, bringing them back, twins, renames and store copies.
+//! Removing books, twins, renames and the store copies that go with them.
 
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{BuildHasher, RandomState};
@@ -9,8 +9,8 @@ use crate::book::{Book, Format, Origin, Position};
 use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
 use crate::folder::Tombstone;
-use crate::id::{BookId, LinkId, ShelfId, SourceId};
-use crate::library::{Library, Opened};
+use crate::id::{BookId, FolderId, LinkId, ShelfId};
+use crate::library::Library;
 use crate::link::LinkTo;
 use crate::shelves::{Membership, clean};
 use crate::view::Home;
@@ -55,26 +55,12 @@ impl Receipt {
     }
 }
 
-/// What a removal did; `delete` are store copies to delete now.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Removed {
-    pub books: usize,
-    pub delete: Vec<PathBuf>,
-}
-
-/// What became of a store copy taken in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Imported {
-    /// A new book, or a removed one back.
-    New(BookId),
-    /// Its content is already this book; the copy isn't needed.
-    Known(BookId),
-}
-
 /// What removing one book does to its files; nothing if a twin stays.
 struct Fate {
     copies: Vec<PathBuf>,
-    folders: BTreeSet<SourceId>,
+    folders: BTreeSet<FolderId>,
+    /// A twin stays with the files: no folder leaves them out.
+    kept: bool,
 }
 
 impl Library {
@@ -90,8 +76,9 @@ impl Library {
             let mut fate = Fate {
                 copies: Vec::new(),
                 folders: BTreeSet::new(),
+                kept: staying.contains_key(&book.original()),
             };
-            if staying.contains_key(&book.original()) {
+            if fate.kept {
                 return fate;
             }
             for location in &book.locations {
@@ -102,7 +89,7 @@ impl Library {
                     Origin::Store if !self.books().any(used) => {
                         fate.copies.push(location.path.clone())
                     }
-                    Origin::Source(id) => {
+                    Origin::Folder(id) => {
                         fate.folders.insert(id);
                     }
                     _ => {}
@@ -140,7 +127,8 @@ impl Library {
             receipt.marks += self.marks_on(id).count();
             let book = self.book(id);
             let placed = |c| self.folders.values().any(|f| f.placed.contains(&c));
-            let in_folder = !fate.folders.is_empty() || book.is_some_and(|b| placed(b.content));
+            let in_folder =
+                !fate.kept && (!fate.folders.is_empty() || book.is_some_and(|b| placed(b.content)));
             receipt.hidden += usize::from(in_folder);
             if let Some(book) = book {
                 if !receipt.formats.contains(&book.format) {
@@ -170,19 +158,17 @@ impl Library {
         receipt
     }
 
-    /// Removes books: tombstones where a folder placed them, copies listed.
-    pub fn remove_books(&mut self, ids: &[BookId], data: Data, wall_ms: u64) -> Removed {
+    /// Removes books, tombstoning folder ones; returns how many.
+    /// Freed store copies wait in [`Self::take_swept`].
+    pub fn remove_books(&mut self, ids: &[BookId], data: Data, wall_ms: u64) -> usize {
         let removing = self.living(ids);
         let at = self.clock.tick(wall_ms);
-        let mut done = Removed::default();
+        let mut done = 0;
         for (id, fate) in self.fates(&removing) {
-            self.tombstone_book(id, wall_ms);
-            for source in &fate.folders {
-                if let Some(source) = self.sources.get_mut(source) {
-                    source.hidden.insert(id);
-                }
+            if !fate.kept {
+                self.tombstone_book(id, wall_ms);
             }
-            done.delete.extend(fate.copies);
+            self.swept.extend(fate.copies);
             if data == Data::Delete {
                 self.forget_data(id, at);
             }
@@ -194,7 +180,7 @@ impl Library {
             }
             if let Some(book) = self.books.get_mut(&id) {
                 book.removed = Some(at);
-                done.books += 1;
+                done += 1;
             }
         }
         self.promote_twins(&removing, at);
@@ -318,47 +304,6 @@ impl Library {
         }
     }
 
-    /// Books removed from folder `id`, by title: these can come back.
-    pub fn hidden_in(&self, id: SourceId) -> Vec<&Book> {
-        let Some(source) = self.sources.get(&id) else {
-            return Vec::new();
-        };
-        let books = source.hidden.iter().filter_map(|b| self.books.get(b));
-        let mut out: Vec<&Book> = books.filter(|b| !b.alive()).collect();
-        out.sort_by(|a, b| crate::natural(&a.title.value, &b.title.value));
-        out
-    }
-
-    /// Brings a removed book back, place and shelves and all.
-    pub fn restore(&mut self, id: BookId, wall_ms: u64) -> bool {
-        let Some(content) = self
-            .books
-            .get(&id)
-            .filter(|b| !b.alive())
-            .map(|b| b.content)
-        else {
-            return false;
-        };
-        let at = self.clock.tick(wall_ms);
-        let hiding = self.sources.values_mut_where(|s| s.hidden.contains(&id));
-        for source in hiding {
-            source.hidden.remove(&id);
-        }
-        // Its content may have come back meanwhile: then it reads beside it.
-        let holder = |b: &&Book| b.content == content && b.shared();
-        let living = self.books().find(holder).map(|b| b.id);
-        if let Some(book) = self.books.get_mut(&id) {
-            book.restored = Some(at);
-            book.twin_of = Field::new(living, at);
-        }
-        if let Some(original) = living {
-            self.mirror(original);
-        }
-        self.index();
-        self.bump();
-        true
-    }
-
     /// A separate book of the same files, with its own place and shelves.
     pub fn twin(&mut self, id: BookId, wall_ms: u64) -> Option<BookId> {
         let book = self.book(id)?;
@@ -435,28 +380,6 @@ impl Library {
         }
         self.bump();
         true
-    }
-
-    /// Takes in a file copied into the library's folder.
-    pub fn import(&mut self, copy: Opened, wall_ms: u64) -> Imported {
-        let content = copy.measure.content;
-        let holder = |b: &&Book| b.content == content && b.shared();
-        if let Some(book) = self.books().find(holder) {
-            return Imported::Known(book.id);
-        }
-        let at = self.clock.tick(wall_ms);
-        let id = self.add(&copy, wall_ms, at, false);
-        self.place(id, &copy.path, copy.measure.stamp, Origin::Store);
-        self.mirror(id);
-        self.index();
-        self.bump();
-        Imported::New(id)
-    }
-
-    /// Whether a living book still lists `path`.
-    pub fn listed(&self, path: &std::path::Path) -> bool {
-        self.books()
-            .any(|b| b.locations.iter().any(|l| l.path == path))
     }
 }
 

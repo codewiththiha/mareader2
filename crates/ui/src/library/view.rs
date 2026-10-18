@@ -10,8 +10,8 @@ use egui::{
 use std::collections::BTreeSet;
 
 use mareader_library::{
-    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, Library, Shelf, ShelfId,
-    SortKey, SourceId, View,
+    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, FolderId, Home, Layout, Library, Shelf,
+    ShelfId, SortKey, View,
 };
 
 use super::add::{self, Here};
@@ -233,7 +233,7 @@ struct Cx<'a> {
     model: &'a Library,
     covers: &'a mut Covers,
     /// Folders whose drive wasn't there at the last look.
-    offline: &'a BTreeSet<SourceId>,
+    offline: &'a BTreeSet<FolderId>,
     fit: CoverFit,
     /// The shelf open on the page; dragged books leave it.
     at: Option<ShelfId>,
@@ -857,7 +857,7 @@ fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
     // Books found in a folder may never have been opened.
     let when = match book.opened.value {
         0 => "Not opened".to_owned(),
-        at => ago(super::wall_ms().saturating_sub(at)),
+        at => mareader_library::human_age(at, super::wall_ms()),
     };
     let when = p.layout_no_wrap(when, FontId::proportional(12.0), faded(t.muted, fade));
     let right = rect.right() - ROW_INSET;
@@ -1062,22 +1062,6 @@ fn detail(model: &Library, book: &Book, offline: bool) -> String {
     }
 }
 
-/// "5 min ago": how long since, in the largest whole unit.
-fn ago(ms: u64) -> String {
-    let min = ms / 60_000;
-    let (h, d) = (min / 60, min / 1_440);
-    match () {
-        _ if min < 1 => "Just now".into(),
-        _ if h < 1 => format!("{min} min ago"),
-        _ if d < 1 => format!("{h} h ago"),
-        _ if d < 2 => "Yesterday".into(),
-        _ if d < 14 => format!("{d} days ago"),
-        _ if d < 60 => format!("{} weeks ago", d / 7),
-        _ if d < 730 => format!("{} months ago", d / 30),
-        _ => format!("{} years ago", d / 365),
-    }
-}
-
 /// Nothing here matches: say so, and offer the wider library.
 fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Commands) {
     let note = format!("No books match “{text}”.");
@@ -1119,18 +1103,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, model: &Library, t: &Tokens, out: &mut C
 
 #[cfg(test)]
 mod tests {
-    use super::{CARD_MIN, GAP, ago, auto_columns};
-
-    #[test]
-    fn times_read_in_the_largest_whole_unit() {
-        let min = 60_000;
-        assert_eq!(ago(10_000), "Just now");
-        assert_eq!(ago(5 * min), "5 min ago");
-        assert_eq!(ago(3 * 60 * min), "3 h ago");
-        assert_eq!(ago(30 * 60 * min), "Yesterday");
-        assert_eq!(ago(4 * 1_440 * min), "4 days ago");
-        assert_eq!(ago(800 * 1_440 * min), "2 years ago");
-    }
+    use super::{CARD_MIN, GAP, auto_columns};
 
     #[test]
     fn automatic_columns_keep_cards_wide_within_the_limits() {

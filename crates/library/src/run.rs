@@ -7,12 +7,12 @@ use crate::book::{Book, Origin, display_title};
 use crate::clock::Field;
 use crate::conflict::{Arrival, Entry, Level, collide};
 use crate::extra::Extra;
+use crate::folder::Found;
 use crate::folder::{Folder, Options, key_chain};
-use crate::id::{BookId, ShelfId, SourceId};
+use crate::id::{BookId, FolderId, ShelfId};
 use crate::ledger::{self, Action, Known, Registry};
 use crate::library::{Library, Measure, Opened};
 use crate::shelves::{Shelf, ShelfKind};
-use crate::sources::Found;
 
 /// Who asked for the walk: a rescan stays quiet, an import may add.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct Plan {
 /// A pick folded into its tree: that tree and the pick's rung in it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fold {
-    pub tree: SourceId,
+    pub tree: FolderId,
     pub rel: String,
 }
 
@@ -66,13 +66,13 @@ pub struct MergeAsk {
     pub arrival: Arrival,
     pub found: Found,
     pub existing: Entry,
-    pub folder: SourceId,
+    pub folder: FolderId,
 }
 
 /// A walk decided, waiting for its copies; nothing is written yet.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Planned {
-    pub folder: SourceId,
+    pub folder: FolderId,
     /// Files that owe a book; a copying folder copies these first.
     pub adds: Vec<Found>,
     pub relinks: Vec<(BookId, Found)>,
@@ -135,7 +135,7 @@ impl Library {
         self.folders.values()
     }
 
-    pub fn folder(&self, id: SourceId) -> Option<&Folder> {
+    pub fn folder(&self, id: FolderId) -> Option<&Folder> {
         self.folders.get(&id)
     }
 
@@ -167,13 +167,13 @@ impl Library {
         opts: Options,
         plan: &Plan,
         wall_ms: u64,
-    ) -> SourceId {
+    ) -> FolderId {
         let groups = opts.groups;
         let standing = match plan.beside {
             true => None,
             false => self.folder_at(&root, opts.in_place),
         };
-        let id = standing.unwrap_or_else(|| self.new_source_id(&root, wall_ms));
+        let id = standing.unwrap_or_else(|| self.new_folder_id(&root, wall_ms));
         let mut folder = (self.folders.get(&id).cloned())
             .unwrap_or_else(|| Folder::new(id, root, opts.clone(), wall_ms));
         // The tree's own shape stands; the pick's rung is reshaped below.
@@ -204,7 +204,7 @@ impl Library {
     }
 
     /// The folder at `root`: one reading the same way, else any.
-    pub fn folder_at(&self, root: &Path, in_place: bool) -> Option<SourceId> {
+    pub fn folder_at(&self, root: &Path, in_place: bool) -> Option<FolderId> {
         let at = || self.folders.values().filter(|f| f.root == root);
         let same = at().find(|f| f.mode().in_place() == in_place);
         same.or_else(|| at().next()).map(|f| f.id)
@@ -213,7 +213,7 @@ impl Library {
     /// The walk's files to decisions; the ledger's own notes are written.
     pub fn plan_walk(
         &mut self,
-        id: SourceId,
+        id: FolderId,
         found: Vec<Found>,
         asked: Asked,
         plan: Plan,
@@ -303,7 +303,7 @@ impl Library {
     fn read_in_place(&self, found: &[Found], registry: &Registry) -> BTreeSet<PathBuf> {
         let in_place = |b: &Book| {
             b.home()
-                .is_some_and(|l| matches!(l.origin, Origin::Source(_)))
+                .is_some_and(|l| matches!(l.origin, Origin::Folder(_)))
         };
         let held = |f: &&Found| {
             let known = registry.get(&f.measure.content);
@@ -558,7 +558,7 @@ impl Library {
             true => (
                 file.path.clone(),
                 file.measure,
-                Origin::Source(folder.id),
+                Origin::Folder(folder.id),
                 None,
             ),
             false => {
@@ -694,7 +694,7 @@ impl Library {
     }
 
     /// The folder's own shelves hang as the disk does, unless hand-moved.
-    pub(crate) fn rehang(&mut self, folder: SourceId, wall_ms: u64) {
+    pub(crate) fn rehang(&mut self, folder: FolderId, wall_ms: u64) {
         let rungs: HashMap<String, ShelfId> = (self.shelves.values())
             .filter(|s| s.alive())
             .filter_map(|s| {
@@ -737,7 +737,7 @@ impl Library {
     pub(crate) fn origin_at(&self, path: &Path) -> Origin {
         let reads = |f: &&Folder| f.mode().in_place() && path.starts_with(&f.root);
         match self.folders.values().find(reads) {
-            Some(f) => Origin::Source(f.id),
+            Some(f) => Origin::Folder(f.id),
             None => self.origin_of(path),
         }
     }
@@ -747,7 +747,7 @@ impl Library {
     /// A removed book back from its folder, the filters aside.
     pub fn restore_removed(
         &mut self,
-        folder: SourceId,
+        folder: FolderId,
         content: crate::id::ContentId,
         file: &Found,
         copy: Option<&Copied>,
@@ -779,7 +779,7 @@ impl Library {
     }
 
     /// What a folder's Add menu offers back: removals, then moves.
-    pub fn recoverables(&self, folder: SourceId) -> Vec<ledger::Recovered> {
+    pub fn recoverables(&self, folder: FolderId) -> Vec<ledger::Recovered> {
         let Some(folder) = self.folders.get(&folder) else {
             return Vec::new();
         };

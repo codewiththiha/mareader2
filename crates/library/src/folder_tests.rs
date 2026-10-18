@@ -5,10 +5,10 @@ use crate::folder::{
     Folder, MIN_SIZE_DEFAULT, MIN_SIZE_MAX, Mode, Options, Rungs, dir_of_rung, key_chain,
     key_in_zone, parent_key, rel_under,
 };
-use crate::id::{ShelfId, SourceId};
+use crate::id::{FolderId, ShelfId};
 
 fn folder(opts: Options) -> Folder {
-    Folder::new(SourceId(1), PathBuf::from("/books"), opts, 0)
+    Folder::new(FolderId(1), PathBuf::from("/books"), opts, 0)
 }
 
 #[test]

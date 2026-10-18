@@ -160,9 +160,9 @@ impl Library {
         };
         let path = &location.path;
         let inside = match location.origin {
-            Origin::Source(id) => self
-                .source(id)
-                .and_then(|s| path.strip_prefix(&s.root).ok()),
+            Origin::Folder(id) => self
+                .folder(id)
+                .and_then(|f| path.strip_prefix(&f.root).ok()),
             // Kept under its content id, which says nothing.
             Origin::Store => None,
             Origin::Opened => {

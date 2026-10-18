@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use mareader_library::{BookId, Data, ShelfId};
 
-use super::io::Job;
 use super::{LibraryState, PickAction, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
@@ -112,19 +111,11 @@ impl LibraryState {
             false => Data::Keep,
         };
         let done = self.model.remove_books(books, data, now);
-        if !done.delete.is_empty()
-            && let Some(store) = self.folder.as_ref().map(|f| f.store())
-        {
-            self.io.send(Job::Delete {
-                store,
-                paths: done.delete,
-            });
-        }
         let shelves = (shelves.iter())
             .filter(|id| self.model.remove_shelf(**id, now).is_some())
             .count();
         self.picks.apply(PickAction::Clear);
-        let gone = match (done.books, shelves) {
+        let gone = match (done, shelves) {
             (0, 0) => return,
             (1, 0) => format!("Removed “{first}”."),
             (n, 0) => format!("Removed {n} books."),

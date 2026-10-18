@@ -103,7 +103,7 @@ impl Library {
                     true
                 }))
             }
-            Kind::Locations | Kind::Source | Kind::Folder => None,
+            Kind::Locations | Kind::OldFolder | Kind::Folder => None,
         }
     }
 

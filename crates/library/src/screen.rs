@@ -5,18 +5,18 @@ use std::collections::HashMap;
 use crate::book::Origin;
 use crate::clock::Field;
 use crate::conflict::{Arrival, Entry, Level, Placement, collide, next_name};
-use crate::id::{BookId, ShelfId, SourceId};
+use crate::folder::Found;
+use crate::id::{BookId, FolderId, ShelfId};
 use crate::library::{Library, Opened};
 use crate::link::LinkTo;
 use crate::removal::Data;
 use crate::run::{Copied, MergeAsk};
-use crate::sources::Found;
 
 /// Why a loose file asks before it lands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Why {
     /// A tree read in place holds a book at the file's address.
-    Covered(SourceId),
+    Covered(FolderId),
     /// The library holds the file's content as a book.
     AlreadyHave,
     /// The level holds a row of the file's name.
@@ -66,8 +66,8 @@ pub enum Answer {
 /// A covering tree's verdict on a loose file, before the logs.
 enum Fate {
     Ordinary,
-    Restore(SourceId),
-    Ask(SourceId, BookId),
+    Restore(FolderId),
+    Ask(FolderId, BookId),
 }
 
 impl Library {
@@ -132,7 +132,7 @@ impl Library {
     }
 
     /// The folder's own book back in place, on the shelf it left.
-    fn restore_covered(&mut self, id: SourceId, file: &Found, wall_ms: u64) -> Option<BookId> {
+    fn restore_covered(&mut self, id: FolderId, file: &Found, wall_ms: u64) -> Option<BookId> {
         let mut folder = self.folders.get(&id)?.clone();
         let stone = folder.tombstone(file.measure.content).and_then(|s| s.shelf);
         let (rung, root) = folder.rungs_for(&file.path);
@@ -330,7 +330,7 @@ impl Library {
     }
 
     /// The folder placed the file: its log is spent.
-    fn settle(&mut self, id: SourceId, file: &Found) {
+    fn settle(&mut self, id: FolderId, file: &Found) {
         let Some(mut folder) = self.folders.get(&id).cloned() else {
             return;
         };
