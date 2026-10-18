@@ -116,15 +116,21 @@ impl Files {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
-        let (files, ctx) = (self.clone(), ctx.clone());
+        let (files, waker) = (self.clone(), ctx.clone());
         let done = move |paths: Vec<PathBuf>| {
             files.picking.store(false, Ordering::Release);
             if let Some(command) = then(paths) {
-                files.deliver(&ctx, command);
+                files.deliver(&waker, command);
             }
         };
         if !dialog::run_path(make, kind, done) {
             self.picking.store(false, Ordering::Release);
+            let why = match cfg!(target_arch = "wasm32") {
+                true => "Folders and relinks need the desktop app.",
+                false => "The file dialog couldn't open.",
+            };
+            let toast = crate::toast::Toast::error(why);
+            self.deliver(ctx, Command::Notify(toast));
         }
     }
 
