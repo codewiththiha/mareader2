@@ -320,6 +320,14 @@ and returns where it came from; Library sits beside it.
   instead of a card (a folded window comes back) and the selection stays.
   A card's book button carries its word into the window, or the page. The
   shortcut gives an idle window the keys; pressed while typing, it closes.
+- **The pill.** Folding leaves the pill where − was (the window's top right
+  on the stage's right half); it names the word and its top answer, and is
+  kept on the stage by its own size, so it reaches every edge. Unfolding
+  grows the window from it away from the nearer edges, wholly on the stage,
+  which lies between the title bar and the page bar.
+- **Bridges.** The route chip names the language between ("via English");
+  each answer names its English word ("via light"), which keeps its room
+  while the tags give way. Scrolled lists stay clear of the floating bar.
 
 ## Icons
 

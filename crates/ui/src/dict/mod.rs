@@ -68,6 +68,8 @@ pub struct Dict {
     /// The floating window's rect mid-drag, and where it was drawn.
     float: Option<Rect>,
     float_rect: Option<Rect>,
+    /// Whether it was folded when last drawn, to catch it folding.
+    float_folded: Option<bool>,
 }
 
 impl Dict {
@@ -294,6 +296,7 @@ impl Dict {
             service: &mut self.service,
             page: &mut self.page,
             live: &mut self.float,
+            was_folded: &mut self.float_folded,
             settings,
             stage,
         };

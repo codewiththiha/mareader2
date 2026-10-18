@@ -1,6 +1,7 @@
 //! One dictionary entry's rows, shared by the card and the panel.
 
-use egui::{Align, Layout, RichText, Ui};
+use egui::text::LayoutJob;
+use egui::{Align, FontId, Label, Layout, RichText, TextFormat, Ui, vec2};
 use mareader_dict::{Entry, WordMatch, fold};
 
 use crate::shaped;
@@ -74,21 +75,47 @@ pub fn rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
     }
 }
 
-/// "noun · formal" on the left, "via English" on the right.
+/// Tags left, "via perfume" right; the tags give way, never the bridge.
 fn meta(ui: &mut Ui, e: &Entry, t: &Tokens) {
     let tags = e.tags();
     if tags.is_empty() && e.via.is_none() {
         return;
     }
-    let small = |s: String| RichText::new(s).size(t.text_small).color(t.muted);
+    let width = ui.available_width();
     ui.horizontal(|ui| {
-        if !tags.is_empty() {
-            ui.label(small(tags).italics());
-        }
-        if let Some(via) = &e.via {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(small(format!("via {via}")));
-            });
-        }
+        ui.set_max_width(width);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if let Some(via) = &e.via {
+                // Up to two thirds of the row; past that it ends in "…".
+                let cap = vec2((width * 0.66).max(60.0), 0.0);
+                let right = Layout::right_to_left(Align::Center);
+                ui.allocate_ui_with_layout(cap, right, |ui| {
+                    let label = Label::new(bridge(via, t)).truncate();
+                    let tip = format!("Found through the English “{via}”");
+                    ui.add(label).on_hover_text(tip);
+                });
+            }
+            if !tags.is_empty() {
+                let lead = Layout::left_to_right(Align::Center);
+                ui.with_layout(lead, |ui| {
+                    let tags = RichText::new(tags).italics().size(t.text_small);
+                    ui.add(Label::new(tags.color(t.muted)).truncate());
+                });
+            }
+        });
     });
+}
+
+/// "via" quiet, the English word between a shade stronger.
+fn bridge(via: &str, t: &Tokens) -> LayoutJob {
+    let font = FontId::proportional(t.text_small);
+    let mut job = LayoutJob::default();
+    let quiet = TextFormat::simple(font.clone(), t.muted);
+    job.append("via ", 0.0, quiet);
+    job.append(
+        via,
+        0.0,
+        TextFormat::simple(font, t.ink.gamma_multiply(0.8)),
+    );
+    job
 }

@@ -2509,6 +2509,8 @@ impl eframe::App for MareaderApp {
             let mut stage = ctx.content_rect();
             stage.min.x += inset;
             stage.min.y += crate::theme::TITLE_BAR_H;
+            // Above the page bar too, which would cover it.
+            stage.max.y -= crate::page_bar::BAR_H;
             let dictionary = &self.settings.dictionary;
             self.dict.window(&ctx, dictionary, stage, &mut commands);
         }

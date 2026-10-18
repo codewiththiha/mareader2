@@ -1454,6 +1454,8 @@ evidence = [
     "crates/ui/tests/dictionary.rs::a_look_up_fills_the_open_window_and_keeps_the_selection",
     "crates/ui/tests/dictionary.rs::the_card_carries_its_word_into_the_window_or_the_page",
     "crates/ui/tests/dictionary.rs::the_shortcut_gives_an_idle_window_the_keys_then_closes_it",
+    "crates/ui/tests/dictionary.rs::the_pill_goes_anywhere_and_unfolds_onto_the_stage",
+    "crates/ui/tests/dictionary.rs::a_bridge_names_english_and_each_answer_its_word",
     "crates/ui/src/dict/window.rs::the_window_stays_on_the_stage_and_never_below_its_minimum",
     "crates/settings/src/study.rs::a_window_rect_is_finite_and_never_below_the_minimum",
 ]
