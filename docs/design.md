@@ -103,6 +103,15 @@ the scroll, together.
 - glass (the title bar) = surface at 96 % until the blur pass (M2 slice 3) gives
   surface at 72 % with a 20 pt backdrop blur.
 
+**Contrast floor.** Muted and accent ink are small text, so after any tint
+`readable` moves their OKLCH lightness just far enough for 4.5:1 (WCAG AA)
+on paper, surface and accent-soft. Light muted and light accent darken a
+little; dark mode already passes. The table holds the inputs.
+
+**Preset names show whole.** A centred name may run into the gaps beside
+its card, then shrink by up to a point; only then do cards drop below five
+across ("Parchment" was "Parchme…"). Past three it is elided, whole on hover.
+
 ## Type
 
 - Inter (Regular, Medium, SemiBold), embedded from `assets/fonts`.
@@ -273,6 +282,14 @@ A new setting picks its `Applies` once; nothing else changes.
 - **Dictionary card, compact.** 300 px wide with tighter padding; the
   languages sit on the word's line before ✕. Burmese and other tall scripts
   draw answers at 1.05× the text size, not 1.15×: they run taller at a size.
+- **Long highlights.** A notes-panel quote stops at three lines and a note at
+  four; a cut row ends in "Show more", which opens it in place, then "Show
+  less". The row's accessible label always carries the whole text.
+- **Shaped text in panels.** Burmese, Thai, Arabic and Indic text egui would
+  garble goes through `shaped.rs`: notes, chapter titles in Contents and the
+  notes headings, Library titles, and the AI card's word, meaning and usages.
+  Heights come from a cheap measure; a texture is drawn only once on screen.
+  Search does not wash words in shaped text.
 
 ## Icons
 
