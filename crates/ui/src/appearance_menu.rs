@@ -375,7 +375,14 @@ pub fn forget_draft(ctx: &Context) {
 fn name_box(ui: &mut Ui, name: &str) -> Id {
     let t = Tokens::get(ui.ctx());
     let text = egui::Label::new(RichText::new(name).color(t.muted)).truncate();
-    ui.add_sized([NAME_W, 20.0], text).id
+    // Left-aligned, so every row's name starts on one edge.
+    let size = vec2(NAME_W, 20.0);
+    let layout = Layout::left_to_right(Align::Center);
+    let named = ui.allocate_ui_with_layout(size, layout, |ui| {
+        ui.set_min_size(size);
+        ui.add(text).id
+    });
+    named.inner
 }
 
 /// Painted and clipped in a fixed box: a widget here could outgrow it.
