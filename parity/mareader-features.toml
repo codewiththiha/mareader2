@@ -178,6 +178,8 @@ evidence = [
     "crates/ui/tests/navigation.rs::clicking_a_chapter_jumps_there_and_marks_it",
     "crates/ui/tests/navigation.rs::the_thumbnails_follow_the_page_and_a_click_jumps",
     "crates/ui/tests/panel.rs::shelves_open_in_place_and_list_their_shelves_and_books",
+    "crates/ui/src/library_panel.rs::a_link_is_a_row_under_its_own_name_and_counts_on_its_shelf",
+    "crates/ui/src/library_panel.rs::a_book_on_two_open_shelves_is_two_rows_of_their_own",
     "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed",
 ]
 notes = "Docked or floating, sliding, with the outline, thumbnails, library and dictionary panels serving the focused pane"
@@ -461,7 +463,7 @@ evidence = [
   "crates/library/src/legacy_tests.rs::an_old_folder_row_becomes_a_folder_with_its_removals_as_tombstones",
   "crates/session/src/cover.rs::a_file_names_its_title_and_author_without_being_laid_out",
 ]
-notes = "One import sheet: formats, size floor, read in place or copy, watch, a shelf per subfolder. A folder already in the library walks on, a held name asks. Capped walks; half-written files wait. Folders from before load as folders"
+notes = "One import sheet: formats, size floor, read in place or copy, watch, a shelf per subfolder. A folder already in the library walks on; finding nothing new, or folding back into its tree, it says so and lights the shelf. A held name asks. Capped walks; half-written files wait. Folders from before load as folders"
 reference = ["crates/library-core/src/folder.rs", "crates/library-core/src/scan.rs", "crates/library-core/src/ledger.rs"]
 
 [[feature]]
@@ -756,11 +758,12 @@ evidence = [
   "crates/library/src/gate_tests.rs::a_name_the_level_holds_asks_and_may_link",
   "crates/library/src/run_tests.rs::a_merge_asks_about_a_name_the_shelf_already_holds",
   "crates/library/src/moves_tests.rs::merge_keeps_the_book_here_with_the_further_place_marks_and_shelves",
+  "crates/library/src/moves_tests.rs::a_book_turned_copy_onto_the_librarys_own_may_become_a_link_to_it",
   "crates/library/src/moves_tests.rs::replace_drops_the_book_here_and_the_arrival_takes_its_shelves",
   "crates/library/src/moves_tests.rs::keep_both_lands_the_arrival_under_the_next_free_name",
 ]
 reference = ["crates/library-core/src/conflict.rs"]
-notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves onto a shelf ask merge, replace or keep both, and the page asks before landing them"
+notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves onto a shelf ask merge, replace or keep both; a book just copied onto one of the library's own may become a link to it instead. The page asks before landing them"
 
 [[feature]]
 id = "library.independent-twins"

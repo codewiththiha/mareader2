@@ -7,7 +7,7 @@ use egui::{
     LayerId, Order, Rect, RichText, ScrollArea, Sense, Stroke, TextWrapMode, Ui, WidgetText, pos2,
     vec2,
 };
-use mareader_library::{Book, BookId, Format, Home, Library, ShelfId, natural};
+use mareader_library::{Book, BookId, Format, Home, Library, LinkId, LinkTo, ShelfId, natural};
 use mareader_settings::LibraryClick;
 use mareader_workspace::{Bounds, DropTarget, PaneId};
 
@@ -42,12 +42,16 @@ pub enum Line {
         /// Books on it and under it.
         count: usize,
     },
+    /// A book, or a link to one shown under its own name.
     Book {
         id: BookId,
         title: String,
         format: Format,
         depth: usize,
         missing: bool,
+        /// The shelf the row stands on: a book may show on many.
+        level: Option<ShelfId>,
+        link: Option<LinkId>,
     },
 }
 
@@ -88,28 +92,59 @@ fn push_level(
             push_level(model, Some(child.id), books, depth + 1, open, out);
         }
     }
-    let mut books = books;
-    books.sort_by(|a, b| natural(&a.title.value, &b.title.value).then(a.id.cmp(&b.id)));
-    out.extend(books.into_iter().map(|b| Line::Book {
+    let line = |b: &Book, title: &str, link| Line::Book {
         id: b.id,
-        title: b.title.value.clone(),
+        title: title.to_owned(),
         format: b.format,
         depth,
         missing: b.missing(),
-    }));
+        level: shelf,
+        link,
+    };
+    let mut rows: Vec<Line> = (books.into_iter())
+        .map(|b| line(b, &b.title.value, None))
+        .collect();
+    // A link to a gone book, or to a shelf, has no row here.
+    rows.extend(linked(model, shelf).map(|(l, b)| line(b, &l.name.value, Some(l.id))));
+    rows.sort_by(|a, b| match (a, b) {
+        (
+            Line::Book {
+                title: x, id: i, ..
+            },
+            Line::Book {
+                title: y, id: j, ..
+            },
+        ) => natural(x, y).then(i.cmp(j)),
+        _ => std::cmp::Ordering::Equal,
+    });
+    out.extend(rows);
 }
 
-/// Books on `shelf` and its shelves, each counted once.
+/// The book links standing on `level`, with the books they open.
+fn linked(
+    model: &Library,
+    level: Option<ShelfId>,
+) -> impl Iterator<Item = (&mareader_library::Link, &Book)> {
+    (model.links())
+        .filter(move |l| l.level.value == level)
+        .filter_map(|l| match l.target {
+            LinkTo::Book(b) => Some((l, model.book(b)?)),
+            LinkTo::Shelf(_) => None,
+        })
+}
+
+/// Books on `shelf` and its shelves, each counted once, and links.
 fn count_under(model: &Library, shelf: ShelfId, depth: usize) -> usize {
-    let mut seen = BTreeSet::new();
+    let (mut seen, mut links) = (BTreeSet::new(), 0);
     let mut stack = vec![(shelf, depth)];
     while let Some((at, d)) = stack.pop() {
         seen.extend(model.shelf_books(at).into_iter().map(|b| b.id));
+        links += linked(model, Some(at)).count();
         if d < SHELF_DEPTH_MAX {
             stack.extend(model.children(Some(at)).into_iter().map(|c| (c.id, d + 1)));
         }
     }
-    seen.len()
+    seen.len() + links
 }
 
 /// One open pane, as the strip lists it.
@@ -382,6 +417,8 @@ fn book_row(
         format,
         depth,
         missing,
+        level,
+        link,
     } = line
     else {
         return;
@@ -391,7 +428,8 @@ fn book_row(
         true => Sense::click(),
         false => Sense::click_and_drag(),
     };
-    let resp = ui.interact(row, Id::new(("library-panel-book", id)), sense);
+    let key = Id::new(("library-panel-book", id, level, link));
+    let resp = ui.interact(row, key, sense);
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, look.active, title)
     });
@@ -668,5 +706,46 @@ mod tests {
         lib.unfile(ids[2], shelves[0], 9);
         let shown = names(state.lines(&lib, Home::Unshelved));
         assert!(shown.contains(&"0:plain".to_owned()), "{shown:?}");
+    }
+
+    #[test]
+    fn a_link_is_a_row_under_its_own_name_and_counts_on_its_shelf() {
+        let (mut lib, ids, shelves) = library();
+        let top = lib.link_to(LinkTo::Book(ids[3]), None, 7).unwrap();
+        assert!(lib.rename_link(top, "Shortcut", 8));
+        lib.link_to(LinkTo::Book(ids[0]), Some(shelves[0]), 9);
+        // A link to a shelf has no row of its own.
+        lib.link_to(LinkTo::Shelf(shelves[1]), None, 10);
+        let shown = lines(&lib, &BTreeSet::new(), Home::Unshelved);
+        let expect = [
+            "0:[empty 0]",
+            "0:[Work 3]",
+            "0:Alpha notes",
+            "0:Shortcut",
+            "0:zeta",
+        ];
+        assert_eq!(names(&shown), expect);
+        let row = shown
+            .iter()
+            .find(|l| matches!(l, Line::Book { link: Some(_), .. }));
+        assert!(
+            matches!(row, Some(Line::Book { id, .. }) if *id == ids[3]),
+            "opens its book"
+        );
+    }
+
+    #[test]
+    fn a_book_on_two_open_shelves_is_two_rows_of_their_own() {
+        let (mut lib, ids, shelves) = library();
+        lib.file(ids[3], shelves[0], 7);
+        let open: BTreeSet<ShelfId> = shelves.iter().take(2).copied().collect();
+        let shown = lines(&lib, &open, Home::Unshelved);
+        let levels: Vec<Option<ShelfId>> = (shown.iter())
+            .filter_map(|l| match l {
+                Line::Book { id, level, .. } if *id == ids[3] => Some(*level),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(levels, [Some(shelves[1]), Some(shelves[0])]);
     }
 }

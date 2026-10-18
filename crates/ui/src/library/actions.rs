@@ -109,6 +109,11 @@ pub enum Sheet {
         folder: FolderId,
         book: BookId,
     },
+    /// An import that only met what was there: its shelf lights on close.
+    Note {
+        shelf: ShelfId,
+        returned: bool,
+    },
 }
 
 impl LibraryState {
@@ -146,7 +151,17 @@ impl LibraryState {
             | Action::Relink { .. }
             | Action::UseAnyway(_)
             | Action::Seek { .. } => self.find_act(action, out),
-            Action::CloseSheet => self.close_sheet(),
+            Action::CloseSheet => {
+                // A note lights its shelf however it's closed.
+                let lit = match &self.folders.sheet {
+                    Some(Sheet::Note { shelf, .. }) => Some(*shelf),
+                    _ => None,
+                };
+                self.close_sheet();
+                if let Some(shelf) = lit {
+                    self.reveal(Pick::Shelf(shelf), now);
+                }
+            }
             Action::AskRename(named) => {
                 if self.name_of(named).is_some() {
                     self.folders.sheet = Some(Sheet::Rename(named));

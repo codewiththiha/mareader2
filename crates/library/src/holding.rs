@@ -50,8 +50,10 @@ impl Library {
     pub fn holding(&self, id: ShelfId) -> Option<Holding> {
         let own = self.tally(&[id]);
         let below = || self.tally(&self.subtree(&[id]));
-        let folders = self.folder_list();
-        let mode = || crate::ground::mode_of(&self.shelves, &folders, id).map(Holding::of);
+        let mode = || {
+            let folders = self.folder_list();
+            crate::ground::mode_of(&self.shelves, &folders, id).map(Holding::of)
+        };
         own.or_else(below).or_else(mode)
     }
 
@@ -83,6 +85,7 @@ impl Library {
     }
 }
 
-fn stored(book: &Book) -> bool {
+/// Whether the library keeps the book's file itself.
+pub(crate) fn stored(book: &Book) -> bool {
     book.home().is_some_and(|l| l.origin == Origin::Store)
 }

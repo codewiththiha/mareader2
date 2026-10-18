@@ -61,6 +61,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => moved(ui, model, *folder, book, &t),
                     None => Some(Action::CloseSheet),
                 },
+                Sheet::Note { shelf, returned } => import_note(ui, model, *shelf, *returned, &t),
             };
         });
     let working = matches!(sheet, Some(Sheet::Find(f)) if matches!(f.step, Step::Working(_)));
@@ -644,6 +645,47 @@ fn moved(
             act = Some(Action::ShowMoved { folder, book });
         }
         if ui.button("Back").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    act
+}
+
+/// What an import that found only what was there says.
+fn import_note(
+    ui: &mut Ui,
+    model: &Library,
+    shelf: ShelfId,
+    returned: bool,
+    t: &Tokens,
+) -> Option<Action> {
+    let Some(name) = model.shelf(shelf).map(|s| s.name.value.as_str()) else {
+        return Some(Action::CloseSheet);
+    };
+    title(ui, name, t);
+    let (said, sentence) = match returned {
+        true => (
+            "Back where its folder names",
+            format!(
+                "“{name}” went back inside the folder it belongs to, onto the shelf its \
+                 directory names. Nothing was copied, and nothing on disk moved. It lights up \
+                 where it stands now when you close this."
+            ),
+        ),
+        false => (
+            "Nothing new to import",
+            "The import walked the folder again and found nothing new — every book is \
+             already on the shelf. The shelf lights up when you close this."
+                .to_owned(),
+        ),
+    };
+    ui.label(RichText::new(said).size(12.0).color(t.muted));
+    ui.label(RichText::new(sentence).size(12.0).color(t.ink));
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        let show = primary(ui, "Show the shelf", t.accent, t);
+        if show.on_hover_text("Close and light the shelf up").clicked() {
             act = Some(Action::CloseSheet);
         }
     });

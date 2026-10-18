@@ -242,6 +242,33 @@ fn move_words(model: &Library, ask: &MoveAsk) -> Words {
             counted(n, "highlight", "highlights")
         ),
     };
+    let merge = format!(
+        "One book — “{existing}” stays, and takes this one's shelves, its highlights, and the \
+         further place in it"
+    );
+    let fresh = format!("Keeps both — this one becomes “{fresh}”");
+    if ask.converted {
+        return Words {
+            heading: ask.arrival.name.clone(),
+            subtitle: format!("Already {at}"),
+            question: format!(
+                "A book called “{existing}” is already {at}, and it is one of the library's own \
+                 copies. Keep one book, reach the copy from here, or keep both under a new name."
+            ),
+            choices: vec![
+                (Placement::Merge, "Merge", merge),
+                (
+                    Placement::LinkOnly,
+                    "Make link",
+                    format!(
+                        "The book you dragged becomes a pointer here — “{existing}” stays, the \
+                         file on disk stays, and nothing is destroyed"
+                    ),
+                ),
+                (Placement::KeepBoth, "As new", fresh),
+            ],
+        };
+    }
     Words {
         heading: ask.arrival.name.clone(),
         subtitle: format!("Already {at}"),
@@ -250,20 +277,9 @@ fn move_words(model: &Library, ask: &MoveAsk) -> Words {
              or keep both under a new name."
         ),
         choices: vec![
-            (
-                Placement::Merge,
-                "Merge",
-                format!(
-                    "One book — “{existing}” stays, and takes this one's shelves, its \
-                     highlights, and the further place in it"
-                ),
-            ),
+            (Placement::Merge, "Merge", merge),
             (Placement::Replace, "Replace", replace),
-            (
-                Placement::KeepBoth,
-                "As new",
-                format!("Keeps both — this one becomes “{fresh}”"),
-            ),
+            (Placement::KeepBoth, "As new", fresh),
         ],
     }
 }

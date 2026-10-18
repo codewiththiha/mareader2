@@ -214,7 +214,7 @@ impl Library {
         self.purge(ids, Data::Delete, false, wall_ms)
     }
 
-    fn purge(&mut self, ids: &[BookId], data: Data, stone: bool, wall_ms: u64) -> usize {
+    pub(crate) fn purge(&mut self, ids: &[BookId], data: Data, stone: bool, wall_ms: u64) -> usize {
         let removing = self.living(ids);
         let at = self.clock.tick(wall_ms);
         let mut done = 0;

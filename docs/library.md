@@ -797,3 +797,72 @@ If it grows past that, the model is probably carrying a case it shouldn't.
 
 - **Shelves that mirror folders and are editable.** Replaced by read-only
   source trees plus user shelves.
+
+## Rewrite: mareader's library behaviour (owner, 2026-10-18)
+
+The library was rewritten to behave like mareader's, edge cases included,
+on mareader2's own storage: SQLite rows, stamped fields and tombstones,
+ready for sync. Where this section and an earlier one disagree, this one
+holds; in particular folders are no longer read-only source trees (see
+§ Dropped on purpose) but shelves cut from the folder, as below.
+
+- **Folders.** One import sheet: formats (include or exclude), a size
+  floor (strictly larger), Copy into the library, Read at place, or Read
+  at place and watch, and a shelf per folder or one shelf for everything.
+  Answers can differ per subfolder; the deepest answer wins. A copying
+  folder is walked once and owes no watch. Each subfolder becomes a rung:
+  a shelf the folder cut. Watched rungs rescan on launch and window focus;
+  unwatched ones add nothing on a rescan, but an explicit import does.
+- **The ledger.** A folder remembers what it placed, where it last saw
+  each file, and a tombstone for every book removed from it. A tombstone
+  beats everything on a rescan; an explicit import lifts it. Moving a
+  book read in place off its folder's shelves stores a copy and writes a
+  move-out log, so the folder doesn't place it again.
+- **Restore.** A folder shelf's Add menu lists what can come back:
+  removed books first ("removed 3 minutes ago · 12 MB", or "not there any
+  more"), then books that moved to another shelf, which offer "Also show
+  it here" or "Show it in …". A restored file lands on its old shelf, or
+  the folder's root, whatever the folder's filters say.
+- **Removal.** One sheet for books, shelves and links, itemised: reading
+  position, highlights, cover art, the app's own copies, the shelves it
+  was on. Switches, off every time: remove everything inside, and delete
+  the highlights and reading position (kept by default, they come back
+  if the file is imported again). The library's own copies are deleted.
+- **Questions.** One queue and one sheet: a held name on import (open,
+  add as new, make link), a move onto a held name (merge, replace, as
+  new; or merge, make link, as new when the book just became a copy and
+  the one there is the library's own), content already held, a file
+  inside a tree read in place, a folder merging into a shelf, and a
+  folder whose name a top-level shelf holds, asked before the walk.
+  Cancel leaves every waiting question; "Apply to all" answers the same
+  kind at once.
+- **Re-imports.** A pick inside a tree read in place continues that
+  tree. A subfolder imported on its own earlier folds back in when its
+  parent is imported, and a different shape re-files the tree. An import
+  that finds nothing new, or folds back, says so in a note whose close
+  lights the shelf.
+- **Copy ask.** Any gesture that takes books read in place off their
+  ground asks first: copy and move, copy and take apart, copy and
+  remove, put shelves back in their places, or let the folder make them
+  again. The folder on disk is never touched.
+- **Links.** A pointer at a book or a shelf, never a copy. It stands
+  among the cards, moves like one, never collides with a name, and goes
+  when its target does. Clicking it shows the target where it lives.
+- **Duplicate.** A book duplicates as the library's own copy, marks and
+  place included, under the next free name. A shelf duplicates as a
+  shelf of the reader's own with fresh copies of every book once.
+- **Badges.** A shelf says where its books live: On disk, Copied or
+  Mixed, from its own books, else everything below, else its folder's
+  way of holding them. A book link counts as its book. Watched shelves
+  carry a dot.
+- **The list.** A tree: a shelf row unfolds in place (click, Space, or
+  resting a dragged card on it) and its folder button opens it. Search
+  unfolds shelves only. Cards show plates two levels deep, with empty
+  cells hatched.
+- **The panel.** The reading sidebar's tree also lists book links under
+  their own names; a book on two open shelves is two rows. Counts include
+  links. A missing book still opens the find-again sheet (mareader only
+  pointed to the Library page).
+- **Kept apart from mareader.** The progress card leaves when its run
+  ends and the toast reports the outcome; mareader kept a finished card
+  until dismissed. Twins stay independent ("Read separately").

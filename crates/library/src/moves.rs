@@ -10,6 +10,8 @@ use crate::folder::{Folder, dir_of_rung, key_in_zone, rel_under};
 use crate::ground;
 use crate::id::{BookId, FolderId, LinkId, ShelfId};
 use crate::library::Library;
+use crate::link::LinkTo;
+use crate::removal::Data;
 use crate::run::Copied;
 use crate::screen::Answer;
 use crate::shelves::ShelfKind;
@@ -80,11 +82,16 @@ pub struct MoveAsk {
     pub existing_name: String,
     pub keep: bool,
     pub before: Option<Item>,
+    /// It just became a copy, and the book there is the library's own.
+    pub converted: bool,
 }
 
 impl MoveAsk {
     pub fn offers(&self) -> &'static [Placement] {
-        Placement::MOVE
+        match self.converted {
+            true => Placement::MOVE_KEEPING_BOTH,
+            false => Placement::MOVE,
+        }
     }
 
     fn book(&self) -> Option<BookId> {
@@ -265,6 +272,8 @@ impl Library {
                         existing,
                         keep: mv.keep,
                         before: mv.before,
+                        converted: departed.contains(&id)
+                            && self.book(existing).is_some_and(crate::holding::stored),
                     }),
                     _ => {
                         self.seat_book(
@@ -328,6 +337,17 @@ impl Library {
             Placement::Merge => {
                 self.fold_moved(ask.existing, id, from, wall_ms);
                 ask.existing
+            }
+            // The fresh copy dissolves into a pointer; the move-out log stays.
+            Placement::LinkOnly => {
+                self.purge(&[id], Data::Keep, false, wall_ms);
+                let at = LinkTo::Book(ask.existing);
+                if let Some(link) = self.link_to(at, to, wall_ms)
+                    && ask.before.is_some()
+                {
+                    self.arrange(to, &[Item::Link(link)], ask.before, wall_ms);
+                }
+                return Answer::Linked;
             }
             Placement::Replace => {
                 let slot = self.slot_of(ask.existing, to);
