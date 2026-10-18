@@ -22,7 +22,7 @@ pub mod sheets;
 pub mod shelving;
 pub mod view;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{BuildHasher, RandomState};
 use std::path::{Path, PathBuf};
 
@@ -83,6 +83,8 @@ pub struct LibraryState {
     /// The shelf whose name the breadcrumb is editing in place.
     renaming: Option<ShelfId>,
     picks: Picks,
+    /// Shelf rows the list shows unfolded; going elsewhere folds them.
+    unfolded: BTreeSet<ShelfId>,
     /// The shelf under files dragged in from outside, if any.
     pub(crate) file_target: Option<ShelfId>,
     search: search::Search,
@@ -109,6 +111,7 @@ impl Default for LibraryState {
             at: None,
             renaming: None,
             picks: Picks::default(),
+            unfolded: BTreeSet::new(),
             file_target: None,
             search: search::Search::default(),
             runs: runs::Runs::default(),
@@ -155,6 +158,10 @@ impl LibraryState {
     /// The books and shelves picked on the page.
     pub fn picks(&self) -> &Picks {
         &self.picks
+    }
+
+    pub fn unfolded(&self) -> &BTreeSet<ShelfId> {
+        &self.unfolded
     }
 
     /// Escape lets go of a selection, then the search; true if it did.

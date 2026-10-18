@@ -111,7 +111,7 @@ pub(super) fn card(ui: &mut Ui, rect: Rect, link: &Link, cx: &mut Cx<'_>) {
     line(p, says(link), small, t.muted, (rect.left(), y + 1.0), width);
 }
 
-pub(super) fn row(ui: &mut Ui, link: &Link, cx: &mut Cx<'_>) {
+pub(super) fn row(ui: &mut Ui, link: &Link, indent: f32, cx: &mut Cx<'_>) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
     let resp = hit(ui, rect, link, cx);
     let t = cx.t;
@@ -121,7 +121,7 @@ pub(super) fn row(ui: &mut Ui, link: &Link, cx: &mut Cx<'_>) {
     backing(ui, ground, t.radius, (resp.hovered(), picked, false), t);
     lit_ring(ui, ground, t.radius, pick, cx);
     let thumb = Rect::from_center_size(
-        pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
+        pos2(rect.left() + ROW_INSET + indent + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
     );
     // While picking, the mark takes the icon's place.

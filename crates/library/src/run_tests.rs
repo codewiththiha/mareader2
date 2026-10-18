@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::folder::{Mode, Options};
+use crate::holding::Holding;
 use crate::ledger::Recovered;
 use crate::link::LinkTo;
 use crate::run::{Asked, Copied, Landed, Plan};
@@ -579,4 +580,25 @@ fn a_shelfs_watch_writes_its_own_rung_and_the_root_writes_the_tree() {
         "the root's answer clears the tree's"
     );
     assert_eq!(lib.shelf_dir(sf), Some(PathBuf::from("/books/sf")));
+}
+
+#[test]
+fn a_shelfs_badge_says_where_its_books_live_down_its_tree() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/sf/a.pdf", 1)];
+    let (_, landed) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let (root, sf) = (shelf_named(&lib, "books"), shelf_named(&lib, "sf"));
+    assert_eq!(lib.holding(sf), Some(Holding::OnDisk));
+    assert_eq!(lib.holding(root), Some(Holding::OnDisk), "read from below");
+    let dup = lib.duplicate_book(landed.placed[0], &copy("/store/a.pdf", 1), 5);
+    assert!(dup.is_some());
+    assert_eq!(lib.holding(sf), Some(Holding::Mixed));
+    let own = lib.create_shelf("Mine", None, 6).unwrap();
+    assert_eq!(lib.holding(own), None, "an empty shelf of the reader's own");
+    lib.link_to(LinkTo::Book(dup.unwrap()), Some(own), 7);
+    assert_eq!(
+        lib.holding(own),
+        Some(Holding::Copied),
+        "a link counts as its book"
+    );
 }

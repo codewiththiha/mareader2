@@ -548,6 +548,8 @@ evidence = [
   "crates/ui/tests/arrange.rs::a_shelf_moves_by_its_edges_and_takes_books_in_its_middle",
   "crates/ui/tests/arrange.rs::carried_cards_make_room_and_settle_where_dropped",
   "crates/library/src/moves_tests.rs::a_link_stands_among_its_level_and_moves_as_a_card",
+  "crates/library/src/run_tests.rs::a_shelfs_badge_says_where_its_books_live_down_its_tree",
+  "crates/ui/tests/library.rs::a_shelf_row_in_the_list_unfolds_in_place_and_its_button_opens_it",
   "crates/ui/tests/library.rs::a_link_lights_what_it_points_at_and_goes_without_it",
 ]
 reference = ["crates/library-core/src/shelf/mod.rs"]

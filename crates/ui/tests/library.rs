@@ -716,8 +716,8 @@ fn the_breadcrumb_starts_at_home_and_names_its_way_back() {
     let options = h.get_by_label("Inner shelf options");
     options.click();
     h.run();
-    assert!(shows(&h, "Rename…") && shows(&h, "Remove shelf"));
-    assert!(!shows(&h, "Cut from a watched folder"), "a hand-made shelf");
+    assert!(shows(&h, "Rename…") && shows(&h, "Duplicate") && shows(&h, "Remove shelf"));
+    assert!(!shows(&h, WATCHED_NOTE), "a hand-made shelf");
     h.get_by_label("Remove shelf").click();
     h.run();
     assert!(library(&h).shelf(inner).is_none());
@@ -1433,6 +1433,10 @@ fn note(title: &str) -> Vec<u8> {
     format!("---\ntitle: {title}\n---\n\n# {title}\n\nText.\n").into_bytes()
 }
 
+/// The crumb menu's word on a shelf a watched folder cut.
+const WATCHED_NOTE: &str = "Cut from a watched folder: removing takes it off the list, and it \
+                            returns if the folder places a book here again.";
+
 fn shows(h: &Harness<'static, MareaderApp>, label: &str) -> bool {
     h.query_all_by_label(label).next().is_some()
 }
@@ -1660,4 +1664,43 @@ fn a_folders_shelf_menu_watches_its_own_subfolder() {
     };
     assert_eq!(toast(&h), said);
     assert_eq!(library(&h).shelf_tracked(sub), !on);
+    shelve(&mut h, ShelfAction::Watch(sub, true));
+    shelve(&mut h, ShelfAction::GoTo(Some(sub)));
+    h.get_by_label("sub shelf options").click();
+    h.run();
+    assert!(shows(&h, WATCHED_NOTE), "a watched folder's shelf says so");
+}
+
+#[test]
+fn a_shelf_row_in_the_list_unfolds_in_place_and_its_button_opens_it() {
+    let options = [
+        ("books", "8"),
+        ("shelves", "demo"),
+        ("home", "unshelved"),
+        ("layout", "list"),
+        ("library", "show"),
+    ];
+    let mut h = reader(&options);
+    let named = |h: &Harness<'static, MareaderApp>, name: &str| {
+        let mut all = library(h).shelves();
+        all.find(|s| s.name.value == name).map(|s| s.id).unwrap()
+    };
+    let (fiction, classics) = (named(&h, "Fiction"), named(&h, "Classics"));
+    let model = library(&h);
+    let only = (model.shelf_books(fiction).into_iter())
+        .find(|b| !model.shelves_of(b.id).contains(&classics))
+        .map(|b| b.title.value.clone())
+        .unwrap();
+    assert!(h.query_by_label("Classics").is_none(), "folded");
+    h.get_by_label("Fiction").click();
+    h.run();
+    assert!(h.query_by_label("Classics").is_some(), "its shelves show");
+    assert!(h.query_by_label(&only).is_some(), "and its books");
+    assert_eq!(open_shelf(&h), None, "the page stays where it is");
+    h.get_by_label("Fiction").click();
+    h.run();
+    assert!(h.query_by_label("Classics").is_none(), "it folds again");
+    h.get_by_label("Open the Fiction shelf").click();
+    h.run();
+    assert_eq!(open_shelf(&h), Some(fiction));
 }

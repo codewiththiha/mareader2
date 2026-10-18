@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::arrange::Item;
 use crate::book::Book;
+use crate::id::ShelfId;
 use crate::library::Library;
 use crate::link::LinkTo;
 
@@ -138,6 +139,20 @@ impl View {
         let mut books: Vec<&Book> = books.collect();
         books.sort_by(|a, b| self.compare(a, b));
         books
+    }
+
+    /// A shelf as the list unfolds it: shelves lead unless arranged.
+    pub fn level(&self, model: &Library, shelf: ShelfId) -> Vec<Item> {
+        if self.sort == SortKey::Arranged {
+            return model.arranged(Some(shelf), Home::Everything);
+        }
+        let shelves = model.children(Some(shelf)).into_iter();
+        let books = model.shelf_books(shelf).into_iter();
+        let mut rows: Vec<Item> = books.map(|b| Item::Book(b.id)).collect();
+        let links = model.links().filter(|l| l.level.value == Some(shelf));
+        rows.extend(links.map(|l| Item::Link(l.id)));
+        self.sort_items(model, &mut rows);
+        shelves.map(|s| Item::Shelf(s.id)).chain(rows).collect()
     }
 
     /// Books and links in view order; a link sorts as its target.
