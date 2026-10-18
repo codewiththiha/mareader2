@@ -72,6 +72,18 @@ impl Rgb {
         Self(r, g, b)
     }
 
+    /// WCAG relative luminance, 0 for black to 1 for white.
+    pub fn luminance(self) -> f64 {
+        let [r, g, b] = [self.0, self.1, self.2].map(|c| srgb_to_linear(f64::from(c) / 255.0));
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    /// WCAG contrast ratio with `other`, from 1 to 21.
+    pub fn contrast(self, other: Rgb) -> f64 {
+        let (a, b) = (self.luminance(), other.luminance());
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
     pub fn to_oklch(self) -> Oklch {
         let [r, g, b] = [self.0, self.1, self.2].map(|c| srgb_to_linear(f64::from(c) / 255.0));
         let l = 0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b;
