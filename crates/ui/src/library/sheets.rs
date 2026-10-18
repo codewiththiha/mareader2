@@ -4,13 +4,11 @@ use std::path::Path;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
 use mareader_library::{
-    Book, BookId, FolderId, Format, Library, LinkId, MIN_SIZE_MAX, Mode, Options, Origin, Shelf,
-    ShelfId, human_size,
+    Book, FolderId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, ShelfId,
 };
 
 use super::asks::{self, Question};
-use super::books::counted;
-use super::{Action, BookAction, Finding, LibraryState, Named, Pick, Sheet, Step};
+use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -26,6 +24,17 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
     }
     let t = Tokens::get(ctx);
     let model = library.model();
+    if let Some(Sheet::Removal {
+        books,
+        shelves,
+        links,
+    }) = sheet
+    {
+        let asked = (books.as_slice(), shelves.as_slice(), links.as_slice());
+        let act = super::remove_alert::show(ctx, model, asked, &t);
+        out.extend(act.map(Command::Library));
+        return;
+    }
     let frame = Frame::new()
         .fill(t.surface)
         .stroke(Stroke::new(1.0, t.line))
@@ -49,11 +58,8 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => find(ui, library, book, finding, &t),
                     None => Some(Action::CloseSheet),
                 },
-                Sheet::Removal {
-                    books,
-                    shelves,
-                    links,
-                } => removal(ui, model, (books, shelves, links), &t),
+                // Drawn by its own alert, above.
+                Sheet::Removal { .. } => None,
                 Sheet::Rename(named) => rename(ui, library, *named, &t),
                 Sheet::Copy(work) => super::copying::show(ui, model, work, &t),
                 Sheet::Import(root) => import(ui, library, root, &t),
@@ -158,230 +164,6 @@ fn find(
         }
     });
     act
-}
-
-/// What removing books and shelves takes, itemised before it's done.
-fn removal(
-    ui: &mut Ui,
-    model: &Library,
-    (books, shelves, links): (&[BookId], &[ShelfId], &[LinkId]),
-    t: &Tokens,
-) -> Option<Action> {
-    // Both switches start off each time: forgetting is never a habit.
-    let (cascade_key, forget_key) = (
-        Id::new("library-remove-cascade"),
-        Id::new("library-remove-forget"),
-    );
-    let mut cascade = ui
-        .data(|d| d.get_temp::<bool>(cascade_key))
-        .unwrap_or(false);
-    let mut forget = ui.data(|d| d.get_temp::<bool>(forget_key)).unwrap_or(false);
-    let going = model.removing(books, shelves, cascade);
-    let receipt = model.receipt(&going.books);
-    let asked: Vec<&Shelf> = shelves.iter().filter_map(|s| model.shelf(*s)).collect();
-    let n = going.books.len();
-    let pointers: Vec<&str> = (links.iter())
-        .filter_map(|l| model.link(*l))
-        .map(|l| l.name.value.as_str())
-        .collect();
-    let many = n + asked.len() + pointers.len() != 1;
-    let heading = match (
-        asked.as_slice(),
-        going.books.as_slice(),
-        pointers.as_slice(),
-    ) {
-        ([], [], [one]) => (*one).to_owned(),
-        ([], [], links) if !links.is_empty() => counted(links.len(), "link", "links"),
-        ([], books, links) if !links.is_empty() => format!(
-            "{} and {}",
-            counted(books.len(), "book", "books"),
-            counted(links.len(), "link", "links")
-        ),
-        (asked, books, _) => match (asked, books) {
-            ([only], _) => only.name.value.clone(),
-            ([], [one]) => model
-                .book(*one)
-                .map(|b| b.title.value.clone())
-                .unwrap_or_default(),
-            ([], _) => counted(n, "book", "books"),
-            (_, _) => counted(asked.len(), "shelf", "shelves"),
-        },
-    };
-    title(ui, &heading, t);
-    let subtitle = match n {
-        0 if asked.is_empty() && !pointers.is_empty() => {
-            "A link is a pointer: the book it goes to stays in the library".to_owned()
-        }
-        0 => {
-            let kept: usize = going.shelves.iter().map(|s| model.counts(*s).0).sum();
-            match kept {
-                0 => "Nothing else goes with them".to_owned(),
-                k => format!("{} stay in the library", counted(k, "book", "books")),
-            }
-        }
-        _ => {
-            let kinds: Vec<&str> = receipt.formats.iter().map(|f| f.label()).collect();
-            format!("{} · {}", kinds.join(" · "), human_size(receipt.size))
-        }
-    };
-    ui.label(RichText::new(subtitle).size(12.5).color(t.muted));
-    let mut rows: Vec<(&str, String)> = Vec::new();
-    if many && n > 0 {
-        rows.push(("Books", counted(n, "book", "books")));
-    }
-    if let Some(at) = receipt.position.filter(|_| !many) {
-        rows.push((
-            "Reading position",
-            format!("Page {} of {}", at.page + 1, at.pages),
-        ));
-    }
-    if receipt.marks > 0 {
-        rows.push(("Highlights", counted(receipt.marks, "mark", "marks")));
-    }
-    if receipt.copies > 0 {
-        let label = match receipt.copies {
-            1 => "The app's own copy",
-            _ => "The app's own copies",
-        };
-        rows.push((label, human_size(receipt.copies_size)));
-    }
-    if n + asked.len() > 0 && !pointers.is_empty() {
-        rows.push(("Links", counted(pointers.len(), "link", "links")));
-    }
-    if !receipt.filed.is_empty() {
-        rows.push(("Filed on", receipt.filed.join(", ")));
-    }
-    for s in going.shelves.iter().filter_map(|s| model.shelf(*s)) {
-        let (on, inside) = model.counts(s.id);
-        let mut detail = match (on, cascade) {
-            (0, _) => "empty".to_owned(),
-            (b, true) => format!("{} go with it", counted(b, "book", "books")),
-            (b, false) => counted(b, "book", "books"),
-        };
-        if !cascade && inside > 0 {
-            detail.push_str(&format!(
-                " · {} move up",
-                counted(inside, "shelf", "shelves")
-            ));
-        }
-        rows.push(("Shelf taken apart", format!("{} — {detail}", s.name.value)));
-    }
-    receipt_rows(ui, &rows, t);
-    if going.inside_books + going.inside_shelves > 0 {
-        ui.checkbox(&mut cascade, "Remove everything inside");
-        let note = match (cascade, going.inside_books, going.inside_shelves) {
-            (false, ..) => "Off: the books inside stay in the library and the shelves inside \
-                            move up a level."
-                .to_owned(),
-            (true, 0, s) => format!(
-                "{} inside are taken apart with it, instead of moving up a level.",
-                counted(s, "shelf", "shelves")
-            ),
-            (true, b, 0) => format!(
-                "{} inside go with the shelf, and are itemised above.",
-                counted(b, "book", "books")
-            ),
-            (true, b, s) => format!(
-                "{} inside go with the shelf and {} inside are taken apart too.",
-                counted(b, "book", "books"),
-                counted(s, "shelf", "shelves")
-            ),
-        };
-        ui.label(RichText::new(note).size(12.0).color(t.muted));
-    }
-    if !going.copies.is_empty() {
-        let note = "A shelf here came from a watched folder. Removing it asks what the books it \
-                    reads in place become: copies of your own, or books the folder makes again \
-                    on its next import.";
-        ui.label(RichText::new(note).color(t.ink));
-    }
-    if receipt.hidden > 0 {
-        let note = "Some of these came from a watched folder. Removing keeps them out of future \
-                    auto-imports — the folder's Add menu can give them back.";
-        ui.label(RichText::new(note).color(t.ink));
-    }
-    if receipt.has_data() {
-        ui.add_space(4.0);
-        ui.checkbox(&mut forget, "Delete the highlights and reading position");
-        let said = match forget {
-            true => "They go with the book: importing the file again lands it as a new book.",
-            false => {
-                "Kept: the marks, the place and any name you gave a book come back if the \
-                 file is imported again."
-            }
-        };
-        ui.label(RichText::new(said).size(12.0).color(t.muted));
-    }
-    ui.add_space(8.0);
-    let label = match (n, asked.len()) {
-        (0, 0) if pointers.len() == 1 => "Remove the link".to_owned(),
-        (0, 0) => format!("Remove {} links", pointers.len()),
-        (1, 0) => "Remove".to_owned(),
-        (0, 1) if cascade && going.inside_shelves > 0 => {
-            "Remove the shelf and the ones inside".to_owned()
-        }
-        (0, 1) => "Remove the shelf".to_owned(),
-        (0, s) if cascade && going.inside_shelves > 0 => {
-            format!("Remove {s} shelves and the ones inside")
-        }
-        (0, s) => format!("Remove {s} shelves"),
-        (b, 0) => format!("Remove {b} books"),
-        (b, s) => format!(
-            "Remove {} and {}",
-            counted(b, "book", "books"),
-            counted(s, "shelf", "shelves")
-        ),
-    };
-    let mut act = None;
-    buttons(ui, |ui| {
-        if primary(ui, &label, t.danger, t).clicked() {
-            act = Some(Action::Book(BookAction::Remove {
-                books: books.to_vec(),
-                shelves: shelves.to_vec(),
-                links: links.to_vec(),
-                cascade,
-                forget,
-            }));
-        }
-        let cancel = ui.button("Cancel").on_hover_text("Keep these books");
-        if cancel.clicked() {
-            act = Some(Action::CloseSheet);
-        }
-    });
-    match act {
-        Some(_) => ui.data_mut(|d| {
-            d.remove::<bool>(cascade_key);
-            d.remove::<bool>(forget_key);
-        }),
-        None => ui.data_mut(|d| {
-            d.insert_temp(cascade_key, cascade);
-            d.insert_temp(forget_key, forget);
-        }),
-    }
-    act
-}
-
-/// A receipt: what goes, a label and its value per line.
-fn receipt_rows(ui: &mut Ui, rows: &[(&str, String)], t: &Tokens) {
-    if rows.is_empty() {
-        return;
-    }
-    Frame::new()
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius)
-        .inner_margin(Margin::symmetric(10, 6))
-        .show(ui, |ui| {
-            egui::Grid::new("library-receipt")
-                .num_columns(2)
-                .spacing([12.0, 6.0])
-                .show(ui, |ui| {
-                    for (label, value) in rows {
-                        ui.label(RichText::new(*label).color(t.muted));
-                        ui.add(egui::Label::new(RichText::new(value).color(t.ink)).wrap());
-                        ui.end_row();
-                    }
-                });
-        });
 }
 
 /// The one rename sheet; Enter gives the name, Escape keeps the old.

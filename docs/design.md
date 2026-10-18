@@ -249,6 +249,18 @@ A new setting picks its `Applies` once; nothing else changes.
   a key cap. The filter takes focus, matching action names, group names or a
   whole key. Esc, the backdrop, ✕ or its own key close it; page keys stay
   inert behind it.
+- **Selection bar icons.** The bar over selected text shows icons alone at
+  every width; each name is its tooltip and accessible label. Words made it
+  far too wide.
+- **Remove alert.** Removing asks in a small alert docked at the window's foot
+  (`library/remove_alert.rs`), fixed at 440 px so it never jumps. It holds the
+  question by name ("Remove “Dune”?"), one line on what happens to the files,
+  and switches only where they mean something: "Remove everything inside" for
+  a shelf with contents, and "Erase highlights and reading position" when
+  there is any. Both start off each time; the erase switch turns its card red
+  and the button to "Erase & remove". No counts, sizes or shelf lists. Enter
+  removes, Esc or Cancel keeps; a showing toast is dismissed so nothing covers
+  it, and a short toast follows.
 
 ## Icons
 

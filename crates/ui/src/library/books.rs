@@ -58,6 +58,8 @@ impl LibraryState {
                     links,
                 };
                 self.folders.sheet = Some(asked);
+                // Nothing may cover the alert docked at the foot.
+                out.push(Command::DismissToast);
             }
             BookAction::Remove {
                 books,

@@ -16,6 +16,7 @@ pub(crate) mod menu;
 mod menus;
 pub mod moving;
 pub mod picks;
+mod remove_alert;
 pub mod runs;
 pub mod search;
 pub mod sheets;

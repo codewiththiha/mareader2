@@ -306,7 +306,7 @@ impl LibraryState {
 }
 
 /// "2 books, 1 shelf and 3 links": the counts that aren't nought.
-fn listed(counts: &[(usize, &str, &str)]) -> String {
+pub(super) fn listed(counts: &[(usize, &str, &str)]) -> String {
     let parts: Vec<String> = (counts.iter())
         .filter(|(n, ..)| *n > 0)
         .map(|&(n, one, many)| counted(n, one, many))
