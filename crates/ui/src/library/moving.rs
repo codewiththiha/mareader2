@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use mareader_library::{BookId, Copied, Data, Departure, Found, Move, Moved, ShelfId};
+use mareader_library::{BookId, Copied, Data, Departure, Found, LinkId, Move, Moved, ShelfId};
 
 use super::asks::Question;
 use super::books::counted;
@@ -108,7 +108,7 @@ impl LibraryState {
     }
 
     /// A book as the copier takes it: its file read in place.
-    fn found_of(&self, id: BookId) -> Option<Found> {
+    pub(super) fn found_of(&self, id: BookId) -> Option<Found> {
         let book = self.model.book(id)?;
         let home = book.home()?;
         Some(Found {
@@ -206,36 +206,35 @@ impl LibraryState {
             return Some(format!("“{name}” stayed: its books' copies weren't made."));
         }
         let title = |id: &BookId| self.model.book(*id).map(|b| b.title.value.clone());
-        let what = match (
-            moved.books,
-            moved.shelves,
-            mv.books.as_slice(),
-            mv.shelves.as_slice(),
-        ) {
-            (0, 0, ..) => return None,
-            (1, 0, [one], _) => format!("“{}”", title(one).unwrap_or_default()),
-            (0, 1, _, [one]) => format!("“{}”", self.shelf_name(*one)),
-            (b, 0, ..) => counted(b, "book", "books"),
-            (0, s, ..) => counted(s, "shelf", "shelves"),
-            (b, s, ..) => format!(
-                "{} and {}",
-                counted(b, "book", "books"),
-                counted(s, "shelf", "shelves")
-            ),
+        let link = |id: &LinkId| self.model.link(*id).map(|l| l.name.value.clone());
+        let counts = (moved.books, moved.shelves, moved.links);
+        let what = match (counts, &mv.books[..], &mv.shelves[..], &mv.links[..]) {
+            ((0, 0, 0), ..) => return None,
+            ((1, 0, 0), [one], ..) => format!("“{}”", title(one).unwrap_or_default()),
+            ((0, 1, 0), _, [one], _) => format!("“{}”", self.shelf_name(*one)),
+            ((0, 0, 1), .., [one]) => format!("“{}”", link(one).unwrap_or_default()),
+            ((b, s, l), ..) => listed(&[
+                (b, "book", "books"),
+                (s, "shelf", "shelves"),
+                (l, "link", "links"),
+            ]),
         };
         let there = match mv.to {
             Some(to) => format!("“{}”", self.shelf_name(to)),
             None => "the top of the library".into(),
         };
         let note = match (mv.to, mv.from) {
-            (_, _) if moved.shelves == 0 && already == moved.books => match moved.books {
-                1 => format!("{what} is already on {there}."),
-                _ => format!("They're already on {there}."),
-            },
+            (_, _) if moved.shelves + moved.links == 0 && already == moved.books => {
+                match moved.books {
+                    1 => format!("{what} is already on {there}."),
+                    _ => format!("They're already on {there}."),
+                }
+            }
             (None, Some(from)) if moved.shelves == 0 => {
                 format!("Took {what} off “{}”.", self.shelf_name(from))
             }
-            _ if leaving > 0 || moved.shelves > 0 => format!("Moved {what} to {there}."),
+            // Shelves and links never stay behind: they always move.
+            _ if leaving + moved.shelves + moved.links > 0 => format!("Moved {what} to {there}."),
             _ => format!("Added {what} to {there}."),
         };
         Some(note)
@@ -303,5 +302,18 @@ impl LibraryState {
             _ => format!("{said} The folder's Add menu can give them back."),
         };
         out.push(Command::Notify(Toast::info(note)));
+    }
+}
+
+/// "2 books, 1 shelf and 3 links": the counts that aren't nought.
+fn listed(counts: &[(usize, &str, &str)]) -> String {
+    let parts: Vec<String> = (counts.iter())
+        .filter(|(n, ..)| *n > 0)
+        .map(|&(n, one, many)| counted(n, one, many))
+        .collect();
+    match parts.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
     }
 }

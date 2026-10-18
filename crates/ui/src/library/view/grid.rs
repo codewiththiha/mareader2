@@ -14,7 +14,7 @@ use super::super::{Action, Pick};
 use super::{
     A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, paper, plate, prefetch,
 };
-use super::{grid_card, shelf_card};
+use super::{grid_card, links, shelf_card};
 use crate::command::Command;
 use crate::motion;
 use crate::theme;
@@ -83,6 +83,7 @@ pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>
                     match item {
                         Item::Shelf(shelf) => shelf_card(ui, rect(at), shelf, cx),
                         Item::Book(book) => grid_card(ui, rect(at), book, cx),
+                        Item::Link(link) => links::card(ui, rect(at), link, cx),
                     }
                 }
                 Some(InSlot::Add(here)) => {
@@ -350,6 +351,10 @@ pub(super) fn ghost(ui: &mut Ui, cx: &mut Cx<'_>) -> bool {
         Item::Shelf(shelf) => {
             plate(&ui, bounds, shelf.id, cx);
             shelf.name.value.as_str()
+        }
+        Item::Link(link) => {
+            links::face(&ui, bounds, link, t);
+            link.name.value.as_str()
         }
     };
     let p = ui.painter();

@@ -328,3 +328,39 @@ fn off_to_the_top_a_book_leaves_only_the_shelf_it_left() {
     let shelves: Vec<ShelfId> = lib.shelves_of(moving).into_iter().collect();
     assert_eq!(shelves, [also], "its other shelf keeps it");
 }
+
+#[test]
+fn a_link_stands_among_its_level_and_moves_as_a_card() {
+    let mut lib = Library::new(DEVICE);
+    let poems = lib.create_shelf("Poems", None, 1_000).unwrap();
+    let dune = opened_on(&mut lib, "Dune", 1, poems);
+    let link = lib.link_to(crate::LinkTo::Book(dune), None, 2_000).unwrap();
+    let top = lib.arranged(None, crate::Home::Unshelved);
+    assert_eq!(
+        top.last(),
+        Some(&crate::Item::Link(link)),
+        "a link is a card"
+    );
+    let mv = Move {
+        links: vec![link],
+        to: Some(poems),
+        before: Some(crate::Item::Book(dune)),
+        ..Move::default()
+    };
+    let moved = lib.land_move(&mv, &[], 3_000);
+    assert_eq!(moved.links, 1);
+    assert_eq!(lib.link(link).unwrap().level.value, Some(poems));
+    let on = lib.arranged(Some(poems), crate::Home::Everything);
+    assert_eq!(on, [crate::Item::Link(link), crate::Item::Book(dune)]);
+    assert!(
+        !lib.arranged(None, crate::Home::Unshelved)
+            .contains(&crate::Item::Link(link))
+    );
+    // A shelf that's gone takes no link.
+    let gone = Move {
+        links: vec![link],
+        to: Some(ShelfId(7)),
+        ..Move::default()
+    };
+    assert_eq!(lib.land_move(&gone, &[], 4_000).links, 0);
+}

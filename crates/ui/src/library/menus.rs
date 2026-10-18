@@ -4,7 +4,7 @@ use egui::{
     Button, Color32, Id, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Stroke,
     StrokeKind, Ui, pos2, vec2,
 };
-use mareader_library::{Book, Library, Move, Shelf, ShelfId, natural};
+use mareader_library::{Book, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
 
 use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::command::{Command, Commands};
@@ -59,6 +59,13 @@ pub fn book_menu(ui: &mut Ui, b: &Book, t: &Tokens, out: &mut Commands) {
     if rename.clicked() {
         act(out, Action::AskRename(Named::Book(id)));
     }
+    let copy = ui.add_enabled(!missing, Button::new("Duplicate"));
+    let copy = copy.on_hover_text(
+        "A second copy of this book, the library's own — highlights and all — filed beside it",
+    );
+    if copy.clicked() {
+        book(out, BookAction::Duplicate(vec![Pick::Book(id)]));
+    }
     if ui.button("Read separately").clicked() {
         book(out, BookAction::Twin(id));
     }
@@ -71,14 +78,43 @@ pub fn book_menu(ui: &mut Ui, b: &Book, t: &Tokens, out: &mut Commands) {
     }
     ui.separator();
     if danger(ui, "Remove from library", t) {
-        let books = vec![id];
-        let shelves = Vec::new();
-        book(out, BookAction::AskRemove { books, shelves });
+        ask_remove(&[Pick::Book(id)], out);
+    }
+}
+
+/// One link's menu: what it points at stays whatever is done here.
+pub fn link_menu(ui: &mut Ui, link: &Link, t: &Tokens, out: &mut Commands) {
+    let pick = Pick::Link(link.id);
+    let open = ui.button("Open");
+    if open.on_hover_text("Show what it points at").clicked() {
+        act(out, Action::Reveal(super::view::links::target(link)));
+    }
+    if ui.button("Select").clicked() {
+        act(out, Action::Pick(PickAction::Toggle(pick)));
+    }
+    let rename = ui.button("Rename…");
+    let tip = match link.target {
+        LinkTo::Book(_) => "The name the pointer wears — the book it points at keeps its own",
+        LinkTo::Shelf(_) => "The name the pointer wears — the shelf it points at keeps its own",
+    };
+    if rename.on_hover_text(tip).clicked() {
+        act(out, Action::AskRename(Named::Link(link.id)));
+    }
+    let tip = match link.target {
+        LinkTo::Book(_) => "A second copy of the book it points at, filed where the link is",
+        LinkTo::Shelf(_) => "A second pointer at the same shelf",
+    };
+    if ui.button("Duplicate").on_hover_text(tip).clicked() {
+        book(out, BookAction::Duplicate(vec![pick]));
+    }
+    ui.separator();
+    if danger(ui, "Remove this link", t) {
+        ask_remove(&[pick], out);
     }
 }
 
 /// One shelf's menu.
-pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
+pub fn shelf_menu(ui: &mut Ui, model: &Library, s: &Shelf, t: &Tokens, out: &mut Commands) {
     let id = s.id;
     if ui.button("Open shelf").clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
@@ -93,6 +129,11 @@ pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
     if ui.button("Rename…").on_hover_text(tip).clicked() {
         act(out, Action::AskRename(Named::Shelf(id)));
     }
+    duplicate_shelf(ui, id, out);
+    if model.shelf_dir(id).is_some() && ui.button(file_manager()).clicked() {
+        shelf(out, ShelfAction::Reveal(id));
+    }
+    watch_entry(ui, model, id, out);
     // Made inside this shelf, which opens on it.
     if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
@@ -102,6 +143,45 @@ pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
     if danger(ui, "Take shelf apart", t) {
         shelf(out, ShelfAction::Apart(id));
     }
+}
+
+/// A shelf's Duplicate entry, in its card menu and its crumb.
+pub fn duplicate_shelf(ui: &mut Ui, id: ShelfId, out: &mut Commands) {
+    let tip = "A second shelf of your own, holding fresh copies of its books";
+    if ui.button("Duplicate").on_hover_text(tip).clicked() {
+        book(out, BookAction::Duplicate(vec![Pick::Shelf(id)]));
+    }
+}
+
+/// Watching a folder's shelf: the toggle writes the shelf's own rung.
+fn watch_entry(ui: &mut Ui, model: &Library, id: ShelfId, out: &mut Commands) {
+    let Some(watch) = model.shelf_watch(id) else {
+        return;
+    };
+    let deep = watch.rung.is_some();
+    let label = match (watch.on, deep) {
+        (true, true) => "Stop watching this subfolder",
+        (true, false) => "Stop watching for new books",
+        (false, true) => "Watch this subfolder for new books",
+        (false, false) => "Watch for new books",
+    };
+    let tip = match (watch.on, deep) {
+        (true, true) => {
+            "Stop checking this subfolder for new books; the books already here stay, \
+             and the rest of the tree keeps watching its own"
+        }
+        (true, false) => "Stop checking this folder; the books already here stay",
+        (false, _) => "Check this folder for new books when the app opens or you come back to it",
+    };
+    let under = match &watch.rung {
+        Some(rung) => format!("Only “{rung}” and the folders inside it"),
+        None => format!("The whole “{}” folder", watch.folder),
+    };
+    if ui.button(label).on_hover_text(tip).clicked() {
+        shelf(out, ShelfAction::Watch(id, !watch.on));
+    }
+    let t = Tokens::get(ui.ctx());
+    ui.label(RichText::new(under).size(11.0).color(t.muted));
 }
 
 /// The selection's menu, on any picked card.
@@ -115,9 +195,13 @@ pub fn picks_menu(ui: &mut Ui, picks: &Picks, t: &Tokens, out: &mut Commands) {
     if ui.button("New shelf from these").clicked() {
         shelve_together(picks, out);
     }
+    if ui.button(format!("Duplicate ({n})")).clicked() {
+        book(out, BookAction::Duplicate(picks.items()));
+        act(out, Action::Pick(PickAction::Clear));
+    }
     ui.separator();
     if danger(ui, &format!("Remove ({n})"), t) {
-        ask_remove(picks, out);
+        ask_remove(&picks.items(), out);
     }
     if ui.button("Clear selection").clicked() {
         act(out, Action::Pick(PickAction::Clear));
@@ -126,19 +210,30 @@ pub fn picks_menu(ui: &mut Ui, picks: &Picks, t: &Tokens, out: &mut Commands) {
 
 /// A new shelf where the reader is, holding the selection; selecting ends.
 fn shelve_together(picks: &Picks, out: &mut Commands) {
-    let (books, shelves) = (picks.books(), picks.shelves());
-    book(out, BookAction::ShelveTogether { books, shelves });
+    book(out, BookAction::ShelveTogether(picks.items()));
     act(out, Action::Pick(PickAction::Clear));
 }
 
-/// Selecting ends as the remove sheet itemises the selection.
-fn ask_remove(picks: &Picks, out: &mut Commands) {
-    let (books, shelves) = (picks.books(), picks.shelves());
-    if books.is_empty() && shelves.is_empty() {
+/// Selecting ends as the remove sheet itemises what's going.
+fn ask_remove(picks: &[Pick], out: &mut Commands) {
+    if picks.is_empty() {
         return;
     }
+    let Move {
+        books,
+        shelves,
+        links,
+        ..
+    } = Move::of(picks);
     act(out, Action::Pick(PickAction::Clear));
-    book(out, BookAction::AskRemove { books, shelves });
+    book(
+        out,
+        BookAction::AskRemove {
+            books,
+            shelves,
+            links,
+        },
+    );
 }
 
 /// The page's own menu, on empty space.
@@ -207,7 +302,7 @@ pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &m
                 .on_hover_text("Remove the selected books and shelves")
                 .clicked()
             {
-                ask_remove(picks, out);
+                ask_remove(&picks.items(), out);
             }
             add_to_shelf(ui, bar, out);
             if ui.button("All").clicked() {
@@ -222,7 +317,8 @@ fn add_to_shelf(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
     let picks = bar.picks;
     let r = ui.add_enabled(!picks.is_empty(), Button::new("Add to shelf"));
     let r = r.on_hover_text("Add the selected items to a shelf");
-    let (books, shelves) = (picks.books(), picks.shelves());
+    let carried = Move::of(&picks.items());
+    let shelves = &carried.shelves;
     // Never itself, nor inside one of its own shelves.
     let fits = |to: ShelfId| {
         let path = bar.model.path_to(to);
@@ -247,12 +343,10 @@ fn add_to_shelf(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
                         let row = widgets::menu_row(ui, Icon::Shelf, &s.name.value, None, false);
                         if row.clicked() {
                             let mv = Move {
-                                books: books.clone(),
-                                shelves: shelves.clone(),
                                 from: bar.at,
                                 to: Some(s.id),
                                 keep: true,
-                                before: None,
+                                ..carried.clone()
                             };
                             shelf(out, ShelfAction::Carry(mv));
                             act(out, Action::Pick(PickAction::Clear));

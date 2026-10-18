@@ -7,7 +7,7 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{
-    BookId, CoverFit, Format, Home, Layout, Library, Move, Origin, ShelfId, SortKey,
+    BookId, CoverFit, Format, Home, Layout, Library, LinkId, LinkTo, Move, Origin, ShelfId, SortKey,
 };
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -629,6 +629,7 @@ fn file(books: &[BookId], from: Option<ShelfId>, to: Option<ShelfId>, keep: bool
     ShelfAction::Carry(Move {
         books: books.to_vec(),
         shelves: Vec::new(),
+        links: Vec::new(),
         from,
         to,
         keep,
@@ -843,6 +844,7 @@ fn a_shelf_moves_books_between_shelves_or_adds_them_with_alt() {
         ShelfAction::Carry(Move {
             books: Vec::new(),
             shelves: vec![shelf],
+            links: Vec::new(),
             from: None,
             to,
             keep: false,
@@ -1074,6 +1076,7 @@ fn a_card_menu_offers_what_a_book_can_do() {
         "Open",
         "Select",
         "Rename…",
+        "Duplicate",
         "Read separately",
         "Remove from library",
     ];
@@ -1102,8 +1105,15 @@ fn removing_a_folder_book_hides_it_until_restored_from_its_menu() {
     let mut h = reader(&[("library", "show")]);
     act(&mut h, read_in(root.clone()));
     let id = library(&h).book_at(&raven).unwrap();
-    let (books, shelves) = (vec![id], Vec::new());
-    book(&mut h, BookAction::AskRemove { books, shelves });
+    let (books, shelves, links) = (vec![id], Vec::new(), Vec::new());
+    book(
+        &mut h,
+        BookAction::AskRemove {
+            books,
+            shelves,
+            links,
+        },
+    );
     let says = "Some of these came from a watched folder. Removing keeps them out of \
                 future auto-imports — the folder's Add menu can give them back.";
     assert!(
@@ -1282,8 +1292,15 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     assert!(h.state().library_state().questions().next().is_none());
     assert_eq!(library(&h).len(), 1, "going to it adds nothing");
     assert_eq!(open_shelf(&h), Some(shelf), "it shows where it is");
-    let (books, shelves) = (vec![b.id], Vec::new());
-    book(&mut h, BookAction::AskRemove { books, shelves });
+    let (books, shelves, links) = (vec![b.id], Vec::new(), Vec::new());
+    book(
+        &mut h,
+        BookAction::AskRemove {
+            books,
+            shelves,
+            links,
+        },
+    );
     assert!(h.query_by_label("The app's own copy").is_some());
     h.get_by_label("Remove").click();
     h.run();
@@ -1527,4 +1544,120 @@ fn a_move_onto_a_shelf_holding_the_name_asks_first() {
     assert!(library(&h).shelf_books(b).is_empty(), "moved, not added");
     let fresh = &library(&h).book(moving).unwrap().title.value;
     assert_ne!(fresh, &name, "kept apart by a new name");
+}
+
+/// A link made straight on the model, named, where the page is.
+fn make_link(h: &mut Harness<'static, MareaderApp>, target: LinkTo, name: &str) -> LinkId {
+    let state = h.state_mut().library_state_mut();
+    let at = state.at();
+    let model = state.model_mut();
+    let id = model.link_to(target, at, 1).unwrap();
+    assert!(model.rename_link(id, name, 2));
+    state.settle();
+    h.run();
+    id
+}
+
+#[test]
+fn a_link_lights_what_it_points_at_and_goes_without_it() {
+    let mut h = reader(&[("books", "2"), ("library", "show")]);
+    let dune = book_id(&h, 0);
+    let kept = new_shelf(&mut h, "Kept");
+    shelve(&mut h, file(&[dune], None, Some(kept), false));
+    shelve(&mut h, ShelfAction::GoTo(None));
+    let link = make_link(&mut h, LinkTo::Book(dune), "Pointer");
+    h.get_by_label("Pointer").click();
+    h.run();
+    let lit = h.state().library_state().revealed();
+    assert_eq!(
+        lit,
+        Some(Pick::Book(dune)),
+        "it lights the book, never opens it"
+    );
+    assert_eq!(open_shelf(&h), Some(kept), "where the book is");
+    shelve(&mut h, ShelfAction::GoTo(None));
+    let links = vec![link];
+    shelve(
+        &mut h,
+        ShelfAction::Carry(Move {
+            links: links.clone(),
+            to: Some(kept),
+            ..Move::default()
+        }),
+    );
+    assert_eq!(toast(&h), "Moved “Pointer” to “Kept”.");
+    assert_eq!(library(&h).link(link).unwrap().level.value, Some(kept));
+    book(
+        &mut h,
+        BookAction::AskRemove {
+            books: Vec::new(),
+            shelves: Vec::new(),
+            links,
+        },
+    );
+    let says = "A link is a pointer: the book it goes to stays in the library";
+    assert!(
+        h.query_by_label(says).is_some(),
+        "the sheet says what stays"
+    );
+    h.get_by_label("Remove the link").click();
+    h.run();
+    assert!(library(&h).link(link).is_none());
+    assert!(library(&h).book(dune).is_some(), "the book stays");
+    assert_eq!(toast(&h), "Removed the link “Pointer”.");
+}
+
+#[test]
+fn duplicating_a_book_makes_the_librarys_own_copy_under_the_next_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    let raven = put(&root, "raven.epub", &raven_bytes());
+    let mut h = kept_in(dir.path());
+    act(&mut h, read_in(root.clone()));
+    let id = library(&h).book_at(&raven).unwrap();
+    let title = library(&h).book(id).unwrap().title.value.clone();
+    book(&mut h, BookAction::Duplicate(vec![Pick::Book(id)]));
+    h.run();
+    assert_eq!(toast(&h), format!("Duplicated as “{title}_1”."));
+    let copy = library(&h).books().find(|b| b.id != id).unwrap();
+    let home = copy.home().unwrap();
+    assert_eq!(home.origin, Origin::Store, "the library's own");
+    assert!(raven.is_file() && home.path != raven);
+}
+
+#[test]
+fn a_folders_shelf_menu_watches_its_own_subfolder() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    put(&root, "raven.epub", &raven_bytes());
+    put(&root, "sub/notes.md", NOTES);
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, read_in(root.clone()));
+    let named = |h: &Harness<'static, MareaderApp>, name: &str| {
+        let mut all = library(h).shelves();
+        all.find(|s| s.name.value == name).map(|s| s.id).unwrap()
+    };
+    let (top, sub) = (named(&h, "Shelf"), named(&h, "sub"));
+    shelve(&mut h, ShelfAction::GoTo(Some(top)));
+    let on = library(&h).shelf_tracked(sub);
+    h.get_by_label("sub").click_secondary();
+    h.run();
+    let label = match on {
+        true => "Stop watching this subfolder",
+        false => "Watch this subfolder for new books",
+    };
+    assert!(
+        h.query_by_label("Only “sub” and the folders inside it")
+            .is_some()
+    );
+    assert!(h.query_by_label("Duplicate").is_some());
+    h.get_by_label(label).click();
+    h.run();
+    h.run();
+    let said = match on {
+        true => "“sub” in Shelf is no longer watched for new books.",
+        false => "Watching “sub” in Shelf for new books.",
+    };
+    assert_eq!(toast(&h), said);
+    assert_eq!(library(&h).shelf_tracked(sub), !on);
 }

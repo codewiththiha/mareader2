@@ -9,7 +9,7 @@ use egui::{
 use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
-use super::{Action, Carry, Crumb, Named, ShelfAction};
+use super::{Action, BookAction, Carry, Crumb, Named, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -308,6 +308,12 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             ui.set_width(MENU_WIDTH);
             if widgets::menu_row(ui, Icon::Rename, "Rename…", None, false).clicked() {
                 out.push(act(ShelfAction::StartRename(id)));
+            }
+            let copy = widgets::menu_row(ui, Icon::Copy, "Duplicate", None, false);
+            let tip = "A second shelf of your own, holding the same books";
+            if copy.on_hover_text(tip).clicked() {
+                let picks = vec![super::Pick::Shelf(id)];
+                out.push(Command::Library(Action::Book(BookAction::Duplicate(picks))));
             }
             let remove = RichText::new("Remove shelf").color(t.danger);
             let remove = Button::image_and_text(Icon::Remove.image(16.0).tint(t.danger), remove)

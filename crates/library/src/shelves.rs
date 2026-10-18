@@ -108,6 +108,22 @@ pub struct ShelfRemoved {
     pub shelves: usize,
 }
 
+/// A shelf's watch: on or off, and the folders the menu names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShelfWatch {
+    pub on: bool,
+    /// The whole folder's name, and the subfolder's when it's deeper.
+    pub folder: String,
+    pub rung: Option<String>,
+    pub(crate) seat: crate::ground::Seat,
+}
+
+/// A folder's last name, or the whole path when it has none.
+fn dir_name(dir: &std::path::Path) -> String {
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned());
+    name.unwrap_or_else(|| dir.display().to_string())
+}
+
 impl Library {
     pub fn shelf(&self, id: ShelfId) -> Option<&Shelf> {
         self.shelves.get(&id).filter(|s| s.alive())
@@ -120,12 +136,46 @@ impl Library {
 
     /// Whether a watched folder's next walk makes this shelf again.
     pub fn shelf_tracked(&self, id: ShelfId) -> bool {
+        self.shelf_watch(id).is_some_and(|w| w.on)
+    }
+
+    /// What watching a shelf of a folder read in place would touch.
+    pub fn shelf_watch(&self, id: ShelfId) -> Option<ShelfWatch> {
         let folders = self.folder_list();
-        let seat = crate::ground::seat_of(&self.shelves, &folders, id);
-        seat.is_some_and(|s| {
-            self.folder(s.folder)
-                .is_some_and(|f| f.tracks_rung(&s.rung))
+        let seat = crate::ground::seat_of(&self.shelves, &folders, id)?;
+        let folder = self.folder(seat.folder)?;
+        let rung = (!seat.rung.is_empty()).then(|| {
+            let dir = crate::folder::dir_of_rung(&folder.root, &seat.rung);
+            dir_name(&dir)
+        });
+        Some(ShelfWatch {
+            on: folder.tracks_rung(&seat.rung),
+            folder: dir_name(&folder.root),
+            rung,
+            seat,
         })
+    }
+
+    /// Watches a shelf's own rung, or stops; true if anything changed.
+    pub fn set_shelf_watch(&mut self, id: ShelfId, on: bool) -> bool {
+        let Some(watch) = self.shelf_watch(id).filter(|w| w.on != on) else {
+            return false;
+        };
+        let Some(mut folder) = self.folder(watch.seat.folder).cloned() else {
+            return false;
+        };
+        folder.set_tracking(&watch.seat.rung, on);
+        self.folders.insert(folder.id, folder);
+        self.bump();
+        true
+    }
+
+    /// The folder on disk a folder's shelf stands for.
+    pub fn shelf_dir(&self, id: ShelfId) -> Option<std::path::PathBuf> {
+        let shelf = self.shelf(id)?;
+        let (folder, key) = shelf.kind.value.rung()?;
+        let root = &self.folder(folder)?.root;
+        Some(crate::folder::dir_of_rung(root, key))
     }
 
     /// Where a shelf sits; a removed or unknown parent is the top.

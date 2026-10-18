@@ -4,7 +4,10 @@ use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
 
+use crate::arrange::Item;
 use crate::book::Book;
+use crate::library::Library;
+use crate::link::LinkTo;
 
 /// The fewest and most grid columns a reader may pin.
 pub const COLUMNS_MIN: u8 = 2;
@@ -135,6 +138,25 @@ impl View {
         let mut books: Vec<&Book> = books.collect();
         books.sort_by(|a, b| self.compare(a, b));
         books
+    }
+
+    /// Books and links in view order; a link sorts as its target.
+    pub fn sort_items(&self, model: &Library, items: &mut [Item]) {
+        let book = |i: &Item| match *i {
+            Item::Book(id) => model.book(id),
+            Item::Link(id) => match model.link(id).map(|l| l.target) {
+                Some(LinkTo::Book(b)) => model.book(b),
+                _ => None,
+            },
+            Item::Shelf(_) => None,
+        };
+        let name = |i: &Item| model.item_name(*i).unwrap_or_default();
+        items.sort_by(|a, b| match (book(a), book(b)) {
+            (Some(x), Some(y)) => self.compare(x, y).then(a.cmp(b)),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => natural(name(a), name(b)).then(a.cmp(b)),
+        });
     }
 
     fn compare(&self, a: &Book, b: &Book) -> Ordering {

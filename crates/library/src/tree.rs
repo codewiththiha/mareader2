@@ -130,6 +130,8 @@ impl Library {
                 .into_iter()
                 .map(|s| s.name.value.clone()),
         );
+        let links = self.links().filter(|l| l.level.value == level);
+        names.extend(links.map(|l| l.name.value.clone()));
         names
     }
 
@@ -146,8 +148,19 @@ impl Library {
 
     /// A store copy of a book, its marks and place too, filed beside it.
     pub fn duplicate_book(&mut self, id: BookId, copy: &Copied, wall_ms: u64) -> Option<BookId> {
-        let book = self.book(id)?.clone();
         let level = self.shelves_of(id).into_iter().next();
+        self.duplicate_book_on(id, copy, level, wall_ms)
+    }
+
+    /// A book's store copy filed on `level`: where a link to it stood.
+    pub fn duplicate_book_on(
+        &mut self,
+        id: BookId,
+        copy: &Copied,
+        level: Option<ShelfId>,
+        wall_ms: u64,
+    ) -> Option<BookId> {
+        let book = self.book(id)?.clone();
         let names = self.names_on(level);
         let name = free_name(&book.title.value, names.iter().map(String::as_str));
         let twin = self.copy_book(&book, copy, &name, wall_ms);
@@ -156,6 +169,17 @@ impl Library {
         }
         self.bump();
         Some(twin)
+    }
+
+    /// A shelf's link again beside it, under the next free name.
+    pub fn duplicate_link(&mut self, id: LinkId, wall_ms: u64) -> Option<LinkId> {
+        let link = self.link(id)?.clone();
+        let level = link.level.value;
+        let names = self.names_on(level);
+        let name = free_name(&link.name.value, names.iter().map(String::as_str));
+        let made = self.link_to(link.target, level, wall_ms)?;
+        self.rename_link(made, &name, wall_ms);
+        Some(made)
     }
 
     /// One book's own copy: a new book, its marks and place carried.

@@ -547,6 +547,8 @@ evidence = [
   "crates/ui/tests/arrange.rs::a_card_dropped_on_anothers_side_moves_there",
   "crates/ui/tests/arrange.rs::a_shelf_moves_by_its_edges_and_takes_books_in_its_middle",
   "crates/ui/tests/arrange.rs::carried_cards_make_room_and_settle_where_dropped",
+  "crates/library/src/moves_tests.rs::a_link_stands_among_its_level_and_moves_as_a_card",
+  "crates/ui/tests/library.rs::a_link_lights_what_it_points_at_and_goes_without_it",
 ]
 reference = ["crates/library-core/src/shelf/mod.rs"]
 notes = "Nested shelves with unique sibling names, books on many; Home shows every book or only unshelved ones (M5 slice 4). Shelves and books share one arranged order per level by sync-safe keys, dragged in the grid (M5 slice 10). The list shows shelves as rows, not a tree"
@@ -649,9 +651,13 @@ milestone = "M5"
 status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::a_card_menu_offers_what_a_book_can_do",
+  "crates/ui/tests/library.rs::duplicating_a_book_makes_the_librarys_own_copy_under_the_next_name",
+  "crates/ui/tests/library.rs::a_folders_shelf_menu_watches_its_own_subfolder",
+  "crates/library/src/run_tests.rs::a_book_links_duplicate_copies_its_book_and_a_shelf_links_stays_a_link",
+  "crates/library/src/run_tests.rs::a_shelfs_watch_writes_its_own_rung_and_the_root_writes_the_tree",
 ]
 reference = ["crates/library-runtime/src/features/library/context_menu.rs"]
-notes = "Book, shelf, selection and empty-page menus (M5 slice 5)"
+notes = "Book, shelf, link, selection and empty-page menus (M5 slice 5): Duplicate makes the library's own copies; a folder's shelf watches its own subfolder and shows in the file manager"
 
 [[feature]]
 id = "library.remove-receipt"

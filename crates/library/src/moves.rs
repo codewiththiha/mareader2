@@ -8,18 +8,20 @@ use crate::clock::Field;
 use crate::conflict::{Arrival, Entry, Level, Placement, collide};
 use crate::folder::{Folder, dir_of_rung, key_in_zone, rel_under};
 use crate::ground;
-use crate::id::{BookId, FolderId, ShelfId};
+use crate::id::{BookId, FolderId, LinkId, ShelfId};
 use crate::library::Library;
 use crate::run::Copied;
 use crate::screen::Answer;
 use crate::shelves::ShelfKind;
 use crate::words::free_name;
 
-/// Books and shelves carried to one level, as a drag or a menu does.
+/// Books, shelves and links carried to one level, as a drag or a menu does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Move {
     pub books: Vec<BookId>,
     pub shelves: Vec<ShelfId>,
+    /// Links only ever move: a pointer owes no copy and never collides.
+    pub links: Vec<LinkId>,
     /// The level the books were carried off; they leave it.
     pub from: Level,
     pub to: Level,
@@ -27,6 +29,21 @@ pub struct Move {
     pub keep: bool,
     /// Lands before this card on `to`; `None` appends.
     pub before: Option<Item>,
+}
+
+impl Move {
+    /// The cards `items` names, sorted by kind, bound nowhere yet.
+    pub fn of(items: &[Item]) -> Self {
+        let mut mv = Self::default();
+        for item in items {
+            match *item {
+                Item::Book(id) => mv.books.push(id),
+                Item::Shelf(id) => mv.shelves.push(id),
+                Item::Link(id) => mv.links.push(id),
+            }
+        }
+        mv
+    }
 }
 
 /// What a move owes before it lands: books read in place become copies.
@@ -83,6 +100,7 @@ impl MoveAsk {
 pub struct Moved {
     pub books: usize,
     pub shelves: usize,
+    pub links: usize,
     /// Departing shelves left where they were: a copy never came.
     pub stayed: Vec<ShelfId>,
     pub asks: Vec<MoveAsk>,
@@ -263,12 +281,38 @@ impl Library {
                 }
             }
         }
+        for &id in &mv.links {
+            if self.relevel_link(id, mv.to, wall_ms) {
+                landed.push(Item::Link(id));
+                done.links += 1;
+            }
+        }
         if mv.before.is_some() && !landed.is_empty() {
             self.arrange(mv.to, &landed, mv.before, wall_ms);
         }
         self.index();
         self.bump();
         done
+    }
+
+    /// Stands a link on `to`, last; true if it's there now.
+    fn relevel_link(&mut self, id: LinkId, to: Level, wall_ms: u64) -> bool {
+        let Some(from) = self.link(id).map(|l| l.level.value) else {
+            return false;
+        };
+        if to.is_some_and(|s| self.shelf(s).is_none()) {
+            return false;
+        }
+        if from == to {
+            return true;
+        }
+        let at = self.clock.tick(wall_ms);
+        let key = self.next_key(to);
+        if let Some(link) = self.links.get_mut(&id) {
+            link.level = Field::new(to, at);
+            link.key = Field::new(key, at);
+        }
+        true
     }
 
     /// Writes a move's answer: one book, this one instead, or both.

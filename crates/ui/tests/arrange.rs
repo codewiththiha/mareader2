@@ -35,10 +35,7 @@ fn top(h: &Harness<'static, MareaderApp>) -> Vec<Item> {
 
 /// What a card shows as its label.
 fn label(h: &Harness<'static, MareaderApp>, item: Item) -> String {
-    match item {
-        Item::Book(id) => library(h).book(id).unwrap().title.value.clone(),
-        Item::Shelf(id) => library(h).shelf(id).unwrap().name.value.clone(),
-    }
+    library(h).item_name(item).unwrap().to_owned()
 }
 
 /// A point `along` the card's width, from its left, mid-height.
@@ -127,7 +124,7 @@ fn shelf_of(h: &mut Harness<'static, MareaderApp>, name: &str, books: &[Item]) -
 fn book_id(item: Item) -> mareader_library::BookId {
     match item {
         Item::Book(id) => id,
-        Item::Shelf(_) => unreachable!("a book"),
+        _ => unreachable!("a book"),
     }
 }
 
