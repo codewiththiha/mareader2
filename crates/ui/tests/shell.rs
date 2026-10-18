@@ -157,6 +157,28 @@ fn a_preset_swatch_applies_its_look() {
     assert_eq!(Some(h.state().settings().appearance), sepia);
 }
 
+#[test]
+fn preset_cards_are_wide_enough_for_their_names() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    // "Parchment" was cut to "Parchme…"; one row stays, the name fits.
+    let card = h.get_by_label("Parchment").rect();
+    let first = h.get_by_label("Sepia").rect();
+    assert_eq!(card.top(), first.top(), "the five share a row");
+    let font = egui::FontId::proportional(10.0);
+    let name = h.ctx.fonts_mut(|f| {
+        f.layout_no_wrap("Parchment".into(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    // A centred name may use the 6 pt gaps beside its card.
+    assert!(
+        name <= card.width() + 4.0,
+        "{name:.1} in {:.1}",
+        card.width()
+    );
+}
+
 fn with(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
     for (k, v) in options {

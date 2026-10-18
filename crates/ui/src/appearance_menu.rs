@@ -621,8 +621,8 @@ fn cards(
     a: &mut Appearance,
     out: &mut Commands,
 ) {
-    let cols = columns(presets.len());
-    let w = (ui.available_width() - CARD_GAP * (cols - 1) as f32) / cols as f32;
+    let (cols, name_size) = fitting_columns(ui, presets);
+    let w = card_width(ui.available_width(), cols);
     let h = w * CARD_ASPECT + CARD_NAME;
     for row in presets.chunks(cols) {
         let used = row.len() as f32 * w + (row.len().max(1) - 1) as f32 * CARD_GAP;
@@ -631,7 +631,7 @@ fn cards(
         for p in row {
             let cell = Rect::from_min_size(pos2(x, band.top()), vec2(w, h));
             let mut child = ui.new_child(UiBuilder::new().max_rect(cell));
-            card(&mut child, cx, p, a, out);
+            card(&mut child, cx, p, name_size, a, out);
             x += w + CARD_GAP;
         }
     }
@@ -642,8 +642,60 @@ fn columns(n: usize) -> usize {
     if n > 5 && n % 5 == 1 { 4 } else { 5 }
 }
 
+/// Columns and name size so every name shows whole, five across if any.
+fn fitting_columns(ui: &Ui, presets: &[&Preset]) -> (usize, f32) {
+    let t = Tokens::get(ui.ctx());
+    let base = t.text_small - 1.0;
+    let widest = |size: f32| {
+        let font = FontId::proportional(size);
+        let width = |p: &&Preset| {
+            let g = ui
+                .painter()
+                .layout_no_wrap(p.name.clone(), font.clone(), t.ink);
+            g.size().x
+        };
+        presets.iter().map(width).fold(0.0, f32::max)
+    };
+    let room = ui.available_width();
+    let first = columns(presets.len());
+    // Smaller type first, by a point at most; then fewer, wider cards.
+    for cols in (3..=first).rev() {
+        for size in [base, base - 0.5, base - 1.0] {
+            if widest(size) <= name_room(card_width(room, cols)) {
+                return (orphanless(cols, presets.len()), size);
+            }
+        }
+    }
+    (3, base)
+}
+
+/// One card alone on a row looks lost; narrower ones still fit.
+fn orphanless(cols: usize, n: usize) -> usize {
+    if cols < columns(n) && n > cols && n % cols == 1 {
+        cols - 1
+    } else {
+        cols
+    }
+}
+
+fn card_width(room: f32, cols: usize) -> f32 {
+    (room - CARD_GAP * (cols - 1) as f32) / cols as f32
+}
+
+/// A centred name may run into the gaps either side of its card.
+fn name_room(card: f32) -> f32 {
+    card + CARD_GAP - 2.0
+}
+
 /// One preset; picks it on click, and the user's own show a delete.
-fn card(ui: &mut Ui, cx: &MenuContext<'_>, p: &Preset, a: &mut Appearance, out: &mut Commands) {
+fn card(
+    ui: &mut Ui,
+    cx: &MenuContext<'_>,
+    p: &Preset,
+    name_size: f32,
+    a: &mut Appearance,
+    out: &mut Commands,
+) {
     let t = Tokens::get(ui.ctx());
     let selected = p.appearance == *a;
     let w = ui.available_width();
@@ -660,9 +712,9 @@ fn card(ui: &mut Ui, cx: &MenuContext<'_>, p: &Preset, a: &mut Appearance, out: 
     let r = CornerRadius::same(CARD_RADIUS as u8);
     ui.painter()
         .rect_stroke(page, r, border, StrokeKind::Inside);
-    let font = FontId::proportional(t.text_small - 1.0);
+    let font = FontId::proportional(name_size);
     let colour = if selected { t.accent } else { t.ink };
-    let name = elided(ui, &p.name, font, colour, w);
+    let name = elided(ui, &p.name, font, colour, name_room(w));
     let at = pos2(
         rect.center().x - name.size().x / 2.0,
         rect.bottom() - name.size().y,
