@@ -258,10 +258,15 @@ const WORDS: ModifierNames<'static> = ModifierNames {
 
 /// `⌘,` on macOS, `Ctrl+,` elsewhere.
 pub fn text(platform: Platform, shortcut: &KeyboardShortcut) -> String {
-    match platform {
+    let text = match platform {
         Platform::Mac => shortcut.format(&ModifierNames::SYMBOLS, true),
         Platform::Windows | Platform::Gnome => shortcut.format(&WORDS, false),
-    }
+    };
+    // egui's arrow glyphs are media triangles, tiny beside the letters.
+    let arrows = [('⏴', '←'), ('⏵', '→'), ('⏶', '↑'), ('⏷', '↓')];
+    arrows
+        .iter()
+        .fold(text, |t, (from, to)| t.replace(*from, &to.to_string()))
 }
 
 /// The shortcut that sends `command`, for its tooltip or menu row.
@@ -382,6 +387,11 @@ mod tests {
         assert!(next.is_some_and(|e| e.keys.len() == 2), "the arrow and L");
         let names: Vec<_> = sheet.iter().map(|s| s.name).collect();
         assert_eq!(names, SECTIONS);
+        let previous = entries().find(|e| e.label == "Previous page");
+        assert!(
+            previous.is_some_and(|e| e.keys == ["←", "H"]),
+            "real arrows"
+        );
         let tab = entries().find(|e| e.label == "Move between controls");
         assert!(tab.is_some_and(|e| e.keys == ["Tab", "Shift+Tab"]));
         let own = hint(Platform::Gnome, &Command::ShowShortcuts);
