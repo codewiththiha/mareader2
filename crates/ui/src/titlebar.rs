@@ -56,10 +56,17 @@ pub struct BarContext<'a> {
     pub page: BarPage<'a>,
 }
 
-/// What sets the reader's bar apart from the library's.
+/// What sets each route's bar apart.
 pub enum BarPage<'a> {
     Reader(ReaderBar),
     Library(LibraryBar<'a>),
+    Dictionary(DictionaryBar),
+}
+
+/// The dictionary's bar: a way to the library, and back.
+pub struct DictionaryBar {
+    /// The pressed Dictionary button's name: where it returns to.
+    pub back: &'static str,
 }
 
 /// Rail, folding tools and the overflow menu act on the panes.
@@ -102,8 +109,8 @@ fn tools() -> [Tool; 1] {
     }]
 }
 
-/// How many folding tools fit beside the fixed controls and the title.
-fn fitting(bar: &BarContext<'_>, reader: &ReaderBar, row_width: f32) -> usize {
+/// Whether Dictionary keeps its button, then how many tools fit.
+fn fitting(bar: &BarContext<'_>, reader: &ReaderBar, row_width: f32) -> (bool, usize) {
     let lead = if reader.sidebar_toggle { 2.0 } else { 1.0 } * TOOL_W;
     let captions = match captions(bar) {
         Some(CaptionStyle::Windows) => 3.0 * 46.0 + 4.0,
@@ -113,7 +120,20 @@ fn fitting(bar: &BarContext<'_>, reader: &ReaderBar, row_width: f32) -> usize {
     // Appearance and the menu never fold.
     let fixed = 2.0 * TOOL_W + 8.0;
     let room = row_width - lead - captions - fixed - TITLE_ROOM;
-    ((room / TOOL_W).floor().max(0.0) as usize).min(tools().len())
+    // Dictionary, beside Library, folds last.
+    let dictionary = room >= TOOL_W;
+    let room = if dictionary { room - TOOL_W } else { room };
+    let fit = ((room / TOOL_W).floor().max(0.0) as usize).min(tools().len());
+    (dictionary, fit)
+}
+
+/// The reader's Dictionary, as the menu lists it once folded.
+fn dictionary_tool() -> Tool {
+    Tool {
+        icon: Icon::Dictionary,
+        label: "Dictionary",
+        command: Command::ShowDictionary,
+    }
 }
 
 fn captions(bar: &BarContext<'_>) -> Option<CaptionStyle> {
@@ -257,7 +277,7 @@ impl TitleBar {
         let ((lead_end, lead), (trail_start, trail)) =
             egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
                 ui,
-                |ui| leading(ui, &bar.page, end),
+                |ui| leading(ui, bar, end, width),
                 |ui| trailing(ui, bar, pinned, width),
             );
         ui.data_mut(|d| d.insert_temp(ends, trail_start));
@@ -266,7 +286,9 @@ impl TitleBar {
             BarPage::Library(library) => {
                 search_field(ui, &library.search, (lead_end, trail_start), &mut field)
             }
-            BarPage::Reader(_) => title(ui, bar.title, lead_end, trail_start),
+            BarPage::Reader(_) | BarPage::Dictionary(_) => {
+                title(ui, bar.title, lead_end, trail_start)
+            }
         }
         for c in lead.into_iter().chain(trail).chain(field).filter(|_| live) {
             if let Command::SetTitlebarPinned(p) = c {
@@ -282,10 +304,20 @@ fn clicked(r: egui::Response, c: Command) -> Option<Command> {
 }
 
 /// Its right edge and clicks; `end` is last frame's trailing edge.
-fn leading(ui: &mut egui::Ui, page: &BarPage<'_>, end: Option<f32>) -> (f32, Commands) {
+fn leading(
+    ui: &mut egui::Ui,
+    bar: &BarContext<'_>,
+    end: Option<f32>,
+    width: f32,
+) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
-    match page {
+    let keys = keymap::hint(bar.platform, &Command::ShowDictionary);
+    let dictionary = |ui: &mut egui::Ui, label: &str, on: bool| {
+        let r = widgets::icon_button_keyed(ui, Icon::Dictionary, label, on, keys.as_deref());
+        clicked(r, Command::ShowDictionary)
+    };
+    match &bar.page {
         BarPage::Reader(reader) => {
             if reader.sidebar_toggle {
                 let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
@@ -293,6 +325,15 @@ fn leading(ui: &mut egui::Ui, page: &BarPage<'_>, end: Option<f32>) -> (f32, Com
             }
             let r = widgets::icon_button(ui, Icon::Library, "Library", false);
             out.extend(clicked(r, Command::ShowLibrary));
+            if fitting(bar, reader, width).0 {
+                out.extend(dictionary(ui, "Dictionary", false));
+            }
+        }
+        BarPage::Dictionary(page) => {
+            let r = widgets::icon_button(ui, Icon::Library, "Library", false);
+            out.extend(clicked(r, Command::ShowLibrary));
+            // Pressed, it undoes itself, as the library's does.
+            out.extend(dictionary(ui, page.back, true));
         }
         BarPage::Library(library) => {
             // Pressed, it undoes itself; with nothing open there's no way back.
@@ -300,6 +341,7 @@ fn leading(ui: &mut egui::Ui, page: &BarPage<'_>, end: Option<f32>) -> (f32, Com
                 let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
                 out.extend(clicked(r, Command::ShowLibrary));
             }
+            out.extend(dictionary(ui, "Dictionary", false));
             // The crumbs leave the search field its narrowest width.
             let room = end.map(|end| end - ui.cursor().min.x - SEARCH_MIN - 24.0);
             crumbs::show(ui, &library.trail, library.renaming, room, &mut out);
@@ -332,16 +374,20 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
         BarPage::Reader(reader) if !reader.rail_docked => &tools,
         _ => &[],
     };
-    let fit = match &bar.page {
-        BarPage::Reader(reader) => fitting(bar, reader, width).min(tools.len()),
-        BarPage::Library(_) => 0,
+    let (dictionary, fit) = match &bar.page {
+        BarPage::Reader(reader) => fitting(bar, reader, width),
+        BarPage::Library(_) | BarPage::Dictionary(_) => (true, 0),
     };
-    let (shown, folded) = tools.split_at(fit);
+    let (shown, folded) = tools.split_at(fit.min(tools.len()));
+    let mut folded = folded.to_vec();
+    if !dictionary {
+        folded.push(dictionary_tool());
+    }
     // The end slot is the route's menu; Appearance stays put.
     match &bar.page {
         BarPage::Reader(reader) => {
             let menu = MenuContext {
-                folded,
+                folded: &folded,
                 fullscreen: bar.fullscreen,
                 platform: bar.platform,
                 zoom: reader.zoom,
@@ -355,9 +401,11 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
             let auto = library.auto_columns;
             library_menu::button(ui, library.view, auto, pinned, bar.platform, &mut out);
         }
+        // The page's own choices sit on it; the bar keeps the look.
+        BarPage::Dictionary(_) => {}
     }
     appearance_button(ui, bar, &mut out);
-    if matches!(bar.page, BarPage::Library(_)) {
+    if !matches!(bar.page, BarPage::Reader(_)) {
         return (ui.min_rect().left(), out);
     }
     for tool in shown {
@@ -382,7 +430,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
         .show(|ui| {
             let reader = match &bar.page {
                 BarPage::Reader(reader) => Some(reader),
-                BarPage::Library(_) => None,
+                BarPage::Library(_) | BarPage::Dictionary(_) => None,
             };
             let cx = crate::appearance_menu::MenuContext {
                 current: bar.appearance,

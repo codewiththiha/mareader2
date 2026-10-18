@@ -1,4 +1,4 @@
-//! Look up, the Dictionary panel and Settings over fixture packs.
+//! Look up, the Dictionary page and Settings over fixture packs.
 #![cfg(not(target_arch = "wasm32"))]
 
 use std::path::Path;
@@ -8,8 +8,9 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::dict::page::LABEL;
+use mareader_ui::route::Route;
 use mareader_ui::settings_window::Tab;
-use mareader_ui::sidebar::Panel;
 
 type H = Harness<'static, MareaderApp>;
 
@@ -129,16 +130,98 @@ fn the_tab_lists_packs_and_removes_one() {
 fn the_panel_searches_every_pack_as_typed() {
     let dir = shelf();
     let mut h = reader(dir.path());
-    h.state_mut()
-        .queue(Command::OpenSidebar(Some(Panel::Dictionary)));
+    h.state_mut().queue(Command::ShowDictionary);
     h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
     // Focused first, as a click does, then typed into.
-    h.get_by_label(mareader_ui::dict::panel::LABEL).click();
+    h.get_by_label(LABEL).click();
     h.run();
-    h.get_by_label(mareader_ui::dict::panel::LABEL)
-        .type_text("ight");
+    h.get_by_label(LABEL).type_text("ight");
     // The debounce passes, then the reply lands.
     h.run_steps(30);
-    h.get_by_label("lumière");
-    h.get_by_label("အလင်း");
+    // Each answer shows in its row, and the chosen one in full.
+    assert!(h.query_all_by_label_contains("lumière").count() >= 1);
+    assert!(h.query_all_by_label_contains("အလင်း").count() >= 1);
+}
+
+#[test]
+fn the_shortcut_opens_the_page_and_escape_steps_back() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    h.key_press_modifiers(keys, egui::Key::D);
+    h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
+    // Cmd+D's bookmark never rode along with the Shift.
+    h.get_by_label("Back to reading");
+    h.get_by_label(LABEL).type_text("quick");
+    h.run_steps(30);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().dict().page_text(), "", "Escape clears first");
+    assert_eq!(h.state().route(), Route::Dictionary);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().route(), Route::Reader);
+}
+
+#[test]
+fn from_the_library_the_page_returns_to_the_library() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    h.get_by_label("Dictionary").click();
+    h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
+    h.get_by_label("Back to the library").click();
+    h.run();
+    assert_eq!(h.state().route(), Route::Library);
+    // The page's Library button goes there from the reader's side too.
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    h.state_mut().queue(Command::ShowDictionary);
+    h.run();
+    h.get_by_label("Library").click();
+    h.run();
+    assert_eq!(h.state().route(), Route::Library);
+}
+
+#[test]
+fn arrows_pick_a_result_and_enter_keeps_the_search() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_page", "ight")
+        .expect("a known option");
+    h.run_steps(30);
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let recent = &h.state().settings().dictionary.recent;
+    assert_eq!(recent, &["ight".to_owned()]);
+    // Cleared, the page offers it again; a click searches it.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.get_by_label("Recent");
+    h.get_by_label("ight").click();
+    h.run();
+    assert_eq!(h.state().dict().page_text(), "ight");
+}
+
+#[test]
+fn an_answer_can_be_looked_up_in_turn() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let mut s = h.state().settings().clone();
+    s.dictionary.langs = vec!["wiktionary-en-fr".into()];
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.state_mut()
+        .set_option("dict_page", "light")
+        .expect("a known option");
+    h.run_steps(30);
+    h.get_by_label_contains("Look up “").click();
+    h.run();
+    let text = h.state().dict().page_text().to_owned();
+    assert!(!text.is_empty() && text != "light", "{text}");
 }

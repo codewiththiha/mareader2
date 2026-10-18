@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 37] {
+pub fn bindings(platform: Platform) -> [Binding; 38] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -104,6 +104,12 @@ pub fn bindings(platform: Platform) -> [Binding; 37] {
             false,
         ),
         step("Next match", Modifiers::COMMAND, Key::G, true),
+        // Before Bookmark, whose pattern would take Shift too.
+        Binding {
+            label: "Dictionary",
+            shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::D),
+            command: Command::ShowDictionary,
+        },
         Binding {
             label: "Bookmark this page",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::D),
@@ -396,5 +402,7 @@ mod tests {
         assert!(tab.is_some_and(|e| e.keys == ["Tab", "Shift+Tab"]));
         let own = hint(Platform::Gnome, &Command::ShowShortcuts);
         assert_eq!(own.as_deref(), Some("Ctrl+/"));
+        let dict = entries().find(|e| e.label == "Dictionary");
+        assert!(dict.is_some_and(|e| e.keys == ["⇧⌘D"]), "listed once");
     }
 }

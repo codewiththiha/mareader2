@@ -299,10 +299,35 @@ pub struct DictionarySettings {
     pub pair: bool,
     pub from: Option<String>,
     pub to: Option<String>,
+    /// The Dictionary page's last searches, newest first.
+    pub recent: Vec<String>,
 }
 
+/// How many searches the Dictionary page remembers.
+pub const RECENT: usize = 12;
+
 impl DictionarySettings {
+    /// Keeps `word` first among the recent searches.
+    pub fn remember(&mut self, word: &str) {
+        let word = word.trim();
+        if word.is_empty() {
+            return;
+        }
+        self.recent.retain(|w| w != word);
+        self.recent.insert(0, word.to_owned());
+        self.recent.truncate(RECENT);
+    }
+
     pub fn sanitize(&mut self) {
+        let mut kept: Vec<String> = Vec::with_capacity(self.recent.len());
+        for w in self.recent.drain(..) {
+            let w = w.trim().to_owned();
+            if !w.is_empty() && !kept.contains(&w) {
+                kept.push(w);
+            }
+        }
+        kept.truncate(RECENT);
+        self.recent = kept;
         let mut seen = Vec::with_capacity(self.langs.len());
         self.langs.retain(|id| {
             let new = !seen.contains(id);
@@ -321,6 +346,7 @@ impl Default for DictionarySettings {
             pair: false,
             from: None,
             to: None,
+            recent: Vec::new(),
         }
     }
 }
@@ -329,6 +355,20 @@ impl Default for DictionarySettings {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recent_searches_stay_unique_newest_first_and_bounded() {
+        let mut d = DictionarySettings::default();
+        for w in ["light", " dark ", "light", ""] {
+            d.remember(w);
+        }
+        assert_eq!(d.recent, ["light", "dark"]);
+        d.recent = (0..20).map(|i| format!("w{i}")).collect();
+        d.recent.push("w1".into());
+        d.sanitize();
+        assert_eq!(d.recent.len(), RECENT);
+        assert_eq!(d.recent.iter().filter(|w| *w == "w1").count(), 1);
+    }
 
     #[test]
     fn the_ai_look_is_never_offered_to_its_pen() {

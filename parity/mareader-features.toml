@@ -180,9 +180,8 @@ evidence = [
     "crates/ui/tests/panel.rs::shelves_open_in_place_and_list_their_shelves_and_books",
     "crates/ui/src/library_panel.rs::a_link_is_a_row_under_its_own_name_and_counts_on_its_shelf",
     "crates/ui/src/library_panel.rs::a_book_on_two_open_shelves_is_two_rows_of_their_own",
-    "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed",
 ]
-notes = "Docked or floating, sliding, with the outline, thumbnails, library and dictionary panels serving the focused pane"
+notes = "Docked or floating, sliding, with the outline, thumbnails, library and notes panels serving the focused pane. The dictionary left the rail for its own page (study.dictionary-page)"
 
 [[feature]]
 id = "chrome.popovers"
@@ -1429,6 +1428,26 @@ status = "shipped"
 evidence = ["crates/dict/tests/dict.rs::burmese_reaches_french_through_english", "crates/dict/tests/dict.rs::a_whole_download_converts_and_a_partial_one_waits", "crates/fetch/src/lib.rs::a_dropped_connection_resumes_where_it_stopped", "crates/fetch/src/lib.rs::mirrors_are_tried_in_turn_and_an_error_page_is_never_kept", "crates/ui/tests/dictionary.rs::look_up_answers_from_the_packs_in_the_default_language", "crates/ui/tests/dictionary.rs::the_tab_lists_packs_and_removes_one", "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed", "crates/ui/tests/vocabulary.rs::resting_on_a_shaded_word_opens_its_dictionary_card", "crates/ui/src/bubble.rs::a_card_takes_the_side_it_fits"]
 reference = ["crates/dict-core/src/lib.rs", "crates/download-core/src/lib.rs", "crates/reader-core/src/settings/dict.rs"]
 notes = "Packs download with mirrors and resume, convert to SQLite, and answer Look up, the panel and pairs through English (M6 slice 4); resting on a shaded word opens its card (slice 5). The card shows one entry at a time beside its word, a caret pointing at it, as mareader's anchored bubble"
+
+[[feature]]
+id = "study.dictionary-page"
+title = "Dictionary panel: pack picker, language pairs through English, Search as"
+area = "I"
+tier = "P1"
+milestone = "M6"
+status = "partial"
+reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/dictionary/mod.rs", "crates/dict-core/src/bridge.rs"]
+evidence = [
+    "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed",
+    "crates/ui/tests/dictionary.rs::the_shortcut_opens_the_page_and_escape_steps_back",
+    "crates/ui/tests/dictionary.rs::from_the_library_the_page_returns_to_the_library",
+    "crates/ui/tests/dictionary.rs::arrows_pick_a_result_and_enter_keeps_the_search",
+    "crates/ui/tests/dictionary.rs::an_answer_can_be_looked_up_in_turn",
+    "crates/ui/tests/chrome.rs::a_narrow_bar_folds_dictionary_into_the_menu",
+    "crates/ui/src/route.rs::the_dictionary_keeps_its_settings_and_drops_reading",
+    "crates/settings/src/study.rs::recent_searches_stay_unique_newest_first_and_bounded",
+]
+notes = "Its own page, not a rail panel: from the reader's and library's bars or Cmd/Ctrl+Shift+D. Results beside the chosen entry, its other senses, Copy and Look up in turn, recent searches, arrows and Enter. The floating window in the reader is next"
 
 [[feature]]
 id = "study.selection-menu"

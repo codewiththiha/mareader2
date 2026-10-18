@@ -160,6 +160,19 @@ fn the_title_centres_truncates_and_hides_for_want_of_room() {
     assert_eq!(title_box(&empty, title), None, "nothing open, no title");
 }
 
+#[test]
+fn a_narrow_bar_folds_dictionary_into_the_menu() {
+    let pinned = [("pdf", "sample:3"), ("pinned", "true")];
+    let mut h = with(&pinned, egui::vec2(380.0, 600.0));
+    assert!(h.query_by_label("Dictionary").is_none(), "no room for it");
+    h.state_mut().queue(Command::ShowViewMenu);
+    h.run();
+    h.get_by_label("Dictionary").click();
+    h.run();
+    let route = h.state().route();
+    assert_eq!(route, mareader_ui::route::Route::Dictionary);
+}
+
 fn widths(h: &Harness<'static, MareaderApp>) -> Vec<f32> {
     h.state()
         .pane_rects()

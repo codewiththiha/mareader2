@@ -36,8 +36,6 @@ pub enum Panel {
     Library,
     /// The book's highlights and their notes.
     Notes,
-    /// Joins the switcher once a language pack is built (M6).
-    Dictionary,
 }
 
 impl Panel {
@@ -55,7 +53,6 @@ impl Panel {
             Panel::Outline => "Outline",
             Panel::Library => "Library",
             Panel::Notes => "Notes",
-            Panel::Dictionary => "Dictionary",
         }
     }
 
@@ -65,7 +62,6 @@ impl Panel {
             Panel::Outline,
             Panel::Library,
             Panel::Notes,
-            Panel::Dictionary,
         ]
         .into_iter()
         .find(|p| p.label().eq_ignore_ascii_case(s))
@@ -77,7 +73,6 @@ impl Panel {
             Panel::Outline => Icon::Outline,
             Panel::Library => Icon::Library,
             Panel::Notes => Icon::Note,
-            Panel::Dictionary => Icon::Dictionary,
         }
     }
 
@@ -88,7 +83,6 @@ impl Panel {
             Panel::Outline => "Open a book to see its chapters here.",
             Panel::Library => "Your library as a tree, with the open tabs, arrives in M5.",
             Panel::Notes => "Open a book to see its highlights and notes here.",
-            Panel::Dictionary => "Look words up in your language packs (M6).",
         }
     }
 }

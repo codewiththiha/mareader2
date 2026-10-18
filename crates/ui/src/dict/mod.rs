@@ -1,8 +1,8 @@
-//! Dictionaries in the app: the lookup card, the panel, the packs.
+//! Dictionaries in the app: the lookup card, the page, the packs.
 
 mod card;
 mod entry;
-pub mod panel;
+pub mod page;
 
 use egui::{Context, Rect, Vec2};
 use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket};
@@ -15,7 +15,7 @@ use crate::theme::Tokens;
 /// Room around a rested card's word and itself the pointer may cross.
 const LEAVE: f32 = 8.0;
 
-/// What the card, the panel and the settings ask of the dictionaries.
+/// What the card, the page and the settings ask of the dictionaries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Download(&'static str),
@@ -44,7 +44,7 @@ pub struct Dict {
     service: Dictionaries,
     card: Option<Card>,
     card_rect: Option<Rect>,
-    panel: panel::Panel,
+    page: page::Page,
 }
 
 impl Dict {
@@ -179,12 +179,12 @@ impl Dict {
         for reply in replies {
             match &mut self.card {
                 Some(card) if card.ticket == reply.ticket => card.reply = Some(reply),
-                _ => self.panel.receive(reply),
+                _ => self.page.receive(reply),
             }
         }
         if changed {
-            // A pack came or went: what the panel showed may differ.
-            self.panel.stale();
+            // A pack came or went: what the page showed may differ.
+            self.page.stale();
         }
         changed
     }
@@ -232,10 +232,37 @@ impl Dict {
         });
     }
 
-    /// The rail's Dictionary panel.
-    pub fn panel(&mut self, ui: &mut egui::Ui, settings: &DictionarySettings, out: &mut Commands) {
-        let Self { service, panel, .. } = self;
-        panel.show(ui, service, settings, out);
+    /// The Dictionary page, below `top`.
+    pub fn page(
+        &mut self,
+        ui: &mut egui::Ui,
+        settings: &DictionarySettings,
+        top: f32,
+        out: &mut Commands,
+    ) {
+        let Self { service, page, .. } = self;
+        page.show(ui, service, settings, top, out);
+    }
+
+    /// The page came up: its field takes the keys.
+    pub fn arrive(&mut self) {
+        self.card = None;
+        self.page.arrive();
+    }
+
+    /// Escape on the page: clears its search; false if empty.
+    pub fn page_escape(&mut self) -> bool {
+        self.page.escape()
+    }
+
+    /// Searches the page for `word` at once.
+    pub fn search(&mut self, word: &str) {
+        self.page.search(word);
+    }
+
+    /// What the page's field holds, for tests.
+    pub fn page_text(&self) -> &str {
+        self.page.text()
     }
 }
 
