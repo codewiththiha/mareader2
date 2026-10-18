@@ -10,7 +10,7 @@ use egui::{
 };
 use mareader_library::{
     Book, BookId, Home, Item, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target,
-    View,
+    View, plural,
 };
 
 use super::{Action, LibraryState, Pick, PickAction, Scope};
@@ -42,7 +42,7 @@ pub enum SearchAction {
     Move(i32),
     /// Shows the book or shelf where it sits on the page.
     Choose(Target),
-    /// Enter: chooses the lit suggestion, else closes them.
+    /// Enter: chooses the lit suggestion, the first unless moved.
     ChooseLit,
     Close,
     Clear,
@@ -67,7 +67,8 @@ impl Search {
         self.query = Query::new(&text);
         self.text = text;
         self.open = !self.query.is_empty();
-        self.lit = None;
+        // The first row is lit, so Enter goes to the best match.
+        self.lit = self.open.then_some(0);
     }
 
     fn close(&mut self) {
@@ -270,7 +271,7 @@ impl LibraryState {
         }
     }
 
-    /// "Search", or what the search is limited to.
+    /// How many books there are to search, or what it's limited to.
     fn placeholder(&self) -> String {
         let shelf = self.at.and_then(|id| self.model.shelf(id));
         if let Some(shelf) = shelf {
@@ -278,7 +279,10 @@ impl LibraryState {
         }
         match self.scope {
             Scope::Missing => "Search missing books".into(),
-            Scope::All => "Search".into(),
+            Scope::All => match self.model.books().count() {
+                0 => "Search the library".into(),
+                n => format!("Search {}", plural(n, "book", "books")),
+            },
         }
     }
 
@@ -492,7 +496,9 @@ pub fn field(ui: &mut Ui, rect: Rect, field: &Field, out: &mut Commands) {
     if ui.data_mut(|d| d.remove_temp::<bool>(Id::new(FOCUS_ASK))) == Some(true) {
         super::crumbs::select_all(&edited, id, &text);
     }
-    if edited.changed() {
+    // Typing, or coming back to a search, lists what it finds.
+    let back = edited.gained_focus() && !text.trim().is_empty();
+    if edited.changed() || back {
         act(out, SearchAction::Text(text));
     }
     if clear {
@@ -527,9 +533,6 @@ fn keys(ui: &mut Ui, field: &Field, out: &mut Commands) {
         }
         if shown && field.lit.is_some() && i.consume_key(Modifiers::NONE, Key::Enter) {
             asked.push(SearchAction::ChooseLit);
-        } else if shown && i.key_pressed(Key::Enter) {
-            // The field lets go of Enter itself; the filter stays.
-            asked.push(SearchAction::Close);
         }
         // Escape peels: the list, then the text, then the focus.
         if i.consume_key(Modifiers::NONE, Key::Escape) {
@@ -563,6 +566,10 @@ pub fn suggestions(ctx: &Context, library: &mut LibraryState, out: &mut Commands
         return;
     };
     let found = library.suggestions();
+    if found.is_empty() {
+        ctx.data_mut(|d| d.remove::<Rect>(rect_id));
+        return;
+    }
     let lit = library.search.lit;
     let t = Tokens::get(ctx);
     let width = anchor.width().max(340.0);
@@ -575,13 +582,6 @@ pub fn suggestions(ctx: &Context, library: &mut LibraryState, out: &mut Commands
         egui::Frame::popup(ui.style()).show(ui, |ui| {
             ui.set_width(width - 12.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            if found.is_empty() {
-                let none = egui::RichText::new("No books or shelves match.").color(t.muted);
-                ui.add_space(8.0);
-                ui.label(none);
-                ui.add_space(8.0);
-                return;
-            }
             let (model, covers) = library.parts();
             for (n, suggestion) in found.iter().enumerate() {
                 let row = Row {
@@ -595,7 +595,7 @@ pub fn suggestions(ctx: &Context, library: &mut LibraryState, out: &mut Commands
                 }
             }
             ui.add_space(4.0);
-            let hint = "↑↓ to move · Enter to show · Esc to close";
+            let hint = "Choose with ↑ ↓ · Enter goes there · Esc closes";
             let hint = egui::RichText::new(hint).size(11.0).color(t.muted);
             ui.add(egui::Label::new(hint).selectable(false));
         });

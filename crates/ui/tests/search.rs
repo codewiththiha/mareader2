@@ -59,7 +59,7 @@ fn typing_filters_the_page_and_says_how_many_match() {
     search(&mut h, "essays");
     assert!(focused(&h));
     assert!(h.state().library_state().field().open, "suggestions show");
-    // Enter with nothing lit closes them; the filter stays.
+    // Enter goes to the best match; the filter stays.
     h.key_press(Key::Enter);
     h.run();
     assert!(!focused(&h));
@@ -96,8 +96,7 @@ fn arrows_and_enter_show_a_book_from_another_shelf() {
     search(&mut h, "rust");
     // Nothing on this shelf matches; the rest of the library does.
     assert!(h.query_by_label("No books match “rust”.").is_some());
-    h.key_press(Key::ArrowDown);
-    h.run();
+    // The first suggestion is lit already.
     assert_eq!(h.state().library_state().field().lit, Some(0));
     h.key_press(Key::Enter);
     h.run_steps(2);
@@ -122,8 +121,6 @@ fn choosing_a_shelf_opens_its_parent_with_it_lit() {
     ];
     let mut h = reader(&options);
     search(&mut h, "clsc");
-    h.key_press(Key::ArrowDown);
-    h.run();
     h.key_press(Key::Enter);
     h.run_steps(2);
     let lib = h.state().library();
@@ -167,7 +164,7 @@ fn a_shelf_without_matches_offers_the_ones_elsewhere() {
     ];
     let mut h = reader(&options);
     search(&mut h, "raven");
-    h.key_press(Key::Enter);
+    h.key_press(Key::Escape);
     h.run();
     h.get_by_label("Show the 1 match elsewhere").click();
     h.run();
@@ -217,14 +214,38 @@ fn a_search_at_the_top_lists_nested_shelves_and_lights_them_there() {
     let options = [("books", "10"), ("shelves", "demo"), ("library", "show")];
     let mut h = reader(&options);
     search(&mut h, "clsc");
-    h.key_press(Key::ArrowDown);
-    h.run();
     h.key_press(Key::Enter);
     h.run_steps(2);
     let state = h.state().library_state();
     assert_eq!(state.at(), None, "it shows at the top already");
     assert!(matches!(state.revealed(), Some(Pick::Shelf(_))));
     assert_eq!(shown(&h, "Classics"), 1);
+}
+
+#[test]
+fn up_from_the_first_suggestion_closes_and_down_reopens() {
+    let options = [("books", "10"), ("layout", "list"), ("library", "show")];
+    let mut h = reader(&options);
+    search(&mut h, "essays");
+    assert_eq!(h.state().library_state().field().lit, Some(0));
+    h.key_press(Key::ArrowDown);
+    h.run();
+    assert_eq!(h.state().library_state().field().lit, Some(1));
+    h.key_press(Key::ArrowDown);
+    h.run();
+    assert_eq!(h.state().library_state().field().lit, Some(1), "it stops");
+    for _ in 0..2 {
+        h.key_press(Key::ArrowUp);
+        h.run();
+    }
+    assert!(!h.state().library_state().field().open);
+    h.key_press(Key::ArrowDown);
+    h.run();
+    let field = h.state().library_state().field();
+    assert!(field.open && field.lit == Some(0));
+    // Nothing matches: no list at all.
+    search(&mut h, "zzqx");
+    assert!(h.query_by_label_contains("Enter goes there").is_none());
 }
 
 #[test]

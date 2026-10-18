@@ -158,7 +158,7 @@ impl LibraryState {
 
     /// Escape lets go of a selection, then the search; true if it did.
     pub fn escape(&mut self) -> bool {
-        if !self.picks.is_empty() {
+        if self.picks.active() {
             self.picks.apply(PickAction::Clear);
             return true;
         }

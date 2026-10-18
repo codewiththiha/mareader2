@@ -252,12 +252,15 @@ impl TitleBar {
     ) {
         let pinned = self.pinned;
         let width = ui.max_rect().width();
+        let ends = Id::new("titlebar-trail-start");
+        let end = ui.data(|d| d.get_temp::<f32>(ends));
         let ((lead_end, lead), (trail_start, trail)) =
             egui::Sides::new().height(TITLE_BAR_H).spacing(8.0).show(
                 ui,
-                |ui| leading(ui, &bar.page),
+                |ui| leading(ui, &bar.page, end),
                 |ui| trailing(ui, bar, pinned, width),
             );
+        ui.data_mut(|d| d.insert_temp(ends, trail_start));
         let mut field = Commands::new();
         match &bar.page {
             BarPage::Library(library) => {
@@ -278,8 +281,8 @@ fn clicked(r: egui::Response, c: Command) -> Option<Command> {
     r.clicked().then_some(c)
 }
 
-/// Returns its right edge and what was clicked.
-fn leading(ui: &mut egui::Ui, page: &BarPage<'_>) -> (f32, Commands) {
+/// Its right edge and clicks; `end` is last frame's trailing edge.
+fn leading(ui: &mut egui::Ui, page: &BarPage<'_>, end: Option<f32>) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
     match page {
@@ -297,7 +300,9 @@ fn leading(ui: &mut egui::Ui, page: &BarPage<'_>) -> (f32, Commands) {
                 let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
                 out.extend(clicked(r, Command::ShowLibrary));
             }
-            crumbs::show(ui, &library.trail, library.renaming, &mut out);
+            // The crumbs leave the search field its narrowest width.
+            let room = end.map(|end| end - ui.cursor().min.x - SEARCH_MIN - 24.0);
+            crumbs::show(ui, &library.trail, library.renaming, room, &mut out);
         }
     }
     (ui.min_rect().right(), out)

@@ -297,7 +297,7 @@ fn resting_on_a_crumb_goes_up_to_drop_there_in_place() {
     shelve(&mut h, ShelfAction::GoTo(Some(id)));
     let book = order[1];
     let crumb = h
-        .get_by_role_and_label(Role::Button, "Library")
+        .get_by_role_and_label(Role::Button, "Home")
         .rect()
         .center();
     let from = on(&h, book, 0.5);

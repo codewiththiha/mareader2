@@ -1,13 +1,18 @@
 //! Right-click menus on the page, the selection bar, and picked marks.
 
-use egui::{Button, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
-use mareader_library::{Book, Library, Shelf, ShelfId};
+use egui::{
+    Button, Color32, Id, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Stroke,
+    StrokeKind, Ui, pos2, vec2,
+};
+use mareader_library::{Book, Library, Move, Shelf, ShelfId, natural};
 
-use super::books::counted;
 use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::widgets;
+
+const ADD_TO_SHELF: &str = "library-add-to-shelf";
 
 const BAR_H: f32 = 44.0;
 
@@ -39,17 +44,15 @@ fn danger(ui: &mut Ui, label: &str, t: &Tokens) -> bool {
     ui.button(RichText::new(label).color(t.danger)).clicked()
 }
 
-/// One book's menu; `at` is the shelf open on the page.
-pub fn book_menu(ui: &mut Ui, b: &Book, at: Option<ShelfId>, t: &Tokens, out: &mut Commands) {
-    let id = b.id;
-    let open = if b.missing() { "Find…" } else { "Open" };
-    if ui.button(open).clicked() {
+/// One book's menu.
+pub fn book_menu(ui: &mut Ui, b: &Book, t: &Tokens, out: &mut Commands) {
+    let (id, missing) = (b.id, b.missing());
+    if ui.add_enabled(!missing, Button::new("Open")).clicked() {
         out.push(Command::OpenBook(id));
     }
     if ui.button("Select").clicked() {
         act(out, Action::Pick(PickAction::Toggle(Pick::Book(id))));
     }
-    ui.separator();
     let rename = ui.button("Rename…");
     let rename =
         rename.on_hover_text("The name the library shows — the file on disk keeps its own");
@@ -59,14 +62,15 @@ pub fn book_menu(ui: &mut Ui, b: &Book, at: Option<ShelfId>, t: &Tokens, out: &m
     if ui.button("Read separately").clicked() {
         book(out, BookAction::Twin(id));
     }
-    if b.path().is_some() && ui.button(file_manager()).clicked() {
+    let reveal = Button::new(file_manager());
+    if b.path().is_some() && ui.add_enabled(!missing, reveal).clicked() {
         book(out, BookAction::Reveal(id));
     }
-    ui.separator();
-    if at.is_some() && ui.button("Take off this shelf").clicked() {
-        book(out, BookAction::TakeOff(vec![id]));
+    if missing && ui.button("Find again…").clicked() {
+        act(out, Action::FindAgain(id));
     }
-    if danger(ui, "Remove…", t) {
+    ui.separator();
+    if danger(ui, "Remove from library", t) {
         let books = vec![id];
         let shelves = Vec::new();
         book(out, BookAction::AskRemove { books, shelves });
@@ -76,13 +80,12 @@ pub fn book_menu(ui: &mut Ui, b: &Book, at: Option<ShelfId>, t: &Tokens, out: &m
 /// One shelf's menu.
 pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
     let id = s.id;
-    if ui.button("Open").clicked() {
+    if ui.button("Open shelf").clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
     }
     if ui.button("Select").clicked() {
         act(out, Action::Pick(PickAction::Toggle(Pick::Shelf(id))));
     }
-    ui.separator();
     let tip = match s.kind.value.rung() {
         Some(_) => "The name the library shows — a folder on disk keeps its own",
         None => "The name the library shows",
@@ -90,7 +93,8 @@ pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
     if ui.button("Rename…").on_hover_text(tip).clicked() {
         act(out, Action::AskRename(Named::Shelf(id)));
     }
-    if ui.button("New shelf inside").clicked() {
+    // Made inside this shelf, which opens on it.
+    if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
         shelf(out, ShelfAction::New);
     }
@@ -101,117 +105,166 @@ pub fn shelf_menu(ui: &mut Ui, s: &Shelf, t: &Tokens, out: &mut Commands) {
 }
 
 /// The selection's menu, on any picked card.
-pub fn picks_menu(ui: &mut Ui, picks: &Picks, at: Option<ShelfId>, t: &Tokens, out: &mut Commands) {
-    let label = format!("{} selected", picks.len());
-    ui.label(RichText::new(label).size(12.0).color(t.muted));
+pub fn picks_menu(ui: &mut Ui, picks: &Picks, t: &Tokens, out: &mut Commands) {
+    let n = picks.len();
+    ui.label(
+        RichText::new(format!("{n} selected"))
+            .size(12.0)
+            .color(t.muted),
+    );
+    if ui.button("New shelf from these").clicked() {
+        shelve_together(picks, out);
+    }
     ui.separator();
-    together(ui, picks, at, t, out);
+    if danger(ui, &format!("Remove ({n})"), t) {
+        ask_remove(picks, out);
+    }
     if ui.button("Clear selection").clicked() {
         act(out, Action::Pick(PickAction::Clear));
     }
 }
 
-/// What a selection can do together: a menu's or the bar's entries.
-fn together(ui: &mut Ui, picks: &Picks, at: Option<ShelfId>, t: &Tokens, out: &mut Commands) {
+/// A new shelf where the reader is, holding the selection; selecting ends.
+fn shelve_together(picks: &Picks, out: &mut Commands) {
     let (books, shelves) = (picks.books(), picks.shelves());
-    if ui.button("New shelf from these").clicked() {
-        let (books, shelves) = (books.clone(), shelves.clone());
-        book(out, BookAction::ShelveTogether { books, shelves });
+    book(out, BookAction::ShelveTogether { books, shelves });
+    act(out, Action::Pick(PickAction::Clear));
+}
+
+/// Selecting ends as the remove sheet itemises the selection.
+fn ask_remove(picks: &Picks, out: &mut Commands) {
+    let (books, shelves) = (picks.books(), picks.shelves());
+    if books.is_empty() && shelves.is_empty() {
+        return;
     }
-    if at.is_some() && !books.is_empty() && ui.button("Take off this shelf").clicked() {
-        book(out, BookAction::TakeOff(books.clone()));
-    }
-    if danger(ui, "Remove…", t) {
-        book(out, BookAction::AskRemove { books, shelves });
-    }
+    act(out, Action::Pick(PickAction::Clear));
+    book(out, BookAction::AskRemove { books, shelves });
 }
 
 /// The page's own menu, on empty space.
-pub fn page_menu(ui: &mut Ui, model: &Library, sequence: &[Pick], out: &mut Commands) {
+pub fn page_menu(ui: &mut Ui, selecting: bool, sequence: &[Pick], out: &mut Commands) {
     if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::New);
     }
-    if ui.button("Choose files…").clicked() {
-        book(out, BookAction::PickImport);
+    if sequence.is_empty() {
+        return;
     }
-    // Watched folders are walked on return; this asks now, for all.
-    let folders = model.folders().any(|f| f.owes_walk());
-    if folders && ui.button("Rescan folders").clicked() {
-        act(out, Action::Rescan);
-    }
-    let all = ui.add_enabled(!sequence.is_empty(), egui::Button::new("Select all"));
-    if all.clicked() {
+    if selecting {
+        if ui.button("Clear selection").clicked() {
+            act(out, Action::Pick(PickAction::Clear));
+        }
+    } else if ui.button("Select all").clicked() {
         act(out, Action::Pick(PickAction::Only(sequence.to_vec())));
     }
 }
 
-/// The bar along the page's foot while something is picked.
-pub fn selection_bar(
-    ui: &mut Ui,
-    page: Rect,
-    picks: &Picks,
-    at: Option<ShelfId>,
-    t: &Tokens,
-    out: &mut Commands,
-) {
-    if picks.is_empty() {
+/// What the selection bar needs from the page.
+pub struct Bar<'a> {
+    pub model: &'a Library,
+    pub picks: &'a Picks,
+    /// The shelf open on the page; the cards shown, in order.
+    pub at: Option<ShelfId>,
+    pub sequence: &'a [Pick],
+}
+
+/// The bar along the page's foot while selecting.
+pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &mut Commands) {
+    let picks = bar.picks;
+    if !picks.active() {
         return;
     }
-    let (books, shelves) = (picks.books().len(), picks.shelves().len());
-    let what = match (books, shelves) {
-        (b, 0) => counted(b, "book", "books"),
-        (0, s) => counted(s, "shelf", "shelves"),
-        (b, s) => format!(
-            "{}, {}",
-            counted(b, "book", "books"),
-            counted(s, "shelf", "shelves")
-        ),
-    };
+    let n = picks.len();
     let width = page.width().min(560.0);
     let rect = Rect::from_center_size(
         pos2(page.center().x, page.bottom() - BAR_H / 2.0 - 16.0),
         vec2(width, BAR_H),
     );
-    let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     // Clicks on the bar's own background stay off the page.
-    bar.interact(rect, Id::new("library-selection-bar"), Sense::CLICK);
+    ui.interact(rect, Id::new("library-selection-bar"), Sense::CLICK);
     let shadow = egui::epaint::Shadow {
         offset: [0, 4],
         blur: 16,
         spread: 0,
         color: t.shadow,
     };
-    let p = bar.painter();
+    let p = ui.painter();
     p.add(shadow.as_shape(rect, egui::CornerRadius::from(t.radius_lg)));
     let edge = Stroke::new(1.0, t.line);
     p.rect(rect, t.radius_lg, t.surface, edge, StrokeKind::Inside);
     let inner = rect.shrink2(vec2(12.0, 6.0));
     let row = egui::Layout::left_to_right(egui::Align::Center);
-    bar.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(row), |ui| {
-        let text = RichText::new(format!("{what} selected")).font(theme::medium(13.0));
-        ui.label(text.color(t.ink));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(row), |ui| {
+        let text = RichText::new(format!("{n} selected")).font(theme::medium(13.0));
+        ui.label(text.color(t.muted));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let clear = crate::widgets::icon_button(ui, Icon::Close, "Clear selection", false);
-            if clear.clicked() {
+            if ui.button("Done").clicked() {
                 act(out, Action::Pick(PickAction::Clear));
             }
-            // Removal waits last, quiet and apart from the everyday actions.
-            let (books, shelves) = (picks.books(), picks.shelves());
-            let remove = Button::new(RichText::new("Remove…").color(t.danger)).frame(false);
-            if ui.add(remove).clicked() {
-                book(out, BookAction::AskRemove { books, shelves });
+            let remove = Button::new(RichText::new(format!("Remove ({n})")).color(t.danger));
+            let remove = ui.add_enabled(n > 0, remove.frame(false));
+            if remove
+                .on_hover_text("Remove the selected books and shelves")
+                .clicked()
+            {
+                ask_remove(picks, out);
             }
-            ui.separator();
-            let books = picks.books();
-            if at.is_some() && !books.is_empty() && ui.button("Take off this shelf").clicked() {
-                book(out, BookAction::TakeOff(books));
-            }
-            if ui.button("New shelf from these").clicked() {
-                let (books, shelves) = (picks.books(), picks.shelves());
-                book(out, BookAction::ShelveTogether { books, shelves });
+            add_to_shelf(ui, bar, out);
+            if ui.button("All").clicked() {
+                act(out, Action::Pick(PickAction::Add(bar.sequence.to_vec())));
             }
         });
     });
+}
+
+/// Files the selection on a shelf it can go on, or on a new one.
+fn add_to_shelf(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
+    let picks = bar.picks;
+    let r = ui.add_enabled(!picks.is_empty(), Button::new("Add to shelf"));
+    let r = r.on_hover_text("Add the selected items to a shelf");
+    let (books, shelves) = (picks.books(), picks.shelves());
+    // Never itself, nor inside one of its own shelves.
+    let fits = |to: ShelfId| {
+        let path = bar.model.path_to(to);
+        !shelves.iter().any(|s| path.iter().any(|p| p.id == *s))
+    };
+    let mut choices: Vec<&Shelf> = bar.model.shelves().filter(|s| fits(s.id)).collect();
+    choices.sort_by(|a, b| natural(&a.name.value, &b.name.value));
+    Popup::from_toggle_button_response(&r)
+        .id(Id::new(ADD_TO_SHELF))
+        .sense(crate::widgets::POPUP_SENSE)
+        .close_behavior(PopupCloseBehavior::CloseOnClick)
+        .align(RectAlign::TOP_START)
+        .gap(6.0)
+        .width(240.0)
+        .show(|ui| {
+            let t = Tokens::get(ui.ctx());
+            ui.label(RichText::new("Add to shelf").size(12.0).color(t.muted));
+            egui::ScrollArea::vertical()
+                .max_height(260.0)
+                .show(ui, |ui| {
+                    for s in &choices {
+                        let row = widgets::menu_row(ui, Icon::Shelf, &s.name.value, None, false);
+                        if row.clicked() {
+                            let mv = Move {
+                                books: books.clone(),
+                                shelves: shelves.clone(),
+                                from: bar.at,
+                                to: Some(s.id),
+                                keep: true,
+                                before: None,
+                            };
+                            shelf(out, ShelfAction::Carry(mv));
+                            act(out, Action::Pick(PickAction::Clear));
+                        }
+                    }
+                });
+            ui.separator();
+            if widgets::menu_row(ui, Icon::Plus, "New shelf", None, false).clicked() {
+                shelve_together(picks, out);
+            }
+            widgets::close_on_key(ui);
+        });
 }
 
 /// A card's pick mark: a filled check if picked, else an empty ring.

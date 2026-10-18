@@ -40,8 +40,6 @@ pub enum BookAction {
         books: Vec<BookId>,
         shelves: Vec<ShelfId>,
     },
-    /// Takes books off the shelf open on the page.
-    TakeOff(Vec<BookId>),
 }
 
 impl LibraryState {
@@ -74,13 +72,12 @@ impl LibraryState {
             BookAction::ShelveTogether { books, shelves } => {
                 self.shelve_together(&books, &shelves, out);
             }
-            BookAction::TakeOff(books) => self.take_off(&books, out),
             // Dialogs and the file manager are the app's.
             BookAction::Reveal(_) | BookAction::PickImport => {}
         }
     }
 
-    /// A new shelf where the reader is, the picks moved onto it.
+    /// A new shelf where the reader is, the picks added to it.
     fn shelve_together(&mut self, books: &[BookId], shelves: &[ShelfId], out: &mut Commands) {
         let name = super::shelving::NEW_SHELF;
         let Ok(id) = self.model.create_shelf(name, self.at, wall_ms()) else {
@@ -91,19 +88,8 @@ impl LibraryState {
             shelves: shelves.to_vec(),
             from: self.at,
             to: Some(id),
-            ..Move::default()
-        };
-        self.carry(mv, out);
-    }
-
-    fn take_off(&mut self, books: &[BookId], out: &mut Commands) {
-        let Some(shelf) = self.at else {
-            return;
-        };
-        let mv = Move {
-            books: books.to_vec(),
-            from: Some(shelf),
-            ..Move::default()
+            keep: true,
+            before: None,
         };
         self.carry(mv, out);
     }

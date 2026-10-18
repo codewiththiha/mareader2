@@ -12,10 +12,11 @@ pub use mareader_library::Item as Pick;
 pub enum PickAction {
     /// In or out; it anchors a later Shift-click.
     Toggle(Pick),
-    /// Added, keeping the anchor: a Shift-click's range.
+    /// Added, keeping the anchor: a Shift-click's range, or All.
     Add(Vec<Pick>),
     /// These and only these: Select all.
     Only(Vec<Pick>),
+    /// Ends selecting: Done, Escape or a click on empty space.
     Clear,
 }
 
@@ -23,9 +24,16 @@ pub enum PickAction {
 pub struct Picks {
     set: BTreeSet<Pick>,
     anchor: Option<Pick>,
+    /// Selecting outlasts its last pick, until the reader is done.
+    selecting: bool,
 }
 
 impl Picks {
+    /// Whether the page is selecting: clicks pick and the bar shows.
+    pub fn active(&self) -> bool {
+        self.selecting
+    }
+
     pub fn contains(&self, pick: Pick) -> bool {
         self.set.contains(&pick)
     }
@@ -72,6 +80,7 @@ impl Picks {
     }
 
     pub(super) fn apply(&mut self, action: PickAction) {
+        self.selecting = action != PickAction::Clear;
         match action {
             PickAction::Toggle(pick) => {
                 if !self.set.remove(&pick) {
@@ -113,7 +122,9 @@ mod tests {
         assert_eq!(picks.books(), [BookId(1), BookId(2)]);
         picks.retain(|p| p != b(1));
         assert_eq!(picks.len(), 1);
+        picks.apply(PickAction::Toggle(b(2)));
+        assert!(picks.is_empty() && picks.active(), "still selecting");
         picks.apply(PickAction::Clear);
-        assert!(picks.is_empty());
+        assert!(!picks.active());
     }
 }
