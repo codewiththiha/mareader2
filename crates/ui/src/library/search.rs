@@ -181,17 +181,27 @@ impl LibraryState {
             .filter(|s| query.keeps_name(&s.name.value))
             .map(|s| Item::Shelf(s.id))
             .collect();
+        // Links show on their own level, found by the name they wear.
+        let all = self.scope == Scope::All;
+        let links: Vec<Item> = (model.links())
+            .filter(|l| all && l.level.value == self.at && query.keeps_name(&l.name.value))
+            .map(|l| Item::Link(l.id))
+            .collect();
         let narrowed = self.at.is_some() || self.scope != Scope::All;
-        let none = books.is_empty() && shelves.is_empty();
+        let none = books.is_empty() && shelves.is_empty() && links.is_empty();
         let elsewhere = match narrowed && none && !query.is_empty() {
             true => model.books().filter(|b| query.keeps(model, b)).count(),
             false => 0,
         };
+        let mut rows: Vec<Item> = books.into_iter().map(Item::Book).collect();
+        if !links.is_empty() {
+            rows.extend(links);
+            if view.sort != SortKey::Arranged {
+                view.sort_items(model, &mut rows);
+            }
+        }
         Listing {
-            items: shelves
-                .into_iter()
-                .chain(books.into_iter().map(Item::Book))
-                .collect(),
+            items: shelves.into_iter().chain(rows).collect(),
             total: pool.len(),
             elsewhere,
         }
@@ -223,7 +233,7 @@ impl LibraryState {
             let top = model.arranged(None, Home::Everything).into_iter();
             let book = |i| match i {
                 Item::Book(id) => model.book(id),
-                Item::Shelf(_) => None,
+                _ => None,
             };
             return top.filter_map(book).collect();
         }
@@ -410,6 +420,7 @@ impl LibraryState {
                 }
             }
             Pick::Shelf(id) => model.shelf(id).and_then(|s| model.parent_of(s)),
+            Pick::Link(id) => model.link(id).and_then(|l| l.level.value),
         };
         if at != self.at {
             self.renaming = None;

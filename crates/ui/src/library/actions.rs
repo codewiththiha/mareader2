@@ -97,6 +97,7 @@ pub enum Sheet {
     Removal {
         books: Vec<BookId>,
         shelves: Vec<ShelfId>,
+        links: Vec<LinkId>,
     },
     Rename(Named),
     /// Books read in place about to leave their folder: copy them first?

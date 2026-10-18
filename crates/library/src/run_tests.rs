@@ -534,3 +534,49 @@ fn a_duplicated_shelf_copies_its_tree_and_points_its_links_at_the_copies() {
     };
     assert!(target != landed.placed[0] && lib.book(target).unwrap().independent);
 }
+
+#[test]
+fn a_book_links_duplicate_copies_its_book_and_a_shelf_links_stays_a_link() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/Dune.pdf", 1), found("/books/sf/b.pdf", 2)];
+    let (_, landed) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let sf = shelf_named(&lib, "sf");
+    let at_book = lib.link_to(LinkTo::Book(landed.placed[0]), Some(sf), 4);
+    let at_shelf = lib.link_to(LinkTo::Shelf(sf), None, 4).unwrap();
+    let dup = lib.duplicate_book_on(landed.placed[0], &copy("/store/d.pdf", 1), Some(sf), 5);
+    assert!(at_book.is_some() && dup.is_some());
+    assert_eq!(
+        titles_on(&lib, sf),
+        ["Dune_1", "b"],
+        "filed where the link is"
+    );
+    let again = lib.duplicate_link(at_shelf, 6).unwrap();
+    let link = lib.link(again).unwrap();
+    assert_eq!(
+        (link.name.value.as_str(), link.target),
+        ("sf_1", LinkTo::Shelf(sf))
+    );
+}
+
+#[test]
+fn a_shelfs_watch_writes_its_own_rung_and_the_root_writes_the_tree() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/a.pdf", 1), found("/books/sf/b.pdf", 2)];
+    import(&mut lib, "/books", Mode::InPlace, &files);
+    let (root, sf) = (shelf_named(&lib, "books"), shelf_named(&lib, "sf"));
+    lib.set_shelf_watch(root, false);
+    let watch = lib.shelf_watch(sf).unwrap();
+    assert_eq!(
+        (watch.on, watch.folder.as_str(), watch.rung.as_deref()),
+        (false, "books", Some("sf"))
+    );
+    assert!(lib.set_shelf_watch(sf, true));
+    assert!(!lib.set_shelf_watch(sf, true), "already watched");
+    assert!(lib.shelf_tracked(sf) && !lib.shelf_tracked(root));
+    assert!(lib.set_shelf_watch(root, true) && lib.set_shelf_watch(root, false));
+    assert!(
+        !lib.shelf_tracked(sf),
+        "the root's answer clears the tree's"
+    );
+    assert_eq!(lib.shelf_dir(sf), Some(PathBuf::from("/books/sf")));
+}

@@ -5,7 +5,8 @@ use mareader_library::{BookId, Item, Library, Move, ShelfId};
 use super::books::counted;
 use super::moving::CopyAnswer;
 use super::{Action, LibraryState, Scope, wall_ms};
-use crate::command::Commands;
+use crate::command::{Command, Commands};
+use crate::toast::Toast;
 
 /// Shelf work asked for by the page, its crumbs and its sheets.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +31,10 @@ pub enum ShelfAction {
         level: Option<ShelfId>,
         keep: bool,
     },
+    /// Watches a folder's shelf for new books, or stops.
+    Watch(ShelfId, bool),
+    /// Shows a folder's shelf in the file manager; the app does it.
+    Reveal(ShelfId),
     /// Cards moved in a level's own order, before another or to the end.
     Arrange {
         items: Vec<Item>,
@@ -41,117 +46,82 @@ pub enum ShelfAction {
 /// What every shelf made by hand is called until renamed.
 pub const NEW_SHELF: &str = "New shelf";
 
-/// What a drag carries; egui keeps it until the drop.
+/// What a drag carries, in the order shown; egui keeps it until the drop.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Carry {
-    /// A book, from the shelf it was shown on.
-    Book {
-        id: BookId,
-        from: Option<ShelfId>,
-    },
-    Shelf(ShelfId),
-    /// A selection, from the shelf it was shown on.
-    Many {
-        books: Vec<BookId>,
-        shelves: Vec<ShelfId>,
-        from: Option<ShelfId>,
-    },
+pub struct Carry {
+    pub items: Vec<Item>,
+    /// The level it was shown on.
+    pub from: Option<ShelfId>,
 }
 
 impl Carry {
     /// What dropping it on `target` (none: the top level) does.
     pub fn onto(&self, target: Option<ShelfId>, keep: bool) -> Option<Action> {
-        let (books, shelves, from) = self.parts();
-        // Onto where it came from, or onto one of its own shelves: nothing.
-        let home = !matches!(self, Self::Shelf(_)) && from == target;
-        if home || target.is_some_and(|t| shelves.contains(&t)) {
-            return None;
-        }
         let mv = Move {
-            books,
-            shelves,
-            from,
+            from: self.from,
             to: target,
             keep,
-            before: None,
+            ..Move::of(&self.items)
         };
+        // Onto where it came from, or onto one of its own shelves: nothing.
+        let home = !self.only_shelves() && self.from == target;
+        if home || target.is_some_and(|t| mv.shelves.contains(&t)) {
+            return None;
+        }
         Some(Action::Shelf(ShelfAction::Carry(mv)))
     }
 
     /// The cards it moves within `level`, if it came from there.
     pub fn items_at(&self, level: Option<ShelfId>, model: &Library) -> Option<Vec<Item>> {
         let here = |s: &ShelfId| model.shelf(*s).is_some_and(|s| model.parent_of(s) == level);
-        let items = match self {
-            Self::Book { id, from } if *from == level => vec![Item::Book(*id)],
-            Self::Shelf(id) if here(id) => vec![Item::Shelf(*id)],
-            Self::Many {
-                books,
-                shelves,
-                from,
-            } if *from == level && shelves.iter().all(here) => {
-                let shelves = shelves.iter().map(|s| Item::Shelf(*s));
-                shelves
-                    .chain(books.iter().map(|b| Item::Book(*b)))
-                    .collect()
-            }
-            _ => return None,
-        };
-        Some(items)
+        let shelves = Move::of(&self.items).shelves;
+        let from_here = self.only_shelves() || self.from == level;
+        (from_here && shelves.iter().all(here)).then(|| self.items.clone())
     }
 
     /// Every card it carries, shelves first.
     pub fn picks(&self) -> Vec<Item> {
-        let (books, shelves, _) = self.parts();
-        let shelves = shelves.into_iter().map(Item::Shelf);
-        shelves.chain(books.into_iter().map(Item::Book)).collect()
+        let mut items = self.items.clone();
+        items.sort_by_key(|i| !matches!(i, Item::Shelf(_)));
+        items
     }
 
     /// Whether a book is among what it carries, so it can stack.
     pub fn has_books(&self) -> bool {
-        match self {
-            Self::Book { .. } => true,
-            Self::Shelf(_) => false,
-            Self::Many { books, .. } => !books.is_empty(),
-        }
+        self.items.iter().any(|i| matches!(i, Item::Book(_)))
     }
 
-    /// Its books, its shelves, and the shelf it came off.
-    fn parts(&self) -> (Vec<BookId>, Vec<ShelfId>, Option<ShelfId>) {
-        match self {
-            &Self::Book { id, from } => (vec![id], Vec::new(), from),
-            &Self::Shelf(id) => (Vec::new(), vec![id], None),
-            Self::Many {
-                books,
-                shelves,
-                from,
-            } => (books.clone(), shelves.clone(), *from),
-        }
+    /// A shelf moves off its parent, never off the level it showed on.
+    fn only_shelves(&self) -> bool {
+        self.items.iter().all(|i| matches!(i, Item::Shelf(_)))
     }
 
     /// Whether it was carried off a shelf, so Alt can add instead.
     pub fn off_shelf(&self) -> bool {
-        match self {
-            Self::Book { from, .. } | Self::Many { from, .. } => from.is_some(),
-            Self::Shelf(_) => false,
-        }
+        self.from.is_some() && !self.only_shelves()
     }
 
     /// The words under the pointer while it's carried.
     pub fn label(&self, model: &Library) -> String {
-        match self {
-            Self::Book { id, .. } => model.book(*id).map(|b| b.title.value.clone()),
-            Self::Shelf(id) => model.shelf(*id).map(|s| s.name.value.clone()),
-            Self::Many { books, shelves, .. } => Some(match (books.len(), shelves.len()) {
-                (b, 0) => counted(b, "book", "books"),
-                (0, s) => counted(s, "shelf", "shelves"),
-                (b, s) => format!(
-                    "{}, {}",
-                    counted(b, "book", "books"),
-                    counted(s, "shelf", "shelves")
-                ),
-            }),
+        if let [one] = self.items.as_slice() {
+            return model.item_name(*one).unwrap_or_default().to_owned();
         }
-        .unwrap_or_default()
+        let Move {
+            books,
+            shelves,
+            links,
+            ..
+        } = Move::of(&self.items);
+        let parts = [
+            (books.len(), "book", "books"),
+            (shelves.len(), "shelf", "shelves"),
+            (links.len(), "link", "links"),
+        ];
+        let parts: Vec<String> = (parts.iter())
+            .filter(|(n, ..)| *n > 0)
+            .map(|&(n, one, many)| counted(n, one, many))
+            .collect();
+        parts.join(", ")
     }
 }
 
@@ -219,7 +189,7 @@ impl LibraryState {
         self.at.is_none_or(|at| path.iter().any(|s| s.id == at))
     }
 
-    /// Picks of removed books and shelves fall away.
+    /// Picks of removed books, shelves and links fall away.
     fn settle_picks(&mut self) {
         if self.picks.is_empty() {
             return;
@@ -228,6 +198,7 @@ impl LibraryState {
         self.picks.retain(|p| match p {
             super::Pick::Book(id) => model.book(id).is_some(),
             super::Pick::Shelf(id) => model.shelf(id).is_some(),
+            super::Pick::Link(id) => model.link(id).is_some(),
         });
     }
 
@@ -268,6 +239,30 @@ impl LibraryState {
         }
     }
 
+    /// Writes a shelf's watch; a new watch looks for books at once.
+    fn watch(&mut self, id: ShelfId, on: bool, out: &mut Commands) {
+        let Some(watch) = self.model.shelf_watch(id) else {
+            return;
+        };
+        if !self.model.set_shelf_watch(id, on) {
+            return;
+        }
+        self.settle();
+        // The sentence names the ground the decision was about.
+        let ground = match &watch.rung {
+            Some(rung) => format!("“{rung}” in {}", watch.folder),
+            None => watch.folder.clone(),
+        };
+        let note = match on {
+            true => format!("Watching {ground} for new books."),
+            false => format!("{ground} is no longer watched for new books."),
+        };
+        out.push(Command::Notify(Toast::info(note)));
+        if on {
+            out.push(Command::Library(Action::Rescan));
+        }
+    }
+
     pub(super) fn shelf_act(&mut self, action: ShelfAction, out: &mut Commands) {
         let now = wall_ms();
         match action {
@@ -296,6 +291,8 @@ impl LibraryState {
             ShelfAction::Apart(id) => self.apart(id, out),
             ShelfAction::Carry(mv) => self.carry(mv, out),
             ShelfAction::Copy(answer) => self.answer_copy(answer, out),
+            ShelfAction::Watch(id, on) => self.watch(id, on, out),
+            ShelfAction::Reveal(_) => {}
             ShelfAction::Stack {
                 onto,
                 carry,
@@ -325,7 +322,12 @@ impl LibraryState {
         out: &mut Commands,
     ) {
         let now = wall_ms();
-        let (books, shelves, _) = carry.parts();
+        let Move {
+            books,
+            shelves,
+            links,
+            ..
+        } = Move::of(&carry.items);
         let books: Vec<BookId> = (books.into_iter()).filter(|&b| b != onto).collect();
         if books.is_empty() || self.model.book(onto).is_none() {
             return;
@@ -340,6 +342,7 @@ impl LibraryState {
         let mv = Move {
             books: std::iter::once(onto).chain(books).collect(),
             shelves,
+            links,
             from: level,
             to: Some(id),
             keep,

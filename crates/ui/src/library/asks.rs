@@ -144,11 +144,7 @@ impl LibraryState {
         };
         match answered {
             Answer::Reveal(Entry::Book(id)) => self.reveal(Pick::Book(id), now),
-            Answer::Reveal(Entry::Link(id)) => {
-                if let Some(level) = self.model.link(id).map(|l| l.level.value) {
-                    self.at = level;
-                }
-            }
+            Answer::Reveal(Entry::Link(id)) => self.reveal(Pick::Link(id), now),
             Answer::Nothing if copy.is_none() && question.copies(answer, &self.model) => {
                 let note = "The copy couldn't be made, so nothing changed.";
                 out.push(Command::Notify(Toast::error(note)));

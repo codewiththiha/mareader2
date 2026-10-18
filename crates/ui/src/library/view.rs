@@ -10,7 +10,7 @@ use egui::{
 use std::collections::BTreeSet;
 
 use mareader_library::{
-    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, FolderId, Home, Layout, Library, Shelf,
+    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, FolderId, Home, Layout, Library, Link, Shelf,
     ShelfId, SortKey, View,
 };
 
@@ -28,6 +28,7 @@ use crate::motion;
 use crate::theme::{self, Tokens};
 
 mod grid;
+pub(super) mod links;
 const ROW_H: f32 = 60.0;
 /// How far a list row's content sits in from its edges.
 const ROW_INSET: f32 = 12.0;
@@ -49,11 +50,12 @@ const LONG_PRESS: f64 = 0.45;
 /// Title, detail and progress under a card's cover.
 const CARD_TEXT: f32 = 54.0;
 
-/// A card or row, a shelf or a book, ready to draw.
+/// A card or row, a shelf, a book or a link, ready to draw.
 #[derive(Clone, Copy)]
 enum Item<'a> {
     Shelf(&'a Shelf),
     Book(&'a Book),
+    Link(&'a Link),
 }
 
 impl<'a> Item<'a> {
@@ -61,14 +63,16 @@ impl<'a> Item<'a> {
         match self {
             Self::Shelf(s) => Pick::Shelf(s.id),
             Self::Book(b) => Pick::Book(b.id),
+            Self::Link(l) => Pick::Link(l.id),
         }
     }
 
-    /// The shelf or book a pick names, if it's still there.
+    /// What a pick names, if it's still there.
     fn of(model: &'a Library, pick: Pick) -> Option<Self> {
         match pick {
             Pick::Shelf(id) => model.shelf(id).map(Self::Shelf),
             Pick::Book(id) => model.book(id).map(Self::Book),
+            Pick::Link(id) => model.link(id).map(Self::Link),
         }
     }
 }
@@ -359,6 +363,7 @@ fn list(ui: &mut Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
             match items.get(at) {
                 Some(Item::Shelf(shelf)) => shelf_row(ui, shelf, cx),
                 Some(Item::Book(book)) => list_row(ui, book, cx),
+                Some(Item::Link(link)) => links::row(ui, link, cx),
                 None => {
                     let size = vec2(ui.available_width(), ROW_H);
                     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -461,23 +466,15 @@ fn picking(ui: &Ui, pick: Pick, cx: &mut Cx<'_>) -> bool {
 /// What dragging `pick` carries: the whole selection, if it's in it.
 fn carry(pick: Pick, from: Option<ShelfId>, cx: &Cx<'_>) -> Carry {
     let many = cx.picks.len() > 1 && cx.picks.contains(pick);
-    match pick {
-        _ if many => {
-            // In the order shown, for drops between books.
-            let picked = cx.sequence.iter().filter(|p| cx.picks.contains(**p));
-            let books = picked.filter_map(|p| match p {
-                Pick::Book(id) => Some(*id),
-                Pick::Shelf(_) => None,
-            });
-            Carry::Many {
-                books: books.collect(),
-                shelves: cx.picks.shelves(),
-                from,
-            }
-        }
-        Pick::Book(id) => Carry::Book { id, from },
-        Pick::Shelf(id) => Carry::Shelf(id),
-    }
+    // In the order shown, for drops between cards.
+    let items = match many {
+        true => (cx.sequence.iter())
+            .filter(|p| cx.picks.contains(**p))
+            .copied()
+            .collect(),
+        false => vec![pick],
+    };
+    Carry { items, from }
 }
 
 /// Starts carrying `pick`, noting where on its card it was pressed.
@@ -559,7 +556,7 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
     }
     crate::widgets::context_menu(&resp, |ui| match picked {
         true => menus::picks_menu(ui, cx.picks, cx.t, cx.out),
-        false => menus::shelf_menu(ui, shelf, cx.t, cx.out),
+        false => menus::shelf_menu(ui, cx.model, shelf, cx.t, cx.out),
     });
     (resp, target)
 }
@@ -673,6 +670,7 @@ fn plate(ui: &Ui, bounds: Rect, id: ShelfId, cx: &mut Cx<'_>) {
         let at = Rect::from_min_size(min, cell);
         match item {
             Item::Book(book) => cover(ui, at, book, cx, 1.0, true),
+            Item::Link(link) => links::face(ui, at, link, t),
             Item::Shelf(_) => {
                 ui.painter().rect_filled(at, 3.0, t.surface);
                 ui.painter().rect_stroke(at, 3.0, edge, StrokeKind::Inside);

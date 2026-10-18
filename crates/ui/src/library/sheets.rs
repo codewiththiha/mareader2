@@ -4,8 +4,8 @@ use std::path::Path;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
 use mareader_library::{
-    Book, BookId, FolderId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, Shelf, ShelfId,
-    human_size,
+    Book, BookId, FolderId, Format, Library, LinkId, MIN_SIZE_MAX, Mode, Options, Origin, Shelf,
+    ShelfId, human_size,
 };
 
 use super::asks::{self, Question};
@@ -49,7 +49,11 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => find(ui, library, book, finding, &t),
                     None => Some(Action::CloseSheet),
                 },
-                Sheet::Removal { books, shelves } => removal(ui, model, (books, shelves), &t),
+                Sheet::Removal {
+                    books,
+                    shelves,
+                    links,
+                } => removal(ui, model, (books, shelves, links), &t),
                 Sheet::Rename(named) => rename(ui, library, *named, &t),
                 Sheet::Copy(work) => super::copying::show(ui, model, work, &t),
                 Sheet::Import(root) => import(ui, library, root, &t),
@@ -156,7 +160,7 @@ fn find(
 fn removal(
     ui: &mut Ui,
     model: &Library,
-    (books, shelves): (&[BookId], &[ShelfId]),
+    (books, shelves, links): (&[BookId], &[ShelfId], &[LinkId]),
     t: &Tokens,
 ) -> Option<Action> {
     // Both switches start off each time: forgetting is never a habit.
@@ -172,18 +176,38 @@ fn removal(
     let receipt = model.receipt(&going.books);
     let asked: Vec<&Shelf> = shelves.iter().filter_map(|s| model.shelf(*s)).collect();
     let n = going.books.len();
-    let many = n + asked.len() != 1;
-    let heading = match (asked.as_slice(), going.books.as_slice()) {
-        ([only], _) => only.name.value.clone(),
-        ([], [one]) => model
-            .book(*one)
-            .map(|b| b.title.value.clone())
-            .unwrap_or_default(),
-        ([], _) => counted(n, "book", "books"),
-        (_, _) => counted(asked.len(), "shelf", "shelves"),
+    let pointers: Vec<&str> = (links.iter())
+        .filter_map(|l| model.link(*l))
+        .map(|l| l.name.value.as_str())
+        .collect();
+    let many = n + asked.len() + pointers.len() != 1;
+    let heading = match (
+        asked.as_slice(),
+        going.books.as_slice(),
+        pointers.as_slice(),
+    ) {
+        ([], [], [one]) => (*one).to_owned(),
+        ([], [], links) if !links.is_empty() => counted(links.len(), "link", "links"),
+        ([], books, links) if !links.is_empty() => format!(
+            "{} and {}",
+            counted(books.len(), "book", "books"),
+            counted(links.len(), "link", "links")
+        ),
+        (asked, books, _) => match (asked, books) {
+            ([only], _) => only.name.value.clone(),
+            ([], [one]) => model
+                .book(*one)
+                .map(|b| b.title.value.clone())
+                .unwrap_or_default(),
+            ([], _) => counted(n, "book", "books"),
+            (_, _) => counted(asked.len(), "shelf", "shelves"),
+        },
     };
     title(ui, &heading, t);
     let subtitle = match n {
+        0 if asked.is_empty() && !pointers.is_empty() => {
+            "A link is a pointer: the book it goes to stays in the library".to_owned()
+        }
         0 => {
             let kept: usize = going.shelves.iter().map(|s| model.counts(*s).0).sum();
             match kept {
@@ -216,6 +240,9 @@ fn removal(
             _ => "The app's own copies",
         };
         rows.push((label, human_size(receipt.copies_size)));
+    }
+    if n + asked.len() > 0 && !pointers.is_empty() {
+        rows.push(("Links", counted(pointers.len(), "link", "links")));
     }
     if !receipt.filed.is_empty() {
         rows.push(("Filed on", receipt.filed.join(", ")));
@@ -283,6 +310,8 @@ fn removal(
     }
     ui.add_space(8.0);
     let label = match (n, asked.len()) {
+        (0, 0) if pointers.len() == 1 => "Remove the link".to_owned(),
+        (0, 0) => format!("Remove {} links", pointers.len()),
         (1, 0) => "Remove".to_owned(),
         (0, 1) if cascade && going.inside_shelves > 0 => {
             "Remove the shelf and the ones inside".to_owned()
@@ -305,6 +334,7 @@ fn removal(
             act = Some(Action::Book(BookAction::Remove {
                 books: books.to_vec(),
                 shelves: shelves.to_vec(),
+                links: links.to_vec(),
                 cascade,
                 forget,
             }));

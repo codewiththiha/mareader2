@@ -65,7 +65,7 @@ pub use records::{Changes, Kind, Row};
 pub use relink::RelinkError;
 pub use removal::{Data, Receipt, Removing};
 pub use run::{Asked, Copied, Fold, Landed, MergeAsk, Plan, Planned};
-pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfKind, ShelfRemoved};
+pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfKind, ShelfRemoved, ShelfWatch};
 pub use tree::Duplicated;
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 pub use words::{free_name, human_age, human_size, plural, same_name};

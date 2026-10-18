@@ -7,6 +7,7 @@ pub mod books;
 mod copying;
 mod covers;
 pub mod crumbs;
+mod duplicating;
 mod find;
 pub mod folders;
 mod io;

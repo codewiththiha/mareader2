@@ -1,10 +1,10 @@
-//! Books and shelves picked on the page, to act on together.
+//! Books, shelves and links picked on the page, to act on together.
 
 use std::collections::BTreeSet;
 
-use mareader_library::{BookId, ShelfId};
+use mareader_library::BookId;
 
-/// A card picked on the page: the library's own shelf-or-book item.
+/// A card picked on the page: the library's own item.
 pub use mareader_library::Item as Pick;
 
 /// Picking asked for by clicks, keys and the selection bar.
@@ -51,20 +51,17 @@ impl Picks {
         self.anchor.is_some()
     }
 
+    /// Every pick: shelves, then books, then links.
+    pub fn items(&self) -> Vec<Pick> {
+        self.set.iter().copied().collect()
+    }
+
     pub fn books(&self) -> Vec<BookId> {
         let books = self.set.iter().filter_map(|p| match p {
             Pick::Book(id) => Some(*id),
-            Pick::Shelf(_) => None,
+            _ => None,
         });
         books.collect()
-    }
-
-    pub fn shelves(&self) -> Vec<ShelfId> {
-        let shelves = self.set.iter().filter_map(|p| match p {
-            Pick::Shelf(id) => Some(*id),
-            Pick::Book(_) => None,
-        });
-        shelves.collect()
     }
 
     /// From the anchor to `to` in the order shown; else just `to`.

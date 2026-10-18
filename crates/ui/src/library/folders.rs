@@ -55,6 +55,8 @@ enum Pending {
     /// A removed book's file measured, then copied if its folder copies.
     Restore(FolderId, ContentId),
     Restored(FolderId, ContentId, Box<Found>),
+    /// The picks' books copied, then the duplicates made.
+    Duplicate(Vec<Pick>),
 }
 
 #[derive(Debug)]
@@ -400,6 +402,7 @@ impl LibraryState {
                 self.write_answer(*question, answer, copy, now, out);
             }
             Some(Pending::Depart(work)) => self.departed(*work, &done.copies, out),
+            Some(Pending::Duplicate(picks)) => self.duplicated(&picks, &done.copies, out),
             Some(Pending::Restored(folder, content, found)) => {
                 let copy = done.copies.get(&found.path);
                 self.restored(folder, content, &found, copy, now, out);
@@ -416,6 +419,28 @@ impl LibraryState {
             return;
         };
         let tag = self.tag(Pending::Depart(work));
+        let run = None;
+        self.io.send(Job::Copy(Box::new(CopyIn {
+            tag,
+            run,
+            store,
+            files,
+        })));
+    }
+
+    /// Copies the books a duplicate wants, then makes the duplicates.
+    pub(super) fn copy_to_duplicate(
+        &mut self,
+        picks: Vec<Pick>,
+        files: Vec<Found>,
+        out: &mut Commands,
+    ) {
+        let Some(store) = self.store() else {
+            let note = "The library has no folder to keep books in.";
+            out.push(Command::Notify(Toast::error(note)));
+            return;
+        };
+        let tag = self.tag(Pending::Duplicate(picks));
         let run = None;
         self.io.send(Job::Copy(Box::new(CopyIn {
             tag,

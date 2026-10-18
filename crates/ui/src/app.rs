@@ -332,6 +332,11 @@ impl MareaderApp {
         &self.library
     }
 
+    /// For tests and tools that shape the library straight on.
+    pub fn library_state_mut(&mut self) -> &mut LibraryState {
+        &mut self.library
+    }
+
     pub fn library_showing(&self) -> bool {
         self.route() == Route::Library
     }
@@ -917,14 +922,18 @@ impl MareaderApp {
                         Command::Library(library::Action::Pick(library::PickAction::Only(p))) => {
                             Some(p.iter().filter_map(|p| match p {
                                 library::Pick::Book(id) => Some(*id),
-                                library::Pick::Shelf(_) => None,
+                                _ => None,
                             }))
                         }
                         _ => None,
                     });
                     let books: Vec<_> = books.ok_or("open=remove: select books first")?.collect();
-                    let shelves = Vec::new();
-                    let ask = library::BookAction::AskRemove { books, shelves };
+                    let (shelves, links) = (Vec::new(), Vec::new());
+                    let ask = library::BookAction::AskRemove {
+                        books,
+                        shelves,
+                        links,
+                    };
                     self.queue(Command::Library(library::Action::Book(ask)));
                 }
                 "rename" => {
@@ -1565,6 +1574,14 @@ impl MareaderApp {
             A::Book(library::BookAction::Reveal(book)) => {
                 let path = self.library.model().book(book).and_then(|b| b.path());
                 let shown = path.is_some_and(crate::reveal::reveal);
+                if !shown {
+                    let note = "The file manager couldn't be opened.";
+                    self.toasts.push(Toast::error(note));
+                }
+            }
+            A::Shelf(library::ShelfAction::Reveal(shelf)) => {
+                let dir = self.library.model().shelf_dir(shelf);
+                let shown = dir.as_deref().is_some_and(crate::reveal::reveal);
                 if !shown {
                     let note = "The file manager couldn't be opened.";
                     self.toasts.push(Toast::error(note));
