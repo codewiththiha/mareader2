@@ -33,6 +33,8 @@ pub enum ShelfAction {
     },
     /// Watches a folder's shelf for new books, or stops.
     Watch(ShelfId, bool),
+    /// Unfolds a shelf's row in the list to show what's on it, or folds it.
+    Unfold(ShelfId),
     /// Shows a folder's shelf in the file manager; the app does it.
     Reveal(ShelfId),
     /// Cards moved in a level's own order, before another or to the end.
@@ -164,6 +166,8 @@ impl LibraryState {
     /// A shelf removed, here or by a sync, gives way to its nearest parent.
     pub fn settle(&mut self) {
         self.settle_picks();
+        let model = &self.model;
+        self.unfolded.retain(|&id| model.shelf(id).is_some());
         let Some(at) = self.at else {
             return;
         };
@@ -272,6 +276,9 @@ impl LibraryState {
                 if self.goes_down(at) {
                     self.search.clear();
                 }
+                if self.at != at {
+                    self.unfolded.clear();
+                }
                 self.at = at;
                 self.scope = Scope::All;
                 self.renaming = None;
@@ -292,6 +299,11 @@ impl LibraryState {
             ShelfAction::Carry(mv) => self.carry(mv, out),
             ShelfAction::Copy(answer) => self.answer_copy(answer, out),
             ShelfAction::Watch(id, on) => self.watch(id, on, out),
+            ShelfAction::Unfold(id) => {
+                if !self.unfolded.remove(&id) {
+                    self.unfolded.insert(id);
+                }
+            }
             ShelfAction::Reveal(_) => {}
             ShelfAction::Stack {
                 onto,

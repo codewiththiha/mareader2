@@ -142,14 +142,17 @@ fn find(
     ui.add_space(8.0);
     buttons(ui, |ui| {
         let choose = ui.add_enabled_ui(!working, |ui| primary(ui, "Choose the file…", t.accent, t));
-        if choose.inner.clicked() {
+        let pick = "Pick the document this book reads from now";
+        if choose.inner.on_hover_text(pick).clicked() {
             act = Some(Action::PickFile(id));
         }
         let search = ui.add_enabled(!working, Button::new("Search a folder…"));
-        if search.clicked() {
+        let name = &book.title.value;
+        let walk = format!("Walk a folder you pick and open the first “{name}” inside it");
+        if search.on_hover_text(walk).clicked() {
             act = Some(Action::PickSearchFolder(id));
         }
-        if ui.button("Cancel").clicked() {
+        if ui.button("Leave the book missing").clicked() {
             act = Some(Action::CloseSheet);
         }
     });

@@ -20,6 +20,7 @@ mod extra;
 mod folder;
 pub mod gate;
 pub mod ground;
+mod holding;
 mod id;
 mod key;
 pub mod ledger;
@@ -53,6 +54,7 @@ pub use folder::{
     Folder, Found, MIN_SIZE_MAX, MIN_SIZE_STEP, Mode, Options, Rungs, Tombstone, dir_of_rung,
     parent_key,
 };
+pub use holding::Holding;
 pub use id::{BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
 pub use ledger::{Held, Recovered};
 pub use library::{Dirty, Library, Measure, Opened};

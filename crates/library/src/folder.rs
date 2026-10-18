@@ -46,14 +46,6 @@ impl Mode {
             Self::Watched => "Read at place, and watch for new books",
         }
     }
-
-    /// The badge a shelf of this folder wears.
-    pub fn badge(self) -> &'static str {
-        match self {
-            Self::Copy => "Copied",
-            Self::InPlace | Self::Watched => "On disk",
-        }
-    }
 }
 
 /// What counts in a folder and how it lands; honoured on every walk.

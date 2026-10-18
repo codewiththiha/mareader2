@@ -172,8 +172,8 @@ fn the_three_answers_are_one_mode() {
     o.in_place = false;
     o.watch = true;
     assert_eq!(o.mode(), Mode::Copy, "a watching copy is a copy");
-    assert_eq!(Mode::Copy.badge(), "Copied");
-    assert_eq!(Mode::Watched.badge(), "On disk");
+    assert_eq!(crate::Holding::of(Mode::Copy).label(), "Copied");
+    assert_eq!(crate::Holding::of(Mode::Watched).label(), "On disk");
 }
 
 #[test]

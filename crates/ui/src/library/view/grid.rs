@@ -349,7 +349,7 @@ pub(super) fn ghost(ui: &mut Ui, cx: &mut Cx<'_>) -> bool {
             book.title.value.as_str()
         }
         Item::Shelf(shelf) => {
-            plate(&ui, bounds, shelf.id, cx);
+            plate(&ui, bounds, shelf.id, 0, cx);
             shelf.name.value.as_str()
         }
         Item::Link(link) => {

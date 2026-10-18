@@ -10,8 +10,8 @@ use egui::{
 use std::collections::BTreeSet;
 
 use mareader_library::{
-    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, FolderId, Home, Layout, Library, Link, Shelf,
-    ShelfId, SortKey, View,
+    Book, BookId, COLUMNS_MAX, COLUMNS_MIN, CoverFit, FolderId, Holding, Home, Layout, Library,
+    Link, Shelf, ShelfId, SortKey, View,
 };
 
 use super::add::{self, Here};
@@ -29,6 +29,7 @@ use crate::theme::{self, Tokens};
 
 mod grid;
 pub(super) mod links;
+mod tree;
 const ROW_H: f32 = 60.0;
 /// How far a list row's content sits in from its edges.
 const ROW_INSET: f32 = 12.0;
@@ -49,6 +50,8 @@ const SHAPES: std::ops::RangeInclusive<f32> = 0.55..=1.8;
 const LONG_PRESS: f64 = 0.45;
 /// Title, detail and progress under a card's cover.
 const CARD_TEXT: f32 = 54.0;
+/// How many shelves deep a plate nests before it shows a mark.
+const PLATE_DEPTH: usize = 2;
 
 /// A card or row, a shelf, a book or a link, ready to draw.
 #[derive(Clone, Copy)]
@@ -87,6 +90,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let offline = library.offline().clone();
     let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
+    let unfolded = library.unfolded().clone();
     let listing = library.listing(view);
     let searched = library
         .searching()
@@ -179,6 +183,8 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         offline: &offline,
         fit: view.cover,
         at,
+        level: at,
+        unfolded: &unfolded,
         arranging,
         picks: &picks,
         sequence,
@@ -205,7 +211,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         ),
         Layout::List => {
             cx.motion.forget();
-            list(&mut ui, &items, &mut cx);
+            let how = (view, &unfolded, searched.is_some());
+            let rows = tree::rows(model, &items, at, how);
+            tree::list(&mut ui, &rows, &mut cx);
         }
     }
     // A grid carry shows the card itself; elsewhere a label says what.
@@ -247,6 +255,9 @@ struct Cx<'a> {
     fit: CoverFit,
     /// The shelf open on the page; dragged books leave it.
     at: Option<ShelfId>,
+    /// The level the card being drawn stands on: `at`, or an unfolded row.
+    level: Option<ShelfId>,
+    unfolded: &'a BTreeSet<ShelfId>,
     arranging: Option<Arranging>,
     picks: &'a Picks,
     /// Every card in the order shown, for Shift-click ranges.
@@ -349,34 +360,6 @@ fn centred(ui: &Ui, row: usize, height: f32) -> f32 {
     (mid - ui.available_height() / 2.0).max(0.0)
 }
 
-fn list(ui: &mut Ui, items: &[Item<'_>], cx: &mut Cx<'_>) {
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt("library-list")
-        .auto_shrink(false)
-        .content_margin(margin(cx));
-    if let Some(at) = cx.scroll_to {
-        area = area.vertical_scroll_offset(centred(ui, at, ROW_H));
-    }
-    let slots = items.len() + usize::from(cx.adding.is_some());
-    area.show_rows(ui, ROW_H, slots, |ui, range| {
-        for at in range.clone() {
-            match items.get(at) {
-                Some(Item::Shelf(shelf)) => shelf_row(ui, shelf, cx),
-                Some(Item::Book(book)) => list_row(ui, book, cx),
-                Some(Item::Link(link)) => links::row(ui, link, cx),
-                None => {
-                    let size = vec2(ui.available_width(), ROW_H);
-                    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-                    if let Some(here) = cx.adding {
-                        add::row(ui, rect.shrink2(ROW_GAP), ROW_INSET, here, cx.t, cx.out);
-                    }
-                }
-            }
-        }
-        prefetch(cx.covers, items, range, 1);
-    });
-}
-
 /// Asks for the covers a screen below, then above, what shows.
 fn prefetch(covers: &mut Covers, items: &[Item<'_>], rows: std::ops::Range<usize>, cols: usize) {
     let screen = rows.len().max(1);
@@ -393,7 +376,9 @@ fn prefetch(covers: &mut Covers, items: &[Item<'_>], rows: std::ops::Range<usize
 
 /// A card or row that opens its book, and carries it when dragged.
 fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response {
-    let resp = ui.interact(rect, ui.id().with(book.id), Sense::click_and_drag());
+    // A book may show on two unfolded rows; each is its own widget.
+    let key = ui.id().with((book.id, cx.level));
+    let resp = ui.interact(rect, key, Sense::click_and_drag());
     let title = book.title.value.as_str();
     let picked = cx.picks.contains(Pick::Book(book.id));
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, title));
@@ -479,7 +464,7 @@ fn carry(pick: Pick, from: Option<ShelfId>, cx: &Cx<'_>) -> Carry {
 
 /// Starts carrying `pick`, noting where on its card it was pressed.
 fn lift(resp: &egui::Response, pick: Pick, cx: &mut Cx<'_>) {
-    resp.dnd_set_drag_payload(carry(pick, cx.at, cx));
+    resp.dnd_set_drag_payload(carry(pick, cx.level, cx));
     let pressed = resp.interact_pointer_pos().unwrap_or(resp.rect.min);
     let offset = pressed - resp.rect.min;
     cx.motion.grab = Some(Grab { pick, offset });
@@ -522,8 +507,14 @@ fn carried(ui: &Ui, model: &Library, t: &Tokens) {
     p.galley(chip.min + vec2(10.0, 6.0), g, t.ink);
 }
 
-/// A shelf's card or row: opens on click, carried by drag, takes drops.
-fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::Response, bool) {
+/// A shelf's card or row: `click` on click, carried by drag, takes drops.
+fn shelf_hit(
+    ui: &mut Ui,
+    rect: Rect,
+    shelf: &Shelf,
+    click: ShelfAction,
+    cx: &mut Cx<'_>,
+) -> (egui::Response, bool) {
     let id = shelf.id;
     let resp = ui.interact(rect, ui.id().with(("shelf", id)), Sense::click_and_drag());
     let name = shelf.name.value.clone();
@@ -531,8 +522,7 @@ fn shelf_hit(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) -> (egui::
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &name));
     let held = long_press(ui, &resp, Pick::Shelf(id), cx);
     if resp.clicked() && !held && !picking(ui, Pick::Shelf(id), cx) {
-        let go = ShelfAction::GoTo(Some(id));
-        cx.out.push(Command::Library(Action::Shelf(go)));
+        cx.out.push(Command::Library(Action::Shelf(click)));
     }
     if resp.drag_started() {
         lift(&resp, Pick::Shelf(id), cx);
@@ -615,7 +605,8 @@ fn shelf_detail(model: &Library, id: ShelfId) -> String {
 }
 
 fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
-    let (resp, target) = shelf_hit(ui, rect, shelf, cx);
+    let open = ShelfAction::GoTo(Some(shelf.id));
+    let (resp, target) = shelf_hit(ui, rect, shelf, open, cx);
     let t = cx.t;
     let pad = rect.expand2(vec2(8.0, 8.0));
     let picked = cx.picks.contains(Pick::Shelf(shelf.id));
@@ -623,7 +614,7 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
     lit_ring(ui, pad, t.radius_lg, Pick::Shelf(shelf.id), cx);
     card_ring(&resp, t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
-    plate(ui, bounds, shelf.id, cx);
+    plate(ui, bounds, shelf.id, 0, cx);
     if cx.picks.active() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
     }
@@ -638,105 +629,108 @@ fn shelf_card(ui: &mut Ui, rect: Rect, shelf: &Shelf, cx: &mut Cx<'_>) {
         (rect.left(), y),
         width,
     );
-    let detail = shelf_detail(cx.model, shelf.id);
     let small = FontId::proportional(12.0);
-    line(p, &detail, small, t.muted, (rect.left(), y + 1.0), width);
+    let end = badges(ui, &resp, shelf.id, (rect.right(), y + 8.0), cx);
+    let detail = shelf_detail(cx.model, shelf.id);
+    let room = end - rect.left() - 6.0;
+    line(
+        ui.painter(),
+        &detail,
+        small,
+        t.muted,
+        (rect.left(), y + 1.0),
+        room,
+    );
 }
 
-/// A shelf's face: its first four shelves and books, two by two.
-fn plate(ui: &Ui, bounds: Rect, id: ShelfId, cx: &mut Cx<'_>) {
+/// A shelf's badge and watch dot, ending at `right`; returns their left.
+fn badges(ui: &Ui, resp: &egui::Response, id: ShelfId, at: (f32, f32), cx: &Cx<'_>) -> f32 {
+    let (t, p) = (cx.t, ui.painter());
+    let (mut x, mid) = at;
+    let mut tips: Vec<(Rect, &str)> = Vec::new();
+    if let Some(holding) = cx.model.holding(id) {
+        let g = p.layout_no_wrap(holding.label().into(), theme::medium(10.5), t.muted);
+        let size = g.size() + vec2(10.0, 4.0);
+        let chip = Rect::from_min_size(pos2(x - size.x, mid - size.y / 2.0), size);
+        let fill = match holding {
+            Holding::Mixed => t.accent.gamma_multiply(0.16),
+            _ => t.hover,
+        };
+        p.rect_filled(chip, chip.height() / 2.0, fill);
+        p.galley(chip.min + vec2(5.0, 2.0), g, t.muted);
+        tips.push((chip, holding.tip()));
+        x = chip.left() - 6.0;
+    }
+    if cx.model.shelf_tracked(id) {
+        let dot = pos2(x - 4.0, mid);
+        p.circle_filled(dot, 3.5, t.accent);
+        tips.push((
+            Rect::from_center_size(dot, vec2(12.0, 12.0)),
+            "Watched for new books",
+        ));
+        x -= 14.0;
+    }
+    let pointer = ui.ctx().pointer_hover_pos();
+    let over = tips
+        .iter()
+        .find(|(r, _)| pointer.is_some_and(|p| r.contains(p)));
+    if let Some((_, tip)) = over.filter(|_| resp.hovered()) {
+        resp.clone().on_hover_text(*tip);
+    }
+    x
+}
+
+/// A shelf's face: its first four cards, two by two; a shelf's own nests.
+fn plate(ui: &Ui, bounds: Rect, id: ShelfId, depth: usize, cx: &mut Cx<'_>) {
     let t = cx.t;
     let radius = t.radius.min(6.0);
-    ui.painter().rect_filled(bounds, radius, t.hover);
+    let ground = if depth == 0 { t.hover } else { t.surface };
+    ui.painter().rect_filled(bounds, radius, ground);
     let edge = Stroke::new(1.0, t.line);
     ui.painter()
         .rect_stroke(bounds, radius, edge, StrokeKind::Inside);
-    let pad = (bounds.width() * 0.07).max(4.0);
+    let pad = (bounds.width() * 0.07).max(2.0);
     let cell = vec2(
         (bounds.width() - 3.0 * pad) / 2.0,
         (bounds.height() - 3.0 * pad) / 2.0,
     );
     let model = cx.model;
     let first = model.arranged(Some(id), Home::Everything).into_iter();
-    let mut items = first.filter_map(|p| Item::of(model, p)).take(4).peekable();
-    if items.peek().is_none() {
-        let icon = (bounds.width() * 0.22).clamp(16.0, 40.0);
-        let mark = Rect::from_center_size(bounds.center(), vec2(icon, icon));
-        Icon::Shelf.paint(ui, mark, t.muted.gamma_multiply(0.6));
-    }
-    for (n, item) in items.enumerate() {
+    let items: Vec<Item<'_>> = first.filter_map(|p| Item::of(model, p)).take(4).collect();
+    for n in 0..4 {
         let (col, row) = ((n % 2) as f32, (n / 2) as f32);
         let min = bounds.min + vec2(pad + col * (cell.x + pad), pad + row * (cell.y + pad));
         let at = Rect::from_min_size(min, cell);
-        match item {
-            Item::Book(book) => cover(ui, at, book, cx, 1.0, true),
-            Item::Link(link) => links::face(ui, at, link, t),
-            Item::Shelf(_) => {
+        match items.get(n) {
+            Some(Item::Book(book)) => cover(ui, at, book, cx, 1.0, true),
+            Some(Item::Link(link)) => links::face(ui, at, link, t),
+            Some(Item::Shelf(inner)) if depth < PLATE_DEPTH => {
+                plate(ui, at, inner.id, depth + 1, cx)
+            }
+            // Deeper than a preview can show: the folder mark alone.
+            Some(Item::Shelf(_)) => {
                 ui.painter().rect_filled(at, 3.0, t.surface);
                 ui.painter().rect_stroke(at, 3.0, edge, StrokeKind::Inside);
-                let icon = (cell.x * 0.4).clamp(10.0, 28.0);
+                let icon = (cell.x * 0.5).clamp(6.0, 20.0);
                 let mark = Rect::from_center_size(at.center(), vec2(icon, icon));
-                Icon::Shelf.paint(ui, mark, t.muted);
+                Icon::Open.paint(ui, mark, t.muted);
             }
+            None => hatch(ui.painter(), at, t),
         }
     }
 }
 
-fn shelf_row(ui: &mut Ui, shelf: &Shelf, cx: &mut Cx<'_>) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
-    let (resp, target) = shelf_hit(ui, rect, shelf, cx);
-    let t = cx.t;
-    let picked = cx.picks.contains(Pick::Shelf(shelf.id));
-    backing(
-        ui,
-        rect.shrink2(ROW_GAP),
-        t.radius,
-        (resp.hovered(), picked, target),
-        t,
-    );
-    lit_ring(
-        ui,
-        rect.shrink2(ROW_GAP),
-        t.radius,
-        Pick::Shelf(shelf.id),
-        cx,
-    );
-    let thumb = Rect::from_center_size(
-        pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
-        vec2(34.0, 34.0 * A4),
-    );
-    // While picking, the mark takes the icon's place.
-    if !cx.picks.active() {
-        let icon = Rect::from_center_size(thumb.center(), vec2(24.0, 24.0));
-        Icon::Shelf.paint(ui, icon, t.muted);
-    } else {
-        menus::mark(ui, thumb.center(), picked, t);
+/// An empty cell: fine diagonal strokes.
+fn hatch(p: &Painter, rect: Rect, t: &Tokens) {
+    let clipped = p.with_clip_rect(rect.intersect(p.clip_rect()));
+    let stroke = Stroke::new(1.0, t.line.gamma_multiply(0.7));
+    let mut x = rect.left() - rect.height();
+    while x < rect.right() {
+        let from = pos2(x, rect.bottom());
+        clipped.line_segment([from, from + vec2(rect.height(), -rect.height())], stroke);
+        x += 7.0;
     }
-    let p = ui.painter();
-    let x = thumb.right() + 14.0;
-    let wide = (rect.right() - ROW_INSET - x - 24.0).max(40.0);
-    let name = &shelf.name.value;
-    line(
-        p,
-        name,
-        theme::medium(14.0),
-        t.ink,
-        (x, rect.center().y - 18.0),
-        wide,
-    );
-    let detail = shelf_detail(cx.model, shelf.id);
-    let small = FontId::proportional(12.0);
-    line(p, &detail, small, t.muted, (x, rect.center().y + 2.0), wide);
-    let chevron = Rect::from_center_size(
-        pos2(rect.right() - ROW_INSET - 8.0, rect.center().y),
-        vec2(16.0, 16.0),
-    );
-    Icon::ChevronRight.paint(ui, chevron, t.muted);
-    p.hline(
-        rect.x_range().shrink(ROW_INSET),
-        rect.bottom(),
-        Stroke::new(1.0, t.line),
-    );
+    p.rect_stroke(rect, 3.0, Stroke::new(1.0, t.line), StrokeKind::Inside);
 }
 
 fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
@@ -834,7 +828,7 @@ fn stacked(ui: &Ui, bounds: Rect, id: BookId, cx: &Cx<'_>) -> f32 {
     k
 }
 
-fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
+fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
     let resp = hit(ui, rect, book, cx);
     let t = cx.t;
@@ -850,7 +844,7 @@ fn list_row(ui: &mut Ui, book: &Book, cx: &mut Cx<'_>) {
     );
     lit_ring(ui, rect.shrink2(ROW_GAP), t.radius, Pick::Book(book.id), cx);
     let thumb = Rect::from_center_size(
-        pos2(rect.left() + ROW_INSET + 17.0, rect.center().y),
+        pos2(rect.left() + ROW_INSET + indent + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
     );
     cover(ui, thumb, book, cx, fade, true);
