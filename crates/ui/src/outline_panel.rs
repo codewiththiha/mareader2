@@ -126,19 +126,29 @@ fn entry_row(
     } else {
         t.muted
     };
-    let text = WidgetText::from(RichText::new(&entry.title).font(font).color(colour));
-    let galley = text.into_galley(
-        ui,
-        Some(TextWrapMode::Truncate),
-        room,
-        FontSelection::Default,
-    );
-    let at = pos2(
-        rect.left() + indent,
-        rect.center().y - galley.size().y / 2.0,
-    );
-    let elided = galley.elided;
-    painter.galley(at, galley, colour);
+    let elided = match crate::shaped::block(ui.ctx(), &entry.title, 13.0, room, 1) {
+        Some(drawn) => {
+            let at = pos2(rect.left() + indent, rect.center().y - drawn.size.y / 2.0);
+            drawn.paint(painter, at, colour);
+            drawn.cut
+        }
+        None => {
+            let text = WidgetText::from(RichText::new(&entry.title).font(font).color(colour));
+            let galley = text.into_galley(
+                ui,
+                Some(TextWrapMode::Truncate),
+                room,
+                FontSelection::Default,
+            );
+            let at = pos2(
+                rect.left() + indent,
+                rect.center().y - galley.size().y / 2.0,
+            );
+            let elided = galley.elided;
+            painter.galley(at, galley, colour);
+            elided
+        }
+    };
     let number = (entry.page + 1).to_string();
     let right = pos2(rect.right() - PAD_X, rect.center().y);
     let small = FontId::proportional(t.text_small);

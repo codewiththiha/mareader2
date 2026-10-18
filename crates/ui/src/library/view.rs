@@ -329,7 +329,11 @@ fn header(
     ui.horizontal(|ui| {
         ui.add_space(inset(view));
         let title = egui::RichText::new(name).font(theme::medium(22.0));
-        ui.add(egui::Label::new(title.color(t.ink)).truncate());
+        if crate::shaped::needs_shaping(name) {
+            crate::shaped::line(ui, title, 22.0, t.ink);
+        } else {
+            ui.add(egui::Label::new(title.color(t.ink)).truncate());
+        }
         ui.label(egui::RichText::new(count).color(t.muted));
     });
 }
@@ -871,8 +875,18 @@ fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
         job.wrap = TextWrapping::truncate_at_width(wide);
         p.layout_job(job)
     };
-    let g = job(title, theme::medium(14.0), ink);
-    p.galley(pos2(x, center(rect.center().y - 9.0, g.size().y)), g, ink);
+    let mid = rect.center().y - 9.0;
+    let shaped = crate::shaped::measure(ui.ctx(), title, 14.0, wide, 1);
+    match shaped {
+        Some((size, _)) => {
+            let at = pos2(x, center(mid, size.y));
+            crate::shaped::paint_line(p, title, 14.0, ink, at, wide);
+        }
+        None => {
+            let g = job(title, theme::medium(14.0), ink);
+            p.galley(pos2(x, center(mid, g.size().y)), g, ink);
+        }
+    }
     let offline = folders::offline(book, cx.offline);
     let detail = format!(
         "{} · {}",
@@ -895,6 +909,10 @@ fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
 
 /// One truncated line at `at`; returns its height.
 fn line(p: &Painter, text: &str, font: FontId, color: Color32, at: (f32, f32), w: f32) -> f32 {
+    let shaped = crate::shaped::paint_line(p, text, font.size, color, pos2(at.0, at.1), w.max(8.0));
+    if let Some(h) = shaped {
+        return h;
+    }
     let mut job = LayoutJob::single_section(text.to_owned(), TextFormat::simple(font, color));
     job.wrap = TextWrapping::truncate_at_width(w.max(8.0));
     let g = p.layout_job(job);

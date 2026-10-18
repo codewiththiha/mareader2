@@ -65,12 +65,12 @@ pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> R
 
 fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
     ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(view.word)
-                .size(t.text * 1.35)
-                .strong()
-                .color(t.ink),
-        );
+        if crate::shaped::needs_shaping(view.word) {
+            crate::shaped::label(ui, view.word, t.text * 1.2, t.ink);
+        } else {
+            let word = RichText::new(view.word).size(t.text * 1.35).strong();
+            ui.label(word.color(t.ink));
+        }
         let said = match &view.answer {
             Answer::Ready(info, _) | Answer::Partial(info) => Some(info.pos.as_str()),
             _ => None,
@@ -158,7 +158,7 @@ fn heading(ui: &mut Ui, text: &str, t: &Tokens) {
 fn answer(ui: &mut Ui, info: &WordInfo, t: &Tokens) {
     if !info.meaning.is_empty() {
         heading(ui, "Meaning", t);
-        ui.label(RichText::new(&info.meaning).color(t.ink));
+        crate::shaped::label(ui, &info.meaning, t.text, t.ink);
     }
     if !info.synonyms.is_empty() {
         heading(ui, "Synonyms", t);
@@ -175,7 +175,11 @@ fn answer(ui: &mut Ui, info: &WordInfo, t: &Tokens) {
             // Hanging indent: wrapped lines start under the text.
             ui.horizontal_top(|ui| {
                 ui.label(RichText::new("•").color(t.muted));
-                ui.add(egui::Label::new(RichText::new(u).italics().color(t.ink)).wrap());
+                if crate::shaped::needs_shaping(u) {
+                    crate::shaped::label(ui, u, t.text, t.ink);
+                } else {
+                    ui.add(egui::Label::new(RichText::new(u).italics().color(t.ink)).wrap());
+                }
             });
         }
     }

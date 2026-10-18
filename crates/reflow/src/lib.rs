@@ -27,7 +27,7 @@ pub use flow::{
     Typography,
 };
 pub use fonts::{FACES, Face, Faces, Family, Fonts, Kind, MONO, SANS, SERIF, has_family};
-pub use label::{Fallback, fallbacks, label};
+pub use label::{Fallback, Lines, fallbacks, label, label_lines, measure_lines};
 pub use page_text::{PageChar, PageLine};
 pub use picture::{MAX_PICTURE_PIXELS, MAX_PICTURE_SIDE, Picture, PictureError};
 pub use raster::{MAX_SIDE, Pixels, Region};
