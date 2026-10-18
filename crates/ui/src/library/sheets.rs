@@ -1,16 +1,11 @@
 //! Sheets over the library, and the questions waiting behind them.
 
-use std::path::Path;
-
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
-use mareader_library::{
-    Book, FolderId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, ShelfId,
-};
+use mareader_library::{Book, FolderId, Library, Origin, ShelfId};
 
 use super::asks::{self, Question};
 use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
 use crate::command::{Command, Commands};
-use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
 const WIDTH: f32 = 420.0;
@@ -62,7 +57,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                 Sheet::Removal { .. } => None,
                 Sheet::Rename(named) => rename(ui, library, *named, &t),
                 Sheet::Copy(work) => super::copying::show(ui, model, work, &t),
-                Sheet::Import(root) => import(ui, library, root, &t),
+                Sheet::Import(root) => super::import_sheet::show(ui, library, root, &t),
                 Sheet::Moved { folder, book } => match model.book(*book) {
                     Some(book) => moved(ui, model, *folder, book, &t),
                     None => Some(Action::CloseSheet),
@@ -233,166 +228,6 @@ fn rename(ui: &mut Ui, library: &LibraryState, named: Named, t: &Tokens) -> Opti
     act
 }
 
-/// The one import sheet: which files count, how they're held, shelved.
-fn import(ui: &mut Ui, library: &LibraryState, root: &Path, t: &Tokens) -> Option<Action> {
-    let model = library.model();
-    title(ui, "Import a folder", t);
-    let key = Id::new(("import-folder", root));
-    // The last answers start it; a tree already read here seeds its own.
-    let mut opts = ui.data_mut(|d| {
-        d.get_temp_mut_or_insert_with(key, || seed(model, root, library.last_options()))
-            .clone()
-    });
-    let inside = model
-        .folders()
-        .find(|f| f.mode().in_place() && root.starts_with(&f.root) && root != f.root);
-    let mut act = None;
-    egui::ScrollArea::vertical()
-        .max_height(ui.ctx().content_rect().height() * 0.7)
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            section(ui, "Folder", t);
-            if folder_row(ui, root, t) {
-                act = Some(Action::PickFolder);
-            }
-            section(ui, "Formats", t);
-            formats(ui, &mut opts);
-            section(ui, "File size larger than", t);
-            min_size(ui, &mut opts);
-            section(ui, "Books", t);
-            ui.label(RichText::new("How the books are held").color(t.ink));
-            let mut mode = opts.mode();
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                for choice in Mode::ALL {
-                    ui.radio_value(
-                        &mut mode,
-                        choice,
-                        RichText::new(choice.label()).color(t.ink),
-                    );
-                }
-            });
-            opts.set_mode(mode);
-            let held = match (mode, inside.is_some()) {
-                (Mode::Copy, _) => {
-                    "Books are copied into the app's own files, so they keep working even if \
-                     the folder moves or is deleted."
-                }
-                (Mode::InPlace, _) => {
-                    "Books stay where they are — the library just remembers where they live. \
-                     Books added to the folder later are not picked up."
-                }
-                (Mode::Watched, false) => {
-                    "Books stay where they are, and the folder is checked for new ones when \
-                     the app opens or you come back to it."
-                }
-                (Mode::Watched, true) => {
-                    "Books stay where they are, and this subfolder is checked for new ones. \
-                     The rest of the tree keeps its own answer."
-                }
-            };
-            note(ui, held, t);
-            ui.add_space(4.0);
-            ui.label(RichText::new("Folder structure").color(t.ink));
-            let shapes = [
-                (true, "A shelf for each folder"),
-                (false, "One shelf for everything"),
-            ];
-            choices(ui, &mut opts.groups, &shapes, t);
-            let shaped = match inside {
-                Some(_) => {
-                    "This answer stands for this folder and the ones under it — the rest of \
-                     the tree keeps its own."
-                }
-                None => {
-                    "A shelf for each folder gives every subfolder its own shelf; one shelf \
-                     keeps the whole import together."
-                }
-            };
-            note(ui, shaped, t);
-        });
-    ui.add_space(8.0);
-    buttons(ui, |ui| {
-        let go = primary(ui, "Import", t.accent, t).on_hover_text("Import this folder");
-        if go.clicked() {
-            let root = root.to_path_buf();
-            let opts = opts.clone();
-            act = Some(Action::ImportFolder { root, opts });
-        }
-        let cancel = ui.button("Cancel").on_hover_text("Close without importing");
-        if cancel.clicked() {
-            act = Some(Action::CloseSheet);
-        }
-    });
-    match act {
-        Some(Action::PickFolder) | None => ui.data_mut(|d| {
-            d.insert_temp(key, opts);
-        }),
-        Some(_) => ui.data_mut(|d| {
-            d.remove::<Options>(key);
-        }),
-    }
-    act
-}
-
-/// The sheet's start: `last`, with the watch and shape of a tree here.
-fn seed(model: &Library, root: &Path, last: Options) -> Options {
-    let standing = model.folder_at(root, true).and_then(|id| model.folder(id));
-    match standing.filter(|f| f.mode().in_place()) {
-        Some(tree) => Options {
-            in_place: true,
-            watch: tree.opts.watch,
-            groups: tree.opts.groups,
-            ..last
-        },
-        None => last,
-    }
-}
-
-/// Format chips, and whether the chosen ones are counted or left out.
-fn formats(ui: &mut Ui, opts: &mut Options) {
-    ui.horizontal_wrapped(|ui| {
-        for format in Format::ALL {
-            let on = opts.formats.contains(&format);
-            if ui.add(Button::selectable(on, format.label())).clicked() {
-                match on {
-                    true => opts.formats.remove(&format),
-                    false => opts.formats.insert(format),
-                };
-            }
-        }
-    });
-    ui.horizontal(|ui| {
-        for (include, label) in [(true, "Include selected"), (false, "Exclude selected")] {
-            if ui
-                .add(Button::selectable(opts.include == include, label))
-                .clicked()
-            {
-                opts.include = include;
-            }
-        }
-    });
-}
-
-/// The size floor, stepped: files must be larger to count.
-fn min_size(ui: &mut Ui, opts: &mut Options) {
-    ui.horizontal(|ui| {
-        let less = ui.add_enabled_ui(opts.min_size > 0, |ui| {
-            crate::widgets::icon_button(ui, Icon::Minus, "Smaller files count too", false)
-        });
-        if less.inner.clicked() {
-            opts.step_min_size(-1);
-        }
-        ui.label(opts.min_size_label());
-        let more = ui.add_enabled_ui(opts.min_size < MIN_SIZE_MAX, |ui| {
-            crate::widgets::icon_button(ui, Icon::Plus, "Only larger files", false)
-        });
-        if more.inner.clicked() {
-            opts.step_min_size(1);
-        }
-    });
-}
-
 /// A book that left its folder's shelves: shown here too, or gone to.
 fn moved(
     ui: &mut Ui,
@@ -472,50 +307,6 @@ fn import_note(
         }
     });
     act
-}
-
-/// A small heading over a group of the sheet's controls.
-fn section(ui: &mut Ui, text: &str, t: &Tokens) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(text).font(theme::medium(11.5)).color(t.muted));
-}
-
-/// The folder being imported, and a way to pick another; true if asked.
-fn folder_row(ui: &mut Ui, root: &Path, t: &Tokens) -> bool {
-    let frame = Frame::new()
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius)
-        .inner_margin(Margin::symmetric(10, 6));
-    let inner = frame.show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.add(Icon::Folder.image(16.0).tint(t.muted));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let change = ui.button("Change…").on_hover_text("Choose another folder");
-                let full = root.display().to_string();
-                let path = RichText::new(&full).color(t.ink);
-                ui.add(egui::Label::new(path).truncate())
-                    .on_hover_text(full);
-                change.clicked()
-            })
-            .inner
-        })
-        .inner
-    });
-    inner.inner
-}
-
-/// Radio rows, one per choice.
-fn choices<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, all: &[(T, &str)], t: &Tokens) {
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        for &(choice, label) in all {
-            ui.radio_value(value, choice, RichText::new(label).color(t.ink));
-        }
-    });
-}
-
-fn note(ui: &mut Ui, text: &str, t: &Tokens) {
-    ui.label(RichText::new(text).size(12.0).color(t.muted));
 }
 
 pub(super) fn title(ui: &mut Ui, text: &str, t: &Tokens) {

@@ -1367,7 +1367,8 @@ fn a_folder_copied_in_takes_only_what_counts() {
     let mut h = kept_in(dir.path());
     act(&mut h, Action::AskFolder(root.clone()));
     assert!(h.query_by_label("Import a folder").is_some());
-    h.get_by_label("Copy into the library").click();
+    // Unticked, the books are copied in.
+    h.get_by_label("Read books in place").click();
     h.run();
     // Markdown no longer counts.
     h.get_by_label("MD").click();
@@ -1408,8 +1409,7 @@ fn a_folder_read_in_place_keeps_the_sheets_choices() {
     put(&root, "notes.md", NOTES);
     let mut h = kept_in(dir.path());
     act(&mut h, Action::AskFolder(root.clone()));
-    h.get_by_label("Read at place").click();
-    h.run();
+    // Read in place, unwatched, is where a new library starts.
     h.get_by_label("EPUB").click();
     h.run();
     every_size(&mut h);
