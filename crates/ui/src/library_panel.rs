@@ -514,6 +514,21 @@ fn badge_rect(ui: &Ui, row: Rect, label: &str, t: &Tokens, fade: f32) -> Rect {
 
 /// One line of text, cut to `room`; true if it was cut.
 fn text(ui: &Ui, left: egui::Pos2, s: &str, font: FontId, colour: Color32, room: f32) -> bool {
+    if crate::shaped::needs_shaping(s) {
+        let band = Rect::from_min_size(pos2(left.x, left.y - 12.0), vec2(room, 24.0));
+        // Off screen it's neither drawn nor shaped.
+        if !ui.is_rect_visible(band) {
+            return false;
+        }
+        if let Some(drawn) = crate::shaped::block(ui.ctx(), s, font.size, room.max(16.0), 1) {
+            drawn.paint(
+                ui.painter(),
+                pos2(left.x, left.y - drawn.size.y / 2.0),
+                colour,
+            );
+            return drawn.cut;
+        }
+    }
     let text = WidgetText::from(RichText::new(s).font(font).color(colour));
     let galley = text.into_galley(
         ui,

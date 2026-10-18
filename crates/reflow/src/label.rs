@@ -65,18 +65,52 @@ fn pick(text: &str) -> Vec<Fallback> {
 
 /// `text` wrapped at `width`, as white glyphs to tint; `None` if empty or huge.
 pub fn label(text: &str, size: f32, width: f32) -> Option<Pixels> {
-    let fine = |v: f32| v.is_finite() && v > 0.0;
-    if text.trim().is_empty() || !fine(size) || !fine(width) {
-        return None;
-    }
-    catch_unwind(AssertUnwindSafe(|| draw(text, size, width))).ok()?
+    label_lines(text, size, width, usize::MAX).map(|l| l.pixels)
 }
 
-fn draw(text: &str, size: f32, width: f32) -> Option<Pixels> {
+/// A label drawn to at most a number of lines.
+pub struct Lines {
+    pub pixels: Pixels,
+    /// Whether lines past the limit were left out.
+    pub cut: bool,
+}
+
+/// `text` as `label` draws it, stopping after `lines` lines.
+pub fn label_lines(text: &str, size: f32, width: f32, lines: usize) -> Option<Lines> {
+    let fine = |v: f32| v.is_finite() && v > 0.0;
+    if text.trim().is_empty() || !fine(size) || !fine(width) || lines == 0 {
+        return None;
+    }
+    catch_unwind(AssertUnwindSafe(|| draw(text, size, width, lines))).ok()?
+}
+
+/// The size `label_lines` would draw, in pixels, and whether it cuts.
+pub fn measure_lines(text: &str, size: f32, width: f32, lines: usize) -> Option<(u32, u32, bool)> {
+    let fine = |v: f32| v.is_finite() && v > 0.0;
+    if text.trim().is_empty() || !fine(size) || !fine(width) || lines == 0 {
+        return None;
+    }
+    catch_unwind(AssertUnwindSafe(|| {
+        let layout = lay_out(&mut Fonts::system(), text, size, Some(width));
+        extent(&layout, lines)
+    }))
+    .ok()
+}
+
+/// Width and height of the first `lines` lines, and whether more follow.
+fn extent(layout: &Layout<Ink>, lines: usize) -> (u32, u32, bool) {
+    let cut = layout.len() > lines;
+    let last = layout.len().min(lines).checked_sub(1);
+    let line = last.and_then(|i| layout.get(i));
+    let bottom = line.map_or(0.0, |l| l.metrics().block_max_coord);
+    let w = layout.width().ceil().max(1.0) as u32;
+    (w, bottom.ceil().max(1.0) as u32, cut)
+}
+
+fn draw(text: &str, size: f32, width: f32, lines: usize) -> Option<Lines> {
     let mut fonts = Fonts::system();
     let layout = lay_out(&mut fonts, text, size, Some(width));
-    let w = layout.width().ceil().max(1.0) as u32;
-    let h = layout.height().ceil().max(1.0) as u32;
+    let (w, h, cut) = extent(&layout, lines);
     if w > MAX_SIDE || h > MAX_SIDE {
         return None;
     }
@@ -85,7 +119,7 @@ fn draw(text: &str, size: f32, width: f32) -> Option<Pixels> {
     let mut resources = Resources::new();
     ctx.set_paint(WHITE);
     let mut coords = Vec::new();
-    for line in layout.lines() {
+    for line in layout.lines().take(lines) {
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(run) = item else {
                 continue;
@@ -109,11 +143,12 @@ fn draw(text: &str, size: f32, width: f32) -> Option<Pixels> {
     let mut pixmap = Pixmap::new(w16, h16);
     ctx.flush();
     ctx.render(&mut pixmap, &mut resources);
-    Some(Pixels {
+    let pixels = Pixels {
         width: w,
         height: h,
         rgba: pixmap.data_as_u8_slice().to_vec(),
-    })
+    };
+    Some(Lines { pixels, cut })
 }
 
 /// Inter first; parley finds the machine's face for every other script.
@@ -148,6 +183,21 @@ mod tests {
         assert!(one.width > 0 && one.height > 0);
         assert!(wrapped.height > one.height, "it wraps onto more lines");
         assert!(one.rgba.iter().any(|&b| b > 0), "some ink");
+    }
+
+    #[test]
+    fn a_label_stops_at_its_last_line() {
+        let text = "မြန်မာဘာသာစကားသည်လှပသည် ".repeat(6);
+        let all = label_lines(&text, 16.0, 80.0, usize::MAX).expect("drawn");
+        let two = label_lines(&text, 16.0, 80.0, 2).expect("drawn");
+        assert!(!all.cut && two.cut);
+        assert!(two.pixels.height < all.pixels.height);
+        assert_eq!(
+            two.pixels.rgba.len(),
+            (two.pixels.width * two.pixels.height * 4) as usize
+        );
+        let measured = measure_lines(&text, 16.0, 80.0, 2).expect("measured");
+        assert_eq!(measured, (two.pixels.width, two.pixels.height, true));
     }
 
     #[test]
