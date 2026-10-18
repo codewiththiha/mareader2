@@ -111,6 +111,11 @@ fn main() -> Result<(), String> {
                 app.set_option(k, &dir.to_string_lossy())?;
                 words = true;
             }
+            // The test packs, converted: `dictionaries=fixtures`.
+            "dictionaries" if v == "fixtures" => {
+                let dir = fixture_packs()?;
+                app.set_option(k, &dir.to_string_lossy())?;
+            }
             // Tab presses once open, so the focus ring shows: `tab=3`.
             "tab" => tabs = v.parse().map_err(|_| "tab=count")?,
             "size" => {
@@ -191,6 +196,24 @@ fn main() -> Result<(), String> {
     image.save(&out).map_err(|e| e.to_string())?;
     println!("{out}");
     Ok(())
+}
+
+/// The Burmese and French test packs, built into a temporary folder.
+fn fixture_packs() -> Result<std::path::PathBuf, String> {
+    let dir = std::env::temp_dir().join("mareader-shot-packs");
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../dict/tests/fixtures");
+    for (file, id) in [
+        ("en-my.parquet", "mcfnlp-en-my"),
+        ("en-fr.parquet", "wiktionary-en-fr"),
+    ] {
+        let pack = (mareader_dict::PACKS.iter())
+            .find(|p| p.id == id)
+            .ok_or(format!("no pack {id}"))?;
+        let db = mareader_dict::db_file(&dir, pack);
+        std::fs::create_dir_all(db.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
+        mareader_dict::build(&fixtures.join(file), &db).map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
 }
 
 /// Steps until the word levels are in, for two minutes at most.
