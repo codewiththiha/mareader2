@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Mareader</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B7CFA"/>
+      <stop offset="1" stop-color="#2B3DA6"/>
+    </linearGradient>
+    <linearGradient id="turn" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#DCE4FF"/>
+      <stop offset="1" stop-color="#F5F8FF"/>
+    </linearGradient>
+  </defs>
+  <!-- The tile, on Apple's 824 grid so it sits beside other icons. -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tile)"/>
+  <!-- An open book: its outer edges, tops and spine draw an M. -->
+  <g stroke-linejoin="round" stroke-width="28">
+    <path d="M284 306 L496 410 L496 718 L284 614 Z" fill="#FFFFFF" stroke="#FFFFFF"/>
+    <path d="M740 306 L528 410 L528 718 L740 614 Z" fill="url(#turn)" stroke="url(#turn)"/>
+  </g>
+  <!-- Lines of text, one of them highlighted. -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M330 420 L448 478" stroke="#C9D3F7" stroke-width="22"/>
+    <path d="M330 492 L448 550" stroke="#C9D3F7" stroke-width="22"/>
+    <path d="M576 478 L694 420" stroke="#FFB938" stroke-width="40"/>
+    <path d="M576 550 L694 492" stroke="#C9D3F7" stroke-width="22"/>
+  </g>
+</svg>

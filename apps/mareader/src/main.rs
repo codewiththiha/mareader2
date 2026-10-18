@@ -71,6 +71,12 @@ fn viewport() -> egui::ViewportBuilder {
         .with_app_id("mareader")
         .with_inner_size([1200.0, 800.0])
         .with_min_inner_size([640.0, 480.0]);
+    // macOS shows the bundle's icon; elsewhere the window and taskbar take it.
+    #[cfg(not(target_os = "macos"))]
+    let v = match eframe::icon_data::from_png_bytes(include_bytes!("../icons/128x128@2x.png")) {
+        Ok(icon) => v.with_icon(icon),
+        Err(_) => v,
+    };
     // macOS keeps its traffic lights; elsewhere the app draws captions.
     if cfg!(target_os = "macos") {
         v.with_fullsize_content_view(true)
