@@ -46,6 +46,10 @@ pub struct Page {
     focus: bool,
     /// The chosen row moved by key, so it scrolls into view.
     reveal: bool,
+    /// Drawn in the floating window: a smaller field.
+    small: bool,
+    /// Whether the field had the keys when last drawn.
+    typing: bool,
 }
 
 /// What a click on the page asks of it.
@@ -93,6 +97,29 @@ impl Page {
         &self.text
     }
 
+    /// Whether the field had the keys last frame; Escape drops them first.
+    pub fn typing(&self) -> bool {
+        self.typing
+    }
+
+    /// Not drawn this frame, so not typed into.
+    pub fn hide(&mut self) {
+        self.typing = false;
+    }
+
+    /// The page in whatever room `ui` has, as the floating window shows it.
+    pub fn compact(
+        &mut self,
+        ui: &mut Ui,
+        service: &mut Dictionaries,
+        s: &DictionarySettings,
+        out: &mut Commands,
+    ) {
+        let t = Tokens::get(ui.ctx());
+        self.small = true;
+        self.contents(ui, service, s, &t, out);
+    }
+
     /// The ask the page's text and choices make now.
     fn query(&self, s: &DictionarySettings) -> Query {
         let pair = s.pair.then(|| Pair {
@@ -116,6 +143,7 @@ impl Page {
         out: &mut Commands,
     ) {
         let t = Tokens::get(ui.ctx());
+        self.small = false;
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, t.paper);
         let width = (full.width() - 2.0 * MARGIN).clamp(0.0, MAX_W);
@@ -160,7 +188,11 @@ impl Page {
         let mut draft = s.clone();
         let now = ui.input(|i| i.time);
         self.field(ui, t, now, &mut draft);
-        choices(ui, &mut draft, &ready, self.reply.as_ref(), t, out);
+        let reply = self.reply.as_ref();
+        match self.small {
+            true => narrow_choices(ui, &mut draft, &ready, reply, t, out),
+            false => choices(ui, &mut draft, &ready, reply, t, out),
+        }
         let query = self.query(&draft);
         let settled = now - self.typed_at >= DEBOUNCE;
         let changed = self.asked.as_ref().is_none_or(|(_, q)| *q != query);
@@ -224,15 +256,20 @@ impl Page {
             .fill(t.surface)
             .stroke(Stroke::new(1.0, t.line))
             .corner_radius(t.radius_lg)
-            .inner_margin(Margin::symmetric(12, 8));
+            .inner_margin(if self.small {
+                Margin::symmetric(10, 5)
+            } else {
+                Margin::symmetric(12, 8)
+            });
+        let size = if self.small { 16.0 } else { 20.0 };
         frame.show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add(Icon::Search.image(18.0).tint(t.muted));
-                let room = if self.text.is_empty() { 0.0 } else { 32.0 };
+                ui.add(Icon::Search.image(size - 2.0).tint(t.muted));
+                let room = if self.text.is_empty() { 0.0 } else { 40.0 };
                 let edit = TextEdit::singleline(&mut self.text)
                     .id(id)
                     .hint_text("Search any word…")
-                    .font(FontId::proportional(20.0))
+                    .font(FontId::proportional(size))
                     .frame(Frame::NONE)
                     .return_key(None)
                     .desired_width((ui.available_width() - room).max(40.0));
@@ -254,6 +291,7 @@ impl Page {
                 if std::mem::take(&mut self.focus) {
                     field.request_focus();
                 }
+                self.typing = field.has_focus();
             });
         });
     }
@@ -326,21 +364,52 @@ fn choices(
         ui.selectable_value(&mut s.pair, true, "Languages");
         ui.add_space(6.0);
         if s.pair {
-            languages_row(ui, s, ready);
+            languages_row(ui, s, ready, 150.0);
         } else {
-            pack_box(ui, s, ready);
+            pack_box(ui, s, ready, 220.0);
         }
         if let Some((text, why)) = reply.and_then(|r| route_note(r, s)) {
             chip(ui, &text, t).on_hover_text(why);
         }
-        let manage = widgets::small_icon_button(ui, Icon::Settings, "Manage dictionaries…");
-        if manage.clicked() {
-            out.push(Command::OpenSettings(Tab::Dictionary));
-        }
+        manage(ui, out);
     });
 }
 
-fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack]) {
+/// The window's choices: the mode and settings, then the picker across.
+fn narrow_choices(
+    ui: &mut Ui,
+    s: &mut DictionarySettings,
+    ready: &[&'static Pack],
+    reply: Option<&Reply>,
+    t: &Tokens,
+    out: &mut Commands,
+) {
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut s.pair, false, "Dictionaries");
+        ui.selectable_value(&mut s.pair, true, "Languages");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| manage(ui, out));
+    });
+    let width = ui.available_width();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        match s.pair {
+            true => languages_row(ui, s, ready, ((width - 36.0) / 2.0).max(60.0)),
+            false => pack_box(ui, s, ready, width),
+        }
+    });
+    if let Some((text, why)) = reply.and_then(|r| route_note(r, s)) {
+        chip(ui, &text, t).on_hover_text(why);
+    }
+}
+
+fn manage(ui: &mut Ui, out: &mut Commands) {
+    let manage = widgets::small_icon_button(ui, Icon::Settings, "Manage dictionaries…");
+    if manage.clicked() {
+        out.push(Command::OpenSettings(Tab::Dictionary));
+    }
+}
+
+fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack], width: f32) {
     let chosen = s
         .langs
         .first()
@@ -348,7 +417,7 @@ fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack]) {
     let shown = chosen.map_or("Every dictionary".to_owned(), |p| p.label());
     let pick = egui::ComboBox::from_id_salt("dict-pack")
         .icon(widgets::combo_chevron)
-        .width(220.0)
+        .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {
             if ui
@@ -367,23 +436,29 @@ fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack]) {
     widgets::name(&pick.response, "Dictionary to search");
 }
 
-fn languages_row(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack]) {
+fn languages_row(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack], width: f32) {
     let langs = languages(ready);
     let names = ("dict-from", "Translate from");
-    language_box(ui, names, &mut s.from, &langs);
+    language_box(ui, names, width, &mut s.from, &langs);
     let swap = widgets::small_icon_button(ui, Icon::Swap, "Swap languages");
     if swap.clicked() {
         std::mem::swap(&mut s.from, &mut s.to);
     }
-    language_box(ui, ("dict-to", "Translate to"), &mut s.to, &langs);
+    language_box(ui, ("dict-to", "Translate to"), width, &mut s.to, &langs);
 }
 
 /// A language picker; `id` is its salt and its spoken name.
-fn language_box(ui: &mut Ui, id: (&str, &str), value: &mut Option<String>, langs: &[&str]) {
+fn language_box(
+    ui: &mut Ui,
+    id: (&str, &str),
+    width: f32,
+    value: &mut Option<String>,
+    langs: &[&str],
+) {
     let shown = value.as_deref().map_or("Automatic".to_owned(), language);
     let pick = egui::ComboBox::from_id_salt(id.0)
         .icon(widgets::combo_chevron)
-        .width(150.0)
+        .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {
             if ui.selectable_label(value.is_none(), "Automatic").clicked() {

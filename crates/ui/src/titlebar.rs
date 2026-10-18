@@ -84,6 +84,8 @@ pub struct ReaderBar {
     pub auto_scroll: Option<bool>,
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
+    /// The floating Dictionary shows, so its button is pressed.
+    pub dictionary: bool,
 }
 
 /// The shelf has no rail, panes or page: View options and Appearance.
@@ -326,7 +328,7 @@ fn leading(
             let r = widgets::icon_button(ui, Icon::Library, "Library", false);
             out.extend(clicked(r, Command::ShowLibrary));
             if fitting(bar, reader, width).0 {
-                out.extend(dictionary(ui, "Dictionary", false));
+                out.extend(dictionary(ui, "Dictionary", reader.dictionary));
             }
         }
         BarPage::Dictionary(page) => {

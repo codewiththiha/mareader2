@@ -1435,7 +1435,7 @@ title = "Dictionary panel: pack picker, language pairs through English, Search a
 area = "I"
 tier = "P1"
 milestone = "M6"
-status = "partial"
+status = "shipped"
 reference = ["crates/reader-runtime/src/components/shell/sidebar/panels/dictionary/mod.rs", "crates/dict-core/src/bridge.rs"]
 evidence = [
     "crates/ui/tests/dictionary.rs::the_panel_searches_every_pack_as_typed",
@@ -1446,8 +1446,15 @@ evidence = [
     "crates/ui/tests/chrome.rs::a_narrow_bar_folds_dictionary_into_the_menu",
     "crates/ui/src/route.rs::the_dictionary_keeps_its_settings_and_drops_reading",
     "crates/settings/src/study.rs::recent_searches_stay_unique_newest_first_and_bounded",
+    "crates/ui/tests/dictionary.rs::in_the_reader_the_button_floats_a_window_that_folds_and_closes",
+    "crates/ui/tests/dictionary.rs::the_window_moves_and_resizes_and_remembers_where",
+    "crates/ui/tests/dictionary.rs::open_as_a_page_carries_the_search_over",
+    "crates/ui/tests/dictionary.rs::escape_in_the_window_clears_then_closes",
+    "crates/ui/tests/dictionary.rs::the_tab_chooses_how_the_reader_opens_it",
+    "crates/ui/src/dict/window.rs::the_window_stays_on_the_stage_and_never_below_its_minimum",
+    "crates/settings/src/study.rs::a_window_rect_is_finite_and_never_below_the_minimum",
 ]
-notes = "Its own page, not a rail panel: from the reader's and library's bars or Cmd/Ctrl+Shift+D. Results beside the chosen entry, its other senses, Copy and Look up in turn, recent searches, arrows and Enter. The floating window in the reader is next"
+notes = "Its own page, not a rail panel: from the reader's and library's bars or Cmd/Ctrl+Shift+D. Results beside the chosen entry, its other senses, Copy and Look up in turn, recent searches, arrows and Enter. In the reader it floats over the page by default: dragged, resized, folded to a pill, opened as the page or closed, its place saved; Settings can ask for the page instead"
 
 [[feature]]
 id = "study.selection-menu"

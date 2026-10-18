@@ -169,8 +169,8 @@ fn a_narrow_bar_folds_dictionary_into_the_menu() {
     h.run();
     h.get_by_label("Dictionary").click();
     h.run();
-    let route = h.state().route();
-    assert_eq!(route, mareader_ui::route::Route::Dictionary);
+    // In the reader it floats over the page.
+    assert!(h.state().settings().dictionary.window.open);
 }
 
 fn widths(h: &Harness<'static, MareaderApp>) -> Vec<f32> {

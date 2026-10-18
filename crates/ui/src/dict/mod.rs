@@ -3,6 +3,7 @@
 mod card;
 mod entry;
 pub mod page;
+pub mod window;
 
 use egui::{Context, Rect, Vec2};
 use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket};
@@ -16,13 +17,28 @@ use crate::theme::Tokens;
 const LEAVE: f32 = 8.0;
 
 /// What the card, the page and the settings ask of the dictionaries.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Download(&'static str),
     Pause(&'static str),
     Cancel(&'static str),
     Remove(&'static str),
     CloseCard,
+    /// The reader's floating window, which the app keeps.
+    Window(Window),
+}
+
+/// What the floating window asks: shown, folded, placed or a page.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Window {
+    /// Shown if closed or folded, else closed.
+    Toggle,
+    Close,
+    Minimize(bool),
+    /// Let go after a drag or resize: saved.
+    Place(Rect),
+    /// Closed, and the Dictionary page in the panes' place.
+    Expand,
 }
 
 /// A lookup card, kept where its words were selected.
@@ -45,6 +61,9 @@ pub struct Dict {
     card: Option<Card>,
     card_rect: Option<Rect>,
     page: page::Page,
+    /// The floating window's rect mid-drag, and where it was drawn.
+    float: Option<Rect>,
+    float_rect: Option<Rect>,
 }
 
 impl Dict {
@@ -165,6 +184,7 @@ impl Dict {
             Action::Cancel(id) => pack(id).map(|p| self.service.cancel(p)),
             Action::Remove(id) => pack(id).map(|p| self.service.remove(p)),
             Action::CloseCard => self.card.take().map(|_| ()),
+            Action::Window(_) => None,
         };
         #[cfg(target_arch = "wasm32")]
         if action == Action::CloseCard {
@@ -248,6 +268,42 @@ impl Dict {
     pub fn arrive(&mut self) {
         self.card = None;
         self.page.arrive();
+    }
+
+    /// The reader's floating window, when its settings say it's open.
+    pub fn window(
+        &mut self,
+        ctx: &Context,
+        settings: &DictionarySettings,
+        stage: Rect,
+        out: &mut Commands,
+    ) {
+        self.float_rect = None;
+        if !settings.window.open || settings.window.minimized {
+            self.page.hide();
+        }
+        if !settings.window.open {
+            self.float = None;
+            return;
+        }
+        let frame = window::Frame {
+            service: &mut self.service,
+            page: &mut self.page,
+            live: &mut self.float,
+            settings,
+            stage,
+        };
+        self.float_rect = Some(window::show(ctx, frame, out));
+    }
+
+    /// Where the floating window was drawn, for tests.
+    pub fn window_rect(&self) -> Option<Rect> {
+        self.float_rect
+    }
+
+    /// Whether the page's or window's field had the keys last frame.
+    pub fn typing(&self) -> bool {
+        self.page.typing()
     }
 
     /// Escape on the page: clears its search; false if empty.

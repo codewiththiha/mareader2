@@ -6,9 +6,11 @@ use std::path::Path;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
+use mareader_settings::DictionaryOpens;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::dict::page::LABEL;
+use mareader_ui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
 use mareader_ui::route::Route;
 use mareader_ui::settings_window::Tab;
 
@@ -130,7 +132,9 @@ fn the_tab_lists_packs_and_removes_one() {
 fn the_panel_searches_every_pack_as_typed() {
     let dir = shelf();
     let mut h = reader(dir.path());
-    h.state_mut().queue(Command::ShowDictionary);
+    h.state_mut()
+        .set_option("dict_page", "show")
+        .expect("a known option");
     h.run();
     assert_eq!(h.state().route(), Route::Dictionary);
     // Focused first, as a click does, then typed into.
@@ -144,10 +148,19 @@ fn the_panel_searches_every_pack_as_typed() {
     assert!(h.query_all_by_label_contains("အလင်း").count() >= 1);
 }
 
+/// Settings › Dictionary › Full page: the reader opens the page.
+fn full_page(h: &mut H) {
+    let mut s = h.state().settings().clone();
+    s.dictionary.opens = DictionaryOpens::Page;
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.run();
+}
+
 #[test]
 fn the_shortcut_opens_the_page_and_escape_steps_back() {
     let dir = shelf();
     let mut h = reader(dir.path());
+    full_page(&mut h);
     let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
     h.key_press_modifiers(keys, egui::Key::D);
     h.run();
@@ -180,6 +193,7 @@ fn from_the_library_the_page_returns_to_the_library() {
     // The page's Library button goes there from the reader's side too.
     h.state_mut().queue(Command::ShowLibrary);
     h.run();
+    full_page(&mut h);
     h.state_mut().queue(Command::ShowDictionary);
     h.run();
     h.get_by_label("Library").click();
@@ -224,4 +238,144 @@ fn an_answer_can_be_looked_up_in_turn() {
     h.run();
     let text = h.state().dict().page_text().to_owned();
     assert!(!text.is_empty() && text != "light", "{text}");
+}
+
+fn window_open(h: &H) -> (bool, bool) {
+    let w = &h.state().settings().dictionary.window;
+    (w.open, w.minimized)
+}
+
+#[test]
+fn in_the_reader_the_button_floats_a_window_that_folds_and_closes() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    // As the bar's Dictionary button sends.
+    h.state_mut().queue(Command::ShowDictionary);
+    h.run();
+    assert_eq!(h.state().route(), Route::Reader, "the book stays");
+    assert_eq!(window_open(&h), (true, false));
+    h.get_by_label(LABEL).type_text("ight");
+    h.run_steps(30);
+    assert!(h.query_all_by_label_contains("lumière").count() >= 1);
+    h.get_by_label(MINIMIZE).click();
+    h.run();
+    assert_eq!(window_open(&h), (true, true));
+    assert!(h.query_by_label(LABEL).is_none(), "folded to a pill");
+    // The pill names the word last searched.
+    h.get_by_label("ight");
+    h.get_by_label(RESTORE).click();
+    h.run();
+    assert_eq!(window_open(&h), (true, false));
+    h.get_by_label(CLOSE).click();
+    h.run();
+    assert_eq!(window_open(&h), (false, false));
+    // The shortcut brings it back, its field ready for typing.
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    h.key_press_modifiers(keys, egui::Key::D);
+    h.run();
+    assert_eq!(window_open(&h), (true, false));
+    assert!(h.state().dict().typing(), "the field has the keys");
+}
+
+/// Presses at `from`, moves by `by` in steps, and lets go.
+fn drag(h: &mut H, from: egui::Pos2, by: egui::Vec2) {
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(from);
+    h.run_steps(2);
+    h.event(button(from, true));
+    h.run_steps(2);
+    for i in 1..=6 {
+        h.hover_at(from + by * (i as f32 / 6.0));
+        h.run_steps(1);
+    }
+    h.event(button(from + by, false));
+    h.run_steps(3);
+}
+
+#[test]
+fn the_window_moves_and_resizes_and_remembers_where() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("a known option");
+    h.run();
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    drag(
+        &mut h,
+        at.left_top() + egui::vec2(60.0, 18.0),
+        egui::vec2(-200.0, 40.0),
+    );
+    let moved = h.state().dict().window_rect().expect("still drawn");
+    assert!(
+        (moved.left() - (at.left() - 200.0)).abs() < 2.0,
+        "{moved:?}"
+    );
+    assert!((moved.top() - (at.top() + 40.0)).abs() < 2.0, "{moved:?}");
+    let saved = h.state().settings().dictionary.window.rect;
+    assert_eq!(saved.map(|r| r[0].round()), Some(moved.left().round()));
+    drag(
+        &mut h,
+        moved.right_bottom() - egui::vec2(3.0, 3.0),
+        egui::vec2(60.0, -100.0),
+    );
+    let sized = h.state().dict().window_rect().expect("still drawn");
+    assert!(
+        (sized.width() - (moved.width() + 60.0)).abs() < 2.0,
+        "{sized:?}"
+    );
+    assert!(
+        (sized.height() - (moved.height() - 100.0)).abs() < 2.0,
+        "{sized:?}"
+    );
+    assert_eq!(sized.left_top(), moved.left_top(), "the far corner held");
+}
+
+#[test]
+fn open_as_a_page_carries_the_search_over() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "ight")
+        .expect("a known option");
+    h.run_steps(30);
+    h.get_by_label(EXPAND).click();
+    h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
+    assert_eq!(h.state().dict().page_text(), "ight");
+    assert_eq!(window_open(&h), (false, false));
+}
+
+#[test]
+fn escape_in_the_window_clears_then_closes() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "quick")
+        .expect("a known option");
+    h.run_steps(30);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().dict().page_text(), "");
+    assert_eq!(window_open(&h), (true, false));
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(window_open(&h), (false, false));
+}
+
+#[test]
+fn the_tab_chooses_how_the_reader_opens_it() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut().queue(Command::OpenSettings(Tab::Dictionary));
+    h.run();
+    h.get_by_label("Full page").click();
+    h.run();
+    let opens = h.state().settings().dictionary.opens;
+    assert_eq!(opens, DictionaryOpens::Page);
 }
