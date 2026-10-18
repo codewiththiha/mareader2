@@ -114,6 +114,20 @@ impl Oklch {
         Oklch { c: lo, ..self }.to_rgb()
     }
 
+    /// The most chroma sRGB holds at this lightness and hue.
+    pub fn max_chroma(self) -> f64 {
+        let (mut lo, mut hi) = (0.0, 0.4);
+        for _ in 0..24 {
+            let mid = (lo + hi) / 2.0;
+            if (Oklch { c: mid, ..self }).in_gamut() {
+                lo = mid
+            } else {
+                hi = mid
+            }
+        }
+        lo
+    }
+
     pub fn in_gamut(self) -> bool {
         const EPS: f64 = 1e-4;
         self.linear_srgb()

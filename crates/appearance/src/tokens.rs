@@ -74,9 +74,15 @@ fn tinted(token: Rgb, target_h: f64, t: f64, max_c: f64) -> Rgb {
         c: c + (max_c - c) * t,
         h: target_h,
     };
+    dimmed(want)
+}
+
+/// Fits a colour by darkening up to MAX_DARKEN, then by losing chroma.
+fn dimmed(want: Oklch) -> Rgb {
     if want.in_gamut() {
         return want.to_rgb();
     }
+    let l = want.l;
     // Near white, sRGB has no room for chroma: give up a little lightness.
     (1..=12)
         .map(|i| Oklch {
@@ -110,10 +116,22 @@ impl Appearance {
             BaseMode::Dark => ((0.24, 0.10), (0.92, 0.04)),
             BaseMode::Dim => ((0.22, 0.08), (0.12, 0.03)),
         };
-        let at = |l: f64, c: f64| Oklch { l, c: c * t, h }.to_rgb_in_gamut();
+        // Capped at what sRGB holds, so every step of strength still shows.
+        let room = |l: f64| Oklch { l, c: 0.0, h }.max_chroma();
+        let cap = f64::min(paper_c, room(paper_l).max(room(paper_l - MAX_DARKEN)));
+        let paper = dimmed(Oklch {
+            l: paper_l,
+            c: cap * t,
+            h,
+        });
+        let ink = Oklch {
+            l: ink_l,
+            c: ink_c * t,
+            h,
+        };
         TextPalette {
-            paper: at(paper_l, paper_c),
-            ink: at(ink_l, ink_c),
+            paper,
+            ink: ink.to_rgb_in_gamut(),
         }
     }
 
@@ -199,6 +217,31 @@ mod tests {
     }
 
     #[test]
+    fn every_step_of_strength_deepens_the_book_paper() {
+        for base in BaseMode::ALL {
+            for hue in [14, 34, 104, 160, 200, 240, 290] {
+                let chroma = |strength| {
+                    let a = Appearance {
+                        base,
+                        tint_hue: hue,
+                        tint_strength: strength,
+                        ..Appearance::default()
+                    };
+                    a.text_palette().paper.to_oklch().c
+                };
+                let mut last = chroma(0);
+                for strength in [10, 20, 30, 40, 50] {
+                    let c = chroma(strength);
+                    let at = format!("{base:?} hue {hue} at {strength}");
+                    assert!(c > last + 0.003, "{at}: {c:.4} after {last:.4}");
+                    last = c;
+                }
+                assert!(last > 0.03, "{base:?} hue {hue} tops out at {last:.4}");
+            }
+        }
+    }
+
+    #[test]
     fn srgb_red_maps_near_oklch_29() {
         assert!((ui_hue_oklch(0.0) - 29.2).abs() < 1.0);
         assert!((ui_hue_oklch(360.0) - ui_hue_oklch(0.0)).abs() < 1e-9);
@@ -220,7 +263,9 @@ mod tests {
                 };
                 let p = a.text_palette();
                 let (pl, il) = (p.paper.to_oklch().l, p.ink.to_oklch().l);
-                assert!((pl - paper).abs() < 0.02, "{base:?} {strength}: paper {pl}");
+                // Paper may darken a little to carry its tint, never lighten.
+                let room = (paper - MAX_DARKEN - 0.02)..(paper + 0.02);
+                assert!(room.contains(&pl), "{base:?} {strength}: paper {pl}");
                 assert!((il - ink).abs() < 0.02, "{base:?} {strength}: ink {il}");
                 let chroma = p.paper.to_oklch().c;
                 assert_eq!(
