@@ -16,7 +16,7 @@ use mareader_library::{
 
 use super::add::{self, Here};
 use super::covers::{self, Cover, Covers};
-use super::folders::{self, Shown};
+use super::folders;
 use super::living::{Grab, Motion};
 use super::menus;
 use super::search::{self, Lit, SearchAction};
@@ -81,8 +81,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     ui.painter().rect_filled(full, 0.0, t.paper);
     let loading = library.loading();
     let offline = library.offline().clone();
-    let (scope, scanning, at) = (library.scope, library.scanning(), library.at());
-    let trail = library.trail.clone();
+    let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
     let listing = library.listing(view);
     let searched = library
@@ -93,16 +92,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         .revealing(now)
         .map_or((None, false), |(l, s)| (Some(l), s));
     let (model, covers, motion) = library.page_parts();
-    let shown = Shown {
-        model,
-        offline: &offline,
-        scanning,
-        scope,
-        trail: &trail,
-    };
     if model.is_empty() && model.shelves().next().is_none() {
         if !loading {
-            empty_state(ui, full, &shown, &t, out);
+            empty_state(ui, full, model, &t, out);
         }
         return;
     }
@@ -125,14 +117,10 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     // Searching, the count says how many of how many.
     let of = searched.is_some().then_some(listing.total);
     let counts = (books, items.len() - books, of);
-    header(&mut ui, at, counts, view, &shown, &t);
+    header(&mut ui, (at, scope), counts, view, model, &t);
     ui.add_space(12.0);
-    if at.is_none() {
-        folders::chips(&mut ui, inset(view), &shown, &t, out);
-    }
     // The plus card ends the page, unless it shows found or lost books.
-    let adding =
-        (searched.is_none() && scope != Scope::Missing).then_some(Here { model, at, scope });
+    let adding = (searched.is_none() && scope != Scope::Missing).then_some(Here { model, at });
     // Empty space: a click lets go of the selection; a right-click offers more.
     let back = ui.available_rect_before_wrap();
     let back = ui.interact(back, Id::new("library-page"), Sense::CLICK);
@@ -299,16 +287,16 @@ fn inset(view: &View) -> f32 {
 
 fn header(
     ui: &mut Ui,
-    at: Option<ShelfId>,
+    (at, scope): (Option<ShelfId>, Scope),
     (books, shelves, of): (usize, usize, Option<usize>),
     view: &View,
-    shown: &Shown<'_>,
+    model: &Library,
     t: &Tokens,
 ) {
-    let shelf = at.and_then(|id| shown.model.shelf(id));
+    let shelf = at.and_then(|id| model.shelf(id));
     let name = shelf.map_or("Library", |s| s.name.value.as_str());
     // Unshelved, the top level counts only what it shows.
-    let unshelved = shelf.is_none() && shown.scope == Scope::All && view.home == Home::Unshelved;
+    let unshelved = shelf.is_none() && scope == Scope::All && view.home == Home::Unshelved;
     let mut count = match (of, unshelved) {
         (Some(of), _) => format!("{books} of {}", counted(of, "book", "books")),
         (None, true) => counted(books, "unshelved book", "unshelved books"),
@@ -1112,7 +1100,7 @@ fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Com
     });
 }
 
-fn empty_state(ui: &mut Ui, rect: Rect, shown: &Shown<'_>, t: &Tokens, out: &mut Commands) {
+fn empty_state(ui: &mut Ui, rect: Rect, model: &Library, t: &Tokens, out: &mut Commands) {
     let at = Rect::from_center_size(rect.center(), vec2(rect.width(), 200.0));
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(at));
     ui.vertical_centered(|ui| {
@@ -1124,11 +1112,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, shown: &Shown<'_>, t: &Tokens, out: &mut
                     Add files or a folder, or drop them on the window.";
         ui.label(egui::RichText::new(hint).size(13.0).color(t.muted));
         ui.add_space(14.0);
-        let here = Here {
-            model: shown.model,
-            at: None,
-            scope: shown.scope,
-        };
+        let here = Here { model, at: None };
         add::button(ui, here, t, out);
     });
 }

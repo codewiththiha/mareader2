@@ -1,9 +1,12 @@
 //! The library's state: the model, its files, and what the panes read.
 
+mod actions;
 mod add;
+pub mod asks;
 pub mod books;
 mod covers;
 pub mod crumbs;
+mod find;
 pub mod folders;
 mod io;
 mod living;
@@ -14,7 +17,6 @@ pub mod runs;
 pub mod search;
 pub mod sheets;
 pub mod shelving;
-mod sources;
 pub mod view;
 
 use std::collections::BTreeMap;
@@ -32,16 +34,16 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
-pub use add::{ADD_MENU, FolderKeep, FolderPlan};
+pub use actions::{Action, Scope, Sheet};
+pub use add::ADD_MENU;
 pub use books::BookAction;
 pub use covers::Covers;
-pub use io::Walk;
+pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use picks::{Pick, PickAction, Picks};
 pub use search::{Field, Listing, SearchAction};
 pub use shelving::{Carry, Crumb, ShelfAction};
-pub use sources::{Action, Finding, Scope, Sheet, Step};
 
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
@@ -69,12 +71,10 @@ pub struct LibraryState {
     /// When the last write left, in egui seconds.
     wrote: f64,
     covers: Covers,
-    folders: sources::Folders,
+    folders: folders::Folders,
     /// The library page is up in place of the panes.
     pub showing: bool,
     pub scope: Scope,
-    /// Inside a chosen folder, the subfolders walked into.
-    pub trail: Vec<String>,
     /// The shelf open on the page; none is the top level.
     at: Option<ShelfId>,
     renaming: Option<ShelfId>,
@@ -99,10 +99,9 @@ impl Default for LibraryState {
             waiting: Vec::new(),
             wrote: f64::NEG_INFINITY,
             covers: Covers::default(),
-            folders: sources::Folders::default(),
+            folders: folders::Folders::default(),
             showing: false,
             scope: Scope::All,
-            trail: Vec::new(),
             at: None,
             renaming: None,
             picks: Picks::default(),
@@ -203,7 +202,7 @@ impl LibraryState {
                     let held = self.waiting.drain(..);
                     out.extend(held.map(Command::Open));
                     // Gone files and new books, found where they're kept.
-                    self.rescan(None, now);
+                    self.rescan(now);
                 }
                 News::Measured(probe, measure) => {
                     let opened = Opened {
@@ -216,17 +215,16 @@ impl LibraryState {
                     self.model.record_open_as(opened, wall_ms(), probe.book);
                 }
                 News::WriteFailed(e) => out.push(Command::Notify(Toast::error(e))),
-                News::Rescanned(done) => self.rescanned(*done, now, out),
+                News::Walked(done) => self.walked(*done, now, out),
+                News::Files(done) => self.measured(*done, now, out),
+                News::Copied(done) => self.copied(*done, now, out),
+                News::Checked(gone) => self.checked(&gone),
                 News::Relinked(relink, measured) => self.relink_measured(relink, measured, out),
                 News::Sought {
                     book,
                     folder,
                     found,
                 } => self.sought_found(book, &folder, found, out),
-                News::Imported(done) => {
-                    self.runs.finish(done.run);
-                    self.imported(*done, out);
-                }
                 News::Beat(beat) => self.runs.beat(beat),
             }
         }

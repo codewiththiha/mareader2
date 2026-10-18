@@ -1,6 +1,6 @@
 //! The library's disk work on one thread, or inline for tests and shots.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,15 +12,21 @@ use super::runs::{Beat, Phase, RunId};
 use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
 use mareader_library::store::Store;
 use mareader_library::{
-    BookId, Changes, ContentId, DeviceId, Format, Found, Measure, Opened, Scan, Shelving, Source,
-    display_title,
+    BookId, Changes, ContentId, Copied, DeviceId, Format, Found, Measure, Options,
 };
 
 pub enum Job {
     Load(Folder, DeviceId),
     Measure(Box<Probe>),
     Write(Box<Changes>),
-    Rescan(Box<Rescan>),
+    /// Walks a folder and measures what counts in it.
+    Walk(Box<Walk>),
+    /// Measures files picked or dropped one by one.
+    Files(Box<Files>),
+    /// Copies measured files into the library's own folder.
+    Copy(Box<CopyIn>),
+    /// Which of these files are gone.
+    Check(Vec<PathBuf>),
     /// Measures a file picked to stand in for a lost book.
     Relink(Relink),
     /// Looks in a folder for a lost book's file.
@@ -29,8 +35,6 @@ pub enum Job {
         folder: PathBuf,
         sought: Sought,
     },
-    /// Copies files into the library's own folder.
-    Import(Box<Import>),
     /// Deletes store copies of removed books.
     Delete {
         store: PathBuf,
@@ -38,77 +42,15 @@ pub enum Job {
     },
 }
 
-/// How a folder is walked: which files count, and the shelves they get.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Ties a job's news to the work waiting on it.
+pub type Tag = u64;
+
+/// A folder to walk, counting files as `opts` says.
 pub struct Walk {
-    pub formats: BTreeSet<Format>,
-    /// `formats` are the ones left out.
-    pub exclude: bool,
-    pub min_size: u64,
-    pub shelving: Shelving,
-}
-
-impl Default for Walk {
-    fn default() -> Self {
-        Self {
-            formats: Format::ALL.into(),
-            exclude: false,
-            min_size: 0,
-            shelving: Shelving::None,
-        }
-    }
-}
-
-impl Walk {
-    /// Whether the settings let any format through.
-    pub fn counts_any(&self) -> bool {
-        Format::ALL
-            .iter()
-            .any(|f| self.formats.contains(f) != self.exclude)
-    }
-}
-
-/// Files, and folders walked as `walk` says, to copy in.
-pub struct Import {
-    pub paths: Vec<PathBuf>,
-    pub walk: Walk,
-    pub store: PathBuf,
-    /// The library's own folders, never walked.
-    pub avoid: Vec<PathBuf>,
-    /// Contents the library holds: not copied again.
-    pub known: HashSet<ContentId>,
-    /// The shelf they go on, or inside which folder shelves are made.
-    pub to: Option<mareader_library::ShelfId>,
-    pub run: RunId,
-}
-
-/// A file to take in, and the shelf names its folders map to.
-#[derive(Debug)]
-pub struct Shelved<T> {
-    pub file: T,
-    pub shelves: Vec<String>,
-}
-
-/// What an import copied, found known, skipped or couldn't read.
-#[derive(Debug, Default)]
-pub struct Imported {
+    pub tag: Tag,
     pub run: Option<RunId>,
-    pub to: Option<mareader_library::ShelfId>,
-    pub copies: Vec<Shelved<Opened>>,
-    /// Already in the library: not copied.
-    pub known: Vec<Shelved<(PathBuf, ContentId)>>,
-    /// Not a book Mareader reads.
-    pub skipped: Vec<PathBuf>,
-    /// Folders with no books in them.
-    pub empty: Vec<PathBuf>,
-    pub failed: Vec<(PathBuf, String)>,
-}
-
-/// Known files re-checked, if any, then the folders walked.
-pub struct Rescan {
-    /// None: a walk of named folders leaves known files alone.
-    pub locations: Option<Vec<PathBuf>>,
-    pub folders: Vec<Source>,
+    pub root: PathBuf,
+    pub opts: Options,
     /// Content ids by path, to skip re-hashing unchanged files.
     pub known: Known,
     /// Contents the library has met: no need to read their names.
@@ -116,8 +58,46 @@ pub struct Rescan {
     /// The library's own folders, never walked.
     pub avoid: Vec<PathBuf>,
     pub now_ms: u64,
-    /// Named folders walked show a card.
+}
+
+/// What a walk found, measured.
+pub struct Walked {
+    pub tag: Tag,
+    pub found: Vec<Found>,
+    /// The folder couldn't be read: an unplugged drive, a deleted folder.
+    pub offline: bool,
+    /// Files still being written; worth another look soon.
+    pub settling: bool,
+    /// Stopped at a limit: only part of it was read.
+    pub truncated: bool,
+}
+
+pub struct Files {
+    pub tag: Tag,
     pub run: Option<RunId>,
+    pub paths: Vec<PathBuf>,
+}
+
+/// Loose files measured, and those that aren't books.
+pub struct Measured {
+    pub tag: Tag,
+    pub found: Vec<Found>,
+    pub skipped: Vec<PathBuf>,
+    pub failed: Vec<(PathBuf, String)>,
+}
+
+pub struct CopyIn {
+    pub tag: Tag,
+    pub run: Option<RunId>,
+    pub store: PathBuf,
+    pub files: Vec<Found>,
+}
+
+/// Copies made, by the path they came from.
+pub struct Copies {
+    pub tag: Tag,
+    pub copies: HashMap<PathBuf, Copied>,
+    pub failed: Vec<(PathBuf, String)>,
 }
 
 #[derive(Clone, Debug)]
@@ -142,7 +122,11 @@ pub enum News {
     Loaded(Box<Loaded>),
     Measured(Box<Probe>, Measure),
     WriteFailed(String),
-    Rescanned(Box<Rescanned>),
+    Walked(Box<Walked>),
+    Files(Box<Measured>),
+    Copied(Box<Copies>),
+    /// The checked files that are gone.
+    Checked(HashSet<PathBuf>),
     /// The picked file's format and measure; none if unreadable.
     Relinked(Relink, Option<(Format, Measure)>),
     Sought {
@@ -150,19 +134,7 @@ pub enum News {
         folder: PathBuf,
         found: FoundAgain,
     },
-    Imported(Box<Imported>),
     Beat(Beat),
-}
-
-/// Which known files are gone, if checked, and each folder's walk.
-pub struct Rescanned {
-    pub run: Option<RunId>,
-    pub gone: Option<HashSet<PathBuf>>,
-    pub scans: Vec<Scan>,
-    /// Folders with files still being written; look again soon.
-    pub settling: Vec<mareader_library::SourceId>,
-    /// Folders that hit the walk's limits.
-    pub truncated: Vec<mareader_library::SourceId>,
 }
 
 pub enum Io {
@@ -285,7 +257,13 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
                 .err()
                 .map(|e| News::WriteFailed(format!("Couldn't save the library: {e}")))
         }
-        Job::Rescan(job) => Some(News::Rescanned(Box::new(rescan(*job, post)))),
+        Job::Walk(job) => Some(News::Walked(Box::new(walk(*job, post)))),
+        Job::Files(job) => Some(News::Files(Box::new(files(*job, post)))),
+        Job::Copy(job) => Some(News::Copied(Box::new(copy(*job, post)))),
+        Job::Check(paths) => {
+            let gone = paths.into_iter().filter(|p| !p.is_file());
+            Some(News::Checked(gone.collect()))
+        }
         Job::Relink(relink) => {
             let format = Format::of_path(&relink.path);
             let measured = format.and_then(|f| Some((f, disk::measure(&relink.path, f).ok()?)));
@@ -303,7 +281,6 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
                 found,
             })
         }
-        Job::Import(job) => Some(News::Imported(Box::new(import(*job, post)))),
         Job::Delete { store, paths } => {
             disk::delete_copies(&store, &paths);
             None
@@ -336,130 +313,92 @@ fn beat(
     }));
 }
 
-fn import(job: Import, post: &mut dyn FnMut(News)) -> Imported {
-    let mut out = Imported {
-        run: Some(job.run),
-        to: job.to,
-        ..Imported::default()
+fn walk(job: Walk, post: &mut dyn FnMut(News)) -> Walked {
+    let limits = Limits::new(job.now_ms);
+    let opts = &job.opts;
+    beat(post, job.run, Phase::Scanning, (0, 0), &job.root);
+    let walked = disk::walk(
+        &job.root,
+        |f, size| opts.admits(f, size),
+        limits,
+        &job.avoid,
+    );
+    let total = walked.files.len();
+    let each = |done, path: &Path| beat(post, job.run, Phase::Reading, (done, total), path);
+    let measured = disk::measure_all(walked.files, &job.known, each);
+    let mut contents = job.contents;
+    let found = measured.into_iter().map(|(path, format, measure)| {
+        // Names are read once per content, for books new to the library.
+        let fresh = contents.insert(measure.content);
+        found(path, format, measure, fresh)
+    });
+    Walked {
+        tag: job.tag,
+        found: found.collect(),
+        offline: walked.offline,
+        settling: walked.settling > 0,
+        truncated: walked.truncated,
+    }
+}
+
+fn files(job: Files, post: &mut dyn FnMut(News)) -> Measured {
+    let mut out = Measured {
+        tag: job.tag,
+        found: Vec::new(),
+        skipped: Vec::new(),
+        failed: Vec::new(),
     };
-    let paths = expand(&job, post, &mut out.empty);
-    let mut known = job.known;
     let mut seen = HashSet::new();
-    let total = paths.len();
-    for (done, (path, shelves)) in paths.into_iter().enumerate() {
-        beat(post, Some(job.run), Phase::Copying, (done, total), &path);
+    let total = job.paths.len();
+    for (done, path) in job.paths.into_iter().enumerate() {
+        beat(post, job.run, Phase::Reading, (done, total), &path);
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
         let Some(format) = Format::of_path(&path).filter(|_| path.is_file()) else {
             out.skipped.push(path);
             continue;
         };
-        let taken = disk::measure(&path, format).and_then(|m| {
+        match disk::measure(&path, format) {
             // The same file dropped twice in one go is taken once.
-            if !seen.insert(m.content) {
-                return Ok(None);
-            }
-            if !known.insert(m.content) {
-                return Ok(Some(Err(m.content)));
-            }
-            let (copy, stamp) = disk::copy_in(&job.store, &path, m.content)?;
-            Ok(Some(Ok((copy, Measure { stamp, ..m }))))
-        });
-        match taken {
-            Ok(Some(Ok((copy, measure)))) => {
-                let (title, author) = mareader_session::describe(&copy);
-                let file = Opened {
-                    title: display_title(title.as_deref(), &path),
-                    path: copy,
-                    measure,
-                    format,
-                    author,
-                };
-                out.copies.push(Shelved { file, shelves });
-            }
-            Ok(Some(Err(content))) => {
-                let file = (path, content);
-                out.known.push(Shelved { file, shelves });
-            }
-            Ok(None) => {}
+            Ok(m) if !seen.insert(m.content) => {}
+            Ok(m) => out.found.push(found(path, format, m, true)),
             Err(e) => out.failed.push((path, e.to_string())),
         }
     }
     out
 }
 
-/// The files named, and the books under the folders named, with shelves.
-fn expand(
-    job: &Import,
-    post: &mut dyn FnMut(News),
-    empty: &mut Vec<PathBuf>,
-) -> Vec<(PathBuf, Vec<String>)> {
-    let walk = &job.walk;
-    let keep = mareader_library::counts(&walk.formats, walk.exclude, walk.min_size);
-    let limits = Limits::new(super::wall_ms());
-    let mut files = Vec::new();
-    for path in &job.paths {
-        if !path.is_dir() {
-            files.push((path.clone(), Vec::new()));
-            continue;
-        }
-        beat(post, Some(job.run), Phase::Scanning, (0, 0), path);
-        let walked = disk::walk(path, &keep, limits, &job.avoid);
-        if walked.files.is_empty() {
-            empty.push(path.clone());
-        }
-        let shelved = walked.files.into_iter().map(|(file, ..)| {
-            let shelves = walk.shelving.names(path, &file);
-            (file, shelves)
-        });
-        files.extend(shelved);
-    }
-    files
-}
-
-fn rescan(job: Rescan, post: &mut dyn FnMut(News)) -> Rescanned {
-    let gone = (job.locations).map(|l| l.into_iter().filter(|p| !p.is_file()).collect());
-    let mut contents = job.contents;
-    let mut out = Rescanned {
-        run: job.run,
-        gone,
-        scans: Vec::new(),
-        settling: Vec::new(),
-        truncated: Vec::new(),
+fn copy(job: CopyIn, post: &mut dyn FnMut(News)) -> Copies {
+    let mut out = Copies {
+        tag: job.tag,
+        copies: HashMap::new(),
+        failed: Vec::new(),
     };
-    let limits = Limits::new(job.now_ms);
-    for source in job.folders {
-        let keep = |format, size| source.counts(format, size);
-        beat(post, job.run, Phase::Scanning, (0, 0), &source.root);
-        let walked = disk::walk(&source.root, keep, limits, &job.avoid);
-        if walked.settling > 0 {
-            out.settling.push(source.id);
+    let total = job.files.len();
+    for (done, file) in job.files.into_iter().enumerate() {
+        beat(post, job.run, Phase::Copying, (done, total), &file.path);
+        let content = file.measure.content;
+        match disk::copy_in(&job.store, &file.path, content) {
+            Ok((path, stamp)) => {
+                let measure = Measure { stamp, content };
+                out.copies.insert(file.path, Copied { path, measure });
+            }
+            Err(e) => out.failed.push((file.path, e.to_string())),
         }
-        if walked.truncated {
-            out.truncated.push(source.id);
-        }
-        let total = walked.files.len();
-        let each = |done, path: &Path| beat(post, job.run, Phase::Reading, (done, total), path);
-        let measured = disk::measure_all(walked.files, &job.known, each);
-        let mut found = Vec::with_capacity(measured.len());
-        for (path, format, measure) in measured {
-            // Names are read once per content, for books new to the library.
-            let fresh = contents.insert(measure.content);
-            let (title, author) = match fresh {
-                true => mareader_session::describe(&path),
-                false => (None, None),
-            };
-            found.push(Found {
-                path,
-                format,
-                measure,
-                title,
-                author,
-            });
-        }
-        out.scans.push(Scan {
-            source: source.id,
-            found,
-            offline: walked.offline,
-        });
     }
     out
+}
+
+/// A measured file; its own title and author are read if `describe`.
+fn found(path: PathBuf, format: Format, measure: Measure, describe: bool) -> Found {
+    let (title, author) = match describe {
+        true => mareader_session::describe(&path),
+        false => (None, None),
+    };
+    Found {
+        path,
+        format,
+        measure,
+        title,
+        author,
+    }
 }

@@ -450,7 +450,7 @@ status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::a_folder_brings_in_its_books_where_they_are_and_says_how_many",
   "crates/ui/tests/library.rs::coming_back_to_the_window_finds_new_files_and_notices_gone_ones",
-  "crates/ui/tests/library.rs::removing_a_folder_asks_first_and_adding_it_again_restores_its_books",
+  "crates/ui/tests/library.rs::importing_a_folder_again_brings_nothing_twice",
   "crates/library/src/source_tests.rs::a_folder_takes_its_known_files_and_never_nests",
   "crates/library/src/source_tests.rs::a_scan_adds_unread_books_named_by_their_files_once",
   "crates/library/src/source_tests.rs::what_a_folder_counts_and_hides_stays_out_and_an_offline_one_changes_nothing",
@@ -548,7 +548,7 @@ milestone = "M5"
 status = "shipped"
 evidence = [
     "crates/library/src/source_tests.rs::a_folder_is_browsed_by_its_own_subfolders_whatever_its_shelving",
-    "crates/ui/tests/library.rs::a_folder_is_walked_through_its_own_subfolders",
+    "crates/ui/tests/library.rs::a_folder_is_shelved_through_its_own_subfolders",
     "crates/library/src/source_tests.rs::a_folder_shelved_by_folder_files_books_on_nested_shelves",
 ]
 reference = ["crates/library-core/src/folder.rs"]

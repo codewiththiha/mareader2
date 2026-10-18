@@ -107,7 +107,8 @@ fn arrows_and_enter_show_a_book_from_another_shelf() {
     assert_eq!(state.search_text(), "rust", "the filter stays");
     assert!(!focused(&h));
     assert_eq!(shown(&h, "Practical Rust"), 1);
-    h.run();
+    // Still between pulse and fade, it asks for no frames.
+    h.run_steps(300);
     assert_eq!(h.state().library_state().revealed(), None, "the ring fades");
 }
 

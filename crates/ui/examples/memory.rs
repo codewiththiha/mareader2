@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 use egui_kittest::Harness;
 use mareader_ui::command::Command;
-use mareader_ui::library::{Action, FolderKeep, FolderPlan, SearchAction, Walk};
+use mareader_ui::library::{Action, SearchAction};
 use mareader_ui::pages::CAP_BYTES;
 use mareader_ui::{MareaderApp, OpenRequest};
 use mareader_workspace::{PaneId, SplitAxis};
@@ -354,12 +354,12 @@ fn library_search(h: &mut App, audit: &mut Audit, text: &str) {
 
 /// Reads `root` in place, waiting until the library holds `total`.
 fn add_folder(h: &mut App, root: &Path, total: usize) {
-    let plan = FolderPlan {
-        keep: FolderKeep::InPlace,
-        walk: Walk::default(),
+    let opts = mareader_library::Options {
+        min_size: 0,
+        ..mareader_library::Options::default()
     };
-    let roots = vec![root.to_path_buf()];
-    let add = Command::Library(Action::AddFolders { roots, plan });
+    let root = root.to_path_buf();
+    let add = Command::Library(Action::ImportFolder { root, opts });
     h.state_mut().queue(add);
     for _ in 0..200 {
         h.run_steps(2);

@@ -125,13 +125,13 @@ pub fn page_menu(ui: &mut Ui, model: &Library, sequence: &[Pick], out: &mut Comm
     if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::New);
     }
-    if ui.button("Import books…").clicked() {
+    if ui.button("Choose files…").clicked() {
         book(out, BookAction::PickImport);
     }
     // Watched folders are walked on return; this asks now, for all.
-    let folders = model.sources().next().is_some();
+    let folders = model.folders().any(|f| f.owes_walk());
     if folders && ui.button("Rescan folders").clicked() {
-        act(out, Action::Rescan(None));
+        act(out, Action::Rescan);
     }
     let all = ui.add_enabled(!sequence.is_empty(), egui::Button::new("Select all"));
     if all.clicked() {

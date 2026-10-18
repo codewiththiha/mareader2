@@ -119,6 +119,15 @@ impl Runs {
         }
     }
 
+    /// The run moved on to `phase`; its count starts again.
+    pub fn phase(&mut self, id: Option<RunId>, phase: Phase) {
+        if let Some(run) = self.list.iter_mut().find(|r| Some(r.id) == id) {
+            run.phase = phase;
+            run.done = 0;
+            run.total = 0;
+        }
+    }
+
     /// The run ended; its toast says how.
     pub fn finish(&mut self, id: Option<RunId>) {
         self.list.retain(|r| Some(r.id) != id);

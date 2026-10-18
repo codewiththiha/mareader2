@@ -1,25 +1,29 @@
-//! Sheets over the library: finding, removing, renaming, adding folders.
+//! Sheets over the library, and the questions waiting behind them.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
-use mareader_library::{Book, BookId, Library, Receipt, Shelf, ShelfId, Shelving, Source};
-
-use super::books::counted;
-use super::{
-    Action, BookAction, Finding, FolderKeep, FolderPlan, LibraryState, Sheet, ShelfAction, Step,
+use mareader_library::{
+    Book, BookId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, Receipt, Shelf, ShelfId,
+    SourceId,
 };
+
+use super::asks::{self, Question};
+use super::books::counted;
+use super::{Action, BookAction, Finding, LibraryState, Pick, Sheet, ShelfAction, Step};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
 const WIDTH: f32 = 420.0;
 
-/// The open sheet, if any, drawn over everything.
+/// The open sheet, else the next question, drawn over everything.
 pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
-    let Some(sheet) = library.sheet() else {
+    let sheet = library.sheet();
+    let asks: Vec<&Question> = library.questions().collect();
+    if sheet.is_none() && asks.is_empty() {
         return;
-    };
+    }
     let t = Tokens::get(ctx);
     let model = library.model();
     let frame = Frame::new()
@@ -36,13 +40,13 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
         .show(ctx, |ui| {
             ui.set_width(WIDTH);
             ui.spacing_mut().item_spacing.y = 8.0;
+            let Some(sheet) = sheet else {
+                act = asks::show(ui, model, &asks, &t);
+                return;
+            };
             act = match sheet {
                 Sheet::Find(finding) => match model.book(finding.book) {
                     Some(book) => find(ui, library, book, finding, &t),
-                    None => Some(Action::CloseSheet),
-                },
-                Sheet::Remove(id) => match model.source(*id) {
-                    Some(source) => remove(ui, model, source, &t),
                     None => Some(Action::CloseSheet),
                 },
                 Sheet::RemoveShelf(id) => match model.shelf(*id) {
@@ -58,16 +62,19 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     Some(book) => rename(ui, book, &t),
                     None => Some(Action::CloseSheet),
                 },
-                Sheet::AddFolders(roots) => {
-                    let inside = library.at().and_then(|id| model.shelf(id));
-                    let inside = inside.map(|s| s.name.value.as_str());
-                    add_folders(ui, roots, inside, &t)
-                }
+                Sheet::Import(root) => import(ui, library, root, &t),
+                Sheet::Moved { folder, book } => match model.book(*book) {
+                    Some(book) => moved(ui, model, *folder, book, &t),
+                    None => Some(Action::CloseSheet),
+                },
             };
         });
-    let working = matches!(sheet, Sheet::Find(f) if matches!(f.step, Step::Working(_)));
+    let working = matches!(sheet, Some(Sheet::Find(f)) if matches!(f.step, Step::Working(_)));
     if modal.should_close() && !working {
-        act = Some(Action::CloseSheet);
+        act = Some(match sheet {
+            Some(_) => Action::CloseSheet,
+            None => Action::CancelAsks,
+        });
     }
     out.extend(act.map(Command::Library));
 }
@@ -81,9 +88,14 @@ fn find(
 ) -> Option<Action> {
     let id = book.id;
     title(ui, &format!("Find “{}”", book.title.value), t);
-    let last = book.locations.first().map(|l| &l.path);
-    let source = last.and_then(|p| library.model().source_of(p));
-    let offline = source.filter(|s| library.offline().contains(&s.id));
+    let first = book.locations.first();
+    let last = first.map(|l| &l.path);
+    let folder = first.and_then(|l| match l.origin {
+        Origin::Source(id) => Some(id),
+        Origin::Store | Origin::Opened => None,
+    });
+    let offline = folder.filter(|id| library.offline().contains(id));
+    let offline = offline.and_then(|id| library.model().folder(id));
     let why = match offline {
         Some(s) => format!(
             "Its folder, “{}”, isn't there: a drive may be disconnected. \
@@ -150,35 +162,6 @@ fn find(
     act
 }
 
-fn remove(ui: &mut Ui, model: &Library, source: &Source, t: &Tokens) -> Option<Action> {
-    title(ui, &format!("Remove “{}”?", source.name()), t);
-    let only_here = model
-        .books_in(source.id)
-        .filter(|b| b.locations.iter().all(|l| source.contains(&l.path)))
-        .count();
-    let leave = match only_here {
-        0 => "No books leave the library: each is also somewhere else.".to_owned(),
-        1 => "1 book found only here leaves the library.".to_owned(),
-        n => format!("{n} books found only here leave the library."),
-    };
-    let body = format!(
-        "{leave} The files stay where they are; add the folder again to bring \
-         them back, with your places."
-    );
-    ui.label(RichText::new(body).color(t.ink));
-    ui.add_space(8.0);
-    let mut act = None;
-    buttons(ui, |ui| {
-        if primary(ui, "Remove", t.danger, t).clicked() {
-            act = Some(Action::RemoveFolder(source.id));
-        }
-        if ui.button("Cancel").clicked() {
-            act = Some(Action::CloseSheet);
-        }
-    });
-    act
-}
-
 fn remove_shelf(ui: &mut Ui, model: &Library, shelf: &Shelf, t: &Tokens) -> Option<Action> {
     title(ui, &format!("Remove “{}”?", shelf.name.value), t);
     let (books, shelves) = model.counts(shelf.id);
@@ -235,27 +218,21 @@ fn removal(
     };
     title(ui, &format!("Remove {what}?"), t);
     let mut lines = Vec::new();
-    match receipt.hidden {
-        0 => {}
-        1 if n == 1 => {
-            lines.push("Its file stays in its folder; restore it from the folder's menu.".into())
-        }
-        h => lines.push(format!(
-            "{} stay in their folders as files; restore them from each folder's menu.",
-            counted(h, "book", "books")
-        )),
-    }
     match receipt.copies {
         0 => {}
         1 => lines.push("The copy Mareader keeps is deleted.".to_owned()),
         c => lines.push(format!("The {c} copies Mareader keeps are deleted.")),
     }
+    if receipt.hidden > 0 {
+        lines.push(
+            "Some of these came from a watched folder. Removing keeps them out of future \
+             auto-imports — the folder's Add menu can give them back."
+                .into(),
+        );
+    }
     let elsewhere = receipt.hidden == 0 && receipt.copies == 0;
     if n > 0 && elsewhere {
         lines.push("Files stay where they are; open one again to bring it back.".into());
-    }
-    if receipt.positions > 0 || receipt.spots > 0 {
-        lines.push("Places and shelf spots are kept, should books come back.".into());
     }
     if !shelves.is_empty() {
         let they = if shelves.len() == 1 { "its" } else { "their" };
@@ -266,17 +243,55 @@ fn removal(
     for line in lines {
         ui.label(RichText::new(line).color(t.ink));
     }
+    // Off each time the sheet opens: forgetting is never a habit.
+    let key = Id::new("library-remove-forget");
+    let mut forget = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(false);
+    if receipt.has_data() {
+        ui.add_space(4.0);
+        ui.checkbox(&mut forget, "Delete the highlights and reading position");
+        let said = match forget {
+            true => "They go with the book: importing the file again lands it as a new book.",
+            false => {
+                "Kept: the marks, the place and any name you gave a book come back if the \
+                 file is imported again."
+            }
+        };
+        ui.label(RichText::new(said).size(12.0).color(t.muted));
+    }
     ui.add_space(8.0);
+    let label = match (n, shelves.len()) {
+        (0 | 1, 0) | (0, 1) => "Remove".to_owned(),
+        (n, 0) => format!("Remove {n} books"),
+        (0, s) => format!("Remove {s} shelves"),
+        (n, s) => format!(
+            "Remove {} and {}",
+            counted(n, "book", "books"),
+            counted(s, "shelf", "shelves")
+        ),
+    };
     let mut act = None;
     buttons(ui, |ui| {
-        if primary(ui, "Remove", t.danger, t).clicked() {
+        if primary(ui, &label, t.danger, t).clicked() {
             let (books, shelves) = (books.to_vec(), shelves.to_vec());
-            act = Some(Action::Book(BookAction::Remove { books, shelves }));
+            act = Some(Action::Book(BookAction::Remove {
+                books,
+                shelves,
+                forget,
+            }));
         }
-        if ui.button("Cancel").clicked() {
+        let cancel = ui.button("Cancel").on_hover_text("Keep these books");
+        if cancel.clicked() {
             act = Some(Action::CloseSheet);
         }
     });
+    match act {
+        Some(_) => ui.data_mut(|d| {
+            d.remove::<bool>(key);
+        }),
+        None => ui.data_mut(|d| {
+            d.insert_temp(key, forget);
+        }),
+    }
     act
 }
 
@@ -319,92 +334,200 @@ fn rename(ui: &mut Ui, book: &Book, t: &Tokens) -> Option<Action> {
     act
 }
 
-/// One sheet for a folder: which files count, how they're kept, shelved.
-fn add_folders(ui: &mut Ui, roots: &[PathBuf], inside: Option<&str>, t: &Tokens) -> Option<Action> {
-    match roots {
-        [_] => title(ui, "Add a folder", t),
-        many => title(ui, &format!("Add {} folders", many.len()), t),
-    }
-    let key = Id::new("add-folders-plan");
-    // The answers outlive the sheet: the next folder often matches.
-    let mut plan = ui.data_mut(|d| {
-        d.get_temp_mut_or_insert_with(key, FolderPlan::default)
+/// The one import sheet: which files count, how they're held, shelved.
+fn import(ui: &mut Ui, library: &LibraryState, root: &Path, t: &Tokens) -> Option<Action> {
+    let model = library.model();
+    title(ui, "Import a folder", t);
+    let key = Id::new(("import-folder", root));
+    // The last answers start it; a tree already read here seeds its own.
+    let mut opts = ui.data_mut(|d| {
+        d.get_temp_mut_or_insert_with(key, || seed(model, root, library.last_options()))
             .clone()
     });
+    let inside = model
+        .folders()
+        .find(|f| f.mode().in_place() && root.starts_with(&f.root) && root != f.root);
     let mut act = None;
     egui::ScrollArea::vertical()
         .max_height(ui.ctx().content_rect().height() * 0.7)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             section(ui, "Folder", t);
-            if folder_row(ui, roots, t) {
+            if folder_row(ui, root, t) {
                 act = Some(Action::PickFolder);
             }
             section(ui, "Formats", t);
-            let walk = &mut plan.walk;
-            let (formats, exclude, min) =
-                (&mut walk.formats, &mut walk.exclude, &mut walk.min_size);
-            super::folders::what_counts(ui, formats, exclude, min);
+            formats(ui, &mut opts);
+            section(ui, "File size larger than", t);
+            min_size(ui, &mut opts);
             section(ui, "Books", t);
             ui.label(RichText::new("How the books are held").color(t.ink));
-            let keeps = [
-                (FolderKeep::Copy, "Copy into the library"),
-                (FolderKeep::InPlace, "Read in place"),
-                (FolderKeep::Watch, "Read in place, and watch for new books"),
-            ];
-            choices(ui, &mut plan.keep, &keeps, t);
-            let held = match plan.keep {
-                FolderKeep::Copy => {
-                    "Books are copied into Mareader's own folder, so they keep \
-                     working if this folder moves or is deleted."
+            let mut mode = opts.mode();
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                for choice in Mode::ALL {
+                    ui.radio_value(
+                        &mut mode,
+                        choice,
+                        RichText::new(choice.label()).color(t.ink),
+                    );
                 }
-                FolderKeep::InPlace => {
-                    "Books stay where they are; the library remembers where. \
-                     Books added later wait for a rescan from the folder's menu."
+            });
+            opts.set_mode(mode);
+            let held = match (mode, inside.is_some()) {
+                (Mode::Copy, _) => {
+                    "Books are copied into the app's own files, so they keep working even if \
+                     the folder moves or is deleted."
                 }
-                FolderKeep::Watch => {
-                    "Books stay where they are, and the folder is checked for \
-                     new ones when Mareader opens or you come back to it."
+                (Mode::InPlace, _) => {
+                    "Books stay where they are — the library just remembers where they live. \
+                     Books added to the folder later are not picked up."
+                }
+                (Mode::Watched, false) => {
+                    "Books stay where they are, and the folder is checked for new ones when \
+                     the app opens or you come back to it."
+                }
+                (Mode::Watched, true) => {
+                    "Books stay where they are, and this subfolder is checked for new ones. \
+                     The rest of the tree keeps its own answer."
                 }
             };
             note(ui, held, t);
             ui.add_space(4.0);
             ui.label(RichText::new("Folder structure").color(t.ink));
             let shapes = [
-                (Shelving::Each, "A shelf for each folder"),
-                (Shelving::One, "One shelf for everything"),
-                (Shelving::None, "No shelf"),
+                (true, "A shelf for each folder"),
+                (false, "One shelf for everything"),
             ];
-            choices(ui, &mut plan.walk.shelving, &shapes, t);
-            let shaped = match plan.walk.shelving {
-                Shelving::Each => {
-                    "Every subfolder gets its own shelf, inside one named after the folder."
+            choices(ui, &mut opts.groups, &shapes, t);
+            let shaped = match inside {
+                Some(_) => {
+                    "This answer stands for this folder and the ones under it — the rest of \
+                     the tree keeps its own."
                 }
-                Shelving::One => "One shelf, named after the folder, holds all its books.",
-                Shelving::None => "Books join the library without a shelf.",
-            };
-            let shaped = match (inside, plan.walk.shelving) {
-                (Some(shelf), Shelving::Each | Shelving::One) => {
-                    format!("{shaped} It's made inside “{shelf}”.")
+                None => {
+                    "A shelf for each folder gives every subfolder its own shelf; one shelf \
+                     keeps the whole import together."
                 }
-                (Some(shelf), Shelving::None) => format!("Books go on “{shelf}”."),
-                (None, _) => shaped.to_owned(),
             };
-            note(ui, &shaped, t);
+            note(ui, shaped, t);
         });
-    ui.data_mut(|d| d.insert_temp(key, plan.clone()));
     ui.add_space(8.0);
     buttons(ui, |ui| {
-        let ready = plan.walk.counts_any();
-        let add = ui.add_enabled_ui(ready, |ui| primary(ui, "Add", t.accent, t));
-        if add.inner.clicked() {
-            let roots = roots.to_vec();
-            act = Some(Action::AddFolders {
-                roots,
-                plan: plan.clone(),
-            });
+        let go = primary(ui, "Import", t.accent, t).on_hover_text("Import this folder");
+        if go.clicked() {
+            let root = root.to_path_buf();
+            let opts = opts.clone();
+            act = Some(Action::ImportFolder { root, opts });
         }
-        if ui.button("Cancel").clicked() {
+        let cancel = ui.button("Cancel").on_hover_text("Close without importing");
+        if cancel.clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    match act {
+        Some(Action::PickFolder) | None => ui.data_mut(|d| {
+            d.insert_temp(key, opts);
+        }),
+        Some(_) => ui.data_mut(|d| {
+            d.remove::<Options>(key);
+        }),
+    }
+    act
+}
+
+/// The sheet's start: `last`, with the watch and shape of a tree here.
+fn seed(model: &Library, root: &Path, last: Options) -> Options {
+    let standing = model.folder_at(root, true).and_then(|id| model.folder(id));
+    match standing.filter(|f| f.mode().in_place()) {
+        Some(tree) => Options {
+            in_place: true,
+            watch: tree.opts.watch,
+            groups: tree.opts.groups,
+            ..last
+        },
+        None => last,
+    }
+}
+
+/// Format chips, and whether the chosen ones are counted or left out.
+fn formats(ui: &mut Ui, opts: &mut Options) {
+    ui.horizontal_wrapped(|ui| {
+        for format in Format::ALL {
+            let on = opts.formats.contains(&format);
+            if ui.add(Button::selectable(on, format.label())).clicked() {
+                match on {
+                    true => opts.formats.remove(&format),
+                    false => opts.formats.insert(format),
+                };
+            }
+        }
+    });
+    ui.horizontal(|ui| {
+        for (include, label) in [(true, "Include selected"), (false, "Exclude selected")] {
+            if ui
+                .add(Button::selectable(opts.include == include, label))
+                .clicked()
+            {
+                opts.include = include;
+            }
+        }
+    });
+}
+
+/// The size floor, stepped: files must be larger to count.
+fn min_size(ui: &mut Ui, opts: &mut Options) {
+    ui.horizontal(|ui| {
+        let less = ui.add_enabled_ui(opts.min_size > 0, |ui| {
+            crate::widgets::icon_button(ui, Icon::Minus, "Smaller files count too", false)
+        });
+        if less.inner.clicked() {
+            opts.step_min_size(-1);
+        }
+        ui.label(opts.min_size_label());
+        let more = ui.add_enabled_ui(opts.min_size < MIN_SIZE_MAX, |ui| {
+            crate::widgets::icon_button(ui, Icon::Plus, "Only larger files", false)
+        });
+        if more.inner.clicked() {
+            opts.step_min_size(1);
+        }
+    });
+}
+
+/// A book that left its folder's shelves: shown here too, or gone to.
+fn moved(
+    ui: &mut Ui,
+    model: &Library,
+    folder: SourceId,
+    book: &Book,
+    t: &Tokens,
+) -> Option<Action> {
+    title(
+        ui,
+        &format!("“{}” is on another shelf.", book.title.value),
+        t,
+    );
+    let home = model.shelves_of(book.id).into_iter().next();
+    let home = home
+        .and_then(|s| model.shelf(s))
+        .map(|s| s.name.value.clone());
+    let go = match home {
+        Some(name) => format!("Show it in {name}"),
+        None => "Show it in Home".into(),
+    };
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        let tip = "Closes this menu and takes you to it";
+        if primary(ui, &go, t.accent, t).on_hover_text(tip).clicked() {
+            act = Some(Action::Reveal(Pick::Book(book.id)));
+        }
+        let tip = "One book, two shelves — nothing is copied";
+        if ui.button("Also show it here").on_hover_text(tip).clicked() {
+            let book = book.id;
+            act = Some(Action::ShowMoved { folder, book });
+        }
+        if ui.button("Back").clicked() {
             act = Some(Action::CloseSheet);
         }
     });
@@ -417,8 +540,8 @@ fn section(ui: &mut Ui, text: &str, t: &Tokens) {
     ui.label(RichText::new(text).font(theme::medium(11.5)).color(t.muted));
 }
 
-/// The folders being added, and a way to pick another; true if asked.
-fn folder_row(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> bool {
+/// The folder being imported, and a way to pick another; true if asked.
+fn folder_row(ui: &mut Ui, root: &Path, t: &Tokens) -> bool {
     let frame = Frame::new()
         .stroke(Stroke::new(1.0, t.line))
         .corner_radius(t.radius)
@@ -426,21 +549,15 @@ fn folder_row(ui: &mut Ui, roots: &[PathBuf], t: &Tokens) -> bool {
     let inner = frame.show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.add(Icon::Folder.image(16.0).tint(t.muted));
-            let change = ui
-                .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let change = ui.button("Change…").on_hover_text("Choose another folder");
-                    ui.vertical(|ui| {
-                        for root in roots {
-                            let path = RichText::new(root.display().to_string()).color(t.ink);
-                            let full = root.display().to_string();
-                            ui.add(egui::Label::new(path).truncate())
-                                .on_hover_text(full);
-                        }
-                    });
-                    change
-                })
-                .inner;
-            change.clicked()
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let change = ui.button("Change…").on_hover_text("Choose another folder");
+                let full = root.display().to_string();
+                let path = RichText::new(&full).color(t.ink);
+                ui.add(egui::Label::new(path).truncate())
+                    .on_hover_text(full);
+                change.clicked()
+            })
+            .inner
         })
         .inner
     });
