@@ -89,8 +89,10 @@ pub fn show(ctx: &Context, platform: Platform) {
                 field.request_focus();
             }
             let sections = matching(keymap::sheet(platform), &typed.text);
+            // egui caps a modal's first frame; claiming the height lifts it.
             let body = ScrollArea::vertical()
                 .max_height(body_height)
+                .min_scrolled_height(body_height)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     if sections.is_empty() {
@@ -158,19 +160,7 @@ fn columns(ui: &mut Ui, sections: &[Section], two: bool) {
         }
         return;
     }
-    // A heading weighs about two rows.
-    let weight = |s: &Section| s.entries.len() + 2;
-    let total: usize = sections.iter().map(weight).sum();
-    let mut seen = 0;
-    let split = sections
-        .iter()
-        .position(|s| {
-            let past = seen * 2 >= total;
-            seen += weight(s);
-            past
-        })
-        .unwrap_or(sections.len());
-    let (left, right) = sections.split_at(split);
+    let (left, right) = sections.split_at(balance(sections));
     ui.spacing_mut().item_spacing.x = COLUMN_GAP;
     ui.columns(2, |cols| {
         for (col, part) in cols.iter_mut().zip([left, right]) {
@@ -180,6 +170,23 @@ fn columns(ui: &mut Ui, sections: &[Section], two: bool) {
             }
         }
     });
+}
+
+/// Where to break the groups so the two columns run closest in rows.
+fn balance(sections: &[Section]) -> usize {
+    // A heading weighs about two rows.
+    let weights: Vec<usize> = sections.iter().map(|s| s.entries.len() + 2).collect();
+    let total: usize = weights.iter().sum();
+    let mut left = 0;
+    let mut best = (total, 0);
+    for (i, w) in weights.iter().enumerate() {
+        left += w;
+        let gap = left.abs_diff(total - left);
+        if gap < best.0 {
+            best = (gap, i + 1);
+        }
+    }
+    best.1
 }
 
 fn section(ui: &mut Ui, s: &Section) {
@@ -258,5 +265,12 @@ mod tests {
         let f11 = matching(keymap::sheet(Platform::Gnome), "f11");
         assert_eq!(count(&f11), 1, "a key finds its action");
         assert_eq!(count(&matching(all, "  ")), full);
+    }
+
+    #[test]
+    fn the_columns_split_where_their_rows_run_closest() {
+        let sheet = keymap::sheet(Platform::Gnome);
+        let names: Vec<_> = sheet[..balance(&sheet)].iter().map(|s| s.name).collect();
+        assert_eq!(names, ["Moving around", "View"]);
     }
 }
