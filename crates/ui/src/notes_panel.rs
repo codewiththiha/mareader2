@@ -127,8 +127,8 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
                 share(ui, reading, &words, &t, out);
             });
             ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
-                let title = RichText::new(&reading.name).strong().color(t.ink);
-                ui.add(egui::Label::new(title).truncate());
+                let title = RichText::new(&reading.name).strong();
+                crate::shaped::line(ui, title, t.text, t.ink);
             });
         });
     });
@@ -243,9 +243,12 @@ fn heading(ui: &mut Ui, title: &str, n: usize, find: Find<'_>, t: &Tokens) {
                     .size(t.text_small)
                     .color(t.muted);
                 ui.label(count);
-                let font = theme::medium(12.0);
-                let job = styled(title, font, t.muted, find);
-                let r = ui.add(egui::Label::new(job).truncate());
+                let r = if crate::shaped::needs_shaping(title) {
+                    crate::shaped::line(ui, title, 12.0, t.muted)
+                } else {
+                    let job = styled(title, theme::medium(12.0), t.muted, find);
+                    ui.add(egui::Label::new(job).truncate())
+                };
                 let label = format!("{title}, {n}");
                 r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
             });
@@ -336,16 +339,17 @@ fn entry(
     let page = page_of(&reading.document, row.spot);
     let full = ui.available_width();
     let text_w = (full - PAD_X * 2.0 - RULE - RULE_GAP).max(40.0);
-    let job = styled(&row.quote, FontId::proportional(13.5), t.ink, find);
-    let quote = clamp(ui, job, text_w, find.rows(3));
-    let note = row.note.as_deref().map(|n| {
-        let job = styled(n, FontId::proportional(13.0), t.muted, find);
-        clamp(ui, job, text_w - 18.0, find.rows(4))
-    });
+    let open = is_open(ui, row.id);
+    let rows = |n: usize| if open { usize::MAX } else { find.rows(n) };
+    let quote = Text::new(ui, &row.quote, 13.5, t.ink, find, text_w, rows(3));
+    let note = (row.note.as_deref())
+        .map(|n| Text::new(ui, n, 13.0, t.muted, find, text_w - 18.0, rows(4)));
+    let more = open || quote.cut() || note.as_ref().is_some_and(Text::cut);
     let meta = page.map(|p| format!("Page {}", p + 1)).unwrap_or_default();
     let meta_h = 16.0;
     let note_h = note.as_ref().map_or(0.0, |g| g.size().y + 6.0);
-    let height = 10.0 + meta_h + quote.size().y + note_h + 10.0;
+    let more_h = if more { MORE_H } else { 0.0 };
+    let height = 10.0 + meta_h + quote.size().y + note_h + more_h + 10.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(full, height), Sense::click());
     let label = match &row.note {
         Some(n) => format!("{}. Note: {n}", row.quote),
@@ -371,12 +375,21 @@ fn entry(
         t.muted,
     );
     let qh = quote.size().y;
-    p.galley(egui::pos2(x, top + meta_h), quote, t.ink);
-    if let Some(g) = note {
+    quote.paint(ui, egui::pos2(x, top + meta_h), t.ink);
+    if let Some(g) = &note {
         let y = top + meta_h + qh + 6.0;
         let mark = Rect::from_min_size(egui::pos2(x, y + 1.0), vec2(13.0, 13.0));
         Icon::Note.paint(ui, mark, t.muted);
-        ui.painter().galley(egui::pos2(x + 18.0, y), g, t.muted);
+        g.paint(ui, egui::pos2(x + 18.0, y), t.muted);
+    }
+    if more {
+        more_toggle(
+            ui,
+            row.id,
+            egui::pos2(x, top + meta_h + qh + note_h + 2.0),
+            open,
+            t,
+        );
     }
     if resp.clicked()
         && let Some(page) = page
@@ -433,15 +446,16 @@ fn bookmark(
         (None, Some(at)) => (at, "Bookmark".to_owned()),
         (_, None) => (row.quote.clone(), "Bookmark".to_owned()),
     };
-    let job = styled(&name, FontId::proportional(13.5), t.ink, find);
-    let title = clamp(ui, job, text_w, 2);
-    let note = row.note.as_deref().map(|n| {
-        let job = styled(n, FontId::proportional(13.0), t.muted, find);
-        clamp(ui, job, text_w - 18.0, find.rows(4))
-    });
+    let open = is_open(ui, row.id);
+    let rows = |n: usize| if open { usize::MAX } else { find.rows(n) };
+    let title = Text::new(ui, &name, 13.5, t.ink, find, text_w, 2);
+    let note = (row.note.as_deref())
+        .map(|n| Text::new(ui, n, 13.0, t.muted, find, text_w - 18.0, rows(4)));
+    let more = open || note.as_ref().is_some_and(Text::cut);
     let meta_h = 16.0;
     let note_h = note.as_ref().map_or(0.0, |g| g.size().y + 6.0);
-    let height = 10.0 + meta_h + title.size().y + note_h + 10.0;
+    let more_h = if more { MORE_H } else { 0.0 };
+    let height = 10.0 + meta_h + title.size().y + note_h + more_h + 10.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(full, height), Sense::click());
     let place = match page {
         Some(p) if meta != "Bookmark" => format!("Bookmark, page {}: {name}", p + 1),
@@ -472,12 +486,21 @@ fn bookmark(
         t.muted,
     );
     let th = title.size().y;
-    p.galley(egui::pos2(x, top + meta_h), title, t.ink);
-    if let Some(g) = note {
+    title.paint(ui, egui::pos2(x, top + meta_h), t.ink);
+    if let Some(g) = &note {
         let y = top + meta_h + th + 6.0;
         let mark = Rect::from_min_size(egui::pos2(x, y + 1.0), vec2(13.0, 13.0));
         Icon::Note.paint(ui, mark, t.muted);
-        ui.painter().galley(egui::pos2(x + 18.0, y), g, t.muted);
+        g.paint(ui, egui::pos2(x + 18.0, y), t.muted);
+    }
+    if more {
+        more_toggle(
+            ui,
+            row.id,
+            egui::pos2(x, top + meta_h + th + note_h + 2.0),
+            open,
+            t,
+        );
     }
     let go = |out: &mut Commands| {
         if let Some(page) = page {
@@ -534,6 +557,120 @@ fn styled(text: &str, font: FontId, ink: Color32, find: Find<'_>) -> LayoutJob {
         job.append(s, 0.0, plain);
     }
     job
+}
+
+/// A row's words: egui's galley, or parley's for scripts egui garbles.
+enum Text {
+    Galley(Arc<Galley>),
+    Shaped {
+        flat: String,
+        size: f32,
+        width: f32,
+        lines: usize,
+        extent: egui::Vec2,
+        cut: bool,
+    },
+}
+
+impl Text {
+    /// `raw` at `size` in `ink`, wrapped at `width` to `lines` at most.
+    fn new(
+        ui: &Ui,
+        raw: &str,
+        size: f32,
+        ink: Color32,
+        find: Find<'_>,
+        width: f32,
+        lines: usize,
+    ) -> Self {
+        let flat = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+        if let Some((extent, cut)) = crate::shaped::measure(ui.ctx(), &flat, size, width, lines) {
+            return Self::Shaped {
+                flat,
+                size,
+                width,
+                lines,
+                extent,
+                cut,
+            };
+        }
+        let job = styled(raw, FontId::proportional(size), ink, find);
+        Self::Galley(clamp(ui, job, width, lines))
+    }
+
+    fn size(&self) -> egui::Vec2 {
+        match self {
+            Self::Galley(g) => g.size(),
+            Self::Shaped { extent, .. } => *extent,
+        }
+    }
+
+    /// Whether lines were left out.
+    fn cut(&self) -> bool {
+        match self {
+            Self::Galley(g) => g.elided,
+            Self::Shaped { cut, .. } => *cut,
+        }
+    }
+
+    /// Shaped text is drawn only once it scrolls into view.
+    fn paint(&self, ui: &Ui, at: egui::Pos2, ink: Color32) {
+        match self {
+            Self::Galley(g) => ui.painter().galley(at, g.clone(), ink),
+            Self::Shaped {
+                flat,
+                size,
+                width,
+                lines,
+                extent,
+                ..
+            } => {
+                if !ui.is_rect_visible(Rect::from_min_size(at, *extent)) {
+                    return;
+                }
+                let drawn = crate::shaped::block(ui.ctx(), flat, *size, *width, *lines);
+                if let Some(d) = drawn {
+                    d.paint(ui.painter(), at, ink);
+                }
+            }
+        }
+    }
+}
+
+/// Whether a row's long words show whole.
+fn is_open(ui: &Ui, id: MarkId) -> bool {
+    ui.data(|d| d.get_temp::<bool>(open_id(id)))
+        .unwrap_or(false)
+}
+
+fn open_id(id: MarkId) -> Id {
+    Id::new(("notes-open", id))
+}
+
+/// The room a Show more line takes under a row.
+const MORE_H: f32 = 20.0;
+
+/// "Show more" under a cut row, "Show less" under an opened one.
+fn more_toggle(ui: &Ui, id: MarkId, at: egui::Pos2, open: bool, t: &Tokens) {
+    let label = if open { "Show less" } else { "Show more" };
+    let font = FontId::proportional(t.text_small);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), font, t.accent);
+    let rect =
+        Rect::from_min_size(at, vec2(galley.size().x + 8.0, MORE_H)).translate(vec2(-4.0, 0.0));
+    // Laid after the row, so its own clicks don't reach the row.
+    let resp = ui.interact(rect, open_id(id).with("toggle"), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        ui.painter().rect_filled(rect, t.radius, t.hover);
+    }
+    let y = rect.center().y - galley.size().y / 2.0;
+    ui.painter().galley(egui::pos2(at.x, y), galley, t.accent);
+    if resp.clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(open_id(id), !open));
+    }
 }
 
 /// A laid-out `job` wrapped to `rows` at most.

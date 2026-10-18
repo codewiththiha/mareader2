@@ -600,6 +600,25 @@ fn the_notes_panel_lists_highlights_and_filters_to_notes() -> Out {
     Ok(())
 }
 
+#[test]
+fn a_long_note_opens_whole_in_the_notes_panel() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "notes")]);
+    select(&mut h, 0, "quick brown");
+    h.get_by_label("Note").click();
+    h.run();
+    h.event(Event::Text("Nevermore, quoth the raven. ".repeat(14)));
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    // Cut at four lines, it says so, and opens in place.
+    h.get_by_label("Show more").click();
+    h.run();
+    h.get_by_label("Show less").click();
+    h.run();
+    h.get_by_label("Show more");
+    Ok(())
+}
+
 fn ink(h: &H) -> Vec<(Pen, String)> {
     let pane = h.state().active_pane();
     let shown = h.state().marks(pane);
