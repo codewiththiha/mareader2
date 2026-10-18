@@ -412,6 +412,11 @@ impl Folder {
     }
 }
 
+/// A folder's own name, as its root shelf is first called.
+pub fn root_name(root: &Path) -> String {
+    stem_or_root(root)
+}
+
 fn stem_or_root(root: &Path) -> String {
     match root.file_name() {
         Some(name) => name.to_string_lossy().into_owned(),
