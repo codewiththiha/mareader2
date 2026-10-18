@@ -38,8 +38,7 @@ impl LiftTarget {
     }
 }
 
-/// The target under `point`: the middle third swaps, else the nearest
-/// edge with room for half docks; too small to halve, it swaps.
+/// Middle third swaps; the nearest edge with room for half docks.
 pub fn resolve(
     lifted: PaneId,
     point: (f32, f32),

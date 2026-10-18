@@ -72,6 +72,30 @@ impl TryFrom<String> for MarkId {
     }
 }
 
+/// A pointer row at a book or a shelf; random, like a shelf's id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub struct LinkId(pub u128);
+
+impl fmt::Display for LinkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl From<LinkId> for String {
+    fn from(id: LinkId) -> Self {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for LinkId {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        parse_hex(&s, 32).map(Self)
+    }
+}
+
 impl BookId {
     /// Its first content's id: two machines agree unasked (`docs/sync.md`).
     pub fn original(content: ContentId) -> Self {
