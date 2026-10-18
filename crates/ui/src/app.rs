@@ -422,7 +422,7 @@ impl MareaderApp {
         let Some(at) = crate::focus::rect(ctx).map(|r| r.center()) else {
             return;
         };
-        let modal = self.settings_window.is_open() || self.library.sheet().is_some();
+        let modal = self.settings_window.is_open() || self.library.sheet_up();
         let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
         if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active) {
             out.push(Command::FocusPane(*id));
@@ -627,16 +627,15 @@ impl MareaderApp {
             }
             // A folder read in place, as the sheet can add one.
             "folder" => {
-                let roots = vec![std::path::PathBuf::from(value)];
-                // Watched and unshelved, so its books show as found.
-                let plan = library::FolderPlan {
-                    keep: library::FolderKeep::Watch,
-                    walk: library::Walk::default(),
+                let root = std::path::PathBuf::from(value);
+                // Watched, every file counted, so its books show as found.
+                let opts = mareader_library::Options {
+                    watch: true,
+                    min_size: 0,
+                    ..mareader_library::Options::default()
                 };
-                self.queue(Command::Library(library::Action::AddFolders {
-                    roots,
-                    plan,
-                }));
+                let import = library::Action::ImportFolder { root, opts };
+                self.queue(Command::Library(import));
             }
             "layout" => {
                 self.settings.library.layout = match value {
@@ -907,11 +906,10 @@ impl MareaderApp {
                     let focus = library::SearchAction::Focus;
                     self.queue(Command::Library(library::Action::Search(focus)));
                 }
-                "folders" => self.queue(Command::Library(library::Action::ShowFolders)),
                 "add" => self.queue(Command::Library(library::Action::ShowAdd)),
                 "add_folder" => {
-                    let roots = vec![std::path::PathBuf::from("/home/reader/Books")];
-                    self.queue(Command::Library(library::Action::AskFolders(roots)));
+                    let root = std::path::PathBuf::from("/home/reader/Books");
+                    self.queue(Command::Library(library::Action::AskFolder(root)));
                 }
                 // The removal sheet for what `select` picked.
                 "remove" => {
@@ -1553,36 +1551,17 @@ impl MareaderApp {
                     self.apply(ctx, command);
                 }
             }
-            A::ShowFolders => {
-                let model = self.library.model();
-                let first = (model.sources())
-                    .min_by_key(|s| s.name().to_lowercase())
-                    .map(|s| s.id);
-                if let Some(id) = first {
-                    let scope = A::Scope(library::Scope::Folder(id));
-                    self.library
-                        .act(scope, ctx.input(|i| i.time), &mut Commands::new());
-                    egui::Popup::open_id(ctx, library::folders::menu_id(id));
-                }
-            }
             A::ShowAdd => egui::Popup::open_id(ctx, egui::Id::new(library::ADD_MENU)),
             A::PickFolder => {
-                let ask = |root| Command::Library(A::AskFolders(vec![root]));
-                self.files.pick_folder(ctx, "Add a folder of books", ask);
+                let ask = |root| Command::Library(A::AskFolder(root));
+                self.files.pick_folder(ctx, "Import a folder", ask);
             }
             A::PickSearchFolder(book) => {
                 let seek = move |folder| Command::Library(A::Seek { book, folder });
                 self.files.pick_folder(ctx, "Search a folder", seek);
             }
-            A::Book(library::BookAction::PickImport) => {
-                let to = self.library.at();
-                let import = move |paths| {
-                    let walk = library::Walk::default();
-                    let action = library::BookAction::Import { paths, to, walk };
-                    Command::Library(A::Book(action))
-                };
-                self.files.pick_books(ctx, import);
-            }
+            A::Book(library::BookAction::PickImport) => self.pick_import(ctx, None),
+            A::PickFrom(dir) => self.pick_import(ctx, Some(dir)),
             A::Book(library::BookAction::Reveal(book)) => {
                 let path = self.library.model().book(book).and_then(|b| b.path());
                 let shown = path.is_some_and(crate::reveal::reveal);
@@ -1606,6 +1585,16 @@ impl MareaderApp {
                 }
             }
         }
+    }
+
+    /// The file dialog for books, landing on the shelf open.
+    fn pick_import(&mut self, ctx: &Context, from: Option<PathBuf>) {
+        let to = self.library.at();
+        let import = move |paths| {
+            let action = library::BookAction::Import { paths, to };
+            Command::Library(library::Action::Book(action))
+        };
+        self.files.pick_books(ctx, from, import);
     }
 
     /// Splits `pane`; a refusal is explained in a toast.
@@ -1764,15 +1753,11 @@ impl MareaderApp {
         if desktop && self.route() == Route::Library {
             let dropped = ctx.input(|i| i.raw.dropped_files.clone());
             let paths = dropped.iter().map(|f| f.path().to_path_buf());
-            let (folders, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.partition(|p| p.is_dir());
+            let paths: Vec<PathBuf> = paths.collect();
             // Folders ask how they're kept; files are copied in.
-            if !folders.is_empty() {
-                out.push(Command::Library(library::Action::AskFolders(folders)));
-            }
             if !paths.is_empty() {
                 let to = self.library.file_target.or(self.library.at());
-                let walk = library::Walk::default();
-                let import = library::BookAction::Import { paths, to, walk };
+                let import = library::BookAction::Import { paths, to };
                 out.push(Command::Library(library::Action::Book(import)));
             }
             return None;
@@ -2144,7 +2129,7 @@ impl eframe::App for MareaderApp {
         // The library keeps its bar: it has no other way out.
         self.titlebar.chromeless = self.chromeless && route == Route::Reader;
         // Tab brings hidden chrome up, unless a dialog would sit below it.
-        let dialog = self.settings_window.is_open() || self.library.sheet().is_some();
+        let dialog = self.settings_window.is_open() || self.library.sheet_up();
         if crate::focus::begin(&ctx) && !dialog {
             self.titlebar.reveal();
             self.page_bars.entry(self.active).or_default().reveal();
@@ -2155,7 +2140,7 @@ impl eframe::App for MareaderApp {
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         // Naming a shelf takes Escape to cancel.
         let modal = self.settings_window.is_open()
-            || self.library.sheet().is_some()
+            || self.library.sheet_up()
             || self.library.renaming().is_some()
             || (route == Route::Library && library::search::focused(&ctx))
             || crate::image_viewer::is_open(&ctx)

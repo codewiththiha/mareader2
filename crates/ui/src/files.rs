@@ -88,13 +88,20 @@ impl Files {
         self.pick_paths(ctx, make, Kind::File, first(then));
     }
 
-    /// Shows the file dialog for books to import, several at once.
+    /// Shows the file dialog for books to import, opening in `from`.
     pub fn pick_books(
         &self,
         ctx: &Context,
+        from: Option<PathBuf>,
         then: impl FnOnce(Vec<PathBuf>) -> Command + Send + 'static,
     ) {
-        let make = || books().set_title("Import books into the library");
+        let make = move || {
+            let dialog = books().set_title("Import books into the library");
+            match from {
+                Some(dir) => dialog.set_directory(dir),
+                None => dialog,
+            }
+        };
         let then = move |paths: Vec<PathBuf>| (!paths.is_empty()).then(|| then(paths));
         self.pick_paths(ctx, make, Kind::Files, then);
     }

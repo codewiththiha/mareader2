@@ -1,13 +1,12 @@
-//! Adding books: the plus card, its one menu, and how a folder is kept.
+//! Adding books: the plus card, its one menu, and what a folder gives back.
 
 use egui::{
     Align2, Color32, CornerRadius, FontId, Id, Popup, PopupCloseBehavior, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
-use mareader_library::{Book, BookId, Library, ShelfId, Shelving};
+use mareader_library::{Library, Recovered, ShelfId, SourceId, dir_of_rung, human_age, human_size};
 
-use super::io::Walk;
-use super::{Action, BookAction, Scope, ShelfAction};
+use super::{Action, BookAction, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -15,46 +14,12 @@ use crate::theme::{self, Tokens};
 pub const ADD_MENU: &str = "library-add";
 const WIDTH: f32 = 300.0;
 const ROW_H: f32 = 46.0;
-/// Removed books listed by name before "Restore all".
-const RESTORE_ROWS: usize = 5;
 
-/// How a folder's books are kept, asked when one is added.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum FolderKeep {
-    Copy,
-    #[default]
-    InPlace,
-    /// Read in place, and walked again when the window comes back.
-    Watch,
-}
-
-/// A folder's keeping, which of its files count, and their shelves.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FolderPlan {
-    pub keep: FolderKeep,
-    pub walk: Walk,
-}
-
-impl Default for FolderPlan {
-    /// Read in place, a shelf for each folder.
-    fn default() -> Self {
-        let walk = Walk {
-            shelving: Shelving::Each,
-            ..Walk::default()
-        };
-        Self {
-            keep: FolderKeep::InPlace,
-            walk,
-        }
-    }
-}
-
-/// Where the menu adds: the shelf open, and the folder chip chosen.
+/// Where the menu adds: the shelf open, if any.
 #[derive(Clone, Copy)]
 pub struct Here<'a> {
     pub model: &'a Library,
     pub at: Option<ShelfId>,
-    pub scope: Scope,
 }
 
 /// The plus card ending the grid: a book's size, a menu behind it.
@@ -131,55 +96,85 @@ fn menu(anchor: &Response, here: Here<'_>, t: &Tokens, out: &mut Commands) {
 fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
-    let import = "Copies the files into your library";
-    if entry(ui, Icon::Import, "Import files…", import, t).clicked() {
+    let onto = match here.at {
+        Some(_) => "Copies the files onto this shelf",
+        None => "Copies the files into your library",
+    };
+    if entry(ui, Icon::Import, "Choose files…", onto, t).clicked() {
         out.push(Command::Library(Action::Book(BookAction::PickImport)));
     }
     let folder = "Copy it in, or read it where it is";
-    if entry(ui, Icon::FolderPlus, "Add a folder…", folder, t).clicked() {
+    if entry(ui, Icon::FolderPlus, "Choose a folder…", folder, t).clicked() {
         out.push(Command::Library(Action::PickFolder));
     }
+    // A folder's shelf offers its own files, and what left it.
+    let shelf = here.at.and_then(|id| here.model.shelf(id));
+    let rung = shelf.and_then(|s| s.kind.value.rung());
+    let rung = rung.and_then(|(id, key)| Some((here.model.folder(id)?, key)));
+    if let Some((folder, key)) = rung {
+        let dir = dir_of_rung(&folder.root, key);
+        let from = "Choose files from this folder";
+        if entry(ui, Icon::Folder, from, &folder.rung_name(key), t).clicked() {
+            out.push(Command::Library(Action::PickFrom(dir)));
+        }
+    }
     ui.separator();
-    let (shelf, detail) = match here.at {
+    let (label, detail) = match here.at {
         Some(_) => ("New shelf inside", "A shelf on this shelf"),
         None => ("New shelf", "Drag books onto it to file them"),
     };
-    if entry(ui, Icon::Shelf, shelf, detail, t).clicked() {
+    if entry(ui, Icon::Shelf, label, detail, t).clicked() {
         out.push(Command::Library(Action::Shelf(ShelfAction::New)));
     }
-    if let Scope::Folder(id) = here.scope {
-        restore(ui, here.model, id, t, out);
+    if let Some((folder, _)) = rung {
+        restore(ui, here.model, folder.id, t, out);
     }
 }
 
-/// Books removed from the folder shown, each with a way back.
-fn restore(
-    ui: &mut Ui,
-    model: &Library,
-    id: mareader_library::SourceId,
-    t: &Tokens,
-    out: &mut Commands,
-) {
-    let hidden: Vec<&Book> = model.hidden_in(id);
-    if hidden.is_empty() {
+/// What the folder can give back: removals first, then moves.
+fn restore(ui: &mut Ui, model: &Library, folder: SourceId, t: &Tokens, out: &mut Commands) {
+    let back = model.recoverables(folder);
+    if back.is_empty() {
         return;
     }
     ui.separator();
     ui.label(RichText::new("Restore").size(11.5).color(t.muted));
-    let back = |out: &mut Commands, books: Vec<BookId>| {
-        out.push(Command::Library(Action::Book(BookAction::Restore(books))));
-    };
-    for book in hidden.iter().take(RESTORE_ROWS) {
-        let detail = "Removed; its file is still there";
-        if entry(ui, Icon::Restore, &book.title.value, detail, t).clicked() {
-            back(out, vec![book.id]);
-        }
-    }
-    if hidden.len() > 1 {
-        let all = format!("Restore all {}", hidden.len());
-        let detail = "Every book removed from this folder";
-        if entry(ui, Icon::Restore, &all, detail, t).clicked() {
-            back(out, hidden.iter().map(|b| b.id).collect());
+    let now = super::wall_ms();
+    for item in back {
+        match item {
+            Recovered::Removed(stone) => {
+                let there = stone.last_path.is_file();
+                let mut detail = format!("removed {}", human_age(stone.removed_ms, now));
+                if stone.size > 0 {
+                    detail = format!("{detail} · {}", human_size(stone.size));
+                }
+                if !there {
+                    detail = "not there any more".into();
+                }
+                let label = stone.label();
+                let resp =
+                    ui.add_enabled_ui(there, |ui| entry(ui, Icon::Restore, &label, &detail, t));
+                let hint = "Add this file back, even if it doesn't match the folder's filters";
+                if resp.inner.on_hover_text(hint).clicked() {
+                    let content = stone.content;
+                    out.push(Command::Library(Action::Restore { folder, content }));
+                }
+            }
+            Recovered::Moved {
+                book, title, home, ..
+            } => {
+                let detail = match home {
+                    Some(shelf) => format!("now on “{shelf}”"),
+                    None => "in the library, on no shelf".into(),
+                };
+                let resp = entry(ui, Icon::Restore, &title, &detail, t);
+                if resp
+                    .on_hover_text("This book moved to another shelf")
+                    .clicked()
+                {
+                    out.push(Command::Library(Action::AskMoved { folder, book }));
+                }
+            }
         }
     }
 }
