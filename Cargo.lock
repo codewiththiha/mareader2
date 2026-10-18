@@ -2860,7 +2860,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "mareader"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "eframe",
  "egui",
@@ -2873,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-appearance"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2881,7 +2881,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-assist"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "ai-pool",
  "fm-bridge",
@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-cefr"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "cefr",
  "mareader-fetch",
@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-dict"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "mareader-fetch",
  "parquet",
@@ -2916,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-epub"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -2932,7 +2932,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-fetch"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "reqwest",
  "tempfile",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-library"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "mareader-search",
  "rusqlite",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-pdf"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "hayro",
  "mareader-appearance",
@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-reflow"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "fontique",
  "hypher",
@@ -2974,11 +2974,11 @@ dependencies = [
 
 [[package]]
 name = "mareader-search"
-version = "0.0.1"
+version = "0.0.2"
 
 [[package]]
 name = "mareader-session"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "mareader-epub",
  "mareader-pdf",
@@ -2990,7 +2990,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-settings"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "mareader-appearance",
  "mareader-library",
@@ -3000,11 +3000,11 @@ dependencies = [
 
 [[package]]
 name = "mareader-study"
-version = "0.0.1"
+version = "0.0.2"
 
 [[package]]
 name = "mareader-ui"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "eframe",
  "egui",
@@ -3036,7 +3036,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-web"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "eframe",
  "mareader-ui",
@@ -3047,7 +3047,7 @@ dependencies = [
 
 [[package]]
 name = "mareader-workspace"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -6813,7 +6813,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "serde",
  "serde_json",
