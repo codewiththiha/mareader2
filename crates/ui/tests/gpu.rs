@@ -634,10 +634,10 @@ fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
     let mut h = reader(&options);
     h.state_mut().queue(Command::ShowAppearance);
     h.run();
-    let switch = h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture for each");
+    let switch = h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture per pane");
     switch.scroll_to_me();
     h.run();
-    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture for each")
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture per pane")
         .click();
     h.run();
     h.run_steps(4);
