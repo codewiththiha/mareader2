@@ -329,10 +329,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");
     let temp = path.with_file_name(name);
-    let mut file = File::create(&temp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
+    // Closed before the rename, as Windows needs.
+    {
+        let mut file = File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
     fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
     })
