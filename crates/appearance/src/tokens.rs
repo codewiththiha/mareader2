@@ -139,11 +139,11 @@ impl Appearance {
     pub fn ui_tokens(&self) -> UiTokens {
         let base = base_tokens(self.base);
         if !self.has_tint() {
-            return base;
+            return readable(base);
         }
         let t = self.tint_amount();
         let h = ui_hue_oklch(f64::from(self.tint_hue));
-        UiTokens {
+        readable(UiTokens {
             paper: tinted(base.paper, h, t, 0.055),
             ink: tinted(base.ink, h, t, 0.020),
             muted: tinted(base.muted, h, t, 0.045),
@@ -151,13 +151,74 @@ impl Appearance {
             line: tinted(base.line, h, t, 0.090),
             accent: tinted(base.accent, h, t, 0.150),
             accent_soft: tinted(base.accent_soft, h, t, 0.110),
-        }
+        })
     }
+}
+
+/// WCAG AA for the small text muted and accent ink are used for.
+pub const MIN_CONTRAST: f64 = 4.5;
+
+/// Muted and accent ink moved just far enough to read on every ground.
+fn readable(t: UiTokens) -> UiTokens {
+    let grounds = [t.paper, t.surface, t.accent_soft];
+    UiTokens {
+        muted: legible(t.muted, &grounds),
+        accent: legible(t.accent, &grounds),
+        ..t
+    }
+}
+
+/// `ink` darkened on light grounds, lightened on dark, until it reads.
+fn legible(ink: Rgb, grounds: &[Rgb]) -> Rgb {
+    let worst = |c: Rgb| grounds.iter().map(|g| c.contrast(*g)).fold(21.0, f64::min);
+    let light = grounds.iter().map(|g| g.luminance()).sum::<f64>() / grounds.len().max(1) as f64;
+    let step = if light > 0.18 { -0.005 } else { 0.005 };
+    let mut lch = ink.to_oklch();
+    let mut out = ink;
+    // At most 0.4 of lightness: black or white reads on any ground here.
+    for _ in 0..80 {
+        if worst(out) >= MIN_CONTRAST {
+            break;
+        }
+        lch.l = (lch.l + step).clamp(0.0, 1.0);
+        out = lch.to_rgb_in_gamut();
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_ui_text_reads_on_every_ground_in_every_look() {
+        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
+            for (hue, strength) in [(0, 0), (30, 35), (40, 100), (120, 60), (220, 100)] {
+                let a = Appearance {
+                    base,
+                    tint_hue: hue,
+                    tint_strength: strength,
+                    ..Appearance::default()
+                };
+                let t = a.ui_tokens();
+                for ground in [t.paper, t.surface, t.accent_soft] {
+                    for (name, ink) in [("muted", t.muted), ("accent", t.accent)] {
+                        let c = ink.contrast(ground);
+                        assert!(
+                            c >= MIN_CONTRAST,
+                            "{base:?} {hue}/{strength} {name}: {c:.2}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn readable_ink_stays_put() {
+        let dark = base_tokens(BaseMode::Dark);
+        assert_eq!(readable(dark).muted, dark.muted, "dark muted already reads");
+    }
 
     #[test]
     fn a_stronger_tint_never_whitens_light_paper() {
@@ -180,7 +241,14 @@ mod tests {
     #[test]
     fn untinted_tokens_are_the_css_values() {
         let a = Appearance::default();
-        assert_eq!(a.ui_tokens(), base_tokens(BaseMode::Light));
+        let base = base_tokens(BaseMode::Light);
+        // All but the floored small-text inks, which only darken.
+        assert_eq!(a.ui_tokens(), readable(base));
+        assert_eq!(
+            (a.ui_tokens().paper, a.ui_tokens().line),
+            (base.paper, base.line)
+        );
+        assert!(a.ui_tokens().muted.luminance() < base.muted.luminance());
         assert_eq!(base_tokens(BaseMode::Dark).accent.to_hex(), "#60a5fa");
         assert_eq!(base_tokens(BaseMode::Dim).paper.to_hex(), "#1a1c1f");
     }
@@ -192,8 +260,9 @@ mod tests {
             tint_strength: 50,
             ..Default::default()
         };
-        let before = base_tokens(BaseMode::Light).accent.to_oklch();
-        let after = a.ui_tokens().accent.to_oklch();
+        // Accent-soft: tinted, but never moved by the contrast floor.
+        let before = base_tokens(BaseMode::Light).accent_soft.to_oklch();
+        let after = a.ui_tokens().accent_soft.to_oklch();
         assert!((before.l - after.l).abs() < 0.02, "{before:?} → {after:?}");
         assert!((before.h - after.h).abs() > 20.0, "{before:?} → {after:?}");
     }
