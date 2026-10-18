@@ -768,6 +768,8 @@ def main() -> int:
 
     s = sub.add_parser("shots", help="render shots in CI and download them")
     s.add_argument("spec", nargs="+", help='"NAME key=value ...", the shot example\'s keys')
+    s.add_argument("--ref", default="main",
+                   help="branch whose workflow runs (e.g. one adding fonts)")
     wb = sub.add_parser("web", help="build the browser preview in CI and download it")
     me = sub.add_parser("memory", help="measure memory and its budgets in CI")
     me.add_argument("--ref", default="main",
