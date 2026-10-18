@@ -697,13 +697,13 @@ fn escape_while_naming_keeps_the_old_name_and_the_page() {
 }
 
 #[test]
-fn a_name_already_beside_it_is_refused() {
+fn a_shelf_may_take_a_name_already_beside_it() {
     let mut h = reader(&[("books", "2"), ("library", "show")]);
     new_shelf(&mut h, "Poetry");
     let other = new_shelf(&mut h, "Other");
     shelve(&mut h, ShelfAction::Rename(other, "poetry".into()));
-    assert_eq!(toast(&h), "There's already a shelf called “poetry” there.");
-    assert_eq!(library(&h).shelf(other).unwrap().name.value, "Other");
+    assert_eq!(library(&h).shelf(other).unwrap().name.value, "poetry");
+    assert_eq!(library(&h).children(None).len(), 2);
 }
 
 /// Presses on `from`, moves in steps past egui's drag threshold, and stops.

@@ -52,10 +52,8 @@ fn sync(a: &mut Library, b: &mut Library, wall_ms: u64) -> (Absorbed, Absorbed) 
         }
         let (got_a, got_b) = (a.absorb(to_a, wall_ms), b.absorb(to_b, wall_ms));
         took_a.unlooped += got_a.unlooped;
-        took_a.renamed += got_a.renamed;
         took_a.folded += got_a.folded;
         took_b.unlooped += got_b.unlooped;
-        took_b.renamed += got_b.renamed;
         took_b.folded += got_b.folded;
     }
     panic!("the two never settled");
@@ -181,16 +179,15 @@ fn a_loop_of_shelves_drops_its_newest_move() {
 }
 
 #[test]
-fn two_shelves_of_one_name_are_numbered_apart() {
+fn two_shelves_of_one_name_both_stay_as_named() {
     let mut a = Library::new(A);
     let mut b = Library::new(B);
     let first = a.create_shelf("Poetry", None, 1_000).unwrap();
     let second = b.create_shelf("poetry", None, 2_000).unwrap();
-    let (took_a, took_b) = sync(&mut a, &mut b, 3_000);
-    assert!(took_a.renamed > 0 && took_b.renamed > 0);
+    sync(&mut a, &mut b, 3_000);
     for lib in [&a, &b] {
         assert_eq!(path(lib, first), ["Poetry"]);
-        assert_eq!(path(lib, second), ["poetry 2"]);
+        assert_eq!(path(lib, second), ["poetry"]);
     }
     assert_eq!(picture(&a), picture(&b));
 }

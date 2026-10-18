@@ -135,8 +135,8 @@ impl LibraryState {
 
     fn shelve_together(&mut self, books: &[BookId], shelves: &[ShelfId], out: &mut Commands) {
         let now = wall_ms();
-        let name = self.model.fresh_shelf_name(self.at);
-        let Ok(id) = self.model.create_shelf(&name, self.at, now) else {
+        let name = super::shelving::NEW_SHELF;
+        let Ok(id) = self.model.create_shelf(name, self.at, now) else {
             return;
         };
         for &book in books {
@@ -150,7 +150,7 @@ impl LibraryState {
             .filter(|s| self.model.move_shelf(**s, Some(id), now).is_err())
             .count();
         if refused > 0 {
-            let note = "A shelf whose name is taken there stayed where it was.";
+            let note = "A shelf that can't go there stayed where it was.";
             out.push(Command::Notify(Toast::info(note)));
         }
         self.picks.apply(PickAction::Clear);

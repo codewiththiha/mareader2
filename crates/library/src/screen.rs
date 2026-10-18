@@ -239,7 +239,7 @@ impl Library {
     }
 
     /// The next free name on a level, rows and links counted.
-    fn free_on(&self, level: Level, name: &str) -> String {
+    pub(crate) fn free_on(&self, level: Level, name: &str) -> String {
         let rows = self.level_rows(level);
         next_name(rows.iter().map(|(_, n)| n.as_str()), name)
     }
@@ -344,14 +344,14 @@ impl Library {
     }
 
     /// Where a row sits on its level, for a replacement to take.
-    fn slot_of(&self, book: BookId, level: Level) -> Option<String> {
+    pub(crate) fn slot_of(&self, book: BookId, level: Level) -> Option<String> {
         match level {
             Some(shelf) => (self.members.get(&(shelf, book))).map(|m| m.key.value.clone()),
             None => self.book(book).map(|b| b.key.value.clone()),
         }
     }
 
-    fn set_slot(&mut self, book: BookId, level: Level, slot: String, wall_ms: u64) {
+    pub(crate) fn set_slot(&mut self, book: BookId, level: Level, slot: String, wall_ms: u64) {
         let at = self.clock.tick(wall_ms);
         match level {
             Some(shelf) => {
