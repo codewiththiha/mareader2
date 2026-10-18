@@ -654,6 +654,11 @@ impl MareaderApp {
                 };
                 self.queue(Command::Library(library::Action::Book(ask)));
             }
+            // The import sheet for a folder, as Add ▸ Folder… asks.
+            "import" => {
+                let ask = library::Action::AskFolder(std::path::PathBuf::from(value));
+                self.queue(Command::Library(ask));
+            }
             // A folder read in place, as the sheet can add one.
             "folder" => {
                 let root = std::path::PathBuf::from(value);
