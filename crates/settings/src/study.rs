@@ -301,6 +301,42 @@ pub struct DictionarySettings {
     pub to: Option<String>,
     /// The Dictionary page's last searches, newest first.
     pub recent: Vec<String>,
+    /// How the reader's Dictionary button opens it.
+    pub opens: DictionaryOpens,
+    pub window: DictionaryWindow,
+}
+
+/// The reader's Dictionary: floating over the page, or the full page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DictionaryOpens {
+    #[default]
+    Window,
+    Page,
+}
+
+/// The floating Dictionary: whether it shows, folded, and where.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DictionaryWindow {
+    pub open: bool,
+    /// Folded to a pill that names the last word.
+    pub minimized: bool,
+    /// Left, top, width and height; none sits it beside the page.
+    pub rect: Option<[f32; 4]>,
+}
+
+/// The floating Dictionary's smallest size, in points.
+pub const WINDOW_MIN: [f32; 2] = [300.0, 240.0];
+
+impl DictionaryWindow {
+    /// Drops a rect that isn't one; a small one grows to the minimum.
+    pub fn sanitize(&mut self) {
+        self.rect = self.rect.filter(|r| r.iter().all(|v| v.is_finite()));
+        if let Some(r) = &mut self.rect {
+            r[2] = r[2].max(WINDOW_MIN[0]);
+            r[3] = r[3].max(WINDOW_MIN[1]);
+        }
+    }
 }
 
 /// How many searches the Dictionary page remembers.
@@ -328,6 +364,7 @@ impl DictionarySettings {
         }
         kept.truncate(RECENT);
         self.recent = kept;
+        self.window.sanitize();
         let mut seen = Vec::with_capacity(self.langs.len());
         self.langs.retain(|id| {
             let new = !seen.contains(id);
@@ -347,6 +384,8 @@ impl Default for DictionarySettings {
             from: None,
             to: None,
             recent: Vec::new(),
+            opens: DictionaryOpens::Window,
+            window: DictionaryWindow::default(),
         }
     }
 }
@@ -355,6 +394,19 @@ impl Default for DictionarySettings {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_rect_is_finite_and_never_below_the_minimum() {
+        let mut w = DictionaryWindow {
+            rect: Some([10.0, 20.0, 50.0, 900.0]),
+            ..DictionaryWindow::default()
+        };
+        w.sanitize();
+        assert_eq!(w.rect, Some([10.0, 20.0, WINDOW_MIN[0], 900.0]));
+        w.rect = Some([f32::NAN, 0.0, 400.0, 400.0]);
+        w.sanitize();
+        assert_eq!(w.rect, None);
+    }
 
     #[test]
     fn recent_searches_stay_unique_newest_first_and_bounded() {

@@ -308,6 +308,14 @@ and returns where it came from; Library sits beside it.
 - **Keys.** The field has focus on arrival; ↑ ↓ pick a result, Enter keeps
   the search in Recent, Esc clears and then goes back. Cmd+F refocuses.
 - **Empty.** What is searched, the keys, and recent searches as chips.
+- **Floating window.** In the reader the button and shortcut float the same
+  search over the page instead (`dict/window.rs`); Settings › Dictionary ›
+  In the reader can ask for the page. 380 × 520 at the stage's top right at
+  first, then where it was left: the head drags, every edge and corner
+  resizes down to 300 × 240, and it never leaves the stage. − folds it to a
+  pill naming the last word (a click or a double-click on the head toggles),
+  ⤢ opens the page with the search kept, ✕ closes. Esc in its field clears,
+  then closes. Open, folded and its rect are saved with the settings.
 
 ## Icons
 

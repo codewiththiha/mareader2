@@ -29,8 +29,8 @@ pub use reader::{
 };
 pub use study::StudySettings;
 pub use study::{
-    BarItem, CefrLevel, CefrSettings, DictionarySettings, GlossDensity, GlossSettings,
-    HighlightSettings, Pen, PickColor, Reserved,
+    BarItem, CefrLevel, CefrSettings, DictionaryOpens, DictionarySettings, DictionaryWindow,
+    GlossDensity, GlossSettings, HighlightSettings, Pen, PickColor, Reserved, WINDOW_MIN,
 };
 pub use swatch::Swatch;
 pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};

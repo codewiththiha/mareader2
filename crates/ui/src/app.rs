@@ -13,7 +13,7 @@ use mareader_appearance::{
 };
 use mareader_session::Anchor;
 use mareader_settings::{
-    ColumnAlign, FontChoice, LibraryClick, MotionSettings, PaperArea, Settings,
+    ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings, PaperArea, Settings,
 };
 use mareader_workspace::{
     Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
@@ -380,6 +380,30 @@ impl MareaderApp {
         }
     }
 
+    /// The floating Dictionary: its state lives in the settings.
+    fn dict_window(&mut self, w: crate::dict::Window) {
+        use crate::dict::Window as W;
+        let win = &mut self.settings.dictionary.window;
+        match w {
+            W::Toggle => {
+                let show = !win.open || win.minimized;
+                (win.open, win.minimized) = (show, false);
+            }
+            W::Close => win.open = false,
+            W::Minimize(folded) => win.minimized = folded,
+            W::Place(r) => win.rect = Some([r.min.x, r.min.y, r.width(), r.height()]),
+            W::Expand => {
+                win.open = false;
+                self.go(Route::Dictionary);
+                return;
+            }
+        }
+        // Shown, its field takes the keys.
+        if win.open && !win.minimized && !matches!(w, W::Place(_)) {
+            self.dict.arrive();
+        }
+    }
+
     /// Where the Dictionary page's pressed button returns.
     fn dict_back(&self) -> Route {
         match self.dict_from {
@@ -639,6 +663,15 @@ impl MareaderApp {
                 self.dict.set_inline(n == 0);
                 self.search.set_inline(n == 0);
             }
+            // The floating Dictionary, searching for any word given.
+            "dict_window" => {
+                self.dict_window(crate::dict::Window::Toggle);
+                if value != "show" {
+                    self.dict.search(value);
+                }
+            }
+            // The floating Dictionary folded to its pill.
+            "dict_fold" => self.dict_window(crate::dict::Window::Minimize(value == "true")),
             // The Dictionary page, searching for any word given.
             "dict_page" => {
                 // After a queued open, which would otherwise leave it.
@@ -1513,6 +1546,7 @@ impl MareaderApp {
             }
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
+            Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
             Command::Dict(action) => self.dict.act(action),
             Command::Vocab(action) => self.vocab.act(action),
             Command::SetDictionary(d) => {
@@ -1581,6 +1615,10 @@ impl MareaderApp {
             },
             Command::ShowDictionary => match self.route() {
                 Route::Dictionary => self.go(self.dict_back()),
+                // Over the page, unless Settings ask for the page.
+                Route::Reader if self.settings.dictionary.opens == DictionaryOpens::Window => {
+                    self.dict_window(crate::dict::Window::Toggle);
+                }
                 _ => self.go(Route::Dictionary),
             },
             Command::SetLibraryView(view) => {
@@ -2107,6 +2145,10 @@ impl MareaderApp {
             auto_scroll: self.documents.drifting(self.active),
             ink: (self.documents.reflowable(self.active))
                 .then_some(self.settings.text.ink_contrast),
+            dictionary: {
+                let w = &self.settings.dictionary.window;
+                w.open && !w.minimized
+            },
         }
     }
 
@@ -2253,6 +2295,16 @@ impl eframe::App for MareaderApp {
         if free && route == Route::Dictionary {
             if !self.dict.page_escape() {
                 commands.push(Command::ShowDictionary);
+            }
+            free = false;
+        }
+        // Typing in the floating window: clear, then close.
+        let window = self.settings.dictionary.window.open && route == Route::Reader;
+        if free && window && self.dict.typing() {
+            if !self.dict.page_escape() {
+                commands.push(Command::Dict(crate::dict::Action::Window(
+                    crate::dict::Window::Close,
+                )));
             }
             free = false;
         }
@@ -2419,6 +2471,13 @@ impl eframe::App for MareaderApp {
         });
         self.library.end_frame(&ctx);
         self.glosses(&ctx, &mut commands);
+        if route == Route::Reader {
+            let mut stage = ctx.content_rect();
+            stage.min.x += inset;
+            stage.min.y += crate::theme::TITLE_BAR_H;
+            let dictionary = &self.settings.dictionary;
+            self.dict.window(&ctx, dictionary, stage, &mut commands);
+        }
         self.lifted(&ctx);
         self.drops_from_rail(ui, &mut commands);
         library::sheets::show(&ctx, &self.library, &mut commands);

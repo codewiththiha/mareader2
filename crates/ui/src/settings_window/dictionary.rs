@@ -3,9 +3,9 @@
 
 use egui::{ProgressBar, RichText, Ui};
 use mareader_dict::{HUB, PACKS, Pack, State, language, languages};
-use mareader_settings::DictionarySettings;
+use mareader_settings::{DictionaryOpens, DictionarySettings};
 
-use super::{divider, group, note, row, section};
+use super::{choice_row, divider, group, note, row, section};
 use crate::command::{Command, Commands};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
@@ -30,6 +30,18 @@ pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Comma
     } else {
         note(ui, "Downloads need the desktop app.");
     }
+    section(ui, "In the reader");
+    group(ui, |ui| {
+        for (i, (choice, title, detail)) in OPENS.into_iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            if choice_row(ui, title, detail, s.opens == choice) {
+                s.opens = choice;
+            }
+        }
+    });
+    note(ui, "The Dictionary button and Cmd/Ctrl+Shift+D open it so.");
     section(ui, "Lookup card");
     group(ui, |ui| default_language(ui, s, &dict.ready()));
     note(
@@ -90,6 +102,20 @@ fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
         }
     });
 }
+
+/// How the reader's Dictionary button opens it, and what that means.
+const OPENS: [(DictionaryOpens, &str, &str); 2] = [
+    (
+        DictionaryOpens::Window,
+        "Floating window",
+        "Over the page; move, resize, fold or close it.",
+    ),
+    (
+        DictionaryOpens::Page,
+        "Full page",
+        "In place of the panes, as the library shows.",
+    ),
+];
 
 fn default_language(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack]) {
     // English is what packs translate from; the card answers in another.
