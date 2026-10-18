@@ -71,7 +71,7 @@ pub struct Loaded {
 /// What `library.json` held, if there is one to move into the store.
 enum Legacy {
     Absent,
-    Read(Parts),
+    Read(Box<Parts>),
     /// It can't be moved: the library opens empty and read only.
     Stop,
 }
@@ -117,7 +117,7 @@ impl Folder {
         };
         let legacy = match legacy {
             Legacy::Stop => return fresh(device, notes, false),
-            Legacy::Read(parts) => Some(parts),
+            Legacy::Read(parts) => Some(*parts),
             Legacy::Absent => None,
         };
         let Some(store) = self.open_store(&mut notes) else {
@@ -250,7 +250,7 @@ impl Folder {
         parts.shelves = file.shelves.into_iter().map(|s| (s.id, s)).collect();
         let members = file.members.into_iter();
         parts.members = members.map(|m| ((m.shelf, m.book), m)).collect();
-        Legacy::Read(parts)
+        Legacy::Read(Box::new(parts))
     }
 
     /// Positions from `state/` files into the store, then the folder renamed.

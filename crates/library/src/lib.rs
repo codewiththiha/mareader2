@@ -29,11 +29,13 @@ mod merge;
 mod query;
 mod records;
 mod removal;
+pub mod run;
 mod shelves;
 mod sources;
 #[cfg_attr(target_arch = "wasm32", path = "store_none.rs")]
 pub mod store;
 mod tracked;
+mod tree;
 mod view;
 mod words;
 
@@ -54,11 +56,13 @@ pub use marks::{Gloss, Mark, MarkKind, NewMark, Pen, Spot, Style};
 pub use merge::Merge;
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use records::{Changes, Kind, Row};
-pub use removal::{Imported, Receipt, Removed};
+pub use removal::{Data, Imported, Receipt, Removed};
+pub use run::{Asked, Copied, Landed, MergeAsk, Plan, Planned};
 pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfKind, ShelfRemoved};
 pub use sources::{
     AddError, Added, Found, RelinkError, Scan, ScanReport, Shelving, Source, SourceEdit, counts,
 };
+pub use tree::Duplicated;
 pub use view::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View, natural};
 pub use words::{free_name, human_age, human_size, plural, same_name};
 
@@ -80,6 +84,8 @@ mod marks_tests;
 mod query_tests;
 #[cfg(test)]
 mod removal_tests;
+#[cfg(test)]
+mod run_tests;
 #[cfg(test)]
 mod shelves_tests;
 #[cfg(test)]

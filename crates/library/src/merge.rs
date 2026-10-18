@@ -35,6 +35,8 @@ impl Merge for Book {
         self.removed = self.removed.max(other.removed);
         self.restored = self.restored.max(other.restored);
         self.twin_of.merge(other.twin_of);
+        self.independent |= other.independent;
+        self.forgot = self.forgot.max(other.forgot);
         self.extra.merge(other.extra);
         // Locations are this machine's own; another's mean nothing here.
     }
@@ -48,6 +50,7 @@ impl Merge for Book {
             Some(self.twin_of.at),
             self.removed,
             self.restored,
+            self.forgot,
             self.extra.latest(),
         ])
     }
@@ -231,6 +234,8 @@ mod tests {
                 let at = rng.stamp();
                 Field::new((at.counter > 0).then_some(BookId(u128::from(at.ms))), at)
             },
+            independent: rng.next(2) == 0,
+            forgot: rng.maybe(),
             extra: extra(rng),
         }
     }

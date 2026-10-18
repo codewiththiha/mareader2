@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::query::fold;
 use crate::{
-    BookId, ContentId, DeviceId, FileStamp, Format, Found, Library, Measure, Opened, Query,
+    BookId, ContentId, Data, DeviceId, FileStamp, Format, Found, Library, Measure, Opened, Query,
     SUGGEST_LIMIT, Scan, Target,
 };
 
@@ -230,7 +230,7 @@ fn missing_books_and_twins_are_found_and_removed_books_are_not() {
     assert!(lib.book(gone).unwrap().missing());
     let got = titles(&lib, "raven");
     assert_eq!(got.len(), 3, "{got:?}");
-    lib.remove_books(&[twin], 4);
+    lib.remove_books(&[twin], Data::Keep, 4);
     assert!(!titles(&lib, "raven").contains(&"The Raven (2)".to_owned()));
 }
 

@@ -7,7 +7,9 @@ use serde::de::DeserializeOwned;
 
 use crate::book::{Book, Location, State};
 use crate::clock::Clock;
+use crate::folder::Folder;
 use crate::library::{Dirty, Library, Parts};
+use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
 use crate::sources::Source;
@@ -26,6 +28,10 @@ pub enum Kind {
     State,
     /// A word explained in a book (M6).
     Mark,
+    /// A folder the library takes books from, and its ledger.
+    Folder,
+    /// A pointer row at a book or a shelf.
+    Link,
 }
 
 impl Kind {
@@ -38,6 +44,8 @@ impl Kind {
             Self::Source => "source",
             Self::State => "state",
             Self::Mark => "mark",
+            Self::Folder => "folder",
+            Self::Link => "link",
         }
     }
 
@@ -51,6 +59,8 @@ impl Kind {
             Self::Source,
             Self::State,
             Self::Mark,
+            Self::Folder,
+            Self::Link,
         ];
         all.into_iter().find(|k| k.name() == name)
     }
@@ -63,6 +73,7 @@ impl Kind {
             Self::Member,
             Self::State,
             Self::Mark,
+            Self::Link,
         ];
         shared.contains(&self)
     }
@@ -140,6 +151,15 @@ fn changes(library: &Library, dirty: &Dirty) -> Changes {
             None => out.gone.push((Kind::Source, id.to_string())),
         }
     }
+    for id in &dirty.folders {
+        match library.folders.get(id) {
+            Some(folder) => out.put(Kind::Folder, id.to_string(), folder),
+            None => out.gone.push((Kind::Folder, id.to_string())),
+        }
+    }
+    for link in dirty.links.iter().filter_map(|id| library.links.get(id)) {
+        out.put(Kind::Link, link.id.to_string(), link);
+    }
     for (id, state) in dirty
         .states
         .iter()
@@ -175,6 +195,12 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
             }),
             Kind::Source => parse::<Source>(&row).map(|s| {
                 parts.sources.insert(s.id, s);
+            }),
+            Kind::Folder => parse::<Folder>(&row).map(|f| {
+                parts.folders.insert(f.id, f);
+            }),
+            Kind::Link => parse::<Link>(&row).map(|l| {
+                parts.links.insert(l.id, l);
             }),
             Kind::Locations => parse::<Vec<Location>>(&row).map(|l| {
                 locations.insert(row.id.clone(), l);

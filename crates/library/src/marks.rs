@@ -317,7 +317,7 @@ impl Library {
         }
     }
 
-    fn new_mark_id(&self, at: Stamp) -> MarkId {
+    pub(crate) fn new_mark_id(&self, at: Stamp) -> MarkId {
         let state = RandomState::new();
         let seed = (at.ms, at.counter, self.device().0);
         let half = |salt: u8| u128::from(state.hash_one((seed, salt)));

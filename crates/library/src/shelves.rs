@@ -257,7 +257,7 @@ impl Library {
         Ok(id)
     }
 
-    fn new_shelf_id(&self, at: Stamp) -> ShelfId {
+    pub(crate) fn new_shelf_id(&self, at: Stamp) -> ShelfId {
         let state = RandomState::new();
         let seed = (at.ms, at.counter, self.device().0);
         let half = |salt: u8| u128::from(state.hash_one((seed, salt)));
@@ -361,9 +361,20 @@ impl Library {
             }
         }
         let range = (id, BookId(0))..=(id, BookId(u128::MAX));
+        let mut lifted = Vec::new();
         for (_, m) in self.members.range_mut(range) {
+            if m.alive.value {
+                lifted.push(m.book);
+            }
             m.alive = Field::new(false, at);
         }
+        // Its books move up a level with its shelves.
+        if let Some(parent) = parent {
+            for book in lifted {
+                self.file(book, parent, wall_ms);
+            }
+        }
+        self.drop_dangling_links(at);
         self.bump();
         Some(done)
     }
