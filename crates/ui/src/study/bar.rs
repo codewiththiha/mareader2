@@ -10,8 +10,6 @@ use crate::icons::Icon;
 use crate::theme::{Tokens, color};
 use crate::widgets;
 
-/// Narrower panes show the actions as icons only.
-const ROOM_FOR_WORDS: f32 = 420.0;
 /// A colour swatch's size in the picker row.
 const SWATCH: f32 = 20.0;
 
@@ -52,8 +50,6 @@ pub fn show(
     if look.pick == PickColor::Default {
         open = None;
     }
-    // A narrow pane keeps the icons and drops the words.
-    let words = room.width() >= ROOM_FOR_WORDS;
     let bubble = Bubble {
         id,
         at: selected,
@@ -74,7 +70,7 @@ pub fn show(
                     divider(ui, &t);
                 }
                 was_pen = Some(pen);
-                if let Some(press) = button(ui, *item, look, words, &mut open) {
+                if let Some(press) = button(ui, *item, look, &mut open) {
                     pressed = Some(press);
                 }
             }
@@ -106,16 +102,9 @@ fn divider(ui: &mut Ui, t: &Tokens) {
         .vline(x, rect.y_range(), Stroke::new(1.0, t.line));
 }
 
-/// An action, named in words beside its icon when there's room.
-fn action(ui: &mut Ui, icon: Icon, label: &str, words: bool) -> bool {
-    if !words {
-        return widgets::icon_button(ui, icon, label, false).clicked();
-    }
-    let button = egui::Button::image_and_text(icon.image(16.0), label)
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .min_size(vec2(0.0, 32.0));
-    ui.add(button).clicked()
+/// An action as its icon alone; the name is its tooltip.
+fn action(ui: &mut Ui, icon: Icon, label: &str) -> bool {
+    widgets::icon_button(ui, icon, label, false).clicked()
 }
 
 /// One of the bar's buttons; a highlighter shows its colour underneath.
@@ -123,16 +112,13 @@ fn button(
     ui: &mut Ui,
     item: BarItem,
     look: &HighlightSettings,
-    words: bool,
     open: &mut Option<Pen>,
 ) -> Option<BarPress> {
     match item {
-        BarItem::Copy => action(ui, Icon::Copy, "Copy", words).then_some(BarPress::Copy),
-        BarItem::Explain => {
-            action(ui, Icon::Explain, "Explain", words).then_some(BarPress::Explain)
-        }
-        BarItem::LookUp => action(ui, Icon::LookUp, "Look up", words).then_some(BarPress::LookUp),
-        BarItem::Note => action(ui, Icon::Note, "Note", words).then_some(BarPress::Note),
+        BarItem::Copy => action(ui, Icon::Copy, "Copy").then_some(BarPress::Copy),
+        BarItem::Explain => action(ui, Icon::Explain, "Explain").then_some(BarPress::Explain),
+        BarItem::LookUp => action(ui, Icon::LookUp, "Look up").then_some(BarPress::LookUp),
+        BarItem::Note => action(ui, Icon::Note, "Note").then_some(BarPress::Note),
         BarItem::Highlight(pen) => {
             let resp = widgets::icon_button(ui, pen_icon(pen), pen.label(), *open == Some(pen));
             let strip =
