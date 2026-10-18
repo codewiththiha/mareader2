@@ -10,9 +10,9 @@ use crate::{
     Position, ShelfId, ShelfKind, SourceId, Spot,
 };
 
-const DEVICE: DeviceId = DeviceId(3);
+pub(crate) const DEVICE: DeviceId = DeviceId(3);
 
-fn found(path: &str, content: u128) -> Found {
+pub(crate) fn found(path: &str, content: u128) -> Found {
     Found {
         path: PathBuf::from(path),
         format: Format::Pdf,
@@ -28,14 +28,14 @@ fn found(path: &str, content: u128) -> Found {
     }
 }
 
-fn opts(mode: Mode) -> Options {
+pub(crate) fn opts(mode: Mode) -> Options {
     let mut o = Options::default();
     o.set_mode(mode);
     o
 }
 
 /// A whole run at once; a copying run's copies land in `/store`.
-fn run(
+pub(crate) fn run(
     lib: &mut Library,
     root: &str,
     mode: Mode,
@@ -58,7 +58,12 @@ fn run(
     (id, lib.land_walk(planned, &copies, 2_000))
 }
 
-fn import(lib: &mut Library, root: &str, mode: Mode, files: &[Found]) -> (SourceId, Landed) {
+pub(crate) fn import(
+    lib: &mut Library,
+    root: &str,
+    mode: Mode,
+    files: &[Found],
+) -> (SourceId, Landed) {
     run(lib, root, mode, files, Asked::Explicitly, Plan::default())
 }
 
@@ -69,14 +74,14 @@ fn rescan(lib: &mut Library, id: SourceId, files: &[Found]) -> Landed {
     lib.land_walk(planned, &HashMap::new(), 3_000)
 }
 
-fn shelf_named(lib: &Library, name: &str) -> ShelfId {
+pub(crate) fn shelf_named(lib: &Library, name: &str) -> ShelfId {
     lib.shelves()
         .find(|s| s.name.value == name)
         .map(|s| s.id)
         .unwrap()
 }
 
-fn titles_on(lib: &Library, shelf: ShelfId) -> Vec<String> {
+pub(crate) fn titles_on(lib: &Library, shelf: ShelfId) -> Vec<String> {
     let mut t: Vec<String> = lib
         .shelf_books(shelf)
         .iter()
@@ -364,7 +369,7 @@ fn a_merge_asks_about_a_name_the_shelf_already_holds() {
     lib.file(held.placed[0], shelf, 2);
     let plan = Plan {
         into: Some(shelf),
-        rename: None,
+        ..Plan::default()
     };
     let files = vec![found("/books/dune.pdf", 2), found("/books/other.pdf", 3)];
     let id = lib.open_folder("/books".into(), opts(Mode::InPlace), &plan, 3);
@@ -386,8 +391,8 @@ fn add_as_new_mints_a_tree_of_its_own_under_the_new_name() {
     let files = [found("/books/a.pdf", 1)];
     import(&mut lib, "/books", Mode::Copy, &files);
     let plan = Plan {
-        into: None,
         rename: Some("books_1".into()),
+        ..Plan::default()
     };
     let (_, landed) = run(
         &mut lib,

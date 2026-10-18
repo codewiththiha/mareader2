@@ -176,7 +176,7 @@ impl Library {
     }
 
     /// Each living book on `id` with its key, unordered.
-    fn on(&self, id: ShelfId) -> impl Iterator<Item = (&str, &Book)> {
+    pub(crate) fn on(&self, id: ShelfId) -> impl Iterator<Item = (&str, &Book)> {
         let range = (id, BookId(0))..=(id, BookId(u128::MAX));
         let members = self.members.range(range).filter(|(_, m)| m.alive.value);
         members.filter_map(|(_, m)| Some((m.key.value.as_str(), self.book(m.book)?)))

@@ -18,6 +18,7 @@ pub mod conflict;
 pub mod disk;
 mod extra;
 mod folder;
+pub mod gate;
 pub mod ground;
 mod id;
 mod key;
@@ -30,6 +31,7 @@ mod query;
 mod records;
 mod removal;
 pub mod run;
+pub mod screen;
 mod shelves;
 mod sources;
 #[cfg_attr(target_arch = "wasm32", path = "store_none.rs")]
@@ -57,7 +59,7 @@ pub use merge::Merge;
 pub use query::{Hit, Query, SUGGEST_LIMIT, Suggestion, Target};
 pub use records::{Changes, Kind, Row};
 pub use removal::{Data, Imported, Receipt, Removed};
-pub use run::{Asked, Copied, Landed, MergeAsk, Plan, Planned};
+pub use run::{Asked, Copied, Fold, Landed, MergeAsk, Plan, Planned};
 pub use shelves::{Membership, NAME_MAX, Shelf, ShelfError, ShelfKind, ShelfRemoved};
 pub use sources::{
     AddError, Added, Found, RelinkError, Scan, ScanReport, Shelving, Source, SourceEdit, counts,
@@ -74,6 +76,8 @@ mod arrange_tests;
 mod conflict_tests;
 #[cfg(test)]
 mod folder_tests;
+#[cfg(test)]
+mod gate_tests;
 #[cfg(test)]
 mod ground_tests;
 #[cfg(test)]

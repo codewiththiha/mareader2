@@ -28,6 +28,36 @@ pub struct Plan {
     pub into: Option<ShelfId>,
     /// Add as new: a tree of its own, its root under this name.
     pub rename: Option<String>,
+    /// A pick inside a tree read in place: the shelf the run lights.
+    pub continuation: Option<ShelfId>,
+    /// The pick's own tree folds into the tree it stands inside.
+    pub fold: Option<Fold>,
+    /// The rung the pick answers for; empty is the tree's own ground.
+    pub rung: String,
+    /// Copies beside a tree read in place, its ledger left alone.
+    pub beside: bool,
+}
+
+/// A pick folded into its tree: that tree and the pick's rung in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fold {
+    pub tree: SourceId,
+    pub rel: String,
+}
+
+impl Plan {
+    /// A merge or an "as new": the run files onto other shelves.
+    pub fn reshelves(&self) -> bool {
+        self.into.is_some() || self.rename.is_some()
+    }
+
+    /// The rung the pick's answers are about, in the tree they land in.
+    pub fn answered_rung(&self) -> &str {
+        match &self.fold {
+            Some(fold) => &fold.rel,
+            None => &self.rung,
+        }
+    }
 }
 
 /// A merge's question about one arriving file and the row it meets.
@@ -49,6 +79,8 @@ pub struct Planned {
     /// Books already held, filed on the rung their file names.
     pub returned: Vec<(BookId, Found)>,
     pub asks: Vec<MergeAsk>,
+    /// A tree read in place inside this one, folded in as it lands.
+    pub member: Option<Fold>,
     /// Addresses read in place that this copying run copies over.
     pub copy_over: BTreeSet<PathBuf>,
     pub plan: Plan,
@@ -87,7 +119,7 @@ pub struct Landed {
     /// Held books whose file changed in place.
     pub healed: usize,
     pub returned: usize,
-    /// The folder's root shelf, to light up.
+    /// The shelf the run lights: the pick's own, else the root's.
     pub root: Option<ShelfId>,
 }
 
@@ -136,18 +168,25 @@ impl Library {
         plan: &Plan,
         wall_ms: u64,
     ) -> SourceId {
-        let standing = self.folders.values().find(|f| f.root == root).map(|f| f.id);
+        let groups = opts.groups;
+        let standing = match plan.beside {
+            true => None,
+            false => self.folder_at(&root, opts.in_place),
+        };
         let id = standing.unwrap_or_else(|| self.new_source_id(&root, wall_ms));
         let mut folder = (self.folders.get(&id).cloned())
             .unwrap_or_else(|| Folder::new(id, root, opts.clone(), wall_ms));
+        // The tree's own shape stands; the pick's rung is reshaped below.
+        let shape = folder.opts.groups;
         folder.opts = opts;
+        folder.opts.groups = shape;
         folder.sanitize();
         if folder.mode().in_place() {
-            folder.set_tracking("", folder.opts.watch);
+            folder.set_tracking(&plan.rung, folder.opts.watch);
         }
         let shelves = &self.shelves;
-        let standing = |s: &ShelfId| shelves.get(s).is_some_and(Shelf::alive);
-        folder.shelf_map.retain(|_, s| standing(s));
+        let standing_shelf = |s: &ShelfId| shelves.get(s).is_some_and(Shelf::alive);
+        folder.shelf_map.retain(|_, s| standing_shelf(s));
         if let Some(into) = plan.into {
             folder.shelf_map.insert(String::new(), into);
         }
@@ -155,8 +194,20 @@ impl Library {
         if plan.rename.is_some() {
             folder.shelf_map.clear();
         }
+        let reshape = folder.shape_at(&plan.rung) != groups;
         self.folders.insert(id, folder);
+        // A fold's shape is the tree's to take, once folded.
+        if reshape && plan.fold.is_none() {
+            self.reshape(id, &plan.rung, groups, wall_ms);
+        }
         id
+    }
+
+    /// The folder at `root`: one reading the same way, else any.
+    pub fn folder_at(&self, root: &Path, in_place: bool) -> Option<SourceId> {
+        let at = || self.folders.values().filter(|f| f.root == root);
+        let same = at().find(|f| f.mode().in_place() == in_place);
+        same.or_else(|| at().next()).map(|f| f.id)
     }
 
     /// The walk's files to decisions; the ledger's own notes are written.
@@ -182,9 +233,13 @@ impl Library {
             relinks: Vec::new(),
             returned: Vec::new(),
             asks: Vec::new(),
+            member: None,
             copy_over,
             plan,
         };
+        if asked == Asked::Explicitly && planned.plan.fold.is_none() {
+            planned.member = self.displaced_member(id, &found);
+        }
         for file in &found {
             let content = file.measure.content;
             let action = match asked {
@@ -233,7 +288,7 @@ impl Library {
             .retain(|f| !held.iter().any(|(_, h)| h.path == f.path));
         planned.returned.extend(held);
         self.screen_merge(&folder, &mut planned);
-        if !quiet && folder.mode().in_place() && planned.plan == Plan::default() {
+        if !quiet && folder.mode().in_place() && !planned.plan.reshelves() {
             let back = self.off_the_tree(&folder, &found, &planned);
             for (_, file) in &back {
                 folder.placed.insert(file.measure.content);
@@ -265,7 +320,7 @@ impl Library {
         registry: &Registry,
         planned: &mut Planned,
     ) {
-        if planned.plan == Plan::default() {
+        if !planned.plan.reshelves() {
             return;
         }
         let copy_over = &planned.copy_over;
@@ -390,6 +445,18 @@ impl Library {
                 landed.relinked += 1;
             }
         }
+        // A member's rungs seed the map, so the walk reuses them.
+        if let Some(Fold { tree: member, rel }) = &planned.member
+            && folder.cuts(rel)
+        {
+            for (key, shelf) in self.rungs_of(*member) {
+                let key = match key.is_empty() {
+                    true => rel.clone(),
+                    false => format!("{rel}/{key}"),
+                };
+                folder.shelf_map.insert(key, shelf);
+            }
+        }
         let rename = planned.plan.rename.clone();
         let merged = planned.plan.into.is_some();
         for file in &planned.adds {
@@ -427,6 +494,16 @@ impl Library {
         landed.root = folder.shelf_map.get("").copied();
         self.folders.insert(planned.folder, folder);
         self.rehang(planned.folder, wall_ms);
+        if let Some(seat) = self.fold_run(&planned, wall_ms) {
+            landed.root = Some(seat);
+        }
+        if let Some(lit) = planned
+            .plan
+            .continuation
+            .filter(|s| self.shelf(*s).is_some())
+        {
+            landed.root = Some(lit);
+        }
         self.mirror_changed();
         self.index();
         self.bump();
@@ -434,7 +511,7 @@ impl Library {
     }
 
     /// A held book's file found at a new address, or edited in place.
-    fn relink_found(&mut self, id: BookId, file: &Found) -> bool {
+    pub(crate) fn relink_found(&mut self, id: BookId, file: &Found) -> bool {
         let Some(book) = self.books.get(&id) else {
             return false;
         };
@@ -458,7 +535,7 @@ impl Library {
     }
 
     /// One walked file made a book: in place, or its copy in the store.
-    fn mint_found(
+    pub(crate) fn mint_found(
         &mut self,
         folder: &mut Folder,
         file: &Found,
@@ -658,9 +735,10 @@ impl Library {
 
     /// Where a path stands: inside a folder read in place, or opened.
     pub(crate) fn origin_at(&self, path: &Path) -> Origin {
-        match self.folders.values().find(|f| path.starts_with(&f.root)) {
-            Some(f) if f.mode().in_place() => Origin::Source(f.id),
-            _ => self.origin_of(path),
+        let reads = |f: &&Folder| f.mode().in_place() && path.starts_with(&f.root);
+        match self.folders.values().find(reads) {
+            Some(f) => Origin::Source(f.id),
+            None => self.origin_of(path),
         }
     }
 }

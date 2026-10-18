@@ -295,7 +295,7 @@ impl Library {
         let mut hasher = DefaultHasher::new();
         (self.device(), root, wall_ms).hash(&mut hasher);
         let mut id = SourceId(hasher.finish());
-        while self.sources.contains_key(&id) {
+        while self.sources.contains_key(&id) || self.folders.contains_key(&id) {
             id = SourceId(id.0.wrapping_add(1));
         }
         id
