@@ -4,7 +4,7 @@ use egui::{
     Align2, Color32, CornerRadius, FontId, Id, Popup, PopupCloseBehavior, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
-use mareader_library::{Library, Recovered, ShelfId, SourceId, dir_of_rung, human_age, human_size};
+use mareader_library::{FolderId, Library, Recovered, ShelfId, dir_of_rung, human_age, human_size};
 
 use super::{Action, BookAction, ShelfAction};
 use crate::command::{Command, Commands};
@@ -132,7 +132,7 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
 }
 
 /// What the folder can give back: removals first, then moves.
-fn restore(ui: &mut Ui, model: &Library, folder: SourceId, t: &Tokens, out: &mut Commands) {
+fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut Commands) {
     let back = model.recoverables(folder);
     if back.is_empty() {
         return;

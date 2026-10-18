@@ -6,15 +6,15 @@ use std::path::{Path, PathBuf};
 use crate::book::Origin;
 use crate::clock::Field;
 use crate::conflict::{Placement, collide_shelf, next_name};
+use crate::folder::Found;
 use crate::folder::{Options, dir_of_rung, key_in_zone, parent_key, rel_under, root_name};
 use crate::ground;
-use crate::id::{BookId, ShelfId, SourceId};
+use crate::id::{BookId, FolderId, ShelfId};
 use crate::library::Library;
 use crate::link::LinkTo;
 use crate::removal::Data;
 use crate::run::{Fold, Plan, Planned};
 use crate::shelves::ShelfKind;
-use crate::sources::Found;
 
 /// What a folder pick does first.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,7 +156,7 @@ impl Library {
                 .filter(|b| placed.contains(&b.content))
                 .filter(|b| {
                     b.home()
-                        .is_some_and(|l| matches!(l.origin, Origin::Source(_)))
+                        .is_some_and(|l| matches!(l.origin, Origin::Folder(_)))
                 })
                 .map(|b| b.id)
                 .collect();
@@ -179,7 +179,7 @@ impl Library {
     }
 
     /// The shallowest tree read in place inside this walk, made on its own.
-    pub(crate) fn displaced_member(&self, id: SourceId, found: &[Found]) -> Option<Fold> {
+    pub(crate) fn displaced_member(&self, id: FolderId, found: &[Found]) -> Option<Fold> {
         let tree = self.folder(id).filter(|f| f.mode().in_place())?;
         let members = (self.folders.values())
             .filter(|f| f.id != id && f.mode().in_place())
@@ -215,8 +215,8 @@ impl Library {
     /// A folder's rungs join `tree` at `rel`; its ledger joins, it goes.
     pub(crate) fn fold_into(
         &mut self,
-        tree: SourceId,
-        gone: SourceId,
+        tree: FolderId,
+        gone: FolderId,
         rel: &str,
         wall_ms: u64,
     ) -> Option<ShelfId> {
@@ -272,9 +272,9 @@ impl Library {
     }
 
     /// Books read in place under one folder now read under another.
-    fn adopt_rows(&mut self, from: SourceId, to: SourceId) {
+    fn adopt_rows(&mut self, from: FolderId, to: FolderId) {
         let ids: Vec<BookId> = (self.books.values())
-            .filter(|b| b.locations.iter().any(|l| l.origin == Origin::Source(from)))
+            .filter(|b| b.locations.iter().any(|l| l.origin == Origin::Folder(from)))
             .map(|b| b.id)
             .collect();
         for id in ids {
@@ -282,8 +282,8 @@ impl Library {
                 continue;
             };
             for location in &mut book.locations {
-                if location.origin == Origin::Source(from) {
-                    location.origin = Origin::Source(to);
+                if location.origin == Origin::Folder(from) {
+                    location.origin = Origin::Folder(to);
                 }
             }
         }
@@ -291,7 +291,7 @@ impl Library {
     }
 
     /// The standing shelves a folder's rungs stand on, by key.
-    pub(crate) fn rungs_of(&self, folder: SourceId) -> Vec<(String, ShelfId)> {
+    pub(crate) fn rungs_of(&self, folder: FolderId) -> Vec<(String, ShelfId)> {
         (self.shelves.values())
             .filter(|s| s.alive())
             .filter_map(|s| {
@@ -327,7 +327,7 @@ impl Library {
     /// Re-files a tree's books under `rung` by the new shape; the seat.
     pub(crate) fn reshape(
         &mut self,
-        id: SourceId,
+        id: FolderId,
         rung: &str,
         groups: bool,
         wall_ms: u64,

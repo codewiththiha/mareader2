@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::book::Format;
-use crate::id::{BookId, ContentId, ShelfId, SourceId};
+use crate::id::{BookId, ContentId, FolderId, ShelfId};
+use crate::library::Measure;
 use crate::words::{name_or_stem, stem};
 
 /// The size floor a new folder starts on.
@@ -209,6 +210,17 @@ impl Rungs {
     }
 }
 
+/// A file a walk found and measured, and what it says of itself.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Found {
+    pub path: PathBuf,
+    pub format: Format,
+    pub measure: Measure,
+    /// Read only for content the library hasn't met.
+    pub title: Option<String>,
+    pub author: Option<String>,
+}
+
 /// A removal or a move-out, remembered by the folder that placed the book.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tombstone {
@@ -246,7 +258,7 @@ impl Tombstone {
 /// A folder the library takes books from, with what it has done there.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Folder {
-    pub id: SourceId,
+    pub id: FolderId,
     /// Never rewritten: a moved folder is a missing one.
     pub root: PathBuf,
     #[serde(default)]
@@ -275,7 +287,7 @@ pub struct Folder {
 
 impl Folder {
     /// A folder never walked: an empty ledger.
-    pub fn new(id: SourceId, root: PathBuf, opts: Options, added: u64) -> Self {
+    pub fn new(id: FolderId, root: PathBuf, opts: Options, added: u64) -> Self {
         let mut folder = Self {
             id,
             root,

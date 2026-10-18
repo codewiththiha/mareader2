@@ -7,7 +7,7 @@ use crate::ground::{
     Coverage, Seat, Shelves, ancestors, can_nest, converts_on_move, covering, departing_moves,
     departs_on_move, family, mode_of, seat_of, shelf_tracked, subtree, tree_of,
 };
-use crate::id::{ContentId, ShelfId, SourceId};
+use crate::id::{ContentId, FolderId, ShelfId};
 use crate::shelves::{Shelf, ShelfKind};
 
 fn s(n: u128) -> ShelfId {
@@ -32,7 +32,7 @@ fn shelf(n: u128, parent: Option<u128>, kind: ShelfKind) -> Shelf {
 
 fn rung(key: &str) -> ShelfKind {
     ShelfKind::Rung {
-        folder: SourceId(1),
+        folder: FolderId(1),
         key: key.into(),
     }
 }
@@ -45,7 +45,7 @@ fn map(list: Vec<Shelf>) -> Shelves {
 fn books(mode: Mode) -> (Shelves, Vec<Folder>) {
     let mut opts = Options::default();
     opts.set_mode(mode);
-    let mut f = Folder::new(SourceId(1), PathBuf::from("/books"), opts, 0);
+    let mut f = Folder::new(FolderId(1), PathBuf::from("/books"), opts, 0);
     f.shelf_map.insert(String::new(), s(1));
     f.shelf_map.insert("a".into(), s(2));
     f.shelf_map.insert("a/b".into(), s(3));
@@ -98,8 +98,8 @@ fn a_shelf_the_reader_made_answers_for_the_tree_it_stands_inside() {
         folder,
         rung: rung.into(),
     };
-    assert_eq!(tree_of(&sh, &f, s(3)), Some(seat(SourceId(1), "a/b")));
-    assert_eq!(tree_of(&sh, &f, s(4)), Some(seat(SourceId(1), "a")));
+    assert_eq!(tree_of(&sh, &f, s(3)), Some(seat(FolderId(1), "a/b")));
+    assert_eq!(tree_of(&sh, &f, s(4)), Some(seat(FolderId(1), "a")));
     assert_eq!(tree_of(&sh, &f, s(5)), None, "the reader's own ground");
     assert_eq!(
         tree_of(&sh, &f, s(6)),
@@ -200,7 +200,7 @@ fn a_tree_covers_its_own_root_and_a_rung_inside_it() {
     assert_eq!(
         covering(&sh, &f, Path::new("/books/a")),
         Some(Coverage {
-            folder: SourceId(1),
+            folder: FolderId(1),
             rel: "a".into(),
             shelf: s(2),
         })
@@ -219,7 +219,7 @@ fn the_family_is_the_deepest_tree_whose_rung_for_the_ground_is_free() {
     let (sh, f) = books(Mode::InPlace);
     assert_eq!(
         family(&sh, &f, Path::new("/books/a/c")),
-        Some((SourceId(1), "a/c".into()))
+        Some((FolderId(1), "a/c".into()))
     );
     assert_eq!(
         family(&sh, &f, Path::new("/books/a")),

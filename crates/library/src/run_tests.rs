@@ -6,8 +6,8 @@ use crate::ledger::Recovered;
 use crate::link::LinkTo;
 use crate::run::{Asked, Copied, Landed, Plan};
 use crate::{
-    BookId, ContentId, Data, DeviceId, FileStamp, Format, Found, Library, Measure, NewMark, Origin,
-    Position, ShelfId, ShelfKind, SourceId, Spot,
+    BookId, ContentId, Data, DeviceId, FileStamp, FolderId, Format, Found, Library, Measure,
+    NewMark, Origin, Position, ShelfId, ShelfKind, Spot,
 };
 
 pub(crate) const DEVICE: DeviceId = DeviceId(3);
@@ -42,7 +42,7 @@ pub(crate) fn run(
     files: &[Found],
     asked: Asked,
     plan: Plan,
-) -> (SourceId, Landed) {
+) -> (FolderId, Landed) {
     let id = lib.open_folder(PathBuf::from(root), opts(mode), &plan, 1_000);
     let planned = lib.plan_walk(id, files.to_vec(), asked, plan).unwrap();
     let copies: HashMap<PathBuf, Copied> = (planned.to_copy(mode.copies()).into_iter())
@@ -63,11 +63,11 @@ pub(crate) fn import(
     root: &str,
     mode: Mode,
     files: &[Found],
-) -> (SourceId, Landed) {
+) -> (FolderId, Landed) {
     run(lib, root, mode, files, Asked::Explicitly, Plan::default())
 }
 
-fn rescan(lib: &mut Library, id: SourceId, files: &[Found]) -> Landed {
+pub(crate) fn rescan(lib: &mut Library, id: FolderId, files: &[Found]) -> Landed {
     let planned = lib
         .plan_walk(id, files.to_vec(), Asked::OnFocus, Plan::default())
         .unwrap();
@@ -112,7 +112,7 @@ fn a_folder_read_in_place_lands_its_books_on_a_shelf_per_subfolder() {
     let book = lib.book(landed.placed[0]).unwrap();
     assert_eq!(
         book.locations[0].origin,
-        Origin::Source(id),
+        Origin::Folder(id),
         "read where it is"
     );
 }

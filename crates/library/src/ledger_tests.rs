@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::book::Format;
 use crate::folder::{Folder, Options, Tombstone};
-use crate::id::{BookId, ContentId, SourceId};
+use crate::id::{BookId, ContentId, FolderId};
 use crate::ledger::{
     Action, Held, Known, Recovered, Registry, decide, decide_import, prune, recoverables, tombstone,
 };
@@ -13,7 +13,7 @@ fn c(n: u128) -> ContentId {
 }
 
 fn folder(placed: &[u128], watch: bool) -> Folder {
-    let mut f = Folder::new(SourceId(1), PathBuf::from("/books"), Options::default(), 0);
+    let mut f = Folder::new(FolderId(1), PathBuf::from("/books"), Options::default(), 0);
     f.placed = placed.iter().map(|n| c(*n)).collect();
     if watch {
         f.set_tracking("", true);
@@ -197,7 +197,7 @@ fn pruning_drops_a_returned_book_and_keeps_a_moved_out_log() {
     assert_eq!(f.ignored, vec![stone(2, true)]);
 }
 
-fn held(id: u128, shelves: &[(&str, Option<SourceId>)], missing: bool) -> Held {
+fn held(id: u128, shelves: &[(&str, Option<FolderId>)], missing: bool) -> Held {
     Held {
         id: BookId(id),
         title: format!("Book {id}"),
@@ -250,10 +250,10 @@ fn a_book_still_on_its_folders_shelf_or_missing_is_not_a_move() {
     let mut books = HashMap::new();
     books.insert(
         c(1),
-        held(1, &[("Theirs", None), ("Ours", Some(SourceId(1)))], false),
+        held(1, &[("Theirs", None), ("Ours", Some(FolderId(1)))], false),
     );
     books.insert(c(2), held(2, &[], true));
-    books.insert(c(3), held(3, &[("Other tree", Some(SourceId(9)))], false));
+    books.insert(c(3), held(3, &[("Other tree", Some(FolderId(9)))], false));
     let got = recoverables(&f, &books);
     assert_eq!(
         got.len(),

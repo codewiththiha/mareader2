@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::conflict::Level;
 use crate::folder::{Folder, Mode, parent_key, rel_under};
-use crate::id::{ContentId, ShelfId, SourceId};
+use crate::id::{ContentId, FolderId, ShelfId};
 use crate::shelves::{Shelf, ShelfKind};
 
 /// The shelves by id, removed ones included; lookups skip those.
@@ -67,7 +67,7 @@ pub fn can_nest(shelves: &Shelves, id: ShelfId, into: Level) -> bool {
 /// The folder ground a shelf stands on: the rung a watch toggle writes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Seat {
-    pub folder: SourceId,
+    pub folder: FolderId,
     pub rung: String,
 }
 
@@ -191,7 +191,7 @@ pub fn departing_moves(
 /// The folder, rung and standing shelf that answer for a directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Coverage {
-    pub folder: SourceId,
+    pub folder: FolderId,
     pub rel: String,
     pub shelf: ShelfId,
 }
@@ -228,7 +228,7 @@ pub fn covering(shelves: &Shelves, folders: &[Folder], dir: &Path) -> Option<Cov
 }
 
 /// The deepest standing tree `dir` belongs to without a rung of its own.
-pub fn family(shelves: &Shelves, folders: &[Folder], dir: &Path) -> Option<(SourceId, String)> {
+pub fn family(shelves: &Shelves, folders: &[Folder], dir: &Path) -> Option<(FolderId, String)> {
     folders
         .iter()
         .filter(|f| f.mode().in_place() && standing(shelves, f, "").is_some())

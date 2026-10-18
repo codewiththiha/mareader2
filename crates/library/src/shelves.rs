@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::book::Book;
 use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
-use crate::id::{BookId, ShelfId, SourceId};
+use crate::id::{BookId, FolderId, ShelfId};
 use crate::library::Library;
 use crate::view::natural;
 
@@ -53,14 +53,14 @@ pub enum ShelfKind {
     #[default]
     Own,
     /// Cut from a folder's tree; `key` is the subfolder, `""` the root.
-    Rung { folder: SourceId, key: String },
+    Rung { folder: FolderId, key: String },
     /// A rung that left its tree: its books are the library's own.
     Departed,
 }
 
 impl ShelfKind {
     /// The folder and rung key this shelf stands for, if a rung.
-    pub fn rung(&self) -> Option<(SourceId, &str)> {
+    pub fn rung(&self) -> Option<(FolderId, &str)> {
         match self {
             Self::Rung { folder, key } => Some((*folder, key)),
             Self::Own | Self::Departed => None,

@@ -12,7 +12,6 @@ use crate::library::{Dirty, Library, Parts};
 use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
-use crate::sources::Source;
 
 /// What a row holds. Synced kinds are shared; the rest stay on this machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -22,8 +21,8 @@ pub enum Kind {
     Member,
     /// A book's paths here, newest first.
     Locations,
-    /// A folder read in place.
-    Source,
+    /// A folder as 0.0.1 saved it; read once into a [`Kind::Folder`].
+    OldFolder,
     /// Where the reader is in one book.
     State,
     /// A word explained in a book (M6).
@@ -41,7 +40,7 @@ impl Kind {
             Self::Shelf => "shelf",
             Self::Member => "member",
             Self::Locations => "locations",
-            Self::Source => "source",
+            Self::OldFolder => "source",
             Self::State => "state",
             Self::Mark => "mark",
             Self::Folder => "folder",
@@ -56,7 +55,7 @@ impl Kind {
             Self::Shelf,
             Self::Member,
             Self::Locations,
-            Self::Source,
+            Self::OldFolder,
             Self::State,
             Self::Mark,
             Self::Folder,
@@ -145,11 +144,8 @@ fn changes(library: &Library, dirty: &Dirty) -> Changes {
     for member in dirty.members.iter().filter_map(|k| library.members.get(k)) {
         out.put(Kind::Member, member_id(member), member);
     }
-    for id in &dirty.sources {
-        match library.sources.get(id) {
-            Some(source) => out.put(Kind::Source, id.to_string(), source),
-            None => out.gone.push((Kind::Source, id.to_string())),
-        }
+    for id in &dirty.retired {
+        out.gone.push((Kind::OldFolder, id.to_string()));
     }
     for id in &dirty.folders {
         match library.folders.get(id) {
@@ -193,8 +189,8 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
             Kind::Member => parse::<Membership>(&row).map(|m| {
                 parts.members.insert((m.shelf, m.book), m);
             }),
-            Kind::Source => parse::<Source>(&row).map(|s| {
-                parts.sources.insert(s.id, s);
+            Kind::OldFolder => parse::<crate::legacy::OldFolder>(&row).map(|s| {
+                parts.legacy.push(s);
             }),
             Kind::Folder => parse::<Folder>(&row).map(|f| {
                 parts.folders.insert(f.id, f);

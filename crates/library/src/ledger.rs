@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::folder::{Folder, Tombstone};
-use crate::id::{BookId, ContentId, SourceId};
+use crate::id::{BookId, ContentId, FolderId};
 
 /// What the ledger knows of a book the library holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,7 +115,7 @@ pub struct Held {
     pub title: String,
     pub missing: bool,
     /// Its shelves in order: the name, and the folder whose rung it is.
-    pub shelves: Vec<(String, Option<SourceId>)>,
+    pub shelves: Vec<(String, Option<FolderId>)>,
 }
 
 /// What a folder's Add menu offers back: removals first, then moves.

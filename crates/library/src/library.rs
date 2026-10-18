@@ -7,12 +7,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
 use crate::extra::Extra;
-use crate::folder::Folder;
-use crate::id::{BookId, ContentId, DeviceId, LinkId, MarkId, ShelfId, SourceId};
+use crate::folder::{Folder, Tombstone};
+use crate::id::{BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
 use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
-use crate::sources::Source;
 use crate::tracked::Tracked;
 
 /// What a measured file is: its content and its size and time.
@@ -40,9 +39,9 @@ pub struct Dirty {
     pub shelves: BTreeSet<ShelfId>,
     pub members: BTreeSet<(ShelfId, BookId)>,
     /// Gone ones included: their rows go too.
-    pub sources: BTreeSet<SourceId>,
-    /// Gone ones included, as for sources.
-    pub folders: BTreeSet<SourceId>,
+    pub folders: BTreeSet<FolderId>,
+    /// Folder rows from before ledgers, adopted and now to delete.
+    pub retired: BTreeSet<FolderId>,
     pub links: BTreeSet<LinkId>,
     /// `state/<id>.json`: one book's position each.
     pub states: BTreeSet<BookId>,
@@ -59,8 +58,8 @@ impl Dirty {
         self.books.is_empty()
             && self.shelves.is_empty()
             && self.members.is_empty()
-            && self.sources.is_empty()
             && self.folders.is_empty()
+            && self.retired.is_empty()
             && self.links.is_empty()
             && self.marks.is_empty()
     }
@@ -71,8 +70,7 @@ pub struct Library {
     pub(crate) clock: Clock,
     pub(crate) books: Tracked<BookId, Book>,
     pub(crate) states: BTreeMap<BookId, State>,
-    pub(crate) sources: Tracked<SourceId, Source>,
-    pub(crate) folders: Tracked<SourceId, Folder>,
+    pub(crate) folders: Tracked<FolderId, Folder>,
     pub(crate) links: Tracked<LinkId, Link>,
     pub(crate) shelves: Tracked<ShelfId, Shelf>,
     pub(crate) members: Tracked<(ShelfId, BookId), Membership>,
@@ -81,6 +79,10 @@ pub struct Library {
     pub(crate) at: HashMap<PathBuf, BookId>,
     /// Positions to write; the maps track their own changes.
     pub(crate) states_dirty: BTreeSet<BookId>,
+    /// Store copies no book reads any more, for the shell to delete.
+    pub(crate) swept: Vec<PathBuf>,
+    /// Old folder rows the next save deletes; see `legacy`.
+    pub(crate) retired: BTreeSet<FolderId>,
     /// Changes whenever a book, shelf or folder does; never repeats.
     revision: u64,
     /// The top level's last key, once looked up; see `next_key`.
@@ -99,13 +101,12 @@ impl Library {
         Self::from_parts(Parts::new(Clock::new(device)))
     }
 
-    /// A library as it was saved: nothing in it needs writing.
+    /// A library as it was saved; only adopted old rows need writing.
     pub(crate) fn from_parts(parts: Parts) -> Self {
         let mut library = Self {
             clock: parts.clock,
             books: Tracked::new(parts.books),
             states: parts.states,
-            sources: Tracked::new(parts.sources),
             folders: Tracked::new(parts.folders),
             links: Tracked::new(parts.links),
             shelves: Tracked::new(parts.shelves),
@@ -113,9 +114,12 @@ impl Library {
             marks: Tracked::new(parts.marks),
             at: HashMap::new(),
             states_dirty: BTreeSet::new(),
+            swept: Vec::new(),
+            retired: BTreeSet::new(),
             revision: next_revision(),
             home_end: None,
         };
+        crate::legacy::adopt(&mut library, parts.legacy);
         library.index();
         library
     }
@@ -262,9 +266,13 @@ impl Library {
                 book.opened = Field::new(wall_ms, at);
             }
             // Back on purpose: folders no longer leave it out.
-            let hiding = self.sources.values_mut_where(|s| s.hidden.contains(&id));
-            for source in hiding {
-                source.hidden.remove(&id);
+            let content = opened.measure.content;
+            let stoned = |s: &Tombstone| !s.moved && s.content == content;
+            let holding = self
+                .folders
+                .values_mut_where(|f| f.ignored.iter().any(stoned));
+            for folder in holding {
+                folder.ignored.retain(|s| !stoned(s));
             }
         }
         id
@@ -358,29 +366,9 @@ impl Library {
         self.bump();
     }
 
-    /// Looks again for one book's files, and its twins'.
-    pub fn recheck(&mut self, id: BookId, exists: impl Fn(&Path) -> bool) {
-        let Some(original) = self.books.get(&id).map(Book::original) else {
-            return;
-        };
-        if let Some(book) = self.books.quiet_get_mut(&original) {
-            for location in &mut book.locations {
-                location.present = exists(&location.path);
-            }
-        }
-        let twins = self
-            .books
-            .values()
-            .filter(|b| b.twin_of.value == Some(original));
-        let twins: Vec<BookId> = twins.map(|b| b.id).collect();
-        let locations = self.books.get(&original).map(|b| b.locations.clone());
-        let locations = locations.unwrap_or_default();
-        for twin in &twins {
-            if let Some(twin) = self.books.quiet_get_mut(twin) {
-                twin.locations.clone_from(&locations);
-            }
-        }
-        self.bump();
+    /// Store copies freed by removals and replacements, to delete now.
+    pub fn take_swept(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.swept)
     }
 
     /// Changes whenever books, shelves or folders do, not positions.
@@ -399,8 +387,8 @@ impl Library {
             books: self.books.take_changed(),
             shelves: self.shelves.take_changed(),
             members: self.members.take_changed(),
-            sources: self.sources.take_changed(),
             folders: self.folders.take_changed(),
+            retired: std::mem::take(&mut self.retired),
             links: self.links.take_changed(),
             states: std::mem::take(&mut self.states_dirty),
             marks: self.marks.take_changed(),
@@ -411,11 +399,11 @@ impl Library {
         self.books.has_changes()
             || self.shelves.has_changes()
             || self.members.has_changes()
-            || self.sources.has_changes()
             || self.folders.has_changes()
             || self.links.has_changes()
             || self.marks.has_changes()
             || !self.states_dirty.is_empty()
+            || !self.retired.is_empty()
     }
 
     /// Marks every row, so the next save writes them all; not positions.
@@ -423,7 +411,6 @@ impl Library {
         self.books.mark_all();
         self.shelves.mark_all();
         self.members.mark_all();
-        self.sources.mark_all();
         self.folders.mark_all();
         self.links.mark_all();
         self.marks.mark_all();
@@ -436,8 +423,9 @@ pub(crate) struct Parts {
     pub clock: Clock,
     pub books: BTreeMap<BookId, Book>,
     pub states: BTreeMap<BookId, State>,
-    pub sources: BTreeMap<SourceId, Source>,
-    pub folders: BTreeMap<SourceId, Folder>,
+    /// Folder rows from before ledgers, adopted on load.
+    pub legacy: Vec<crate::legacy::OldFolder>,
+    pub folders: BTreeMap<FolderId, Folder>,
     pub links: BTreeMap<LinkId, Link>,
     pub shelves: BTreeMap<ShelfId, Shelf>,
     pub members: BTreeMap<(ShelfId, BookId), Membership>,
@@ -450,7 +438,7 @@ impl Parts {
             clock,
             books: BTreeMap::new(),
             states: BTreeMap::new(),
-            sources: BTreeMap::new(),
+            legacy: Vec::new(),
             folders: BTreeMap::new(),
             links: BTreeMap::new(),
             shelves: BTreeMap::new(),

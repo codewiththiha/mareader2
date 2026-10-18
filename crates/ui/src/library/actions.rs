@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use mareader_library::{BookId, ContentId, Options, Placement, Receipt, ShelfId, SourceId};
+use mareader_library::{BookId, ContentId, FolderId, Options, Placement, Receipt, ShelfId};
 
 use super::find::Finding;
 use super::{LibraryState, Pick, PickAction};
@@ -39,17 +39,17 @@ pub enum Action {
     CancelAsks,
     /// Brings back a book the reader removed from a folder.
     Restore {
-        folder: SourceId,
+        folder: FolderId,
         content: ContentId,
     },
     /// Asks where a book that left the folder's shelves shows.
     AskMoved {
-        folder: SourceId,
+        folder: FolderId,
         book: BookId,
     },
     /// Files that book on its folder shelf again, as well.
     ShowMoved {
-        folder: SourceId,
+        folder: FolderId,
         book: BookId,
     },
     /// Goes where a row stands and lights it.
@@ -93,7 +93,7 @@ pub enum Sheet {
     Import(PathBuf),
     /// A book that left its folder's shelves: shown here, or gone to.
     Moved {
-        folder: SourceId,
+        folder: FolderId,
         book: BookId,
     },
 }

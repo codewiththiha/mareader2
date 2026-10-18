@@ -19,10 +19,10 @@ pub struct BookId(pub u128);
 #[serde(into = "String", try_from = "String")]
 pub struct DeviceId(pub u64);
 
-/// A folder read in place; local to this machine, like its path.
+/// A folder the library takes books from; local, like its path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
-pub struct SourceId(pub u64);
+pub struct FolderId(pub u64);
 
 /// A shelf a reader made; random, so two machines never clash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -168,19 +168,19 @@ impl TryFrom<String> for DeviceId {
     }
 }
 
-impl fmt::Display for SourceId {
+impl fmt::Display for FolderId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.0)
     }
 }
 
-impl From<SourceId> for String {
-    fn from(id: SourceId) -> Self {
+impl From<FolderId> for String {
+    fn from(id: FolderId) -> Self {
         id.to_string()
     }
 }
 
-impl TryFrom<String> for SourceId {
+impl TryFrom<String> for FolderId {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
         let value = parse_hex(&s, 16)?;

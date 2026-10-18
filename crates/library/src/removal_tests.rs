@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
 use crate::disk::{self, Folder};
+use crate::folder::Mode;
+use crate::ledger::Recovered;
+use crate::run_tests::{found, import, rescan};
 use crate::{
-    BookId, ContentId, Data, DeviceId, FileStamp, Format, Found, Imported, Library, Measure,
-    Opened, Origin, Position, Scan, SourceId,
+    BookId, ContentId, Data, DeviceId, FileStamp, Format, Library, Measure, Opened, Origin,
+    Position,
 };
 
 const DEVICE: DeviceId = DeviceId(7);
@@ -28,22 +31,6 @@ fn opened(path: &str, content: u128) -> Opened {
     }
 }
 
-fn scan(lib: &mut Library, source: SourceId, files: &[(&str, u128)]) -> crate::ScanReport {
-    let found = files.iter().map(|(path, content)| Found {
-        path: PathBuf::from(path),
-        format: Format::Pdf,
-        measure: measure(*content),
-        title: None,
-        author: None,
-    });
-    let scan = Scan {
-        source,
-        found: found.collect(),
-        offline: false,
-    };
-    lib.apply_scan(scan, 5_000)
-}
-
 fn page(page: usize) -> Position {
     Position {
         page,
@@ -53,10 +40,11 @@ fn page(page: usize) -> Position {
 }
 
 #[test]
-fn a_folder_book_removed_stays_hidden_until_restored_with_its_place() {
+fn a_folder_book_removed_stays_out_until_restored_with_its_place() {
     let mut lib = Library::new(DEVICE);
-    let s = lib.add_source("/s".into(), 1_000).unwrap().id;
-    let id = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
+    let files = [found("/s/a.pdf", 1)];
+    let (s, landed) = import(&mut lib, "/s", Mode::InPlace, &files);
+    let id = landed.placed[0];
     lib.record_position(id, page(4), 2_000);
     let shelf = lib.create_shelf("Read", None, 2_000).unwrap();
     lib.file(id, shelf, 2_000);
@@ -68,36 +56,40 @@ fn a_folder_book_removed_stays_hidden_until_restored_with_its_place() {
         receipt.copies,
         receipt.hidden,
     );
-    assert_eq!(got, (1, 1, 1, 0, 1));
-    assert_eq!(receipt.filed, ["Read"]);
-    let removed = lib.remove_books(&[id], Data::Keep, 3_000);
-    assert_eq!((removed.books, removed.delete.len()), (1, 0));
+    assert_eq!(got, (1, 1, 2, 0, 1));
+    assert!(receipt.filed.contains(&"Read".to_string()));
+    assert_eq!(lib.remove_books(&[id], Data::Keep, 3_000), 1);
+    assert!(lib.take_swept().is_empty());
     assert!(lib.book(id).is_none() && lib.book_at("/s/a.pdf".as_ref()).is_none());
     // The file is still there; a rescan leaves it out.
-    assert!(scan(&mut lib, s, &[("/s/a.pdf", 1)]).is_empty());
+    assert_eq!(rescan(&mut lib, s, &files).total(), 0);
     assert!(lib.is_empty());
-    let hidden: Vec<BookId> = lib.hidden_in(s).iter().map(|b| b.id).collect();
-    assert_eq!(hidden, [id]);
-    assert!(lib.restore(id, 4_000));
-    assert!(lib.hidden_in(s).is_empty());
+    assert_eq!(lib.recoverables(s).len(), 1);
+    let back = lib.restore_removed(s, ContentId(1), &files[0], None, 4_000);
+    assert_eq!(back, Some(id));
+    assert!(lib.recoverables(s).is_empty());
     assert_eq!(lib.position(id), Some(page(4)));
     assert!(
         lib.shelf_books(shelf).is_empty(),
         "a removal forgets its spots"
     );
     assert_eq!(lib.book_at("/s/a.pdf".as_ref()), Some(id));
-    assert!(!lib.restore(id, 5_000));
+    let again = lib.restore_removed(s, ContentId(1), &files[0], None, 5_000);
+    assert_eq!(again, None);
 }
 
 #[test]
-fn opening_a_removed_folder_book_brings_it_back_unhidden() {
+fn opening_a_removed_folder_book_brings_it_back_and_lifts_its_tombstone() {
     let mut lib = Library::new(DEVICE);
-    let s = lib.add_source("/s".into(), 1_000).unwrap().id;
-    let id = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
+    let (s, landed) = import(&mut lib, "/s", Mode::InPlace, &[found("/s/a.pdf", 1)]);
+    let id = landed.placed[0];
     lib.remove_books(&[id], Data::Keep, 2_000);
+    assert!(lib.folder(s).unwrap().tombstone(ContentId(1)).is_some());
     assert_eq!(lib.record_open(opened("/s/a.pdf", 1), 3_000), id);
-    assert!(lib.hidden_in(s).is_empty());
-    assert!(lib.source(s).unwrap().hidden.is_empty());
+    assert!(lib.folder(s).unwrap().tombstone(ContentId(1)).is_none());
+    // Back but off its folder's shelf: offered as a move, not a removal.
+    let offered = lib.recoverables(s);
+    assert!(matches!(offered[..], [Recovered::Moved { book, .. }] if book == id));
 }
 
 #[test]
@@ -135,61 +127,40 @@ fn a_twin_reads_separately_and_follows_its_originals_file() {
 #[test]
 fn removing_an_original_hands_its_files_to_a_twin() {
     let mut lib = Library::new(DEVICE);
-    let s = lib.add_source("/s".into(), 1_000).unwrap().id;
-    let a = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
+    let files = [found("/s/a.pdf", 1)];
+    let (s, landed) = import(&mut lib, "/s", Mode::InPlace, &files);
+    let a = landed.placed[0];
     let t = lib.twin(a, 2_000).unwrap();
     assert_eq!(lib.receipt(&[a]).hidden, 0);
     lib.remove_books(&[a], Data::Keep, 3_000);
-    assert!(lib.source(s).unwrap().hidden.is_empty());
+    assert!(lib.folder(s).unwrap().ignored.is_empty());
     assert_eq!(lib.book(t).unwrap().twin_of.value, None);
     assert_eq!(lib.book_at("/s/a.pdf".as_ref()), Some(t));
     // The heir is the folder's book now: a rescan adds nothing.
-    assert!(scan(&mut lib, s, &[("/s/a.pdf", 1)]).is_empty());
+    assert_eq!(rescan(&mut lib, s, &files).total(), 0);
     assert_eq!(lib.len(), 1);
-    // Both gone together, the file is hidden under each.
+    // Both gone together, the folder leaves the file out.
     let t2 = lib.twin(t, 4_000).unwrap();
     assert_eq!(lib.receipt(&[t, t2]).hidden, 2);
     lib.remove_books(&[t, t2], Data::Keep, 5_000);
-    assert!(scan(&mut lib, s, &[("/s/a.pdf", 1)]).is_empty());
+    assert_eq!(rescan(&mut lib, s, &files).total(), 0);
     assert!(lib.is_empty());
 }
 
 #[test]
-fn a_restored_book_reads_beside_a_book_of_its_content() {
+fn store_copies_are_deleted_with_the_last_book_reading_them() {
     let mut lib = Library::new(DEVICE);
-    let s = lib.add_source("/s".into(), 1_000).unwrap().id;
-    let a = scan(&mut lib, s, &[("/s/a.pdf", 1)]).added[0];
-    let t = lib.twin(a, 2_000).unwrap();
-    lib.remove_books(&[a, t], Data::Keep, 3_000);
-    // Imported again meanwhile: the same record comes back.
-    let copy = opened("/lib/files/1/a.pdf", 1);
-    assert_eq!(lib.import(copy, 4_000), Imported::New(a));
-    assert!(lib.source(s).unwrap().hidden.contains(&t));
-    assert!(lib.restore(t, 5_000));
-    assert_eq!(lib.book(t).unwrap().twin_of.value, Some(a));
-    assert!(lib.hidden_in(s).is_empty());
-    assert_eq!(
-        lib.book(t).unwrap().path(),
-        Some("/lib/files/1/a.pdf".as_ref())
-    );
-}
-
-#[test]
-fn store_copies_are_deleted_with_their_book_and_known_content_is_kept() {
-    let mut lib = Library::new(DEVICE);
-    let a = match lib.import(opened("/lib/files/1/a.pdf", 1), 1_000) {
-        Imported::New(id) => id,
-        Imported::Known(_) => panic!("new content"),
-    };
+    let (_, landed) = import(&mut lib, "/s", Mode::Copy, &[found("/s/a.pdf", 1)]);
+    let a = landed.placed[0];
     let origin = lib.book(a).unwrap().locations[0].origin;
     assert_eq!(origin, Origin::Store);
-    assert_eq!(lib.import(opened("/x/a.pdf", 1), 2_000), Imported::Known(a));
     let t = lib.twin(a, 2_000).unwrap();
     assert_eq!(lib.receipt(&[a]).copies, 0);
-    assert!(lib.remove_books(&[a], Data::Keep, 3_000).delete.is_empty());
+    lib.remove_books(&[a], Data::Keep, 3_000);
+    assert!(lib.take_swept().is_empty());
     assert_eq!(lib.receipt(&[t]).copies, 1);
-    let removed = lib.remove_books(&[t], Data::Keep, 4_000);
-    assert_eq!(removed.delete, [PathBuf::from("/lib/files/1/a.pdf")]);
+    lib.remove_books(&[t], Data::Keep, 4_000);
+    assert_eq!(lib.take_swept(), [PathBuf::from("/store/a.pdf")]);
 }
 
 #[test]
@@ -232,7 +203,7 @@ fn twins_and_store_copies_come_back_from_disk() {
     let mut lib = Library::new(DEVICE);
     let a = lib.record_open(opened("/a.pdf", 1), 1_000);
     let t = lib.twin(a, 2_000).unwrap();
-    lib.import(opened("/lib/files/2/b.pdf", 2), 2_000);
+    import(&mut lib, "/s", Mode::Copy, &[found("/s/b.pdf", 2)]);
     crate::tests::save(&folder, &mut lib);
     let back = folder.load(DEVICE).library;
     assert_eq!(back.book(t).unwrap().twin_of.value, Some(a));

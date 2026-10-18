@@ -16,7 +16,6 @@ use crate::library::{Library, Measure, Parts};
 use crate::merge::Merge;
 use crate::records;
 use crate::shelves::{Membership, Shelf};
-use crate::sources::Source;
 use crate::store::{OpenError, Store};
 
 /// The state files' version, and the last `library.json` one.
@@ -35,7 +34,7 @@ struct LibraryFile {
     clock: Clock,
     books: Vec<Book>,
     #[serde(default)]
-    sources: Vec<Source>,
+    sources: Vec<crate::legacy::OldFolder>,
     #[serde(default)]
     shelves: Vec<Shelf>,
     #[serde(default)]
@@ -246,7 +245,7 @@ impl Folder {
         };
         let mut parts = Parts::new(file.clock);
         parts.books = file.books.into_iter().map(|b| (b.id, b)).collect();
-        parts.sources = file.sources.into_iter().map(|s| (s.id, s)).collect();
+        parts.legacy = file.sources;
         parts.shelves = file.shelves.into_iter().map(|s| (s.id, s)).collect();
         let members = file.members.into_iter();
         parts.members = members.map(|m| ((m.shelf, m.book), m)).collect();

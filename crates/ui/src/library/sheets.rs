@@ -4,8 +4,8 @@ use std::path::Path;
 
 use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
 use mareader_library::{
-    Book, BookId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, Receipt, Shelf, ShelfId,
-    SourceId,
+    Book, BookId, FolderId, Format, Library, MIN_SIZE_MAX, Mode, Options, Origin, Receipt, Shelf,
+    ShelfId,
 };
 
 use super::asks::{self, Question};
@@ -91,7 +91,7 @@ fn find(
     let first = book.locations.first();
     let last = first.map(|l| &l.path);
     let folder = first.and_then(|l| match l.origin {
-        Origin::Source(id) => Some(id),
+        Origin::Folder(id) => Some(id),
         Origin::Store | Origin::Opened => None,
     });
     let offline = folder.filter(|id| library.offline().contains(id));
@@ -498,7 +498,7 @@ fn min_size(ui: &mut Ui, opts: &mut Options) {
 fn moved(
     ui: &mut Ui,
     model: &Library,
-    folder: SourceId,
+    folder: FolderId,
     book: &Book,
     t: &Tokens,
 ) -> Option<Action> {

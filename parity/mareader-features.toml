@@ -442,7 +442,7 @@ reference = ["crates/reader-runtime/src/host/lift.rs"]
 
 [[feature]]
 id = "library.sources"
-title = "Add folders read in place; they rescan on launch and on window focus"
+title = "Import folders read in place or copied in; watched ones rescan on launch and focus"
 area = "C"
 tier = "P0"
 milestone = "M5"
@@ -451,14 +451,17 @@ evidence = [
   "crates/ui/tests/library.rs::a_folder_brings_in_its_books_where_they_are_and_says_how_many",
   "crates/ui/tests/library.rs::coming_back_to_the_window_finds_new_files_and_notices_gone_ones",
   "crates/ui/tests/library.rs::importing_a_folder_again_brings_nothing_twice",
-  "crates/library/src/source_tests.rs::a_folder_takes_its_known_files_and_never_nests",
-  "crates/library/src/source_tests.rs::a_scan_adds_unread_books_named_by_their_files_once",
-  "crates/library/src/source_tests.rs::what_a_folder_counts_and_hides_stays_out_and_an_offline_one_changes_nothing",
-  "crates/library/src/source_tests.rs::a_walk_keeps_books_and_skips_hidden_litter_and_deep_folders",
-  "crates/library/src/source_tests.rs::a_walk_never_follows_links",
+  "crates/ui/tests/library.rs::a_folder_read_in_place_keeps_the_sheets_choices",
+  "crates/library/src/run_tests.rs::a_folder_read_in_place_lands_its_books_on_a_shelf_per_subfolder",
+  "crates/library/src/run_tests.rs::a_rescan_of_an_unchanged_folder_lands_nothing",
+  "crates/library/src/run_tests.rs::a_rescan_adds_only_under_a_watched_rung",
+  "crates/library/src/ledger_tests.rs::an_unknown_file_is_added_only_on_a_watched_rung",
+  "crates/library/src/folder_tests.rs::a_file_counts_by_its_format_and_a_strict_size",
+  "crates/library/src/gate_tests.rs::a_pick_inside_a_tree_walks_the_tree_and_lights_its_rung",
+  "crates/library/src/legacy_tests.rs::an_old_folder_row_becomes_a_folder_with_its_removals_as_tombstones",
   "crates/session/src/cover.rs::a_file_names_its_title_and_author_without_being_laid_out",
 ]
-notes = "Formats, size floor and watching per folder; nested folders refused or taken in; capped walks; half-written files wait (M5 slice 3). Browsing a folder's subfolders is library.source-tree"
+notes = "One import sheet: formats, size floor, read in place or copy, watch, a shelf per subfolder. A folder already in the library walks on, a held name asks. Capped walks; half-written files wait. Folders from before load as folders"
 reference = ["crates/library-core/src/folder.rs", "crates/library-core/src/scan.rs", "crates/library-core/src/ledger.rs"]
 
 [[feature]]
@@ -468,13 +471,14 @@ area = "C"
 tier = "P0"
 milestone = "M5"
 status = "shipped"
-reference = ["crates/library-core/src/store.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
 evidence = [
-    "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
-    "crates/library/src/removal_tests.rs::copies_land_in_the_store_and_only_store_files_are_deleted",
-    "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
-    "crates/ui/tests/library.rs::a_folder_copied_in_takes_only_what_counts",
+  "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
+  "crates/library/src/removal_tests.rs::copies_land_in_the_store_and_only_store_files_are_deleted",
+  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_the_last_book_reading_them",
+  "crates/library/src/run_tests.rs::a_copying_folder_lands_store_copies_that_remember_their_source",
+  "crates/ui/tests/library.rs::a_folder_copied_in_takes_only_what_counts",
 ]
+reference = ["crates/library-core/src/store.rs", "crates/library-runtime/src/features/library/import_modal.rs"]
 notes = "Imports, dropped files and folders imported as copies go into the library's files folder, known content kept once"
 
 [[feature]]
@@ -484,15 +488,16 @@ area = "C"
 tier = "P0"
 milestone = "M5"
 status = "shipped"
-reference = ["crates/library-core/src/hash.rs", "crates/library-core/src/ledger.rs"]
 evidence = [
-    "crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place",
-    "crates/library/src/source_tests.rs::a_moved_file_is_followed_and_a_second_copy_is_a_second_place",
-    "crates/library/src/source_tests.rs::a_file_edited_in_place_keeps_its_book",
-    "crates/ui/tests/library.rs::a_file_moved_within_a_folder_keeps_its_book_and_place",
-    "crates/library/src/marks_tests.rs::a_moved_file_keeps_its_shelves_and_marks",
+  "crates/library/src/tests.rs::a_moved_file_is_the_same_book_and_keeps_its_place",
+  "crates/library/src/tests.rs::a_file_edited_in_place_is_the_same_book_with_new_content",
+  "crates/library/src/run_tests.rs::a_moved_file_is_followed_not_added_twice",
+  "crates/library/src/ledger_tests.rs::a_known_book_at_its_own_address_is_skipped_and_a_moved_one_relinked",
+  "crates/ui/tests/library.rs::a_file_moved_within_a_folder_keeps_its_book_and_place",
+  "crates/library/src/marks_tests.rs::a_moved_file_keeps_its_shelves_and_marks",
 ]
-notes = "Opens and folder scans follow moves and in-place edits; the book keeps its place, shelves and marks"
+reference = ["crates/library-core/src/hash.rs", "crates/library-core/src/ledger.rs"]
+notes = "Opens follow moves and in-place edits; folder walks relink moved books instead of adding them again. The book keeps its place, shelves and marks"
 
 [[feature]]
 id = "library.missing"
@@ -506,8 +511,7 @@ evidence = [
   "crates/ui/tests/library.rs::a_lost_book_is_found_again_by_choosing_its_file",
   "crates/ui/tests/library.rs::searching_a_folder_finds_a_lost_book_under_any_name",
   "crates/ui/tests/library.rs::a_namesake_with_other_content_is_offered_not_taken",
-  "crates/library/src/source_tests.rs::relinking_heals_the_same_content_and_asks_about_other",
-  "crates/library/src/source_tests.rs::a_lost_file_is_found_again_by_content_under_any_name",
+  "crates/library/src/ledger_tests.rs::a_missing_book_is_relinked_by_a_folder_that_never_placed_it",
 ]
 reference = ["crates/library-runtime/src/features/library/relink_modal.rs"]
 notes = "Missing books stay listed, faded (Offline when the drive is gone); clicking one opens find-again: choose the file or search a folder (M5 slice 3). Shelf membership is kept once shelves exist"
@@ -541,18 +545,20 @@ notes = "Nested shelves with unique sibling names, books on many; Home shows eve
 
 [[feature]]
 id = "library.source-tree"
-title = "Browse a source folder's own subfolders"
+title = "A folder's subfolders become its shelves"
 area = "C"
 tier = "P1"
 milestone = "M5"
 status = "shipped"
 evidence = [
-    "crates/library/src/source_tests.rs::a_folder_is_browsed_by_its_own_subfolders_whatever_its_shelving",
-    "crates/ui/tests/library.rs::a_folder_is_shelved_through_its_own_subfolders",
-    "crates/library/src/source_tests.rs::a_folder_shelved_by_folder_files_books_on_nested_shelves",
+  "crates/ui/tests/library.rs::a_folder_is_shelved_through_its_own_subfolders",
+  "crates/library/src/run_tests.rs::one_shelf_for_everything_files_every_subfolder_on_the_root",
+  "crates/library/src/run_tests.rs::rungs_hang_as_the_disk_does_unless_a_hand_moved_them",
+  "crates/library/src/gate_tests.rs::a_re_import_with_the_other_shape_re_files_the_tree",
+  "crates/library/src/gate_tests.rs::a_subfolder_imported_on_its_own_folds_into_the_tree_around_it",
 ]
 reference = ["crates/library-core/src/folder.rs"]
-notes = "Subfolder chips and crumbs under a chosen folder, beside shelf-per-folder (M8 slice 2)"
+notes = "A shelf per subfolder or one shelf for everything, re-shaped by a later import; a subfolder picked on its own walks the tree around it; shelves moved by hand stay put"
 
 [[feature]]
 id = "library.grid-list"
@@ -648,24 +654,28 @@ status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_its_menu",
   "crates/ui/tests/library.rs::imports_are_copies_the_library_keeps_and_deletes_with_the_book",
-  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_their_book_and_known_content_is_kept",
+  "crates/library/src/removal_tests.rs::store_copies_are_deleted_with_the_last_book_reading_them",
+  "crates/library/src/gate_tests.rs::replace_takes_the_shelf_s_books_out_and_files_the_folder_there",
 ]
 reference = ["crates/library-runtime/src/features/library/remove_modal"]
-notes = "The sheet counts books, kept places and shelf spots, deleted copies and hidden folder books; only store copies are ever deleted (M5 slice 5)"
+notes = "The sheet counts books, kept places and shelf spots, deleted copies and folder books kept out of later walks; only store copies are ever deleted, once no book reads them"
 
 [[feature]]
 id = "library.restore"
-title = "A book removed from a watched folder can be restored"
+title = "A book removed from a folder can be restored"
 area = "C"
 tier = "P1"
 milestone = "M5"
 status = "shipped"
 evidence = [
   "crates/ui/tests/library.rs::removing_a_folder_book_hides_it_until_restored_from_its_menu",
-  "crates/library/src/removal_tests.rs::a_folder_book_removed_stays_hidden_until_restored_with_its_place",
+  "crates/library/src/removal_tests.rs::a_folder_book_removed_stays_out_until_restored_with_its_place",
+  "crates/library/src/run_tests.rs::a_restore_lands_on_the_shelf_it_left_else_the_folders_root",
+  "crates/library/src/run_tests.rs::a_book_moved_off_the_tree_is_offered_back_with_where_it_went",
+  "crates/library/src/gate_tests.rs::a_loose_file_a_tree_removed_comes_back_in_place",
 ]
 reference = ["crates/library-core/src/ledger.rs"]
-notes = "Folders lists removed books under Removed · N with Restore and Restore all; they return with place and shelves (M5 slice 5)"
+notes = "A folder shelf's Add menu lists its removals (age and size) and books moved off it; a restore returns to the shelf it left with place and marks. Importing the file again also restores it"
 
 [[feature]]
 id = "library.import-progress"
@@ -720,9 +730,16 @@ title = "Ask what to do when a shelf level already holds a name"
 area = "C"
 tier = "P2"
 milestone = "M5"
-status = "dropped"
+status = "partial"
+evidence = [
+  "crates/library/src/conflict_tests.rs::a_name_already_on_the_level_asks_and_an_empty_level_never_does",
+  "crates/library/src/gate_tests.rs::a_held_name_asks_and_offers_by_how_the_folder_is_read",
+  "crates/library/src/gate_tests.rs::the_shelf_answers_merge_link_and_add_as_new",
+  "crates/library/src/gate_tests.rs::a_name_the_level_holds_asks_and_may_link",
+  "crates/library/src/run_tests.rs::a_merge_asks_about_a_name_the_shelf_already_holds",
+]
 reference = ["crates/library-core/src/conflict.rs"]
-notes = "Shelves hold ids, not names, so there is nothing to collide (docs/library.md)"
+notes = "Imports ask when a shelf, file name or content is already held: open, merge, replace, add as new or link. Moves ask from library slice S3"
 
 [[feature]]
 id = "library.independent-twins"
