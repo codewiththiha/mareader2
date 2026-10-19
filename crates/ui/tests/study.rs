@@ -439,7 +439,7 @@ fn the_ai_tab_picks_who_explains() {
         assert_eq!(ai.tasks.explain.preset, id, "the first model explains");
     }
     // Its keys show; its address waits under Advanced.
-    h.get_by_label("Paste an API key");
+    h.get_by_label("Add");
     h.get_by_label("Advanced");
 }
 
