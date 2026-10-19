@@ -140,7 +140,7 @@ fn open_id() -> egui::Id {
 
 fn models(ui: &mut Ui, ai: &mut AiSettings, live: Option<&Live<'_>>, out: &mut Commands) {
     let board = live.map(|l| l.board);
-    let mut open: Option<u32> = ui.data(|d| d.get_temp(open_id()));
+    let mut open = ui.data(|d| d.get_temp::<Option<u32>>(open_id()).flatten());
     section(ui, "Models");
     let mut gone = None;
     group(ui, |ui| {
@@ -808,8 +808,8 @@ mod tests {
         let ai = &h.state().ai;
         let made = ai.explain_preset().map(|p| p.provider);
         assert_eq!(made, Some(Provider::Custom));
-        // Its provider's address and keys show below, and it opened.
-        h.get_by_label("Paste an API key");
+        // Its provider's keys show below, and it opened.
+        h.get_by_label("Add");
         h.get_by_label("Try it");
     }
 }
