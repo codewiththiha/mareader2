@@ -249,7 +249,10 @@ impl Library {
     pub fn set_marks_alive(&mut self, ids: &[MarkId], alive: bool, wall_ms: u64) -> usize {
         let flips = |id: &&MarkId| {
             let mark = self.marks.get(id);
-            mark.is_some_and(|m| m.alive.value != alive && self.book(m.book.value).is_some())
+            mark.is_some_and(|m| {
+                let back = alive && self.erased(m.book.value, m.alive.at);
+                m.alive.value != alive && self.book(m.book.value).is_some() && !back
+            })
         };
         let ids: Vec<MarkId> = ids.iter().filter(flips).copied().collect();
         if ids.is_empty() {

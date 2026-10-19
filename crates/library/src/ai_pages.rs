@@ -115,7 +115,10 @@ impl Library {
     pub fn set_ai_pages_alive(&mut self, ids: &[AiPageId], alive: bool, wall_ms: u64) -> usize {
         let flips = |id: &&AiPageId| {
             let page = self.ai_pages.get(id);
-            page.is_some_and(|p| p.alive.value != alive && self.book(p.book.value).is_some())
+            page.is_some_and(|p| {
+                let back = alive && self.erased(p.book.value, p.alive.at);
+                p.alive.value != alive && self.book(p.book.value).is_some() && !back
+            })
         };
         let ids: Vec<AiPageId> = ids.iter().filter(flips).copied().collect();
         if ids.is_empty() {
