@@ -121,6 +121,8 @@ pub enum Command {
     Window(WindowCommand),
     /// The word card's and the mark menu's asks.
     Study(crate::study::Action),
+    /// The page AI's menus: a task to run, a result to show.
+    PageAi(crate::page_ai::Action),
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
     /// Looks the pane's selection up in the dictionaries.

@@ -50,9 +50,16 @@ pub enum Gloss {
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.
-    Open { mark: MarkId, at: Rect },
+    Open {
+        mark: MarkId,
+        at: Rect,
+    },
     /// A mark was right-clicked at `at`; `words` are its bounds.
-    Menu { mark: MarkId, at: Pos2, words: Rect },
+    Menu {
+        mark: MarkId,
+        at: Pos2,
+        words: Rect,
+    },
     /// A highlighter in the selection bar; a colour if one was picked.
     Highlight(Pen, Option<Rgb>),
     /// Where the open card's mark is now; none while its text loads.
@@ -62,7 +69,10 @@ pub enum Gloss {
     /// A click on a mark while picking.
     Toggle(MarkId),
     /// While picking: the marks on screen, and every mark of the book.
-    Seen { page: Vec<MarkId>, all: Vec<MarkId> },
+    Seen {
+        page: Vec<MarkId>,
+        all: Vec<MarkId>,
+    },
     /// A shaded word was clicked: its characters on `page`.
     Shaded {
         page: usize,
@@ -70,9 +80,28 @@ pub enum Gloss {
         at: Rect,
     },
     /// The pointer rested on a shaded word.
-    Rest { word: String, at: Rect },
+    Rest {
+        word: String,
+        at: Rect,
+    },
     /// A hold on empty space lifted the pane, to be moved.
     Lift(Pos2),
+    /// A right-click on a page, off its marks and selection.
+    PageMenu {
+        page: usize,
+        at: Pos2,
+    },
+    /// A page's AI bubble was clicked, or right-clicked.
+    Bubble {
+        page: usize,
+        index: usize,
+        at: Pos2,
+    },
+    BubbleMenu {
+        page: usize,
+        index: usize,
+        at: Pos2,
+    },
 }
 
 /// What the card and the mark menu ask of the app.
@@ -254,6 +283,26 @@ impl Default for Study {
     }
 }
 
+/// Records session document `name` in `loose`, where its marks are kept.
+pub(crate) fn loose_book(loose: &mut Library, name: &str) -> BookId {
+    let opened = Opened {
+        path: PathBuf::from(format!("session:{name}")),
+        measure: Measure {
+            content: loose_content(name),
+            stamp: Default::default(),
+        },
+        format: Format::Pdf,
+        title: name.to_owned(),
+        author: None,
+    };
+    loose.record_open(opened, 0)
+}
+
+/// Session document `name`'s id in a loose library.
+pub(crate) fn loose_id(name: &str) -> BookId {
+    BookId::original(loose_content(name))
+}
+
 /// A document outside the library, known by its name for the session.
 fn loose_content(name: &str) -> ContentId {
     let mut h = DefaultHasher::new();
@@ -342,17 +391,7 @@ impl Study {
         if let Some(id) = book.filter(|b| main.book(*b).is_some()) {
             return (main, id);
         }
-        let opened = Opened {
-            path: PathBuf::from(format!("session:{name}")),
-            measure: Measure {
-                content: loose_content(name),
-                stamp: Default::default(),
-            },
-            format: Format::Pdf,
-            title: name.to_owned(),
-            author: None,
-        };
-        let id = self.loose.record_open(opened, 0);
+        let id = loose_book(&mut self.loose, name);
         (&mut self.loose, id)
     }
 

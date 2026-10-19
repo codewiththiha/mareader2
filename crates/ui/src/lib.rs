@@ -37,6 +37,7 @@ pub mod machine_fonts;
 pub mod motion;
 pub mod notes_panel;
 pub mod outline_panel;
+pub mod page_ai;
 pub mod page_bar;
 pub mod pages;
 pub mod pane_texts;
