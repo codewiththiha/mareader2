@@ -30,6 +30,38 @@ pub struct Standing {
 pub struct Ask {
     pub books: Vec<Loose>,
     pub shelves: Vec<Standing>,
+    /// Every loose book, so books loose later join a resumed run.
+    pub whole: bool,
+}
+
+/// A run a failure, a stop or quitting left, kept to carry on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Paused {
+    pub done: usize,
+    pub total: usize,
+    pub books: BTreeSet<BookId>,
+    pub whole: bool,
+    /// Every step is done: only its plan waits to be reviewed.
+    pub ready: bool,
+}
+
+impl Paused {
+    /// How far it got, for menus and its card.
+    pub fn said(&self) -> String {
+        let books = counted(self.books.len(), "book", "books");
+        match self.ready {
+            true => format!("{books} · plan ready"),
+            false => format!("{} of {} steps · {books}", self.done, self.total),
+        }
+    }
+
+    /// How far it got, in a few words for a menu row.
+    pub fn short(&self) -> String {
+        match self.ready {
+            true => "plan ready".to_owned(),
+            false => format!("{} of {}", self.done, self.total),
+        }
+    }
 }
 
 /// A shelf in a plan: one there already, or the plan's `n`th new one.
@@ -76,6 +108,9 @@ pub struct Organizer {
     books: BTreeSet<BookId>,
     run: Option<RunId>,
     review: Option<Box<Proposal>>,
+    /// A stopped run, its books free until it resumes.
+    paused: Option<Paused>,
+    paused_card: Option<RunId>,
 }
 
 impl Organizer {
@@ -91,6 +126,10 @@ impl Organizer {
 
     pub fn review(&self) -> Option<&Proposal> {
         self.review.as_deref()
+    }
+
+    pub fn paused(&self) -> Option<&Paused> {
+        self.paused.as_ref()
     }
 }
 
@@ -137,13 +176,85 @@ impl LibraryState {
                 parent: model.parent_of(s),
             })
             .collect();
-        Ok(Ask { books, shelves })
+        Ok(Ask {
+            books,
+            shelves,
+            whole: picked.is_none(),
+        })
+    }
+
+    /// What resuming asks: its books still loose, and newcomers if whole.
+    pub fn ask_resume(&self) -> Result<Ask, &'static str> {
+        let Some(paused) = &self.organizer.paused else {
+            return self.ask_organize(None);
+        };
+        let gone = "Nothing left to organize: the paused run's books are all \
+                    on shelves or removed.";
+        let mut ask = match self.ask_organize(None) {
+            Err(why) if self.organizer.busy() => return Err(why),
+            Err(_) => return Err(gone),
+            Ok(ask) => ask,
+        };
+        if !paused.whole {
+            ask.books.retain(|b| paused.books.contains(&b.id));
+            ask.whole = false;
+        }
+        match ask.books.is_empty() {
+            true => Err(gone),
+            false => Ok(ask),
+        }
+    }
+
+    /// The paused run as the service keeps it; a card shows it when idle.
+    pub fn set_paused(&mut self, paused: Option<Paused>) {
+        self.organizer.paused = paused;
+        self.paused_card();
+    }
+
+    /// A paused run's card shows while nothing else runs or waits.
+    fn paused_card(&mut self) {
+        self.runs.finish(self.organizer.paused_card.take());
+        let Some(paused) = self.organizer.paused.as_ref() else {
+            return;
+        };
+        if self.organizer.busy() {
+            return;
+        }
+        let phase = match paused.ready {
+            true => Phase::Ready,
+            false => Phase::Paused,
+        };
+        let run = self.runs.start(paused.said(), phase);
+        let (done, total) = (paused.done, paused.total);
+        let name = String::new();
+        self.runs.beat(Beat {
+            run,
+            phase,
+            done,
+            total,
+            name,
+        });
+        self.runs.show_now();
+        self.organizer.paused_card = Some(run);
+    }
+
+    /// Asks whether a new run over `picked` replaces the paused one.
+    pub fn ask_replace(&mut self, picked: Option<Vec<BookId>>) {
+        self.folders.sheet = Some(super::Sheet::Replace(picked));
+    }
+
+    /// Drops the sheet asking to replace the paused run, if it's up.
+    pub fn close_replace(&mut self) {
+        if matches!(self.folders.sheet, Some(super::Sheet::Replace(_))) {
+            self.close_sheet();
+        }
     }
 
     /// A run began for `books`; its card says what with `label`.
     pub fn organizing(&mut self, books: impl IntoIterator<Item = BookId>, label: &str) {
         self.organizer_end();
         self.organizer.books = books.into_iter().collect();
+        self.paused_card();
         let label = format!("{} books · {label}", self.organizer.books.len());
         self.organizer.run = Some(self.runs.start(label, Phase::Shelving));
         // Held books can't move, so none stay picked.
@@ -199,6 +310,12 @@ impl LibraryState {
             }
             Heard::Failed(toast) => {
                 self.organizer_end();
+                // What was done is kept; the toast offers to carry on.
+                let resume = Command::Library(super::Action::ResumeOrganizing);
+                let toast = match &self.organizer.paused {
+                    Some(p) if !p.ready => toast.action("Resume", resume),
+                    _ => toast,
+                };
                 out.push(Command::Notify(toast));
             }
         }
@@ -207,7 +324,10 @@ impl LibraryState {
     /// The run stopped, or its plan was applied or let go: books move again.
     pub fn organizer_end(&mut self) {
         self.runs.finish(self.organizer.run.take());
+        let paused = self.organizer.paused.take();
+        self.runs.finish(self.organizer.paused_card.take());
         self.organizer = Organizer::default();
+        self.set_paused(paused);
     }
 
     pub(super) fn apply_organized(&mut self, out: &mut Commands) {
@@ -296,6 +416,22 @@ impl LibraryState {
 }
 
 impl LibraryState {
+    /// A made-up run over the loose books, stopped at 3 of 8 or `ready`.
+    pub fn organize_paused_demo(&mut self, ready: bool) {
+        let Ok(ask) = self.ask_organize(None) else {
+            return;
+        };
+        let books = ask.books.iter().map(|b| b.id).collect();
+        let done = if ready { 8 } else { 3 };
+        self.set_paused(Some(Paused {
+            done,
+            total: 8,
+            books,
+            whole: true,
+            ready,
+        }));
+    }
+
     /// A made-up run over the loose books, its plan up if `review`.
     pub fn organize_demo(&mut self, review: bool) {
         let Ok(ask) = self.ask_organize(None) else {

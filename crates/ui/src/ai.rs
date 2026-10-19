@@ -7,9 +7,9 @@ use std::sync::Arc;
 use mareader_settings::AiSettings;
 use mareader_study::Explainer;
 
-use crate::library::organizing::Heard;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::library::organizing::{Ask, Proposal, Spot};
+use crate::library::organizing::{Heard, Paused};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::toast::Toast;
 
@@ -70,14 +70,59 @@ impl Ai {
         self.assist.as_ref().map_or(0, |a| a.in_use(id))
     }
 
-    /// Starts filing `ask`'s books, `batch` a request; false without AI.
+    /// Files `ask`'s books, or carries on the paused run; false without AI.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn organize(&mut self, ask: &Ask, batch: u16) -> bool {
+    pub fn organize(&mut self, ask: &Ask, batch: u16, resume: bool) -> bool {
         let Some(assist) = &self.assist else {
             return false;
         };
-        self.organizing = Some(assist.organize(request(ask, batch)));
+        let req = request(ask, batch);
+        self.organizing = Some(match resume {
+            true => assist.resume(req),
+            false => assist.organize(req),
+        });
         true
+    }
+
+    /// The run a stop, a failure or quitting left, as the library shows it.
+    pub fn paused(&self) -> Option<Paused> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(run) = self.assist.as_ref().and_then(|a| a.paused()) {
+            let (done, total) = run.steps();
+            return Some(Paused {
+                done,
+                total,
+                books: run.books().map(mareader_library::BookId).collect(),
+                whole: run.whole,
+                ready: run.finished(),
+            });
+        }
+        None
+    }
+
+    /// Sets the paused run aside for an Undo; false if there was none.
+    pub fn set_aside(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(assist) = &self.assist {
+            return assist.set_aside();
+        }
+        false
+    }
+
+    pub fn bring_back(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(assist) = &self.assist {
+            return assist.bring_back();
+        }
+        false
+    }
+
+    /// Drops the paused run for good, once its plan is applied.
+    pub fn forget(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(assist) = &self.assist {
+            assist.forget();
+        }
     }
 
     /// What the library run said since the last call.
@@ -131,7 +176,7 @@ fn request(ask: &Ask, batch: u16) -> mareader_assist::Request {
         books,
         shelves,
         batch: usize::from(batch),
-        whole: false,
+        whole: ask.whole,
     }
 }
 

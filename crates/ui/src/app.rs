@@ -297,6 +297,8 @@ impl MareaderApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf, helper: Option<PathBuf>) {
         self.ai.attach(ctx, root, helper);
+        // A run stopped before quitting waits on its card.
+        self.library.set_paused(self.ai.paused());
     }
 
     /// Keeps language packs in `dir`.
@@ -793,7 +795,9 @@ impl MareaderApp {
             "organize" => match value {
                 "running" => self.library.organize_demo(false),
                 "review" => self.library.organize_demo(true),
-                _ => return Err("organize: running or review".into()),
+                "paused" => self.library.organize_paused_demo(false),
+                "ready" => self.library.organize_paused_demo(true),
+                _ => return Err("organize: running, review, paused or ready".into()),
             },
             // A shelf by its names from the top, as "Fiction/Classics".
             "shelf" => {
@@ -1709,37 +1713,72 @@ impl MareaderApp {
         self.reopen.1.clone()
     }
 
-    /// Asks the AI to shelve loose books; a toast says why it can't.
-    fn organize(&mut self, picked: Option<&[mareader_library::BookId]>) {
-        let ask = match self.library.ask_organize(picked) {
-            Ok(ask) => ask,
-            Err(why) => return self.toasts.push(Toast::info(why)),
-        };
+    /// Asks the AI to shelve loose books; a paused run asks first.
+    fn organize(&mut self, picked: Option<Vec<mareader_library::BookId>>, anew: bool) {
+        self.library.close_replace();
+        if !anew && self.library.organizer().paused().is_some() {
+            return self.library.ask_replace(picked);
+        }
+        match self.library.ask_organize(picked.as_deref()) {
+            Ok(ask) => self.start_organizing(&ask, false),
+            Err(why) => self.toasts.push(Toast::info(why)),
+        }
+    }
+
+    /// Carries on the paused run; one with nothing left is let go.
+    fn resume_organizing(&mut self) {
+        self.library.close_replace();
+        match self.library.ask_resume() {
+            Ok(ask) => self.start_organizing(&ask, true),
+            Err(why) => {
+                if !self.library.organizer().busy() {
+                    self.ai.forget();
+                    self.library.set_paused(None);
+                }
+                self.toasts.push(Toast::info(why));
+            }
+        }
+    }
+
+    /// Runs `ask`; a finished paused run needs no model to show its plan.
+    fn start_organizing(&mut self, ask: &library::organizing::Ask, resume: bool) {
         let ai = &self.settings.ai;
-        let Some(model) = ai
+        let ready = resume && self.library.organizer().paused().is_some_and(|p| p.ready);
+        let model = ai
             .organize_preset()
-            .map(mareader_settings::ModelPreset::title)
-        else {
+            .map(mareader_settings::ModelPreset::title);
+        let Some(model) = model.or_else(|| ready.then(|| "plan ready".to_owned())) else {
             let why = "Choose a model to organize with in Settings › AI.";
             return self.toasts.push(Toast::warning(why));
         };
         #[cfg(not(target_arch = "wasm32"))]
-        if self.ai.organize(&ask, ai.tasks.organize.batch) {
+        if self.ai.organize(ask, ai.tasks.organize.batch, resume) {
             self.library
                 .organizing(ask.books.iter().map(|b| b.id), &model);
             // A busy model says so at once.
             self.take_organized();
             return;
         }
-        let _ = (ask, model);
+        let _ = (ask, model, resume);
         self.toasts
             .push(Toast::warning("The AI isn't available here."));
     }
 
-    /// The library run's news, into the library.
+    /// The run's news, into the library; an ended run's steps are read back.
     fn take_organized(&mut self) {
+        let heard = self.ai.organized();
+        use library::organizing::Heard;
+        let over = |h: &Heard| !matches!(h, Heard::Progress { .. });
+        let empty = |h: &Heard| matches!(h, Heard::Plan(p) if p.placed.is_empty());
+        if heard.iter().any(empty) {
+            // A plan that moves nothing has nothing to review later.
+            self.ai.forget();
+            self.library.set_paused(None);
+        } else if heard.iter().any(over) {
+            self.library.set_paused(self.ai.paused());
+        }
         let mut out = Commands::new();
-        for heard in self.ai.organized() {
+        for heard in heard {
             self.library.heard(heard, &mut out);
         }
         for command in out {
@@ -1798,10 +1837,51 @@ impl MareaderApp {
                 let relink = move |path| Command::Library(A::Relink { book, path });
                 self.files.pick_book(ctx, format.extensions(), relink);
             }
-            A::Organize(picked) => self.organize(picked.as_deref()),
+            A::Organize(picked) => self.organize(picked, false),
+            A::OrganizeAnew(picked) => self.organize(picked, true),
+            A::ResumeOrganizing => self.resume_organizing(),
             A::StopOrganizing => {
                 self.ai.stop_organizing();
+                // What was done is kept; its card offers to carry on.
+                self.library.set_paused(self.ai.paused());
                 self.library.organizer_end();
+            }
+            A::DiscardPaused => {
+                let ready = self.library.organizer().paused().is_some_and(|p| p.ready);
+                if self.ai.set_aside() {
+                    let said = match ready {
+                        true => "Discarded the shelf plan.",
+                        false => "Discarded the paused run.",
+                    };
+                    let undo = Command::Library(A::RestorePaused);
+                    self.toasts.push(Toast::info(said).undo(undo));
+                }
+                self.library.set_paused(None);
+            }
+            A::RestorePaused => {
+                self.ai.bring_back();
+                self.library.set_paused(self.ai.paused());
+            }
+            A::ApplyOrganized | A::DiscardOrganized => {
+                // Applied, the run is done; a discarded plan can come back.
+                let undoable = match action {
+                    A::DiscardOrganized => self.ai.set_aside(),
+                    _ => {
+                        self.ai.forget();
+                        false
+                    }
+                };
+                self.library.set_paused(None);
+                let mut out = Commands::new();
+                self.library.act(action, ctx.input(|i| i.time), &mut out);
+                if undoable {
+                    let undo = Command::Library(A::RestorePaused);
+                    let said = "Discarded the shelf plan.";
+                    out.push(Command::Notify(Toast::info(said).undo(undo)));
+                }
+                for command in out {
+                    self.apply(ctx, command);
+                }
             }
             action => {
                 let mut out = Commands::new();
@@ -2631,6 +2711,8 @@ impl eframe::App for MareaderApp {
                     renaming: self.library.renaming(),
                     search: self.library.field(),
                     organizing: self.library.organizer().busy(),
+                    paused: (self.library.organizer().paused())
+                        .map(library::organizing::Paused::short),
                 };
                 // On a shelf, the breadcrumb names the page.
                 let title = if library.trail.is_empty() {

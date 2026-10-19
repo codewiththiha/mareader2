@@ -102,6 +102,8 @@ pub struct LibraryBar<'a> {
     pub search: Field,
     /// The AI is organizing: the menu can't start another run.
     pub organizing: bool,
+    /// How far a stopped run got: the menu offers to resume it.
+    pub paused: Option<String>,
 }
 
 /// Foldable tools, rightmost first; Settings and the pin live in the menu.
