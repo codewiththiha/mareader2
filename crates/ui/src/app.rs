@@ -2763,7 +2763,10 @@ impl eframe::App for MareaderApp {
             Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
             Route::Library | Route::Dictionary => 0.0,
         };
-        library::runs::show(&ctx, &mut self.library.runs, stage, lift, &mut commands);
+        // A paused run waits on the library page, off the pages read.
+        let paused = route == Route::Library;
+        let runs = &mut self.library.runs;
+        library::runs::show(&ctx, runs, (stage, lift), paused, &mut commands);
         let window = self.settings_scope();
         self.settings_window.show(
             &ctx,
