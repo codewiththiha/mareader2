@@ -12,6 +12,7 @@
 mod answer;
 mod explain;
 mod gloss;
+pub mod page;
 
 pub use answer::WordInfo;
 pub use explain::{Canned, Explainer, Failure, Unavailable, Why};

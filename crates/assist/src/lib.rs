@@ -30,10 +30,7 @@ pub use organize::{
     Checkpoint, Existing, Hooks, Loose, NewShelf, Place, Plan, Progress, Request, Spot, Stage,
     WAITS, organize, organize_from,
 };
-pub use page::{
-    Kept, Out, PAGE_CHARS, PageAsk, PageJob, PdfLine, Piece, Rewrite, Rewritten, Role, pdf_pieces,
-    rewrite,
-};
+pub use page::{PAGE_CHARS, PageAsk, PageJob, Rewrite, rewrite};
 pub use prompt::{Prompt, quote};
 pub use service::{Assist, Organized, Organizing, Rewriting, Rewrote, Waker};
 pub use slots::{Kind, Slots, Ticket};

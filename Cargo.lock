@@ -3002,6 +3002,9 @@ dependencies = [
 [[package]]
 name = "mareader-study"
 version = "0.0.2"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mareader-ui"
