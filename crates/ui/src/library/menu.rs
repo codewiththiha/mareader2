@@ -40,7 +40,11 @@ pub fn button(
                 out.push(Command::Library(Action::Shelf(ShelfAction::New)));
                 ui.close();
             }
-            organize_rows(ui, library, out);
+            let organizer = super::menus::Organizer {
+                busy: library.organizing,
+                paused: library.paused.as_deref(),
+            };
+            super::menus::organize_rows(ui, organizer, out);
             crate::view_menu::pin_row(ui, pinned, out);
             crate::view_menu::shortcuts_row(ui, platform, out);
             ui.separator();
@@ -49,45 +53,6 @@ pub fn button(
                 out.push(Command::SetLibraryView(next));
             }
         });
-}
-
-/// Organize with AI; a stopped run offers to resume or start over.
-fn organize_rows(ui: &mut Ui, library: &LibraryBar<'_>, out: &mut Commands) {
-    use super::menus::{ANEW, ANEW_TIP, ORGANIZE, ORGANIZE_TIP, ORGANIZING, RESUME, RESUME_TIP};
-    let busy = library.organizing;
-    let mut row = |ui: &mut Ui, icon, label, keys: Option<&str>, tip, action| {
-        let r = ui.add_enabled_ui(!busy, |ui| widgets::menu_row(ui, icon, label, keys, false));
-        if r.inner
-            .on_hover_text(tip)
-            .on_disabled_hover_text(ORGANIZING)
-            .clicked()
-        {
-            out.push(Command::Library(action));
-            ui.close();
-        }
-    };
-    match &library.paused {
-        Some(said) => {
-            let resume = Action::ResumeOrganizing;
-            row(ui, Icon::Resume, RESUME, Some(said), RESUME_TIP, resume);
-            row(
-                ui,
-                Icon::Rescan,
-                ANEW,
-                None,
-                ANEW_TIP,
-                Action::OrganizeAnew(None),
-            );
-        }
-        None => row(
-            ui,
-            Icon::Explain,
-            ORGANIZE,
-            None,
-            ORGANIZE_TIP,
-            Action::Organize(None),
-        ),
-    }
 }
 
 fn contents(ui: &mut Ui, view: &mut View, auto: u8) {

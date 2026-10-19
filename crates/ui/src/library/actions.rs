@@ -81,6 +81,8 @@ pub enum Action {
     Search(super::SearchAction),
     /// Asks the AI to shelve the picked books, else every loose one.
     Organize(Option<Vec<BookId>>),
+    /// The file dialog for books, landing on `shelf` (none: the top).
+    PickInto(Option<ShelfId>),
     /// Starts afresh, replacing any paused run.
     OrganizeAnew(Option<Vec<BookId>>),
     /// Pauses the AI run; its books move again, its steps are kept.
@@ -197,6 +199,7 @@ impl LibraryState {
             // Dialogs need the app's files, and the AI its service.
             Action::Organize(_)
             | Action::OrganizeAnew(_)
+            | Action::PickInto(_)
             | Action::ResumeOrganizing
             | Action::DiscardPaused
             | Action::RestorePaused
