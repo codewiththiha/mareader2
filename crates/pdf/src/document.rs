@@ -9,6 +9,7 @@ use hayro::hayro_interpret::{
 use hayro::hayro_syntax::Pdf;
 use hayro::kurbo::{Affine, Rect};
 use hayro::vello_cpu::color::palette::css::WHITE;
+use hayro::vello_cpu::peniko::ImageAlphaType;
 use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, TargetInit};
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
 
@@ -274,7 +275,7 @@ impl Document {
             &RenderSettings::default(),
             &settings,
         );
-        finish(&pixmap)
+        finish(pixmap)
     }
 
     /// hayro's `render`, shifted so the tile's corner is the origin.
@@ -300,19 +301,21 @@ impl Document {
             ..Default::default()
         };
         ctx.render_with(&mut pixmap, &mut Resources::default(), raster);
-        finish(&pixmap)
+        finish(pixmap)
     }
 }
 
-fn finish(pixmap: &Pixmap) -> Result<Raster, RenderError> {
+fn finish(pixmap: Pixmap) -> Result<Raster, RenderError> {
     let (width, height) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
     if width == 0 || height == 0 {
         return Err(RenderError::Failed);
     }
+    // Handed over, not copied: no second page-sized buffer.
+    let pixels = pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied);
     Ok(Raster {
         width,
         height,
-        pixels: pixmap.data_as_u8_slice().to_vec(),
+        pixels,
     })
 }
 
