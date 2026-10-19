@@ -32,10 +32,10 @@ no parity entry.
 - **Type.** A book's result is set in the pane's own typography, in the
   page's text column. A PDF's result uses the pane's font, scaled to the
   page, inside an 8% margin. PDF results are text only.
-- **Fitting.** A longer result, often a translation, is set smaller until
-  it fits the page, down to 72% of the reading size (never under 9). Past
-  that it scrolls inside the page with the wheel, and fades at the cut
-  edge.
+- **Fitting.** The result is exactly its page's size and moves with it:
+  the wheel scrolls the book, never the result. A longer result, often a
+  translation, is set smaller until it fits, down to 40% of the reading
+  size (never under 6). One longer still is drawn smaller as a whole.
 - **Streaming.** Words appear as they come, set again at most every 0.4 s.
   A redo keeps the old result on the page until the new words arrive.
 - **Bubbles.** Each result on a page gets a numbered bubble at the page's

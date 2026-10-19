@@ -12,9 +12,9 @@ use crate::gpu::Gpu;
 use crate::pages::PageTexture;
 
 /// The smallest share of the reader's size a result shrinks to.
-const MIN_SHARE: f32 = 0.72;
+const MIN_SHARE: f32 = 0.4;
 /// Never smaller than this, in layout units, however it is shared.
-const MIN_SIZE: f32 = 9.0;
+const MIN_SIZE: f32 = 6.0;
 /// Seconds an unseen card is kept before its texture goes.
 const KEEP: f64 = 3.0;
 
@@ -229,7 +229,7 @@ fn on_white(mut raster: Raster) -> Raster {
     raster
 }
 
-/// The largest size that fits one page; past the least, it runs on.
+/// The largest size that fits one page; past the least, it is drawn smaller.
 fn fit(job: &Job) -> Flow {
     let base = job.typo.font_size.max(1.0);
     let least = (base * MIN_SHARE).max(MIN_SIZE.min(base));
@@ -253,9 +253,9 @@ fn fit(job: &Job) -> Flow {
     if set(least, false).page_count() > 1 {
         return set(least, true);
     }
-    // A half-unit search: six tries cover any reader's range.
+    // Eight halvings land within a fifth of a unit at any reading size.
     let (mut lo, mut hi) = (least, base);
-    for _ in 0..6 {
+    for _ in 0..8 {
         let mid = (lo + hi) / 2.0;
         if set(mid, false).page_count() <= 1 {
             lo = mid;
