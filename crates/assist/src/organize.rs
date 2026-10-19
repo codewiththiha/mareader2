@@ -293,7 +293,7 @@ async fn file(
 }
 
 /// Busy, offline and slow servers often recover in seconds.
-fn passing(why: Why) -> bool {
+pub(crate) fn passing(why: Why) -> bool {
     matches!(why, Why::Busy | Why::Offline | Why::TimedOut)
 }
 

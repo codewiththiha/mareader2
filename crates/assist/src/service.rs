@@ -16,6 +16,7 @@ use crate::board::{AppleState, Board, Job, Reply, Tried, lanes};
 use crate::compat::{Compat, failure_with_keys};
 use crate::keys::{Clients, pasted, row};
 use crate::organize::{Checkpoint, Hooks, Plan, Progress, Request, WAITS, organize_from};
+use crate::page::{PageJob, Rewritten, rewrite};
 use crate::prompt::Prompt;
 use crate::slots::{Kind, Slots, Ticket};
 use crate::task::Explain;
@@ -256,6 +257,41 @@ impl Assist {
         }
     }
 
+    /// Rewrites one page with its task's model; news comes by polling.
+    pub fn rewrite(&self, job: PageJob) -> Rewriting {
+        let (tx, rx) = channel();
+        let Some(rt) = self.engine.rt() else {
+            let _ = tx.send(Rewrote::Done(Err(Why::NotHere.into())));
+            return Rewriting { rx, task: None };
+        };
+        let preset = self.ai.page_preset(job.rewrite.task()).cloned();
+        let backend = preset.as_ref().map(|p| self.backend(p));
+        let (slots, waker) = (self.slots.clone(), Arc::clone(&self.waker));
+        let task = rt.spawn(async move {
+            let say = |event| {
+                let _ = tx.send(event);
+                waker();
+            };
+            let (Some(preset), Some(backend)) = (preset, backend) else {
+                let none = "no model is chosen for this; pick one in Settings › AI";
+                return say(Rewrote::Done(Err(Failure::detailed(Why::NotHere, none))));
+            };
+            let ticket = match short_slot(&slots, &preset, backend.as_ref()).await {
+                Ok(ticket) => ticket,
+                Err(f) => return say(Rewrote::Done(Err(f))),
+            };
+            let ask = job.ask();
+            let partial = |r| say(Rewrote::Partial(r));
+            let done = rewrite(backend.as_ref(), &ask, &partial, &WAITS).await;
+            drop(ticket);
+            say(Rewrote::Done(done));
+        });
+        Rewriting {
+            rx,
+            task: Some(task),
+        }
+    }
+
     pub fn board(&self) -> &Board {
         &self.board
     }
@@ -405,6 +441,41 @@ impl Organizing {
 }
 
 impl Drop for Organizing {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
+/// News from a page rewrite.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Rewrote {
+    /// What has come so far, shown while the rest streams in.
+    Partial(Rewritten),
+    /// The last event: the result, or why there's none.
+    Done(Result<Rewritten, Failure>),
+}
+
+/// A rewrite under way; dropping it cancels it and frees its model.
+pub struct Rewriting {
+    rx: Receiver<Rewrote>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Rewriting {
+    /// Events since the last call, oldest first.
+    pub fn poll(&mut self) -> Vec<Rewrote> {
+        self.rx.try_iter().collect()
+    }
+
+    /// Stops the rewrite; no more events come.
+    pub fn cancel(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+impl Drop for Rewriting {
     fn drop(&mut self) {
         self.cancel();
     }
