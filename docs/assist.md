@@ -131,3 +131,109 @@ assist: the AI tab is hidden and Explain says it can't answer.
 
 A small HTTP server in `tests/support` stands in for providers; it
 records what it was asked. Nothing in CI calls a real provider.
+
+## Saved models and tasks (2026-10-19)
+
+Settings schema v5 replaces the one chosen provider described above with
+saved models that tasks pick from:
+
+- **`ModelPreset`**: an id, a name (blank suggests one from the provider
+  and model), a provider, a model, and **At once**, 1 to 8 tasks at the
+  same time (default 1). The same provider and model may be saved twice,
+  e.g. under another name with a different At once, to give one task its
+  own room.
+- **`AiTasks`**: one entry per task. `explain` has `preset` and
+  `language`; `organize` has `preset` (none follows Explain's model) and
+  `batch`, the books per request (10 to 200, default 50).
+- **`Endpoint`** now holds only a provider's address; keys stay per
+  provider, so every saved model of a provider shares its keys.
+
+Loading a v4 file moves its provider and that provider's model into one
+saved model and gives it to Explain. Automatic becomes Apple Intelligence
+on a Mac and no model elsewhere.
+
+A new task adds a field to `AiTasks`, a resolver on `AiSettings` (as
+`organize_preset()`, which may fall back to another task's model), and a
+row under Tasks in Settings › AI.
+
+## Room: how many tasks a model runs
+
+Every task holds a slot of its model's `Slots` while it runs (`slots.rs`).
+A `Ticket` frees its slot when dropped, so a task that fails, finishes or
+is cancelled frees it at once.
+
+- **Capacity** is At once × usable keys: keys not set aside, at least one.
+  Keyless providers count one. ai-pool rotates keys request by request, so
+  tasks running together already go out on different keys.
+- **Keys from one account share its limits.** OpenAI counts rate limits per
+  organisation and project, Gemini per project. More keys from one account
+  add room here but rarely more throughput; the AI tab says so.
+- **Short tasks** (Explain) wait up to 15 s behind other short ones.
+  **Long tasks** (the organizer) never wait, and nothing waits behind a long
+  task.
+- **A refusal** is `Why::InUse`, naming the model, who holds it, and how to
+  get room: "“Fast” is organizing your library and runs 1 task at a time.
+  Raise “At once” or pick another model in Settings › AI."
+- Each saved model's summary shows its capacity, how many tasks run now,
+  and which tasks use it.
+
+## Workflows: the organizer
+
+Organizing is a fixed workflow, not an open-ended agent loop: the steps
+are known, so code runs them and checks every answer before the next step.
+That keeps the cost predictable and the result reviewable. The plan builds
+the shelf tree over batches first, then files each book; the same split
+appears in the TnT-LLM taxonomy work (KDD 2024).
+
+1. **Shelving.** Each batch of `batch` books (title and author, quoted as
+   data) is shown with every shelf so far, both existing and new. The model
+   answers `{"shelves": ["Fiction > Classics", …]}`. A batch may add no
+   shelves.
+2. **Filing.** For each batch the model sees numbered shelves and books
+   `b1…`, and answers each book's shelf number; 0 leaves it on no shelf.
+   Books it skipped or misnumbered are asked once more, then left on no
+   shelf.
+
+Guards, all in `organize.rs`:
+
+- Paths split on `>` and `›` only, so names may hold `/`.
+- Names match existing shelves ignoring case.
+- Depth is capped at 5 (deeper ones fold into their parent), new shelves at
+  120, and names at 60 characters.
+- An unreadable answer is asked again once. A shelving batch still
+  unreadable is skipped; a transport error fails the run.
+- New shelves left empty are dropped. In the `Plan`, a new shelf's parent
+  always comes before it.
+
+**Chat-only models.** Every step is an ordinary task, so it goes through
+the same `structured` request: a JSON Schema first, then `json_object`,
+then a plain prompt that spells out the reply. The system text ends
+"Reply with one JSON object only", and ai-pool cuts the JSON out of code
+fences, `<think>` blocks or surrounding prose. Anything that doesn't read
+into the expected shape counts as unreadable, so the workflow never
+guesses.
+
+**The service.** `Assist::organize(Request)` returns an `Organizing` at
+once and runs on the runtime:
+
+- It holds a long slot named "organizing your library". A full model
+  answers `InUse` straight away; no model chosen is `NotHere`.
+- `poll()` returns `Organized::Progress` events (one at the start, then one
+  per request, out of 2 × batches), then a final `Done` with the plan or
+  the failure.
+- `cancel()`, or dropping the handle, stops the run and frees its slot.
+
+The crate knows nothing of the library: books and shelves go in and come
+back as `u128` keys (`BookId.0`, `ShelfId.0`). What the library does with
+the plan is in `docs/library.md`, § AI organizer.
+
+A new workflow is the same shape: write its tasks, chain them in an async
+function over `&dyn Backend`, and start it from `Assist` holding a slot.
+
+### Its tests
+
+- `src/organize.rs`: a scripted backend answers each step: 100 books
+  in two batches, the repair round, unreadable answers and a dead server,
+  paths tidied and capped in depth, and titles quoted as data.
+- `tests/service.rs`: a chatty model with no JSON mode organizes books
+  while holding its model; a busy model refuses, and cancelling frees it.

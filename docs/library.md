@@ -866,3 +866,44 @@ holds; in particular folders are no longer read-only source trees (see
 - **Kept apart from mareader.** The progress card leaves when its run
   ends and the toast reports the outcome; mareader kept a finished card
   until dismissed. Twins stay independent ("Read separately").
+
+## AI organizer (2026-10-19)
+
+The AI can shelve loose books. How it plans is in `docs/assist.md`,
+§ Workflows; this is what the library does with the plan.
+
+- **Starting.** "Organize with AI" sits under New shelf in View options and
+  on the page's right-click menu, and covers every loose book. On a long
+  press, the selection bar's sparkle button ("Organize these with AI")
+  covers the picked books.
+- **Which books.** Only imported copies on no shelf whose file is there.
+  Books read in place from a folder are never touched, even off every
+  shelf. If none qualify, or no model is chosen, a toast says why.
+- **Which shelves.** Every shelf goes to the model, folder shelves too, so
+  the plan may file onto any of them. Shelves are never locked.
+- **While it runs.** A corner card shows a ring, "Planning shelves…" or
+  "Filing books…", the count and the model, with ✕ to stop. The books get
+  a sparkle badge; they open as usual, but they don't move. A drag won't
+  lift them, a selection carries the others, and a menu move leaves them
+  with a toast. One run at a time.
+- **The plan.** A sheet shows the tree: existing shelves by their path,
+  new ones tagged New, each with its count and first titles, and the books
+  left on no shelf. Only Apply or Discard closes it. It waits behind any
+  other sheet, as questions do, so another sheet can't lose it. If it
+  comes in while the reader is reading, a toast says so.
+- **Apply** makes the new shelves, parents first, and files each book.
+  Books that changed meanwhile (shelved, removed or missing) stay put, and
+  the toast counts them. A new shelf left empty isn't kept.
+- **Undo**, on that toast, takes the books off again and removes the new
+  shelves that are empty.
+
+Code: `crates/ui/src/library/organizing.rs` (which books qualify, the run's
+state, Apply and Undo), `review.rs` (the sheet), `runs.rs` (the card), and
+`crates/ui/src/ai.rs`, which turns the library's ask into the service's
+keys and its news back. The library side never names `mareader_assist`,
+so it builds for the browser preview too.
+
+Tests: the unit tests in `organizing.rs`, `review.rs` and `runs.rs`, and
+`crates/ui/tests/organize.rs` (a run held and stopped, Apply then Undo,
+Discard, the View options row, books read in place refused). Shots:
+`organize=running` or `organize=review` with `copies=N`.

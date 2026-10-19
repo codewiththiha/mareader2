@@ -407,3 +407,19 @@ The Notes panel reads like a notebook as a book's highlights grow.
   chapter hold every word typed, in any case; matches are washed in the
   accent. Escape or × clears it. It narrows within the filter chosen.
 - Copy all and Export take what the search leaves, like the filters.
+
+## Meaning in another language (2026-10-19)
+
+Settings › AI › Tasks › **Meaning in** picks the language of Explain's
+meaning: the book's language (the default) or one of 40 listed ones.
+
+- Only the meaning changes. The part of speech, synonyms and usages stay in
+  the language of the text.
+- In another language, the meaning reads like a bilingual dictionary: the
+  closest equivalent of the word in that sense, with a short explanation
+  only when no equivalent fits exactly. The schema's description of
+  `meaning` says the same, since field descriptions steer models too.
+- Apple Intelligence writes only the languages it reports
+  (`supportedLanguages`, matched on the primary subtag). The others are
+  greyed out in the list, and a language chosen earlier that it can't
+  write gets a note under Tasks.
