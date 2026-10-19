@@ -146,6 +146,12 @@ impl Ai {
         }
     }
 
+    /// Rewrites a page; none without the service.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn rewrite(&self, job: mareader_assist::PageJob) -> Option<mareader_assist::Rewriting> {
+        self.assist.as_ref().map(|a| a.rewrite(job))
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn send(&mut self, job: Job) {
         if let Some(assist) = &mut self.assist {

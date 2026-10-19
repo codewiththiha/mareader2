@@ -14,6 +14,7 @@ use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupF
 
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
+use crate::page_ai;
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::reach::{self, Press, Stop};
 use crate::selection::{self, Pages, Selection, Sheet};
@@ -169,6 +170,10 @@ pub struct PdfView {
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
+    /// How far each page's AI result is scrolled, in page units.
+    card_scroll: std::collections::HashMap<usize, f32>,
+    /// The AI results on screen last frame, for the wheel.
+    cards: Vec<page_ai::CardHit>,
 }
 
 impl PdfView {
@@ -202,6 +207,8 @@ impl PdfView {
             jump: None,
             ease: true,
             place: None,
+            card_scroll: std::collections::HashMap::new(),
+            cards: Vec::new(),
         }
     }
 
@@ -465,6 +472,8 @@ pub struct ViewContext {
     pub found: Option<crate::search::Lit>,
     /// Shots: opens the newest drawn mark's menu.
     pub menu_shot: bool,
+    /// The page AI's bubbles and results on the pages shown.
+    pub ai: Vec<page_ai::Overlay>,
 }
 
 /// The Layout settings the pages follow.
@@ -545,6 +554,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let now = ctx.input(|i| i.time);
     view.ease = motion::zoom(&ctx);
     let frame = ui.max_rect();
+    card_wheel(&ctx, view, frame);
     let sizes = doc.page_sizes();
     // A book's vertical strip is a stream: each page cut to its text.
     let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
@@ -737,6 +747,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let wanted = |page: usize| landing.as_ref().is_none_or(|r| r.contains(&page));
     let mut shown_pages = 0..0;
     let mut sheets = Vec::new();
+    // Pages under an AI result, and where each result's text sits.
+    let (mut covered, mut card_hits) = (Vec::new(), Vec::new());
     let mut paper_at = None;
     let mut follow = None;
     // Where a link was clicked, for a footnote's card to point at.
@@ -744,6 +756,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let mut double = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
+    let card_scroll = &view.card_scroll;
     let out = area
         .auto_shrink(false)
         // The view runs its own glides, so each delta lands this frame.
@@ -850,6 +863,20 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     let emojis = doc.emojis(page).into_iter().map(to_screen);
                     keep_pictures(&mut quads, first, emojis, emoji_tone);
                 }
+                let overlay = cx.ai.iter().find(|o| o.page == page);
+                if let Some(shown) = overlay.and_then(|o| o.card.as_ref()) {
+                    let scroll = card_scroll.get(&page).copied().unwrap_or(0.0);
+                    let tones = (&t, picture_tone, emoji_tone);
+                    let hit = page_ai::paint::card(
+                        ui,
+                        ((rect, clip), anchor),
+                        (page, shown, scroll),
+                        tones,
+                        &mut quads,
+                    );
+                    covered.push(page);
+                    card_hits.extend(hit);
+                }
                 sheets.push(Sheet {
                     page,
                     rect,
@@ -870,9 +897,16 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 ui.painter().add(shape);
                 drawn.extend(quads);
             }
+            page_ai::paint::fades(ui, &card_hits, &t);
+            // A result covers its page's text: nothing there selects or marks.
+            let open: Vec<Sheet> = sheets
+                .iter()
+                .filter(|s| !covered.contains(&s.page))
+                .copied()
+                .collect();
             let text = Pages {
                 doc: doc_id,
-                sheets: &sheets,
+                sheets: &open,
                 texts,
                 sideways: !down,
                 lift: cx.lift,
@@ -915,6 +949,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
+            ai_bubbles(ui, &sheets, &cx.ai, &t, gloss);
             follow = did.follow;
             clicked = did.click;
             double = did.double;
@@ -955,6 +990,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     at,
                     words,
                 });
+            } else if let (Some(at), None) = (did.context, &cx.picked)
+                && !on_selection(&text, *selection, at)
+                && let Some(s) = sheets.iter().find(|s| s.shown.contains(at))
+            {
+                gloss.push(Gloss::PageMenu { page: s.page, at });
             } else if cx.menu_shot
                 && let Some(m) = placed.last()
             {
@@ -1040,6 +1080,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         view.current = layout.locate(centre).map_or(0, |(page, _)| page);
     }
     view.progress = progress(view, layout, &out, sizes.len());
+    view.card_scroll
+        .retain(|p, _| card_hits.iter().any(|h| h.page == *p));
+    view.cards = card_hits;
     view.visible = shown_pages;
     view.sheets = sheets;
     // Nothing shown, as mid-jump: the backdrop holds its colour.
@@ -1200,6 +1243,74 @@ fn mark_of(
         }
     }
     best.map(|(_, page, at)| (page, at))
+}
+
+/// The wheel over an AI result scrolls it, until it can go no further.
+fn card_wheel(ctx: &egui::Context, view: &mut PdfView, frame: Rect) {
+    let Some(p) = ctx
+        .input(|i| i.pointer.hover_pos())
+        .filter(|p| frame.contains(*p))
+    else {
+        return;
+    };
+    let Some(hit) = view
+        .cards
+        .iter()
+        .find(|h| h.max > 0.0 && h.rect.contains(p))
+        .copied()
+    else {
+        return;
+    };
+    let dy = ctx.input(|i| i.smooth_scroll_delta.y);
+    let at = view.card_scroll.entry(hit.page).or_insert(0.0);
+    let to = (*at - dy / hit.scale.max(1e-3)).clamp(0.0, hit.max);
+    if (to - *at).abs() > f32::EPSILON {
+        *at = to;
+        ctx.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+        ctx.request_repaint();
+    }
+}
+
+/// The AI's bubbles, over everything else on their pages.
+fn ai_bubbles(
+    ui: &Ui,
+    sheets: &[Sheet],
+    ai: &[page_ai::Overlay],
+    t: &Tokens,
+    gloss: &mut Vec<Gloss>,
+) {
+    for o in ai.iter().filter(|o| !o.bubbles.is_empty()) {
+        let Some(s) = sheets.iter().find(|s| s.page == o.page) else {
+            continue;
+        };
+        let page = o.page;
+        match page_ai::paint::bubbles(ui, (s.rect, s.shown), page, &o.bubbles, t) {
+            Some(page_ai::paint::Press::Pick(index, at)) => {
+                gloss.push(Gloss::Bubble { page, index, at });
+            }
+            Some(page_ai::paint::Press::Menu(index, at)) => {
+                gloss.push(Gloss::BubbleMenu { page, index, at });
+            }
+            None => {}
+        }
+    }
+}
+
+/// A right-click on selected text belongs to the selection.
+fn on_selection(pages: &Pages<'_>, selection: Option<Selection>, at: Pos2) -> bool {
+    let Some(sel) = selection.filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    let Some(s) = pages.sheets.iter().find(|s| s.shown.contains(at)) else {
+        return false;
+    };
+    let Some(layer) = pages.texts.get(pages.doc, s.page) else {
+        return false;
+    };
+    let (x, y) = s.to_page(at);
+    let hit = layer.text.char_at(x, y);
+    let range = sel.on_page(s.page, layer.text.len());
+    hit.zip(range).is_some_and(|(i, r)| r.contains(&i))
 }
 
 /// A key at a focused stop does what a click there would.
@@ -1530,7 +1641,7 @@ fn streamed(cut: Rect, band: &Band, size: Option<&PageSize>, zoom: f32, ppp: f32
 }
 
 /// What a page shows before it is drawn: a blank page, themed.
-fn blank(t: &Tokens) -> Color32 {
+pub(crate) fn blank(t: &Tokens) -> Color32 {
     let [r, g, b] = t.page.blank().map(|c| (c * 255.0).round() as u8);
     Color32::from_rgb(r, g, b)
 }
@@ -1556,7 +1667,7 @@ fn clear_of_corners(ui: &Ui, clip: Rect, (frame, radius): (Rect, f32)) -> Vec<eg
 }
 
 /// Draws `quads` from `first` again over `pictures` in `tone`, undimmed.
-fn keep_pictures(
+pub(crate) fn keep_pictures(
     quads: &mut Vec<Quad>,
     first: usize,
     pictures: impl Iterator<Item = Rect>,

@@ -123,6 +123,17 @@ enum Content {
     Pdf(Box<PdfView>),
 }
 
+/// One pane's document as the page AI sees it, as of last frame.
+#[derive(Clone, Debug)]
+pub struct AiView {
+    pub doc: DocId,
+    pub document: Arc<Document>,
+    /// What a result is set in.
+    pub typo: Arc<Typography>,
+    pub visible: std::ops::Range<usize>,
+    pub zoom: f32,
+}
+
 /// One pane's document as navigation sees it, as of last frame.
 #[derive(Clone, Debug)]
 pub struct Reading {
@@ -555,6 +566,31 @@ impl Documents {
                 .find(|s| s.page == view.current)
                 .map(|s| s.rect),
         })
+    }
+
+    /// What the page AI reads of `pane`'s document.
+    pub fn ai_view(&self, pane: PaneId) -> Option<AiView> {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return None;
+        };
+        let entry = self.session.as_ref()?.get(view.doc)?;
+        // A book keeps the type it was set in; a PDF takes the pane's.
+        let typo = match entry.doc.is_reflowable() {
+            true => Arc::clone(&entry.typo),
+            false => Arc::clone(self.typo(pane)),
+        };
+        Some(AiView {
+            doc: view.doc,
+            document: Arc::clone(&entry.doc),
+            typo,
+            visible: view.visible.clone(),
+            zoom: view.zoom.sharp(),
+        })
+    }
+
+    /// Page `page`'s text, if it has come.
+    pub fn text_layer(&self, doc: DocId, page: usize) -> Option<Arc<mareader_session::TextLayer>> {
+        self.texts.get(doc, page)
     }
 
     /// The thumbnail grid for `pane`'s document; false if it has none.

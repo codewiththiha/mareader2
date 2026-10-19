@@ -77,6 +77,8 @@ pub struct MareaderApp {
     chromeless: bool,
     /// Shots: the newest mark's menu opens once it is drawn.
     menu_shot: bool,
+    /// Shots and tests: a page AI result to keep and show on a page.
+    page_ai_seed: Option<(usize, mareader_library::AiTask)>,
     tree: PaneTree,
     active: PaneId,
     /// Panes by last focus, latest first: blend's paper follows them.
@@ -88,6 +90,7 @@ pub struct MareaderApp {
     toasts: Toasts,
     /// The selection bar's answers, marks and the word card.
     study: Study,
+    page_ai: crate::page_ai::PageAi,
     /// Who answers Explain, and the AI settings' background work.
     ai: crate::ai::Ai,
     /// Language packs, the lookup card and the Dictionary panel.
@@ -177,6 +180,7 @@ impl MareaderApp {
             platform: Platform::current(),
             chromeless: false,
             menu_shot: false,
+            page_ai_seed: None,
             tree: PaneTree::new(),
             active: PaneId(1),
             recent: Vec::new(),
@@ -186,6 +190,7 @@ impl MareaderApp {
             search: Search::default(),
             toasts: Toasts::default(),
             study: Study::default(),
+            page_ai: crate::page_ai::PageAi::default(),
             ai: crate::ai::Ai::default(),
             dict: crate::dict::Dict::default(),
             vocab: crate::vocab::Vocab::default(),
@@ -600,6 +605,10 @@ impl MareaderApp {
         &self.study
     }
 
+    pub fn page_ai(&self) -> &crate::page_ai::PageAi {
+        &self.page_ai
+    }
+
     /// The marks `pane` shows, wherever they are kept.
     pub fn marks(&self, pane: PaneId) -> Vec<crate::study::marks::Shown> {
         let book = self.library.book_in(&self.documents, pane);
@@ -675,6 +684,7 @@ impl MareaderApp {
                 self.documents.set_workers(n);
                 self.library.set_inline(n == 0);
                 self.study.set_inline(n == 0);
+                self.page_ai.set_inline(n == 0);
                 self.dict.set_inline(n == 0);
                 self.search.set_inline(n == 0);
             }
@@ -915,6 +925,20 @@ impl MareaderApp {
                     bookmark: true,
                     pick: false,
                 });
+            }
+            // A page AI result kept for a page and shown, as `3:simplify`.
+            "page_ai" => {
+                let (page, task) = value.split_once(':').ok_or("page_ai: page:task")?;
+                let page = page.parse::<usize>().map_err(|e| e.to_string())?;
+                let task = match task {
+                    "summary" => mareader_library::AiTask::Summary,
+                    "points" => mareader_library::AiTask::Points,
+                    "simplify" => mareader_library::AiTask::Simplify,
+                    tag => mareader_library::AiTask::Translate {
+                        language: tag.to_owned(),
+                    },
+                };
+                self.page_ai_seed = Some((page, task));
             }
             // Explains the staged selection: its card opens.
             "gloss" => match self.staged.back_mut() {
@@ -1202,6 +1226,27 @@ impl MareaderApp {
             Some(staged) => self.staged.push_front(staged),
             None => {}
         }
+        if let Some((page, task)) = self.page_ai_seed.clone()
+            && shown(page)
+        {
+            let book = self.library.book_in(&self.documents, pane);
+            let name = self.documents.title(pane).unwrap_or_default().to_owned();
+            let asked = crate::page_ai::Asked {
+                pane,
+                page,
+                book,
+                name: &name,
+                documents: &self.documents,
+                ai: &self.ai,
+                settings: &self.settings.ai,
+            };
+            let now = ctx.input(|i| i.time);
+            let model = self.library.model_mut();
+            if self.page_ai.seed(asked, model, task, now) {
+                self.page_ai_seed = None;
+            }
+            ctx.request_repaint();
+        }
         for (pane, gloss) in self.documents.take_gloss() {
             match gloss {
                 Gloss::Explain => out.push(Command::Explain(pane)),
@@ -1243,6 +1288,14 @@ impl MareaderApp {
                     }
                 }
                 Gloss::Lift(_) => {}
+                Gloss::PageMenu { page, at } => self.page_ai.open_menu(pane, page, at),
+                Gloss::Bubble { page, index, at } => {
+                    let now = ctx.input(|i| i.time);
+                    self.page_ai.pick(pane, page, index, at, now);
+                }
+                Gloss::BubbleMenu { page, index, at } => {
+                    self.page_ai.open_bubble_menu(pane, page, index, at);
+                }
             }
         }
         for (pane, _) in &self.pane_rects {
@@ -1267,6 +1320,12 @@ impl MareaderApp {
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
         self.study.show(ctx, model, &self.pane_rects, looks, out);
+        let gpu = self.documents.gpu();
+        self.page_ai
+            .receive(ctx, self.library.model_mut(), gpu, out);
+        let model = self.library.model();
+        self.page_ai
+            .show(ctx, &self.settings.ai, model, &self.pane_rects, out);
         self.dict.poll();
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
@@ -1344,6 +1403,65 @@ impl MareaderApp {
         let offset = self.documents.offset(pane);
         let to = self.settings.dictionary.default_lang.clone();
         self.dict.look_up(pane, word, rect, offset, to);
+    }
+
+    /// What the page AI's menus asked for.
+    fn page_ai_act(&mut self, ctx: &Context, action: crate::page_ai::Action) {
+        use crate::page_ai::{Action, task_for};
+        let now = ctx.input(|i| i.time);
+        let mut out = Commands::new();
+        let task = match &action {
+            Action::Run { task, .. } => task_for(*task, &self.settings.ai),
+            Action::Translate { tag, .. } => {
+                self.settings.ai.tasks.translate.pick(tag);
+                Some(mareader_library::AiTask::Translate {
+                    language: tag.clone(),
+                })
+            }
+            _ => None,
+        };
+        match action {
+            Action::Run { pane, page, .. } | Action::Translate { pane, page, .. } => {
+                let Some(task) = task else { return };
+                let book = self.library.book_in(&self.documents, pane);
+                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                self.documents.clear_selection(pane);
+                let asked = crate::page_ai::Asked {
+                    pane,
+                    page,
+                    book,
+                    name: &name,
+                    documents: &self.documents,
+                    ai: &self.ai,
+                    settings: &self.settings.ai,
+                };
+                self.page_ai.run(asked, task, now, &mut out);
+            }
+            Action::Redo { pane, page, slot } => {
+                let book = self.library.book_in(&self.documents, pane);
+                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let asked = crate::page_ai::Asked {
+                    pane,
+                    page,
+                    book,
+                    name: &name,
+                    documents: &self.documents,
+                    ai: &self.ai,
+                    settings: &self.settings.ai,
+                };
+                let model = self.library.model();
+                self.page_ai.again(asked, model, slot, now, &mut out);
+            }
+            Action::Show { pane, page, slot } => self.page_ai.show_result(pane, page, slot, now),
+            Action::Copy(slot) => {
+                if let Some(text) = self.page_ai.text_of(self.library.model(), slot) {
+                    ctx.copy_text(text);
+                    out.push(Command::Notify(Toast::info("Copied")));
+                }
+            }
+            Action::Delete(slot) => self.page_ai.delete(self.library.model_mut(), slot),
+        }
+        self.queued.extend(out);
     }
 
     /// Explain: the pane's selected word, marked, its card open.
@@ -1599,6 +1717,7 @@ impl MareaderApp {
                 self.study.act(ctx, model, action, &mut out);
                 self.queued.extend(out);
             }
+            Command::PageAi(action) => self.page_ai_act(ctx, action),
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
@@ -2628,6 +2747,7 @@ impl eframe::App for MareaderApp {
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         let (library, library_view) = (&mut self.library, &self.settings.library);
         let study = &mut self.study;
+        let page_ai = &mut self.page_ai;
         study.begin_frame();
         let highlights = &self.settings.study.highlights;
         let vocab = &mut self.vocab;
@@ -2688,6 +2808,11 @@ impl eframe::App for MareaderApp {
                         .as_ref()
                         .filter(|(p, _)| *p == id)
                         .map(|(_, l)| l.clone()),
+                    ai: {
+                        let book = library.book_in(documents, id);
+                        let name = documents.title(id).unwrap_or_default();
+                        page_ai.overlays(&ctx, id, library.model(), documents, (book, name))
+                    },
                 };
                 documents.show(ui, id, &cx, Some(&mut *vocab))
             });

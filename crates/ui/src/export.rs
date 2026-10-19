@@ -172,7 +172,7 @@ fn one_line(s: &str) -> String {
 }
 
 /// The UTC date of `ms`, as 2026-10-17.
-fn date(ms: u64) -> String {
+pub(crate) fn date(ms: u64) -> String {
     let (y, m, d) = civil(ms / 86_400_000);
     format!("{y:04}-{m:02}-{d:02}")
 }

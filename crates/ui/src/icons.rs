@@ -97,6 +97,12 @@ pub enum Icon {
     /// A highlight's note, and the panel that gathers them.
     Note,
     Bookmark,
+    /// The page AI's tasks.
+    Summarize,
+    Translate,
+    Simplify,
+    Stop,
+    Show,
 }
 
 impl Icon {
@@ -173,6 +179,11 @@ impl Icon {
             Self::Rename => Lucide::Pencil,
             Self::Note => Lucide::StickyNote,
             Self::Bookmark => Lucide::Bookmark,
+            Self::Summarize => Lucide::ScrollText,
+            Self::Translate => Lucide::Languages,
+            Self::Simplify => Lucide::Feather,
+            Self::Stop => Lucide::CircleStop,
+            Self::Show => Lucide::Eye,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,
