@@ -214,6 +214,15 @@ fn erased_words_leave_the_files_while_the_store_stays_open() {
     lib.add_mark(a, word, 1_100);
     let mark = lib.marks(a)[0].id;
     assert!(lib.set_note(mark, Some("quokkanote".into()), 1_200));
+    // The Explain card's saved answer.
+    let gloss = crate::Gloss {
+        pos: "noun".into(),
+        meaning: "okapimeaning".into(),
+        synonyms: vec!["dikdiksynonym".into()],
+        usages: vec!["a gerenukusage here".into()],
+        by: "Gemini".into(),
+    };
+    assert!(lib.set_gloss(mark, Some(gloss), 1_250));
     let page = crate::NewAiPage {
         task: crate::AiTask::Simplify,
         span: crate::PageSpan::Page { page: 1 },
@@ -235,7 +244,14 @@ fn erased_words_leave_the_files_while_the_store_stays_open() {
             .into_iter()
             .any(|b| b.windows(needle.len()).any(|w| w == needle.as_bytes()))
     };
-    let secrets = ["zebrafinch", "quokkanote", "narwhalresult"];
+    let secrets = [
+        "zebrafinch",
+        "quokkanote",
+        "okapimeaning",
+        "dikdiksynonym",
+        "gerenukusage",
+        "narwhalresult",
+    ];
     write(&mut lib);
     assert!(secrets.iter().all(|s| on_disk(s)), "written first");
     lib.remove_books(&[a], crate::Data::Delete, 2_000);

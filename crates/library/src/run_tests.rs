@@ -317,6 +317,16 @@ fn kept_data_comes_back_with_the_file_and_deleted_data_does_not() {
     assert_eq!(lib.receipt(&[book.id]).marks, 0);
 }
 
+fn answer(meaning: &str) -> crate::Gloss {
+    crate::Gloss {
+        pos: "noun".into(),
+        meaning: meaning.into(),
+        synonyms: vec!["melange".into()],
+        usages: vec!["The spice must flow.".into()],
+        by: "Gemini · flash".into(),
+    }
+}
+
 fn simplified(page: usize) -> crate::NewAiPage {
     crate::NewAiPage {
         task: crate::AiTask::Simplify,
@@ -357,6 +367,7 @@ fn erasing_a_book_blanks_every_record_even_ones_removed_before() {
     mark(&mut lib, id);
     let mark_id = lib.marks(id)[0].id;
     assert!(lib.set_note(mark_id, Some("my thoughts".into()), 2_110));
+    assert!(lib.set_gloss(mark_id, Some(answer("a fine dust")), 2_115));
     let old = lib.add_ai_page(id, simplified(1), 2_120).unwrap();
     let new = lib.add_ai_page(id, simplified(1), 2_130).unwrap();
     assert_ne!(old, new, "the old one is replaced, its words kept");
@@ -376,6 +387,9 @@ fn erasing_a_book_blanks_every_record_even_ones_removed_before() {
     assert!(lib.book(id).is_some(), "back as a fresh book");
     assert_eq!(lib.set_marks_alive(&[mark_id], true, 2_400), 0, "no Undo");
     assert_eq!(lib.set_ai_pages_alive(&[old, new], true, 2_400), 0);
+    // An answer that was still on its way lands nowhere.
+    assert!(!lib.set_gloss(mark_id, Some(answer("late")), 2_500));
+    assert!(!lib.set_note(mark_id, Some("late".into()), 2_500));
     assert!(lib.marks(id).is_empty() && lib.ai_pages(id).is_empty());
 }
 
