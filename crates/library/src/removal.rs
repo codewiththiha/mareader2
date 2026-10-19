@@ -317,6 +317,7 @@ impl Library {
         if let Some(book) = self.books.get_mut(&id) {
             book.forgot = Some(at);
         }
+        self.erased = true;
     }
 
     /// Whether a record that died at `died` was erased with its book.

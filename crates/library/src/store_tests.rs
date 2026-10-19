@@ -198,3 +198,49 @@ fn state_files_move_into_the_store_once() {
     drop(loaded);
     assert_eq!(folder.load(DEVICE).library.position(a), Some(position));
 }
+
+#[test]
+fn erased_words_leave_the_files_while_the_store_stays_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path());
+    let loaded = folder.load(DEVICE);
+    let (mut lib, mut store) = (loaded.library, loaded.store.unwrap());
+    let a = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let spot = crate::Spot::Page {
+        page: 1,
+        rect: [0.0, 0.0, 1.0, 1.0],
+    };
+    let word = crate::NewMark::explain("zebrafinch".into(), "a zebrafinch sang".into(), spot);
+    lib.add_mark(a, word, 1_100);
+    let mark = lib.marks(a)[0].id;
+    assert!(lib.set_note(mark, Some("quokkanote".into()), 1_200));
+    let page = crate::NewAiPage {
+        task: crate::AiTask::Simplify,
+        span: crate::PageSpan::Page { page: 1 },
+        source: "00ff".into(),
+        result: "narwhalresult".into(),
+        by: "Ollama".into(),
+    };
+    lib.add_ai_page(a, page, 1_300).unwrap();
+    let mut write = |lib: &mut Library| {
+        let dirty = lib.take_dirty();
+        store.apply(&lib.changes(&dirty)).unwrap();
+    };
+    let on_disk = |needle: &str| {
+        let files = ["library.sqlite", "library.sqlite-wal"];
+        let bytes = files
+            .iter()
+            .filter_map(|f| std::fs::read(dir.path().join(f)).ok());
+        bytes
+            .into_iter()
+            .any(|b| b.windows(needle.len()).any(|w| w == needle.as_bytes()))
+    };
+    let secrets = ["zebrafinch", "quokkanote", "narwhalresult"];
+    write(&mut lib);
+    assert!(secrets.iter().all(|s| on_disk(s)), "written first");
+    lib.remove_books(&[a], crate::Data::Delete, 2_000);
+    write(&mut lib);
+    for secret in secrets {
+        assert!(!on_disk(secret), "{secret} is still on disk");
+    }
+}

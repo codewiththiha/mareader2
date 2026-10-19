@@ -48,6 +48,8 @@ pub struct Dirty {
     pub states: BTreeSet<BookId>,
     pub marks: BTreeSet<MarkId>,
     pub ai_pages: BTreeSet<AiPageId>,
+    /// A book's data was erased: its old words must leave the disk too.
+    pub erased: bool,
 }
 
 impl Dirty {
@@ -91,6 +93,8 @@ pub struct Library {
     revision: u64,
     /// The top level's last key, once looked up; see `next_key`.
     pub(crate) home_end: Option<Option<String>>,
+    /// Data erased since the last save; see [`Dirty::erased`].
+    pub(crate) erased: bool,
 }
 
 /// Unique across libraries, so a loaded one never reuses a revision.
@@ -123,6 +127,7 @@ impl Library {
             retired: BTreeSet::new(),
             revision: next_revision(),
             home_end: None,
+            erased: false,
         };
         crate::legacy::adopt(&mut library, parts.legacy);
         library.index();
@@ -398,6 +403,7 @@ impl Library {
             states: std::mem::take(&mut self.states_dirty),
             marks: self.marks.take_changed(),
             ai_pages: self.ai_pages.take_changed(),
+            erased: std::mem::take(&mut self.erased),
         }
     }
 

@@ -99,6 +99,8 @@ pub struct Changes {
     /// Only local rows go; records end in tombstones instead.
     pub gone: Vec<(Kind, String)>,
     pub clock: Option<String>,
+    /// Erased data: the store wipes old copies once this is written.
+    pub scrub: bool,
 }
 
 impl Changes {
@@ -127,7 +129,10 @@ impl Library {
 }
 
 fn changes(library: &Library, dirty: &Dirty) -> Changes {
-    let mut out = Changes::default();
+    let mut out = Changes {
+        scrub: dirty.erased,
+        ..Changes::default()
+    };
     for book in dirty.books.iter().filter_map(|id| library.books.get(id)) {
         let id = book.id.to_string();
         let record = Book {
