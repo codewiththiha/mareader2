@@ -43,6 +43,8 @@ pub struct Receipt {
     /// Books a folder placed: kept out of its future imports.
     pub hidden: usize,
     pub marks: usize,
+    /// Saved AI page results.
+    pub ai_pages: usize,
     /// Their formats, each once, and their measured size.
     pub formats: Vec<Format>,
     pub size: u64,
@@ -64,7 +66,7 @@ pub struct Removing {
 impl Receipt {
     /// Whether the data switch means anything: marks or a place.
     pub fn has_data(&self) -> bool {
-        self.marks > 0 || self.positions > 0
+        self.marks > 0 || self.ai_pages > 0 || self.positions > 0
     }
 }
 
@@ -138,6 +140,7 @@ impl Library {
             receipt.positions += usize::from(started(id).is_some());
             receipt.copies += usize::from(!fate.copies.is_empty());
             receipt.marks += self.marks_on(id).count();
+            receipt.ai_pages += self.ai_pages(id).len();
             let book = self.book(id);
             let placed = |c| self.folders.values().any(|f| f.placed.contains(&c));
             let in_folder =
@@ -285,13 +288,20 @@ impl Library {
         }
     }
 
-    /// Marks and place go; the next return of its file is a new book.
+    /// Marks, AI pages and place go; its file returns as a new book.
     fn forget_data(&mut self, id: BookId, at: Stamp) {
-        for mark in self
-            .marks
-            .values_mut_where(|m| m.alive.value && m.book.value == id)
-        {
+        // Ones removed before go too, words and all: kept only for Undo.
+        for mark in self.marks.values_mut_where(|m| m.book.value == id) {
             mark.alive = Field::new(false, at);
+            mark.word.clear();
+            mark.context.clear();
+            mark.gloss = Field::new(None, at);
+            mark.note = Field::new(None, at);
+        }
+        for page in self.ai_pages.values_mut_where(|p| p.book.value == id) {
+            page.alive = Field::new(false, at);
+            page.result.clear();
+            page.source.clear();
         }
         if let Some(state) = self.states.get_mut(&id) {
             state.position = Field::new(
@@ -307,6 +317,12 @@ impl Library {
         if let Some(book) = self.books.get_mut(&id) {
             book.forgot = Some(at);
         }
+    }
+
+    /// Whether a record that died at `died` was erased with its book.
+    pub(crate) fn erased(&self, book: BookId, died: Stamp) -> bool {
+        let forgot = self.books.get(&book).and_then(|b| b.forgot);
+        forgot.is_some_and(|f| died <= f)
     }
 
     /// Links whose book or shelf went go with it.

@@ -317,6 +317,68 @@ fn kept_data_comes_back_with_the_file_and_deleted_data_does_not() {
     assert_eq!(lib.receipt(&[book.id]).marks, 0);
 }
 
+fn simplified(page: usize) -> crate::NewAiPage {
+    crate::NewAiPage {
+        task: crate::AiTask::Simplify,
+        span: crate::PageSpan::Page { page },
+        source: "00ff".into(),
+        result: "plain words".into(),
+        by: "Ollama · gemma".into(),
+    }
+}
+
+#[test]
+fn ai_pages_come_back_with_kept_data_and_go_with_erased_data() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/a.pdf", 1)];
+    let (_, landed) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let id = landed.placed[0];
+    lib.add_ai_page(id, simplified(2), 2_100).unwrap();
+    let receipt = lib.receipt(&[id]);
+    assert!(receipt.has_data(), "AI pages alone offer to erase");
+    assert_eq!(receipt.ai_pages, 1);
+    lib.remove_books(&[id], Data::Keep, 2_200);
+    let (_, back) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let id = back.placed[0];
+    assert_eq!(lib.ai_pages(id).len(), 1, "kept: back with the book");
+    lib.remove_books(&[id], Data::Delete, 2_300);
+    let (_, fresh) = import(&mut lib, "/books", Mode::InPlace, &files);
+    assert_eq!(fresh.placed[0], id, "the same file is the same book");
+    assert!(lib.ai_pages(id).is_empty(), "erased: they stay gone");
+    assert_eq!(lib.receipt(&[id]).ai_pages, 0);
+}
+
+#[test]
+fn erasing_a_book_blanks_every_record_even_ones_removed_before() {
+    let mut lib = Library::new(DEVICE);
+    let files = [found("/books/a.pdf", 1)];
+    let (_, landed) = import(&mut lib, "/books", Mode::InPlace, &files);
+    let id = landed.placed[0];
+    mark(&mut lib, id);
+    let mark_id = lib.marks(id)[0].id;
+    assert!(lib.set_note(mark_id, Some("my thoughts".into()), 2_110));
+    let old = lib.add_ai_page(id, simplified(1), 2_120).unwrap();
+    let new = lib.add_ai_page(id, simplified(1), 2_130).unwrap();
+    assert_ne!(old, new, "the old one is replaced, its words kept");
+    // A highlight removed earlier, kept only so Undo can bring it back.
+    lib.set_marks_alive(&[mark_id], false, 2_140);
+    lib.remove_books(&[id], Data::Delete, 2_200);
+    for m in lib.marks.values().filter(|m| m.book.value == id) {
+        assert!(!m.alive.value && m.word.is_empty() && m.context.is_empty());
+        assert!(m.gloss.value.is_none() && m.note.value.is_none());
+    }
+    let pages: Vec<_> = (lib.ai_pages.values())
+        .filter(|p| p.book.value == id)
+        .collect();
+    assert_eq!(pages.len(), 2);
+    assert!(pages.iter().all(|p| !p.alive.value && p.result.is_empty()));
+    import(&mut lib, "/books", Mode::InPlace, &files);
+    assert!(lib.book(id).is_some(), "back as a fresh book");
+    assert_eq!(lib.set_marks_alive(&[mark_id], true, 2_400), 0, "no Undo");
+    assert_eq!(lib.set_ai_pages_alive(&[old, new], true, 2_400), 0);
+    assert!(lib.marks(id).is_empty() && lib.ai_pages(id).is_empty());
+}
+
 #[test]
 fn a_restore_lands_on_the_shelf_it_left_else_the_folders_root() {
     let mut lib = Library::new(DEVICE);

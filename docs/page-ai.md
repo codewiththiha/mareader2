@@ -116,6 +116,12 @@ replaces the old one. Deleting tombstones it.
   bubble is marked as made for another text size and offers a redo.
 - **PDFs** anchor to the page.
 - **Files outside the library** keep their results for the session only.
+- **Removing a book** keeps its results for when it comes back, unless
+  "Erase highlights, AI pages and reading position" is on. Then every
+  result and mark goes, even ones removed earlier and kept for Undo: their
+  text is blanked on disk, leaving only the tombstone a sync needs. Nothing
+  erased comes back when the same file is added again, and Undo can't
+  revive it. A book with only AI pages still offers the choice.
 
 ## Settings › AI › Pages
 
