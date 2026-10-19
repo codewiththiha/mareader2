@@ -4,8 +4,8 @@ use egui::epaint::Shadow;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, Id, Key, KeyboardShortcut,
-    LayerId, Modifiers, Order, Painter, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, pos2,
-    vec2,
+    LayerId, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui,
+    pos2, vec2,
 };
 use std::collections::BTreeSet;
 
@@ -88,6 +88,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     ui.painter().rect_filled(full, 0.0, t.paper);
     let loading = library.loading();
     let offline = library.offline().clone();
+    // Books the AI is organizing open as usual but don't move.
+    let held = library.organizer().held().clone();
+    let busy = library.organizer().busy();
     let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
     let unfolded = library.unfolded().clone();
@@ -135,7 +138,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     if back.clicked() && picks.active() {
         out.push(Command::Library(Action::Pick(PickAction::Clear)));
     }
-    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, out));
+    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, busy, out));
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {
@@ -181,6 +184,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         model,
         covers,
         offline: &offline,
+        held: &held,
         fit: view.cover,
         at,
         level: at,
@@ -228,6 +232,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
             picks: &picks,
             at,
             sequence,
+            busy,
         };
         menus::selection_bar(&mut ui, body, &bar, &t, cx.out);
     }
@@ -252,6 +257,8 @@ struct Cx<'a> {
     covers: &'a mut Covers,
     /// Folders whose drive wasn't there at the last look.
     offline: &'a BTreeSet<FolderId>,
+    /// Books the AI is organizing: they open, but never lift.
+    held: &'a BTreeSet<BookId>,
     fit: CoverFit,
     /// The shelf open on the page; dragged books leave it.
     at: Option<ShelfId>,
@@ -390,8 +397,12 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
     if resp.clicked() && !held && !picking(ui, Pick::Book(book.id), cx) {
         cx.out.push(Command::OpenBook(book.id));
     }
-    if resp.drag_started() {
+    let held = cx.held.contains(&book.id);
+    if resp.drag_started() && !held {
         lift(&resp, Pick::Book(book.id), cx);
+    }
+    if held && resp.dragged() {
+        ui.ctx().set_cursor_icon(CursorIcon::NotAllowed);
     }
     crate::widgets::context_menu(&resp, |ui| match picked {
         true => menus::picks_menu(ui, cx.picks, cx.t, cx.out),
@@ -459,6 +470,7 @@ fn carry(pick: Pick, from: Option<ShelfId>, cx: &Cx<'_>) -> Carry {
     let items = match many {
         true => (cx.sequence.iter())
             .filter(|p| cx.picks.contains(**p))
+            .filter(|p| !matches!(p, Pick::Book(b) if cx.held.contains(b)))
             .copied()
             .collect(),
         false => vec![pick],
@@ -553,6 +565,17 @@ fn shelf_hit(
         false => menus::shelf_menu(ui, cx.model, shelf, cx.t, cx.out),
     });
     (resp, target)
+}
+
+/// A book the AI is organizing: a sparkle on its cover, and why.
+fn held_badge(ui: &Ui, resp: &egui::Response, centre: Pos2, r: f32, t: &Tokens) {
+    let p = ui.painter();
+    p.circle(centre, r, t.accent, Stroke::new(1.5, t.surface));
+    let glyph = Rect::from_center_size(centre, vec2(r * 1.2, r * 1.2));
+    Icon::Explain.paint(ui, glyph, Color32::WHITE);
+    let why = "The AI is organizing this book. It opens as usual, \
+               and moves once you've seen the plan.";
+    resp.clone().on_hover_text(why);
 }
 
 /// The focus ring follows a card's padded backing, not its cover.
@@ -762,6 +785,9 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     if cx.picks.active() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
     }
+    if cx.held.contains(&book.id) {
+        held_badge(ui, &resp, bounds.right_bottom() - vec2(16.0, 16.0), 11.0, t);
+    }
     let p = ui.painter();
     if missing {
         let tag = if offline { "Offline" } else { "Missing" };
@@ -854,6 +880,9 @@ fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
     cover(ui, thumb, book, cx, fade, true);
     if cx.picks.active() {
         menus::mark(ui, thumb.center(), picked, t);
+    }
+    if cx.held.contains(&book.id) {
+        held_badge(ui, &resp, thumb.right_bottom() + vec2(-2.0, -2.0), 8.0, t);
     }
     let p = ui.painter();
     // Books found in a folder may never have been opened.

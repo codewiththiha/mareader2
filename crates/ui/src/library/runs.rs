@@ -3,11 +3,15 @@
 use std::f32::consts::TAU;
 
 use egui::{
-    Align2, Area, Context, FontId, Frame, Id, Margin, Order, Pos2, Rect, RichText, Shape, Stroke,
-    Ui, pos2, vec2,
+    Align, Align2, Area, Context, FontId, Frame, Id, Layout, Margin, Order, Pos2, Rect, RichText,
+    Shape, Stroke, Ui, pos2, vec2,
 };
 
+use super::Action;
+use crate::command::{Command, Commands};
+use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::widgets;
 
 /// Seconds a run waits before its card shows.
 pub const DELAY: f64 = 0.4;
@@ -24,6 +28,10 @@ pub enum Phase {
     /// Measuring what a walk found.
     Reading,
     Copying,
+    /// The AI planning shelves; the count runs across both its stages.
+    Shelving,
+    /// The AI filing books on them.
+    Filing,
 }
 
 /// The worker's word on a run.
@@ -76,7 +84,15 @@ impl Run {
             (Phase::Copying, 0) => "Importing…".to_owned(),
             (Phase::Reading, n) => format!("Reading {at} of {n}"),
             (Phase::Copying, n) => format!("Importing {at} of {n}"),
+            (Phase::Shelving, 0) => "Organizing…".to_owned(),
+            (Phase::Shelving, _) => "Planning shelves…".to_owned(),
+            (Phase::Filing, _) => "Filing books…".to_owned(),
         }
+    }
+
+    /// An AI run, which the card can stop.
+    pub fn stoppable(&self) -> bool {
+        matches!(self.phase, Phase::Shelving | Phase::Filing)
     }
 
     /// The file at hand, else what was asked for.
@@ -155,7 +171,7 @@ impl Runs {
 }
 
 /// The cards, stacked up from `stage`'s bottom-left; `lift` clears a page bar.
-pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32) {
+pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32, out: &mut Commands) {
     if runs.list.is_empty() {
         return;
     }
@@ -174,8 +190,8 @@ pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32) {
             .order(Order::Foreground)
             .pivot(Align2::LEFT_BOTTOM)
             .fixed_pos(pos)
-            .interactable(false);
-        let shown = area.show(ctx, |ui| card(ui, run, now, &t));
+            .interactable(run.stoppable());
+        let shown = area.show(ctx, |ui| card(ui, run, now, &t, out));
         bottom = shown.response.rect.top() - 8.0;
     }
     // The ring turns, and a waiting card is due.
@@ -186,7 +202,7 @@ pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32) {
     }
 }
 
-fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens) {
+fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens, out: &mut Commands) {
     let frame = Frame::new()
         .fill(t.surface)
         .stroke(Stroke::new(1.0, t.line))
@@ -204,12 +220,24 @@ fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens) {
             let (rect, _) = ui.allocate_exact_size(vec2(RING, RING), egui::Sense::hover());
             ring(ui, rect.center(), run.fraction(), now, t);
             ui.add_space(4.0);
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                let head = RichText::new(run.headline()).font(theme::medium(t.text_small));
-                ui.add(egui::Label::new(head.color(t.ink)).truncate());
-                let detail = RichText::new(run.detail()).size(t.text_small - 1.0);
-                ui.add(egui::Label::new(detail.color(t.muted)).truncate());
+            let lines = |ui: &mut Ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    let head = RichText::new(run.headline()).font(theme::medium(t.text_small));
+                    ui.add(egui::Label::new(head.color(t.ink)).truncate());
+                    let detail = RichText::new(run.detail()).size(t.text_small - 1.0);
+                    ui.add(egui::Label::new(detail.color(t.muted)).truncate());
+                });
+            };
+            if !run.stoppable() {
+                return lines(ui);
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let stop = widgets::small_icon_button(ui, Icon::Close, "Stop organizing");
+                if stop.clicked() {
+                    out.push(Command::Library(Action::StopOrganizing));
+                }
+                lines(ui);
             });
         });
     });
@@ -282,6 +310,27 @@ mod tests {
         assert_eq!(runs.list()[0].headline(), "Importing…");
         runs.finish(Some(a));
         assert_eq!(runs.list()[0].id, b);
+    }
+
+    #[test]
+    fn an_ai_run_fills_one_ring_across_its_stages_and_can_stop() {
+        let mut runs = Runs::default();
+        let id = runs.start("5 books · Fast", Phase::Shelving);
+        let run = |r: &Runs| r.list().first().cloned().expect("a run");
+        assert_eq!(run(&runs).headline(), "Organizing…");
+        assert!(run(&runs).stoppable());
+        runs.beat(Beat {
+            run: id,
+            phase: Phase::Filing,
+            done: 3,
+            total: 4,
+            name: String::new(),
+        });
+        assert_eq!(run(&runs).fraction(), Some(0.75));
+        assert_eq!(run(&runs).headline(), "Filing books…");
+        assert_eq!(run(&runs).detail(), "5 books · Fast");
+        let import = runs.start("a.pdf", Phase::Copying);
+        assert!(!runs.list().iter().any(|r| r.id == import && r.stoppable()));
     }
 
     #[test]

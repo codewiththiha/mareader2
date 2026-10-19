@@ -79,6 +79,15 @@ pub enum Action {
     Pick(PickAction),
     Book(super::BookAction),
     Search(super::SearchAction),
+    /// Asks the AI to shelve the picked books, else every loose one.
+    Organize(Option<Vec<BookId>>),
+    /// Stops the AI run; its books move again.
+    StopOrganizing,
+    /// Makes the plan's shelves and files its books.
+    ApplyOrganized,
+    /// Lets the plan go; nothing moved.
+    DiscardOrganized,
+    UndoOrganized(Box<super::organizing::Applied>),
 }
 
 /// Anything the library shows under a name of its own.
@@ -123,7 +132,8 @@ impl LibraryState {
 
     /// A sheet or a question is over the page, holding the keys.
     pub fn sheet_up(&self) -> bool {
-        self.folders.sheet.is_some() || !self.folders.asks.is_empty()
+        let review = self.organizer.review().is_some();
+        self.folders.sheet.is_some() || !self.folders.asks.is_empty() || review
     }
 
     /// Does what the page asked; dialogs are the app's.
@@ -172,8 +182,12 @@ impl LibraryState {
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.book_act(action, out),
             Action::Search(action) => self.search_act(action, now),
-            // Dialogs need the app's files; it handles them.
-            Action::ShowAdd
+            Action::ApplyOrganized => self.apply_organized(out),
+            Action::DiscardOrganized | Action::StopOrganizing => self.organizer_end(),
+            Action::UndoOrganized(done) => self.undo_organized(&done),
+            // Dialogs need the app's files, and the AI its service.
+            Action::Organize(_)
+            | Action::ShowAdd
             | Action::PickFolder
             | Action::PickFrom(_)
             | Action::PickFile(_)

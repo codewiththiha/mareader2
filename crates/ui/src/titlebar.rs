@@ -100,6 +100,8 @@ pub struct LibraryBar<'a> {
     pub renaming: Option<ShelfId>,
     /// The search field, centred where the reader's title sits.
     pub search: Field,
+    /// The AI is organizing: the menu can't start another run.
+    pub organizing: bool,
 }
 
 /// Foldable tools, rightmost first; Settings and the pin live in the menu.
@@ -400,8 +402,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
             view_menu::button(ui, &menu, &mut out);
         }
         BarPage::Library(library) => {
-            let auto = library.auto_columns;
-            library_menu::button(ui, library.view, auto, pinned, bar.platform, &mut out);
+            library_menu::button(ui, library, pinned, bar.platform, &mut out);
         }
         // The page's own choices sit on it; the bar keeps the look.
         BarPage::Dictionary(_) => {}

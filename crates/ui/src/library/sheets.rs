@@ -14,7 +14,9 @@ const WIDTH: f32 = 420.0;
 pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
     let sheet = library.sheet();
     let asks: Vec<&Question> = library.questions().collect();
-    if sheet.is_none() && asks.is_empty() {
+    // The AI's plan waits behind any other sheet, as questions do.
+    let review = library.organizer().review().filter(|_| sheet.is_none());
+    if sheet.is_none() && asks.is_empty() && review.is_none() {
         return;
     }
     let t = Tokens::get(ctx);
@@ -45,7 +47,10 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
             ui.set_width(WIDTH);
             ui.spacing_mut().item_spacing.y = 8.0;
             let Some(sheet) = sheet else {
-                act = asks::show(ui, model, &asks, &t);
+                act = match review {
+                    Some(plan) => super::review::show(ui, model, plan, &t),
+                    None => asks::show(ui, model, &asks, &t),
+                };
                 return;
             };
             act = match sheet {
@@ -66,7 +71,8 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
             };
         });
     let working = matches!(sheet, Some(Sheet::Find(f)) if matches!(f.step, Step::Working(_)));
-    if modal.should_close() && !working {
+    // The plan is only let go by its button, never a stray click.
+    if modal.should_close() && !working && review.is_none() {
         act = Some(match sheet {
             Some(_) => Action::CloseSheet,
             None => Action::CancelAsks,

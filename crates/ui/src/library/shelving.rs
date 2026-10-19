@@ -268,6 +268,9 @@ impl LibraryState {
     }
 
     pub(super) fn shelf_act(&mut self, action: ShelfAction, out: &mut Commands) {
+        let Some(action) = self.unheld(action, out) else {
+            return;
+        };
         let now = wall_ms();
         match action {
             ShelfAction::GoTo(at) => {
