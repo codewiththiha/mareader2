@@ -32,7 +32,7 @@ impl Apple {
     /// Whether the model can answer now, and if not, why.
     pub async fn probe(&self) -> AppleState {
         match self.bridge.check_availability().await {
-            Ok(_) => AppleState::Ready,
+            Ok(a) => AppleState::Ready(a.languages),
             Err(Error::ModelUnavailable { reason, message }) => match reason {
                 Unavailable::ModelNotReady => AppleState::NotReady(message),
                 Unavailable::NotEnabled => AppleState::Off(message),

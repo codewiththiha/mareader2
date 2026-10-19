@@ -55,6 +55,12 @@ impl Ai {
         self.assist.as_ref().map(mareader_assist::Assist::board)
     }
 
+    /// Tasks the saved model `id` runs now.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn in_use(&self, id: mareader_settings::PresetId) -> usize {
+        self.assist.as_ref().map_or(0, |a| a.in_use(id))
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn send(&mut self, job: Job) {
         if let Some(assist) = &mut self.assist {

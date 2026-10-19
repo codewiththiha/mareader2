@@ -427,11 +427,19 @@ fn the_ai_tab_picks_who_explains() {
     let mut h = reader(&[("pdf", "sample")]);
     h.state_mut().queue(Command::OpenSettings(Tab::Ai));
     h.run();
-    h.get_by_role_and_label(Role::RadioButton, "OpenAI").click();
+    h.get_by_label("+  Add a model").click();
+    h.run();
+    h.get_by_label("OpenAI").click();
     h.run();
     let ai = &h.state().settings().ai;
-    assert_eq!(ai.provider, Provider::OpenAi);
-    // The preset's model field shows; its address waits under Advanced.
+    let openai = ai.presets.iter().find(|p| p.provider == Provider::OpenAi);
+    let id = openai.map(|p| p.id);
+    assert!(id.is_some(), "{:?}", ai.presets);
+    if !cfg!(target_os = "macos") {
+        assert_eq!(ai.tasks.explain.preset, id, "the first model explains");
+    }
+    // Its keys show; its address waits under Advanced.
+    h.get_by_label("Paste an API key");
     h.get_by_label("Advanced");
 }
 

@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use mareader_settings::Provider;
+use mareader_settings::{ModelPreset, PresetId, Provider};
 use mareader_study::Failure;
 
 /// Something fetched in the background.
@@ -32,13 +32,31 @@ impl<T> Load<T> {
 /// Whether Apple's model can answer on this Mac.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppleState {
-    Ready,
+    /// Ready, in these BCP-47 languages.
+    Ready(Vec<String>),
     /// Still downloading or preparing.
     NotReady(String),
     /// Switched off in System Settings.
     Off(String),
     /// Not on this Mac, or the helper is missing.
     Missing(String),
+}
+
+impl AppleState {
+    /// Whether it writes `tag`, by language: `zh-Hans` finds `zh-CN`.
+    pub fn speaks(&self, tag: &str) -> Option<bool> {
+        let Self::Ready(languages) = self else {
+            return None;
+        };
+        let primary = |t: &str| {
+            t.split(['-', '_'])
+                .next()
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        let wanted = primary(tag);
+        Some(languages.iter().any(|l| primary(l) == wanted))
+    }
 }
 
 /// A stored key's health.
@@ -64,6 +82,15 @@ pub struct KeyRow {
     pub state: KeyState,
 }
 
+/// Keys a task may rotate over at once: all but banned ones, at least one.
+pub fn lanes(keys: &[KeyRow]) -> u32 {
+    let usable = keys
+        .iter()
+        .filter(|k| !matches!(k.state, KeyState::Banned { .. }))
+        .count();
+    u32::try_from(usable).unwrap_or(u32::MAX).max(1)
+}
+
 /// A trial answer from the settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tried {
@@ -82,8 +109,8 @@ pub enum Job {
     BanKey(Provider, String),
     RecoverKey(Provider, String),
     Models(Provider),
-    /// Explains a sample word with the provider as set.
-    Try(Provider),
+    /// Explains a sample word with a saved model.
+    Try(ModelPreset),
 }
 
 impl std::fmt::Debug for Job {
@@ -97,7 +124,7 @@ impl std::fmt::Debug for Job {
             Self::BanKey(p, id) => write!(f, "BanKey({p:?}, {id})"),
             Self::RecoverKey(p, id) => write!(f, "RecoverKey({p:?}, {id})"),
             Self::Models(p) => write!(f, "Models({p:?})"),
-            Self::Try(p) => write!(f, "Try({p:?})"),
+            Self::Try(p) => write!(f, "Try({:?})", p.id),
         }
     }
 }
@@ -113,7 +140,7 @@ pub enum Reply {
         problem: Option<Failure>,
     },
     Models(Provider, Result<Vec<String>, Failure>),
-    Tried(Provider, Result<Tried, Failure>),
+    Tried(PresetId, Result<Tried, Failure>),
 }
 
 /// Everything the AI settings show that isn't a setting.
@@ -126,7 +153,7 @@ pub struct Board {
     pub models: HashMap<Provider, Load<Vec<String>>>,
     /// Lists fetched again; the old one stays shown meanwhile.
     pub refreshing: HashSet<Provider>,
-    pub tried: HashMap<Provider, Load<Tried>>,
+    pub tried: HashMap<PresetId, Load<Tried>>,
 }
 
 impl Board {
@@ -143,8 +170,17 @@ impl Board {
         self.refreshing.contains(&p) || matches!(self.models(p), Load::Busy)
     }
 
-    pub fn tried(&self, p: Provider) -> &Load<Tried> {
-        self.tried.get(&p).unwrap_or(&Load::Idle)
+    pub fn tried(&self, id: PresetId) -> &Load<Tried> {
+        self.tried.get(&id).unwrap_or(&Load::Idle)
+    }
+
+    /// Tasks `p` may run at once: `at_once` per usable key, if keys are known.
+    pub fn capacity(&self, p: &ModelPreset) -> u32 {
+        let keys = match p.provider.takes_keys() {
+            true => self.keys(p.provider).ready().map_or(1, |k| lanes(k)),
+            false => 1,
+        };
+        u32::from(p.at_once).saturating_mul(keys)
     }
 
     /// Marks what `job` will refresh as on its way.
@@ -169,7 +205,7 @@ impl Board {
                 }
             },
             Job::Try(p) => {
-                self.tried.insert(*p, Load::Busy);
+                self.tried.insert(p.id, Load::Busy);
             }
         }
     }
@@ -246,6 +282,47 @@ mod tests {
         assert_eq!(b.keys(p).ready(), Some(&vec![row]), "rows stay meanwhile");
         assert!(!b.problems.contains_key(&p));
         assert_eq!(b.models(Provider::Gemini), &Load::Idle);
+    }
+
+    #[test]
+    fn capacity_is_at_once_per_usable_key() {
+        let mut b = Board::default();
+        let mut ai = mareader_settings::AiSettings::default();
+        let id = ai.add_preset(Provider::OpenAi, "");
+        let mut p = ai.preset(id).cloned().unwrap_or_default();
+        p.at_once = 2;
+        assert_eq!(b.capacity(&p), 2, "keys not listed yet count as one");
+        let key = |id: &str, state| KeyRow {
+            id: id.into(),
+            shown: String::new(),
+            state,
+        };
+        let banned = KeyState::Banned {
+            reason: String::new(),
+        };
+        let rows = vec![
+            key("a", KeyState::Ready),
+            key("b", KeyState::Resting { secs: 3 }),
+            key("c", banned),
+        ];
+        b.finish(Reply::Keys {
+            provider: Provider::OpenAi,
+            keys: Ok(rows),
+            problem: None,
+        });
+        assert_eq!(b.capacity(&p), 4, "resting keys come back; banned don't");
+        p.provider = Provider::Ollama;
+        assert_eq!(b.capacity(&p), 2, "a keyless server is one lane");
+        assert_eq!(lanes(&[]), 1);
+    }
+
+    #[test]
+    fn apple_speaks_by_language_not_region() {
+        let ready = AppleState::Ready(vec!["en-US".into(), "zh-CN".into()]);
+        assert_eq!(ready.speaks("en"), Some(true));
+        assert_eq!(ready.speaks("zh-Hans"), Some(true));
+        assert_eq!(ready.speaks("my"), Some(false));
+        assert_eq!(AppleState::Off(String::new()).speaks("en"), None);
     }
 
     #[test]

@@ -841,11 +841,15 @@ impl MareaderApp {
                     .set_explainer(Arc::new(mareader_study::Unavailable)),
                 _ => return Err("explain: canned or none".into()),
             },
-            // The AI tab's choice, by its saved name, e.g. `openai`.
+            // One saved model on it explains words, e.g. `openai`.
             "provider" => {
                 let name = serde_json::Value::String(value.to_owned());
-                self.settings.ai.provider =
+                let p =
                     serde_json::from_value(name).map_err(|_| "provider: e.g. openai or ollama")?;
+                let ai = &mut self.settings.ai;
+                ai.presets.clear();
+                let id = ai.add_preset(p, "");
+                ai.tasks.explain.preset = Some(id);
             }
             // The first such text on a page selected, as `page:words`.
             "selection" => {
