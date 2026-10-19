@@ -55,6 +55,8 @@ struct Set {
     size: Vec2,
     pictures: Vec<Rect>,
     emojis: Vec<Rect>,
+    /// A PDF's: put over white for its filters.
+    pdf: bool,
 }
 
 struct Held {
@@ -198,6 +200,7 @@ fn upload(ctx: &Context, gpu: Option<&Gpu>, slot: u64, s: Set) -> Option<Card> {
         pixels: s.pixels.rgba,
     };
     let texture = match gpu {
+        Some(gpu) if s.pdf => PageTexture::Gpu(gpu.upload(&on_white(raster))?),
         Some(gpu) => PageTexture::Gpu(gpu.upload(&raster)?),
         None => {
             let size = [raster.width as usize, raster.height as usize];
@@ -212,6 +215,18 @@ fn upload(ctx: &Context, gpu: Option<&Gpu>, slot: u64, s: Set) -> Option<Card> {
         pictures: s.pictures,
         emojis: s.emojis,
     })
+}
+
+/// Over white, so a PDF's filters theme it as they theme its page.
+fn on_white(mut raster: Raster) -> Raster {
+    for px in raster.pixels.as_chunks_mut::<4>().0 {
+        let [.., alpha] = *px;
+        let under = 255 - u16::from(alpha);
+        for c in px.iter_mut() {
+            *c = (u16::from(*c) + under).min(255) as u8;
+        }
+    }
+    raster
 }
 
 /// The largest size that fits one page; past the least, it runs on.
@@ -274,5 +289,6 @@ fn set(job: &Job) -> Option<Set> {
         size: vec2(width, depth),
         pictures: flow.pictures(0).into_iter().map(rect).collect(),
         emojis: flow.emojis(0).into_iter().map(rect).collect(),
+        pdf: job.book.is_none(),
     })
 }
