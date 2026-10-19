@@ -148,10 +148,14 @@ impl LibraryState {
         self.organizer.run = Some(self.runs.start(label, Phase::Shelving));
         // Held books can't move, so none stay picked.
         let held = &self.organizer.books;
-        let keep = (self.picks.items().into_iter())
+        let keep: Vec<Pick> = (self.picks.items().into_iter())
             .filter(|p| !matches!(p, Pick::Book(b) if held.contains(b)))
             .collect();
-        self.picks.apply(super::PickAction::Only(keep));
+        let action = match keep.is_empty() {
+            true => super::PickAction::Clear,
+            false => super::PickAction::Only(keep),
+        };
+        self.picks.apply(action);
     }
 
     pub fn heard(&mut self, heard: Heard, out: &mut Commands) {
@@ -521,6 +525,7 @@ mod tests {
         let all = ids(&state);
         state.organizing(all.clone(), "Fast");
         assert!(state.organizer().busy());
+        assert!(!state.picks.active(), "a run doesn't start selecting");
         assert!(state.ask_organize(None).is_err(), "one run at a time");
         let mut out = Commands::new();
         let progress = Heard::Progress {
