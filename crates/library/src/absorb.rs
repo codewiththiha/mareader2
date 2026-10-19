@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::de::DeserializeOwned;
 
+use crate::ai_pages::AiPage;
 use crate::book::{Book, State};
 use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
@@ -88,6 +89,15 @@ impl Library {
                 let id = mark.id;
                 Some(merge_into(self.marks.get(&id), mark).is_some_and(|m| {
                     self.marks.insert(id, m);
+                    true
+                }))
+            }
+            Kind::AiPage => {
+                let page: AiPage = parse(row)?;
+                self.clock.observe(page.latest());
+                let id = page.id;
+                Some(merge_into(self.ai_pages.get(&id), page).is_some_and(|p| {
+                    self.ai_pages.insert(id, p);
                     true
                 }))
             }
@@ -200,6 +210,7 @@ impl Library {
             self.states_dirty.insert(keeper);
         }
         self.move_marks(gone, keeper, at);
+        self.move_ai_pages(gone, keeper, at);
     }
 
     /// Breaks each loop of parents at its newest move, which goes back.

@@ -1,5 +1,6 @@
 //! Joining two copies of one record, as a sync will; order never matters.
 
+use crate::ai_pages::AiPage;
 use crate::book::{Book, State};
 use crate::clock::{NEVER, Stamp};
 use crate::link::Link;
@@ -140,6 +141,19 @@ impl Merge for Mark {
             self.style.at,
         ];
         let fields = fields.map(Some);
+        newest(fields.into_iter().chain([self.extra.latest()]))
+    }
+}
+
+impl Merge for AiPage {
+    fn merge(&mut self, other: Self) {
+        self.book.merge(other.book);
+        self.alive.merge(other.alive);
+        self.extra.merge(other.extra);
+    }
+
+    fn latest(&self) -> Stamp {
+        let fields = [Some(self.book.at), Some(self.alive.at)];
         newest(fields.into_iter().chain([self.extra.latest()]))
     }
 }

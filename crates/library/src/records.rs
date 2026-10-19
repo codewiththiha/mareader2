@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::ai_pages::AiPage;
 use crate::book::{Book, Location, State};
 use crate::clock::Clock;
 use crate::folder::Folder;
@@ -31,6 +32,8 @@ pub enum Kind {
     Folder,
     /// A pointer row at a book or a shelf.
     Link,
+    /// A page the AI summarized, translated or simplified.
+    AiPage,
 }
 
 impl Kind {
@@ -45,6 +48,7 @@ impl Kind {
             Self::Mark => "mark",
             Self::Folder => "folder",
             Self::Link => "link",
+            Self::AiPage => "ai_page",
         }
     }
 
@@ -60,6 +64,7 @@ impl Kind {
             Self::Mark,
             Self::Folder,
             Self::Link,
+            Self::AiPage,
         ];
         all.into_iter().find(|k| k.name() == name)
     }
@@ -73,6 +78,7 @@ impl Kind {
             Self::State,
             Self::Mark,
             Self::Link,
+            Self::AiPage,
         ];
         shared.contains(&self)
     }
@@ -166,6 +172,13 @@ fn changes(library: &Library, dirty: &Dirty) -> Changes {
     for mark in dirty.marks.iter().filter_map(|id| library.marks.get(id)) {
         out.put(Kind::Mark, mark.id.to_string(), mark);
     }
+    for page in dirty
+        .ai_pages
+        .iter()
+        .filter_map(|id| library.ai_pages.get(id))
+    {
+        out.put(Kind::AiPage, page.id.to_string(), page);
+    }
     if !out.is_empty() {
         out.clock = serde_json::to_string(&library.clock).ok();
     }
@@ -206,6 +219,9 @@ pub(crate) fn assemble(rows: Vec<Row>, clock: Clock) -> (Parts, usize) {
             }),
             Kind::Mark => parse::<Mark>(&row).map(|m| {
                 parts.marks.insert(m.id, m);
+            }),
+            Kind::AiPage => parse::<AiPage>(&row).map(|p| {
+                parts.ai_pages.insert(p.id, p);
             }),
         };
         skipped += usize::from(read.is_none());
