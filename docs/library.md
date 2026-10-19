@@ -907,3 +907,45 @@ Tests: the unit tests in `organizing.rs`, `review.rs` and `runs.rs`, and
 `crates/ui/tests/organize.rs` (a run held and stopped, Apply then Undo,
 Discard, the View options row, books read in place refused). Shots:
 `organize=running` or `organize=review` with `copies=N`.
+
+### Pausing and resuming (2026-10-19)
+
+A run that fails, is paused, or is cut short by quitting keeps every
+step it finished (how is in `docs/assist.md`, § Pausing and resuming).
+The library shows where it stands.
+
+- **Pause.** The running card's ✕ is "Pause organizing", not a cancel.
+  The books are free again at once: they move, and a paused run holds
+  nothing.
+- **The paused card.** It sits in the same corner, on the library page
+  only, so pages being read stay clear. It has a still ring at the share
+  done, "Organizing paused", "3 of 8 steps · 24 books", **Resume**, and
+  ✕ "Discard what's done". It stays after a restart, and hides while
+  another run goes or a plan is up.
+- **A finished plan not yet reviewed** (the app quit while it waited)
+  shows "Shelf plan ready" with **Review**. Review opens the sheet
+  without asking the model again, even if the model is busy or gone.
+- **Failures.** The toast says what went wrong and offers **Resume**.
+  Busy, offline and slow servers are first waited out twice.
+- **Menus.** With a run paused, View options and the page menu offer
+  "Resume organizing" with how far it got, and "Organize from the start".
+- **Starting another.** The selection bar's sparkle button, or Organize
+  with AI, first asks "Replace the paused run?", with three buttons:
+  **Resume it** (or **Review its plan**), **Start over**, and Cancel.
+  Start over replaces the run only once the model takes it, so a busy
+  model loses nothing.
+- **Resuming** asks about the paused run's books that are still loose.
+  For a whole-library run, books imported or taken off shelves since
+  then join too. If none are left, a toast says so and the run is
+  dropped.
+- **Discard.** Discarding the paused run, or the plan on the review
+  sheet, gives a toast with Undo, which brings it back. Applying a plan
+  ends the run for good.
+
+Code: `organizing.rs` (`Paused`, `ask_resume`, the card's state),
+`runs.rs` (the paused and ready card), `sheets.rs` (Replace), and
+`app.rs` (`organize`, `resume_organizing`, `take_organized`). Tests in
+`crates/ui/tests/organize.rs`: a paused run waits on its card with its
+books free, a new run while one is paused asks first, and a finished
+plan waits for review while a failure offers Resume. Shots:
+`organize=paused` or `organize=ready` with `copies=N`.
