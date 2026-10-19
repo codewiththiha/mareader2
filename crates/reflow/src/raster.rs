@@ -7,7 +7,7 @@ use parley::{GlyphRun, Layout, PositionedLayoutItem};
 use skrifa::{FontRef, MetadataProvider};
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{Affine, Rect};
-use vello_cpu::peniko::{ImageQuality, ImageSampler};
+use vello_cpu::peniko::{ImageAlphaType, ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
 use crate::flow::{Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
@@ -107,10 +107,12 @@ impl Flow {
         let mut pixmap = Pixmap::new(w16, h16);
         ctx.flush();
         ctx.render(&mut pixmap, &mut resources);
+        // Handed over, not copied: a page at Retina scale is 40 MB.
+        let rgba = pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied);
         Some(Pixels {
             width: w,
             height: h,
-            rgba: pixmap.data_as_u8_slice().to_vec(),
+            rgba,
         })
     }
 }
