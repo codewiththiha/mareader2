@@ -4,11 +4,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::ai_pages::AiPage;
 use crate::book::{Book, FileStamp, Format, Location, Origin, Position, State};
 use crate::clock::{Clock, Field, Stamp};
 use crate::extra::Extra;
 use crate::folder::{Folder, Tombstone};
-use crate::id::{BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
+use crate::id::{AiPageId, BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
 use crate::link::Link;
 use crate::marks::Mark;
 use crate::shelves::{Membership, Shelf};
@@ -46,6 +47,7 @@ pub struct Dirty {
     /// `state/<id>.json`: one book's position each.
     pub states: BTreeSet<BookId>,
     pub marks: BTreeSet<MarkId>,
+    pub ai_pages: BTreeSet<AiPageId>,
 }
 
 impl Dirty {
@@ -62,6 +64,7 @@ impl Dirty {
             && self.retired.is_empty()
             && self.links.is_empty()
             && self.marks.is_empty()
+            && self.ai_pages.is_empty()
     }
 }
 
@@ -75,6 +78,7 @@ pub struct Library {
     pub(crate) shelves: Tracked<ShelfId, Shelf>,
     pub(crate) members: Tracked<(ShelfId, BookId), Membership>,
     pub(crate) marks: Tracked<MarkId, Mark>,
+    pub(crate) ai_pages: Tracked<AiPageId, AiPage>,
     /// Each location's path to its book; rebuilt, never saved.
     pub(crate) at: HashMap<PathBuf, BookId>,
     /// Positions to write; the maps track their own changes.
@@ -112,6 +116,7 @@ impl Library {
             shelves: Tracked::new(parts.shelves),
             members: Tracked::new(parts.members),
             marks: Tracked::new(parts.marks),
+            ai_pages: Tracked::new(parts.ai_pages),
             at: HashMap::new(),
             states_dirty: BTreeSet::new(),
             swept: Vec::new(),
@@ -392,6 +397,7 @@ impl Library {
             links: self.links.take_changed(),
             states: std::mem::take(&mut self.states_dirty),
             marks: self.marks.take_changed(),
+            ai_pages: self.ai_pages.take_changed(),
         }
     }
 
@@ -402,6 +408,7 @@ impl Library {
             || self.folders.has_changes()
             || self.links.has_changes()
             || self.marks.has_changes()
+            || self.ai_pages.has_changes()
             || !self.states_dirty.is_empty()
             || !self.retired.is_empty()
     }
@@ -414,6 +421,7 @@ impl Library {
         self.folders.mark_all();
         self.links.mark_all();
         self.marks.mark_all();
+        self.ai_pages.mark_all();
     }
 }
 
@@ -430,6 +438,7 @@ pub(crate) struct Parts {
     pub shelves: BTreeMap<ShelfId, Shelf>,
     pub members: BTreeMap<(ShelfId, BookId), Membership>,
     pub marks: BTreeMap<MarkId, Mark>,
+    pub ai_pages: BTreeMap<AiPageId, AiPage>,
 }
 
 impl Parts {
@@ -444,6 +453,7 @@ impl Parts {
             shelves: BTreeMap::new(),
             members: BTreeMap::new(),
             marks: BTreeMap::new(),
+            ai_pages: BTreeMap::new(),
         }
     }
 }

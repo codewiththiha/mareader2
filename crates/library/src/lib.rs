@@ -11,6 +11,7 @@
 )]
 
 mod absorb;
+mod ai_pages;
 mod arrange;
 mod book;
 mod clock;
@@ -45,6 +46,7 @@ mod view;
 mod words;
 
 pub use absorb::Absorbed;
+pub use ai_pages::{AiPage, AiTask, NewAiPage, PageSpan};
 pub use arrange::Item;
 pub use book::{Book, FileStamp, Format, Location, Origin, Position, State, display_title};
 pub use clock::{Clock, Field, Stamp};
@@ -55,7 +57,7 @@ pub use folder::{
     parent_key,
 };
 pub use holding::Holding;
-pub use id::{BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
+pub use id::{AiPageId, BookId, ContentId, DeviceId, FolderId, LinkId, MarkId, ShelfId};
 pub use ledger::{Held, Recovered};
 pub use library::{Dirty, Library, Measure, Opened};
 pub use link::{Link, LinkTo};
