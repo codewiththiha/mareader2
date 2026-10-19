@@ -1,6 +1,9 @@
 //! Filing loose books: batches name shelves, then each book is placed.
 
+use std::time::Duration;
+
 use mareader_study::{Failure, Why};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::backend::{Backend, run};
@@ -8,7 +11,7 @@ use crate::prompt::{Prompt, quote};
 use crate::task::Task;
 
 /// A book on no shelf, by the caller's key.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Loose {
     pub key: u128,
     pub title: String,
@@ -30,6 +33,8 @@ pub struct Request {
     pub books: Vec<Loose>,
     pub shelves: Vec<Existing>,
     pub batch: usize,
+    /// Every loose book, not a chosen few.
+    pub whole: bool,
 }
 
 /// A shelf there already, or one of the plan's new ones by index.
@@ -83,70 +88,241 @@ const TRIES: usize = 2;
 /// Filing rounds per batch: the first, and one for books it skipped.
 const ROUNDS: usize = 2;
 
-/// Plans `req` on `backend`; `progress` sees each step end.
+/// Pauses before asking again when a server is briefly away.
+pub const WAITS: [Duration; 2] = [Duration::from_secs(3), Duration::from_secs(12)];
+
+/// Where a book was filed: a shelf there before, or a path the run named.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Place {
+    Shelf(u128),
+    Path(String),
+}
+
+/// A run so far, saved after each step so a stopped run carries on.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checkpoint {
+    /// The books, as split when the run began.
+    pub batches: Vec<Vec<Loose>>,
+    /// Asked for every loose book, so books loose since then join.
+    pub whole: bool,
+    pub shelved: usize,
+    /// Shelf paths named so far, in order.
+    pub named: Vec<String>,
+    pub filing: usize,
+    /// Books decided so far; none leaves a book loose.
+    pub filed: Vec<(u128, Option<Place>)>,
+}
+
+impl Checkpoint {
+    /// A run over `req` that hasn't begun.
+    pub fn new(req: &Request) -> Self {
+        let batch = req.batch.clamp(1, 500);
+        Self {
+            batches: req.books.chunks(batch).map(<[Loose]>::to_vec).collect(),
+            whole: req.whole,
+            ..Self::default()
+        }
+    }
+
+    /// This run, fitted to `req`: books no longer in it drop out.
+    pub fn carry_on(mut self, req: &Request) -> Self {
+        let now = |key: u128| req.books.iter().find(|b| b.key == key);
+        for batch in &mut self.batches {
+            // Titles may have been edited since; the new one is asked.
+            *batch = batch.iter().filter_map(|b| now(b.key).cloned()).collect();
+        }
+        self.filed.retain(|(key, _)| now(*key).is_some());
+        if self.whole {
+            let unknown = |b: &&Loose| !self.batches.iter().flatten().any(|k| k.key == b.key);
+            let joined: Vec<Loose> = req.books.iter().filter(unknown).cloned().collect();
+            let batch = req.batch.clamp(1, 500);
+            self.batches
+                .extend(joined.chunks(batch).map(<[Loose]>::to_vec));
+        }
+        self
+    }
+
+    /// Steps done, of all; each batch is read twice.
+    pub fn steps(&self) -> (usize, usize) {
+        (self.shelved + self.filing, self.batches.len() * 2)
+    }
+
+    /// Every step is done; only the plan is left to make.
+    pub fn finished(&self) -> bool {
+        let (done, total) = self.steps();
+        done >= total
+    }
+
+    /// Every book in the run.
+    pub fn books(&self) -> impl Iterator<Item = u128> + '_ {
+        self.batches.iter().flatten().map(|b| b.key)
+    }
+}
+
+/// What a run tells as it goes, and its waits after a passing failure.
+pub struct Hooks<'a> {
+    /// Sees the start and each step's end.
+    pub progress: &'a (dyn Fn(Progress) + Sync),
+    /// Sees the checkpoint after each step.
+    pub save: &'a (dyn Fn(&Checkpoint) + Sync),
+    pub waits: &'a [Duration],
+}
+
+/// Plans `req` on `backend` from the start; `progress` sees each step end.
 pub async fn organize(
     backend: &dyn Backend,
     req: &Request,
     progress: &(dyn Fn(Progress) + Sync),
 ) -> Result<Plan, Failure> {
-    let batch = req.batch.clamp(1, 500);
-    let chunks: Vec<&[Loose]> = req.books.chunks(batch).collect();
-    let total = chunks.len() * 2;
+    let hooks = Hooks {
+        progress,
+        save: &|_| {},
+        waits: &[],
+    };
+    organize_from(backend, req, Checkpoint::new(req), &hooks).await
+}
+
+/// Plans `req`, doing what `run` hasn't; saved steps outlive failure.
+pub async fn organize_from(
+    backend: &dyn Backend,
+    req: &Request,
+    mut run: Checkpoint,
+    hooks: &Hooks<'_>,
+) -> Result<Plan, Failure> {
     let mut tree = Tree::new(&req.shelves);
-    let mut done = 0;
-    let tell = |stage, done| progress(Progress { stage, done, total });
-    tell(Stage::Shelving, done);
-    for chunk in &chunks {
-        let task = Shelving {
-            shelves: tree.paths(),
-            books: listing(chunk.iter()),
-        };
-        // An unreadable batch names no shelves; filing still runs.
-        for path in attempt(backend, &task).await?.unwrap_or_default() {
-            tree.add_path(&path);
-        }
-        done += 1;
-        tell(Stage::Shelving, done);
+    for path in &run.named {
+        tree.add_path(path);
     }
-    let (mut placed, mut left) = (Vec::new(), Vec::new());
-    for chunk in &chunks {
-        let mut todo: Vec<&Loose> = chunk.iter().collect();
-        for _ in 0..ROUNDS {
-            if todo.is_empty() {
-                break;
-            }
-            let task = Filing {
-                tree: &tree,
-                books: &todo,
+    let tell = |stage, run: &Checkpoint| {
+        let (done, total) = run.steps();
+        (hooks.progress)(Progress { stage, done, total });
+    };
+    let batches = run.batches.len();
+    let stage = if run.shelved < batches {
+        Stage::Shelving
+    } else {
+        Stage::Filing
+    };
+    tell(stage, &run);
+    while let Some(chunk) = run.batches.get(run.shelved) {
+        if !chunk.is_empty() {
+            let task = Shelving {
+                shelves: tree.paths(),
+                books: listing(chunk.iter()),
             };
-            let picks = attempt(backend, &task).await?.unwrap_or_default();
-            let mut again = Vec::new();
-            for (i, book) in todo.iter().enumerate() {
-                match picks.iter().find(|(at, _)| *at == i).map(|(_, p)| *p) {
-                    Some(Pick::Shelf(node)) => placed.push((book.key, node)),
-                    Some(Pick::Leave) => left.push(book.key),
-                    Some(Pick::Unknown) | None => again.push(*book),
+            // An unreadable batch names no shelves; filing still runs.
+            for path in attempt(backend, &task, hooks.waits)
+                .await?
+                .unwrap_or_default()
+            {
+                // Kept once, and only if it made a shelf.
+                let fresh = tree.find_path(&path).is_none();
+                if tree.add_path(&path).is_some() && fresh {
+                    run.named.push(path);
                 }
             }
-            todo = again;
         }
-        left.extend(todo.iter().map(|b| b.key));
-        done += 1;
-        tell(Stage::Filing, done);
+        run.shelved += 1;
+        (hooks.save)(&run);
+        tell(Stage::Shelving, &run);
+    }
+    while let Some(chunk) = run.batches.get(run.filing) {
+        let books: Vec<&Loose> = chunk.iter().collect();
+        for (key, node) in file(backend, &tree, books, hooks.waits).await? {
+            run.filed.push((key, node.map(|i| tree.place(i))));
+        }
+        run.filing += 1;
+        (hooks.save)(&run);
+        tell(Stage::Filing, &run);
+    }
+    let (mut placed, mut left, mut lost) = (Vec::new(), Vec::new(), Vec::new());
+    for (key, place) in &run.filed {
+        match place.as_ref().map(|p| tree.find_place(p)) {
+            None => left.push(*key),
+            Some(Some(node)) => placed.push((*key, node)),
+            Some(None) => lost.push(*key),
+        }
+    }
+    if !lost.is_empty() {
+        // Their shelf went meanwhile: filed again, or left loose.
+        let books: Vec<&Loose> = run
+            .batches
+            .iter()
+            .flatten()
+            .filter(|b| lost.contains(&b.key))
+            .collect();
+        let again = file(backend, &tree, books, hooks.waits)
+            .await
+            .unwrap_or_default();
+        for key in &lost {
+            match again.iter().find(|(k, _)| k == key).and_then(|(_, n)| *n) {
+                Some(node) => placed.push((*key, node)),
+                None => left.push(*key),
+            }
+        }
     }
     Ok(tree.plan(&placed, left))
 }
 
-/// The answer, asking again once if it can't be read; none if still not.
-async fn attempt<T: Task>(backend: &dyn Backend, task: &T) -> Result<Option<T::Output>, Failure> {
-    for _ in 0..TRIES {
+/// Each of `books` on a shelf or none, asking again once for any skipped.
+async fn file(
+    backend: &dyn Backend,
+    tree: &Tree,
+    mut todo: Vec<&Loose>,
+    waits: &[Duration],
+) -> Result<Vec<(u128, Option<usize>)>, Failure> {
+    let mut decided = Vec::new();
+    for _ in 0..ROUNDS {
+        if todo.is_empty() {
+            break;
+        }
+        let task = Filing { tree, books: &todo };
+        let picks = attempt(backend, &task, waits).await?.unwrap_or_default();
+        let mut again = Vec::new();
+        for (i, book) in todo.iter().enumerate() {
+            match picks.iter().find(|(at, _)| *at == i).map(|(_, p)| *p) {
+                Some(Pick::Shelf(node)) => decided.push((book.key, Some(node))),
+                Some(Pick::Leave) => decided.push((book.key, None)),
+                Some(Pick::Unknown) | None => again.push(*book),
+            }
+        }
+        todo = again;
+    }
+    decided.extend(todo.iter().map(|b| (b.key, None)));
+    Ok(decided)
+}
+
+/// Busy, offline and slow servers often recover in seconds.
+fn passing(why: Why) -> bool {
+    matches!(why, Why::Busy | Why::Offline | Why::TimedOut)
+}
+
+/// The answer, or none if twice unreadable; a passing failure waits a bit.
+async fn attempt<T: Task>(
+    backend: &dyn Backend,
+    task: &T,
+    waits: &[Duration],
+) -> Result<Option<T::Output>, Failure> {
+    let (mut unreadable, mut waited) = (0, 0);
+    loop {
         match run(backend, task, &|_| {}).await {
             Ok(out) => return Ok(Some(out)),
-            Err(f) if f.why == Why::BadAnswer => {}
+            Err(f) if f.why == Why::BadAnswer => {
+                unreadable += 1;
+                if unreadable >= TRIES {
+                    return Ok(None);
+                }
+            }
+            Err(f) if passing(f.why) => match waits.get(waited) {
+                Some(wait) => {
+                    waited += 1;
+                    tokio::time::sleep(*wait).await;
+                }
+                None => return Err(f),
+            },
             Err(f) => return Err(f),
         }
     }
-    Ok(None)
 }
 
 /// Books as numbered lines, `b1: "Title" by "Author"`.
@@ -288,6 +464,21 @@ impl Tree {
         }
         names.reverse();
         names.join(" > ")
+    }
+
+    /// How a checkpoint keeps node `i`.
+    fn place(&self, i: usize) -> Place {
+        match self.nodes.get(i).map(|n| n.spot) {
+            Some(Spot::Existing(key)) => Place::Shelf(key),
+            _ => Place::Path(self.path(i)),
+        }
+    }
+
+    fn find_place(&self, place: &Place) -> Option<usize> {
+        match place {
+            Place::Shelf(key) => self.at(Spot::Existing(*key)),
+            Place::Path(path) => self.find_path(path),
+        }
     }
 
     /// Every shelf's path, one a line.
@@ -592,7 +783,9 @@ mod tests {
     }
 
     fn block<T>(f: impl std::future::Future<Output = T>) -> T {
-        let rt = tokio::runtime::Builder::new_current_thread().build();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build();
         rt.expect("a runtime").block_on(f)
     }
 
@@ -644,6 +837,7 @@ mod tests {
                 parent: None,
             }],
             batch: 50,
+            whole: false,
         };
         let steps = Mutex::new(Vec::new());
         let plan = block(organize(&backend, &req, &|p| {
@@ -702,6 +896,7 @@ mod tests {
             books: vec![book(1, "Odes"), book(2, "Sonnets"), book(3, "Taxes")],
             shelves: Vec::new(),
             batch: 50,
+            whole: false,
         };
         let plan = block(organize(&backend, &req, &|_| {})).expect("a plan");
         let seen = backend.seen.lock().expect("unpoisoned");
@@ -723,6 +918,7 @@ mod tests {
             books: vec![book(7, "Colour")],
             shelves: Vec::new(),
             batch: 50,
+            whole: false,
         };
         let plan = block(organize(&backend, &req, &|_| {})).expect("a plan");
         assert_eq!(plan.placed, [(7, Spot::New(0))]);
@@ -787,5 +983,178 @@ mod tests {
             "{}",
             p.user
         );
+    }
+
+    /// Runs `run` on `backend`, keeping the last checkpoint saved.
+    fn carry(
+        backend: &dyn Backend,
+        req: &Request,
+        run: Checkpoint,
+        waits: &[Duration],
+    ) -> (Result<Plan, Why>, Checkpoint, Vec<Progress>) {
+        let saved = Mutex::new(run.clone());
+        let told = Mutex::new(Vec::new());
+        let hooks = Hooks {
+            progress: &|p| told.lock().expect("unpoisoned").push(p),
+            save: &|c| *saved.lock().expect("unpoisoned") = c.clone(),
+            waits,
+        };
+        let plan = block(organize_from(backend, req, run, &hooks)).map_err(|f| f.why);
+        let saved = saved.into_inner().expect("unpoisoned");
+        (plan, saved, told.into_inner().expect("unpoisoned"))
+    }
+
+    /// Names Poetry; files every book there.
+    fn poet(p: &Prompt) -> Result<Value, Failure> {
+        match p.name {
+            "shelving" => Ok(json!({"shelves": ["Poetry"]})),
+            _ => Ok(json!({"placements": [{"book": "b1", "shelf": number(p, "Poetry")}]})),
+        }
+    }
+
+    #[test]
+    fn a_stopped_run_carries_on_without_asking_again() {
+        let req = Request {
+            books: vec![book(1, "Odes"), book(2, "Sonnets"), book(3, "Hymns")],
+            shelves: Vec::new(),
+            batch: 1,
+            whole: true,
+        };
+        // Three shelving steps and one filing, then the server breaks.
+        let breaks = script(|p: &Prompt, n| match n {
+            4 => Err(Failure::from(Why::Setup)),
+            _ => poet(p),
+        });
+        let (got, saved, _) = carry(&breaks, &req, Checkpoint::new(&req), &[]);
+        assert_eq!(got.err(), Some(Why::Setup));
+        assert_eq!((saved.shelved, saved.filing), (3, 1));
+        assert_eq!(saved.steps(), (4, 6));
+        assert_eq!(saved.named, ["Poetry"]);
+        let backend = script(|p: &Prompt, _| poet(p));
+        let (plan, saved, told) = carry(&backend, &req, saved.carry_on(&req), &[]);
+        let plan = plan.expect("a plan");
+        let names: Vec<&str> = backend
+            .seen
+            .lock()
+            .expect("unpoisoned")
+            .iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, ["filing", "filing"], "only the steps left");
+        assert_eq!(plan.shelves.len(), 1);
+        assert_eq!(plan.placed.len(), 3);
+        assert!(saved.finished());
+        let first = Progress {
+            stage: Stage::Filing,
+            done: 4,
+            total: 6,
+        };
+        assert_eq!(told.first(), Some(&first));
+    }
+
+    #[test]
+    fn a_resumed_run_fits_the_library_as_it_is_now() {
+        let fiction = Existing {
+            key: 900,
+            name: "Fiction".into(),
+            parent: None,
+        };
+        let req = Request {
+            books: vec![book(1, "Odes"), book(2, "Dune")],
+            shelves: vec![fiction],
+            batch: 1,
+            whole: true,
+        };
+        let first = script(|p: &Prompt, _| match p.name {
+            "filing" if p.user.contains("\"Dune\"") => {
+                Ok(json!({"placements": [{"book": "b1", "shelf": number(p, "Fiction")}]}))
+            }
+            _ => poet(p),
+        });
+        let (plan, done, _) = carry(&first, &req, Checkpoint::new(&req), &[]);
+        assert_eq!(plan.expect("a plan").placed[1], (2, Spot::Existing(900)));
+        assert!(done.finished());
+        // Meanwhile Odes went on a shelf, Fiction was removed, Elegies came.
+        let now = Request {
+            books: vec![book(2, "Dune"), book(3, "Elegies")],
+            shelves: Vec::new(),
+            batch: 1,
+            whole: true,
+        };
+        let backend = script(|p: &Prompt, _| poet(p));
+        let (plan, _, _) = carry(&backend, &now, done.clone().carry_on(&now), &[]);
+        let plan = plan.expect("a plan");
+        let seen = backend.seen.lock().expect("unpoisoned");
+        let names: Vec<&str> = seen.iter().map(|p| p.name).collect();
+        assert_eq!(names, ["shelving", "filing", "filing"]);
+        assert!(seen[2].user.contains("\"Dune\""), "Dune is filed again");
+        assert_eq!(plan.placed, [(3, Spot::New(0)), (2, Spot::New(0))]);
+        // A run over chosen books takes in no newcomers.
+        let chosen = Checkpoint {
+            whole: false,
+            ..done
+        };
+        assert_eq!(chosen.carry_on(&now).books().collect::<Vec<_>>(), [2]);
+    }
+
+    #[test]
+    fn a_finished_run_makes_its_plan_without_asking() {
+        let req = Request {
+            books: vec![book(1, "Odes")],
+            shelves: Vec::new(),
+            batch: 50,
+            whole: false,
+        };
+        let backend = script(|p: &Prompt, _| poet(p));
+        let (plan, done, _) = carry(&backend, &req, Checkpoint::new(&req), &[]);
+        let away = script(|_: &Prompt, _| Err(Failure::from(Why::NotHere)));
+        let (again, _, told) = carry(&away, &req, done.carry_on(&req), &[]);
+        assert_eq!(again, plan);
+        assert!(away.seen.lock().expect("unpoisoned").is_empty());
+        assert_eq!(told.len(), 1, "just where it stands");
+    }
+
+    #[test]
+    fn a_busy_server_is_waited_out_then_the_run_pauses() {
+        let req = Request {
+            books: vec![book(1, "Odes")],
+            shelves: Vec::new(),
+            batch: 50,
+            whole: false,
+        };
+        let busy_twice = |p: &Prompt, n| match n {
+            0 => Err(Failure::from(Why::Busy)),
+            1 => Err(Failure::from(Why::Offline)),
+            _ => poet(p),
+        };
+        let short = [Duration::from_millis(1); 2];
+        let (plan, _, _) = carry(&script(busy_twice), &req, Checkpoint::new(&req), &short);
+        assert_eq!(plan.expect("a plan").placed.len(), 1);
+        let (got, saved, _) = carry(
+            &script(busy_twice),
+            &req,
+            Checkpoint::new(&req),
+            &short[..1],
+        );
+        assert_eq!(got.err(), Some(Why::Offline));
+        assert_eq!(saved.steps(), (0, 2), "nothing done is lost");
+    }
+
+    #[test]
+    fn a_checkpoint_reads_back_as_written() {
+        let req = Request {
+            books: vec![book(u128::MAX, "Odes \"and\" ends")],
+            shelves: Vec::new(),
+            batch: 50,
+            whole: true,
+        };
+        let mut run = Checkpoint::new(&req);
+        run.named.push("Poetry > Odes".into());
+        run.filed
+            .push((u128::MAX, Some(Place::Shelf(u128::MAX - 1))));
+        run.filed.push((7, Some(Place::Path("Poetry".into()))));
+        let text = serde_json::to_string(&run).expect("written");
+        let back: Checkpoint = serde_json::from_str(&text).expect("read");
+        assert_eq!(back, run);
     }
 }

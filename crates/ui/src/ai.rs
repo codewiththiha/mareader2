@@ -131,6 +131,7 @@ fn request(ask: &Ask, batch: u16) -> mareader_assist::Request {
         books,
         shelves,
         batch: usize::from(batch),
+        whole: false,
     }
 }
 
