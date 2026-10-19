@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use mareader_assist::{
-    Assist, Board, Job, KeyState, Kind, Load, Loose, Organized, Organizing, Plan, Request, Spot,
+    Assist, Board, Job, KeyState, Kind, Load, Loose, Organized, Organizing, Plan, Progress,
+    Request, Spot, Stage,
 };
 use mareader_settings::{AiSettings, ModelPreset, Provider};
 use mareader_study::{Explainer, Why, WordInfo};
@@ -203,6 +204,7 @@ fn books(titles: &[&str]) -> Request {
         books: titles.iter().enumerate().map(loose).collect(),
         shelves: Vec::new(),
         batch: 50,
+        whole: true,
     }
 }
 
@@ -276,6 +278,50 @@ fn organizing_needs_a_free_model_and_cancelling_frees_it() {
     let _ = a.configure(&none);
     let (_, plan) = finish(&mut a.organize(books(&["Odes"])));
     assert_eq!(plan.err(), Some(Why::NotHere));
+}
+
+#[test]
+fn a_failed_run_is_kept_and_resumed_where_it_stopped() {
+    let shelving = r#"{"shelves": ["Poetry"]}"#;
+    let refused = Answer::json(400, r#"{"error": {"message": "no"}}"#);
+    let answers = vec![
+        Answer::stream(&[shelving]),
+        Answer::stream(&[shelving]),
+        refused,
+    ];
+    let (rt, server) = server(answers);
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = assist(&dir);
+    let _explainer = a.configure(&settings(Provider::Ollama, &server.url));
+    let mut req = books(&["Odes", "Hymns"]);
+    req.batch = 1;
+    let (_, plan) = finish(&mut a.organize(req.clone()));
+    assert!(plan.is_err());
+    let paused = a.paused().expect("kept");
+    assert_eq!((paused.shelved, paused.filing), (2, 0));
+    // Undo of a discard brings it back.
+    assert!(a.set_aside());
+    assert!(a.paused().is_none());
+    assert!(a.bring_back());
+    // The server mends; only the filing is asked.
+    let filing = r#"{"placements":[{"book":"b1","shelf":1}]}"#;
+    let mended = rt.block_on(Server::start(vec![Answer::stream(&[filing])]));
+    let _explainer = a.configure(&settings(Provider::Ollama, &mended.url));
+    let (progress, plan) = finish(&mut a.resume(req.clone()));
+    let plan = plan.unwrap();
+    assert_eq!(plan.placed.len(), 2);
+    assert_eq!(plan.shelves.len(), 1);
+    assert_eq!(mended.seen().len(), 2);
+    let start = Organized::Progress(Progress {
+        stage: Stage::Filing,
+        done: 2,
+        total: 4,
+    });
+    assert_eq!(progress.first(), Some(&start));
+    // The plan stays until it's applied or discarded.
+    assert!(a.paused().is_some_and(|p| p.finished()));
+    a.forget();
+    assert!(a.paused().is_none());
 }
 
 #[cfg(unix)]

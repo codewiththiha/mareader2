@@ -2888,6 +2888,7 @@ dependencies = [
  "futures-util",
  "mareader-settings",
  "mareader-study",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

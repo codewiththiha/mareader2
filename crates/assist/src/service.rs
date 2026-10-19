@@ -15,10 +15,28 @@ use crate::backend::{Backend, BoxFuture, Nobody, Partial, run};
 use crate::board::{AppleState, Board, Job, Reply, Tried, lanes};
 use crate::compat::{Compat, failure_with_keys};
 use crate::keys::{Clients, pasted, row};
-use crate::organize::{Plan, Progress, Request, organize};
+use crate::organize::{Checkpoint, Hooks, Plan, Progress, Request, WAITS, organize_from};
 use crate::prompt::Prompt;
 use crate::slots::{Kind, Slots, Ticket};
 use crate::task::Explain;
+
+/// The paused organizer run, and one set aside for Undo.
+const CHECKPOINT: &str = "organize.json";
+const SET_ASIDE: &str = "organize.old.json";
+
+/// Writes `run` whole or not at all: a crash mid-write keeps the old one.
+fn keep(file: &std::path::Path, run: &Checkpoint) {
+    let Ok(text) = serde_json::to_string(run) else {
+        return;
+    };
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let draft = file.with_extension("json.part");
+    if std::fs::write(&draft, text).is_ok() {
+        let _ = std::fs::rename(&draft, file);
+    }
+}
 
 /// Wakes the UI when a job finishes.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
@@ -147,32 +165,88 @@ impl Assist {
         self.slots.in_use(preset)
     }
 
-    /// Plans `req` with the organizing model, off the UI thread.
+    /// Plans `req` afresh; once the model is free, it replaces a paused run.
     pub fn organize(&self, req: Request) -> Organizing {
+        self.organize_from(req, None)
+    }
+
+    /// Carries on the paused run, fitted to `req`; starts one if none.
+    pub fn resume(&self, req: Request) -> Organizing {
+        let paused = self.paused();
+        self.organize_from(req, paused)
+    }
+
+    /// The run a failure, a stop or quitting left; kept until forgotten.
+    pub fn paused(&self) -> Option<Checkpoint> {
+        let text = std::fs::read_to_string(self.root.join(CHECKPOINT)).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Sets the paused run aside, so [`Self::bring_back`] can undo it.
+    pub fn set_aside(&self) -> bool {
+        std::fs::rename(self.root.join(CHECKPOINT), self.root.join(SET_ASIDE)).is_ok()
+    }
+
+    /// Brings back the run last set aside.
+    pub fn bring_back(&self) -> bool {
+        std::fs::rename(self.root.join(SET_ASIDE), self.root.join(CHECKPOINT)).is_ok()
+    }
+
+    /// Drops the paused run for good, as when its plan is applied.
+    pub fn forget(&self) {
+        let _ = std::fs::remove_file(self.root.join(CHECKPOINT));
+        let _ = std::fs::remove_file(self.root.join(SET_ASIDE));
+    }
+
+    fn organize_from(&self, req: Request, paused: Option<Checkpoint>) -> Organizing {
         let (tx, rx) = channel();
         let Some(rt) = self.engine.rt() else {
             let _ = tx.send(Organized::Done(Err(Why::NotHere.into())));
             return Organizing { rx, task: None };
         };
+        let resumed = paused.is_some();
+        let run = match paused {
+            Some(run) => run.carry_on(&req),
+            None => Checkpoint::new(&req),
+        };
         let preset = self.ai.organize_preset().cloned();
         let backend = preset.as_ref().map(|p| self.backend(p));
         let (slots, waker) = (self.slots.clone(), Arc::clone(&self.waker));
+        let file = self.root.join(CHECKPOINT);
         let task = rt.spawn(async move {
             let say = |event| {
                 let _ = tx.send(event);
                 waker();
             };
-            let (Some(preset), Some(backend)) = (preset, backend) else {
-                let none = "no model is chosen to organize with; pick one in Settings › AI";
-                say(Organized::Done(Err(Failure::detailed(Why::NotHere, none))));
-                return;
+            let save = |run: &Checkpoint| keep(&file, run);
+            // A finished run only makes its plan; no model is asked.
+            let (backend, slot) = match (preset, backend) {
+                _ if run.finished() => {
+                    let none: Arc<dyn Backend> = Arc::new(Nobody(Why::NotHere.into()));
+                    (none, None)
+                }
+                (Some(preset), Some(backend)) => {
+                    let what = Kind::Long(ORGANIZING);
+                    match slot(&slots, &preset, backend.as_ref(), what).await {
+                        Ok(ticket) => (backend, Some(ticket)),
+                        Err(f) => return say(Organized::Done(Err(f))),
+                    }
+                }
+                _ => {
+                    let none = "no model is chosen to organize with; pick one in Settings › AI";
+                    say(Organized::Done(Err(Failure::detailed(Why::NotHere, none))));
+                    return;
+                }
             };
-            let what = Kind::Long(ORGANIZING);
-            let slot = match slot(&slots, &preset, backend.as_ref(), what).await {
-                Ok(ticket) => ticket,
-                Err(f) => return say(Organized::Done(Err(f))),
+            if !resumed {
+                save(&run);
+            }
+            let hooks = Hooks {
+                progress: &|p| say(Organized::Progress(p)),
+                save: &save,
+                waits: &WAITS,
             };
-            let plan = organize(backend.as_ref(), &req, &|p| say(Organized::Progress(p))).await;
+            let plan = organize_from(backend.as_ref(), &req, run, &hooks).await;
             drop(slot);
             say(Organized::Done(plan));
         });

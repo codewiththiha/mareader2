@@ -25,7 +25,10 @@ pub use backend::{Backend, BoxFuture, Nobody, Partial, run};
 pub use board::{AppleState, Board, Job, KeyRow, KeyState, Load, Reply, Tried, lanes};
 pub use compat::Compat;
 pub use keys::KEYCHAIN_SERVICE;
-pub use organize::{Existing, Loose, NewShelf, Plan, Progress, Request, Spot, Stage, organize};
+pub use organize::{
+    Checkpoint, Existing, Hooks, Loose, NewShelf, Place, Plan, Progress, Request, Spot, Stage,
+    WAITS, organize, organize_from,
+};
 pub use prompt::{Prompt, quote};
 pub use service::{Assist, Organized, Organizing, Waker};
 pub use slots::{Kind, Slots, Ticket};
