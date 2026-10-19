@@ -16,8 +16,10 @@ mod living;
 pub(crate) mod menu;
 mod menus;
 pub mod moving;
+pub mod organizing;
 pub mod picks;
 mod remove_alert;
+mod review;
 pub mod runs;
 pub mod search;
 pub mod sheets;
@@ -33,6 +35,7 @@ use mareader_library::disk::Folder;
 use mareader_library::{
     BookId, DeviceId, Format, Library, Opened, Position, ShelfId, display_title,
 };
+use mareader_library::{Copied, Found};
 use mareader_session::{Anchor, Document, Source};
 use mareader_workspace::PaneId;
 
@@ -93,6 +96,8 @@ pub struct LibraryState {
     /// Imports and folder walks still going.
     pub runs: runs::Runs,
     motion: living::Motion,
+    /// The AI's run filing loose books, and its plan.
+    organizer: organizing::Organizer,
 }
 
 impl Default for LibraryState {
@@ -118,6 +123,7 @@ impl Default for LibraryState {
             search: search::Search::default(),
             runs: runs::Runs::default(),
             motion: living::Motion::default(),
+            organizer: organizing::Organizer::default(),
         }
     }
 }
@@ -369,26 +375,41 @@ impl LibraryState {
         })
     }
 
+    /// Adds made-up imported copies, on no shelf, for shots and tests.
+    pub fn seed_copies(&mut self, count: usize) {
+        let from = self.model.len();
+        let pairs: Vec<(Found, Copied)> = (from..from + count)
+            .map(|i| {
+                let (title, author) = SEEDS
+                    .get(i % SEEDS.len())
+                    .copied()
+                    .unwrap_or(("Book", None));
+                let measure = mareader_library::Measure {
+                    content: mareader_library::ContentId(i as u128 + 1),
+                    stamp: Default::default(),
+                };
+                let path = PathBuf::from(format!("/store/{i}-{title}.epub"));
+                let found = Found {
+                    path: path.clone(),
+                    format: Format::Epub,
+                    measure,
+                    title: Some(title.to_owned()),
+                    author: author.map(str::to_owned),
+                };
+                (found, Copied { path, measure })
+            })
+            .collect();
+        self.model.land_copies(&pairs, None, wall_ms());
+    }
+
     /// Adds made-up books for shots: some started, one missing.
     pub fn seed(&mut self, count: usize) {
-        const BOOKS: [(&str, Option<&str>); 10] = [
-            ("The Raven", Some("Edgar Allan Poe")),
-            ("Middlemarch", Some("George Eliot")),
-            ("A Field Guide to Ferns", None),
-            ("Notes on Typography", Some("Ada Bringhurst")),
-            ("The Voyage Out", Some("Virginia Woolf")),
-            ("Collected Essays, Volume 10", Some("M. Aurel")),
-            ("Letters from the Coast", None),
-            ("An Atlas of Rivers", Some("Lena Ortiz")),
-            ("Collected Essays, Volume 2", Some("M. Aurel")),
-            ("Practical Rust", Some("Sam Okafor")),
-        ];
         let formats = [Format::Epub, Format::Pdf, Format::Markdown, Format::Text];
         let now = wall_ms();
         let from = self.model.len();
         for i in from..from + count {
-            let (title, author) = BOOKS
-                .get(i % BOOKS.len())
+            let (title, author) = SEEDS
+                .get(i % SEEDS.len())
                 .copied()
                 .unwrap_or(("Book", None));
             let format = formats
@@ -456,6 +477,20 @@ fn author_of(document: &Document) -> Option<String> {
         .filter(|a| !a.is_empty())
         .map(str::to_owned)
 }
+
+/// Titles the made-up books wear.
+const SEEDS: [(&str, Option<&str>); 10] = [
+    ("The Raven", Some("Edgar Allan Poe")),
+    ("Middlemarch", Some("George Eliot")),
+    ("A Field Guide to Ferns", None),
+    ("Notes on Typography", Some("Ada Bringhurst")),
+    ("The Voyage Out", Some("Virginia Woolf")),
+    ("Collected Essays, Volume 10", Some("M. Aurel")),
+    ("Letters from the Coast", None),
+    ("An Atlas of Rivers", Some("Lena Ortiz")),
+    ("Collected Essays, Volume 2", Some("M. Aurel")),
+    ("Practical Rust", Some("Sam Okafor")),
+];
 
 /// Random per library: the first save keeps it in the store.
 fn new_device() -> DeviceId {

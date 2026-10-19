@@ -7,6 +7,12 @@ use std::sync::Arc;
 use mareader_settings::AiSettings;
 use mareader_study::Explainer;
 
+use crate::library::organizing::Heard;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::library::organizing::{Ask, Proposal, Spot};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::toast::Toast;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use mareader_assist::{Board, Job};
 
@@ -16,6 +22,9 @@ pub struct Ai {
     #[cfg(not(target_arch = "wasm32"))]
     assist: Option<mareader_assist::Assist>,
     made_for: Option<AiSettings>,
+    /// The library run under way; dropping it stops the run.
+    #[cfg(not(target_arch = "wasm32"))]
+    organizing: Option<mareader_assist::Organizing>,
 }
 
 impl Ai {
@@ -61,10 +70,119 @@ impl Ai {
         self.assist.as_ref().map_or(0, |a| a.in_use(id))
     }
 
+    /// Starts filing `ask`'s books, `batch` a request; false without AI.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn organize(&mut self, ask: &Ask, batch: u16) -> bool {
+        let Some(assist) = &self.assist else {
+            return false;
+        };
+        self.organizing = Some(assist.organize(request(ask, batch)));
+        true
+    }
+
+    /// What the library run said since the last call.
+    pub fn organized(&mut self) -> Vec<Heard> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(run) = &mut self.organizing {
+            let heard: Vec<Heard> = run.poll().into_iter().map(heard).collect();
+            let over = heard.iter().any(|h| !matches!(h, Heard::Progress { .. }));
+            if over {
+                self.organizing = None;
+            }
+            return heard;
+        }
+        Vec::new()
+    }
+
+    pub fn stop_organizing(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(mut run) = self.organizing.take() {
+            run.cancel();
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn send(&mut self, job: Job) {
         if let Some(assist) = &mut self.assist {
             assist.send(job);
         }
+    }
+}
+
+/// The library's ask, keyed as the service wants it.
+#[cfg(not(target_arch = "wasm32"))]
+fn request(ask: &Ask, batch: u16) -> mareader_assist::Request {
+    use mareader_assist::{Existing, Loose};
+    let books = (ask.books.iter())
+        .map(|b| Loose {
+            key: b.id.0,
+            title: b.title.clone(),
+            author: b.author.clone().unwrap_or_default(),
+        })
+        .collect();
+    let shelves = (ask.shelves.iter())
+        .map(|s| Existing {
+            key: s.id.0,
+            name: s.name.clone(),
+            parent: s.parent.map(|p| p.0),
+        })
+        .collect();
+    mareader_assist::Request {
+        books,
+        shelves,
+        batch: usize::from(batch),
+    }
+}
+
+/// The service's news, in the library's words.
+#[cfg(not(target_arch = "wasm32"))]
+fn heard(news: mareader_assist::Organized) -> Heard {
+    use mareader_assist::{Organized, Stage};
+    match news {
+        Organized::Progress(p) => Heard::Progress {
+            filing: p.stage == Stage::Filing,
+            done: p.done,
+            total: p.total,
+        },
+        Organized::Done(Ok(plan)) => Heard::Plan(proposal(plan)),
+        Organized::Done(Err(f)) => Heard::Failed(failed(&f)),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn proposal(plan: mareader_assist::Plan) -> Proposal {
+    use mareader_library::{BookId, ShelfId};
+    let spot = |s: mareader_assist::Spot| match s {
+        mareader_assist::Spot::Existing(key) => Spot::Shelf(ShelfId(key)),
+        mareader_assist::Spot::New(i) => Spot::New(i),
+    };
+    Proposal {
+        shelves: (plan.shelves.into_iter())
+            .map(|s| (s.name, s.parent.map(spot)))
+            .collect(),
+        placed: (plan.placed.into_iter())
+            .map(|(key, s)| (BookId(key), spot(s)))
+            .collect(),
+        left: plan.left.into_iter().map(BookId).collect(),
+    }
+}
+
+/// What a failed run's toast says; a busy model asks to wait.
+#[cfg(not(target_arch = "wasm32"))]
+fn failed(f: &mareader_study::Failure) -> Toast {
+    use mareader_study::Why;
+    let said = match f.why {
+        Why::InUse => f
+            .detail
+            .clone()
+            .unwrap_or_else(|| f.why.message().to_owned()),
+        Why::NotHere => "No AI is set up to organize with. Choose a model in Settings › AI.".into(),
+        Why::Refused => "The model declined to organize these books.".into(),
+        Why::BadAnswer => "The model's answers couldn't be read. Try another model.".into(),
+        why => format!("Couldn't organize the books. {}", why.message()),
+    };
+    match f.why {
+        Why::InUse | Why::NotHere | Why::NoKey | Why::Locked => Toast::warning(said),
+        _ => Toast::error(said),
     }
 }

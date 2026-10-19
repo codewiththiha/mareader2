@@ -8,6 +8,7 @@ use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::platform::Platform;
 use crate::theme::Tokens;
+use crate::titlebar::LibraryBar;
 use crate::widgets;
 
 pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
@@ -16,12 +17,12 @@ const WIDTH: f32 = 248.0;
 /// The menu's button; `auto` is the grid's automatic column count.
 pub fn button(
     ui: &mut Ui,
-    view: &View,
-    auto: u8,
+    library: &LibraryBar<'_>,
     pinned: bool,
     platform: Platform,
     out: &mut Commands,
 ) {
+    let (view, auto) = (library.view, library.auto_columns);
     let id = Id::new(LIBRARY_VIEW_MENU);
     let open = Popup::is_id_open(ui.ctx(), id);
     let r = widgets::icon_button(ui, Icon::ViewOptions, "View options", open);
@@ -37,6 +38,18 @@ pub fn button(
             let mut next = *view;
             if widgets::menu_row(ui, Icon::Plus, "New shelf", None, false).clicked() {
                 out.push(Command::Library(Action::Shelf(ShelfAction::New)));
+                ui.close();
+            }
+            let busy = library.organizing;
+            let organize = ui.add_enabled_ui(!busy, |ui| {
+                widgets::menu_row(ui, Icon::Explain, super::menus::ORGANIZE, None, false)
+            });
+            let organize = organize.inner.on_hover_text(super::menus::ORGANIZE_TIP);
+            if organize
+                .on_disabled_hover_text(super::menus::ORGANIZING)
+                .clicked()
+            {
+                out.push(Command::Library(Action::Organize(None)));
                 ui.close();
             }
             crate::view_menu::pin_row(ui, pinned, out);

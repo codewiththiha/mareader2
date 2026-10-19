@@ -786,6 +786,15 @@ impl MareaderApp {
                 .library
                 .seed(value.parse().map_err(|_| "books: a count")?),
             "shelves" => self.library.seed_shelves(),
+            "copies" => self
+                .library
+                .seed_copies(value.parse().map_err(|_| "copies: a count")?),
+            // A made-up AI run over the loose copies, or its plan.
+            "organize" => match value {
+                "running" => self.library.organize_demo(false),
+                "review" => self.library.organize_demo(true),
+                _ => return Err("organize: running or review".into()),
+            },
             // A shelf by its names from the top, as "Fiction/Classics".
             "shelf" => {
                 let found = self.library.open_shelf(value);
@@ -1240,6 +1249,7 @@ impl MareaderApp {
         if let Some(explainer) = self.ai.follow(&self.settings.ai) {
             self.study.set_explainer(explainer);
         }
+        self.take_organized();
         self.study.receive(self.library.model_mut());
         let (changed, role) = self.vocab.poll();
         if changed {
@@ -1699,6 +1709,44 @@ impl MareaderApp {
         self.reopen.1.clone()
     }
 
+    /// Asks the AI to shelve loose books; a toast says why it can't.
+    fn organize(&mut self, picked: Option<&[mareader_library::BookId]>) {
+        let ask = match self.library.ask_organize(picked) {
+            Ok(ask) => ask,
+            Err(why) => return self.toasts.push(Toast::info(why)),
+        };
+        let ai = &self.settings.ai;
+        let Some(model) = ai
+            .organize_preset()
+            .map(mareader_settings::ModelPreset::title)
+        else {
+            let why = "Choose a model to organize with in Settings › AI.";
+            return self.toasts.push(Toast::warning(why));
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.ai.organize(&ask, ai.tasks.organize.batch) {
+            self.library
+                .organizing(ask.books.iter().map(|b| b.id), &model);
+            // A busy model says so at once.
+            self.take_organized();
+            return;
+        }
+        let _ = (ask, model);
+        self.toasts
+            .push(Toast::warning("The AI isn't available here."));
+    }
+
+    /// The library run's news, into the library.
+    fn take_organized(&mut self) {
+        let mut out = Commands::new();
+        for heard in self.ai.organized() {
+            self.library.heard(heard, &mut out);
+        }
+        for command in out {
+            self.queue(command);
+        }
+    }
+
     /// Library work; its dialogs need the app's files.
     fn library_action(&mut self, ctx: &Context, action: library::Action) {
         use library::Action as A;
@@ -1749,6 +1797,11 @@ impl MareaderApp {
                 };
                 let relink = move |path| Command::Library(A::Relink { book, path });
                 self.files.pick_book(ctx, format.extensions(), relink);
+            }
+            A::Organize(picked) => self.organize(picked.as_deref()),
+            A::StopOrganizing => {
+                self.ai.stop_organizing();
+                self.library.organizer_end();
             }
             action => {
                 let mut out = Commands::new();
@@ -2577,6 +2630,7 @@ impl eframe::App for MareaderApp {
                     trail: self.library.trail(),
                     renaming: self.library.renaming(),
                     search: self.library.field(),
+                    organizing: self.library.organizer().busy(),
                 };
                 // On a shelf, the breadcrumb names the page.
                 let title = if library.trail.is_empty() {
@@ -2627,7 +2681,7 @@ impl eframe::App for MareaderApp {
             Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
             Route::Library | Route::Dictionary => 0.0,
         };
-        library::runs::show(&ctx, &mut self.library.runs, stage, lift);
+        library::runs::show(&ctx, &mut self.library.runs, stage, lift, &mut commands);
         let window = self.settings_scope();
         self.settings_window.show(
             &ctx,

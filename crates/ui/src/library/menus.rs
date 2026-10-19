@@ -4,7 +4,7 @@ use egui::{
     Button, Color32, Id, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Stroke,
     StrokeKind, Ui, pos2, vec2,
 };
-use mareader_library::{Book, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
+use mareader_library::{Book, BookId, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
 
 use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::command::{Command, Commands};
@@ -237,9 +237,14 @@ fn ask_remove(picks: &[Pick], out: &mut Commands) {
 }
 
 /// The page's own menu, on empty space.
-pub fn page_menu(ui: &mut Ui, selecting: bool, sequence: &[Pick], out: &mut Commands) {
+pub fn page_menu(ui: &mut Ui, selecting: bool, sequence: &[Pick], busy: bool, out: &mut Commands) {
     if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::New);
+    }
+    let organize = ui.add_enabled(!busy, Button::new(ORGANIZE));
+    let organize = organize.on_hover_text(ORGANIZE_TIP);
+    if organize.on_disabled_hover_text(ORGANIZING).clicked() {
+        act(out, Action::Organize(None));
     }
     if sequence.is_empty() {
         return;
@@ -260,7 +265,15 @@ pub struct Bar<'a> {
     /// The shelf open on the page; the cards shown, in order.
     pub at: Option<ShelfId>,
     pub sequence: &'a [Pick],
+    /// The AI is organizing already.
+    pub busy: bool,
 }
+
+/// The rows that ask the AI to shelve loose books, and what they say.
+pub const ORGANIZE: &str = "Organize with AI";
+pub const ORGANIZE_TIP: &str = "Let the AI sort imported books on no shelf onto shelves; \
+                                you see its plan before anything moves";
+pub const ORGANIZING: &str = "The AI is organizing already";
 
 /// The bar along the page's foot while selecting.
 pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &mut Commands) {
@@ -305,11 +318,35 @@ pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &m
                 ask_remove(&picks.items(), out);
             }
             add_to_shelf(ui, bar, out);
+            organize_picks(ui, bar, out);
             if ui.button("All").clicked() {
                 act(out, Action::Pick(PickAction::Add(bar.sequence.to_vec())));
             }
         });
     });
+}
+
+/// Asks the AI to shelve the picked books; it says which it can.
+fn organize_picks(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
+    let books: Vec<BookId> = (bar.picks.items().into_iter())
+        .filter_map(|p| match p {
+            Pick::Book(id) => Some(id),
+            Pick::Shelf(_) | Pick::Link(_) => None,
+        })
+        .collect();
+    let on = !bar.busy && !books.is_empty();
+    let r = ui.add_enabled_ui(on, |ui| {
+        widgets::icon_button(ui, Icon::Explain, "Organize these with AI", false)
+    });
+    let tip = match () {
+        _ if bar.busy => ORGANIZING,
+        _ => "Pick books to organize",
+    };
+    let r = r.inner.on_disabled_hover_text(tip);
+    if r.clicked() {
+        act(out, Action::Organize(Some(books)));
+        act(out, Action::Pick(PickAction::Clear));
+    }
 }
 
 /// Files the selection on a shelf it can go on, or on a new one.

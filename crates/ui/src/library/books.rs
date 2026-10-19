@@ -85,7 +85,12 @@ impl LibraryState {
                 out.push(Command::Notify(Toast::info(note)));
             }
             BookAction::Import { paths, to } => self.import_files(paths, to, out),
-            BookAction::ShelveTogether(picks) => self.shelve_together(&picks, out),
+            BookAction::ShelveTogether(picks) => {
+                let picks = self.unheld_picks(picks, out);
+                if !picks.is_empty() {
+                    self.shelve_together(&picks, out);
+                }
+            }
             BookAction::Duplicate(picks) => self.duplicate(picks, out),
             // Dialogs and the file manager are the app's.
             BookAction::Reveal(_) | BookAction::PickImport => {}
