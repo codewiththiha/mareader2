@@ -851,6 +851,11 @@ impl MareaderApp {
                 let id = ai.add_preset(p, "");
                 ai.tasks.explain.preset = Some(id);
             }
+            // The meaning's language by tag, e.g. `my`.
+            "meaning" => {
+                mareader_settings::language_name(value).ok_or("meaning: a tag, e.g. my")?;
+                self.settings.ai.tasks.explain.language = Some(value.to_owned());
+            }
             // The first such text on a page selected, as `page:words`.
             "selection" => {
                 let hint = "selection: page:text, as 0:quick";
