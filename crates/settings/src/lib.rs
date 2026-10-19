@@ -22,8 +22,9 @@ use mareader_library::View;
 use serde::{Deserialize, Serialize};
 
 pub use ai::{
-    AiSettings, AiTasks, Endpoint, ExplainTask, LANGUAGES, ModelPreset, OrganizeTask, PresetId,
-    Provider, language_name,
+    AiSettings, AiTasks, Endpoint, ExplainTask, LANGUAGES, ModelPreset, OrganizeTask, PageRun,
+    PageStart, PageTask, PresetId, Provider, SimplifyTask, SummarizeTask, SummaryStyle,
+    TranslateTask, language_name,
 };
 pub use load::{Loaded, load, to_json};
 pub use reader::{
