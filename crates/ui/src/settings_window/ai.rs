@@ -2,7 +2,7 @@
 
 use egui::{Align, Layout, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, pos2, vec2};
 use mareader_assist::{AppleState, Board, Job, KeyRow, KeyState, Load, lanes};
-use mareader_settings::{AiSettings, LANGUAGES, ModelPreset, PresetId, Provider};
+use mareader_settings::{AiSettings, LANGUAGES, ModelPreset, OrganizeTask, PresetId, Provider};
 use mareader_study::Failure;
 
 use super::{divider, group, note, row, section};
@@ -14,6 +14,9 @@ use crate::widgets;
 const FIELD_W: f32 = 260.0;
 const PICK_W: f32 = 240.0;
 const BOOKS_LANGUAGE: &str = "The book's language";
+const SAME_AS_EXPLAIN: &str = "Same as Explain words";
+/// Books per request Apple's small context holds.
+const APPLE_BATCH: u16 = 20;
 
 /// What the running service adds to the settings.
 pub struct Live<'a> {
@@ -70,14 +73,48 @@ fn tasks(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
         let tip = "The model the Explain card asks";
         row(ui, "Explain words", tip, |ui| {
             let explain = &mut ai.tasks.explain.preset;
-            preset_picker(ui, "ai-explain-model", &ai.presets, explain);
+            preset_picker(ui, "ai-explain-model", &ai.presets, explain, "None");
         });
         divider(ui);
         let tip = "The meaning's language; the rest stays in the book's";
         row(ui, "Meaning in", tip, |ui| {
             language_picker(ui, &mut ai.tasks.explain.language, &speaks);
         });
+        divider(ui);
+        let tip = "The model that sorts imported books on no shelf onto shelves";
+        row(ui, "Organize library", tip, |ui| {
+            let organize = &mut ai.tasks.organize.preset;
+            preset_picker(
+                ui,
+                "ai-organize-model",
+                &ai.presets,
+                organize,
+                SAME_AS_EXPLAIN,
+            );
+        });
+        divider(ui);
+        let tip = "Books each request reads: more is quicker, fewer suits small models";
+        row(ui, "Books per request", tip, |ui| {
+            let task = &mut ai.tasks.organize;
+            let mut n = f32::from(task.batch);
+            let lo = f32::from(OrganizeTask::BATCH_MIN);
+            let hi = f32::from(OrganizeTask::BATCH_MAX);
+            widgets::stepper(ui, &mut n, lo..=hi, 10.0, |v| format!("{v:.0}"), "books");
+            let n = n.round().clamp(lo, hi) as u16;
+            task.batch = n;
+        });
     });
+    let organizer = ai.organize_preset().map(|p| p.provider);
+    let big = ai.tasks.organize.batch > APPLE_BATCH;
+    if organizer == Some(Provider::Apple) && big {
+        note(
+            ui,
+            &format!(
+                "Apple Intelligence reads little at once; \
+                 {APPLE_BATCH} books per request or fewer suits it."
+            ),
+        );
+    }
     if ai.presets.is_empty() {
         note(ui, "Add a model below, then choose it here.");
     }
@@ -93,15 +130,21 @@ fn tasks(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
     }
 }
 
-/// A saved model for a task, or none.
-fn preset_picker(ui: &mut Ui, salt: &str, presets: &[ModelPreset], chosen: &mut Option<PresetId>) {
+/// A saved model for a task, or `none`.
+fn preset_picker(
+    ui: &mut Ui,
+    salt: &str,
+    presets: &[ModelPreset],
+    chosen: &mut Option<PresetId>,
+    none: &str,
+) {
     let title = |id: PresetId| presets.iter().find(|p| p.id == id).map(ModelPreset::title);
-    let shown = chosen.and_then(title).unwrap_or_else(|| "None".to_owned());
+    let shown = chosen.and_then(title).unwrap_or_else(|| none.to_owned());
     egui::ComboBox::from_id_salt(salt)
         .width(PICK_W)
         .selected_text(shown)
         .show_ui(ui, |ui| {
-            ui.selectable_value(chosen, None, "None");
+            ui.selectable_value(chosen, None, none);
             for p in presets {
                 ui.selectable_value(chosen, Some(p.id), p.title());
             }
@@ -184,11 +227,13 @@ fn models(ui: &mut Ui, ai: &mut AiSettings, live: Option<&Live<'_>>, out: &mut C
 /// The tasks using `id`, as the row's small print names them.
 fn task_names(ai: &AiSettings, id: PresetId) -> String {
     let explain = ai.tasks.explain.preset == Some(id);
-    if explain {
-        "Explain words".to_owned()
-    } else {
-        String::new()
-    }
+    let organize = ai.organize_preset().is_some_and(|p| p.id == id);
+    let names = [(explain, "Explain words"), (organize, "Organize library")];
+    let used: Vec<&str> = (names.iter())
+        .filter(|(on, _)| *on)
+        .map(|(_, n)| *n)
+        .collect();
+    used.join(", ")
 }
 
 /// Provider, model, room and use, on one line.
