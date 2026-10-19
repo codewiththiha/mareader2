@@ -15,6 +15,7 @@ mod board;
 mod compat;
 mod keys;
 mod organize;
+mod page;
 mod prompt;
 mod service;
 mod slots;
@@ -29,7 +30,11 @@ pub use organize::{
     Checkpoint, Existing, Hooks, Loose, NewShelf, Place, Plan, Progress, Request, Spot, Stage,
     WAITS, organize, organize_from,
 };
+pub use page::{
+    Kept, Out, PAGE_CHARS, PageAsk, PageJob, PdfLine, Piece, Rewrite, Rewritten, Role, pdf_pieces,
+    rewrite,
+};
 pub use prompt::{Prompt, quote};
-pub use service::{Assist, Organized, Organizing, Waker};
+pub use service::{Assist, Organized, Organizing, Rewriting, Rewrote, Waker};
 pub use slots::{Kind, Slots, Ticket};
 pub use task::{Explain, Task, word_info_schema};
