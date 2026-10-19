@@ -67,3 +67,46 @@ fn set_books_hold_about_this_much() {
         measure("paragraphs", &"<p>w</p>".repeat(200_000), 200_000)
     );
 }
+
+/// Draws every page at Retina scales on four threads, round after round.
+fn render_rounds(name: &str, markdown: &str) {
+    let format = mareader_epub::Format::Markdown;
+    let none = |_: &str| None;
+    let epub = mareader_epub::convert(markdown.as_bytes(), format, Some("a.md"), &none);
+    let opened = epub
+        .ok()
+        .and_then(|e| Book::open(Arc::new(e), &Typography::default()).ok());
+    let Some(book) = opened else {
+        return println!("{name}: did not open");
+    };
+    let (pages, start) = (book.page_count(), status("VmRSS:"));
+    let mut line = format!(
+        "{name}: {pages} pages, opened at {} MB; rounds:",
+        start >> 20
+    );
+    for round in 0..12 {
+        let scale = [2.0, 3.0, 2.5][round % 3];
+        std::thread::scope(|s| {
+            for lane in 0..4 {
+                let book = &book;
+                s.spawn(move || {
+                    for page in (lane..pages).step_by(4) {
+                        let (w, h) = (794.0 * scale, 1123.0 * scale);
+                        book.render(page, scale, [0, 0, w as u32, h as u32]);
+                    }
+                });
+            }
+        });
+        line.push_str(&format!(" {}", status("VmRSS:") >> 20));
+    }
+    println!("{line} MB; peak {} MB", status("VmHWM:") >> 20);
+}
+
+#[test]
+#[ignore = "a measurement, not a check"]
+fn markdown_drawn_again_and_again_holds_level() {
+    let sample = mareader_epub::sample::markdown;
+    render_rounds("markdown, emoji", &sample(6, true));
+    render_rounds("markdown, no emoji", &sample(6, false));
+    render_rounds("markdown, emoji again", &sample(6, true));
+}

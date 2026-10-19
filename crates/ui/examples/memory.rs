@@ -1,4 +1,4 @@
-//! `memory BOOK [ROUNDS] | --library N | --seeded N`: costs and budgets.
+//! `memory BOOK [ROUNDS] | --library N | --seeded N | --markdown N`.
 
 // Linux only: it reads `/proc/self/status`. See `docs/memory.md`.
 // Exits 1 when a budget breaks.
@@ -446,12 +446,90 @@ fn count(arg: Option<String>) -> Result<usize, String> {
     text.parse().map_err(|_| format!("not a count: {text}"))
 }
 
+/// Wheels `turns` times one way, drawing as frames do.
+fn wheel(h: &mut App, turns: usize, down: bool) {
+    h.hover_at(egui::pos2(900.0, 450.0));
+    let dy = if down { -300.0 } else { 300.0 };
+    for turn in 0..turns {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run_steps(3);
+        if turn % 2 == 1 {
+            h.render().ok();
+        }
+    }
+}
+
+/// A six-page README of emoji, scrolled down and up `passes` times.
+fn markdown(passes: usize) -> Result<bool, String> {
+    let dir = std::env::temp_dir().join("mareader-memory-md");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("emoji.md");
+    let text = mareader_epub::sample::markdown(6, true);
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    let mut app = MareaderApp::default();
+    // Real workers, as the app has: scrolling races their renders.
+    app.set_option("workers", "4")?;
+    app.set_option("panes", "2")?;
+    // Its headings, emoji and all, drawn as egui text.
+    app.set_option("sidebar", "outline")?;
+    let mut h = harness(app);
+    let mut audit = Audit::default();
+    Audit::header();
+    audit.row(&mut h, "idle, two empty panes");
+    let right = h.state().panes()[1];
+    let request = OpenRequest {
+        pane: Some(right),
+        ..OpenRequest::path(path.clone())
+    };
+    h.state_mut().queue(Command::Open(request));
+    // Workers open it while the loading mark spins: step, don't run.
+    for _ in 0..600 {
+        if h.state().documents().page_count(right).is_some() {
+            break;
+        }
+        h.run_steps(5);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    settle(&mut h);
+    audit.row(&mut h, "opened in one pane");
+    let mut kept = Vec::new();
+    for pass in 1..=passes.max(2) {
+        wheel(&mut h, 40, true);
+        wheel(&mut h, 40, false);
+        settle(&mut h);
+        kept.push(audit.row(&mut h, &format!("pass {pass}: scrolled down and up")));
+    }
+    let rise = floor_rise(&kept);
+    let value = format!("{rise:+.0} MiB over {} passes", kept.len());
+    audit.check(
+        "Scrolling's floor stays level (no leak)",
+        value,
+        rise <= ROUND_SLACK,
+    );
+    close(&mut h, right);
+    settle(&mut h);
+    let closed = audit.row(&mut h, "its pane closed, a second later");
+    let value = format!("{} documents, {} jobs", closed.documents, closed.jobs);
+    audit.check(
+        "A closed book leaves nothing counted",
+        value,
+        emptied(&closed),
+    );
+    Ok(audit.report())
+}
+
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let first = args
         .next()
-        .ok_or("usage: memory BOOK [ROUNDS] | memory --library N | memory --seeded N")?;
+        .ok_or("usage: memory BOOK [ROUNDS] | --library N | --seeded N | --markdown N")?;
     let held = match first.as_str() {
+        "--markdown" => markdown(count(args.next())?)?,
         "--library" => library(count(args.next())?)?,
         "--seeded" => seeded(count(args.next())?)?,
         _ => {

@@ -157,3 +157,61 @@ pub fn epub(chapters: usize, title: &str) -> Vec<u8> {
     }
     book.write().to_vec().unwrap_or_default()
 }
+
+/// What READMEs hold: emoji, tasks, code, tables, quotes and alerts.
+const README: &str = r#"## Section {n}: setup {e1}
+
+The river ran slow past the customs house {e2}, where boats unloaded rice
+and timber at dawn. Nobody remembered who built the jetty {e3}, and nobody
+asked. **Bold**, *italic*, `inline code` and [a link](https://example.com).
+
+- [x] Clone the repository {e1}
+- [x] Install the toolchain
+- [ ] Write the first chapter {e4}
+- [ ] Ship it {e2}
+
+```rust
+fn main() {
+    let boats = 12; // {e3} at dawn
+    for n in 0..boats {
+        println!("boat {n} unloads rice and timber");
+    }
+}
+```
+
+| Cargo | Boats | Status |
+|---|---|---|
+| Rice | 12 | {e1} landed |
+| Timber | 5 | {e4} waiting |
+| Salt | 2 | {e2} at sea |
+
+> [!WARNING]
+> {e4} The tide turns at noon; boats still out wait for dusk.
+
+> A quote of an old boatman {e3}: the river keeps no promises.
+
+1. Open the book
+2. Turn the page {e1}
+3. Read on
+"#;
+
+/// `sections` README sections, about a page each; `emoji` or plain marks.
+pub fn markdown(sections: usize, emoji: bool) -> String {
+    let marks = if emoji {
+        ["✅", "🚀", "⚠️", "📦"]
+    } else {
+        ["(ok)", "(go)", "(!)", "(box)"]
+    };
+    let mut out = String::from("# A README of emoji\n\n");
+    for n in 1..=sections.max(1) {
+        let section = README
+            .replace("{n}", &n.to_string())
+            .replace("{e1}", marks[0])
+            .replace("{e2}", marks[1])
+            .replace("{e3}", marks[2])
+            .replace("{e4}", marks[3]);
+        out.push_str(&section);
+        out.push('\n');
+    }
+    out
+}

@@ -90,7 +90,10 @@ jobs:
         with:
           shared-key: test
           save-if: false
-      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers
+      # A colour emoji font, so README books draw emoji as a Mac does.
+      - run: >-
+          sudo apt-get update -q &&
+          sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-color-emoji
       # The M2 audit's two papers, and a long novel; a fetch may fail.
       - name: Books
         run: |
@@ -118,6 +121,7 @@ jobs:
           run "arXiv Attention, 15 pp" books/attention.pdf 4
           run "The Raven, EPUB" books/raven.epub 4
           run "War and Peace, EPUB" books/war-and-peace.epub 2
+          run "Markdown README of emoji, scrolled" --markdown 6
           run "Library, 3,000 PDFs read in place" --library 3000
           run "Library, 20,000 books without files" --seeded 20000
           cat out/memory.md >> "$GITHUB_STEP_SUMMARY"
