@@ -6,6 +6,7 @@ use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::TextLayer;
+use mareader_settings::PageStart;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::page_ai::menu::FIND;
@@ -136,6 +137,8 @@ fn a_picked_language_is_remembered_for_next_time() -> Out {
     h.get_by_label(FIND).type_text("burm");
     h.run();
     h.get_by_label("Burmese").click();
+    h.run();
+    h.get_by_label("This page").click();
     // The run starts at once; the busy bubble keeps the frames coming.
     h.run_steps(3);
     let translate = &h.state().settings().ai.tasks.translate;
@@ -177,5 +180,107 @@ fn a_kept_result_covers_the_page_until_the_original_is_asked_for() -> Out {
     h.get_by_label("Show original page").click();
     h.run();
     assert!(!h.state().page_ai().shows(pane, 0));
+    Ok(())
+}
+
+/// Starts Simplify in continuous mode from the page menu.
+fn simplify_on(h: &mut H, remember: bool) -> Result<(), String> {
+    let (_, sheet) = page(h, 0)?;
+    press(h, margin(sheet), PointerButton::Secondary);
+    h.get_by_label("Simplify page").click();
+    h.run();
+    if remember {
+        h.get_by_label("Remember my choice").click();
+        h.run();
+    }
+    h.get_by_label("Continuous").click();
+    // Its first page is being written: the frames keep coming.
+    h.run_steps(3);
+    Ok(())
+}
+
+#[test]
+fn simplify_asks_how_and_can_remember_continuous() -> Out {
+    let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    simplify_on(&mut h, true)?;
+    let start = h.state().settings().ai.tasks.simplify.start;
+    assert_eq!(start, PageStart::Continuous);
+    assert!(h.state().page_ai().following(pane).is_some());
+    Ok(())
+}
+
+#[test]
+fn a_task_set_to_this_page_runs_without_asking() -> Out {
+    let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    let mut settings = h.state().settings().clone();
+    settings.ai.tasks.simplify.start = PageStart::Page;
+    h.state_mut()
+        .queue(Command::SetSettings(Box::new(settings)));
+    h.run();
+    let (_, sheet) = page(&h, 0)?;
+    press(&mut h, margin(sheet), PointerButton::Secondary);
+    h.get_by_label("Simplify page").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Continuous").is_none(), "no second step");
+    assert!(h.state().page_ai().following(pane).is_none());
+    assert!(
+        h.state().page_ai().shows(pane, 0),
+        "the page is being written"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_pill_stops_continuous_mode() -> Out {
+    let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    simplify_on(&mut h, false)?;
+    h.get_by_label("Stop").click();
+    h.run_steps(3);
+    assert!(h.state().page_ai().following(pane).is_none());
+    Ok(())
+}
+
+#[test]
+fn going_far_away_pauses_then_asks_to_carry_on_there() -> Out {
+    let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    simplify_on(&mut h, false)?;
+    h.state_mut().queue(Command::GoTo { pane, page: 30 });
+    // Kept still a moment far from page 0, it asks.
+    h.run_steps(120);
+    assert!(h.query_by_label("Continue").is_some(), "the pill asks");
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Continue").is_none());
+    assert!(h.state().page_ai().following(pane).is_some());
+    assert!(h.state().page_ai().shows(pane, 30), "it carries on there");
+    Ok(())
+}
+
+#[test]
+fn staying_on_a_done_page_asks_the_next_pages() -> Out {
+    let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    let mut settings = h.state().settings().clone();
+    settings.ai.tasks.pages.dwell = 5;
+    settings.ai.tasks.pages.at_once = 3;
+    h.state_mut()
+        .queue(Command::SetSettings(Box::new(settings)));
+    h.run();
+    simplify_on(&mut h, false)?;
+    h.run_steps(30);
+    let ai = h.state().page_ai();
+    assert!(ai.shows(pane, 0), "the first page is done");
+    assert!(!ai.shows(pane, 1), "nothing ahead before the stay");
+    // Five seconds on the page, at 60 frames a second.
+    h.run_steps(330);
+    let ai = h.state().page_ai();
+    for p in 1..=3 {
+        assert!(ai.shows(pane, p), "page {p} is asked");
+    }
+    assert!(!ai.shows(pane, 4), "no more than pages at once");
     Ok(())
 }
