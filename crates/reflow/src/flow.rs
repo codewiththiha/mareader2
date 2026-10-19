@@ -346,6 +346,8 @@ pub struct Flow {
 struct Relay {
     source: Arc<Vec<Block>>,
     typo: Typography,
+    /// The page's height as set, so blocks are laid again alike.
+    height: f32,
     stacks: Stacks,
     fonts: Mutex<Fonts>,
     recent: Mutex<Recent>,
@@ -411,6 +413,7 @@ impl Flow {
             relay: Box::new(Relay {
                 source: blocks,
                 typo: typo.clone(),
+                height,
                 stacks,
                 fonts: Mutex::new(fonts),
                 recent: Mutex::default(),
@@ -435,6 +438,8 @@ impl Flow {
         let laid = {
             let mut fonts = relay.fonts.lock().unwrap_or_else(PoisonError::into_inner);
             let mut setter = Setter::new(&relay.typo, &relay.stacks, &mut fonts);
+            // The column it was measured in, not the typography's own.
+            (setter.column, setter.height) = (self.width, relay.height);
             Arc::new(setter.block(set.source, source).1)
         };
         recent().put(block, Arc::clone(&laid), source.layout_cost());
@@ -1191,6 +1196,18 @@ mod tests {
                 assert!(bottom + piece.dy <= room() + 0.1, "{}", bottom + piece.dy);
             }
         }
+    }
+
+    #[test]
+    fn a_narrow_room_is_drawn_as_narrow_as_it_was_measured() {
+        let blocks = Arc::new(vec![para(120)]);
+        let typo = Typography::default();
+        let f = Flow::sized(blocks, &typo, Fonts::bundled(), (300.0, 2000.0), false);
+        let width = match &*f.laid(0) {
+            Laid::Text { para, .. } => para.layout.width(),
+            _ => f32::INFINITY,
+        };
+        assert!(width <= 300.5, "{width}");
     }
 
     #[test]
