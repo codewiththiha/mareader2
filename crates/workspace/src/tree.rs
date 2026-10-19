@@ -318,6 +318,15 @@ impl PaneTree {
         Ok(())
     }
 
+    /// The tree as if `pane` were closed: a lift's preview of the rest.
+    pub fn without(&self, pane: PaneId) -> Self {
+        let mut rest = self.clone();
+        match rest.close(pane) {
+            Ok(()) => rest,
+            Err(_) => self.clone(),
+        }
+    }
+
     /// Closes `pane`; its sibling takes the whole of their split.
     pub fn close(&mut self, pane: PaneId) -> Result<(), TreeError> {
         if !self.panes().contains(&pane) {
@@ -435,6 +444,24 @@ mod tests {
         w: 1600.0,
         h: 1000.0,
     };
+
+    #[test]
+    fn without_a_pane_its_siblings_fill_the_space() {
+        let mut t = PaneTree::new();
+        let b = t
+            .split(PaneId(1), SplitAxis::Horizontal, Side::After, AREA)
+            .unwrap();
+        let c = t.split(b, SplitAxis::Vertical, Side::After, AREA).unwrap();
+        let rest = t.without(b).layout(AREA);
+        assert_eq!(rest.len(), 2);
+        let (_, home_c) = t.layout(AREA).into_iter().find(|(p, _)| *p == c).unwrap();
+        let (_, c_now) = rest.iter().copied().find(|(p, _)| *p == c).unwrap();
+        assert_eq!((c_now.x, c_now.w), (home_c.x, home_c.w));
+        assert_eq!((c_now.y, c_now.h), (0.0, AREA.h));
+        // Unknown or last panes leave the tree as it is.
+        assert_eq!(t.without(PaneId(99)), t);
+        assert_eq!(PaneTree::new().without(PaneId(1)), PaneTree::new());
+    }
 
     #[test]
     fn splits_stop_at_four() {

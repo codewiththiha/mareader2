@@ -63,10 +63,11 @@ fn to_rect(b: Bounds) -> Rect {
     Rect::from_min_size(pos2(b.x, b.y), vec2(b.w, b.h))
 }
 
-/// Draws every pane; `content` fills one and returns false if empty.
+/// Draws every pane but a lifted one; the rest fill its space.
 pub fn show(
     ui: &mut Ui,
     tree: &PaneTree,
+    lifted: Option<PaneId>,
     view: &PaneView,
     out: &mut Commands,
     mut content: impl FnMut(&mut Ui, PaneId) -> bool,
@@ -74,8 +75,10 @@ pub fn show(
     let area = ui.max_rect();
     let split = tree.len() > 1;
     let gap = if split { view.look.gap } else { 0.0 };
+    let rest = lifted.map(|pane| tree.without(pane));
+    let laid = rest.as_ref().unwrap_or(tree);
     let mut rects = Vec::new();
-    for (id, b) in tree.layout(to_bounds(area.shrink(gap / 2.0))) {
+    for (id, b) in laid.layout(to_bounds(area.shrink(gap / 2.0))) {
         let rect = to_rect(b).shrink(gap / 2.0);
         let builder = UiBuilder::new().max_rect(rect).id_salt(("pane", id.0));
         ui.scope_builder(builder, |ui| {
@@ -84,9 +87,12 @@ pub fn show(
         });
         rects.push((id, rect));
     }
-    dividers(ui, tree, area, out);
+    // Mid-lift the seams are a preview; nothing there resizes.
+    if rest.is_none() {
+        dividers(ui, tree, area, out);
+    }
     if split && gap < 1.0 {
-        seams(ui, tree, area);
+        seams(ui, laid, area);
     }
     rects
 }

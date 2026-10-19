@@ -727,6 +727,7 @@ fn a_held_pane_lifts_and_moves_where_it_is_let_go() -> Out {
         y1: 320.0,
     };
     let at = sheet.to_screen(blank).center();
+    let before = rect(&h, first);
     h.hover_at(at);
     h.run();
     button(&mut h, at, true);
@@ -735,7 +736,14 @@ fn a_held_pane_lifts_and_moves_where_it_is_let_go() -> Out {
         h.step();
     }
     assert!(h.query_by_label_contains("Moving ").is_some(), "lifted");
+    // Its space closes up: the other pane fills it, a true preview.
+    let home = before.ok_or("no first pane")?;
     let to = rect(&h, second).ok_or("no second pane")?;
+    assert!(
+        rect(&h, first).is_none(),
+        "the lifted pane leaves the layout"
+    );
+    assert!(to.left() <= home.left() + 1.0, "the rest fills its space");
     let right = egui::pos2(to.right() - 20.0, to.center().y);
     h.hover_at(right);
     h.step();
@@ -766,5 +774,9 @@ fn a_held_pane_lifts_and_moves_where_it_is_let_go() -> Out {
     button(&mut h, middle, false);
     h.run();
     assert_eq!(h.state().panes(), [second, first], "Escape keeps them");
+    assert!(
+        rect(&h, first).is_some_and(|r| r.width() < 800.0),
+        "split again"
+    );
     Ok(())
 }
