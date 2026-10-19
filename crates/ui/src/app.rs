@@ -858,7 +858,10 @@ impl MareaderApp {
             "blend" => self.settings.paper.blend = value == "true",
             // Who explains words: a script for shots, or nobody.
             "explain" => match value {
-                "canned" => self.study.set_explainer(Arc::new(mareader_study::Canned)),
+                "canned" => {
+                    self.study.set_explainer(Arc::new(mareader_study::Canned));
+                    self.page_ai.set_canned(true);
+                }
                 "none" => self
                     .study
                     .set_explainer(Arc::new(mareader_study::Unavailable)),
@@ -1296,6 +1299,26 @@ impl MareaderApp {
                 Gloss::BubbleMenu { page, index, at } => {
                     self.page_ai.open_bubble_menu(pane, page, index, at);
                 }
+                Gloss::Pill(crate::page_ai::PillPress::Stop) => self.page_ai.stop_follow(pane),
+                Gloss::Pill(crate::page_ai::PillPress::Continue) => {
+                    let Some(reading) = self.documents.reading(pane) else {
+                        continue;
+                    };
+                    let book = self.library.book_in(&self.documents, pane);
+                    let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                    let asked = crate::page_ai::Asked {
+                        pane,
+                        page: reading.current,
+                        book,
+                        name: &name,
+                        documents: &self.documents,
+                        ai: &self.ai,
+                        settings: &self.settings.ai,
+                    };
+                    let now = ctx.input(|i| i.time);
+                    let model = self.library.model();
+                    self.page_ai.resume(asked, model, now, out);
+                }
             }
         }
         for (pane, _) in &self.pane_rects {
@@ -1323,6 +1346,13 @@ impl MareaderApp {
         let gpu = self.documents.gpu();
         self.page_ai
             .receive(ctx, self.library.model_mut(), gpu, out);
+        let around = crate::page_ai::Around {
+            main: self.library.model(),
+            documents: &self.documents,
+            ai: &self.ai,
+            settings: &self.settings.ai,
+        };
+        self.page_ai.tick(ctx, &around);
         let model = self.library.model();
         self.page_ai
             .show(ctx, &self.settings.ai, model, &self.pane_rects, out);
@@ -1408,6 +1438,7 @@ impl MareaderApp {
     /// What the page AI's menus asked for.
     fn page_ai_act(&mut self, ctx: &Context, action: crate::page_ai::Action) {
         use crate::page_ai::{Action, task_for};
+        use mareader_settings::{PageStart, PageTask};
         let now = ctx.input(|i| i.time);
         let mut out = Commands::new();
         let task = match &action {
@@ -1421,8 +1452,26 @@ impl MareaderApp {
             _ => None,
         };
         match action {
-            Action::Run { pane, page, .. } | Action::Translate { pane, page, .. } => {
+            Action::Run {
+                pane, page, how, ..
+            }
+            | Action::Translate {
+                pane, page, how, ..
+            } => {
                 let Some(task) = task else { return };
+                let kind = crate::page_ai::page_task(&task);
+                if how.remember {
+                    let start = match how.continuous {
+                        true => PageStart::Continuous,
+                        false => PageStart::Page,
+                    };
+                    let tasks = &mut self.settings.ai.tasks;
+                    match kind {
+                        PageTask::Translate => tasks.translate.start = start,
+                        PageTask::Simplify => tasks.simplify.start = start,
+                        PageTask::Summarize => {}
+                    }
+                }
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
                 self.documents.clear_selection(pane);
@@ -1435,8 +1484,15 @@ impl MareaderApp {
                     ai: &self.ai,
                     settings: &self.settings.ai,
                 };
-                self.page_ai.run(asked, task, now, &mut out);
+                match how.continuous && kind != PageTask::Summarize {
+                    true => {
+                        let model = self.library.model();
+                        self.page_ai.follow(asked, model, task, true, now, &mut out);
+                    }
+                    false => self.page_ai.run(asked, task, now, &mut out),
+                }
             }
+            Action::StopFollow(pane) => self.page_ai.stop_follow(pane),
             Action::Redo { pane, page, slot } => {
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();

@@ -2,6 +2,7 @@
 
 mod cards;
 mod extract;
+mod follow;
 pub mod menu;
 pub mod paint;
 
@@ -24,7 +25,8 @@ use crate::gpu::Gpu;
 use crate::toast::Toast;
 
 use extract::Source;
-pub use paint::{CardHit, Overlay};
+pub use follow::Around;
+pub use paint::{CardHit, Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
 const FADE_IN: f32 = 0.3;
@@ -38,6 +40,14 @@ pub enum Slot {
     Run(u64),
 }
 
+/// How a task runs: on this page, or on as the reader reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct How {
+    pub continuous: bool,
+    /// The choice becomes the task's setting.
+    pub remember: bool,
+}
+
 /// What the page and bubble menus ask of the app.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -45,13 +55,17 @@ pub enum Action {
         pane: PaneId,
         page: usize,
         task: PageTask,
+        how: How,
     },
     /// Translates into language `tag`, remembered for next time.
     Translate {
         pane: PaneId,
         page: usize,
         tag: String,
+        how: How,
     },
+    /// Ends the pane's continuous run.
+    StopFollow(PaneId),
     /// Shows a result over the page; none shows the page itself.
     Show {
         pane: PaneId,
@@ -79,10 +93,30 @@ pub struct Asked<'a> {
     pub settings: &'a AiSettings,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-type Handle = mareader_assist::Rewriting;
-#[cfg(target_arch = "wasm32")]
-type Handle = ();
+/// Who a run is for, and what it asks with.
+struct Who<'a> {
+    pane: PaneId,
+    doc: DocId,
+    book: Option<BookId>,
+    name: &'a str,
+    ai: &'a crate::ai::Ai,
+    settings: &'a AiSettings,
+}
+
+/// What pdf_view draws of the page AI in one pane.
+#[derive(Clone, Default)]
+pub struct PaneAi {
+    pub overlays: Vec<Overlay>,
+    pub pill: Option<Pill>,
+}
+
+/// A run's line to its writer.
+enum Handle {
+    #[cfg(not(target_arch = "wasm32"))]
+    Live(mareader_assist::Rewriting),
+    /// Tests and shots: the answer, given on the first look.
+    Canned(Option<Rewritten>),
+}
 
 /// A result being written.
 struct Run {
@@ -125,13 +159,21 @@ struct Index {
     pages: HashMap<usize, Vec<AiPageId>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// What the page menu shows.
+#[derive(Clone, Debug, PartialEq)]
+enum Step {
+    Tasks,
+    Languages,
+    /// This page or continuous, for a task and maybe a language.
+    How(PageTask, Option<String>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 struct Menu {
     pane: PaneId,
     page: usize,
     at: Pos2,
-    /// The language list shows instead of the tasks.
-    languages: bool,
+    step: Step,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -169,6 +211,14 @@ pub struct PageAi {
     filter: String,
     bubble_menu: Option<BubbleMenu>,
     bubble_rect: Option<Rect>,
+    /// Each pane's continuous run.
+    follows: HashMap<PaneId, follow::Follow>,
+    /// The menu's "Remember my choice".
+    remember: bool,
+    /// Tests: runs answer at once with the page's own text.
+    canned: bool,
+    /// Tests: pages ahead are read on the frame.
+    inline: bool,
 }
 
 /// The task a menu row means, as kept; Translate needs a language.
@@ -198,7 +248,8 @@ fn label(task: &AiTask) -> String {
     }
 }
 
-fn page_task(task: &AiTask) -> PageTask {
+/// The settings' task a kept task belongs to.
+pub fn page_task(task: &AiTask) -> PageTask {
     match task {
         AiTask::Summary | AiTask::Points => PageTask::Summarize,
         AiTask::Translate { .. } => PageTask::Translate,
@@ -289,51 +340,30 @@ impl PageAi {
         self.redo(asked, task, None, now, out);
     }
 
-    fn redo(
+    /// Writes the page's text; the same ask under way just shows.
+    fn begin(
         &mut self,
-        asked: Asked<'_>,
+        who: &Who<'_>,
+        page: usize,
         task: AiTask,
+        (source, span): (Source, PageSpan),
         redo_of: Option<AiPageId>,
         now: f64,
-        out: &mut Commands,
-    ) {
-        let Some(view) = asked.documents.ai_view(asked.pane) else {
-            return;
-        };
-        let page = asked.page;
-        let note = |s: &str| Command::Notify(Toast::info(s.to_owned()));
-        let (source, span) = match source_of(&view, asked.documents, page) {
-            Ok(found) => found,
-            Err("loading") => {
-                return out.push(note(
-                    "This page's text is still loading. Try again in a moment.",
-                ));
-            }
-            Err(_) => return out.push(note("This page has no text to work on.")),
-        };
-        if source.is_blank() {
-            let scan = matches!(*view.document, Document::Pdf(_));
-            let why = match scan {
-                true => "This page has no text to work on. It may be a scanned image.",
-                false => "This page has no text to work on.",
-            };
-            return out.push(note(why));
-        }
-        // The same ask under way just shows.
-        let same = |r: &&Run| r.doc == view.doc && r.task == task && r.span == span;
+    ) -> Result<u64, &'static str> {
+        let key = (who.pane, who.doc, page);
+        let same = |r: &&Run| r.doc == who.doc && r.task == task && r.span == span;
         if let Some(run) = self.runs.iter().find(same).filter(|r| r.failed.is_none()) {
             let slot = Slot::Run(run.id);
-            self.showing
-                .insert((asked.pane, view.doc, page), Showing { slot, since: now });
-            return;
+            self.showing.insert(key, Showing { slot, since: now });
+            return Ok(run.id);
         }
         self.runs
-            .retain(|r| !(r.doc == view.doc && r.task == task && r.span == span));
-        let handle = match start(&asked, &task, &source) {
-            Ok(handle) => handle,
-            Err(why) => return out.push(note(why)),
+            .retain(|r| !(r.doc == who.doc && r.task == task && r.span == span));
+        let handle = match self.canned {
+            true => Handle::Canned(Some(canned(&source))),
+            false => start(who.ai, &task, &source)?,
         };
-        let preset = asked.settings.page_preset(page_task(&task));
+        let preset = who.settings.page_preset(page_task(&task));
         let by = preset.map_or_else(String::new, |p| match p.name.trim() {
             "" => p.model.clone(),
             name => format!("{name} · {}", p.model),
@@ -342,10 +372,10 @@ impl PageAi {
         let id = self.next_run;
         self.runs.push(Run {
             id,
-            doc: view.doc,
+            doc: who.doc,
             page,
-            book: asked.book,
-            name: asked.name.to_owned(),
+            book: who.book,
+            name: who.name.to_owned(),
             task,
             span,
             source: Arc::new(source),
@@ -359,8 +389,58 @@ impl PageAi {
             redo_of,
         });
         let slot = Slot::Run(id);
-        self.showing
-            .insert((asked.pane, view.doc, page), Showing { slot, since: now });
+        self.showing.insert(key, Showing { slot, since: now });
+        Ok(id)
+    }
+
+    fn redo(
+        &mut self,
+        asked: Asked<'_>,
+        task: AiTask,
+        redo_of: Option<AiPageId>,
+        now: f64,
+        out: &mut Commands,
+    ) -> Option<u64> {
+        let view = asked.documents.ai_view(asked.pane)?;
+        let page = asked.page;
+        let note = |s: &str| Command::Notify(Toast::info(s.to_owned()));
+        let found = match source_of(&view, asked.documents, page) {
+            Ok(found) => found,
+            Err("loading") => {
+                out.push(note(
+                    "This page's text is still loading. Try again in a moment.",
+                ));
+                return None;
+            }
+            Err(_) => {
+                out.push(note("This page has no text to work on."));
+                return None;
+            }
+        };
+        if found.0.is_blank() {
+            let scan = matches!(*view.document, Document::Pdf(_));
+            let why = match scan {
+                true => "This page has no text to work on. It may be a scanned image.",
+                false => "This page has no text to work on.",
+            };
+            out.push(note(why));
+            return None;
+        }
+        let who = Who {
+            pane: asked.pane,
+            doc: view.doc,
+            book: asked.book,
+            name: asked.name,
+            ai: asked.ai,
+            settings: asked.settings,
+        };
+        match self.begin(&who, page, task, found, redo_of, now) {
+            Ok(id) => Some(id),
+            Err(why) => {
+                out.push(note(why));
+                None
+            }
+        }
     }
 
     /// Writes a result's task again, replacing it once done.
@@ -408,7 +488,10 @@ impl PageAi {
                     }
                     News::Done(Err(f)) => {
                         run.handle = None;
-                        let said = say(&f);
+                        let mut said = say(&f);
+                        if self.follows.values().any(|w| w.runs.contains(&run.id)) {
+                            said.push_str(" Continuous mode stopped.");
+                        }
                         out.push(Command::Notify(Toast::info(said.clone())));
                         run.failed = Some(said);
                     }
@@ -524,10 +607,15 @@ impl PageAi {
         main: &Library,
         documents: &Documents,
         (book, name): (Option<BookId>, &str),
-    ) -> Vec<Overlay> {
+    ) -> PaneAi {
+        let now = ctx.input(|i| i.time);
+        let pill = self.pill(pane, now);
         let Some(view) = documents.ai_view(pane) else {
             self.drawn.remove(&pane);
-            return Vec::new();
+            return PaneAi {
+                overlays: Vec::new(),
+                pill,
+            };
         };
         let index = self.index(main, &view, (book, name));
         let mut overlays = Vec::new();
@@ -604,7 +692,7 @@ impl PageAi {
             drawn.push((page, slots));
         }
         self.drawn.insert(pane, (view.doc, drawn));
-        overlays
+        PaneAi { overlays, pill }
     }
 
     /// The card of `slot` on `page`, set for the pane's type and zoom.
@@ -836,11 +924,12 @@ impl PageAi {
     pub fn open_menu(&mut self, pane: PaneId, page: usize, at: Pos2) {
         self.bubble_menu = None;
         self.filter.clear();
+        self.remember = false;
         self.menu = Some(Menu {
             pane,
             page,
             at,
-            languages: false,
+            step: Step::Tasks,
         });
     }
 
@@ -873,23 +962,7 @@ impl PageAi {
         let Ok((source, span)) = source_of(&view, asked.documents, asked.page) else {
             return false;
         };
-        let outs = source
-            .pieces
-            .iter()
-            .enumerate()
-            .map(|(i, piece)| match piece {
-                Piece::Text { role, text, .. } => Out::Text {
-                    role: *role,
-                    text: text.to_uppercase(),
-                    code: Vec::new(),
-                    from: Some(i),
-                },
-                Piece::Kept(_) => Out::Kept(i),
-            });
-        let result = Rewritten {
-            outs: outs.collect(),
-            missing: 0,
-        };
+        let result = canned(&source);
         let new = NewAiPage {
             task,
             span,
@@ -911,6 +984,12 @@ impl PageAi {
     /// Tests: results are set on the frame, not on a thread.
     pub fn set_inline(&mut self, inline: bool) {
         self.cards.set_inline(inline);
+        self.inline = inline;
+    }
+
+    /// Tests: runs answer at once, in capitals, with no AI.
+    pub fn set_canned(&mut self, canned: bool) {
+        self.canned = canned;
     }
 
     /// Whether `pane` shows a result over `page`.
@@ -925,6 +1004,27 @@ impl PageAi {
     }
 }
 
+/// The page's own text in capitals: a stand-in answer.
+fn canned(source: &Source) -> Rewritten {
+    let outs = source
+        .pieces
+        .iter()
+        .enumerate()
+        .map(|(i, piece)| match piece {
+            Piece::Text { role, text, .. } => Out::Text {
+                role: *role,
+                text: text.to_uppercase(),
+                code: Vec::new(),
+                from: Some(i),
+            },
+            Piece::Kept(_) => Out::Kept(i),
+        });
+    Rewritten {
+        outs: outs.collect(),
+        missing: 0,
+    }
+}
+
 /// News from a run.
 enum News {
     Partial(Rewritten),
@@ -932,7 +1032,7 @@ enum News {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn start(asked: &Asked<'_>, task: &AiTask, source: &Source) -> Result<Handle, &'static str> {
+fn start(ai: &crate::ai::Ai, task: &AiTask, source: &Source) -> Result<Handle, &'static str> {
     let rewrite = match task {
         AiTask::Summary => mareader_assist::Rewrite::Summarize(SummaryStyle::Paragraphs),
         AiTask::Points => mareader_assist::Rewrite::Summarize(SummaryStyle::Points),
@@ -947,27 +1047,29 @@ fn start(asked: &Asked<'_>, task: &AiTask, source: &Source) -> Result<Handle, &'
         pieces: source.pieces.clone(),
     };
     let off = "The AI service couldn't start. Restart the app to try again.";
-    asked.ai.rewrite(job).ok_or(off)
+    ai.rewrite(job).map(Handle::Live).ok_or(off)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn start(_: &Asked<'_>, _: &AiTask, _: &Source) -> Result<Handle, &'static str> {
+fn start(_: &crate::ai::Ai, _: &AiTask, _: &Source) -> Result<Handle, &'static str> {
     Err("Page AI needs the desktop app.")
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn poll(handle: Option<&mut Handle>) -> Vec<News> {
-    let Some(handle) = handle else {
-        return Vec::new();
-    };
-    let news = handle.poll().into_iter().map(|n| match n {
-        mareader_assist::Rewrote::Partial(r) => News::Partial(r),
-        mareader_assist::Rewrote::Done(r) => News::Done(r),
-    });
-    news.collect()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn poll(_: Option<&mut Handle>) -> Vec<News> {
-    Vec::new()
+    match handle {
+        None => Vec::new(),
+        Some(Handle::Canned(answer)) => answer
+            .take()
+            .map(|r| News::Done(Ok(r)))
+            .into_iter()
+            .collect(),
+        #[cfg(not(target_arch = "wasm32"))]
+        Some(Handle::Live(live)) => {
+            let news = live.poll().into_iter().map(|n| match n {
+                mareader_assist::Rewrote::Partial(r) => News::Partial(r),
+                mareader_assist::Rewrote::Done(r) => News::Done(r),
+            });
+            news.collect()
+        }
+    }
 }

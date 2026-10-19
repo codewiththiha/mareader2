@@ -103,6 +103,8 @@ pub enum Icon {
     Simplify,
     Stop,
     Show,
+    /// Continuous mode: on as one reads.
+    Repeat,
 }
 
 impl Icon {
@@ -184,6 +186,7 @@ impl Icon {
             Self::Simplify => Lucide::Feather,
             Self::Stop => Lucide::CircleStop,
             Self::Show => Lucide::Eye,
+            Self::Repeat => Lucide::Repeat,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,
