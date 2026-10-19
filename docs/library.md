@@ -949,3 +949,46 @@ Code: `organizing.rs` (`Paused`, `ask_resume`, the card's state),
 books free, a new run while one is paused asks first, and a finished
 plan waits for review while a failure offers Resume. Shots:
 `organize=paused` or `organize=ready` with `copies=N`.
+
+## Managing the library from the rail (2026-10-19)
+
+The reading sidebar's Library tree manages the library too, compactly, so
+there's no need to leave the book.
+
+- **The "+" button** by the Library heading, and a right-click on blank
+  space, offer New shelf, Import books…, Import a folder…, and the AI
+  organizer: Organize library with AI, or, with a run paused, "Resume
+  organizing" and "Organize from the start".
+- **A shelf's menu:** New shelf inside, Import books here…, Rename, Show
+  in Library, and Remove….
+- **A book's menu:** Rename, Take off "shelf" (on a shelf), Show in
+  Library, and Remove…. Show in Library switches to the library page,
+  showing the item.
+- **Naming in place.** Rename, F2 on a focused row, and a new shelf all
+  show a name field in the row with the old name selected. Enter or a
+  click away keeps it; Escape, or a blank or unchanged name, keeps the
+  old one. Delete or Backspace on a focused row asks to remove it.
+- **Dragging in the tree.** Books, links and shelves are grabbed and
+  dropped on a shelf row to move there. Dropping on a book's row files
+  next to it, on its shelf, and dropping on the heading or blank space
+  moves to the top level. The target shelf lights up, and a chip says
+  what happens: "Move to Fiction", "Also on Fiction" (Alt keeps a
+  shelved book on its shelf too), "Move to the top level", or "Already
+  here". Resting on a closed shelf opens it after 0.6 seconds, and
+  holding near the tree's top or bottom edge scrolls it. A shelf never
+  goes inside itself or its own shelves. Missing books aren't carried.
+- **Books the AI is organizing** show a small sparkle. They open as
+  usual but stay put, so moving one says why.
+- **At the pane limit.** With 4 panes open the tree is still grabbable
+  for moving. Dropping onto a pane's edge shows "4 panes are open.
+  Close one to open another." and opens nothing. An empty pane still
+  takes the book. Shelves never open a pane.
+
+Code: `library_panel.rs` (`drop_action`, `tree_drop`, the menus and
+`rename_row`), `shelving.rs` (`ShelfAction::NewIn`, `take_made`),
+`menus.rs` (`organize_rows`, shared with View options) and `app.rs`
+(`Action::PickInto`, `drops_from_rail`). Tests: unit tests for
+`drop_action` in `library_panel.rs`, and in `crates/ui/tests/panel.rs` a
+book dragged onto a shelf row moves, a shelf never goes inside itself,
+F2 renames in place, and at 4 panes the tree still moves books but
+splits no more.
