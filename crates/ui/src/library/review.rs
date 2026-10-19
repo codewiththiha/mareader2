@@ -110,7 +110,7 @@ pub(super) fn show(ui: &mut Ui, model: &Library, plan: &Proposal, t: &Tokens) ->
         .max_height(LIST_H)
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.spacing_mut().item_spacing.y = 10.0;
             for row in &rows {
                 shelf_row(ui, row, t);
             }
@@ -146,6 +146,14 @@ pub(super) fn show(ui: &mut Ui, model: &Library, plan: &Proposal, t: &Tokens) ->
 
 /// A shelf's line, its count at the end, and the first titles beneath.
 fn shelf_row(ui: &mut Ui, row: &Row, t: &Tokens) {
+    // Its titles sit close under it, apart from the next shelf.
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 1.0;
+        shelf_lines(ui, row, t);
+    });
+}
+
+fn shelf_lines(ui: &mut Ui, row: &Row, t: &Tokens) {
     let indent = row.depth as f32 * 18.0;
     ui.horizontal(|ui| {
         ui.add_space(indent);
