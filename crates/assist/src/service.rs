@@ -6,16 +6,17 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 
 use fm_bridge::Bridge;
-use mareader_settings::{AiSettings, Provider};
+use mareader_settings::{AiSettings, ModelPreset, PresetId, Provider};
 use mareader_study::{Explainer, Failure, Why, WordInfo};
 use serde_json::Value;
 use tokio::runtime::{Builder, Runtime};
 
 use crate::backend::{Backend, BoxFuture, Nobody, Partial, run};
-use crate::board::{AppleState, Board, Job, Reply, Tried};
+use crate::board::{AppleState, Board, Job, Reply, Tried, lanes};
 use crate::compat::{Compat, failure_with_keys};
 use crate::keys::{Clients, pasted, row};
 use crate::prompt::Prompt;
+use crate::slots::{Kind, Slots};
 use crate::task::Explain;
 
 /// Wakes the UI when a job finishes.
@@ -25,6 +26,7 @@ pub type Waker = Arc<dyn Fn() + Send + Sync>;
 const SAMPLE: Explain<'static> = Explain {
     word: "quick",
     context: "The quick brown fox jumps over the lazy dog.",
+    language: None,
 };
 
 /// The runtime, shut down without waiting, from wherever it drops.
@@ -55,6 +57,7 @@ pub struct Assist {
     rx: Receiver<Reply>,
     waker: Waker,
     board: Board,
+    slots: Slots,
 }
 
 impl Assist {
@@ -76,6 +79,7 @@ impl Assist {
             rx,
             waker,
             board: Board::default(),
+            slots: Slots::default(),
         })
     }
 
@@ -103,41 +107,43 @@ impl Assist {
     /// The answerer for `ai`; later jobs use these settings too.
     pub fn configure(&mut self, ai: &AiSettings) -> Arc<dyn Explainer> {
         self.ai = ai.clone();
+        let preset = ai.explain_preset().cloned();
+        let backend = match &preset {
+            Some(p) => self.backend(p),
+            None => Arc::new(Nobody(Why::NotHere.into())),
+        };
         Arc::new(AiExplainer {
             engine: Arc::clone(&self.engine),
-            backend: self.backend(ai.provider),
-            by: self.by(ai.provider),
+            slots: self.slots.clone(),
+            by: preset.as_ref().map(ModelPreset::title).unwrap_or_default(),
+            preset,
+            backend,
+            language: ai.explain_language(),
         })
     }
 
-    /// Who answers for `p`, as the card's small print names them.
-    fn by(&self, p: Provider) -> String {
-        match (p, &self.apple) {
-            (Provider::Auto | Provider::Apple, Some(_)) => Provider::Apple.label().to_owned(),
-            (Provider::Auto | Provider::Apple, None) => String::new(),
-            (server, _) => match self.ai.model(server).trim() {
-                "" => server.label().to_owned(),
-                model => format!("{} · {model}", server.label()),
-            },
-        }
-    }
-
-    /// Who answers for `p`, as configured.
-    pub fn backend(&self, p: Provider) -> Arc<dyn Backend> {
-        match (p, &self.apple) {
-            (Provider::Auto | Provider::Apple, Some(apple)) => {
-                Arc::clone(apple) as Arc<dyn Backend>
-            }
-            (Provider::Auto, None) if cfg!(target_os = "macos") => Arc::new(Nobody(no_apple())),
-            (Provider::Auto, None) => Arc::new(Nobody(Why::NotHere.into())),
+    /// Who answers for `preset`, as configured.
+    pub fn backend(&self, preset: &ModelPreset) -> Arc<dyn Backend> {
+        match (preset.provider, &self.apple) {
+            (Provider::Apple, Some(apple)) => Arc::clone(apple) as Arc<dyn Backend>,
             (Provider::Apple, None) => Arc::new(Nobody(no_apple())),
             (server, _) => Arc::new(Server {
                 clients: Arc::clone(&self.clients),
                 provider: server,
                 url: self.ai.url(server),
-                model: self.ai.model(server),
+                model: preset.model().to_owned(),
             }),
         }
+    }
+
+    /// Every model's slots, shared with long tasks.
+    pub fn slots(&self) -> &Slots {
+        &self.slots
+    }
+
+    /// Tasks `preset` runs now.
+    pub fn in_use(&self, preset: PresetId) -> usize {
+        self.slots.in_use(preset)
     }
 
     pub fn board(&self) -> &Board {
@@ -165,9 +171,10 @@ impl Assist {
             apple: self.apple.clone(),
             ai: self.ai.clone(),
             trial: match &job {
-                Job::Try(p) => Some(self.backend(*p)),
+                Job::Try(p) => Some(self.backend(p)),
                 _ => None,
             },
+            slots: self.slots.clone(),
         };
         let (tx, waker) = (self.tx.clone(), Arc::clone(&self.waker));
         rt.spawn(async move {
@@ -215,12 +222,45 @@ impl Backend for Server {
             compat.ask(prompt, partial).await
         })
     }
+
+    fn lanes(&self) -> BoxFuture<'_, u32> {
+        Box::pin(async move {
+            if !self.provider.takes_keys() {
+                return 1;
+            }
+            let Ok(client) = self.clients.client(self.provider, &self.url, true).await else {
+                return 1;
+            };
+            match client.manager().list_keys().await {
+                Ok(keys) => lanes(&keys.into_iter().map(row).collect::<Vec<_>>()),
+                Err(_) => 1,
+            }
+        })
+    }
+}
+
+/// Holds a slot of `preset` for one short task; how many is `at_once` per lane.
+async fn short_slot(
+    slots: &Slots,
+    preset: &ModelPreset,
+    backend: &dyn Backend,
+) -> Result<crate::slots::Ticket, Failure> {
+    let lanes = backend.lanes().await;
+    let cap = u32::from(preset.at_once).saturating_mul(lanes);
+    let cap = usize::try_from(cap).unwrap_or(usize::MAX);
+    let wait = Slots::SHORT_WAIT;
+    slots
+        .take(preset.id, cap, Kind::Short, &preset.title(), wait)
+        .await
 }
 
 /// The study tools' answerer: blocks its worker thread, not the UI.
 struct AiExplainer {
     engine: Arc<Engine>,
+    slots: Slots,
+    preset: Option<ModelPreset>,
     backend: Arc<dyn Backend>,
+    language: Option<&'static str>,
     by: String,
 }
 
@@ -232,8 +272,20 @@ impl Explainer for AiExplainer {
         partial: &(dyn Fn(WordInfo) + Sync),
     ) -> Result<WordInfo, Failure> {
         let rt = self.engine.rt().ok_or(Why::NotHere)?;
-        let task = Explain { word, context };
-        rt.block_on(run(self.backend.as_ref(), &task, partial))
+        let language = self.language;
+        let task = Explain {
+            word,
+            context,
+            language,
+        };
+        let backend = self.backend.as_ref();
+        rt.block_on(async {
+            let _slot = match &self.preset {
+                Some(p) => Some(short_slot(&self.slots, p, backend).await?),
+                None => None,
+            };
+            run(backend, &task, partial).await
+        })
     }
 
     fn by(&self) -> String {
@@ -247,6 +299,7 @@ struct Work {
     apple: Option<Arc<crate::Apple>>,
     ai: AiSettings,
     trial: Option<Arc<dyn Backend>>,
+    slots: Slots,
 }
 
 impl Work {
@@ -268,7 +321,7 @@ impl Work {
             Job::BanKey(p, id) => self.changed(p, Change::Ban(&id)).await,
             Job::RecoverKey(p, id) => self.changed(p, Change::Recover(&id)).await,
             Job::Models(p) => Reply::Models(p, self.models(p).await),
-            Job::Try(p) => Reply::Tried(p, self.trial().await),
+            Job::Try(p) => Reply::Tried(p.id, self.trial(&p).await),
         }
     }
 
@@ -317,8 +370,9 @@ impl Work {
         }
     }
 
-    async fn trial(&self) -> Result<Tried, Failure> {
+    async fn trial(&self, preset: &ModelPreset) -> Result<Tried, Failure> {
         let backend = self.trial.as_ref().ok_or(Why::NotHere)?;
+        let _slot = short_slot(&self.slots, preset, backend.as_ref()).await?;
         let start = Instant::now();
         let info = run(backend.as_ref(), &SAMPLE, &|_| {}).await?;
         Ok(Tried {

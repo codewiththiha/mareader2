@@ -21,7 +21,10 @@ use mareader_appearance::{Appearance, Preset, builtin_presets, preset_id};
 use mareader_library::View;
 use serde::{Deserialize, Serialize};
 
-pub use ai::{AiSettings, Endpoint, Provider};
+pub use ai::{
+    AiSettings, AiTasks, Endpoint, ExplainTask, LANGUAGES, ModelPreset, OrganizeTask, PresetId,
+    Provider, language_name,
+};
 pub use load::{Loaded, load, to_json};
 pub use reader::{
     ChromeSettings, FloatingLabelStyle, LayoutSettings, MotionSettings, PageIndicatorStyle,
@@ -37,7 +40,7 @@ pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};
 
 /// Bumped with every migration step in `load.rs`.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// The whole persisted state of the user's choices.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -55,7 +58,7 @@ pub struct Settings {
     pub text: TextSettings,
     pub study: StudySettings,
     pub dictionary: DictionarySettings,
-    /// Who explains words; keys are kept apart, encrypted.
+    /// Named models and the tasks that use them; keys live apart.
     pub ai: AiSettings,
     pub workspace: WorkspaceSettings,
     /// The library page's layout and order.

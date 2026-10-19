@@ -16,13 +16,15 @@ mod compat;
 mod keys;
 mod prompt;
 mod service;
+mod slots;
 mod task;
 
 pub use apple::Apple;
 pub use backend::{Backend, BoxFuture, Nobody, Partial, run};
-pub use board::{AppleState, Board, Job, KeyRow, KeyState, Load, Reply, Tried};
+pub use board::{AppleState, Board, Job, KeyRow, KeyState, Load, Reply, Tried, lanes};
 pub use compat::Compat;
 pub use keys::KEYCHAIN_SERVICE;
 pub use prompt::{Prompt, quote};
 pub use service::{Assist, Waker};
+pub use slots::{Kind, Slots, Ticket};
 pub use task::{Explain, Task, word_info_schema};

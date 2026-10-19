@@ -13,6 +13,7 @@ use support::{Answer, QUICK, Server};
 const FOX: Explain<'static> = Explain {
     word: "quick",
     context: "The quick brown fox",
+    language: None,
 };
 
 async fn keyless(url: &str) -> Arc<AiClient> {

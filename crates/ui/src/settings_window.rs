@@ -343,7 +343,14 @@ fn tab_body(
         }
         Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]
-        Tab::Ai => ai::tab(ui, &mut s.ai, ai.board(), out),
+        Tab::Ai => {
+            let in_use = |id| ai.in_use(id);
+            let live = ai.board().map(|board| ai::Live {
+                board,
+                in_use: &in_use,
+            });
+            ai::tab(ui, &mut s.ai, live, out);
+        }
         #[cfg(target_arch = "wasm32")]
         Tab::Ai => pending(ui, "AI answers need the desktop app."),
         Tab::Workspace => workspace(ui, s, cx),

@@ -6,8 +6,8 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use mareader_assist::{Assist, Board, Job, KeyState, Load};
-use mareader_settings::{AiSettings, Provider};
+use mareader_assist::{Assist, Board, Job, KeyState, Kind, Load};
+use mareader_settings::{AiSettings, ModelPreset, Provider};
 use mareader_study::{Explainer, Why, WordInfo};
 use support::{Answer, QUICK, Server};
 
@@ -46,16 +46,22 @@ fn explain(e: &dyn Explainer) -> (Result<WordInfo, Why>, Vec<WordInfo>) {
     (got, seen.into_inner().unwrap())
 }
 
+/// One saved model, `m` on `p` at `url`, explaining words.
 fn settings(p: Provider, url: &str) -> AiSettings {
     let mut ai = AiSettings {
-        provider: p,
+        presets: Vec::new(),
         ..AiSettings::default()
     };
+    let id = ai.add_preset(p, "m");
+    ai.tasks.explain.preset = Some(id);
     if let Some(e) = ai.endpoint_mut(p) {
         e.url = url.to_owned();
-        e.model = "m".into();
     }
     ai
+}
+
+fn preset(ai: &AiSettings) -> ModelPreset {
+    ai.explain_preset().cloned().unwrap()
 }
 
 #[test]
@@ -130,18 +136,59 @@ fn providers_that_cannot_answer_say_why() {
     blank.custom.url = "localhost:1234".into();
     let custom = a.configure(&blank);
     assert_eq!(explain(custom.as_ref()).0.err(), Some(Why::Setup));
+    // A deleted preset leaves Explain with no model.
+    let mut unset = settings(Provider::Ollama, "");
+    unset.tasks.explain.preset = None;
+    let unset = a.configure(&unset);
+    assert_eq!(explain(unset.as_ref()).0.err(), Some(Why::NotHere));
     if !cfg!(target_os = "macos") {
-        let auto = a.configure(&AiSettings::default());
-        assert_eq!(explain(auto.as_ref()).0.err(), Some(Why::NotHere));
         let apple = a.configure(&settings(Provider::Apple, ""));
         assert_eq!(explain(apple.as_ref()).0.err(), Some(Why::NotHere));
         a.send(Job::Probe);
         wait(&mut a, |b| matches!(b.apple, Load::Ready(_)));
     }
-    a.send(Job::Try(Provider::OpenAi));
-    wait(&mut a, |b| {
-        matches!(b.tried(Provider::OpenAi), Load::Failed(_))
-    });
+    let openai = preset(&settings(Provider::OpenAi, &server.url));
+    a.send(Job::Try(openai.clone()));
+    wait(&mut a, |b| matches!(b.tried(openai.id), Load::Failed(_)));
+}
+
+#[test]
+fn a_busy_model_turns_explain_away_and_more_room_lets_it_in() {
+    let (_rt, server) = server(vec![Answer::stream(&[QUICK])]);
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = assist(&dir);
+    let mut ai = settings(Provider::Ollama, &server.url);
+    let id = preset(&ai).id;
+    let organizing = a
+        .slots()
+        .try_take(id, 1, Kind::Long("organizing your library"));
+    assert!(organizing.is_some());
+    let explainer = a.configure(&ai);
+    assert_eq!(explain(explainer.as_ref()).0.err(), Some(Why::InUse));
+    assert!(server.seen().is_empty(), "nothing is sent while busy");
+    if let Some(p) = ai.preset_mut(id) {
+        p.at_once = 2;
+    }
+    let explainer = a.configure(&ai);
+    let (got, _) = explain(explainer.as_ref());
+    assert!(got.is_ok(), "{got:?}");
+    assert_eq!(a.in_use(id), 1, "explain gave its slot back");
+    drop(organizing);
+    assert_eq!(a.in_use(id), 0);
+}
+
+#[test]
+fn a_chosen_language_reaches_the_prompt_and_the_card_names_the_model() {
+    let (_rt, server) = server(vec![Answer::stream(&[QUICK])]);
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = assist(&dir);
+    let mut ai = settings(Provider::Ollama, &server.url);
+    ai.tasks.explain.language = Some("my".into());
+    let explainer = a.configure(&ai);
+    assert_eq!(explainer.by(), "Ollama · m");
+    assert!(explain(explainer.as_ref()).0.is_ok());
+    let body = server.seen()[0].body.to_string();
+    assert!(body.contains("Write meaning in Burmese"), "{body}");
 }
 
 #[cfg(unix)]
@@ -173,14 +220,13 @@ printf '%s\n' '{"done":true,"usage":{"promptTokens":9,"completionTokens":9}}'
         std::fs::write(&path, HELPER).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut a = assist(&dir).with_apple(Apple::new(Bridge::new(&path)));
-        for p in [Provider::Apple, Provider::Auto] {
-            let explainer = a.configure(&settings(p, ""));
-            let (got, seen) = explain(explainer.as_ref());
-            assert_eq!(got.map(|i| i.synonyms.len()), Ok(2));
-            let meanings: Vec<&str> = seen.iter().map(|i| i.meaning.as_str()).collect();
-            assert_eq!(meanings, ["", "Fa"]);
-        }
+        let explainer = a.configure(&settings(Provider::Apple, ""));
+        let (got, seen) = explain(explainer.as_ref());
+        assert_eq!(got.map(|i| i.synonyms.len()), Ok(2));
+        let meanings: Vec<&str> = seen.iter().map(|i| i.meaning.as_str()).collect();
+        assert_eq!(meanings, ["", "Fa"]);
         a.send(Job::Probe);
-        wait(&mut a, |b| b.apple == Load::Ready(AppleState::Ready));
+        let english = AppleState::Ready(vec!["en-US".into()]);
+        wait(&mut a, |b| b.apple == Load::Ready(english.clone()));
     }
 }

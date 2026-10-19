@@ -1,4 +1,4 @@
-//! Which AI explains words, and where; `mareader-assist` asks.
+//! AI: named models, which task uses which, and each server's address.
 
 use serde::{Deserialize, Serialize};
 
@@ -6,10 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
-    /// Apple Intelligence where the Mac has it; otherwise none.
-    #[default]
-    Auto,
     /// Apple's on-device model, through the bundled helper.
+    #[default]
     Apple,
     #[serde(rename = "openai")]
     OpenAi,
@@ -25,8 +23,7 @@ pub enum Provider {
 }
 
 impl Provider {
-    pub const ALL: [Provider; 8] = [
-        Self::Auto,
+    pub const ALL: [Provider; 7] = [
         Self::Apple,
         Self::OpenAi,
         Self::Gemini,
@@ -48,7 +45,6 @@ impl Provider {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Auto => "Automatic",
             Self::Apple => "Apple Intelligence",
             Self::OpenAi => "OpenAI",
             Self::Gemini => "Google Gemini",
@@ -61,7 +57,6 @@ impl Provider {
 
     pub fn detail(self) -> &'static str {
         match self {
-            Self::Auto => "Apple Intelligence on Macs that have it",
             Self::Apple => "On this Mac, private and offline",
             Self::OpenAi => "Needs an API key",
             Self::Gemini => "Needs an API key",
@@ -80,7 +75,7 @@ impl Provider {
             Self::OpenRouter => "https://openrouter.ai/api/v1/",
             Self::Ollama => "http://localhost:11434/v1/",
             Self::LmStudio => "http://localhost:1234/v1/",
-            Self::Auto | Self::Apple | Self::Custom => "",
+            Self::Apple | Self::Custom => "",
         }
     }
 
@@ -109,10 +104,14 @@ impl Provider {
         matches!(self, Self::Ollama | Self::LmStudio)
     }
 
+    /// Whether it runs over HTTP, with an address.
+    pub fn server(self) -> bool {
+        self != Self::Apple
+    }
+
     /// Its keys' scope in the key store; stable, never shown.
     pub fn scope(self) -> &'static str {
         match self {
-            Self::Auto => "auto",
             Self::Apple => "apple",
             Self::OpenAi => "openai",
             Self::Gemini => "gemini",
@@ -124,31 +123,185 @@ impl Provider {
     }
 }
 
-/// Where one server is and which model it runs; blank means the default.
+/// Where one server is; blank means its default.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Endpoint {
     pub url: String,
-    pub model: String,
 }
 
-impl Endpoint {
-    /// Longer text is cut; a pasted page can't bloat the settings file.
-    pub const MAX_CHARS: usize = 2_048;
+/// Longer text is cut; a pasted page can't bloat the settings file.
+pub const TEXT_MAX: usize = 2_048;
 
-    fn sanitize(&mut self) {
-        for s in [&mut self.url, &mut self.model] {
-            if let Some((byte, _)) = s.char_indices().nth(Self::MAX_CHARS) {
-                s.truncate(byte);
-            }
+fn cut(s: &mut String, max: usize) {
+    if let Some((byte, _)) = s.char_indices().nth(max) {
+        s.truncate(byte);
+    }
+}
+
+/// A saved model's handle; tasks point at it.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct PresetId(pub u32);
+
+/// A model the reader named, ready for any task.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelPreset {
+    pub id: PresetId,
+    pub name: String,
+    pub provider: Provider,
+    /// Blank means the provider's default, or the server's first.
+    pub model: String,
+    /// Tasks at once on each usable key; keyless, in all.
+    pub at_once: u8,
+}
+
+impl Default for ModelPreset {
+    fn default() -> Self {
+        Self {
+            id: PresetId::default(),
+            name: String::new(),
+            provider: Provider::default(),
+            model: String::new(),
+            at_once: 1,
         }
     }
 }
 
+impl ModelPreset {
+    pub const AT_ONCE_MAX: u8 = 8;
+    pub const NAME_MAX: usize = 60;
+
+    /// Its name, or what it runs while the name is blank.
+    pub fn title(&self) -> String {
+        match self.name.trim() {
+            "" => Self::suggested_name(self.provider, &self.model),
+            name => name.to_owned(),
+        }
+    }
+
+    /// Its model: the one set, else the provider's default.
+    pub fn model(&self) -> &str {
+        match self.model.trim() {
+            "" => self.provider.default_model(),
+            set => set,
+        }
+    }
+
+    /// The name a new preset starts with, from what it runs.
+    pub fn suggested_name(provider: Provider, model: &str) -> String {
+        match model.trim() {
+            "" => provider.label().to_owned(),
+            model => format!("{} · {model}", provider.label()),
+        }
+    }
+
+    fn sanitize(&mut self) {
+        cut(&mut self.name, Self::NAME_MAX);
+        cut(&mut self.model, TEXT_MAX);
+        self.at_once = self.at_once.clamp(1, Self::AT_ONCE_MAX);
+    }
+}
+
+/// Explaining a word: who answers, and the meaning's language.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct ExplainTask {
+    pub preset: Option<PresetId>,
+    /// A tag from [`LANGUAGES`]; none writes in the book's language.
+    pub language: Option<String>,
+}
+
+/// Filing loose books onto shelves.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrganizeTask {
+    /// None follows Explain's model.
+    pub preset: Option<PresetId>,
+    /// Books the model reads per request.
+    pub batch: u16,
+}
+
+impl OrganizeTask {
+    pub const BATCH_MIN: u16 = 10;
+    pub const BATCH_MAX: u16 = 200;
+    pub const BATCH: u16 = 50;
+}
+
+impl Default for OrganizeTask {
+    fn default() -> Self {
+        Self {
+            preset: None,
+            batch: Self::BATCH,
+        }
+    }
+}
+
+/// Which model each AI task uses.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AiTasks {
+    pub explain: ExplainTask,
+    pub organize: OrganizeTask,
+}
+
+/// Languages an AI task may write in, by tag and English name.
+pub const LANGUAGES: [(&str, &str); 40] = [
+    ("ar", "Arabic"),
+    ("bn", "Bengali"),
+    ("my", "Burmese"),
+    ("zh-Hans", "Chinese (Simplified)"),
+    ("zh-Hant", "Chinese (Traditional)"),
+    ("cs", "Czech"),
+    ("da", "Danish"),
+    ("nl", "Dutch"),
+    ("en", "English"),
+    ("fil", "Filipino"),
+    ("fi", "Finnish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("el", "Greek"),
+    ("he", "Hebrew"),
+    ("hi", "Hindi"),
+    ("hu", "Hungarian"),
+    ("id", "Indonesian"),
+    ("it", "Italian"),
+    ("ja", "Japanese"),
+    ("km", "Khmer"),
+    ("ko", "Korean"),
+    ("lo", "Lao"),
+    ("ms", "Malay"),
+    ("ne", "Nepali"),
+    ("nb", "Norwegian"),
+    ("fa", "Persian"),
+    ("pl", "Polish"),
+    ("pt", "Portuguese"),
+    ("ro", "Romanian"),
+    ("ru", "Russian"),
+    ("si", "Sinhala"),
+    ("es", "Spanish"),
+    ("sv", "Swedish"),
+    ("ta", "Tamil"),
+    ("th", "Thai"),
+    ("tr", "Turkish"),
+    ("uk", "Ukrainian"),
+    ("ur", "Urdu"),
+    ("vi", "Vietnamese"),
+];
+
+/// The English name of a language tag, if listed.
+pub fn language_name(tag: &str) -> Option<&'static str> {
+    LANGUAGES.iter().find(|l| l.0 == tag).map(|l| l.1)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AiSettings {
-    pub provider: Provider,
+    pub presets: Vec<ModelPreset>,
+    pub tasks: AiTasks,
     pub openai: Endpoint,
     pub gemini: Endpoint,
     pub openrouter: Endpoint,
@@ -157,7 +310,30 @@ pub struct AiSettings {
     pub custom: Endpoint,
 }
 
+impl Default for AiSettings {
+    /// A Mac starts with Apple Intelligence explaining; others with none.
+    fn default() -> Self {
+        let mut ai = Self {
+            presets: Vec::new(),
+            tasks: AiTasks::default(),
+            openai: Endpoint::default(),
+            gemini: Endpoint::default(),
+            openrouter: Endpoint::default(),
+            ollama: Endpoint::default(),
+            lm_studio: Endpoint::default(),
+            custom: Endpoint::default(),
+        };
+        if cfg!(target_os = "macos") {
+            let id = ai.add_preset(Provider::Apple, "");
+            ai.tasks.explain.preset = Some(id);
+        }
+        ai
+    }
+}
+
 impl AiSettings {
+    pub const PRESETS_MAX: usize = 32;
+
     pub fn endpoint(&self, p: Provider) -> Option<&Endpoint> {
         match p {
             Provider::OpenAi => Some(&self.openai),
@@ -166,7 +342,7 @@ impl AiSettings {
             Provider::Ollama => Some(&self.ollama),
             Provider::LmStudio => Some(&self.lm_studio),
             Provider::Custom => Some(&self.custom),
-            Provider::Auto | Provider::Apple => None,
+            Provider::Apple => None,
         }
     }
 
@@ -178,7 +354,7 @@ impl AiSettings {
             Provider::Ollama => Some(&mut self.ollama),
             Provider::LmStudio => Some(&mut self.lm_studio),
             Provider::Custom => Some(&mut self.custom),
-            Provider::Auto | Provider::Apple => None,
+            Provider::Apple => None,
         }
     }
 
@@ -189,24 +365,84 @@ impl AiSettings {
         url.to_owned()
     }
 
-    /// `p`'s model: the one set, else its default; empty if neither.
-    pub fn model(&self, p: Provider) -> String {
-        let set = self.endpoint(p).map_or("", |e| e.model.trim());
-        let model = if set.is_empty() {
-            p.default_model()
-        } else {
-            set
-        };
-        model.to_owned()
+    pub fn preset(&self, id: PresetId) -> Option<&ModelPreset> {
+        self.presets.iter().find(|p| p.id == id)
+    }
+
+    pub fn preset_mut(&mut self, id: PresetId) -> Option<&mut ModelPreset> {
+        self.presets.iter_mut().find(|p| p.id == id)
+    }
+
+    /// The model Explain asks, if it still exists.
+    pub fn explain_preset(&self) -> Option<&ModelPreset> {
+        self.tasks.explain.preset.and_then(|id| self.preset(id))
+    }
+
+    /// The model Organize asks: its own, else Explain's.
+    pub fn organize_preset(&self) -> Option<&ModelPreset> {
+        let own = self.tasks.organize.preset.and_then(|id| self.preset(id));
+        own.or_else(|| self.explain_preset())
+    }
+
+    /// The meaning's language as a name, for the prompt.
+    pub fn explain_language(&self) -> Option<&'static str> {
+        self.tasks
+            .explain
+            .language
+            .as_deref()
+            .and_then(language_name)
+    }
+
+    /// Saves a new model, named after what it runs; its id.
+    pub fn add_preset(&mut self, provider: Provider, model: &str) -> PresetId {
+        let next = self.presets.iter().map(|p| p.id.0).max().unwrap_or(0);
+        let id = PresetId(next.saturating_add(1));
+        self.presets.push(ModelPreset {
+            id,
+            name: ModelPreset::suggested_name(provider, model),
+            provider,
+            model: model.trim().to_owned(),
+            at_once: 1,
+        });
+        id
+    }
+
+    /// Forgets a model; tasks that used it are left without one.
+    pub fn remove_preset(&mut self, id: PresetId) {
+        self.presets.retain(|p| p.id != id);
+        self.unassign_missing();
+    }
+
+    fn unassign_missing(&mut self) {
+        let ids: Vec<PresetId> = self.presets.iter().map(|p| p.id).collect();
+        let tasks = &mut self.tasks;
+        for slot in [&mut tasks.explain.preset, &mut tasks.organize.preset] {
+            if slot.is_some_and(|id| !ids.contains(&id)) {
+                *slot = None;
+            }
+        }
     }
 
     /// Runs on every edit, so text being typed is never rewritten.
     pub fn sanitize(&mut self) {
         for p in Provider::SERVERS {
             if let Some(e) = self.endpoint_mut(p) {
-                e.sanitize();
+                cut(&mut e.url, TEXT_MAX);
             }
         }
+        let mut seen = std::collections::HashSet::new();
+        self.presets.retain(|p| p.id.0 > 0 && seen.insert(p.id));
+        self.presets.truncate(Self::PRESETS_MAX);
+        for p in &mut self.presets {
+            p.sanitize();
+        }
+        self.unassign_missing();
+        let lang = &mut self.tasks.explain.language;
+        if lang.as_deref().is_some_and(|l| language_name(l).is_none()) {
+            *lang = None;
+        }
+        let batch = &mut self.tasks.organize.batch;
+        *batch = (*batch).clamp(OrganizeTask::BATCH_MIN, OrganizeTask::BATCH_MAX);
     }
 }
 
@@ -215,27 +451,83 @@ mod tests {
     use super::*;
 
     #[test]
-    fn blanks_fall_back_to_each_provider_s_defaults() {
+    fn blank_addresses_fall_back_to_each_provider_s_default() {
         let mut ai = AiSettings::default();
-        assert_eq!(ai.provider, Provider::Auto);
         assert_eq!(ai.url(Provider::Gemini), Provider::Gemini.default_url());
-        assert_eq!(ai.model(Provider::OpenAi), "gpt-4.1-mini");
         assert_eq!(ai.url(Provider::Custom), "");
         ai.ollama.url = "  http://box:11434/v1  ".into();
-        ai.ollama.model = " llama3.2 ".into();
         assert_eq!(ai.url(Provider::Ollama), "http://box:11434/v1");
-        assert_eq!(ai.model(Provider::Ollama), "llama3.2");
         assert_eq!(ai.endpoint(Provider::Apple), None);
     }
 
     #[test]
-    fn text_being_typed_survives_and_only_huge_text_is_cut() {
+    fn a_mac_starts_with_apple_explaining_and_others_with_nothing() {
+        let ai = AiSettings::default();
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(
+                ai.explain_preset().map(|p| p.provider),
+                Some(Provider::Apple)
+            ),
+            false => assert!(ai.presets.is_empty() && ai.explain_preset().is_none()),
+        }
+    }
+
+    #[test]
+    fn presets_get_fresh_ids_and_removal_unassigns_tasks() {
+        let mut ai = AiSettings {
+            presets: Vec::new(),
+            ..AiSettings::default()
+        };
+        let fast = ai.add_preset(Provider::OpenAi, " gpt-4.1-nano ");
+        let local = ai.add_preset(Provider::Ollama, "");
+        assert_ne!(fast, local);
+        assert_eq!(
+            ai.preset(fast).map(|p| p.name.as_str()),
+            Some("OpenAI · gpt-4.1-nano")
+        );
+        assert_eq!(ai.preset(local).map(ModelPreset::model), Some(""));
+        ai.tasks.explain.preset = Some(fast);
+        // Organize follows Explain until it has its own.
+        assert_eq!(ai.organize_preset().map(|p| p.id), Some(fast));
+        ai.tasks.organize.preset = Some(local);
+        assert_eq!(ai.organize_preset().map(|p| p.id), Some(local));
+        ai.remove_preset(fast);
+        assert_eq!(ai.tasks.explain.preset, None);
+        assert_eq!(ai.add_preset(Provider::Gemini, ""), PresetId(3));
+    }
+
+    #[test]
+    fn sanitize_clamps_and_drops_what_no_longer_points_anywhere() {
         let mut ai = AiSettings::default();
+        let id = ai.add_preset(Provider::Custom, "m");
+        if let Some(p) = ai.preset_mut(id) {
+            p.at_once = 99;
+            p.name = "n".repeat(ModelPreset::NAME_MAX + 5);
+        }
+        let twin = ai.presets.first().cloned().unwrap_or_default();
+        ai.presets.push(twin);
+        ai.tasks.organize.preset = Some(PresetId(77));
+        ai.tasks.organize.batch = 1;
+        ai.tasks.explain.language = Some("xx".into());
         ai.custom.url = "h".into();
-        ai.openai.model = "é".repeat(Endpoint::MAX_CHARS + 9);
         ai.sanitize();
-        assert_eq!(ai.custom.url, "h");
-        assert_eq!(ai.openai.model.chars().count(), Endpoint::MAX_CHARS);
+        let p = ai.preset(id).cloned().unwrap_or_default();
+        assert_eq!(p.at_once, ModelPreset::AT_ONCE_MAX);
+        assert_eq!(p.name.chars().count(), ModelPreset::NAME_MAX);
+        let ids: std::collections::HashSet<_> = ai.presets.iter().map(|p| p.id).collect();
+        assert_eq!(ids.len(), ai.presets.len(), "ids are unique");
+        assert_eq!(ai.tasks.organize.preset, None);
+        assert_eq!(ai.tasks.organize.batch, OrganizeTask::BATCH_MIN);
+        assert_eq!(ai.tasks.explain.language, None);
+        assert_eq!(ai.custom.url, "h", "text being typed survives");
+    }
+
+    #[test]
+    fn languages_have_unique_tags_and_burmese_is_named() {
+        let tags: std::collections::HashSet<_> = LANGUAGES.iter().map(|l| l.0).collect();
+        assert_eq!(tags.len(), LANGUAGES.len());
+        assert_eq!(language_name("my"), Some("Burmese"));
+        assert_eq!(language_name("??"), None);
     }
 
     #[test]
@@ -245,7 +537,6 @@ mod tests {
             .filter_map(|p| serde_json::to_string(p).ok())
             .collect();
         let want = [
-            "auto",
             "apple",
             "openai",
             "gemini",
@@ -256,16 +547,5 @@ mod tests {
         ];
         let want: Vec<String> = want.iter().map(|w| format!("\"{w}\"")).collect();
         assert_eq!(names, want);
-        let keyed: Vec<_> = Provider::ALL
-            .into_iter()
-            .filter(|p| p.takes_keys())
-            .collect();
-        let want = [
-            Provider::OpenAi,
-            Provider::Gemini,
-            Provider::OpenRouter,
-            Provider::Custom,
-        ];
-        assert_eq!(keyed, want);
     }
 }

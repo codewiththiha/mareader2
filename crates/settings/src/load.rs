@@ -3,7 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
-use crate::{SCHEMA_VERSION, Settings};
+use crate::{AiSettings, Provider, SCHEMA_VERSION, Settings};
 
 /// Loaded settings plus what had to be repaired, for the log.
 #[derive(Debug, Default)]
@@ -61,7 +61,38 @@ fn migrate(root: &mut Map<String, Value>, notes: &mut Vec<String>) {
     if stored < 4 {
         v3_to_v4(root);
     }
+    if stored < 5 {
+        v4_to_v5(root);
+    }
     root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+}
+
+/// v5 made the one chosen provider a named model that Explain uses.
+fn v4_to_v5(root: &mut Map<String, Value>) {
+    let Some(Value::Object(ai)) = root.get_mut("ai") else {
+        return;
+    };
+    let chosen = ai.remove("provider").unwrap_or_else(|| json!("auto"));
+    let mut moved = AiSettings {
+        presets: Vec::new(),
+        ..AiSettings::default()
+    };
+    let id = match serde_json::from_value::<Provider>(chosen).ok() {
+        // Automatic meant Apple Intelligence where a Mac has it.
+        None => cfg!(target_os = "macos").then(|| moved.add_preset(Provider::Apple, "")),
+        Some(p) => {
+            let model = (ai.get(p.scope()))
+                .and_then(|e| e.get("model"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(moved.add_preset(p, model))
+        }
+    };
+    moved.tasks.explain.preset = id;
+    let presets = serde_json::to_value(&moved.presets).unwrap_or_else(|_| json!([]));
+    let tasks = serde_json::to_value(&moved.tasks).unwrap_or_else(|_| json!({}));
+    ai.insert("presets".to_owned(), presets);
+    ai.insert("tasks".to_owned(), tasks);
 }
 
 /// v4 added Note to the selection menu, after Look up if shown.
@@ -205,14 +236,49 @@ mod tests {
 
     #[test]
     fn every_saved_section_is_read_back() {
-        use crate::Provider;
         let mut saved = Settings::default();
-        saved.ai.provider = Provider::Ollama;
-        saved.ai.ollama.model = "llama3.2:latest".to_owned();
+        let id = saved.ai.add_preset(Provider::Ollama, "llama3.2:latest");
+        saved.ai.tasks.explain.preset = Some(id);
+        saved.ai.tasks.explain.language = Some("my".to_owned());
         let got = load(&to_json(&saved));
         assert!(got.notes.is_empty(), "{:?}", got.notes);
         assert!(got.unknown.is_empty(), "never read: {:?}", got.unknown);
         assert_eq!(got.settings.ai, saved.ai);
+    }
+
+    #[test]
+    fn v4_s_chosen_provider_becomes_the_model_explain_uses() {
+        let v4 = r#"{"version":4,"ai":{"provider":"ollama",
+            "ollama":{"url":"http://box:11434/v1","model":"qwen3:4b"},
+            "openai":{"model":"gpt-x"}}}"#;
+        let got = load(v4);
+        assert!(got.notes.is_empty(), "{:?}", got.notes);
+        let ai = got.settings.ai;
+        let p = ai.explain_preset().cloned().unwrap_or_default();
+        assert_eq!(
+            (p.provider, p.model.as_str()),
+            (Provider::Ollama, "qwen3:4b")
+        );
+        assert_eq!(p.name, "Ollama · qwen3:4b");
+        assert_eq!(ai.presets.len(), 1, "only the chosen one moves");
+        assert_eq!(ai.url(Provider::Ollama), "http://box:11434/v1");
+        // A blank model keeps meaning the provider's default.
+        let v4 = r#"{"version":4,"ai":{"provider":"openai"}}"#;
+        let ai = load(v4).settings.ai;
+        let model = ai.explain_preset().map(|p| p.model().to_owned());
+        assert_eq!(model.as_deref(), Some("gpt-4.1-mini"));
+    }
+
+    #[test]
+    fn v4_s_automatic_is_apple_on_a_mac_and_nothing_elsewhere() {
+        let ai = load(r#"{"version":4,"ai":{"provider":"auto"}}"#)
+            .settings
+            .ai;
+        let apple = ai.explain_preset().map(|p| p.provider);
+        match cfg!(target_os = "macos") {
+            true => assert_eq!(apple, Some(Provider::Apple)),
+            false => assert!(apple.is_none() && ai.presets.is_empty()),
+        }
     }
 
     #[test]

@@ -21,6 +21,11 @@ pub trait Backend: Send + Sync {
         prompt: &'a Prompt,
         partial: Partial<'a>,
     ) -> BoxFuture<'a, Result<Value, Failure>>;
+
+    /// Requests it can spread over at once, as one per usable key.
+    fn lanes(&self) -> BoxFuture<'_, u32> {
+        Box::pin(async { 1 })
+    }
 }
 
 /// Runs `task` on `backend`; `partial` sees readable answers so far.
@@ -103,6 +108,7 @@ mod tests {
         let task = Explain {
             word: "quick",
             context: "the quick fox",
+            language: None,
         };
         let seen = Mutex::new(Vec::new());
         let push = |i: mareader_study::WordInfo| {
