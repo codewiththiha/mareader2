@@ -236,3 +236,61 @@ Findings:
   rounds show it reused.
 - **Seeding the library adds books** instead of renumbering the same ones,
   so `books=N` can grow a library in steps.
+
+## 2026-10-19: Markdown books with emoji on a Mac (fix/reflow-memory)
+
+- **Report:** a six-page `.md` book grew to 1.5 GB while scrolled on a Retina
+  Mac and barely shrank; `.txt` books did not. CEFR shading was off.
+- **What:** the Remote memory task's RSS rows (as at M8) for a new workload,
+  and a raster probe's RSS after each round of drawing.
+- **How:** `memory --markdown 6` (four real workers, outline open, the
+  README wheeled down and up six times, a row per pass), and
+  `markdown_drawn_again_and_again_holds_level` in
+  `crates/epub/tests/layout_memory.rs` (every page at 2, 3 and 2.5 px per
+  unit on four threads, twelve rounds). Runs on `6f295f2` (before) and
+  `9983d42` (after). CI installs `fonts-noto-color-emoji`.
+- **Workload:** `mareader_epub::sample::markdown(6, true)`: per section,
+  emoji in headings and text, a task list, a code block, a table, an alert,
+  a quote and a numbered list.
+- **Limits:** Linux's colour emoji file is about 10 MB and is picked once,
+  so CI shows the path, not the Mac's size. The cause below is from the
+  code; the numbers show nothing else grows.
+
+| Step | Before (`6f295f2`) | After (`9983d42`) |
+|---|---|---|
+| Idle, two empty panes | 183 MiB | 183 MiB |
+| Opened in one pane (3 rasters, 12 MiB) | 267 | 253 |
+| Scrolled down and up, passes 1 to 6 | 294, 281, 286, 286, 286, 286 | 286, 303, 298, 298, 298, 310 |
+| Floor of later passes against the early top | −8 MiB | −5 MiB |
+| Pane closed (0 documents, rasters, jobs) | 286 | 310 |
+| Raster probe, emoji, rounds 4 to 12 | 129 to 159 MB | 129 to 205 MB |
+
+Findings:
+
+- **The leak was the UI's machine fonts.** When egui's own faces lack a
+  letter (emoji, U+FE0F, ZWJ), `machine_fonts.rs` asks parley for the
+  machine's face and adds it to egui. `label::fallbacks` copied the whole
+  font file (`bytes.to_vec()`), and keyed it by a blob id that is new for
+  every ask, since each ask built its own source cache. So each batch of
+  new letters on screen added another copy under a new name. On a Mac
+  that face is Apple Color Emoji, about 200 MB. egui also clones owned
+  font bytes each time it rebuilds its fonts (`blob_from_font_data`), so a
+  batch held two copies. Three or four batches reach 1.5 GB.
+- **Fixed:** a face is keyed by its PostScript name, and its mapped file is
+  kept once for the process and lent to egui as `&'static [u8]`. egui
+  borrows it, nothing is copied, and mapped pages are clean file memory
+  the system can drop (`a_machine_face_is_kept_once_and_named_the_same`).
+  `Fonts::system()` jobs now share one source cache, so a font file is
+  mapped once rather than once per layout.
+- **Drawing pages does not leak.** The raster probe and the scroll passes
+  stay level before and after, emoji or not. The spread between rounds is
+  the allocator's reuse.
+- **A page raster is no longer copied** at the end of a draw: reflow, PDF
+  and label pixmaps hand their buffer over (`take_rgba8`). That was a
+  second page-sized buffer per worker, up to 47 MB each at Retina scale.
+- **CEFR shading grades only pages on screen,** memoised per page (96 at
+  most) with 8,192 word levels cached; it never reads the whole book.
+- **Every other cache was checked and has a cap:** page textures 256 MiB
+  (thumbnails share it), finished jobs 32 MiB, text layers 96 pages, laid
+  paragraphs 32 MiB a book, decoded pictures 64 MiB a book, covers 64 MiB,
+  searches 3, shaped labels 96.
