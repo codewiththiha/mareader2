@@ -359,11 +359,40 @@ impl std::fmt::Debug for Flow {
 
 impl Flow {
     /// Sets `blocks` on mareader's A4 page; always at least one page.
-    pub fn new(blocks: Arc<Vec<Block>>, typo: &Typography, mut fonts: Fonts) -> Self {
+    pub fn new(blocks: Arc<Vec<Block>>, typo: &Typography, fonts: Fonts) -> Self {
+        let room = (column_width(typo), PAGE_HEIGHT - 2.0 * PAD);
+        Self::set(blocks, typo, fonts, room, room.1)
+    }
+
+    /// Sets `blocks` `width` wide, cut every `height`; tall never cuts.
+    pub fn sized(
+        blocks: Arc<Vec<Block>>,
+        typo: &Typography,
+        fonts: Fonts,
+        (width, height): (f32, f32),
+        tall: bool,
+    ) -> Self {
+        let typo = Typography {
+            book_layout: false,
+            ..typo.clone()
+        };
+        let room = (width.max(MIN_COLUMN), height.max(1.0));
+        let cut = if tall { f32::INFINITY } else { room.1 };
+        Self::set(blocks, &typo, fonts, room, cut)
+    }
+
+    fn set(
+        blocks: Arc<Vec<Block>>,
+        typo: &Typography,
+        mut fonts: Fonts,
+        (width, height): (f32, f32),
+        cut: f32,
+    ) -> Self {
         let stacks = Stacks::new(&typo.faces);
         // Each block is laid to measure its lines, then let go.
         let set: Vec<Set> = {
             let mut setter = Setter::new(typo, &stacks, &mut fonts);
+            (setter.column, setter.height) = (width, height);
             blocks
                 .iter()
                 .enumerate()
@@ -371,13 +400,13 @@ impl Flow {
                 .map(|(i, b)| setter.block(i, b).0)
                 .collect()
         };
-        let pages = paginate(&set, PAGE_HEIGHT - 2.0 * PAD, typo);
+        let pages = paginate(&set, cut, typo);
         let mut flow = Self {
             blocks: set,
             pages,
             bands: Vec::new(),
             book_layout: typo.book_layout,
-            width: column_width(typo),
+            width,
             decoded: Arc::default(),
             relay: Box::new(Relay {
                 source: blocks,
@@ -471,6 +500,34 @@ impl Flow {
 
     pub fn page_count(&self) -> usize {
         self.pages.len()
+    }
+
+    /// How far down page `page`'s column its last line reaches.
+    pub fn depth(&self, page: usize) -> f32 {
+        let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
+        let bottom = |p: &Piece| {
+            let set = self.blocks.get(p.block)?;
+            let last = set.units.get(p.units.end.checked_sub(1)?)?;
+            Some(p.dy + last.1)
+        };
+        pieces.iter().filter_map(bottom).fold(0.0, f32::max)
+    }
+
+    /// The blocks as given, blank ones counted.
+    pub fn source(&self) -> &[Block] {
+        &self.relay.source
+    }
+
+    /// Page `page`'s blocks and their bytes or rows; `usize::MAX` ends one.
+    pub fn excerpts(&self, page: usize) -> Vec<(usize, Range<usize>)> {
+        let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
+        let excerpt = |p: &Piece| {
+            let set = self.blocks.get(p.block)?;
+            let from = set.starts.get(p.units.start).copied().unwrap_or(0);
+            let to = set.starts.get(p.units.end).copied().unwrap_or(usize::MAX);
+            Some((set.source, from..to))
+        };
+        pieces.iter().filter_map(excerpt).collect()
     }
 
     /// Every page is the same size: width, height in layout units.
