@@ -2,7 +2,10 @@
 
 use egui::{Align, Layout, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, pos2, vec2};
 use mareader_assist::{AppleState, Board, Job, KeyRow, KeyState, Load, lanes};
-use mareader_settings::{AiSettings, LANGUAGES, ModelPreset, OrganizeTask, PresetId, Provider};
+use mareader_settings::{
+    AiSettings, LANGUAGES, ModelPreset, OrganizeTask, PageRun, PageStart, PageTask, PresetId,
+    Provider, SummaryStyle,
+};
 use mareader_study::Failure;
 
 use super::{divider, group, note, row, section};
@@ -15,6 +18,7 @@ const FIELD_W: f32 = 260.0;
 const PICK_W: f32 = 240.0;
 const BOOKS_LANGUAGE: &str = "The book's language";
 const SAME_AS_EXPLAIN: &str = "Same as Explain words";
+const PICK_LATER: &str = "Pick when translating";
 /// Books per request Apple's small context holds.
 const APPLE_BATCH: u16 = 20;
 
@@ -38,6 +42,8 @@ pub fn tab(ui: &mut Ui, ai: &mut AiSettings, live: Option<Live<'_>>, out: &mut C
     for p in used_servers(ai) {
         provider(ui, ai, p, board, out);
     }
+    // Last: how page tasks go, once models are set up above.
+    pages(ui, ai, board);
 }
 
 /// The providers saved models use, each once, in the menu's order.
@@ -78,7 +84,13 @@ fn tasks(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
         divider(ui);
         let tip = "The meaning's language; the rest stays in the book's";
         row(ui, "Meaning in", tip, |ui| {
-            language_picker(ui, &mut ai.tasks.explain.language, &speaks);
+            let meaning = &mut ai.tasks.explain.language;
+            language_picker(
+                ui,
+                ("ai-meaning-language", BOOKS_LANGUAGE),
+                meaning,
+                &speaks,
+            );
         });
         divider(ui);
         let tip = "The model that sorts imported books on no shelf onto shelves";
@@ -130,6 +142,140 @@ fn tasks(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
     }
 }
 
+/// Summarize, translate and simplify: models, and how pages go on.
+fn pages(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
+    section(ui, "Pages");
+    let apple = ai
+        .page_preset(PageTask::Translate)
+        .is_some_and(|p| p.provider == Provider::Apple);
+    let state = board.and_then(|b| b.apple.ready()).filter(|_| apple);
+    let speaks = |tag: &str| state.and_then(|s| s.speaks(tag));
+    group(ui, |ui| {
+        let tip = "The model that summarizes a page";
+        row(ui, "Summarize", tip, |ui| {
+            let chosen = &mut ai.tasks.summarize.preset;
+            preset_picker(
+                ui,
+                "ai-summarize-model",
+                &ai.presets,
+                chosen,
+                SAME_AS_EXPLAIN,
+            );
+        });
+        divider(ui);
+        row(ui, "Summary style", "Paragraphs, or a short list", |ui| {
+            let style = &mut ai.tasks.summarize.style;
+            let name = |s: SummaryStyle| match s {
+                SummaryStyle::Paragraphs => "Paragraphs",
+                SummaryStyle::Points => "Key points",
+            };
+            egui::ComboBox::from_id_salt("ai-summary-style")
+                .width(PICK_W)
+                .selected_text(name(*style))
+                .show_ui(ui, |ui| {
+                    for s in [SummaryStyle::Paragraphs, SummaryStyle::Points] {
+                        ui.selectable_value(style, s, name(s));
+                    }
+                });
+        });
+        divider(ui);
+        row(ui, "Translate", "The model that translates a page", |ui| {
+            let chosen = &mut ai.tasks.translate.preset;
+            preset_picker(
+                ui,
+                "ai-translate-model",
+                &ai.presets,
+                chosen,
+                SAME_AS_EXPLAIN,
+            );
+        });
+        divider(ui);
+        let tip = "The page menu offers others too";
+        row(ui, "Translate to", tip, |ui| {
+            let task = &mut ai.tasks.translate;
+            let mut chosen = task.language.clone();
+            let id = ("ai-translate-language", PICK_LATER);
+            language_picker(ui, id, &mut chosen, &speaks);
+            match chosen {
+                Some(tag) if task.language.as_deref() != Some(&tag) => task.pick(&tag),
+                None => task.language = None,
+                Some(_) => {}
+            }
+        });
+        divider(ui);
+        let tip = "What choosing Translate in the page menu does";
+        row(ui, "Translating", tip, |ui| {
+            start_picker(ui, "ai-translate-start", &mut ai.tasks.translate.start);
+        });
+        divider(ui);
+        let tip = "The model that rewrites a page in plain English";
+        row(ui, "Simplify", tip, |ui| {
+            let chosen = &mut ai.tasks.simplify.preset;
+            preset_picker(
+                ui,
+                "ai-simplify-model",
+                &ai.presets,
+                chosen,
+                SAME_AS_EXPLAIN,
+            );
+        });
+        divider(ui);
+        let tip = "What choosing Simplify in the page menu does";
+        row(ui, "Simplifying", tip, |ui| {
+            start_picker(ui, "ai-simplify-start", &mut ai.tasks.simplify.start);
+        });
+        divider(ui);
+        let tip = "Continuous mode: time on a page, its result shown, before more are asked";
+        row(ui, "Time on a page", tip, |ui| {
+            let run = &mut ai.tasks.pages;
+            let mut n = f32::from(run.dwell);
+            let (lo, hi) = (f32::from(PageRun::DWELL_MIN), f32::from(PageRun::DWELL_MAX));
+            widgets::stepper(ui, &mut n, lo..=hi, 5.0, |v| format!("{v:.0} s"), "seconds");
+            run.dwell = n.round().clamp(lo, hi) as u16;
+        });
+        divider(ui);
+        let tip = "Continuous mode: pages written together, at most";
+        row(ui, "Pages at once", tip, |ui| {
+            let run = &mut ai.tasks.pages;
+            let mut n = f32::from(run.at_once);
+            let hi = f32::from(PageRun::AT_ONCE_MAX);
+            widgets::stepper(ui, &mut n, 1.0..=hi, 1.0, |v| format!("{v:.0}"), "pages");
+            run.at_once = n.round().clamp(1.0, hi) as u8;
+        });
+    });
+    note(
+        ui,
+        "Pages at once never passes what the model allows; see each model below.",
+    );
+    let chosen = ai.tasks.translate.language.as_deref();
+    let name = chosen.and_then(mareader_settings::language_name);
+    if let (Some(tag), Some(name)) = (chosen, name)
+        && speaks(tag) == Some(false)
+    {
+        note(
+            ui,
+            &format!("Apple Intelligence doesn't write {name}. Pick a language it lists."),
+        );
+    }
+}
+
+/// What choosing a page task does: ask, this page, or on as one reads.
+fn start_picker(ui: &mut Ui, salt: &str, start: &mut PageStart) {
+    let name = |s: PageStart| match s {
+        PageStart::Ask => "Ask each time",
+        PageStart::Page => "This page",
+        PageStart::Continuous => "Continuous",
+    };
+    egui::ComboBox::from_id_salt(salt)
+        .width(PICK_W)
+        .selected_text(name(*start))
+        .show_ui(ui, |ui| {
+            for s in [PageStart::Ask, PageStart::Page, PageStart::Continuous] {
+                ui.selectable_value(start, s, name(s));
+            }
+        });
+}
+
 /// A saved model for a task, or `none`.
 fn preset_picker(
     ui: &mut Ui,
@@ -154,16 +300,17 @@ fn preset_picker(
 /// The book's language or a listed one; ones Apple can't write are greyed.
 fn language_picker(
     ui: &mut Ui,
+    (salt, none): (&str, &str),
     chosen: &mut Option<String>,
     speaks: &dyn Fn(&str) -> Option<bool>,
 ) {
     let name = chosen.as_deref().and_then(mareader_settings::language_name);
-    egui::ComboBox::from_id_salt("ai-meaning-language")
+    egui::ComboBox::from_id_salt(salt)
         .width(PICK_W)
         .height(320.0)
-        .selected_text(name.unwrap_or(BOOKS_LANGUAGE))
+        .selected_text(name.unwrap_or(none))
         .show_ui(ui, |ui| {
-            ui.selectable_value(chosen, None, BOOKS_LANGUAGE);
+            ui.selectable_value(chosen, None, none);
             for (tag, name) in LANGUAGES {
                 let on = chosen.as_deref() == Some(tag);
                 let button = egui::Button::selectable(on, name);
@@ -767,23 +914,26 @@ mod tests {
             shown: true,
             fonts: false,
         };
-        Harness::new_ui_state(
-            |ui, s: &mut State| {
-                // Named fonts work from the frame after they're installed.
-                if !s.fonts {
-                    crate::theme::install_fonts(ui.ctx());
-                    s.fonts = true;
-                    ui.ctx().request_repaint();
-                } else if s.shown {
-                    let live = Live {
-                        board: &s.board,
-                        in_use: &|_| 0,
-                    };
-                    tab(ui, &mut s.ai, Some(live), &mut s.out);
-                }
-            },
-            state,
-        )
+        // Tall enough for every section without scrolling.
+        Harness::builder()
+            .with_size(egui::vec2(800.0, 2400.0))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    // Named fonts work from the frame after they're installed.
+                    if !s.fonts {
+                        crate::theme::install_fonts(ui.ctx());
+                        s.fonts = true;
+                        ui.ctx().request_repaint();
+                    } else if s.shown {
+                        let live = Live {
+                            board: &s.board,
+                            in_use: &|_| 0,
+                        };
+                        tab(ui, &mut s.ai, Some(live), &mut s.out);
+                    }
+                },
+                state,
+            )
     }
 
     fn no_models() -> AiSettings {
