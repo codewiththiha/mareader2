@@ -75,17 +75,25 @@ keys). Anything else implements `Backend` and gets a match arm in
 
 ## Providers and settings
 
-`AiSettings` holds the chosen `Provider` and an `Endpoint` (address,
-model) for each server. Blank fields mean the preset's default. A blank
-local model means the server's first model.
+A provider is a server that saved models run on. Until schema v4 the
+settings held one chosen provider and its model; v5 replaced that with
+saved models that tasks pick from (see "Saved models and tasks" below).
 
-| Provider | Answers through | Keys |
-|---|---|---|
-| Automatic | Apple Intelligence where available; on other systems shown as None | — |
-| Apple Intelligence | the fm-bridge helper (macOS only) | — |
-| OpenAI, Gemini, OpenRouter | their OpenAI-compatible APIs | required |
-| Ollama, LM Studio | the local server | — |
-| Custom | any OpenAI-compatible address | optional |
+`AiSettings` holds the saved models (`presets`), the tasks (`tasks`) and
+an `Endpoint` per server provider. An `Endpoint` holds only the address;
+blank means the provider's default. Keys are kept per provider (see
+Keys), so every saved model on one provider shares them.
+
+| Provider | Answers through | Keys | Blank model means |
+|---|---|---|---|
+| Apple Intelligence | the fm-bridge helper (macOS only) | — | the system model |
+| OpenAI, Gemini, OpenRouter | their OpenAI-compatible APIs | required | a set default, e.g. `gpt-4.1-mini` |
+| Ollama, LM Studio | the local server | — | the server's first model |
+| Custom | any OpenAI-compatible address | optional | the server's first model |
+
+A saved model's blank name shows as the provider and model ("Ollama ·
+qwen3"). There is no Automatic provider any more: a new Mac starts with
+an Apple Intelligence model explaining words, other systems with none.
 
 Settings are only saved, never checked, as they are typed. Addresses
 (http or https only), keys and models are checked when used, and the
@@ -230,6 +238,46 @@ the plan is in `docs/library.md`, § AI organizer.
 A new workflow is the same shape: write its tasks, chain them in an async
 function over `&dyn Backend`, and start it from `Assist` holding a slot.
 
+### Pausing and resuming (2026-10-19)
+
+A run can stop partway: a failure, the Pause button, or quitting the
+app. It never starts over on its own. After every step, `organize_from`
+hands a `Checkpoint` to its `save` hook. The checkpoint holds:
+
+- the batches as split when the run began,
+- whether it covered the whole library,
+- how many batches are shelved and filed,
+- the shelf paths named so far,
+- each book filed so far, by place.
+
+A place is `Place::Shelf(key)` for a shelf there before, or
+`Place::Path` for a new one. A rename or removal is therefore noticed
+later.
+
+The service writes the checkpoint to `organize.json` under the AI
+folder, whole or not at all (a `.part` file renamed over it). It keeps
+it until the plan is applied or discarded.
+
+- `Assist::resume(Request)` loads it and calls `Checkpoint::carry_on`
+  with today's request. Books no longer loose drop out, and edited
+  titles are asked as they are now. For a whole-library run, books
+  loose since then join as extra batches. Done steps are not asked
+  again.
+- At the end, a book whose shelf went meanwhile is filed again. If that
+  can't be done now, it is left on no shelf.
+- A finished checkpoint only makes its plan. It takes no slot and needs
+  no model, so a plan that waited over a restart opens even with the
+  model busy or gone.
+- `Busy`, `Offline` and `TimedOut` are waited out twice (`WAITS`, 3 s
+  then 12 s) before the run fails. Other failures fail at once. Either
+  way, every saved step stays.
+- A fresh `Assist::organize` replaces the checkpoint only once it holds
+  its slot. A refusal (`InUse`, `NotHere`) leaves a paused run as it
+  was.
+- `paused()` reads the checkpoint, `set_aside()` and `bring_back()`
+  rename it to `organize.old.json` and back (for Undo), and `forget()`
+  removes both.
+
 ### Its tests
 
 - `src/organize.rs`: a scripted backend answers each step: 100 books
@@ -237,3 +285,8 @@ function over `&dyn Backend`, and start it from `Assist` holding a slot.
   paths tidied and capped in depth, and titles quoted as data.
 - `tests/service.rs`: a chatty model with no JSON mode organizes books
   while holding its model; a busy model refuses, and cancelling frees it.
+- Resuming (`src/organize.rs`): a stopped run carries on without asking
+  again; a resumed run fits the library as it is now; a finished run
+  makes its plan without asking; a busy server is waited out, then the
+  run pauses; a checkpoint reads back as written.
+- `tests/service.rs`: a failed run is kept and resumed where it stopped.
