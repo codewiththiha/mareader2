@@ -6,7 +6,9 @@ mod support;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use mareader_assist::{Assist, Board, Job, KeyState, Kind, Load};
+use mareader_assist::{
+    Assist, Board, Job, KeyState, Kind, Load, Loose, Organized, Organizing, Plan, Request, Spot,
+};
 use mareader_settings::{AiSettings, ModelPreset, Provider};
 use mareader_study::{Explainer, Why, WordInfo};
 use support::{Answer, QUICK, Server};
@@ -189,6 +191,91 @@ fn a_chosen_language_reaches_the_prompt_and_the_card_names_the_model() {
     assert!(explain(explainer.as_ref()).0.is_ok());
     let body = server.seen()[0].body.to_string();
     assert!(body.contains("Write meaning in Burmese"), "{body}");
+}
+
+fn books(titles: &[&str]) -> Request {
+    let loose = |(i, t): (usize, &&str)| Loose {
+        key: i as u128 + 1,
+        title: (*t).to_owned(),
+        author: String::new(),
+    };
+    Request {
+        books: titles.iter().enumerate().map(loose).collect(),
+        shelves: Vec::new(),
+        batch: 50,
+    }
+}
+
+/// Polls `run` to its end, or fails after ten seconds.
+fn finish(run: &mut Organizing) -> (Vec<Organized>, Result<Plan, Why>) {
+    let start = Instant::now();
+    let mut seen = Vec::new();
+    loop {
+        for event in run.poll() {
+            if let Organized::Done(plan) = event {
+                return (seen, plan.map_err(|f| f.why));
+            }
+            seen.push(event);
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "{seen:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn a_chatty_model_organizes_books_and_holds_its_model_meanwhile() {
+    // Chat-only models wrap JSON in prose and fences; it's read anyway.
+    let shelving = "Sure!\n```json\n{\"shelves\": [\"Poetry\"]}\n```";
+    let filing = r#"{"placements":[{"book":"b1","shelf":1},{"book":"b2","shelf":0}]}"#;
+    let answers = vec![Answer::stream(&[shelving]), Answer::stream(&[filing])];
+    let (_rt, server) = server(answers);
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = assist(&dir);
+    let ai = settings(Provider::Ollama, &server.url);
+    let id = preset(&ai).id;
+    let _explainer = a.configure(&ai);
+    let mut run = a.organize(books(&["Odes", "Taxes"]));
+    let (progress, plan) = finish(&mut run);
+    assert_eq!(progress.len(), 3, "a start and one step per request");
+    let plan = plan.unwrap();
+    assert_eq!(plan.shelves.len(), 1);
+    assert_eq!(plan.placed, [(1, Spot::New(0))]);
+    assert_eq!(plan.left, [2]);
+    assert_eq!(server.seen().len(), 2);
+    assert_eq!(a.in_use(id), 0, "the model is free again");
+}
+
+#[test]
+fn organizing_needs_a_free_model_and_cancelling_frees_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut a = assist(&dir);
+    // A server that takes the request and never answers.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/v1/", silent.local_addr().unwrap());
+    let ai = settings(Provider::Ollama, &url);
+    let id = preset(&ai).id;
+    let _explainer = a.configure(&ai);
+    let explaining = a.slots().try_take(id, 1, Kind::Short);
+    let (_, plan) = finish(&mut a.organize(books(&["Odes"])));
+    assert_eq!(plan.err(), Some(Why::InUse), "a long task never queues");
+    drop(explaining);
+    let mut run = a.organize(books(&["Odes"]));
+    let start = Instant::now();
+    while a.in_use(id) == 0 {
+        assert!(start.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    run.cancel();
+    while a.in_use(id) > 0 {
+        assert!(start.elapsed() < Duration::from_secs(10), "freed");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // With nothing chosen, it says so.
+    let mut none = ai.clone();
+    none.tasks.explain.preset = None;
+    let _ = a.configure(&none);
+    let (_, plan) = finish(&mut a.organize(books(&["Odes"])));
+    assert_eq!(plan.err(), Some(Why::NotHere));
 }
 
 #[cfg(unix)]
