@@ -110,7 +110,7 @@ pub struct MareaderApp {
     /// Last frame's pane rects, to aim a file drop.
     pane_rects: Vec<(PaneId, egui::Rect)>,
     /// A pane held up to be moved, till the press ends.
-    lifting: Option<PaneId>,
+    lifting: Option<crate::lift::Lift>,
     /// The library page's rect while it is up, for the glass behind bars.
     library_rect: Option<egui::Rect>,
     /// What an empty pane offers, as of a library revision.
@@ -1205,9 +1205,20 @@ impl MareaderApp {
                 Gloss::Pick(mark) => self.study.pick(pane, mark),
                 Gloss::Toggle(mark) => self.study.toggle(pane, mark),
                 Gloss::Seen { page, all } => self.study.seen(pane, page, all),
-                Gloss::Lift(_) if self.tree.len() > 1 => {
-                    self.lifting = Some(pane);
-                    self.active = pane;
+                Gloss::Lift(origin) if self.tree.len() > 1 => {
+                    let home = self.pane_rects.iter().find(|(id, _)| *id == pane);
+                    if let Some(&(_, home)) = home {
+                        let since = ctx.input(|i| i.time);
+                        let lift = crate::lift::Lift {
+                            pane,
+                            origin,
+                            home,
+                            since,
+                        };
+                        self.lifting = Some(lift);
+                        self.active = pane;
+                        ctx.request_repaint();
+                    }
                 }
                 Gloss::Lift(_) => {}
             }
@@ -1853,15 +1864,16 @@ impl MareaderApp {
 
     /// The lifted pane follows the pointer; letting go moves it there.
     fn lifted(&mut self, ctx: &Context) {
-        let Some(pane) = self.lifting else {
+        let Some(lift) = self.lifting else {
             return;
         };
-        if !self.tree.panes().contains(&pane) {
+        let pane = lift.pane;
+        if !self.tree.panes().contains(&pane) || self.tree.len() < 2 {
             self.lifting = None;
             return;
         }
         let title = self.documents.title(pane).unwrap_or("this pane").to_owned();
-        let target = match crate::lift::show(ctx, pane, &self.pane_rects, &title) {
+        let target = match crate::lift::show(ctx, &lift, &self.pane_rects, &title) {
             crate::lift::Lifted::Held => return,
             crate::lift::Lifted::Cancelled => None,
             crate::lift::Lifted::Dropped(target) => Some(target),
@@ -2470,7 +2482,9 @@ impl eframe::App for MareaderApp {
                 library::view::show(ui, library, library_view, view.chrome_bottom, &mut commands);
                 return;
             }
-            self.pane_rects = panes::show(ui, &self.tree, &view, &mut commands, |ui, id| {
+            let lifted = self.lifting.map(|l| l.pane);
+            let tree = &self.tree;
+            self.pane_rects = panes::show(ui, tree, lifted, &view, &mut commands, |ui, id| {
                 let style = view.style(id);
                 let cx = ViewContext {
                     active: id == view.active,
