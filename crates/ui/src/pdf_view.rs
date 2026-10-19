@@ -170,10 +170,6 @@ pub struct PdfView {
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
-    /// How far each page's AI result is scrolled, in page units.
-    card_scroll: std::collections::HashMap<usize, f32>,
-    /// The AI results on screen last frame, for the wheel.
-    cards: Vec<page_ai::CardHit>,
 }
 
 impl PdfView {
@@ -207,8 +203,6 @@ impl PdfView {
             jump: None,
             ease: true,
             place: None,
-            card_scroll: std::collections::HashMap::new(),
-            cards: Vec::new(),
         }
     }
 
@@ -554,7 +548,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let now = ctx.input(|i| i.time);
     view.ease = motion::zoom(&ctx);
     let frame = ui.max_rect();
-    card_wheel(&ctx, view, frame);
     let sizes = doc.page_sizes();
     // A book's vertical strip is a stream: each page cut to its text.
     let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
@@ -747,8 +740,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let wanted = |page: usize| landing.as_ref().is_none_or(|r| r.contains(&page));
     let mut shown_pages = 0..0;
     let mut sheets = Vec::new();
-    // Pages under an AI result, and where each result's text sits.
-    let (mut covered, mut card_hits) = (Vec::new(), Vec::new());
+    // Pages under an AI result.
+    let mut covered = Vec::new();
     let mut paper_at = None;
     let mut follow = None;
     // Where a link was clicked, for a footnote's card to point at.
@@ -756,7 +749,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let mut double = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
-    let card_scroll = &view.card_scroll;
     let out = area
         .auto_shrink(false)
         // The view runs its own glides, so each delta lands this frame.
@@ -865,17 +857,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 }
                 let overlay = cx.ai.overlays.iter().find(|o| o.page == page);
                 if let Some(shown) = overlay.and_then(|o| o.card.as_ref()) {
-                    let scroll = card_scroll.get(&page).copied().unwrap_or(0.0);
                     let tones = (&t, picture_tone, emoji_tone);
-                    let hit = page_ai::paint::card(
-                        ui,
-                        ((rect, clip), anchor),
-                        (page, shown, scroll),
-                        tones,
-                        &mut quads,
-                    );
+                    let place = ((rect, clip), anchor);
+                    page_ai::paint::card(ui, place, shown, tones, &mut quads);
                     covered.push(page);
-                    card_hits.extend(hit);
                 }
                 sheets.push(Sheet {
                     page,
@@ -897,7 +882,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 ui.painter().add(shape);
                 drawn.extend(quads);
             }
-            page_ai::paint::fades(ui, &card_hits, &t);
             // A result covers its page's text: nothing there selects or marks.
             let open: Vec<Sheet> = sheets
                 .iter()
@@ -1085,9 +1069,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         view.current = layout.locate(centre).map_or(0, |(page, _)| page);
     }
     view.progress = progress(view, layout, &out, sizes.len());
-    view.card_scroll
-        .retain(|p, _| card_hits.iter().any(|h| h.page == *p));
-    view.cards = card_hits;
     view.visible = shown_pages;
     view.sheets = sheets;
     // Nothing shown, as mid-jump: the backdrop holds its colour.
@@ -1248,32 +1229,6 @@ fn mark_of(
         }
     }
     best.map(|(_, page, at)| (page, at))
-}
-
-/// The wheel over an AI result scrolls it, until it can go no further.
-fn card_wheel(ctx: &egui::Context, view: &mut PdfView, frame: Rect) {
-    let Some(p) = ctx
-        .input(|i| i.pointer.hover_pos())
-        .filter(|p| frame.contains(*p))
-    else {
-        return;
-    };
-    let Some(hit) = view
-        .cards
-        .iter()
-        .find(|h| h.max > 0.0 && h.rect.contains(p))
-        .copied()
-    else {
-        return;
-    };
-    let dy = ctx.input(|i| i.smooth_scroll_delta.y);
-    let at = view.card_scroll.entry(hit.page).or_insert(0.0);
-    let to = (*at - dy / hit.scale.max(1e-3)).clamp(0.0, hit.max);
-    if (to - *at).abs() > f32::EPSILON {
-        *at = to;
-        ctx.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
-        ctx.request_repaint();
-    }
 }
 
 /// The AI's bubbles, over everything else on their pages.

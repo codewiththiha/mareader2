@@ -1,6 +1,5 @@
 //! A result drawn over its page, and the bubbles that pick among them.
 
-use egui::epaint::{Mesh, Vertex, WHITE_UV};
 use egui::{
     Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, pos2, vec2,
 };
@@ -19,8 +18,6 @@ const BUBBLE: f32 = 22.0;
 const BUBBLE_GAP: f32 = 6.0;
 /// The bubbles' inset from the page's corner.
 const BUBBLE_INSET: f32 = 8.0;
-/// How far a fade reaches over text that runs past the room.
-const FADE: f32 = 28.0;
 
 /// How a bubble's result stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,18 +61,6 @@ pub struct Overlay {
     pub card: Option<Shown>,
 }
 
-/// Where a card's text sits on screen, for the wheel and the fades.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CardHit {
-    pub page: usize,
-    pub rect: Rect,
-    /// How far it scrolls, and how far it has, in page units.
-    pub max: f32,
-    pub scroll: f32,
-    /// Points per page unit.
-    pub scale: f32,
-}
-
 /// A press on a bubble.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Press {
@@ -83,14 +68,14 @@ pub enum Press {
     Menu(usize, Pos2),
 }
 
-/// Queues `shown` over its page in `quads`; where its text sits.
+/// Queues `shown` over its page in `quads`, moving with the page.
 pub fn card(
     ui: &Ui,
     ((rect, clip), anchor): ((Rect, Rect), Anchor),
-    (page, shown, scroll): (usize, &Shown, f32),
+    shown: &Shown,
     (t, pictures, emojis): (&Tokens, PageTone, PageTone),
     quads: &mut Vec<Quad>,
-) -> Option<CardHit> {
+) -> Option<()> {
     let a = (shown.alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
     let tint = Color32::from_white_alpha(a);
     let k = rect.width() / shown.width.max(1.0);
@@ -110,9 +95,11 @@ pub fn card(
     quads.push(ground);
     let room = Rect::from_min_size(rect.min + shown.at * k, shown.room * k).intersect(clip);
     let card = shown.card.as_ref()?;
-    let max = (card.size.y - room.height() / k).max(0.0);
-    let scroll = scroll.clamp(0.0, max);
-    let corner = rect.min + shown.at * k - vec2(0.0, scroll * k);
+    // Never scrolled: too long at the least size, it is drawn smaller.
+    let fit = (shown.room.y / card.size.y.max(1.0)).min(1.0);
+    let side = (shown.room.x - card.size.x * fit).max(0.0) / 2.0;
+    let corner = rect.min + (shown.at + vec2(side, 0.0)) * k;
+    let k = k * fit;
     let drawn = Rect::from_min_size(corner, card.size * k);
     match &card.texture {
         PageTexture::Gpu(texture) => {
@@ -130,50 +117,7 @@ pub fn card(
             painter.image(handle.id(), drawn, uv, tint);
         }
     }
-    Some(CardHit {
-        page,
-        rect: room,
-        max,
-        scroll,
-        scale: k,
-    })
-}
-
-/// Fades over text that runs past a card's top or bottom edge.
-pub fn fades(ui: &Ui, hits: &[CardHit], t: &Tokens) {
-    let paper = blank(t);
-    for hit in hits.iter().filter(|h| h.max > 0.0) {
-        let r = hit.rect;
-        let reach = FADE.min(r.height() / 3.0);
-        if hit.scroll > 0.5 {
-            let top = Rect::from_min_size(r.min, vec2(r.width(), reach));
-            fade(ui, top, paper, true);
-        }
-        if hit.scroll < hit.max - 0.5 {
-            let bottom = Rect::from_min_max(pos2(r.left(), r.bottom() - reach), r.max);
-            fade(ui, bottom, paper, false);
-        }
-    }
-}
-
-/// Paper fading out from one edge of `r`: the top if `down`.
-fn fade(ui: &Ui, r: Rect, paper: Color32, down: bool) {
-    let clear = paper.gamma_multiply(0.0);
-    let (top, bottom) = if down { (paper, clear) } else { (clear, paper) };
-    let mut mesh = Mesh::default();
-    let v = |pos: Pos2, color| Vertex {
-        pos,
-        uv: WHITE_UV,
-        color,
-    };
-    mesh.vertices.extend([
-        v(r.left_top(), top),
-        v(r.right_top(), top),
-        v(r.right_bottom(), bottom),
-        v(r.left_bottom(), bottom),
-    ]);
-    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
-    ui.painter().add(Shape::mesh(mesh));
+    Some(())
 }
 
 /// The page's bubbles down its end side; a press on one.

@@ -26,7 +26,7 @@ use crate::toast::Toast;
 
 use extract::Source;
 pub use follow::Around;
-pub use paint::{CardHit, Overlay, Pill, PillPress};
+pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
 const FADE_IN: f32 = 0.3;

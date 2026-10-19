@@ -183,6 +183,35 @@ fn a_kept_result_covers_the_page_until_the_original_is_asked_for() -> Out {
     Ok(())
 }
 
+#[test]
+fn the_wheel_over_a_result_scrolls_the_book_not_the_result() -> Out {
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("provider", "ollama"),
+        ("page_ai", "0:simplify"),
+    ]);
+    h.run_steps(4);
+    h.run();
+    let pane = h.state().active_pane();
+    assert!(h.state().page_ai().shows(pane, 0), "the result shows");
+    let (_, before) = page(&h, 0)?;
+    h.hover_at(before.shown.center());
+    h.step();
+    h.event(Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        modifiers: Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run();
+    h.run_steps(2);
+    let (_, after) = page(&h, 0)?;
+    let moved = before.rect.top() - after.rect.top();
+    assert!(moved > 100.0, "the page moved {moved}");
+    assert!(h.state().page_ai().shows(pane, 0), "and its result with it");
+    Ok(())
+}
+
 /// Starts Simplify in continuous mode from the page menu.
 fn simplify_on(h: &mut H, remember: bool) -> Result<(), String> {
     let (_, sheet) = page(h, 0)?;
