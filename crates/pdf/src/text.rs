@@ -293,6 +293,12 @@ impl PageText {
         out
     }
 
+    /// Each line's text and box, and whether it goes on from the last.
+    pub fn rows(&self) -> impl Iterator<Item = (String, Bounds, bool)> + '_ {
+        let row = |l: &Line| (self.text(l.chars.clone()), l.bounds, l.wraps);
+        self.lines.iter().map(row)
+    }
+
     /// One box per line touched by `range`, for painting a selection.
     pub fn boxes(&self, range: Range<usize>) -> Vec<Bounds> {
         let mut out: Vec<(u32, Bounds)> = Vec::new();
