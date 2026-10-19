@@ -224,7 +224,11 @@ impl LibraryState {
             true => Phase::Ready,
             false => Phase::Paused,
         };
-        let run = self.runs.start(paused.said(), phase);
+        let label = match paused.ready {
+            true => format!("{} to review", counted(paused.books.len(), "book", "books")),
+            false => paused.said(),
+        };
+        let run = self.runs.start(label, phase);
         let (done, total) = (paused.done, paused.total);
         let name = String::new();
         self.runs.beat(Beat {

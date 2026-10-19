@@ -16,6 +16,8 @@ use crate::widgets;
 /// Seconds a run waits before its card shows.
 pub const DELAY: f64 = 0.4;
 const CARD_W: f32 = 248.0;
+/// Wider, for a stopped run's two buttons.
+const PAUSED_W: f32 = 330.0;
 const RING: f32 = 30.0;
 const INSET: f32 = 16.0;
 
@@ -237,7 +239,7 @@ fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens, out: &mut Commands) {
         })
         .inner_margin(Margin::symmetric(12, 10));
     frame.show(ui, |ui| {
-        ui.set_width(CARD_W);
+        ui.set_width(if run.paused() { PAUSED_W } else { CARD_W });
         ui.horizontal(|ui| {
             let (rect, _) = ui.allocate_exact_size(vec2(RING, RING), egui::Sense::hover());
             ring(ui, rect.center(), run.fraction(), now, t);
