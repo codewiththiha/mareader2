@@ -1812,8 +1812,15 @@ impl MareaderApp {
                 let seek = move |folder| Command::Library(A::Seek { book, folder });
                 self.files.pick_folder(ctx, "Search a folder", seek);
             }
-            A::Book(library::BookAction::PickImport) => self.pick_import(ctx, None),
-            A::PickFrom(dir) => self.pick_import(ctx, Some(dir)),
+            A::Book(library::BookAction::PickImport) => {
+                let to = self.library.at();
+                self.pick_import(ctx, None, to);
+            }
+            A::PickFrom(dir) => {
+                let to = self.library.at();
+                self.pick_import(ctx, Some(dir), to);
+            }
+            A::PickInto(to) => self.pick_import(ctx, None, to),
             A::Book(library::BookAction::Reveal(book)) => {
                 let path = self.library.model().book(book).and_then(|b| b.path());
                 let shown = path.is_some_and(crate::reveal::reveal);
@@ -1893,9 +1900,13 @@ impl MareaderApp {
         }
     }
 
-    /// The file dialog for books, landing on the shelf open.
-    fn pick_import(&mut self, ctx: &Context, from: Option<PathBuf>) {
-        let to = self.library.at();
+    /// The file dialog for books, landing on `to` (none: the top).
+    fn pick_import(
+        &mut self,
+        ctx: &Context,
+        from: Option<PathBuf>,
+        to: Option<mareader_library::ShelfId>,
+    ) {
         let import = move |paths| {
             let action = library::BookAction::Import { paths, to };
             Command::Library(library::Action::Book(action))
@@ -1941,9 +1952,21 @@ impl MareaderApp {
         let floating = self.settings.chrome.sidebar_overlay;
         let rail = (self.sidebar.offset()).filter(|_| floating);
         let edge = rail.map(|o| o + crate::sidebar::WIDTH);
+        // Docked, the rail ends where the panes begin.
+        let left = self
+            .pane_rects
+            .iter()
+            .map(|(_, r)| r.left())
+            .reduce(f32::min);
+        let docked = left.filter(|_| self.sidebar.is_open() && !floating);
+        let landing = library_panel::Landing {
+            panes: &self.pane_rects,
+            rail: edge.or(docked),
+            full: self.tree.len() >= MAX_PANES,
+        };
         let empty = |pane| self.documents.title(pane).is_none();
         let name = |pane| self.documents.title(pane).unwrap_or("this pane").to_owned();
-        library_panel::drop_overlay(ui, &self.pane_rects, edge, empty, name, out);
+        library_panel::drop_overlay(ui, &landing, empty, name, out);
     }
 
     /// Opens a library book: shown already, a click focuses its pane.
@@ -2521,12 +2544,22 @@ impl eframe::App for MareaderApp {
             platform: self.platform,
         };
         let tabs = self.tabs();
+        if let Some(made) = self.library.take_made() {
+            self.shelf_tree.made(self.library.model(), made);
+        }
+        let organizer = self.library.organizer();
+        let paused = organizer.paused().map(library::organizing::Paused::short);
         let shelves = PanelContext {
             model: self.library.model(),
             tabs: &tabs,
             active: self.active,
             click: self.settings.workspace.library_click,
             home: self.settings.library.home,
+            held: organizer.held(),
+            organizer: library::Organizer {
+                busy: organizer.busy(),
+                paused: paused.as_deref(),
+            },
         };
         // Gathered only while the panel shows.
         let notes = match self.sidebar.is_open() && self.sidebar.panel() == Panel::Notes {

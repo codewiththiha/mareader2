@@ -284,3 +284,121 @@ fn a_missing_book_is_shown_but_never_opened() {
     );
     assert!(library(&h).book(id).unwrap().missing());
 }
+
+fn shelf_named(h: &Harness<'static, MareaderApp>, name: &str) -> mareader_library::ShelfId {
+    let shelf = library(h).shelves().find(|s| s.name.value == name);
+    shelf.unwrap_or_else(|| panic!("no shelf {name}")).id
+}
+
+fn demo() -> Harness<'static, MareaderApp> {
+    let options = [
+        ("books", "10"),
+        ("shelves", "demo"),
+        ("pdf", "sample:3"),
+        ("float", "false"),
+        ("sidebar", "library"),
+    ];
+    reader(&options)
+}
+
+#[test]
+fn a_book_dragged_onto_a_shelf_row_moves_onto_it() {
+    let mut h = demo();
+    let to_read = shelf_named(&h, "To read");
+    let lib = library(&h);
+    let loose = lib
+        .books()
+        .find(|b| !b.missing() && lib.shelves_of(b.id).is_empty());
+    let (book, title) = loose.map(|b| (b.id, b.title.value.clone())).unwrap();
+    let from = row(&h, &title).center();
+    let to = row(&h, "To read").center();
+    carry(&mut h, from, to);
+    release(&mut h, to);
+    assert!(library(&h).shelves_of(book).contains(&to_read));
+    assert_eq!(h.state().panes().len(), 1, "no pane opened");
+}
+
+#[test]
+fn a_shelf_dragged_into_its_own_shelf_stays_put() {
+    let mut h = demo();
+    let (fiction, classics) = (shelf_named(&h, "Fiction"), shelf_named(&h, "Classics"));
+    click_row(&mut h, "Fiction");
+    let from = row(&h, "Fiction").center();
+    let to = row(&h, "Classics").center();
+    carry(&mut h, from, to);
+    release(&mut h, to);
+    let lib = library(&h);
+    let parent = |id| lib.shelf(id).and_then(|s| lib.parent_of(s));
+    assert_eq!(parent(fiction), None);
+    assert_eq!(parent(classics), Some(fiction));
+    // Onto another shelf, it nests there.
+    let to = row(&h, "To read").center();
+    let from = row(&h, "Fiction").center();
+    carry(&mut h, from, to);
+    release(&mut h, to);
+    let lib = library(&h);
+    let to_read = shelf_named(&h, "To read");
+    assert_eq!(
+        lib.shelf(fiction).and_then(|s| lib.parent_of(s)),
+        Some(to_read)
+    );
+}
+
+#[test]
+fn f2_renames_a_row_in_place() {
+    let mut h = demo();
+    let id = shelf_named(&h, "To read");
+    h.get_by_label("To read").focus();
+    h.run();
+    h.key_press(Key::F2);
+    h.run_steps(3);
+    assert!(h.query_by_label("Name").is_some(), "a name field");
+    h.event(egui::Event::Text("Someday".into()));
+    h.run();
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    let name = library(&h).shelf(id).map(|s| s.name.value.clone());
+    assert_eq!(name.as_deref(), Some("Someday"));
+    assert!(h.query_by_label("Name").is_none());
+}
+
+#[test]
+fn at_four_panes_the_tree_still_moves_books_but_splits_no_more() {
+    let (mut h, id, twin) = raven_and_twin("drag_only");
+    let first = h.state().active_pane();
+    // Right, then each half down: four roomy panes.
+    use mareader_workspace::SplitAxis::{Horizontal, Vertical};
+    for (axis, back) in [(Horizontal, false), (Vertical, true), (Vertical, true)] {
+        h.state_mut().queue(Command::Split(axis));
+        h.run();
+        if back {
+            h.state_mut().queue(Command::FocusPane(first));
+            h.run();
+        }
+    }
+    assert_eq!(h.state().panes().len(), 4);
+    // Onto the reading pane's edge: refused, nothing opens.
+    let rects = h.state().pane_rects().to_vec();
+    let rect = rects.iter().find(|(p, _)| *p == first).unwrap().1;
+    let edge = egui::pos2(rect.right() - 6.0, rect.center().y);
+    let from = row(&h, "The Raven (2)").center();
+    carry(&mut h, from, edge);
+    release(&mut h, edge);
+    assert_eq!(h.state().panes().len(), 4, "no fifth pane");
+    assert_eq!(reads(&h, first), Some(id));
+    // A new shelf is named in place; the tree files the twin on it.
+    let new = Action::Shelf(mareader_ui::library::ShelfAction::NewIn(None));
+    h.state_mut().queue(Command::Library(new));
+    h.run_steps(4);
+    h.event(egui::Event::Text("Poems".into()));
+    h.run();
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    let poems = shelf_named(&h, "Poems");
+    let from = row(&h, "The Raven (2)").center();
+    let to = row(&h, "Poems").center();
+    carry(&mut h, from, to);
+    release(&mut h, to);
+    assert!(library(&h).shelves_of(twin).contains(&poems));
+    assert_eq!(h.state().panes().len(), 4);
+}

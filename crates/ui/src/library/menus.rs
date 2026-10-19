@@ -296,6 +296,44 @@ pub const RESUME_TIP: &str = "Carry on the stopped run where it left off";
 pub const ANEW: &str = "Organize from the start";
 pub const ANEW_TIP: &str = "Drop the stopped run and ask the AI again";
 
+/// Organize with AI as menu rows; a stopped run offers resume or restart.
+pub fn organize_rows(ui: &mut Ui, organizer: Organizer<'_>, out: &mut Commands) {
+    let busy = organizer.busy;
+    let mut row = |ui: &mut Ui, icon, label, keys: Option<&str>, tip, action| {
+        let r = ui.add_enabled_ui(!busy, |ui| widgets::menu_row(ui, icon, label, keys, false));
+        if r.inner
+            .on_hover_text(tip)
+            .on_disabled_hover_text(ORGANIZING)
+            .clicked()
+        {
+            act(out, action);
+            ui.close();
+        }
+    };
+    match organizer.paused {
+        Some(said) => {
+            let resume = Action::ResumeOrganizing;
+            row(ui, Icon::Resume, RESUME, Some(said), RESUME_TIP, resume);
+            row(
+                ui,
+                Icon::Rescan,
+                ANEW,
+                None,
+                ANEW_TIP,
+                Action::OrganizeAnew(None),
+            );
+        }
+        None => row(
+            ui,
+            Icon::Explain,
+            ORGANIZE,
+            None,
+            ORGANIZE_TIP,
+            Action::Organize(None),
+        ),
+    }
+}
+
 /// Where the organizer stands, for the menus offering it.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Organizer<'a> {

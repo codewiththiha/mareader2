@@ -49,6 +49,7 @@ pub use covers::Covers;
 pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
+pub use menus::{Organizer, organize_rows};
 pub use picks::{Pick, PickAction, Picks};
 pub use search::{Field, Listing, SearchAction};
 pub use shelving::{Carry, Crumb, ShelfAction};
@@ -87,6 +88,8 @@ pub struct LibraryState {
     at: Option<ShelfId>,
     /// The shelf whose name the breadcrumb is editing in place.
     renaming: Option<ShelfId>,
+    /// A shelf the rail's tree just made, for it to name.
+    made: Option<ShelfId>,
     picks: Picks,
     /// Shelf rows the list shows unfolded; going elsewhere folds them.
     unfolded: BTreeSet<ShelfId>,
@@ -117,6 +120,7 @@ impl Default for LibraryState {
             scope: Scope::All,
             at: None,
             renaming: None,
+            made: None,
             picks: Picks::default(),
             unfolded: BTreeSet::new(),
             file_target: None,

@@ -15,6 +15,8 @@ pub enum ShelfAction {
     GoTo(Option<ShelfId>),
     /// Makes "New shelf" where the reader is and opens it.
     New,
+    /// Makes "New shelf" inside `parent`, staying put; the rail names it.
+    NewIn(Option<ShelfId>),
     /// Names the open shelf in its crumb; Escape cancels.
     StartRename(ShelfId),
     CancelRename,
@@ -145,6 +147,11 @@ impl LibraryState {
     /// The shelf whose name is being edited in the breadcrumb.
     pub fn renaming(&self) -> Option<ShelfId> {
         self.renaming
+    }
+
+    /// The shelf the rail's tree just made, once.
+    pub fn take_made(&mut self) -> Option<ShelfId> {
+        self.made.take()
     }
 
     /// Home, then each shelf down to the open one.
@@ -293,6 +300,10 @@ impl LibraryState {
                     self.at = Some(id);
                     self.scope = Scope::All;
                 }
+            }
+            ShelfAction::NewIn(parent) => {
+                let parent = parent.filter(|&id| self.model.shelf(id).is_some());
+                self.made = self.model.create_shelf(NEW_SHELF, parent, now).ok();
             }
             ShelfAction::StartRename(id) => {
                 self.renaming = self.model.shelf(id).map(|s| s.id);
