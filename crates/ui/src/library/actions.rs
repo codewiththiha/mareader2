@@ -81,8 +81,15 @@ pub enum Action {
     Search(super::SearchAction),
     /// Asks the AI to shelve the picked books, else every loose one.
     Organize(Option<Vec<BookId>>),
-    /// Stops the AI run; its books move again.
+    /// Starts afresh, replacing any paused run.
+    OrganizeAnew(Option<Vec<BookId>>),
+    /// Pauses the AI run; its books move again, its steps are kept.
     StopOrganizing,
+    /// Carries on the paused run, or shows its finished plan.
+    ResumeOrganizing,
+    /// Sets the paused run aside; a toast can bring it back.
+    DiscardPaused,
+    RestorePaused,
     /// Makes the plan's shelves and files its books.
     ApplyOrganized,
     /// Lets the plan go; nothing moved.
@@ -123,6 +130,8 @@ pub enum Sheet {
         shelf: ShelfId,
         returned: bool,
     },
+    /// A new run would replace the paused one; these books were picked.
+    Replace(Option<Vec<BookId>>),
 }
 
 impl LibraryState {
@@ -187,6 +196,10 @@ impl LibraryState {
             Action::UndoOrganized(done) => self.undo_organized(&done),
             // Dialogs need the app's files, and the AI its service.
             Action::Organize(_)
+            | Action::OrganizeAnew(_)
+            | Action::ResumeOrganizing
+            | Action::DiscardPaused
+            | Action::RestorePaused
             | Action::ShowAdd
             | Action::PickFolder
             | Action::PickFrom(_)

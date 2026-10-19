@@ -32,8 +32,9 @@ pub enum Tone {
 pub struct Toast {
     pub message: String,
     pub tone: Tone,
-    /// An Undo button, and what it sends; it keeps the toast up longer.
+    /// A button, Undo unless said, and what it sends; it lasts longer.
     pub undo: Option<Box<Command>>,
+    pub label: &'static str,
 }
 
 impl Toast {
@@ -42,6 +43,7 @@ impl Toast {
             message: message.into(),
             tone: Tone::Info,
             undo: None,
+            label: "Undo",
         }
     }
 
@@ -50,6 +52,7 @@ impl Toast {
             message: message.into(),
             tone: Tone::Error,
             undo: None,
+            label: "Undo",
         }
     }
 
@@ -58,6 +61,7 @@ impl Toast {
             message: message.into(),
             tone: Tone::Warning,
             undo: None,
+            label: "Undo",
         }
     }
 
@@ -65,6 +69,15 @@ impl Toast {
     pub fn undo(self, command: Command) -> Self {
         Self {
             undo: Some(Box::new(command)),
+            ..self
+        }
+    }
+
+    /// With a button `label` that sends `command`, as Resume.
+    pub fn action(self, label: &'static str, command: Command) -> Self {
+        Self {
+            undo: Some(Box::new(command)),
+            label,
             ..self
         }
     }
@@ -182,7 +195,7 @@ fn panel(ui: &mut egui::Ui, toast: &Toast, room: f32, out: &mut Commands) {
                     ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
                 icon.paint(ui, rect, tint);
                 let undo = if toast.undo.is_some() {
-                    56.0 + t.gap
+                    (7.5 * toast.label.len() as f32 + 26.0).max(56.0) + t.gap
                 } else {
                     0.0
                 };
@@ -192,7 +205,9 @@ fn panel(ui: &mut egui::Ui, toast: &Toast, room: f32, out: &mut Commands) {
                     ui.add(egui::Label::new(RichText::new(&toast.message).color(t.ink)).wrap());
                 });
                 if let Some(command) = &toast.undo
-                    && ui.button(RichText::new("Undo").color(t.accent)).clicked()
+                    && ui
+                        .button(RichText::new(toast.label).color(t.accent))
+                        .clicked()
                 {
                     out.push((**command).clone());
                 }

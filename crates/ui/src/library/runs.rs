@@ -32,6 +32,10 @@ pub enum Phase {
     Shelving,
     /// The AI filing books on them.
     Filing,
+    /// An AI run stopped partway; it can carry on.
+    Paused,
+    /// An AI run done, its plan not yet reviewed.
+    Ready,
 }
 
 /// The worker's word on a run.
@@ -87,7 +91,14 @@ impl Run {
             (Phase::Shelving, 0) => "Organizing…".to_owned(),
             (Phase::Shelving, _) => "Planning shelves…".to_owned(),
             (Phase::Filing, _) => "Filing books…".to_owned(),
+            (Phase::Paused, _) => "Organizing paused".to_owned(),
+            (Phase::Ready, _) => "Shelf plan ready".to_owned(),
         }
+    }
+
+    /// A stopped AI run, which the card resumes or lets go.
+    pub fn paused(&self) -> bool {
+        matches!(self.phase, Phase::Paused | Phase::Ready)
     }
 
     /// An AI run, which the card can stop.
@@ -195,14 +206,16 @@ pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32, out: &mut Co
             .order(Order::Foreground)
             .pivot(Align2::LEFT_BOTTOM)
             .fixed_pos(pos)
-            .interactable(run.stoppable());
+            .interactable(run.stoppable() || run.paused());
         let shown = area.show(ctx, |ui| card(ui, run, now, &t, out));
         bottom = shown.response.rect.top() - 8.0;
     }
-    // The ring turns, and a waiting card is due.
+    // The ring turns, and a waiting card is due; paused cards stay still.
     let soon = std::time::Duration::from_secs_f64(DELAY / 2.0);
+    let still = runs.list.iter().all(Run::paused);
     match waiting {
         true => ctx.request_repaint_after(soon),
+        false if still => {}
         false => ctx.request_repaint(),
     }
 }
@@ -234,11 +247,19 @@ fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens, out: &mut Commands) {
                     ui.add(egui::Label::new(detail.color(t.muted)).truncate());
                 });
             };
+            if run.paused() {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    paused_buttons(ui, run, out);
+                    lines(ui);
+                });
+                return;
+            }
             if !run.stoppable() {
                 return lines(ui);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let stop = widgets::small_icon_button(ui, Icon::Close, "Stop organizing");
+                // What's done is kept; the paused card carries on.
+                let stop = widgets::small_icon_button(ui, Icon::Close, "Pause organizing");
                 if stop.clicked() {
                     out.push(Command::Library(Action::StopOrganizing));
                 }
@@ -246,6 +267,24 @@ fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens, out: &mut Commands) {
             });
         });
     });
+}
+
+/// Let go, then carry on or review, right to left.
+fn paused_buttons(ui: &mut Ui, run: &Run, out: &mut Commands) {
+    let (tip, go, go_tip) = match run.phase {
+        Phase::Ready => (
+            "Discard the plan",
+            "Review",
+            "See the plan before anything moves",
+        ),
+        _ => ("Discard what's done", "Resume", "Carry on where it stopped"),
+    };
+    if widgets::small_icon_button(ui, Icon::Close, tip).clicked() {
+        out.push(Command::Library(Action::DiscardPaused));
+    }
+    if ui.button(go).on_hover_text(go_tip).clicked() {
+        out.push(Command::Library(Action::ResumeOrganizing));
+    }
 }
 
 /// A track and its arc: filled to `fraction`, else a turning quarter.

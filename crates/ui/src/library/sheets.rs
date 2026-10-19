@@ -68,6 +68,10 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
                     None => Some(Action::CloseSheet),
                 },
                 Sheet::Note { shelf, returned } => import_note(ui, model, *shelf, *returned, &t),
+                Sheet::Replace(picked) => match library.organizer().paused() {
+                    Some(paused) => replace(ui, paused, picked, &t),
+                    None => Some(Action::OrganizeAnew(picked.clone())),
+                },
             };
         });
     let working = matches!(sheet, Some(Sheet::Find(f)) if matches!(f.step, Step::Working(_)));
@@ -268,6 +272,46 @@ fn moved(
             act = Some(Action::ShowMoved { folder, book });
         }
         if ui.button("Back").clicked() {
+            act = Some(Action::CloseSheet);
+        }
+    });
+    act
+}
+
+/// A new run would replace the paused one: start over, or carry on?
+fn replace(
+    ui: &mut Ui,
+    paused: &super::organizing::Paused,
+    picked: &Option<Vec<mareader_library::BookId>>,
+    t: &Tokens,
+) -> Option<Action> {
+    title(ui, "Replace the paused run?", t);
+    ui.label(RichText::new(paused.said()).size(12.0).color(t.muted));
+    let sentence = match paused.ready {
+        true => {
+            "Its shelf plan is ready and not yet reviewed. Starting over \
+                 drops it and asks the AI again from the first step."
+        }
+        false => {
+            "It stopped partway. Starting over drops the steps it did and \
+                  asks the AI again from the first one."
+        }
+    };
+    ui.label(RichText::new(sentence).size(12.0).color(t.ink));
+    ui.add_space(8.0);
+    let mut act = None;
+    buttons(ui, |ui| {
+        let go = match paused.ready {
+            true => "Review its plan",
+            false => "Resume it",
+        };
+        if primary(ui, go, t.accent, t).clicked() {
+            act = Some(Action::ResumeOrganizing);
+        }
+        if ui.button("Start over").clicked() {
+            act = Some(Action::OrganizeAnew(picked.clone()));
+        }
+        if ui.button("Cancel").clicked() {
             act = Some(Action::CloseSheet);
         }
     });

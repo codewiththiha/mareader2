@@ -5,7 +5,10 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_library::{BookId, Move};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::command::Commands;
+use mareader_ui::library::organizing::{Heard, Paused};
 use mareader_ui::library::{Action, ShelfAction};
+use mareader_ui::toast::Toast;
 
 /// Frames enough for a run's card to show; its ring keeps asking for more.
 const FRAMES: usize = 40;
@@ -52,7 +55,7 @@ fn held(h: &Harness<'static, MareaderApp>) -> Vec<BookId> {
 fn a_run_shows_its_card_and_its_books_stay_put_until_stopped() {
     let mut h = page(&[("copies", "5"), ("organize", "running")]);
     assert_eq!(held(&h).len(), 5);
-    h.get_by_label("Stop organizing");
+    h.get_by_label("Pause organizing");
     let Some(book) = held(&h).first().copied() else {
         panic!("a held book")
     };
@@ -76,10 +79,10 @@ fn a_run_shows_its_card_and_its_books_stay_put_until_stopped() {
     act(&mut h, Action::Shelf(ShelfAction::Carry(carry.clone())));
     assert_eq!(shelved(&h), 0, "a held book doesn't move");
     assert!(toast(&h).contains("stay put"), "{}", toast(&h));
-    h.get_by_label("Stop organizing").click();
+    h.get_by_label("Pause organizing").click();
     h.run_steps(4);
     assert!(held(&h).is_empty(), "stopping lets the books go");
-    assert!(h.query_by_label("Stop organizing").is_none());
+    assert!(h.query_by_label("Pause organizing").is_none());
     act(&mut h, Action::Shelf(ShelfAction::Carry(carry)));
     assert_eq!(shelved(&h), 1, "then it moves as any book");
 }
@@ -135,4 +138,69 @@ fn books_read_in_place_are_never_organized() {
     act(&mut h, Action::Organize(None));
     let said = toast(&h);
     assert!(said.starts_with("Nothing to organize"), "{said}");
+}
+
+#[test]
+fn a_paused_run_waits_on_its_card_with_its_books_free() {
+    let mut h = page(&[("copies", "4"), ("organize", "paused")]);
+    h.get_by_label("Organizing paused");
+    h.get_by_label("3 of 8 steps · 4 books");
+    h.get_by_label("Resume");
+    assert!(held(&h).is_empty(), "paused books move as any");
+    h.get_by_label("View options").click();
+    h.run_steps(4);
+    h.get_by_label_contains("Resume organizing");
+    h.get_by_label("Organize from the start");
+    assert!(h.query_by_label("Organize with AI").is_none());
+    h.get_by_label("View options").click();
+    h.run_steps(4);
+    h.get_by_label("Discard what's done").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("Organizing paused").is_none());
+    let organizer = h.state().library_state().organizer();
+    assert!(organizer.paused().is_none());
+}
+
+#[test]
+fn a_new_run_while_one_is_paused_asks_first() {
+    let mut h = page(&[("copies", "3"), ("organize", "paused")]);
+    act(&mut h, Action::Organize(None));
+    h.get_by_label("Replace the paused run?");
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("Replace the paused run?").is_none());
+    assert!(h.state().library_state().organizer().paused().is_some());
+    act(&mut h, Action::Organize(None));
+    h.get_by_label("Start over").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("Replace the paused run?").is_none());
+    let said = toast(&h);
+    assert!(
+        said.contains("Settings › AI"),
+        "a fresh run needs a model: {said}"
+    );
+}
+
+#[test]
+fn a_finished_plan_waits_for_review_and_a_failure_offers_resume() {
+    let mut h = page(&[("copies", "3"), ("organize", "ready")]);
+    h.get_by_label("Shelf plan ready");
+    h.get_by_label("Review");
+    h.get_by_label("Discard the plan");
+    // A run that fails partway keeps its steps; its toast carries on.
+    let mut out = Commands::new();
+    let library = h.state_mut().library_state_mut();
+    let paused = Paused {
+        done: 1,
+        total: 4,
+        ..Paused::default()
+    };
+    library.set_paused(Some(paused));
+    library.heard(Heard::Failed(Toast::error("Couldn't organize.")), &mut out);
+    let Some(Command::Notify(failed)) = out.first() else {
+        panic!("a toast")
+    };
+    assert_eq!(failed.label, "Resume");
+    let resume = Command::Library(Action::ResumeOrganizing);
+    assert_eq!(failed.undo.as_deref(), Some(&resume));
 }

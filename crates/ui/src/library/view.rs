@@ -91,6 +91,10 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     // Books the AI is organizing open as usual but don't move.
     let held = library.organizer().held().clone();
     let busy = library.organizer().busy();
+    let paused = library
+        .organizer()
+        .paused()
+        .map(super::organizing::Paused::short);
     let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
     let unfolded = library.unfolded().clone();
@@ -138,7 +142,11 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     if back.clicked() && picks.active() {
         out.push(Command::Library(Action::Pick(PickAction::Clear)));
     }
-    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, busy, out));
+    let organizer = menus::Organizer {
+        busy,
+        paused: paused.as_deref(),
+    };
+    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, organizer, out));
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {

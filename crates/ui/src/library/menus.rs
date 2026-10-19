@@ -236,15 +236,32 @@ fn ask_remove(picks: &[Pick], out: &mut Commands) {
     );
 }
 
-/// The page's own menu, on empty space.
-pub fn page_menu(ui: &mut Ui, selecting: bool, sequence: &[Pick], busy: bool, out: &mut Commands) {
+/// The page's own menu, on empty space; `paused` tells a stopped run.
+pub fn page_menu(
+    ui: &mut Ui,
+    selecting: bool,
+    sequence: &[Pick],
+    organizer: Organizer<'_>,
+    out: &mut Commands,
+) {
     if ui.button("New shelf").clicked() {
         shelf(out, ShelfAction::New);
     }
-    let organize = ui.add_enabled(!busy, Button::new(ORGANIZE));
-    let organize = organize.on_hover_text(ORGANIZE_TIP);
-    if organize.on_disabled_hover_text(ORGANIZING).clicked() {
-        act(out, Action::Organize(None));
+    if let Some(said) = organizer.paused {
+        let resume = ui.add_enabled(!organizer.busy, Button::new(RESUME).right_text(said));
+        if resume.on_hover_text(RESUME_TIP).clicked() {
+            act(out, Action::ResumeOrganizing);
+        }
+        let anew = ui.add_enabled(!organizer.busy, Button::new(ANEW));
+        if anew.on_hover_text(ANEW_TIP).clicked() {
+            act(out, Action::OrganizeAnew(None));
+        }
+    } else {
+        let organize = ui.add_enabled(!organizer.busy, Button::new(ORGANIZE));
+        let organize = organize.on_hover_text(ORGANIZE_TIP);
+        if organize.on_disabled_hover_text(ORGANIZING).clicked() {
+            act(out, Action::Organize(None));
+        }
     }
     if sequence.is_empty() {
         return;
@@ -274,6 +291,19 @@ pub const ORGANIZE: &str = "Organize with AI";
 pub const ORGANIZE_TIP: &str = "Let the AI sort imported books on no shelf onto shelves; \
                                 you see its plan before anything moves";
 pub const ORGANIZING: &str = "The AI is organizing already";
+pub const RESUME: &str = "Resume organizing";
+pub const RESUME_TIP: &str = "Carry on the stopped run where it left off";
+pub const ANEW: &str = "Organize from the start";
+pub const ANEW_TIP: &str = "Drop the stopped run and ask the AI again";
+
+/// Where the organizer stands, for the menus offering it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Organizer<'a> {
+    /// A run is going or its plan waits.
+    pub busy: bool,
+    /// How far a stopped run got.
+    pub paused: Option<&'a str>,
+}
 
 /// The bar along the page's foot while selecting.
 pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &mut Commands) {
