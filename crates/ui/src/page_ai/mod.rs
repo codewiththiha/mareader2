@@ -981,6 +981,12 @@ impl PageAi {
         true
     }
 
+    /// Shots: whether the page's text is in, to be worked on.
+    pub fn can_read(&self, asked: &Asked<'_>) -> bool {
+        let view = asked.documents.ai_view(asked.pane);
+        view.is_some_and(|v| source_of(&v, asked.documents, asked.page).is_ok())
+    }
+
     /// Tests: results are set on the frame, not on a thread.
     pub fn set_inline(&mut self, inline: bool) {
         self.cards.set_inline(inline);

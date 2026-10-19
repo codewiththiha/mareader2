@@ -77,8 +77,8 @@ pub struct MareaderApp {
     chromeless: bool,
     /// Shots: the newest mark's menu opens once it is drawn.
     menu_shot: bool,
-    /// Shots and tests: a page AI result to keep and show on a page.
-    page_ai_seed: Option<(usize, mareader_library::AiTask)>,
+    /// Shots and tests: a page AI result kept, or a run started (true).
+    page_ai_seed: Option<(usize, mareader_library::AiTask, bool)>,
     tree: PaneTree,
     active: PaneId,
     /// Panes by last focus, latest first: blend's paper follows them.
@@ -929,10 +929,14 @@ impl MareaderApp {
                     pick: false,
                 });
             }
-            // A page AI result kept for a page and shown, as `3:simplify`.
+            // A kept result, `3:simplify`; a canned run, `follow:simplify`.
             "page_ai" => {
                 let (page, task) = value.split_once(':').ok_or("page_ai: page:task")?;
-                let page = page.parse::<usize>().map_err(|e| e.to_string())?;
+                let follow = page == "follow";
+                let page = match follow {
+                    true => 0,
+                    false => page.parse::<usize>().map_err(|e| e.to_string())?,
+                };
                 let task = match task {
                     "summary" => mareader_library::AiTask::Summary,
                     "points" => mareader_library::AiTask::Points,
@@ -941,7 +945,10 @@ impl MareaderApp {
                         language: tag.to_owned(),
                     },
                 };
-                self.page_ai_seed = Some((page, task));
+                if follow {
+                    self.page_ai.set_canned(true);
+                }
+                self.page_ai_seed = Some((page, task, follow));
             }
             // Explains the staged selection: its card opens.
             "gloss" => match self.staged.back_mut() {
@@ -1229,7 +1236,7 @@ impl MareaderApp {
             Some(staged) => self.staged.push_front(staged),
             None => {}
         }
-        if let Some((page, task)) = self.page_ai_seed.clone()
+        if let Some((page, task, follow)) = self.page_ai_seed.clone()
             && shown(page)
         {
             let book = self.library.book_in(&self.documents, pane);
@@ -1244,8 +1251,18 @@ impl MareaderApp {
                 settings: &self.settings.ai,
             };
             let now = ctx.input(|i| i.time);
-            let model = self.library.model_mut();
-            if self.page_ai.seed(asked, model, task, now) {
+            let done = match follow {
+                true if self.page_ai.can_read(&asked) => {
+                    let model = self.library.model();
+                    self.page_ai.follow(asked, model, task, true, now, out);
+                    true
+                }
+                true => false,
+                false => self
+                    .page_ai
+                    .seed(asked, self.library.model_mut(), task, now),
+            };
+            if done {
                 self.page_ai_seed = None;
             }
             ctx.request_repaint();
