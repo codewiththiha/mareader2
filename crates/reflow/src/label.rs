@@ -1,13 +1,18 @@
 //! Short text shaped by parley: for scripts the UI's own text can't draw.
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
+use parley::fontique::Blob;
 use parley::{
     Alignment, AlignmentOptions, FontFamily, FontFamilyName, Layout, PositionedLayoutItem,
     StyleProperty,
 };
+use skrifa::string::StringId;
+use skrifa::{FontRef, MetadataProvider as _};
 use vello_cpu::color::palette::css::WHITE;
+use vello_cpu::peniko::ImageAlphaType;
 use vello_cpu::{Glyph, Pixmap, RenderContext, Resources};
 
 use crate::fonts::{BUNDLED, Fonts, Ink, SANS};
@@ -16,10 +21,10 @@ use crate::raster::{MAX_SIDE, Pixels};
 /// A face of this machine that draws text the bundled faces can't.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Fallback {
-    /// Unique per face and file while the app runs.
+    /// The face's PostScript name: the same for every ask.
     pub key: String,
-    /// The whole font file; `index` picks the face in a collection.
-    pub data: Vec<u8>,
+    /// The whole font file, mapped once and kept; never copied.
+    pub data: &'static [u8],
     pub index: u32,
 }
 
@@ -53,14 +58,34 @@ fn pick(text: &str) -> Vec<Fallback> {
             if ours || !seen.insert((font.data.id(), font.index)) {
                 continue;
             }
+            let key = key(bytes, font.index);
             out.push(Fallback {
-                key: format!("machine-{}-{}", font.data.id(), font.index),
-                data: bytes.to_vec(),
+                data: kept(&key, &font.data),
+                key,
                 index: font.index,
             });
         }
     }
     out
+}
+
+/// A name for the face that stays put across asks and caches.
+fn key(bytes: &[u8], index: u32) -> String {
+    let name = FontRef::from_index(bytes, index).ok().and_then(|f| {
+        let names = f.localized_strings(StringId::POSTSCRIPT_NAME);
+        names.english_or_first().map(|n| n.to_string())
+    });
+    let name = name.unwrap_or_else(|| bytes.len().to_string());
+    format!("machine-{name}-{index}")
+}
+
+/// The face's mapped file, kept for good: never a 200 MB copy per ask.
+fn kept(key: &str, blob: &Blob<u8>) -> &'static [u8] {
+    static KEPT: OnceLock<Mutex<HashMap<String, &'static [u8]>>> = OnceLock::new();
+    let kept = KEPT.get_or_init(Mutex::default);
+    let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
+    let leak = || Box::leak(Box::new(blob.clone())).data();
+    kept.entry(key.to_owned()).or_insert_with(leak)
 }
 
 /// `text` wrapped at `width`, as white glyphs to tint; `None` if empty or huge.
@@ -146,7 +171,7 @@ fn draw(text: &str, size: f32, width: f32, lines: usize) -> Option<Lines> {
     let pixels = Pixels {
         width: w,
         height: h,
-        rgba: pixmap.data_as_u8_slice().to_vec(),
+        rgba: pixmap.take_rgba8(ImageAlphaType::AlphaPremultiplied),
     };
     Some(Lines { pixels, cut })
 }
@@ -174,6 +199,17 @@ mod tests {
     #[test]
     fn latin_needs_no_machine_face() {
         assert!(fallbacks("Once upon a midnight dreary").is_empty());
+    }
+
+    #[test]
+    fn a_machine_face_is_kept_once_and_named_the_same() {
+        // Whatever this machine has for these, asking twice shares it.
+        let first = fallbacks("本 ✅ က");
+        let again = fallbacks("✅ 本 က");
+        for face in &first {
+            let same = again.iter().find(|f| f.key == face.key).expect("same key");
+            assert!(std::ptr::eq(face.data, same.data), "{face:?} copied");
+        }
     }
 
     #[test]
