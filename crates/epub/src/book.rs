@@ -300,6 +300,31 @@ impl Book {
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
         self.flow.render(page, scale, region)
     }
+
+    /// The blocks the book is made of, in reading order.
+    pub fn blocks(&self) -> &Arc<Vec<Block>> {
+        &self.blocks
+    }
+
+    /// What page `page` shows of each block; see [`Flow::excerpts`].
+    pub fn excerpts(&self, page: usize) -> Vec<(usize, std::ops::Range<usize>)> {
+        self.flow.excerpts(page)
+    }
+
+    /// The book's language tag, if it names one.
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    /// Shares the book's decoded pictures with `flow`, set from its blocks.
+    pub fn with_pictures(&self, flow: Flow) -> Flow {
+        flow.keep_pictures(&self.flow)
+    }
+
+    /// Page `page`'s column: its left edge and width, in layout units.
+    pub fn column(&self, page: usize) -> (f32, f32) {
+        self.flow.column(page)
+    }
 }
 
 /// The `dc:title` and first non-blank `dc:creator`, as written.
