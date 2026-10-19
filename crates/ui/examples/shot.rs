@@ -24,6 +24,8 @@ fn main() -> Result<(), String> {
     let mut words = false;
     let mut searched = false;
     let mut tabs = 0;
+    let mut right = None;
+    let mut wait = 0;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -118,6 +120,16 @@ fn main() -> Result<(), String> {
             }
             // Tab presses once open, so the focus ring shows: `tab=3`.
             "tab" => tabs = v.parse().map_err(|_| "tab=count")?,
+            // A right-click once open, so its menu shows: `right=x,y`.
+            "right" => {
+                let (x, y) = v.split_once(',').ok_or("right=x,y")?;
+                right = Some(egui::pos2(
+                    x.parse().map_err(|_| "right x")?,
+                    y.parse().map_err(|_| "right y")?,
+                ));
+            }
+            // Frames to run before the shot, at 60 a second: `wait=90`.
+            "wait" => wait = v.parse().map_err(|_| "wait=frames")?,
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -183,6 +195,21 @@ fn main() -> Result<(), String> {
         // A held carry rests, so the grid's rests take, opening included.
         harness.run_steps(if release { 4 } else { 50 });
     }
+    if let Some(pos) = right {
+        harness.hover_at(pos);
+        harness.run_steps(1);
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            harness.run_steps(1);
+        }
+        harness.run_steps(4);
+    }
+    harness.run_steps(wait);
     for _ in 0..tabs {
         harness.key_press(egui::Key::Tab);
         harness.run_steps(4);
