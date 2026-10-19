@@ -240,12 +240,130 @@ impl Default for OrganizeTask {
     }
 }
 
+/// How a page summary reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SummaryStyle {
+    #[default]
+    Paragraphs,
+    Points,
+}
+
+/// Summarizing a page.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SummarizeTask {
+    /// None follows Explain's model.
+    pub preset: Option<PresetId>,
+    pub style: SummaryStyle,
+}
+
+/// What choosing Translate or Simplify does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageStart {
+    /// Offers This page and Continuous.
+    #[default]
+    Ask,
+    Page,
+    Continuous,
+}
+
+/// Translating pages.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TranslateTask {
+    /// None follows Explain's model.
+    pub preset: Option<PresetId>,
+    /// A tag from [`LANGUAGES`]; none until one is picked.
+    pub language: Option<String>,
+    /// Tags picked before, latest first.
+    pub recent: Vec<String>,
+    pub start: PageStart,
+}
+
+impl TranslateTask {
+    pub const RECENT_MAX: usize = 5;
+
+    /// Picks `tag` and puts it first among the recent ones.
+    pub fn pick(&mut self, tag: &str) {
+        if language_name(tag).is_none() {
+            return;
+        }
+        self.language = Some(tag.to_owned());
+        self.recent.retain(|t| t != tag);
+        self.recent.insert(0, tag.to_owned());
+        self.recent.truncate(Self::RECENT_MAX);
+    }
+}
+
+/// Rewriting pages in simple English.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SimplifyTask {
+    /// None follows Explain's model.
+    pub preset: Option<PresetId>,
+    pub start: PageStart,
+}
+
+/// How a continuous run reads ahead.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PageRun {
+    /// Seconds on a page with its result before the next pages are asked.
+    pub dwell: u16,
+    /// Pages asked at once, at most; the model's room may allow fewer.
+    pub at_once: u8,
+}
+
+impl PageRun {
+    pub const DWELL_MIN: u16 = 5;
+    pub const DWELL_MAX: u16 = 120;
+    pub const DWELL: u16 = 25;
+    pub const AT_ONCE_MAX: u8 = 16;
+    pub const AT_ONCE: u8 = 5;
+}
+
+impl Default for PageRun {
+    fn default() -> Self {
+        Self {
+            dwell: Self::DWELL,
+            at_once: Self::AT_ONCE,
+        }
+    }
+}
+
 /// Which model each AI task uses.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiTasks {
     pub explain: ExplainTask,
     pub organize: OrganizeTask,
+    pub summarize: SummarizeTask,
+    pub translate: TranslateTask,
+    pub simplify: SimplifyTask,
+    pub pages: PageRun,
+}
+
+/// The AI tasks that rewrite a page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageTask {
+    Summarize,
+    Translate,
+    Simplify,
+}
+
+impl PageTask {
+    pub const ALL: [PageTask; 3] = [Self::Summarize, Self::Translate, Self::Simplify];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Summarize => "Summarize",
+            Self::Translate => "Translate",
+            Self::Simplify => "Simplify",
+        }
+    }
 }
 
 /// Languages an AI task may write in, by tag and English name.
@@ -384,6 +502,18 @@ impl AiSettings {
         own.or_else(|| self.explain_preset())
     }
 
+    /// The model a page task asks: its own, else Explain's.
+    pub fn page_preset(&self, task: PageTask) -> Option<&ModelPreset> {
+        let t = &self.tasks;
+        let own = match task {
+            PageTask::Summarize => t.summarize.preset,
+            PageTask::Translate => t.translate.preset,
+            PageTask::Simplify => t.simplify.preset,
+        };
+        let own = own.and_then(|id| self.preset(id));
+        own.or_else(|| self.explain_preset())
+    }
+
     /// The meaning's language as a name, for the prompt.
     pub fn explain_language(&self) -> Option<&'static str> {
         self.tasks
@@ -416,7 +546,14 @@ impl AiSettings {
     fn unassign_missing(&mut self) {
         let ids: Vec<PresetId> = self.presets.iter().map(|p| p.id).collect();
         let tasks = &mut self.tasks;
-        for slot in [&mut tasks.explain.preset, &mut tasks.organize.preset] {
+        let slots = [
+            &mut tasks.explain.preset,
+            &mut tasks.organize.preset,
+            &mut tasks.summarize.preset,
+            &mut tasks.translate.preset,
+            &mut tasks.simplify.preset,
+        ];
+        for slot in slots {
             if slot.is_some_and(|id| !ids.contains(&id)) {
                 *slot = None;
             }
@@ -443,6 +580,22 @@ impl AiSettings {
         }
         let batch = &mut self.tasks.organize.batch;
         *batch = (*batch).clamp(OrganizeTask::BATCH_MIN, OrganizeTask::BATCH_MAX);
+        let translate = &mut self.tasks.translate;
+        if translate
+            .language
+            .as_deref()
+            .is_some_and(|l| language_name(l).is_none())
+        {
+            translate.language = None;
+        }
+        let mut seen = std::collections::HashSet::new();
+        translate
+            .recent
+            .retain(|t| language_name(t).is_some() && seen.insert(t.clone()));
+        translate.recent.truncate(TranslateTask::RECENT_MAX);
+        let pages = &mut self.tasks.pages;
+        pages.dwell = pages.dwell.clamp(PageRun::DWELL_MIN, PageRun::DWELL_MAX);
+        pages.at_once = pages.at_once.clamp(1, PageRun::AT_ONCE_MAX);
     }
 }
 
@@ -547,5 +700,47 @@ mod tests {
         ];
         let want: Vec<String> = want.iter().map(|w| format!("\"{w}\"")).collect();
         assert_eq!(names, want);
+    }
+
+    #[test]
+    fn page_tasks_follow_explain_until_given_their_own() {
+        let mut ai = AiSettings::default();
+        let explain = ai.add_preset(Provider::Ollama, "qwen3");
+        let own = ai.add_preset(Provider::OpenAi, "");
+        ai.tasks.explain.preset = Some(explain);
+        ai.tasks.translate.preset = Some(own);
+        let id = |t| ai.page_preset(t).map(|p| p.id);
+        assert_eq!(id(PageTask::Summarize), Some(explain));
+        assert_eq!(id(PageTask::Translate), Some(own));
+        ai.remove_preset(own);
+        assert_eq!(ai.tasks.translate.preset, None);
+        assert_eq!(
+            ai.page_preset(PageTask::Translate).map(|p| p.id),
+            Some(explain)
+        );
+    }
+
+    #[test]
+    fn translate_keeps_recent_languages_and_page_runs_stay_in_range() {
+        let mut ai = AiSettings::default();
+        let t = &mut ai.tasks.translate;
+        for tag in ["my", "fr", "de", "my", "ja", "es", "it", "xx"] {
+            t.pick(tag);
+        }
+        assert_eq!(t.language.as_deref(), Some("it"));
+        assert_eq!(t.recent, ["it", "es", "ja", "my", "de"]);
+        t.recent.push("zz".into());
+        t.language = Some("zz".into());
+        ai.tasks.pages = PageRun {
+            dwell: 1,
+            at_once: 99,
+        };
+        ai.sanitize();
+        assert_eq!(ai.tasks.translate.language, None);
+        assert!(!ai.tasks.translate.recent.contains(&"zz".to_owned()));
+        assert_eq!(ai.tasks.pages.dwell, PageRun::DWELL_MIN);
+        assert_eq!(ai.tasks.pages.at_once, PageRun::AT_ONCE_MAX);
+        assert_eq!(PageRun::default().at_once, 5);
+        assert_eq!(ai.tasks.simplify.start, PageStart::Ask);
     }
 }
