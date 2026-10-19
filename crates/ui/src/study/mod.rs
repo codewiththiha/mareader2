@@ -102,6 +102,8 @@ pub enum Gloss {
         index: usize,
         at: Pos2,
     },
+    /// The continuous run's pill was pressed.
+    Pill(crate::page_ai::PillPress),
 }
 
 /// What the card and the mark menu ask of the app.

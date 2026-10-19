@@ -473,7 +473,7 @@ pub struct ViewContext {
     /// Shots: opens the newest drawn mark's menu.
     pub menu_shot: bool,
     /// The page AI's bubbles and results on the pages shown.
-    pub ai: Vec<page_ai::Overlay>,
+    pub ai: page_ai::PaneAi,
 }
 
 /// The Layout settings the pages follow.
@@ -863,7 +863,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     let emojis = doc.emojis(page).into_iter().map(to_screen);
                     keep_pictures(&mut quads, first, emojis, emoji_tone);
                 }
-                let overlay = cx.ai.iter().find(|o| o.page == page);
+                let overlay = cx.ai.overlays.iter().find(|o| o.page == page);
                 if let Some(shown) = overlay.and_then(|o| o.card.as_ref()) {
                     let scroll = card_scroll.get(&page).copied().unwrap_or(0.0);
                     let tones = (&t, picture_tone, emoji_tone);
@@ -949,7 +949,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
-            ai_bubbles(ui, &sheets, &cx.ai, &t, gloss);
+            ai_bubbles(ui, &sheets, &cx.ai.overlays, &t, gloss);
+            if let Some(pill) = &cx.ai.pill
+                && let Some(press) = page_ai::paint::pill(ui, frame, pill, &t)
+            {
+                gloss.push(Gloss::Pill(press));
+            }
             follow = did.follow;
             clicked = did.click;
             double = did.double;
