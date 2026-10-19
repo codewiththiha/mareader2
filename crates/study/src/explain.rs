@@ -43,6 +43,8 @@ pub enum Why {
     Language,
     /// The system keychain holding the keys is locked.
     Locked,
+    /// The model already runs as many tasks as it's allowed.
+    InUse,
 }
 
 impl Why {
@@ -60,6 +62,7 @@ impl Why {
             Self::Setup => "The AI turned the request down. Check the model in Settings › AI.",
             Self::Language => "The model can't explain words in this language.",
             Self::Locked => "The keychain holding the API keys is locked.",
+            Self::InUse => "This model is busy with another task. Try again when it's done.",
         }
     }
 
