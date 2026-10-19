@@ -187,7 +187,8 @@ impl Runs {
 }
 
 /// The cards, stacked up from `stage`'s bottom-left; `lift` clears a page bar.
-pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32, out: &mut Commands) {
+pub fn show(ctx: &Context, runs: &mut Runs, at: (Rect, f32), paused: bool, out: &mut Commands) {
+    let (stage, lift) = at;
     if runs.list.is_empty() {
         return;
     }
@@ -196,6 +197,9 @@ pub fn show(ctx: &Context, runs: &mut Runs, stage: Rect, lift: f32, out: &mut Co
     let mut bottom = stage.bottom() - INSET - lift;
     let mut waiting = false;
     for run in &mut runs.list {
+        if run.paused() && !paused {
+            continue;
+        }
         let started = *run.started.get_or_insert(now);
         if now - started < DELAY {
             waiting = true;
