@@ -15,8 +15,9 @@ use crate::backend::{Backend, BoxFuture, Nobody, Partial, run};
 use crate::board::{AppleState, Board, Job, Reply, Tried, lanes};
 use crate::compat::{Compat, failure_with_keys};
 use crate::keys::{Clients, pasted, row};
+use crate::organize::{Plan, Progress, Request, organize};
 use crate::prompt::Prompt;
-use crate::slots::{Kind, Slots};
+use crate::slots::{Kind, Slots, Ticket};
 use crate::task::Explain;
 
 /// Wakes the UI when a job finishes.
@@ -146,6 +147,41 @@ impl Assist {
         self.slots.in_use(preset)
     }
 
+    /// Plans `req` with the organizing model, off the UI thread.
+    pub fn organize(&self, req: Request) -> Organizing {
+        let (tx, rx) = channel();
+        let Some(rt) = self.engine.rt() else {
+            let _ = tx.send(Organized::Done(Err(Why::NotHere.into())));
+            return Organizing { rx, task: None };
+        };
+        let preset = self.ai.organize_preset().cloned();
+        let backend = preset.as_ref().map(|p| self.backend(p));
+        let (slots, waker) = (self.slots.clone(), Arc::clone(&self.waker));
+        let task = rt.spawn(async move {
+            let say = |event| {
+                let _ = tx.send(event);
+                waker();
+            };
+            let (Some(preset), Some(backend)) = (preset, backend) else {
+                let none = "no model is chosen to organize with; pick one in Settings › AI";
+                say(Organized::Done(Err(Failure::detailed(Why::NotHere, none))));
+                return;
+            };
+            let what = Kind::Long(ORGANIZING);
+            let slot = match slot(&slots, &preset, backend.as_ref(), what).await {
+                Ok(ticket) => ticket,
+                Err(f) => return say(Organized::Done(Err(f))),
+            };
+            let plan = organize(backend.as_ref(), &req, &|p| say(Organized::Progress(p))).await;
+            drop(slot);
+            say(Organized::Done(plan));
+        });
+        Organizing {
+            rx,
+            task: Some(task),
+        }
+    }
+
     pub fn board(&self) -> &Board {
         &self.board
     }
@@ -239,19 +275,65 @@ impl Backend for Server {
     }
 }
 
-/// Holds a slot of `preset` for one short task; how many is `at_once` per lane.
-async fn short_slot(
+/// How a long task names itself to the tasks it turns away.
+const ORGANIZING: &str = "organizing your library";
+
+/// Holds a slot of `preset`; how many is `at_once` per lane.
+async fn slot(
     slots: &Slots,
     preset: &ModelPreset,
     backend: &dyn Backend,
-) -> Result<crate::slots::Ticket, Failure> {
+    kind: Kind,
+) -> Result<Ticket, Failure> {
     let lanes = backend.lanes().await;
     let cap = u32::from(preset.at_once).saturating_mul(lanes);
     let cap = usize::try_from(cap).unwrap_or(usize::MAX);
     let wait = Slots::SHORT_WAIT;
     slots
-        .take(preset.id, cap, Kind::Short, &preset.title(), wait)
+        .take(preset.id, cap, kind, &preset.title(), wait)
         .await
+}
+
+async fn short_slot(
+    slots: &Slots,
+    preset: &ModelPreset,
+    backend: &dyn Backend,
+) -> Result<Ticket, Failure> {
+    slot(slots, preset, backend, Kind::Short).await
+}
+
+/// News from an organizing run.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Organized {
+    Progress(Progress),
+    /// The last event: the plan, or why there's none.
+    Done(Result<Plan, Failure>),
+}
+
+/// A run under way; dropping it cancels the run and frees its model.
+pub struct Organizing {
+    rx: Receiver<Organized>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Organizing {
+    /// Events since the last call, oldest first.
+    pub fn poll(&mut self) -> Vec<Organized> {
+        self.rx.try_iter().collect()
+    }
+
+    /// Stops the run; no more events come.
+    pub fn cancel(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+impl Drop for Organizing {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 /// The study tools' answerer: blocks its worker thread, not the UI.
