@@ -79,6 +79,7 @@ impl MachineFonts {
                 ctx.add_font(FontInsert {
                     name: face.key,
                     data: FontData {
+                        // Borrowed from the mapped file, not copied.
                         font: face.data.into(),
                         index: face.index,
                         tweak: Default::default(),

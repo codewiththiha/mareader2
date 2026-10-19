@@ -145,6 +145,12 @@ fn system() -> &'static Mutex<Collection> {
     })
 }
 
+/// One store of machine font files: each is mapped once, not per job.
+fn sources() -> SourceCache {
+    static SOURCES: OnceLock<SourceCache> = OnceLock::new();
+    SOURCES.get_or_init(SourceCache::new_shared).clone()
+}
+
 impl Fonts {
     /// Bundled faces alone, generics mapped onto them: same layout anywhere.
     pub fn bundled() -> Self {
@@ -161,7 +167,7 @@ impl Fonts {
             let id = collection.family_id(kind.bundled());
             collection.set_generic_families(generic, id.into_iter());
         }
-        Self::with(collection)
+        Self::with(collection, SourceCache::default())
     }
 
     /// The machine's faces as well; generics are the system's own.
@@ -170,14 +176,14 @@ impl Fonts {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        Self::with(collection)
+        Self::with(collection, sources())
     }
 
-    fn with(collection: Collection) -> Self {
+    fn with(collection: Collection, source_cache: SourceCache) -> Self {
         Self {
             fonts: FontContext {
                 collection,
-                source_cache: SourceCache::default(),
+                source_cache,
             },
             layout: LayoutContext::new(),
         }
