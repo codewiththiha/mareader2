@@ -306,6 +306,7 @@ impl LibraryState {
             total: 4,
         };
         self.heard(progress, &mut out);
+        self.runs.show_now();
         if !review {
             return;
         }

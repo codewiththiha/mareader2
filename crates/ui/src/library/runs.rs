@@ -164,6 +164,11 @@ impl Runs {
             total: 12,
             name: "Middlemarch.epub".into(),
         });
+        self.show_now();
+    }
+
+    /// Every card shows from the first frame, for shots.
+    pub fn show_now(&mut self) {
         for run in &mut self.list {
             run.started = Some(f64::NEG_INFINITY);
         }
