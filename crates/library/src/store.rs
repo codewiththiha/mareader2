@@ -87,6 +87,8 @@ impl Store {
         let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // Erased words are zeroed on disk, not left in freed pages.
+        conn.pragma_update(None, "secure_delete", "ON")?;
         Ok(usize::try_from(version).unwrap_or(0))
     }
 
@@ -180,7 +182,13 @@ impl Store {
                 meta.execute(params!["seq", seq.to_string()])?;
             }
         }
-        tx.commit()
+        tx.commit()?;
+        // Old pages holding erased words sit in the log until copied back.
+        if changes.scrub {
+            self.conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+        }
+        Ok(())
     }
 
     /// Records written after save `seq`: what a sync would send.
