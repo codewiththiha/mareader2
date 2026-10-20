@@ -31,7 +31,7 @@ pub use lang::name as language;
 pub use packs::{PACKS, Pack};
 pub use route::{HUB, Pair, languages};
 pub use search::{WordMatch, fold};
-pub use service::{Dictionaries, Query, Reply, State, Ticket};
+pub use service::{Dictionaries, Found, Query, Reply, State, Ticket};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use build::build;

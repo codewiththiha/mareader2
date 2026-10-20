@@ -278,11 +278,13 @@ pub struct StudySettings {
     pub gloss: GlossSettings,
     pub highlights: HighlightSettings,
     pub cefr: CefrSettings,
+    pub words: crate::words::WordListSettings,
 }
 
 impl StudySettings {
     pub fn sanitize(&mut self) {
         self.highlights.sanitize();
+        self.words.sanitize();
     }
 }
 

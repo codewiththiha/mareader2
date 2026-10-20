@@ -231,3 +231,75 @@ fn the_tab_offers_only_the_download_until_the_data_is_in() {
     assert!(h.query_by_label("Reading level").is_none());
     assert!(h.query_by_label("Shading look").is_none());
 }
+
+/// What reaches the clipboard within `frames` frames.
+fn copied(h: &mut H, frames: usize) -> Option<String> {
+    for _ in 0..frames {
+        h.step();
+        let commands = &h.output().platform_output.commands;
+        let text = commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        });
+        if text.is_some() {
+            return text;
+        }
+    }
+    None
+}
+
+fn word_list(h: &mut H, pages: Vec<usize>) -> Option<String> {
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::WordList { pane, pages });
+    copied(h, 120)
+}
+
+#[test]
+fn a_word_list_copies_the_hard_words_with_their_meanings() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    let md = word_list(&mut h, vec![0, 1, 2]).expect("a list on the clipboard");
+    assert!(md.contains("*1 word above B2 · pages 1–3*"), "{md}");
+    assert!(
+        md.contains("| Word | Level | Part of speech | Burmese | Page |"),
+        "{md}"
+    );
+    let row = md.lines().find(|l| l.starts_with("| **quick** |")).unwrap();
+    assert!(row.contains("| C2 |") && row.contains("မြန်သော"), "{row}");
+    assert!(row.ends_with("| 1 |"), "first seen on page 1: {row}");
+    h.run();
+    assert!(!h.state().making_word_list());
+    let toast = h.query_by_label_contains("Copied a list of 1 word");
+    assert!(toast.is_some());
+}
+
+#[test]
+fn a_language_without_a_dictionary_is_left_out_and_named() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    let mut s = h.state().settings().clone();
+    s.study.words.last.languages = vec!["jp".into(), "my".into()];
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.run();
+    let md = word_list(&mut h, vec![0]).expect("a list on the clipboard");
+    assert!(
+        md.contains("| Burmese |") && !md.contains("Japanese"),
+        "{md}"
+    );
+    h.run();
+    let toast = h.query_by_label_contains("No Japanese dictionary yet");
+    assert!(toast.is_some());
+}
+
+#[test]
+fn a_word_list_says_when_no_word_is_hard() {
+    let (words, _) = shelves();
+    let mut h = reader(words.path(), None);
+    let mut s = h.state().settings().clone();
+    s.study.cefr.level = CefrLevel::C2;
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.run();
+    assert_eq!(word_list(&mut h, vec![0]), None);
+    h.run();
+    assert!(h.query_by_label_contains("No words above C2").is_some());
+}

@@ -24,6 +24,12 @@ pub struct Ticket(pub u64);
 pub enum Query {
     /// A card's lookup, answered in `to` or the first other language.
     LookUp { word: String, to: Option<String> },
+    /// A word list's ask: English words' rows in each of `to`.
+    Words {
+        words: Vec<String>,
+        to: Vec<String>,
+        near: bool,
+    },
     /// The panel's search: between a pair, else in one pack or all.
     Search {
         text: String,
@@ -37,6 +43,7 @@ impl Query {
         match self {
             Self::LookUp { .. } => 0,
             Self::Search { .. } => 1,
+            Self::Words { .. } => 2,
         }
     }
 }
@@ -52,6 +59,19 @@ pub struct Reply {
     pub ready: usize,
     /// A pack that couldn't be read, in its own words.
     pub failed: Option<String>,
+    /// A word list's answers, a word and language at a time.
+    pub found: Vec<Found>,
+}
+
+/// One word's rows in one language, for a word list.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Found {
+    pub word: String,
+    pub to: String,
+    /// Rows for the word itself.
+    pub own: Vec<Entry>,
+    /// Rows for headwords near it, as `Store::near` finds them.
+    pub near: Vec<Entry>,
 }
 
 impl Reply {
@@ -63,6 +83,7 @@ impl Reply {
             to: None,
             ready,
             failed: None,
+            found: Vec::new(),
         }
     }
 }

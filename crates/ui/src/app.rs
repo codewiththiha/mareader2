@@ -109,6 +109,7 @@ pub struct MareaderApp {
     thumbs: ThumbState,
     /// Picked pages' text on its way to the clipboard.
     page_copy: crate::page_copy::PageCopy,
+    word_lists: crate::word_list::WordLists,
     shelf_tree: PanelState,
     /// Each pane's page bar.
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
@@ -205,6 +206,7 @@ impl MareaderApp {
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
             page_copy: Default::default(),
+            word_lists: Default::default(),
             shelf_tree: PanelState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
@@ -624,6 +626,30 @@ impl MareaderApp {
     /// The pages picked in the thumbnails, in reading order.
     pub fn thumb_picks(&self) -> Vec<usize> {
         self.thumbs.picked()
+    }
+
+    /// Moves a word list on; made, it goes on the clipboard.
+    fn poll_word_list(&mut self, ctx: &egui::Context) {
+        if !self.word_lists.busy() {
+            return;
+        }
+        // Answers land by waker, but a list's own steps need frames.
+        ctx.request_repaint();
+        let toast = match self.word_lists.poll(&mut self.vocab, &mut self.dict) {
+            None => return,
+            Some(Err(toast)) => toast,
+            Some(Ok(made)) => {
+                let said = crate::word_list::copied(&made);
+                ctx.copy_text(made.markdown);
+                Toast::info(said)
+            }
+        };
+        self.toasts.push(toast);
+    }
+
+    /// Tests: whether a word list is still being made.
+    pub fn making_word_list(&self) -> bool {
+        self.word_lists.busy()
     }
 
     /// Tests: what `pane`'s document keeps of the page AI, oldest first.
@@ -1422,6 +1448,7 @@ impl MareaderApp {
             self.toasts.push(toast);
         }
         self.dict.poll();
+        self.poll_word_list(ctx);
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         self.dict.show(ctx, &self.pane_rects, offset, out);
@@ -1793,6 +1820,19 @@ impl MareaderApp {
             Command::CopyPages { pane, pages } => {
                 if let Some(reading) = self.documents.reading(pane) {
                     self.page_copy.start(ctx, reading.document, pages);
+                }
+            }
+            Command::WordList { pane, pages } => {
+                if let Some(reading) = self.documents.reading(pane) {
+                    let title = self.documents.title(pane).unwrap_or_default().to_owned();
+                    let ask = crate::word_list::Ask {
+                        document: reading.document,
+                        title,
+                        pages,
+                        level: self.settings.study.cefr.level.band(),
+                        list: self.settings.study.words.instant().clone(),
+                    };
+                    self.word_lists.start(ctx, ask);
                 }
             }
             Command::Turn { pane, forward } => self.documents.turn(pane, forward),

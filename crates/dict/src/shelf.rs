@@ -14,6 +14,8 @@ use crate::{Query, Reply};
 /// A card shows at most this many rows; a search lists more.
 pub const CARD_ROWS: usize = 24;
 pub const SEARCH_ROWS: usize = 60;
+/// A word list keeps at most this many rows per word and language.
+pub const WORD_ROWS: usize = 8;
 
 /// The converted pack's file.
 pub fn db_file(dir: &Path, pack: &Pack) -> PathBuf {
@@ -66,6 +68,7 @@ impl Shelf {
         match query {
             Query::LookUp { word, to } => self.look_up(word, to.as_deref()),
             Query::Search { text, pair, pack } => self.search(text, pair.as_ref(), pack.as_deref()),
+            Query::Words { words, to, near } => self.words(words, to, *near),
         }
     }
 
@@ -90,6 +93,51 @@ impl Shelf {
             }
         }
         order(&mut reply.entries, CARD_ROWS);
+        reply
+    }
+
+    /// Each word's rows in each language of `to` a pack has.
+    pub fn words(&mut self, words: &[String], to: &[String], near: bool) -> Reply {
+        let ready = self.ready();
+        let mut reply = Reply::new(ready.len());
+        for lang in to {
+            let pack = ready.iter().find(|p| p.source == HUB && p.target == lang);
+            let Some(pack) = pack.copied() else {
+                continue;
+            };
+            let Some(store) = self.store(pack) else {
+                continue;
+            };
+            for word in words {
+                let rows = |r: Result<Vec<Row>, String>, failed: &mut Option<String>| {
+                    let mut entries: Vec<Entry> = r
+                        .unwrap_or_else(|e| {
+                            *failed = Some(e);
+                            Vec::new()
+                        })
+                        .into_iter()
+                        .map(|r| entry(r, pack, false, None))
+                        .collect();
+                    order(&mut entries, WORD_ROWS);
+                    entries
+                };
+                let asks = std::slice::from_ref(word);
+                let own = rows(
+                    store.exact_any(Side::Word, asks, WORD_ROWS),
+                    &mut reply.failed,
+                );
+                let near = match near {
+                    true => rows(store.near(word, WORD_ROWS * 2), &mut reply.failed),
+                    false => Vec::new(),
+                };
+                reply.found.push(crate::Found {
+                    word: word.clone(),
+                    to: lang.clone(),
+                    own,
+                    near,
+                });
+            }
+        }
         reply
     }
 

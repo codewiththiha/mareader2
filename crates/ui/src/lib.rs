@@ -65,6 +65,7 @@ pub mod toast;
 pub mod view_menu;
 pub mod vocab;
 pub mod widgets;
+pub mod word_list;
 pub mod zoom;
 
 pub use app::MareaderApp;

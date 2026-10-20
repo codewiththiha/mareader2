@@ -149,6 +149,13 @@ fn a_downloaded_dataset_converts_then_shades_hard_words() {
     assert!(!vocab.poll().changed);
     // No tagger, no role.
     assert_eq!(vocab.role("run", text), None);
+    // A word list asks for keys in bulk; known ones answer at once.
+    let keys = ["ephemeral".to_owned(), "zzz".to_owned()];
+    let first = vocab.bands(&keys);
+    assert!(first.first().unwrap().is_some_and(|b| b > 4), "{first:?}");
+    assert!(vocab.asking() || first.get(1).unwrap().is_some());
+    wait(&mut vocab, |v| !v.asking());
+    assert_eq!(vocab.bands(&keys).get(1), Some(&Some(0)), "unknown is 0");
 }
 
 #[test]
