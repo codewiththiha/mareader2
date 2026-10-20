@@ -573,3 +573,28 @@ fn footnotes_open_in_place_and_cross_references_still_jump() {
         .count();
     assert_eq!(jumps, 2, "{to:?}");
 }
+
+#[test]
+fn a_full_height_flex_page_centres_what_it_holds() {
+    let page = |inner: &str| {
+        format!(
+            "<div style=\"display: flex; height: 94vh; justify-content: center; \
+             align-items: center\"><div><p style=\"line-height: 1em\"><br/></p>{inner}\
+             <p style=\"line-height: 1em\"><br/></p></div></div>"
+        )
+    };
+    let table = "<table style=\"width: 17em; margin: 0 auto; border: 0.3em double\">\
+                 <tr><td><p>Key</p><p>Word</p></td></tr></table>";
+    for (name, inner) in [("plain", "<p>Key</p><p>Word</p>"), ("table", table)] {
+        let book = open(Spec::new(&[&page(inner)]).build());
+        let Ok(book) = book else {
+            panic!("{name} didn't open");
+        };
+        let height = book.page_size().1;
+        let tops: Vec<f32> = (book.text(0).iter())
+            .filter_map(|l| l.chars.first().map(|c| c.rect[1]))
+            .collect();
+        let first = tops.first().copied().unwrap_or(0.0);
+        assert!(first > height * 0.3, "{name}: {tops:?} of {height}");
+    }
+}

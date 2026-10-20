@@ -90,14 +90,40 @@ pub struct Inline {
     pub picture: Arc<Picture>,
     pub width: f32,
     pub height: f32,
+    pub rise: Rise,
+}
+
+/// Where a picture in a line sits against its text, as `vertical-align`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Rise {
+    /// Its bottom on the text's baseline.
+    #[default]
+    Baseline,
+    Middle,
+    /// Against the text's ascent or descent.
+    TextTop,
+    TextBottom,
+    /// Against the whole line's top or bottom.
+    Top,
+    Bottom,
+    Sub,
+    Super,
+    /// Raised this many ems of the text; below zero lowers it.
+    By(f32),
 }
 
 impl PartialEq for Inline {
     fn eq(&self, other: &Self) -> bool {
         let size = |i: &Self| [i.width, i.height].map(f32::to_bits);
+        let rise = |i: &Self| match i.rise {
+            Rise::By(em) => Some(em.to_bits()),
+            _ => None,
+        };
         self.at == other.at
             && Arc::ptr_eq(&self.picture, &other.picture)
             && size(self) == size(other)
+            && std::mem::discriminant(&self.rise) == std::mem::discriminant(&other.rise)
+            && rise(self) == rise(other)
     }
 }
 
@@ -349,6 +375,8 @@ pub struct GridRow {
     pub spans: Vec<u16>,
     /// A flex row's share of free space per item; empty is none.
     pub grow: Vec<f32>,
+    /// Rows each cell spans down, its own included; empty is one each.
+    pub down: Vec<u16>,
     /// Shared by a table's rows, whose columns line up.
     pub columns: Arc<Columns>,
 }
