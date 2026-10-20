@@ -533,9 +533,13 @@ fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     });
     if cx.applies(Applies::Book) {
         fonts::tab(ui, &mut s.text);
+    } else if cx.applies(Applies::AiPages) {
+        fonts::ai_tab(ui, &mut s.text);
     } else {
         section(ui, "Text");
-        note(ui, "Open an EPUB, Markdown or text file to set its type.");
+        let text = "Open an EPUB, Markdown or text file to set its type. \
+            A PDF takes type once it has an AI page.";
+        note(ui, text);
     }
     let title = "Split pane appearance";
     rows(ui, cx, Applies::Split, title, |r| pane_look(r, s));
@@ -694,8 +698,8 @@ fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
             switch_row(ui, label, hint, &mut w.independent_textures);
         });
     });
-    // Text settings only reach books, so PDFs alone don't need it.
-    rows(ui, cx, Applies::SplitWithBook, "Pane text", |r| {
+    // Text settings reach books and AI pages; other PDFs don't need it.
+    rows(ui, cx, Applies::SplitWithText, "Pane text", |r| {
         r.always(|ui| {
             let hint = "While split, the Fonts tab changes only the focused pane";
             let label = "Independent text for each pane";

@@ -49,6 +49,24 @@ no parity entry.
 - **Failures.** A toast names the reason in the reader's words. The page
   goes back to the original, and the bubble keeps the reason.
 
+## Type settings for a PDF's results
+
+A PDF has no Fonts settings of its own. Once it has an AI page (a kept
+result, or one being written), Settings › Appearance shows the type its
+results are set in for that pane:
+
+- **Typeface:** body font, size, weight and the stand-in families.
+- **Spacing:** line, paragraph, word, letter and first-line indent.
+- **Lines:** full justification and hyphenation.
+
+The book-only rows (book layout, column alignment, column width, ink and
+pictures) stay hidden: the page sets the measure. Size and weight are
+what a result grows to. A result never outgrows its page, so past the
+room its text shrinks to fit, as under Fitting above. Each change sets
+the results on screen again. With independent text for each pane, a
+PDF pane keeps its own type. "Pane text" shows when a split includes a
+book or a PDF with AI pages.
+
 ## Continuous mode
 
 For Translate and Simplify. The aim: pages are ready as the reader gets

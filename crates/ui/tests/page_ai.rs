@@ -313,3 +313,34 @@ fn staying_on_a_done_page_asks_the_next_pages() -> Out {
     assert!(!ai.shows(pane, 4), "no more than pages at once");
     Ok(())
 }
+
+#[test]
+fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
+    use mareader_ui::settings_window::Tab;
+    let open = |h: &mut H| {
+        h.set_size(egui::vec2(1000.0, 1200.0));
+        h.state_mut().queue(Command::OpenSettings(Tab::Appearance));
+        h.run();
+    };
+    let mut plain = reader(&[("pdf", "sample:5")]);
+    open(&mut plain);
+    assert!(plain.query_by_label("More font size").is_none());
+    assert!(!plain.state().settings_scope().ai_pages);
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("provider", "ollama"),
+        ("page_ai", "0:simplify"),
+    ]);
+    h.run_steps(4);
+    open(&mut h);
+    assert!(h.state().settings_scope().ai_pages);
+    let size = h.state().settings().text.font_size;
+    h.get_by_label("More font size").click();
+    h.run();
+    assert!(
+        h.state().settings().text.font_size > size,
+        "the result's type"
+    );
+    // A book's own layout stays a book's.
+    assert!(h.query_all_by_label("Book layout").next().is_none());
+}

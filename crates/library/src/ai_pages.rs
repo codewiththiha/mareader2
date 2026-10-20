@@ -74,6 +74,12 @@ impl Library {
         out
     }
 
+    /// Whether `book` keeps any result, without sorting them.
+    pub fn has_ai_pages(&self, book: BookId) -> bool {
+        let of = |p: &AiPage| p.alive.value && p.book.value == book;
+        self.ai_pages.values().any(of)
+    }
+
     pub fn ai_page(&self, id: AiPageId) -> Option<&AiPage> {
         self.ai_pages.get(&id).filter(|p| p.alive.value)
     }
