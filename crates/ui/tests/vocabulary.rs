@@ -6,6 +6,7 @@ use std::fs::File;
 use std::path::Path;
 use std::sync::Arc;
 
+use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
@@ -302,4 +303,73 @@ fn a_word_list_says_when_no_word_is_hard() {
     assert_eq!(word_list(&mut h, vec![0]), None);
     h.run();
     assert!(h.query_by_label_contains("No words above C2").is_some());
+}
+
+/// Opens the word list window on `pages` and waits for its list.
+fn window(h: &mut H, pages: Vec<usize>) -> String {
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::WordListWindow { pane, pages });
+    for _ in 0..120 {
+        h.step();
+        if let Some(md) = h.state().word_window_markdown() {
+            return md.to_owned();
+        }
+    }
+    panic!("the list never came");
+}
+
+#[test]
+fn the_window_previews_the_list_and_options_redraw_it() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    let md = window(&mut h, vec![0, 1]);
+    assert!(md.contains("| **quick** | C2 |"), "{md}");
+    h.run();
+    assert!(h.query_by_label("Word list").is_some());
+    // Below the fold of the options, so clicked as a screen reader would.
+    h.get_by_role_and_label(Role::Button, "List")
+        .click_accesskit();
+    h.run();
+    let md = h.state().word_window_markdown().unwrap();
+    assert!(md.contains("**quick** · C2"), "a list now: {md}");
+    let saved = &h.state().settings().study.words.last;
+    assert_eq!(saved.layout, mareader_settings::WordLayout::List);
+    // Removing the language leaves the words alone.
+    h.get_by_label("Remove Burmese").click();
+    h.run();
+    let md = h.state().word_window_markdown().unwrap();
+    assert!(!md.contains("Burmese") && md.contains("**quick**"), "{md}");
+}
+
+#[test]
+fn a_preset_saves_the_options_and_can_drive_quick_export() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    window(&mut h, vec![0]);
+    h.run();
+    h.get_by_label("Save as preset…").click();
+    h.run();
+    // The name field takes the keys as it opens.
+    h.event(Event::Text("Study".into()));
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    let words = &h.state().settings().study.words;
+    assert_eq!(words.presets.len(), 1);
+    assert_eq!(words.presets.first().unwrap().name, "Study");
+    h.get_by_role_and_label(Role::CheckBox, "Use for quick export")
+        .click();
+    h.run();
+    let words = &h.state().settings().study.words;
+    assert_eq!(words.instant.as_deref(), Some("Study"));
+}
+
+#[test]
+fn the_window_copies_its_list() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    let md = window(&mut h, vec![0]);
+    h.run();
+    h.get_by_label("Copy").click();
+    assert_eq!(copied(&mut h, 4).as_deref(), Some(md.as_str()));
 }

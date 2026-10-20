@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use egui::{Id, Response, RichText, Ui};
 use mareader_session::{DocId, Document};
-use mareader_settings::{AiSettings, PageTask, language_name};
+use mareader_settings::{PageTask, Settings, WordOutput, language_name};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -19,15 +19,19 @@ use crate::widgets::menu_row;
 
 /// What the page AI offers picked pages, as of this frame's settings.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AiOffer {
+pub struct Offer {
     /// Some page task has a model.
     pub any: bool,
     /// The language Translate goes to, by tag and name.
     pub language: Option<(String, String)>,
+    /// What the quick word list does, and the preset it uses.
+    pub quick: (WordOutput, Option<String>),
 }
 
-impl AiOffer {
-    pub fn of(ai: &AiSettings) -> Self {
+impl Offer {
+    pub fn of(settings: &Settings) -> Self {
+        let ai = &settings.ai;
+        let words = &settings.study.words;
         let language = ai.tasks.translate.language.as_deref().and_then(|tag| {
             let name = language_name(tag)?;
             Some((tag.to_owned(), name.to_owned()))
@@ -35,6 +39,7 @@ impl AiOffer {
         Self {
             any: PageTask::ALL.iter().any(|t| ai.page_preset(*t).is_some()),
             language,
+            quick: (words.instant().output, words.instant.clone()),
         }
     }
 }
@@ -209,7 +214,7 @@ pub fn bar(ui: &mut Ui, picks: &mut Picks, count: usize, t: &Tokens) {
 /// The menu of the picked pages.
 pub fn picks_menu(
     ui: &mut Ui,
-    (pane, offer): (PaneId, &AiOffer),
+    (pane, offer): (PaneId, &Offer),
     picks: &mut Picks,
     t: &Tokens,
     out: &mut Commands,
@@ -225,13 +230,24 @@ pub fn picks_menu(
         out.push(Command::CopyPages { pane, pages });
         ui.close();
     }
-    let words = menu_row(ui, Icon::Levels, "Copy word list", None, false);
+    let quick = match offer.quick.0 {
+        WordOutput::Copy => "Copy word list",
+        WordOutput::Markdown => "Save word list (.md)",
+        WordOutput::Epub => "Save word list (.epub)",
+    };
+    let preset = offer.quick.1.as_deref();
+    let words = menu_row(ui, Icon::Levels, quick, preset, false);
     if words
         .on_hover_text("The words above your level, with their dictionary meanings")
         .clicked()
     {
         let pages = picks.pages();
         out.push(Command::WordList { pane, pages });
+        ui.close();
+    }
+    if menu_row(ui, Icon::ViewOptions, "Word list…", None, false).clicked() {
+        let pages = picks.pages();
+        out.push(Command::WordListWindow { pane, pages });
         ui.close();
     }
     ui.separator();
@@ -244,7 +260,7 @@ pub fn picks_menu(
 }
 
 /// Summarize, translate and simplify the picked pages, a group at a time.
-fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &AiOffer), picks: &Picks, out: &mut Commands) {
+fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mut Commands) {
     if !offer.any {
         if menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
             out.push(Command::OpenSettings(Tab::Ai));

@@ -39,11 +39,12 @@ pub enum Query {
 }
 
 impl Query {
-    fn lane(&self) -> u8 {
+    /// A newer ask in the same lane drops an older one; none answers all.
+    fn lane(&self) -> Option<u8> {
         match self {
-            Self::LookUp { .. } => 0,
-            Self::Search { .. } => 1,
-            Self::Words { .. } => 2,
+            Self::LookUp { .. } => Some(0),
+            Self::Search { .. } => Some(1),
+            Self::Words { .. } => None,
         }
     }
 }
@@ -425,15 +426,15 @@ mod desk {
             let lanes: Vec<Option<u8>> = jobs
                 .iter()
                 .map(|j| match j {
-                    Job::Ask(_, q) => Some(q.lane()),
+                    Job::Ask(_, q) => q.lane(),
                     Job::Remove(_) => None,
                 })
                 .collect();
             for (i, job) in jobs.into_iter().enumerate() {
                 match job {
                     Job::Ask(ticket, query) => {
-                        let lane = Some(query.lane());
-                        if lanes.iter().skip(i + 1).any(|l| *l == lane) {
+                        let lane = query.lane();
+                        if lane.is_some() && lanes.iter().skip(i + 1).any(|l| *l == lane) {
                             continue;
                         }
                         let mut reply = shelf.answer(&query);

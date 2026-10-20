@@ -20,7 +20,7 @@ use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
-pub use picks::AiOffer;
+pub use picks::Offer;
 use picks::Picks;
 
 /// A cell's page width; two fit the rail with room either side.
@@ -48,7 +48,7 @@ pub struct ThumbState {
     /// Pages picked to act on together.
     picks: Picks,
     /// What the page AI can do with them.
-    offer: AiOffer,
+    offer: Offer,
 }
 
 impl ThumbState {
@@ -62,7 +62,7 @@ impl ThumbState {
         self.picks.clear()
     }
 
-    pub fn set_offer(&mut self, offer: AiOffer) {
+    pub fn set_offer(&mut self, offer: Offer) {
         self.offer = offer;
     }
 }
