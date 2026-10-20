@@ -13,7 +13,8 @@ use mareader_appearance::{
 };
 use mareader_session::Anchor;
 use mareader_settings::{
-    ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings, PaperArea, Settings,
+    BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings, PaperArea,
+    Settings,
 };
 use mareader_workspace::{
     Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
@@ -1129,6 +1130,14 @@ impl MareaderApp {
             }
             "hyphenate" => self.settings.text.hyphenation = value == "true",
             "book_layout" => self.settings.text.book_layout = value == "true",
+            "design" => {
+                self.settings.text.book_design = match value {
+                    "auto" => BookDesign::Auto,
+                    "on" => BookDesign::On,
+                    "off" => BookDesign::Off,
+                    _ => return Err("design: auto, on or off".into()),
+                }
+            }
             "column" => {
                 self.settings.text.column_align = match value {
                     "left" => ColumnAlign::Left,

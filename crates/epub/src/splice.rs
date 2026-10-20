@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use mareader_reflow::{Anchor, Band, Block, Content, Flow, Fonts, PageLine, clip};
+use mareader_reflow::{Anchor, Band, Block, BookFace, Content, Flow, Fonts, PageLine, clip};
 
 /// A result to lay where `from..to` of the book's text was.
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +78,7 @@ impl Spliced {
         base: &Flow,
         blocks: &[Block],
         inserts: &Inserts,
-        old: Option<&Spliced>,
+        (old, faces): (Option<&Spliced>, &[BookFace]),
     ) -> Option<Self> {
         let count = base.page_count();
         let groups = groups(base, blocks, inserts);
@@ -100,7 +100,8 @@ impl Spliced {
             let same = |r: &&Arc<Region>| r.ids == ids && r.base == range && r.side == first % 2;
             let kept = old.and_then(|o| o.regions.iter().find(same)).cloned();
             let region = kept.unwrap_or_else(|| {
-                Arc::new(Region::lay(base, blocks, (&group, range.clone()), first))
+                let group = (group.as_slice(), range.clone());
+                Arc::new(Region::lay(base, blocks, group, (first, faces)))
             });
             out.from_base.extend(range.clone().map(|_| first));
             let n = out.regions.len();
@@ -189,7 +190,7 @@ impl Region {
         base: &Flow,
         blocks: &[Block],
         (group, pages): (&[&Arc<Insert>], Range<usize>),
-        first: usize,
+        (first, faces): (usize, &[BookFace]),
     ) -> Self {
         let start = base.anchor(pages.start).unwrap_or_default();
         let end = match base.anchor(pages.end) {
@@ -212,7 +213,7 @@ impl Region {
         slice(blocks, at..end, &mut out);
         let language = group.iter().find_map(|i| i.language.as_deref());
         let (laid, origins) = out;
-        let fonts = Fonts::system();
+        let fonts = Fonts::system().with_faces(faces);
         let flow = base.region(Arc::new(laid), language, fonts, (first, pages.len()));
         Self {
             base: pages,
@@ -345,7 +346,7 @@ mod tests {
             key: 1,
             list: vec![insert(7, from, to, 900)],
         };
-        let s = Spliced::build(&flow, &blocks, &inserts, None).ok_or("laid")?;
+        let s = Spliced::build(&flow, &blocks, &inserts, (None, &[])).ok_or("laid")?;
         let extra = s.pages.len() - flow.page_count();
         assert!(extra >= 1, "{extra}");
         // Pages before and after are the book's own, in order.
@@ -375,7 +376,7 @@ mod tests {
             key: 1,
             list: vec![insert(1, from, to, 20)],
         };
-        let s = Spliced::build(&flow, &blocks, &inserts, None).ok_or("laid")?;
+        let s = Spliced::build(&flow, &blocks, &inserts, (None, &[])).ok_or("laid")?;
         let region = s.region(0).ok_or("a region")?;
         let all: Vec<_> = (0..region.flow.page_count())
             .flat_map(|p| region.excerpts(p))
@@ -403,14 +404,14 @@ mod tests {
             key: 1,
             list: vec![insert(1, a, c, 30), insert(2, b, c, 30)],
         };
-        let s = Spliced::build(&flow, &blocks, &inserts, None).ok_or("laid")?;
+        let s = Spliced::build(&flow, &blocks, &inserts, (None, &[])).ok_or("laid")?;
         assert!(s.shows(1) && !s.shows(2));
         assert_eq!(s.regions.len(), 1);
         let none = Inserts {
             key: 2,
             list: vec![insert(3, c, a, 30)],
         };
-        assert!(Spliced::build(&flow, &blocks, &none, None).is_none());
+        assert!(Spliced::build(&flow, &blocks, &none, (None, &[])).is_none());
         Ok(())
     }
 
@@ -423,12 +424,12 @@ mod tests {
             key: 1,
             list: vec![insert(1, a, b, 50)],
         };
-        let old = Spliced::build(&flow, &blocks, &one, None).ok_or("laid")?;
+        let old = Spliced::build(&flow, &blocks, &one, (None, &[])).ok_or("laid")?;
         let two = Inserts {
             key: 2,
             list: vec![insert(1, a, b, 50), insert(2, c, d, 50)],
         };
-        let new = Spliced::build(&flow, &blocks, &two, Some(&old)).ok_or("laid")?;
+        let new = Spliced::build(&flow, &blocks, &two, (Some(&old), &[])).ok_or("laid")?;
         let (was, is) = (old.region(0).ok_or("old")?, new.region(0).ok_or("new")?);
         assert!(Arc::ptr_eq(was, is));
         assert_eq!(new.find(was), Some(2));

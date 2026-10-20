@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use egui::{Button, ComboBox, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
-use mareader_settings::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
+use mareader_settings::{
+    BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings,
+};
 
 use super::{disclosure, divider, group, note, row, section, switch_row};
 use crate::theme::Tokens;
@@ -12,6 +14,17 @@ use crate::widgets;
 const PICKER_WIDTH: f32 = 180.0;
 
 pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
+    section(ui, "Book design");
+    group(ui, |ui| {
+        let hint = "A book's own fonts, sizes and spacing; Auto, where it designs pages";
+        row(ui, "Use the book's design", hint, |ui| {
+            // Added right to left, so they read left to right.
+            let design = &mut t.book_design;
+            ui.selectable_value(design, BookDesign::Off, "Off");
+            ui.selectable_value(design, BookDesign::On, "On");
+            ui.selectable_value(design, BookDesign::Auto, "Auto");
+        });
+    });
     section(ui, "Typeface");
     group(ui, |ui| typeface(ui, t));
     section(ui, "Spacing");

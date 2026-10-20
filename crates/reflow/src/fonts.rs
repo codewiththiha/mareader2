@@ -1,8 +1,10 @@
 //! Bundled faces, plus the machine's own when a reader picks one.
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use parley::fontique::{Blob, Collection, CollectionOptions, GenericFamily, SourceCache};
-use parley::{FontContext, LayoutContext};
+use parley::fontique::{
+    Blob, Collection, CollectionOptions, FontInfoOverride, GenericFamily, SourceCache,
+};
+use parley::{FontContext, FontStyle, FontWeight, LayoutContext};
 
 /// The reading face; its weight axis covers every weight setting.
 pub const SERIF: &str = "Literata";
@@ -187,6 +189,63 @@ impl Fonts {
             },
             layout: LayoutContext::new(),
         }
+    }
+}
+
+/// A font a book ships, registered under the family its looks name.
+#[derive(Clone)]
+pub struct BookFace {
+    pub family: String,
+    data: Blob<u8>,
+    pub weight: f32,
+    pub italic: bool,
+}
+
+impl BookFace {
+    pub fn new(family: String, bytes: Vec<u8>, weight: f32, italic: bool) -> Self {
+        let data = Blob::new(Arc::new(bytes));
+        Self {
+            family,
+            data,
+            weight,
+            italic,
+        }
+    }
+
+    /// The file's size in bytes.
+    pub fn len(&self) -> usize {
+        self.data.as_ref().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl std::fmt::Debug for BookFace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BookFace({}, {} bytes)", self.family, self.len())
+    }
+}
+
+impl Fonts {
+    /// A book's faces as well, each under its family; junk is skipped.
+    pub fn with_faces(mut self, faces: &[BookFace]) -> Self {
+        for face in faces {
+            let style = match face.italic {
+                true => FontStyle::Italic,
+                false => FontStyle::Normal,
+            };
+            let info = FontInfoOverride {
+                family_name: Some(&face.family),
+                weight: Some(FontWeight::new(face.weight)),
+                style: Some(style),
+                ..FontInfoOverride::default()
+            };
+            let collection = &mut self.fonts.collection;
+            collection.register_fonts(face.data.clone(), Some(info));
+        }
+        self
     }
 }
 

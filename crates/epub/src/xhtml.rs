@@ -10,10 +10,13 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Block, Content, Emphasis, Frame, Length, Picture, Role, Row, Table, Text,
+    Align, Anchor, Block, Content, Emphasis, Frame, Length, Look, Picture, Role, Row, Table, Text,
 };
 
-use crate::css::{self, Decl, MAX_SHEET, Stylesheet};
+use crate::css::{
+    self, Computed, Ctx, Decl, Display, El, FontFace, Len, Line, MAX_SHEET, ROOT_PX, Stylesheet,
+    TextAlign,
+};
 use crate::href;
 
 /// Open elements tracked at once; deeper nesting is read as flat.
@@ -21,6 +24,26 @@ pub const MAX_DEPTH: usize = 256;
 const MAX_COLUMNS: usize = 32;
 const MAX_BARS: usize = 8;
 const MAX_CLASSES: usize = 16;
+const MAX_ATTRS: usize = 16;
+/// Earlier siblings kept per element, for `+` and `~` selectors.
+const MAX_SIBLINGS: usize = 64;
+/// What a book face's family is registered as: never a machine's own.
+pub(crate) const BOOK_FACE: &str = "book-face-";
+/// Generic families: the reader's own faces stand in.
+const GENERIC: &[&str] = &[
+    "serif",
+    "sans-serif",
+    "monospace",
+    "cursive",
+    "fantasy",
+    "system-ui",
+    "ui-serif",
+    "ui-sans-serif",
+    "ui-monospace",
+    "math",
+    "emoji",
+    "fangsong",
+];
 /// Stylesheets one chapter applies; later ones are ignored.
 pub const MAX_SHEETS: usize = 16;
 /// Indents in body ems, as mareader's stylesheet has them.
@@ -51,6 +74,8 @@ pub(crate) struct Refs {
     pub(crate) extents: HashMap<String, Extent>,
     /// Links marked as leading to a note.
     pub(crate) noterefs: HashSet<u32>,
+    /// The book's fonts that designed text uses.
+    pub(crate) faces: Vec<FontFace>,
 }
 
 /// The blocks an element with an id holds, and whether it is a note.
@@ -81,8 +106,6 @@ pub(crate) trait Library {
 /// What open elements pass down to the text inside them.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Style {
-    italic: bool,
-    bold: bool,
     code: bool,
     pre: bool,
     align: Align,
@@ -96,27 +119,16 @@ struct Style {
     unmarked: bool,
 }
 
-impl Style {
-    fn apply(&mut self, d: &Decl) {
-        self.italic = d.italic.unwrap_or(self.italic);
-        self.bold = d.bold.unwrap_or(self.bold);
-        self.align = d.align.unwrap_or(self.align);
-        self.hidden |= d.hidden.unwrap_or(false);
-        self.unmarked = d.unmarked.unwrap_or(self.unmarked);
-    }
-
-    fn emphasis(&self) -> Emphasis {
-        Emphasis {
-            italic: self.italic,
-            bold: self.bold,
-            code: self.code,
-        }
-    }
-}
-
 struct Open {
     name: String,
     style: Style,
+    computed: Computed,
+    /// Its element, and its children so far: the latest, and a count.
+    el: El,
+    kids: Vec<El>,
+    count: usize,
+    /// Children by tag, for `:nth-of-type`.
+    types: Vec<(String, usize)>,
     /// An ordered list's last item number.
     counter: u32,
     /// Its `path#id`, first block and whether it is a note.
@@ -289,6 +301,64 @@ struct State<'a> {
     list_opened: bool,
     /// Just inside `<pre>`, where one leading newline is dropped.
     pre_opened: bool,
+    /// The root's children, as `Open::kids` keeps an element's.
+    top: Vec<El>,
+    top_count: usize,
+    /// Margins and padding waiting above the next block.
+    gap: Gap,
+    /// The open block's line height, in px.
+    block_line: f32,
+    /// Looks made in this chapter; the next equal one is shared.
+    looks: Vec<Arc<Look>>,
+    signals: Signals,
+}
+
+/// Vertical space waiting for the next block, in px: margins collapse.
+#[derive(Debug, Default, Clone, Copy)]
+struct Gap {
+    positive: f32,
+    negative: f32,
+    fixed: f32,
+}
+
+impl Gap {
+    fn margin(&mut self, px: f32) {
+        if px >= 0.0 {
+            self.positive = self.positive.max(px);
+        } else {
+            self.negative = self.negative.min(px);
+        }
+    }
+
+    /// Space margins don't collapse through, like padding or a blank line.
+    fn fixed(&mut self, px: f32) {
+        self.fixed += self.positive + self.negative + px;
+        (self.positive, self.negative) = (0.0, 0.0);
+    }
+
+    fn take(&mut self) -> f32 {
+        let total = self.fixed + self.positive + self.negative;
+        *self = Self::default();
+        total
+    }
+}
+
+/// What tells a designed chapter from prose (`docs/epub-layout.md`).
+#[derive(Debug, Default)]
+struct Signals {
+    /// Layout tables, flex, borders, block backgrounds, widths, `vh`.
+    strong: bool,
+    faces: bool,
+    letters: bool,
+    /// Paragraph sizes seen, in hundredths of an em.
+    sizes: Vec<u32>,
+}
+
+impl Signals {
+    fn designed(&self) -> bool {
+        let light = [self.faces, self.letters, self.sizes.len() >= 3];
+        self.strong || light.iter().filter(|s| **s).count() >= 2
+    }
 }
 
 impl State<'_> {
@@ -318,7 +388,95 @@ impl State<'_> {
         }
         f.align = self.top().align;
         f.tight = self.in_list() && !std::mem::take(&mut self.list_opened);
+        f.look = Some(self.look());
+        f.before = self.gap.take() / ROOT_PX;
         f
+    }
+
+    /// The computed style of the innermost open block element.
+    fn block_computed(&self) -> Option<&Computed> {
+        let open = self.stack.iter().rev().find(|o| is_block(&o.name));
+        open.or(self.stack.last()).map(|o| &o.computed)
+    }
+
+    fn block_style(&self) -> Computed {
+        self.block_computed().cloned().unwrap_or_default()
+    }
+
+    /// The look of a block starting now; the chapter decides if it shows.
+    fn look(&mut self) -> Arc<Look> {
+        let c = self.block_style();
+        self.block_line = c.line_px();
+        let faces = self.faces(c.family.as_deref());
+        let look = Look {
+            designed: false,
+            size: c.size / ROOT_PX,
+            line_height: match c.line {
+                Line::Normal => None,
+                Line::Factor(f) => Some(f),
+                Line::Px(px) => Some(px / c.size),
+            },
+            letter: c.letter / ROOT_PX,
+            word: c.word / ROOT_PX,
+            indent: c.indent.px(c.size, css::BASE_WIDTH).unwrap_or(0.0) / ROOT_PX,
+            weight: f32::from(c.weight),
+            faces,
+            justify: c.align == TextAlign::Justify,
+        };
+        if let Some(known) = self.looks.iter().rev().take(8).find(|l| ***l == look) {
+            return Arc::clone(known);
+        }
+        let look = Arc::new(look);
+        self.looks.push(Arc::clone(&look));
+        look
+    }
+
+    /// `family` as faces: the book's own by their registered names.
+    fn faces(&mut self, family: Option<&[String]>) -> Vec<String> {
+        let mut out = Vec::new();
+        for name in family.unwrap_or_default() {
+            let lower = name.to_lowercase();
+            if GENERIC.contains(&lower.as_str()) {
+                break;
+            }
+            let shipped: Vec<FontFace> = (self.sheets.iter())
+                .flat_map(|s| &s.faces)
+                .filter(|f| f.family.to_lowercase() == lower)
+                .cloned()
+                .collect();
+            if shipped.is_empty() {
+                out.push(name.clone());
+                continue;
+            }
+            for face in shipped {
+                if !self.refs.faces.contains(&face) {
+                    self.refs.faces.push(face);
+                }
+            }
+            out.push(format!("{BOOK_FACE}{lower}"));
+        }
+        out
+    }
+
+    /// How text written now differs from its block: weight, slant, size.
+    fn emphasis(&self) -> Emphasis {
+        let style = self.top();
+        let c = self.stack.last().map(|o| &o.computed);
+        let (weight, size) = c.map_or((400, ROOT_PX), |c| (c.weight, c.size));
+        let block = self.block_computed();
+        let (block_weight, block_size) = block.map_or((400, ROOT_PX), |c| (c.weight, c.size));
+        let ratio = size / block_size.max(1.0);
+        let sized = (ratio - 1.0).abs() > 0.02;
+        Emphasis {
+            italic: c.is_some_and(|c| c.italic),
+            bold: weight >= 600 && weight > block_weight,
+            code: style.code,
+            size: if sized {
+                (ratio * 100.0).round().clamp(1.0, 1000.0) as u16
+            } else {
+                0
+            },
+        }
     }
 
     fn role(&self) -> Role {
@@ -390,11 +548,16 @@ impl State<'_> {
 
     fn finish(&mut self) {
         if let Some(mut block) = self.current.take() {
+            let written = matches!(&block.content, Content::Text(t) if !t.text.is_empty());
             if let Content::Text(text) = &mut block.content {
                 text.trim_end();
             }
             if !block.is_blank() {
                 self.emit(block);
+            } else if written {
+                // A line of only spaces still takes its height.
+                self.gap
+                    .fixed(block.frame.before * ROOT_PX + self.block_line);
             }
         }
         self.space = false;
@@ -408,7 +571,11 @@ impl State<'_> {
         if self.current.is_none() {
             let mut frame = self.frame();
             frame.marker = self.marker.take();
-            let mut block = Block::new(Content::Text(Text::new(self.role())));
+            let role = self.role();
+            if let Some(look) = frame.look.clone() {
+                self.observe_text(&look, role);
+            }
+            let mut block = Block::new(Content::Text(Text::new(role)));
             block.frame = frame;
             self.current = Some(block);
         }
@@ -429,7 +596,7 @@ impl State<'_> {
         if style.hidden || style.graphic {
             return;
         }
-        let emphasis = style.emphasis();
+        let emphasis = self.emphasis();
         if style.pre {
             let mut text = input.replace('\r', "").replace('\t', TAB);
             if std::mem::take(&mut self.pre_opened) && text.starts_with('\n') {
@@ -468,6 +635,7 @@ impl State<'_> {
     fn line_break(&mut self) {
         let pre = self.top().pre;
         let in_table = self.table.is_some();
+        let blank = (!in_table && !self.top().hidden).then(|| self.block_style().line_px());
         let target = if pre || in_table {
             self.target()
         } else {
@@ -476,8 +644,14 @@ impl State<'_> {
                 _ => None,
             })
         };
-        if let Some(t) = target.filter(|t| pre || !t.text.is_empty()) {
-            t.push("\n", Emphasis::default());
+        match target.filter(|t| pre || !t.text.is_empty()) {
+            Some(t) => t.push("\n", Emphasis::default()),
+            // A break with nothing before it holds a blank line open.
+            None => {
+                if let Some(line) = blank {
+                    self.gap.fixed(line);
+                }
+            }
         }
         self.space = false;
     }
@@ -545,50 +719,127 @@ impl State<'_> {
         }
     }
 
-    fn style_for(&self, tag: &Tag, name: &str) -> Style {
+    fn style_for(&self, name: &str, c: &Computed) -> Style {
         let mut st = self.top();
         match name {
-            "em" | "i" | "cite" | "var" | "dfn" | "address" => st.italic = true,
-            "strong" | "b" => st.bold = true,
             "code" | "kbd" | "samp" | "tt" => st.code = true,
             "pre" | "listing" | "xmp" => st.pre = true,
-            "center" => st.align = Align::Center,
             "svg" | "math" => st.graphic = true,
             "head" | "style" | "script" | "title" | "template" | "noscript" => st.hidden = true,
             _ => {}
         }
-        if let Some(a) = attr(tag, "align").and_then(css::align) {
-            st.align = a;
-        }
-        for d in self.rules(tag, name) {
-            st.apply(&d);
-        }
+        st.align = c.align.align();
+        st.unmarked = c.unmarked;
+        st.hidden |= c.display == Display::None;
         st
     }
 
-    /// The declarations on `tag` in cascade order, its own style last.
-    fn rules(&self, tag: &Tag, name: &str) -> Vec<Decl> {
-        let classes: Vec<&str> = attr(tag, "class")
-            .map(|c| c.split_ascii_whitespace().take(MAX_CLASSES).collect())
-            .unwrap_or_default();
-        let mut found = Vec::new();
-        for (sheet, s) in self.sheets.iter().enumerate() {
-            s.matching(name, &classes, &mut |spec, at, d| {
-                found.push((spec, sheet, at, d))
-            });
+    /// `tag` as selectors see it, placed among its parent's children.
+    fn element(&self, tag: &Tag, name: &str) -> El {
+        let (count, types) = match self.stack.last() {
+            Some(o) => (o.count, o.types.as_slice()),
+            None => (self.top_count, &[][..]),
+        };
+        let typed = types.iter().find(|(t, _)| t == name).map_or(0, |t| t.1);
+        let attrs: Vec<(String, String)> = (tag.attrs.iter())
+            .take(MAX_ATTRS)
+            .map(|a| {
+                (
+                    a.name.local.to_ascii_lowercase().to_string(),
+                    a.value.to_string(),
+                )
+            })
+            .collect();
+        let value = |n: &str| attrs.iter().find(|(k, _)| k == n).map(|(_, v)| v.clone());
+        El {
+            tag: name.to_owned(),
+            id: value("id"),
+            classes: (value("class").unwrap_or_default())
+                .split_ascii_whitespace()
+                .take(MAX_CLASSES)
+                .map(str::to_owned)
+                .collect(),
+            index: count + 1,
+            type_index: typed + 1,
+            attrs,
         }
-        found.sort_by_key(|&(spec, sheet, at, _)| (spec, sheet, at));
-        let mut out: Vec<Decl> = found.into_iter().map(|(_, _, _, d)| d).collect();
-        if let Some(inline) = attr(tag, "style") {
-            out.push(Decl::parse(inline));
-        }
-        out
     }
 
-    /// An image's width as the book sets it: CSS first, then `width`.
-    fn image_width(&self, tag: &Tag) -> Option<Length> {
-        let css = self.rules(tag, "img").iter().rev().find_map(|d| d.width);
-        css.or_else(|| attr(tag, "width").and_then(css::width_attr))
+    /// The cascade for `el`, about to open inside the stack.
+    fn declared(&self, el: &El, tag: &Tag) -> Decl {
+        fn siblings(kids: &[El], open: bool) -> &[El] {
+            match open {
+                true => kids.get(..kids.len().saturating_sub(1)).unwrap_or_default(),
+                false => kids,
+            }
+        }
+        let mut path: Vec<Ctx<'_>> = Vec::with_capacity(self.stack.len() + 1);
+        let mut kids = self.top.as_slice();
+        for open in &self.stack {
+            path.push(Ctx {
+                el: &open.el,
+                before: siblings(kids, true),
+            });
+            kids = &open.kids;
+        }
+        path.push(Ctx {
+            el,
+            before: siblings(kids, false),
+        });
+        css::declared(
+            &self.sheets,
+            &path,
+            &hints(tag, &el.tag),
+            attr(tag, "style"),
+        )
+    }
+
+    /// Records `el` among its parent's children.
+    fn adopt(&mut self, el: &El) {
+        let (kids, count) = match self.stack.last_mut() {
+            Some(o) => {
+                match o.types.iter_mut().find(|(t, _)| *t == el.tag) {
+                    Some(t) => t.1 += 1,
+                    None => o.types.push((el.tag.clone(), 1)),
+                }
+                (&mut o.kids, &mut o.count)
+            }
+            None => (&mut self.top, &mut self.top_count),
+        };
+        if kids.len() >= MAX_SIBLINGS {
+            kids.remove(0);
+        }
+        kids.push(el.clone());
+        *count += 1;
+    }
+
+    /// Notes what makes the chapter designed rather than prose.
+    fn observe(&mut self, name: &str, c: &Computed, d: &Decl) {
+        let block = is_block(name) && !matches!(name, "html" | "body");
+        let cell = matches!(
+            name,
+            "table" | "td" | "th" | "tr" | "thead" | "tbody" | "tfoot" | "caption" | "hr"
+        );
+        let width = match c.width {
+            Len::Auto => false,
+            Len::Percent(p) => p < 99.0,
+            _ => true,
+        };
+        self.signals.strong |= matches!(c.display, Display::Flex | Display::Grid)
+            || (block && !cell && c.border.iter().any(|b| *b > 0.0))
+            || (block && c.background)
+            || (block && !cell && width)
+            || matches!(d.height, Some(Len::Vh(_)));
+    }
+
+    /// Notes a text block's size, spacing and faces for the chapter.
+    fn observe_text(&mut self, look: &Look, role: Role) {
+        self.signals.faces |= look.faces.iter().any(|f| f.starts_with(BOOK_FACE));
+        self.signals.letters |= look.letter >= 0.1 * look.size;
+        let size = (look.size * 20.0).round() as u32 * 5;
+        if role == Role::Paragraph && !self.signals.sizes.contains(&size) {
+            self.signals.sizes.push(size);
+        }
     }
 
     /// Every element meets every sheet, so a chapter keeps a few, once.
@@ -662,6 +913,7 @@ impl State<'_> {
                 t.nested += 1;
             } else if layout {
                 self.laying += usize::from(!tag.self_closing);
+                self.signals.strong = true;
             } else {
                 let frame = self.frame();
                 self.table = Some(TableBuild {
@@ -743,14 +995,16 @@ impl State<'_> {
             return;
         };
         let mut caption = t.caption;
+        let mut frame = t.frame;
         caption.trim_end();
         if !caption.is_blank() {
             let mut block = Block::new(Content::Text(caption));
             block.frame = Frame {
                 align: Align::Center,
-                ..t.frame.clone()
+                ..frame.clone()
             };
             self.emit(block);
+            frame.before = 0.0;
         }
         let mut table = t.table;
         for cell in table.rows.iter_mut().flat_map(|r| r.cells.iter_mut()) {
@@ -759,7 +1013,7 @@ impl State<'_> {
         drop_blank_columns(&mut table);
         table.rows.retain(|r| !r.cells.is_empty());
         let mut block = Block::new(Content::Table(table));
-        block.frame = t.frame;
+        block.frame = frame;
         if !block.is_blank() {
             self.emit(block);
         }
@@ -769,6 +1023,17 @@ impl State<'_> {
     fn start(&mut self, tag: &Tag) -> bool {
         let name: &str = &tag.name;
         self.close_implied(name);
+        let el = self.element(tag, name);
+        let declared = self.declared(&el, tag);
+        let computed = match self.stack.last() {
+            Some(open) => open.computed.child(&declared),
+            None => Computed::default().child(&declared),
+        };
+        self.adopt(&el);
+        let shown = !self.top().hidden && computed.display != Display::None;
+        if shown {
+            self.observe(name, &computed, &declared);
+        }
         let id = attr(tag, "id").or_else(|| attr(tag, "name").filter(|_| name == "a"));
         if let Some(id) = id.filter(|_| !is_block(name)) {
             self.mark(id);
@@ -780,15 +1045,17 @@ impl State<'_> {
             }
             "hr" => {
                 self.boundary(name);
-                if self.table.is_none() && !self.top().hidden {
+                if self.table.is_none() && shown {
+                    self.space_above(&computed);
                     let mut rule = Block::new(Content::Rule);
                     rule.frame = self.frame();
                     self.emit(rule);
+                    self.space_below(&computed);
                 }
                 return false;
             }
             "img" => {
-                let width = self.image_width(tag);
+                let width = picture_width(&computed);
                 self.image(attr(tag, "src"), attr(tag, "alt"), width);
                 return false;
             }
@@ -810,6 +1077,9 @@ impl State<'_> {
                 let key = format!("{}#{}", self.base, id.trim());
                 extent = Some((key, self.first + self.blocks.len(), is_note(tag)));
             }
+            if shown && self.table.is_none() {
+                self.space_above(&computed);
+            }
         }
         if matches!(
             name,
@@ -818,6 +1088,9 @@ impl State<'_> {
             self.start_table(name, tag);
         }
         if is_void(name) || tag.self_closing || self.stack.len() >= MAX_DEPTH {
+            if shown && is_block(name) && self.table.is_none() {
+                self.space_below(&computed);
+            }
             return false;
         }
         if matches!(name, "ul" | "ol") && !self.in_list() {
@@ -826,7 +1099,7 @@ impl State<'_> {
         let counter = attr(tag, "start")
             .and_then(|s| s.trim().parse::<u32>().ok())
             .map_or(0, |s| s.saturating_sub(1));
-        let mut style = self.style_for(tag, name);
+        let mut style = self.style_for(name, &computed);
         if name == "li" {
             // An unmarked item still counts, as CSS counters do.
             let marker = self.next_marker();
@@ -842,6 +1115,11 @@ impl State<'_> {
         self.stack.push(Open {
             name: name.to_owned(),
             style,
+            computed,
+            el,
+            kids: Vec::new(),
+            count: 0,
+            types: Vec::new(),
             counter,
             extent,
         });
@@ -853,7 +1131,8 @@ impl State<'_> {
 
     fn end(&mut self, name: &str) {
         if name == "style" && self.stack.last().is_some_and(|o| o.name == "style") {
-            let sheet = Stylesheet::parse(&std::mem::take(&mut self.style_text));
+            let text = std::mem::take(&mut self.style_text);
+            let sheet = Stylesheet::parse(&text, self.base);
             self.add_sheet(Arc::new(sheet));
         }
         if is_block(name) {
@@ -878,6 +1157,11 @@ impl State<'_> {
         }
         let end = self.first + self.blocks.len();
         let closed: Vec<Open> = self.stack.drain(at..).collect();
+        for open in closed.iter().rev() {
+            if is_block(&open.name) && !open.style.hidden && self.table.is_none() {
+                self.space_below(&open.computed);
+            }
+        }
         for (key, start, note) in closed.into_iter().filter_map(|o| o.extent) {
             if end > start && self.refs.extents.len() < MAX_PLACES {
                 let blocks = start..end;
@@ -886,10 +1170,53 @@ impl State<'_> {
         }
     }
 
+    /// A block's top margin, then its border and padding, above what follows.
+    fn space_above(&mut self, c: &Computed) {
+        self.gap.margin(c.margin_px(0));
+        let inside = c.border[0] + c.padding[0];
+        if inside > 0.0 {
+            self.gap.fixed(inside);
+        }
+    }
+
+    fn space_below(&mut self, c: &Computed) {
+        let inside = c.border[2] + c.padding[2];
+        if inside > 0.0 {
+            self.gap.fixed(inside);
+        }
+        self.gap.margin(c.margin_px(2));
+    }
+
+    /// Marks every look of the chapter as designed.
+    fn design(&mut self) {
+        // Keeping the old looks keeps their addresses unique.
+        let old = std::mem::take(&mut self.looks);
+        let new: HashMap<usize, Arc<Look>> = (old.iter())
+            .map(|l| {
+                let look = Look {
+                    designed: true,
+                    ..(**l).clone()
+                };
+                (Arc::as_ptr(l) as usize, Arc::new(look))
+            })
+            .collect();
+        for block in &mut self.blocks {
+            if let Some(look) = &mut block.frame.look {
+                match new.get(&(Arc::as_ptr(look) as usize)) {
+                    Some(designed) => *look = Arc::clone(designed),
+                    None => Arc::make_mut(look).designed = true,
+                }
+            }
+        }
+    }
+
     fn eof(&mut self) {
         self.finish();
         self.flush_table();
         self.close_from(0);
+        if self.signals.designed() {
+            self.design();
+        }
         // Ids after the last block mark where the next chapter starts.
         let at = Anchor {
             block: self.first + self.blocks.len(),
@@ -899,6 +1226,36 @@ impl State<'_> {
             self.refs.places.entry(key).or_insert(at);
         }
     }
+}
+
+/// An image's width as the book sets it, in reader ems or percent.
+fn picture_width(c: &Computed) -> Option<Length> {
+    match c.width {
+        Len::Px(px) if px > 0.0 => Some(Length::Em((px / ROOT_PX).min(200.0))),
+        Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p.min(100.0))),
+        _ => None,
+    }
+}
+
+/// What HTML attributes say about style, beneath every sheet.
+fn hints(tag: &Tag, name: &str) -> Decl {
+    let mut d = Decl::default();
+    if let Some(a) = attr(tag, "align") {
+        d = Decl::parse(&format!("text-align: {a}"));
+    }
+    let sized = matches!(
+        name,
+        "img" | "table" | "td" | "th" | "col" | "image" | "svg"
+    );
+    if let Some(w) = attr(tag, "width").filter(|_| sized) {
+        let w = w.trim();
+        let unit = if w.ends_with('%') { "" } else { "px" };
+        d.width = Decl::parse(&format!("width: {w}{unit}")).width;
+    }
+    if attr(tag, "bgcolor").is_some() {
+        d.background = Some(true);
+    }
+    d
 }
 
 /// Drops columns blank in every row, such as spacers.
@@ -1128,6 +1485,12 @@ pub(crate) fn read_chapter(
         marker: None,
         list_opened: false,
         pre_opened: false,
+        top: Vec::new(),
+        top_count: 0,
+        gap: Gap::default(),
+        block_line: ROOT_PX * 1.2,
+        looks: Vec::new(),
+        signals: Signals::default(),
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -1238,7 +1601,12 @@ mod tests {
     fn emphasis_marks_spans() {
         let b = read("<p>a <em>b <strong>c</strong></em> <code>d</code></p>");
         assert_eq!(texts(&b), ["a b c d"]);
-        let e = |italic, bold, code| Emphasis { italic, bold, code };
+        let e = |italic, bold, code| Emphasis {
+            italic,
+            bold,
+            code,
+            size: 0,
+        };
         // A collapsed space joins the run after it.
         assert_eq!(
             spans(b.first()),
@@ -1491,7 +1859,7 @@ mod tests {
         if let Some(p) = png(4, 4) {
             shelf.pictures.insert("/OEBPS/images/a.png".into(), p);
         }
-        let sheet = Stylesheet::parse("img.small { width: 2em }");
+        let sheet = Stylesheet::parse("img.small { width: 2em }", "/OEBPS/s.css");
         shelf.sheets.insert("/OEBPS/s.css".into(), Arc::new(sheet));
         let b = read_with(
             &mut shelf,
@@ -1524,7 +1892,10 @@ mod tests {
     #[test]
     fn stylesheets_style_by_tag_and_class() {
         let mut shelf = Shelf::default();
-        let linked = Stylesheet::parse(".it { font-style: italic } .gone { display: none }");
+        let linked = Stylesheet::parse(
+            ".it { font-style: italic } .gone { display: none }",
+            "/OEBPS/css/book.css",
+        );
         shelf
             .sheets
             .insert("/OEBPS/css/book.css".into(), Arc::new(linked));
@@ -1541,6 +1912,7 @@ mod tests {
             italic,
             bold,
             code: false,
+            size: 0,
         };
         assert_eq!(spans(b.first()), [(" x", e(true, true))]);
         assert_eq!(spans(b.get(1)), [("y", e(true, false))]);
@@ -1549,7 +1921,7 @@ mod tests {
     #[test]
     fn a_chapter_applies_a_few_sheets_each_once() {
         let mut shelf = Shelf::default();
-        let linked = Stylesheet::parse(".it { font-style: italic }");
+        let linked = Stylesheet::parse(".it { font-style: italic }", "/OEBPS/css/book.css");
         shelf
             .sheets
             .insert("/OEBPS/css/book.css".into(), Arc::new(linked));
@@ -1621,5 +1993,55 @@ mod tests {
                 Href::Outside("javascript:x()".into()),
             ]
         );
+    }
+
+    fn look(b: Option<&Block>) -> Option<&Look> {
+        b.and_then(|b| b.frame.look.as_deref())
+    }
+
+    #[test]
+    fn designed_chapters_keep_the_books_type_and_space() {
+        let b = read(
+            "<style>@font-face { font-family: Title; src: url(../Fonts/t.ttf) }\
+             .t { font-family: Title, serif; font-size: 2em; letter-spacing: 0.3em }\
+             .gap { margin-top: 1em } p { margin: 0.5em 0 } .lh { line-height: 1em }\
+             </style><p class='t'>TITLE <span style='font-size: 50%'>small</span></p>\
+             <div class='gap'><p class='lh'>cast</p></div><p>after</p>",
+        );
+        assert_eq!(texts(&b), ["TITLE small", "cast", "after"]);
+        let title = look(b.first());
+        assert!(title.is_some_and(|l| l.designed && l.size == 2.0));
+        assert_eq!(
+            title.map(|l| l.faces.clone()),
+            Some(vec![format!("{BOOK_FACE}title")])
+        );
+        assert!(title.is_some_and(|l| (l.letter - 0.6).abs() < 0.01));
+        let small = spans(b.first())
+            .into_iter()
+            .find(|(t, _)| t.trim() == "small");
+        assert_eq!(small.map(|(_, e)| e.size), Some(50));
+        // Margins collapse to the largest; a block's own are in its em.
+        let before: Vec<f32> = b.iter().map(|b| b.frame.before).collect();
+        assert_eq!(before, [1.0, 1.0, 0.5]);
+        assert_eq!(look(b.get(1)).and_then(|l| l.line_height), Some(1.0));
+    }
+
+    #[test]
+    fn prose_chapters_keep_the_readers_type() {
+        let b = read(
+            "<style>p { margin: 1em 0; font-size: 1.1em } h1 { font-size: 2em }\
+             h1 + p { text-align: center }</style>\
+             <h1>One</h1><p>a <b>b</b></p><p>c</p>",
+        );
+        assert!(b.iter().all(|b| look(Some(b)).is_some_and(|l| !l.designed)));
+        // A heading's own weight is no emphasis; bold in a paragraph is.
+        assert!(spans(b.first()).iter().all(|(_, e)| !e.bold));
+        assert!(
+            spans(b.get(1))
+                .iter()
+                .any(|(t, e)| t.trim() == "b" && e.bold)
+        );
+        let aligns: Vec<Align> = b.iter().map(|b| b.frame.align).collect();
+        assert_eq!(aligns, [Align::Start, Align::Center, Align::Start]);
     }
 }

@@ -4,14 +4,15 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use mareader_reflow::{
-    Anchor, Block, Content, Flow, Fonts, PageLine, Picture, Pixels, Region, Role, Typography,
+    Anchor, Block, BookFace, Content, Flow, Fonts, PageLine, Picture, Pixels, Region, Role,
+    Typography,
 };
 use rbook::Epub;
 use rbook::epub::manifest::EpubManifestEntry;
 
-use crate::css::{MAX_SHEET, Stylesheet};
+use crate::css::{FontFace, MAX_SHEET, Stylesheet};
 use crate::splice::{At, Inserts, Spliced, next_layout};
-use crate::xhtml::{self, Href, Library, Refs};
+use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
 
 /// All chapters' markup together; past it the book is refused.
@@ -86,7 +87,7 @@ impl Library for Shelf<'_> {
         let bytes = self.epub.read_resource_bytes(path).ok();
         let sheet = bytes.filter(|b| b.len() <= MAX_SHEET).map(|b| {
             let text = String::from_utf8_lossy(&b);
-            Arc::new(Stylesheet::parse(&text))
+            Arc::new(Stylesheet::parse(&text, path))
         });
         self.sheets.insert(path.to_owned(), sheet.clone());
         sheet
@@ -106,6 +107,8 @@ pub struct Book {
     inserts: Arc<Inserts>,
     spliced: Option<Arc<Spliced>>,
     refs: Arc<Refs>,
+    /// The fonts it ships that its designed chapters use.
+    faces: Arc<Vec<BookFace>>,
     /// What each note link shows, by its target.
     notes: Arc<HashMap<u32, String>>,
     toc: Arc<Vec<TocEntry>>,
@@ -140,14 +143,15 @@ impl Book {
             let (flow, layout) = match same {
                 true => (Arc::clone(&self.flow), self.layout),
                 false => {
-                    let flow = set(&self.blocks, typo, self.language.as_deref());
+                    let language = self.language.as_deref();
+                    let flow = set(&self.blocks, typo, language, &self.faces);
                     (Arc::new(flow.keep_pictures(&self.flow)), next_layout())
                 }
             };
             let inserts = Arc::clone(inserts.unwrap_or(&self.inserts));
             let old = self.spliced.as_deref().filter(|_| same);
             let spliced = (!inserts.list.is_empty())
-                .then(|| Spliced::build(&flow, &self.blocks, &inserts, old))
+                .then(|| Spliced::build(&flow, &self.blocks, &inserts, (old, &self.faces)))
                 .flatten()
                 .map(Arc::new);
             Self {
@@ -158,6 +162,7 @@ impl Book {
                 inserts,
                 spliced,
                 refs: Arc::clone(&self.refs),
+                faces: Arc::clone(&self.faces),
                 notes: Arc::clone(&self.notes),
                 toc: Arc::clone(&self.toc),
                 title: self.title.clone(),
@@ -223,7 +228,8 @@ impl Book {
             return Err(OpenError::Empty);
         }
         let blocks = Arc::new(blocks);
-        let flow = Arc::new(set(&blocks, typo, language.as_deref()));
+        let faces = load_faces(&epub, &refs.faces);
+        let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
         let toc = contents(&epub, &refs, &blocks);
         let notes = crate::notes::find(&blocks, &refs);
         Ok(Self {
@@ -234,6 +240,7 @@ impl Book {
             inserts: Arc::default(),
             spliced: None,
             refs: Arc::new(refs),
+            faces: Arc::new(faces),
             notes: Arc::new(notes),
             toc: Arc::new(toc),
             title,
@@ -550,9 +557,46 @@ fn chapter_text(entry: &EpubManifestEntry) -> Option<String> {
     entry.read_str().ok().or_else(|| bytes().map(lossy))
 }
 
+/// Each shipped font may be this big, and all of them together this.
+const MAX_FACE_BYTES: usize = 32 << 20;
+const MAX_FACES_BYTES: usize = 96 << 20;
+
+/// The book's fonts that its designed text uses; unreadable ones are skipped.
+fn load_faces(epub: &Epub, faces: &[FontFace]) -> Vec<BookFace> {
+    let font = |b: &Vec<u8>| {
+        let magic = b.get(..4).unwrap_or_default();
+        b.len() <= MAX_FACE_BYTES && [&[0, 1, 0, 0][..], b"OTTO", b"true", b"ttcf"].contains(&magic)
+    };
+    let mut total = 0;
+    let mut out = Vec::new();
+    for face in faces {
+        let read = |path: &String| epub.read_resource_bytes(path.as_str()).ok().filter(font);
+        let Some(bytes) = face.src.iter().find_map(read) else {
+            continue;
+        };
+        total += bytes.len();
+        if total > MAX_FACES_BYTES {
+            break;
+        }
+        let family = format!("{BOOK_FACE}{}", face.family.to_lowercase());
+        out.push(BookFace::new(
+            family,
+            bytes,
+            f32::from(face.weight),
+            face.italic,
+        ));
+    }
+    out
+}
+
 /// Lays the blocks out; the book's language beats the default.
-fn set(blocks: &Arc<Vec<Block>>, typo: &Typography, language: Option<&str>) -> Flow {
-    let (blocks, fonts) = (Arc::clone(blocks), Fonts::system());
+fn set(
+    blocks: &Arc<Vec<Block>>,
+    typo: &Typography,
+    language: Option<&str>,
+    faces: &[BookFace],
+) -> Flow {
+    let (blocks, fonts) = (Arc::clone(blocks), Fonts::system().with_faces(faces));
     match language {
         Some(tag) if *tag != typo.language => {
             let typo = Typography {

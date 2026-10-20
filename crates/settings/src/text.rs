@@ -125,6 +125,17 @@ pub enum ColumnAlign {
     Right,
 }
 
+/// When a book's own fonts, sizes and layout show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BookDesign {
+    /// In the chapters a book designs, such as title and cast pages.
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TextSettings {
@@ -156,6 +167,7 @@ pub struct TextSettings {
     pub theme_pictures: bool,
     /// Emoji take the page's theme too; off, their own colours.
     pub theme_emojis: bool,
+    pub book_design: BookDesign,
 }
 
 impl TextSettings {
@@ -208,6 +220,7 @@ impl Default for TextSettings {
             ink_contrast: 100.0,
             theme_pictures: false,
             theme_emojis: false,
+            book_design: BookDesign::Auto,
         }
     }
 }

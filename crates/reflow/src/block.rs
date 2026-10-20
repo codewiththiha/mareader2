@@ -27,6 +27,8 @@ pub struct Emphasis {
     pub bold: bool,
     /// Inline code, set in the mono face.
     pub code: bool,
+    /// Percent of the block's text size; 0 keeps it. Designed text only.
+    pub size: u16,
 }
 
 /// `range` is in bytes of the block's text.
@@ -169,6 +171,42 @@ pub enum Align {
     End,
 }
 
+/// How a designed chapter's book styles a block (`docs/epub-layout.md`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Look {
+    /// Its chapter is designed: in Auto, the book's look applies.
+    pub designed: bool,
+    /// Text size in body ems.
+    pub size: f32,
+    /// A multiple of `size`; none keeps the reader's.
+    pub line_height: Option<f32>,
+    /// Extra advance per letter and per word, in body ems.
+    pub letter: f32,
+    pub word: f32,
+    /// The first line's indent, in body ems.
+    pub indent: f32,
+    pub weight: f32,
+    /// Families tried before the reader's, the book's own included.
+    pub faces: Vec<String>,
+    pub justify: bool,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self {
+            designed: false,
+            size: 1.0,
+            line_height: None,
+            letter: 0.0,
+            word: 0.0,
+            indent: 0.0,
+            weight: 400.0,
+            faces: Vec::new(),
+            justify: false,
+        }
+    }
+}
+
 /// Where a block sits: nesting from lists and quotes, and alignment.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frame {
@@ -183,6 +221,10 @@ pub struct Frame {
     pub tight: bool,
     /// Quoted text, drawn in a softer ink.
     pub soft: bool,
+    /// The book's look, used as the Book design setting says.
+    pub look: Option<Arc<Look>>,
+    /// With a look: the space above, in body ems, margins collapsed.
+    pub before: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -310,6 +352,7 @@ mod tests {
         italic: true,
         bold: false,
         code: false,
+        size: 0,
     };
 
     #[test]
