@@ -11,8 +11,8 @@ use html5ever::tokenizer::{
 };
 use mareader_reflow::{
     Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
-    Emphasis, Flex, Floated, Frame, GridRow, Inline, Length, Look, Picture, Role, Row, Script,
-    Table, Text, VAlign,
+    Emphasis, Flex, Floated, Frame, GridRow, Inline, Justify, Length, Look, Picture, Role, Row,
+    Script, Table, Text, VAlign,
 };
 
 use crate::css::{
@@ -168,6 +168,9 @@ enum Part {
     /// A flex container laying its items in a row, and one of its items.
     FlexBox,
     FlexItem,
+    /// A flex container stacking its items, and one laid as a row of one.
+    Stack,
+    StackItem,
 }
 
 /// A book's box open around what is read (`docs/epub-layout.md`).
@@ -194,6 +197,8 @@ struct GridBuild {
     flex: Option<VAlign>,
     /// Rows each column is still taken for by a cell spanning down.
     taken: Vec<u16>,
+    /// A column stack's item, sure to stay a row of one.
+    single: bool,
 }
 
 /// A grid row being read; its blocks hold a placeholder till it ends.
@@ -210,6 +215,8 @@ struct RowBuild {
     starts: Vec<u16>,
     spans: Vec<u16>,
     grow: Vec<f32>,
+    /// Rows each cell spans down.
+    down: Vec<u16>,
     /// The column after the last cell.
     next: u16,
 }
@@ -551,6 +558,7 @@ impl State<'_> {
                 columns: Arc::new(columns),
                 flex: None,
                 taken: Vec::new(),
+                single: false,
             });
             return Part::Table;
         }
@@ -615,6 +623,7 @@ impl State<'_> {
                     row.valign.push(valign.unwrap_or_default());
                     row.starts.push(u16::try_from(start).unwrap_or(0));
                     row.spans.push(across);
+                    row.down.push(down);
                     row.next = u16::try_from(end).unwrap_or(u16::MAX);
                 }
                 let column = row.widths.len().saturating_sub(1);
@@ -628,8 +637,19 @@ impl State<'_> {
 
     /// Starts a flex row's container or one of its items, if `name` is.
     fn flex_start(&mut self, name: &str, tag: &Tag, c: &Computed) -> Option<Part> {
-        let row = !c.flex_column && c.display == Display::Flex;
-        if row && self.grid.is_none() && name != "table" && !tag.self_closing {
+        let flex = c.display == Display::Flex && name != "table" && !tag.self_closing;
+        let row = flex && !c.flex_column;
+        // A column stack's items after the first keep its row gap above.
+        let stacked = self
+            .stack
+            .last()
+            .filter(|o| o.part == Part::Stack && o.count > 1);
+        if let Some(gap) = stacked.map(|o| o.computed.row_gap).filter(|g| *g > 0.0) {
+            self.gap.fixed(gap);
+        }
+        // A row of one inside lets go, so this row lays out instead.
+        let single = self.grid.as_ref().is_some_and(|g| g.single);
+        if row && (self.grid.is_none() || (single && self.dissolve_flex())) {
             let flex = Flex {
                 justify: c.justify,
                 gap: c.gap / ROOT_PX,
@@ -645,8 +665,16 @@ impl State<'_> {
                 columns: Arc::new(columns),
                 flex: Some(c.align_items.unwrap_or(VAlign::Top)),
                 taken: Vec::new(),
+                single: false,
             });
             return Some(Part::FlexBox);
+        }
+        if let Some(part) = self.stack_item(c) {
+            return Some(part);
+        }
+        let item = (self.grid.as_ref()).is_some_and(|g| g.depth + 1 == self.stack.len());
+        if flex && !item {
+            return Some(Part::Stack);
         }
         let grid = self.grid.as_ref()?;
         let align = grid.flex?;
@@ -685,6 +713,54 @@ impl State<'_> {
         row.column = u16::try_from(row.widths.len() - 1).ok();
         row.boxes = u8::try_from(boxes).unwrap_or(u8::MAX);
         Some(Part::FlexItem)
+    }
+
+    /// Starts an item of the column stack holding it, as a row of one.
+    fn stack_item(&mut self, c: &Computed) -> Option<Part> {
+        let parent = self.stack.last().filter(|o| o.part == Part::Stack)?;
+        let p = &parent.computed;
+        let stretch = (c.self_stretch).unwrap_or(p.items_stretch && c.align_self.is_none());
+        let justify = match c.align_self.or(p.align_items) {
+            _ if stretch => Justify::Start,
+            Some(VAlign::Middle) => Justify::Center,
+            Some(VAlign::Bottom) => Justify::End,
+            _ => Justify::Start,
+        };
+        let width = cell_width(c);
+        // Stretched across, an item lays out as it would in prose.
+        if stretch && width.is_none() {
+            return None;
+        }
+        let single = self.grid.as_ref().is_some_and(|g| g.single);
+        if self.grid.is_some() && !(single && self.dissolve_flex()) {
+            return None;
+        }
+        let depth = self.stack.len() - 1;
+        self.box_arcs();
+        let mut row = RowBuild::new(self.blocks.len());
+        row.before = self.gap.take() / ROOT_PX;
+        row.grow.push(0.0);
+        row.widths.push(width);
+        row.valign.push(VAlign::Top);
+        (row.column, row.boxes) = (Some(0), u8::try_from(self.boxes.len()).unwrap_or(u8::MAX));
+        let flex = Flex {
+            justify,
+            gap: 0.0,
+            wrap: false,
+        };
+        let columns = Columns {
+            flex: Some(flex),
+            ..Columns::default()
+        };
+        self.grid = Some(GridBuild {
+            depth,
+            row: Some(row),
+            columns: Arc::new(columns),
+            flex: Some(VAlign::Top),
+            taken: Vec::new(),
+            single: true,
+        });
+        Some(Part::StackItem)
     }
 
     /// Lets go of a one-item flex row: its layout table becomes the grid.
@@ -742,6 +818,7 @@ impl State<'_> {
             starts: row.starts,
             spans: row.spans,
             grow: row.grow,
+            down: row.down,
             columns: Arc::clone(&grid.columns),
         });
         for block in self.blocks.iter_mut().skip(row.first) {
@@ -1407,11 +1484,13 @@ impl State<'_> {
                 let at = t.text.len();
                 if t.inlines.len() < MAX_INLINES {
                     let picture = Arc::clone(picture);
+                    let rise = computed.map_or_else(Default::default, |c| c.rise);
                     t.inlines.push(Inline {
                         at,
                         picture,
                         width,
                         height,
+                        rise,
                     });
                 }
                 return;
@@ -1428,6 +1507,13 @@ impl State<'_> {
             // A grid's portrait sits over its centred name, read in a row.
             if self.laying > 0 && self.top().align == Align::Start {
                 block.frame.align = Align::Center;
+            }
+            // A column stack's picture takes the place it sets for items.
+            let stack = self.stack.last().filter(|o| o.part == Part::Stack);
+            match stack.and_then(|o| o.computed.align_items) {
+                Some(VAlign::Middle) => block.frame.align = Align::Center,
+                Some(VAlign::Bottom) => block.frame.align = Align::End,
+                _ => {}
             }
             self.emit(block);
         } else if let Some(alt) = alt {
@@ -1760,6 +1846,14 @@ impl State<'_> {
                 self.end_row();
                 self.grid = None;
             }
+            Part::Stack => {}
+            // The space below the item parts it from the next.
+            Part::StackItem => {
+                let below = self.gap;
+                self.end_cell();
+                self.end_row();
+                (self.grid, self.gap) = (None, below);
+            }
         }
     }
 
@@ -1860,7 +1954,9 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
     let padding = c.padding.map(|p| p.max(0.0) / ROOT_PX);
     let flat = margin.iter().all(|m| m.is_none() || *m == zero);
     let drawn = border.iter().any(|w| *w > 0.0);
+    // A share of the screen is the page's, not a length to scale.
     let height = match c.height {
+        _ if matches!(d.height, Some(Len::Vh(_))) => None,
         Len::Px(px) if px > 0.0 && !cell => Some(px / ROOT_PX),
         _ => None,
     };
@@ -1980,6 +2076,7 @@ impl RowBuild {
             starts: Vec::new(),
             spans: Vec::new(),
             grow: Vec::new(),
+            down: Vec::new(),
             next: 0,
         }
     }
@@ -2273,7 +2370,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use mareader_reflow::Justify;
+    use mareader_reflow::Rise;
 
     /// In-memory images and stylesheets, keyed by absolute path.
     #[derive(Default)]
@@ -2879,6 +2976,84 @@ mod tests {
                 .first()
                 .is_some_and(|i| i.at <= 2 && (i.width - 1.0).abs() < 0.01)
         );
+    }
+
+    #[test]
+    fn a_column_flex_lays_each_item_as_its_own_row() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(400, 300) {
+            shelf.pictures.insert("/OEBPS/images/a.png".into(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<div style='display: flex; flex-direction: column; align-items: center; \
+             gap: 2em 1em'><div><p>One</p></div><div style='align-self: stretch'>\
+             <p>Two</p></div><div style='width: 5em'><div style='display: flex'>\
+             <p>A</p><p>B</p></div></div><img src='../images/a.png'/></div>",
+        );
+        let texts: Vec<&str> = b.iter().filter_map(text).map(|t| t.text.trim()).collect();
+        let row = |i: usize| b.get(i).and_then(|b| b.frame.cell.as_ref()).map(|c| &c.row);
+        let justify = |i| row(i).and_then(|r| r.columns.flex).map(|f| f.justify);
+        assert_eq!(texts, ["One", "Two", "A", "B"]);
+        assert_eq!(justify(0), Some(Justify::Center));
+        // Stretched, the second reads as prose, two ems below the first.
+        assert!(row(1).is_none(), "{:?}", b.get(1));
+        assert!(
+            b.get(1).is_some_and(|b| b.frame.before >= 2.0),
+            "{:?}",
+            b.get(1)
+        );
+        // The row inside an item lets the item go and lays out itself.
+        assert_eq!(row(2).map(|r| r.widths.len()), Some(2));
+        assert!(row(2).zip(row(3)).is_some_and(|(a, b)| Arc::ptr_eq(a, b)));
+        assert_eq!(b.get(4).map(|b| b.frame.align), Some(Align::Center));
+        assert!(b.get(4).is_some_and(|b| b.frame.cell.is_none()));
+    }
+
+    #[test]
+    fn a_full_height_flex_box_holds_its_row() {
+        let b = read(
+            "<div style='display: flex; height: 94vh; align-items: center'>\
+             <div><p>Key</p></div></div>",
+        );
+        let frame = b.first().map(|b| &b.frame);
+        let centre = frame.and_then(|f| f.boxes.first()).and_then(|b| b.centre);
+        assert_eq!(centre, Some(0.94), "{frame:?}");
+        let held = frame.and_then(|f| f.boxes.first()).and_then(|b| b.height);
+        assert_eq!(held, None, "the page's share, not a height");
+        assert_eq!(
+            frame.and_then(|f| f.cell.as_ref()).map(|c| c.depth),
+            Some(1)
+        );
+        assert!(
+            frame
+                .and_then(|f| f.look.as_ref())
+                .is_some_and(|l| l.designed)
+        );
+    }
+
+    #[test]
+    fn line_pictures_sit_where_their_vertical_align_puts_them() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(16, 16) {
+            shelf.pictures.insert("/OEBPS/images/s.png".into(), p);
+        }
+        let img =
+            |align: &str| format!("<img style='vertical-align: {align}' src='../images/s.png'/>");
+        let html = ["middle", "text-top", "bottom", "0.25em", "-8px", "auto"].map(img);
+        let b = read_with(&mut shelf, &format!("<p>x {}</p>", html.concat()));
+        let rises: Vec<Rise> = (b.first().and_then(text).into_iter())
+            .flat_map(|t| t.inlines.iter().map(|i| i.rise))
+            .collect();
+        let expected = [
+            Rise::Middle,
+            Rise::TextTop,
+            Rise::Bottom,
+            Rise::By(0.25),
+            Rise::By(-0.5),
+            Rise::Baseline,
+        ];
+        assert_eq!(rises, expected);
     }
 
     #[test]

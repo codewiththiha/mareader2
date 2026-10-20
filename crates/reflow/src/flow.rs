@@ -13,7 +13,7 @@ use parley::{
 
 use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
-    Justify, Length, Link, Look, Role, Script, Table, Text, VAlign,
+    Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
 };
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -320,6 +320,9 @@ pub(crate) struct CellAt {
     valign: VAlign,
     /// The space above the row.
     before: f32,
+    /// Its grid, and the rows its cell spans down.
+    grid: usize,
+    down: u16,
 }
 
 /// A box's borders on one page; a page's cut leaves that side open.
@@ -1517,6 +1520,9 @@ fn enter(c: &Cell, (x, width): (&mut f32, &mut f32), em: f32, at: Option<CellPla
         depth: usize::from(c.depth),
         valign: c.row.valign.get(column).copied().unwrap_or_default(),
         before: if line == 0 { c.row.before } else { gap } * em,
+        grid: Arc::as_ptr(&c.row.columns) as usize,
+        // A wrapped flex line is a row of its own: nothing spans it.
+        down: c.row.down.get(column).copied().unwrap_or(1).max(1),
     }
 }
 
@@ -1866,7 +1872,7 @@ fn layout_text(
             width: size(inline.width),
             height: size(inline.height),
             baseline: None,
-            vertical_align: VerticalAlign::BASELINE,
+            vertical_align: rise(inline.rise, style.size),
         });
     }
     let mut layout = b.build(&shown);
@@ -2047,6 +2053,21 @@ struct Cursor {
     height: f32,
     /// Where the last float on the page ends.
     float_bottom: f32,
+    /// Cells spanning rows down, waiting for those rows.
+    hangs: Vec<Hang>,
+}
+
+/// A cell spanning rows down: placed with its first, aligned past its last.
+struct Hang {
+    /// Its grid, and its rows still to come.
+    grid: usize,
+    rows: u16,
+    /// Where its content ends, and how it sits in the rows it spans.
+    bottom: f32,
+    valign: VAlign,
+    /// Its pieces on the page, and its borders.
+    pieces: Vec<usize>,
+    decos: Range<usize>,
 }
 
 /// A book's box open on the page being filled.
@@ -2090,6 +2111,7 @@ impl OpenBox {
 
 impl Cursor {
     fn break_page(&mut self) {
+        self.settle();
         if !self.page.is_empty() {
             // A box running on is cut here and goes on overleaf.
             for open in &mut self.open {
@@ -2100,6 +2122,43 @@ impl Cursor {
             self.decos.push(std::mem::take(&mut self.deco));
         }
         (self.y, self.float_bottom) = (0.0, 0.0);
+    }
+
+    /// Ends cells spanning down early: what follows starts below them.
+    fn settle(&mut self) {
+        for h in std::mem::take(&mut self.hangs) {
+            self.y = self.y.max(h.bottom);
+        }
+    }
+
+    /// A row of `grid` ended: the cells it ends sit across their rows.
+    fn row_done(&mut self, grid: usize) {
+        let mut y = self.y;
+        for mut h in std::mem::take(&mut self.hangs) {
+            h.rows = h.rows.saturating_sub(1);
+            if h.grid == grid && h.rows > 0 {
+                self.hangs.push(h);
+                continue;
+            }
+            // Taller than its rows: the last of them grows.
+            let room = self.y - h.bottom;
+            y = y.max(h.bottom);
+            let shift = match h.valign {
+                _ if room <= 0.0 => continue,
+                VAlign::Top => continue,
+                VAlign::Middle => room / 2.0,
+                VAlign::Bottom => room,
+            };
+            for i in &h.pieces {
+                if let Some(p) = self.page.get_mut(*i) {
+                    p.dy += shift;
+                }
+            }
+            for d in self.deco.get_mut(h.decos).unwrap_or_default() {
+                d.rect[1] += shift;
+            }
+        }
+        self.y = y;
     }
 
     /// Places `units` of block `block` at the cursor.
@@ -2130,11 +2189,6 @@ impl Cursor {
             let Some(open) = self.open.pop() else {
                 break;
             };
-            if let Some(least) = open.placed.height.filter(|_| !open.continued) {
-                // A set height holds the box open below short content.
-                let floor = open.top + open.placed.inside_top + least;
-                self.y = self.y.max(floor.min(self.height));
-            }
             let mut bottom = self.y + open.placed.bottom;
             if let (Some((pieces, decos)), Some(share)) = (open.centre, open.placed.centre) {
                 // Its content sits mid-way down the height it fills.
@@ -2148,6 +2202,12 @@ impl Cursor {
                 }
                 self.y += shift;
                 bottom += 2.0 * shift;
+            }
+            if let Some(least) = open.placed.height.filter(|_| !open.continued) {
+                // A set height holds the box open below short content.
+                let floor = open.top + open.placed.inside_top + least;
+                self.y = self.y.max(floor.min(self.height));
+                bottom = bottom.max(self.y + open.placed.bottom);
             }
             self.deco.extend(open.deco(bottom, true));
         }
@@ -2261,6 +2321,7 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>,
         }
         i = end;
     }
+    c.settle();
     c.close(0);
     c.break_page();
     if c.pages.is_empty() {
@@ -2272,6 +2333,7 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>,
 
 /// Places a float; what follows starts at its top, unless it ran over.
 fn place_float(c: &mut Cursor, blocks: &[Set], float: Range<usize>, room: (f32, &Typography)) {
+    c.settle();
     let (pages, top) = (c.pages.len(), c.y);
     for k in float.clone() {
         place_block(c, blocks, k, room);
@@ -2299,6 +2361,7 @@ fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &
     if total == 0 {
         return;
     }
+    c.settle();
     c.close(c.common(&block.boxes));
     if block.break_before {
         c.break_page();
@@ -2411,9 +2474,23 @@ fn place_row(
         let inner = b.map_or(&[][..], |b| b.boxes.get(cell.depth..).unwrap_or_default());
         *h += inner.iter().map(|p| p.bottom).fold(0.0, f32::max);
     }
-    let tall = heights.iter().copied().fold(0.0, f32::max);
-    if tall > height {
+    // A cell spanning down leaves this row's height to the rest.
+    let down = |col: usize| {
+        let b = last.get(col).copied().flatten();
+        b.and_then(|b| b.cell).map_or(1, |c| c.down)
+    };
+    let (mut tall, mut need) = (0.0f32, 0.0f32);
+    for (col, h) in heights.iter().enumerate() {
+        need = need.max(*h);
+        if down(col) <= 1 {
+            tall = tall.max(*h);
+        }
+    }
+    if need > height {
         return false;
+    }
+    if c.hangs.iter().any(|h| h.grid != cell.grid) {
+        c.settle();
     }
     let outer = first.boxes.get(..cell.depth).unwrap_or(&first.boxes);
     c.close(c.common(outer));
@@ -2425,23 +2502,28 @@ fn place_row(
     }
     if !c.page.is_empty() {
         c.y += cell.before.max(0.0);
-        if c.y + tall > height {
+        if c.y + need > height {
             c.break_page();
         }
     }
     c.open(outer);
     let top = c.y;
     let mut placed = Vec::with_capacity(members.len());
+    let mut hung: Vec<Vec<usize>> = vec![Vec::new(); columns];
     for ((k, b), at) in row.clone().zip(members).zip(&tops) {
         let col = column(b);
         let room = tall - heights.get(col).copied().unwrap_or(0.0);
         let shift = match b.cell.map(|c| c.valign) {
+            _ if down(col) > 1 => 0.0,
             Some(VAlign::Top) | None => 0.0,
             Some(VAlign::Middle) => room / 2.0,
             Some(VAlign::Bottom) => room,
         };
         let y = top + shift + at;
         let unit = b.units.first().map_or(0.0, |u| u.0);
+        if let Some(pieces) = hung.get_mut(col).filter(|_| down(col) > 1) {
+            pieces.push(c.page.len());
+        }
         c.page.push(Piece {
             block: k,
             units: 0..b.units.len(),
@@ -2449,11 +2531,31 @@ fn place_row(
         });
         placed.push((col, b, y));
     }
+    let mut decos = vec![0..0; columns];
     for col in 0..columns {
         let stack = placed.iter().filter(|(c, ..)| *c == col);
+        let from = c.deco.len();
         cell_decos(stack.map(|(_, b, y)| (*b, *y)), cell.depth, &mut c.deco);
+        if let Some(d) = decos.get_mut(col) {
+            *d = from..c.deco.len();
+        }
     }
     c.y = top + tall;
+    c.row_done(cell.grid);
+    for (col, (pieces, decos)) in hung.into_iter().zip(decos).enumerate() {
+        if pieces.is_empty() {
+            continue;
+        }
+        let valign = last.get(col).copied().flatten().and_then(|b| b.cell);
+        c.hangs.push(Hang {
+            grid: cell.grid,
+            rows: down(col) - 1,
+            bottom: top + heights.get(col).copied().unwrap_or(0.0),
+            valign: valign.map_or(VAlign::Top, |c| c.valign),
+            pieces,
+            decos,
+        });
+    }
     true
 }
 
@@ -2527,6 +2629,24 @@ fn balance(fit: usize, start: usize, total: usize, page_empty: bool) -> usize {
         return 0;
     }
     fit
+}
+
+/// A line picture's place as parley aligns boxes; `size` is the text's.
+fn rise(rise: Rise, size: f32) -> VerticalAlign {
+    match rise {
+        Rise::Baseline => VerticalAlign::BASELINE,
+        Rise::Middle => VerticalAlign::MIDDLE,
+        Rise::TextTop => VerticalAlign::TEXT_TOP,
+        Rise::TextBottom => VerticalAlign::TEXT_BOTTOM,
+        Rise::Top => VerticalAlign::TOP,
+        Rise::Bottom => VerticalAlign::BOTTOM,
+        Rise::Sub => VerticalAlign::SUB,
+        Rise::Super => VerticalAlign::SUPER,
+        Rise::By(em) if em.is_finite() => {
+            VerticalAlign::length((em * size).clamp(-size * 8.0, size * 8.0))
+        }
+        Rise::By(_) => VerticalAlign::BASELINE,
+    }
 }
 
 #[cfg(test)]
@@ -2643,6 +2763,37 @@ mod tests {
     }
 
     #[test]
+    fn a_full_height_box_centres_its_content_down_the_page() {
+        // Held a page tall as well, it still centres.
+        let tall = Arc::new(Boxed {
+            centre: Some(0.94),
+            height: Some(80.0),
+            ..Boxed::default()
+        });
+        let flex = Arc::new(Columns {
+            flex: Some(Flex::default()),
+            ..Columns::default()
+        });
+        let row = row_of(&flex, vec![None], vec![0]);
+        let cell = |row: &Arc<GridRow>| {
+            let mut c = at(row, 0);
+            if let Some(c) = c.as_mut() {
+                c.depth = 1;
+            }
+            c
+        };
+        for (name, cell) in [("plain", None), ("cell", cell(&row))] {
+            let blocks = [
+                designed(para(3), &[Arc::clone(&tall)], cell.clone()),
+                designed(para(3), &[Arc::clone(&tall)], cell),
+            ];
+            let f = flow(&blocks);
+            let (top, _) = span(&f, 0, 0);
+            assert!(top > 300.0, "{name}: {top}");
+        }
+    }
+
+    #[test]
     fn a_grid_rows_cells_sit_side_by_side() {
         let widths = [10.0, 2.0, 10.0].map(|w| Some(Length::Em(w))).to_vec();
         let row = Arc::new(GridRow {
@@ -2756,6 +2907,57 @@ mod tests {
     }
 
     #[test]
+    fn a_cell_spanning_rows_down_sits_across_them() {
+        let columns = Arc::new(Columns::default());
+        let fixed = Some(Length::Em(8.0));
+        let row = |down: Vec<u16>, starts: Vec<u16>| {
+            Arc::new(GridRow {
+                widths: vec![fixed; starts.len()],
+                valign: vec![VAlign::Middle; starts.len()],
+                spans: vec![1; starts.len()],
+                starts,
+                down,
+                columns: Arc::clone(&columns),
+                ..GridRow::default()
+            })
+        };
+        let (first, second, third) = (
+            row(vec![3, 1], vec![0, 1]),
+            row(vec![], vec![1]),
+            row(vec![], vec![1]),
+        );
+        let f = flow(&[
+            words("tall", at(&first, 0)),
+            words("one", at(&first, 1)),
+            words("two", at(&second, 0)),
+            words("three", at(&third, 0)),
+            words("after", None),
+        ]);
+        let [tall, one, two, three, after] = [0, 1, 2, 3, 4].map(|i| span(&f, 0, i));
+        let line = one.1 - one.0;
+        // Its own row is no taller; it sits mid-way down all three.
+        assert!((two.0 - one.1).abs() < line / 2.0, "{one:?} {two:?}");
+        let (middle, rows) = ((tall.0 + tall.1) / 2.0, (one.0 + three.1) / 2.0);
+        assert!((middle - rows).abs() < 1.0, "{tall:?} {one:?} {three:?}");
+        assert!(after.0 >= three.1 - 0.01, "{three:?} {after:?}");
+        // Taller than its rows, the last of them grows to hold it.
+        let first = row(vec![2, 1], vec![0, 1]);
+        let second = row(vec![], vec![1]);
+        let f = flow(&[
+            designed(para(60), &[], at(&first, 0)),
+            words("one", at(&first, 1)),
+            words("two", at(&second, 0)),
+            words("after", None),
+        ]);
+        let [tall, one, two, after] = [0, 1, 2, 3].map(|i| span(&f, 0, i));
+        assert!(
+            two.0 < tall.1 && (two.0 - one.1).abs() < line / 2.0,
+            "{tall:?} {two:?}"
+        );
+        assert!(after.0 >= tall.1 - 0.01, "{tall:?} {after:?}");
+    }
+
+    #[test]
     fn a_cell_spans_the_columns_under_it() {
         let columns = Arc::new(Columns::default());
         let wide = Arc::new(GridRow {
@@ -2829,6 +3031,7 @@ mod tests {
                 picture,
                 width: 1.0,
                 height: 1.0,
+                rise: Rise::Baseline,
             });
         }
         let f = flow(&[block]);

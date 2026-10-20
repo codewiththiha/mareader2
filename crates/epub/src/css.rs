@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Justify, Script, VAlign};
+use mareader_reflow::{Align, Case, Justify, Rise, Script, VAlign};
 
 use crate::href;
 
@@ -194,13 +194,26 @@ pub(crate) struct Decl {
     pub(crate) justify: Option<Justify>,
     pub(crate) align_items: Option<VAlign>,
     pub(crate) align_self: Option<VAlign>,
+    /// `align-items` and `align-self` stretch, across a column's width.
+    pub(crate) items_stretch: Option<bool>,
+    pub(crate) self_stretch: Option<bool>,
     pub(crate) wrap: Option<bool>,
     pub(crate) gap: Option<Len>,
+    pub(crate) row_gap: Option<Len>,
     pub(crate) grow: Option<f32>,
     pub(crate) basis: Option<Len>,
     pub(crate) radius: Option<Len>,
     /// A turn in degrees.
     pub(crate) rotate: Option<f32>,
+    /// `vertical-align` as a line picture reads it.
+    pub(crate) lift: Option<Lift>,
+}
+
+/// `vertical-align` as written: a keyword's place, or a length.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Lift {
+    Keyword(Rise),
+    Length(Len),
 }
 
 /// A colour's red, green and blue.
@@ -316,6 +329,7 @@ impl Decl {
                     "bottom" | "text-bottom" => Some(VAlign::Bottom),
                     _ => self.valign,
                 };
+                self.lift = lift(v).or(self.lift);
                 self.script = Some(match v {
                     "super" => Script::Super,
                     "sub" => Script::Sub,
@@ -354,12 +368,23 @@ impl Decl {
                 }
             }
             "justify-content" => self.justify = justify(v).or(self.justify),
-            "align-items" => self.align_items = flex_align(v).or(self.align_items),
-            "align-self" => self.align_self = flex_align(v).or(self.align_self),
-            "gap" | "column-gap" | "grid-gap" | "grid-column-gap" => {
-                let last = v.split_ascii_whitespace().last().unwrap_or_default();
+            "align-items" => {
+                self.align_items = flex_align(v).or(self.align_items);
+                self.items_stretch = stretch(v).or(self.items_stretch);
+            }
+            "align-self" => {
+                self.align_self = flex_align(v).or(self.align_self);
+                self.self_stretch = stretch(v).or(self.self_stretch);
+            }
+            "gap" | "grid-gap" => {
+                let mut words = v.split_ascii_whitespace();
+                let first = words.next().unwrap_or_default();
+                let last = words.last().unwrap_or(first);
+                self.row_gap = len(first).or(self.row_gap);
                 self.gap = len(last).or(self.gap);
             }
+            "column-gap" | "grid-column-gap" => self.gap = len(v).or(self.gap),
+            "row-gap" | "grid-row-gap" => self.row_gap = len(v).or(self.row_gap),
             "flex-grow" => self.grow = v.parse::<f32>().ok().or(self.grow),
             "flex-basis" => self.basis = len(v).or(self.basis),
             "flex" => self.flex(v),
@@ -506,7 +531,8 @@ impl Decl {
             letter, word, indent, family, background, background_image, float,
             break_before, break_after, valign, script, small_caps, transform, decoration,
             fill, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
-            align_items, align_self, wrap, gap, grow, basis, radius, rotate;
+            align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
+            basis, radius, rotate, lift;
             margin, padding, border_width, border_style);
     }
 
@@ -672,6 +698,44 @@ fn justify(v: &str) -> Option<Justify> {
         "space-around" => Some(Justify::Around),
         "space-evenly" => Some(Justify::Evenly),
         _ => None,
+    }
+}
+
+/// `vertical-align` for a picture in a line.
+fn lift(v: &str) -> Option<Lift> {
+    let keyword = match v {
+        "baseline" => Rise::Baseline,
+        "middle" => Rise::Middle,
+        "text-top" => Rise::TextTop,
+        "text-bottom" => Rise::TextBottom,
+        "top" => Rise::Top,
+        "bottom" => Rise::Bottom,
+        "sub" => Rise::Sub,
+        "super" => Rise::Super,
+        _ => return len(v).filter(|l| *l != Len::Auto).map(Lift::Length),
+    };
+    Some(Lift::Keyword(keyword))
+}
+
+/// A lift in ems of text `size` px high; a percentage takes a line.
+fn rise(lift: Lift, size: f32) -> Rise {
+    let em = match lift {
+        Lift::Keyword(r) => return r,
+        Lift::Length(Len::Em(n)) => n,
+        Lift::Length(Len::Percent(p)) => p / 100.0 * 1.2,
+        Lift::Length(l) => match l.px(size, size) {
+            Some(px) if size > 0.0 => px / size,
+            _ => return Rise::Baseline,
+        },
+    };
+    Rise::By(em.clamp(-8.0, 8.0))
+}
+
+/// Whether `align-items` or `align-self` stretches; none if not read.
+fn stretch(v: &str) -> Option<bool> {
+    match v {
+        "stretch" | "normal" => Some(true),
+        _ => flex_align(v).map(|_| false),
     }
 }
 
@@ -1625,14 +1689,20 @@ pub(crate) struct Computed {
     pub(crate) justify: Justify,
     pub(crate) align_items: Option<VAlign>,
     pub(crate) align_self: Option<VAlign>,
+    /// Items fill a column's width, as `align-items` sets by default.
+    pub(crate) items_stretch: bool,
+    pub(crate) self_stretch: Option<bool>,
     pub(crate) wrap: bool,
-    /// Px.
+    /// Px, between items and between rows or a column's items.
     pub(crate) gap: f32,
+    pub(crate) row_gap: f32,
     pub(crate) grow: f32,
     pub(crate) basis: Len,
     /// Px, or a percentage of the box's width.
     pub(crate) radius: Len,
     pub(crate) rotate: f32,
+    /// A line picture's place against its text.
+    pub(crate) rise: Rise,
     // Inherited.
     pub(crate) small_caps: bool,
     pub(crate) transform: Case,
@@ -1674,12 +1744,16 @@ impl Default for Computed {
             justify: Justify::Start,
             align_items: None,
             align_self: None,
+            items_stretch: true,
+            self_stretch: None,
             wrap: false,
             gap: 0.0,
+            row_gap: 0.0,
             grow: 0.0,
             basis: Len::Auto,
             radius: Len::Px(0.0),
             rotate: 0.0,
+            rise: Rise::Baseline,
             small_caps: false,
             transform: Case::Normal,
         }
@@ -1760,12 +1834,16 @@ impl Computed {
             justify: d.justify.unwrap_or_default(),
             align_items: d.align_items,
             align_self: d.align_self,
+            items_stretch: d.items_stretch.unwrap_or(true),
+            self_stretch: d.self_stretch,
             wrap: d.wrap.unwrap_or(false),
             gap: d.gap.map_or(0.0, |l| px(Some(l)).max(0.0)),
+            row_gap: d.row_gap.map_or(0.0, |l| px(Some(l)).max(0.0)),
             grow: d.grow.unwrap_or(0.0).max(0.0),
             basis: d.basis.map_or(Len::Auto, |l| l.computed(size)),
             radius: d.radius.map_or(Len::Px(0.0), |l| l.computed(size)),
             rotate: d.rotate.unwrap_or(0.0),
+            rise: d.lift.map_or(Rise::Baseline, |l| rise(l, size)),
             small_caps: d.small_caps.unwrap_or(self.small_caps),
             transform: d.transform.unwrap_or(self.transform),
         }
