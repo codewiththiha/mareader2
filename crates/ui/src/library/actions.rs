@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use mareader_library::{BookId, ContentId, FolderId, LinkId, Options, Placement, ShelfId};
+use mareader_library::{BookId, ContentId, Design, FolderId, LinkId, Options, Placement, ShelfId};
 
 use super::find::Finding;
 use super::moving::CopyWork;
@@ -75,6 +75,8 @@ pub enum Action {
     /// Opens the one rename sheet for a book, a shelf or a link.
     AskRename(Named),
     Rename(Named, String),
+    /// A book's own design choice; none follows the reader's setting.
+    Design(BookId, Option<Design>),
     Shelf(super::ShelfAction),
     Pick(PickAction),
     Book(super::BookAction),
@@ -189,6 +191,9 @@ impl LibraryState {
                 }
             }
             Action::Rename(named, name) => self.rename(named, &name),
+            Action::Design(book, design) => {
+                self.model.set_design(book, design, super::wall_ms());
+            }
             Action::Shelf(action) => self.shelf_act(action, out),
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.book_act(action, out),

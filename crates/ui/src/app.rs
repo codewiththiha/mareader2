@@ -14,7 +14,7 @@ use mareader_appearance::{
 use mareader_session::Anchor;
 use mareader_settings::{
     BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings, PaperArea,
-    Settings,
+    Settings, TextSettings,
 };
 use mareader_workspace::{
     Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
@@ -549,6 +549,33 @@ impl MareaderApp {
         &self.settings_window
     }
 
+    /// Panes whose book sets its own design: their text, so overridden.
+    fn book_designs(&self) -> Vec<(PaneId, TextSettings)> {
+        let own = self.texts.own(&self.settings.text);
+        let lib = self.library.model();
+        let pane_text = |pane: PaneId| {
+            let mine = own.iter().find(|(p, _)| *p == pane);
+            mine.map_or(&self.settings.text, |(_, t)| *t)
+        };
+        let designed = |pane: PaneId| {
+            let book = self.library.book_in(&self.documents, pane)?;
+            let design = lib.book(book)?.design.value?;
+            let book_design = match design {
+                mareader_library::Design::Auto => BookDesign::Auto,
+                mareader_library::Design::On => BookDesign::On,
+                mareader_library::Design::Off => BookDesign::Off,
+            };
+            Some((
+                pane,
+                TextSettings {
+                    book_design,
+                    ..pane_text(pane).clone()
+                },
+            ))
+        };
+        self.tree.panes().into_iter().filter_map(designed).collect()
+    }
+
     /// What the focused pane and the workspace show: which settings apply.
     pub fn settings_scope(&self) -> Scope {
         let docs = &self.documents;
@@ -568,7 +595,15 @@ impl MareaderApp {
             self.page_ai.any(lib, pane, docs, (book, name))
         };
         let text = |p: PaneId| docs.reflowable(p) || ai(p);
+        let book_design = match focused {
+            Shown::Book { .. } => self.library.book_in(docs, self.active).and_then(|id| {
+                let book = self.library.model().book(id)?;
+                Some((id, book.design.value))
+            }),
+            _ => None,
+        };
         Scope {
+            book_design,
             focused,
             split: self.tree.len() > 1,
             any_text: self.tree.panes().into_iter().any(text),
@@ -2818,7 +2853,10 @@ impl eframe::App for MareaderApp {
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
-        let own = self.texts.own(&self.settings.text);
+        let designed = self.book_designs();
+        let mut own = self.texts.own(&self.settings.text);
+        own.retain(|(pane, _)| designed.iter().all(|(p, _)| p != pane));
+        own.extend(designed.iter().map(|(pane, text)| (*pane, text)));
         self.documents.set_text(&self.settings.text, &own);
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);

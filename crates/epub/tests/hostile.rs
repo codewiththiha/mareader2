@@ -256,6 +256,62 @@ fn a_real_epub_2_book_opens_with_its_ncx_and_cover() {
     assert!(
         words(&book).contains("Once upon a midnight dreary, while I pondered, weak and weary,")
     );
+    // Plain prose keeps the reader's type: no chapter reads as designed.
+    let designed = book.blocks().iter().filter_map(|b| b.frame.look.as_ref());
+    assert_eq!(designed.filter(|l| l.designed).count(), 0);
+}
+
+#[test]
+fn hostile_grids_flex_rows_turns_and_line_pictures_lay_out() {
+    let flex_items = "<div style=\"flex: 1 1 3em\"><p>f</p></div>".repeat(5000);
+    let cells = "<td><p>c</p></td>".repeat(300);
+    let rows = format!(
+        "<tr><td colspan=\"65535\" rowspan=\"999999999\"><p>s</p></td></tr>{}",
+        format!("<tr>{cells}</tr>").repeat(300)
+    );
+    let deep_flex = format!(
+        "{}<p>Nested.</p>{}",
+        "<div style=\"display: flex\">".repeat(2000),
+        "</div>".repeat(2000)
+    );
+    let pictures = "x<img src=\"i.png\"/>".repeat(3000);
+    let turns = [
+        "rotate(1e30deg)",
+        "rotate(NaNdeg)",
+        "rotate(-infturn)",
+        "rotate(",
+        "rotate(90deg",
+    ]
+    .map(|t| {
+        format!(
+            "<div style=\"transform: {t}; border-radius: 1e30px; border: 1px solid\"><p>t</p></div>"
+        )
+    })
+    .concat();
+    let body = format!(
+        "<div style=\"display: flex; flex-wrap: wrap; gap: -5em; justify-content: space-evenly\">\
+         {flex_items}</div><table role=\"presentation\" style=\"width: 1e30px\">{rows}</table>\
+         {deep_flex}<p>{pictures} Pictured.</p>{turns}<p>Last.</p>"
+    );
+    let mut spec = Spec::new(&[&body]);
+    let attributes = "id=\"i\" media-type=\"image/png\"".to_owned();
+    spec.extra
+        .push(("i.png".to_owned(), claimed_png(4, 4), attributes));
+    let started = std::time::Instant::now();
+    let book = open_on_worker(spec.build());
+    let Ok(book) = book else {
+        panic!("didn't open: {book:?}");
+    };
+    let text = words(&book);
+    for word in ["Nested.", "Pictured.", "Last."] {
+        assert!(text.contains(word), "{word}");
+    }
+    let last = book.page_count().saturating_sub(1);
+    for page in [0, last / 2, last] {
+        let _ = book.render(page, 0.25, [0, 0, 199, 281]);
+        let _ = book.pictures(page);
+    }
+    assert!(started.elapsed().as_secs() < 60, "{:?}", started.elapsed());
 }
 
 #[test]

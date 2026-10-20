@@ -255,6 +255,15 @@ impl Documents {
         self.retype();
     }
 
+    /// The type `pane`'s book is set in now; none for a PDF or nothing.
+    pub fn typography(&self, pane: PaneId) -> Option<Arc<Typography>> {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return None;
+        };
+        let entry = self.session.as_ref()?.get(view.doc)?;
+        entry.doc.is_reflowable().then(|| Arc::clone(&entry.typo))
+    }
+
     fn typo(&self, pane: PaneId) -> &Arc<Typography> {
         self.own.get(&pane).unwrap_or(&self.window)
     }

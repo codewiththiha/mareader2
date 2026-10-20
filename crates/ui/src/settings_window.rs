@@ -532,7 +532,7 @@ fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
         });
     });
     if cx.applies(Applies::Book) {
-        fonts::tab(ui, &mut s.text);
+        fonts::tab(ui, &mut s.text, cx, out);
     } else if cx.applies(Applies::AiPages) {
         fonts::ai_tab(ui, &mut s.text);
     } else {

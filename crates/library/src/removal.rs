@@ -5,7 +5,7 @@ use std::hash::{BuildHasher, RandomState};
 use std::path::PathBuf;
 
 use crate::arrange::Item;
-use crate::book::{Book, Format, Origin, Position};
+use crate::book::{Book, Design, Format, Origin, Position};
 use crate::clock::{Field, Stamp};
 use crate::extra::Extra;
 use crate::folder::Tombstone;
@@ -392,6 +392,7 @@ impl Library {
             restored: None,
             twin_of: Field::new(Some(original.id), at),
             independent: false,
+            design: Field::default(),
             forgot: None,
             extra: Extra::default(),
             ..original
@@ -448,6 +449,19 @@ impl Library {
         let at = self.clock.tick(wall_ms);
         if let Some(book) = self.books.get_mut(&id) {
             book.title = Field::new(title, at);
+        }
+        self.bump();
+        true
+    }
+
+    /// Sets a book's own design choice; none follows the reader's.
+    pub fn set_design(&mut self, id: BookId, design: Option<Design>, wall_ms: u64) -> bool {
+        if self.book(id).is_none_or(|b| b.design.value == design) {
+            return false;
+        }
+        let at = self.clock.tick(wall_ms);
+        if let Some(book) = self.books.get_mut(&id) {
+            book.design = Field::new(design, at);
         }
         self.bump();
         true

@@ -7,13 +7,33 @@ use mareader_settings::{
     BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings,
 };
 
-use super::{disclosure, divider, group, note, row, section, switch_row};
+use mareader_library::{BookId, Design};
+
+use super::{Scope, disclosure, divider, group, note, row, section, switch_row};
+use crate::command::{Command, Commands};
+use crate::library::Action;
 use crate::theme::Tokens;
 use crate::widgets;
 
 const PICKER_WIDTH: f32 = 180.0;
 
-pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
+/// The focused book's own design choice, over the setting above.
+fn this_book(ui: &mut Ui, (book, own): (BookId, Option<Design>), out: &mut Commands) {
+    let hint = "This book only, over the setting above; saved with the book";
+    row(ui, "This book", hint, |ui| {
+        let mut pick = own;
+        // Added right to left, so they read left to right.
+        ui.selectable_value(&mut pick, Some(Design::Off), "Off");
+        ui.selectable_value(&mut pick, Some(Design::On), "On");
+        ui.selectable_value(&mut pick, Some(Design::Auto), "Auto");
+        ui.selectable_value(&mut pick, None, "As set");
+        if pick != own {
+            out.push(Command::Library(Action::Design(book, pick)));
+        }
+    });
+}
+
+pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Commands) {
     section(ui, "Book design");
     group(ui, |ui| {
         let hint = "A book's own fonts, sizes and spacing; Auto, where it designs pages";
@@ -24,6 +44,10 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             ui.selectable_value(design, BookDesign::On, "On");
             ui.selectable_value(design, BookDesign::Auto, "Auto");
         });
+        if let Some(chosen) = cx.book_design {
+            divider(ui);
+            this_book(ui, chosen, out);
+        }
     });
     section(ui, "Typeface");
     group(ui, |ui| typeface(ui, t));

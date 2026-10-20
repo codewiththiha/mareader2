@@ -49,7 +49,7 @@ Library  { books: BTreeMap<BookId, Book>, shelves: BTreeMap<ShelfId, Shelf>,
            sources: BTreeMap<SourceId, Source> }
 Book     { id, content: ContentId, title, author, format: Pdf | Epub,
            locations: Vec<Location>, added, opened, position, marks_key,
-           twin_of: Option<BookId> }
+           twin_of: Option<BookId>, design: Option<Auto | On | Off> }
 Location { path, origin: Source(SourceId) | Store, present: bool, stamp: (size, mtime) }
 Shelf    { id, name, parent: Option<ShelfId>, books: Vec<BookId> }   // manual order
 Source   { id, root, formats, depth, hidden: BTreeSet<BookId> }
