@@ -16,6 +16,7 @@ mod guard;
 mod href;
 mod notes;
 pub mod sample;
+mod splice;
 mod xhtml;
 
 pub use book::{
@@ -25,6 +26,7 @@ pub use book::{
 pub use convert::{Format, MAX_PICTURE_FILE, MAX_TEXT, Pictures, convert};
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
+pub use splice::{Insert, Inserts};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

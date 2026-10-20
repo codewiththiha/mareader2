@@ -13,7 +13,7 @@ use std::sync::Arc;
 use egui::{Context, Pos2, Rect, vec2};
 use mareader_library::{AiPage, AiPageId, AiTask, BookId, Library, NewAiPage, PageSpan};
 use mareader_reflow::{PAD, PAGE_HEIGHT, PAGE_WIDTH, Typography};
-use mareader_session::{Anchor, DocId, Document, Scale};
+use mareader_session::{Anchor, Document, Insert, Inserts, Scale};
 use mareader_settings::{AiSettings, PageTask, SummaryStyle, language_name};
 use mareader_study::page::{Out, Piece, Rewritten};
 use mareader_study::{Failure, Why};
@@ -32,6 +32,8 @@ pub use paint::{Overlay, Pill, PillPress};
 const FADE_IN: f32 = 0.3;
 /// Seconds between settings of a result while it streams in.
 const RESET: f64 = 0.4;
+/// Results kept laid out for a book's pages before they are made again.
+const MAX_MADE: usize = 64;
 
 /// One result: kept with the book, or still being written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -96,7 +98,7 @@ pub struct Asked<'a> {
 /// Who a run is for, and what it asks with.
 struct Who<'a> {
     pane: PaneId,
-    doc: DocId,
+    layout: u64,
     book: Option<BookId>,
     name: &'a str,
     ai: &'a crate::ai::Ai,
@@ -121,7 +123,8 @@ enum Handle {
 /// A result being written.
 struct Run {
     id: u64,
-    doc: DocId,
+    /// The layout its page is counted in: a book's own pages.
+    layout: u64,
     page: usize,
     book: Option<BookId>,
     name: String,
@@ -140,8 +143,11 @@ struct Run {
     redo_of: Option<AiPageId>,
 }
 
-/// A pane's document, and each page's bubbles in order.
-type Drawn = (DocId, Vec<(usize, Vec<Slot>)>);
+/// A pane's layout, and each page's bubbles with their own pages.
+type Drawn = (u64, Vec<(usize, Vec<(Slot, usize)>)>);
+
+/// A pane, a layout and one of its own pages.
+type Key = (PaneId, u64, usize);
 
 /// A result to place: its task, span, words, source and identity.
 type What = (AiTask, PageSpan, Arc<Rewritten>, Option<Arc<Source>>, u64);
@@ -199,9 +205,18 @@ pub struct PageAi {
     loose: Loose,
     runs: Vec<Run>,
     next_run: u64,
-    showing: HashMap<(PaneId, DocId, usize), Showing>,
+    showing: HashMap<Key, Showing>,
     cards: cards::Cards,
-    index: HashMap<DocId, Index>,
+    /// By layout: a book's results laid in keep its own pages' places.
+    index: HashMap<u64, Index>,
+    /// The layout each pane's results were last counted in.
+    aligned: HashMap<PaneId, u64>,
+    /// Results as laid into a book's pages, by id.
+    made: HashMap<AiPageId, Arc<Insert>>,
+    /// Each book result's text, from where to where, as last indexed.
+    spans: HashMap<AiPageId, (Anchor, Anchor)>,
+    /// What each pane's book was last asked to lay in.
+    wants: HashMap<PaneId, Arc<Inserts>>,
     /// Results read once, by id.
     parsed: HashMap<AiPageId, Option<Arc<Rewritten>>>,
     /// Each pane's bubbles as last drawn, to tell which was pressed.
@@ -269,13 +284,26 @@ fn say(f: &Failure) -> String {
     }
 }
 
+/// The own page of a book showing `at`.
+fn base_page(document: &Document, at: [usize; 2]) -> Option<usize> {
+    match document {
+        Document::Epub { book, .. } => Some(book.base_locate(anchor(at))),
+        Document::Pdf(_) => None,
+    }
+}
+
+/// A kept span's end, as a place in the book.
+fn anchor([block, offset]: [usize; 2]) -> Anchor {
+    Anchor { block, offset }
+}
+
 fn hash(v: impl Hash) -> u64 {
     let mut h = DefaultHasher::new();
     v.hash(&mut h);
     h.finish()
 }
 
-/// What a page's text is, ready to send or to show beside a result.
+/// Own page `page`'s text, to send or show beside a result.
 fn source_of(
     view: &AiView,
     documents: &Documents,
@@ -284,7 +312,7 @@ fn source_of(
     match &*view.document {
         Document::Epub { book, .. } => {
             let blocks = book.blocks();
-            let span = extract::span(&book.excerpts(page), blocks).ok_or("blank")?;
+            let span = extract::span(&book.base_excerpts(page), blocks).ok_or("blank")?;
             let source = extract::book(blocks, span);
             let [from, to] = span;
             Ok((source, PageSpan::Blocks { from, to }))
@@ -350,15 +378,15 @@ impl PageAi {
         redo_of: Option<AiPageId>,
         now: f64,
     ) -> Result<u64, &'static str> {
-        let key = (who.pane, who.doc, page);
-        let same = |r: &&Run| r.doc == who.doc && r.task == task && r.span == span;
+        let key = (who.pane, who.layout, page);
+        let same = |r: &&Run| r.layout == who.layout && r.task == task && r.span == span;
         if let Some(run) = self.runs.iter().find(same).filter(|r| r.failed.is_none()) {
             let slot = Slot::Run(run.id);
             self.showing.insert(key, Showing { slot, since: now });
             return Ok(run.id);
         }
         self.runs
-            .retain(|r| !(r.doc == who.doc && r.task == task && r.span == span));
+            .retain(|r| !(r.layout == who.layout && r.task == task && r.span == span));
         let handle = match self.canned {
             true => Handle::Canned(Some(canned(&source))),
             false => start(who.ai, &task, &source)?,
@@ -372,7 +400,7 @@ impl PageAi {
         let id = self.next_run;
         self.runs.push(Run {
             id,
-            doc: who.doc,
+            layout: who.layout,
             page,
             book: who.book,
             name: who.name.to_owned(),
@@ -402,7 +430,7 @@ impl PageAi {
         out: &mut Commands,
     ) -> Option<u64> {
         let view = asked.documents.ai_view(asked.pane)?;
-        let page = asked.page;
+        let page = view.document.to_base(asked.page);
         let note = |s: &str| Command::Notify(Toast::info(s.to_owned()));
         let found = match source_of(&view, asked.documents, page) {
             Ok(found) => found,
@@ -428,7 +456,7 @@ impl PageAi {
         }
         let who = Who {
             pane: asked.pane,
-            doc: view.doc,
+            layout: view.layout,
             book: asked.book,
             name: asked.name,
             ai: asked.ai,
@@ -545,10 +573,18 @@ impl PageAi {
             lib.set_ai_pages_alive(&[old], false, wall);
         }
         self.parsed.insert(saved, Some(Arc::new(result)));
-        for s in self.showing.values_mut() {
-            if s.slot == Slot::Run(id) || run.redo_of.is_some_and(|o| s.slot == Slot::Saved(o)) {
-                s.slot = Slot::Saved(saved);
-            }
+        if let PageSpan::Blocks { from, to } = run.span {
+            self.spans.insert(saved, (anchor(from), anchor(to)));
+        }
+        let was = |s: &Showing| {
+            s.slot == Slot::Run(id) || run.redo_of.is_some_and(|o| s.slot == Slot::Saved(o))
+        };
+        let keys: Vec<(Key, f64)> = (self.showing.iter())
+            .filter(|(_, s)| was(s))
+            .map(|(k, s)| (*k, s.since))
+            .collect();
+        for (key, since) in keys {
+            self.show_on(key, Slot::Saved(saved), since);
         }
     }
 
@@ -575,27 +611,29 @@ impl PageAi {
         let (lib, id) = self.lib(main, book, name);
         let pages = lib.ai_pages(id);
         let key = hash(pages.iter().map(|p| p.id).collect::<Vec<_>>());
-        if let Some(index) = self.index.get(&view.doc).filter(|i| i.key == key) {
+        if let Some(index) = self.index.get(&view.layout).filter(|i| i.key == key) {
             return index.pages.clone();
         }
         let mut map: HashMap<usize, Vec<AiPageId>> = HashMap::new();
+        let mut spans = Vec::new();
         for p in &pages {
+            if let PageSpan::Blocks { from, to } = p.span {
+                spans.push((p.id, (anchor(from), anchor(to))));
+            }
             let page = match p.span {
                 PageSpan::Page { page } => Some(page),
-                PageSpan::Blocks { from, .. } => view.document.locate(Anchor {
-                    block: from[0],
-                    offset: from[1],
-                }),
+                PageSpan::Blocks { from, .. } => base_page(&view.document, from),
             };
-            if let Some(page) = page.filter(|p| *p < view.document.page_count()) {
+            if let Some(page) = page.filter(|p| *p < view.document.base_count()) {
                 map.entry(page).or_default().push(p.id);
             }
         }
+        self.spans.extend(spans);
         if self.index.len() > 8 {
             self.index.clear();
         }
         let pages = map.clone();
-        self.index.insert(view.doc, Index { key, pages });
+        self.index.insert(view.layout, Index { key, pages });
         map
     }
 
@@ -617,73 +655,42 @@ impl PageAi {
                 pill,
             };
         };
+        self.align(main, pane, &view, (book, name));
         let index = self.index(main, &view, (book, name));
         let mut overlays = Vec::new();
         let mut drawn = Vec::new();
         for page in view.visible.clone() {
-            let saved = index.get(&page).map_or(&[][..], Vec::as_slice);
-            let runs: Vec<&Run> = self
-                .runs
-                .iter()
-                .filter(|r| r.doc == view.doc && r.page == page)
-                .filter(|r| r.redo_of.is_none_or(|o| !saved.contains(&o)))
-                .collect();
-            if saved.is_empty() && runs.is_empty() {
-                continue;
-            }
-            let active = self.showing.get(&(pane, view.doc, page)).map(|s| s.slot);
-            let here = match &*view.document {
-                Document::Epub { book, .. } => extract::span(&book.excerpts(page), book.blocks()),
-                Document::Pdf(_) => None,
-            };
+            // A result's first page carries the bubbles of the pages it took.
             let mut slots = Vec::new();
             let mut bubbles = Vec::new();
-            for id in saved {
-                let Some(p) = self.saved(main, *id) else {
-                    continue;
-                };
-                let redoing = self.runs.iter().find(|r| r.redo_of == Some(*id));
-                let stale = match (&p.span, here) {
-                    (PageSpan::Blocks { from, to }, Some(span)) => [*from, *to] != span,
-                    _ => false,
-                };
-                let state = match (redoing, stale) {
-                    (Some(r), _) if r.failed.is_none() => paint::State::Busy,
-                    (_, true) => paint::State::Stale,
-                    _ => paint::State::Ready,
-                };
-                let slot = Slot::Saved(*id);
-                let mut tip = label(&p.task);
-                if state == paint::State::Stale {
-                    tip.push_str(" · made for another text size");
+            let mut card = None;
+            for own in view.document.base_pages(page) {
+                let shown = self.bubbles(main, &view, (pane, own), &index);
+                for (slot, bubble) in shown {
+                    let active = bubble.active;
+                    bubbles.push(bubble);
+                    slots.push((slot, own));
+                    if active && card.is_none() && self.carded(pane, &view, slot) {
+                        card = Some((own, slot));
+                    }
                 }
-                bubbles.push(paint::Bubble {
-                    label: String::new(),
-                    tip,
-                    active: active == Some(slot)
-                        || redoing.is_some_and(|r| active == Some(Slot::Run(r.id))),
-                    state,
-                });
-                slots.push(slot);
             }
-            for r in runs {
-                let slot = Slot::Run(r.id);
-                let (state, tip) = match &r.failed {
-                    Some(why) => (paint::State::Failed, format!("{} · {why}", label(&r.task))),
-                    None => (paint::State::Busy, format!("{} · writing…", label(&r.task))),
-                };
-                bubbles.push(paint::Bubble {
-                    label: String::new(),
-                    tip,
-                    active: active == Some(slot),
-                    state,
-                });
-                slots.push(slot);
+            if slots.is_empty() {
+                // A result's later pages: its menu works there too.
+                let own = view.document.to_base(page);
+                let key = (pane, view.layout, own);
+                if view.document.base_pages(page).is_empty()
+                    && let Some(shown) = self.showing.get(&key)
+                {
+                    drawn.push((page, vec![(shown.slot, own)]));
+                }
+                continue;
             }
             for (n, b) in bubbles.iter_mut().enumerate() {
                 b.label = (n + 1).to_string();
             }
-            let card = active.and_then(|slot| self.shown(ctx, pane, &view, page, slot, main));
+            let card =
+                card.and_then(|(own, slot)| self.shown(ctx, pane, &view, (page, own), slot, main));
             overlays.push(Overlay {
                 page,
                 bubbles,
@@ -691,8 +698,196 @@ impl PageAi {
             });
             drawn.push((page, slots));
         }
-        self.drawn.insert(pane, (view.doc, drawn));
+        self.drawn.insert(pane, (view.layout, drawn));
         PaneAi { overlays, pill }
+    }
+
+    /// Own page `own`'s results as bubbles, kept ones first.
+    fn bubbles(
+        &self,
+        main: &Library,
+        view: &AiView,
+        (pane, own): (PaneId, usize),
+        index: &HashMap<usize, Vec<AiPageId>>,
+    ) -> Vec<(Slot, paint::Bubble)> {
+        let saved = index.get(&own).map_or(&[][..], Vec::as_slice);
+        let runs = (self.runs.iter())
+            .filter(|r| r.layout == view.layout && r.page == own)
+            .filter(|r| r.redo_of.is_none_or(|o| !saved.contains(&o)));
+        let active = self.showing.get(&(pane, view.layout, own)).map(|s| s.slot);
+        let here = match &*view.document {
+            Document::Epub { book, .. } => extract::span(&book.base_excerpts(own), book.blocks()),
+            Document::Pdf(_) => None,
+        };
+        let mut out = Vec::new();
+        for id in saved {
+            let Some(p) = self.saved(main, *id) else {
+                continue;
+            };
+            let redoing = self.runs.iter().find(|r| r.redo_of == Some(*id));
+            let stale = match (&p.span, here) {
+                (PageSpan::Blocks { from, to }, Some(span)) => [*from, *to] != span,
+                _ => false,
+            };
+            let state = match (redoing, stale) {
+                (Some(r), _) if r.failed.is_none() => paint::State::Busy,
+                (_, true) => paint::State::Stale,
+                _ => paint::State::Ready,
+            };
+            let slot = Slot::Saved(*id);
+            let mut tip = label(&p.task);
+            if state == paint::State::Stale {
+                tip.push_str(" · made for another text size");
+            }
+            let active =
+                active == Some(slot) || redoing.is_some_and(|r| active == Some(Slot::Run(r.id)));
+            let bubble = paint::Bubble {
+                label: String::new(),
+                tip,
+                active,
+                state,
+            };
+            out.push((slot, bubble));
+        }
+        for r in runs {
+            let slot = Slot::Run(r.id);
+            let (state, tip) = match &r.failed {
+                Some(why) => (paint::State::Failed, format!("{} · {why}", label(&r.task))),
+                None => (paint::State::Busy, format!("{} · writing…", label(&r.task))),
+            };
+            let bubble = paint::Bubble {
+                label: String::new(),
+                tip,
+                active: active == Some(slot),
+                state,
+            };
+            out.push((slot, bubble));
+        }
+        out
+    }
+
+    /// Whether `slot` shows as a card: a book's, until laid in.
+    fn carded(&self, pane: PaneId, view: &AiView, slot: Slot) -> bool {
+        let Slot::Saved(id) = slot else {
+            return true;
+        };
+        if !view.document.is_reflowable() {
+            return true;
+        }
+        let asked = self.wants.get(&pane).map_or(0, |w| w.key);
+        let laid = view.document.inserts_key() == asked;
+        !laid && !view.document.shows(id.0)
+    }
+
+    /// Re-counts `pane`'s shown results once new type moves its pages.
+    fn align(&mut self, main: &Library, pane: PaneId, view: &AiView, who: (Option<BookId>, &str)) {
+        let old = self.aligned.insert(pane, view.layout);
+        if old.is_none_or(|o| o == view.layout) {
+            return;
+        }
+        let (lib, book) = self.lib(main, who.0, who.1);
+        let page_of = |span: &PageSpan| match span {
+            PageSpan::Page { page } => Some(*page),
+            PageSpan::Blocks { from, .. } => base_page(&view.document, *from),
+        };
+        let moved: Vec<(Key, Option<usize>)> = (self.showing.iter())
+            .filter(|((p, l, _), _)| *p == pane && *l != view.layout)
+            .map(|(key, shown)| {
+                let page = match shown.slot {
+                    Slot::Saved(id) => {
+                        let p = lib.ai_page(id).filter(|p| p.book.value == book);
+                        p.and_then(|p| page_of(&p.span))
+                    }
+                    Slot::Run(id) => (self.runs.iter())
+                        .find(|r| r.id == id && r.book == who.0 && r.name == who.1)
+                        .and_then(|r| page_of(&r.span)),
+                };
+                (*key, page)
+            })
+            .collect();
+        for (key, page) in moved {
+            let Some(shown) = self.showing.remove(&key) else {
+                continue;
+            };
+            let Some(page) = page else {
+                continue;
+            };
+            if let Slot::Run(id) = shown.slot
+                && let Some(r) = self.runs.iter_mut().find(|r| r.id == id)
+            {
+                (r.layout, r.page) = (view.layout, page);
+            }
+            self.showing.insert((pane, view.layout, page), shown);
+        }
+    }
+
+    /// The kept results `pane`'s book lays in; none for a PDF.
+    pub fn inserts(
+        &mut self,
+        main: &Library,
+        pane: PaneId,
+        documents: &Documents,
+        who: (Option<BookId>, &str),
+    ) -> Option<Arc<Inserts>> {
+        let view = documents.ai_view(pane)?;
+        let Document::Epub { book, .. } = &*view.document else {
+            self.wants.remove(&pane);
+            return None;
+        };
+        self.align(main, pane, &view, who);
+        let mut ids: Vec<AiPageId> = (self.showing.iter())
+            .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
+            .filter_map(|(_, s)| match s.slot {
+                Slot::Saved(id) => Some(id),
+                Slot::Run(_) => None,
+            })
+            .collect();
+        ids.sort_unstable();
+        let key = match ids.is_empty() {
+            true => 0,
+            false => hash(("inserts", &ids)).max(1),
+        };
+        if let Some(w) = self.wants.get(&pane).filter(|w| w.key == key) {
+            return Some(Arc::clone(w));
+        }
+        let mut list = Vec::new();
+        for id in ids {
+            if let Some(made) = self.made.get(&id) {
+                list.push(Arc::clone(made));
+                continue;
+            }
+            let Some(p) = self.saved(main, id) else {
+                continue;
+            };
+            let (task, span) = (p.task.clone(), p.span.clone());
+            let PageSpan::Blocks { from, to } = span else {
+                continue;
+            };
+            let Some(result) = self.result(main, id) else {
+                continue;
+            };
+            let source = extract::book(book.blocks(), [from, to]);
+            let blocks = extract::blocks(&result, &source, book.blocks());
+            let language = match task {
+                AiTask::Translate { language } => Some(language),
+                _ => None,
+            };
+            let made = Arc::new(Insert {
+                id: id.0,
+                from: anchor(from),
+                to: anchor(to),
+                blocks: Arc::new(blocks),
+                language,
+            });
+            if self.made.len() > MAX_MADE {
+                self.made.clear();
+            }
+            self.made.insert(id, Arc::clone(&made));
+            list.push(made);
+        }
+        let inserts = Arc::new(Inserts { key, list });
+        self.wants.insert(pane, Arc::clone(&inserts));
+        Some(inserts)
     }
 
     /// The card of `slot` on `page`, set for the pane's type and zoom.
@@ -701,11 +896,11 @@ impl PageAi {
         ctx: &Context,
         pane: PaneId,
         view: &AiView,
-        page: usize,
+        (page, own): (usize, usize),
         slot: Slot,
         main: &Library,
     ) -> Option<paint::Shown> {
-        let since = self.showing.get(&(pane, view.doc, page))?.since;
+        let since = self.showing.get(&(pane, view.layout, own))?.since;
         let old = match slot {
             Slot::Saved(id) => id,
             Slot::Run(id) => {
@@ -803,7 +998,7 @@ impl PageAi {
         }
         let ppp = ctx.pixels_per_point();
         let scale = Scale::covering(view.zoom * ppp).value();
-        let slot = hash((pane, view.doc, page, &task, &span));
+        let slot = hash((pane, view.layout, page, &task, &span));
         let key = hash((
             ident,
             format!("{typo:?}"),
@@ -847,7 +1042,7 @@ impl PageAi {
 
     /// A bubble was pressed: its result shows, or the page again.
     pub fn pick(&mut self, pane: PaneId, page: usize, index: usize, at: Pos2, now: f64) {
-        let Some((doc, slot)) = self.slot_at(pane, page, index) else {
+        let Some((layout, slot, own)) = self.slot_at(pane, page, index) else {
             return;
         };
         if let Slot::Run(id) = slot
@@ -862,35 +1057,62 @@ impl PageAi {
             });
             return;
         }
-        let key = (pane, doc, page);
+        let key = (pane, layout, own);
         match self.showing.get(&key) {
             Some(s) if s.slot == slot => {
                 self.showing.remove(&key);
             }
-            _ => {
-                self.showing.insert(key, Showing { slot, since: now });
-            }
+            _ => self.show_on(key, slot, now),
         }
     }
 
-    fn slot_at(&self, pane: PaneId, page: usize, index: usize) -> Option<(DocId, Slot)> {
-        let (doc, pages) = self.drawn.get(&pane)?;
+    /// Shows `slot` on own page `key`; others of the same text give way.
+    fn show_on(&mut self, key: Key, slot: Slot, now: f64) {
+        let span = |slot: Slot| match slot {
+            Slot::Saved(id) => self.spans.get(&id).copied(),
+            Slot::Run(_) => None,
+        };
+        // Only one result of any text is laid into the pages.
+        if let Some((from, to)) = span(slot) {
+            let (pane, layout, _) = key;
+            let overlaps: Vec<Key> = (self.showing.iter())
+                .filter(|((p, l, _), _)| *p == pane && *l == layout)
+                .filter(|(_, s)| span(s.slot).is_some_and(|(a, b)| a < to && from < b))
+                .map(|(k, _)| *k)
+                .collect();
+            for k in overlaps {
+                self.showing.remove(&k);
+            }
+        }
+        self.showing.insert(key, Showing { slot, since: now });
+    }
+
+    /// The bubble `index` on page `page`: its layout, slot and own page.
+    fn slot_at(&self, pane: PaneId, page: usize, index: usize) -> Option<(u64, Slot, usize)> {
+        let (layout, pages) = self.drawn.get(&pane)?;
         let slots = &pages.iter().find(|(p, _)| *p == page)?.1;
-        Some((*doc, *slots.get(index)?))
+        let (slot, own) = *slots.get(index)?;
+        Some((*layout, slot, own))
     }
 
     /// Shows `slot` over the page, or the page itself.
     pub fn show_result(&mut self, pane: PaneId, page: usize, slot: Option<Slot>, now: f64) {
-        let Some((doc, _)) = self.drawn.get(&pane) else {
+        let Some((layout, pages)) = self.drawn.get(&pane) else {
             return;
         };
-        let key = (pane, *doc, page);
+        let layout = *layout;
+        let slots = pages.iter().find(|(p, _)| *p == page);
+        let slots = slots.map(|(_, s)| s.clone()).unwrap_or_default();
         match slot {
             Some(slot) => {
-                self.showing.insert(key, Showing { slot, since: now });
+                if let Some((_, own)) = slots.iter().find(|(s, _)| *s == slot) {
+                    self.show_on((pane, layout, *own), slot, now);
+                }
             }
             None => {
-                self.showing.remove(&key);
+                for (_, own) in slots {
+                    self.showing.remove(&(pane, layout, own));
+                }
             }
         }
     }
@@ -935,7 +1157,7 @@ impl PageAi {
 
     /// Opens a bubble's menu, at a right-click.
     pub fn open_bubble_menu(&mut self, pane: PaneId, page: usize, index: usize, at: Pos2) {
-        if let Some((_, slot)) = self.slot_at(pane, page, index) {
+        if let Some((_, slot, _)) = self.slot_at(pane, page, index) {
             self.menu = None;
             self.bubble_menu = Some(BubbleMenu {
                 pane,
@@ -959,7 +1181,8 @@ impl PageAi {
         let Some(view) = asked.documents.ai_view(asked.pane) else {
             return false;
         };
-        let Ok((source, span)) = source_of(&view, asked.documents, asked.page) else {
+        let page = view.document.to_base(asked.page);
+        let Ok((source, span)) = source_of(&view, asked.documents, page) else {
             return false;
         };
         let result = canned(&source);
@@ -976,7 +1199,7 @@ impl PageAi {
             return false;
         };
         let slot = Slot::Saved(id);
-        let key = (asked.pane, view.doc, asked.page);
+        let key = (asked.pane, view.layout, page);
         self.showing.insert(key, Showing { slot, since: now });
         true
     }
@@ -993,13 +1216,14 @@ impl PageAi {
             return false;
         };
         let (lib, book) = self.lib(main, who.0, who.1);
-        lib.has_ai_pages(book) || self.runs.iter().any(|r| r.doc == view.doc)
+        lib.has_ai_pages(book) || self.runs.iter().any(|r| r.layout == view.layout)
     }
 
     /// Shots: whether the page's text is in, to be worked on.
     pub fn can_read(&self, asked: &Asked<'_>) -> bool {
         let view = asked.documents.ai_view(asked.pane);
-        view.is_some_and(|v| source_of(&v, asked.documents, asked.page).is_ok())
+        let page = |v: &AiView| v.document.to_base(asked.page);
+        view.is_some_and(|v| source_of(&v, asked.documents, page(&v)).is_ok())
     }
 
     /// Tests: results are set on the frame, not on a thread.
@@ -1020,8 +1244,15 @@ impl PageAi {
 
     /// Whether the page shows a result in `pane`, for the menu.
     fn showing_on(&self, pane: PaneId, page: usize) -> Option<Slot> {
-        let (doc, _) = self.drawn.get(&pane)?;
-        self.showing.get(&(pane, *doc, page)).map(|s| s.slot)
+        let (layout, pages) = self.drawn.get(&pane)?;
+        let Some((_, slots)) = pages.iter().find(|(p, _)| *p == page) else {
+            // Off screen: a book's pages there are taken as its own.
+            return self.showing.get(&(pane, *layout, page)).map(|s| s.slot);
+        };
+        slots.iter().find_map(|(_, own)| {
+            let shown = self.showing.get(&(pane, *layout, *own))?;
+            Some(shown.slot)
+        })
     }
 }
 

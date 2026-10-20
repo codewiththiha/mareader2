@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use mareader_pdf::{Bounds, PageText};
-use mareader_reflow::{Block, Content, Emphasis, Frame, Role as BlockRole, Text};
+use mareader_reflow::{Block, Content, Emphasis, Frame, Role as BlockRole, Text, clip};
 use mareader_study::page::{Kept, Out, PdfLine, Piece, Rewritten, Role, pdf_pieces};
 
 /// Where a piece came from: a block's bytes or rows, or nowhere.
@@ -88,19 +88,6 @@ pub fn book(blocks: &[Block], [from, to]: [[usize; 2]; 2]) -> Source {
         out.push(Piece::Kept(piece), Origin::Block { index, range: 0..1 });
     }
     out
-}
-
-/// `range` of `text`, held to its length and to character edges.
-fn clip(text: &str, range: Range<usize>) -> Range<usize> {
-    let edge = |mut i: usize| {
-        i = i.min(text.len());
-        while !text.is_char_boundary(i) {
-            i -= 1;
-        }
-        i
-    };
-    let (start, end) = (edge(range.start), edge(range.end));
-    start..end.max(start)
 }
 
 fn text_piece(t: &Text, frame: &Frame, range: Range<usize>) -> Option<Piece> {
@@ -217,7 +204,7 @@ pub fn blocks(result: &Rewritten, source: &Source, original: &[Block]) -> Vec<Bl
         match o {
             Out::Kept(i) => {
                 if let Some((block, range)) = origin(*i) {
-                    out.push(cut(block, range));
+                    out.push(block.cut(range));
                 }
             }
             Out::Text {
@@ -281,58 +268,6 @@ fn text_block(role: Role, text: &str, code: &[Range<usize>], from: Option<&Block
         frame,
         break_before: false,
     }
-}
-
-/// `range` of `block`: bytes of its text or rows of its table.
-fn cut(block: &Block, range: Range<usize>) -> Block {
-    let content = match &block.content {
-        Content::Text(t) => Content::Text(cut_text(t, range)),
-        Content::Table(t) => {
-            let rows = t.rows.get(range).map(<[_]>::to_vec).unwrap_or_default();
-            Content::Table(mareader_reflow::Table { rows })
-        }
-        other => other.clone(),
-    };
-    Block {
-        content,
-        frame: block.frame.clone(),
-        break_before: false,
-    }
-}
-
-fn cut_text(t: &Text, range: Range<usize>) -> Text {
-    let range = clip(&t.text, range);
-    if range == (0..t.text.len()) {
-        return t.clone();
-    }
-    let shift = |r: &Range<usize>| {
-        let start = r.start.max(range.start);
-        let end = r.end.min(range.end);
-        (start < end).then(|| start - range.start..end - range.start)
-    };
-    let mut out = Text::new(t.role);
-    out.text = t.text.get(range.clone()).unwrap_or_default().to_owned();
-    out.spans = t
-        .spans
-        .iter()
-        .filter_map(|s| {
-            Some(mareader_reflow::Span {
-                range: shift(&s.range)?,
-                emphasis: s.emphasis,
-            })
-        })
-        .collect();
-    out.links = t
-        .links
-        .iter()
-        .filter_map(|l| {
-            Some(mareader_reflow::Link {
-                range: shift(&l.range)?,
-                target: l.target,
-            })
-        })
-        .collect();
-    out
 }
 
 /// The result as plain text, for the clipboard.

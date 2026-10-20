@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mareader_epub::{Book, Destination, Format, MAX_PICTURE_FILE};
+use mareader_epub::{Book, Destination, Format, Inserts, MAX_PICTURE_FILE};
 use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError};
@@ -82,9 +82,75 @@ impl Document {
 
     /// The same book in other type; none for a PDF or on failure.
     pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
+        self.reset(typo, None)
+    }
+
+    /// The book in `typo` with `inserts` laid in; none keeps its own.
+    pub fn reset(&self, typo: &Typography, inserts: Option<&Arc<Inserts>>) -> Option<Self> {
         match self {
             Self::Pdf(_) => None,
-            Self::Epub { book, .. } => book.retypeset(typo).map(Self::epub),
+            Self::Epub { book, .. } => book.reset(typo, inserts).map(Self::epub),
+        }
+    }
+
+    /// The results a book was asked to show; zero for none, or a PDF.
+    pub fn inserts_key(&self) -> u64 {
+        match self {
+            Self::Pdf(_) => 0,
+            Self::Epub { book, .. } => book.inserts_key(),
+        }
+    }
+
+    /// Names a book's own layout, which results laid in keep.
+    pub fn layout(&self) -> Option<u64> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => Some(book.layout()),
+        }
+    }
+
+    /// Whether result `id` is laid in a book's pages.
+    pub fn shows(&self, id: u128) -> bool {
+        matches!(self, Self::Epub { book, .. } if book.shows(id))
+    }
+
+    /// The own page page `page` stands for; a PDF's pages are its own.
+    pub fn to_base(&self, page: usize) -> usize {
+        match self {
+            Self::Pdf(_) => page,
+            Self::Epub { book, .. } => book.to_base(page),
+        }
+    }
+
+    /// The page showing own page `page`.
+    pub fn from_base(&self, page: usize) -> usize {
+        match self {
+            Self::Pdf(_) => page,
+            Self::Epub { book, .. } => book.from_base(page),
+        }
+    }
+
+    /// The own pages page `page` stands for; a result's later ones, none.
+    pub fn base_pages(&self, page: usize) -> std::ops::Range<usize> {
+        match self {
+            Self::Pdf(_) => page..page + 1,
+            Self::Epub { book, .. } => book.base_pages(page),
+        }
+    }
+
+    /// How many own pages: a book's results aside.
+    pub fn base_count(&self) -> usize {
+        match self {
+            Self::Pdf(d) => d.page_count(),
+            Self::Epub { book, .. } => book.base_count(),
+        }
+    }
+
+    /// The page of `other` drawn just like page `page`, if any.
+    pub fn same_page(&self, page: usize, other: &Self) -> Option<usize> {
+        match (self, other) {
+            (Self::Epub { book, .. }, Self::Epub { book: o, .. }) => book.same_page(page, o),
+            _ => None,
         }
     }
 

@@ -44,6 +44,23 @@ impl TextLayers {
         self.slots.insert((doc, page), (slot, self.frame));
     }
 
+    /// Hands `old`'s layers to `new` where `map` finds the same page.
+    pub fn adopt(&mut self, old: DocId, new: DocId, map: impl Fn(usize) -> Option<usize>) {
+        let pages: Vec<usize> = (self.slots.keys())
+            .filter(|(d, _)| *d == old)
+            .map(|(_, p)| *p)
+            .collect();
+        for page in pages {
+            let Some(to) = map(page).filter(|to| !self.slots.contains_key(&(new, *to))) else {
+                continue;
+            };
+            if let Some(slot) = self.slots.remove(&(old, page)) {
+                self.slots.insert((new, to), slot);
+            }
+        }
+        self.forget(old);
+    }
+
     pub fn forget(&mut self, doc: DocId) {
         self.slots.retain(|(d, _), _| *d != doc);
     }

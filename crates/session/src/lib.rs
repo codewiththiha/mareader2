@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub use cover::{cover, describe};
 pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
+pub use mareader_epub::{Insert, Inserts};
 pub use mareader_pdf::{PageSize, Paper, Raster, RenderError, TextLayer, Tiling};
 pub use mareader_reflow::{Anchor, Band, FACES, Face, Kind, Typography, has_family};
 pub use typeset::{bundled, typography};
@@ -236,6 +237,17 @@ impl Session {
 
     /// Sets book `id` again in `typo`; a newer request in `slot` wins.
     pub fn retypeset(&mut self, id: DocId, typo: Arc<Typography>, slot: u64) {
+        self.reset(id, typo, None, slot);
+    }
+
+    /// Sets book `id` in `typo` with `inserts`; none keeps its own.
+    pub fn reset(
+        &mut self,
+        id: DocId,
+        typo: Arc<Typography>,
+        inserts: Option<Arc<Inserts>>,
+        slot: u64,
+    ) {
         let Some(entry) = self.docs.get(&id) else {
             return;
         };
@@ -247,7 +259,7 @@ impl Session {
             typo: Arc::clone(&typo),
         };
         let stale = self.typesetting.insert(slot, set).map(|t| t.ticket);
-        self.pool.retypeset(ticket, id, doc, typo, stale);
+        self.pool.retypeset(ticket, (id, doc), typo, inserts, stale);
     }
 
     pub fn get(&self, id: DocId) -> Option<&Entry> {
