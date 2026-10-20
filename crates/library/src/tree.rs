@@ -199,6 +199,7 @@ impl Library {
             restored: None,
             twin_of: Field::default(),
             independent: true,
+            design: Field::default(),
             forgot: None,
             extra: Extra::default(),
             ..book.clone()

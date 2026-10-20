@@ -23,6 +23,8 @@ pub struct Scope {
     pub ai_pages: bool,
     /// The focused pane scrolls sideways, where pages have no margin.
     pub sideways: bool,
+    /// The focused book in the library, and its own design choice.
+    pub book_design: Option<(mareader_library::BookId, Option<mareader_library::Design>)>,
 }
 
 /// When a setting applies.

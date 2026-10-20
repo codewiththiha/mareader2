@@ -30,7 +30,7 @@ These cost little in M5 and make sync a transport, not a migration.
   128-bit ids. No counters.
 - **Synced and local facts kept apart.** Synced: content id, title,
   author, format, added, opened, position, marks, shelves, memberships,
-  `twin_of`. Local to a machine: locations and `present`, size and mtime
+  `twin_of`, `design`. Local to a machine: locations and `present`, size and mtime
   stamps, sources and their `hidden` sets, window and pane state. Sources
   are folders on one disk, so they never sync.
 - **A stamp on every synced field.** A hybrid logical clock (below), so a
@@ -69,7 +69,7 @@ blind upload of the merged state converges even when a write is lost.
 
 | Record | Rule |
 |---|---|
-| Book fields (title, author, opened, `twin_of`) | Last writer wins, per field |
+| Book fields (title, author, opened, `twin_of`, `design`) | Last writer wins, per field |
 | Position | Last writer wins; an open book shows "Read to p. 90 on another device" with Jump, and never moves the page by itself |
 | Shelf (name, parent) | Per field; a move that would make a cycle is dropped, keeping the older parent |
 | Membership | A record per (shelf, book): alive flag and sort key, each last writer wins |

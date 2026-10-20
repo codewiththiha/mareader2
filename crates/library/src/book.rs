@@ -55,6 +55,16 @@ impl Format {
     }
 }
 
+/// When a book's own design shows, set for that book alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Design {
+    /// In the chapters it designs.
+    Auto,
+    On,
+    Off,
+}
+
 /// Where a reader was: the page shown, and a book's place in its text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Position {
@@ -161,6 +171,9 @@ pub struct Book {
     /// Kept as new beside another of its content: lookups pass it by.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub independent: bool,
+    /// Its own design choice; none follows the reader's setting.
+    #[serde(default, skip_serializing_if = "Field::is_unset")]
+    pub design: Field<Option<Design>>,
     /// Removed with its data: a return lands as a new book.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forgot: Option<Stamp>,

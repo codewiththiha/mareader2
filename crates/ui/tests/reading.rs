@@ -523,6 +523,46 @@ fn launched(mut app: MareaderApp) -> Harness<'static, MareaderApp> {
 }
 
 #[test]
+fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
+    use mareader_library::Design;
+    use mareader_reflow::Design as Set;
+    let file = File::book(2, "design")?;
+    let mut app = MareaderApp::default();
+    app.queue(Command::Open(OpenRequest::path(file.0.clone())));
+    let mut h = launched(app);
+    let pane = h.state().active_pane();
+    let design = |h: &Harness<'static, MareaderApp>| {
+        h.state().documents().typography(pane).map(|t| t.design)
+    };
+    assert_eq!(design(&h), Some(Set::Auto));
+    let Some((book, None)) = h.state().settings_scope().book_design else {
+        return Err("the open book follows the setting".into());
+    };
+    h.state_mut().set_option("settings", "fonts").ok();
+    h.run_steps(3);
+    assert!(h.query_by_label("This book").is_some());
+    let choose = mareader_ui::library::Action::Design(book, Some(Design::Off));
+    h.state_mut().queue(Command::Library(choose));
+    h.run();
+    let own = h.state().library().book(book).and_then(|b| b.design.value);
+    assert_eq!(own, Some(Design::Off));
+    assert_eq!(design(&h), Some(Set::Off));
+    // The setting moves on; the book keeps its own choice.
+    h.state_mut().set_option("design", "on").ok();
+    h.run();
+    assert_eq!(
+        h.state().settings().text.book_design,
+        mareader_settings::BookDesign::On
+    );
+    assert_eq!(design(&h), Some(Set::Off));
+    let follow = mareader_ui::library::Action::Design(book, None);
+    h.state_mut().queue(Command::Library(follow));
+    h.run();
+    assert_eq!(design(&h), Some(Set::On));
+    Ok(())
+}
+
+#[test]
 fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     let file = File::sample(30, "resume")?;
     let mut app = MareaderApp::default();

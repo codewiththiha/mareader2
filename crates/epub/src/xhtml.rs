@@ -154,6 +154,8 @@ struct Open {
     part: Part,
     /// It is the float in [`State::float`].
     floated: bool,
+    /// It looks laid out: a strong sign of a designed chapter.
+    signals: bool,
 }
 
 /// An element's part in a layout grid.
@@ -440,14 +442,22 @@ struct Signals {
     letters: bool,
     /// Paragraph sizes seen, in hundredths of an em.
     sizes: Vec<u32>,
+    /// Characters of text, and those inside what signalled.
+    text: usize,
+    boxed: usize,
 }
 
 impl Signals {
     fn designed(&self) -> bool {
         let light = [self.faces, self.letters, self.sizes.len() >= 3];
-        self.strong || light.iter().filter(|s| **s).count() >= 2
+        // Prose with a framed figure or note stays prose.
+        let laid_out = self.text <= SHORT_CHAPTER || self.boxed * 10 >= self.text * 3;
+        (self.strong && laid_out) || light.iter().filter(|s| **s).count() >= 2
     }
 }
+
+/// A chapter this many characters long, at most, reads as a laid-out page.
+const SHORT_CHAPTER: usize = 800;
 
 impl State<'_> {
     fn top(&self) -> Style {
@@ -970,6 +980,12 @@ impl State<'_> {
 
     fn emit(&mut self, mut block: Block) {
         block.break_before = std::mem::take(&mut self.chapter);
+        if let Content::Text(t) = &block.content {
+            let boxed = self.laying > 0 || self.stack.iter().any(|o| o.signals);
+            let n = t.text.chars().count();
+            self.signals.text += n;
+            self.signals.boxed += if boxed { n } else { 0 };
+        }
         let at = Anchor {
             block: self.first + self.blocks.len(),
             offset: 0,
@@ -1299,7 +1315,7 @@ impl State<'_> {
     }
 
     /// Notes what makes the chapter designed rather than prose.
-    fn observe(&mut self, name: &str, c: &Computed, d: &Decl) {
+    fn observe(&mut self, name: &str, c: &Computed, d: &Decl) -> bool {
         let block = is_block(name) && !matches!(name, "html" | "body");
         let cell = matches!(
             name,
@@ -1310,11 +1326,13 @@ impl State<'_> {
             Len::Percent(p) => p < 99.0,
             _ => true,
         };
-        self.signals.strong |= matches!(c.display, Display::Flex | Display::Grid)
+        let strong = matches!(c.display, Display::Flex | Display::Grid)
             || (block && !cell && c.border.iter().any(|b| *b > 0.0))
             || (block && c.background)
             || (block && !cell && width)
             || matches!(d.height, Some(Len::Vh(_)));
+        self.signals.strong |= strong;
+        strong
     }
 
     /// Notes a text block's size, spacing and faces for the chapter.
@@ -1553,9 +1571,7 @@ impl State<'_> {
         };
         self.adopt(&el);
         let shown = !self.top().hidden && computed.display != Display::None;
-        if shown {
-            self.observe(name, &computed, &declared);
-        }
+        let signals = shown && self.observe(name, &computed, &declared);
         if let Some(fill) = computed.fill.filter(|_| matches!(name, "html" | "body")) {
             self.page = fill;
         }
@@ -1668,6 +1684,7 @@ impl State<'_> {
             boxed,
             part,
             floated,
+            signals,
         });
         if name == "style" {
             self.style_text.clear();
@@ -3048,6 +3065,19 @@ mod tests {
         let before: Vec<f32> = b.iter().map(|b| b.frame.before).collect();
         assert_eq!(before, [1.0, 1.0, 0.5]);
         assert_eq!(look(b.get(1)).and_then(|l| l.line_height), Some(1.0));
+    }
+
+    #[test]
+    fn a_framed_figure_leaves_prose_prose_but_a_framed_page_is_designed() {
+        let prose = "<p>Once upon a midnight dreary, while I pondered.</p>".repeat(40);
+        let designed = |b: &[Block]| b.iter().any(|b| look(Some(b)).is_some_and(|l| l.designed));
+        let figure = "<div style='width: 556px'><p>A figure's caption.</p></div>\
+             <p style='border-top: 1px dotted'>Transcriber's note.</p>";
+        assert!(!designed(&read(&format!("{prose}{figure}{prose}"))));
+        // Short, or mostly inside its frames, a chapter is laid out.
+        assert!(designed(&read(figure)));
+        let framed = format!("<div style='border: 1px solid'>{prose}</div>");
+        assert!(designed(&read(&framed)));
     }
 
     #[test]

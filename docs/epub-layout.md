@@ -58,8 +58,14 @@ streams.
 A chapter counts as designed when its visible elements use layout CSS
 (layout tables, flex or grid, borders, block backgrounds, block widths,
 `vh` heights), or at least two lighter signals (embedded faces, wide
-letter spacing, three or more body sizes). The **Book design** setting
-picks Auto, On or Off.
+letter spacing, three or more body sizes). Layout CSS counts only when
+the chapter is short (800 characters at most) or at least 30 % of its
+text sits inside what used it, so prose with a framed figure or a
+bordered note stays prose. The **Book design** setting
+picks Auto, On or Off. Under it, **This book** sets one book's own
+choice (As set, Auto, On or Off). The choice is saved on the book's
+library record as a stamped field, so it merges like a title would
+once sync arrives; older builds keep it untouched.
 
 Designed books are made for a phone's page, about 26 of their ems wide.
 A designed chapter is set as if the column were that wide, so its type
@@ -74,4 +80,4 @@ below it. Prose chapters keep the reader's size.
 | L2 | Boxes: borders (solid, double, dashed, dotted; per side; radius), padding, widths, auto margins, rules from bordered empty blocks, vertical centring of tall flex or `vh` containers. Done, with round corners from `border-radius`. |
 | L3 | Grids: tables with block cells, column widths (fixed, %, content), cell padding, borders, `vertical-align`, spans, nesting; flex rows (justify, align, wrap, gap); anchored text in cells. Done: tables with block cells, fixed and % widths shrunk to fit, cell boxes, `vertical-align`, nested tables read flat, one-column tables as framed boxes, column widths from content (least and most widths, shared by every row), `colspan` and `rowspan`, flex rows (justify, align, wrap, gap, grow, basis). A flex row holding one layout table lets the table be the grid. |
 | L4 | Floats with text wrapping, inline images, `break-before`/`page-break-*`, decorations, small caps, sub and super, background pictures. Done: design scale, floats (left and right) with text wrapping line by line, `break-before`/`break-after`, underline and line-through, small caps and `text-transform`, sub and super, background colours and pictures, box heights, small pictures set inside a line (at most 3 ems tall), `transform: rotate()` drawn about the block's middle. |
-| L5 | Per-book override, both samples and the test corpus checked, docs, parity. |
+| L5 | Per-book override, both samples and the test corpus checked, docs, parity. Done: the per-book choice in the Fonts tab, saved with the book; the Gutenberg Raven stays prose in Auto; hostile grids, flex rows, spans, turns, radii and line pictures open within the time cap. |

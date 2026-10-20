@@ -5,7 +5,7 @@ use crate::folder::Mode;
 use crate::ledger::Recovered;
 use crate::run_tests::{found, import, rescan};
 use crate::{
-    BookId, ContentId, Data, DeviceId, FileStamp, Format, Library, Measure, Opened, Origin,
+    BookId, ContentId, Data, Design, DeviceId, FileStamp, Format, Library, Measure, Opened, Origin,
     Position,
 };
 
@@ -174,6 +174,29 @@ fn renames_are_trimmed_and_blank_ones_refused() {
     // A reopen keeps the reader's own name.
     lib.record_open(opened("/a.pdf", 1), 3_000);
     assert_eq!(lib.book(a).unwrap().title.value, "Moby Dick");
+}
+
+#[test]
+fn a_books_own_design_is_kept_saved_and_cleared() {
+    let mut lib = Library::new(DEVICE);
+    let a = lib.record_open(opened("/a.epub", 1), 1_000);
+    assert!(lib.book(a).unwrap().design.is_unset());
+    assert!(lib.set_design(a, Some(Design::Off), 2_000));
+    assert!(!lib.set_design(a, Some(Design::Off), 2_500));
+    lib.record_open(opened("/a.epub", 1), 3_000);
+    let book = lib.book(a).unwrap().clone();
+    assert_eq!(book.design.value, Some(Design::Off));
+    let json = serde_json::to_string(&book).unwrap();
+    assert!(json.contains("\"off\""), "{json}");
+    let back: crate::Book = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.design, book.design);
+    // Records written before the choice existed read as following.
+    let mut old: serde_json::Value = serde_json::from_str(&json).unwrap();
+    old.as_object_mut().unwrap().remove("design");
+    let old: crate::Book = serde_json::from_value(old).unwrap();
+    assert!(old.design.is_unset());
+    assert!(lib.set_design(a, None, 4_000));
+    assert_eq!(lib.book(a).unwrap().design.value, None);
 }
 
 #[test]

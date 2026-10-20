@@ -37,6 +37,7 @@ impl Merge for Book {
         self.restored = self.restored.max(other.restored);
         self.twin_of.merge(other.twin_of);
         self.independent |= other.independent;
+        self.design.merge(other.design);
         self.forgot = self.forgot.max(other.forgot);
         self.extra.merge(other.extra);
         // Locations are this machine's own; another's mean nothing here.
@@ -49,6 +50,7 @@ impl Merge for Book {
             Some(self.opened.at),
             Some(self.key.at),
             Some(self.twin_of.at),
+            Some(self.design.at),
             self.removed,
             self.restored,
             self.forgot,
@@ -172,7 +174,7 @@ impl Merge for State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::book::{Format, Position};
+    use crate::book::{Design, Format, Position};
     use crate::clock::{Field, Stamp};
     use crate::extra::Extra;
     use crate::id::{BookId, ContentId, DeviceId, LinkId, MarkId, ShelfId};
@@ -249,6 +251,17 @@ mod tests {
                 Field::new((at.counter > 0).then_some(BookId(u128::from(at.ms))), at)
             },
             independent: rng.next(2) == 0,
+            design: {
+                let at = rng.stamp();
+                let all = [
+                    None,
+                    Some(Design::Auto),
+                    Some(Design::On),
+                    Some(Design::Off),
+                ];
+                let pick = all.get(usize::try_from(at.counter % 4).unwrap_or(0));
+                Field::new(pick.copied().flatten(), at)
+            },
             forgot: rng.maybe(),
             extra: extra(rng),
         }

@@ -260,6 +260,7 @@ impl Library {
             restored: None,
             twin_of: Field::default(),
             independent: false,
+            design: Field::default(),
             forgot: None,
             extra: Extra::default(),
         });
