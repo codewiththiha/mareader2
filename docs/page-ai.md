@@ -237,3 +237,58 @@ python3 tools/ci.py shots \
   "ai-menu pdf=sample:20 workers=0 provider=ollama right=600,400" \
   "ai-ask pdf=sample:20 workers=0 page_ai=follow:simplify goto=15 wait=110"
 ```
+
+## Picked pages
+
+Pages picked in the thumbnails ([Thumbnails](thumbnails.md)) are asked
+together: one request reads a group of pages and gives one result for the
+whole group, unlike continuous mode, which asks a page at a time.
+
+- **Groups.** Picks are taken in reading order and cut into runs of
+  consecutive pages, at most **Pages per request** each (Settings › AI ›
+  Pages, 1–20, 5 by default). Eleven pages at 5 go as 5, 5 and 1; a gap in
+  the picks starts a new group. Apple's on-device model reads at most 2
+  pages for a summary and 1 otherwise, so its groups stay small.
+- **At once.** Groups run as many at a time as the model allows: its
+  "at once" setting and the room left on its keys. With 2, the first two
+  groups start together and the third starts when one is done. A model
+  busy elsewhere puts the group back in line, up to three tries.
+- **Progress.** The pill reads "Summarizing pages · 2/3" and fills as
+  groups are done; its × stops the groups left. Any other failure stops the
+  batch and the toast adds "The pages left weren't asked." A text size
+  change stops it too, since the page numbers move. Groups that were all
+  blank pages toast once at the end.
+- **Kept.** A group that is already kept is shown, not asked again. Groups
+  are saved like single pages, so they come back with the book. A redo
+  replaces the group's one result.
+
+### How a group shows
+
+- **PDF.** The result card sits on the group's first page and fits, with
+  the font shrinking as usual, into the room of all its pages together.
+  Each later page shows the next part of the same result. If the result
+  runs out first, the pages left show a note: "Pages 3–7 are summarized
+  together, starting on page 3."
+- **Book.** The result is laid into the pages in place of the group's text,
+  as with one page, so the group's pages shrink to the result's length.
+- **Show original page** on any page of the group gives every page of the
+  group back. A group's bubble tip names its pages: "Summary · pages 3–7".
+- A group covers any single-page result on its pages; showing a single
+  page's result again takes the group off.
+
+### Saving groups
+
+A PDF group is kept as a `pages` span (first and last page); a book's
+group is kept as a block span from the first page's start to the last
+page's end. Older versions of Mareader skip `pages` rows they can't read
+and keep them untouched.
+
+### Tests and shots
+
+- `crates/ui/tests/page_groups.rs`: eleven pages go as 5, 5 and 1; a
+  group's later pages are covered and Show original gives them all back;
+  Pages per request sets the size and gaps split; a redo keeps one result;
+  a book lays a group in; the thumbnails menu asks the picked pages and
+  keeps them picked.
+- Shot option `page_ai=2-6:summary` asks pages 3–7 as picked pages, with
+  canned answers.

@@ -30,6 +30,8 @@ pub enum PageSpan {
     Page { page: usize },
     /// A book's text from `[block, byte]` up to `[block, byte]`.
     Blocks { from: [usize; 2], to: [usize; 2] },
+    /// A PDF's pages `from` to `to`, both in, asked as one.
+    Pages { from: usize, to: usize },
 }
 
 /// One page's result. Only `book` and `alive` change.

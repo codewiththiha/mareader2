@@ -47,6 +47,53 @@ impl Source {
     }
 }
 
+/// Pages' sources as one, in order; `true` marks a page that runs on.
+pub fn join(pages: Vec<(Source, bool)>) -> Source {
+    let mut out = Source::default();
+    for (page, runs_on) in pages {
+        let mut pieces = page.pieces.into_iter().zip(page.origins).peekable();
+        let first_para = |p: &(Piece, Origin)| {
+            matches!(
+                &p.0,
+                Piece::Text {
+                    role: Role::Para,
+                    ..
+                }
+            )
+        };
+        // A paragraph cut by the page break is whole again.
+        if runs_on
+            && pieces.peek().is_some_and(first_para)
+            && let Some(Piece::Text {
+                role: Role::Para,
+                text,
+                code,
+            }) = out.pieces.last_mut()
+            && let Some((
+                Piece::Text {
+                    text: more,
+                    code: more_code,
+                    ..
+                },
+                _,
+            )) = pieces.next()
+        {
+            if text.ends_with('-') && more.starts_with(char::is_lowercase) {
+                text.pop();
+            } else {
+                text.push(' ');
+            }
+            let at = text.len();
+            text.push_str(&more);
+            code.extend(more_code.into_iter().map(|r| r.start + at..r.end + at));
+        }
+        for (piece, origin) in pieces {
+            out.push(piece, origin);
+        }
+    }
+    out
+}
+
 /// The span a book's page shows: its first and last `[block, byte]`.
 pub fn span(excerpts: &[(usize, Range<usize>)], blocks: &[Block]) -> Option<[[usize; 2]; 2]> {
     let (first, last) = (excerpts.first()?, excerpts.last()?);

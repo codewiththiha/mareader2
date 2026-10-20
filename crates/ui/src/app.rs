@@ -78,7 +78,7 @@ pub struct MareaderApp {
     /// Shots: the newest mark's menu opens once it is drawn.
     menu_shot: bool,
     /// Shots and tests: a page AI result kept, or a run started (true).
-    page_ai_seed: Option<(usize, mareader_library::AiTask, bool)>,
+    page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     tree: PaneTree,
     active: PaneId,
     /// Panes by last focus, latest first: blend's paper follows them.
@@ -626,6 +626,16 @@ impl MareaderApp {
         self.thumbs.picked()
     }
 
+    /// Tests: what `pane`'s document keeps of the page AI, oldest first.
+    pub fn kept_ai(
+        &self,
+        pane: PaneId,
+    ) -> Vec<(mareader_library::AiTask, mareader_library::PageSpan)> {
+        let book = self.library.book_in(&self.documents, pane);
+        let name = self.documents.title(pane).unwrap_or_default();
+        self.page_ai.kept(self.library.model(), (book, name))
+    }
+
     /// The marks `pane` shows, wherever they are kept.
     pub fn marks(&self, pane: PaneId) -> Vec<crate::study::marks::Shown> {
         let book = self.library.book_in(&self.documents, pane);
@@ -950,9 +960,12 @@ impl MareaderApp {
             "page_ai" => {
                 let (page, task) = value.split_once(':').ok_or("page_ai: page:task")?;
                 let follow = page == "follow";
-                let page = match follow {
-                    true => 0,
-                    false => page.parse::<usize>().map_err(|e| e.to_string())?,
+                // A range, as 2-6, asks those pages as picked ones.
+                let (page, last) = page.split_once('-').unwrap_or((page, page));
+                let number = |p: &str| p.parse::<usize>().map_err(|e| e.to_string());
+                let (page, last) = match follow {
+                    true => (0, 0),
+                    false => (number(page)?, number(last)?),
                 };
                 let task = match task {
                     "summary" => mareader_library::AiTask::Summary,
@@ -962,10 +975,10 @@ impl MareaderApp {
                         language: tag.to_owned(),
                     },
                 };
-                if follow {
+                if follow || last > page {
                     self.page_ai.set_canned(true);
                 }
-                self.page_ai_seed = Some((page, task, follow));
+                self.page_ai_seed = Some((page, task, follow, last));
             }
             // Explains the staged selection: its card opens.
             "gloss" => match self.staged.back_mut() {
@@ -1253,7 +1266,7 @@ impl MareaderApp {
             Some(staged) => self.staged.push_front(staged),
             None => {}
         }
-        if let Some((page, task, follow)) = self.page_ai_seed.clone()
+        if let Some((page, task, follow, last)) = self.page_ai_seed.clone()
             && shown(page)
         {
             let book = self.library.book_in(&self.documents, pane);
@@ -1269,6 +1282,11 @@ impl MareaderApp {
             };
             let now = ctx.input(|i| i.time);
             let done = match follow {
+                false if last > page => {
+                    let pages: Vec<usize> = (page..=last).collect();
+                    self.page_ai.run_pages(asked, &pages, task);
+                    true
+                }
                 true if self.page_ai.can_read(&asked) => {
                     let model = self.library.model();
                     self.page_ai.follow(asked, model, task, true, now, out);
@@ -1333,7 +1351,7 @@ impl MareaderApp {
                 Gloss::BubbleMenu { page, index, at } => {
                     self.page_ai.open_bubble_menu(pane, page, index, at);
                 }
-                Gloss::Pill(crate::page_ai::PillPress::Stop) => self.page_ai.stop_follow(pane),
+                Gloss::Pill(crate::page_ai::PillPress::Stop) => self.page_ai.stop_pill(pane),
                 Gloss::Pill(crate::page_ai::PillPress::Continue) => {
                     let Some(reading) = self.documents.reading(pane) else {
                         continue;
@@ -1386,7 +1404,7 @@ impl MareaderApp {
             ai: &self.ai,
             settings: &self.settings.ai,
         };
-        self.page_ai.tick(ctx, &around);
+        self.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results into its pages.
         for pane in self.tree.panes() {
             let book = self.library.book_in(&self.documents, pane);
@@ -1540,6 +1558,35 @@ impl MareaderApp {
                 }
             }
             Action::StopFollow(pane) => self.page_ai.stop_follow(pane),
+            Action::RunPages {
+                pane,
+                pages,
+                task,
+                tag,
+            } => {
+                let task = match (task, tag) {
+                    (PageTask::Translate, Some(tag)) => {
+                        self.settings.ai.tasks.translate.pick(&tag);
+                        Some(mareader_library::AiTask::Translate { language: tag })
+                    }
+                    (task, _) => task_for(task, &self.settings.ai),
+                };
+                let Some(task) = task else { return };
+                let book = self.library.book_in(&self.documents, pane);
+                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let asked = crate::page_ai::Asked {
+                    pane,
+                    page: pages.first().copied().unwrap_or_default(),
+                    book,
+                    name: &name,
+                    documents: &self.documents,
+                    ai: &self.ai,
+                    settings: &self.settings.ai,
+                };
+                self.page_ai.run_pages(asked, &pages, task);
+            }
+            Action::PagesMenu { pane, pages, at } => self.page_ai.open_pages_menu(pane, pages, at),
+            Action::StopPages(pane) => self.page_ai.stop_groups(pane),
             Action::Redo { pane, page, slot } => {
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
@@ -2804,6 +2851,8 @@ impl eframe::App for MareaderApp {
             false => Vec::new(),
         };
         let shelf_tree = &mut self.shelf_tree;
+        self.thumbs
+            .set_offer(crate::thumbnails::AiOffer::of(&self.settings.ai));
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.

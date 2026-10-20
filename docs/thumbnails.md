@@ -1,7 +1,8 @@
 # Thumbnails: picking pages
 
 The sidebar's thumbnails do more than jump. Pages picked there can be
-copied, and later slices add group page AI and a vocabulary export.
+copied or given to page AI as groups; a later slice adds a vocabulary
+export.
 
 ## Picking
 
@@ -24,7 +25,16 @@ Right-click a picked page for the picks' menu:
 
 - **Copy text**: the picked pages' text, in reading order, a blank line
   between pages.
+- **Summarize**, **Translate to {language}** (the last language picked) with
+  **Other language…**, or **Translate…** before one is picked, and
+  **Simplify**: page AI over the picked pages, a group at a time. See
+  [Page AI › Picked pages](page-ai.md#picked-pages).
+- With no model set up, the three rows give way to **Set up AI…**, which
+  opens Settings › AI.
 - **Clear selection**.
+
+The picks stay after an AI run, so the same pages can be copied or asked
+again.
 
 Right-click a page that isn't picked for **Copy page text** and **Select**.
 

@@ -28,6 +28,11 @@ pub struct Job {
     pub scale: f32,
     /// The book, whose pictures the result shows.
     pub book: Option<Arc<Document>>,
+    /// Pages the result may run over, each `room`, and the one drawn.
+    pub pages: usize,
+    pub part: usize,
+    /// What a page past the result's end says instead.
+    pub note: Option<Arc<Vec<Block>>>,
 }
 
 /// A set result, ready to draw.
@@ -229,51 +234,79 @@ fn on_white(mut raster: Raster) -> Raster {
     raster
 }
 
-/// The largest size that fits one page; past the least, it is drawn smaller.
-fn fit(job: &Job) -> Flow {
+/// `blocks` in `job`'s type at `size`; tall never cuts a page.
+fn flow_of(job: &Job, blocks: &Arc<Vec<Block>>, size: f32, tall: bool) -> Flow {
+    let typo = Typography {
+        font_size: size,
+        ..job.typo.clone()
+    };
+    let blocks = Arc::clone(blocks);
+    Flow::sized(blocks, &typo, Fonts::system(), job.room, tall)
+}
+
+/// The largest size that fits the pages; past the least, the last is tall.
+fn fit(job: &Job) -> (Flow, f32) {
     let base = job.typo.font_size.max(1.0);
     let least = (base * MIN_SHARE).max(MIN_SIZE.min(base));
-    let set = |size: f32, tall: bool| {
-        let typo = Typography {
-            font_size: size,
-            ..job.typo.clone()
-        };
-        Flow::sized(
-            Arc::clone(&job.blocks),
-            &typo,
-            Fonts::system(),
-            job.room,
-            tall,
-        )
-    };
-    let whole = set(base, false);
-    if whole.page_count() <= 1 {
-        return whole;
+    let pages = job.pages.max(1);
+    let set = |size: f32| flow_of(job, &job.blocks, size, false);
+    let whole = set(base);
+    if whole.page_count() <= pages {
+        return (whole, base);
     }
-    if set(least, false).page_count() > 1 {
-        return set(least, true);
+    let small = set(least);
+    if small.page_count() > pages {
+        return match pages {
+            1 => (flow_of(job, &job.blocks, least, true), least),
+            _ => (small, least),
+        };
     }
     // Eight halvings land within a fifth of a unit at any reading size.
     let (mut lo, mut hi) = (least, base);
     for _ in 0..8 {
         let mid = (lo + hi) / 2.0;
-        if set(mid, false).page_count() <= 1 {
+        if set(mid).page_count() <= pages {
             lo = mid;
         } else {
             hi = mid;
         }
     }
-    set(lo, false)
+    (set(lo), lo)
+}
+
+/// The flow to draw part `job.part` from, and its page in it.
+fn part(job: &Job) -> Option<(Flow, usize)> {
+    let (flow, size) = fit(job);
+    let last = job.pages.max(1) - 1;
+    let count = flow.page_count();
+    if job.part >= count {
+        let note = job.note.as_ref()?;
+        return Some((flow_of(job, note, job.typo.font_size, false), 0));
+    }
+    if job.part < last || count <= job.pages {
+        return Some((flow, job.part));
+    }
+    // Too long even at the least size: the last page takes the rest.
+    let excerpts = flow.excerpts(last);
+    let (first, from) = excerpts.first().map(|(b, r)| (*b, r.start))?;
+    let rest = (job.blocks.iter().enumerate())
+        .skip(first)
+        .map(|(i, b)| match i == first {
+            true => b.cut(from..usize::MAX),
+            false => b.clone(),
+        });
+    let rest = Arc::new(rest.collect());
+    Some((flow_of(job, &rest, size, true), 0))
 }
 
 fn set(job: &Job) -> Option<Set> {
-    let flow = fit(job);
+    let (flow, page) = part(job)?;
     let flow = match job.book.as_deref() {
         Some(Document::Epub { book, .. }) => book.with_pictures(flow),
         _ => flow,
     };
     let width = job.room.0;
-    let depth = flow.depth(0).max(1.0);
+    let depth = flow.depth(page).max(1.0);
     let max = MAX_SIDE as f32;
     let scale = job
         .scale
@@ -282,13 +315,13 @@ fn set(job: &Job) -> Option<Set> {
         .max(0.05);
     let px = |v: f32| ((v * scale).ceil() as u32).clamp(1, MAX_SIDE);
     let region = [px(PAD), px(PAD), px(width), px(depth)];
-    let pixels = flow.render(0, scale, region)?;
+    let pixels = flow.render(page, scale, region)?;
     let rect = |r: [f32; 4]| Rect::from_min_size(pos2(r[0] - PAD, r[1] - PAD), vec2(r[2], r[3]));
     Some(Set {
         pixels,
         size: vec2(width, depth),
-        pictures: flow.pictures(0).into_iter().map(rect).collect(),
-        emojis: flow.emojis(0).into_iter().map(rect).collect(),
+        pictures: flow.pictures(page).into_iter().map(rect).collect(),
+        emojis: flow.emojis(page).into_iter().map(rect).collect(),
         pdf: job.book.is_none(),
     })
 }

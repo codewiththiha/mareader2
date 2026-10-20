@@ -242,6 +242,15 @@ fn pages(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
             widgets::stepper(ui, &mut n, 1.0..=hi, 1.0, |v| format!("{v:.0}"), "pages");
             run.at_once = n.round().clamp(1.0, hi) as u8;
         });
+        divider(ui);
+        let tip = "Pages picked in the thumbnails: how many go in one request";
+        row(ui, "Pages per request", tip, |ui| {
+            let run = &mut ai.tasks.pages;
+            let mut n = f32::from(run.per_request);
+            let hi = f32::from(PageRun::PER_REQUEST_MAX);
+            widgets::stepper(ui, &mut n, 1.0..=hi, 1.0, |v| format!("{v:.0}"), "pages");
+            run.per_request = n.round().clamp(1.0, hi) as u8;
+        });
     });
     note(
         ui,

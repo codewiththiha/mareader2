@@ -116,3 +116,18 @@ fn results_are_saved_read_back_and_travel() {
     back.absorb(unsent(&mut other), 3_500);
     assert!(back.ai_pages(book).is_empty(), "the removal came across");
 }
+
+#[test]
+fn a_group_of_pages_is_kept_in_its_own_shape() {
+    let span = PageSpan::Pages { from: 2, to: 6 };
+    let json = serde_json::to_string(&span).unwrap();
+    assert_eq!(json, r#"{"pages":{"from":2,"to":6}}"#);
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let new = NewAiPage {
+        span: span.clone(),
+        ..french(0, "{}")
+    };
+    let id = lib.add_ai_page(book, new, 2_000).unwrap();
+    assert_eq!(lib.ai_page(id).map(|p| &p.span), Some(&span));
+}

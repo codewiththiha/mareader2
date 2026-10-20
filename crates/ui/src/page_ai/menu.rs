@@ -97,6 +97,16 @@ impl PageAi {
         step: &mut Step,
         out: &mut Commands,
     ) -> bool {
+        // Picked pages are asked as they are, in groups.
+        if !m.pages.is_empty() {
+            out.push(Command::PageAi(Action::RunPages {
+                pane: m.pane,
+                pages: m.pages.clone(),
+                task,
+                tag,
+            }));
+            return true;
+        }
         let start = match task {
             PageTask::Summarize => PageStart::Page,
             PageTask::Translate => ai.tasks.translate.start,
@@ -145,9 +155,19 @@ impl PageAi {
             return false;
         }
         let (pane, page) = (m.pane, m.page);
+        let group = !m.pages.is_empty();
+        let what = match m.pages.len() {
+            0 => "page".to_owned(),
+            1 => "1 page".to_owned(),
+            n => format!("{n} pages"),
+        };
         // A task set to go on as one reads says so beside it.
-        let hint = |start: PageStart| (start == PageStart::Continuous).then_some("Continuous");
-        if widgets::menu_row(ui, Icon::Summarize, "Summarize page", None, false).clicked() {
+        let hint = |start: PageStart| {
+            let on = start == PageStart::Continuous && !group;
+            on.then_some("Continuous")
+        };
+        let summarize = format!("Summarize {what}");
+        if widgets::menu_row(ui, Icon::Summarize, &summarize, None, false).clicked() {
             return Self::ask(m, ai, (PageTask::Summarize, None), step, out);
         }
         let translate = hint(ai.tasks.translate.start);
@@ -166,19 +186,24 @@ impl PageAi {
                 }
             }
             None => {
-                let pick = widgets::menu_row(ui, Icon::Translate, "Translate page…", None, false);
+                let to = format!("Translate {what}…");
+                let pick = widgets::menu_row(ui, Icon::Translate, &to, None, false);
                 if pick.clicked() {
                     *step = Step::Languages;
                 }
             }
         }
         let simplify = hint(ai.tasks.simplify.start);
-        let simplify = widgets::menu_row(ui, Icon::Simplify, "Simplify page", simplify, false);
+        let label = format!("Simplify {what}");
+        let simplify = widgets::menu_row(ui, Icon::Simplify, &label, simplify, false);
         if simplify
-            .on_hover_text("Rewrites the page in plain English")
+            .on_hover_text("Rewrites the text in plain English")
             .clicked()
         {
             return Self::ask(m, ai, (PageTask::Simplify, None), step, out);
+        }
+        if group {
+            return false;
         }
         let shown = self.showing_on(pane, page).is_some();
         let following = self.following(pane);

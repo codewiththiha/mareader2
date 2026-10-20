@@ -6,13 +6,38 @@ use std::sync::Arc;
 
 use egui::{Id, Response, RichText, Ui};
 use mareader_session::{DocId, Document};
+use mareader_settings::{AiSettings, PageTask, language_name};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
 use crate::icons::Icon;
+use crate::page_ai::Action;
+use crate::settings_window::Tab;
 use crate::theme::Tokens;
 use crate::widgets::menu_row;
+
+/// What the page AI offers picked pages, as of this frame's settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AiOffer {
+    /// Some page task has a model.
+    pub any: bool,
+    /// The language Translate goes to, by tag and name.
+    pub language: Option<(String, String)>,
+}
+
+impl AiOffer {
+    pub fn of(ai: &AiSettings) -> Self {
+        let language = ai.tasks.translate.language.as_deref().and_then(|tag| {
+            let name = language_name(tag)?;
+            Some((tag.to_owned(), name.to_owned()))
+        });
+        Self {
+            any: PageTask::ALL.iter().any(|t| ai.page_preset(*t).is_some()),
+            language,
+        }
+    }
+}
 
 /// A still press this long on a page picks it, as in the library.
 const LONG_PRESS: f64 = 0.45;
@@ -182,7 +207,13 @@ pub fn bar(ui: &mut Ui, picks: &mut Picks, count: usize, t: &Tokens) {
 }
 
 /// The menu of the picked pages.
-pub fn picks_menu(ui: &mut Ui, pane: PaneId, picks: &mut Picks, t: &Tokens, out: &mut Commands) {
+pub fn picks_menu(
+    ui: &mut Ui,
+    (pane, offer): (PaneId, &AiOffer),
+    picks: &mut Picks,
+    t: &Tokens,
+    out: &mut Commands,
+) {
     let n = picks.len();
     let heading = match n {
         1 => "1 page".to_owned(),
@@ -195,8 +226,59 @@ pub fn picks_menu(ui: &mut Ui, pane: PaneId, picks: &mut Picks, t: &Tokens, out:
         ui.close();
     }
     ui.separator();
+    ai_rows(ui, (pane, offer), picks, out);
+    ui.separator();
     if menu_row(ui, Icon::Close, "Clear selection", Some("Esc"), false).clicked() {
         picks.clear();
+        ui.close();
+    }
+}
+
+/// Summarize, translate and simplify the picked pages, a group at a time.
+fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &AiOffer), picks: &Picks, out: &mut Commands) {
+    if !offer.any {
+        if menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
+            out.push(Command::OpenSettings(Tab::Ai));
+            ui.close();
+        }
+        return;
+    }
+    let run = |task, tag| {
+        let pages = picks.pages();
+        Command::PageAi(Action::RunPages {
+            pane,
+            pages,
+            task,
+            tag,
+        })
+    };
+    if menu_row(ui, Icon::Summarize, "Summarize", None, false).clicked() {
+        out.push(run(PageTask::Summarize, None));
+        ui.close();
+    }
+    let other = match &offer.language {
+        Some((tag, name)) => {
+            let to = format!("Translate to {name}");
+            if menu_row(ui, Icon::Translate, &to, None, false).clicked() {
+                out.push(run(PageTask::Translate, Some(tag.clone())));
+                ui.close();
+            }
+            menu_row(ui, Icon::ChevronRight, "Other language…", None, false)
+        }
+        None => menu_row(ui, Icon::Translate, "Translate…", None, false),
+    };
+    if other.clicked() {
+        let pages = picks.pages();
+        let at = other.rect.right_top();
+        out.push(Command::PageAi(Action::PagesMenu { pane, pages, at }));
+        ui.close();
+    }
+    let simplify = menu_row(ui, Icon::Simplify, "Simplify", None, false);
+    if simplify
+        .on_hover_text("Rewrites the text in plain English")
+        .clicked()
+    {
+        out.push(run(PageTask::Simplify, None));
         ui.close();
     }
 }

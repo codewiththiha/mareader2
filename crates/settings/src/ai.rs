@@ -314,6 +314,8 @@ pub struct PageRun {
     pub dwell: u16,
     /// Pages asked at once, at most; the model's room may allow fewer.
     pub at_once: u8,
+    /// Picked pages sent in one request, at most.
+    pub per_request: u8,
 }
 
 impl PageRun {
@@ -322,6 +324,8 @@ impl PageRun {
     pub const DWELL: u16 = 25;
     pub const AT_ONCE_MAX: u8 = 16;
     pub const AT_ONCE: u8 = 5;
+    pub const PER_REQUEST_MAX: u8 = 20;
+    pub const PER_REQUEST: u8 = 5;
 }
 
 impl Default for PageRun {
@@ -329,6 +333,7 @@ impl Default for PageRun {
         Self {
             dwell: Self::DWELL,
             at_once: Self::AT_ONCE,
+            per_request: Self::PER_REQUEST,
         }
     }
 }
@@ -596,6 +601,7 @@ impl AiSettings {
         let pages = &mut self.tasks.pages;
         pages.dwell = pages.dwell.clamp(PageRun::DWELL_MIN, PageRun::DWELL_MAX);
         pages.at_once = pages.at_once.clamp(1, PageRun::AT_ONCE_MAX);
+        pages.per_request = pages.per_request.clamp(1, PageRun::PER_REQUEST_MAX);
     }
 }
 
@@ -734,6 +740,7 @@ mod tests {
         ai.tasks.pages = PageRun {
             dwell: 1,
             at_once: 99,
+            per_request: 0,
         };
         ai.sanitize();
         assert_eq!(ai.tasks.translate.language, None);
@@ -741,6 +748,8 @@ mod tests {
         assert_eq!(ai.tasks.pages.dwell, PageRun::DWELL_MIN);
         assert_eq!(ai.tasks.pages.at_once, PageRun::AT_ONCE_MAX);
         assert_eq!(PageRun::default().at_once, 5);
+        assert_eq!(ai.tasks.pages.per_request, 1);
+        assert_eq!(PageRun::default().per_request, 5);
         assert_eq!(ai.tasks.simplify.start, PageStart::Ask);
     }
 }
