@@ -10,8 +10,10 @@ use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{ImageAlphaType, ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::block::Edge;
-use crate::flow::{Deco, Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
+use crate::block::{Backdrop, BackdropSize, Edge};
+use crate::flow::{
+    Deco, Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, resolve, span_height,
+};
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
 
@@ -38,6 +40,10 @@ const BAR_WIDTH: f64 = 3.0;
 /// mareader draws link underlines 2 px below where fonts put them.
 const UNDERLINE_GAP: f32 = 2.0;
 const UNDERLINE_MIN: f32 = 0.75;
+/// The most tiles a repeated background draws.
+const MAX_TILES: usize = 256;
+/// Book pixels to an em.
+const BOOK_EM_PX: f32 = 16.0;
 
 fn tone(t: Tone) -> Color {
     match t {
@@ -104,7 +110,7 @@ impl Flow {
             coords: Vec::new(),
         };
         for deco in decos {
-            p.deco(deco);
+            p.deco(deco, &self.decoded);
         }
         for piece in pieces {
             if let Some(set) = self.blocks.get(piece.block) {
@@ -208,10 +214,16 @@ impl Painter {
     }
 
     /// A book box's borders, in the ink the page pass themes.
-    fn deco(&mut self, deco: &Deco) {
+    fn deco(&mut self, deco: &Deco, decoded: &Decoded) {
         let [x, y, w, h] = deco.rect;
         if !self.visible(y - 8.0, y + h + 8.0) {
             return;
+        }
+        if let Some(alpha) = deco.fill {
+            self.fill(BODY.with_alpha(alpha.clamp(0.0, 1.0)), x, y, w, h);
+        }
+        if let Some(backdrop) = &deco.backdrop {
+            self.backdrop(backdrop, deco.em, deco.rect, decoded);
         }
         let [top, right, bottom, left] = deco.border;
         let [et, er, eb, el] = deco.edges;
@@ -219,6 +231,92 @@ impl Painter {
         self.edge(eb, [x, y + h - bottom, w, bottom], true);
         self.edge(el, [x, y, left, h], false);
         self.edge(er, [x + w - right, y, right, h], false);
+    }
+
+    /// A background picture in `rect`, sized and placed as the book asks.
+    fn backdrop(&mut self, b: &Backdrop, em: f32, rect: [f32; 4], decoded: &Decoded) {
+        let [x, y, w, h] = rect;
+        let px = em / BOOK_EM_PX;
+        let (pw, ph) = (b.picture.width as f32 * px, b.picture.height as f32 * px);
+        if pw < 0.5 || ph < 0.5 || w < 0.5 || h < 0.5 {
+            return;
+        }
+        let (iw, ih) = match b.size {
+            BackdropSize::Auto => (pw, ph),
+            BackdropSize::Cover => {
+                let s = (w / pw).max(h / ph);
+                (pw * s, ph * s)
+            }
+            BackdropSize::Contain => {
+                let s = (w / pw).min(h / ph);
+                (pw * s, ph * s)
+            }
+            BackdropSize::Set([sw, sh]) => {
+                let sw = sw.map(|l| resolve(l, w, em));
+                let sh = sh.map(|l| resolve(l, h, em));
+                match (sw, sh) {
+                    (Some(a), Some(b)) => (a, b),
+                    (Some(a), None) => (a, a * ph / pw),
+                    (None, Some(b)) => (b * pw / ph, b),
+                    (None, None) => (pw, ph),
+                }
+            }
+        };
+        if !(iw >= 0.5 && ih >= 0.5 && iw.is_finite() && ih.is_finite()) {
+            return;
+        }
+        let [ax, ay] = b.at.map(|a| a.clamp(0.0, 1.0));
+        let (ox, oy) = (x + (w - iw) * ax, y + (h - ih) * ay);
+        let (mut xs, mut ys) = (vec![ox], vec![oy]);
+        if b.repeat {
+            // Tiles from the box's corner past its far edges.
+            let first = |o: f32, start: f32, step: f32| o - ((o - start) / step).ceil() * step;
+            let tiles = |from: f32, end: f32, step: f32| {
+                std::iter::successors(Some(from), move |t| Some(t + step))
+                    .take_while(move |t| *t < end)
+                    .take(MAX_TILES)
+                    .collect::<Vec<f32>>()
+            };
+            xs = tiles(first(ox, x, iw), x + w, iw);
+            ys = tiles(first(oy, y, ih), y + h, ih);
+        }
+        let mut drawn = 0;
+        for ty in &ys {
+            for tx in &xs {
+                if drawn >= MAX_TILES {
+                    return;
+                }
+                self.clipped(&b.picture, decoded, [*tx, *ty, iw, ih], rect);
+                drawn += 1;
+            }
+        }
+    }
+
+    /// `picture` drawn at `at`, only where it overlaps `clip`.
+    fn clipped(&mut self, picture: &Arc<Picture>, decoded: &Decoded, at: [f32; 4], clip: [f32; 4]) {
+        let [x, y, w, h] = at;
+        let [cx, cy, cw, ch] = clip;
+        let (l, t) = (x.max(cx), y.max(cy));
+        let (r, b) = ((x + w).min(cx + cw), (y + h).min(cy + ch));
+        if r <= l || b <= t || !self.visible(t, b) {
+            return;
+        }
+        let Some(pixmap) = decoded.get(picture, w.max(h) * self.scale) else {
+            return;
+        };
+        let (pw, ph) = (f64::from(pixmap.width()), f64::from(pixmap.height()));
+        self.ctx
+            .set_transform(self.view * Affine::translate((f64::from(x), f64::from(y))));
+        let scale = Affine::scale_non_uniform(f64::from(w) / pw, f64::from(h) / ph);
+        self.ctx.set_paint_transform(scale);
+        self.ctx.set_paint(Image {
+            image: ImageSource::Pixmap(pixmap),
+            sampler: ImageSampler::default().with_quality(ImageQuality::High),
+        });
+        let (l, t, r, b) = (l - x, t - y, r - x, b - y);
+        let shown = Rect::new(f64::from(l), f64::from(t), f64::from(r), f64::from(b));
+        self.ctx.fill_rect(&shown);
+        self.ctx.reset_paint_transform();
     }
 
     /// One border side in `rect`, its lines running across if `across`.
@@ -299,6 +397,9 @@ impl Painter {
                 if run.style().underline.is_some() {
                     self.underline(&run, x, dy);
                 }
+                if run.style().strikethrough.is_some() {
+                    self.strike(&run, x, dy);
+                }
             }
             let mut last = None;
             for item in line.items() {
@@ -336,6 +437,17 @@ impl Painter {
         let m = run.run().font_metrics();
         let size = m.underline_size.max(UNDERLINE_MIN);
         let y = run.baseline() + m.underline_offset.abs() + UNDERLINE_GAP;
+        let ink = tone(run.style().brush.tone);
+        self.fill(ink, x + run.offset(), y + dy, run.advance(), size);
+        self.ctx
+            .set_transform(self.view * Affine::translate((f64::from(x), f64::from(dy))));
+    }
+
+    /// A line through `run`, at its font's strikeout height.
+    fn strike(&mut self, run: &GlyphRun<'_, Ink>, x: f32, dy: f32) {
+        let m = run.run().font_metrics();
+        let size = m.strikethrough_size.max(UNDERLINE_MIN);
+        let y = run.baseline() - m.strikethrough_offset.abs() - size / 2.0;
         let ink = tone(run.style().brush.tone);
         self.fill(ink, x + run.offset(), y + dy, run.advance(), size);
         self.ctx

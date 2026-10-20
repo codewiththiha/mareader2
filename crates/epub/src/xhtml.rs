@@ -10,13 +10,13 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Block, Boxed, Cell, Content, Edge, Emphasis, Frame, GridRow, Length, Look,
-    Picture, Role, Row, Table, Text, VAlign,
+    Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Content, Edge, Emphasis,
+    Floated, Frame, GridRow, Length, Look, Picture, Role, Row, Script, Table, Text, VAlign,
 };
 
 use crate::css::{
-    self, BorderStyle, Computed, Ctx, Decl, Display, El, FontFace, Len, Line, MAX_SHEET, ROOT_PX,
-    Stylesheet, TextAlign,
+    self, BorderStyle, Computed, Ctx, Decl, Display, El, Float, FontFace, Len, Line, MAX_SHEET,
+    PictureSize, ROOT_PX, Stylesheet, TextAlign,
 };
 use crate::href;
 
@@ -52,6 +52,10 @@ pub const MAX_SHEETS: usize = 16;
 /// Indents in body ems, as mareader's stylesheet has them.
 const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
+/// Backgrounds fainter than this against the page are left out.
+const MIN_FILL: f32 = 0.08;
+/// The most ink a background under text takes, keeping it readable.
+const MAX_TEXT_FILL: f32 = 0.16;
 const TAB: &str = "    ";
 /// Ids and links kept per book; past these, the rest are ignored.
 pub const MAX_PLACES: usize = 1 << 20;
@@ -140,6 +144,8 @@ struct Open {
     boxed: bool,
     /// Its part in the layout grid being read.
     part: Part,
+    /// It is the float in [`State::float`].
+    floated: bool,
 }
 
 /// An element's part in a layout grid.
@@ -160,6 +166,8 @@ struct BoxOpen {
     gap: Gap,
     /// Its first block in [`State::blocks`].
     first: usize,
+    /// Its background's full strength, drawn only if it holds no text.
+    contrast: Option<f32>,
 }
 
 /// The outermost layout table being read; nested ones read flat.
@@ -342,6 +350,10 @@ struct State<'a> {
     space: bool,
     /// The next block opens a chapter: it starts a page.
     chapter: bool,
+    /// The float open, by its place in the stack; inner ones read in line.
+    float: Option<(usize, Arc<Floated>)>,
+    /// The book's page colour, against which backgrounds show.
+    page: css::Rgb,
     /// A list item's marker, waiting for its first block.
     marker: Option<String>,
     /// The first block of an outermost list keeps the full gap above.
@@ -445,6 +457,7 @@ impl State<'_> {
         f.look = Some(self.look());
         f.boxes = self.box_arcs();
         f.cell = self.cell();
+        f.float = self.float.as_ref().map(|(_, f)| Arc::clone(f));
         f.before = self.gap.take() / ROOT_PX;
         f
     }
@@ -577,7 +590,18 @@ impl State<'_> {
         let name: &str = &tag.name;
         // A table of data draws its own grid, not a box.
         let layout = name != "table" || self.lays_out(tag);
+        let (contrast, backdrop) = match layout {
+            true => self.paint(c),
+            false => (None, None),
+        };
         let spec = layout.then(|| boxed(name, c, d, cell)).flatten();
+        let painted = contrast.is_some() || backdrop.is_some();
+        let spec = spec.or_else(|| painted.then(|| bare(c)));
+        let spec = spec.map(|spec| Boxed {
+            fill: contrast.map(|c| c.min(MAX_TEXT_FILL)),
+            backdrop,
+            ..spec
+        });
         let snapshot = self.gap;
         let inside = c.border[0] + c.padding[0];
         if inside > 0.0 {
@@ -591,17 +615,54 @@ impl State<'_> {
             arc: None,
             gap: snapshot,
             first: self.blocks.len(),
+            contrast,
         });
         true
     }
 
+    /// A background's ink strength, its contrast with the page; its picture.
+    fn paint(&mut self, c: &Computed) -> (Option<f32>, Option<Arc<Backdrop>>) {
+        let contrast = c
+            .fill
+            .map(|f| (css::luminance(f) - css::luminance(self.page)).abs());
+        let picture = c.picture.as_deref().and_then(|p| self.library.picture(p));
+        let backdrop = picture.map(|picture| {
+            let length = |l: Option<Len>| match l? {
+                Len::Px(px) => Some(Length::Em(px / ROOT_PX)),
+                Len::Em(e) | Len::Rem(e) => Some(Length::Em(e)),
+                Len::Percent(p) => Some(Length::Percent(p)),
+                _ => None,
+            };
+            let size = match c.picture_size {
+                PictureSize::Auto => BackdropSize::Auto,
+                PictureSize::Cover => BackdropSize::Cover,
+                PictureSize::Contain => BackdropSize::Contain,
+                PictureSize::Set([w, h]) => BackdropSize::Set([length(w), length(h)]),
+            };
+            Arc::new(Backdrop {
+                picture,
+                size,
+                at: c.picture_at,
+                repeat: c.picture_repeat,
+            })
+        });
+        (contrast.filter(|c| *c >= MIN_FILL), backdrop)
+    }
+
     /// Closes the innermost box, giving its blocks its bottom inside.
     fn close_box(&mut self, c: &Computed) {
-        let Some(open) = self.boxes.pop() else {
+        let Some(mut open) = self.boxes.pop() else {
             return self.space_below(c);
         };
         let inside = c.border[2] + c.padding[2];
-        let edged = open.spec.border.iter().any(|w| *w > 0.0);
+        let painted = open.spec.fill.is_some() || open.spec.backdrop.is_some();
+        let edged = painted || open.spec.border.iter().any(|w| *w > 0.0);
+        let held = self.blocks.get(open.first..).unwrap_or_default();
+        if edged && open.arc.is_some() && held.iter().all(Block::is_blank) {
+            // Only blank lines inside, which aren't laid: an empty box.
+            self.blocks.truncate(open.first);
+            open.arc = None;
+        }
         match &open.arc {
             Some(arc) if inside > 0.0 => {
                 self.gap.fixed(inside);
@@ -619,8 +680,12 @@ impl State<'_> {
             Some(_) => {}
             // An empty bordered box, a book's rule: a blank block of it.
             None if edged => {
-                let height = (self.gap.total() - open.gap.total() + inside) / ROOT_PX;
+                let tall = open.spec.height.unwrap_or(0.0) * ROOT_PX;
+                let gaps = (self.gap.total() - open.gap.total() + inside).max(0.0);
+                let height = (gaps + tall) / ROOT_PX;
                 self.gap = open.gap;
+                // No text to hide: a line or block shows at full strength.
+                open.spec.fill = open.contrast;
                 self.boxes.push(open);
                 let mut block = Block::new(Content::Space(height.max(0.0)));
                 block.frame = self.frame();
@@ -707,6 +772,14 @@ impl State<'_> {
         let (block_weight, block_size) = block.map_or((400, ROOT_PX), |c| (c.weight, c.size));
         let ratio = size / block_size.max(1.0);
         let sized = (ratio - 1.0).abs() > 0.02;
+        // Raised by the nearest inline that says so; decorations add up.
+        let inline = self.stack.iter().rev().take_while(|o| !is_block(&o.name));
+        let script = inline
+            .map(|o| o.computed.script)
+            .find(|s| *s != Script::Normal);
+        let (underline, strike) = self.stack.iter().fold((false, false), |(u, s), o| {
+            (u || o.computed.decoration.0, s || o.computed.decoration.1)
+        });
         Emphasis {
             italic: c.is_some_and(|c| c.italic),
             bold: weight >= 600 && weight > block_weight,
@@ -716,6 +789,10 @@ impl State<'_> {
             } else {
                 0
             },
+            script: script.unwrap_or_default(),
+            case: c.map_or(Case::Normal, Computed::case),
+            underline,
+            strike,
         }
     }
 
@@ -1030,7 +1107,7 @@ impl State<'_> {
             &self.sheets,
             &path,
             &hints(tag, &el.tag),
-            attr(tag, "style"),
+            (attr(tag, "style"), self.base),
         )
     }
 
@@ -1274,6 +1351,9 @@ impl State<'_> {
         if shown {
             self.observe(name, &computed, &declared);
         }
+        if let Some(fill) = computed.fill.filter(|_| matches!(name, "html" | "body")) {
+            self.page = fill;
+        }
         let id = attr(tag, "id").or_else(|| attr(tag, "name").filter(|_| name == "a"));
         if let Some(id) = id.filter(|_| !is_block(name)) {
             self.mark(id);
@@ -1319,6 +1399,16 @@ impl State<'_> {
             }
         }
         let (mut boxed, mut part) = (false, Part::None);
+        if is_block(name) && shown && computed.break_before && self.table.is_none() {
+            self.chapter = true;
+        }
+        let floats = computed.float != Float::None && is_block(name) && shown;
+        let floated = floats && self.float.is_none() && self.table.is_none() && !tag.self_closing;
+        if floated {
+            let depth = u8::try_from(self.boxes.len()).unwrap_or(u8::MAX);
+            let right = computed.float == Float::Right;
+            self.float = Some((self.stack.len(), Arc::new(Floated { right, depth })));
+        }
         if is_block(name) && shown && self.table.is_none() {
             part = self.grid_start(name, tag, &computed);
             boxed = self.open_block(tag, (&computed, &declared), part);
@@ -1371,6 +1461,7 @@ impl State<'_> {
             extent,
             boxed,
             part,
+            floated,
         });
         if name == "style" {
             self.style_text.clear();
@@ -1413,6 +1504,12 @@ impl State<'_> {
                     false => self.space_below(&open.computed),
                 }
                 self.end_part(open.part);
+                if open.computed.break_after {
+                    self.chapter = true;
+                }
+            }
+            if open.floated {
+                self.float = None;
             }
         }
         for (key, start, note) in closed.into_iter().filter_map(|o| o.extent) {
@@ -1533,6 +1630,10 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
     let padding = c.padding.map(|p| p.max(0.0) / ROOT_PX);
     let flat = margin.iter().all(|m| m.is_none() || *m == zero);
     let drawn = border.iter().any(|w| *w > 0.0);
+    let height = match c.height {
+        Len::Px(px) if px > 0.0 && !cell => Some(px / ROOT_PX),
+        _ => None,
+    };
     let apart = padding[1] > 0.0 || padding[3] > 0.0 || width.is_some() || centre.is_some();
     (drawn || apart || !flat).then_some(Boxed {
         margin,
@@ -1540,10 +1641,29 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
         edges,
         padding,
         width,
-        top: 0.0,
-        bottom: 0.0,
         centre,
+        height,
+        ..Boxed::default()
     })
+}
+
+/// A box drawn only for its background: its width, padding and height.
+fn bare(c: &Computed) -> Boxed {
+    let width = match c.width {
+        Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
+        Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        _ => None,
+    };
+    let height = match c.height {
+        Len::Px(px) if px > 0.0 => Some(px / ROOT_PX),
+        _ => None,
+    };
+    Boxed {
+        padding: c.padding.map(|p| p.max(0.0) / ROOT_PX),
+        width,
+        height,
+        ..Boxed::default()
+    }
 }
 
 /// A grid cell's width as the book sets it.
@@ -1593,8 +1713,9 @@ fn hints(tag: &Tag, name: &str) -> Decl {
         let unit = if w.ends_with('%') { "" } else { "px" };
         d.width = Decl::parse(&format!("width: {w}{unit}")).width;
     }
-    if attr(tag, "bgcolor").is_some() {
+    if let Some(c) = attr(tag, "bgcolor") {
         d.background = Some(true);
+        d.fill = css::colour(&c.trim().to_ascii_lowercase());
     }
     if let Some(v) = attr(tag, "valign").filter(|_| matches!(name, "td" | "th" | "tr")) {
         d.valign = Decl::parse(&format!("vertical-align: {}", v.trim())).valign;
@@ -1828,6 +1949,8 @@ pub(crate) fn read_chapter(
         stack: Vec::new(),
         space: false,
         chapter: true,
+        float: None,
+        page: [255; 3],
         marker: None,
         list_opened: false,
         pre_opened: false,
@@ -1939,6 +2062,100 @@ mod tests {
     }
 
     #[test]
+    fn inline_marks_raise_case_and_line_their_text() {
+        let b = read(
+            "<p>mc<sup>2</sup> H<sub>2</sub>O <u>u</u> <del>d</del> \
+             <span style='font-variant: small-caps'>sc</span> \
+             <span style='text-transform: uppercase'>up</span></p>",
+        );
+        let marks: Vec<(String, Emphasis)> = spans(b.first())
+            .into_iter()
+            .map(|(t, e)| (t.trim().to_owned(), e))
+            .collect();
+        let of = |word: &str| marks.iter().find(|(t, _)| t == word).map(|(_, e)| *e);
+        assert_eq!(of("2").map(|e| e.script), Some(Script::Super), "{marks:?}");
+        assert!(
+            marks
+                .iter()
+                .any(|(t, e)| t == "2" && e.script == Script::Sub)
+        );
+        assert!(of("u").is_some_and(|e| e.underline && !e.strike));
+        assert!(of("d").is_some_and(|e| e.strike && !e.underline));
+        assert_eq!(of("sc").map(|e| e.case), Some(Case::Small));
+        assert_eq!(of("up").map(|e| e.case), Some(Case::Upper));
+    }
+
+    #[test]
+    fn page_breaks_before_and_after_start_pages() {
+        let b = read(
+            "<p>a</p><p style='page-break-after: always'>b</p><p>c</p>\
+             <h2 style='break-before: page'>d</h2><p>e</p>",
+        );
+        let breaks: Vec<bool> = b.iter().map(|b| b.break_before).collect();
+        assert_eq!(breaks, [true, false, true, true, false]);
+    }
+
+    #[test]
+    fn backgrounds_show_by_their_contrast_with_the_page() {
+        let b = read(
+            "<body style='background: #000'>\
+             <div style='background-color: #fff; width: 1px; height: 6em'><p><br/></p></div>\
+             <div style='background: white; padding: 1em'><p>words</p></div>\
+             <div style='background: #111'><p>faint</p></div></body>",
+        );
+        assert_eq!(kinds(&b), ["space", "text", "text"]);
+        let fill = |i: usize| {
+            let block = b.get(i);
+            block
+                .and_then(|b| b.frame.boxes.first())
+                .and_then(|x| x.fill)
+        };
+        let line = b.first();
+        assert!(line.is_some_and(|l| matches!(l.content, Content::Space(h) if h >= 6.0)));
+        assert!(fill(0).is_some_and(|f| f > 0.9), "{:?}", fill(0));
+        assert_eq!(fill(1), Some(MAX_TEXT_FILL));
+        assert_eq!(fill(2), None);
+    }
+
+    #[test]
+    fn a_background_picture_resolves_against_its_sheet() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(4, 4) {
+            shelf.pictures.insert("/OEBPS/images/c1.png".to_owned(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<html><head><style>.b { background: url('../images/c1.png') no-repeat \
+             center / cover; padding: 1em }</style></head>\
+             <body><div class='b'><p>over</p></div></body></html>",
+        );
+        let backdrop = b
+            .first()
+            .and_then(|b| b.frame.boxes.first())
+            .and_then(|x| x.backdrop.clone());
+        let Some(backdrop) = backdrop else {
+            return assert_eq!(kinds(&b), ["backdrop"]);
+        };
+        assert_eq!(backdrop.size, BackdropSize::Cover);
+        assert!(!backdrop.repeat);
+        assert_eq!(backdrop.at, [0.5, 0.5]);
+    }
+
+    #[test]
+    fn a_floats_blocks_share_it_and_what_follows_does_not() {
+        let b = read(
+            "<div style='float: right'><p>Key</p><p>word</p></div><p>text</p>\
+             <span style='float: left'>inline</span>",
+        );
+        let float = |i: usize| b.get(i).and_then(|b| b.frame.float.clone());
+        let (Some(a), Some(c)) = (float(0), float(1)) else {
+            return assert_eq!(texts(&b), ["float"]);
+        };
+        assert!(Arc::ptr_eq(&a, &c) && a.right);
+        assert!(float(2).is_none() && float(3).is_none());
+    }
+
+    #[test]
     fn only_the_first_block_starts_a_page() {
         let b = read("<p>a</p><p>b</p>");
         let breaks: Vec<bool> = b.iter().map(|b| b.break_before).collect();
@@ -1953,7 +2170,7 @@ mod tests {
             italic,
             bold,
             code,
-            size: 0,
+            ..Emphasis::default()
         };
         // A collapsed space joins the run after it.
         assert_eq!(
@@ -2343,8 +2560,7 @@ mod tests {
         let e = |italic, bold| Emphasis {
             italic,
             bold,
-            code: false,
-            size: 0,
+            ..Emphasis::default()
         };
         assert_eq!(spans(b.first()), [(" x", e(true, true))]);
         assert_eq!(spans(b.get(1)), [("y", e(true, false))]);

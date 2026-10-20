@@ -8,12 +8,12 @@ use hypher::Lang;
 use parley::{
     Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName, FontStyle,
     FontWeight, GenericFamily, IndentOptions, Layout, LineHeight, OverflowWrap, Selection,
-    StyleProperty,
+    StyleProperty, VerticalAlign,
 };
 
 use crate::block::{
-    Align, Block, Boxed, Cell, Content, Edge, Emphasis, Frame, GridRow, Length, Link, Look, Role,
-    Table, Text, VAlign,
+    Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
+    Length, Link, Look, Role, Script, Table, Text, VAlign,
 };
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -244,6 +244,46 @@ pub(crate) struct Placed {
     top: f32,
     bottom: f32,
     centre: Option<f32>,
+    /// Its top border and padding, and the least height of its content.
+    inside_top: f32,
+    height: Option<f32>,
+    fill: Option<f32>,
+    backdrop: Option<Arc<Backdrop>>,
+    /// The body em its backdrop's lengths are in.
+    em: f32,
+}
+
+/// A float placed in the column: its key, the boxes holding it, its place.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FloatAt {
+    key: usize,
+    depth: usize,
+    x: f32,
+    width: f32,
+}
+
+/// A float beside a text: its far edge in the column, its reach down.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Exclusion {
+    right: bool,
+    edge: f32,
+    height: f32,
+}
+
+/// Room a float takes from a text's lines, from its own edges.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Beside {
+    left: f32,
+    right: f32,
+    height: f32,
+}
+
+/// A float's wrap going on: its edge, reach, and what may wrap.
+#[derive(Debug, Clone)]
+struct Wrap {
+    exclusion: Exclusion,
+    height: f32,
+    within: Holders,
 }
 
 /// A block's place in a grid row, in layout units.
@@ -266,6 +306,9 @@ pub(crate) struct Deco {
     pub(crate) rect: [f32; 4],
     pub(crate) border: [f32; 4],
     pub(crate) edges: [Edge; 4],
+    pub(crate) fill: Option<f32>,
+    pub(crate) backdrop: Option<Arc<Backdrop>>,
+    pub(crate) em: f32,
 }
 
 /// A table set in equal columns; row `i` spans `units[i]`.
@@ -358,6 +401,12 @@ pub(crate) struct Set {
     boxes: Vec<Placed>,
     /// Designed: its place in a grid row.
     cell: Option<CellAt>,
+    /// Designed: the float it is in.
+    float: Option<FloatAt>,
+    /// Designed: a float beside its first lines.
+    beside: Option<Exclusion>,
+    /// It starts below the float before it.
+    clear: bool,
 }
 
 /// Each unit's top and bottom within its block.
@@ -467,12 +516,12 @@ impl Flow {
         let set: Vec<Set> = {
             let mut setter = Setter::new(typo, &stacks, &mut fonts);
             (setter.column, setter.height) = (width, height);
-            blocks
+            let items: Vec<(usize, &Block)> = blocks
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| !b.is_blank())
-                .map(|(i, b)| setter.block(i, b).0)
-                .collect()
+                .collect();
+            setter.set_all(&items)
         };
         let (pages, decos) = paginate(&set, cut, typo);
         let mut flow = Self {
@@ -539,6 +588,9 @@ impl Flow {
             let mut setter = Setter::new(&relay.typo, &relay.stacks, &mut fonts);
             // The column it was measured in, not the typography's own.
             (setter.column, setter.height) = (self.width, relay.height);
+            // Laid again as first set: beside its float, or as one.
+            setter.float_box = set.float.map(|f| (f.x, f.width));
+            setter.exclusion = set.beside;
             Arc::new(setter.block(set.source, source).1)
         };
         recent().put(block, Arc::clone(&laid), source.layout_cost());
@@ -712,6 +764,10 @@ struct Setter<'a> {
     fonts: &'a mut Fonts,
     column: f32,
     height: f32,
+    /// A float's place, given its blocks are set.
+    float_box: Option<(f32, f32)>,
+    /// A float beside the next block's first lines.
+    exclusion: Option<Exclusion>,
 }
 
 impl<'a> Setter<'a> {
@@ -723,7 +779,116 @@ impl<'a> Setter<'a> {
             fonts,
             column: column_width(typo),
             height: PAGE_HEIGHT - 2.0 * PAD,
+            float_box: None,
+            exclusion: None,
         }
+    }
+
+    /// Designed text's em: the column as a phone page, at least the reader's.
+    fn design_em(&self) -> f32 {
+        let em = self.typo.font_size;
+        (self.column / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE)
+    }
+
+    /// Sets `items` in order; floats and the text wrapping past them
+    /// need what came before.
+    fn set_all(&mut self, items: &[(usize, &Block)]) -> Vec<Set> {
+        let mut out = Vec::with_capacity(items.len());
+        let mut wrap: Option<Wrap> = None;
+        let mut k = 0;
+        while let Some(&(i, block)) = items.get(k) {
+            let floated = self.look(&block.frame).and(block.frame.float.as_ref());
+            if let Some(f) = floated {
+                let key = Arc::as_ptr(f) as usize;
+                let rest = items.get(k..).unwrap_or_default();
+                let same = |(_, b): &(usize, &Block)| float_key(&b.frame) == Some(key);
+                let end = k + rest.iter().take_while(|b| same(b)).count().max(1);
+                let (sets, next) = self.float_group(items.get(k..end).unwrap_or_default(), f);
+                out.extend(sets);
+                wrap = next;
+                k = end;
+                continue;
+            }
+            self.exclusion = None;
+            let mut clear = false;
+            if let Some(w) = wrap.take() {
+                let height = w.height - block.frame.before * self.design_em();
+                let within = w.within.hold(&block.frame) && self.look(&block.frame).is_some();
+                if within && matches!(block.content, Content::Text(_)) && height > 0.0 {
+                    self.exclusion = Some(Exclusion {
+                        height,
+                        ..w.exclusion
+                    });
+                    let (set, _) = self.block(i, block);
+                    let left = height - span_height(&set, 0..set.units.len());
+                    if left > 0.0 {
+                        wrap = Some(Wrap { height: left, ..w });
+                    }
+                    out.push(set);
+                    k += 1;
+                    continue;
+                }
+                clear = height > 0.0;
+            }
+            let (mut set, _) = self.block(i, block);
+            set.clear = clear;
+            out.push(set);
+            k += 1;
+        }
+        self.exclusion = None;
+        out
+    }
+
+    /// Sets a float's blocks as wide as they need; gives its wrap.
+    fn float_group(&mut self, group: &[(usize, &Block)], f: &Floated) -> (Vec<Set>, Option<Wrap>) {
+        (self.exclusion, self.float_box) = (None, None);
+        let mut room = None;
+        let mut want: f32 = 0.0;
+        for &(i, b) in group {
+            let (set, laid) = self.block(i, b);
+            room.get_or_insert((set.x, set.width));
+            want = want.max(natural(&set, &laid));
+        }
+        let Some((x, width)) = room else {
+            return (Vec::new(), None);
+        };
+        let want = want.clamp(1.0, width);
+        let left = if f.right { x + width - want } else { x };
+        self.float_box = Some((left, want));
+        let sets: Vec<Set> = group.iter().map(|&(i, b)| self.block(i, b).0).collect();
+        self.float_box = None;
+        let em = self.design_em();
+        let depth = usize::from(f.depth);
+        let own = sets.first().and_then(|s| s.boxes.get(depth));
+        let (near, far) = own.map_or((left, left + want), |p| (p.x, p.x + p.width));
+        let edge = if f.right {
+            near - FLOAT_GAP * em
+        } else {
+            far + FLOAT_GAP * em
+        };
+        let mut height = 0.0;
+        for (n, set) in sets.iter().enumerate() {
+            let gap = gap(set, self.typo);
+            height += span_height(set, 0..set.units.len()) + gap;
+            if n == 0 {
+                height += own.map_or(0.0, |p| p.top);
+            }
+        }
+        height += own.map_or(0.0, |p| p.bottom);
+        let within = group
+            .first()
+            .map_or_else(Holders::default, |(_, b)| Holders::of(&b.frame, depth));
+        let exclusion = Exclusion {
+            right: f.right,
+            edge,
+            height: 0.0,
+        };
+        let wrap = Wrap {
+            exclusion,
+            height,
+            within,
+        };
+        (sets, Some(wrap))
     }
 
     fn body(&self, frame: &Frame) -> Style<'a> {
@@ -758,7 +923,7 @@ impl<'a> Setter<'a> {
 
     /// Text in the book's look; its faces are the caller's to add.
     fn designed(&self, role: Role, frame: &Frame, look: &Look) -> Style<'a> {
-        let em = self.typo.font_size;
+        let em = self.design_em();
         let pre = role == Role::Preformatted;
         let line = match role {
             Role::Heading(_) => HEADING_LINE_HEIGHT,
@@ -835,16 +1000,47 @@ impl<'a> Setter<'a> {
 
     fn block(&mut self, source: usize, block: &Block) -> (Set, Laid) {
         let (column, height) = (self.column, self.height);
-        let em = self.typo.font_size;
         let frame = &block.frame;
         let designed = self.look(frame).is_some();
-        let (left, room, boxes, cell) = match designed {
+        let em = if designed {
+            self.design_em()
+        } else {
+            self.typo.font_size
+        };
+        let (left, room, mut boxes, cell) = match designed {
             true => self.boxes(frame, column),
             false => (0.0, column, Vec::new(), None),
         };
         // Deep nesting stops indenting at half the column.
-        let x = left + (frame.inset * em).clamp(0.0, room / 2.0);
-        let width = room - (x - left);
+        let mut x = left + (frame.inset * em).clamp(0.0, room / 2.0);
+        let mut width = room - (x - left);
+        let float = self.float_box.filter(|_| designed).map(|(fx, fw)| {
+            // The float's own boxes wrap its narrower content.
+            let depth = frame.float.as_ref().map_or(0, |f| usize::from(f.depth));
+            for p in boxes.iter_mut().skip(depth) {
+                let (near, far) = (x - p.x, p.x + p.width - x - width);
+                (p.x, p.width) = (fx - near, fw + near + far);
+            }
+            (x, width) = (fx, fw);
+            FloatAt {
+                key: float_key(frame).unwrap_or(0),
+                depth,
+                x: fx,
+                width: fw,
+            }
+        });
+        let beside = self.exclusion.filter(|_| designed).map(|e| {
+            let (l, r) = match e.right {
+                true => (0.0, x + width - e.edge),
+                false => (e.edge - x, 0.0),
+            };
+            let most = (width - 2.0 * em).max(0.0);
+            Beside {
+                left: l.clamp(0.0, most),
+                right: r.clamp(0.0, most),
+                height: e.height,
+            }
+        });
         let edged = || {
             frame
                 .boxes
@@ -852,7 +1048,7 @@ impl<'a> Setter<'a> {
                 .any(|b| b.edges.iter().any(|e| *e != Edge::None))
         };
         let (draw, laid, units, starts) = match &block.content {
-            Content::Text(text) => self.text(text, frame, width),
+            Content::Text(text) => self.text(text, frame, width, beside),
             Content::Rule => {
                 let unit = (0.0, RULE_HEIGHT * em);
                 (Draw::Rule, Laid::None, vec![unit], vec![0])
@@ -917,13 +1113,16 @@ impl<'a> Setter<'a> {
             heads,
             boxes,
             cell,
+            float,
+            beside: self.exclusion.filter(|_| designed),
+            clear: false,
         };
         (set, laid)
     }
 
     /// Places the boxes and cell in `column`: content left, width, both.
     fn boxes(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
-        let em = self.typo.font_size;
+        let em = self.design_em();
         let (mut x, mut width) = (0.0, column);
         let mut placed = Vec::with_capacity(frame.boxes.len());
         let mut at = None;
@@ -955,6 +1154,7 @@ impl<'a> Setter<'a> {
         text: &Text,
         frame: &Frame,
         width: f32,
+        beside: Option<Beside>,
     ) -> (Draw, Laid, Vec<(f32, f32)>, Vec<usize>) {
         let em = self.typo.font_size;
         let style = self.text_style(text.role, frame);
@@ -976,7 +1176,7 @@ impl<'a> Setter<'a> {
             },
             None => style,
         };
-        let mut para = layout_text(self.fonts, text, style, Some(inner));
+        let mut para = layout_text(self.fonts, text, style, (Some(inner), beside));
         let mut units = line_units(&para.layout);
         // The padding rides on the first and last lines.
         if let Some(first) = units.first_mut() {
@@ -996,7 +1196,7 @@ impl<'a> Setter<'a> {
                 indent: 0.0,
                 ..style
             };
-            Box::new(layout_text(self.fonts, &t, style, None))
+            Box::new(layout_text(self.fonts, &t, style, (None, None)))
         });
         let starts = std::mem::take(&mut para.starts);
         let para = Box::new(para);
@@ -1019,7 +1219,7 @@ impl<'a> Setter<'a> {
             let cells: Vec<Para> = row
                 .cells
                 .iter()
-                .map(|c| layout_text(self.fonts, c, style, Some(inner)))
+                .map(|c| layout_text(self.fonts, c, style, (Some(inner), None)))
                 .collect();
             let tallest = cells.iter().map(|c| c.layout.height()).fold(0.0, f32::max);
             let h = tallest + 2.0 * pad_y;
@@ -1034,7 +1234,7 @@ impl<'a> Setter<'a> {
 }
 
 /// A book's length in layout units; percentages are of `width`.
-fn resolve(length: Length, width: f32, em: f32) -> f32 {
+pub(crate) fn resolve(length: Length, width: f32, em: f32) -> f32 {
     match length {
         Length::Em(e) => e * em,
         Length::Percent(p) => width * p / 100.0,
@@ -1067,6 +1267,58 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         top: b.top * em,
         bottom: b.bottom * em,
         centre: b.centre,
+        inside_top: (b.border[0] + b.padding[0]) * em,
+        height: b.height.map(|h| h * em),
+        fill: b.fill,
+        backdrop: b.backdrop.clone(),
+        em,
+    }
+}
+
+/// The float block `frame` is in, by its address.
+fn float_key(frame: &Frame) -> Option<usize> {
+    frame.float.as_ref().map(|f| Arc::as_ptr(f) as usize)
+}
+
+/// What holds a float, by address: its outer boxes and its cell.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Holders {
+    boxes: Vec<usize>,
+    cell: Option<(usize, u16)>,
+}
+
+impl Holders {
+    /// Block `frame`'s first `depth` boxes and its cell.
+    fn of(frame: &Frame, depth: usize) -> Self {
+        let boxes = frame.boxes.iter().take(depth);
+        Self {
+            boxes: boxes.map(|b| Arc::as_ptr(b) as usize).collect(),
+            cell: cell_key(frame),
+        }
+    }
+
+    /// Whether block `frame` sits in the same holders.
+    fn hold(&self, frame: &Frame) -> bool {
+        let mine = frame.boxes.iter().map(|b| Arc::as_ptr(b) as usize);
+        let inside = frame.boxes.len() >= self.boxes.len();
+        inside && self.boxes.iter().zip(mine).all(|(a, b)| *a == b) && self.cell == cell_key(frame)
+    }
+}
+
+/// Block `frame`'s grid row, by address, and column.
+fn cell_key(frame: &Frame) -> Option<(usize, u16)> {
+    frame
+        .cell
+        .as_ref()
+        .map(|c| (Arc::as_ptr(&c.row) as usize, c.column))
+}
+
+/// How wide a set block's content is, as a float shrinks to it.
+fn natural(set: &Set, laid: &Laid) -> f32 {
+    match (laid, &set.draw) {
+        (Laid::Text { para, .. }, Draw::Text { pad, .. }) => para.layout.width() + 2.0 * pad,
+        (_, Draw::Image { rect, .. }) => rect[2],
+        _ => set.width,
     }
 }
 
@@ -1127,7 +1379,12 @@ fn alignment(style: &Style<'_>) -> Alignment {
     }
 }
 
-fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f32>) -> Para {
+fn layout_text(
+    fonts: &mut Fonts,
+    text: &Text,
+    style: Style<'_>,
+    (width, beside): (Option<f32>, Option<Beside>),
+) -> Para {
     let hyphenated = style.hyphens.map(|lang| hyphen::hyphenate(text, lang));
     let text = hyphenated.as_ref().map_or(text, |h| &h.text);
     let Fonts { fonts, layout } = fonts;
@@ -1135,7 +1392,8 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
         tone: style.tone,
         code: false,
     };
-    let mut b = layout.ranged_builder(fonts, &text.text, 1.0, false);
+    let (shown, small) = cased(text);
+    let mut b = layout.ranged_builder(fonts, &shown, 1.0, false);
     b.push_default(StyleProperty::FontFamily(FontFamily::List(Cow::Borrowed(
         style.faces,
     ))));
@@ -1161,7 +1419,28 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
             bold,
             code,
             size,
+            script,
+            case: _,
+            underline,
+            strike,
         } = span.emphasis;
+        if script != Script::Normal {
+            let shift = match script {
+                Script::Sub => VerticalAlign::SUB,
+                _ => VerticalAlign::SUPER,
+            };
+            b.push(StyleProperty::VerticalAlign(shift), range.clone());
+            if !style.sized {
+                let size = StyleProperty::FontSize(style.size * SCRIPT_SCALE);
+                b.push(size, range.clone());
+            }
+        }
+        if underline {
+            b.push(StyleProperty::Underline(true), range.clone());
+        }
+        if strike {
+            b.push(StyleProperty::Strikethrough(true), range.clone());
+        }
         if size != 0 && style.sized {
             let size = style.size * f32::from(size) / 100.0;
             let size = StyleProperty::FontSize(size.clamp(MIN_SIZE, MAX_SIZE));
@@ -1184,14 +1463,24 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
             b.push(StyleProperty::Brush(Ink { code: true, ..ink }), range);
         }
     }
+    for (range, scale) in small {
+        let size = style.size * scale * SMALL_CAPS;
+        b.push(
+            StyleProperty::FontSize(size.clamp(MIN_SIZE, MAX_SIZE)),
+            range,
+        );
+    }
     for link in &text.links {
         b.push(StyleProperty::Underline(true), link.range.clone());
     }
-    let mut layout = b.build(&text.text);
+    let mut layout = b.build(&shown);
     if style.indent > 0.0 {
         layout.set_text_indent(style.indent, IndentOptions::default());
     }
-    layout.break_all_lines(width);
+    match (width, beside) {
+        (Some(width), Some(beside)) => break_beside(&mut layout, width, beside),
+        _ => layout.break_all_lines(width),
+    }
     layout.align(alignment(&style), AlignmentOptions::default());
     let ends_soft = |end: usize| text.text.get(..end).is_some_and(|s| s.ends_with(SHY));
     let hyphens = layout
@@ -1218,6 +1507,72 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
         starts,
         links: text.links.clone(),
     }
+}
+
+/// Breaks `layout`'s lines in `width`, those beside a float narrower.
+fn break_beside(layout: &mut Layout<Ink>, width: f32, beside: Beside) {
+    let mut lines = layout.break_lines();
+    lines.state_mut().set_layout_max_advance(width);
+    loop {
+        let top = lines.state().line_y() as f32;
+        let (x, room) = match top < beside.height {
+            true => (beside.left, width - beside.left - beside.right),
+            false => (0.0, width),
+        };
+        lines.state_mut().set_line_x(x);
+        lines
+            .state_mut()
+            .set_line_max_advance(room.clamp(1.0, width));
+        if lines.break_next().is_none() {
+            break;
+        }
+    }
+    lines.finish();
+}
+
+/// `text` in its shown cases, offsets kept; small capitals' runs.
+fn cased(text: &Text) -> (Cow<'_, str>, Vec<(Range<usize>, f32)>) {
+    let mut small: Vec<(Range<usize>, f32)> = Vec::new();
+    if text.spans.iter().all(|s| s.emphasis.case == Case::Normal) {
+        return (Cow::Borrowed(&text.text), small);
+    }
+    // A letter swapped only for one as long, keeping every offset.
+    let swap = |c: char, upper: bool| {
+        let mut to: Vec<char> = match upper {
+            true => c.to_uppercase().collect(),
+            false => c.to_lowercase().collect(),
+        };
+        let one = to.len() == 1;
+        to.pop().filter(|t| one && t.len_utf8() == c.len_utf8())
+    };
+    let mut shown = String::with_capacity(text.text.len());
+    let mut spans = text.spans.iter().peekable();
+    for (i, c) in text.text.char_indices() {
+        while spans.next_if(|s| s.range.end <= i).is_some() {}
+        let span = spans.peek().filter(|s| s.range.start <= i);
+        let case = span.map_or(Case::Normal, |s| s.emphasis.case);
+        let out = match case {
+            Case::Normal => None,
+            Case::Upper => swap(c, true),
+            Case::Lower => swap(c, false),
+            Case::Small => swap(c, true).filter(|_| c.is_lowercase()),
+        };
+        shown.push(out.unwrap_or(c));
+        if case == Case::Small && out.is_some() {
+            let size = span.map_or(0, |s| s.emphasis.size);
+            let scale = if size == 0 {
+                1.0
+            } else {
+                f32::from(size) / 100.0
+            };
+            let end = i + c.len_utf8();
+            match small.last_mut() {
+                Some((r, s)) if r.end == i && *s == scale => r.end = end,
+                _ => small.push((i..end, scale)),
+            }
+        }
+    }
+    (Cow::Owned(shown), small)
 }
 
 /// Boxes of `para`'s links on lines `lines`, its origin at `x, y`.
@@ -1289,6 +1644,8 @@ struct Cursor {
     y: f32,
     /// The page's height, which centring boxes fill.
     height: f32,
+    /// Where the last float on the page ends.
+    float_bottom: f32,
 }
 
 /// A book's box open on the page being filled.
@@ -1311,20 +1668,20 @@ impl OpenBox {
         if !closed {
             (border[2], edges[2]) = (0.0, Edge::None);
         }
-        let drawn = border
+        let edged = border
             .iter()
             .zip(&edges)
             .any(|(w, e)| *w > 0.0 && *e != Edge::None);
-        let rect = [
-            self.placed.x,
-            self.top,
-            self.placed.width,
-            bottom - self.top,
-        ];
-        drawn.then_some(Deco {
+        let p = &self.placed;
+        let drawn = edged || p.fill.is_some() || p.backdrop.is_some();
+        let rect = [p.x, self.top, p.width, bottom - self.top];
+        drawn.then(|| Deco {
             rect: rect.map(|v| if v.is_finite() { v } else { 0.0 }),
             border,
             edges,
+            fill: p.fill,
+            backdrop: p.backdrop.clone(),
+            em: p.em,
         })
     }
 }
@@ -1340,7 +1697,7 @@ impl Cursor {
             self.pages.push(std::mem::take(&mut self.page));
             self.decos.push(std::mem::take(&mut self.deco));
         }
-        self.y = 0.0;
+        (self.y, self.float_bottom) = (0.0, 0.0);
     }
 
     /// Places `units` of block `block` at the cursor.
@@ -1371,6 +1728,11 @@ impl Cursor {
             let Some(open) = self.open.pop() else {
                 break;
             };
+            if let Some(least) = open.placed.height.filter(|_| !open.continued) {
+                // A set height holds the box open below short content.
+                let floor = open.top + open.placed.inside_top + least;
+                self.y = self.y.max(floor.min(self.height));
+            }
             let mut bottom = self.y + open.placed.bottom;
             if let (Some((pieces, decos)), Some(share)) = (open.centre, open.placed.centre) {
                 // Its content sits mid-way down the height it fills.
@@ -1431,6 +1793,16 @@ pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 const MIN_COLUMN: f32 = 160.0;
 /// The most cells a grid row lays side by side.
 const MAX_COLUMNS: usize = 64;
+/// A designed page is laid as if this many book ems wide, as a phone's.
+const DESIGN_EMS: f32 = 26.0;
+/// The most designed type grows past the reader's size.
+const MAX_DESIGN_SCALE: f32 = 1.6;
+/// Space between a float and the text past it, in ems.
+const FLOAT_GAP: f32 = 0.4;
+/// Small capitals' size against capitals.
+const SMALL_CAPS: f32 = 0.8;
+/// Raised and lowered text's size in reading type.
+const SCRIPT_SCALE: f32 = 0.75;
 
 fn gap(block: &Set, typo: &Typography) -> f32 {
     if let Some(before) = block.before {
@@ -1451,8 +1823,18 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>,
         ..Cursor::default()
     };
     let row = |i: usize| blocks.get(i).and_then(|b| b.cell).map(|c| c.key);
+    let float = |i: usize| blocks.get(i).and_then(|b| b.float).map(|f| f.key);
     let mut i = 0;
     while i < blocks.len() && c.pages.len() < MAX_PAGES {
+        if let (None, Some(key)) = (row(i), float(i)) {
+            let end = (i..blocks.len())
+                .find(|&j| float(j) != Some(key))
+                .unwrap_or(blocks.len())
+                .max(i + 1);
+            place_float(&mut c, blocks, i..end, (height, typo));
+            i = end;
+            continue;
+        }
         let Some(key) = row(i) else {
             place_block(&mut c, blocks, i, (height, typo));
             i += 1;
@@ -1478,6 +1860,26 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>,
     (c.pages, c.decos)
 }
 
+/// Places a float; what follows starts at its top, unless it ran over.
+fn place_float(c: &mut Cursor, blocks: &[Set], float: Range<usize>, room: (f32, &Typography)) {
+    let (pages, top) = (c.pages.len(), c.y);
+    for k in float.clone() {
+        place_block(c, blocks, k, room);
+    }
+    let depth = blocks
+        .get(float.start)
+        .and_then(|b| b.float)
+        .map_or(0, |f| f.depth);
+    c.close(depth.min(c.open.len()));
+    c.float_bottom = c.y;
+    if c.pages.len() == pages {
+        c.y = top;
+    } else if c.page.first().is_some_and(|p| p.block == float.start) {
+        // The whole float went overleaf: text starts beside it there.
+        c.y = 0.0;
+    }
+}
+
 /// Places block `i`, split between pages where it must be.
 fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &Typography)) {
     let Some(block) = blocks.get(i) else {
@@ -1490,6 +1892,9 @@ fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &
     c.close(c.common(&block.boxes));
     if block.break_before {
         c.break_page();
+    }
+    if block.clear {
+        c.y = c.y.max(c.float_bottom);
     }
     if !c.page.is_empty() {
         c.y += gap(block, typo);
@@ -1582,6 +1987,9 @@ fn place_row(
     c.close(c.common(outer));
     if first.break_before {
         c.break_page();
+    }
+    if first.clear {
+        c.y = c.y.max(c.float_bottom);
     }
     if !c.page.is_empty() {
         c.y += cell.before.max(0.0);
@@ -1739,6 +2147,30 @@ mod tests {
         block
     }
 
+    /// The body em designed text in `f` is set at.
+    fn design_em(f: &Flow) -> f32 {
+        let em = Typography::default().font_size;
+        (f.width / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE)
+    }
+
+    /// `block` floated at the left, or right if `right`.
+    fn floated(block: Block, right: bool) -> Block {
+        let mut block = designed(block, &[], None);
+        block.frame.float = Some(Arc::new(Floated { right, depth: 0 }));
+        block
+    }
+
+    /// Each line's left edge in block `block`'s text.
+    fn line_lefts(f: &Flow, block: usize) -> Vec<f32> {
+        match &*f.laid(block) {
+            Laid::Text { para, .. } => {
+                let lines = para.layout.lines();
+                lines.map(|l| l.metrics().inline_min_coord).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Where block `block`'s first piece starts and ends on page `page`.
     fn span(f: &Flow, page: usize, block: usize) -> (f32, f32) {
         let piece = f
@@ -1763,7 +2195,7 @@ mod tests {
         });
         let boxed = || designed(para(3), &[Arc::clone(&b)], None);
         let f = flow(&[boxed(), boxed(), designed(para(3), &[], None)]);
-        let em = Typography::default().font_size;
+        let em = design_em(&f);
         let set = f.blocks.first();
         let left = (f.width - 10.4 * em) / 2.0 + 0.2 * em;
         assert!(set.is_some_and(|s| (s.x - left).abs() < 0.5 && (s.width - 10.0 * em).abs() < 0.5));
@@ -1832,6 +2264,133 @@ mod tests {
         let last = f.page_count() - 1;
         assert!(edges(0).is_some_and(|e| e[0] == Edge::Solid && e[2] == Edge::None));
         assert!(edges(last).is_some_and(|e| e[0] == Edge::None && e[2] == Edge::Solid));
+    }
+
+    #[test]
+    fn designed_type_is_set_as_on_a_phone_page() {
+        let f = flow(&[designed(para(1), &[], None), para(1)]);
+        let em = Typography::default().font_size;
+        let design = design_em(&f);
+        assert!(design > em && design <= em * MAX_DESIGN_SCALE, "{design}");
+        let tall = |i| {
+            f.blocks
+                .get(i)
+                .map_or(0.0, |s| span_height(s, 0..s.units.len()))
+        };
+        assert!(tall(0) > tall(1) * 1.2, "{} {}", tall(0), tall(1));
+    }
+
+    #[test]
+    fn text_wraps_past_a_float_then_takes_the_column() {
+        let f = flow(&[floated(para(1), false), designed(para(300), &[], None)]);
+        let (float, text) = (f.blocks.first(), f.blocks.get(1));
+        let fw = float.map_or(f32::NAN, |s| s.width);
+        assert!(fw < f.width / 4.0, "{fw}");
+        assert!(float.is_some_and(|s| s.float.is_some()));
+        assert!(text.is_some_and(|s| s.beside.is_some()));
+        let ((a, a_end), (b, _)) = (span(&f, 0, 0), span(&f, 0, 1));
+        assert!((a - b).abs() < 0.5, "{a} {b}");
+        let lefts = line_lefts(&f, 1);
+        assert!(lefts.first().is_some_and(|x| *x >= fw), "{lefts:?}");
+        assert!(lefts.last().is_some_and(|x| *x == 0.0), "{lefts:?}");
+        // Lines beside the float are the float's height, no more.
+        let beside = lefts.iter().take_while(|x| **x > 0.0).count();
+        let line = text.map_or(0.0, |s| span_height(s, 0..1));
+        assert!(beside as f32 * line <= a_end - a + line + 0.5, "{beside}");
+    }
+
+    #[test]
+    fn a_right_float_keeps_text_to_its_left() {
+        let f = flow(&[floated(para(1), true), designed(para(80), &[], None)]);
+        let float = f.blocks.first().map_or((0.0, 0.0), |s| (s.x, s.width));
+        assert!((float.0 + float.1 - f.width).abs() < 0.5, "{float:?}");
+        assert!(line_lefts(&f, 1).iter().all(|x| *x == 0.0));
+        let widths: Vec<f32> = match &*f.laid(1) {
+            Laid::Text { para, .. } => para.layout.lines().map(|l| l.metrics().advance).collect(),
+            _ => Vec::new(),
+        };
+        assert!(
+            widths.first().is_some_and(|w| *w <= float.0 + 0.5),
+            "{widths:?}"
+        );
+    }
+
+    #[test]
+    fn a_picture_after_a_float_starts_below_it() {
+        let mut picture = image(400, 200, false);
+        picture.frame.look = Some(Arc::new(Look {
+            designed: true,
+            ..Look::default()
+        }));
+        let f = flow(&[floated(para(1), false), picture]);
+        assert!(f.blocks.get(1).is_some_and(|s| s.clear));
+        let ((_, float_end), (top, _)) = (span(&f, 0, 0), span(&f, 0, 1));
+        assert!(top >= float_end - 0.5, "{float_end} {top}");
+    }
+
+    #[test]
+    fn a_set_height_holds_its_box_open() {
+        let b = Arc::new(Boxed {
+            height: Some(10.0),
+            fill: Some(0.1),
+            ..Boxed::default()
+        });
+        let f = flow(&[designed(para(1), &[b], None)]);
+        let em = design_em(&f);
+        let deco = f.decos.first().and_then(|d| d.first());
+        assert!(deco.is_some_and(|d| d.rect[3] >= 10.0 * em - 0.5 && d.fill == Some(0.1)));
+    }
+
+    #[test]
+    fn cases_show_over_the_text_keeping_its_offsets() {
+        let mut t = Text::new(Role::Paragraph);
+        let small = Emphasis {
+            case: Case::Small,
+            ..Emphasis::default()
+        };
+        t.push("Top ", Emphasis::default());
+        t.push("Straße ok", small);
+        let (shown, runs) = cased(&t);
+        assert_eq!(shown, "Top STRAßE OK");
+        assert_eq!(shown.len(), t.text.len());
+        let runs: Vec<Range<usize>> = runs.into_iter().map(|(r, _)| r).collect();
+        assert_eq!(runs, [5..8, 10..11, 12..14]);
+    }
+
+    #[test]
+    fn raised_text_sets_smaller_on_its_line() {
+        let mut t = Text::new(Role::Paragraph);
+        t.push("x", Emphasis::default());
+        let sup = Emphasis {
+            script: Script::Super,
+            underline: true,
+            strike: true,
+            ..Emphasis::default()
+        };
+        t.push("2", sup);
+        let f = flow(&[Block::new(Content::Text(t))]);
+        let laid = f.laid(0);
+        let lines = match &*laid {
+            Laid::Text { para, .. } => para.layout.lines().collect(),
+            _ => Vec::new(),
+        };
+        let runs: Vec<(f32, bool, bool)> = lines
+            .iter()
+            .flat_map(|l| l.items().collect::<Vec<_>>())
+            .filter_map(|i| match i {
+                parley::PositionedLayoutItem::GlyphRun(r) => Some((
+                    r.run().font_size(),
+                    r.style().underline.is_some(),
+                    r.style().strikethrough.is_some(),
+                )),
+                parley::PositionedLayoutItem::InlineBox(_) => None,
+            })
+            .collect();
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        let (Some(x), Some(two)) = (runs.first(), runs.get(1)) else {
+            return;
+        };
+        assert!(two.0 < x.0 && two.1 && two.2 && !x.1, "{runs:?}");
     }
 
     #[test]
