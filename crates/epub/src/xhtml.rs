@@ -272,6 +272,10 @@ struct State<'a> {
     blocks: Vec<Block>,
     current: Option<Block>,
     table: Option<TableBuild>,
+    /// By each `<table>` in order: whether it holds a picture.
+    pictured: Vec<bool>,
+    /// How many `<table>` tags have started.
+    tables: usize,
     stack: Vec<Open>,
     /// A collapsed space waits for the next visible character.
     space: bool,
@@ -630,9 +634,14 @@ impl State<'_> {
 
     fn start_table(&mut self, tag_name: &str, tag: &Tag) {
         if tag_name == "table" {
+            let ordinal = self.tables;
+            self.tables += 1;
+            // A table that lays out pictures reads as plain blocks.
+            let pictured = self.pictured.get(ordinal).copied().unwrap_or(false);
+            let layout = pictured || typed(tag, "role", &["presentation", "none"]);
             if let Some(t) = self.table.as_mut() {
                 t.nested += 1;
-            } else {
+            } else if !layout {
                 let frame = self.frame();
                 self.table = Some(TableBuild {
                     table: Table::default(),
@@ -723,6 +732,7 @@ impl State<'_> {
         for cell in table.rows.iter_mut().flat_map(|r| r.cells.iter_mut()) {
             cell.trim_end();
         }
+        drop_blank_columns(&mut table);
         table.rows.retain(|r| !r.cells.is_empty());
         let mut block = Block::new(Content::Table(table));
         block.frame = t.frame;
@@ -866,6 +876,75 @@ impl State<'_> {
     }
 }
 
+/// Drops columns blank in every row, such as spacers.
+fn drop_blank_columns(table: &mut Table) {
+    let columns = table.rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+    let filled = |i: usize| {
+        let cell = |r: &Row| r.cells.get(i).is_some_and(|c| !c.is_blank());
+        table.rows.iter().any(cell)
+    };
+    let keep: Vec<bool> = (0..columns).map(filled).collect();
+    if !keep.contains(&true) {
+        return;
+    }
+    for row in &mut table.rows {
+        let mut kept = keep.iter();
+        row.cells.retain(|_| kept.next().copied().unwrap_or(true));
+    }
+}
+
+/// Marks each `<table>`, in order, that holds a picture at any depth.
+struct Pictured(RefCell<(Vec<bool>, Vec<usize>)>);
+
+impl TokenSink for Pictured {
+    type Handle = ();
+
+    fn process_token(&self, token: Token, _line: u64) -> TokenSinkResult<()> {
+        let Token::TagToken(tag) = token else {
+            return TokenSinkResult::Continue;
+        };
+        let (flags, open) = &mut *self.0.borrow_mut();
+        let name: &str = &tag.name;
+        match (tag.kind, name) {
+            (TagKind::StartTag, "table") => {
+                if !tag.self_closing {
+                    open.push(flags.len());
+                }
+                flags.push(false);
+            }
+            (TagKind::StartTag, "img" | "image" | "svg") => {
+                for &at in open.iter() {
+                    if let Some(f) = flags.get_mut(at) {
+                        *f = true;
+                    }
+                }
+            }
+            (TagKind::EndTag, "table") => {
+                open.pop();
+            }
+            (TagKind::StartTag, raw) if is_raw(raw) && !tag.self_closing => {
+                return TokenSinkResult::RawData(RawKind::Rawtext);
+            }
+            _ => {}
+        }
+        TokenSinkResult::Continue
+    }
+}
+
+/// Which of the chapter's tables hold pictures; none without a table.
+fn pictured_tables(xhtml: &str) -> Vec<bool> {
+    if !xhtml.contains("<table") && !xhtml.contains("<TABLE") {
+        return Vec::new();
+    }
+    let sink = Pictured(RefCell::new((Vec::new(), Vec::new())));
+    let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
+    let input = BufferQueue::default();
+    input.push_back(StrTendril::from_slice(xhtml));
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    tokenizer.sink.0.into_inner().0
+}
+
 fn put(text: &mut Text, s: &str, emphasis: Emphasis, link: Option<u32>) {
     match link {
         Some(target) => text.push_link(s, emphasis, target),
@@ -921,6 +1000,8 @@ pub(crate) fn read_chapter(
         blocks: Vec::new(),
         current: None,
         table: None,
+        pictured: pictured_tables(xhtml),
+        tables: 0,
         stack: Vec::new(),
         space: false,
         chapter: true,
@@ -1207,6 +1288,67 @@ mod tests {
             ..Emphasis::default()
         };
         assert_eq!(spans(b.get(3)), [("Gone", italic)]);
+    }
+
+    fn kinds(b: &[Block]) -> Vec<&'static str> {
+        b.iter()
+            .map(|b| match &b.content {
+                Content::Text(_) => "text",
+                Content::Rule => "rule",
+                Content::Image { .. } => "image",
+                Content::Table(_) => "table",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_table_laying_out_pictures_reads_as_blocks() {
+        let mut shelf = Shelf::default();
+        for name in ["c1", "c2"] {
+            if let Some(p) = png(4, 4) {
+                shelf
+                    .pictures
+                    .insert(format!("/OEBPS/images/{name}.png"), p);
+            }
+        }
+        let b = read_with(
+            &mut shelf,
+            "<h2>Main</h2><table class='grid'><tr>\
+             <td style='text-align:center'><img src='../images/c1.png' alt='char1'/>\
+             <p>Sistine</p><p>The honour student</p></td>\
+             <td class='gap'>&#160;</td>\
+             <td><div><img src='../images/c2.png' alt='char2'/></div><p>Glenn</p>\
+             <table><tr><th>Age</th><td>19</td></tr></table></td>\
+             </tr></table><p>after</p>",
+        );
+        assert_eq!(
+            kinds(&b),
+            [
+                "text", "image", "text", "text", "image", "text", "table", "text"
+            ]
+        );
+        let words = texts(&b);
+        assert!(!words.iter().any(|t| t.contains("char")), "{words:?}");
+        assert_eq!(b.get(1).map(|b| b.frame.align), Some(Align::Center));
+    }
+
+    #[test]
+    fn presentation_tables_read_as_blocks_and_spacer_columns_go() {
+        let b = read(
+            "<table role='presentation'><tr><td>one</td><td>two</td></tr></table>\
+             <table><tr><th>Word</th><th></th><th>Means</th></tr>\
+             <tr><td>tea</td><td> </td><td>a drink</td></tr></table>",
+        );
+        assert_eq!(kinds(&b), ["text", "text", "table"]);
+        let cells: Vec<Vec<&str>> = match b.get(2).map(|b| &b.content) {
+            Some(Content::Table(t)) => t
+                .rows
+                .iter()
+                .map(|r| r.cells.iter().map(|c| c.text.as_str()).collect())
+                .collect(),
+            _ => Vec::new(),
+        };
+        assert_eq!(cells, [vec!["Word", "Means"], vec!["tea", "a drink"]]);
     }
 
     #[test]
