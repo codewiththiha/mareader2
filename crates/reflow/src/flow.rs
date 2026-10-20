@@ -15,7 +15,7 @@ use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
     Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
 };
-use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
+use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
 
@@ -35,7 +35,7 @@ pub const MAX_PAGES: usize = 100_000;
 /// When a book's own design shows (`docs/epub-layout.md`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Design {
-    /// In the chapters the book designs; prose keeps the reader's type.
+    /// The book's type everywhere; its layout in the chapters it designs.
     #[default]
     Auto,
     On,
@@ -111,6 +111,8 @@ const MIN_SIZE: f32 = 2.0;
 const MAX_SIZE: f32 = 400.0;
 /// The tightest line height a book may ask for.
 const MIN_LINE: f32 = 0.5;
+/// Reader defaults (size, line, gap, weight); book type moves off them too.
+const READER: (f32, f32, f32, f32) = (17.0, 1.7, 1.0, 400.0);
 const RULE_HEIGHT: f32 = 0.5;
 /// From a list marker's right edge to the text.
 pub(crate) const MARKER_GAP: f32 = 0.5;
@@ -832,10 +834,19 @@ impl<'a> Setter<'a> {
         self.cell_place.or_else(sized)
     }
 
-    /// Designed text's em: the column as a phone page, at least the reader's.
+    /// Designed text's em: the column as a phone page, scaled as the reader's.
     fn design_em(&self) -> f32 {
-        let em = self.typo.font_size;
-        (self.column / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE)
+        let em = READER.0;
+        let phone = (self.column / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE);
+        phone * self.typo.font_size / em
+    }
+
+    /// The em `frame`'s book type is set in: the reader's in prose.
+    fn em_of(&self, frame: &Frame) -> f32 {
+        match self.look(frame) {
+            Some(_) => self.design_em(),
+            None => self.typo.font_size,
+        }
     }
 
     /// Sets `items` in order; floats and the text wrapping past them
@@ -1080,7 +1091,13 @@ impl<'a> Setter<'a> {
         }
     }
 
-    /// The block's look, if the Book design setting uses it.
+    /// The block's look for its type: the book's unless Book design is Off.
+    fn typed<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
+        let look = frame.look.as_deref()?;
+        (self.typo.design != Design::Off).then_some(look)
+    }
+
+    /// The block's look for its layout, if the Book design setting uses it.
     fn look<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
         let look = frame.look.as_deref()?;
         match self.typo.design {
@@ -1090,37 +1107,57 @@ impl<'a> Setter<'a> {
         }
     }
 
-    /// Text in the book's look; its faces are the caller's to add.
+    /// Book type moved by the reader's settings; the caller adds faces.
     fn designed(&self, role: Role, frame: &Frame, look: &Look) -> Style<'a> {
-        let em = self.design_em();
+        let (typo, em) = (self.typo, self.em_of(frame));
         let pre = role == Role::Preformatted;
-        let line = match role {
-            Role::Heading(_) => HEADING_LINE_HEIGHT,
-            _ => self.typo.line_height,
+        let line = match (look.line_height, role) {
+            (Some(l), _) => l * typo.line_height / READER.1,
+            (None, Role::Heading(_)) => HEADING_LINE_HEIGHT,
+            (None, _) => typo.line_height,
         };
+        let size = (look.size * em).clamp(MIN_SIZE, MAX_SIZE);
+        // The reader's indent adds to the book's, as in prose.
+        let body = role == Role::Paragraph && !frame.soft && frame.marker.is_none();
+        let indent = if body { typo.indent * size } else { 0.0 };
         Style {
             faces: if pre {
                 &self.stacks.mono
             } else {
                 &self.stacks.body
             },
-            size: (look.size * em).clamp(MIN_SIZE, MAX_SIZE),
-            line_height: look.line_height.unwrap_or(line).max(MIN_LINE),
-            weight: look.weight,
+            size,
+            line_height: line.max(MIN_LINE),
+            weight: (look.weight + typo.weight - READER.3).clamp(100.0, 900.0),
             align: if pre { Align::Start } else { frame.align },
             pre,
-            justify: look.justify && !pre && frame.align == Align::Start,
-            hyphens: (self.typo.hyphenate && !pre).then_some(self.lang),
-            indent: look.indent * em,
-            letter: look.letter * em,
-            word: look.word * em,
+            justify: (look.justify || typo.justify) && !pre && frame.align == Align::Start,
+            hyphens: (typo.hyphenate && !pre).then_some(self.lang),
+            indent: look.indent * em + indent,
+            letter: look.letter * em + typo.letter_spacing * size,
+            word: look.word * em + typo.word_spacing,
             sized: true,
             ..self.body(frame)
         }
     }
 
+    /// A look's families, then `rest`; prose keeps only embedded fonts.
+    fn look_faces(&self, look: &Look, laid: bool, rest: &[FontFamilyName<'static>]) -> Stack {
+        let mut tail = rest;
+        let mut names = Vec::new();
+        for name in &look.faces {
+            match name.as_str() {
+                "sans-serif" | "system-ui" | "ui-sans-serif" => tail = &self.stacks.heading,
+                "monospace" | "ui-monospace" => tail = &self.stacks.mono,
+                _ if laid || name.starts_with(BOOK_FACE) => names.push(name),
+                _ => {}
+            }
+        }
+        look_stack(&names, tail)
+    }
+
     fn text_style(&self, role: Role, frame: &Frame) -> Style<'a> {
-        if let Some(look) = self.look(frame) {
+        if let Some(look) = self.typed(frame) {
             return self.designed(role, frame, look);
         }
         let body = self.body(frame);
@@ -1171,6 +1208,7 @@ impl<'a> Setter<'a> {
         let (column, height) = (self.column, self.height);
         let frame = &block.frame;
         let designed = self.look(frame).is_some();
+        let typed = self.typed(frame).is_some();
         let em = if designed {
             self.design_em()
         } else {
@@ -1222,7 +1260,7 @@ impl<'a> Setter<'a> {
                 let unit = (0.0, RULE_HEIGHT * em);
                 (Draw::Rule, Laid::None, vec![unit], vec![0])
             }
-            Content::Space(h) if designed => {
+            Content::Space(h) if typed => {
                 let unit = (0.0, (h * em).max(0.0));
                 (Draw::Space, Laid::None, vec![unit], vec![0])
             }
@@ -1277,7 +1315,8 @@ impl<'a> Setter<'a> {
             keep_with_next: block.is_heading(),
             break_before: block.break_before,
             tight: frame.tight,
-            before: self.look(frame).map(|_| frame.before * em),
+            // The book's margins, scaled as the reader's paragraph gap.
+            before: (self.typed(frame)).map(|_| frame.before * em * self.typo.block_gap / READER.2),
             lines: matches!(block.content, Content::Text(_)),
             heads,
             boxes,
@@ -1345,9 +1384,10 @@ impl<'a> Setter<'a> {
         };
         let inner = (width - 2.0 * pad).max(em);
         // The book's families first, the reader's after.
-        let faces = (self.look(frame))
+        let laid = self.look(frame).is_some();
+        let faces = (self.typed(frame))
             .filter(|l| !l.faces.is_empty())
-            .map(|l| look_stack(&l.faces, style.faces));
+            .map(|l| self.look_faces(l, laid, style.faces));
         let style = match &faces {
             Some(faces) => Style {
                 faces: faces.as_slice(),
@@ -1751,10 +1791,10 @@ fn cell_span(row: &GridRow, column: usize, width: f32, em: f32) -> (f32, f32) {
 }
 
 /// A look's family names, then `rest`.
-fn look_stack(names: &[String], rest: &[FontFamilyName<'static>]) -> Stack {
+fn look_stack(names: &[&String], rest: &[FontFamilyName<'static>]) -> Stack {
     let named = names
         .iter()
-        .map(|n| FontFamilyName::Named(Cow::Owned(n.clone())));
+        .map(|n| FontFamilyName::Named(Cow::Owned((*n).clone())));
     named.chain(rest.iter().cloned()).collect()
 }
 
@@ -3083,6 +3123,57 @@ mod tests {
         let last = f.page_count() - 1;
         assert!(edges(0).is_some_and(|e| e[0] == Edge::Solid && e[2] == Edge::None));
         assert!(edges(last).is_some_and(|e| e[0] == Edge::None && e[2] == Edge::Solid));
+    }
+
+    #[test]
+    fn prose_takes_the_books_type_moved_by_the_readers() {
+        let typed = |role, size, weight| {
+            let mut b = Block::text(role, "Short words");
+            b.frame.look = Some(Arc::new(Look {
+                size,
+                weight,
+                ..Look::default()
+            }));
+            b
+        };
+        let blocks = Arc::new(vec![
+            typed(Role::Heading(2), 1.5, 700.0),
+            typed(Role::Paragraph, 1.0, 400.0),
+            typed(Role::Paragraph, 0.8, 400.0),
+            designed(Block::text(Role::Paragraph, "Short words"), &[], None),
+        ]);
+        let laid = |typo: Typography| Flow::new(Arc::clone(&blocks), &typo, Fonts::bundled());
+        let tall = |f: &Flow, i: usize| {
+            let s = f.blocks.get(i);
+            s.map_or(0.0, |s| span_height(s, 0..s.units.len()))
+        };
+        let base = laid(Typography::default());
+        let big = laid(Typography {
+            font_size: 34.0,
+            ..Typography::default()
+        });
+        let off = laid(Typography {
+            design: Design::Off,
+            ..Typography::default()
+        });
+        // The book's steps hold: the heading is 1.5 times, the note 0.8.
+        let near = |a: f32, b: f32| (a - b).abs() <= b * 0.06;
+        let (heading, body, note) = (tall(&base, 0), tall(&base, 1), tall(&base, 2));
+        assert!(
+            near(heading / body, 1.5 * HEADING_LINE_HEIGHT / READER.1),
+            "{heading} {body}"
+        );
+        assert!(near(note / body, 0.8), "{note} {body}");
+        // Twice the reader's size doubles every size, designed type too.
+        for i in 0..4 {
+            assert!(near(tall(&big, i), 2.0 * tall(&base, i)), "{i}");
+        }
+        // The book's margins of none hold; Off keeps the reader's gap.
+        let gap = |f: &Flow| span(f, 0, 2).0 - span(f, 0, 1).1;
+        assert!(gap(&base).abs() < 0.5, "{}", gap(&base));
+        assert!(near(gap(&off), READER.0), "{}", gap(&off));
+        // Off sets every paragraph in the reader's one size.
+        assert!(near(tall(&off, 2), tall(&off, 1)));
     }
 
     #[test]

@@ -12,6 +12,8 @@ pub const SERIF: &str = "Literata";
 pub const SANS: &str = "Inter";
 /// Code and preformatted text.
 pub const MONO: &str = "JetBrains Mono";
+/// What a book's embedded face is registered as: never a machine's own.
+pub const BOOK_FACE: &str = "book-face-";
 
 /// Our own font files; a static, so their bytes have one address.
 pub(crate) static BUNDLED: [&[u8]; 6] = [

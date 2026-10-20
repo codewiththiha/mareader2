@@ -2,8 +2,10 @@
 
 Designed pages (colour plates, character pages, title pages, boxed notes)
 are drawn as the book lays them out: its grids, boxes, rules, type sizes,
-spacing and embedded fonts. Prose chapters keep the reader's typography.
-Colours always follow the reader's theme; pictures keep their own.
+spacing and embedded fonts. Prose chapters keep the book's type (sizes,
+weights, indents, alignment, margins) moved by the reader's settings, and
+read in one column. Colours always follow the reader's theme; pictures
+keep their own.
 
 ## Decisions (2026-10-20)
 
@@ -69,8 +71,29 @@ once sync arrives; older builds keep it untouched.
 
 Designed books are made for a phone's page, about 26 of their ems wide.
 A designed chapter is set as if the column were that wide, so its type
-grows with a wide pane, up to 1.6 times the reader's size and never
-below it. Prose chapters keep the reader's size.
+grows with a wide pane, up to 1.6 times the reader's default size and
+never below it, then scales as the reader's size does.
+
+## The book's type and the reader's settings
+
+In Auto and On, every chapter with a style of its own (a sheet or a
+`style` attribute) is set in the book's type; Off, or a chapter with no
+style, as converted Markdown and text are, reads in the reader's type.
+The book's sizes are in its own ems, and the reader's size is the
+book's 16 px, so headings, notes and drop numbers keep their steps.
+Each reader setting moves the book's value as it moves off its default,
+so a bigger setting makes every size bigger rather than one size:
+
+| Setting | Over the book's type |
+| --- | --- |
+| Font size | Scales every size (default 17 equals the book's own). |
+| Line height | Scales a line height the book sets; unset, the reader's. |
+| Paragraph spacing | Scales the book's margins (default 1 keeps them). |
+| Weight | Shifts every weight by the change from 400. |
+| Indent, letter and word spacing | Add to the book's. |
+| Justify | On justifies start-aligned text; off leaves the book's choice. |
+| Fonts | Embedded fonts stay. In prose, the reader's fonts replace named machine fonts; `sans-serif` and `monospace` take the reader's sans and code faces. Designed chapters keep every named font. |
+| Hyphenation, colours | The reader's own. |
 
 ## Slices
 
@@ -82,3 +105,4 @@ below it. Prose chapters keep the reader's size.
 | L4 | Floats with text wrapping, inline images, `break-before`/`page-break-*`, decorations, small caps, sub and super, background pictures. Done: design scale, floats (left and right) with text wrapping line by line, `break-before`/`break-after`, underline and line-through, small caps and `text-transform`, sub and super, background colours and pictures, box heights, small pictures set inside a line (at most 3 ems tall), `transform: rotate()` drawn about the block's middle. |
 | L5 | Per-book override, both samples and the test corpus checked, docs, parity. Done: the per-book choice in the Fonts tab, saved with the book; the Gutenberg Raven stays prose in Auto; hostile grids, flex rows, spans, turns, radii and line pictures open within the time cap. |
 | L6 | Leftovers. Done: `flex-direction: column` (an item narrower than the column, or placed by `align-items`/`align-self`, is its own row of one; stretched items read as prose; `row-gap`); line pictures follow `vertical-align` (keywords, lengths, percentages); a `rowspan` cell sits across the rows it spans and its last row grows to hold it; a `vh` flex page centres its content (the screen share is the page's, not a length). |
+| L7 | The book's type in prose: sizes in its own steps, weights, indents, alignment, margins, inline sizes and spacer lines, moved by the reader's settings (table above); unstyled chapters keep the reader's type; designed type scales with the reader's size. |
