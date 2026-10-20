@@ -1,6 +1,6 @@
 //! The reader's text settings as the typography books are set in.
-use mareader_reflow::{FACES, Faces, Family, Kind, Typography};
-use mareader_settings::{FontChoice, FontFamily, TextSettings};
+use mareader_reflow::{Design, FACES, Faces, Family, Kind, Typography};
+use mareader_settings::{BookDesign, FontChoice, FontFamily, TextSettings};
 
 /// The body takes the serif slot until picked.
 pub fn typography(t: &TextSettings) -> Typography {
@@ -24,6 +24,11 @@ pub fn typography(t: &TextSettings) -> Typography {
             body,
             heading: stack(&t.sans_font, Kind::Sans),
             mono: stack(&t.mono_font, Kind::Mono),
+        },
+        design: match t.book_design {
+            BookDesign::Auto => Design::Auto,
+            BookDesign::On => Design::On,
+            BookDesign::Off => Design::Off,
         },
         ..Typography::default()
     }

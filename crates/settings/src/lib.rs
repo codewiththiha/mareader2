@@ -38,7 +38,7 @@ pub use study::{
     GlossDensity, GlossSettings, HighlightSettings, Pen, PickColor, Reserved, WINDOW_MIN,
 };
 pub use swatch::Swatch;
-pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
+pub use text::{BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 pub use words::{
     WORD_LANGUAGES, WORD_PRESETS, WordFields, WordGroup, WordLayout, WordList, WordListSettings,
     WordOutput, WordPreset, WordSort,

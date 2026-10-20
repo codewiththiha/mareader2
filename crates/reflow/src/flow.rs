@@ -11,7 +11,7 @@ use parley::{
     StyleProperty,
 };
 
-use crate::block::{Align, Block, Content, Emphasis, Frame, Length, Link, Role, Table, Text};
+use crate::block::{Align, Block, Content, Emphasis, Frame, Length, Link, Look, Role, Table, Text};
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
@@ -28,6 +28,16 @@ const EDGE: f32 = 56.0;
 
 /// More than this many pages means a broken or hostile book.
 pub const MAX_PAGES: usize = 100_000;
+
+/// When a book's own design shows (`docs/epub-layout.md`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Design {
+    /// In the chapters the book designs; prose keeps the reader's type.
+    #[default]
+    Auto,
+    On,
+    Off,
+}
 
 /// How a book is set: the reader's typography plus the text's language.
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +65,7 @@ pub struct Typography {
     /// A BCP 47 tag; it picks the hyphenation patterns.
     pub language: String,
     pub faces: Faces,
+    pub design: Design,
 }
 
 impl Default for Typography {
@@ -73,6 +84,7 @@ impl Default for Typography {
             column_scale: 1.0,
             language: "en".to_owned(),
             faces: Faces::default(),
+            design: Design::Auto,
         }
     }
 }
@@ -91,6 +103,11 @@ const CELL_SCALE: f32 = 0.95;
 const CELL_PAD: (f32, f32) = (0.7, 0.35);
 /// Between list items, instead of the paragraph gap.
 const TIGHT_GAP: f32 = 0.3;
+/// Text sizes a book may ask for, in layout units.
+const MIN_SIZE: f32 = 2.0;
+const MAX_SIZE: f32 = 400.0;
+/// The tightest line height a book may ask for.
+const MIN_LINE: f32 = 0.5;
 const RULE_HEIGHT: f32 = 0.5;
 /// From a list marker's right edge to the text.
 pub(crate) const MARKER_GAP: f32 = 0.5;
@@ -176,6 +193,8 @@ struct Style<'a> {
     /// Extra advance per letter and per word, in layout units.
     letter: f32,
     word: f32,
+    /// Runs keep the sizes the book gives them.
+    sized: bool,
 }
 
 /// A text layout, its soft-hyphen lines, and line starts in source bytes.
@@ -286,6 +305,8 @@ pub(crate) struct Set {
     keep_with_next: bool,
     break_before: bool,
     tight: bool,
+    /// A look's space above, in layout units, instead of the gap.
+    before: Option<f32>,
     /// Text: avoid lone lines at a split.
     lines: bool,
     /// A table's leading head rows, never left alone at a page's foot.
@@ -670,10 +691,53 @@ impl<'a> Setter<'a> {
             indent: 0.0,
             letter: typo.letter_spacing * typo.font_size,
             word: typo.word_spacing,
+            sized: false,
+        }
+    }
+
+    /// The block's look, if the Book design setting uses it.
+    fn look<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
+        let look = frame.look.as_deref()?;
+        match self.typo.design {
+            Design::On => Some(look),
+            Design::Auto if look.designed => Some(look),
+            Design::Auto | Design::Off => None,
+        }
+    }
+
+    /// Text in the book's look; its faces are the caller's to add.
+    fn designed(&self, role: Role, frame: &Frame, look: &Look) -> Style<'a> {
+        let em = self.typo.font_size;
+        let pre = role == Role::Preformatted;
+        let line = match role {
+            Role::Heading(_) => HEADING_LINE_HEIGHT,
+            _ => self.typo.line_height,
+        };
+        Style {
+            faces: if pre {
+                &self.stacks.mono
+            } else {
+                &self.stacks.body
+            },
+            size: (look.size * em).clamp(MIN_SIZE, MAX_SIZE),
+            line_height: look.line_height.unwrap_or(line).max(MIN_LINE),
+            weight: look.weight,
+            align: if pre { Align::Start } else { frame.align },
+            pre,
+            justify: look.justify && !pre && frame.align == Align::Start,
+            hyphens: (self.typo.hyphenate && !pre).then_some(self.lang),
+            indent: look.indent * em,
+            letter: look.letter * em,
+            word: look.word * em,
+            sized: true,
+            ..self.body(frame)
         }
     }
 
     fn text_style(&self, role: Role, frame: &Frame) -> Style<'a> {
+        if let Some(look) = self.look(frame) {
+            return self.designed(role, frame, look);
+        }
         let body = self.body(frame);
         match role {
             Role::Heading(level) => Style {
@@ -776,6 +840,7 @@ impl<'a> Setter<'a> {
             keep_with_next: block.is_heading(),
             break_before: block.break_before,
             tight: frame.tight,
+            before: self.look(frame).map(|_| frame.before * em),
             lines: matches!(block.content, Content::Text(_)),
             heads,
         };
@@ -797,6 +862,17 @@ impl<'a> Setter<'a> {
             (0.0, 0.0)
         };
         let inner = (width - 2.0 * pad).max(em);
+        // The book's families first, the reader's after.
+        let faces = (self.look(frame))
+            .filter(|l| !l.faces.is_empty())
+            .map(|l| look_stack(&l.faces, style.faces));
+        let style = match &faces {
+            Some(faces) => Style {
+                faces: faces.as_slice(),
+                ..style
+            },
+            None => style,
+        };
         let mut para = layout_text(self.fonts, text, style, Some(inner));
         let mut units = line_units(&para.layout);
         // The padding rides on the first and last lines.
@@ -854,6 +930,14 @@ impl<'a> Setter<'a> {
     }
 }
 
+/// A look's family names, then `rest`.
+fn look_stack(names: &[String], rest: &[FontFamilyName<'static>]) -> Stack {
+    let named = names
+        .iter()
+        .map(|n| FontFamilyName::Named(Cow::Owned(n.clone())));
+    named.chain(rest.iter().cloned()).collect()
+}
+
 fn alignment(style: &Style<'_>) -> Alignment {
     if style.justify {
         return Alignment::Justify;
@@ -894,7 +978,17 @@ fn layout_text(fonts: &mut Fonts, text: &Text, style: Style<'_>, width: Option<f
     }
     for span in &text.spans {
         let range = span.range.clone();
-        let Emphasis { italic, bold, code } = span.emphasis;
+        let Emphasis {
+            italic,
+            bold,
+            code,
+            size,
+        } = span.emphasis;
+        if size != 0 && style.sized {
+            let size = style.size * f32::from(size) / 100.0;
+            let size = StyleProperty::FontSize(size.clamp(MIN_SIZE, MAX_SIZE));
+            b.push(size, range.clone());
+        }
         if italic {
             b.push(StyleProperty::FontStyle(FontStyle::Italic), range.clone());
         }
@@ -1060,6 +1154,9 @@ pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 const MIN_COLUMN: f32 = 160.0;
 
 fn gap(block: &Set, typo: &Typography) -> f32 {
+    if let Some(before) = block.before {
+        return before.max(0.0);
+    }
     let ems = if block.tight {
         TIGHT_GAP
     } else {
@@ -1084,6 +1181,9 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> Vec<Vec<Piece>> {
         }
         if !c.page.is_empty() {
             c.y += gap(block, typo);
+        } else if let (true, Some(before)) = (block.break_before, block.before) {
+            // A designed chapter's opening keeps its space at the top.
+            c.y += before.clamp(0.0, height / 2.0);
         }
         if block.keep_with_next && !c.page.is_empty() {
             // Room for the heading and the first two units after it.
