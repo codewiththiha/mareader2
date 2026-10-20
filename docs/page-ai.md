@@ -79,7 +79,10 @@ A book's kept result is laid into the book itself, in the pane's type:
   page stays as it was. One longer than a page runs on to a second or a
   third page, and the book gains those pages. The page bar counts them.
 - **Back.** "Show original page", or a click on the active bubble, takes
-  the result out, and the book has its own pages again.
+  the result out, and the book has its own pages again. Deleting it does
+  the same, and so does erasing the book's AI pages.
+- **Redo.** The old result stays in the pages while the new one is
+  written, with a turning bubble, and the new one replaces it when done.
 - **Type.** Font, size and spacing changes set the result again with the
   book: bigger type, more pages. The result stays shown.
 - **The rest stays put.** Laying a result in or taking it out keeps
@@ -92,7 +95,11 @@ A book's kept result is laid into the book itself, in the pane's type:
 - **Overlaps.** One result of a stretch of text shows at a time: showing
   another of the same text takes the first one out.
 - **Panes.** Each pane lays in only what it shows. Two panes on one book
-  share its pages when they show the same results in the same type.
+  share its pages when they show the same results in the same type. A
+  closed pane's results go with it.
+- **Place and bookmarks.** The reading position, progress and bookmarks
+  count the book's own pages, so they hold when results come and go. A
+  result's pages share its first page's bookmark.
 - **Continuous mode** counts the book's own pages, so a run never asks
   for a result's pages.
 
@@ -213,7 +220,8 @@ At the end of the AI tab, after the models:
   stops a run. Going far away pauses, then Continue carries on there. A
   five-second stay asks exactly "pages at once" pages ahead. A book lays a
   kept result into its pages and takes it out again, and bigger type sets
-  it again over more pages.
+  it again over more pages. Deleting a laid result gives the pages back;
+  a redo keeps it laid in.
 - `crates/epub/src/splice.rs`: results laid in, kept apart and grouped;
   every other page kept.
 - With `explain=canned`, page runs answer at once with the page's own

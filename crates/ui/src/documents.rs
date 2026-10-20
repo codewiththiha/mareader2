@@ -990,7 +990,9 @@ impl Documents {
                 let entry = self.session.as_ref()?.get(v.doc)?;
                 // Unmoved since a re-set: the place read before it.
                 let place = v.place().or_else(|| entry.doc.anchor(v.current));
-                Some((entry.path.clone()?, v.current, place))
+                // A book's own page: results laid in don't count.
+                let page = entry.doc.to_base(v.current);
+                Some((entry.path.clone()?, page, place))
             }
         }
     }
