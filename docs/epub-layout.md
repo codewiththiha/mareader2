@@ -27,11 +27,21 @@ Structure rides on each block's frame:
   every block inside it and splits across pages.
 - **Cells** (L3): a block's place in a grid (table or flex row). A grid
   row's blocks are laid side by side and paginate as one unit.
+- **Float** (L4): the floated element a block is in. Its blocks shrink to
+  their widest line at one side; the text after it breaks line by line
+  past it, and pictures or other boxes start below it.
 
 Boxes and rows are shared by their blocks, so a box is known by its
 address. Pagination keeps the boxes open on the page; a page break cuts
 a box's border there and reopens it overleaf. Borders are drawn in the
 theme's ink. A row taller than a page reads down the page instead.
+
+Backgrounds are drawn in the theme's ink too, as strong as the book's
+colour contrasts with its own page: a white line on a black page is a
+full-ink line on ours. Under text a background stays faint, so the text
+reads. Background pictures keep their colours, with `background-size`,
+`-position` and `-repeat`, clipped to the box. A set `height` holds a
+box open below short content.
 
 ## Cascade
 
@@ -51,6 +61,11 @@ A chapter counts as designed when its visible elements use layout CSS
 letter spacing, three or more body sizes). The **Book design** setting
 picks Auto, On or Off.
 
+Designed books are made for a phone's page, about 26 of their ems wide.
+A designed chapter is set as if the column were that wide, so its type
+grows with a wide pane, up to 1.6 times the reader's size and never
+below it. Prose chapters keep the reader's size.
+
 ## Slices
 
 | Slice | Scope |
@@ -58,5 +73,5 @@ picks Auto, On or Off.
 | L1 | Cascade engine; Look (sizes, line height, spacing, indent, weight, embedded fonts, justify, margins, spacer paragraphs); designed-chapter test; Book design setting. |
 | L2 | Boxes: borders (solid, double, dashed, dotted; per side; radius), padding, widths, auto margins, rules from bordered empty blocks, vertical centring of tall flex or `vh` containers. Done, with square corners. |
 | L3 | Grids: tables with block cells, column widths (fixed, %, content), cell padding, borders, `vertical-align`, spans, nesting; flex rows (justify, align, wrap, gap); anchored text in cells. Done: tables with block cells, fixed and % widths shrunk to fit, cell boxes, `vertical-align`, nested tables read flat, one-column tables as framed boxes. Left: widths from content, spans, flex rows. |
-| L4 | Floats with text wrapping, inline images, `break-before`/`page-break-*`, decorations, small caps, sub and super, background pictures. |
+| L4 | Floats with text wrapping, inline images, `break-before`/`page-break-*`, decorations, small caps, sub and super, background pictures. Done: design scale, floats (left and right) with text wrapping line by line, `break-before`/`break-after`, underline and line-through, small caps and `text-transform`, sub and super, background colours and pictures, box heights. Left: inline images, rotation. |
 | L5 | Per-book override, both samples and the test corpus checked, docs, parity. |

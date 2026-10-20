@@ -19,8 +19,9 @@ mod picture;
 mod raster;
 
 pub use block::{
-    Align, Block, Boxed, CHAR_BYTES, Cell, Content, Edge, Emphasis, Frame, GridRow, LAYOUT_BYTES,
-    Length, Link, Look, Role, Row, Span, Table, Text, VAlign, clip,
+    Align, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Content, Edge, Emphasis,
+    Floated, Frame, GridRow, LAYOUT_BYTES, Length, Link, Look, Role, Row, Script, Span, Table,
+    Text, VAlign, clip,
 };
 pub use flow::{
     Anchor, Band, COLUMN_SCALE, Design, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH,

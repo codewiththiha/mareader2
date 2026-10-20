@@ -29,6 +29,31 @@ pub struct Emphasis {
     pub code: bool,
     /// Percent of the block's text size; 0 keeps it. Designed text only.
     pub size: u16,
+    pub script: Script,
+    /// Letter case shown; the text itself keeps its own.
+    pub case: Case,
+    pub underline: bool,
+    pub strike: bool,
+}
+
+/// Raised or lowered text, as `<sup>` and `<sub>`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Script {
+    #[default]
+    Normal,
+    Super,
+    Sub,
+}
+
+/// A case shown over the text's own, as CSS transforms and small caps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Case {
+    #[default]
+    Normal,
+    Upper,
+    Lower,
+    /// Small letters shown as smaller capitals.
+    Small,
 }
 
 /// `range` is in bytes of the block's text.
@@ -235,6 +260,42 @@ pub struct Boxed {
     pub bottom: f32,
     /// A share of the page's height its content is centred in.
     pub centre: Option<f32>,
+    /// Its background as a strength of the theme's ink, 0 to 1.
+    pub fill: Option<f32>,
+    /// The least height of its content, in body ems.
+    pub height: Option<f32>,
+    pub backdrop: Option<Arc<Backdrop>>,
+}
+
+/// A box's background picture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Backdrop {
+    pub picture: Arc<Picture>,
+    pub size: BackdropSize,
+    /// Where it sits: 0 at the left or top, 1 at the right or bottom.
+    pub at: [f32; 2],
+    /// Tiled across the box rather than drawn once.
+    pub repeat: bool,
+}
+
+/// How large a background picture is drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum BackdropSize {
+    /// Its own size, a pixel to a book pixel.
+    #[default]
+    Auto,
+    Cover,
+    Contain,
+    /// Width and height; none keeps its proportions.
+    Set([Option<Length>; 2]),
+}
+
+/// A floated element: its blocks sit at one side, text wrapping past them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Floated {
+    pub right: bool,
+    /// How many of its blocks' boxes hold it; the rest are its own.
+    pub depth: u8,
 }
 
 /// Where a cell's content sits in a taller row.
@@ -287,6 +348,8 @@ pub struct Frame {
     pub boxes: Vec<Arc<Boxed>>,
     /// With a look: its place in a grid row.
     pub cell: Option<Cell>,
+    /// With a look: the float it is in; blocks of one float share it.
+    pub float: Option<Arc<Floated>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -415,6 +478,10 @@ mod tests {
         bold: false,
         code: false,
         size: 0,
+        script: Script::Normal,
+        case: Case::Normal,
+        underline: false,
+        strike: false,
     };
 
     #[test]

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, VAlign};
+use mareader_reflow::{Align, Case, Script, VAlign};
 
 use crate::href;
 
@@ -173,9 +173,43 @@ pub(crate) struct Decl {
     pub(crate) border_style: [Option<BorderStyle>; 4],
     pub(crate) background: Option<bool>,
     pub(crate) background_image: Option<bool>,
-    pub(crate) float: Option<bool>,
+    pub(crate) float: Option<Float>,
     pub(crate) break_before: Option<bool>,
+    pub(crate) break_after: Option<bool>,
     pub(crate) valign: Option<VAlign>,
+    pub(crate) script: Option<Script>,
+    pub(crate) small_caps: Option<bool>,
+    pub(crate) transform: Option<Case>,
+    /// Underline and line-through.
+    pub(crate) decoration: Option<(bool, bool)>,
+    /// The background colour; `Some(None)` is none.
+    pub(crate) fill: Option<Option<Rgb>>,
+    /// The background picture, resolved once its sheet's path is known.
+    pub(crate) picture: Option<Option<Arc<str>>>,
+    pub(crate) picture_size: Option<PictureSize>,
+    pub(crate) picture_at: Option<[f32; 2]>,
+    pub(crate) picture_repeat: Option<bool>,
+}
+
+/// A colour's red, green and blue.
+pub(crate) type Rgb = [u8; 3];
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Float {
+    #[default]
+    None,
+    Left,
+    Right,
+}
+
+/// `background-size`; a length's `None` is auto.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) enum PictureSize {
+    #[default]
+    Auto,
+    Cover,
+    Contain,
+    Set([Option<Len>; 2]),
 }
 
 /// Sets each field `top` sets.
@@ -244,25 +278,58 @@ impl Decl {
             "border-width" => sides(&mut self.border_width, v, border_width),
             "border-style" => sides(&mut self.border_style, v, border_style),
             "border" => self.border([true; 4], v),
-            "background-color" => self.background = Some(!clear(v)),
-            "background-image" => self.background_image = Some(v.contains("url(")),
-            "background" => {
-                self.background_image = Some(v.contains("url("));
-                self.background = Some(v.split_ascii_whitespace().any(is_colour));
+            "background-color" => {
+                self.background = Some(!clear(v));
+                self.fill = colour(v).or(self.fill);
             }
-            "float" => self.float = Some(matches!(v, "left" | "right")),
+            "background-image" => {
+                self.background_image = Some(v.contains("url("));
+                self.picture = Some(url(value).map(Arc::from));
+            }
+            "background-size" => self.picture_size = picture_size(v).or(self.picture_size),
+            "background-position" => self.picture_at = Some(position(v)),
+            "background-repeat" => self.picture_repeat = Some(!v.starts_with("no-repeat")),
+            "background" => self.background_shorthand(value, v),
+            "float" => {
+                self.float = match v {
+                    "left" | "inline-start" => Some(Float::Left),
+                    "right" | "inline-end" => Some(Float::Right),
+                    _ => Some(Float::None),
+                }
+            }
             "vertical-align" => {
                 self.valign = match v {
                     "top" | "text-top" | "baseline" => Some(VAlign::Top),
                     "middle" => Some(VAlign::Middle),
                     "bottom" | "text-bottom" => Some(VAlign::Bottom),
                     _ => self.valign,
+                };
+                self.script = Some(match v {
+                    "super" => Script::Super,
+                    "sub" => Script::Sub,
+                    _ => Script::Normal,
+                });
+            }
+            "font-variant" | "font-variant-caps" => {
+                let small = v
+                    .split_ascii_whitespace()
+                    .any(|w| w.ends_with("small-caps"));
+                self.small_caps = Some(small);
+            }
+            "text-transform" => {
+                self.transform = match v {
+                    "uppercase" => Some(Case::Upper),
+                    "lowercase" => Some(Case::Lower),
+                    "none" => Some(Case::Normal),
+                    _ => self.transform,
                 }
             }
-            "page-break-before" | "break-before" => {
-                let page = ["always", "page", "left", "right", "recto", "verso"];
-                self.break_before = Some(page.contains(&v));
+            "text-decoration" | "text-decoration-line" => {
+                let has = |w: &str| v.split_ascii_whitespace().any(|x| x == w);
+                self.decoration = Some((has("underline"), has("line-through")));
             }
+            "page-break-before" | "break-before" => self.break_before = Some(page_break(v)),
+            "page-break-after" | "break-after" => self.break_after = Some(page_break(v)),
             _ => self.side(name, v),
         }
     }
@@ -290,6 +357,44 @@ impl Decl {
             ("border", "width") => set_side(&mut self.border_width, i, border_width(v)),
             ("border", "style") => set_side(&mut self.border_style, i, border_style(v)),
             _ => {}
+        }
+    }
+
+    /// The `background` shorthand; what it leaves unsaid resets.
+    fn background_shorthand(&mut self, value: &str, v: &str) {
+        let picture = url(value);
+        self.background_image = Some(picture.is_some());
+        self.picture = Some(picture.map(Arc::from));
+        // Words outside `url(...)`, the size after a slash.
+        let rest = match (v.find("url("), v.find(')')) {
+            (Some(a), Some(b)) if b > a => format!(
+                "{} {}",
+                v.get(..a).unwrap_or_default(),
+                v.get(b + 1..).unwrap_or_default()
+            ),
+            _ => v.to_owned(),
+        };
+        let (at, size) = rest.split_once('/').unwrap_or((&rest, ""));
+        let words: Vec<&str> = at.split_ascii_whitespace().collect();
+        let fill = words.iter().find_map(|w| colour(w)).flatten();
+        self.fill = Some(fill);
+        let named = words.iter().any(|w| is_colour(w) && !clear(w));
+        self.background = Some(fill.is_some() || named);
+        self.picture_repeat = Some(!words.contains(&"no-repeat"));
+        let placed: Vec<&str> = words.iter().copied().filter(|w| is_place(w)).collect();
+        self.picture_at = Some(position(&placed.join(" ")));
+        let size = size
+            .split_ascii_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.picture_size = Some(picture_size(&size).unwrap_or_default());
+    }
+
+    /// Resolves its background picture against `path`, where it was read.
+    pub(crate) fn resolve(&mut self, path: &str) {
+        if let Some(Some(raw)) = &self.picture {
+            self.picture = Some(href::resolve(path, raw).map(Arc::from));
         }
     }
 
@@ -335,7 +440,8 @@ impl Decl {
         layer!(self, top;
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
-            break_before, valign;
+            break_before, break_after, valign, script, small_caps, transform, decoration,
+            fill, picture, picture_size, picture_at, picture_repeat;
             margin, padding, border_width, border_style);
     }
 
@@ -488,6 +594,136 @@ fn border_style(v: &str) -> Option<BorderStyle> {
 /// No paint: `transparent`, `none` or a fully clear colour.
 fn clear(v: &str) -> bool {
     matches!(v, "transparent" | "none" | "initial") || v.replace(' ', "").ends_with(",0)")
+}
+
+/// Whether a page break is asked for, before or after.
+fn page_break(v: &str) -> bool {
+    ["always", "page", "left", "right", "recto", "verso"].contains(&v)
+}
+
+/// The first `url(...)` in `value`, unquoted, its case kept.
+fn url(value: &str) -> Option<String> {
+    let start = value.to_ascii_lowercase().find("url(")? + 4;
+    let inner = value.get(start..)?;
+    let inner = inner
+        .get(..inner.find(')')?)?
+        .trim()
+        .trim_matches(['"', '\'']);
+    (!inner.is_empty() && !inner.starts_with("data:")).then(|| inner.to_owned())
+}
+
+/// A word of `background-position`.
+fn is_place(w: &str) -> bool {
+    matches!(w, "left" | "right" | "top" | "bottom" | "center") || len(w).is_some()
+}
+
+/// `background-position` as shares across and down; lengths sit at 0.
+fn position(v: &str) -> [f32; 2] {
+    let mut at = [None, None];
+    let mut loose = Vec::new();
+    for w in v.split_ascii_whitespace().take(4) {
+        match w {
+            "left" => at[0] = Some(0.0),
+            "right" => at[0] = Some(1.0),
+            "top" => at[1] = Some(0.0),
+            "bottom" => at[1] = Some(1.0),
+            "center" => loose.push(0.5),
+            w => loose.push(match len(w) {
+                Some(Len::Percent(p)) => p / 100.0,
+                _ => 0.0,
+            }),
+        }
+    }
+    let mut loose = loose.into_iter();
+    for a in &mut at {
+        if a.is_none() {
+            *a = loose.next();
+        }
+    }
+    [at[0].unwrap_or(0.5), at[1].unwrap_or(0.5)].map(|a| a.clamp(0.0, 1.0))
+}
+
+/// `background-size`: cover, contain, auto or one or two lengths.
+fn picture_size(v: &str) -> Option<PictureSize> {
+    match v.trim() {
+        "" | "auto" | "auto auto" => Some(PictureSize::Auto),
+        "cover" => Some(PictureSize::Cover),
+        "contain" => Some(PictureSize::Contain),
+        v => {
+            let mut words = v.split_ascii_whitespace();
+            let one = |w: Option<&str>| w.filter(|w| *w != "auto").and_then(len);
+            let size = [one(words.next()), one(words.next())];
+            size.iter()
+                .any(Option::is_some)
+                .then_some(PictureSize::Set(size))
+        }
+    }
+}
+
+/// A CSS colour; `Some(None)` is none, unknown words `None`.
+pub(crate) fn colour(v: &str) -> Option<Option<Rgb>> {
+    let v = v.trim();
+    if clear(v) {
+        return Some(None);
+    }
+    if let Some(hex) = v.strip_prefix('#') {
+        let digit = |i: usize, n: usize| u8::from_str_radix(hex.get(i..i + n)?, 16).ok();
+        let twice = |i: usize| digit(i, 1).map(|d| d * 17);
+        return match hex.len() {
+            3 | 4 => Some([twice(0)?, twice(1)?, twice(2)?]),
+            6 | 8 => Some([digit(0, 2)?, digit(2, 2)?, digit(4, 2)?]),
+            _ => None,
+        }
+        .map(Some);
+    }
+    if let Some(args) = v.strip_prefix("rgba(").or_else(|| v.strip_prefix("rgb(")) {
+        let args = args.trim_end_matches(')').replace([',', '/'], " ");
+        let mut parts = args
+            .split_ascii_whitespace()
+            .map(|p| match p.strip_suffix('%') {
+                Some(p) => p.parse::<f32>().ok().map(|p| p * 2.55),
+                None => p.parse::<f32>().ok(),
+            });
+        let mut rgb = [0; 3];
+        for c in &mut rgb {
+            *c = parts.next()??.round().clamp(0.0, 255.0) as u8;
+        }
+        return Some(Some(rgb));
+    }
+    let rgb = match v {
+        "black" => [0, 0, 0],
+        "white" => [255, 255, 255],
+        "gray" | "grey" => [128, 128, 128],
+        "silver" | "lightgray" | "lightgrey" => [200, 200, 200],
+        "darkgray" | "darkgrey" | "dimgray" | "dimgrey" => [100, 100, 100],
+        "whitesmoke" | "ghostwhite" | "snow" | "ivory" | "linen" => [246, 246, 244],
+        "gainsboro" | "beige" | "lavender" | "seashell" => [230, 230, 225],
+        "red" | "crimson" => [220, 20, 40],
+        "maroon" | "darkred" | "brown" => [128, 20, 20],
+        "orange" | "gold" => [255, 180, 0],
+        "yellow" | "lightyellow" | "khaki" => [250, 240, 150],
+        "green" | "darkgreen" => [0, 120, 0],
+        "lime" | "lightgreen" => [144, 238, 144],
+        "olive" | "teal" | "purple" | "navy" | "indigo" => [60, 50, 100],
+        "blue" | "royalblue" => [40, 70, 220],
+        "aqua" | "cyan" | "lightblue" | "skyblue" => [170, 220, 240],
+        "fuchsia" | "magenta" | "pink" | "hotpink" => [240, 150, 200],
+        _ => return None,
+    };
+    Some(Some(rgb))
+}
+
+/// A colour's relative luminance, 0 to 1.
+pub(crate) fn luminance([r, g, b]: Rgb) -> f32 {
+    let lin = |c: u8| {
+        let c = f32::from(c) / 255.0;
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
 /// A colour among a `background` shorthand's words.
@@ -1017,7 +1253,9 @@ impl Stylesheet {
             } else if lower.starts_with("@font-face") {
                 self.face(inner, path);
             } else if !prelude.starts_with('@') {
-                let (normal, important) = Decl::parse_both(inner);
+                let (mut normal, mut important) = Decl::parse_both(inner);
+                normal.resolve(path);
+                important.resolve(path);
                 if !(normal.is_empty() && important.is_empty()) {
                     for selector in split_top(prelude, ',') {
                         self.add(selector, &normal, &important);
@@ -1188,6 +1426,10 @@ fn user_agent() -> &'static Stylesheet {
              b, strong, th { font-weight: bold }\n\
              i, em, cite, var, dfn, address { font-style: italic }\n\
              small, sub, sup { font-size: smaller }\n\
+             sub { vertical-align: sub }\n\
+             sup { vertical-align: super }\n\
+             u, ins { text-decoration: underline }\n\
+             s, strike, del { text-decoration: line-through }\n\
              big { font-size: larger }\n\
              center { text-align: center }\n\
              hr { margin: 0.5em 0 }\n\
@@ -1203,7 +1445,7 @@ pub(crate) fn declared(
     sheets: &[Arc<Stylesheet>],
     path: &[Ctx<'_>],
     hint: &Decl,
-    inline: Option<&str>,
+    (inline, base): (Option<&str>, &str),
 ) -> Decl {
     let mut d = Decl::default();
     user_agent().matching(path, &mut |r| d.layer(&r.normal));
@@ -1216,7 +1458,9 @@ pub(crate) fn declared(
     for (.., r) in &found {
         d.layer(&r.normal);
     }
-    let (inline, inline_important) = inline.map(Decl::parse_both).unwrap_or_default();
+    let (mut inline, mut inline_important) = inline.map(Decl::parse_both).unwrap_or_default();
+    inline.resolve(base);
+    inline_important.resolve(base);
     d.layer(&inline);
     for (.., r) in &found {
         d.layer(&r.important);
@@ -1258,10 +1502,22 @@ pub(crate) struct Computed {
     pub(crate) width: Len,
     pub(crate) height: Len,
     pub(crate) background: bool,
-    pub(crate) float: bool,
+    pub(crate) float: Float,
     pub(crate) break_before: bool,
+    pub(crate) break_after: bool,
     /// A cell's `vertical-align`, if set.
     pub(crate) valign: Option<VAlign>,
+    pub(crate) script: Script,
+    /// Underline and line-through, the element's own.
+    pub(crate) decoration: (bool, bool),
+    pub(crate) fill: Option<Rgb>,
+    pub(crate) picture: Option<Arc<str>>,
+    pub(crate) picture_size: PictureSize,
+    pub(crate) picture_at: [f32; 2],
+    pub(crate) picture_repeat: bool,
+    // Inherited.
+    pub(crate) small_caps: bool,
+    pub(crate) transform: Case,
 }
 
 impl Default for Computed {
@@ -1285,9 +1541,19 @@ impl Default for Computed {
             width: Len::Auto,
             height: Len::Auto,
             background: false,
-            float: false,
+            float: Float::None,
             break_before: false,
+            break_after: false,
             valign: None,
+            script: Script::Normal,
+            decoration: (false, false),
+            fill: None,
+            picture: None,
+            picture_size: PictureSize::Auto,
+            picture_at: [0.0; 2],
+            picture_repeat: true,
+            small_caps: false,
+            transform: Case::Normal,
         }
     }
 }
@@ -1351,9 +1617,27 @@ impl Computed {
             width: d.width.map_or(Len::Auto, |l| l.computed(size)),
             height: d.height.map_or(Len::Auto, |l| l.computed(size)),
             background: d.background.unwrap_or(false) || d.background_image.unwrap_or(false),
-            float: d.float.unwrap_or(false),
+            float: d.float.unwrap_or_default(),
             break_before: d.break_before.unwrap_or(false),
+            break_after: d.break_after.unwrap_or(false),
             valign: d.valign,
+            script: d.script.unwrap_or_default(),
+            decoration: d.decoration.unwrap_or_default(),
+            fill: d.fill.flatten(),
+            picture: d.picture.clone().flatten(),
+            picture_size: d.picture_size.unwrap_or_default(),
+            picture_at: d.picture_at.unwrap_or([0.0; 2]),
+            picture_repeat: d.picture_repeat.unwrap_or(true),
+            small_caps: d.small_caps.unwrap_or(self.small_caps),
+            transform: d.transform.unwrap_or(self.transform),
+        }
+    }
+
+    /// The letter case its text shows.
+    pub(crate) fn case(&self) -> Case {
+        match (self.transform, self.small_caps) {
+            (Case::Normal | Case::Lower, true) => Case::Small,
+            (case, _) => case,
         }
     }
 
@@ -1431,7 +1715,7 @@ mod tests {
     fn cascade(css: &str, chain: &[El]) -> Decl {
         let sheet = Arc::new(Stylesheet::parse(css, "/s.css"));
         let path: Vec<Ctx<'_>> = chain.iter().map(|el| Ctx { el, before: &[] }).collect();
-        declared(&[sheet], &path, &Decl::default(), None)
+        declared(&[sheet], &path, &Decl::default(), (None, ""))
     }
 
     #[test]
@@ -1527,7 +1811,12 @@ mod tests {
                     before,
                 },
             ];
-            declared(std::slice::from_ref(&sheet), &path, &Decl::default(), None)
+            declared(
+                std::slice::from_ref(&sheet),
+                &path,
+                &Decl::default(),
+                (None, ""),
+            )
         };
         assert_eq!(decl(std::slice::from_ref(&h1), &p).italic, Some(true));
         assert_eq!(decl(&[h1.clone(), hr.clone()], &p).italic, None);
@@ -1552,14 +1841,14 @@ mod tests {
             std::slice::from_ref(&sheet),
             &path,
             &Decl::default(),
-            Some("text-align: left"),
+            (Some("text-align: left"), ""),
         );
         assert_eq!(d.align, Some(TextAlign::Center));
         let d = declared(
             &[sheet],
             &path,
             &Decl::default(),
-            Some("text-align: left !important"),
+            (Some("text-align: left !important"), ""),
         );
         assert_eq!(d.align, Some(TextAlign::Start));
     }
@@ -1578,7 +1867,7 @@ mod tests {
             el: &p,
             before: &[],
         }];
-        let d = declared(&[Arc::new(sheet)], &path, &Decl::default(), None);
+        let d = declared(&[Arc::new(sheet)], &path, &Decl::default(), (None, ""));
         assert_eq!((d.italic, d.weight), (None, Some(Weight::Abs(700))));
         let sheet = Stylesheet::parse(
             "@font-face { font-family: \"title\"; src: url(../Fonts/title.ttf) }",
