@@ -134,6 +134,8 @@ enum Handle {
     Live(mareader_assist::Rewriting),
     /// Tests and shots: the answer, given on the first look.
     Canned(Option<Rewritten>),
+    /// Tests and shots: the answer as words so far, never done.
+    Held(Option<Rewritten>),
 }
 
 /// A result being written.
@@ -277,6 +279,8 @@ pub struct PageAi {
     remember: bool,
     /// Tests: runs answer at once with the page's own text.
     canned: bool,
+    /// Tests and shots: runs stop at their words so far.
+    held: bool,
     /// Tests: pages ahead are read on the frame.
     inline: bool,
 }
@@ -493,9 +497,10 @@ impl PageAi {
         self.runs
             .retain(|r| !(r.layout == who.layout && r.task == task && r.span == span));
         let pages = last.saturating_sub(page) + 1;
-        let handle = match self.canned {
-            true => Handle::Canned(Some(canned(&source))),
-            false => start(who.ai, &task, &source, pages)?,
+        let handle = match (self.canned, self.held) {
+            (_, true) => Handle::Held(Some(canned(&source))),
+            (true, false) => Handle::Canned(Some(canned(&source))),
+            (false, false) => start(who.ai, &task, &source, pages)?,
         };
         let preset = who.settings.page_preset(page_task(&task));
         let by = preset.map_or_else(String::new, |p| match p.name.trim() {
@@ -801,12 +806,13 @@ impl PageAi {
         self.prune(main);
         self.align(main, pane, &view, (book, name));
         let index = self.index(main, &view, (book, name));
-        let groups = self.pdf_groups(main, pane, &view);
+        let groups = self.spread_groups(main, pane, &view);
         let mut overlays = Vec::new();
         let mut drawn = Vec::new();
         for page in view.visible.clone() {
-            // A PDF group's later pages carry on its result.
-            let over = (groups.iter()).find(|(from, to, _)| *from < page && page <= *to);
+            // A group's later pages carry on its result.
+            let own = view.document.to_base(page);
+            let over = (groups.iter()).find(|(from, to, _)| *from < own && own <= *to);
             // A result's first page carries the bubbles of the pages it took.
             let mut slots = Vec::new();
             let mut bubbles = Vec::new();
@@ -853,10 +859,26 @@ impl PageAi {
         PaneAi { overlays, pill }
     }
 
-    /// The PDF groups `pane` shows: first and last page, and the result.
-    fn pdf_groups(&self, main: &Library, pane: PaneId, view: &AiView) -> Vec<(usize, usize, Slot)> {
+    /// Groups shown over their pages: first and last own page, and the slot.
+    fn spread_groups(
+        &self,
+        main: &Library,
+        pane: PaneId,
+        view: &AiView,
+    ) -> Vec<(usize, usize, Slot)> {
+        // A book lays kept groups in; only runs still writing spread.
         if view.document.is_reflowable() {
-            return Vec::new();
+            return (self.showing.iter())
+                .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
+                .filter(|(_, s)| self.carded(pane, view, s.slot))
+                .filter_map(|(_, s)| {
+                    let Slot::Run(id) = s.slot else {
+                        return None;
+                    };
+                    let run = self.runs.iter().find(|r| r.id == id)?;
+                    (run.last > run.page).then_some((run.page, run.last, s.slot))
+                })
+                .collect();
         }
         let span = |slot: Slot| match slot {
             Slot::Saved(id) => self.saved(main, id).map(|p| p.span.clone()),
@@ -1185,14 +1207,18 @@ impl PageAi {
         since: f64,
     ) -> Option<paint::Shown> {
         let (at, mut room, width) = Self::room(view, page);
-        // A PDF group runs over its pages, each its first page's room.
-        let (pages, part, note) = match (&*view.document, &span) {
-            (Document::Pdf(_), PageSpan::Pages { from, to }) => {
-                room = Self::room(view, *from).1;
-                let note = group_note(&task, (*from, *to));
-                (to - from + 1, page.saturating_sub(*from), Some(note))
+        // A group runs over its pages; a PDF's take its first page's room.
+        let group = pages_of(&view.document, &span).filter(|(from, to)| to > from);
+        let (pages, part, note) = match group {
+            Some((from, to)) => {
+                if !view.document.is_reflowable() {
+                    room = Self::room(view, from).1;
+                }
+                let own = view.document.to_base(page);
+                let note = group_note(&task, (from, to));
+                (to - from + 1, own.saturating_sub(from), Some(note))
             }
-            _ => (1, 0, None),
+            None => (1, 0, None),
         };
         let mut typo: Typography = (*view.typo).clone();
         if matches!(*view.document, Document::Pdf(_)) {
@@ -1511,6 +1537,11 @@ impl PageAi {
         self.inline = inline;
     }
 
+    /// Tests and shots: runs show their words but never finish.
+    pub fn set_held(&mut self, held: bool) {
+        self.held = held;
+    }
+
     /// Tests: runs answer at once, in capitals, with no AI.
     pub fn set_canned(&mut self, canned: bool) {
         self.canned = canned;
@@ -1600,6 +1631,7 @@ fn poll(handle: Option<&mut Handle>) -> Vec<News> {
             .map(|r| News::Done(Ok(r)))
             .into_iter()
             .collect(),
+        Some(Handle::Held(answer)) => answer.take().map(News::Partial).into_iter().collect(),
         #[cfg(not(target_arch = "wasm32"))]
         Some(Handle::Live(live)) => {
             let news = live.poll().into_iter().map(|n| match n {

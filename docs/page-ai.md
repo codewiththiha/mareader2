@@ -271,6 +271,8 @@ whole group, unlike continuous mode, which asks a page at a time.
   together, starting on page 3."
 - **Book.** The result is laid into the pages in place of the group's text,
   as with one page, so the group's pages shrink to the result's length.
+  While it is written, every page of the group is covered as on a PDF:
+  blank paper, then the words so far running across the pages.
 - **Show original page** on any page of the group gives every page of the
   group back. A group's bubble tip names its pages: "Summary · pages 3–7".
 - A group covers any single-page result on its pages; showing a single
@@ -288,7 +290,8 @@ and keep them untouched.
 - `crates/ui/tests/page_groups.rs`: eleven pages go as 5, 5 and 1; a
   group's later pages are covered and Show original gives them all back;
   Pages per request sets the size and gaps split; a redo keeps one result;
-  a book lays a group in; the thumbnails menu asks the picked pages and
-  keeps them picked.
+  a book lays a group in, and covers all its pages while it writes; the
+  thumbnails menu asks the picked pages and keeps them picked.
 - Shot option `page_ai=2-6:summary` asks pages 3–7 as picked pages, with
-  canned answers.
+  canned answers. Add `page_ai_hold=true` to stop runs at their words so
+  far, to see the writing state.

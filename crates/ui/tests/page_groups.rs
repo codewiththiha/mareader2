@@ -196,3 +196,25 @@ fn the_thumbnails_menu_asks_the_picked_pages() {
     assert_eq!(spans(&h), [PageSpan::Pages { from: 1, to: 2 }]);
     assert_eq!(h.state().thumb_picks(), [1, 2], "the picks stay");
 }
+
+#[test]
+fn a_books_group_covers_all_its_pages_while_it_writes() {
+    let mut h = reader(&[("epub", "sample:3"), ("page_ai_hold", "true")]);
+    let pane = h.state().active_pane();
+    let action = Action::RunPages {
+        pane,
+        pages: vec![0, 1, 2],
+        task: PageTask::Simplify,
+        tag: None,
+    };
+    // Held runs keep the pill busy, so steps, not `run`.
+    h.state_mut().queue(Command::PageAi(action));
+    h.run_steps(30);
+    assert!(spans(&h).is_empty(), "still writing");
+    assert!(shows(&h, 0), "the first page shows the words so far");
+    h.state_mut().queue(Command::GoTo { pane, page: 2 });
+    h.run_steps(30);
+    assert!(shows(&h, 2), "a later page is covered too");
+    let reading = h.state().documents().reading(pane).unwrap();
+    assert_eq!(reading.document.inserts_key(), 0, "nothing laid in yet");
+}
