@@ -7,13 +7,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use hypher::Lang;
 use parley::{
     Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, GenericFamily, IndentOptions, Layout, LineHeight, OverflowWrap, Selection,
-    StyleProperty, VerticalAlign,
+    FontWeight, GenericFamily, IndentOptions, InlineBox, InlineBoxKind, Layout, LineHeight,
+    OverflowWrap, Selection, StyleProperty, VerticalAlign,
 };
 
 use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
-    Length, Link, Look, Role, Script, Table, Text, VAlign,
+    Justify, Length, Link, Look, Role, Script, Table, Text, VAlign,
 };
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -211,6 +211,8 @@ pub(crate) struct Para {
     starts: Vec<usize>,
     /// Linked runs, in bytes of the text as set.
     links: Vec<Link>,
+    /// Pictures in its lines, by their boxes' ids.
+    pub(crate) pictures: Vec<Arc<Picture>>,
 }
 
 /// What a set block draws; positions are relative to the block.
@@ -251,6 +253,8 @@ pub(crate) struct Placed {
     backdrop: Option<Arc<Backdrop>>,
     /// The body em its backdrop's lengths are in.
     em: f32,
+    /// Its corners' radius in layout units, before fitting the box.
+    radius: f32,
 }
 
 /// A float placed in the column: its key, the boxes holding it, its place.
@@ -286,6 +290,25 @@ struct Wrap {
     within: Holders,
 }
 
+/// A grid item's place in its row's room, as sized: left, width, line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CellPlace {
+    left: f32,
+    width: f32,
+    /// A wrapped flex row's line.
+    line: u16,
+}
+
+/// A grid item's least and most content widths, or its set width.
+#[derive(Debug, Clone, Copy)]
+struct Extent {
+    row: usize,
+    item: u16,
+    least: f32,
+    most: f32,
+    set: bool,
+}
+
 /// A block's place in a grid row, in layout units.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct CellAt {
@@ -309,6 +332,7 @@ pub(crate) struct Deco {
     pub(crate) fill: Option<f32>,
     pub(crate) backdrop: Option<Arc<Backdrop>>,
     pub(crate) em: f32,
+    pub(crate) radius: f32,
 }
 
 /// A table set in equal columns; row `i` spans `units[i]`.
@@ -407,6 +431,10 @@ pub(crate) struct Set {
     beside: Option<Exclusion>,
     /// It starts below the float before it.
     clear: bool,
+    /// Designed, in a grid: its item's place, as sized.
+    place: Option<CellPlace>,
+    /// Designed: a turn in degrees, drawn about its middle.
+    pub(crate) rotate: f32,
 }
 
 /// Each unit's top and bottom within its block.
@@ -591,6 +619,7 @@ impl Flow {
             // Laid again as first set: beside its float, or as one.
             setter.float_box = set.float.map(|f| (f.x, f.width));
             setter.exclusion = set.beside;
+            setter.cell_place = set.place;
             Arc::new(setter.block(set.source, source).1)
         };
         recent().put(block, Arc::clone(&laid), source.layout_cost());
@@ -768,6 +797,10 @@ struct Setter<'a> {
     float_box: Option<(f32, f32)>,
     /// A float beside the next block's first lines.
     exclusion: Option<Exclusion>,
+    /// The next block's grid item place, overriding the sized ones.
+    cell_place: Option<CellPlace>,
+    /// The grid being set: its items' places, as sized.
+    places: HashMap<(usize, u16), CellPlace>,
 }
 
 impl<'a> Setter<'a> {
@@ -781,7 +814,19 @@ impl<'a> Setter<'a> {
             height: PAGE_HEIGHT - 2.0 * PAD,
             float_box: None,
             exclusion: None,
+            cell_place: None,
+            places: HashMap::new(),
         }
+    }
+
+    /// Block `frame`'s grid item place, as sized.
+    fn place_of(&self, frame: &Frame) -> Option<CellPlace> {
+        let sized = || {
+            item_key(frame)
+                .and_then(|key| self.places.get(&key))
+                .copied()
+        };
+        self.cell_place.or_else(sized)
     }
 
     /// Designed text's em: the column as a phone page, at least the reader's.
@@ -795,8 +840,19 @@ impl<'a> Setter<'a> {
     fn set_all(&mut self, items: &[(usize, &Block)]) -> Vec<Set> {
         let mut out = Vec::with_capacity(items.len());
         let mut wrap: Option<Wrap> = None;
+        let mut sized = None;
         let mut k = 0;
         while let Some(&(i, block)) = items.get(k) {
+            let grid = self.look(&block.frame).and(grid_key(&block.frame));
+            if let Some(key) = grid.filter(|key| sized != Some(*key)) {
+                // A grid's items are sized together, as it starts.
+                let rest = items.get(k..).unwrap_or_default();
+                let same = |(_, b): &&(usize, &Block)| grid_key(&b.frame) == Some(key);
+                let end = k + rest.iter().take_while(same).count().max(1);
+                let places = self.size_grid(items.get(k..end).unwrap_or_default());
+                self.places = places;
+                sized = Some(key);
+            }
             let floated = self.look(&block.frame).and(block.frame.float.as_ref());
             if let Some(f) = floated {
                 let key = Arc::as_ptr(f) as usize;
@@ -837,6 +893,116 @@ impl<'a> Setter<'a> {
         }
         self.exclusion = None;
         out
+    }
+
+    /// Sizes a grid's items to their content: table columns or flex lines.
+    fn size_grid(&mut self, group: &[(usize, &Block)]) -> HashMap<(usize, u16), CellPlace> {
+        let mut places = HashMap::new();
+        let Some(&(_, first)) = group.first() else {
+            return places;
+        };
+        let Some(cell) = first.frame.cell.as_ref() else {
+            return places;
+        };
+        let em = self.design_em();
+        let (gx, room) = self.grid_room(&first.frame);
+        let mut extents: Vec<Extent> = Vec::new();
+        for &(i, b) in group.iter().take(MAX_MEASURED) {
+            let Some((row, item)) = item_key(&b.frame) else {
+                continue;
+            };
+            let set = b.frame.cell.as_ref().and_then(|c| {
+                let w = c.row.widths.get(usize::from(item)).copied().flatten()?;
+                Some(resolve(w, room, em).max(0.0))
+            });
+            let at = extents.iter().position(|e| e.row == row && e.item == item);
+            if at.is_some_and(|n| extents.get(n).is_some_and(|e| e.set)) {
+                continue;
+            }
+            let (least, most) = match set {
+                Some(w) => (w, w),
+                None => self.measure(i, b, (gx, room)),
+            };
+            match at.and_then(|n| extents.get_mut(n)) {
+                Some(e) => (e.least, e.most) = (e.least.max(least), e.most.max(most)),
+                None => extents.push(Extent {
+                    row,
+                    item,
+                    least,
+                    most,
+                    set: set.is_some(),
+                }),
+            }
+        }
+        let shared = &cell.row.columns;
+        match shared.flex {
+            Some(flex) => {
+                let gap = flex.gap.max(0.0) * em;
+                let mut rows: Vec<usize> = extents.iter().map(|e| e.row).collect();
+                rows.dedup();
+                for row in rows {
+                    let grow = group.iter().find_map(|(_, b)| {
+                        let c = b.frame.cell.as_ref()?;
+                        (Arc::as_ptr(&c.row) as usize == row).then(|| c.row.grow.clone())
+                    });
+                    let items: Vec<&Extent> = extents.iter().filter(|e| e.row == row).collect();
+                    flex_places(
+                        &items,
+                        (room, gap),
+                        (flex, &grow.unwrap_or_default()),
+                        &mut places,
+                    );
+                }
+            }
+            None => {
+                let rows = group.iter().filter_map(|(_, b)| b.frame.cell.as_ref());
+                table_places(
+                    &extents,
+                    rows,
+                    (room, shared.fill, shared.centre),
+                    &mut places,
+                );
+            }
+        }
+        places
+    }
+
+    /// A grid item's least and most content widths, from its block `b`.
+    fn measure(&mut self, i: usize, b: &Block, (gx, room): (f32, f32)) -> (f32, f32) {
+        let depth = b.frame.cell.as_ref().map_or(0, |c| usize::from(c.depth));
+        let mut extent = |width: f32| {
+            self.cell_place = Some(CellPlace {
+                left: 0.0,
+                width,
+                line: 0,
+            });
+            let (set, laid) = self.block(i, b);
+            // A box of set width inside the item holds its content.
+            let held = b.frame.boxes.iter().zip(&set.boxes).skip(depth);
+            let fixed = held.filter(|(b, _)| matches!(b.width, Some(Length::Em(_))));
+            match fixed.map(|(_, p)| p.width).next() {
+                Some(w) => w,
+                None => natural(&set, &laid) + 2.0 * (set.x - gx).max(0.0),
+            }
+        };
+        let least = extent(1.0);
+        let most = extent(room * MEASURE_ROOM);
+        self.cell_place = None;
+        (least.min(most), most)
+    }
+
+    /// Where a block's grid sits: the left and width its boxes leave.
+    fn grid_room(&self, frame: &Frame) -> (f32, f32) {
+        let em = self.design_em();
+        let (mut x, mut width) = (0.0, self.column);
+        let depth = frame.cell.as_ref().map_or(0, |c| usize::from(c.depth));
+        for b in frame.boxes.iter().take(depth) {
+            let p = place(b, (x, width), em);
+            let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
+            x = p.x + (b.border[3] + b.padding[3]) * em;
+            width = (p.width - inside).max(1.0);
+        }
+        (x, width)
     }
 
     /// Sets a float's blocks as wide as they need; gives its wrap.
@@ -1116,6 +1282,8 @@ impl<'a> Setter<'a> {
             float,
             beside: self.exclusion.filter(|_| designed),
             clear: false,
+            place: self.place_of(frame).filter(|_| designed),
+            rotate: if designed { frame.rotate } else { 0.0 },
         };
         (set, laid)
     }
@@ -1127,14 +1295,22 @@ impl<'a> Setter<'a> {
         let mut placed = Vec::with_capacity(frame.boxes.len());
         let mut at = None;
         let depth = frame.cell.as_ref().map(|c| usize::from(c.depth));
+        let mut bounds = None;
         for (i, b) in frame.boxes.iter().enumerate() {
             if depth == Some(i) {
                 at = frame
                     .cell
                     .as_ref()
-                    .map(|c| enter(c, (&mut x, &mut width), em));
+                    .map(|c| enter(c, (&mut x, &mut width), em, self.place_of(frame)));
+                bounds = Some((x, x + width));
             }
-            let p = place(b, (x, width), em);
+            let mut p = place(b, (x, width), em);
+            if let Some((left, right)) = bounds {
+                // Inside a cell, negative margins stop at its edges.
+                let end = (p.x + p.width).min(right);
+                p.x = p.x.max(left);
+                p.width = (end - p.x).max(1.0);
+            }
             let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
             x = p.x + (b.border[3] + b.padding[3]) * em;
             width = (p.width - inside).max(1.0);
@@ -1144,7 +1320,7 @@ impl<'a> Setter<'a> {
             at = frame
                 .cell
                 .as_ref()
-                .map(|c| enter(c, (&mut x, &mut width), em));
+                .map(|c| enter(c, (&mut x, &mut width), em, self.place_of(frame)));
         }
         (x, width, placed, at)
     }
@@ -1272,6 +1448,7 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         fill: b.fill,
         backdrop: b.backdrop.clone(),
         em,
+        radius: b.radius.map_or(0.0, |r| resolve(r, outer, em).max(0.0)),
     }
 }
 
@@ -1323,17 +1500,224 @@ fn natural(set: &Set, laid: &Laid) -> f32 {
 }
 
 /// Narrows `x`, `width` to cell `c`'s column of its row.
-fn enter(c: &Cell, (x, width): (&mut f32, &mut f32), em: f32) -> CellAt {
+fn enter(c: &Cell, (x, width): (&mut f32, &mut f32), em: f32, at: Option<CellPlace>) -> CellAt {
     let column = usize::from(c.column);
-    let (left, span) = cell_span(&c.row, column, *width, em);
+    let (left, span) = match at {
+        Some(p) => (p.left, p.width),
+        None => cell_span(&c.row, column, *width, em),
+    };
     *x += left;
     *width = span.max(1.0);
+    let line = at.map_or(0, |p| p.line);
+    let gap = c.row.columns.flex.map_or(0.0, |f| f.gap.max(0.0));
     CellAt {
-        key: Arc::as_ptr(&c.row) as usize,
+        // A wrapped line is its own row, keyed inside the row's allocation.
+        key: Arc::as_ptr(&c.row) as usize + usize::from(line),
         column,
         depth: usize::from(c.depth),
         valign: c.row.valign.get(column).copied().unwrap_or_default(),
-        before: c.row.before * em,
+        before: if line == 0 { c.row.before } else { gap } * em,
+    }
+}
+
+/// The grid block `frame` is in: its table's or flex row's columns.
+fn grid_key(frame: &Frame) -> Option<usize> {
+    frame
+        .cell
+        .as_ref()
+        .map(|c| Arc::as_ptr(&c.row.columns) as usize)
+}
+
+/// Block `frame`'s grid item: its row, by address, and its index.
+fn item_key(frame: &Frame) -> Option<(usize, u16)> {
+    frame
+        .cell
+        .as_ref()
+        .map(|c| (Arc::as_ptr(&c.row) as usize, c.column))
+}
+
+/// A table's columns from its items' extents, shared by its rows.
+fn table_places<'a>(
+    extents: &[Extent],
+    rows: impl Iterator<Item = &'a Cell>,
+    (room, fill, centre): (f32, bool, bool),
+    places: &mut HashMap<(usize, u16), CellPlace>,
+) {
+    // Each item's columns: its first and how many.
+    let mut spans: HashMap<(usize, u16), (usize, usize)> = HashMap::new();
+    for c in rows {
+        let item = usize::from(c.column);
+        let start = c.row.starts.get(item).map_or(item, |s| usize::from(*s));
+        let span = c.row.spans.get(item).map_or(1, |s| usize::from(*s)).max(1);
+        let key = (Arc::as_ptr(&c.row) as usize, c.column);
+        spans.insert(key, (start.min(MAX_COLUMNS - 1), span));
+    }
+    let n = spans
+        .values()
+        .map(|(s, w)| s + w)
+        .max()
+        .unwrap_or(1)
+        .clamp(1, MAX_COLUMNS);
+    let (mut least, mut most, mut set) = (vec![0.0f32; n], vec![0.0f32; n], vec![false; n]);
+    let mut wide = Vec::new();
+    for e in extents {
+        let (start, span) = spans.get(&(e.row, e.item)).copied().unwrap_or((0, 1));
+        if span > 1 {
+            wide.push((start, span.min(n - start.min(n - 1)), e));
+            continue;
+        }
+        if let (Some(l), Some(m), Some(s)) = (
+            least.get_mut(start),
+            most.get_mut(start),
+            set.get_mut(start),
+        ) {
+            (*l, *m) = (l.max(e.least), m.max(e.most));
+            *s |= e.set;
+        }
+    }
+    // A spanning item's excess spreads over its columns evenly.
+    for (start, span, e) in wide {
+        let cols = start..(start + span).min(n);
+        let count = cols.len().max(1) as f32;
+        let have: (f32, f32) = cols.clone().fold((0.0, 0.0), |(l, m), c| {
+            (
+                l + least.get(c).unwrap_or(&0.0),
+                m + most.get(c).unwrap_or(&0.0),
+            )
+        });
+        for c in cols {
+            if let (Some(l), Some(m)) = (least.get_mut(c), most.get_mut(c)) {
+                *l += (e.least - have.0).max(0.0) / count;
+                *m += (e.most - have.1).max(0.0) / count;
+            }
+        }
+    }
+    let widths = distribute(&least, &most, room, fill);
+    let total: f32 = widths.iter().sum();
+    let offset = if centre {
+        ((room - total) / 2.0).max(0.0)
+    } else {
+        0.0
+    };
+    for (key, (start, span)) in spans {
+        let left = offset + widths.iter().take(start).sum::<f32>();
+        let width = widths.iter().skip(start).take(span).sum();
+        places.insert(
+            key,
+            CellPlace {
+                left,
+                width,
+                line: 0,
+            },
+        );
+    }
+}
+
+/// Column widths in `room`: their most, else between least and most.
+fn distribute(least: &[f32], most: &[f32], room: f32, fill: bool) -> Vec<f32> {
+    let (low, high): (f32, f32) = (least.iter().sum(), most.iter().sum());
+    let n = most.len().max(1) as f32;
+    if high <= room {
+        if fill && high > 0.0 {
+            return most.iter().map(|m| m * room / high).collect();
+        }
+        if fill {
+            return vec![room / n; most.len()];
+        }
+        return most.to_vec();
+    }
+    if low < room && high > low {
+        let share = (room - low) / (high - low);
+        return least
+            .iter()
+            .zip(most)
+            .map(|(l, m)| l + (m - l) * share)
+            .collect();
+    }
+    if low > 0.0 {
+        return least.iter().map(|l| l * room / low).collect();
+    }
+    vec![room / n; most.len()]
+}
+
+/// A flex row's items placed: wrapped, grown or shrunk, then justified.
+fn flex_places(
+    items: &[&Extent],
+    (room, gap): (f32, f32),
+    (flex, grow): (crate::block::Flex, &[f32]),
+    places: &mut HashMap<(usize, u16), CellPlace>,
+) {
+    let basis = |e: &Extent| e.most.clamp(e.least.min(room), room);
+    let mut lines: Vec<Vec<&Extent>> = vec![Vec::new()];
+    let mut used = 0.0;
+    for e in items {
+        let w = basis(e);
+        let full = lines
+            .last()
+            .is_some_and(|l| !l.is_empty() && used + gap + w > room);
+        if flex.wrap && full && lines.len() < MAX_FLEX_LINES {
+            lines.push(Vec::new());
+            used = 0.0;
+        }
+        used += if lines.last().is_some_and(Vec::is_empty) {
+            w
+        } else {
+            gap + w
+        };
+        if let Some(line) = lines.last_mut() {
+            line.push(e);
+        }
+    }
+    for (n, line) in lines.iter().enumerate() {
+        let k = line.len().max(1) as f32;
+        let mut widths: Vec<f32> = line.iter().map(|e| basis(e)).collect();
+        let gaps = gap * (k - 1.0);
+        let mut free = room - widths.iter().sum::<f32>() - gaps;
+        let grows: Vec<f32> = line
+            .iter()
+            .map(|e| {
+                grow.get(usize::from(e.item))
+                    .copied()
+                    .unwrap_or(0.0)
+                    .max(0.0)
+            })
+            .collect();
+        let total_grow: f32 = grows.iter().sum();
+        if free > 0.0 && total_grow > 0.0 {
+            for (w, g) in widths.iter_mut().zip(&grows) {
+                *w += free * g / total_grow;
+            }
+            free = 0.0;
+        } else if free < 0.0 {
+            let sum: f32 = widths.iter().sum::<f32>().max(1.0);
+            let short = -free;
+            for (w, e) in widths.iter_mut().zip(line) {
+                *w = (*w - short * *w / sum).max(e.least.min(room / k));
+            }
+            free = 0.0;
+        }
+        let (start, extra) = match flex.justify {
+            Justify::Start => (0.0, 0.0),
+            Justify::Center => (free / 2.0, 0.0),
+            Justify::End => (free, 0.0),
+            Justify::Between if k > 1.0 => (0.0, free / (k - 1.0)),
+            Justify::Between => (0.0, 0.0),
+            Justify::Around => (free / (2.0 * k), free / k),
+            Justify::Evenly => (free / (k + 1.0), free / (k + 1.0)),
+        };
+        let mut left = start.max(0.0);
+        for (e, w) in line.iter().zip(widths) {
+            let line = u16::try_from(n).unwrap_or(0);
+            places.insert(
+                (e.row, e.item),
+                CellPlace {
+                    left,
+                    width: w,
+                    line,
+                },
+            );
+            left += w + gap + extra;
+        }
     }
 }
 
@@ -1473,6 +1857,18 @@ fn layout_text(
     for link in &text.links {
         b.push(StyleProperty::Underline(true), link.range.clone());
     }
+    for (n, inline) in text.inlines.iter().enumerate().take(MAX_INLINES) {
+        let size = |ems: f32| (ems * style.size).clamp(1.0, MAX_SIZE * 8.0);
+        b.push_inline_box(InlineBox {
+            id: n as u64,
+            kind: InlineBoxKind::InFlow,
+            index: inline.at.min(shown.len()),
+            width: size(inline.width),
+            height: size(inline.height),
+            baseline: None,
+            vertical_align: VerticalAlign::BASELINE,
+        });
+    }
     let mut layout = b.build(&shown);
     if style.indent > 0.0 {
         layout.set_text_indent(style.indent, IndentOptions::default());
@@ -1506,6 +1902,11 @@ fn layout_text(
             .unwrap_or_default(),
         starts,
         links: text.links.clone(),
+        pictures: text
+            .inlines
+            .iter()
+            .map(|i| Arc::clone(&i.picture))
+            .collect(),
     }
 }
 
@@ -1682,6 +2083,7 @@ impl OpenBox {
             fill: p.fill,
             backdrop: p.backdrop.clone(),
             em: p.em,
+            radius: p.radius,
         })
     }
 }
@@ -1793,6 +2195,14 @@ pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 const MIN_COLUMN: f32 = 160.0;
 /// The most cells a grid row lays side by side.
 const MAX_COLUMNS: usize = 64;
+/// Pictures set in one block's lines, at most.
+const MAX_INLINES: usize = 256;
+/// Grid blocks measured for content widths; the rest share their sizes.
+const MAX_MEASURED: usize = 512;
+/// A grid item's most width is measured in this many rooms.
+const MEASURE_ROOM: f32 = 8.0;
+/// Lines a wrapping flex row makes, at most.
+const MAX_FLEX_LINES: usize = 32;
 /// A designed page is laid as if this many book ems wide, as a phone's.
 const DESIGN_EMS: f32 = 26.0;
 /// The most designed type grows past the reader's size.
@@ -1961,11 +2371,29 @@ fn place_row(
     let mut heights = vec![0.0; columns];
     let mut last: Vec<Option<&Set>> = vec![None; columns];
     let mut tops = Vec::with_capacity(members.len());
+    // A float in a column: its key and top; then where floats end.
+    let mut floats: Vec<Option<(usize, f32)>> = vec![None; columns];
+    let mut float_ends = vec![0.0f32; columns];
     for b in members {
         let col = column(b);
         let (Some(h), Some(end)) = (heights.get_mut(col), last.get_mut(col)) else {
             continue;
         };
+        let (Some(float), Some(float_end)) = (floats.get_mut(col), float_ends.get_mut(col)) else {
+            continue;
+        };
+        if let Some((key, start)) = *float
+            && b.float.map(|f| f.key) != Some(key)
+        {
+            // The float ends: what follows starts at its top, beside it.
+            (*float_end, *h, *float) = (float_end.max(*h), start, None);
+        }
+        if b.clear {
+            *h = h.max(*float_end);
+        }
+        if let (Some(f), None) = (b.float, *float) {
+            *float = Some((f.key, *h));
+        }
         let gap = match end {
             Some(_) => gap(b, typo),
             None => b.before.unwrap_or(0.0).max(0.0),
@@ -1973,6 +2401,10 @@ fn place_row(
         tops.push(*h + gap);
         *h += gap + span_height(b, 0..b.units.len());
         *end = Some(b);
+    }
+    // A column ends below its floats.
+    for (h, end) in heights.iter_mut().zip(&float_ends) {
+        *h = h.max(*end);
     }
     // A cell's last block closes the cell's boxes under it.
     for (h, b) in heights.iter_mut().zip(&last) {
@@ -2100,8 +2532,9 @@ fn balance(fit: usize, start: usize, total: usize, page_empty: bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::Row;
+    use crate::block::{Columns, Flex, Inline, Row};
     use crate::picture::tests::png;
+    use parley::PositionedLayoutItem;
 
     fn para(words: usize) -> Block {
         Block::text(Role::Paragraph, &vec!["word"; words].join(" "))
@@ -2215,7 +2648,7 @@ mod tests {
         let row = Arc::new(GridRow {
             widths,
             valign: vec![VAlign::Top; 3],
-            before: 0.0,
+            ..GridRow::default()
         });
         let cell = |column| {
             let row = Arc::clone(&row);
@@ -2246,6 +2679,189 @@ mod tests {
         );
         assert!((a.0 - b.0).abs() < 0.01, "{a:?} {b:?}");
         assert!(c.0 >= b.1 && d.0 >= c.1.max(a.1), "{c:?} {d:?}");
+    }
+
+    /// A grid row sharing `columns`, with cells' widths, places and growth.
+    fn row_of(
+        columns: &Arc<Columns>,
+        widths: Vec<Option<Length>>,
+        starts: Vec<u16>,
+    ) -> Arc<GridRow> {
+        let n = widths.len();
+        let spans = (0..n)
+            .map(|i| {
+                starts
+                    .get(i + 1)
+                    .map_or(1, |s| s - starts.get(i).copied().unwrap_or(0))
+            })
+            .collect();
+        Arc::new(GridRow {
+            widths,
+            valign: vec![VAlign::Top; n],
+            starts,
+            spans,
+            columns: Arc::clone(columns),
+            ..GridRow::default()
+        })
+    }
+
+    fn at(row: &Arc<GridRow>, column: u16) -> Option<Cell> {
+        let row = Arc::clone(row);
+        Some(Cell {
+            row,
+            column,
+            depth: 0,
+        })
+    }
+
+    fn words(text: &str, cell: Option<Cell>) -> Block {
+        designed(Block::text(Role::Paragraph, text), &[], cell)
+    }
+
+    /// Block `i`'s left edge and width.
+    fn across(f: &Flow, i: usize) -> (f32, f32) {
+        f.blocks
+            .get(i)
+            .map_or((f32::NAN, f32::NAN), |s| (s.x, s.width))
+    }
+
+    #[test]
+    fn table_columns_take_their_contents_width() {
+        let columns = Arc::new(Columns::default());
+        let row = row_of(&columns, vec![None, None], vec![0, 1]);
+        let f = flow(&[
+            words("ab", at(&row, 0)),
+            designed(para(60), &[], at(&row, 1)),
+        ]);
+        let ((x0, w0), (x1, w1)) = (across(&f, 0), across(&f, 1));
+        assert!(w0 < w1 && w0 < f.width / 4.0, "{w0} {w1}");
+        assert!(x1 >= x0 + w0 - 0.01, "{x0} {w0} {x1}");
+    }
+
+    #[test]
+    fn a_cells_boxes_stay_inside_it() {
+        let columns = Arc::new(Columns::default());
+        let fixed = Some(Length::Em(5.0));
+        let row = row_of(&columns, vec![fixed, fixed], vec![0, 1]);
+        let wide = Arc::new(Boxed {
+            margin: [Some(Length::Em(-2.0)); 2],
+            ..Boxed::default()
+        });
+        let f = flow(&[
+            designed(para(9), &[wide], at(&row, 0)),
+            words("next", at(&row, 1)),
+        ]);
+        let ((x0, w0), (x1, _)) = (across(&f, 0), across(&f, 1));
+        assert!(x0 + w0 <= x1 + 0.01, "{x0} {w0} {x1}");
+    }
+
+    #[test]
+    fn a_cell_spans_the_columns_under_it() {
+        let columns = Arc::new(Columns::default());
+        let wide = Arc::new(GridRow {
+            widths: vec![None],
+            valign: vec![VAlign::Top],
+            starts: vec![0],
+            spans: vec![2],
+            columns: Arc::clone(&columns),
+            ..GridRow::default()
+        });
+        let row = row_of(&columns, vec![None, None], vec![0, 1]);
+        let f = flow(&[
+            designed(para(30), &[], at(&wide, 0)),
+            words("one two three", at(&row, 0)),
+            words("four five six", at(&row, 1)),
+        ]);
+        let ((a, aw), (b, _), (c, cw)) = (across(&f, 0), across(&f, 1), across(&f, 2));
+        assert!((a - b).abs() < 1.0, "{a} {b}");
+        assert!((a + aw - c - cw).abs() < 1.0, "{a} {aw} {c} {cw}");
+    }
+
+    #[test]
+    fn flex_rows_justify_grow_and_wrap() {
+        let flex = |justify, wrap| {
+            let flex = Some(Flex {
+                justify,
+                gap: 0.0,
+                wrap,
+            });
+            Arc::new(Columns {
+                flex,
+                ..Columns::default()
+            })
+        };
+        let plain = || designed(para(3), &[], None);
+        let centred = flex(Justify::Center, false);
+        let row = row_of(&centred, vec![None, None], vec![0, 1]);
+        let f = flow(&[words("ab", at(&row, 0)), words("cd", at(&row, 1)), plain()]);
+        let (left, room) = across(&f, 2);
+        assert!(across(&f, 0).0 > left + room / 4.0, "{:?}", across(&f, 0));
+
+        let start = flex(Justify::Start, false);
+        let grown = Arc::new(GridRow {
+            grow: vec![0.0, 1.0],
+            ..(*row_of(&start, vec![None, None], vec![0, 1])).clone()
+        });
+        let f = flow(&[
+            words("ab", at(&grown, 0)),
+            words("cd", at(&grown, 1)),
+            plain(),
+        ]);
+        let ((x0, _), (x1, w1)) = (across(&f, 0), across(&f, 1));
+        assert!((x0 - left).abs() < 1.0 && (x1 + w1 - left - room).abs() < 1.0);
+
+        let wrapping = flex(Justify::Start, true);
+        let row = row_of(&wrapping, vec![Some(Length::Em(12.0)); 4], vec![0, 1, 2, 3]);
+        let items: Vec<Block> = (0..4).map(|i| words("w", at(&row, i))).collect();
+        let f = flow(&items);
+        let (top0, top2) = (span(&f, 0, 0).0, span(&f, 0, 2).0);
+        assert!(top2 > top0, "{top0} {top2}");
+        assert!((across(&f, 2).0 - across(&f, 0).0).abs() < 1.0);
+    }
+
+    #[test]
+    fn small_pictures_sit_in_their_line() {
+        let mut block = Block::text(Role::Paragraph, "see the sign here");
+        if let Content::Text(t) = &mut block.content {
+            let picture = picture(8, 8);
+            t.inlines.push(Inline {
+                at: 8,
+                picture,
+                width: 1.0,
+                height: 1.0,
+            });
+        }
+        let f = flow(&[block]);
+        let Laid::Text { para, .. } = &*f.laid(0) else {
+            return assert!(f.blocks.len() == 1, "text");
+        };
+        assert_eq!(para.pictures.len(), 1);
+        let boxes = para
+            .layout
+            .lines()
+            .flat_map(|l| l.items().collect::<Vec<_>>());
+        let boxes = boxes.filter(|i| matches!(i, PositionedLayoutItem::InlineBox(_)));
+        assert_eq!(boxes.count(), 1);
+    }
+
+    #[test]
+    fn round_corners_and_turns_reach_the_page() {
+        let b = Arc::new(Boxed {
+            border: [0.1; 4],
+            edges: [Edge::Solid; 4],
+            radius: Some(Length::Em(1.0)),
+            ..Boxed::default()
+        });
+        let mut block = designed(para(5), &[b], None);
+        block.frame.rotate = 90.0;
+        let f = flow(&[block]);
+        assert_eq!(f.blocks.first().map(|s| s.rotate), Some(90.0));
+        let radius = f
+            .decos
+            .first()
+            .and_then(|d| d.first())
+            .map_or(0.0, |d| d.radius);
+        assert!(radius > 1.0, "{radius}");
     }
 
     #[test]

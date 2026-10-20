@@ -10,8 +10,9 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Content, Edge, Emphasis,
-    Floated, Frame, GridRow, Length, Look, Picture, Role, Row, Script, Table, Text, VAlign,
+    Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
+    Emphasis, Flex, Floated, Frame, GridRow, Inline, Length, Look, Picture, Role, Row, Script,
+    Table, Text, VAlign,
 };
 
 use crate::css::{
@@ -54,6 +55,13 @@ const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
 /// Backgrounds fainter than this against the page are left out.
 const MIN_FILL: f32 = 0.08;
+/// Rows a cell spans down, at most.
+const MAX_SPAN_DOWN: u16 = 64;
+/// Pictures set in one block's lines, at most.
+const MAX_INLINES: usize = 256;
+/// A picture this many text ems tall or wide, at most, sits in a line.
+const INLINE_TALL: f32 = 3.0;
+const INLINE_WIDE: f32 = 8.0;
 /// The most ink a background under text takes, keeping it readable.
 const MAX_TEXT_FILL: f32 = 0.16;
 const TAB: &str = "    ";
@@ -155,6 +163,9 @@ enum Part {
     Table,
     Row,
     Cell,
+    /// A flex container laying its items in a row, and one of its items.
+    FlexBox,
+    FlexItem,
 }
 
 /// A book's box open around what is read (`docs/epub-layout.md`).
@@ -175,6 +186,12 @@ struct GridBuild {
     /// Its place in [`State::stack`].
     depth: usize,
     row: Option<RowBuild>,
+    /// What its rows share.
+    columns: Arc<Columns>,
+    /// A flex row's items' default vertical place.
+    flex: Option<VAlign>,
+    /// Rows each column is still taken for by a cell spanning down.
+    taken: Vec<u16>,
 }
 
 /// A grid row being read; its blocks hold a placeholder till it ends.
@@ -188,6 +205,11 @@ struct RowBuild {
     /// The cell being read, and how many boxes hold the grid.
     column: Option<u16>,
     boxes: u8,
+    starts: Vec<u16>,
+    spans: Vec<u16>,
+    grow: Vec<f32>,
+    /// The column after the last cell.
+    next: u16,
 }
 
 fn is_void(name: &str) -> bool {
@@ -458,6 +480,8 @@ impl State<'_> {
         f.boxes = self.box_arcs();
         f.cell = self.cell();
         f.float = self.float.as_ref().map(|(_, f)| Arc::clone(f));
+        let turns = self.stack.iter().map(|o| o.computed.rotate);
+        f.rotate = turns.sum::<f32>() % 360.0;
         f.before = self.gap.take() / ROOT_PX;
         f
     }
@@ -498,12 +522,30 @@ impl State<'_> {
     /// Starts `name`'s part in the layout grid, if it has one.
     fn grid_start(&mut self, name: &str, tag: &Tag, c: &Computed) -> Part {
         if name == "table" {
+            if self.grid.is_some() && !tag.self_closing && self.lays_out(tag) {
+                self.dissolve_flex();
+            }
             if self.grid.is_some() || tag.self_closing || !self.lays_out(tag) {
                 return Part::None;
             }
             let depth = self.stack.len();
-            self.grid = Some(GridBuild { depth, row: None });
+            let both = c.margin.get(1).zip(c.margin.get(3));
+            let columns = Columns {
+                flex: None,
+                fill: !matches!(c.width, Len::Auto),
+                centre: both.is_some_and(|(r, l)| *r == Len::Auto && *l == Len::Auto),
+            };
+            self.grid = Some(GridBuild {
+                depth,
+                row: None,
+                columns: Arc::new(columns),
+                flex: None,
+                taken: Vec::new(),
+            });
             return Part::Table;
+        }
+        if let Some(part) = self.flex_start(name, tag, c) {
+            return part;
         }
         // Only the grid's own rows and cells, not a nested table's.
         let table = self.stack.iter().rposition(|o| o.name == "table");
@@ -541,8 +583,29 @@ impl State<'_> {
                     row.before = before;
                 }
                 if row.widths.len() < MAX_COLUMNS {
+                    // The first column no cell above still spans down into.
+                    let span = |name: &str| {
+                        let n = attr(tag, name).and_then(|v| v.trim().parse::<u16>().ok());
+                        n.unwrap_or(1).clamp(1, MAX_COLUMNS as u16)
+                    };
+                    let (across, down) = (span("colspan"), span("rowspan").min(MAX_SPAN_DOWN));
+                    let taken = |c: usize| grid.taken.get(c).is_some_and(|t| *t > 0);
+                    let mut start = usize::from(row.next);
+                    while taken(start) && start < MAX_COLUMNS {
+                        start += 1;
+                    }
+                    let end = (start + usize::from(across)).min(MAX_COLUMNS);
+                    if down > 1 {
+                        grid.taken.resize(grid.taken.len().max(end), 0);
+                        for t in grid.taken.iter_mut().take(end).skip(start) {
+                            *t = down;
+                        }
+                    }
                     row.widths.push(cell_width(c));
                     row.valign.push(valign.unwrap_or_default());
+                    row.starts.push(u16::try_from(start).unwrap_or(0));
+                    row.spans.push(across);
+                    row.next = u16::try_from(end).unwrap_or(u16::MAX);
                 }
                 let column = row.widths.len().saturating_sub(1);
                 row.column = u16::try_from(column).ok();
@@ -551,6 +614,96 @@ impl State<'_> {
             }
             _ => Part::None,
         }
+    }
+
+    /// Starts a flex row's container or one of its items, if `name` is.
+    fn flex_start(&mut self, name: &str, tag: &Tag, c: &Computed) -> Option<Part> {
+        let row = !c.flex_column && c.display == Display::Flex;
+        if row && self.grid.is_none() && name != "table" && !tag.self_closing {
+            let flex = Flex {
+                justify: c.justify,
+                gap: c.gap / ROOT_PX,
+                wrap: c.wrap,
+            };
+            let columns = Columns {
+                flex: Some(flex),
+                ..Columns::default()
+            };
+            self.grid = Some(GridBuild {
+                depth: self.stack.len(),
+                row: Some(RowBuild::new(self.blocks.len())),
+                columns: Arc::new(columns),
+                flex: Some(c.align_items.unwrap_or(VAlign::Top)),
+                taken: Vec::new(),
+            });
+            return Some(Part::FlexBox);
+        }
+        let grid = self.grid.as_ref()?;
+        let align = grid.flex?;
+        if grid.depth + 1 != self.stack.len() {
+            return Some(Part::None);
+        }
+        let fresh = grid.row.as_ref().is_none_or(|r| r.widths.is_empty());
+        let before = match fresh {
+            true => {
+                self.box_arcs();
+                self.gap.take() / ROOT_PX
+            }
+            false => std::mem::take(&mut self.gap).total() / ROOT_PX,
+        };
+        let (first, boxes) = (self.blocks.len(), self.boxes.len());
+        let row = self
+            .grid
+            .as_mut()?
+            .row
+            .get_or_insert_with(|| RowBuild::new(first));
+        if fresh {
+            row.before = before;
+        }
+        if row.widths.len() >= MAX_COLUMNS {
+            return Some(Part::None);
+        }
+        let basis = match c.basis {
+            Len::Auto => cell_width(c),
+            Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
+            Len::Percent(p) if p > 0.0 => Some(Length::Percent(p)),
+            _ => None,
+        };
+        row.widths.push(basis);
+        row.valign.push(c.align_self.unwrap_or(align));
+        row.grow.push(c.grow);
+        row.column = u16::try_from(row.widths.len() - 1).ok();
+        row.boxes = u8::try_from(boxes).unwrap_or(u8::MAX);
+        Some(Part::FlexItem)
+    }
+
+    /// Lets go of a one-item flex row: its layout table becomes the grid.
+    fn dissolve_flex(&mut self) -> bool {
+        let single = self.grid.as_ref().is_some_and(|g| {
+            g.flex.is_some() && g.row.as_ref().is_none_or(|r| r.widths.len() <= 1)
+        });
+        if !single {
+            return false;
+        }
+        let Some(row) = self.grid.take().and_then(|g| g.row) else {
+            return true;
+        };
+        let mut emitted = false;
+        for block in self.blocks.iter_mut().skip(row.first) {
+            emitted = true;
+            if block
+                .frame
+                .cell
+                .as_ref()
+                .is_some_and(|c| Arc::ptr_eq(&c.row, &row.placeholder))
+            {
+                block.frame.cell = None;
+            }
+        }
+        if !emitted {
+            self.gap.fixed(row.before * ROOT_PX);
+        }
+        true
     }
 
     /// Ends a grid cell: what follows is outside it.
@@ -566,10 +719,20 @@ impl State<'_> {
         let Some(row) = self.grid.as_mut().and_then(|g| g.row.take()) else {
             return;
         };
+        let Some(grid) = self.grid.as_mut() else {
+            return;
+        };
+        for t in &mut grid.taken {
+            *t = t.saturating_sub(1);
+        }
         let real = Arc::new(GridRow {
             widths: row.widths,
             valign: row.valign,
             before: row.before,
+            starts: row.starts,
+            spans: row.spans,
+            grow: row.grow,
+            columns: Arc::clone(&grid.columns),
         });
         for block in self.blocks.iter_mut().skip(row.first) {
             if let Some(cell) = block.frame.cell.as_mut()
@@ -865,7 +1028,7 @@ impl State<'_> {
 
     fn finish(&mut self) {
         if let Some(mut block) = self.current.take() {
-            let written = matches!(&block.content, Content::Text(t) if !t.text.is_empty());
+            let written = matches!(&block.content, Content::Text(t) if !t.text.is_empty() || !t.inlines.is_empty());
             if let Content::Text(text) = &mut block.content {
                 text.trim_end();
             }
@@ -938,8 +1101,13 @@ impl State<'_> {
                 space = true;
                 continue;
             }
-            let line_start =
-                text.is_empty() && (target.text.is_empty() || target.text.ends_with('\n'));
+            let after_picture = target
+                .inlines
+                .last()
+                .is_some_and(|i| i.at == target.text.len());
+            let line_start = text.is_empty()
+                && !after_picture
+                && (target.text.is_empty() || target.text.ends_with('\n'));
             if std::mem::take(&mut space) && !line_start {
                 text.push(' ');
             }
@@ -1181,7 +1349,13 @@ impl State<'_> {
     }
 
     /// Each image is its own block; one that won't load shows its alt.
-    fn image(&mut self, src: Option<&str>, alt: Option<&str>, width: Option<Length>) {
+    fn image(
+        &mut self,
+        src: Option<&str>,
+        alt: Option<&str>,
+        sized: (Option<Length>, Option<&Computed>),
+    ) {
+        let (width, computed) = sized;
         if self.top().hidden {
             return;
         }
@@ -1194,6 +1368,37 @@ impl State<'_> {
         }
         let path = src.and_then(|s| href::resolve(self.base, s));
         let picture = path.and_then(|p| self.library.picture(&p));
+        let small = picture
+            .as_ref()
+            .zip(computed)
+            .and_then(|(p, c)| inline_size(p, c));
+        let after_text = self.current.as_ref().is_some_and(|b| match &b.content {
+            Content::Text(t) => !t.text.trim().is_empty(),
+            _ => false,
+        });
+        let parent = self.stack.last().map(|o| o.name.as_str());
+        let small = small.filter(|_| after_text || parent.is_some_and(in_line));
+        if let (Some(picture), Some((width, height))) = (&picture, small) {
+            // A small picture is a glyph of its line.
+            let space = std::mem::take(&mut self.space);
+            if let Some(t) = self.target() {
+                let spaced = !t.text.is_empty() && !t.text.ends_with('\n');
+                if space && spaced {
+                    t.push(" ", Emphasis::default());
+                }
+                let at = t.text.len();
+                if t.inlines.len() < MAX_INLINES {
+                    let picture = Arc::clone(picture);
+                    t.inlines.push(Inline {
+                        at,
+                        picture,
+                        width,
+                        height,
+                    });
+                }
+                return;
+            }
+        }
         self.finish();
         if let Some(picture) = picture {
             let mut block = Block::new(Content::Image {
@@ -1376,12 +1581,13 @@ impl State<'_> {
             }
             "img" => {
                 let width = picture_width(&computed);
-                self.image(attr(tag, "src"), attr(tag, "alt"), width);
+                let alt = attr(tag, "alt");
+                self.image(attr(tag, "src"), alt, (width, Some(&computed)));
                 return false;
             }
             "image" => {
                 let href = attr(tag, "href").or_else(|| attr(tag, "xlink:href"));
-                self.image(href, None, None);
+                self.image(href, None, (None, None));
             }
             "link" => {
                 self.link(tag);
@@ -1530,6 +1736,13 @@ impl State<'_> {
                 self.end_row();
                 self.grid = None;
             }
+            // A flex row let go of has nothing left to end.
+            _ if self.grid.as_ref().is_none_or(|g| g.flex.is_none()) => {}
+            Part::FlexItem => self.end_cell(),
+            Part::FlexBox => {
+                self.end_row();
+                self.grid = None;
+            }
         }
     }
 
@@ -1643,8 +1856,18 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
         width,
         centre,
         height,
+        radius: radius(c),
         ..Boxed::default()
     })
+}
+
+/// A box's corner radius as the book sets it.
+fn radius(c: &Computed) -> Option<Length> {
+    match c.radius {
+        Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
+        Len::Percent(p) if p > 0.0 => Some(Length::Percent(p.min(50.0))),
+        _ => None,
+    }
 }
 
 /// A box drawn only for its background: its width, padding and height.
@@ -1662,8 +1885,60 @@ fn bare(c: &Computed) -> Boxed {
         padding: c.padding.map(|p| p.max(0.0) / ROOT_PX),
         width,
         height,
+        radius: radius(c),
         ..Boxed::default()
     }
+}
+
+/// Whether a small picture in `parent` is set in a line of text.
+fn in_line(parent: &str) -> bool {
+    let heading = parent.len() == 2 && parent.starts_with('h') && parent != "hr";
+    heading
+        || matches!(
+            parent,
+            "p" | "span"
+                | "a"
+                | "li"
+                | "dt"
+                | "dd"
+                | "em"
+                | "strong"
+                | "b"
+                | "i"
+                | "u"
+                | "sup"
+                | "sub"
+                | "small"
+                | "big"
+                | "q"
+                | "cite"
+                | "label"
+                | "ruby"
+        )
+}
+
+/// A small picture's size in ems of its text, to sit in a line.
+fn inline_size(picture: &Picture, c: &Computed) -> Option<(f32, f32)> {
+    if matches!(c.width, Len::Percent(_) | Len::Vw(_)) {
+        return None;
+    }
+    let (pw, ph) = (picture.width as f32, picture.height as f32);
+    let size = c.size.max(1.0);
+    let set = |l: Len| match l {
+        Len::Px(px) if px > 0.0 => Some(px),
+        _ => None,
+    };
+    if pw <= 0.0 || ph <= 0.0 {
+        return None;
+    }
+    let (w, h) = match (set(c.width), set(c.height)) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, w * ph / pw),
+        (None, Some(h)) => (h * pw / ph, h),
+        (None, None) => (pw, ph),
+    };
+    let fits = h <= INLINE_TALL * size && w <= INLINE_WIDE * size;
+    fits.then(|| (w / size, h / size))
 }
 
 /// A grid cell's width as the book sets it.
@@ -1685,6 +1960,10 @@ impl RowBuild {
             first,
             column: None,
             boxes: 0,
+            starts: Vec::new(),
+            spans: Vec::new(),
+            grow: Vec::new(),
+            next: 0,
         }
     }
 }
@@ -1977,6 +2256,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use mareader_reflow::Justify;
 
     /// In-memory images and stylesheets, keyed by absolute path.
     #[derive(Default)]
@@ -2486,6 +2766,102 @@ mod tests {
         assert!(cell(0).is_some_and(|c| c.depth == 1));
         let table = b.first().and_then(|b| b.frame.boxes.first());
         assert!(table.is_some_and(|t| t.width == Some(Length::Em(22.0))));
+    }
+
+    /// Block `i`'s grid row and item.
+    fn cell_of(b: &[Block], i: usize) -> Option<(Arc<GridRow>, u16)> {
+        b.get(i)
+            .and_then(|b| b.frame.cell.clone())
+            .map(|c| (c.row, c.column))
+    }
+
+    #[test]
+    fn flex_rows_read_their_items_as_cells() {
+        let b = read(
+            "<div style='display: flex; justify-content: center; gap: 16px; flex-wrap: wrap'>\
+             <div style='flex: 1'><p>a</p></div>\
+             <div style='flex-basis: 5em; align-self: flex-end'><p>b</p></div></div>\
+             <p>after</p>",
+        );
+        assert_eq!(texts(&b), ["a", "b", "after"]);
+        let (Some((row, 0)), Some((same, 1)), None) =
+            (cell_of(&b, 0), cell_of(&b, 1), cell_of(&b, 2))
+        else {
+            return assert_eq!(b.len(), 0, "cells");
+        };
+        assert!(Arc::ptr_eq(&row, &same));
+        let flex = Flex {
+            justify: Justify::Center,
+            gap: 1.0,
+            wrap: true,
+        };
+        assert_eq!(row.columns.flex, Some(flex));
+        assert_eq!(row.grow, [1.0, 0.0]);
+        assert_eq!(row.widths, [None, Some(Length::Em(5.0))]);
+        assert_eq!(row.valign, [VAlign::Top, VAlign::Bottom]);
+    }
+
+    #[test]
+    fn a_flex_row_of_one_lets_its_layout_table_be_the_grid() {
+        let b = read(
+            "<div style='display: flex; justify-content: center'><div>\
+             <table role='presentation'><tr><td><p>a</p></td><td><p>b</p></td></tr>\
+             </table></div></div>",
+        );
+        let (Some((row, 0)), Some((_, 1))) = (cell_of(&b, 0), cell_of(&b, 1)) else {
+            return assert_eq!(b.len(), 0, "cells");
+        };
+        assert_eq!(row.columns.flex, None);
+    }
+
+    #[test]
+    fn cells_span_columns_and_rows() {
+        let b = read(
+            "<table role='presentation' style='width: 20em'>\
+             <tr><td colspan='2'><p>a</p></td></tr>\
+             <tr><td rowspan='2'><p>b</p></td><td><p>c</p></td></tr>\
+             <tr><td><p>d</p></td></tr></table>",
+        );
+        assert_eq!(texts(&b), ["a", "b", "c", "d"]);
+        let row = |i: usize| cell_of(&b, i).map(|(r, _)| r).unwrap_or_default();
+        let (a, b2, d) = (row(0), row(1), row(3));
+        assert_eq!((a.starts.clone(), a.spans.clone()), (vec![0], vec![2]));
+        assert_eq!(
+            (b2.starts.clone(), b2.spans.clone()),
+            (vec![0, 1], vec![1, 1])
+        );
+        assert_eq!(d.starts, [1]);
+        assert!(a.columns.fill && Arc::ptr_eq(&a.columns, &d.columns));
+    }
+
+    #[test]
+    fn boxes_turn_and_round_and_small_pictures_join_their_line() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(16, 16) {
+            shelf.pictures.insert("/OEBPS/images/s.png".into(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<div style='transform: rotate(0.25turn); border: 1px solid; \
+             border-radius: 8px'><p>t</p></div>\
+             <p>x <img src='../images/s.png'/> y</p>",
+        );
+        assert_eq!(kinds(&b), ["text", "text"]);
+        let first = b.first().map(|b| &b.frame);
+        assert_eq!(first.map(|f| f.rotate), Some(90.0));
+        let radius = first.and_then(|f| f.boxes.first()).and_then(|b| b.radius);
+        assert_eq!(radius, Some(Length::Em(0.5)));
+        let inlines = b
+            .get(1)
+            .and_then(text)
+            .map(|t| t.inlines.clone())
+            .unwrap_or_default();
+        assert_eq!(inlines.len(), 1);
+        assert!(
+            inlines
+                .first()
+                .is_some_and(|i| i.at <= 2 && (i.width - 1.0).abs() < 0.01)
+        );
     }
 
     #[test]

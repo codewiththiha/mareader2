@@ -78,7 +78,30 @@ pub struct Text {
     pub spans: Vec<Span>,
     /// Linked runs, in order and apart.
     pub links: Vec<Link>,
+    /// Pictures set in its lines, in order.
+    pub inlines: Vec<Inline>,
 }
+
+/// A picture in a line of text, sized in ems of the text around it.
+#[derive(Debug, Clone)]
+pub struct Inline {
+    /// The byte it sits before.
+    pub at: usize,
+    pub picture: Arc<Picture>,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl PartialEq for Inline {
+    fn eq(&self, other: &Self) -> bool {
+        let size = |i: &Self| [i.width, i.height].map(f32::to_bits);
+        self.at == other.at
+            && Arc::ptr_eq(&self.picture, &other.picture)
+            && size(self) == size(other)
+    }
+}
+
+impl Eq for Inline {}
 
 impl Text {
     pub fn new(role: Role) -> Self {
@@ -87,6 +110,7 @@ impl Text {
             text: String::new(),
             spans: Vec::new(),
             links: Vec::new(),
+            inlines: Vec::new(),
         }
     }
 
@@ -142,10 +166,13 @@ impl Text {
             link.range.end = link.range.end.min(len);
         }
         self.links.retain(|l| !l.range.is_empty());
+        for inline in &mut self.inlines {
+            inline.at = inline.at.min(len);
+        }
     }
 
     pub fn is_blank(&self) -> bool {
-        self.text.trim().is_empty()
+        self.text.trim().is_empty() && self.inlines.is_empty()
     }
 }
 
@@ -265,6 +292,8 @@ pub struct Boxed {
     /// The least height of its content, in body ems.
     pub height: Option<f32>,
     pub backdrop: Option<Arc<Backdrop>>,
+    /// Its corners' radius; a percentage is of its width.
+    pub radius: Option<Length>,
 }
 
 /// A box's background picture.
@@ -310,11 +339,49 @@ pub enum VAlign {
 /// A row of a book's layout grid: its cells' widths and alignment.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GridRow {
-    /// Each cell's width as set; none shares what is left.
+    /// Each cell's width as set; none sizes it to its content.
     pub widths: Vec<Option<Length>>,
     pub valign: Vec<VAlign>,
     /// The space above the row, in body ems.
     pub before: f32,
+    /// Each cell's first column and columns spanned; empty is one each.
+    pub starts: Vec<u16>,
+    pub spans: Vec<u16>,
+    /// A flex row's share of free space per item; empty is none.
+    pub grow: Vec<f32>,
+    /// Shared by a table's rows, whose columns line up.
+    pub columns: Arc<Columns>,
+}
+
+/// What a grid's rows share: a table's columns, or a flex row's spacing.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Columns {
+    pub flex: Option<Flex>,
+    /// A table with a set width: its columns stretch to fill it.
+    pub fill: bool,
+    /// A table centred by auto margins.
+    pub centre: bool,
+}
+
+/// A flex row's spacing.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Flex {
+    pub justify: Justify,
+    /// Between items and between wrapped lines, in body ems.
+    pub gap: f32,
+    pub wrap: bool,
+}
+
+/// Where a flex row's free space goes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Justify {
+    #[default]
+    Start,
+    Center,
+    End,
+    Between,
+    Around,
+    Evenly,
 }
 
 /// A block's place in a grid row; the row's blocks sit side by side.
@@ -350,6 +417,8 @@ pub struct Frame {
     pub cell: Option<Cell>,
     /// With a look: the float it is in; blocks of one float share it.
     pub float: Option<Arc<Floated>>,
+    /// With a look: a turn in degrees, clockwise; drawn, not laid out.
+    pub rotate: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -401,6 +470,13 @@ impl Text {
                     range: shift(&l.range)?,
                     target: l.target,
                 })
+            })
+            .collect();
+        out.inlines = (self.inlines.iter())
+            .filter(|i| (range.start..range.end).contains(&i.at))
+            .map(|i| Inline {
+                at: i.at - range.start,
+                ..i.clone()
             })
             .collect();
         out
