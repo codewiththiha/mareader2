@@ -11,7 +11,10 @@ use parley::{
     StyleProperty,
 };
 
-use crate::block::{Align, Block, Content, Emphasis, Frame, Length, Link, Look, Role, Table, Text};
+use crate::block::{
+    Align, Block, Boxed, Cell, Content, Edge, Emphasis, Frame, GridRow, Length, Link, Look, Role,
+    Table, Text, VAlign,
+};
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
@@ -223,6 +226,46 @@ pub(crate) enum Draw {
         rect: [f32; 4],
     },
     Table(Grid),
+    /// Room only: a designed book's rule draws as its boxes.
+    Space,
+}
+
+/// A book's box placed in the column, in layout units (`docs/epub-layout.md`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Placed {
+    /// The same for every block in the box.
+    key: usize,
+    /// The border box across.
+    x: f32,
+    width: f32,
+    border: [f32; 4],
+    edges: [Edge; 4],
+    /// From its top border to its first block, its last block to the bottom.
+    top: f32,
+    bottom: f32,
+    centre: Option<f32>,
+}
+
+/// A block's place in a grid row, in layout units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CellAt {
+    /// The same for every block in the row.
+    key: usize,
+    column: usize,
+    /// How many of the block's boxes hold the grid.
+    depth: usize,
+    valign: VAlign,
+    /// The space above the row.
+    before: f32,
+}
+
+/// A box's borders on one page; a page's cut leaves that side open.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Deco {
+    /// Left, top, width and height in column units.
+    pub(crate) rect: [f32; 4],
+    pub(crate) border: [f32; 4],
+    pub(crate) edges: [Edge; 4],
 }
 
 /// A table set in equal columns; row `i` spans `units[i]`.
@@ -311,6 +354,10 @@ pub(crate) struct Set {
     lines: bool,
     /// A table's leading head rows, never left alone at a page's foot.
     heads: usize,
+    /// Designed: the book's boxes around it, outermost first.
+    boxes: Vec<Placed>,
+    /// Designed: its place in a grid row.
+    cell: Option<CellAt>,
 }
 
 /// Each unit's top and bottom within its block.
@@ -354,6 +401,8 @@ pub struct Band {
 pub struct Flow {
     pub(crate) blocks: Vec<Set>,
     pub(crate) pages: Vec<Vec<Piece>>,
+    /// Each page's box borders, drawn under its pieces.
+    pub(crate) decos: Vec<Vec<Deco>>,
     pub(crate) bands: Vec<Band>,
     pub(crate) book_layout: bool,
     /// Pages before its first, which decide each page's spread side.
@@ -425,10 +474,11 @@ impl Flow {
                 .map(|(i, b)| setter.block(i, b).0)
                 .collect()
         };
-        let pages = paginate(&set, cut, typo);
+        let (pages, decos) = paginate(&set, cut, typo);
         let mut flow = Self {
             blocks: set,
             pages,
+            decos,
             bands: Vec::new(),
             book_layout: typo.book_layout,
             shift: 0,
@@ -466,6 +516,7 @@ impl Flow {
         // An odd change in count would swap every later page's side.
         if flow.book_layout && (flow.pages.len() + replaced) % 2 == 1 {
             flow.pages.push(Vec::new());
+            flow.decos.push(Vec::new());
         }
         flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, &typo)).collect();
         flow.keep_pictures(self)
@@ -786,15 +837,36 @@ impl<'a> Setter<'a> {
         let (column, height) = (self.column, self.height);
         let em = self.typo.font_size;
         let frame = &block.frame;
+        let designed = self.look(frame).is_some();
+        let (left, room, boxes, cell) = match designed {
+            true => self.boxes(frame, column),
+            false => (0.0, column, Vec::new(), None),
+        };
         // Deep nesting stops indenting at half the column.
-        let x = (frame.inset * em).clamp(0.0, column / 2.0);
-        let width = column - x;
+        let x = left + (frame.inset * em).clamp(0.0, room / 2.0);
+        let width = room - (x - left);
+        let edged = || {
+            frame
+                .boxes
+                .iter()
+                .any(|b| b.edges.iter().any(|e| *e != Edge::None))
+        };
         let (draw, laid, units, starts) = match &block.content {
             Content::Text(text) => self.text(text, frame, width),
             Content::Rule => {
                 let unit = (0.0, RULE_HEIGHT * em);
                 (Draw::Rule, Laid::None, vec![unit], vec![0])
             }
+            Content::Space(h) if designed => {
+                let unit = (0.0, (h * em).max(0.0));
+                (Draw::Space, Laid::None, vec![unit], vec![0])
+            }
+            // Read as prose, a bordered blank is a plain rule.
+            Content::Space(_) if edged() => {
+                let unit = (0.0, RULE_HEIGHT * em);
+                (Draw::Rule, Laid::None, vec![unit], vec![0])
+            }
+            Content::Space(_) => (Draw::Space, Laid::None, vec![(0.0, 0.0)], vec![0]),
             Content::Image {
                 picture,
                 cover,
@@ -843,8 +915,39 @@ impl<'a> Setter<'a> {
             before: self.look(frame).map(|_| frame.before * em),
             lines: matches!(block.content, Content::Text(_)),
             heads,
+            boxes,
+            cell,
         };
         (set, laid)
+    }
+
+    /// Places the boxes and cell in `column`: content left, width, both.
+    fn boxes(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
+        let em = self.typo.font_size;
+        let (mut x, mut width) = (0.0, column);
+        let mut placed = Vec::with_capacity(frame.boxes.len());
+        let mut at = None;
+        let depth = frame.cell.as_ref().map(|c| usize::from(c.depth));
+        for (i, b) in frame.boxes.iter().enumerate() {
+            if depth == Some(i) {
+                at = frame
+                    .cell
+                    .as_ref()
+                    .map(|c| enter(c, (&mut x, &mut width), em));
+            }
+            let p = place(b, (x, width), em);
+            let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
+            x = p.x + (b.border[3] + b.padding[3]) * em;
+            width = (p.width - inside).max(1.0);
+            placed.push(p);
+        }
+        if at.is_none() && depth.is_some_and(|d| d >= frame.boxes.len()) {
+            at = frame
+                .cell
+                .as_ref()
+                .map(|c| enter(c, (&mut x, &mut width), em));
+        }
+        (x, width, placed, at)
     }
 
     fn text(
@@ -928,6 +1031,81 @@ impl<'a> Setter<'a> {
         let pad = [pad_x, pad_y];
         (Grid { column, pad, heads }, rows, units)
     }
+}
+
+/// A book's length in layout units; percentages are of `width`.
+fn resolve(length: Length, width: f32, em: f32) -> f32 {
+    match length {
+        Length::Em(e) => e * em,
+        Length::Percent(p) => width * p / 100.0,
+    }
+}
+
+/// Box `b` in the room at `x`, `width` across: margins, width, centring.
+fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
+    let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
+    let side = |m: Option<Length>| m.map(|l| resolve(l, width, em));
+    let (left, right) = (side(b.margin[0]), side(b.margin[1]));
+    let content = match b.width {
+        // A set width wider than the room shrinks to it.
+        Some(l) => resolve(l, width, em).min(width - inside),
+        None => width - left.unwrap_or(0.0) - right.unwrap_or(0.0) - inside,
+    };
+    let outer = content.max(0.0) + inside;
+    let left = match (left, right, b.width) {
+        (l, _, None) => l.unwrap_or(0.0),
+        (None, None, Some(_)) => ((width - outer) / 2.0).max(0.0),
+        (None, Some(r), Some(_)) => (width - outer - r).max(0.0),
+        (Some(l), _, Some(_)) => l,
+    };
+    Placed {
+        key: Arc::as_ptr(b) as usize,
+        x: x + left,
+        width: outer,
+        border: b.border.map(|w| w * em),
+        edges: b.edges,
+        top: b.top * em,
+        bottom: b.bottom * em,
+        centre: b.centre,
+    }
+}
+
+/// Narrows `x`, `width` to cell `c`'s column of its row.
+fn enter(c: &Cell, (x, width): (&mut f32, &mut f32), em: f32) -> CellAt {
+    let column = usize::from(c.column);
+    let (left, span) = cell_span(&c.row, column, *width, em);
+    *x += left;
+    *width = span.max(1.0);
+    CellAt {
+        key: Arc::as_ptr(&c.row) as usize,
+        column,
+        depth: usize::from(c.depth),
+        valign: c.row.valign.get(column).copied().unwrap_or_default(),
+        before: c.row.before * em,
+    }
+}
+
+/// A column's left and width; set widths shrink, unset ones share the rest.
+fn cell_span(row: &GridRow, column: usize, width: f32, em: f32) -> (f32, f32) {
+    let n = row.widths.len().max(column + 1);
+    let asked: Vec<Option<f32>> = (0..n)
+        .map(|i| row.widths.get(i).copied().flatten())
+        .map(|l| l.map(|l| resolve(l, width, em).max(0.0)))
+        .collect();
+    let fixed: f32 = asked.iter().flatten().sum();
+    let free = asked.iter().filter(|a| a.is_none()).count();
+    let scale = if fixed > width && fixed > 0.0 {
+        width / fixed
+    } else {
+        1.0
+    };
+    let share = match free {
+        0 => 0.0,
+        free => (width - fixed * scale).max(0.0) / free as f32,
+    };
+    let widths = asked.iter().map(|a| a.map_or(share, |w| w * scale));
+    let left = widths.clone().take(column).sum();
+    (left, widths.clone().nth(column).unwrap_or(0.0))
 }
 
 /// A look's family names, then `rest`.
@@ -1099,18 +1277,68 @@ fn cover_rect(picture: &Picture, width: f32, height: f32) -> ([f32; 4], (f32, f3
     (rect, (0.0, height))
 }
 
-/// The page being filled: its pieces and how far down it is.
+/// The page being filled: its pieces, borders and how far down it is.
 #[derive(Default)]
 struct Cursor {
     pages: Vec<Vec<Piece>>,
     page: Vec<Piece>,
+    decos: Vec<Vec<Deco>>,
+    deco: Vec<Deco>,
+    /// The book's boxes open here, outermost first.
+    open: Vec<OpenBox>,
     y: f32,
+    /// The page's height, which centring boxes fill.
+    height: f32,
+}
+
+/// A book's box open on the page being filled.
+struct OpenBox {
+    placed: Placed,
+    top: f32,
+    /// Begun on an earlier page: no top border here.
+    continued: bool,
+    /// Centring, begun on a fresh page: the pieces and borders before it.
+    centre: Option<(usize, usize)>,
+}
+
+impl OpenBox {
+    /// Its borders down to `bottom`; open there unless `closed`.
+    fn deco(&self, bottom: f32, closed: bool) -> Option<Deco> {
+        let (mut border, mut edges) = (self.placed.border, self.placed.edges);
+        if self.continued {
+            (border[0], edges[0]) = (0.0, Edge::None);
+        }
+        if !closed {
+            (border[2], edges[2]) = (0.0, Edge::None);
+        }
+        let drawn = border
+            .iter()
+            .zip(&edges)
+            .any(|(w, e)| *w > 0.0 && *e != Edge::None);
+        let rect = [
+            self.placed.x,
+            self.top,
+            self.placed.width,
+            bottom - self.top,
+        ];
+        drawn.then_some(Deco {
+            rect: rect.map(|v| if v.is_finite() { v } else { 0.0 }),
+            border,
+            edges,
+        })
+    }
 }
 
 impl Cursor {
     fn break_page(&mut self) {
         if !self.page.is_empty() {
+            // A box running on is cut here and goes on overleaf.
+            for open in &mut self.open {
+                self.deco.extend(open.deco(self.y, false));
+                (open.top, open.continued, open.centre) = (0.0, true, None);
+            }
             self.pages.push(std::mem::take(&mut self.page));
+            self.decos.push(std::mem::take(&mut self.deco));
         }
         self.y = 0.0;
     }
@@ -1129,6 +1357,55 @@ impl Cursor {
             dy: self.y - top,
         });
         self.y += bottom - top;
+    }
+
+    /// How many of the open boxes `boxes` is still in.
+    fn common(&self, boxes: &[Placed]) -> usize {
+        let same = |(o, b): &(&OpenBox, &Placed)| o.placed.key == b.key;
+        self.open.iter().zip(boxes).take_while(same).count()
+    }
+
+    /// Closes the open boxes after the first `keep`, below what is placed.
+    fn close(&mut self, keep: usize) {
+        while self.open.len() > keep {
+            let Some(open) = self.open.pop() else {
+                break;
+            };
+            let mut bottom = self.y + open.placed.bottom;
+            if let (Some((pieces, decos)), Some(share)) = (open.centre, open.placed.centre) {
+                // Its content sits mid-way down the height it fills.
+                let fill = (share * self.height).min(self.height - open.top);
+                let shift = ((fill - (bottom - open.top)) / 2.0).max(0.0);
+                for piece in self.page.iter_mut().skip(pieces) {
+                    piece.dy += shift;
+                }
+                for deco in self.deco.iter_mut().skip(decos) {
+                    deco.rect[1] += shift;
+                }
+                self.y += shift;
+                bottom += 2.0 * shift;
+            }
+            self.deco.extend(open.deco(bottom, true));
+        }
+    }
+
+    /// Opens what `boxes` holds past the open ones; a block goes in next.
+    fn open(&mut self, boxes: &[Placed]) {
+        let fresh = boxes.get(self.open.len()..).unwrap_or_default();
+        // A box opening atop a page keeps its border on the page.
+        let need = fresh.iter().map(|b| b.top - self.y).fold(0.0, f32::max);
+        self.y += need;
+        let empty = self.page.is_empty() && self.height.is_finite();
+        for b in fresh {
+            let centre =
+                (empty && b.centre.is_some()).then_some((self.page.len(), self.deco.len()));
+            self.open.push(OpenBox {
+                placed: b.clone(),
+                top: self.y - b.top,
+                continued: false,
+                centre,
+            });
+        }
     }
 }
 
@@ -1152,6 +1429,8 @@ fn column_width(typo: &Typography) -> f32 {
 pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 /// The narrowest column, as mareader's.
 const MIN_COLUMN: f32 = 160.0;
+/// The most cells a grid row lays side by side.
+const MAX_COLUMNS: usize = 64;
 
 fn gap(block: &Set, typo: &Typography) -> f32 {
     if let Some(before) = block.before {
@@ -1166,63 +1445,205 @@ fn gap(block: &Set, typo: &Typography) -> f32 {
 }
 
 /// Fills pages unit by unit; headings never end one, no lone lines.
-fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> Vec<Vec<Piece>> {
-    let mut c = Cursor::default();
-    for (i, block) in blocks.iter().enumerate() {
-        if c.pages.len() >= MAX_PAGES {
-            break;
-        }
-        let total = block.units.len();
-        if total == 0 {
+fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>, Vec<Vec<Deco>>) {
+    let mut c = Cursor {
+        height,
+        ..Cursor::default()
+    };
+    let row = |i: usize| blocks.get(i).and_then(|b| b.cell).map(|c| c.key);
+    let mut i = 0;
+    while i < blocks.len() && c.pages.len() < MAX_PAGES {
+        let Some(key) = row(i) else {
+            place_block(&mut c, blocks, i, (height, typo));
+            i += 1;
             continue;
-        }
-        if block.break_before {
-            c.break_page();
-        }
-        if !c.page.is_empty() {
-            c.y += gap(block, typo);
-        } else if let (true, Some(before)) = (block.break_before, block.before) {
-            // A designed chapter's opening keeps its space at the top.
-            c.y += before.clamp(0.0, height / 2.0);
-        }
-        if block.keep_with_next && !c.page.is_empty() {
-            // Room for the heading and the first two units after it.
-            let next = blocks.get(i + 1).map_or(0.0, |n| {
-                gap(n, typo) + span_height(n, 0..n.units.len().min(2))
-            });
-            if c.y + span_height(block, 0..total) + next > height {
-                c.break_page();
+        };
+        let end = (i..blocks.len())
+            .find(|&j| row(j) != Some(key))
+            .unwrap_or(blocks.len());
+        // A row taller than a page is read down the page instead.
+        if !place_row(&mut c, blocks, i..end, (height, typo)) {
+            for k in i..end {
+                place_block(&mut c, blocks, k, (height, typo));
             }
         }
-        let mut start = 0;
-        while start < total {
-            let fit = fitting_units(block, start, height - c.y);
-            let mut fit = if block.lines {
-                balance(fit, start, total, c.page.is_empty())
-            } else if start + fit <= block.heads && fit < total && !c.page.is_empty() {
-                // Head rows go on with the first body row.
-                0
-            } else {
-                fit
-            };
-            if fit == 0 && !c.page.is_empty() {
-                c.break_page();
-                continue;
-            }
-            // A unit taller than a whole page overflows it.
-            fit = fit.max(1);
-            c.place(block, i, start..start + fit);
-            start += fit;
-            if start < total {
-                c.break_page();
-            }
-        }
+        i = end;
     }
+    c.close(0);
     c.break_page();
     if c.pages.is_empty() {
         c.pages.push(Vec::new());
+        c.decos.push(Vec::new());
     }
-    c.pages
+    (c.pages, c.decos)
+}
+
+/// Places block `i`, split between pages where it must be.
+fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &Typography)) {
+    let Some(block) = blocks.get(i) else {
+        return;
+    };
+    let total = block.units.len();
+    if total == 0 {
+        return;
+    }
+    c.close(c.common(&block.boxes));
+    if block.break_before {
+        c.break_page();
+    }
+    if !c.page.is_empty() {
+        c.y += gap(block, typo);
+    } else if let (true, Some(before)) = (block.break_before, block.before) {
+        // A designed chapter's opening keeps its space at the top.
+        c.y += before.clamp(0.0, height / 2.0);
+    }
+    if block.keep_with_next && !c.page.is_empty() {
+        // Room for the heading and the first two units after it.
+        let next = blocks.get(i + 1).map_or(0.0, |n| {
+            gap(n, typo) + span_height(n, 0..n.units.len().min(2))
+        });
+        if c.y + span_height(block, 0..total) + next > height {
+            c.break_page();
+        }
+    }
+    let mut start = 0;
+    while start < total {
+        let fit = fitting_units(block, start, height - c.y);
+        let mut fit = if block.lines {
+            balance(fit, start, total, c.page.is_empty())
+        } else if start + fit <= block.heads && fit < total && !c.page.is_empty() {
+            // Head rows go on with the first body row.
+            0
+        } else {
+            fit
+        };
+        if fit == 0 && !c.page.is_empty() {
+            c.break_page();
+            continue;
+        }
+        // A unit taller than a whole page overflows it.
+        fit = fit.max(1);
+        if start == 0 {
+            c.open(&block.boxes);
+        }
+        c.place(block, i, start..start + fit);
+        start += fit;
+        if start < total {
+            c.break_page();
+        }
+    }
+}
+
+/// Places grid row `row` whole, cells side by side; false if too tall.
+fn place_row(
+    c: &mut Cursor,
+    blocks: &[Set],
+    row: Range<usize>,
+    (height, typo): (f32, &Typography),
+) -> bool {
+    let Some((first, cell)) = blocks.get(row.start).and_then(|b| Some((b, b.cell?))) else {
+        return false;
+    };
+    let members = blocks.get(row.clone()).unwrap_or_default();
+    let columns = members
+        .iter()
+        .filter_map(|b| b.cell)
+        .map(|c| c.column + 1)
+        .max();
+    let columns = columns.unwrap_or(1).clamp(1, MAX_COLUMNS);
+    let column = |b: &Set| b.cell.map_or(0, |c| c.column).min(columns - 1);
+    // Each block's top in its column, then each column's height.
+    let mut heights = vec![0.0; columns];
+    let mut last: Vec<Option<&Set>> = vec![None; columns];
+    let mut tops = Vec::with_capacity(members.len());
+    for b in members {
+        let col = column(b);
+        let (Some(h), Some(end)) = (heights.get_mut(col), last.get_mut(col)) else {
+            continue;
+        };
+        let gap = match end {
+            Some(_) => gap(b, typo),
+            None => b.before.unwrap_or(0.0).max(0.0),
+        };
+        tops.push(*h + gap);
+        *h += gap + span_height(b, 0..b.units.len());
+        *end = Some(b);
+    }
+    // A cell's last block closes the cell's boxes under it.
+    for (h, b) in heights.iter_mut().zip(&last) {
+        let inner = b.map_or(&[][..], |b| b.boxes.get(cell.depth..).unwrap_or_default());
+        *h += inner.iter().map(|p| p.bottom).fold(0.0, f32::max);
+    }
+    let tall = heights.iter().copied().fold(0.0, f32::max);
+    if tall > height {
+        return false;
+    }
+    let outer = first.boxes.get(..cell.depth).unwrap_or(&first.boxes);
+    c.close(c.common(outer));
+    if first.break_before {
+        c.break_page();
+    }
+    if !c.page.is_empty() {
+        c.y += cell.before.max(0.0);
+        if c.y + tall > height {
+            c.break_page();
+        }
+    }
+    c.open(outer);
+    let top = c.y;
+    let mut placed = Vec::with_capacity(members.len());
+    for ((k, b), at) in row.clone().zip(members).zip(&tops) {
+        let col = column(b);
+        let room = tall - heights.get(col).copied().unwrap_or(0.0);
+        let shift = match b.cell.map(|c| c.valign) {
+            Some(VAlign::Top) | None => 0.0,
+            Some(VAlign::Middle) => room / 2.0,
+            Some(VAlign::Bottom) => room,
+        };
+        let y = top + shift + at;
+        let unit = b.units.first().map_or(0.0, |u| u.0);
+        c.page.push(Piece {
+            block: k,
+            units: 0..b.units.len(),
+            dy: y - unit,
+        });
+        placed.push((col, b, y));
+    }
+    for col in 0..columns {
+        let stack = placed.iter().filter(|(c, ..)| *c == col);
+        cell_decos(stack.map(|(_, b, y)| (*b, *y)), cell.depth, &mut c.deco);
+    }
+    c.y = top + tall;
+    true
+}
+
+/// The borders of a cell's own boxes, its blocks at their tops.
+fn cell_decos<'a>(stack: impl Iterator<Item = (&'a Set, f32)>, depth: usize, out: &mut Vec<Deco>) {
+    let close = |open: &mut Vec<OpenBox>, keep: usize, bottom: f32, out: &mut Vec<Deco>| {
+        while open.len() > keep {
+            if let Some(o) = open.pop() {
+                out.extend(o.deco(bottom + o.placed.bottom, true));
+            }
+        }
+    };
+    let mut open: Vec<OpenBox> = Vec::new();
+    let mut bottom = 0.0;
+    for (b, y) in stack {
+        let inner = b.boxes.get(depth..).unwrap_or_default();
+        let same = |(o, p): &(&OpenBox, &Placed)| o.placed.key == p.key;
+        let keep = open.iter().zip(inner).take_while(same).count();
+        close(&mut open, keep, bottom, out);
+        for p in inner.iter().skip(keep) {
+            open.push(OpenBox {
+                placed: p.clone(),
+                top: y - p.top,
+                continued: false,
+                centre: None,
+            });
+        }
+        bottom = y + span_height(b, 0..b.units.len());
+    }
+    close(&mut open, 0, bottom, out);
 }
 
 pub(crate) fn span_height(block: &Set, units: Range<usize>) -> f32 {
@@ -1304,6 +1725,113 @@ mod tests {
 
     fn room() -> f32 {
         PAGE_HEIGHT - 2.0 * PAD
+    }
+
+    /// `block` in a designed chapter, in `boxes`, at `cell` if any.
+    fn designed(mut block: Block, boxes: &[Arc<Boxed>], cell: Option<Cell>) -> Block {
+        let look = Look {
+            designed: true,
+            ..Look::default()
+        };
+        block.frame.look = Some(Arc::new(look));
+        block.frame.boxes = boxes.to_vec();
+        block.frame.cell = cell;
+        block
+    }
+
+    /// Where block `block`'s first piece starts and ends on page `page`.
+    fn span(f: &Flow, page: usize, block: usize) -> (f32, f32) {
+        let piece = f
+            .pages
+            .get(page)
+            .and_then(|p| p.iter().find(|p| p.block == block));
+        let set = f.blocks.get(block);
+        let (Some(piece), Some(set)) = (piece, set) else {
+            return (f32::NAN, f32::NAN);
+        };
+        let top = set.units.get(piece.units.start).map_or(0.0, |u| u.0) + piece.dy;
+        (top, top + span_height(set, piece.units.clone()))
+    }
+
+    #[test]
+    fn a_book_box_centres_its_width_and_draws_its_border() {
+        let b = Arc::new(Boxed {
+            width: Some(Length::Em(10.0)),
+            border: [0.2; 4],
+            edges: [Edge::Double; 4],
+            ..Boxed::default()
+        });
+        let boxed = || designed(para(3), &[Arc::clone(&b)], None);
+        let f = flow(&[boxed(), boxed(), designed(para(3), &[], None)]);
+        let em = Typography::default().font_size;
+        let set = f.blocks.first();
+        let left = (f.width - 10.4 * em) / 2.0 + 0.2 * em;
+        assert!(set.is_some_and(|s| (s.x - left).abs() < 0.5 && (s.width - 10.0 * em).abs() < 0.5));
+        let decos = f.decos.first().map_or(&[][..], Vec::as_slice);
+        assert_eq!(decos.len(), 1);
+        let (top, _) = span(&f, 0, 0);
+        let (_, bottom) = span(&f, 0, 1);
+        let (after, _) = span(&f, 0, 2);
+        let deco = decos.first().map_or([0.0; 4], |d| d.rect);
+        assert!(deco[1] <= top && deco[1] + deco[3] >= bottom, "{deco:?}");
+        assert!(deco[1] + deco[3] <= after, "{deco:?} {after}");
+    }
+
+    #[test]
+    fn a_grid_rows_cells_sit_side_by_side() {
+        let widths = [10.0, 2.0, 10.0].map(|w| Some(Length::Em(w))).to_vec();
+        let row = Arc::new(GridRow {
+            widths,
+            valign: vec![VAlign::Top; 3],
+            before: 0.0,
+        });
+        let cell = |column| {
+            let row = Arc::clone(&row);
+            Some(Cell {
+                row,
+                column,
+                depth: 0,
+            })
+        };
+        let f = flow(&[
+            designed(para(5), &[], cell(0)),
+            designed(para(5), &[], cell(2)),
+            designed(para(5), &[], cell(2)),
+            designed(para(3), &[], None),
+        ]);
+        let x = |i: usize| f.blocks.get(i).map_or((0.0, 0.0), |s| (s.x, s.width));
+        assert!(
+            x(1).0 >= x(0).0 + x(0).1 && x(1) == x(2),
+            "{:?} {:?}",
+            x(0),
+            x(1)
+        );
+        let (a, b, c, d) = (
+            span(&f, 0, 0),
+            span(&f, 0, 1),
+            span(&f, 0, 2),
+            span(&f, 0, 3),
+        );
+        assert!((a.0 - b.0).abs() < 0.01, "{a:?} {b:?}");
+        assert!(c.0 >= b.1 && d.0 >= c.1.max(a.1), "{c:?} {d:?}");
+    }
+
+    #[test]
+    fn a_box_cut_by_a_page_stays_open_at_the_cut() {
+        let b = Arc::new(Boxed {
+            border: [0.1; 4],
+            edges: [Edge::Solid; 4],
+            ..Boxed::default()
+        });
+        let blocks: Vec<Block> = (0..30)
+            .map(|_| designed(para(60), &[Arc::clone(&b)], None))
+            .collect();
+        let f = flow(&blocks);
+        assert!(f.page_count() > 1);
+        let edges = |page: usize| f.decos.get(page).and_then(|d| d.first()).map(|d| d.edges);
+        let last = f.page_count() - 1;
+        assert!(edges(0).is_some_and(|e| e[0] == Edge::Solid && e[2] == Edge::None));
+        assert!(edges(last).is_some_and(|e| e[0] == Edge::None && e[2] == Edge::Solid));
     }
 
     #[test]

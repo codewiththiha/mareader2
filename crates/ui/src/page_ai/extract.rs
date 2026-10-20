@@ -130,7 +130,7 @@ pub fn book(blocks: &[Block], [from, to]: [[usize; 2]; 2]) -> Source {
                 continue;
             }
             Content::Image { .. } => Kept::Picture { alt: String::new() },
-            Content::Rule => Kept::Other,
+            Content::Rule | Content::Space(_) => Kept::Other,
         };
         out.push(Piece::Kept(piece), Origin::Block { index, range: 0..1 });
     }
