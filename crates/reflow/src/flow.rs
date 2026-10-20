@@ -1847,6 +1847,7 @@ fn layout_text(
         let Emphasis {
             italic,
             bold,
+            light,
             code,
             size,
             script,
@@ -1881,6 +1882,9 @@ fn layout_text(
         }
         if bold {
             let weight = FontWeight::new(bolder(style.weight));
+            b.push(StyleProperty::FontWeight(weight), range.clone());
+        } else if light {
+            let weight = FontWeight::new((style.weight - LIGHTER).max(100.0));
             b.push(StyleProperty::FontWeight(weight), range.clone());
         }
         if code && !style.pre {
@@ -2313,6 +2317,8 @@ const FLOAT_GAP: f32 = 0.4;
 const SMALL_CAPS: f32 = 0.8;
 /// Raised and lowered text's size in reading type.
 const SCRIPT_SCALE: f32 = 0.75;
+/// How much lighter normal words in bold text are: bold to regular.
+const LIGHTER: f32 = 300.0;
 
 fn gap(block: &Set, typo: &Typography) -> f32 {
     if let Some(before) = block.before {
