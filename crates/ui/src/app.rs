@@ -79,6 +79,8 @@ pub struct MareaderApp {
     menu_shot: bool,
     /// Shots and tests: a page AI result kept, or a run started (true).
     page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
+    /// Shots: pages the word list window opens on, once shown.
+    word_window_seed: Option<Vec<usize>>,
     tree: PaneTree,
     active: PaneId,
     /// Panes by last focus, latest first: blend's paper follows them.
@@ -110,6 +112,7 @@ pub struct MareaderApp {
     /// Picked pages' text on its way to the clipboard.
     page_copy: crate::page_copy::PageCopy,
     word_lists: crate::word_list::WordLists,
+    word_window: crate::word_list::window::WordWindow,
     shelf_tree: PanelState,
     /// Each pane's page bar.
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
@@ -184,6 +187,7 @@ impl MareaderApp {
             chromeless: false,
             menu_shot: false,
             page_ai_seed: None,
+            word_window_seed: None,
             tree: PaneTree::new(),
             active: PaneId(1),
             recent: Vec::new(),
@@ -207,6 +211,7 @@ impl MareaderApp {
             thumbs: ThumbState::default(),
             page_copy: Default::default(),
             word_lists: Default::default(),
+            word_window: Default::default(),
             shelf_tree: PanelState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
@@ -501,7 +506,8 @@ impl MareaderApp {
         let Some(at) = crate::focus::rect(ctx).map(|r| r.center()) else {
             return;
         };
-        let modal = self.settings_window.is_open() || self.library.sheet_up();
+        let modal =
+            self.settings_window.is_open() || self.word_window.is_open() || self.library.sheet_up();
         let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
         if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active) {
             out.push(Command::FocusPane(*id));
@@ -628,7 +634,29 @@ impl MareaderApp {
         self.thumbs.picked()
     }
 
-    /// Moves a word list on; made, it goes on the clipboard.
+    /// What a word list of `pane`'s `pages` is made from.
+    fn word_ask(
+        &self,
+        pane: PaneId,
+        pages: Vec<usize>,
+        list: mareader_settings::WordList,
+    ) -> Option<crate::word_list::Ask> {
+        let reading = self.documents.reading(pane)?;
+        Some(crate::word_list::Ask {
+            document: reading.document,
+            title: self.documents.title(pane).unwrap_or_default().to_owned(),
+            pages,
+            level: self.settings.study.cefr.level.band(),
+            list,
+        })
+    }
+
+    /// Tests: the word list window's Markdown, once made.
+    pub fn word_window_markdown(&self) -> Option<&str> {
+        self.word_window.markdown()
+    }
+
+    /// Moves a word list on; made, it is copied or saved.
     fn poll_word_list(&mut self, ctx: &egui::Context) {
         if !self.word_lists.busy() {
             return;
@@ -638,10 +666,16 @@ impl MareaderApp {
         let toast = match self.word_lists.poll(&mut self.vocab, &mut self.dict) {
             None => return,
             Some(Err(toast)) => toast,
-            Some(Ok(made)) => {
-                let said = crate::word_list::copied(&made);
-                ctx.copy_text(made.markdown);
-                Toast::info(said)
+            Some(Ok((made, list))) => {
+                let title = self
+                    .documents
+                    .title(self.active)
+                    .unwrap_or_default()
+                    .to_owned();
+                match crate::word_list::deliver(ctx, &self.files, &title, &made, list.output) {
+                    Some(toast) => toast,
+                    None => return,
+                }
             }
         };
         self.toasts.push(toast);
@@ -1006,6 +1040,14 @@ impl MareaderApp {
                 }
                 self.page_ai_seed = Some((page, task, follow, last));
             }
+            // Opens the word list window on pages 0-based: `word_window=0-4`.
+            "word_window" => {
+                let hint = "word_window: first-last, 0-based";
+                let (a, b) = value.split_once('-').unwrap_or((value, value));
+                let a: usize = a.parse().map_err(|_| hint)?;
+                let b: usize = b.parse().map_err(|_| hint)?;
+                self.word_window_seed = Some((a..=b.max(a)).collect());
+            }
             // Explains the staged selection: its card opens.
             "gloss" => match self.staged.back_mut() {
                 Some(staged) => staged.explain = true,
@@ -1292,6 +1334,12 @@ impl MareaderApp {
             Some(staged) => self.staged.push_front(staged),
             None => {}
         }
+        if let Some(pages) = self
+            .word_window_seed
+            .take_if(|p| p.first().is_some_and(|&p| shown(p)))
+        {
+            out.push(Command::WordListWindow { pane, pages });
+        }
         if let Some((page, task, follow, last)) = self.page_ai_seed.clone()
             && shown(page)
         {
@@ -1449,6 +1497,8 @@ impl MareaderApp {
         }
         self.dict.poll();
         self.poll_word_list(ctx);
+        let services = (&mut self.vocab, &mut self.dict, &self.files);
+        self.word_window.show(ctx, &self.settings, services, out);
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         self.dict.show(ctx, &self.pane_rects, offset, out);
@@ -1823,16 +1873,16 @@ impl MareaderApp {
                 }
             }
             Command::WordList { pane, pages } => {
-                if let Some(reading) = self.documents.reading(pane) {
-                    let title = self.documents.title(pane).unwrap_or_default().to_owned();
-                    let ask = crate::word_list::Ask {
-                        document: reading.document,
-                        title,
-                        pages,
-                        level: self.settings.study.cefr.level.band(),
-                        list: self.settings.study.words.instant().clone(),
-                    };
+                let list = self.settings.study.words.instant().clone();
+                if let Some(ask) = self.word_ask(pane, pages, list) {
                     self.word_lists.start(ctx, ask);
+                }
+            }
+            Command::WordListWindow { pane, pages } => {
+                let list = self.settings.study.words.last.clone();
+                if let Some(ask) = self.word_ask(pane, pages, list) {
+                    let chapters = !ask.document.outline().is_empty();
+                    self.word_window.open(ctx, pane, ask, chapters);
                 }
             }
             Command::Turn { pane, forward } => self.documents.turn(pane, forward),
@@ -2781,6 +2831,7 @@ impl eframe::App for MareaderApp {
         self.titlebar.chromeless = self.chromeless && route == Route::Reader;
         // Tab brings hidden chrome up, unless a dialog would sit below it.
         let dialog = self.settings_window.is_open()
+            || self.word_window.is_open()
             || self.library.sheet_up()
             || crate::shortcuts::is_open(&ctx);
         if crate::focus::begin(&ctx) && !dialog {
@@ -2805,6 +2856,7 @@ impl eframe::App for MareaderApp {
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         // Naming a shelf takes Escape to cancel.
         let modal = self.settings_window.is_open()
+            || self.word_window.is_open()
             || self.library.sheet_up()
             || self.library.renaming().is_some()
             || (route == Route::Library && library::search::focused(&ctx))
@@ -2892,7 +2944,7 @@ impl eframe::App for MareaderApp {
         };
         let shelf_tree = &mut self.shelf_tree;
         self.thumbs
-            .set_offer(crate::thumbnails::AiOffer::of(&self.settings.ai));
+            .set_offer(crate::thumbnails::Offer::of(&self.settings));
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.

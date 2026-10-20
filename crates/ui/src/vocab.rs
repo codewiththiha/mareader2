@@ -129,6 +129,12 @@ impl Vocab {
         *self.service.state(Part::Dataset) == State::Ready
     }
 
+    /// Whether word levels are on their way: fetching or converting.
+    pub fn coming(&self) -> bool {
+        let state = self.service.state(Part::Dataset);
+        matches!(state, State::Fetching { .. } | State::Converting)
+    }
+
     /// Each key's band where known; the rest are asked for.
     pub fn bands(&mut self, keys: &[String]) -> Vec<Option<u8>> {
         self.service.bands(keys)

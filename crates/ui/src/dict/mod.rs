@@ -59,6 +59,9 @@ struct Card {
     rest: bool,
 }
 
+/// Word list asks kept waiting at once.
+const WORD_ASKS: usize = 4;
+
 #[derive(Default)]
 pub struct Dict {
     service: Dictionaries,
@@ -70,8 +73,8 @@ pub struct Dict {
     float_rect: Option<Rect>,
     /// Whether it was folded when last drawn, to catch it folding.
     float_folded: Option<bool>,
-    /// A word list's ask and, once in, its reply.
-    words: Option<(Ticket, Option<Reply>)>,
+    /// Word lists' asks and, once in, their replies; oldest first.
+    words: Vec<(Ticket, Option<Reply>)>,
 }
 
 impl Dict {
@@ -213,28 +216,32 @@ impl Dict {
     /// Asks for a word list's rows; `take_words` hands the reply over.
     pub fn ask_words(&mut self, words: Vec<String>, to: Vec<String>, near: bool) -> Ticket {
         let ticket = self.service.ask(Query::Words { words, to, near });
-        self.words = Some((ticket, None));
+        // A list given up on leaves its ask; a few are kept at most.
+        if self.words.len() >= WORD_ASKS {
+            self.words.remove(0);
+        }
+        self.words.push((ticket, None));
         ticket
     }
 
     pub fn take_words(&mut self, ticket: Ticket) -> Option<Reply> {
-        match &mut self.words {
-            Some((t, slot)) if *t == ticket => {
-                let reply = slot.take()?;
-                self.words = None;
-                Some(reply)
-            }
-            _ => None,
-        }
+        let at = self
+            .words
+            .iter()
+            .position(|(t, r)| *t == ticket && r.is_some())?;
+        self.words.remove(at).1
     }
 
     /// Takes in replies and progress; true if a pack's state changed.
     pub fn poll(&mut self) -> bool {
         let (changed, replies) = self.service.poll();
         for reply in replies {
-            match (&mut self.card, &mut self.words) {
-                (_, Some((ticket, slot))) if *ticket == reply.ticket => *slot = Some(reply),
-                (Some(card), _) if card.ticket == reply.ticket => card.reply = Some(reply),
+            if let Some((_, slot)) = self.words.iter_mut().find(|(t, _)| *t == reply.ticket) {
+                *slot = Some(reply);
+                continue;
+            }
+            match &mut self.card {
+                Some(card) if card.ticket == reply.ticket => card.reply = Some(reply),
                 _ => self.page.receive(reply),
             }
         }

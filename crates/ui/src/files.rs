@@ -136,14 +136,31 @@ impl Files {
 
     /// Asks where to save `contents` as `name`, then writes it there.
     pub fn save(&self, ctx: &Context, name: String, format: Format, contents: String) {
+        let kind = (format.label(), format.extension());
+        self.save_as(
+            ctx,
+            ("Export highlights", name),
+            kind,
+            contents.into_bytes(),
+        );
+    }
+
+    /// Asks where to save `contents`, as a `kind` (label, extension) file.
+    pub fn save_as(
+        &self,
+        ctx: &Context,
+        (title, name): (&'static str, String),
+        kind: (&'static str, &'static str),
+        contents: Vec<u8>,
+    ) {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
         let make = move || {
             rfd::AsyncFileDialog::new()
-                .set_title("Export highlights")
+                .set_title(title)
                 .set_file_name(name)
-                .add_filter(format.label(), &[format.extension()])
+                .add_filter(kind.0, &[kind.1])
         };
         let (files, cx) = (self.clone(), ctx.clone());
         let done = move |path: Option<PathBuf>| {

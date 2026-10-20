@@ -97,6 +97,11 @@ pub enum Command {
         pane: PaneId,
         pages: Vec<usize>,
     },
+    /// Opens the word list window on the pane's `pages`.
+    WordListWindow {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
     /// The previous or next page, or spread, of the pane's document.
     Turn {
         pane: PaneId,
