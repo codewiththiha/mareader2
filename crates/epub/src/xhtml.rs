@@ -10,7 +10,7 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Block, Content, Emphasis, Frame, Picture, Role, Row, Table, Text,
+    Align, Anchor, Block, Content, Emphasis, Frame, Length, Picture, Role, Row, Table, Text,
 };
 
 use crate::css::{self, Decl, MAX_SHEET, Stylesheet};
@@ -272,10 +272,12 @@ struct State<'a> {
     blocks: Vec<Block>,
     current: Option<Block>,
     table: Option<TableBuild>,
-    /// By each `<table>` in order: whether it holds a picture.
-    pictured: Vec<bool>,
+    /// By each `<table>` in order: whether it only lays things out.
+    layouts: Vec<bool>,
     /// How many `<table>` tags have started.
     tables: usize,
+    /// Layout tables open around the text being read.
+    laying: usize,
     stack: Vec<Open>,
     /// A collapsed space waits for the next visible character.
     space: bool,
@@ -558,6 +560,14 @@ impl State<'_> {
         if let Some(a) = attr(tag, "align").and_then(css::align) {
             st.align = a;
         }
+        for d in self.rules(tag, name) {
+            st.apply(&d);
+        }
+        st
+    }
+
+    /// The declarations on `tag` in cascade order, its own style last.
+    fn rules(&self, tag: &Tag, name: &str) -> Vec<Decl> {
         let classes: Vec<&str> = attr(tag, "class")
             .map(|c| c.split_ascii_whitespace().take(MAX_CLASSES).collect())
             .unwrap_or_default();
@@ -568,13 +578,17 @@ impl State<'_> {
             });
         }
         found.sort_by_key(|&(spec, sheet, at, _)| (spec, sheet, at));
-        for (_, _, _, d) in &found {
-            st.apply(d);
-        }
+        let mut out: Vec<Decl> = found.into_iter().map(|(_, _, _, d)| d).collect();
         if let Some(inline) = attr(tag, "style") {
-            st.apply(&Decl::parse(inline));
+            out.push(Decl::parse(inline));
         }
-        st
+        out
+    }
+
+    /// An image's width as the book sets it: CSS first, then `width`.
+    fn image_width(&self, tag: &Tag) -> Option<Length> {
+        let css = self.rules(tag, "img").iter().rev().find_map(|d| d.width);
+        css.or_else(|| attr(tag, "width").and_then(css::width_attr))
     }
 
     /// Every element meets every sheet, so a chapter keeps a few, once.
@@ -599,7 +613,7 @@ impl State<'_> {
     }
 
     /// Each image is its own block; one that won't load shows its alt.
-    fn image(&mut self, src: Option<&str>, alt: Option<&str>) {
+    fn image(&mut self, src: Option<&str>, alt: Option<&str>, width: Option<Length>) {
         if self.top().hidden {
             return;
         }
@@ -617,8 +631,13 @@ impl State<'_> {
             let mut block = Block::new(Content::Image {
                 picture,
                 cover: false,
+                width,
             });
             block.frame = self.frame();
+            // A grid's portrait sits over its centred name, read in a row.
+            if self.laying > 0 && self.top().align == Align::Start {
+                block.frame.align = Align::Center;
+            }
             self.emit(block);
         } else if let Some(alt) = alt {
             let italic = Emphasis {
@@ -636,12 +655,14 @@ impl State<'_> {
         if tag_name == "table" {
             let ordinal = self.tables;
             self.tables += 1;
-            // A table that lays out pictures reads as plain blocks.
-            let pictured = self.pictured.get(ordinal).copied().unwrap_or(false);
-            let layout = pictured || typed(tag, "role", &["presentation", "none"]);
+            // A table that only lays things out reads as plain blocks.
+            let scanned = self.layouts.get(ordinal).copied().unwrap_or(false);
+            let layout = scanned || typed(tag, "role", &["presentation", "none"]);
             if let Some(t) = self.table.as_mut() {
                 t.nested += 1;
-            } else if !layout {
+            } else if layout {
+                self.laying += usize::from(!tag.self_closing);
+            } else {
                 let frame = self.frame();
                 self.table = Some(TableBuild {
                     table: Table::default(),
@@ -701,6 +722,9 @@ impl State<'_> {
 
     fn end_table(&mut self, name: &str) {
         let Some(t) = self.table.as_mut() else {
+            if name == "table" {
+                self.laying = self.laying.saturating_sub(1);
+            }
             return;
         };
         match name {
@@ -764,12 +788,13 @@ impl State<'_> {
                 return false;
             }
             "img" => {
-                self.image(attr(tag, "src"), attr(tag, "alt"));
+                let width = self.image_width(tag);
+                self.image(attr(tag, "src"), attr(tag, "alt"), width);
                 return false;
             }
             "image" => {
                 let href = attr(tag, "href").or_else(|| attr(tag, "xlink:href"));
-                self.image(href, None);
+                self.image(href, None, None);
             }
             "link" => {
                 self.link(tag);
@@ -893,37 +918,125 @@ fn drop_blank_columns(table: &mut Table) {
     }
 }
 
-/// Marks each `<table>`, in order, that holds a picture at any depth.
-struct Pictured(RefCell<(Vec<bool>, Vec<usize>)>);
+/// One table as the scan sees it.
+struct Scanned {
+    /// Its place among the chapter's tables.
+    at: usize,
+    pictured: bool,
+    /// Head cells or a caption: a table of data.
+    data: bool,
+    /// Paragraphs or divisions inside its cells.
+    blocks: bool,
+    /// Each row's cells: whether each holds anything.
+    rows: Vec<Vec<bool>>,
+    in_cell: bool,
+}
 
-impl TokenSink for Pictured {
+impl Scanned {
+    /// Pictures; or, with no heads, block cells beside a spacer column.
+    fn layout(&self) -> bool {
+        let columns = self.rows.iter().map(Vec::len).max().unwrap_or(0);
+        let filled = |i: usize| self.rows.iter().any(|r| r.get(i) == Some(&true));
+        let full = (0..columns).filter(|&i| filled(i)).count();
+        let spacer = full >= 2 && full < columns;
+        self.pictured || (!self.data && self.blocks && spacer)
+    }
+
+    fn fill(&mut self) {
+        if !self.in_cell {
+            return;
+        }
+        if let Some(cell) = self.rows.last_mut().and_then(|r| r.last_mut()) {
+            *cell = true;
+        }
+    }
+}
+
+/// Reads each `<table>`'s shape, in order, before the chapter is read.
+struct Scan(RefCell<(Vec<bool>, Vec<Scanned>)>);
+
+impl TokenSink for Scan {
     type Handle = ();
 
     fn process_token(&self, token: Token, _line: u64) -> TokenSinkResult<()> {
-        let Token::TagToken(tag) = token else {
-            return TokenSinkResult::Continue;
-        };
         let (flags, open) = &mut *self.0.borrow_mut();
+        let tag = match token {
+            Token::TagToken(tag) => tag,
+            Token::CharacterTokens(text) => {
+                if !text.trim().is_empty() {
+                    open.iter_mut().for_each(Scanned::fill);
+                }
+                return TokenSinkResult::Continue;
+            }
+            Token::EOFToken => {
+                while let Some(t) = open.pop() {
+                    close_scanned(flags, &t);
+                }
+                return TokenSinkResult::Continue;
+            }
+            _ => return TokenSinkResult::Continue,
+        };
         let name: &str = &tag.name;
-        match (tag.kind, name) {
-            (TagKind::StartTag, "table") => {
+        let start = tag.kind == TagKind::StartTag;
+        match (start, name) {
+            (true, "table") => {
                 if !tag.self_closing {
-                    open.push(flags.len());
+                    open.push(Scanned {
+                        at: flags.len(),
+                        pictured: false,
+                        data: false,
+                        blocks: false,
+                        rows: Vec::new(),
+                        in_cell: false,
+                    });
                 }
                 flags.push(false);
             }
-            (TagKind::StartTag, "img" | "image" | "svg") => {
-                for &at in open.iter() {
-                    if let Some(f) = flags.get_mut(at) {
-                        *f = true;
-                    }
+            (false, "table") => {
+                if let Some(t) = open.pop() {
+                    close_scanned(flags, &t);
                 }
             }
-            (TagKind::EndTag, "table") => {
-                open.pop();
+            (true, "img" | "image" | "svg") => {
+                for t in open.iter_mut() {
+                    t.pictured = true;
+                    t.fill();
+                }
             }
-            (TagKind::StartTag, raw) if is_raw(raw) && !tag.self_closing => {
+            (true, "tr") => {
+                if let Some(t) = open.last_mut() {
+                    t.rows.push(Vec::new());
+                }
+            }
+            (true, "td" | "th") => {
+                if let Some(t) = open.last_mut() {
+                    if t.rows.is_empty() {
+                        t.rows.push(Vec::new());
+                    }
+                    if let Some(row) = t.rows.last_mut().filter(|r| r.len() < MAX_COLUMNS) {
+                        row.push(false);
+                    }
+                    t.in_cell = true;
+                    t.data |= name == "th";
+                }
+            }
+            (false, "td" | "th") => {
+                if let Some(t) = open.last_mut() {
+                    t.in_cell = false;
+                }
+            }
+            (true, "thead" | "caption") => {
+                if let Some(t) = open.last_mut() {
+                    t.data = true;
+                }
+            }
+            (true, raw) if is_raw(raw) && !tag.self_closing => {
                 return TokenSinkResult::RawData(RawKind::Rawtext);
+            }
+            (true, block) if is_block(block) => {
+                if let Some(t) = open.last_mut().filter(|t| t.in_cell) {
+                    t.blocks = true;
+                }
             }
             _ => {}
         }
@@ -931,12 +1044,18 @@ impl TokenSink for Pictured {
     }
 }
 
-/// Which of the chapter's tables hold pictures; none without a table.
-fn pictured_tables(xhtml: &str) -> Vec<bool> {
+fn close_scanned(flags: &mut [bool], t: &Scanned) {
+    if let Some(f) = flags.get_mut(t.at) {
+        *f = t.layout();
+    }
+}
+
+/// Which of the chapter's tables only lay things out; none without one.
+fn layout_tables(xhtml: &str) -> Vec<bool> {
     if !xhtml.contains("<table") && !xhtml.contains("<TABLE") {
         return Vec::new();
     }
-    let sink = Pictured(RefCell::new((Vec::new(), Vec::new())));
+    let sink = Scan(RefCell::new((Vec::new(), Vec::new())));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
     input.push_back(StrTendril::from_slice(xhtml));
@@ -1000,8 +1119,9 @@ pub(crate) fn read_chapter(
         blocks: Vec::new(),
         current: None,
         table: None,
-        pictured: pictured_tables(xhtml),
+        layouts: layout_tables(xhtml),
         tables: 0,
+        laying: 0,
         stack: Vec::new(),
         space: false,
         chapter: true,
@@ -1330,6 +1450,8 @@ mod tests {
         let words = texts(&b);
         assert!(!words.iter().any(|t| t.contains("char")), "{words:?}");
         assert_eq!(b.get(1).map(|b| b.frame.align), Some(Align::Center));
+        // Unaligned, a grid's picture is centred too.
+        assert_eq!(b.get(4).map(|b| b.frame.align), Some(Align::Center));
     }
 
     #[test]
@@ -1349,6 +1471,54 @@ mod tests {
             _ => Vec::new(),
         };
         assert_eq!(cells, [vec!["Word", "Means"], vec!["tea", "a drink"]]);
+    }
+
+    #[test]
+    fn a_grid_of_text_with_spacers_reads_as_blocks_but_data_stays() {
+        let b = read(
+            "<table><tr><td><div>Wendy</div><p>A noble</p></td><td> </td>\
+             <td><div>Lynn</div><p>Shy</p></td></tr></table>\
+             <table><tr><td><p>tea</p></td><td><p>3</p></td></tr>\
+             <tr><td><p>rice</p></td><td><p>5</p></td></tr></table>",
+        );
+        assert_eq!(kinds(&b), ["text", "text", "text", "text", "table"]);
+        assert_eq!(texts(&b), ["Wendy", "A noble", "Lynn", "Shy"]);
+    }
+
+    #[test]
+    fn images_take_the_width_the_book_sets() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(4, 4) {
+            shelf.pictures.insert("/OEBPS/images/a.png".into(), p);
+        }
+        let sheet = Stylesheet::parse("img.small { width: 2em }");
+        shelf.sheets.insert("/OEBPS/s.css".into(), Arc::new(sheet));
+        let b = read_with(
+            &mut shelf,
+            "<link rel='stylesheet' href='../s.css'/>\
+             <img src='../images/a.png' style='width: 6.5em'/>\
+             <img class='small' src='../images/a.png'/>\
+             <img src='../images/a.png' width='32'/>\
+             <img src='../images/a.png' style='width: 50%'/>\
+             <img src='../images/a.png'/>",
+        );
+        let widths: Vec<Option<Length>> = b
+            .iter()
+            .filter_map(|b| match &b.content {
+                Content::Image { width, .. } => Some(*width),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            widths,
+            [
+                Some(Length::Em(6.5)),
+                Some(Length::Em(2.0)),
+                Some(Length::Em(2.0)),
+                Some(Length::Percent(50.0)),
+                None,
+            ]
+        );
     }
 
     #[test]

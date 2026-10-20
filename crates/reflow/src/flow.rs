@@ -11,7 +11,7 @@ use parley::{
     StyleProperty,
 };
 
-use crate::block::{Align, Block, Content, Emphasis, Frame, Link, Role, Table, Text};
+use crate::block::{Align, Block, Content, Emphasis, Frame, Length, Link, Role, Table, Text};
 use crate::fonts::{Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
 use crate::picture::{Decoded, Picture};
@@ -731,11 +731,20 @@ impl<'a> Setter<'a> {
                 let unit = (0.0, RULE_HEIGHT * em);
                 (Draw::Rule, Laid::None, vec![unit], vec![0])
             }
-            Content::Image { picture, cover } => {
+            Content::Image {
+                picture,
+                cover,
+                width: asked,
+            } => {
                 let (rect, unit) = if *cover {
                     cover_rect(picture, column, height)
                 } else {
-                    image_rect(picture, frame.align, width, height)
+                    let wanted = match asked {
+                        Some(Length::Em(e)) => e * em,
+                        Some(Length::Percent(p)) => width * p / 100.0,
+                        None => picture.width as f32,
+                    };
+                    image_rect(picture, frame.align, (wanted, width), height)
                 };
                 let picture = picture.clone();
                 let draw = Draw::Image { picture, rect };
@@ -965,10 +974,15 @@ fn line_units(layout: &Layout<Ink>) -> Vec<(f32, f32)> {
         .collect()
 }
 
-/// At its own pixel size, shrunk to the column and the page.
-fn image_rect(picture: &Picture, align: Align, width: f32, height: f32) -> ([f32; 4], (f32, f32)) {
+/// `wanted` wide where the column allows, shrunk to fit the page.
+fn image_rect(
+    picture: &Picture,
+    align: Align,
+    (wanted, width): (f32, f32),
+    height: f32,
+) -> ([f32; 4], (f32, f32)) {
     let aspect = picture.aspect();
-    let mut w = (picture.width as f32).min(width);
+    let mut w = wanted.max(1.0).min(width);
     let mut h = w * aspect;
     if h > height {
         h = height;
@@ -1176,7 +1190,11 @@ mod tests {
 
     fn image(w: u32, h: u32, cover: bool) -> Block {
         let picture = picture(w, h);
-        Block::new(Content::Image { picture, cover })
+        Block::new(Content::Image {
+            picture,
+            cover,
+            width: None,
+        })
     }
 
     fn flow(blocks: &[Block]) -> Flow {

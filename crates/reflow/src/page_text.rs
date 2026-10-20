@@ -299,6 +299,7 @@ mod tests {
             Block::new(Content::Image {
                 picture,
                 cover: false,
+                width: None,
             }),
         ];
         let f = with(&blocks, &Typography::default());
