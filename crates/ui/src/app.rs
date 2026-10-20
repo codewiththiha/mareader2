@@ -1040,6 +1040,8 @@ impl MareaderApp {
                 }
                 self.page_ai_seed = Some((page, task, follow, last));
             }
+            // Page AI runs stay mid-answer: `page_ai_hold=true`.
+            "page_ai_hold" => self.page_ai.set_held(value == "true"),
             // Opens the word list window on pages 0-based: `word_window=0-4`.
             "word_window" => {
                 let hint = "word_window: first-last, 0-based";
