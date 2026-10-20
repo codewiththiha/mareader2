@@ -124,6 +124,16 @@ impl Vocab {
         let _ = action;
     }
 
+    /// Whether word levels can be asked for.
+    pub fn ready(&self) -> bool {
+        *self.service.state(Part::Dataset) == State::Ready
+    }
+
+    /// Each key's band where known; the rest are asked for.
+    pub fn bands(&mut self, keys: &[String]) -> Vec<Option<u8>> {
+        self.service.bands(keys)
+    }
+
     /// Asks for the open card's word's role; a newer card's replaces it.
     pub fn ask_role(&mut self, word: &str, sentence: &str) {
         self.role = self.service.role(word, sentence);

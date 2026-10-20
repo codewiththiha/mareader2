@@ -92,6 +92,11 @@ pub enum Command {
         pane: PaneId,
         pages: Vec<usize>,
     },
+    /// Copies a word list of the pane's `pages`, with the instant options.
+    WordList {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
     /// The previous or next page, or spread, of the pane's document.
     Turn {
         pane: PaneId,

@@ -237,3 +237,43 @@ fn unattached_dictionaries_answer_nothing() {
     assert!(reply.entries.is_empty());
     assert_eq!(reply.ready, 0);
 }
+
+#[test]
+fn a_word_list_asks_each_word_in_each_language_in_order() {
+    let (_dir, mut dicts) = shelf();
+    let query = Query::Words {
+        words: vec!["light".into(), "runs".into()],
+        to: vec!["fr".into(), "xx".into(), "my".into()],
+        near: true,
+    };
+    let reply = ask(&mut dicts, query);
+    let asked: Vec<_> = (reply.found.iter())
+        .map(|f| (f.word.as_str(), f.to.as_str()))
+        .collect();
+    let want = [
+        ("light", "fr"),
+        ("runs", "fr"),
+        ("light", "my"),
+        ("runs", "my"),
+    ];
+    assert_eq!(asked, want, "a language without a pack is skipped");
+    let light = reply.found.first().unwrap();
+    let answers: Vec<_> = light.own.iter().map(|e| e.answer()).collect();
+    assert_eq!(answers, ["lumière", "clair"]);
+    let runs = reply.found.get(3).unwrap();
+    assert!(runs.own.is_empty(), "no row for the word itself");
+    assert!(runs.near.iter().any(|e| e.word == "run"), "{:?}", runs.near);
+}
+
+#[test]
+fn a_word_list_without_near_keeps_to_the_word() {
+    let (_dir, mut dicts) = shelf();
+    let query = Query::Words {
+        words: vec!["runs".into()],
+        to: vec!["my".into()],
+        near: false,
+    };
+    let reply = ask(&mut dicts, query);
+    let found = reply.found.first().unwrap();
+    assert!(found.own.is_empty() && found.near.is_empty());
+}

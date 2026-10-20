@@ -140,6 +140,28 @@ impl Store {
         Ok(out)
     }
 
+    /// Stems and family words of `ask`; near spellings when neither shows.
+    pub fn near(&self, ask: &str, limit: usize) -> Result<Vec<Row>, String> {
+        let ask = fold(ask);
+        let mut out = Vec::new();
+        if ask.chars().count() < 3 || limit == 0 {
+            return Ok(out);
+        }
+        let mut stems = self.exact_any(Side::Word, &stems(&ask), limit)?;
+        stems.iter_mut().for_each(|r| r.fit = WordMatch::Fuzzy);
+        out.append(&mut stems);
+        let col = Side::Word.column();
+        let upper = format!("{ask}{TOP}");
+        let longest = ask.chars().count() + FAMILY_REACH;
+        let family = format!("{col} > ?1 AND {col} < ?2 AND length({col}) <= {longest}");
+        self.collect(&family, &[&ask, &upper], WordMatch::Prefix, limit, &mut out)?;
+        if out.is_empty() && ask.chars().count() >= 5 {
+            self.fuzzy(Side::Word, &ask, limit, &mut out)?;
+            out.retain(|r| fold(&r.word) != ask);
+        }
+        Ok(out)
+    }
+
     /// Rows whose `side` is exactly one of `asks`: a bridge's second hop.
     pub fn exact_any(&self, side: Side, asks: &[String], limit: usize) -> Result<Vec<Row>, String> {
         let folds: Vec<String> = asks
@@ -219,6 +241,43 @@ impl Store {
     }
 }
 
+/// A family word is at most this many letters longer than the word.
+const FAMILY_REACH: usize = 4;
+
+/// What an English word may come from: "running" from "run".
+pub fn stems(word: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |s: String| {
+        if s.chars().count() >= 2 && s != word && !out.contains(&s) {
+            out.push(s);
+        }
+    };
+    for (suffix, with) in [("ies", "y"), ("ied", "y"), ("ier", "y"), ("iest", "y")] {
+        if let Some(base) = word.strip_suffix(suffix) {
+            add(format!("{base}{with}"));
+        }
+    }
+    for suffix in [
+        "s", "es", "ed", "d", "ing", "ly", "er", "est", "ness", "ment",
+    ] {
+        let Some(base) = word.strip_suffix(suffix) else {
+            continue;
+        };
+        add(base.to_owned());
+        if matches!(suffix, "ed" | "ing" | "er" | "est") {
+            add(format!("{base}e"));
+            // "running" is "run": a doubled last letter is one.
+            let mut chars = base.chars().rev();
+            if let (Some(a), Some(b)) = (chars.next(), chars.next())
+                && a == b
+            {
+                add(base.chars().take(base.chars().count() - 1).collect());
+            }
+        }
+    }
+    out
+}
+
 /// `ask` with LIKE's wildcards and the escape itself taken literally.
 fn escape(ask: &str) -> String {
     let mut out = String::with_capacity(ask.len());
@@ -288,6 +347,27 @@ mod tests {
             .exact_any(Side::Word, &["quick".into(), "run".into()], 10)
             .unwrap();
         assert_eq!(any.len(), 3);
+    }
+
+    #[test]
+    fn stems_undo_common_endings() {
+        assert_eq!(stems("running"), ["runn", "runne", "run"]);
+        assert!(stems("obfuscated").contains(&"obfuscate".to_owned()));
+        assert!(stems("studies").contains(&"study".to_owned()));
+        assert!(stems("quickly").contains(&"quick".to_owned()));
+        assert!(stems("is").is_empty());
+    }
+
+    #[test]
+    fn near_rows_are_stems_and_family_never_the_word() {
+        let (_d, s) = fixture("en-my.parquet");
+        let near = s.near("running", 10).unwrap();
+        assert!(near.iter().any(|r| r.word == "run"), "{near:?}");
+        let family = s.near("run", 10).unwrap();
+        assert!(family.iter().any(|r| r.word == "runner"), "{family:?}");
+        assert!(family.iter().all(|r| fold(&r.word) != "run"));
+        let typo = s.near("colours", 10).unwrap();
+        assert!(!typo.is_empty(), "a stem or a near spelling");
     }
 
     #[test]

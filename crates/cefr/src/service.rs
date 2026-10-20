@@ -118,6 +118,29 @@ impl Vocabulary {
         planned.hard
     }
 
+    /// Each key's band where known; unknown keys are asked once.
+    pub fn bands(&mut self, keys: &[String]) -> Vec<Option<u8>> {
+        let known: Vec<Option<u8>> = keys.iter().map(|k| self.levels.get(k)).collect();
+        if self.dataset == State::Ready {
+            let fresh: Vec<String> = (keys.iter().zip(&known))
+                .filter(|(k, b)| b.is_none() && self.asked.insert((*k).clone()))
+                .map(|(k, _)| k.clone())
+                .collect();
+            #[cfg(not(target_arch = "wasm32"))]
+            if let (false, Some(desk)) = (fresh.is_empty(), &mut self.desk) {
+                desk.levels(fresh);
+            }
+            #[cfg(target_arch = "wasm32")]
+            let _ = fresh;
+        }
+        known
+    }
+
+    /// Whether keys still wait on the worker.
+    pub fn asking(&self) -> bool {
+        !self.asked.is_empty()
+    }
+
     /// Asks for `word`'s role in `sentence`; none without the tagger.
     pub fn role(&mut self, word: &str, sentence: &str) -> Option<Ticket> {
         if self.tagger != State::Ready {

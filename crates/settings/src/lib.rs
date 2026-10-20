@@ -15,6 +15,7 @@ mod reader;
 mod study;
 mod swatch;
 mod text;
+mod words;
 mod workspace;
 
 use mareader_appearance::{Appearance, Preset, builtin_presets, preset_id};
@@ -38,6 +39,10 @@ pub use study::{
 };
 pub use swatch::Swatch;
 pub use text::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
+pub use words::{
+    WORD_LANGUAGES, WORD_PRESETS, WordFields, WordGroup, WordLayout, WordList, WordListSettings,
+    WordOutput, WordPreset, WordSort,
+};
 pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};
 
 /// Bumped with every migration step in `load.rs`.

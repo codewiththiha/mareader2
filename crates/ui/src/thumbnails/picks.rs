@@ -225,6 +225,15 @@ pub fn picks_menu(
         out.push(Command::CopyPages { pane, pages });
         ui.close();
     }
+    let words = menu_row(ui, Icon::Levels, "Copy word list", None, false);
+    if words
+        .on_hover_text("The words above your level, with their dictionary meanings")
+        .clicked()
+    {
+        let pages = picks.pages();
+        out.push(Command::WordList { pane, pages });
+        ui.close();
+    }
     ui.separator();
     ai_rows(ui, (pane, offer), picks, out);
     ui.separator();
