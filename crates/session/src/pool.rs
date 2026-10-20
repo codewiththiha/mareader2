@@ -4,6 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
+use mareader_epub::Inserts;
 use mareader_pdf::{Paper, Raster, RenderError, TextLayer};
 use mareader_reflow::Typography;
 
@@ -25,12 +26,13 @@ pub(crate) enum Job {
         /// Set when the file is text to convert first.
         text: Option<TextFile>,
     },
-    /// `doc`, open as `id`, set again in `typo`.
+    /// `doc`, open as `id`, set again in `typo`, maybe with `inserts`.
     Retypeset {
         ticket: u64,
         id: DocId,
         doc: Arc<Document>,
         typo: Arc<Typography>,
+        inserts: Option<Arc<Inserts>>,
     },
     Work {
         want: Want,
@@ -182,9 +184,9 @@ impl Pool {
     pub(crate) fn retypeset(
         &self,
         ticket: u64,
-        id: DocId,
-        doc: Arc<Document>,
+        (id, doc): (DocId, Arc<Document>),
         typo: Arc<Typography>,
+        inserts: Option<Arc<Inserts>>,
         stale: Option<u64>,
     ) {
         let mut s = self.shared.lock();
@@ -196,6 +198,7 @@ impl Pool {
             id,
             doc,
             typo,
+            inserts,
         });
     }
 
@@ -328,10 +331,11 @@ fn finish(shared: &Shared, job: Job) {
             id,
             doc,
             typo,
+            inserts,
         } => Output::Retypeset {
             ticket,
             id,
-            result: doc.retypeset(&typo),
+            result: doc.reset(&typo, inserts.as_ref()),
         },
         Job::Work {
             want: Want::Raster(key),

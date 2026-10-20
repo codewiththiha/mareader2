@@ -344,3 +344,62 @@ fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
     // A book's own layout stays a book's.
     assert!(h.query_all_by_label("Book layout").next().is_none());
 }
+
+/// The book in front: its pages, its own pages, and what is laid in.
+fn book(h: &H) -> Result<(usize, usize, u64), String> {
+    let pane = h.state().active_pane();
+    let docs = h.state().documents();
+    let reading = docs.reading(pane).ok_or("no document")?;
+    let d = &reading.document;
+    Ok((d.page_count(), d.base_count(), d.inserts_key()))
+}
+
+/// A book open on page 3 with page 3's kept result shown.
+fn laid() -> Result<H, String> {
+    let mut h = reader(&[
+        ("epub", "sample:3"),
+        ("provider", "ollama"),
+        ("page_ai", "2:simplify"),
+    ]);
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::GoTo { pane, page: 2 });
+    h.run_steps(30);
+    h.run();
+    let (count, base, key) = book(&h)?;
+    if key == 0 || count < base {
+        return Err(format!("not laid in: {count} of {base}, key {key}"));
+    }
+    Ok(h)
+}
+
+#[test]
+fn a_book_lays_a_kept_result_into_its_pages_and_takes_it_out() -> Out {
+    let mut h = laid()?;
+    let pane = h.state().active_pane();
+    assert!(h.state().page_ai().shows(pane, 2), "the result shows");
+    let (_, sheet) = page(&h, 2)?;
+    press(&mut h, margin(sheet), PointerButton::Secondary);
+    h.get_by_label("Show original page").click();
+    h.run_steps(30);
+    h.run();
+    let (count, base, key) = book(&h)?;
+    assert_eq!((count, key), (base, 0), "back to its own pages");
+    assert!(!h.state().page_ai().shows(pane, 2));
+    Ok(())
+}
+
+#[test]
+fn new_type_lays_the_result_out_again() -> Out {
+    let mut h = laid()?;
+    let (_, base, _) = book(&h)?;
+    let mut settings = h.state().settings().clone();
+    settings.text.font_size *= 1.6;
+    h.state_mut()
+        .queue(Command::SetSettings(Box::new(settings)));
+    h.run_steps(30);
+    h.run();
+    let (count, more, key) = book(&h)?;
+    assert!(more > base, "bigger type, more pages: {more} of {base}");
+    assert!(key != 0 && count >= more, "the result is laid in again");
+    Ok(())
+}

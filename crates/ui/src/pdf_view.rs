@@ -162,6 +162,8 @@ pub struct PdfView {
     fresh: bool,
     /// A page of another size Auto Resize waits on, and since when.
     resize: Option<(usize, f64)>,
+    /// A strip's spot to keep once the pages are laid out anew.
+    keep: Option<(usize, Vec2)>,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
@@ -193,6 +195,7 @@ impl PdfView {
             paper_at: None,
             fresh: true,
             resize: None,
+            keep: None,
             moved_at: 0.0,
             footnote: None,
             viewer: None,
@@ -239,6 +242,26 @@ impl PdfView {
         self.zoom.fit_page = page;
         self.place = place.map(|a| (a, page));
         self.go(page);
+    }
+
+    /// Moves to `doc`, results laid in or out; false if the page went.
+    pub fn respliced(
+        &mut self,
+        doc: DocId,
+        count: usize,
+        map: impl Fn(usize) -> Option<usize>,
+    ) -> bool {
+        let Some(page) = map(self.current) else {
+            return false;
+        };
+        let centre = Pos2::ZERO + self.offset + self.viewport / 2.0;
+        let spot = self.layout.as_ref().and_then(|l| l.locate(centre));
+        let keep = spot.and_then(|(p, at)| Some((map(p)?, at)));
+        let place = self.place.and_then(|(a, p)| Some((a, map(p)?)));
+        self.retypeset(doc, page, count, None);
+        self.place = place;
+        self.keep = keep.filter(|_| !self.mode.paged());
+        true
     }
 
     pub fn command(&mut self, command: ZoomCommand, now: f64) {
@@ -632,6 +655,14 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             }
         }
         view.layout = Some(new);
+        // Results laid in or out: the strip stays on what was read.
+        let keep = view.keep.take();
+        let spot = keep.and_then(|(p, at)| view.layout.as_ref()?.place(p, at));
+        if let Some(spot) = spot {
+            let to = (spot - viewport / 2.0).to_vec2().max(Vec2::ZERO);
+            view.reveal = None;
+            view.scroll_to = Some((to, 2));
+        }
     }
     if let Some(page) = view.reveal.take()
         && let Some(to) = view.layout.as_ref().and_then(|l| l.reveal(page))

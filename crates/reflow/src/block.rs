@@ -182,7 +182,71 @@ pub struct Block {
     pub break_before: bool,
 }
 
+/// `range` of `text`, held to its length and to character edges.
+pub fn clip(text: &str, range: Range<usize>) -> Range<usize> {
+    let edge = |mut i: usize| {
+        i = i.min(text.len());
+        while !text.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    };
+    let (start, end) = (edge(range.start), edge(range.end));
+    start..end.max(start)
+}
+
+impl Text {
+    /// Bytes `range` of the text, its styles and links kept.
+    pub fn cut(&self, range: Range<usize>) -> Self {
+        let range = clip(&self.text, range);
+        if range == (0..self.text.len()) {
+            return self.clone();
+        }
+        let shift = |r: &Range<usize>| {
+            let start = r.start.max(range.start);
+            let end = r.end.min(range.end);
+            (start < end).then(|| start - range.start..end - range.start)
+        };
+        let mut out = Self::new(self.role);
+        out.text = self.text.get(range.clone()).unwrap_or_default().to_owned();
+        out.spans = (self.spans.iter())
+            .filter_map(|s| {
+                Some(Span {
+                    range: shift(&s.range)?,
+                    emphasis: s.emphasis,
+                })
+            })
+            .collect();
+        out.links = (self.links.iter())
+            .filter_map(|l| {
+                Some(Link {
+                    range: shift(&l.range)?,
+                    target: l.target,
+                })
+            })
+            .collect();
+        out
+    }
+}
+
 impl Block {
+    /// Bytes of its text or rows of its table; anything else whole.
+    pub fn cut(&self, range: Range<usize>) -> Self {
+        let content = match &self.content {
+            Content::Text(t) => Content::Text(t.cut(range)),
+            Content::Table(t) => {
+                let rows = t.rows.get(range).map(<[_]>::to_vec).unwrap_or_default();
+                Content::Table(Table { rows })
+            }
+            other => other.clone(),
+        };
+        Self {
+            content,
+            frame: self.frame.clone(),
+            break_before: false,
+        }
+    }
+
     pub fn new(content: Content) -> Self {
         Self {
             content,

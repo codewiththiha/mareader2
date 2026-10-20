@@ -26,16 +26,20 @@ no parity entry.
 
 ## The result
 
-- **Over the page.** The result is drawn on the pane's paper colour, so
-  it matches the theme, texture and blend mode, and fades in over 0.3 s.
-  The text underneath can't be selected or marked while it shows.
+- **Over the page.** A PDF's result is drawn on the pane's paper colour,
+  so it matches the theme, texture and blend mode, and fades in over
+  0.3 s. The text underneath can't be selected or marked while it shows.
+  A book's kept result becomes pages of the book (see below); a card
+  covers its page only while words stream in.
 - **Type.** A book's result is set in the pane's own typography, in the
   page's text column. A PDF's result uses the pane's font, scaled to the
   page, inside an 8% margin. PDF results are text only.
-- **Fitting.** The result is exactly its page's size and moves with it:
-  the wheel scrolls the book, never the result. A longer result, often a
-  translation, is set smaller until it fits, down to 40% of the reading
-  size (never under 6). One longer still is drawn smaller as a whole.
+- **Fitting.** A PDF's result is exactly its page's size and moves with
+  it: the wheel scrolls the book, never the result. A longer result,
+  often a translation, is set smaller until it fits, down to 40% of the
+  reading size (never under 6). One longer still is drawn smaller as a
+  whole. A book's result is never shrunk: it takes as many pages as it
+  needs.
 - **Streaming.** Words appear as they come, set again at most every 0.4 s.
   A redo keeps the old result on the page until the new words arrive.
 - **Bubbles.** Each result on a page gets a numbered bubble at the page's
@@ -66,6 +70,31 @@ room its text shrinks to fit, as under Fitting above. Each change sets
 the results on screen again. With independent text for each pane, a
 PDF pane keeps its own type. "Pane text" shows when a split includes a
 book or a PDF with AI pages.
+
+## A book's results as pages
+
+A book's kept result is laid into the book itself, in the pane's type:
+
+- **Pages.** The result replaces its page's text, and the rest of that
+  page stays as it was. One longer than a page runs on to a second or a
+  third page, and the book gains those pages. The page bar counts them.
+- **Back.** "Show original page", or a click on the active bubble, takes
+  the result out, and the book has its own pages again.
+- **Type.** Font, size and spacing changes set the result again with the
+  book: bigger type, more pages. The result stays shown.
+- **The rest stays put.** Laying a result in or taking it out keeps
+  every other page as it was, with its rendered tiles and the reading
+  spot. With book layout, a blank page keeps the spreads' sides.
+- **Marks.** The book's text around a result takes marks as usual. The
+  result's own words are new text, so they can't be marked.
+- **Bubbles.** They sit on the result's first page. Its other pages
+  offer the same menu.
+- **Overlaps.** One result of a stretch of text shows at a time: showing
+  another of the same text takes the first one out.
+- **Panes.** Each pane lays in only what it shows. Two panes on one book
+  share its pages when they show the same results in the same type.
+- **Continuous mode** counts the book's own pages, so a run never asks
+  for a result's pages.
 
 ## Continuous mode
 
@@ -164,6 +193,7 @@ At the end of the AI tab, after the models:
 | Saved results | `crates/library/src/ai_pages.rs` |
 | Runs, results, bubbles' state | `crates/ui/src/page_ai/mod.rs` |
 | Continuous mode | `crates/ui/src/page_ai/follow.rs` |
+| A book's results laid into its pages | `crates/epub/src/splice.rs`, `Flow::region` |
 | A page's text, and results back to blocks | `crates/ui/src/page_ai/extract.rs` |
 | Typesetting results off the frame | `crates/ui/src/page_ai/cards.rs` |
 | Drawing cards, bubbles and the pill | `crates/ui/src/page_ai/paint.rs` |
@@ -181,7 +211,11 @@ At the end of the AI tab, after the models:
   covers the page until the original is asked for. Asking how, and
   remembering continuous. A task set to "this page" doesn't ask. The pill
   stops a run. Going far away pauses, then Continue carries on there. A
-  five-second stay asks exactly "pages at once" pages ahead.
+  five-second stay asks exactly "pages at once" pages ahead. A book lays a
+  kept result into its pages and takes it out again, and bigger type sets
+  it again over more pages.
+- `crates/epub/src/splice.rs`: results laid in, kept apart and grouped;
+  every other page kept.
 - With `explain=canned`, page runs answer at once with the page's own
   text in capitals, so tests need no AI.
 - Shot options: `page_ai=3:simplify` keeps and shows a result on page 4

@@ -195,6 +195,43 @@ impl PageCache {
         slot.map(|s| s.used = frame).is_some() || self.failed.contains(&(key.doc, key.page))
     }
 
+    /// Hands `old`'s textures to `new` where `map` finds the same page;
+    /// the rest go.
+    pub fn adopt(&mut self, old: DocId, new: DocId, map: impl Fn(usize) -> Option<usize>) {
+        let pages: Vec<usize> = (self.pages.keys())
+            .filter(|(d, _)| *d == old)
+            .map(|(_, p)| *p)
+            .collect();
+        for page in pages {
+            let Some(to) = map(page).filter(|to| !self.pages.contains_key(&(new, *to))) else {
+                continue;
+            };
+            if let Some(slots) = self.pages.remove(&(old, page)) {
+                self.pages.insert((new, to), slots);
+            }
+        }
+        let tiles: Vec<PageKey> = self
+            .tiles
+            .keys()
+            .filter(|k| k.doc == old)
+            .copied()
+            .collect();
+        for key in tiles {
+            let moved = map(key.page).map(|page| PageKey {
+                doc: new,
+                page,
+                ..key
+            });
+            let Some(to) = moved.filter(|k| !self.tiles.contains_key(k)) else {
+                continue;
+            };
+            if let Some(tile) = self.tiles.remove(&key) {
+                self.tiles.insert(to, tile);
+            }
+        }
+        self.forget(old);
+    }
+
     /// Drops every texture of a closed document.
     pub fn forget(&mut self, doc: DocId) {
         self.pages.retain(|(d, _), slots| {

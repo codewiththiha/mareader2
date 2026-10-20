@@ -10,7 +10,8 @@ use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::Bounds;
 use mareader_session::{
-    Anchor, Budget, DocId, Document, Event, Session, Source, Ticket, Typography, Want, typography,
+    Anchor, Budget, DocId, Document, Entry, Event, Inserts, Session, Source, Ticket, Typography,
+    Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::{Edge, PaneId};
@@ -127,10 +128,14 @@ enum Content {
 #[derive(Clone, Debug)]
 pub struct AiView {
     pub doc: DocId,
+    /// Names the pages the AI counts in: a book's own, results aside.
+    pub layout: u64,
     pub document: Arc<Document>,
     /// What a result is set in.
     pub typo: Arc<Typography>,
     pub visible: std::ops::Range<usize>,
+    /// The page read now.
+    pub current: usize,
     pub zoom: f32,
 }
 
@@ -184,7 +189,9 @@ pub struct Documents {
     window: Arc<Typography>,
     own: BTreeMap<PaneId, Arc<Typography>>,
     /// The re-set each pane last asked for: of which document, in what.
-    asked: BTreeMap<PaneId, (DocId, Arc<Typography>)>,
+    asked: BTreeMap<PaneId, (DocId, Arc<Typography>, u64)>,
+    /// The AI results each pane's book shows in its pages.
+    inserts: BTreeMap<PaneId, Arc<Inserts>>,
 }
 
 impl Default for Documents {
@@ -209,6 +216,7 @@ impl Default for Documents {
             window: Arc::new(typography(&TextSettings::default())),
             own: BTreeMap::new(),
             asked: BTreeMap::new(),
+            inserts: BTreeMap::new(),
         }
     }
 }
@@ -251,6 +259,33 @@ impl Documents {
         self.own.get(&pane).unwrap_or(&self.window)
     }
 
+    /// The results `pane`'s book should show in its pages.
+    pub fn set_inserts(&mut self, pane: PaneId, inserts: Arc<Inserts>) {
+        if self.inserts.get(&pane).map_or(0, |i| i.key) == inserts.key {
+            return;
+        }
+        match inserts.key {
+            0 => self.inserts.remove(&pane),
+            _ => self.inserts.insert(pane, inserts),
+        };
+        self.retype();
+    }
+
+    /// Hands what `old` drew to `new` once no pane shows `old`.
+    fn hand_over(&mut self, old: DocId, new: DocId) {
+        let shown = (self.panes.values()).any(|c| matches!(c, Content::Pdf(v) if v.doc == old));
+        let Some(session) = self.session.as_ref().filter(|_| !shown) else {
+            return;
+        };
+        let (Some(was), Some(is)) = (session.get(old), session.get(new)) else {
+            return;
+        };
+        let (was, is) = (Arc::clone(&was.doc), Arc::clone(&is.doc));
+        let map = |page: usize| was.same_page(page, &is);
+        self.pages.adopt(old, new, map);
+        self.texts.adopt(old, new, map);
+    }
+
     /// Moves each book whose type is stale onto a twin in its type, or asks.
     fn retype(&mut self) {
         let Some(session) = &mut self.session else {
@@ -262,36 +297,43 @@ impl Documents {
                 continue;
             };
             let want = self.own.get(pane).unwrap_or(&self.window);
+            let inserts = self.inserts.get(pane).cloned().unwrap_or_default();
             let Some(entry) = session.get(view.doc) else {
                 continue;
             };
-            if !entry.doc.is_reflowable() || *entry.typo == **want {
+            let key = inserts.key;
+            let looks = |e: &Entry| *e.typo == **want && e.doc.inserts_key() == key;
+            if !entry.doc.is_reflowable() || looks(entry) {
                 continue;
             }
-            // Another pane on the file shows it in this type already.
+            // Another pane on the file shows it so already.
             let twin = self.panes.values().find_map(|c| match c {
                 Content::Pdf(v) => {
                     let e = session.get(v.doc)?;
                     let same = entry.path.is_some() && e.path == entry.path;
-                    (same && *e.typo == **want).then_some(v.doc)
+                    (same && looks(e)).then_some(v.doc)
                 }
                 Content::Opening { .. } => None,
             });
             match twin {
                 Some(twin) => moves.push((*pane, view.doc, twin)),
-                None => asks.push((*pane, view.doc, Arc::clone(want))),
+                None => asks.push((*pane, view.doc, (Arc::clone(want), inserts))),
             }
         }
-        for (pane, doc, want) in asks {
+        for (pane, doc, (want, inserts)) in asks {
             // One request serves every pane that wants it.
-            if self.asked.values().any(|(d, t)| *d == doc && **t == *want) {
+            let key = inserts.key;
+            let same =
+                |(d, t, k): &(DocId, Arc<Typography>, u64)| *d == doc && **t == *want && *k == key;
+            if self.asked.values().any(same) {
                 continue;
             }
-            session.retypeset(doc, Arc::clone(&want), pane.0);
-            self.asked.insert(pane, (doc, want));
+            session.reset(doc, Arc::clone(&want), Some(inserts), pane.0);
+            self.asked.insert(pane, (doc, want, key));
         }
         for (pane, old, new) in moves {
             self.retarget(pane, old, new);
+            self.hand_over(old, new);
             self.release(old);
         }
     }
@@ -307,6 +349,13 @@ impl Documents {
             return;
         };
         let count = doc.map_or(0, |d| d.page_count());
+        // Results laid in or out: every other page stays as it was.
+        if let (Some(was), Some(is)) = (previous, doc)
+            && view.respliced(new, count, |p| was.same_page(p, is))
+        {
+            self.asked.remove(&pane);
+            return;
+        }
         // Unmoved since the last re-set: the same place.
         let place = view.place().or_else(|| previous?.anchor(view.current));
         let page = place.and_then(|a| doc?.locate(a));
@@ -362,6 +411,7 @@ impl Documents {
             None => self.panes.remove(&pane),
         };
         self.asked.remove(&pane);
+        self.inserts.remove(&pane);
         if let Some(Content::Pdf(view)) = old {
             self.release(view.doc);
         }
@@ -395,7 +445,8 @@ impl Documents {
         let (mut first, mut matched) = (None, None);
         for (doc, entry) in open {
             first = first.or(Some(doc));
-            if *entry.typo == *typo || !entry.doc.is_reflowable() {
+            let plain = *entry.typo == *typo && entry.doc.inserts_key() == 0;
+            if plain || !entry.doc.is_reflowable() {
                 matched = Some(doc);
                 break;
             }
@@ -471,25 +522,27 @@ impl Documents {
         }
     }
 
-    /// Moves the panes on `old` that want `new`'s type onto it.
+    /// Moves the panes on `old` that want `new`'s look onto it.
     fn retyped(&mut self, old: DocId, new: DocId) {
         let session = self.session.as_ref();
-        let Some(typo) = session
+        let Some((typo, key)) = session
             .and_then(|s| s.get(new))
-            .map(|e| Arc::clone(&e.typo))
+            .map(|e| (Arc::clone(&e.typo), e.doc.inserts_key()))
         else {
             return;
         };
         let waiting: Vec<PaneId> = (self.panes.iter())
             .filter(|(pane, c)| {
                 let on_old = matches!(c, Content::Pdf(v) if v.doc == old);
-                on_old && **self.typo(**pane) == *typo
+                let wants = self.inserts.get(*pane).map_or(0, |i| i.key) == key;
+                on_old && wants && **self.typo(**pane) == *typo
             })
             .map(|(pane, _)| *pane)
             .collect();
         for pane in waiting {
             self.retarget(pane, old, new);
         }
+        self.hand_over(old, new);
         self.release(new);
         self.release(old);
     }
@@ -579,11 +632,15 @@ impl Documents {
             true => Arc::clone(&entry.typo),
             false => Arc::clone(self.typo(pane)),
         };
+        // A PDF's pages never move: its own name serves.
+        let layout = entry.doc.layout().unwrap_or(view.doc.get() | 1 << 63);
         Some(AiView {
             doc: view.doc,
+            layout,
             document: Arc::clone(&entry.doc),
             typo,
             visible: view.visible.clone(),
+            current: view.current,
             zoom: view.zoom.sharp(),
         })
     }

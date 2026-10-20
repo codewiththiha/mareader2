@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::Context;
 use mareader_library::{AiTask, BookId, Library, PageSpan};
-use mareader_session::{DocId, Document};
+use mareader_session::Document;
 use mareader_settings::{AiSettings, ModelPreset, language_name};
 use mareader_workspace::PaneId;
 
@@ -36,7 +36,8 @@ enum State {
 
 /// A pane's continuous run.
 pub(super) struct Follow {
-    doc: DocId,
+    /// The layout its pages are counted in: a book's own.
+    layout: u64,
     task: AiTask,
     book: Option<BookId>,
     name: String,
@@ -157,16 +158,16 @@ impl PageAi {
         let Some(view) = asked.documents.ai_view(asked.pane) else {
             return;
         };
-        let (pane, page) = (asked.pane, asked.page);
+        let (pane, page) = (asked.pane, view.document.to_base(asked.page));
         self.stop_follow(pane);
         let mut f = Follow {
-            doc: view.doc,
+            layout: view.layout,
             task: task.clone(),
             book: asked.book,
             name: asked.name.to_owned(),
             from: page,
             next: page + 1,
-            pages: view.document.page_count(),
+            pages: view.document.base_count(),
             dwell: None,
             dwell_secs: f64::from(asked.settings.tasks.pages.dwell.max(1)),
             fired: None,
@@ -259,7 +260,7 @@ impl PageAi {
         a: &Around<'_>,
         now: f64,
     ) -> bool {
-        let Some(reading) = a.documents.reading(pane).filter(|r| r.doc == f.doc) else {
+        let Some(view) = a.documents.ai_view(pane).filter(|v| v.layout == f.layout) else {
             return false;
         };
         // A run whose page failed ends; that page's bubble offers a retry.
@@ -268,8 +269,8 @@ impl PageAi {
             return false;
         }
         f.runs.retain(|id| self.runs.iter().any(|r| r.id == *id));
-        let cur = reading.current;
-        let count = reading.document.page_count();
+        let cur = view.document.to_base(view.current);
+        let count = view.document.base_count();
         if count != f.pages {
             // A new layout moved every page: the run starts here.
             (f.pages, f.from, f.next) = (count, cur, cur);
@@ -298,7 +299,7 @@ impl PageAi {
             f.dwell = None;
             return true;
         }
-        let shown = f.blank.contains(&cur) || self.ready_on(pane, f.doc, cur);
+        let shown = f.blank.contains(&cur) || self.ready_on(pane, f.layout, cur);
         if shown {
             let since = match f.dwell {
                 Some((p, since)) if p == cur => since,
@@ -418,7 +419,7 @@ impl PageAi {
         let kept = (lib.ai_pages(book).iter())
             .find(|p| p.task == f.task && p.span == span)
             .map(|p| p.id);
-        let key = (pane, f.doc, page);
+        let key = (pane, f.layout, page);
         if let Some(id) = kept {
             let slot = Slot::Saved(id);
             self.showing
@@ -428,7 +429,7 @@ impl PageAi {
         }
         let who = Who {
             pane,
-            doc: f.doc,
+            layout: f.layout,
             book: f.book,
             name: &f.name,
             ai: a.ai,
@@ -441,8 +442,8 @@ impl PageAi {
     }
 
     /// Whether a result with words in it covers the page.
-    fn ready_on(&self, pane: PaneId, doc: DocId, page: usize) -> bool {
-        match self.showing.get(&(pane, doc, page)).map(|s| s.slot) {
+    fn ready_on(&self, pane: PaneId, layout: u64, page: usize) -> bool {
+        match self.showing.get(&(pane, layout, page)).map(|s| s.slot) {
             Some(Slot::Saved(_)) => true,
             Some(Slot::Run(id)) => self.runs.iter().any(|r| r.id == id && r.shown.is_some()),
             None => false,
@@ -474,7 +475,7 @@ impl PageAi {
             },
             State::Going => {
                 let flying = self.flying(f);
-                let shown = f.blank.contains(&cur) || self.ready_on(pane, f.doc, cur);
+                let shown = f.blank.contains(&cur) || self.ready_on(pane, f.layout, cur);
                 let waiting = f.dwell.filter(|(p, _)| *p == cur && f.fired != Some(cur));
                 if !shown && cur >= f.from && cur < f.next {
                     pill(title, "Writing this page…".to_owned(), Ring::Spin)

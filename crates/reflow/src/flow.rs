@@ -304,7 +304,7 @@ pub(crate) struct Piece {
 }
 
 /// A place in the book that survives re-setting it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Anchor {
     /// The block's index in the book.
     pub block: usize,
@@ -335,6 +335,8 @@ pub struct Flow {
     pub(crate) pages: Vec<Vec<Piece>>,
     pub(crate) bands: Vec<Band>,
     pub(crate) book_layout: bool,
+    /// Pages before its first, which decide each page's spread side.
+    shift: usize,
     /// The text column's width.
     width: f32,
     pub(crate) decoded: Arc<Decoded>,
@@ -408,6 +410,7 @@ impl Flow {
             pages,
             bands: Vec::new(),
             book_layout: typo.book_layout,
+            shift: 0,
             width,
             decoded: Arc::default(),
             relay: Box::new(Relay {
@@ -421,6 +424,30 @@ impl Flow {
         };
         flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, typo)).collect();
         flow
+    }
+
+    /// `blocks` in this type for `replaced` pages, ending a spread evenly.
+    pub fn region(
+        &self,
+        blocks: Arc<Vec<Block>>,
+        language: Option<&str>,
+        fonts: Fonts,
+        (first, replaced): (usize, usize),
+    ) -> Self {
+        let relay = &*self.relay;
+        let mut typo = relay.typo.clone();
+        if let Some(tag) = language {
+            tag.clone_into(&mut typo.language);
+        }
+        let room = (self.width, relay.height);
+        let mut flow = Self::set(blocks, &typo, fonts, room, room.1);
+        flow.shift = first % 2;
+        // An odd change in count would swap every later page's side.
+        if flow.book_layout && (flow.pages.len() + replaced) % 2 == 1 {
+            flow.pages.push(Vec::new());
+        }
+        flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, &typo)).collect();
+        flow.keep_pictures(self)
     }
 
     /// Set block `block`'s layouts, laid again if not kept.
@@ -448,7 +475,7 @@ impl Flow {
 
     /// Page `page`'s column: its left edge and width.
     pub fn column(&self, page: usize) -> (f32, f32) {
-        let x = match (self.book_layout, page % 2) {
+        let x = match (self.book_layout, (page + self.shift) % 2) {
             (false, _) => PAD,
             // Spreads pair pages from the first: even ones sit left.
             (true, 0) => EDGE,
@@ -1466,6 +1493,42 @@ mod tests {
         // Past the range, or not a number, it clamps or falls back.
         assert_eq!(scaled(9.0).column(0), wide.column(0));
         assert_eq!(scaled(f32::NAN).column(0), plain.column(0));
+    }
+
+    #[test]
+    fn a_region_is_set_like_its_book_and_keeps_spread_sides() {
+        let typo = Typography {
+            book_layout: true,
+            ..Typography::default()
+        };
+        let base = with(&book(), typo.clone());
+        let blocks = Arc::new(vec![para(30), para(500), para(30)]);
+        let region = |first, replaced| {
+            let fonts = Fonts::bundled();
+            base.region(Arc::clone(&blocks), Some("fr"), fonts, (first, replaced))
+        };
+        let one = region(3, 1);
+        let laid = Flow::new(Arc::clone(&blocks), &typo, Fonts::bundled());
+        assert_eq!(one.page_size(), base.page_size());
+        // An odd change would swap later sides, so a blank page evens it.
+        let extra = usize::from(laid.page_count().is_multiple_of(2));
+        assert_eq!(one.page_count(), laid.page_count() + extra);
+        let last = one.excerpts(one.page_count() - 1);
+        assert_eq!(last.is_empty(), extra == 1, "{last:?}");
+        // Its first page sits on the side of the page it replaces.
+        assert_eq!(one.column(0), base.column(3));
+        assert_eq!(region(4, 1).column(0), base.column(4));
+        assert_eq!(one.bands().len(), one.page_count());
+        let band = one.bands().first().map(|b| (b.x, b.width));
+        assert_eq!(band, Some(one.column(0)));
+        let plain = with(&book(), Typography::default());
+        let free = plain.region(Arc::clone(&blocks), None, Fonts::bundled(), (3, 1));
+        assert_eq!(free.page_count(), plain_count(&blocks));
+    }
+
+    fn plain_count(blocks: &Arc<Vec<Block>>) -> usize {
+        let typo = Typography::default();
+        Flow::new(Arc::clone(blocks), &typo, Fonts::bundled()).page_count()
     }
 
     #[test]

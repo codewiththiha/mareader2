@@ -4,6 +4,13 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DocId(pub(crate) u64);
 
+impl DocId {
+    /// Its number, unique within a run.
+    pub fn get(self) -> u64 {
+        self.0
+    }
+}
+
 /// Eighth-octave scale steps, rounded up: GPUs shrink cleanly, not grow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Scale(i16);

@@ -10,6 +10,7 @@ use rbook::Epub;
 use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::css::{MAX_SHEET, Stylesheet};
+use crate::splice::{At, Inserts, Spliced, next_layout};
 use crate::xhtml::{self, Href, Library, Refs};
 use crate::{OpenError, guard};
 
@@ -96,7 +97,14 @@ impl Library for Shelf<'_> {
 pub struct Book {
     /// What the chapters say, kept to set again in other type.
     blocks: Arc<Vec<Block>>,
-    flow: Flow,
+    /// Its own pages, shared by every set of results laid in.
+    flow: Arc<Flow>,
+    /// The type it was asked in, and that layout's name.
+    typo: Typography,
+    layout: u64,
+    /// The results asked for, and those laid in its pages.
+    inserts: Arc<Inserts>,
+    spliced: Option<Arc<Spliced>>,
     refs: Arc<Refs>,
     /// What each note link shows, by its target.
     notes: Arc<HashMap<u32, String>>,
@@ -109,7 +117,7 @@ pub struct Book {
 
 impl std::fmt::Debug for Book {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Book({} pages)", self.flow.page_count())
+        write!(f, "Book({} pages)", self.page_count())
     }
 }
 
@@ -122,11 +130,33 @@ impl Book {
 
     /// The same book set in `typo`; its pictures stay decoded.
     pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
+        self.reset(typo, None)
+    }
+
+    /// The book in `typo` with `inserts` laid in; none keeps its own.
+    pub fn reset(&self, typo: &Typography, inserts: Option<&Arc<Inserts>>) -> Option<Self> {
         let set = || {
-            let flow = set(&self.blocks, typo, self.language.as_deref());
+            let same = *typo == self.typo;
+            let (flow, layout) = match same {
+                true => (Arc::clone(&self.flow), self.layout),
+                false => {
+                    let flow = set(&self.blocks, typo, self.language.as_deref());
+                    (Arc::new(flow.keep_pictures(&self.flow)), next_layout())
+                }
+            };
+            let inserts = Arc::clone(inserts.unwrap_or(&self.inserts));
+            let old = self.spliced.as_deref().filter(|_| same);
+            let spliced = (!inserts.list.is_empty())
+                .then(|| Spliced::build(&flow, &self.blocks, &inserts, old))
+                .flatten()
+                .map(Arc::new);
             Self {
                 blocks: Arc::clone(&self.blocks),
-                flow: flow.keep_pictures(&self.flow),
+                flow,
+                typo: typo.clone(),
+                layout,
+                inserts,
+                spliced,
                 refs: Arc::clone(&self.refs),
                 notes: Arc::clone(&self.notes),
                 toc: Arc::clone(&self.toc),
@@ -193,12 +223,16 @@ impl Book {
             return Err(OpenError::Empty);
         }
         let blocks = Arc::new(blocks);
-        let flow = set(&blocks, typo, language.as_deref());
+        let flow = Arc::new(set(&blocks, typo, language.as_deref()));
         let toc = contents(&epub, &refs, &blocks);
         let notes = crate::notes::find(&blocks, &refs);
         Ok(Self {
             blocks,
             flow,
+            typo: typo.clone(),
+            layout: next_layout(),
+            inserts: Arc::default(),
+            spliced: None,
             refs: Arc::new(refs),
             notes: Arc::new(notes),
             toc: Arc::new(toc),
@@ -209,7 +243,25 @@ impl Book {
     }
 
     pub fn page_count(&self) -> usize {
-        self.flow.page_count()
+        match &self.spliced {
+            Some(s) => s.pages.len(),
+            None => self.flow.page_count(),
+        }
+    }
+
+    /// Page `page`: its flow and page there, and the region it is of.
+    fn part(&self, page: usize) -> (&Flow, usize, Option<&crate::splice::Region>) {
+        let Some(s) = &self.spliced else {
+            return (&self.flow, page, None);
+        };
+        match s.at(page) {
+            Some(At::Base(p)) => (&self.flow, p, None),
+            Some(At::Region(r, i)) => match s.region(r) {
+                Some(region) => (&region.flow, i, Some(region)),
+                None => (&self.flow, usize::MAX, None),
+            },
+            None => (&self.flow, usize::MAX, None),
+        }
     }
 
     /// Every page's width and height, in layout units (CSS px).
@@ -227,14 +279,14 @@ impl Book {
         self.author.as_deref()
     }
 
-    /// Where page `page` starts, to find again after re-setting.
+    /// Where page `page` starts; a result's pages, where theirs did.
     pub fn anchor(&self, page: usize) -> Option<Anchor> {
-        self.flow.anchor(page)
+        self.flow.anchor(self.to_base(page))
     }
 
     /// The page showing `anchor`, or the first after it.
     pub fn locate(&self, anchor: Anchor) -> usize {
-        self.flow.locate(anchor)
+        self.from_base(self.flow.locate(anchor))
     }
 
     /// The book's table of contents, in reading order.
@@ -260,7 +312,8 @@ impl Book {
                 Href::Outside(address) => Destination::Outside(address.clone()),
             })
         };
-        let links = self.flow.links(page).into_iter();
+        let (flow, page, _) = self.part(page);
+        let links = flow.links(page).into_iter();
         links
             .filter_map(|l| {
                 Some(Link {
@@ -273,32 +326,42 @@ impl Book {
 
     /// Page `page`'s text by line, each character boxed.
     pub fn text(&self, page: usize) -> Vec<PageLine> {
-        self.flow.text(page)
+        match self.part(page) {
+            (_, page, Some(region)) => region.text(page),
+            (flow, page, None) => flow.text(page),
+        }
     }
 
     /// Page `page`'s pictures, which keep their colours under the ink dial.
     pub fn pictures(&self, page: usize) -> Vec<[f32; 4]> {
-        self.flow.pictures(page)
+        let (flow, page, _) = self.part(page);
+        flow.pictures(page)
     }
 
     /// The picture drawn at a point of page `page`, in page units.
     pub fn picture_at(&self, page: usize, x: f32, y: f32) -> Option<Arc<Picture>> {
-        self.flow.picture_at(page, x, y)
+        let (flow, page, _) = self.part(page);
+        flow.picture_at(page, x, y)
     }
 
     /// Page `page`'s colour glyphs, which keep their colours too.
     pub fn emojis(&self, page: usize) -> Vec<[f32; 4]> {
-        self.flow.emojis(page)
+        let (flow, page, _) = self.part(page);
+        flow.emojis(page)
     }
 
     /// What of each page a stream shows.
     pub fn bands(&self) -> &[mareader_reflow::Band] {
-        self.flow.bands()
+        match &self.spliced {
+            Some(s) => &s.bands,
+            None => self.flow.bands(),
+        }
     }
 
     /// `region` of page `page` at `scale` pixels per unit.
     pub fn render(&self, page: usize, scale: f32, region: Region) -> Option<Pixels> {
-        self.flow.render(page, scale, region)
+        let (flow, page, _) = self.part(page);
+        flow.render(page, scale, region)
     }
 
     /// The blocks the book is made of, in reading order.
@@ -306,9 +369,12 @@ impl Book {
         &self.blocks
     }
 
-    /// What page `page` shows of each block; see [`Flow::excerpts`].
+    /// What page `page` shows of each book block, results aside.
     pub fn excerpts(&self, page: usize) -> Vec<(usize, std::ops::Range<usize>)> {
-        self.flow.excerpts(page)
+        match self.part(page) {
+            (_, page, Some(region)) => region.excerpts(page),
+            (flow, page, None) => flow.excerpts(page),
+        }
     }
 
     /// The book's language tag, if it names one.
@@ -323,7 +389,97 @@ impl Book {
 
     /// Page `page`'s column: its left edge and width, in layout units.
     pub fn column(&self, page: usize) -> (f32, f32) {
-        self.flow.column(page)
+        let (flow, page, _) = self.part(page);
+        flow.column(page)
+    }
+
+    /// Names the layout of its own pages; results laid in keep it.
+    pub fn layout(&self) -> u64 {
+        self.layout
+    }
+
+    /// The results asked for, laid or not; zero for none.
+    pub fn inserts_key(&self) -> u64 {
+        self.inserts.key
+    }
+
+    /// Whether result `id` is laid in the pages.
+    pub fn shows(&self, id: u128) -> bool {
+        self.spliced.as_ref().is_some_and(|s| s.shows(id))
+    }
+
+    /// How many pages of its own it has, results aside.
+    pub fn base_count(&self) -> usize {
+        self.flow.page_count()
+    }
+
+    /// The own page showing `anchor`, results aside.
+    pub fn base_locate(&self, anchor: Anchor) -> usize {
+        self.flow.locate(anchor)
+    }
+
+    /// What own page `page` shows of each block, results aside.
+    pub fn base_excerpts(&self, page: usize) -> Vec<(usize, std::ops::Range<usize>)> {
+        self.flow.excerpts(page)
+    }
+
+    /// The own page page `page` stands for: a result's, its first.
+    pub fn to_base(&self, page: usize) -> usize {
+        let Some(s) = &self.spliced else {
+            return page;
+        };
+        match s.at(page) {
+            Some(At::Base(p)) => p,
+            Some(At::Region(r, _)) => s.region(r).map_or(page, |r| r.base.start),
+            None => page,
+        }
+    }
+
+    /// The page showing own page `page`; a replaced one, its result's.
+    pub fn from_base(&self, page: usize) -> usize {
+        let Some(s) = &self.spliced else {
+            return page;
+        };
+        match s.from_base.get(page) {
+            Some(p) => *p,
+            None => s.pages.len().saturating_sub(1),
+        }
+    }
+
+    /// The own pages page `page` stands for; a result's later pages, none.
+    pub fn base_pages(&self, page: usize) -> std::ops::Range<usize> {
+        let Some(s) = &self.spliced else {
+            return page..page + 1;
+        };
+        match s.at(page) {
+            Some(At::Base(p)) => p..p + 1,
+            Some(At::Region(r, 0)) => s.region(r).map_or(0..0, |r| r.base.clone()),
+            Some(At::Region(r, _)) => s.region(r).map_or(0..0, |r| r.base.start..r.base.start),
+            None => 0..0,
+        }
+    }
+
+    /// The page of `other` that looks just like page `page`, if any.
+    pub fn same_page(&self, page: usize, other: &Self) -> Option<usize> {
+        if !Arc::ptr_eq(&self.flow, &other.flow) {
+            return None;
+        }
+        let at = match &self.spliced {
+            Some(s) => s.at(page)?,
+            None => At::Base(page),
+        };
+        match (at, &other.spliced) {
+            (At::Base(p), None) => (p < other.base_count()).then_some(p),
+            (At::Base(p), Some(o)) => {
+                let q = *o.from_base.get(p)?;
+                (o.at(q) == Some(At::Base(p))).then_some(q)
+            }
+            (At::Region(r, i), Some(o)) => {
+                let region = self.spliced.as_ref()?.region(r)?;
+                Some(o.find(region)? + i)
+            }
+            (At::Region(..), None) => None,
+        }
     }
 }
 

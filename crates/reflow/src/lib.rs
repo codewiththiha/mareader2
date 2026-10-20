@@ -20,7 +20,7 @@ mod raster;
 
 pub use block::{
     Align, Block, CHAR_BYTES, Content, Emphasis, Frame, LAYOUT_BYTES, Link, Role, Row, Span, Table,
-    Text,
+    Text, clip,
 };
 pub use flow::{
     Anchor, Band, COLUMN_SCALE, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH, PageLink,
