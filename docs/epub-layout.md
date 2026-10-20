@@ -12,7 +12,7 @@ keep their own.
 | Question | Decision |
 | --- | --- |
 | Engine | Our own reflow engine grows a CSS box model; no web engine. |
-| Colours | Book layout, theme paper and ink. Book colours are ignored. |
+| Colours | Book layout, theme paper and ink. Book text colours show, adapted to the theme (request #5). |
 | When | Automatically per chapter; a setting can force it on or off. |
 
 ## Model
@@ -44,6 +44,24 @@ full-ink line on ours. Under text a background stays faint, so the text
 reads. Background pictures keep their colours, with `background-size`,
 `-position` and `-repeat`, clipped to the box. A set `height` holds a
 box open below short content.
+
+## Text colours
+
+`color` (and `<font color>`, `<body text>`) is inherited as CSS says.
+The book's own text colour, its body's or black, stands for the theme's
+ink. Any other colour is drawn on the page's greys: as far toward the
+paper as its contrast with its background falls short of the book's
+text, at most 55%, so it stays readable; never darker than its hue
+needs. The hue rides on that grey.
+
+The page pass then maps the grey from the theme's ink to its paper, as
+for all book text, and adds the hue back around it. If the hue does not
+fit (a pale ink in a dark theme), the grey moves up to 0.1 toward the
+middle, then the hue shrinks to fit. A theme with less contrast than
+0.5 between ink and paper, as dim, mutes hues as much (to a quarter at
+least), so colours stay as quiet as its text. Greys are drawn exactly as before,
+so books without colours look the same, and a theme switch stays a
+uniform change, with no new layout.
 
 ## Cascade
 
@@ -93,7 +111,8 @@ so a bigger setting makes every size bigger rather than one size:
 | Indent, letter and word spacing | Add to the book's. |
 | Justify | On justifies start-aligned text; off leaves the book's choice. |
 | Fonts | Embedded fonts stay. In prose, the reader's fonts replace named machine fonts; `sans-serif` and `monospace` take the reader's sans and code faces. Designed chapters keep every named font. |
-| Hyphenation, colours | The reader's own. |
+| Hyphenation | The reader's own. |
+| Text colours | The book's, adapted to the theme: see Text colours. |
 
 ## Slices
 

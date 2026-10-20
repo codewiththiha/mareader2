@@ -1821,6 +1821,7 @@ fn layout_text(
     let ink = Ink {
         tone: style.tone,
         code: false,
+        colour: None,
     };
     let (shown, small) = cased(text);
     let mut b = layout.ranged_builder(fonts, &shown, 1.0, false);
@@ -1854,6 +1855,7 @@ fn layout_text(
             case: _,
             underline,
             strike,
+            colour,
         } = span.emphasis;
         if script != Script::Normal {
             let shift = match script {
@@ -1894,7 +1896,16 @@ fn layout_text(
                 StyleProperty::FontSize(style.size * CODE_SCALE),
                 range.clone(),
             );
-            b.push(StyleProperty::Brush(Ink { code: true, ..ink }), range);
+            b.push(
+                StyleProperty::Brush(Ink {
+                    code: true,
+                    colour,
+                    ..ink
+                }),
+                range,
+            );
+        } else if colour.is_some() {
+            b.push(StyleProperty::Brush(Ink { colour, ..ink }), range);
         }
     }
     for (range, scale) in small {

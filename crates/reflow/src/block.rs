@@ -36,6 +36,8 @@ pub struct Emphasis {
     pub case: Case,
     pub underline: bool,
     pub strike: bool,
+    /// The book's colour on the page's greys; black is the theme's ink.
+    pub colour: Option<[u8; 3]>,
 }
 
 /// Raised or lowered text, as `<sup>` and `<sub>`.
@@ -589,6 +591,7 @@ mod tests {
         case: Case::Normal,
         underline: false,
         strike: false,
+        colour: None,
     };
 
     #[test]
