@@ -25,8 +25,11 @@ Right-click a picked page for the picks' menu:
 
 - **Copy text**: the picked pages' text, in reading order, a blank line
   between pages.
-- **Copy word list**: the picked pages' words above your level, with their
-  dictionary meanings, as Markdown. See [Word lists](#word-lists).
+- **Copy word list** (the quick row): the picked pages' words above your
+  level, with their dictionary meanings, as Markdown. Its preset chooses
+  what it does, so it may read **Save word list (.md)** or **(.epub)**, with
+  the preset's name at the right. See [Word lists](#word-lists).
+- **Word list…**: the window, to choose options and see the list first.
 - **Summarize**, **Translate to {language}** (the last language picked) with
   **Other language…**, or **Translate…** before one is picked, and
   **Simplify**: page AI over the picked pages, a group at a time. See
@@ -72,9 +75,38 @@ without them a toast says where to get them.
 - **Layout.** A table (a row per word) or a list (a paragraph per word). The
   book's title can head it, and each word can carry its page.
 
-**Copy word list** uses the instant options (Settings keeps them; the
-preview that edits them and saves presets comes next), copies the
-Markdown, and toasts how many words it holds.
+### The window
+
+**Word list…** opens a window: options on the left, the list as it will
+read on the right, and **Copy**, **Save .md** and **Save .epub** below.
+
+- The preview redraws at once for order, groups, layout and fields; only a
+  newly added language or *similar words* asks the dictionaries again.
+  While the list is made, the preview shows how far it has got.
+- **Languages**: each with up / down to set its column, and × to remove;
+  **Add language** offers the rest, marking ones not downloaded. With no
+  dictionary at all, a link opens Settings › Dictionary.
+- Options that can't apply are hidden: dictionary fields and *similar
+  words* without a language, chapter groups without an outline.
+- The preview stops after 400 rows; Copy and Save always hold every word.
+- **Save .epub** makes the Markdown into a book, with each chapter group
+  as a section, ready to open.
+
+The window opens with the options last used, and every change is kept.
+
+### Presets
+
+- **Save as preset…** names the options. Choosing a preset sets them all;
+  changed afterwards, **Update "name"** saves them back. **Rename** and
+  **Delete** do what they say.
+- **Use for quick export** makes the menu's quick row use that preset
+  (marked ★ in the list). Without one, it uses the options last used.
+- **Quick export** in the options picks what the quick row does: copy to
+  the clipboard, or save a .md or .epub file.
+- At most 24 presets are kept; names are unique.
+
+Shot option: `word_window=0-5` opens the window on pages 1–6 once shown,
+e.g. with `cefr=download dictionaries=fixtures wait=90`.
 
 The pages are read off the frame when a PDF's pick is long; levels are
 asked 2,000 words at a time and meanings 48 words at a time, so the
