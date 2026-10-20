@@ -41,6 +41,8 @@ fn reads(command: &Command) -> bool {
         C::Page { .. } | C::FirstPage | C::LastPage => true,
         C::AutoScroll | C::Chromeless => true,
         C::GoTo { .. } | C::Turn { .. } => true,
+        // The thumbnails copy their picked pages.
+        C::CopyPages { .. } => true,
         C::FocusPane(_) | C::ClosePane(_) | C::SetRatio(..) => true,
         C::CyclePane { .. } | C::FindStep { .. } => true,
         // The rail's Library panel places books among the panes.

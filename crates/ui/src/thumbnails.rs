@@ -1,5 +1,7 @@
 //! The thumbnail grid: two columns of small pages that follow the reader.
 
+mod picks;
+
 use egui::emath::GuiRounding as _;
 use egui::style::ScrollAnimation;
 use egui::{
@@ -18,6 +20,7 @@ use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
+use picks::Picks;
 
 /// A cell's page width; two fit the rail with room either side.
 pub const CELL_W: f32 = 120.0;
@@ -41,6 +44,20 @@ pub struct ThumbState {
     driven_at: Option<f64>,
     /// Frames left to repeat a snap; a new area clamps its first one.
     snaps: u8,
+    /// Pages picked to act on together.
+    picks: Picks,
+}
+
+impl ThumbState {
+    /// The pages picked, in reading order.
+    pub fn picked(&self) -> Vec<usize> {
+        self.picks.pages()
+    }
+
+    /// Lets go of the picked pages; false if none was picked.
+    pub fn clear_picks(&mut self) -> bool {
+        self.picks.clear()
+    }
 }
 
 /// Where each page's cell sits, from the first page's shape.
@@ -150,6 +167,10 @@ pub fn show(
     }
     // As in mareader: thumbnails take the theme but not the texture.
     t.page.pattern = Pattern::NONE;
+    state.picks.follow(reading);
+    if state.picks.active() {
+        picks::bar(ui, &mut state.picks, count, &t);
+    }
     ScrollArea::vertical()
         .id_salt(("thumbs", reading.pane))
         .auto_shrink(false)
@@ -162,6 +183,7 @@ pub fn show(
             }
             let shown = grid.rows(viewport.top(), viewport.bottom());
             let mut quads = Vec::new();
+            let mut picked = Vec::new();
             for page in (shown.start * COLUMNS..shown.end * COLUMNS).take_while(|&p| p < count) {
                 let cell = grid.cell(page).translate(origin);
                 let boxed = Rect::from_min_size(cell.min, grid.cell);
@@ -185,17 +207,31 @@ pub fn show(
                 r.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &label)
                 });
-                if r.clicked() {
+                let held = picks::long_press(ui, &r, page, &mut state.picks);
+                if r.clicked() && !held && !picks::click(ui, page, &mut state.picks) {
                     out.push(Command::GoTo {
                         pane: reading.pane,
                         page,
                     });
                 }
-                decorate(ui, rect, cell, page, on, r.hovered(), &t);
+                let pane = reading.pane;
+                crate::widgets::context_menu(&r, |ui| match state.picks.contains(page) {
+                    true => picks::picks_menu(ui, pane, &mut state.picks, &t, out),
+                    false => picks::page_menu(ui, pane, page, &mut state.picks, out),
+                });
+                let chosen = state.picks.contains(page);
+                if chosen {
+                    picked.push(rect);
+                }
+                decorate(ui, (rect, cell), page, (on, chosen), r.hovered(), &t);
             }
             if let (Some(pass), false) = (pass, quads.is_empty()) {
                 ui.painter()
                     .add(PagesCallback::shape(pass.clone(), ui.clip_rect(), quads));
+            }
+            // Over the pages, which draw last: a wash and a tick.
+            for rect in picked {
+                tick(ui, rect, &t);
             }
             // Rows just off screen render too, after what's on screen.
             let ahead = shown.end..(shown.end + ROW_BUFFER).min(grid.rows);
@@ -247,10 +283,17 @@ fn follow(
     Some(motion::jump(ctx))
 }
 
-/// The number band, and the accent ring and badge of the reading page.
-fn decorate(ui: &Ui, page: Rect, cell: Rect, index: usize, on: bool, hovered: bool, t: &Tokens) {
+/// The number band, and the accent ring of the reading or a picked page.
+fn decorate(
+    ui: &Ui,
+    (page, cell): (Rect, Rect),
+    index: usize,
+    (on, picked): (bool, bool),
+    hovered: bool,
+    t: &Tokens,
+) {
     let painter = ui.painter();
-    if on {
+    if on || picked {
         let ring = Stroke::new(2.0, t.accent);
         painter.rect_stroke(
             page.expand(3.0),
@@ -277,6 +320,21 @@ fn decorate(ui: &Ui, page: Rect, cell: Rect, index: usize, on: bool, hovered: bo
     } else {
         painter.text(centre, Align2::CENTER_CENTER, number, font, t.muted);
     }
+}
+
+/// A picked page's wash and the tick in its corner.
+fn tick(ui: &Ui, page: Rect, t: &Tokens) {
+    let painter = ui.painter();
+    painter.rect_filled(page, CornerRadius::ZERO, t.accent.gamma_multiply(0.12));
+    let centre = pos2(page.right() - 10.0, page.top() + 10.0);
+    painter.circle_filled(centre, 8.0, t.accent);
+    let mark = [
+        centre + vec2(-3.5, 0.2),
+        centre + vec2(-1.0, 2.8),
+        centre + vec2(3.8, -2.6),
+    ];
+    let ink = Stroke::new(1.6, egui::Color32::WHITE);
+    painter.line(mark.to_vec(), ink);
 }
 
 #[cfg(test)]
