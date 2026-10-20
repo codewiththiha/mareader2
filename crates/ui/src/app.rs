@@ -107,6 +107,8 @@ pub struct MareaderApp {
     /// The sidebar panels' scroll-following, for the focused pane.
     outline: OutlineState,
     thumbs: ThumbState,
+    /// Picked pages' text on its way to the clipboard.
+    page_copy: crate::page_copy::PageCopy,
     shelf_tree: PanelState,
     /// Each pane's page bar.
     page_bars: std::collections::BTreeMap<PaneId, PageBar>,
@@ -202,6 +204,7 @@ impl MareaderApp {
             dict_from: None,
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
+            page_copy: Default::default(),
             shelf_tree: PanelState::default(),
             page_bars: std::collections::BTreeMap::new(),
             pane_rects: Vec::new(),
@@ -616,6 +619,11 @@ impl MareaderApp {
 
     pub fn page_ai(&self) -> &crate::page_ai::PageAi {
         &self.page_ai
+    }
+
+    /// The pages picked in the thumbnails, in reading order.
+    pub fn thumb_picks(&self) -> Vec<usize> {
+        self.thumbs.picked()
     }
 
     /// The marks `pane` shows, wherever they are kept.
@@ -1392,6 +1400,9 @@ impl MareaderApp {
         let model = self.library.model();
         self.page_ai
             .show(ctx, &self.settings.ai, model, &self.pane_rects, out);
+        if let Some(toast) = self.page_copy.poll(ctx) {
+            self.toasts.push(toast);
+        }
         self.dict.poll();
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
@@ -1732,6 +1743,11 @@ impl MareaderApp {
             Command::FirstPage => self.documents.go_to(self.active, 0),
             Command::LastPage => self.documents.go_to(self.active, usize::MAX),
             Command::GoTo { pane, page } => self.documents.go_to(pane, page),
+            Command::CopyPages { pane, pages } => {
+                if let Some(reading) = self.documents.reading(pane) {
+                    self.page_copy.start(ctx, reading.document, pages);
+                }
+            }
             Command::Turn { pane, forward } => self.documents.turn(pane, forward),
             Command::Open(request) => {
                 // Held while the library loads, to open where it was left.
@@ -2743,8 +2759,10 @@ impl eframe::App for MareaderApp {
             self.find.close();
             free = false;
         }
-        // A selection takes Escape before the sidebar, then distraction-free.
-        if free && !self.documents.clear_selection(self.active) {
+        // A selection, then picked pages, before the sidebar and chromeless.
+        let selection = free && self.documents.clear_selection(self.active);
+        let grid = self.sidebar.is_open() && self.sidebar.panel() == Panel::Thumbnails;
+        if free && !selection && !(grid && self.thumbs.clear_picks()) {
             if self.sidebar.is_open() {
                 commands.push(Command::CloseSidebar);
             } else if self.chromeless {

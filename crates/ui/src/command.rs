@@ -87,6 +87,11 @@ pub enum Command {
         pane: PaneId,
         page: usize,
     },
+    /// Puts the text of the pane's `pages` on the clipboard.
+    CopyPages {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
     /// The previous or next page, or spread, of the pane's document.
     Turn {
         pane: PaneId,
