@@ -88,7 +88,8 @@ What the epub crate reads, and what each element becomes:
 | `pre` | preformatted | mono, spaces and tabs kept, long lines wrap; shaded box |
 | `code`, `kbd`, `samp`, `tt` | inline | mono at 0.88 em on a light ground |
 | `table`, `caption`, `th`, `thead` | table | equal columns, 1 px borders, head rows bold and shaded; splits between rows |
-| a `table` holding pictures, or `role="presentation"` | its cells' blocks | a layout table, e.g. a character page: each cell reads in order as blocks, pictures shown; columns blank in every row of a data table are dropped |
+| a `table` holding pictures, `role="presentation"`, or with no heads, block cells and a blank spacer column | its cells' blocks | a layout table, e.g. a character page: each cell reads in order as blocks, pictures shown; columns blank in every row of a data table are dropped |
+| `img` with a `width` (CSS em, rem, px, pt or %; or the attribute) | image | that width, with px and pt against the reader's text size; still shrunk to the column and page |
 | `hr` | rule | a hairline |
 | `img`, SVG `image` | image | its own size, shrunk to the column and the page; never split |
 | the OPF cover | image | a page of its own, fitted and centred |
@@ -480,4 +481,4 @@ behind, at its own pixels rather than the page's size for it.
 | 2026-10-15 | Added text file edge cases: names, labelled heads, Chinese headings, repeatable bytes |
 | 2026-10-18 | Added footnotes shown in place |
 | 2026-10-18 | Added pictures opened large, and PDF figures |
-| 2026-10-20 | Added layout tables read as blocks, and spacer columns dropped |
+| 2026-10-20 | Added layout tables read as blocks, spacer columns dropped, image widths |

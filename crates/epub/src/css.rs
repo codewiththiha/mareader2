@@ -1,14 +1,14 @@
 //! A CSS subset: tag and class rules for emphasis, alignment and hiding.
 use std::collections::HashMap;
 
-use mareader_reflow::Align;
+use mareader_reflow::{Align, Length};
 
 /// A stylesheet's text past this is ignored.
 pub const MAX_SHEET: usize = 1 << 20;
 const MAX_RULES: usize = 10_000;
 
 /// The properties read; `None` leaves the inherited value.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Decl {
     pub(crate) italic: Option<bool>,
     pub(crate) bold: Option<bool>,
@@ -16,6 +16,8 @@ pub(crate) struct Decl {
     pub(crate) hidden: Option<bool>,
     /// `list-style: none`: list items show no marker.
     pub(crate) unmarked: Option<bool>,
+    /// `width`, which only pictures use.
+    pub(crate) width: Option<Length>,
 }
 
 impl Decl {
@@ -34,6 +36,7 @@ impl Decl {
                 "font-weight" => d.bold = bold(value).or(d.bold),
                 "text-align" => d.align = align(value).or(d.align),
                 "display" => d.hidden = Some(value == "none"),
+                "width" => d.width = length(value).or(d.width),
                 "list-style" | "list-style-type" => {
                     d.unmarked = Some(value.split_ascii_whitespace().any(|w| w == "none"));
                 }
@@ -60,7 +63,38 @@ impl Decl {
             align: self.align.or(under.align),
             hidden: self.hidden.or(under.hidden),
             unmarked: self.unmarked.or(under.unmarked),
+            width: self.width.or(under.width),
         }
+    }
+}
+
+/// A width in em, rem, px, pt or %; a bare number is pixels.
+pub(crate) fn length(v: &str) -> Option<Length> {
+    let v = v.trim();
+    let digits = |c: char| !(c.is_ascii_digit() || c == '.');
+    let split = v.find(digits).filter(|&at| at > 0)?;
+    let (number, unit) = v.split_at(split);
+    let n: f32 = number
+        .parse()
+        .ok()
+        .filter(|n: &f32| n.is_finite() && *n > 0.0)?;
+    let em = match unit.trim() {
+        "em" | "rem" => n,
+        "px" => n / 16.0,
+        "pt" => n / 12.0,
+        "%" => return Some(Length::Percent(n.min(100.0))),
+        _ => return None,
+    };
+    Some(Length::Em(em.min(200.0)))
+}
+
+/// The `width` attribute: pixels, or a share as `50%`.
+pub(crate) fn width_attr(v: &str) -> Option<Length> {
+    let v = v.trim();
+    let all_digits = !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit() || b == b'.');
+    match all_digits {
+        true => length(&format!("{v}px")),
+        false => length(v),
     }
 }
 

@@ -619,12 +619,14 @@ fn place_cover(
         block.content = Content::Image {
             picture: cover,
             cover: true,
+            width: None,
         };
         return false;
     }
     let mut block = Block::new(Content::Image {
         picture: cover,
         cover: true,
+        width: None,
     });
     block.break_before = true;
     blocks.insert(0, block);
@@ -709,6 +711,7 @@ mod tests {
             Block::new(Content::Image {
                 picture: cover.clone(),
                 cover: false,
+                width: None,
             }),
             Block::text(mareader_reflow::Role::Paragraph, "text"),
         ];

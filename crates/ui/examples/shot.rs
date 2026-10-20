@@ -107,6 +107,11 @@ fn main() -> Result<(), String> {
                 queued.push(Command::ShowFind);
                 searched = true;
             }
+            // A book from the web, fetched first: `epub=https://…/a.epub`.
+            "epub" | "pdf" if v.starts_with("https://") => {
+                let path = download(v)?;
+                app.set_option(k, &path.to_string_lossy())?;
+            }
             // The real word levels, fetched into a temporary folder.
             "cefr" if v == "download" => {
                 let dir = std::env::temp_dir().join("mareader-shot-cefr");
@@ -223,6 +228,25 @@ fn main() -> Result<(), String> {
     image.save(&out).map_err(|e| e.to_string())?;
     println!("{out}");
     Ok(())
+}
+
+/// `url` saved under the temporary folder, by its last part.
+fn download(url: &str) -> Result<std::path::PathBuf, String> {
+    let name = url.rsplit('/').next().filter(|n| !n.is_empty());
+    let dir = std::env::temp_dir().join("mareader-shot-books");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(name.unwrap_or("book"));
+    let ok = std::process::Command::new("curl")
+        .args(["-sfL", "--retry", "2", "-o"])
+        .arg(&path)
+        .arg(url)
+        .status()
+        .map_err(|e| format!("curl: {e}"))?
+        .success();
+    match ok {
+        true => Ok(path),
+        false => Err(format!("couldn't fetch {url}")),
+    }
 }
 
 /// The Burmese and French test packs, built into a temporary folder.

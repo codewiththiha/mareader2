@@ -145,8 +145,19 @@ pub enum Content {
     Image {
         picture: Arc<Picture>,
         cover: bool,
+        /// The width the book asked for, if any.
+        width: Option<Length>,
     },
     Table(Table),
+}
+
+/// A picture's width as a book sets it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Length {
+    /// Ems of the reader's text size.
+    Em(f32),
+    /// A share of the column, 0 to 100.
+    Percent(f32),
 }
 
 /// Line alignment within the block's column.
