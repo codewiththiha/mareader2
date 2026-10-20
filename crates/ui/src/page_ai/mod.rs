@@ -3,6 +3,7 @@
 mod cards;
 mod extract;
 mod follow;
+mod groups;
 pub mod menu;
 pub mod paint;
 
@@ -68,6 +69,21 @@ pub enum Action {
     },
     /// Ends the pane's continuous run.
     StopFollow(PaneId),
+    /// Asks pages picked in the thumbnails, in groups.
+    RunPages {
+        pane: PaneId,
+        pages: Vec<usize>,
+        task: PageTask,
+        tag: Option<String>,
+    },
+    /// The page menu for picked pages, at its languages.
+    PagesMenu {
+        pane: PaneId,
+        pages: Vec<usize>,
+        at: Pos2,
+    },
+    /// Drops the pane's waiting groups and stops those being written.
+    StopPages(PaneId),
     /// Shows a result over the page; none shows the page itself.
     Show {
         pane: PaneId,
@@ -126,6 +142,8 @@ struct Run {
     /// The layout its page is counted in: a book's own pages.
     layout: u64,
     page: usize,
+    /// Its last own page: past `page` for a group.
+    last: usize,
     book: Option<BookId>,
     name: String,
     task: AiTask,
@@ -141,6 +159,8 @@ struct Run {
     failed: Option<String>,
     /// The kept result it will replace.
     redo_of: Option<AiPageId>,
+    /// Turned away by a busy model: its group is asked again.
+    requeue: bool,
 }
 
 /// A pane's layout, and each page's bubbles with their own pages.
@@ -180,6 +200,8 @@ struct Menu {
     page: usize,
     at: Pos2,
     step: Step,
+    /// Picked pages, asked as groups; none for the page's own menu.
+    pages: Vec<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -188,6 +210,23 @@ struct BubbleMenu {
     page: usize,
     slot: Slot,
     at: Pos2,
+}
+
+/// What a result covers: a book's text, or a PDF's pages, both in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Cover {
+    Text(Anchor, Anchor),
+    Pages(usize, usize),
+}
+
+impl Cover {
+    fn meets(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Text(a, b), Self::Text(c, d)) => a < d && c < b,
+            (Self::Pages(a, b), Self::Pages(c, d)) => a <= d && c <= b,
+            _ => false,
+        }
+    }
 }
 
 /// Results of documents outside the library, for the session.
@@ -215,6 +254,8 @@ pub struct PageAi {
     made: HashMap<AiPageId, Arc<Insert>>,
     /// Each book result's text, from where to where, as last indexed.
     spans: HashMap<AiPageId, (Anchor, Anchor)>,
+    /// Each PDF result's first and last page, as last indexed.
+    covers: HashMap<AiPageId, (usize, usize)>,
     /// What each pane's book was last asked to lay in.
     wants: HashMap<PaneId, Arc<Inserts>>,
     /// Results read once, by id.
@@ -228,6 +269,10 @@ pub struct PageAi {
     bubble_rect: Option<Rect>,
     /// Each pane's continuous run.
     follows: HashMap<PaneId, follow::Follow>,
+    /// Each pane's picked pages, asked in groups.
+    batches: HashMap<PaneId, groups::Batch>,
+    /// What the groups have to say, for the next frame's toasts.
+    notes: Vec<String>,
     /// The menu's "Remember my choice".
     remember: bool,
     /// Tests: runs answer at once with the page's own text.
@@ -290,6 +335,66 @@ fn base_page(document: &Document, at: [usize; 2]) -> Option<usize> {
         Document::Epub { book, .. } => Some(book.base_locate(anchor(at))),
         Document::Pdf(_) => None,
     }
+}
+
+/// The own pages a span covers, first and last.
+fn pages_of(document: &Document, span: &PageSpan) -> Option<(usize, usize)> {
+    match (document, span) {
+        (_, PageSpan::Page { page }) => Some((*page, *page)),
+        (_, PageSpan::Pages { from, to }) => Some((*from, *to)),
+        (Document::Epub { book, .. }, PageSpan::Blocks { from, to }) => {
+            let first = book.base_locate(anchor(*from));
+            // An end is just past its last character, maybe on the next page.
+            let [block, offset] = *to;
+            let end = Anchor {
+                block,
+                offset: offset.saturating_sub(1),
+            };
+            Some((first, book.base_locate(end).max(first)))
+        }
+        (Document::Pdf(_), PageSpan::Blocks { .. }) => None,
+    }
+}
+
+/// A book's own pages `from` to `to` as one span of its text.
+fn group_span(document: &Document, (from, to): (usize, usize)) -> Option<[[usize; 2]; 2]> {
+    let Document::Epub { book, .. } = document else {
+        return None;
+    };
+    let excerpts: Vec<_> = (from..=to).flat_map(|p| book.base_excerpts(p)).collect();
+    extract::span(&excerpts, book.blocks())
+}
+
+/// What a group's page past its result says, as a block to set.
+fn group_note(task: &AiTask, (from, to): (usize, usize)) -> Arc<Vec<mareader_reflow::Block>> {
+    use mareader_reflow::{Block, Content, Emphasis, Role, Text};
+    let done = match task {
+        AiTask::Summary | AiTask::Points => "summarized",
+        AiTask::Translate { .. } => "translated",
+        AiTask::Simplify => "simplified",
+    };
+    let words = format!(
+        "Pages {}–{} are {done} together, starting on page {}.",
+        from + 1,
+        to + 1,
+        from + 1
+    );
+    let mut text = Text::new(Role::Paragraph);
+    let italic = Emphasis {
+        italic: true,
+        ..Emphasis::default()
+    };
+    text.push(&words, italic);
+    Arc::new(vec![Block {
+        content: Content::Text(text),
+        frame: Default::default(),
+        break_before: false,
+    }])
+}
+
+/// "pages 3–7", counted from one.
+fn pages_label((from, to): (usize, usize)) -> String {
+    format!("pages {}–{}", from + 1, to + 1)
 }
 
 /// A kept span's end, as a place in the book.
@@ -372,7 +477,7 @@ impl PageAi {
     fn begin(
         &mut self,
         who: &Who<'_>,
-        page: usize,
+        (page, last): (usize, usize),
         task: AiTask,
         (source, span): (Source, PageSpan),
         redo_of: Option<AiPageId>,
@@ -380,16 +485,17 @@ impl PageAi {
     ) -> Result<u64, &'static str> {
         let key = (who.pane, who.layout, page);
         let same = |r: &&Run| r.layout == who.layout && r.task == task && r.span == span;
-        if let Some(run) = self.runs.iter().find(same).filter(|r| r.failed.is_none()) {
-            let slot = Slot::Run(run.id);
-            self.showing.insert(key, Showing { slot, since: now });
-            return Ok(run.id);
+        let live = |r: &&Run| r.failed.is_none() && !r.requeue;
+        if let Some(id) = self.runs.iter().find(same).filter(live).map(|r| r.id) {
+            self.show_on(key, Slot::Run(id), now);
+            return Ok(id);
         }
         self.runs
             .retain(|r| !(r.layout == who.layout && r.task == task && r.span == span));
+        let pages = last.saturating_sub(page) + 1;
         let handle = match self.canned {
             true => Handle::Canned(Some(canned(&source))),
-            false => start(who.ai, &task, &source)?,
+            false => start(who.ai, &task, &source, pages)?,
         };
         let preset = who.settings.page_preset(page_task(&task));
         let by = preset.map_or_else(String::new, |p| match p.name.trim() {
@@ -402,6 +508,7 @@ impl PageAi {
             id,
             layout: who.layout,
             page,
+            last: last.max(page),
             book: who.book,
             name: who.name.to_owned(),
             task,
@@ -415,9 +522,9 @@ impl PageAi {
             generation: 0,
             failed: None,
             redo_of,
+            requeue: false,
         });
-        let slot = Slot::Run(id);
-        self.showing.insert(key, Showing { slot, since: now });
+        self.show_on(key, Slot::Run(id), now);
         Ok(id)
     }
 
@@ -462,7 +569,7 @@ impl PageAi {
             ai: asked.ai,
             settings: asked.settings,
         };
-        match self.begin(&who, page, task, found, redo_of, now) {
+        match self.begin(&who, (page, page), task, found, redo_of, now) {
             Ok(id) => Some(id),
             Err(why) => {
                 out.push(note(why));
@@ -480,16 +587,28 @@ impl PageAi {
         now: f64,
         out: &mut Commands,
     ) {
-        let (task, old) = match slot {
+        let (task, old, span) = match slot {
             Slot::Saved(id) => match self.saved(main, id) {
-                Some(p) => (p.task.clone(), Some(id)),
+                Some(p) => (p.task.clone(), Some(id), p.span.clone()),
                 None => return,
             },
             Slot::Run(id) => match self.runs.iter().find(|r| r.id == id) {
-                Some(r) => (r.task.clone(), r.redo_of),
+                Some(r) => (r.task.clone(), r.redo_of, r.span.clone()),
                 None => return,
             },
         };
+        // A group is asked again whole, beside other groups under way.
+        let group = asked.documents.ai_view(asked.pane).and_then(|view| {
+            let (from, to) = pages_of(&view.document, &span)?;
+            (to > from).then_some((view.layout, from, to))
+        });
+        if let Some((layout, from, to)) = group {
+            if let Slot::Run(id) = slot {
+                self.runs.retain(|r| r.id != id);
+            }
+            self.redo_group(asked, layout, (task, from, to), old);
+            return;
+        }
         self.redo(asked, task, old, now, out);
     }
 
@@ -516,9 +635,19 @@ impl PageAi {
                     }
                     News::Done(Err(f)) => {
                         run.handle = None;
+                        let batch = (self.batches.values())
+                            .find(|b| b.runs.iter().any(|(id, _)| *id == run.id));
+                        // A busy model takes the group later, as slots free.
+                        if f.why == Why::InUse && batch.is_some() {
+                            run.requeue = true;
+                            continue;
+                        }
                         let mut said = say(&f);
                         if self.follows.values().any(|w| w.runs.contains(&run.id)) {
                             said.push_str(" Continuous mode stopped.");
+                        }
+                        if batch.is_some_and(|b| b.waiting_any()) {
+                            said.push_str(" The pages left weren't asked.");
                         }
                         out.push(Command::Notify(Toast::info(said.clone())));
                         run.failed = Some(said);
@@ -573,8 +702,16 @@ impl PageAi {
             lib.set_ai_pages_alive(&[old], false, wall);
         }
         self.parsed.insert(saved, Some(Arc::new(result)));
-        if let PageSpan::Blocks { from, to } = run.span {
-            self.spans.insert(saved, (anchor(from), anchor(to)));
+        match run.span {
+            PageSpan::Blocks { from, to } => {
+                self.spans.insert(saved, (anchor(from), anchor(to)));
+            }
+            PageSpan::Page { page } => {
+                self.covers.insert(saved, (page, page));
+            }
+            PageSpan::Pages { from, to } => {
+                self.covers.insert(saved, (from, to));
+            }
         }
         let was = |s: &Showing| {
             s.slot == Slot::Run(id) || run.redo_of.is_some_and(|o| s.slot == Slot::Saved(o))
@@ -616,12 +753,15 @@ impl PageAi {
         }
         let mut map: HashMap<usize, Vec<AiPageId>> = HashMap::new();
         let mut spans = Vec::new();
+        let mut covers = Vec::new();
         for p in &pages {
-            if let PageSpan::Blocks { from, to } = p.span {
-                spans.push((p.id, (anchor(from), anchor(to))));
+            match p.span {
+                PageSpan::Blocks { from, to } => spans.push((p.id, (anchor(from), anchor(to)))),
+                PageSpan::Page { page } => covers.push((p.id, (page, page))),
+                PageSpan::Pages { from, to } => covers.push((p.id, (from, to))),
             }
             let page = match p.span {
-                PageSpan::Page { page } => Some(page),
+                PageSpan::Page { page } | PageSpan::Pages { from: page, .. } => Some(page),
                 PageSpan::Blocks { from, .. } => base_page(&view.document, from),
             };
             if let Some(page) = page.filter(|p| *p < view.document.base_count()) {
@@ -631,8 +771,10 @@ impl PageAi {
         if self.index.len() > 8 {
             self.index.clear();
             self.spans.clear();
+            self.covers.clear();
         }
         self.spans.extend(spans);
+        self.covers.extend(covers);
         let pages = map.clone();
         self.index.insert(view.layout, Index { key, pages });
         map
@@ -648,7 +790,7 @@ impl PageAi {
         (book, name): (Option<BookId>, &str),
     ) -> PaneAi {
         let now = ctx.input(|i| i.time);
-        let pill = self.pill(pane, now);
+        let pill = self.pill(pane, now).or_else(|| self.group_pill(pane));
         let Some(view) = documents.ai_view(pane) else {
             self.drawn.remove(&pane);
             return PaneAi {
@@ -659,9 +801,12 @@ impl PageAi {
         self.prune(main);
         self.align(main, pane, &view, (book, name));
         let index = self.index(main, &view, (book, name));
+        let groups = self.pdf_groups(main, pane, &view);
         let mut overlays = Vec::new();
         let mut drawn = Vec::new();
         for page in view.visible.clone() {
+            // A PDF group's later pages carry on its result.
+            let over = (groups.iter()).find(|(from, to, _)| *from < page && page <= *to);
             // A result's first page carries the bubbles of the pages it took.
             let mut slots = Vec::new();
             let mut bubbles = Vec::new();
@@ -677,7 +822,7 @@ impl PageAi {
                     }
                 }
             }
-            if slots.is_empty() {
+            if slots.is_empty() && over.is_none() {
                 // A result's later pages: its menu works there too.
                 let own = view.document.to_base(page);
                 let key = (pane, view.layout, own);
@@ -691,8 +836,12 @@ impl PageAi {
             for (n, b) in bubbles.iter_mut().enumerate() {
                 b.label = (n + 1).to_string();
             }
-            let card =
+            let mut card =
                 card.and_then(|(own, slot)| self.shown(ctx, pane, &view, (page, own), slot, main));
+            if let (None, Some(&(from, _, slot))) = (&card, over) {
+                card = self.shown(ctx, pane, &view, (page, from), slot, main);
+                slots.push((slot, from));
+            }
             overlays.push(Overlay {
                 page,
                 bubbles,
@@ -702,6 +851,28 @@ impl PageAi {
         }
         self.drawn.insert(pane, (view.layout, drawn));
         PaneAi { overlays, pill }
+    }
+
+    /// The PDF groups `pane` shows: first and last page, and the result.
+    fn pdf_groups(&self, main: &Library, pane: PaneId, view: &AiView) -> Vec<(usize, usize, Slot)> {
+        if view.document.is_reflowable() {
+            return Vec::new();
+        }
+        let span = |slot: Slot| match slot {
+            Slot::Saved(id) => self.saved(main, id).map(|p| p.span.clone()),
+            Slot::Run(id) => self
+                .runs
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| r.span.clone()),
+        };
+        (self.showing.iter())
+            .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
+            .filter_map(|(_, s)| match span(s.slot)? {
+                PageSpan::Pages { from, to } => Some((from, to, s.slot)),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Own page `own`'s results as bubbles, kept ones first.
@@ -727,8 +898,13 @@ impl PageAi {
                 continue;
             };
             let redoing = self.runs.iter().find(|r| r.redo_of == Some(*id));
-            let stale = match (&p.span, here) {
-                (PageSpan::Blocks { from, to }, Some(span)) => [*from, *to] != span,
+            let covered = pages_of(&view.document, &p.span).filter(|(a, b)| b > a);
+            // A group is checked against all the pages it was asked for.
+            let stale = match (&p.span, here, covered) {
+                (PageSpan::Blocks { from, to }, Some(_), Some((_, last))) => {
+                    group_span(&view.document, (own, last)) != Some([*from, *to])
+                }
+                (PageSpan::Blocks { from, to }, Some(span), None) => [*from, *to] != span,
                 _ => false,
             };
             let state = match (redoing, stale) {
@@ -738,6 +914,9 @@ impl PageAi {
             };
             let slot = Slot::Saved(*id);
             let mut tip = label(&p.task);
+            if let Some(pages) = covered {
+                tip = format!("{tip} · {}", pages_label(pages));
+            }
             if state == paint::State::Stale {
                 tip.push_str(" · made for another text size");
             }
@@ -753,9 +932,13 @@ impl PageAi {
         }
         for r in runs {
             let slot = Slot::Run(r.id);
+            let mut what = label(&r.task);
+            if r.last > r.page {
+                what = format!("{what} · {}", pages_label((r.page, r.last)));
+            }
             let (state, tip) = match &r.failed {
-                Some(why) => (paint::State::Failed, format!("{} · {why}", label(&r.task))),
-                None => (paint::State::Busy, format!("{} · writing…", label(&r.task))),
+                Some(why) => (paint::State::Failed, format!("{what} · {why}")),
+                None => (paint::State::Busy, format!("{what} · writing…")),
             };
             let bubble = paint::Bubble {
                 label: String::new(),
@@ -797,7 +980,7 @@ impl PageAi {
         }
         let (lib, book) = self.lib(main, who.0, who.1);
         let page_of = |span: &PageSpan| match span {
-            PageSpan::Page { page } => Some(*page),
+            PageSpan::Page { page } | PageSpan::Pages { from: page, .. } => Some(*page),
             PageSpan::Blocks { from, .. } => base_page(&view.document, *from),
         };
         let moved: Vec<(Key, Option<usize>)> = (self.showing.iter())
@@ -1001,7 +1184,16 @@ impl PageAi {
         (task, span, result, source, ident): What,
         since: f64,
     ) -> Option<paint::Shown> {
-        let (at, room, width) = Self::room(view, page);
+        let (at, mut room, width) = Self::room(view, page);
+        // A PDF group runs over its pages, each its first page's room.
+        let (pages, part, note) = match (&*view.document, &span) {
+            (Document::Pdf(_), PageSpan::Pages { from, to }) => {
+                room = Self::room(view, *from).1;
+                let note = group_note(&task, (*from, *to));
+                (to - from + 1, page.saturating_sub(*from), Some(note))
+            }
+            _ => (1, 0, None),
+        };
         let mut typo: Typography = (*view.typo).clone();
         if matches!(*view.document, Document::Pdf(_)) {
             typo.font_size *= width / PAGE_WIDTH;
@@ -1027,7 +1219,7 @@ impl PageAi {
                         PageSpan::Blocks { from, to } => {
                             Arc::new(extract::book(book.blocks(), [*from, *to]))
                         }
-                        PageSpan::Page { .. } => Arc::default(),
+                        PageSpan::Page { .. } | PageSpan::Pages { .. } => Arc::default(),
                     });
                     extract::blocks(&result, &source, book.blocks())
                 }
@@ -1040,6 +1232,9 @@ impl PageAi {
                 room: (room.x, room.y),
                 scale,
                 book,
+                pages,
+                part,
+                note,
             }
         };
         let now = ctx.input(|i| i.time);
@@ -1081,16 +1276,12 @@ impl PageAi {
 
     /// Shows `slot` on own page `key`; others of the same text give way.
     fn show_on(&mut self, key: Key, slot: Slot, now: f64) {
-        let span = |slot: Slot| match slot {
-            Slot::Saved(id) => self.spans.get(&id).copied(),
-            Slot::Run(_) => None,
-        };
-        // Only one result of any text is laid into the pages.
-        if let Some((from, to)) = span(slot) {
+        // Only one result of any text is laid in, or covers a PDF's page.
+        if let Some(mine) = self.covering(slot) {
             let (pane, layout, _) = key;
             let overlaps: Vec<Key> = (self.showing.iter())
                 .filter(|((p, l, _), _)| *p == pane && *l == layout)
-                .filter(|(_, s)| span(s.slot).is_some_and(|(a, b)| a < to && from < b))
+                .filter(|(_, s)| self.covering(s.slot).is_some_and(|c| c.meets(mine)))
                 .map(|(k, _)| *k)
                 .collect();
             for k in overlaps {
@@ -1098,6 +1289,19 @@ impl PageAi {
             }
         }
         self.showing.insert(key, Showing { slot, since: now });
+    }
+
+    /// What `slot` covers; a book's run lays nothing in, so none.
+    fn covering(&self, slot: Slot) -> Option<Cover> {
+        match slot {
+            Slot::Saved(id) => (self.spans.get(&id).map(|(a, b)| Cover::Text(*a, *b)))
+                .or_else(|| self.covers.get(&id).map(|(a, b)| Cover::Pages(*a, *b))),
+            Slot::Run(id) => match self.runs.iter().find(|r| r.id == id)?.span {
+                PageSpan::Page { page } => Some(Cover::Pages(page, page)),
+                PageSpan::Pages { from, to } => Some(Cover::Pages(from, to)),
+                PageSpan::Blocks { .. } => None,
+            },
+        }
     }
 
     /// The bubble `index` on page `page`: its layout, slot and own page.
@@ -1160,6 +1364,7 @@ impl PageAi {
         self.parsed.remove(&id);
         self.made.remove(&id);
         self.spans.remove(&id);
+        self.covers.remove(&id);
     }
 
     /// Takes down results deleted or erased elsewhere, text and all.
@@ -1179,6 +1384,7 @@ impl PageAi {
     /// Forgets a closed pane: what it showed, drew and followed.
     pub fn close_pane(&mut self, pane: PaneId) {
         self.stop_follow(pane);
+        self.stop_groups(pane);
         self.showing.retain(|(p, ..), _| *p != pane);
         self.drawn.remove(&pane);
         self.aligned.remove(&pane);
@@ -1201,6 +1407,23 @@ impl PageAi {
             page,
             at,
             step: Step::Tasks,
+            pages: Vec::new(),
+        });
+    }
+
+    /// Opens the menu for picked pages at its languages, at `at`.
+    pub fn open_pages_menu(&mut self, pane: PaneId, pages: Vec<usize>, at: Pos2) {
+        let Some(&page) = pages.first() else {
+            return;
+        };
+        self.bubble_menu = None;
+        self.filter.clear();
+        self.menu = Some(Menu {
+            pane,
+            page,
+            at,
+            step: Step::Languages,
+            pages,
         });
     }
 
@@ -1268,6 +1491,13 @@ impl PageAi {
         lib.has_ai_pages(book) || self.runs.iter().any(|r| r.layout == view.layout)
     }
 
+    /// Tests: the kept results' tasks and spans, oldest first.
+    pub fn kept(&self, main: &Library, who: (Option<BookId>, &str)) -> Vec<(AiTask, PageSpan)> {
+        let (lib, book) = self.lib(main, who.0, who.1);
+        let pages = lib.ai_pages(book).into_iter();
+        pages.map(|p| (p.task.clone(), p.span.clone())).collect()
+    }
+
     /// Shots: whether the page's text is in, to be worked on.
     pub fn can_read(&self, asked: &Asked<'_>) -> bool {
         let view = asked.documents.ai_view(asked.pane);
@@ -1333,7 +1563,12 @@ enum News {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn start(ai: &crate::ai::Ai, task: &AiTask, source: &Source) -> Result<Handle, &'static str> {
+fn start(
+    ai: &crate::ai::Ai,
+    task: &AiTask,
+    source: &Source,
+    pages: usize,
+) -> Result<Handle, &'static str> {
     let rewrite = match task {
         AiTask::Summary => mareader_assist::Rewrite::Summarize(SummaryStyle::Paragraphs),
         AiTask::Points => mareader_assist::Rewrite::Summarize(SummaryStyle::Points),
@@ -1346,13 +1581,14 @@ fn start(ai: &crate::ai::Ai, task: &AiTask, source: &Source) -> Result<Handle, &
     let job = mareader_assist::PageJob {
         rewrite,
         pieces: source.pieces.clone(),
+        pages,
     };
     let off = "The AI service couldn't start. Restart the app to try again.";
     ai.rewrite(job).map(Handle::Live).ok_or(off)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn start(_: &crate::ai::Ai, _: &AiTask, _: &Source) -> Result<Handle, &'static str> {
+fn start(_: &crate::ai::Ai, _: &AiTask, _: &Source, _: usize) -> Result<Handle, &'static str> {
     Err("Page AI needs the desktop app.")
 }
 

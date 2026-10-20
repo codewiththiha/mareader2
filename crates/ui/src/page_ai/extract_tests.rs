@@ -103,3 +103,35 @@ fn a_pdf_page_breaks_at_gaps_and_indents() {
     let starts: Vec<bool> = pdf_lines(&rows).iter().map(|l| l.starts).collect();
     assert_eq!(starts, [true, false, true, false, true, true]);
 }
+
+#[test]
+fn pages_join_and_a_paragraph_cut_by_the_break_is_whole() {
+    let page = |texts: &[&str]| {
+        let mut s = Source::default();
+        for t in texts {
+            s.push(Piece::text(Role::Para, t), Origin::Loose);
+        }
+        s
+    };
+    let joined = join(vec![
+        (page(&["One.", "It goes on ac-"]), false),
+        (page(&["ross the break.", "Two."]), true),
+        (page(&["Three starts anew."]), false),
+    ]);
+    let texts: Vec<&str> = (joined.pieces.iter())
+        .filter_map(|p| match p {
+            Piece::Text { text, .. } => Some(text.as_str()),
+            Piece::Kept(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "One.",
+            "It goes on across the break.",
+            "Two.",
+            "Three starts anew."
+        ]
+    );
+    assert_eq!(joined.origins.len(), joined.pieces.len());
+}

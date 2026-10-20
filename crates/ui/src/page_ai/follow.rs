@@ -71,7 +71,7 @@ pub struct Around<'a> {
 }
 
 /// The pill's words for a task: what it does, and its verb.
-fn doing(task: &AiTask) -> (String, &'static str) {
+pub(super) fn doing(task: &AiTask) -> (String, &'static str) {
     match task {
         AiTask::Translate { language } => {
             let name = language_name(language).unwrap_or(language);
@@ -91,12 +91,12 @@ fn allowance(ai: &crate::ai::Ai, settings: &AiSettings, task: &AiTask) -> usize 
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn capacity(ai: &crate::ai::Ai, p: &ModelPreset) -> Option<u32> {
+pub(super) fn capacity(ai: &crate::ai::Ai, p: &ModelPreset) -> Option<u32> {
     ai.board().map(|b| b.capacity(p))
 }
 
 #[cfg(target_arch = "wasm32")]
-fn capacity(_: &crate::ai::Ai, _: &ModelPreset) -> Option<u32> {
+pub(super) fn capacity(_: &crate::ai::Ai, _: &ModelPreset) -> Option<u32> {
     None
 }
 
@@ -234,8 +234,9 @@ impl PageAi {
         self.follow(asked, main, task, false, now, out);
     }
 
-    /// Moves each continuous run along with its pane's reading.
-    pub fn tick(&mut self, ctx: &Context, a: &Around<'_>) {
+    /// Moves each continuous run along, and each pane's picked groups.
+    pub fn tick(&mut self, ctx: &Context, a: &Around<'_>, out: &mut Commands) {
+        self.drive(ctx, a, out);
         let now = ctx.input(|i| i.time);
         let panes: Vec<PaneId> = self.follows.keys().copied().collect();
         for pane in panes {
@@ -436,7 +437,7 @@ impl PageAi {
             settings: a.settings,
         };
         let task = f.task.clone();
-        if let Ok(id) = self.begin(&who, page, task, (source, span), None, now) {
+        if let Ok(id) = self.begin(&who, (page, page), task, (source, span), None, now) {
             f.runs.push(id);
         }
     }

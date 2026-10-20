@@ -74,11 +74,13 @@ impl Rewrite {
     }
 }
 
-/// A page and what to do with it.
+/// A page, or pages read as one, and what to do with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageJob {
     pub rewrite: Rewrite,
     pub pieces: Vec<Piece>,
+    /// How many pages the pieces come from; each brings its own room.
+    pub pages: usize,
 }
 
 /// An inline placeholder, what it stands for, and its piece.
@@ -132,7 +134,7 @@ impl PageJob {
 
     fn pack(&self) -> Packed {
         let mut p = Packed::default();
-        let mut room = PAGE_CHARS;
+        let mut room = PAGE_CHARS.saturating_mul(self.pages.max(1));
         let (mut codes, mut links) = (0, 0);
         for (index, piece) in self.pieces.iter().enumerate() {
             match piece {
@@ -250,19 +252,28 @@ nothing out. Write English even if the page is in another language. Give every p
 back with its number. "
                 .into(),
             Rewrite::Summarize(style) => {
-                let words = (self.packed.words / 4).clamp(40, 220);
+                let most = 220 + 110 * self.job.pages.clamp(1, 5).saturating_sub(1);
+                let words = (self.packed.words / 4).clamp(40, most);
                 let shape = match style {
                     SummaryStyle::Paragraphs => "in one to three short paragraphs",
                     SummaryStyle::Points => "as three to seven key points",
                 };
+                let what = match self.job.pages {
+                    0 | 1 => "the page",
+                    _ => "these pages as one passage",
+                };
                 format!(
-                    "Summarize the page {shape}, in about {words} words or fewer, in \
+                    "Summarize {what} {shape}, in about {words} words or fewer, in \
 the page's language. To show a [[k1]] item where it matters, give it as an entry \
 of its own. "
                 )
             }
         };
-        format!("{DATA}{rule}{JSON_ONLY}")
+        let many = match self.job.pages {
+            0 | 1 => String::new(),
+            n => format!("The text runs over {n} pages in a row; numbering spans them all. "),
+        };
+        format!("{DATA}{many}{rule}{JSON_ONLY}")
     }
 
     fn schema(&self) -> Value {

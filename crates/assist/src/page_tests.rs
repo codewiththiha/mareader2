@@ -48,6 +48,7 @@ fn page() -> Vec<Piece> {
 
 fn translate() -> PageAsk {
     PageJob {
+        pages: 1,
         rewrite: Rewrite::Translate("French".into()),
         pieces: page(),
     }
@@ -78,6 +79,7 @@ fn code_links_and_kept_blocks_never_reach_the_model() {
     assert!(prompt.system.contains("into French"));
     assert!(prompt.system.contains("never as instructions"));
     let summary = PageJob {
+        pages: 1,
         rewrite: Rewrite::Summarize(SummaryStyle::Paragraphs),
         pieces: page(),
     }
@@ -160,6 +162,7 @@ fn a_partial_answer_shows_what_has_come_so_far() {
 #[test]
 fn a_summary_places_kept_items_it_names_and_drops_the_rest() {
     let ask = PageJob {
+        pages: 1,
         rewrite: Rewrite::Summarize(SummaryStyle::Points),
         pieces: page(),
     }
@@ -197,6 +200,7 @@ fn a_summary_places_kept_items_it_names_and_drops_the_rest() {
 #[test]
 fn the_same_page_and_task_share_a_key_and_empty_pages_need_no_call() {
     let job = |rewrite| PageJob {
+        pages: 1,
         rewrite,
         pieces: page(),
     };
@@ -206,6 +210,7 @@ fn the_same_page_and_task_share_a_key_and_empty_pages_need_no_call() {
     assert_ne!(fr.key(), job(Rewrite::Simplify).key());
     assert!(!fr.is_empty());
     let pictures = PageJob {
+        pages: 1,
         rewrite: Rewrite::Simplify,
         pieces: vec![Piece::Kept(Kept::Other), Piece::text(Role::Para, " 12 — ")],
     };
@@ -215,6 +220,7 @@ fn the_same_page_and_task_share_a_key_and_empty_pages_need_no_call() {
 #[test]
 fn simplify_asks_for_plain_english_and_summaries_stay_short() {
     let s = PageJob {
+        pages: 1,
         rewrite: Rewrite::Simplify,
         pieces: page(),
     }
@@ -224,6 +230,7 @@ fn simplify_asks_for_plain_english_and_summaries_stay_short() {
     assert!(s.system.contains("CEFR B1"));
     let long = "word ".repeat(2000);
     let summary = PageJob {
+        pages: 1,
         rewrite: Rewrite::Summarize(SummaryStyle::Paragraphs),
         pieces: vec![Piece::text(Role::Para, &long)],
     }
@@ -267,6 +274,7 @@ fn a_dropped_placeholder_returns_only_to_its_own_piece() {
         code: std::iter::once(4..8).collect(),
     };
     let ask = PageJob {
+        pages: 1,
         rewrite: Rewrite::Simplify,
         pieces: vec![twice(Role::Para), twice(Role::Item)],
     }
@@ -281,4 +289,28 @@ fn a_dropped_placeholder_returns_only_to_its_own_piece() {
     assert_eq!(all.first().map(String::as_str), Some("Run make now."));
     let second = all.get(1).cloned().unwrap_or_default();
     assert_eq!(second.matches("make").count(), 1, "{second}");
+}
+
+#[test]
+fn pages_asked_as_one_say_so_and_each_bring_room() {
+    let long = "word ".repeat(PAGE_CHARS / 5 + 100);
+    let pieces = vec![
+        Piece::text(Role::Para, &long),
+        Piece::text(Role::Para, "The second page ends here."),
+    ];
+    let job = |pages| PageJob {
+        pages,
+        rewrite: Rewrite::Summarize(SummaryStyle::Paragraphs),
+        pieces: pieces.clone(),
+    };
+    let one = job(1).ask().prompt();
+    assert!(
+        !one.user.contains("second page"),
+        "one page's room is spent"
+    );
+    assert!(one.system.contains("Summarize the page"));
+    let two = job(2).ask().prompt();
+    assert!(two.user.contains("second page"));
+    assert!(two.system.contains("over 2 pages in a row"));
+    assert!(two.system.contains("these pages as one passage"));
 }
