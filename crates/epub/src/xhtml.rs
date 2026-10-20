@@ -1039,6 +1039,7 @@ impl State<'_> {
         Emphasis {
             italic: c.is_some_and(|c| c.italic),
             bold: weight >= 600 && weight > block_weight,
+            light: weight < 600 && block_weight >= 600,
             code: style.code,
             size: if sized {
                 (ratio * 100.0).round().clamp(1.0, 1000.0) as u16
@@ -3282,6 +3283,21 @@ mod tests {
             faces,
             Some(vec!["Georgia".to_owned(), "monospace".to_owned()])
         );
+    }
+
+    #[test]
+    fn a_headings_plain_words_stay_light_at_their_size() {
+        let b = read(
+            "<style>.t { font-weight: normal; font-size: 26px }\
+             .n { font-weight: normal; font-size: 94px }</style>\
+             <h2><span class='t'>Chapter</span> <span class='n'>2</span> The Pool</h2>",
+        );
+        let runs: Vec<(String, bool, u16)> = (spans(b.first()).into_iter())
+            .map(|(t, e)| (t.trim().to_owned(), e.light, e.size))
+            .collect();
+        // Against the heading's 24 px: 26 and 94 px.
+        let want = [("Chapter", true, 108), ("2", true, 392)];
+        assert_eq!(runs, want.map(|(t, l, s)| (t.to_owned(), l, s)), "{b:?}");
     }
 
     #[test]

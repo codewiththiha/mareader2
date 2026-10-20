@@ -25,6 +25,8 @@ impl Role {
 pub struct Emphasis {
     pub italic: bool,
     pub bold: bool,
+    /// Normal weight inside bolder text, as a heading's plain words.
+    pub light: bool,
     /// Inline code, set in the mono face.
     pub code: bool,
     /// Percent of the block's text size; 0 keeps it. Designed text only.
@@ -580,6 +582,7 @@ mod tests {
     const ITALIC: Emphasis = Emphasis {
         italic: true,
         bold: false,
+        light: false,
         code: false,
         size: 0,
         script: Script::Normal,
