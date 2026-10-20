@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Script, VAlign};
+use mareader_reflow::{Align, Case, Justify, Script, VAlign};
 
 use crate::href;
 
@@ -189,6 +189,18 @@ pub(crate) struct Decl {
     pub(crate) picture_size: Option<PictureSize>,
     pub(crate) picture_at: Option<[f32; 2]>,
     pub(crate) picture_repeat: Option<bool>,
+    /// A flex container laying its items in a column, not a row.
+    pub(crate) flex_column: Option<bool>,
+    pub(crate) justify: Option<Justify>,
+    pub(crate) align_items: Option<VAlign>,
+    pub(crate) align_self: Option<VAlign>,
+    pub(crate) wrap: Option<bool>,
+    pub(crate) gap: Option<Len>,
+    pub(crate) grow: Option<f32>,
+    pub(crate) basis: Option<Len>,
+    pub(crate) radius: Option<Len>,
+    /// A turn in degrees.
+    pub(crate) rotate: Option<f32>,
 }
 
 /// A colour's red, green and blue.
@@ -328,6 +340,39 @@ impl Decl {
                 let has = |w: &str| v.split_ascii_whitespace().any(|x| x == w);
                 self.decoration = Some((has("underline"), has("line-through")));
             }
+            "flex-direction" => self.flex_column = Some(v.starts_with("column")),
+            "flex-wrap" => self.wrap = Some(v.starts_with("wrap")),
+            "flex-flow" => {
+                for w in v.split_ascii_whitespace() {
+                    match w {
+                        "row" | "row-reverse" => self.flex_column = Some(false),
+                        "column" | "column-reverse" => self.flex_column = Some(true),
+                        "wrap" | "wrap-reverse" => self.wrap = Some(true),
+                        "nowrap" => self.wrap = Some(false),
+                        _ => {}
+                    }
+                }
+            }
+            "justify-content" => self.justify = justify(v).or(self.justify),
+            "align-items" => self.align_items = flex_align(v).or(self.align_items),
+            "align-self" => self.align_self = flex_align(v).or(self.align_self),
+            "gap" | "column-gap" | "grid-gap" | "grid-column-gap" => {
+                let last = v.split_ascii_whitespace().last().unwrap_or_default();
+                self.gap = len(last).or(self.gap);
+            }
+            "flex-grow" => self.grow = v.parse::<f32>().ok().or(self.grow),
+            "flex-basis" => self.basis = len(v).or(self.basis),
+            "flex" => self.flex(v),
+            "border-radius" => {
+                let first = v
+                    .split(['/', ' '])
+                    .find(|w| !w.is_empty())
+                    .unwrap_or_default();
+                self.radius = len(first).or(self.radius);
+            }
+            "transform" | "-webkit-transform" | "-ms-transform" => {
+                self.rotate = Some(rotation(v).unwrap_or(0.0));
+            }
             "page-break-before" | "break-before" => self.break_before = Some(page_break(v)),
             "page-break-after" | "break-after" => self.break_after = Some(page_break(v)),
             _ => self.side(name, v),
@@ -391,6 +436,25 @@ impl Decl {
         self.picture_size = Some(picture_size(&size).unwrap_or_default());
     }
 
+    /// The `flex` shorthand: grow, shrink and basis.
+    fn flex(&mut self, v: &str) {
+        let (grow, basis) = match v {
+            "none" => (0.0, None),
+            "auto" => (1.0, None),
+            "initial" => (0.0, None),
+            v => {
+                let words: Vec<&str> = v.split_ascii_whitespace().collect();
+                let grow = words.first().and_then(|w| w.parse::<f32>().ok());
+                let basis = words.iter().skip(1).find_map(|w| len(w));
+                // `flex: 1` sets a zero basis; growth shares the row.
+                let basis = basis.or(grow.map(|_| Len::Px(0.0)));
+                (grow.unwrap_or(0.0), basis)
+            }
+        };
+        self.grow = Some(grow);
+        self.basis = basis.or(self.basis);
+    }
+
     /// Resolves its background picture against `path`, where it was read.
     pub(crate) fn resolve(&mut self, path: &str) {
         if let Some(Some(raw)) = &self.picture {
@@ -441,7 +505,8 @@ impl Decl {
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
             break_before, break_after, valign, script, small_caps, transform, decoration,
-            fill, picture, picture_size, picture_at, picture_repeat;
+            fill, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
+            align_items, align_self, wrap, gap, grow, basis, radius, rotate;
             margin, padding, border_width, border_style);
     }
 
@@ -594,6 +659,47 @@ fn border_style(v: &str) -> Option<BorderStyle> {
 /// No paint: `transparent`, `none` or a fully clear colour.
 fn clear(v: &str) -> bool {
     matches!(v, "transparent" | "none" | "initial") || v.replace(' ', "").ends_with(",0)")
+}
+
+/// `justify-content`.
+fn justify(v: &str) -> Option<Justify> {
+    let v = v.trim_start_matches("safe ").trim_start_matches("unsafe ");
+    match v {
+        "flex-start" | "start" | "left" | "normal" | "stretch" => Some(Justify::Start),
+        "center" => Some(Justify::Center),
+        "flex-end" | "end" | "right" => Some(Justify::End),
+        "space-between" => Some(Justify::Between),
+        "space-around" => Some(Justify::Around),
+        "space-evenly" => Some(Justify::Evenly),
+        _ => None,
+    }
+}
+
+/// `align-items` and `align-self` as a cell's vertical place.
+fn flex_align(v: &str) -> Option<VAlign> {
+    match v {
+        "center" => Some(VAlign::Middle),
+        "flex-end" | "end" | "self-end" => Some(VAlign::Bottom),
+        "flex-start" | "start" | "self-start" | "stretch" | "normal" | "baseline" => {
+            Some(VAlign::Top)
+        }
+        _ => None,
+    }
+}
+
+/// The turn a `transform` makes, in degrees, from its `rotate()`.
+fn rotation(v: &str) -> Option<f32> {
+    let start = v.find("rotate(").or_else(|| v.find("rotatez("))?;
+    let inner = v.get(start..)?;
+    let inner = inner.get(inner.find('(')? + 1..)?;
+    let inner = inner.get(..inner.find(')')?)?.trim();
+    let number = |unit: &str| inner.strip_suffix(unit)?.trim().parse::<f32>().ok();
+    let degrees = number("deg")
+        .or_else(|| number("grad").map(|g| g * 0.9))
+        .or_else(|| number("rad").map(f32::to_degrees))
+        .or_else(|| number("turn").map(|t| t * 360.0))
+        .or_else(|| (inner == "0").then_some(0.0))?;
+    degrees.is_finite().then_some(degrees % 360.0)
 }
 
 /// Whether a page break is asked for, before or after.
@@ -1515,6 +1621,18 @@ pub(crate) struct Computed {
     pub(crate) picture_size: PictureSize,
     pub(crate) picture_at: [f32; 2],
     pub(crate) picture_repeat: bool,
+    pub(crate) flex_column: bool,
+    pub(crate) justify: Justify,
+    pub(crate) align_items: Option<VAlign>,
+    pub(crate) align_self: Option<VAlign>,
+    pub(crate) wrap: bool,
+    /// Px.
+    pub(crate) gap: f32,
+    pub(crate) grow: f32,
+    pub(crate) basis: Len,
+    /// Px, or a percentage of the box's width.
+    pub(crate) radius: Len,
+    pub(crate) rotate: f32,
     // Inherited.
     pub(crate) small_caps: bool,
     pub(crate) transform: Case,
@@ -1552,6 +1670,16 @@ impl Default for Computed {
             picture_size: PictureSize::Auto,
             picture_at: [0.0; 2],
             picture_repeat: true,
+            flex_column: false,
+            justify: Justify::Start,
+            align_items: None,
+            align_self: None,
+            wrap: false,
+            gap: 0.0,
+            grow: 0.0,
+            basis: Len::Auto,
+            radius: Len::Px(0.0),
+            rotate: 0.0,
             small_caps: false,
             transform: Case::Normal,
         }
@@ -1628,6 +1756,16 @@ impl Computed {
             picture_size: d.picture_size.unwrap_or_default(),
             picture_at: d.picture_at.unwrap_or([0.0; 2]),
             picture_repeat: d.picture_repeat.unwrap_or(true),
+            flex_column: d.flex_column.unwrap_or(false),
+            justify: d.justify.unwrap_or_default(),
+            align_items: d.align_items,
+            align_self: d.align_self,
+            wrap: d.wrap.unwrap_or(false),
+            gap: d.gap.map_or(0.0, |l| px(Some(l)).max(0.0)),
+            grow: d.grow.unwrap_or(0.0).max(0.0),
+            basis: d.basis.map_or(Len::Auto, |l| l.computed(size)),
+            radius: d.radius.map_or(Len::Px(0.0), |l| l.computed(size)),
+            rotate: d.rotate.unwrap_or(0.0),
             small_caps: d.small_caps.unwrap_or(self.small_caps),
             transform: d.transform.unwrap_or(self.transform),
         }

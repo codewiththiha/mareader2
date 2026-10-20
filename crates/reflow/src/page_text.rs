@@ -79,35 +79,55 @@ impl Flow {
 
     /// The picture drawn at a point of page `page`, in page units.
     pub fn picture_at(&self, page: usize, x: f32, y: f32) -> Option<Arc<Picture>> {
-        let left = self.column(page).0;
-        let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
-        pieces.iter().find_map(|piece| {
-            let set = self.blocks.get(piece.block)?;
-            let Draw::Image { rect, picture } = &set.draw else {
-                return None;
-            };
-            let [px, py, w, h] = *rect;
-            let (x0, y0) = (left + set.x + px, PAD + piece.dy + py);
+        let shown = self.shown(page).into_iter();
+        shown.rev().find_map(|([x0, y0, w, h], picture)| {
             let inside = (x0..=x0 + w).contains(&x) && (y0..=y0 + h).contains(&y);
-            inside.then(|| Arc::clone(picture))
+            inside.then_some(picture)
         })
     }
 
     /// Page `page`'s pictures: left, top, width, height in page units.
     pub fn pictures(&self, page: usize) -> Vec<[f32; 4]> {
+        self.shown(page).into_iter().map(|(rect, _)| rect).collect()
+    }
+
+    /// Page `page`'s pictures where drawn, those in lines of text too.
+    fn shown(&self, page: usize) -> Vec<([f32; 4], Arc<Picture>)> {
         let left = self.column(page).0;
         let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
-        pieces
+        let mut out: Vec<([f32; 4], Arc<Picture>)> = pieces
             .iter()
             .filter_map(|piece| {
                 let set = self.blocks.get(piece.block)?;
-                let Draw::Image { rect, .. } = &set.draw else {
+                let Draw::Image { rect, picture } = &set.draw else {
                     return None;
                 };
                 let [x, y, w, h] = *rect;
-                Some([left + set.x + x, PAD + piece.dy + y, w, h])
+                Some((
+                    [left + set.x + x, PAD + piece.dy + y, w, h],
+                    Arc::clone(picture),
+                ))
             })
-            .collect()
+            .collect();
+        self.each_para(page, |para, range, ((x, y), _)| {
+            if para.pictures.is_empty() {
+                return;
+            }
+            for line in range.filter_map(|n| para.layout.get(n)) {
+                for item in line.items() {
+                    let PositionedLayoutItem::InlineBox(b) = item else {
+                        continue;
+                    };
+                    let picture = usize::try_from(b.id)
+                        .ok()
+                        .and_then(|i| para.pictures.get(i));
+                    if let Some(picture) = picture {
+                        out.push(([x + b.x, y + b.y, b.width, b.height], Arc::clone(picture)));
+                    }
+                }
+            }
+        });
+        out
     }
 }
 

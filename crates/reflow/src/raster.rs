@@ -3,10 +3,10 @@ use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use parley::{GlyphRun, Layout, PositionedLayoutItem};
+use parley::{GlyphRun, Layout, PositionedInlineBox, PositionedLayoutItem};
 use skrifa::{FontRef, MetadataProvider};
 use vello_cpu::color::{AlphaColor, Srgb};
-use vello_cpu::kurbo::{Affine, Rect};
+use vello_cpu::kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Stroke};
 use vello_cpu::peniko::{ImageAlphaType, ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
@@ -169,6 +169,30 @@ impl Painter {
 
     /// Draws `piece` if in view; `laid` gives its layouts only then.
     fn piece(&mut self, set: &Set, piece: &Piece, decoded: &Decoded, laid: impl Fn() -> Arc<Laid>) {
+        if set.rotate == 0.0 || !set.rotate.is_finite() {
+            return self.unturned(set, piece, decoded, laid);
+        }
+        // A turn is drawn about the piece's middle; it takes no room.
+        let units = piece.units.clone();
+        let top = set.units.get(units.start).map_or(0.0, |u| u.0) + piece.dy;
+        let middle = Point::new(
+            f64::from(set.x + set.width / 2.0),
+            f64::from(top + span_height(set, units) / 2.0),
+        );
+        let view = self.view;
+        let turn = f64::from(set.rotate).to_radians();
+        self.view = view * Affine::rotate_about(turn, middle);
+        self.unturned(set, piece, decoded, laid);
+        self.view = view;
+    }
+
+    fn unturned(
+        &mut self,
+        set: &Set,
+        piece: &Piece,
+        decoded: &Decoded,
+        laid: impl Fn() -> Arc<Laid>,
+    ) {
         let units = piece.units.clone();
         let top = set.units.get(units.start).map_or(0.0, |u| u.0) + piece.dy;
         let height = span_height(set, units.clone());
@@ -195,6 +219,7 @@ impl Painter {
                     self.marker(&para.layout, marker, x, piece.dy);
                 }
                 self.lines(para, units, x, piece.dy);
+                self.inlines(para, piece.units.clone(), (x, piece.dy), decoded);
             }
             Draw::Rule => {
                 let y = top + height / 2.0 - 0.5;
@@ -219,6 +244,10 @@ impl Painter {
         if !self.visible(y - 8.0, y + h + 8.0) {
             return;
         }
+        let radius = deco.radius.min(w / 2.0).min(h / 2.0);
+        if radius >= 0.5 {
+            return self.rounded(deco, radius, decoded);
+        }
         if let Some(alpha) = deco.fill {
             self.fill(BODY.with_alpha(alpha.clamp(0.0, 1.0)), x, y, w, h);
         }
@@ -231,6 +260,70 @@ impl Painter {
         self.edge(eb, [x, y + h - bottom, w, bottom], true);
         self.edge(el, [x, y, left, h], false);
         self.edge(er, [x + w - right, y, right, h], false);
+    }
+
+    /// A box with round corners: its ground, picture and borders.
+    fn rounded(&mut self, deco: &Deco, radius: f32, decoded: &Decoded) {
+        let [x, y, w, h] = deco.rect;
+        let shape = |inset: f32| {
+            let r = f64::from((radius - inset).max(0.0));
+            let (l, t) = (f64::from(x + inset), f64::from(y + inset));
+            let (rr, b) = (f64::from(x + w - inset), f64::from(y + h - inset));
+            RoundedRect::new(l, t, rr.max(l), b.max(t), r).to_path(0.1)
+        };
+        self.ctx.set_transform(self.view);
+        if let Some(alpha) = deco.fill {
+            self.ctx.set_paint(BODY.with_alpha(alpha.clamp(0.0, 1.0)));
+            self.ctx.fill_path(&shape(0.0));
+        }
+        if let Some(backdrop) = &deco.backdrop {
+            self.ctx.push_clip_layer(&shape(0.0));
+            self.backdrop(backdrop, deco.em, deco.rect, decoded);
+            self.ctx.set_transform(self.view);
+            self.ctx.pop_layer();
+        }
+        let first = deco.edges[0];
+        let same = deco.edges.iter().all(|e| *e == first);
+        if !same {
+            // Mixed sides keep square corners.
+            let [top, right, bottom, left] = deco.border;
+            let [et, er, eb, el] = deco.edges;
+            self.edge(et, [x, y, w, top], true);
+            self.edge(eb, [x, y + h - bottom, w, bottom], true);
+            self.edge(el, [x, y, left, h], false);
+            self.edge(er, [x + w - right, y, right, h], false);
+            return;
+        }
+        let least = 1.0 / self.scale.max(0.01);
+        let thick = deco.border.iter().fold(0.0f32, |a, b| a.max(*b)).max(least);
+        let line = |inset: f32, width: f32, dashes: Option<[f64; 2]>| {
+            let stroke = Stroke::new(f64::from(width));
+            let stroke = match dashes {
+                Some(d) => stroke.with_dashes(0.0, d),
+                None => stroke,
+            };
+            (shape(inset), stroke)
+        };
+        let t = f64::from(thick);
+        let strokes: Vec<(BezPath, Stroke)> = match first {
+            Edge::None => Vec::new(),
+            Edge::Double if thick * self.scale >= 3.0 => {
+                let third = thick / 3.0;
+                vec![
+                    line(third / 2.0, third, None),
+                    line(thick - third / 2.0, third, None),
+                ]
+            }
+            Edge::Solid | Edge::Double => vec![line(thick / 2.0, thick, None)],
+            Edge::Dashed => vec![line(thick / 2.0, thick, Some([t * 3.0, t * 2.0]))],
+            Edge::Dotted => vec![line(thick / 2.0, thick, Some([t, t]))],
+        };
+        self.ctx.set_transform(self.view);
+        self.ctx.set_paint(BODY);
+        for (path, stroke) in strokes {
+            self.ctx.set_stroke(stroke);
+            self.ctx.stroke_path(&path);
+        }
     }
 
     /// A background picture in `rect`, sized and placed as the book asks.
@@ -360,6 +453,35 @@ impl Painter {
                         false => self.fill(BODY, x, y + at, w, run),
                     }
                 }
+            }
+        }
+    }
+
+    /// The pictures in lines `lines` of `para`, its origin at `x, dy`.
+    fn inlines(
+        &mut self,
+        para: &Para,
+        lines: Range<usize>,
+        (x, dy): (f32, f32),
+        decoded: &Decoded,
+    ) {
+        if para.pictures.is_empty() {
+            return;
+        }
+        let boxes: Vec<PositionedInlineBox> = lines
+            .filter_map(|l| para.layout.get(l))
+            .flat_map(|line| line.items().collect::<Vec<_>>())
+            .filter_map(|item| match item {
+                PositionedLayoutItem::InlineBox(b) => Some(b),
+                PositionedLayoutItem::GlyphRun(_) => None,
+            })
+            .collect();
+        for b in boxes {
+            let picture = usize::try_from(b.id)
+                .ok()
+                .and_then(|i| para.pictures.get(i));
+            if let Some(picture) = picture {
+                self.image(picture, decoded, x + b.x, dy + b.y, b.width, b.height);
             }
         }
     }
