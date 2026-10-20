@@ -151,6 +151,8 @@ pub enum Content {
         width: Option<Length>,
     },
     Table(Table),
+    /// Blank height in body ems; only its boxes draw, as a book's rules.
+    Space(f32),
 }
 
 /// A picture's width as a book sets it.
@@ -207,6 +209,62 @@ impl Default for Look {
     }
 }
 
+/// A border's line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Edge {
+    #[default]
+    None,
+    Solid,
+    Double,
+    Dashed,
+    Dotted,
+}
+
+/// A book's box around blocks, in body ems; sides go top, right, bottom, left.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Boxed {
+    /// Left and right margins; none is auto, which centres a set width.
+    pub margin: [Option<Length>; 2],
+    pub border: [f32; 4],
+    pub edges: [Edge; 4],
+    pub padding: [f32; 4],
+    /// The content's width; none fills what holds it.
+    pub width: Option<Length>,
+    /// From the top border to its first block, and its last to the bottom.
+    pub top: f32,
+    pub bottom: f32,
+    /// A share of the page's height its content is centred in.
+    pub centre: Option<f32>,
+}
+
+/// Where a cell's content sits in a taller row.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum VAlign {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
+}
+
+/// A row of a book's layout grid: its cells' widths and alignment.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GridRow {
+    /// Each cell's width as set; none shares what is left.
+    pub widths: Vec<Option<Length>>,
+    pub valign: Vec<VAlign>,
+    /// The space above the row, in body ems.
+    pub before: f32,
+}
+
+/// A block's place in a grid row; the row's blocks sit side by side.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cell {
+    pub row: Arc<GridRow>,
+    pub column: u16,
+    /// How many of the frame's boxes hold the grid; the rest are the cell's.
+    pub depth: u8,
+}
+
 /// Where a block sits: nesting from lists and quotes, and alignment.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frame {
@@ -225,6 +283,10 @@ pub struct Frame {
     pub look: Option<Arc<Look>>,
     /// With a look: the space above, in body ems, margins collapsed.
     pub before: f32,
+    /// With a look: the boxes around it, outermost first.
+    pub boxes: Vec<Arc<Boxed>>,
+    /// With a look: its place in a grid row.
+    pub cell: Option<Cell>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -320,7 +382,7 @@ impl Block {
         match &self.content {
             Content::Text(t) => t.is_blank(),
             Content::Table(t) => t.rows.iter().all(|r| r.cells.iter().all(Text::is_blank)),
-            Content::Rule | Content::Image { .. } => false,
+            Content::Rule | Content::Image { .. } | Content::Space(_) => false,
         }
     }
 
@@ -334,7 +396,7 @@ impl Block {
         match &self.content {
             Content::Text(t) => cost(t),
             Content::Table(t) => t.rows.iter().flat_map(|r| &r.cells).map(cost).sum(),
-            Content::Rule | Content::Image { .. } => 0,
+            Content::Rule | Content::Image { .. } | Content::Space(_) => 0,
         }
     }
 }

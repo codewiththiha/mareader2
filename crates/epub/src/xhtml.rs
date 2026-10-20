@@ -10,18 +10,21 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Block, Content, Emphasis, Frame, Length, Look, Picture, Role, Row, Table, Text,
+    Align, Anchor, Block, Boxed, Cell, Content, Edge, Emphasis, Frame, GridRow, Length, Look,
+    Picture, Role, Row, Table, Text, VAlign,
 };
 
 use crate::css::{
-    self, Computed, Ctx, Decl, Display, El, FontFace, Len, Line, MAX_SHEET, ROOT_PX, Stylesheet,
-    TextAlign,
+    self, BorderStyle, Computed, Ctx, Decl, Display, El, FontFace, Len, Line, MAX_SHEET, ROOT_PX,
+    Stylesheet, TextAlign,
 };
 use crate::href;
 
 /// Open elements tracked at once; deeper nesting is read as flat.
 pub const MAX_DEPTH: usize = 256;
 const MAX_COLUMNS: usize = 32;
+/// The most rows a one-column table may have and still read as a box.
+const MAX_BOX_ROWS: usize = 8;
 const MAX_BARS: usize = 8;
 const MAX_CLASSES: usize = 16;
 const MAX_ATTRS: usize = 16;
@@ -133,6 +136,50 @@ struct Open {
     counter: u32,
     /// Its `path#id`, first block and whether it is a note.
     extent: Option<(String, usize, bool)>,
+    /// It opened a box in [`State::boxes`].
+    boxed: bool,
+    /// Its part in the layout grid being read.
+    part: Part,
+}
+
+/// An element's part in a layout grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    None,
+    Table,
+    Row,
+    Cell,
+}
+
+/// A book's box open around what is read (`docs/epub-layout.md`).
+struct BoxOpen {
+    spec: Boxed,
+    /// Made at its first block; every block in it shares it.
+    arc: Option<Arc<Boxed>>,
+    /// The space waiting above its top border.
+    gap: Gap,
+    /// Its first block in [`State::blocks`].
+    first: usize,
+}
+
+/// The outermost layout table being read; nested ones read flat.
+struct GridBuild {
+    /// Its place in [`State::stack`].
+    depth: usize,
+    row: Option<RowBuild>,
+}
+
+/// A grid row being read; its blocks hold a placeholder till it ends.
+struct RowBuild {
+    widths: Vec<Option<Length>>,
+    valign: Vec<VAlign>,
+    before: f32,
+    placeholder: Arc<GridRow>,
+    /// Its first block in [`State::blocks`].
+    first: usize,
+    /// The cell being read, and how many boxes hold the grid.
+    column: Option<u16>,
+    boxes: u8,
 }
 
 fn is_void(name: &str) -> bool {
@@ -311,6 +358,9 @@ struct State<'a> {
     /// Looks made in this chapter; the next equal one is shared.
     looks: Vec<Arc<Look>>,
     signals: Signals,
+    /// The book's boxes open around what is read, outermost first.
+    boxes: Vec<BoxOpen>,
+    grid: Option<GridBuild>,
 }
 
 /// Vertical space waiting for the next block, in px: margins collapse.
@@ -337,9 +387,13 @@ impl Gap {
     }
 
     fn take(&mut self) -> f32 {
-        let total = self.fixed + self.positive + self.negative;
+        let total = self.total();
         *self = Self::default();
         total
+    }
+
+    fn total(&self) -> f32 {
+        self.fixed + self.positive + self.negative
     }
 }
 
@@ -389,8 +443,194 @@ impl State<'_> {
         f.align = self.top().align;
         f.tight = self.in_list() && !std::mem::take(&mut self.list_opened);
         f.look = Some(self.look());
+        f.boxes = self.box_arcs();
+        f.cell = self.cell();
         f.before = self.gap.take() / ROOT_PX;
         f
+    }
+
+    /// The open boxes, each made at its first block with its top inside.
+    fn box_arcs(&mut self) -> Vec<Arc<Boxed>> {
+        let (total, first) = (self.gap.total(), self.blocks.len());
+        let mut arcs = Vec::with_capacity(self.boxes.len());
+        for b in &mut self.boxes {
+            if b.arc.is_none() {
+                let mut spec = b.spec.clone();
+                if spec.border[0] + spec.padding[0] > 0.0 {
+                    spec.top = (total - b.gap.total()).max(0.0) / ROOT_PX;
+                }
+                (b.arc, b.first) = (Some(Arc::new(spec)), first);
+            }
+            arcs.extend(b.arc.clone());
+        }
+        arcs
+    }
+
+    /// The grid cell being read, if any.
+    fn cell(&self) -> Option<Cell> {
+        let row = self.grid.as_ref()?.row.as_ref()?;
+        Some(Cell {
+            row: Arc::clone(&row.placeholder),
+            column: row.column?,
+            depth: row.boxes,
+        })
+    }
+
+    /// Whether the table `tag` starting now only lays things out.
+    fn lays_out(&self, tag: &Tag) -> bool {
+        let scanned = self.layouts.get(self.tables).copied().unwrap_or(false);
+        self.table.is_none() && (scanned || typed(tag, "role", &["presentation", "none"]))
+    }
+
+    /// Starts `name`'s part in the layout grid, if it has one.
+    fn grid_start(&mut self, name: &str, tag: &Tag, c: &Computed) -> Part {
+        if name == "table" {
+            if self.grid.is_some() || tag.self_closing || !self.lays_out(tag) {
+                return Part::None;
+            }
+            let depth = self.stack.len();
+            self.grid = Some(GridBuild { depth, row: None });
+            return Part::Table;
+        }
+        // Only the grid's own rows and cells, not a nested table's.
+        let table = self.stack.iter().rposition(|o| o.name == "table");
+        if self.grid.as_ref().is_none_or(|g| Some(g.depth) != table) {
+            return Part::None;
+        }
+        match name {
+            "tr" => {
+                self.end_row();
+                let row = RowBuild::new(self.blocks.len());
+                if let Some(grid) = self.grid.as_mut() {
+                    grid.row = Some(row);
+                }
+                Part::Row
+            }
+            "td" | "th" => {
+                let tr = self.stack.iter().rev().find(|o| o.name == "tr");
+                let valign = c.valign.or(tr.and_then(|o| o.computed.valign));
+                let fresh = self.grid.as_ref().and_then(|g| g.row.as_ref());
+                let fresh = fresh.is_none_or(|r| r.widths.is_empty());
+                // The first cell takes the space above the row.
+                let before = match fresh {
+                    true => {
+                        self.box_arcs();
+                        self.gap.take() / ROOT_PX
+                    }
+                    false => std::mem::take(&mut self.gap).total() / ROOT_PX,
+                };
+                let (first, boxes) = (self.blocks.len(), self.boxes.len());
+                let Some(grid) = self.grid.as_mut() else {
+                    return Part::None;
+                };
+                let row = grid.row.get_or_insert_with(|| RowBuild::new(first));
+                if fresh {
+                    row.before = before;
+                }
+                if row.widths.len() < MAX_COLUMNS {
+                    row.widths.push(cell_width(c));
+                    row.valign.push(valign.unwrap_or_default());
+                }
+                let column = row.widths.len().saturating_sub(1);
+                row.column = u16::try_from(column).ok();
+                row.boxes = u8::try_from(boxes).unwrap_or(u8::MAX);
+                Part::Cell
+            }
+            _ => Part::None,
+        }
+    }
+
+    /// Ends a grid cell: what follows is outside it.
+    fn end_cell(&mut self) {
+        self.gap = Gap::default();
+        if let Some(row) = self.grid.as_mut().and_then(|g| g.row.as_mut()) {
+            row.column = None;
+        }
+    }
+
+    /// Ends the grid row, giving its blocks the row they share.
+    fn end_row(&mut self) {
+        let Some(row) = self.grid.as_mut().and_then(|g| g.row.take()) else {
+            return;
+        };
+        let real = Arc::new(GridRow {
+            widths: row.widths,
+            valign: row.valign,
+            before: row.before,
+        });
+        for block in self.blocks.iter_mut().skip(row.first) {
+            if let Some(cell) = block.frame.cell.as_mut()
+                && Arc::ptr_eq(&cell.row, &row.placeholder)
+            {
+                cell.row = Arc::clone(&real);
+            }
+        }
+        self.gap = Gap::default();
+    }
+
+    /// Opens `name`'s space above, as a box if it draws or sits apart.
+    fn open_block(&mut self, tag: &Tag, (c, d): (&Computed, &Decl), part: Part) -> bool {
+        let cell = part == Part::Cell;
+        if !cell {
+            self.gap.margin(c.margin_px(0));
+        }
+        let name: &str = &tag.name;
+        // A table of data draws its own grid, not a box.
+        let layout = name != "table" || self.lays_out(tag);
+        let spec = layout.then(|| boxed(name, c, d, cell)).flatten();
+        let snapshot = self.gap;
+        let inside = c.border[0] + c.padding[0];
+        if inside > 0.0 {
+            self.gap.fixed(inside);
+        }
+        let Some(spec) = spec else {
+            return false;
+        };
+        self.boxes.push(BoxOpen {
+            spec,
+            arc: None,
+            gap: snapshot,
+            first: self.blocks.len(),
+        });
+        true
+    }
+
+    /// Closes the innermost box, giving its blocks its bottom inside.
+    fn close_box(&mut self, c: &Computed) {
+        let Some(open) = self.boxes.pop() else {
+            return self.space_below(c);
+        };
+        let inside = c.border[2] + c.padding[2];
+        let edged = open.spec.border.iter().any(|w| *w > 0.0);
+        match &open.arc {
+            Some(arc) if inside > 0.0 => {
+                self.gap.fixed(inside);
+                let mut spec = (**arc).clone();
+                spec.bottom = self.gap.total() / ROOT_PX;
+                let spec = Arc::new(spec);
+                for block in self.blocks.iter_mut().skip(open.first) {
+                    for b in &mut block.frame.boxes {
+                        if Arc::ptr_eq(b, arc) {
+                            *b = Arc::clone(&spec);
+                        }
+                    }
+                }
+            }
+            Some(_) => {}
+            // An empty bordered box, a book's rule: a blank block of it.
+            None if edged => {
+                let height = (self.gap.total() - open.gap.total() + inside) / ROOT_PX;
+                self.gap = open.gap;
+                self.boxes.push(open);
+                let mut block = Block::new(Content::Space(height.max(0.0)));
+                block.frame = self.frame();
+                self.boxes.pop();
+                self.emit(block);
+            }
+            None if inside > 0.0 => self.gap.fixed(inside),
+            None => {}
+        }
+        self.gap.margin(c.margin_px(2));
     }
 
     /// The computed style of the innermost open block element.
@@ -1077,9 +1317,11 @@ impl State<'_> {
                 let key = format!("{}#{}", self.base, id.trim());
                 extent = Some((key, self.first + self.blocks.len(), is_note(tag)));
             }
-            if shown && self.table.is_none() {
-                self.space_above(&computed);
-            }
+        }
+        let (mut boxed, mut part) = (false, Part::None);
+        if is_block(name) && shown && self.table.is_none() {
+            part = self.grid_start(name, tag, &computed);
+            boxed = self.open_block(tag, (&computed, &declared), part);
         }
         if matches!(
             name,
@@ -1089,7 +1331,12 @@ impl State<'_> {
         }
         if is_void(name) || tag.self_closing || self.stack.len() >= MAX_DEPTH {
             if shown && is_block(name) && self.table.is_none() {
-                self.space_below(&computed);
+                self.finish();
+                match boxed {
+                    true => self.close_box(&computed),
+                    false => self.space_below(&computed),
+                }
+                self.end_part(part);
             }
             return false;
         }
@@ -1122,6 +1369,8 @@ impl State<'_> {
             types: Vec::new(),
             counter,
             extent,
+            boxed,
+            part,
         });
         if name == "style" {
             self.style_text.clear();
@@ -1151,21 +1400,38 @@ impl State<'_> {
     /// Pops the open elements from `at`, ending their extents.
     fn close_from(&mut self, at: usize) {
         // A block about to close may still be open text; it counts.
-        let ends = self.stack.iter().skip(at).any(|o| o.extent.is_some());
-        if ends && self.table.is_none() {
+        let ends = |o: &Open| o.extent.is_some() || o.boxed || o.part != Part::None;
+        if self.stack.iter().skip(at).any(ends) && self.table.is_none() {
             self.finish();
         }
         let end = self.first + self.blocks.len();
         let closed: Vec<Open> = self.stack.drain(at..).collect();
         for open in closed.iter().rev() {
             if is_block(&open.name) && !open.style.hidden && self.table.is_none() {
-                self.space_below(&open.computed);
+                match open.boxed {
+                    true => self.close_box(&open.computed),
+                    false => self.space_below(&open.computed),
+                }
+                self.end_part(open.part);
             }
         }
         for (key, start, note) in closed.into_iter().filter_map(|o| o.extent) {
             if end > start && self.refs.extents.len() < MAX_PLACES {
                 let blocks = start..end;
                 self.refs.extents.insert(key, Extent { blocks, note });
+            }
+        }
+    }
+
+    /// Ends an element's part in the layout grid.
+    fn end_part(&mut self, part: Part) {
+        match part {
+            Part::None => {}
+            Part::Cell => self.end_cell(),
+            Part::Row => self.end_row(),
+            Part::Table => {
+                self.end_row();
+                self.grid = None;
             }
         }
     }
@@ -1228,6 +1494,81 @@ impl State<'_> {
     }
 }
 
+/// The box `name` draws or sits in; a cell's column sets its width.
+fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
+    if matches!(name, "tr" | "thead" | "tbody" | "tfoot" | "caption" | "hr") {
+        return None;
+    }
+    let edges = c.border_style.map(|s| match s {
+        BorderStyle::None => Edge::None,
+        BorderStyle::Solid => Edge::Solid,
+        BorderStyle::Double => Edge::Double,
+        BorderStyle::Dashed => Edge::Dashed,
+        BorderStyle::Dotted => Edge::Dotted,
+    });
+    let mut border = c.border.map(|w| w.max(0.0) / ROOT_PX);
+    for (w, e) in border.iter_mut().zip(&edges) {
+        if *e == Edge::None {
+            *w = 0.0;
+        }
+    }
+    let side = |i: usize| match c.margin.get(i).copied().unwrap_or(Len::Auto) {
+        Len::Auto => None,
+        Len::Percent(p) | Len::Vw(p) => Some(Length::Percent(p)),
+        _ => Some(Length::Em(c.margin_px(i) / ROOT_PX)),
+    };
+    let zero = Some(Length::Em(0.0));
+    let margin = if cell { [zero; 2] } else { [side(3), side(1)] };
+    let width = match c.width {
+        _ if cell => None,
+        Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
+        Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        _ => None,
+    };
+    let flex = matches!(c.display, Display::Flex | Display::Grid);
+    let centre = match d.height {
+        Some(Len::Vh(v)) if flex && v > 0.0 => Some((v / 100.0).min(1.0)),
+        _ => None,
+    };
+    let padding = c.padding.map(|p| p.max(0.0) / ROOT_PX);
+    let flat = margin.iter().all(|m| m.is_none() || *m == zero);
+    let drawn = border.iter().any(|w| *w > 0.0);
+    let apart = padding[1] > 0.0 || padding[3] > 0.0 || width.is_some() || centre.is_some();
+    (drawn || apart || !flat).then_some(Boxed {
+        margin,
+        border,
+        edges,
+        padding,
+        width,
+        top: 0.0,
+        bottom: 0.0,
+        centre,
+    })
+}
+
+/// A grid cell's width as the book sets it.
+fn cell_width(c: &Computed) -> Option<Length> {
+    match c.width {
+        Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
+        Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        _ => None,
+    }
+}
+
+impl RowBuild {
+    fn new(first: usize) -> Self {
+        Self {
+            widths: Vec::new(),
+            valign: Vec::new(),
+            before: 0.0,
+            placeholder: Arc::new(GridRow::default()),
+            first,
+            column: None,
+            boxes: 0,
+        }
+    }
+}
+
 /// An image's width as the book sets it, in reader ems or percent.
 fn picture_width(c: &Computed) -> Option<Length> {
     match c.width {
@@ -1254,6 +1595,9 @@ fn hints(tag: &Tag, name: &str) -> Decl {
     }
     if attr(tag, "bgcolor").is_some() {
         d.background = Some(true);
+    }
+    if let Some(v) = attr(tag, "valign").filter(|_| matches!(name, "td" | "th" | "tr")) {
+        d.valign = Decl::parse(&format!("vertical-align: {}", v.trim())).valign;
     }
     d
 }
@@ -1296,7 +1640,9 @@ impl Scanned {
         let filled = |i: usize| self.rows.iter().any(|r| r.get(i) == Some(&true));
         let full = (0..columns).filter(|&i| filled(i)).count();
         let spacer = full >= 2 && full < columns;
-        self.pictured || (!self.data && self.blocks && spacer)
+        // A single column of blocks is a box, as a framed note.
+        let boxed = columns == 1 && self.rows.len() <= MAX_BOX_ROWS;
+        self.pictured || (!self.data && self.blocks && (spacer || boxed))
     }
 
     fn fill(&mut self) {
@@ -1491,6 +1837,8 @@ pub(crate) fn read_chapter(
         block_line: ROOT_PX * 1.2,
         looks: Vec::new(),
         signals: Signals::default(),
+        boxes: Vec::new(),
+        grid: None,
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -1765,6 +2113,7 @@ mod tests {
             .map(|b| match &b.content {
                 Content::Text(_) => "text",
                 Content::Rule => "rule",
+                Content::Space(_) => "space",
                 Content::Image { .. } => "image",
                 Content::Table(_) => "table",
             })
@@ -1783,6 +2132,7 @@ mod tests {
             .map(|b| match &b.content {
                 Content::Text(_) => "text",
                 Content::Rule => "rule",
+                Content::Space(_) => "space",
                 Content::Image { .. } => "image",
                 Content::Table(_) => "table",
             })
@@ -1851,6 +2201,88 @@ mod tests {
         );
         assert_eq!(kinds(&b), ["text", "text", "text", "text", "table"]);
         assert_eq!(texts(&b), ["Wendy", "A noble", "Lynn", "Shy"]);
+    }
+
+    #[test]
+    fn boxes_keep_their_border_width_and_place() {
+        let b = read(
+            "<div style=\"border: 3px double; width: 10em; margin: 0 auto\">\
+             <p style=\"margin: 0\">one</p><p style=\"margin: 0\">two</p></div>\
+             <p>after</p>",
+        );
+        assert_eq!(texts(&b), ["one", "two", "after"]);
+        let boxes = |i: usize| b.get(i).map_or(&[][..], |b| b.frame.boxes.as_slice());
+        let (one, two) = (boxes(0).first(), boxes(1).first());
+        assert!(one.zip(two).is_some_and(|(a, b)| Arc::ptr_eq(a, b)));
+        assert!(boxes(2).is_empty());
+        let spec = one.map(|b| (**b).clone()).unwrap_or_default();
+        assert_eq!(spec.edges, [Edge::Double; 4]);
+        assert_eq!(
+            (spec.width, spec.margin),
+            (Some(Length::Em(10.0)), [None, None])
+        );
+        // Its inside top and bottom: the border, the paragraphs flush.
+        let border = 3.0 / ROOT_PX;
+        assert!((spec.top - border).abs() < 1e-3 && (spec.bottom - border).abs() < 1e-3);
+    }
+
+    #[test]
+    fn an_empty_bordered_box_is_a_rule_of_its_own() {
+        let b = read(
+            "<p>a</p><p style=\"border-top: 2px solid; width: 14em; margin: 0 auto\"></p>\
+             <p>b</p>",
+        );
+        assert_eq!(kinds(&b), ["text", "space", "text"]);
+        let rule = b.get(1);
+        assert!(rule.is_some_and(|r| matches!(r.content, Content::Space(h) if h > 0.1)));
+        let edges = rule.and_then(|r| r.frame.boxes.first()).map(|b| b.edges);
+        assert_eq!(
+            edges,
+            Some([Edge::Solid, Edge::None, Edge::None, Edge::None])
+        );
+    }
+
+    #[test]
+    fn a_layout_grids_cells_share_their_row() {
+        let b = read(
+            "<table role=\"presentation\" style=\"width: 22em\"><tr>\
+             <td style=\"width: 10em; vertical-align: top\"><p>a</p></td>\
+             <td style=\"width: 2em\"></td><td style=\"width: 10em\"><p>b</p><p>c</p></td>\
+             </tr><tr><td><p>d</p></td></tr></table><p>after</p>",
+        );
+        assert_eq!(texts(&b), ["a", "b", "c", "d", "after"]);
+        let cell = |i: usize| b.get(i).and_then(|b| b.frame.cell.clone());
+        let columns: Vec<_> = (0..5).map(|i| cell(i).map(|c| c.column)).collect();
+        assert_eq!(columns, [Some(0), Some(2), Some(2), Some(0), None]);
+        let row = cell(0).map(|c| c.row);
+        let same = |i: usize| {
+            cell(i)
+                .zip(row.as_ref())
+                .is_some_and(|(c, r)| Arc::ptr_eq(&c.row, r))
+        };
+        assert!(same(1) && same(2) && !same(3));
+        let row = row.map(|r| (*r).clone()).unwrap_or_default();
+        assert_eq!(row.widths.len(), 3);
+        assert_eq!(row.widths.first(), Some(&Some(Length::Em(10.0))));
+        assert_eq!(row.valign.first(), Some(&VAlign::Top));
+        // The table's box holds the grid, outside each cell.
+        assert!(cell(0).is_some_and(|c| c.depth == 1));
+        let table = b.first().and_then(|b| b.frame.boxes.first());
+        assert!(table.is_some_and(|t| t.width == Some(Length::Em(22.0))));
+    }
+
+    #[test]
+    fn a_one_cell_table_of_paragraphs_is_a_framed_box() {
+        let b = read(
+            "<table style=\"border: 3px double; width: 17em; margin: 0 auto\">\
+             <tr><td><p>KEY WORD</p><p>A sword.</p></td></tr></table>",
+        );
+        assert_eq!(kinds(&b), ["text", "text"]);
+        let edges = b
+            .get(1)
+            .and_then(|b| b.frame.boxes.first())
+            .map(|b| b.edges);
+        assert_eq!(edges, Some([Edge::Double; 4]));
     }
 
     #[test]

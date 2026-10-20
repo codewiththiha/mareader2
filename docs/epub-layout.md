@@ -28,6 +28,11 @@ Structure rides on each block's frame:
 - **Cells** (L3): a block's place in a grid (table or flex row). A grid
   row's blocks are laid side by side and paginate as one unit.
 
+Boxes and rows are shared by their blocks, so a box is known by its
+address. Pagination keeps the boxes open on the page; a page break cuts
+a box's border there and reopens it overleaf. Borders are drawn in the
+theme's ink. A row taller than a page reads down the page instead.
+
 ## Cascade
 
 `css.rs` is a real cascade: compound selectors with descendant, child,
@@ -51,7 +56,7 @@ picks Auto, On or Off.
 | Slice | Scope |
 | --- | --- |
 | L1 | Cascade engine; Look (sizes, line height, spacing, indent, weight, embedded fonts, justify, margins, spacer paragraphs); designed-chapter test; Book design setting. |
-| L2 | Boxes: borders (solid, double, dashed, dotted; per side; radius), padding, widths, auto margins, rules from bordered empty blocks, vertical centring of tall flex or `vh` containers. |
-| L3 | Grids: tables with block cells, column widths (fixed, %, content), cell padding, borders, `vertical-align`, spans, nesting; flex rows (justify, align, wrap, gap); anchored text in cells. |
+| L2 | Boxes: borders (solid, double, dashed, dotted; per side; radius), padding, widths, auto margins, rules from bordered empty blocks, vertical centring of tall flex or `vh` containers. Done, with square corners. |
+| L3 | Grids: tables with block cells, column widths (fixed, %, content), cell padding, borders, `vertical-align`, spans, nesting; flex rows (justify, align, wrap, gap); anchored text in cells. Done: tables with block cells, fixed and % widths shrunk to fit, cell boxes, `vertical-align`, nested tables read flat, one-column tables as framed boxes. Left: widths from content, spans, flex rows. |
 | L4 | Floats with text wrapping, inline images, `break-before`/`page-break-*`, decorations, small caps, sub and super, background pictures. |
 | L5 | Per-book override, both samples and the test corpus checked, docs, parity. |

@@ -10,7 +10,8 @@ use vello_cpu::kurbo::{Affine, Rect};
 use vello_cpu::peniko::{ImageAlphaType, ImageQuality, ImageSampler};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::flow::{Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
+use crate::block::Edge;
+use crate::flow::{Deco, Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, span_height};
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
 
@@ -27,6 +28,8 @@ const CODE_GROUND: Color = Color::from_rgba8(0, 0, 0, 14);
 const PRE_GROUND: Color = Color::from_rgba8(0, 0, 0, 12);
 const BORDER: Color = Color::from_rgba8(0, 0, 0, 40);
 const RULE: Color = Color::from_rgba8(0, 0, 0, 64);
+/// The most dashes one border side draws.
+const MAX_DASHES: usize = 4096;
 const BAR: Color = Color::from_rgba8(0, 0, 0, 46);
 const HEAD_GROUND: Color = Color::from_rgba8(0, 0, 0, 10);
 /// Stands in for an image that won't decode.
@@ -71,12 +74,18 @@ impl Flow {
         }
         let left = self.column(page).0;
         catch_unwind(AssertUnwindSafe(|| {
-            self.draw(pieces, (scale, left), region)
+            let decos = self.decos.get(page).map_or(&[][..], Vec::as_slice);
+            self.draw((pieces, decos), (scale, left), region)
         }))
         .ok()?
     }
 
-    fn draw(&self, pieces: &[Piece], (scale, left): (f32, f32), region: Region) -> Option<Pixels> {
+    fn draw(
+        &self,
+        (pieces, decos): (&[Piece], &[Deco]),
+        (scale, left): (f32, f32),
+        region: Region,
+    ) -> Option<Pixels> {
         let [x, y, w, h] = region;
         let (w16, h16) = (u16::try_from(w).ok()?, u16::try_from(h).ok()?);
         let ctx = RenderContext::new(w16, h16);
@@ -94,6 +103,9 @@ impl Flow {
             scale,
             coords: Vec::new(),
         };
+        for deco in decos {
+            p.deco(deco);
+        }
         for piece in pieces {
             if let Some(set) = self.blocks.get(piece.block) {
                 p.piece(set, piece, &self.decoded, || self.laid(piece.block));
@@ -189,6 +201,66 @@ impl Painter {
             Draw::Table(grid) => {
                 if let Laid::Table(rows) = &*laid() {
                     self.table(set, (grid, rows), units, piece.dy);
+                }
+            }
+            Draw::Space => {}
+        }
+    }
+
+    /// A book box's borders, in the ink the page pass themes.
+    fn deco(&mut self, deco: &Deco) {
+        let [x, y, w, h] = deco.rect;
+        if !self.visible(y - 8.0, y + h + 8.0) {
+            return;
+        }
+        let [top, right, bottom, left] = deco.border;
+        let [et, er, eb, el] = deco.edges;
+        self.edge(et, [x, y, w, top], true);
+        self.edge(eb, [x, y + h - bottom, w, bottom], true);
+        self.edge(el, [x, y, left, h], false);
+        self.edge(er, [x + w - right, y, right, h], false);
+    }
+
+    /// One border side in `rect`, its lines running across if `across`.
+    fn edge(&mut self, edge: Edge, rect: [f32; 4], across: bool) {
+        let [x, y, w, h] = rect;
+        // Hairlines stay visible at small scales.
+        let least = 1.0 / self.scale.max(0.01);
+        let (w, h) = match across {
+            true => (w, h.max(least)),
+            false => (w.max(least), h),
+        };
+        let thick = if across { h } else { w };
+        match edge {
+            Edge::None => {}
+            Edge::Double if thick * self.scale >= 3.0 => {
+                let line = thick / 3.0;
+                let (far_x, far_y) = if across {
+                    (x, y + h - line)
+                } else {
+                    (x + w - line, y)
+                };
+                let (lw, lh) = if across { (w, line) } else { (line, h) };
+                self.fill(BODY, x, y, lw, lh);
+                self.fill(BODY, far_x, far_y, lw, lh);
+            }
+            Edge::Solid | Edge::Double => self.fill(BODY, x, y, w, h),
+            Edge::Dashed | Edge::Dotted => {
+                let dash = if edge == Edge::Dashed {
+                    thick * 3.0
+                } else {
+                    thick
+                };
+                let length = if across { w } else { h };
+                let step = (dash * 2.0).max(least * 2.0);
+                let count = ((length / step).ceil() as usize).min(MAX_DASHES);
+                for i in 0..count {
+                    let at = i as f32 * step;
+                    let run = dash.min(length - at);
+                    match across {
+                        true => self.fill(BODY, x + at, y, run, h),
+                        false => self.fill(BODY, x, y + at, w, run),
+                    }
                 }
             }
         }

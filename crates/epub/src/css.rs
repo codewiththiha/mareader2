@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::Align;
+use mareader_reflow::{Align, VAlign};
 
 use crate::href;
 
@@ -175,6 +175,7 @@ pub(crate) struct Decl {
     pub(crate) background_image: Option<bool>,
     pub(crate) float: Option<bool>,
     pub(crate) break_before: Option<bool>,
+    pub(crate) valign: Option<VAlign>,
 }
 
 /// Sets each field `top` sets.
@@ -250,6 +251,14 @@ impl Decl {
                 self.background = Some(v.split_ascii_whitespace().any(is_colour));
             }
             "float" => self.float = Some(matches!(v, "left" | "right")),
+            "vertical-align" => {
+                self.valign = match v {
+                    "top" | "text-top" | "baseline" => Some(VAlign::Top),
+                    "middle" => Some(VAlign::Middle),
+                    "bottom" | "text-bottom" => Some(VAlign::Bottom),
+                    _ => self.valign,
+                }
+            }
             "page-break-before" | "break-before" => {
                 let page = ["always", "page", "left", "right", "recto", "verso"];
                 self.break_before = Some(page.contains(&v));
@@ -326,7 +335,7 @@ impl Decl {
         layer!(self, top;
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
-            break_before;
+            break_before, valign;
             margin, padding, border_width, border_style);
     }
 
@@ -1170,8 +1179,6 @@ fn user_agent() -> &'static Stylesheet {
              table { display: table }\n\
              head, script, style, title, template, noscript { display: none }\n\
              p, blockquote, figure, dl, ul, ol, pre { margin: 1em 0 }\n\
-             blockquote, figure { margin-left: 40px; margin-right: 40px }\n\
-             dd { margin-left: 40px }\n\
              h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold }\n\
              h2 { font-size: 1.5em; margin: 0.83em 0; font-weight: bold }\n\
              h3 { font-size: 1.17em; margin: 1em 0; font-weight: bold }\n\
@@ -1253,6 +1260,8 @@ pub(crate) struct Computed {
     pub(crate) background: bool,
     pub(crate) float: bool,
     pub(crate) break_before: bool,
+    /// A cell's `vertical-align`, if set.
+    pub(crate) valign: Option<VAlign>,
 }
 
 impl Default for Computed {
@@ -1278,6 +1287,7 @@ impl Default for Computed {
             background: false,
             float: false,
             break_before: false,
+            valign: None,
         }
     }
 }
@@ -1343,6 +1353,7 @@ impl Computed {
             background: d.background.unwrap_or(false) || d.background_image.unwrap_or(false),
             float: d.float.unwrap_or(false),
             break_before: d.break_before.unwrap_or(false),
+            valign: d.valign,
         }
     }
 
