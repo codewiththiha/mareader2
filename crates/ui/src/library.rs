@@ -317,7 +317,7 @@ impl LibraryState {
             };
             let position = Position {
                 page,
-                pages: reading.document.page_count(),
+                pages: reading.document.base_count(),
                 place: place.map(|a| (a.block, a.offset)),
             };
             self.model.record_position(id, position, now);

@@ -628,10 +628,11 @@ impl PageAi {
                 map.entry(page).or_default().push(p.id);
             }
         }
-        self.spans.extend(spans);
         if self.index.len() > 8 {
             self.index.clear();
+            self.spans.clear();
         }
+        self.spans.extend(spans);
         let pages = map.clone();
         self.index.insert(view.layout, Index { key, pages });
         map
@@ -655,6 +656,7 @@ impl PageAi {
                 pill,
             };
         };
+        self.prune(main);
         self.align(main, pane, &view, (book, name));
         let index = self.index(main, &view, (book, name));
         let mut overlays = Vec::new();
@@ -768,12 +770,20 @@ impl PageAi {
 
     /// Whether `slot` shows as a card: a book's, until laid in.
     fn carded(&self, pane: PaneId, view: &AiView, slot: Slot) -> bool {
-        let Slot::Saved(id) = slot else {
-            return true;
-        };
         if !view.document.is_reflowable() {
             return true;
         }
+        let id = match slot {
+            Slot::Saved(id) => id,
+            // A redo writes behind the laid result; its bubble turns.
+            Slot::Run(run) => {
+                let run = self.runs.iter().find(|r| r.id == run);
+                match run.and_then(|r| r.redo_of) {
+                    Some(old) if view.document.shows(old.0) => return false,
+                    _ => return true,
+                }
+            }
+        };
         let asked = self.wants.get(&pane).map_or(0, |w| w.key);
         let laid = view.document.inserts_key() == asked;
         !laid && !view.document.shows(id.0)
@@ -834,15 +844,18 @@ impl PageAi {
             self.wants.remove(&pane);
             return None;
         };
+        self.prune(main);
         self.align(main, pane, &view, who);
+        // A redo keeps the result it redoes in the pages until done.
         let mut ids: Vec<AiPageId> = (self.showing.iter())
             .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
             .filter_map(|(_, s)| match s.slot {
                 Slot::Saved(id) => Some(id),
-                Slot::Run(_) => None,
+                Slot::Run(id) => self.runs.iter().find(|r| r.id == id)?.redo_of,
             })
             .collect();
         ids.sort_unstable();
+        ids.dedup();
         let key = match ids.is_empty() {
             true => 0,
             false => hash(("inserts", &ids)).max(1),
@@ -1134,12 +1147,48 @@ impl PageAi {
                 if main.set_ai_pages_alive(&[id], false, wall) == 0 {
                     self.loose.0.set_ai_pages_alive(&[id], false, wall);
                 }
-                self.parsed.remove(&id);
+                self.forget(id);
                 self.runs.retain(|r| r.redo_of != Some(id));
             }
             Slot::Run(id) => self.runs.retain(|r| r.id != id),
         }
         self.showing.retain(|_, s| s.slot != slot);
+    }
+
+    /// Drops a gone result's text from every cache.
+    fn forget(&mut self, id: AiPageId) {
+        self.parsed.remove(&id);
+        self.made.remove(&id);
+        self.spans.remove(&id);
+    }
+
+    /// Takes down results deleted or erased elsewhere, text and all.
+    fn prune(&mut self, main: &Library) {
+        let gone: Vec<AiPageId> = (self.showing.values())
+            .filter_map(|s| match s.slot {
+                Slot::Saved(id) => self.saved(main, id).is_none().then_some(id),
+                Slot::Run(_) => None,
+            })
+            .collect();
+        for id in gone {
+            self.forget(id);
+            self.showing.retain(|_, s| s.slot != Slot::Saved(id));
+        }
+    }
+
+    /// Forgets a closed pane: what it showed, drew and followed.
+    pub fn close_pane(&mut self, pane: PaneId) {
+        self.stop_follow(pane);
+        self.showing.retain(|(p, ..), _| *p != pane);
+        self.drawn.remove(&pane);
+        self.aligned.remove(&pane);
+        self.wants.remove(&pane);
+        if self.menu.as_ref().is_some_and(|m| m.pane == pane) {
+            self.menu = None;
+        }
+        if self.bubble_menu.as_ref().is_some_and(|m| m.pane == pane) {
+            self.bubble_menu = None;
+        }
     }
 
     /// Opens the page's menu, at a right-click.

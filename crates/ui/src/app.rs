@@ -1642,7 +1642,9 @@ impl MareaderApp {
         let page = reading.current;
         let doc = &reading.document;
         let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, pane);
-        let existing = kept.iter().find(|(_, p)| *p == page).map(|(id, _)| *id);
+        // A result's later pages share its first page's bookmark.
+        let here = crate::notes_panel::page_of(doc, bookmarks::spot(doc, page)).unwrap_or(page);
+        let existing = kept.iter().find(|(_, p)| *p == here).map(|(id, _)| *id);
         let name = self.documents.title(pane).unwrap_or_default().to_owned();
         let at = study::Bookmarking {
             book: self.library.book_in(&self.documents, pane),
@@ -1689,6 +1691,7 @@ impl MareaderApp {
             Command::ClosePane(id) => {
                 if self.tree.close(id).is_ok() {
                     self.documents.close_pane(id);
+                    self.page_ai.close_pane(id);
                     if self.active == id {
                         self.active = self.tree.panes().first().copied().unwrap_or(PaneId(1));
                     }

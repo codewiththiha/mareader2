@@ -403,3 +403,50 @@ fn new_type_lays_the_result_out_again() -> Out {
     assert!(key != 0 && count >= more, "the result is laid in again");
     Ok(())
 }
+
+/// Picks `action` from the menu of the page's first result bubble.
+fn bubble_menu(h: &mut H, action: &str) {
+    let bubble = h.get_by_label("Simplified").rect().center();
+    press(h, bubble, PointerButton::Secondary);
+    h.get_by_label(action).click();
+    h.run_steps(30);
+    h.run();
+}
+
+#[test]
+fn deleting_a_laid_result_gives_the_book_its_pages_back() -> Out {
+    let mut h = laid()?;
+    bubble_menu(&mut h, "Delete");
+    let (count, base, key) = book(&h)?;
+    assert_eq!((count, key), (base, 0), "back to its own pages");
+    let pane = h.state().active_pane();
+    assert!(!h.state().page_ai().shows(pane, 2));
+    Ok(())
+}
+
+#[test]
+fn a_redo_keeps_the_result_in_the_pages_until_done() -> Out {
+    let mut h = laid()?;
+    bubble_menu(&mut h, "Redo");
+    let (count, base, key) = book(&h)?;
+    assert!(key != 0 && count >= base, "still laid in");
+    let pane = h.state().active_pane();
+    assert!(h.state().page_ai().shows(pane, 2), "the new result shows");
+    Ok(())
+}
+
+#[test]
+fn toggling_a_result_again_and_again_keeps_one_book_open() -> Out {
+    let mut h = laid()?;
+    for _ in 0..8 {
+        let bubble = h.get_by_label("Simplified").rect().center();
+        press(&mut h, bubble, PointerButton::Primary);
+        h.run_steps(30);
+        h.run();
+    }
+    let (count, base, key) = book(&h)?;
+    assert_eq!((count, key), (base, 0), "an even count of clicks: off");
+    let open = h.state().documents().meter().documents;
+    assert!(open <= 2, "{open} layouts of the book kept");
+    Ok(())
+}
