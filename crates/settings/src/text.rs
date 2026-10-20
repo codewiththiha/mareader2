@@ -129,7 +129,7 @@ pub enum ColumnAlign {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BookDesign {
-    /// In the chapters a book designs, such as title and cast pages.
+    /// The book's type everywhere; its layout where it designs a page.
     #[default]
     Auto,
     On,

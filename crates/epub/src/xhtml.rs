@@ -32,7 +32,7 @@ const MAX_ATTRS: usize = 16;
 /// Earlier siblings kept per element, for `+` and `~` selectors.
 const MAX_SIBLINGS: usize = 64;
 /// What a book face's family is registered as: never a machine's own.
-pub(crate) const BOOK_FACE: &str = "book-face-";
+pub(crate) const BOOK_FACE: &str = mareader_reflow::BOOK_FACE;
 /// Generic families: the reader's own faces stand in.
 const GENERIC: &[&str] = &[
     "serif",
@@ -400,6 +400,8 @@ struct State<'a> {
     block_line: f32,
     /// Looks made in this chapter; the next equal one is shared.
     looks: Vec<Arc<Look>>,
+    /// The chapter has a style of its own: a sheet or a `style` attribute.
+    styled: bool,
     signals: Signals,
     /// The book's boxes open around what is read, outermost first.
     boxes: Vec<BoxOpen>,
@@ -992,6 +994,10 @@ impl State<'_> {
         for name in family.unwrap_or_default() {
             let lower = name.to_lowercase();
             if GENERIC.contains(&lower.as_str()) {
+                // Sans and mono stay apart from the reader's body face.
+                if matches!(lower.as_str(), "sans-serif" | "monospace") {
+                    out.push(lower);
+                }
                 break;
             }
             let shipped: Vec<FontFace> = (self.sheets.iter())
@@ -1427,6 +1433,7 @@ impl State<'_> {
         let known = self.sheets.iter().any(|s| Arc::ptr_eq(s, &sheet));
         if !known && self.sheets.len() < MAX_SHEETS {
             self.sheets.push(sheet);
+            self.styled = true;
         }
     }
 
@@ -1651,6 +1658,7 @@ impl State<'_> {
         self.close_implied(name);
         let el = self.element(tag, name);
         let declared = self.declared(&el, tag);
+        self.styled |= attr(tag, "style").is_some();
         let computed = match self.stack.last() {
             Some(open) => open.computed.child(&declared),
             None => Computed::default().child(&declared),
@@ -1903,6 +1911,11 @@ impl State<'_> {
         self.close_from(0);
         if self.signals.designed() {
             self.design();
+        } else if !self.styled {
+            // Unstyled, as converted text is, it reads in the reader's type.
+            for block in &mut self.blocks {
+                block.frame.look = None;
+            }
         }
         // Ids after the last block mark where the next chapter starts.
         let at = Anchor {
@@ -2352,6 +2365,7 @@ pub(crate) fn read_chapter(
         gap: Gap::default(),
         block_line: ROOT_PX * 1.2,
         looks: Vec::new(),
+        styled: false,
         signals: Signals::default(),
         boxes: Vec::new(),
         grid: None,
@@ -3256,7 +3270,22 @@ mod tests {
     }
 
     #[test]
-    fn prose_chapters_keep_the_readers_type() {
+    fn unstyled_chapters_leave_the_type_to_the_reader() {
+        let b = read("<h1>One</h1><p>a</p>");
+        assert!(b.iter().all(|b| b.frame.look.is_none()), "{b:?}");
+        let b = read("<h1>One</h1><p style='text-indent: 1em'>a</p>");
+        assert!(b.iter().all(|b| b.frame.look.is_some()), "{b:?}");
+        // Sans and mono stay marked; the machine's own names stay too.
+        let b = read("<style>p { font-family: Georgia, monospace }</style><p>a</p>");
+        let faces = look(b.first()).map(|l| l.faces.clone());
+        assert_eq!(
+            faces,
+            Some(vec!["Georgia".to_owned(), "monospace".to_owned()])
+        );
+    }
+
+    #[test]
+    fn prose_chapters_carry_their_type_unlaid() {
         let b = read(
             "<style>p { margin: 1em 0; font-size: 1.1em } h1 { font-size: 2em }\
              h1 + p { text-align: center }</style>\
