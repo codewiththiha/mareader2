@@ -156,6 +156,8 @@ pub struct PdfView {
     /// Auto-scroll is on: when it last moved the strip.
     drift: Option<f64>,
     jump: Option<Jump>,
+    /// A strip's page jumped to, and where it landed: read until moved.
+    landed: Option<(usize, Option<Vec2>)>,
     /// Zoom steps ease, as of last frame's motion settings.
     ease: bool,
     /// Until first drawn: the default fit is still to apply.
@@ -204,6 +206,7 @@ impl PdfView {
             hold: None,
             drift: None,
             jump: None,
+            landed: None,
             ease: true,
             place: None,
         }
@@ -667,6 +670,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     if let Some(page) = view.reveal.take()
         && let Some(to) = view.layout.as_ref().and_then(|l| l.reveal(page))
     {
+        view.landed = (!view.mode.paged()).then_some((page, None));
         // A strip glides to the page; a new layout or a turn lands there.
         let glide = motion::jump(&ctx);
         if !rebuilt && !view.mode.paged() && glide.duration.max > 0.0 {
@@ -1090,6 +1094,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         let arrived = (out.state.offset - j.to).length() < 1.0;
         if arrived || view.aim.is_none() || now > j.until {
             view.jump = None;
+            // Taken over midway: the page under the centre is read.
+            if !arrived {
+                view.landed = None;
+            }
         } else {
             ctx.request_repaint();
         }
@@ -1098,6 +1106,15 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     if !view.mode.paged() && view.scroll_to.is_none() && view.jump.is_none() {
         let centre = Pos2::ZERO + out.state.offset + viewport / 2.0;
         view.current = layout.locate(centre).map_or(0, |(page, _)| page);
+        // A short page jumped to stays the one read until the strip moves.
+        let offset = out.state.offset;
+        view.landed = view.landed.and_then(|(page, at)| match at {
+            None => Some((page, Some(offset))),
+            Some(at) => ((offset - at).length() < 1.0).then_some((page, Some(at))),
+        });
+        if let Some((page, _)) = view.landed {
+            view.current = page;
+        }
     }
     view.progress = progress(view, layout, &out, sizes.len());
     view.visible = shown_pages;

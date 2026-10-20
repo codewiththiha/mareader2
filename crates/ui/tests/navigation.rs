@@ -166,3 +166,29 @@ fn the_bar_turns_by_spreads_and_hides_when_left() {
     h.run_steps(60);
     assert!(h.query_by_label("Next page").is_none());
 }
+
+#[test]
+fn a_short_page_jumped_to_in_a_stream_stays_the_page_read() {
+    // Its front matter breaks often: pages far shorter than the pane.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../epub/tests/books");
+    let raven = dir.join("the-raven-gutenberg-17192.epub");
+    let mut h = book(&[("epub", raven.to_str().unwrap_or_default())]);
+    h.state_mut().queue(Command::View(ViewMode::Vertical));
+    h.run();
+    for page in 1..6 {
+        go(&mut h, page);
+        h.run_steps(3);
+        assert_eq!(current(&h), page);
+    }
+    // Moving the strip hands the page back to the one under its centre.
+    h.hover_at(egui::pos2(600.0, 350.0));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -3000.0),
+        modifiers: Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run();
+    h.run_steps(3);
+    assert!(current(&h) > 5, "{}", current(&h));
+}
