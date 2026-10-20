@@ -981,6 +981,21 @@ impl PageAi {
         true
     }
 
+    /// Whether `pane`'s document has a kept result or one being written.
+    pub fn any(
+        &self,
+        main: &Library,
+        pane: PaneId,
+        documents: &Documents,
+        who: (Option<BookId>, &str),
+    ) -> bool {
+        let Some(view) = documents.ai_view(pane) else {
+            return false;
+        };
+        let (lib, book) = self.lib(main, who.0, who.1);
+        lib.has_ai_pages(book) || self.runs.iter().any(|r| r.doc == view.doc)
+    }
+
     /// Shots: whether the page's text is in, to be worked on.
     pub fn can_read(&self, asked: &Asked<'_>) -> bool {
         let view = asked.documents.ai_view(asked.pane);

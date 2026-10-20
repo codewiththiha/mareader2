@@ -1,11 +1,11 @@
-//! A book's text, in the Appearance tab; open books re-set as it changes.
+//! A book's type, and a PDF's AI pages', in the Appearance tab.
 use std::sync::Arc;
 
 use egui::{Button, ComboBox, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
 use mareader_settings::{ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings};
 
-use super::{disclosure, divider, group, row, section, switch_row};
+use super::{disclosure, divider, group, note, row, section, switch_row};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -18,19 +18,7 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
     group(ui, |ui| spacing(ui, t));
     section(ui, "Column");
     group(ui, |ui| {
-        switch_row(
-            ui,
-            "Full justification",
-            "Stretch every line but a paragraph's last to both margins",
-            &mut t.justify,
-        );
-        divider(ui);
-        switch_row(
-            ui,
-            "Hyphenation",
-            "Break long words at line ends where the book's language allows",
-            &mut t.hyphenation,
-        );
+        lines(ui, t);
         divider(ui);
         switch_row(
             ui,
@@ -81,6 +69,38 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings) {
             &mut t.theme_emojis,
         );
     });
+}
+
+/// A PDF's AI pages: type and spacing; its page keeps their measure.
+pub(super) fn ai_tab(ui: &mut Ui, t: &mut TextSettings) {
+    section(ui, "AI pages");
+    note(
+        ui,
+        "This PDF's AI pages are set in this type. A result never outgrows \
+        its page: past the room, its text shrinks to fit.",
+    );
+    section(ui, "Typeface");
+    group(ui, |ui| typeface(ui, t));
+    section(ui, "Spacing");
+    group(ui, |ui| spacing(ui, t));
+    section(ui, "Lines");
+    group(ui, |ui| lines(ui, t));
+}
+
+fn lines(ui: &mut Ui, t: &mut TextSettings) {
+    switch_row(
+        ui,
+        "Full justification",
+        "Stretch every line but a paragraph's last to both margins",
+        &mut t.justify,
+    );
+    divider(ui);
+    switch_row(
+        ui,
+        "Hyphenation",
+        "Break long words at line ends where the book's language allows",
+        &mut t.hyphenation,
+    );
 }
 
 fn typeface(ui: &mut Ui, t: &mut TextSettings) {

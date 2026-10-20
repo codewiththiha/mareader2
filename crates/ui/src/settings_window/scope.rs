@@ -17,8 +17,10 @@ pub enum Shown {
 pub struct Scope {
     pub focused: Shown,
     pub split: bool,
-    /// Some pane shows a book.
-    pub any_book: bool,
+    /// Some pane takes text settings: a book, or a PDF's AI pages.
+    pub any_text: bool,
+    /// The focused PDF has AI pages, which are set in its type.
+    pub ai_pages: bool,
     /// The focused pane scrolls sideways, where pages have no margin.
     pub sideways: bool,
 }
@@ -31,11 +33,13 @@ pub enum Applies {
     NotBook,
     /// Text settings: only while a book is focused.
     Book,
+    /// The type of a focused PDF's AI pages.
+    AiPages,
     /// Separate pages, not a book's vertical stream.
     Pages,
     Split,
-    /// Split, with a book in some pane.
-    SplitWithBook,
+    /// Split, with text settings reaching some pane.
+    SplitWithText,
 }
 
 impl Scope {
@@ -48,9 +52,10 @@ impl Scope {
             Applies::Always => true,
             Applies::NotBook => !self.book(),
             Applies::Book => self.book(),
+            Applies::AiPages => !self.book() && self.ai_pages,
             Applies::Pages => self.focused != Shown::Book { stream: true },
             Applies::Split => self.split,
-            Applies::SplitWithBook => self.split && self.any_book,
+            Applies::SplitWithText => self.split && self.any_text,
         }
     }
 }
@@ -80,28 +85,39 @@ mod tests {
         assert!(!stream.applies(Applies::Pages));
         // Nothing open reads as a PDF would.
         assert!(Scope::default().applies(Applies::NotBook));
+        // A PDF's AI pages take type; a book's own settings cover them.
+        let ai = Scope {
+            ai_pages: true,
+            ..pdf
+        };
+        assert!(ai.applies(Applies::AiPages) && !pdf.applies(Applies::AiPages));
+        let book = Scope {
+            ai_pages: true,
+            ..paged
+        };
+        assert!(!book.applies(Applies::AiPages));
     }
 
     #[test]
-    fn pane_text_needs_a_split_with_a_book_somewhere() {
+    fn pane_text_needs_a_split_with_text_somewhere() {
         let split = Scope {
             focused: Shown::Pdf,
             split: true,
             ..Scope::default()
         };
-        assert!(!split.applies(Applies::SplitWithBook), "only PDFs");
+        assert!(!split.applies(Applies::SplitWithText), "only PDFs");
         let book = Scope {
-            any_book: true,
+            any_text: true,
             ..split
         };
         assert!(
-            book.applies(Applies::SplitWithBook),
+            book.applies(Applies::SplitWithText),
             "the focused one is a PDF"
         );
         let alone = Scope {
             split: false,
             ..book
         };
-        assert!(!alone.applies(Applies::SplitWithBook));
+        assert!(!alone.applies(Applies::SplitWithText));
     }
 }
