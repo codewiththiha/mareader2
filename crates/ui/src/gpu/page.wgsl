@@ -159,10 +159,31 @@ fn pattern_layer(p: vec2<f32>, fw: vec2<f32>, line: f32) -> vec4<f32> {
     }
 }
 
-// A book's greys, black to its ink and white to its paper.
+// How far a colour's grey may move toward the middle, making room for hue.
+const HUE_SHIFT: f32 = 0.1;
+// Themes with less contrast than this, as dim, mute hues to match.
+const FULL_HUE: f32 = 0.5;
+
+fn least(v: vec3<f32>) -> f32 {
+    return min(min(v.x, v.y), v.z);
+}
+
+// A book's greys, black to its ink and white to its paper; colours keep
+// their hue around that grey, as much of it as fits.
 fn recolour(s: vec3<f32>) -> vec3<f32> {
-    let g = clamp(dot(s, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-    return mix(tone.params.yzw, tone.paper.rgb, g);
+    let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+    let g = clamp(dot(s, luma), 0.0, 1.0);
+    let span = abs(dot(tone.paper.rgb - tone.params.yzw, luma));
+    let off = (s - vec3<f32>(g)) * clamp(span / FULL_HUE, 0.25, 1.0);
+    var base = mix(tone.params.yzw, tone.paper.rgb, g);
+    let lo = -least(off + base);
+    let hi = least(vec3<f32>(1.0) - off - base);
+    base += vec3<f32>(clamp(min(max(0.0, lo), hi), -HUE_SHIFT, HUE_SHIFT));
+    let tiny = vec3<f32>(1e-4);
+    let up = select(vec3<f32>(1.0), (vec3<f32>(1.0) - base) / max(off, tiny), off > tiny);
+    let down = select(vec3<f32>(1.0), base / max(-off, tiny), off < -tiny);
+    let k = clamp(min(least(up), least(down)), 0.0, 1.0);
+    return clamp(base + off * k, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 // The page filtered, blended over opaque paper, then textured.

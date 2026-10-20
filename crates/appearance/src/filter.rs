@@ -227,6 +227,42 @@ fn luma(c: [f32; 3]) -> f32 {
     (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).clamp(0.0, 1.0)
 }
 
+/// How far a colour's grey may move toward the middle, making room for hue.
+const HUE_SHIFT: f32 = 0.1;
+/// Themes with less contrast than this, as dim, mute hues to match.
+const FULL_HUE: f32 = 0.5;
+
+/// A book's colour: its grey mapped to the theme, its hue kept as fits.
+fn recolour(ink: [f32; 3], paper: [f32; 3], c: [f32; 3]) -> [f32; 3] {
+    let g = luma(c);
+    let mute = ((luma(paper) - luma(ink)).abs() / FULL_HUE).clamp(0.25, 1.0);
+    let off = c.map(|v| (v - g) * mute);
+    let grey = mix(ink, paper, g);
+    let lo = off
+        .iter()
+        .zip(grey)
+        .map(|(o, b)| -o - b)
+        .fold(f32::MIN, f32::max);
+    let hi = off
+        .iter()
+        .zip(grey)
+        .map(|(o, b)| 1.0 - o - b)
+        .fold(f32::MAX, f32::min);
+    let shift = (0.0f32.max(lo).min(hi)).clamp(-HUE_SHIFT, HUE_SHIFT);
+    let base = grey.map(|b| b + shift);
+    let room = off.into_iter().zip(base).fold(1.0f32, |k, (o, b)| match o {
+        o if o > 1e-4 => k.min((1.0 - b) / o),
+        o if o < -1e-4 => k.min(b / -o),
+        _ => k,
+    });
+    let room = room.clamp(0.0, 1.0);
+    let mut out = base;
+    for (v, o) in out.iter_mut().zip(off) {
+        *v = (*v + o * room).clamp(0.0, 1.0);
+    }
+    out
+}
+
 const IDENTITY: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 /// A themed page: its filter chain, then blended over the paper.
@@ -266,7 +302,7 @@ impl PageTone {
             return c;
         };
         if let Some(ink) = self.ink {
-            return mix(ink, self.paper, luma(c));
+            return recolour(ink, self.paper, c);
         }
         let chain = self.matrices.iter().take(self.count);
         let s = chain.fold(c, |c, m| m.apply(c));
@@ -441,6 +477,46 @@ mod tests {
                 .apply(tone.paper, apply_filter(&a.page_filter(), ink));
             assert!(close(tone.apply(ink), want), "{base:?}");
         }
+    }
+
+    #[test]
+    fn book_colours_keep_their_hue_in_every_theme() {
+        let red = [0.8, 0.1, 0.1];
+        for base in BaseMode::ALL {
+            let tone = Appearance {
+                base,
+                ..Default::default()
+            }
+            .text_tone();
+            let Some(ink) = tone.ink else {
+                continue;
+            };
+            for g in [0.0, 0.4, 1.0] {
+                assert!(
+                    close(tone.apply([g; 3]), mix(ink, tone.paper, g)),
+                    "{base:?}"
+                );
+            }
+            let [r, g, b] = tone.apply(red);
+            assert!(r > g + 0.1 && (g - b).abs() < 0.05, "{base:?}");
+            // Nearer the ink than the paper, so it reads.
+            let l = luma([r, g, b]);
+            assert!(
+                (l - luma(ink)).abs() < (l - luma(tone.paper)).abs(),
+                "{base:?}"
+            );
+        }
+        // Dim's low contrast mutes hues too.
+        let spread = |base| {
+            let [r, g, _] = Appearance {
+                base,
+                ..Default::default()
+            }
+            .text_tone()
+            .apply(red);
+            r - g
+        };
+        assert!(spread(BaseMode::Dim) < spread(BaseMode::Light) / 2.0);
     }
 
     #[test]

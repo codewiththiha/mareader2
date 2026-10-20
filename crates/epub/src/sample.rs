@@ -37,7 +37,9 @@ stay beside their mark<a epub:type="noteref" href="#note-1">1</a>.</p>
 <ol><li>Open the book</li><li>Turn the page</li><li>Read on</li></ol>
 <blockquote><p>Nobody remembered who had built the jetty, and nobody
 asked.</p></blockquote>
-<p>Inline <code>code</code> sits in the line; code blocks keep spaces:</p>
+<p>Words keep the book's <span style="color: #c01c28">red</span> and
+<span style="color: #1c71d8">blue</span>, in any theme. Inline <code>code</code>
+sits in the line; code blocks keep spaces:</p>
 <pre><code>fn main() {
     let boats = 12;
     println!("{boats} boats at dawn");

@@ -45,11 +45,12 @@ const MAX_TILES: usize = 256;
 /// Book pixels to an em.
 const BOOK_EM_PX: f32 = 16.0;
 
-fn tone(t: Tone) -> Color {
-    match t {
-        Tone::Body => BODY,
-        Tone::Soft => SOFT,
-        Tone::Muted => MUTED,
+fn tone(ink: Ink) -> Color {
+    match (ink.colour, ink.tone) {
+        (Some([r, g, b]), _) => Color::from_rgba8(r, g, b, 255),
+        (None, Tone::Body) => BODY,
+        (None, Tone::Soft) => SOFT,
+        (None, Tone::Muted) => MUTED,
     }
 }
 
@@ -559,7 +560,7 @@ impl Painter {
         let m = run.run().font_metrics();
         let size = m.underline_size.max(UNDERLINE_MIN);
         let y = run.baseline() + m.underline_offset.abs() + UNDERLINE_GAP;
-        let ink = tone(run.style().brush.tone);
+        let ink = tone(run.style().brush);
         self.fill(ink, x + run.offset(), y + dy, run.advance(), size);
         self.ctx
             .set_transform(self.view * Affine::translate((f64::from(x), f64::from(dy))));
@@ -570,7 +571,7 @@ impl Painter {
         let m = run.run().font_metrics();
         let size = m.strikethrough_size.max(UNDERLINE_MIN);
         let y = run.baseline() - m.strikethrough_offset.abs() - size / 2.0;
-        let ink = tone(run.style().brush.tone);
+        let ink = tone(run.style().brush);
         self.fill(ink, x + run.offset(), y + dy, run.advance(), size);
         self.ctx
             .set_transform(self.view * Affine::translate((f64::from(x), f64::from(dy))));
@@ -582,7 +583,7 @@ impl Painter {
         self.coords.clear();
         self.coords
             .extend(font.normalized_coords().iter().map(|c| c.to_bits()));
-        self.ctx.set_paint(tone(run.style().brush.tone));
+        self.ctx.set_paint(tone(run.style().brush));
         // A glyph the font can't draw is left blank, not fatal.
         let _ = self
             .ctx
@@ -713,6 +714,34 @@ mod tests {
         assert!(dark > 200, "{dark} dark pixels");
         // The corner is margin: clear, so the paper shows through.
         assert_eq!(px.and_then(|p| pixel(p, 0, 0)), Some([0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn a_books_colour_draws_its_glyphs_and_their_lines() {
+        let mut p = Text::new(Role::Paragraph);
+        let red = Emphasis {
+            underline: true,
+            colour: Some([204, 0, 0]),
+            ..Emphasis::default()
+        };
+        p.push("Plain words, then ", Emphasis::default());
+        p.push("a red run with a line under it.", red);
+        let blocks = Arc::new(vec![Block::new(Content::Text(p))]);
+        let f = Flow::new(blocks, &Typography::default(), Fonts::bundled());
+        let px = f.render(0, 1.0, [0, 0, 794, 300]);
+        let (pixels, _) = px
+            .as_ref()
+            .map_or(&[][..], |p| p.rgba.as_slice())
+            .as_chunks::<4>();
+        // Premultiplied: a solid red pixel is red over nothing else.
+        let red = pixels
+            .iter()
+            .filter(|&&[r, g, b, a]| a == 255 && r > 150 && g < 40 && b < 40);
+        let black = pixels
+            .iter()
+            .filter(|&&[r, g, b, a]| a == 255 && r < 40 && g < 40 && b < 40);
+        let (red, black) = (red.count(), black.count());
+        assert!(red > 100 && black > 100, "{red} red, {black} black pixels");
     }
 
     #[test]

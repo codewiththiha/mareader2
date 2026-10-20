@@ -116,6 +116,8 @@ pub(crate) enum Tone {
 pub(crate) struct Ink {
     pub(crate) tone: Tone,
     pub(crate) code: bool,
+    /// The book's colour, over the tone.
+    pub(crate) colour: Option<[u8; 3]>,
 }
 
 /// Font data plus layout scratch; one per layout job, never shared.

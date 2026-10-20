@@ -385,6 +385,8 @@ struct State<'a> {
     float: Option<(usize, Arc<Floated>)>,
     /// The book's page colour, against which backgrounds show.
     page: css::Rgb,
+    /// The book's own text colour, which the theme's ink stands for.
+    book_ink: css::Rgb,
     /// A list item's marker, waiting for its first block.
     marker: Option<String>,
     /// The first block of an outermost list keeps the full gap above.
@@ -1050,7 +1052,21 @@ impl State<'_> {
             case: c.map_or(Case::Normal, Computed::case),
             underline,
             strike,
+            colour: c.and_then(|c| c.ink).and_then(|ink| self.drawn(ink)),
         }
+    }
+
+    /// `ink` as the page draws it, given the background it sits on.
+    fn drawn(&self, ink: css::Rgb) -> Option<css::Rgb> {
+        let ground = self
+            .stack
+            .iter()
+            .rev()
+            .find_map(|o| match is_block(&o.name) {
+                true => o.computed.fill,
+                false => None,
+            });
+        drawn(ink, ground.unwrap_or(self.page), self.book_ink, self.page)
     }
 
     fn role(&self) -> Role {
@@ -1667,8 +1683,9 @@ impl State<'_> {
         self.adopt(&el);
         let shown = !self.top().hidden && computed.display != Display::None;
         let signals = shown && self.observe(name, &computed, &declared);
-        if let Some(fill) = computed.fill.filter(|_| matches!(name, "html" | "body")) {
-            self.page = fill;
+        if matches!(name, "html" | "body") {
+            self.page = computed.fill.unwrap_or(self.page);
+            self.book_ink = computed.ink.unwrap_or(self.book_ink);
         }
         let id = attr(tag, "id").or_else(|| attr(tag, "name").filter(|_| name == "a"));
         if let Some(id) = id.filter(|_| !is_block(name)) {
@@ -1929,6 +1946,38 @@ impl State<'_> {
     }
 }
 
+/// How far a book's text colour may fade toward the paper, staying legible.
+const MAX_FADE: f32 = 0.55;
+/// Below this gap between the book's text and page, its colours mean little.
+const MIN_SPAN: f32 = 0.3;
+
+/// `ink` on the page's greys, faded by how far its contrast falls short.
+fn drawn(ink: css::Rgb, ground: css::Rgb, base: css::Rgb, page: css::Rgb) -> Option<css::Rgb> {
+    let unit = |c: css::Rgb| c.map(|v| f32::from(v) / 255.0);
+    let luma = |[r, g, b]: [f32; 3]| 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let span = (luma(unit(base)) - luma(unit(page))).abs();
+    if span < MIN_SPAN {
+        return None;
+    }
+    let colour = unit(ink);
+    let grey = luma(colour);
+    let contrast = (grey - luma(unit(ground))).abs() / span;
+    let off = colour.map(|v| v - grey);
+    // Never darker than the hue needs: black holds none.
+    let need = off.iter().fold(0.0f32, |n, &o| n.max(-o));
+    let fade = (1.0 - contrast).max(need).clamp(0.0, MAX_FADE);
+    if fade < 0.03 && off.iter().all(|o| o.abs() < 0.04) {
+        return None;
+    }
+    // The most of the hue that fits around this grey.
+    let room = off.iter().fold(1.0f32, |k, &o| match o {
+        o if o > 1e-4 => k.min((1.0 - fade) / o),
+        o if o < -1e-4 => k.min(fade / -o),
+        _ => k,
+    });
+    Some(off.map(|o| ((fade + o * room) * 255.0).round().clamp(0.0, 255.0) as u8))
+}
+
 /// The box `name` draws or sits in; a cell's column sets its width.
 fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
     if matches!(name, "tr" | "thead" | "tbody" | "tfoot" | "caption" | "hr") {
@@ -2119,6 +2168,14 @@ fn hints(tag: &Tag, name: &str) -> Decl {
         let w = w.trim();
         let unit = if w.ends_with('%') { "" } else { "px" };
         d.width = Decl::parse(&format!("width: {w}{unit}")).width;
+    }
+    let ink = match name {
+        "font" => attr(tag, "color"),
+        "body" => attr(tag, "text"),
+        _ => None,
+    };
+    if let Some(c) = ink {
+        d.ink = css::colour(&c.trim().to_ascii_lowercase()).flatten();
     }
     if let Some(c) = attr(tag, "bgcolor") {
         d.background = Some(true);
@@ -2358,6 +2415,7 @@ pub(crate) fn read_chapter(
         chapter: true,
         float: None,
         page: [255; 3],
+        book_ink: [0; 3],
         marker: None,
         list_opened: false,
         pre_opened: false,
@@ -2468,6 +2526,37 @@ mod tests {
         assert_eq!(texts(&b), ["Chapter One", "First para.", "Second."]);
         assert_eq!(role(b.first()), Some(Role::Heading(2)));
         assert_eq!(role(b.get(1)), Some(Role::Paragraph));
+    }
+
+    #[test]
+    fn book_colours_ride_the_themes_greys_keeping_their_hue() {
+        let b = read(
+            "<html><head><style>body { color: #333 } .r { color: #c00 } \
+             .g { color: #999 } .k { color: #000 } .w { color: #fff } \
+             .box { background: #000 }</style></head><body>\
+             <p>plain <span class='r'>red</span> <span class='g'>grey</span> \
+             <span class='k'>black</span> <font color='#c00'>font</font></p>\
+             <div class='box'><p class='w'>white on black</p></div>\
+             <p style='color: #fafafa'>faint</p></body></html>",
+        );
+        let marks: Vec<(String, Option<[u8; 3]>)> = b
+            .iter()
+            .flat_map(|b| spans(Some(b)))
+            .map(|(t, e)| (t.trim().to_owned(), e.colour))
+            .collect();
+        let of = |word: &str| marks.iter().find(|(t, _)| t == word).and_then(|m| m.1);
+        let near =
+            |c: Option<[u8; 3]>, v: u8| c.is_some_and(|c| c.iter().all(|x| x.abs_diff(v) <= 1));
+        // The book's own ink, and anything darker, is the theme's ink.
+        assert!(marks.iter().all(|(t, _)| t != "plain"), "{marks:?}");
+        assert_eq!(of("black"), None, "{marks:?}");
+        assert_eq!(of("white on black"), None, "{marks:?}");
+        // A hue keeps the grey it needs; greys fade by their contrast.
+        assert_eq!(of("red"), Some([204, 0, 0]), "{marks:?}");
+        assert_eq!(of("font"), of("red"));
+        assert!(near(of("grey"), 128), "{marks:?}");
+        // A faint colour fades only so far.
+        assert!(near(of("faint"), 140), "{marks:?}");
     }
 
     #[test]
