@@ -300,7 +300,7 @@ impl Painter {
             }
             Draw::Table(grid) => {
                 if let Laid::Table(rows) = &*laid() {
-                    self.table(set, (grid, rows), units, piece.dy);
+                    self.table(set, (grid, rows), (units, piece.dy), decoded);
                 }
             }
             Draw::Space => {}
@@ -1232,8 +1232,8 @@ impl Painter {
         &mut self,
         set: &Set,
         (grid, laid): (&Grid, &[Vec<Para>]),
-        rows: Range<usize>,
-        dy: f32,
+        (rows, dy): (Range<usize>, f32),
+        decoded: &Decoded,
     ) {
         let [pad_x, pad_y] = grid.pad;
         for r in rows {
@@ -1250,6 +1250,13 @@ impl Painter {
                 let x = set.x + c as f32 * grid.column;
                 self.frame(book(grid.rule, BORDER), x, top, grid.column, h);
                 self.lines(cell, 0..cell.layout.len(), x + pad_x, top + pad_y);
+                // Formulas and small pictures in the cell's lines.
+                self.inlines(
+                    cell,
+                    0..cell.layout.len(),
+                    (x + pad_x, top + pad_y),
+                    decoded,
+                );
             }
         }
     }
