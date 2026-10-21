@@ -20,10 +20,11 @@ mod raster;
 mod svg;
 
 pub use block::{
-    Align, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns, Content, Edge,
-    Emphasis, FEATURES, Features, Finish, Flex, Floated, Frame, Frame9, Gradient, GradientShape,
-    GridRow, Inline, Justify, Keep, LAYOUT_BYTES, LastLine, Layer, Length, Link, Look, Outline,
-    Rise, Role, Row, Script, Shadow, Span, Table, Text, TextShadow, Tile, VAlign, clip,
+    Align, Annotation, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns,
+    Content, Dir, Edge, Emphasis, FEATURES, Features, Finish, Flex, Floated, Frame, Frame9,
+    Gradient, GradientShape, GridRow, Inline, Justify, Keep, LAYOUT_BYTES, LastLine, Layer, Length,
+    Link, Look, Outline, Rise, Role, Row, Script, Shadow, Span, Table, Text, TextShadow, Tile,
+    VAlign, clip,
 };
 pub use flow::{
     Anchor, Band, COLUMN_SCALE, Design, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH,

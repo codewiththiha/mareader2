@@ -98,6 +98,13 @@ pub(crate) fn hyphenate(text: &Text, lang: Lang) -> Hyphenated {
             links,
             initial: text.initial,
             first_line: text.first_line,
+            ruby: (text.ruby.iter())
+                .map(|a| crate::block::Annotation {
+                    range: shift(a.range.start, |p, x| p <= x)..shift(a.range.end, |p, x| p < x),
+                    text: a.text.clone(),
+                })
+                .collect(),
+            faces: text.faces.clone(),
             inlines: (text.inlines.iter())
                 .map(|i| crate::block::Inline {
                     at: shift(i.at, |p, x| p <= x),

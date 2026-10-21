@@ -3,7 +3,9 @@ use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use parley::{GlyphRun, Layout, PositionedInlineBox, PositionedLayoutItem};
+use parley::{
+    Affinity, Cursor, GlyphRun, Layout, PositionedInlineBox, PositionedLayoutItem, Selection,
+};
 use skrifa::{FontRef, MetadataProvider};
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Stroke};
@@ -42,6 +44,8 @@ const HEAD_GROUND: Color = Color::from_rgba8(0, 0, 0, 10);
 /// Stands in for an image that won't decode.
 const MISSING: Color = Color::from_rgba8(0, 0, 0, 24);
 const BAR_WIDTH: f64 = 3.0;
+/// A ruby note's baseline above its base's, in the base's ems.
+const NOTE_RISE: f32 = 0.95;
 /// The lit side of a carved or raised border, as a share of its ink.
 const LIGHT_SIDE: f32 = 0.45;
 /// The most shadows one box casts.
@@ -239,7 +243,8 @@ impl Painter {
                 if units.start == 0
                     && let Some(marker) = marker
                 {
-                    self.marker(&para.layout, marker, (x, piece.dy), decoded);
+                    let right = set.rtl.then_some(set.x + set.width - pad);
+                    self.marker(&para.layout, marker, (x, right, piece.dy), decoded);
                 }
                 if units.start == 0
                     && let Some(initial) = initial
@@ -247,6 +252,7 @@ impl Painter {
                     self.initial(&para.layout, initial, x, piece.dy);
                 }
                 self.lines(para, units, x, piece.dy);
+                self.notes(para, piece.units.clone(), x, piece.dy);
                 self.inlines(para, piece.units.clone(), (x, piece.dy), decoded);
             }
             Draw::Rule => {
@@ -1018,12 +1024,12 @@ impl Painter {
             .fill_glyphs(placed);
     }
 
-    /// The marker's right edge a gap left of `x`, on the first baseline.
+    /// The marker a gap left of `x`, or past `right`, on the first baseline.
     fn marker(
         &mut self,
         text: &Layout<Ink>,
         marker: &Para,
-        (x, dy): (f32, f32),
+        (x, right, dy): (f32, Option<f32>, f32),
         decoded: &Decoded,
     ) {
         let (Some(first), Some(own)) = (text.get(0), marker.layout.get(0)) else {
@@ -1036,10 +1042,55 @@ impl Painter {
                 PositionedLayoutItem::InlineBox(_) => None,
             })
             .unwrap_or(0.0);
-        let left = x - MARKER_GAP * size - marker.layout.width();
+        let left = match right {
+            Some(right) => right + MARKER_GAP * size,
+            None => x - MARKER_GAP * size - marker.layout.width(),
+        };
         let shift = first.metrics().baseline - own.metrics().baseline;
         self.lines(marker, 0..1, left, dy + shift);
         self.inlines(marker, 0..1, (left, dy + shift), decoded);
+    }
+
+    /// Ruby notes over their bases on lines `lines`, centred on each.
+    fn notes(&mut self, para: &Para, lines: Range<usize>, x: f32, dy: f32) {
+        let layout = &para.layout;
+        for note in &para.ruby {
+            let Some(laid) = note.para.as_deref() else {
+                continue;
+            };
+            let caret = |i, affinity| Cursor::from_byte_index(layout, i, affinity);
+            let start = caret(note.range.start, Affinity::Downstream);
+            let end = caret(note.range.end, Affinity::Upstream);
+            // A base broken over lines takes the note on its first part.
+            let mut first = None;
+            Selection::new(start, end).geometry_with(layout, |b, line| {
+                if first.is_none() {
+                    first = Some((b, line));
+                }
+            });
+            let Some((b, line)) = first.filter(|(_, line)| lines.contains(line)) else {
+                continue;
+            };
+            let (Some(base), Some(own)) = (layout.get(line), laid.layout.get(0)) else {
+                continue;
+            };
+            let size = base.items().find_map(|item| match item {
+                PositionedLayoutItem::GlyphRun(g)
+                    if g.run().text_range().end > note.range.start =>
+                {
+                    Some(g.run().font_size())
+                }
+                _ => None,
+            });
+            let Some(size) = size else {
+                continue;
+            };
+            let centre = x + ((b.x0 + b.x1) / 2.0) as f32;
+            let left = centre - laid.layout.width() / 2.0;
+            // Just clear of the base's tallest letters.
+            let baseline = base.metrics().baseline - size * NOTE_RISE;
+            self.lines(laid, 0..1, left, dy + baseline - own.metrics().baseline);
+        }
     }
 
     /// A drop cap at the text's left, on the baseline of its last line.

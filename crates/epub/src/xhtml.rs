@@ -10,9 +10,9 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
-    Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow, Inline,
-    Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text,
+    Align, Anchor, Annotation, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content,
+    Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow,
+    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text,
     TextShadow, VAlign,
 };
 
@@ -33,6 +33,8 @@ const MAX_COLUMNS: usize = 32;
 /// The most rows a one-column table may have and still read as a box.
 const MAX_BOX_ROWS: usize = 8;
 const MAX_BARS: usize = 8;
+/// The longest ruby note kept, in bytes.
+const MAX_NOTE: usize = 256;
 /// Elements that set as one text block, kept whole without a box.
 const TEXT_BLOCKS: [&str; 12] = [
     "p",
@@ -178,6 +180,8 @@ struct Style {
     link: Option<u32>,
     /// List items show no marker; inherited, as in CSS.
     unmarked: bool,
+    /// Inside `<rt>`: a ruby note, kept apart from the text.
+    note: bool,
 }
 
 struct Open {
@@ -470,6 +474,10 @@ struct State<'a> {
     sheets: Vec<Arc<Stylesheet>>,
     /// An inline `<style>` being read.
     style_text: String,
+    /// In `<ruby>`: where the base starts, and where it ended at `<rt>`.
+    ruby: Option<(usize, Option<usize>)>,
+    /// The ruby note being read.
+    note: String,
     /// Whether that `<style>`'s `media` applies.
     style_applies: bool,
     /// `html`, styled before its head's sheets; its custom values wait.
@@ -636,6 +644,7 @@ impl State<'_> {
                 whole: c.whole,
                 with_next: c.keep_next,
             };
+            f.dir = c.dir;
         }
         f
     }
@@ -1338,6 +1347,7 @@ impl State<'_> {
             shadow: c.and_then(|c| self.text_shadow(c)),
             hidden: c.is_some_and(|c| c.invisible),
             features: c.map_or_else(Features::default, Computed::features),
+            face: 0,
         }
     }
 
@@ -1572,13 +1582,18 @@ impl State<'_> {
         if style.hidden || style.graphic {
             return;
         }
+        if style.note {
+            return self.read_note(input);
+        }
         let emphasis = self.emphasis();
+        let face = self.run_face();
         if style.pre {
             let mut text = input.replace('\r', "").replace('\t', TAB);
             if std::mem::take(&mut self.pre_opened) && text.starts_with('\n') {
                 text.remove(0);
             }
             if let Some(t) = self.target() {
+                let emphasis = faced(t, face, emphasis);
                 put(t, &text, emphasis, style.link);
             }
             return;
@@ -1609,8 +1624,63 @@ impl State<'_> {
             }
             text.push(c);
         }
+        let emphasis = faced(target, face, emphasis);
         put(target, &text, emphasis, style.link);
         self.space = space;
+    }
+
+    /// Ruby note text, its spaces collapsed.
+    fn read_note(&mut self, input: &str) {
+        let words: Vec<&str> = input
+            .split(is_html_space)
+            .filter(|w| !w.is_empty())
+            .collect();
+        if words.is_empty() || self.note.len() > MAX_NOTE {
+            return;
+        }
+        if !self.note.is_empty() && input.starts_with(is_html_space) {
+            self.note.push(' ');
+        }
+        self.note.push_str(&words.join(" "));
+    }
+
+    /// Bytes in the text being read, if a block is open.
+    fn text_len(&mut self) -> usize {
+        if self.current.is_none() && self.table.is_none() {
+            return 0;
+        }
+        self.target().map_or(0, |t| t.text.len())
+    }
+
+    /// The note just read, set over the base before it.
+    fn annotate(&mut self) {
+        let note = std::mem::take(&mut self.note);
+        let Some((start, Some(end))) = self.ruby else {
+            return;
+        };
+        let Some(t) = self.target() else {
+            return;
+        };
+        let base = t.text.get(start..end.min(t.text.len())).unwrap_or_default();
+        let lead = base.len() - base.trim_start().len();
+        let range = start + lead..start + base.trim_end().len();
+        let apart = t.ruby.last().is_none_or(|a| a.range.end <= range.start);
+        let fits = !note.is_empty() && note.len() <= MAX_NOTE;
+        if fits && !range.is_empty() && apart {
+            t.ruby.push(Annotation { range, text: note });
+        }
+        let next = t.text.len();
+        self.ruby = Some((next, None));
+    }
+
+    /// The book's family for the run being read, where it isn't its block's.
+    fn run_face(&mut self) -> Option<Vec<String>> {
+        let own = self.stack.last().and_then(|o| o.computed.family.clone())?;
+        let block = self.block_computed().and_then(|c| c.family.clone());
+        if block.as_deref() == Some(&*own) {
+            return None;
+        }
+        Some(self.faces(Some(&own))).filter(|f| !f.is_empty())
     }
 
     fn line_break(&mut self) {
@@ -1917,7 +1987,10 @@ impl State<'_> {
             "code" | "kbd" | "samp" | "tt" => st.code = true,
             "pre" | "listing" | "xmp" => st.pre = true,
             "svg" | "math" => st.graphic = true,
-            "head" | "style" | "script" | "title" | "template" | "noscript" => st.hidden = true,
+            "head" | "style" | "script" | "title" | "template" | "noscript" | "rp" => {
+                st.hidden = true;
+            }
+            "rt" | "rtc" => st.note = true,
             _ => {}
         }
         st.align = c.align.align();
@@ -2436,6 +2509,17 @@ impl State<'_> {
             self.mark(id);
         }
         match name {
+            "ruby" => self.ruby = Some((self.text_len(), None)),
+            "rt" | "rtc" if !self.top().note => {
+                let end = self.text_len();
+                if let Some((_, base)) = &mut self.ruby {
+                    *base = Some(end);
+                }
+                self.note.clear();
+            }
+            _ => {}
+        }
+        match name {
             "br" => {
                 self.line_break();
                 return false;
@@ -2615,6 +2699,11 @@ impl State<'_> {
         }
         if matches!(name, "ul" | "ol") && !self.in_list() {
             self.list_opened = false;
+        }
+        match name {
+            "rt" | "rtc" if !self.top().note => self.annotate(),
+            "ruby" => self.ruby = None,
+            _ => {}
         }
     }
 
@@ -3049,6 +3138,14 @@ fn hints(tag: &Tag, name: &str) -> Decl {
     if let Some(c) = ink {
         d.ink = css::colour(&c.trim().to_ascii_lowercase()).flatten();
     }
+    if let Some(dir) = attr(tag, "dir") {
+        d.dir = match dir.trim().to_ascii_lowercase().as_str() {
+            "rtl" => Some(Dir::Rtl),
+            "ltr" => Some(Dir::Ltr),
+            "auto" => Some(Dir::Auto),
+            _ => None,
+        };
+    }
     if let Some(c) = attr(tag, "bgcolor") {
         d.background = Some(true);
         d.fill = css::colour(&c.trim().to_ascii_lowercase());
@@ -3069,6 +3166,23 @@ fn hints(tag: &Tag, name: &str) -> Decl {
         d.valign = Decl::parse(&format!("vertical-align: {}", v.trim())).valign;
     }
     d
+}
+
+/// `e` with family `names`, registered with `t`; too many keep the block's.
+fn faced(t: &mut Text, names: Option<Vec<String>>, e: Emphasis) -> Emphasis {
+    let Some(names) = names else {
+        return e;
+    };
+    let at = match t.faces.iter().position(|f| *f == names) {
+        Some(at) => at,
+        None if t.faces.len() < usize::from(u8::MAX) => {
+            t.faces.push(names);
+            t.faces.len() - 1
+        }
+        None => return e,
+    };
+    let face = u8::try_from(at + 1).unwrap_or(0);
+    Emphasis { face, ..e }
 }
 
 /// Drops columns blank in every row, such as spacers.
@@ -3316,6 +3430,8 @@ pub(crate) fn read_chapter(
         base: path,
         sheets: Vec::new(),
         style_text: String::new(),
+        ruby: None,
+        note: String::new(),
         style_applies: true,
         root: None,
         blocks: Vec::new(),
@@ -4776,5 +4892,31 @@ mod tests {
         );
         let aligns: Vec<Align> = b.iter().map(|b| b.frame.align).collect();
         assert_eq!(aligns, [Align::Start, Align::Center, Align::Start]);
+    }
+
+    #[test]
+    fn direction_follows_the_attribute_and_the_sheet() {
+        let blocks = read(
+            "<html><head><style>.r { direction: rtl } .l { direction: ltr }</style></head>\
+             <body><div class=\"r\"><p>a</p><p dir=\"ltr\">b</p></div>\
+             <p dir=\"rtl\" class=\"l\">c</p><p dir=\"auto\">d</p><p>e</p></body></html>",
+        );
+        let dirs: Vec<Dir> = blocks.iter().map(|b| b.frame.dir).collect();
+        // The sheet beats the attribute, which is only a hint.
+        assert_eq!(dirs, [Dir::Rtl, Dir::Ltr, Dir::Ltr, Dir::Auto, Dir::Auto]);
+    }
+
+    #[test]
+    fn ruby_without_rt_or_too_long_a_note_adds_nothing() {
+        let long = "x".repeat(MAX_NOTE + 1);
+        let blocks = read(&format!(
+            "<body><p><ruby>base</ruby> <ruby>more<rt>{long}</rt></ruby>\
+             <ruby>end<rt> </rt></ruby></p></body>"
+        ));
+        let t = blocks.first().and_then(text);
+        assert_eq!(
+            t.map(|t| (t.text.as_str(), t.ruby.len())),
+            Some(("base moreend", 0))
+        );
     }
 }
