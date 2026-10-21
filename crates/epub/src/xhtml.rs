@@ -107,7 +107,7 @@ pub const MAX_PLACES: usize = 1 << 20;
 pub const MAX_LINKS: usize = 1 << 20;
 
 /// Where a link leads, as its chapter wrote it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Href {
     /// `path` or `path#id` in the archive, both decoded.
     Inside(String),
@@ -143,6 +143,8 @@ pub(crate) struct Refs {
     /// Elements triggers show or hide, and their index by `path#id`.
     pub(crate) targets: Vec<trigger::Target>,
     pub(crate) target_keys: HashMap<String, usize>,
+    /// Chapters with targets, to read again as triggers change them.
+    pub(crate) chapters: Vec<trigger::Laid>,
     /// Clips by `path#id`: the file, if it plays, and whether a video.
     pub(crate) clips: HashMap<String, (Option<String>, bool)>,
 }
@@ -601,20 +603,10 @@ struct State<'a> {
     places: Vec<Place>,
     /// The chapter's triggers, read ahead.
     triggers: trigger::Chapter,
-    /// A hidden element read aside, to lay once a trigger shows it.
-    holding: Option<Holding>,
-    /// Targets this chapter set aside, which its end styles too.
-    held: Vec<usize>,
-}
-
-/// A held element: its depth, target, and what it read from.
-struct Holding {
-    depth: usize,
-    target: usize,
-    /// Its first block, and the gap and page break it found.
-    start: usize,
-    gap: Gap,
-    opens: bool,
+    /// Targets by id that triggers have shown or hidden.
+    overrides: HashMap<String, bool>,
+    /// What clicking the picture being read sets off.
+    inline_link: Option<u32>,
 }
 
 /// A fixed page's containing block: its depth, rect and positioned box.
@@ -1933,10 +1925,11 @@ impl State<'_> {
             }
             ink = computed.child(&d).ink.or(ink);
         }
-        self.marker_picture = picture;
+        // A hidden item's marker hides with it.
+        self.marker_picture = picture.filter(|_| !computed.invisible);
         self.marker = match self.marker_picture.is_some() {
             true => Some(String::new()),
-            false => text,
+            false => text.filter(|_| !computed.invisible),
         };
         self.marker_colour = ink.and_then(|ink| self.drawn(ink, MAX_FADE));
     }
@@ -2347,6 +2340,7 @@ impl State<'_> {
                     tracks: Vec::new(),
                     id: owned("id").filter(|s| !s.is_empty()),
                     unseen: false,
+                    invisible: c.invisible,
                 });
                 return true;
             }
@@ -2355,7 +2349,8 @@ impl State<'_> {
                 if let Some(src) = attr(tag, "src").filter(|s| !s.trim().is_empty()) {
                     let target = self.link_to(src);
                     let name = media::label(attr(tag, "title"), src);
-                    self.caption(&format!("Open the embedded page: {name}"), target);
+                    let text = format!("Open the embedded page: {name}");
+                    self.caption(&text, target, c.invisible);
                 }
                 return true;
             }
@@ -2364,11 +2359,11 @@ impl State<'_> {
         false
     }
 
-    /// A hidden clip a trigger plays: read as a card that never shows.
+    /// A hidden clip a trigger may play or show: a card that never shows.
     fn unseen_clip(&mut self, name: &str, tag: &Tag) {
         let id = attr(tag, "id").map(str::trim).filter(|id| !id.is_empty());
-        let played = id.is_some_and(|id| self.triggers.played.contains(id));
-        if !played || !matches!(name, "video" | "audio") || self.media.is_some() {
+        let wanted = !self.triggers.observers.is_empty();
+        if !wanted || !matches!(name, "video" | "audio") || self.media.is_some() {
             return;
         }
         self.media = Some(media::Pending {
@@ -2381,94 +2376,42 @@ impl State<'_> {
         });
     }
 
-    /// Readies an element a trigger shows; whether it is read aside.
-    fn trigger_target(&mut self, tag: &Tag, computed: &mut Computed) -> bool {
+    /// Shows or hides an element as the reader's triggers left it.
+    fn trigger_target(&self, tag: &Tag, computed: &mut Computed) {
         let id = attr(tag, "id").map(str::trim).unwrap_or_default();
-        let hidden = computed.display == Display::None && !self.top().hidden;
-        if !hidden || !self.triggers.targets.contains(id) || self.holding.is_some() {
-            return false;
-        }
+        let Some(&visible) = self.overrides.get(id) else {
+            return;
+        };
         let name: &str = &tag.name;
-        let alone = !tag.self_closing && !is_void(name) && self.table.is_none();
-        if is_block(name) && alone && !self.fixed {
-            computed.display = Display::Block;
-            return true;
+        if !visible {
+            computed.invisible = true;
+            return;
         }
-        // Shown later in its room, which it keeps meanwhile.
-        computed.display = match is_block(name) {
-            true => Display::Block,
-            false => Display::Inline,
-        };
-        computed.invisible = true;
-        false
+        if computed.display == Display::None {
+            computed.display = match name {
+                "table" => Display::Table,
+                _ if is_block(name) => Display::Block,
+                _ => Display::Inline,
+            };
+        }
+        computed.invisible = false;
     }
 
-    /// Notes an element triggers show or hide, and holds it if `held`.
-    fn add_target(&mut self, tag: &Tag, (shown, held): (bool, bool), visible: bool) {
+    /// Notes an element triggers show or hide.
+    fn add_target(&mut self, tag: &Tag) {
         let id = attr(tag, "id").map(str::trim).unwrap_or_default();
+        if !self.triggers.targets.contains(id) || self.refs.targets.len() >= MAX_PLACES {
+            return;
+        }
         let key = format!("{}#{id}", self.base);
-        let known = self.refs.target_keys.contains_key(&key);
-        let full = self.refs.targets.len() >= trigger::MAX_TARGETS;
-        let wanted = self.triggers.targets.contains(id) && shown;
-        // What a held element holds shows and hides with it.
-        if !wanted || known || full || (self.holding.is_some() && !held) {
+        if self.refs.target_keys.contains_key(&key) {
             return;
         }
-        let target = self.refs.targets.len();
-        let place = match held {
-            true => trigger::Place::Held(trigger::Held {
-                blocks: Vec::new(),
-                at: 0,
-                opens: false,
-            }),
-            false => trigger::Place::Laid(None),
-        };
-        self.refs.target_keys.insert(key.clone(), target);
-        self.refs.targets.push(trigger::Target {
-            key,
-            boxes: self.boxes.len(),
-            visible: visible && !held,
-            place,
-        });
-        if held {
-            self.finish();
-            let (start, gap, opens) = (self.blocks.len(), self.gap, self.chapter);
-            let depth = self.stack.len();
-            self.holding = Some(Holding {
-                depth,
-                target,
-                start,
-                gap,
-                opens,
-            });
-        }
-    }
-
-    /// Takes a held element's blocks out once it has closed.
-    fn release_held(&mut self) {
-        let Some(h) = self.holding.take_if(|h| self.stack.len() <= h.depth) else {
-            return;
-        };
-        self.finish();
-        let start = h.start.min(self.blocks.len());
-        let blocks: Vec<Block> = self.blocks.drain(start..).collect();
-        self.gap = h.gap;
-        self.chapter |= h.opens;
-        // Extents and captions inside it would name the wrong blocks.
-        let from = self.first + start;
-        self.refs.extents.retain(|_, e| e.blocks.start < from);
-        for card in self.refs.cards.iter_mut() {
-            card.caption = card.caption.filter(|c| *c < from);
-        }
-        self.held.push(h.target);
-        if let Some(t) = self.refs.targets.get_mut(h.target) {
-            let at = from;
-            t.place = trigger::Place::Held(trigger::Held {
-                blocks,
-                at,
-                opens: h.opens,
-            });
-        }
+        let chapter = self.refs.chapters.len();
+        self.refs
+            .target_keys
+            .insert(key.clone(), self.refs.targets.len());
+        self.refs.targets.push(trigger::Target { key, chapter });
     }
 
     /// A link to what clicking `tag` sets off, if triggers observe it.
@@ -2569,7 +2512,8 @@ impl State<'_> {
                 })
             })
             .collect();
-        if tracks.is_empty() || self.refs.cards.len() >= subtitles::MAX_CARDS {
+        let full = self.refs.cards.len() >= subtitles::MAX_CARDS;
+        if tracks.is_empty() || full || m.invisible {
             return;
         }
         let Ok(card) = u32::try_from(self.refs.cards.len()) else {
@@ -2588,7 +2532,7 @@ impl State<'_> {
         let mut caption = None;
         if let Some(toggle) = toggle.filter(|_| picks.len() == tracks.len()) {
             let before = self.blocks.len();
-            self.caption("Show transcript", Some(toggle));
+            self.caption("Show transcript", Some(toggle), false);
             caption = (self.blocks.len() > before).then(|| self.first + self.blocks.len() - 1);
         }
         self.refs.cards.push(subtitles::Card {
@@ -2637,11 +2581,16 @@ impl State<'_> {
             let plays = m.src.as_deref().filter(|s| self.clip(s) == Clip::Plays);
             let path = plays.and_then(|s| href::resolve(self.base, s.trim()));
             let key = format!("{}#{}", self.base, id.trim());
-            if self.refs.clips.len() < trigger::MAX_TARGETS {
+            if self.refs.clips.len() < MAX_PLACES {
                 self.refs.clips.insert(key, (path, m.video));
             }
         }
         if self.top().hidden || m.unseen {
+            // A trigger may show it, so its link is known beforehand.
+            let src = m.src.filter(|s| self.clip(s) == Clip::Plays);
+            if let Some(src) = src.filter(|_| !self.triggers.observers.is_empty()) {
+                self.media_link(&src, m.video);
+            }
             return;
         }
         let clip = m.src.as_deref().map_or(Clip::Gone, |s| self.clip(s));
@@ -2662,8 +2611,9 @@ impl State<'_> {
         let clip = (m.src.as_deref())
             .filter(|_| target.is_some())
             .and_then(|s| href::resolve(self.base, s.trim()));
+        let target = target.filter(|_| !m.invisible);
         if self.table.is_some() {
-            self.caption(&text, target);
+            self.caption(&text, target, m.invisible);
             return self.subtitled(&m, clip);
         }
         let poster = m.poster.as_deref().filter(|_| m.video);
@@ -2690,9 +2640,10 @@ impl State<'_> {
             });
             block.frame = self.frame();
             block.frame.align = Align::Center;
+            block.frame.hidden = m.invisible;
             self.emit(block);
         }
-        self.caption(&text, target);
+        self.caption(&text, target, m.invisible);
         self.subtitled(&m, clip);
     }
 
@@ -2710,9 +2661,10 @@ impl State<'_> {
     }
 
     /// A centred line of small text, a link to `target` if there is one.
-    fn caption(&mut self, text: &str, target: Option<u32>) {
+    fn caption(&mut self, text: &str, target: Option<u32>, hidden: bool) {
         let small = Emphasis {
             size: 90,
+            hidden,
             ..Emphasis::default()
         };
         if self.table.is_some() {
@@ -2894,12 +2846,15 @@ impl State<'_> {
             });
             b.frame = self.frame();
             b.frame.align = Align::Center;
+            b.frame.hidden = computed.invisible;
             self.emit(b);
             return;
         }
         if self.target().is_none_or(|t| t.inlines.len() >= MAX_INLINES) {
             return self.formula_alt(&root);
         }
+        let hidden = computed.invisible;
+        let link = self.top().link.filter(|_| !hidden);
         let space = std::mem::take(&mut self.space);
         let Some(t) = self.target() else {
             return;
@@ -2913,6 +2868,8 @@ impl State<'_> {
             width: f.width,
             height: f.height,
             rise: Rise::By(-f.depth),
+            link,
+            hidden,
         });
     }
 
@@ -3066,13 +3023,20 @@ impl State<'_> {
         sized: (Option<Length>, Option<&Computed>),
     ) {
         let (width, computed) = sized;
+        let inline_link = self.inline_link.take();
         if self.top().hidden {
             return;
         }
+        let parent = self.stack.last().is_some_and(|o| o.computed.invisible);
+        let invisible = computed.map_or(parent, |c| c.invisible);
         let alt = alt.map(str::trim).filter(|a| !a.is_empty());
+        let unseen = Emphasis {
+            hidden: invisible,
+            ..Emphasis::default()
+        };
         if self.table.is_some() {
             if let (Some(alt), Some(cell)) = (alt, self.target()) {
-                cell.push(alt, Emphasis::default());
+                cell.push(alt, unseen);
             }
             return;
         }
@@ -3091,6 +3055,7 @@ impl State<'_> {
         let small = small.filter(|_| !self.places.last().is_some_and(own));
         if let (Some(picture), Some((width, height))) = (&picture, small) {
             // A small picture is a glyph of its line.
+            let link = inline_link.or(self.top().link).filter(|_| !invisible);
             let space = std::mem::take(&mut self.space);
             if let Some(t) = self.target() {
                 let spaced = !t.text.is_empty() && !t.text.ends_with('\n');
@@ -3107,6 +3072,8 @@ impl State<'_> {
                         width,
                         height,
                         rise,
+                        link,
+                        hidden: invisible,
                     });
                 }
                 return;
@@ -3115,6 +3082,9 @@ impl State<'_> {
         self.finish();
         let mut links = std::mem::take(&mut self.areas);
         links.extend(self.top().link.map(Area::whole));
+        if invisible {
+            links.clear();
+        }
         if let Some(picture) = picture {
             let mut block = Block::new(Content::Image {
                 picture,
@@ -3123,6 +3093,7 @@ impl State<'_> {
                 links,
             });
             block.frame = self.frame();
+            block.frame.hidden = invisible;
             // A grid's portrait sits over its centred name, read in a row.
             if self.laying > 0 && self.top().align == Align::Start {
                 block.frame.align = Align::Center;
@@ -3138,7 +3109,7 @@ impl State<'_> {
         } else if let Some(alt) = alt {
             let italic = Emphasis {
                 italic: true,
-                ..Emphasis::default()
+                ..unseen
             };
             if let Some(t) = self.target() {
                 t.push(alt, italic);
@@ -3147,7 +3118,11 @@ impl State<'_> {
         }
     }
 
-    fn start_table(&mut self, tag_name: &str, tag: &Tag) {
+    fn start_table(&mut self, tag_name: &str, tag: &Tag, (shown, invisible): (bool, bool)) {
+        // Rows and cells not shown take no room, as `display: none`.
+        if !shown && matches!(tag_name, "tr" | "td" | "th") {
+            return;
+        }
         if tag_name == "table" {
             let ordinal = self.tables;
             self.tables += 1;
@@ -3160,7 +3135,8 @@ impl State<'_> {
                 self.laying += usize::from(!tag.self_closing);
                 self.signals.strong = true;
             } else {
-                let frame = self.frame();
+                let mut frame = self.frame();
+                frame.hidden = invisible;
                 self.table = Some(TableBuild {
                     table: Table::default(),
                     frame,
@@ -3298,7 +3274,10 @@ impl State<'_> {
             Some(open) => open.computed.child(&declared),
             None => Computed::default().child(&declared),
         };
-        let held = !generated && self.trigger_target(tag, &mut computed);
+        if !generated {
+            self.trigger_target(tag, &mut computed);
+            self.add_target(tag);
+        }
         if !generated {
             self.adopt(&el);
         }
@@ -3358,6 +3337,7 @@ impl State<'_> {
                     self.space_above(&computed);
                     let mut rule = Block::new(Content::Rule);
                     rule.frame = self.frame();
+                    rule.frame.hidden = computed.invisible;
                     self.emit(rule);
                     self.space_below(&computed);
                 }
@@ -3373,10 +3353,14 @@ impl State<'_> {
                 if let Some(p) = &picture {
                     self.areas = self.map_areas(tag, p);
                 }
-                let link = self.observer_link(tag).map(Area::whole);
-                self.areas.extend(link);
-                self.picture(picture, alt, (width, Some(&computed)));
+                let link = self.observer_link(tag);
+                self.areas.extend(link.map(Area::whole));
+                self.inline_link = link;
+                if shown {
+                    self.picture(picture, alt, (width, Some(&computed)));
+                }
                 self.areas.clear();
+                self.inline_link = None;
                 self.place_end(self.stack.len());
                 return false;
             }
@@ -3406,9 +3390,6 @@ impl State<'_> {
                 extent = Some((key, self.first + self.blocks.len(), is_note(tag)));
             }
         }
-        if !generated {
-            self.add_target(tag, (shown, held), !computed.invisible);
-        }
         let (mut boxed, mut part) = (false, Part::None);
         if is_block(name) && shown && computed.break_before && self.table.is_none() {
             self.chapter = true;
@@ -3435,7 +3416,7 @@ impl State<'_> {
             name,
             "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th" | "caption"
         ) {
-            self.start_table(name, tag);
+            self.start_table(name, tag, (shown, computed.invisible));
             if matches!(name, "table" | "td" | "th") {
                 self.rule(&computed);
             }
@@ -3644,7 +3625,6 @@ impl State<'_> {
                 self.refs.extents.insert(key, Extent { blocks, note });
             }
         }
-        self.release_held();
     }
 
     /// Ends an element's part in the layout grid.
@@ -3705,8 +3685,7 @@ impl State<'_> {
                 (Arc::as_ptr(l) as usize, Arc::new(look))
             })
             .collect();
-        let held = held_blocks(&mut self.refs.targets, &self.held);
-        for block in self.blocks.iter_mut().chain(held) {
+        for block in self.blocks.iter_mut() {
             if let Some(look) = &mut block.frame.look {
                 match new.get(&(Arc::as_ptr(look) as usize)) {
                     Some(designed) => *look = Arc::clone(designed),
@@ -3724,8 +3703,7 @@ impl State<'_> {
             self.design();
         } else if !self.styled {
             // Unstyled, as converted text is, it reads in the reader's type.
-            let held = held_blocks(&mut self.refs.targets, &self.held);
-            for block in self.blocks.iter_mut().chain(held) {
+            for block in self.blocks.iter_mut() {
                 block.frame.look = None;
             }
         }
@@ -4260,7 +4238,8 @@ fn layout_tables(xhtml: &str) -> Vec<bool> {
 }
 
 fn put(text: &mut Text, s: &str, emphasis: Emphasis, link: Option<u32>) {
-    match link {
+    // Hidden text keeps its room but leads nowhere.
+    match link.filter(|_| !emphasis.hidden) {
         Some(target) => text.push_link(s, emphasis, target),
         None => text.push(s, emphasis),
     }
@@ -4334,7 +4313,7 @@ pub(crate) fn read_chapter(
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
-    read(xhtml, (path, false), library, (out, refs));
+    read(xhtml, (path, false), HashMap::new(), library, (out, refs));
 }
 
 /// Appends a fixed-layout page: its blocks laid at its own viewport.
@@ -4344,16 +4323,30 @@ pub(crate) fn read_fixed_chapter(
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
-    read(xhtml, (path, true), library, (out, refs));
+    read(xhtml, (path, true), HashMap::new(), library, (out, refs));
+}
+
+/// Reads a chapter again with targets shown or hidden as `overrides` says.
+pub(crate) fn reread_chapter(
+    xhtml: &str,
+    laid: &trigger::Laid,
+    overrides: HashMap<String, bool>,
+    library: &mut dyn Library,
+    (out, refs): (&mut Vec<Block>, &mut Refs),
+) {
+    let path = laid.path.as_str();
+    read(xhtml, (path, laid.fixed), overrides, library, (out, refs));
 }
 
 fn read(
     xhtml: &str,
     (path, fixed): (&str, bool),
+    overrides: HashMap<String, bool>,
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
     let first = out.len();
+    let links = refs.hrefs.len();
     let start = Anchor {
         block: first,
         offset: 0,
@@ -4418,8 +4411,8 @@ fn read(
         grounded: false,
         places: Vec::new(),
         triggers: trigger::read(xhtml),
-        holding: None,
-        held: Vec::new(),
+        overrides,
+        inline_link: None,
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -4446,22 +4439,17 @@ fn read(
             block.frame.sheet = Some(Arc::clone(&sheet));
         }
     }
+    if !state.triggers.targets.is_empty() {
+        let blocks = first..first + blocks.len();
+        let (path, links) = (path.to_owned(), links..state.refs.hrefs.len());
+        state.refs.chapters.push(trigger::Laid {
+            path,
+            blocks,
+            links,
+            fixed,
+        });
+    }
     out.extend(blocks);
-}
-
-/// The blocks of targets `held`, set aside from the chapter.
-fn held_blocks<'t>(
-    targets: &'t mut [trigger::Target],
-    held: &'t [usize],
-) -> impl Iterator<Item = &'t mut Block> {
-    let ours = targets
-        .iter_mut()
-        .enumerate()
-        .filter(|(i, _)| held.contains(i));
-    ours.flat_map(|(_, t)| match &mut t.place {
-        trigger::Place::Held(h) => h.blocks.iter_mut(),
-        trigger::Place::Laid(_) => [].iter_mut(),
-    })
 }
 
 /// A viewport `<meta>`'s size in CSS px, as `width=1200, height=1600`.

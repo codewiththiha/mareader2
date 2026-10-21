@@ -8,8 +8,8 @@ use hypher::Lang;
 use parley::{
     Affinity, Alignment, AlignmentOptions, BaseDirection, Cursor as Caret, FontFamily,
     FontFamilyName, FontFeatures, FontStyle, FontWeight, GenericFamily, IndentOptions, InlineBox,
-    InlineBoxKind, Layout, LineHeight, OverflowWrap, RangedBuilder, Selection, StyleProperty,
-    VerticalAlign,
+    InlineBoxKind, Layout, LineHeight, OverflowWrap, PositionedLayoutItem, RangedBuilder,
+    Selection, StyleProperty, VerticalAlign,
 };
 
 use crate::block::clip;
@@ -240,6 +240,9 @@ pub(crate) struct Para {
     links: Vec<Link>,
     /// Pictures in its lines, by their boxes' ids.
     pub(crate) pictures: Vec<Arc<Picture>>,
+    /// Each picture's link, and whether it is hidden.
+    pub(crate) picture_links: Vec<Option<u32>>,
+    pub(crate) veiled: Vec<bool>,
     /// Ruby notes over its runs, bases in bytes of the text as set.
     pub(crate) ruby: Vec<Note>,
     /// Vertical: drawn turned, its pictures standing again.
@@ -506,6 +509,8 @@ pub(crate) struct Set {
     place: Option<CellPlace>,
     /// Designed: a turn in degrees, drawn about its middle.
     pub(crate) rotate: f32,
+    /// Takes its room but draws nothing and leads nowhere.
+    pub(crate) hidden: bool,
     /// Written vertically: laid on its side, its page drawn turned.
     pub(crate) turned: bool,
     /// On a fixed page: that page, and the positioned box it is in.
@@ -937,7 +942,7 @@ impl Flow {
         let mut out = Vec::new();
         let (left, top) = self.origin(page);
         for piece in self.pages.get(page).map_or(&[][..], Vec::as_slice) {
-            let Some(set) = self.blocks.get(piece.block) else {
+            let Some(set) = self.blocks.get(piece.block).filter(|s| !s.hidden) else {
                 continue;
             };
             let x = left + set.x;
@@ -1608,6 +1613,7 @@ impl<'a> Setter<'a> {
             clear: false,
             place: self.place_of(frame).filter(|_| designed),
             rotate: if designed { frame.rotate } else { 0.0 },
+            hidden: frame.hidden,
             turned: self.turned,
             sheet: frame.sheet.clone().filter(|_| self.fixed),
             spot: spot
@@ -2635,6 +2641,8 @@ fn layout_text(
             .iter()
             .map(|i| Arc::clone(&i.picture))
             .collect(),
+        picture_links: text.inlines.iter().map(|i| i.link).collect(),
+        veiled: text.inlines.iter().map(|i| i.hidden).collect(),
     }
 }
 
@@ -2649,6 +2657,8 @@ fn marker_inline(picture: &Arc<Picture>, at: usize) -> Inline {
         width: width * scale,
         height: height * scale,
         rise: Rise::Baseline,
+        link: None,
+        hidden: false,
     }
 }
 
@@ -2770,6 +2780,22 @@ fn cased(text: &Text) -> (Cow<'_, str>, Vec<(Range<usize>, f32)>) {
 /// Boxes of `para`'s links on lines `lines`, its origin at `x, y`.
 fn link_boxes(para: &Para, lines: Range<usize>, (x, y): (f32, f32), out: &mut Vec<PageLink>) {
     let layout = &para.layout;
+    // Pictures in a line take no text, so their boxes are links of their own.
+    if para.picture_links.iter().any(Option::is_some) {
+        for line in lines.clone().filter_map(|l| layout.get(l)) {
+            for item in line.items() {
+                let PositionedLayoutItem::InlineBox(b) = item else {
+                    continue;
+                };
+                let i = usize::try_from(b.id).ok();
+                let link = i.and_then(|i| para.picture_links.get(i).copied().flatten());
+                if let Some(target) = link {
+                    let rect = [x + b.x, y + b.y, b.width, b.height];
+                    out.push(PageLink { target, rect });
+                }
+            }
+        }
+    }
     for link in &para.links {
         let caret = |i, affinity| Caret::from_byte_index(layout, i, affinity);
         let start = caret(link.range.start, Affinity::Downstream);
@@ -3646,7 +3672,6 @@ mod tests {
     use super::*;
     use crate::block::{Columns, Flex, Inline, Row};
     use crate::picture::tests::png;
-    use parley::PositionedLayoutItem;
 
     fn para(words: usize) -> Block {
         Block::text(Role::Paragraph, &vec!["word"; words].join(" "))
@@ -4074,6 +4099,8 @@ mod tests {
                 width: 1.0,
                 height: 1.0,
                 rise: Rise::Baseline,
+                link: Some(4),
+                hidden: false,
             });
         }
         let f = flow(&[block]);
@@ -4087,6 +4114,8 @@ mod tests {
             .flat_map(|l| l.items().collect::<Vec<_>>());
         let boxes = boxes.filter(|i| matches!(i, PositionedLayoutItem::InlineBox(_)));
         assert_eq!(boxes.count(), 1);
+        let links = f.links(0);
+        assert!(links.iter().any(|l| l.target == 4), "{links:?}");
     }
 
     #[test]

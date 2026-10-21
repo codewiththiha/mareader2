@@ -1,7 +1,7 @@
 //! `epub:trigger`: a click on one element shows, hides or plays another.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -9,15 +9,16 @@ use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
-use mareader_reflow::{Anchor, Block, Boxed, Content, Emphasis, Finish, Picture, Span, Text, clip};
+use mareader_reflow::{Anchor, Block, Content, Picture, Text};
 
 use crate::splice::Insert;
+use crate::xhtml::{Href, Refs};
 
 /// Triggers read from one chapter, and actions one click sets off.
-const MAX_TRIGGERS: usize = 512;
-pub(crate) const MAX_ACTIONS: usize = 32;
-/// Elements shown or hidden per book.
-pub(crate) const MAX_TARGETS: usize = 4096;
+const MAX_TRIGGERS: usize = 1 << 16;
+const MAX_ACTIONS: usize = 1024;
+/// How many blocks past a change are searched for the text to match again.
+const RESYNC: usize = 64;
 /// Insert ids: the second bit from the top, then the block.
 const TRIGGERED: u128 = 1 << 126;
 
@@ -111,30 +112,38 @@ pub(crate) struct Chapter {
 pub(crate) struct Target {
     /// `path#id`.
     pub(crate) key: String,
-    /// The book's boxes open around it; the rest are its own.
-    pub(crate) boxes: usize,
-    /// Shown as the book opens.
-    pub(crate) visible: bool,
-    pub(crate) place: Place,
+    /// Its chapter, in [`Refs::chapters`].
+    pub(crate) chapter: usize,
 }
 
-/// Where a target's content is.
+/// A chapter with targets: its file and the book's blocks it holds.
 #[derive(Debug, Clone)]
-pub(crate) enum Place {
-    /// In the pages, from one place to another; found once all is read.
-    Laid(Option<Range<Anchor>>),
-    /// Hidden with `display: none`: kept aside, laid by block `at`.
-    Held(Held),
+pub(crate) struct Laid {
+    pub(crate) path: String,
+    pub(crate) blocks: Range<usize>,
+    /// Its links, in [`Refs::hrefs`].
+    pub(crate) links: Range<usize>,
+    pub(crate) fixed: bool,
 }
 
-/// A hidden block element's blocks and where they go once shown.
-#[derive(Debug, Clone)]
-pub(crate) struct Held {
-    pub(crate) blocks: Vec<Block>,
-    /// The book's block that followed it.
-    pub(crate) at: usize,
-    /// It began its chapter.
-    pub(crate) opens: bool,
+/// What a link is matched by: where it leads, or what a click sets off.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Key<'r> {
+    Leads(&'r Href),
+    Fires(&'r [(Action, String)]),
+}
+
+impl<'r> Key<'r> {
+    fn of(refs: &'r Refs, href: &'r Href) -> Option<Self> {
+        match href {
+            Href::Trigger(n) => {
+                let actions = refs.triggers.get(usize::try_from(*n).ok()?)?;
+                Some(Self::Fires(actions))
+            }
+            Href::Transcript { .. } => None,
+            href => Some(Self::Leads(href)),
+        }
+    }
 }
 
 /// The triggers in `xhtml`, read ahead of its elements.
@@ -204,237 +213,267 @@ impl TokenSink for Scan {
     }
 }
 
-/// Finds where each laid target starts and ends, now all is read.
-pub(crate) fn find_targets(refs: &mut crate::xhtml::Refs) {
-    for t in refs.targets.iter_mut() {
-        if let Place::Laid(range) = &mut t.place {
-            let start = refs.places.get(&t.key).copied();
-            let end = refs.ends.get(&t.key).copied();
-            *range = start
-                .zip(end)
-                .map(|(a, b)| a..b)
-                .filter(|r| r.start < r.end);
+/// Points `blocks`' links, read into `fresh`, at the book's; drops others.
+pub(crate) fn remap(blocks: &mut [Block], fresh: &Refs, book: &Refs, laid: &Laid) {
+    // The chapter's own links in order, so the nth of each matches again.
+    let mut ours: HashMap<Key, Vec<u32>> = HashMap::new();
+    let mut anywhere: HashMap<Key, u32> = HashMap::new();
+    for (i, href) in book.hrefs.iter().enumerate() {
+        let (Ok(n), Some(key)) = (u32::try_from(i), Key::of(book, href)) else {
+            continue;
+        };
+        if laid.links.contains(&i) {
+            ours.entry(key).or_default().push(n);
         }
+        anywhere.entry(key).or_insert(n);
+    }
+    let mut seen: HashMap<Key, usize> = HashMap::new();
+    let map: Vec<Option<u32>> = (fresh.hrefs.iter())
+        .map(|href| {
+            let Some(key) = Key::of(fresh, href) else {
+                let Href::Transcript { card, track } = href else {
+                    return None;
+                };
+                return card_link(fresh, book, laid, (*card, *track));
+            };
+            let nth = seen.entry(key).or_default();
+            let mine = ours
+                .get(&key)
+                .and_then(|v| v.get(*nth).or(v.last()).copied());
+            *nth += 1;
+            mine.or_else(|| anywhere.get(&key).copied())
+        })
+        .collect();
+    let to = |t: u32| {
+        usize::try_from(t)
+            .ok()
+            .and_then(|t| map.get(t).copied().flatten())
+    };
+    for block in blocks {
+        relink(block, &to);
     }
 }
 
-/// Boxes faded or restored, by the box they copy and whether hidden.
-type Faded = HashMap<(usize, bool), Arc<Boxed>>;
-
-/// What to lay in place of one of the book's blocks.
-#[derive(Default)]
-struct Plan {
-    before: Vec<Block>,
-    after: Vec<Block>,
-    /// Byte ranges to hide or show, and the boxes from which on to fade.
-    edits: Vec<(Range<usize>, bool, Option<usize>)>,
+/// The book's link to the same card's transcript, if the chapter has it.
+fn card_link(
+    fresh: &Refs,
+    book: &Refs,
+    laid: &Laid,
+    (card, track): (u32, Option<u32>),
+) -> Option<u32> {
+    let mine = fresh.cards.get(usize::try_from(card).ok()?)?;
+    let paths =
+        |c: &crate::subtitles::Card| c.tracks.iter().map(|t| t.path.clone()).collect::<Vec<_>>();
+    let same = |c: &&crate::subtitles::Card| {
+        let here = c.caption.is_some_and(|b| laid.blocks.contains(&b));
+        here && c.clip == mine.clip && paths(c) == paths(mine)
+    };
+    let theirs = book.cards.iter().find(same)?;
+    match track {
+        None => Some(theirs.toggle),
+        Some(t) => theirs.picks.get(usize::try_from(t).ok()?).copied(),
+    }
 }
 
-/// The book's blocks redone so each target in `shown` is as it says.
-pub(crate) fn inserts(
-    blocks: &[Block],
-    targets: &[Target],
-    shown: &BTreeMap<usize, bool>,
+/// Swaps each link's target by `to`, dropping those it has none for.
+fn relink(block: &mut Block, to: &dyn Fn(u32) -> Option<u32>) {
+    let text = |t: &mut Text| {
+        t.links
+            .retain_mut(|l| to(l.target).map(|n| l.target = n).is_some());
+        for inline in &mut t.inlines {
+            inline.link = inline.link.and_then(to);
+        }
+    };
+    match &mut block.content {
+        Content::Text(t) => text(t),
+        Content::Image { links, .. } => {
+            links.retain_mut(|a| to(a.target).map(|n| a.target = n).is_some());
+        }
+        Content::Table(table) => {
+            table
+                .rows
+                .iter_mut()
+                .flat_map(|r| r.cells.iter_mut())
+                .for_each(text);
+        }
+        _ => {}
+    }
+}
+
+/// Inserts laying `new` where it differs from `base`, which starts at `first`.
+pub(crate) fn changes(
+    base: &[Block],
+    mut new: Vec<Block>,
+    first: usize,
+    language: Option<&str>,
 ) -> Vec<Insert> {
-    let mut plans: BTreeMap<usize, Plan> = BTreeMap::new();
-    for (&n, &visible) in shown {
-        let Some(t) = targets.get(n).filter(|t| t.visible != visible) else {
-            continue;
-        };
-        match &t.place {
-            Place::Laid(Some(range)) => laid(&mut plans, blocks, (range, t.boxes), !visible),
-            Place::Laid(None) => {}
-            // Held targets start hidden, so here they show.
-            Place::Held(held) => held_in(&mut plans, blocks, held),
+    share_pictures(&mut new, base);
+    let runs = widen(runs(base, &new), base, &new);
+    let anchor = |block| Anchor { block, offset: 0 };
+    (runs.into_iter())
+        .map(|(old, laid)| Insert {
+            id: TRIGGERED | u128::try_from(first + old.start).unwrap_or_default(),
+            from: anchor(first + old.start),
+            to: anchor(first + old.end),
+            blocks: Arc::new(new.get(laid).unwrap_or_default().to_vec()),
+            language: language.map(str::to_owned),
+        })
+        .collect()
+}
+
+/// Gives `new` the book's own pictures where they are the same images.
+fn share_pictures(new: &mut [Block], base: &[Block]) {
+    let mut own: Vec<Arc<Picture>> = Vec::new();
+    let mut covers: Vec<Arc<Picture>> = Vec::new();
+    for block in base {
+        pictures_of(block, &mut own);
+        if let Content::Image {
+            picture,
+            cover: true,
+            ..
+        } = &block.content
+        {
+            covers.push(Arc::clone(picture));
         }
     }
-    let mut faded = HashMap::new();
-    let mut out = Vec::with_capacity(plans.len());
-    for (at, plan) in plans {
-        let Some(base) = blocks.get(at) else {
-            continue;
-        };
-        let mut block = base.clone();
-        for (range, hidden, boxes) in &plan.edits {
-            edit(&mut block, range.clone(), *hidden, (*boxes, &mut faded));
-        }
-        let mut list = plan.before;
-        if let Some(first) = list.first_mut() {
-            first.break_before = block.break_before;
-            block.break_before = false;
-        }
-        list.push(block);
-        list.extend(plan.after);
-        out.push(Insert {
-            id: TRIGGERED | at as u128,
-            from: Anchor {
-                block: at,
-                offset: 0,
-            },
-            to: Anchor {
-                block: at + 1,
-                offset: 0,
-            },
-            blocks: Arc::new(list),
-            language: None,
+    for block in new {
+        for_pictures(block, &mut |p| {
+            if let Some(o) = own.iter().find(|o| o.same(p)) {
+                *p = Arc::clone(o);
+            }
         });
+        // The book made a picture of its opening its cover.
+        if let Content::Image { picture, cover, .. } = &mut block.content {
+            *cover |= covers.iter().any(|c| Arc::ptr_eq(c, picture));
+        }
+    }
+}
+
+fn pictures_of(block: &Block, out: &mut Vec<Arc<Picture>>) {
+    out.extend(block.frame.marker_picture.clone());
+    let inlines: Vec<&mareader_reflow::Inline> = match &block.content {
+        Content::Image { picture, .. } => {
+            out.push(Arc::clone(picture));
+            Vec::new()
+        }
+        Content::Text(t) => t.inlines.iter().collect(),
+        Content::Table(table) => (table.rows.iter())
+            .flat_map(|r| r.cells.iter())
+            .flat_map(|c| c.inlines.iter())
+            .collect(),
+        _ => Vec::new(),
+    };
+    out.extend(inlines.into_iter().map(|i| Arc::clone(&i.picture)));
+}
+
+fn for_pictures(block: &mut Block, f: &mut dyn FnMut(&mut Arc<Picture>)) {
+    if let Some(p) = &mut block.frame.marker_picture {
+        f(p);
+    }
+    let inlines: Vec<&mut mareader_reflow::Inline> = match &mut block.content {
+        Content::Image { picture, .. } => {
+            f(picture);
+            Vec::new()
+        }
+        Content::Text(t) => t.inlines.iter_mut().collect(),
+        Content::Table(table) => (table.rows.iter_mut())
+            .flat_map(|r| r.cells.iter_mut())
+            .flat_map(|c| c.inlines.iter_mut())
+            .collect(),
+        _ => Vec::new(),
+    };
+    for inline in inlines {
+        f(&mut inline.picture);
+    }
+}
+
+/// Changed runs: the blocks of `base` and those of `new` laid instead.
+fn runs(base: &[Block], new: &[Block]) -> Vec<(Range<usize>, Range<usize>)> {
+    let (mut i, mut j, mut out) = (0, 0, Vec::new());
+    while i < base.len() || j < new.len() {
+        if base.get(i).is_some_and(|b| new.get(j) == Some(b)) {
+            (i, j) = (i + 1, j + 1);
+            continue;
+        }
+        let meets = |(a, b): (usize, usize)| {
+            let pair = base.get(i + a).zip(new.get(j + b));
+            pair.is_some_and(|(x, y)| x == y)
+        };
+        // The nearest pair of blocks that match again, if near enough.
+        let pairs = (1..=2 * RESYNC).flat_map(|k| (0..=k).map(move |a| (a, k - a)));
+        let near = pairs
+            .filter(|&(a, b)| a <= RESYNC && b <= RESYNC)
+            .find(|&p| meets(p));
+        let rest = (base.len().saturating_sub(i), new.len().saturating_sub(j));
+        let (a, b) = near.unwrap_or(rest);
+        out.push((i..i + a, j..j + b));
+        (i, j) = (i + a, j + b);
     }
     out
 }
 
-/// Plans hiding or showing a laid target's text, pictures and boxes.
-fn laid(
-    plans: &mut BTreeMap<usize, Plan>,
-    blocks: &[Block],
-    (range, boxes): (&Range<Anchor>, usize),
-    hidden: bool,
-) {
-    let (from, to) = (range.start, range.end);
-    let last = match to.offset {
-        0 => to.block.saturating_sub(1),
-        _ => to.block,
+/// Runs grown to whole boxes, rows and pages, and never empty.
+fn widen(
+    runs: Vec<(Range<usize>, Range<usize>)>,
+    base: &[Block],
+    new: &[Block],
+) -> Vec<(Range<usize>, Range<usize>)> {
+    let tied = |blocks: &[Block], at: usize| {
+        let pair = at
+            .checked_sub(1)
+            .and_then(|p| blocks.get(p))
+            .zip(blocks.get(at));
+        pair.is_some_and(|(a, b)| shares(a, b))
     };
-    for b in from.block..=last.min(blocks.len().saturating_sub(1)) {
-        let start = if b == from.block { from.offset } else { 0 };
-        let end = if b == to.block { to.offset } else { usize::MAX };
-        // Its own boxes fade only where it holds the whole block.
-        let len = match blocks.get(b).map(|b| &b.content) {
-            Some(Content::Text(t)) => t.text.len(),
-            _ => 0,
-        };
-        let whole = start == 0 && end >= len;
-        let plan = plans.entry(b).or_default();
-        plan.edits
-            .push((start..end, hidden, whole.then_some(boxes)));
-    }
-}
-
-/// Plans laying a held target's blocks by the book's block it went with.
-fn held_in(plans: &mut BTreeMap<usize, Plan>, blocks: &[Block], held: &Held) {
-    let next = blocks.get(held.at);
-    let before = held.opens || next.is_some_and(|b| !b.break_before) || held.at == 0;
-    match before {
-        true if next.is_some() => {
-            let plan = plans.entry(held.at).or_default();
-            plan.before.extend(held.blocks.iter().cloned());
-        }
-        _ => {
-            let Some(prev) = held.at.checked_sub(1).filter(|p| *p < blocks.len()) else {
-                return;
+    let mut out: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+    for (mut old, mut laid) in runs {
+        loop {
+            let can_back = old.start > 0 && laid.start > 0;
+            let can_ahead = old.end < base.len() && laid.end < new.len();
+            let back = can_back && (tied(base, old.start) || tied(new, laid.start));
+            let ahead = can_ahead && (tied(base, old.end) || tied(new, laid.end));
+            let empty = old.is_empty() || laid.is_empty();
+            let (back, ahead) = match (back || ahead, empty) {
+                (false, true) => (!can_ahead && can_back, can_ahead),
+                _ => (back, ahead),
             };
-            let mut list = held.blocks.clone();
-            if let Some(first) = list.first_mut() {
-                first.break_before = false;
+            if !back && !ahead {
+                break;
             }
-            plans.entry(prev).or_default().after.extend(list);
-        }
-    }
-}
-
-/// Hides or shows bytes `range` of `block`, and fades or restores its boxes.
-fn edit(
-    block: &mut Block,
-    range: Range<usize>,
-    hidden: bool,
-    (boxes, faded): (Option<usize>, &mut Faded),
-) {
-    match &mut block.content {
-        Content::Text(text) => {
-            set_hidden(text, range.clone(), hidden);
-            for inline in text.inlines.iter_mut().filter(|i| range.contains(&i.at)) {
-                if let Some(blank) = hidden.then(|| blank(&inline.picture)).flatten() {
-                    inline.picture = blank;
-                }
+            if back {
+                (old.start, laid.start) = (old.start - 1, laid.start - 1);
+            }
+            if ahead {
+                (old.end, laid.end) = (old.end + 1, laid.end + 1);
             }
         }
-        Content::Image { picture, .. } if hidden => {
-            if let Some(blank) = blank(picture) {
-                *picture = blank;
+        match out.last_mut() {
+            Some((o, l)) if old.start <= o.end => {
+                (o.end, l.end) = (o.end.max(old.end), l.end.max(laid.end));
             }
+            _ => out.push((old, laid)),
         }
-        _ => {}
     }
-    let Some(from) = boxes else {
-        return;
-    };
-    for b in block.frame.boxes.iter_mut().skip(from) {
-        // One box spans many blocks: each takes the same faded copy.
-        let key = (Arc::as_ptr(b) as usize, hidden);
-        let done = faded.entry(key).or_insert_with(|| {
-            let mut boxed = (**b).clone();
-            let mut finish = boxed.finish.as_deref().cloned().unwrap_or_default();
-            finish.opacity = if hidden { 0.0 } else { 1.0 };
-            boxed.finish = (finish != Finish::default()).then(|| Arc::new(finish));
-            Arc::new(boxed)
-        });
-        *b = Arc::clone(done);
-    }
+    out
 }
 
-/// Marks bytes `range` of `text` hidden or shown, keeping its other styles.
-pub(crate) fn set_hidden(text: &mut Text, range: Range<usize>, hidden: bool) {
-    let range = clip(&text.text, range);
-    if range.is_empty() {
-        return;
+/// Whether two blocks share a box, a grid row, a float or a fixed page.
+fn shares(a: &Block, b: &Block) -> bool {
+    fn one<T>(x: &Option<Arc<T>>, y: &Option<Arc<T>>) -> bool {
+        x.as_ref()
+            .zip(y.as_ref())
+            .is_some_and(|(x, y)| Arc::ptr_eq(x, y))
     }
-    let plain = Emphasis {
-        hidden,
-        ..Emphasis::default()
-    };
-    let mut out = Vec::with_capacity(text.spans.len() + 2);
-    let mut covered = range.start;
-    for s in std::mem::take(&mut text.spans) {
-        if s.range.end <= range.start || s.range.start >= range.end {
-            out.push(s);
-            continue;
-        }
-        let (a, b) = (s.range.start.max(range.start), s.range.end.min(range.end));
-        if s.range.start < a {
-            out.push(Span {
-                range: s.range.start..a,
-                emphasis: s.emphasis,
-            });
-        }
-        if covered < a && hidden {
-            out.push(Span {
-                range: covered..a,
-                emphasis: plain,
-            });
-        }
-        out.push(Span {
-            range: a..b,
-            emphasis: Emphasis {
-                hidden,
-                ..s.emphasis
-            },
-        });
-        covered = b;
-        if s.range.end > b {
-            out.push(Span {
-                range: b..s.range.end,
-                emphasis: s.emphasis,
-            });
-        }
-    }
-    if covered < range.end && hidden {
-        out.push(Span {
-            range: covered..range.end,
-            emphasis: plain,
-        });
-    }
-    out.sort_by_key(|s| s.range.start);
-    text.spans = out;
-}
-
-/// A see-through picture of `picture`'s size, which takes its room.
-fn blank(picture: &Picture) -> Option<Arc<Picture>> {
-    let (w, h) = (picture.width.max(1), picture.height.max(1));
-    let svg = format!(
-        "<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' viewBox='0 0 {w} {h}'/>"
-    );
-    Picture::svg(svg.into_bytes(), Vec::new())
-        .ok()
-        .map(Arc::new)
+    let (a, b) = (&a.frame, &b.frame);
+    let boxed = a
+        .boxes
+        .iter()
+        .any(|x| b.boxes.iter().any(|y| Arc::ptr_eq(x, y)));
+    let cells = a.cell.as_ref().zip(b.cell.as_ref());
+    let row = cells.is_some_and(|(x, y)| {
+        Arc::ptr_eq(&x.row, &y.row) || Arc::ptr_eq(&x.row.columns, &y.row.columns)
+    });
+    boxed || row || one(&a.float, &b.float) || one(&a.sheet, &b.sheet) || one(&a.spot, &b.spot)
 }
 
 #[cfg(test)]
@@ -465,72 +504,65 @@ mod tests {
         assert!(read("<p>no triggers</p>").observers.is_empty());
     }
 
-    #[test]
-    fn hiding_marks_only_the_range_and_keeps_other_styles() {
-        let mut text = Text::new(Role::Paragraph);
-        text.push("one ", Emphasis::default());
-        let bold = Emphasis {
-            bold: true,
-            ..Emphasis::default()
-        };
-        text.push("two", bold);
-        text.push(" three", Emphasis::default());
-        set_hidden(&mut text, 2..9, true);
-        let hidden: Vec<_> = (text.spans.iter())
-            .filter(|s| s.emphasis.hidden)
-            .map(|s| (s.range.clone(), s.emphasis.bold))
-            .collect();
-        assert_eq!(hidden, [(2..4, false), (4..7, true), (7..9, false)]);
-        assert!(
-            text.spans
-                .iter()
-                .any(|s| s.range == (4..7) && s.emphasis.bold)
-        );
-        set_hidden(&mut text, 0..usize::MAX, false);
-        assert!(text.spans.iter().all(|s| !s.emphasis.hidden));
-        assert!(text.spans.iter().any(|s| s.emphasis.bold));
+    fn words(s: &str) -> Block {
+        Block::text(Role::Paragraph, s)
     }
 
     #[test]
-    fn a_shown_held_block_goes_before_the_one_that_followed_it() {
-        let para = |s: &str, chapter: bool| {
-            let mut t = Text::new(Role::Paragraph);
-            t.push(s, Emphasis::default());
-            let mut b = Block::new(Content::Text(t));
-            b.break_before = chapter;
-            b
+    fn only_changed_blocks_are_laid_again() {
+        let base = [words("a"), words("b"), words("c"), words("d")];
+        let new = vec![words("a"), words("B"), words("c"), words("d")];
+        let laid = changes(&base, new, 10, None);
+        assert_eq!(laid.len(), 1);
+        let [one] = laid.as_slice() else {
+            return;
         };
-        let blocks = vec![para("a", true), para("c", false), para("d", true)];
-        let held = |at: usize, opens: bool| Target {
-            key: "/x#h".to_owned(),
-            boxes: 0,
-            visible: false,
-            place: Place::Held(Held {
-                blocks: vec![para("b", opens)],
-                at,
-                opens,
-            }),
+        assert_eq!((one.from.block, one.to.block), (11, 12));
+        assert_eq!(one.blocks.len(), 1);
+        assert_eq!(one.id, TRIGGERED | 11);
+    }
+
+    #[test]
+    fn a_new_block_takes_a_neighbour_and_runs_merge() {
+        let base = [words("a"), words("c"), words("e")];
+        let new = vec![words("a"), words("b"), words("c"), words("e"), words("f")];
+        let laid = changes(&base, new, 0, None);
+        let spans: Vec<_> = laid
+            .iter()
+            .map(|i| (i.from.block, i.to.block, i.blocks.len()))
+            .collect();
+        assert_eq!(spans, [(1, 3, 4)]);
+        let gone = changes(&base, vec![words("a"), words("e")], 0, None);
+        let spans: Vec<_> = gone
+            .iter()
+            .map(|i| (i.from.block, i.to.block, i.blocks.len()))
+            .collect();
+        assert_eq!(spans, [(1, 3, 1)]);
+    }
+
+    #[test]
+    fn runs_grow_to_the_whole_box() {
+        let boxed = Arc::new(mareader_reflow::Boxed::default());
+        let in_box = |s: &str, b: &Arc<mareader_reflow::Boxed>| {
+            let mut block = words(s);
+            block.frame.boxes = vec![Arc::clone(b)];
+            block
         };
-        let texts = |ins: &Insert| -> Vec<(String, bool)> {
-            (ins.blocks.iter())
-                .map(|b| match &b.content {
-                    Content::Text(t) => (t.text.clone(), b.break_before),
-                    _ => (String::new(), b.break_before),
-                })
-                .collect()
-        };
-        let shown = BTreeMap::from([(0, true)]);
-        let got = inserts(&blocks, &[held(1, false)], &shown);
-        assert_eq!(got.len(), 1);
-        assert_eq!(texts(&got[0]), [("b".into(), false), ("c".into(), false)]);
-        // At a chapter's end it follows the block before, not the next chapter.
-        let got = inserts(&blocks, &[held(2, false)], &shown);
-        assert_eq!(got[0].from.block, 1);
-        assert_eq!(texts(&got[0]), [("c".into(), false), ("b".into(), false)]);
-        // Opening its chapter, it takes the page break.
-        let got = inserts(&blocks, &[held(2, true)], &shown);
-        assert_eq!(texts(&got[0]), [("b".into(), true), ("d".into(), false)]);
-        // Already as asked: nothing to lay.
-        assert!(inserts(&blocks, &[held(1, false)], &BTreeMap::from([(0, false)])).is_empty());
+        let base = [
+            words("a"),
+            in_box("b", &boxed),
+            in_box("c", &boxed),
+            words("d"),
+        ];
+        let other = Arc::new(mareader_reflow::Boxed::default());
+        let new = vec![
+            words("a"),
+            in_box("b", &other),
+            in_box("C", &other),
+            words("d"),
+        ];
+        let laid = changes(&base, new, 0, None);
+        let spans: Vec<_> = laid.iter().map(|i| (i.from.block, i.to.block)).collect();
+        assert_eq!(spans, [(1, 3)]);
     }
 }
