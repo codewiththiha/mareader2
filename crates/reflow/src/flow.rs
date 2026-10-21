@@ -8,13 +8,15 @@ use hypher::Lang;
 use parley::{
     Affinity, Alignment, AlignmentOptions, BaseDirection, Cursor as Caret, FontFamily,
     FontFamilyName, FontFeatures, FontStyle, FontWeight, GenericFamily, IndentOptions, InlineBox,
-    InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection, StyleProperty, VerticalAlign,
+    InlineBoxKind, Layout, LineHeight, OverflowWrap, RangedBuilder, Selection, StyleProperty,
+    VerticalAlign,
 };
 
+use crate::block::clip;
 use crate::block::{
-    Align, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Finish, Floated,
-    Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Rise, Role, Script, Table, Text,
-    VAlign,
+    Align, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Features, Finish,
+    Floated, Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Orient, Rise, Role,
+    Script, Table, Text, VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -220,6 +222,9 @@ struct Style<'a> {
     dir: Dir,
     /// Stacks for runs' own families, by [`Emphasis::face`].
     runs: &'a [Stack],
+    /// Vertical: laid as lines that are drawn turned a quarter.
+    turned: bool,
+    orient: Orient,
 }
 
 /// A text layout, its soft-hyphen lines, and line starts in source bytes.
@@ -237,6 +242,11 @@ pub(crate) struct Para {
     pub(crate) pictures: Vec<Arc<Picture>>,
     /// Ruby notes over its runs, bases in bytes of the text as set.
     pub(crate) ruby: Vec<Note>,
+    /// Vertical: drawn turned, its pictures standing again.
+    pub(crate) turned: bool,
+    /// Vertical: runs standing upright, and runs set across, in bytes.
+    pub(crate) upright: Vec<Range<usize>>,
+    pub(crate) combine: Vec<Range<usize>>,
 }
 
 /// A ruby note: its base in the text as set, then the note laid small.
@@ -257,6 +267,8 @@ pub(crate) enum Draw {
     Image {
         picture: Arc<Picture>,
         rect: [f32; 4],
+        /// Laid on its side in vertical text, drawn standing.
+        turned: bool,
     },
     Table(Grid),
     /// Room only: a designed book's rule draws as its boxes.
@@ -493,6 +505,8 @@ pub(crate) struct Set {
     place: Option<CellPlace>,
     /// Designed: a turn in degrees, drawn about its middle.
     pub(crate) rotate: f32,
+    /// Written vertically: laid on its side, its page drawn turned.
+    pub(crate) turned: bool,
 }
 
 /// Each unit's top and bottom within its block.
@@ -598,18 +612,30 @@ impl Flow {
         cut: f32,
     ) -> Self {
         let stacks = Stacks::new(&typo.faces);
-        // Each block is laid to measure its lines, then let go.
+        // Laid to measure, then let go; endless streams never turn.
+        let turnable = cut.is_finite();
         let set: Vec<Set> = {
             let mut setter = Setter::new(typo, &stacks, &mut fonts);
-            (setter.column, setter.height) = (width, height);
             let items: Vec<(usize, &Block)> = blocks
                 .iter()
                 .enumerate()
                 .filter(|(_, b)| !b.is_blank())
                 .collect();
-            setter.set_all(&items)
+            let mut out = Vec::with_capacity(items.len());
+            // Vertical chapters lay their lines down the page instead.
+            for group in items.chunk_by(|a, b| a.1.frame.turned == b.1.frame.turned) {
+                let turned = turnable && group.first().is_some_and(|(_, b)| b.frame.turned);
+                setter.turned = turned;
+                (setter.column, setter.height) = if turned {
+                    (height, width)
+                } else {
+                    (width, height)
+                };
+                out.extend(setter.set_all(group));
+            }
+            out
         };
-        let (pages, decos) = paginate(&set, cut, typo);
+        let (pages, decos) = paginate_turns(&set, (cut, width), typo);
         let mut flow = Self {
             blocks: set,
             pages,
@@ -673,7 +699,12 @@ impl Flow {
             let mut fonts = relay.fonts.lock().unwrap_or_else(PoisonError::into_inner);
             let mut setter = Setter::new(&relay.typo, &relay.stacks, &mut fonts);
             // The column it was measured in, not the typography's own.
-            (setter.column, setter.height) = (self.width, relay.height);
+            (setter.column, setter.height) = if set.turned {
+                (relay.height, self.width)
+            } else {
+                (self.width, relay.height)
+            };
+            setter.turned = set.turned;
             // Laid again as first set: beside its float, or as one.
             setter.float_box = set.float.map(|f| (f.x, f.width));
             setter.exclusion = set.beside;
@@ -695,12 +726,48 @@ impl Flow {
         (x, self.width)
     }
 
+    /// Whether page `page` is written vertically, drawn turned a quarter.
+    pub fn turned(&self, page: usize) -> bool {
+        let first = self.pages.get(page).and_then(|p| p.first());
+        first
+            .and_then(|p| self.blocks.get(p.block))
+            .is_some_and(|s| s.turned)
+    }
+
+    /// Where page `page`'s pieces start, in the space they were laid in.
+    pub(crate) fn origin(&self, page: usize) -> (f32, f32) {
+        let (x, width) = self.column(page);
+        match self.turned(page) {
+            // On its side, the right margin is the top one.
+            true => (PAD, self.page_size().0 - x - width),
+            false => (x, PAD),
+        }
+    }
+
+    /// A box in page `page`'s laid space, as drawn on the page.
+    pub(crate) fn turn_rect(&self, page: usize, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        match self.turned(page) {
+            true => [self.page_size().0 - y - h, x, h, w],
+            false => [x, y, w, h],
+        }
+    }
+
     /// Every page's band, for a stream that reads like one long page.
     pub fn bands(&self) -> &[Band] {
         &self.bands
     }
 
     fn band(&self, page: usize, typo: &Typography) -> Band {
+        if self.turned(page) {
+            let (x, width) = self.column(page);
+            let height = PAGE_HEIGHT;
+            return Band {
+                x,
+                y: 0.0,
+                width,
+                height,
+            };
+        }
         let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
         let used = pieces
             .iter()
@@ -747,6 +814,9 @@ impl Flow {
 
     /// How far down page `page`'s column its last line reaches.
     pub fn depth(&self, page: usize) -> f32 {
+        if self.turned(page) {
+            return self.relay.height;
+        }
         let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
         let bottom = |p: &Piece| {
             let set = self.blocks.get(p.block)?;
@@ -796,13 +866,13 @@ impl Flow {
     /// Page `page`'s links: a box for each line of each.
     pub fn links(&self, page: usize) -> Vec<PageLink> {
         let mut out = Vec::new();
-        let left = self.column(page).0;
+        let (left, top) = self.origin(page);
         for piece in self.pages.get(page).map_or(&[][..], Vec::as_slice) {
             let Some(set) = self.blocks.get(piece.block) else {
                 continue;
             };
             let x = left + set.x;
-            let y = PAD + piece.dy;
+            let y = top + piece.dy;
             match (&set.draw, &*self.laid(piece.block)) {
                 (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     link_boxes(para, piece.units.clone(), (x + pad, y), &mut out);
@@ -821,6 +891,9 @@ impl Flow {
                 }
                 _ => {}
             }
+        }
+        for link in &mut out {
+            link.rect = self.turn_rect(page, link.rect);
         }
         out
     }
@@ -859,6 +932,8 @@ struct Setter<'a> {
     cell_place: Option<CellPlace>,
     /// The grid being set: its items' places, as sized.
     places: HashMap<(usize, u16), CellPlace>,
+    /// Setting vertical blocks: the column runs down the page.
+    turned: bool,
 }
 
 impl<'a> Setter<'a> {
@@ -874,6 +949,7 @@ impl<'a> Setter<'a> {
             exclusion: None,
             cell_place: None,
             places: HashMap::new(),
+            turned: false,
         }
     }
 
@@ -1144,6 +1220,8 @@ impl<'a> Setter<'a> {
             sized: false,
             last: None,
             dir: frame.dir,
+            turned: self.turned,
+            orient: frame.orient,
             runs: &[],
         }
     }
@@ -1337,17 +1415,27 @@ impl<'a> Setter<'a> {
                 cover,
                 width: asked,
             } => {
+                // Vertical: laid on its side, then drawn standing.
+                let turned = self.turned;
+                let (aspect, natural) = match turned {
+                    true => (sideways(picture.aspect()), picture.height),
+                    false => (picture.aspect(), picture.width),
+                };
                 let (rect, unit) = if *cover {
-                    cover_rect(picture, column, height)
+                    cover_rect(aspect, column, height)
                 } else {
                     let wanted = match asked {
                         Some(l) => resolve(*l, width, em),
-                        None => picture.width as f32,
+                        None => natural as f32,
                     };
-                    image_rect(picture, frame.align, (wanted, width), height)
+                    image_rect(aspect, frame.align, (wanted, width), height)
                 };
                 let picture = picture.clone();
-                let draw = Draw::Image { picture, rect };
+                let draw = Draw::Image {
+                    picture,
+                    rect,
+                    turned,
+                };
                 (draw, Laid::None, vec![unit], vec![0])
             }
             Content::Table(table) => {
@@ -1392,6 +1480,7 @@ impl<'a> Setter<'a> {
             clear: false,
             place: self.place_of(frame).filter(|_| designed),
             rotate: if designed { frame.rotate } else { 0.0 },
+            turned: self.turned,
         };
         (set, laid)
     }
@@ -2074,6 +2163,85 @@ fn look_stack(names: &[&String], rest: &[FontFamilyName<'static>]) -> Stack {
     named.chain(rest.iter().cloned()).collect()
 }
 
+/// Vertical runs that stand upright: East Asian letters, unless told.
+fn upright_runs(text: &str, orient: Orient) -> Vec<Range<usize>> {
+    match orient {
+        Orient::Sideways => return Vec::new(),
+        Orient::Upright => return std::iter::once(0..text.len()).collect(),
+        Orient::Mixed => {}
+    }
+    let mut out: Vec<Range<usize>> = Vec::new();
+    for (at, c) in text.char_indices().filter(|&(_, c)| stands(c)) {
+        let end = at + c.len_utf8();
+        match out.last_mut() {
+            Some(last) if last.end == at => last.end = end,
+            _ => out.push(at..end),
+        }
+    }
+    out
+}
+
+/// Letters set upright in vertical text, as Unicode's orientation data has.
+fn stands(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x1100..=0x11FF
+            | 0x2E80..=0x2FFF
+            | 0x3000..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xA960..=0xA97F
+            | 0xAC00..=0xD7FF
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE1F
+            | 0xFE30..=0xFE6F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE7
+            | 0x1F000..=0x1FAFF
+            | 0x20000..=0x3FFFF
+    )
+}
+
+/// Vertical forms upright, half widths combined, beside the book's.
+fn turned_features(
+    b: &mut RangedBuilder<'_, Ink>,
+    text: &Text,
+    (upright, combine): (&[Range<usize>], &[Range<usize>]),
+) {
+    let featured: Vec<(&Range<usize>, Features)> = (text.spans.iter())
+        .filter(|s| !s.emphasis.features.is_empty())
+        .map(|s| (&s.range, s.emphasis.features))
+        .collect();
+    let mut cuts: Vec<usize> = (featured.iter().map(|f| f.0))
+        .chain(upright)
+        .chain(combine)
+        .flat_map(|r| [r.start, r.end])
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let inside = |ranges: &[Range<usize>], at: usize| ranges.iter().any(|r| r.contains(&at));
+    for pair in cuts.windows(2) {
+        let [from, to] = *pair else {
+            continue;
+        };
+        let mut parts = Vec::new();
+        let own = featured.iter().rev().find(|f| f.0.contains(&from));
+        if let Some((_, features)) = own {
+            parts.push(features.source());
+        }
+        if inside(combine, from) {
+            parts.push("\"hwid\" 1".to_owned());
+        } else if inside(upright, from) {
+            parts.push("\"vert\" 1".to_owned());
+        }
+        if !parts.is_empty() {
+            let source = FontFeatures::Source(Cow::Owned(parts.join(", ")));
+            b.push(StyleProperty::FontFeatures(source), from..to);
+        }
+    }
+}
+
 fn alignment(style: &Style<'_>) -> Alignment {
     if style.justify {
         return Alignment::Justify;
@@ -2151,7 +2319,7 @@ fn layout_text(
             features,
             face,
         } = span.emphasis;
-        if !features.is_empty() {
+        if !features.is_empty() && !style.turned {
             let source = FontFeatures::Source(Cow::Owned(features.source()));
             b.push(StyleProperty::FontFeatures(source), range.clone());
         }
@@ -2230,6 +2398,19 @@ fn layout_text(
     for link in &text.links {
         b.push(StyleProperty::Underline(true), link.range.clone());
     }
+    let (upright, combine) = match style.turned {
+        true => (
+            upright_runs(&shown, style.orient),
+            (text.combine.iter())
+                .map(|r| clip(&shown, r.clone()))
+                .filter(|r| !r.is_empty())
+                .collect(),
+        ),
+        false => (Vec::new(), Vec::new()),
+    };
+    if style.turned {
+        turned_features(&mut b, text, (&upright, &combine));
+    }
     // A drop cap's letter keeps its place in the text but shows apart.
     let initial = text.initial.min(shown.len());
     if style.sized && initial > 0 && shown.is_char_boundary(initial) {
@@ -2237,12 +2418,17 @@ fn layout_text(
     }
     for (n, inline) in text.inlines.iter().enumerate().take(MAX_INLINES) {
         let size = |ems: f32| (ems * style.size).clamp(1.0, MAX_SIZE * 8.0);
+        // Vertical: a picture lies on its side, to be drawn standing.
+        let (width, height) = match style.turned {
+            true => (inline.height, inline.width),
+            false => (inline.width, inline.height),
+        };
         b.push_inline_box(InlineBox {
             id: n as u64,
             kind: InlineBoxKind::InFlow,
             index: inline.at.min(shown.len()),
-            width: size(inline.width),
-            height: size(inline.height),
+            width: size(width),
+            height: size(height),
             baseline: None,
             vertical_align: rise(inline.rise, style.size),
         });
@@ -2290,6 +2476,9 @@ fn layout_text(
             .unwrap_or_default(),
         starts,
         links: text.links.clone(),
+        turned: style.turned,
+        upright,
+        combine,
         ruby: (text.ruby.iter())
             .map(|a| Note {
                 range: a.range.clone(),
@@ -2460,14 +2649,22 @@ fn line_units(layout: &Layout<Ink>) -> Vec<(f32, f32)> {
         .collect()
 }
 
+/// The aspect of a picture laid on its side: width over height.
+fn sideways(aspect: f32) -> f32 {
+    if aspect > 0.0 && aspect.is_finite() {
+        1.0 / aspect
+    } else {
+        1.0
+    }
+}
+
 /// `wanted` wide where the column allows, shrunk to fit the page.
 fn image_rect(
-    picture: &Picture,
+    aspect: f32,
     align: Align,
     (wanted, width): (f32, f32),
     height: f32,
 ) -> ([f32; 4], (f32, f32)) {
-    let aspect = picture.aspect();
     let mut w = wanted.max(1.0).min(width);
     let mut h = w * aspect;
     if h > height {
@@ -2483,8 +2680,7 @@ fn image_rect(
 }
 
 /// A cover fills the page box, centred, scaled up if need be.
-fn cover_rect(picture: &Picture, width: f32, height: f32) -> ([f32; 4], (f32, f32)) {
-    let aspect = picture.aspect();
+fn cover_rect(aspect: f32, width: f32, height: f32) -> ([f32; 4], (f32, f32)) {
     let w = width.min(height / aspect);
     let h = w * aspect;
     let rect = [(width - w) / 2.0, (height - h) / 2.0, w, h];
@@ -2749,6 +2945,30 @@ fn gap(block: &Set, typo: &Typography) -> f32 {
         typo.block_gap
     };
     ems * typo.font_size
+}
+
+/// Pages for runs of vertical and level blocks, each cut its own way.
+fn paginate_turns(
+    blocks: &[Set],
+    (cut, width): (f32, f32),
+    typo: &Typography,
+) -> (Vec<Vec<Piece>>, Vec<Vec<Deco>>) {
+    if !blocks.iter().any(|b| b.turned) {
+        return paginate(blocks, cut, typo);
+    }
+    let (mut pages, mut decos) = (Vec::new(), Vec::new());
+    let mut start = 0;
+    for group in blocks.chunk_by(|a, b| a.turned == b.turned) {
+        let turned = group.first().is_some_and(|b| b.turned);
+        let (mut own, more) = paginate(group, if turned { width } else { cut }, typo);
+        for piece in own.iter_mut().flatten() {
+            piece.block += start;
+        }
+        pages.extend(own);
+        decos.extend(more);
+        start += group.len();
+    }
+    (pages, decos)
 }
 
 /// Fills pages unit by unit; headings never end one, no lone lines.
@@ -4675,5 +4895,56 @@ mod tests {
             _ => None,
         };
         assert_eq!(note, Some((0..4, true)));
+    }
+
+    fn turned(text: &str) -> Block {
+        let mut b = Block::text(Role::Paragraph, text);
+        b.frame.turned = true;
+        b
+    }
+
+    #[test]
+    fn east_asian_letters_stand_and_the_rest_lie() {
+        let text = "縦書き ABC、12";
+        let runs = upright_runs(text, Orient::Mixed);
+        let words: Vec<&str> = runs.iter().filter_map(|r| text.get(r.clone())).collect();
+        assert_eq!(words, ["縦書き", "、"]);
+        assert!(upright_runs(text, Orient::Sideways).is_empty());
+        let all = upright_runs(text, Orient::Upright);
+        assert_eq!(all.first(), Some(&(0..text.len())));
+    }
+
+    #[test]
+    fn vertical_writing_gets_pages_of_its_own() {
+        let mut blocks = vec![Block::text(Role::Paragraph, "level words")];
+        blocks.extend((0..40).map(|i| turned(&"word ".repeat(30 + i))));
+        blocks.push(Block::text(Role::Paragraph, "level again"));
+        let f = flow(&blocks);
+        let last = f.page_count() - 1;
+        assert!(!f.turned(0) && !f.turned(last));
+        let turned: Vec<usize> = (0..f.page_count()).filter(|&p| f.turned(p)).collect();
+        assert!(turned.len() >= 2, "{turned:?}");
+        assert_eq!(turned.first(), Some(&1));
+        // Laid across the page's height, a turned piece fits its width.
+        let (width, height) = f.page_size();
+        for &page in &turned {
+            for line in f.text(page) {
+                for c in line.chars {
+                    let [x, y, w, h] = c.rect;
+                    assert!(x >= 0.0 && x + w <= width + 0.5, "{page} {c:?}");
+                    assert!(y >= 0.0 && y + h <= height + 0.5, "{page} {c:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_turned_rect_lands_from_the_right() {
+        let f = flow(&[turned("word word")]);
+        assert!(f.turned(0));
+        let (width, _) = f.page_size();
+        // A line along the top of the laid page is the rightmost column.
+        let [x, y, w, h] = f.turn_rect(0, [100.0, 0.0, 300.0, 20.0]);
+        assert_eq!([x, y, w, h], [width - 20.0, 100.0, 20.0, 300.0]);
     }
 }

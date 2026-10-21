@@ -164,6 +164,8 @@ pub struct Text {
     pub ruby: Vec<Annotation>,
     /// Families its runs ask for, as [`Look::faces`]; see [`Emphasis::face`].
     pub faces: Vec<Vec<String>>,
+    /// Vertical text: runs set across the column, as `text-combine-upright`.
+    pub combine: Vec<Range<usize>>,
 }
 
 /// A ruby note, as `<rt>`, over the base text `range`.
@@ -232,6 +234,7 @@ impl Text {
             first_line: None,
             ruby: Vec::new(),
             faces: Vec::new(),
+            combine: Vec::new(),
         }
     }
 
@@ -702,6 +705,20 @@ pub struct Frame {
     pub keep: Keep,
     /// Its text's direction; lists and quotes mirror for right to left.
     pub dir: Dir,
+    /// Its chapter is written vertically: columns read right to left.
+    pub turned: bool,
+    /// How vertical text stands, as `text-orientation`.
+    pub orient: Orient,
+}
+
+/// How vertical text stands, as `text-orientation`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Orient {
+    /// East Asian letters upright, the rest turned on their side.
+    #[default]
+    Mixed,
+    Upright,
+    Sideways,
 }
 
 /// A block's direction, as `dir` and CSS `direction`.

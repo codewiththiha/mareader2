@@ -72,6 +72,10 @@ impl Bounds {
         (self.x0 + self.x1) / 2.0
     }
 
+    fn centre_y(self) -> f32 {
+        (self.y0 + self.y1) / 2.0
+    }
+
     /// How far `v` lies outside `lo..=hi`; zero inside.
     fn gap(v: f32, lo: f32, hi: f32) -> f32 {
         (lo - v).max(v - hi).max(0.0)
@@ -142,6 +146,8 @@ struct Line {
 pub struct PageText {
     chars: Vec<TextChar>,
     lines: Vec<Line>,
+    /// Lines run down the page, the first at the right.
+    vertical: bool,
 }
 
 impl PageText {
@@ -174,8 +180,16 @@ impl PageText {
         self.lines.iter().any(|l| slack(l.bounds).contains(x, y))
     }
 
+    /// Its lines run down the page, read from the right.
+    pub fn set_vertical(&mut self) {
+        self.vertical = true;
+    }
+
     /// The caret nearest a point, from 0 to `len`, as a drag ends there.
     pub fn caret_at(&self, x: f32, y: f32) -> usize {
+        if self.vertical {
+            return self.caret_down(x, y);
+        }
         let top = self
             .lines
             .iter()
@@ -198,6 +212,43 @@ impl PageText {
         };
         let chars = self.chars.get(line.chars.clone()).unwrap_or_default();
         let after = chars.iter().position(|c| x < c.bounds.centre_x());
+        line.chars.start + after.unwrap_or(chars.len())
+    }
+
+    /// [`Self::caret_at`] for vertical lines: right of all is the start.
+    fn caret_down(&self, x: f32, y: f32) -> usize {
+        let right = self
+            .lines
+            .iter()
+            .map(|l| l.bounds.x1)
+            .fold(f32::MIN, f32::max);
+        let left = self
+            .lines
+            .iter()
+            .map(|l| l.bounds.x0)
+            .fold(f32::MAX, f32::min);
+        if self.lines.is_empty() || x > right {
+            return 0;
+        }
+        if x < left {
+            return self.len();
+        }
+        let score = |l: &Line| {
+            let b = l.bounds;
+            (Bounds::gap(x, b.x0, b.x1), Bounds::gap(y, b.y0, b.y1))
+        };
+        let mut best = (0, (f32::MAX, f32::MAX));
+        for (i, l) in self.lines.iter().enumerate() {
+            let s = score(l);
+            if s.0 < best.1.0 || (s.0 == best.1.0 && s.1 < best.1.1) {
+                best = (i, s);
+            }
+        }
+        let Some(line) = self.lines.get(best.0) else {
+            return 0;
+        };
+        let chars = self.chars.get(line.chars.clone()).unwrap_or_default();
+        let after = chars.iter().position(|c| y < c.bounds.centre_y());
         line.chars.start + after.unwrap_or(chars.len())
     }
 
@@ -370,7 +421,11 @@ impl PageText {
             });
             prev = Some(g);
         }
-        Self { chars, lines }
+        Self {
+            chars,
+            lines,
+            vertical: false,
+        }
     }
 }
 
@@ -555,6 +610,34 @@ mod tests {
             let row = row(text, 0.0, y).into_iter().map(|g| (g.ch, g.bounds));
             (*wraps, row.collect())
         }))
+    }
+
+    #[test]
+    fn vertical_carets_read_columns_from_the_right() {
+        // Two columns of three letters, the first at the right.
+        let column = |text: &str, x0: f32| {
+            let letters = text.chars().enumerate().map(|(i, ch)| {
+                let y0 = 10.0 * i as f32;
+                let bounds = Bounds {
+                    x0,
+                    y0,
+                    x1: x0 + 10.0,
+                    y1: y0 + 10.0,
+                };
+                (ch, bounds)
+            });
+            (false, letters.collect())
+        };
+        let mut p = PageText::from_lines([column("abc", 100.0), column("def", 80.0)]);
+        p.set_vertical();
+        assert_eq!(p.caret_at(200.0, 0.0), 0, "right of all");
+        assert_eq!(p.caret_at(0.0, 0.0), p.len(), "left of all");
+        assert_eq!(p.caret_at(105.0, 12.0), 1, "down the first");
+        assert_eq!(p.caret_at(85.0, 26.0), 6, "low in the second");
+        assert_eq!(
+            p.text(p.caret_at(104.0, 1.0)..p.caret_at(84.0, 99.0)),
+            "abc\ndef"
+        );
     }
 
     #[test]

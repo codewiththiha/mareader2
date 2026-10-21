@@ -1,4 +1,5 @@
 //! Pages drawn in greys on white with vello_cpu; the page pass themes them.
+use std::f64::consts::FRAC_PI_2;
 use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use crate::block::{
     TextShadow, Tile,
 };
 use crate::flow::{
-    Deco, Draw, Flow, Grid, Initial, Laid, MARKER_GAP, PAD, Para, Piece, Set, resolve, span_height,
+    Deco, Draw, Flow, Grid, Initial, Laid, MARKER_GAP, Para, Piece, Set, resolve, span_height,
 };
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
@@ -100,10 +101,12 @@ impl Flow {
         if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE || scale.is_nan() || scale <= 0.0 {
             return None;
         }
-        let left = self.column(page).0;
+        let origin = self.origin(page);
+        // Vertical pages are laid on their side and drawn turned.
+        let turn = self.turned(page).then(|| self.page_size().0);
         catch_unwind(AssertUnwindSafe(|| {
             let decos = self.decos.get(page).map_or(&[][..], Vec::as_slice);
-            self.draw((pieces, decos), (scale, left), region)
+            self.draw((pieces, decos), (scale, origin, turn), region)
         }))
         .ok()?
     }
@@ -111,7 +114,7 @@ impl Flow {
     fn draw(
         &self,
         (pieces, decos): (&[Piece], &[Deco]),
-        (scale, left): (f32, f32),
+        (scale, (left, top), turn): (f32, (f32, f32), Option<f32>),
         region: Region,
     ) -> Option<Pixels> {
         let [x, y, w, h] = region;
@@ -119,15 +122,27 @@ impl Flow {
         let ctx = RenderContext::new(w16, h16);
         let resources = Resources::new();
         let s = f64::from(scale);
+        // A quarter turn: laid lines run down, the first at the right.
+        let turned = turn.map_or(Affine::IDENTITY, |width| {
+            Affine::new([0.0, 1.0, -1.0, 0.0, f64::from(width), 0.0])
+        });
+        // The page area in column units, to skip what's out of view.
+        let (shown_top, shown_bottom) = match turn {
+            Some(_) => (f64::MIN, f64::MAX),
+            None => (
+                f64::from(y) / s - f64::from(top),
+                f64::from(y + h) / s - f64::from(top),
+            ),
+        };
         let mut p = Painter {
             ctx,
             resources,
             view: Affine::translate((-f64::from(x), -f64::from(y)))
                 * Affine::scale(s)
-                * Affine::translate((f64::from(left), f64::from(PAD))),
-            // The page area in column units, to skip what's out of view.
-            top: f64::from(y) / s - f64::from(PAD),
-            bottom: f64::from(y + h) / s - f64::from(PAD),
+                * turned
+                * Affine::translate((f64::from(left), f64::from(top))),
+            top: shown_top,
+            bottom: shown_bottom,
             scale,
             coords: Vec::new(),
         };
@@ -259,9 +274,17 @@ impl Painter {
                 let y = top + height / 2.0 - 0.5;
                 self.fill(RULE, set.x, y, set.width, 1.0);
             }
-            Draw::Image { picture, rect } => {
+            Draw::Image {
+                picture,
+                rect,
+                turned,
+            } => {
                 let [x, y, w, h] = *rect;
-                self.image(picture, decoded, set.x + x, piece.dy + y, w, h);
+                let rect = [set.x + x, piece.dy + y, w, h];
+                match turned {
+                    true => self.standing(picture, decoded, rect),
+                    false => self.image(picture, decoded, rect[0], rect[1], w, h),
+                }
             }
             Draw::Table(grid) => {
                 if let Laid::Table(rows) = &*laid() {
@@ -859,8 +882,11 @@ impl Painter {
             let picture = usize::try_from(b.id)
                 .ok()
                 .and_then(|i| para.pictures.get(i));
-            if let Some(picture) = picture {
-                self.image(picture, decoded, x + b.x, dy + b.y, b.width, b.height);
+            let rect = [x + b.x, dy + b.y, b.width, b.height];
+            match picture {
+                Some(picture) if para.turned => self.standing(picture, decoded, rect),
+                Some(picture) => self.image(picture, decoded, rect[0], rect[1], b.width, b.height),
+                None => {}
             }
         }
     }
@@ -914,6 +940,11 @@ impl Painter {
                     last = None;
                     continue;
                 }
+                if para.turned {
+                    self.turned_run(para, &glyphs, (x, dy));
+                    last = Some(glyphs);
+                    continue;
+                }
                 if let Some(shadow) = glyphs.style().brush.shadow {
                     self.text_shadow(&glyphs, shadow);
                 }
@@ -941,6 +972,66 @@ impl Painter {
                 }
             }
         }
+    }
+
+    /// A vertical run: East Asian letters stand, combined ones lie
+    /// across, the rest sideways.
+    fn turned_run(&mut self, para: &Para, run: &GlyphRun<'_, Ink>, (x, dy): (f32, f32)) {
+        let line = self.view * Affine::translate((f64::from(x), f64::from(dy)));
+        let at = run.run().text_range().start;
+        let inside = |ranges: &[Range<usize>]| ranges.iter().any(|r| r.contains(&at));
+        let ink = tone(run.style().brush);
+        let m = run.run().font_metrics();
+        // Turned about the middle of the em box, not the baseline.
+        let middle = f64::from(run.baseline() - (m.ascent - m.descent) / 2.0);
+        if inside(&para.combine) {
+            let size = f64::from(run.run().font_size());
+            let (from, wide) = (f64::from(run.offset()), f64::from(run.advance()).max(1.0));
+            let centre = Point::new(from + wide / 2.0, middle);
+            // Wider than an em, it is squeezed to one.
+            let squeeze = Affine::translate(centre.to_vec2())
+                * Affine::scale_non_uniform((size / wide).min(1.0), 1.0)
+                * Affine::translate(-centre.to_vec2());
+            self.ctx
+                .set_transform(line * Affine::rotate_about(-FRAC_PI_2, centre) * squeeze);
+            let placed = run.positioned_glyphs().map(|g| Glyph {
+                id: g.id,
+                x: g.x,
+                y: g.y,
+            });
+            self.inked(run, placed, ink);
+        } else if inside(&para.upright) {
+            for g in run.positioned_glyphs() {
+                let centre = Point::new(f64::from(g.x + g.advance / 2.0), middle);
+                self.ctx
+                    .set_transform(line * Affine::rotate_about(-FRAC_PI_2, centre));
+                let glyph = Glyph {
+                    id: g.id,
+                    x: g.x,
+                    y: g.y,
+                };
+                self.inked(run, std::iter::once(glyph), ink);
+            }
+        } else {
+            self.ctx.set_transform(line);
+            let placed = run.positioned_glyphs().map(|g| Glyph {
+                id: g.id,
+                x: g.x,
+                y: g.y,
+            });
+            self.inked(run, placed, ink);
+        }
+        self.ctx.set_transform(line);
+    }
+
+    /// A picture laid on its side in `rect`, drawn standing in its place.
+    fn standing(&mut self, picture: &Arc<Picture>, decoded: &Decoded, [x, y, w, h]: [f32; 4]) {
+        let view = self.view;
+        let centre = Point::new(f64::from(x + w / 2.0), f64::from(y + h / 2.0));
+        self.view = view * Affine::rotate_about(-FRAC_PI_2, centre);
+        let (left, top) = (x + (w - h) / 2.0, y + (h - w) / 2.0);
+        self.image(picture, decoded, left, top, h, w);
+        self.view = view;
     }
 
     /// A link's underline under `run`, a little clear of the glyphs.
