@@ -21,8 +21,9 @@ mod svg;
 
 pub use block::{
     Align, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns, Content, Edge,
-    Emphasis, Flex, Floated, Frame, GridRow, Inline, Justify, LAYOUT_BYTES, Length, Link, Look,
-    Rise, Role, Row, Script, Span, Table, Text, VAlign, clip,
+    Emphasis, Finish, Flex, Floated, Frame, Frame9, Gradient, GradientShape, GridRow, Inline,
+    Justify, LAYOUT_BYTES, Layer, Length, Link, Look, Outline, Rise, Role, Row, Script, Shadow,
+    Span, Table, Text, TextShadow, Tile, VAlign, clip,
 };
 pub use flow::{
     Anchor, Band, COLUMN_SCALE, Design, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH,

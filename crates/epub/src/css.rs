@@ -3,8 +3,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Justify, Rise, Script, VAlign};
+use mareader_reflow::{Align, Case, Justify, Rise, Script, Tile, VAlign};
 
+use crate::decor::{self, Slice, Span};
 use crate::generated::{self, Content, ListStyle};
 use crate::href;
 
@@ -148,6 +149,10 @@ pub(crate) enum BorderStyle {
     Double,
     Dashed,
     Dotted,
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
 }
 
 /// The properties read; `None` keeps what cascades or inherits.
@@ -221,6 +226,28 @@ pub(crate) struct Decl {
     pub(crate) quotes: Option<Quotes>,
     pub(crate) list_style: Option<ListStyle>,
     pub(crate) list_image: Option<Option<Arc<str>>>,
+    /// Background layers beyond a lone picture: gradients and lists.
+    pub(crate) layers: Option<Arc<[decor::Layer]>>,
+    pub(crate) shadows: Option<Arc<[decor::Shadow]>>,
+    pub(crate) text_shadow: Option<Option<decor::Shadow>>,
+    pub(crate) opacity: Option<f32>,
+    pub(crate) outline_width: Option<Len>,
+    pub(crate) outline_style: Option<BorderStyle>,
+    pub(crate) outline_colour: Option<Option<Rgb>>,
+    pub(crate) outline_offset: Option<Len>,
+    /// `border-image` and its parts.
+    pub(crate) frame: Option<Option<Arc<str>>>,
+    pub(crate) frame_slice: Option<Slice>,
+    pub(crate) frame_width: Option<[Span; 4]>,
+    pub(crate) frame_outset: Option<[Span; 4]>,
+    pub(crate) frame_tile: Option<[Tile; 2]>,
+    /// Sides whose border colour is transparent: room, no line.
+    pub(crate) border_clear: [Option<bool>; 4],
+    /// `visibility`: false hides it but keeps its room.
+    pub(crate) visible: Option<bool>,
+    /// `filter`'s `opacity()` and `drop-shadow()`.
+    pub(crate) filter_opacity: Option<f32>,
+    pub(crate) drop: Option<Arc<[decor::Shadow]>>,
 }
 
 /// Counters a declaration names, with their values.
@@ -338,21 +365,43 @@ impl Decl {
             "padding" => sides(&mut self.padding, v, len),
             "border-width" => sides(&mut self.border_width, v, border_width),
             "border-style" => sides(&mut self.border_style, v, border_style),
-            "border-color" => sides(&mut self.border_colour, v, |w| Some(colour(w).flatten())),
+            "border-color" => {
+                sides(&mut self.border_colour, v, |w| Some(colour(w).flatten()));
+                sides(&mut self.border_clear, v, |w| Some(transparent(w)));
+            }
             "border" => self.border([true; 4], v),
             "background-color" => {
                 self.background = Some(!clear(v));
                 self.fill = colour(v).or(self.fill);
             }
             "color" => self.ink = colour(v).flatten().or(self.ink),
-            "background-image" => {
-                self.background_image = Some(v.contains("url("));
-                self.picture = Some(url(value).map(Arc::from));
-            }
+            "background-image" => self.set_layers(decor::layers(value)),
             "background-size" => self.picture_size = picture_size(v).or(self.picture_size),
             "background-position" => self.picture_at = Some(position(v)),
             "background-repeat" => self.picture_repeat = Some(!v.starts_with("no-repeat")),
-            "background" => self.background_shorthand(value, v),
+            "background" => self.background_shorthand(value),
+            "box-shadow" | "-webkit-box-shadow" => self.shadows = Some(decor::shadows(v)),
+            "text-shadow" => self.text_shadow = Some(decor::shadows(v).first().cloned()),
+            "opacity" => self.opacity = opacity(v).or(self.opacity),
+            "visibility" => {
+                self.visible = match v {
+                    "hidden" | "collapse" => Some(false),
+                    "visible" => Some(true),
+                    _ => self.visible,
+                }
+            }
+            "filter" | "-webkit-filter" => self.filter(v),
+            "outline" => self.outline(v),
+            "outline-width" => self.outline_width = border_width(v).or(self.outline_width),
+            "outline-style" => self.outline_style = outline_style(v).or(self.outline_style),
+            "outline-color" => self.outline_colour = colour(v).or(self.outline_colour),
+            "outline-offset" => self.outline_offset = len(v).or(self.outline_offset),
+            "border-image" | "-webkit-border-image" => self.border_image(value),
+            "border-image-source" => self.frame = Some(generated::url(value).map(Arc::from)),
+            "border-image-slice" => self.frame_slice = decor::slice(v).or(self.frame_slice),
+            "border-image-width" => self.frame_width = decor::spans(v).or(self.frame_width),
+            "border-image-outset" => self.frame_outset = decor::spans(v).or(self.frame_outset),
+            "border-image-repeat" => self.frame_tile = decor::tiles(v).or(self.frame_tile),
             "float" => {
                 self.float = match v {
                     "left" | "inline-start" => Some(Float::Left),
@@ -464,31 +513,34 @@ impl Decl {
             }
             ("border", "width") => set_side(&mut self.border_width, i, border_width(v)),
             ("border", "style") => set_side(&mut self.border_style, i, border_style(v)),
-            ("border", "color") => set_side(&mut self.border_colour, i, Some(colour(v).flatten())),
+            ("border", "color") => {
+                set_side(&mut self.border_colour, i, Some(colour(v).flatten()));
+                set_side(&mut self.border_clear, i, Some(transparent(v)));
+            }
             _ => {}
         }
     }
 
     /// The `background` shorthand; what it leaves unsaid resets.
-    fn background_shorthand(&mut self, value: &str, v: &str) {
-        let picture = url(value);
-        self.background_image = Some(picture.is_some());
-        self.picture = Some(picture.map(Arc::from));
-        // Words outside `url(...)`, the size after a slash.
-        let rest = match (v.find("url("), v.find(')')) {
-            (Some(a), Some(b)) if b > a => format!(
-                "{} {}",
-                v.get(..a).unwrap_or_default(),
-                v.get(b + 1..).unwrap_or_default()
-            ),
-            _ => v.to_owned(),
+    fn background_shorthand(&mut self, value: &str) {
+        let parts = split_top(value, ',');
+        self.set_layers(decor::layers(value));
+        // Keywords, not pictures; the colour is in the last layer.
+        let plain = |part: Option<&&str>| {
+            let part = part.copied().unwrap_or_default().to_ascii_lowercase();
+            let kept: Vec<&str> = words(&part)
+                .into_iter()
+                .filter(|w| !decor::is_image(w))
+                .collect();
+            kept.join(" ")
         };
+        let (rest, last) = (plain(parts.first()), plain(parts.last()));
+        let fill = words(&last).iter().find_map(|w| colour(w)).flatten();
+        self.fill = Some(fill);
+        let named = words(&last).iter().any(|w| is_colour(w) && !clear(w));
+        self.background = Some(fill.is_some() || named);
         let (at, size) = rest.split_once('/').unwrap_or((&rest, ""));
         let words: Vec<&str> = at.split_ascii_whitespace().collect();
-        let fill = words.iter().find_map(|w| colour(w)).flatten();
-        self.fill = Some(fill);
-        let named = words.iter().any(|w| is_colour(w) && !clear(w));
-        self.background = Some(fill.is_some() || named);
         self.picture_repeat = Some(!words.contains(&"no-repeat"));
         let placed: Vec<&str> = words.iter().copied().filter(|w| is_place(w)).collect();
         self.picture_at = Some(position(&placed.join(" ")));
@@ -498,6 +550,66 @@ impl Decl {
             .collect::<Vec<_>>()
             .join(" ");
         self.picture_size = Some(picture_size(&size).unwrap_or_default());
+    }
+
+    /// Background layers: a lone picture as before, else the list.
+    fn set_layers(&mut self, layers: Vec<decor::Layer>) {
+        let single = match layers.as_slice() {
+            [decor::Layer::Url(url)] => Some(Arc::from(url.as_str())),
+            _ => None,
+        };
+        self.background_image = Some(!layers.is_empty());
+        self.layers = Some(match single {
+            Some(_) => Arc::from([]),
+            None => layers.into(),
+        });
+        self.picture = Some(single);
+    }
+
+    /// `filter`: its opacity and drop shadow; colour filters are the theme's.
+    fn filter(&mut self, v: &str) {
+        let (mut fade, mut drop) = (None, Vec::new());
+        for f in words(v) {
+            let Some((name, rest)) = f.split_once('(') else {
+                continue;
+            };
+            let args = rest.trim_end_matches(')');
+            match name {
+                "opacity" => fade = opacity(args),
+                "drop-shadow" => drop.extend(decor::shadows(args).iter().cloned()),
+                _ => {}
+            }
+        }
+        self.filter_opacity = Some(fade.unwrap_or(1.0));
+        self.drop = Some(drop.into());
+    }
+
+    /// The `outline` shorthand; unsaid parts reset.
+    fn outline(&mut self, v: &str) {
+        let words = words(v);
+        self.outline_width = Some(
+            words
+                .iter()
+                .find_map(|w| border_width(w))
+                .unwrap_or(Len::Px(3.0)),
+        );
+        self.outline_style = Some(
+            words
+                .iter()
+                .find_map(|w| outline_style(w))
+                .unwrap_or_default(),
+        );
+        self.outline_colour = Some(words.iter().find_map(|w| colour(w)).flatten());
+    }
+
+    /// The `border-image` shorthand; unsaid parts reset.
+    fn border_image(&mut self, value: &str) {
+        let b = decor::border_image(value);
+        self.frame = Some(b.source.map(Arc::from));
+        self.frame_slice = Some(b.slice);
+        self.frame_width = Some(b.width.unwrap_or([Span::Times(1.0); 4]));
+        self.frame_outset = Some(b.outset);
+        self.frame_tile = Some(b.tile);
     }
 
     /// The `flex` shorthand: grow, shrink and basis.
@@ -522,7 +634,17 @@ impl Decl {
     /// Resolves its pictures against `path`, where it was read.
     pub(crate) fn resolve(&mut self, path: &str) {
         if let Some(Some(raw)) = &self.picture {
-            self.picture = Some(href::resolve(path, raw).map(Arc::from));
+            self.picture = Some(generated::resolve(path, raw).map(Arc::from));
+        }
+        if let Some(Some(raw)) = &self.frame {
+            self.frame = Some(generated::resolve(path, raw).map(Arc::from));
+        }
+        if let Some(layers) = &self.layers {
+            let resolved = layers.iter().filter_map(|l| match l {
+                decor::Layer::Url(raw) => generated::resolve(path, raw).map(decor::Layer::Url),
+                other => Some(other.clone()),
+            });
+            self.layers = Some(resolved.collect());
         }
         if let Some(content) = &mut self.content {
             content.resolve(path);
@@ -560,11 +682,13 @@ impl Decl {
             .unwrap_or_default();
         // Unsaid, the colour is the text's.
         let ink = words.iter().find_map(|w| colour(w)).flatten();
+        let see_through = words.iter().any(|w| transparent(w));
         for (i, on) in which.into_iter().enumerate() {
             if on {
                 set_side(&mut self.border_width, i, Some(width));
                 set_side(&mut self.border_style, i, Some(style));
                 set_side(&mut self.border_colour, i, Some(ink));
+                set_side(&mut self.border_clear, i, Some(see_through));
             }
         }
     }
@@ -602,8 +726,10 @@ impl Decl {
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
             basis, radius, rotate, lift, content, counter_reset, counter_increment,
-            counter_set, quotes, list_style, list_image;
-            margin, padding, border_width, border_style, border_colour);
+            counter_set, quotes, list_style, list_image, layers, shadows, text_shadow,
+            opacity, outline_width, outline_style, outline_colour, outline_offset, frame,
+            frame_slice, frame_width, frame_outset, frame_tile, visible, filter_opacity, drop;
+            margin, padding, border_width, border_style, border_colour, border_clear);
     }
 
     fn is_empty(&self) -> bool {
@@ -632,7 +758,7 @@ fn sides<T: Copy>(out: &mut [Option<T>; 4], v: &str, read: impl Fn(&str) -> Opti
 }
 
 /// A value's words, a bracket's spaces kept, as in `rgb(1, 2, 3)`.
-fn words(v: &str) -> Vec<&str> {
+pub(crate) fn words(v: &str) -> Vec<&str> {
     split_top(v, ' ')
         .into_iter()
         .flat_map(|w| split_top(w, '\t'))
@@ -642,7 +768,7 @@ fn words(v: &str) -> Vec<&str> {
 }
 
 /// `items` split at `sep`, but not inside brackets or quotes.
-fn split_top(text: &str, sep: char) -> Vec<&str> {
+pub(crate) fn split_top(text: &str, sep: char) -> Vec<&str> {
     let (mut out, mut depth, mut quote, mut start) = (Vec::new(), 0i32, None, 0);
     for (i, c) in text.char_indices() {
         match (quote, c) {
@@ -742,7 +868,7 @@ fn spacing(v: &str) -> Option<Len> {
     }
 }
 
-fn border_width(v: &str) -> Option<Len> {
+pub(crate) fn border_width(v: &str) -> Option<Len> {
     match v {
         "thin" => Some(Len::Px(1.0)),
         "medium" => Some(Len::Px(3.0)),
@@ -751,10 +877,14 @@ fn border_width(v: &str) -> Option<Len> {
     }
 }
 
-fn border_style(v: &str) -> Option<BorderStyle> {
+pub(crate) fn border_style(v: &str) -> Option<BorderStyle> {
     match v {
         "none" | "hidden" => Some(BorderStyle::None),
-        "solid" | "groove" | "ridge" | "inset" | "outset" => Some(BorderStyle::Solid),
+        "solid" => Some(BorderStyle::Solid),
+        "groove" => Some(BorderStyle::Groove),
+        "ridge" => Some(BorderStyle::Ridge),
+        "inset" => Some(BorderStyle::Inset),
+        "outset" => Some(BorderStyle::Outset),
         "double" => Some(BorderStyle::Double),
         "dashed" => Some(BorderStyle::Dashed),
         "dotted" => Some(BorderStyle::Dotted),
@@ -763,8 +893,32 @@ fn border_style(v: &str) -> Option<BorderStyle> {
 }
 
 /// No paint: `transparent`, `none` or a fully clear colour.
-fn clear(v: &str) -> bool {
+pub(crate) fn clear(v: &str) -> bool {
     matches!(v, "transparent" | "none" | "initial") || v.replace(' ', "").ends_with(",0)")
+}
+
+/// A colour that shows nothing: `transparent` or a zero alpha.
+fn transparent(w: &str) -> bool {
+    w == "transparent"
+        || (w.contains('(') && clear(w))
+        || decor::tint(w).is_some_and(|t| t.1 < 0.01)
+}
+
+/// `opacity`: a number or a percentage, 0 to 1.
+fn opacity(v: &str) -> Option<f32> {
+    let n = match v.strip_suffix('%') {
+        Some(p) => p.trim().parse::<f32>().ok()? / 100.0,
+        None => v.trim().parse::<f32>().ok()?,
+    };
+    n.is_finite().then(|| n.clamp(0.0, 1.0))
+}
+
+/// `outline-style`; `auto` draws a plain line.
+fn outline_style(v: &str) -> Option<BorderStyle> {
+    match v {
+        "auto" => Some(BorderStyle::Solid),
+        v => border_style(v),
+    }
 }
 
 /// `justify-content`.
@@ -851,24 +1005,13 @@ fn page_break(v: &str) -> bool {
     ["always", "page", "left", "right", "recto", "verso"].contains(&v)
 }
 
-/// The first `url(...)` in `value`, unquoted, its case kept.
-fn url(value: &str) -> Option<String> {
-    let start = value.to_ascii_lowercase().find("url(")? + 4;
-    let inner = value.get(start..)?;
-    let inner = inner
-        .get(..inner.find(')')?)?
-        .trim()
-        .trim_matches(['"', '\'']);
-    (!inner.is_empty() && !inner.starts_with("data:")).then(|| inner.to_owned())
-}
-
 /// A word of `background-position`.
 fn is_place(w: &str) -> bool {
     matches!(w, "left" | "right" | "top" | "bottom" | "center") || len(w).is_some()
 }
 
 /// `background-position` as shares across and down; lengths sit at 0.
-fn position(v: &str) -> [f32; 2] {
+pub(crate) fn position(v: &str) -> [f32; 2] {
     let mut at = [None, None];
     let mut loose = Vec::new();
     for w in v.split_ascii_whitespace().take(4) {
@@ -2051,9 +2194,27 @@ pub(crate) struct Computed {
     pub(crate) rotate: f32,
     /// A line picture's place against its text.
     pub(crate) rise: Rise,
+    pub(crate) layers: Arc<[decor::Layer]>,
+    pub(crate) shadows: Arc<[decor::Shadow]>,
+    /// Px; zero where no outline is drawn.
+    pub(crate) outline: f32,
+    pub(crate) outline_style: BorderStyle,
+    pub(crate) outline_colour: Option<Rgb>,
+    pub(crate) outline_offset: f32,
+    pub(crate) frame: Option<Arc<str>>,
+    pub(crate) frame_slice: Slice,
+    pub(crate) frame_width: [Span; 4],
+    pub(crate) frame_outset: [Span; 4],
+    pub(crate) frame_tile: [Tile; 2],
+    pub(crate) border_clear: [bool; 4],
+    /// Its own opacity times every ancestor's.
+    pub(crate) opacity: f32,
+    /// Hidden by `visibility`, inherited.
+    pub(crate) invisible: bool,
     // Inherited.
     pub(crate) small_caps: bool,
     pub(crate) transform: Case,
+    pub(crate) text_shadow: Option<decor::Shadow>,
 }
 
 impl Default for Computed {
@@ -2107,8 +2268,23 @@ impl Default for Computed {
             radius: Len::Px(0.0),
             rotate: 0.0,
             rise: Rise::Baseline,
+            layers: Arc::from([]),
+            shadows: Arc::from([]),
+            outline: 0.0,
+            outline_style: BorderStyle::None,
+            outline_colour: None,
+            outline_offset: 0.0,
+            frame: None,
+            frame_slice: Slice::default(),
+            frame_width: [Span::Times(1.0); 4],
+            frame_outset: [Span::Times(0.0); 4],
+            frame_tile: [Tile::Stretch; 2],
+            border_clear: [false; 4],
+            opacity: 1.0,
+            invisible: false,
             small_caps: false,
             transform: Case::Normal,
+            text_shadow: None,
         }
     }
 }
@@ -2205,8 +2381,35 @@ impl Computed {
             radius: d.radius.map_or(Len::Px(0.0), |l| l.computed(size)),
             rotate: d.rotate.unwrap_or(0.0),
             rise: d.lift.map_or(Rise::Baseline, |l| rise(l, size)),
+            layers: d.layers.clone().unwrap_or_else(|| Arc::from([])),
+            shadows: match (&d.shadows, &d.drop) {
+                (s, Some(drop)) if !drop.is_empty() => {
+                    let own = s.as_deref().unwrap_or_default().iter();
+                    own.chain(drop.iter()).cloned().collect()
+                }
+                (s, _) => s.clone().unwrap_or_else(|| Arc::from([])),
+            },
+            outline: match d.outline_style.unwrap_or_default() {
+                BorderStyle::None => 0.0,
+                _ => d.outline_width.map_or(3.0, |w| px(Some(w))).max(0.0),
+            },
+            outline_style: d.outline_style.unwrap_or_default(),
+            outline_colour: d.outline_colour.flatten().or(d.ink).or(self.ink),
+            outline_offset: px(d.outline_offset),
+            frame: d.frame.clone().flatten(),
+            frame_slice: d.frame_slice.unwrap_or_default(),
+            frame_width: d.frame_width.unwrap_or([Span::Times(1.0); 4]),
+            frame_outset: d.frame_outset.unwrap_or([Span::Times(0.0); 4]),
+            frame_tile: d.frame_tile.unwrap_or_default(),
+            border_clear: d.border_clear.map(|c| c.unwrap_or(false)),
+            opacity: self.opacity * d.opacity.unwrap_or(1.0) * d.filter_opacity.unwrap_or(1.0),
+            invisible: d.visible.map_or(self.invisible, |v| !v),
             small_caps: d.small_caps.unwrap_or(self.small_caps),
             transform: d.transform.unwrap_or(self.transform),
+            text_shadow: match &d.text_shadow {
+                Some(own) => own.clone(),
+                None => self.text_shadow.clone(),
+            },
         }
     }
 

@@ -38,6 +38,19 @@ pub struct Emphasis {
     pub strike: bool,
     /// The book's colour on the page's greys; black is the theme's ink.
     pub colour: Option<[u8; 3]>,
+    /// A soft copy of the glyphs behind them, as `text-shadow`.
+    pub shadow: Option<TextShadow>,
+    /// Takes its room but isn't drawn, as `visibility: hidden`.
+    pub hidden: bool,
+}
+
+/// A text shadow: offset and blur in hundredths of the text size.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct TextShadow {
+    pub at: [i8; 2],
+    pub blur: u8,
+    /// Of the theme's ink, out of 255.
+    pub strength: u8,
 }
 
 /// Raised or lowered text, as `<sup>` and `<sub>`.
@@ -308,6 +321,20 @@ pub enum Edge {
     Double,
     Dashed,
     Dotted,
+    /// Two-tone lines that look carved in or raised.
+    Groove,
+    Ridge,
+    Inset,
+    Outset,
+    /// Takes its width but draws nothing, as a transparent border.
+    Clear,
+}
+
+impl Edge {
+    /// Whether the side draws a line.
+    pub fn draws(self) -> bool {
+        !matches!(self, Self::None | Self::Clear)
+    }
 }
 
 /// A book's box around blocks, in body ems; sides go top, right, bottom, left.
@@ -334,6 +361,122 @@ pub struct Boxed {
     pub backdrop: Option<Arc<Backdrop>>,
     /// Its corners' radius; a percentage is of its width.
     pub radius: Option<Length>,
+    /// Shadows, gradients, a border picture, an outline and opacity.
+    pub finish: Option<Arc<Finish>>,
+    /// Stands for a rule: read as prose, it draws a plain one.
+    pub rule: bool,
+}
+
+/// What a box draws beyond its ground, picture and borders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Finish {
+    /// The first listed is drawn on top.
+    pub shadows: Vec<Shadow>,
+    /// Background layers over its ground; the first listed is on top.
+    pub layers: Vec<Layer>,
+    /// A picture cut in nine drawn in place of its borders.
+    pub frame: Option<Frame9>,
+    pub outline: Option<Outline>,
+    /// How much of the box shows, 0 to 1.
+    pub opacity: f32,
+}
+
+impl Default for Finish {
+    fn default() -> Self {
+        Self {
+            shadows: Vec::new(),
+            layers: Vec::new(),
+            frame: None,
+            outline: None,
+            opacity: 1.0,
+        }
+    }
+}
+
+impl Finish {
+    /// Whether it draws anything of its own.
+    pub fn shows(&self) -> bool {
+        !self.shadows.is_empty()
+            || !self.layers.is_empty()
+            || self.frame.is_some()
+            || self.outline.is_some()
+    }
+}
+
+/// A box's shadow in body ems; its strength is of the theme's ink.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Shadow {
+    pub at: [f32; 2],
+    pub blur: f32,
+    pub spread: f32,
+    pub strength: f32,
+    /// Cast inside the box, under its content.
+    pub inset: bool,
+}
+
+/// One background layer: a picture or a gradient.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Layer {
+    Picture(Arc<Backdrop>),
+    Gradient(Gradient),
+}
+
+/// A gradient between strengths of the theme's ink.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gradient {
+    pub shape: GradientShape,
+    /// Where each stop sits, none spread evenly; its strength, 0 to 1.
+    pub stops: Vec<(Option<Length>, f32)>,
+    /// Repeats past its last stop.
+    pub repeating: bool,
+}
+
+/// A gradient's line or ring.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GradientShape {
+    /// Its heading in degrees: 0 runs up, 90 right, 180 down.
+    Linear(f32),
+    /// Its centre, 0 to 1 across and down; reaching the nearest side.
+    Radial {
+        at: [f32; 2],
+        circle: bool,
+        near: bool,
+    },
+}
+
+/// How a border picture's edges fill their sides.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Tile {
+    #[default]
+    Stretch,
+    Repeat,
+    /// Repeats a whole number of times, scaled to fit.
+    Round,
+}
+
+/// A border picture cut in nine, as `border-image`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame9 {
+    pub picture: Arc<Picture>,
+    /// Each cut as a share of the picture's height or width.
+    pub slice: [f32; 4],
+    /// Its middle is drawn too.
+    pub fill: bool,
+    /// Each side's breadth, and how far it reaches out, in body ems.
+    pub width: [f32; 4],
+    pub outset: [f32; 4],
+    /// Across and down.
+    pub tile: [Tile; 2],
+}
+
+/// A line around a box's border, as `outline`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Outline {
+    /// In body ems.
+    pub width: f32,
+    pub offset: f32,
+    pub edge: Edge,
+    pub colour: Option<[u8; 3]>,
 }
 
 /// A box's background picture.
@@ -606,6 +749,8 @@ mod tests {
         underline: false,
         strike: false,
         colour: None,
+        shadow: None,
+        hidden: false,
     };
 
     #[test]

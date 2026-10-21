@@ -12,8 +12,8 @@ use parley::{
 };
 
 use crate::block::{
-    Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
-    Inline, Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
+    Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Finish, Floated, Frame,
+    GridRow, Inline, Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -270,6 +270,7 @@ pub(crate) struct Placed {
     em: f32,
     /// Its corners' radius in layout units, before fitting the box.
     radius: f32,
+    finish: Option<Arc<Finish>>,
 }
 
 /// A float placed in the column: its key, the boxes holding it, its place.
@@ -352,6 +353,9 @@ pub(crate) struct Deco {
     pub(crate) backdrop: Option<Arc<Backdrop>>,
     pub(crate) em: f32,
     pub(crate) radius: f32,
+    pub(crate) finish: Option<Arc<Finish>>,
+    /// Cut at the page's top and bottom: no frame picture there.
+    pub(crate) continued: [bool; 2],
 }
 
 /// A table set in equal columns; row `i` spans `units[i]`.
@@ -1276,7 +1280,7 @@ impl<'a> Setter<'a> {
             frame
                 .boxes
                 .iter()
-                .any(|b| b.edges.iter().any(|e| *e != Edge::None))
+                .any(|b| b.rule || b.edges.iter().any(|e| e.draws()))
         };
         let (draw, laid, units, starts) = match &block.content {
             Content::Text(text) => self.text(text, frame, width, beside),
@@ -1642,13 +1646,15 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         backdrop: b.backdrop.clone(),
         em,
         radius: b.radius.map_or(0.0, |r| resolve(r, outer, em).max(0.0)),
+        finish: b.finish.clone(),
     }
 }
 
 /// Whether a box shows: a drawn border, a background or its picture.
 fn painted(b: &Boxed) -> bool {
-    let edged = (b.edges.iter().zip(&b.border)).any(|(e, w)| *e != Edge::None && *w > 0.0);
-    edged || b.fill.is_some_and(|f| f > 0.02) || b.backdrop.is_some()
+    let edged = (b.edges.iter().zip(&b.border)).any(|(e, w)| e.draws() && *w > 0.0);
+    let finished = b.finish.as_ref().is_some_and(|f| f.shows());
+    edged || b.fill.is_some_and(|f| f > 0.02) || b.backdrop.is_some() || finished
 }
 
 /// The float block `frame` is in, by its address.
@@ -1978,6 +1984,8 @@ fn layout_text(
         tone: style.tone,
         code: false,
         colour: None,
+        shadow: None,
+        hidden: false,
     };
     let (shown, small) = cased(text);
     let mut b = layout.ranged_builder(fonts, &shown, 1.0, false);
@@ -2012,6 +2020,8 @@ fn layout_text(
             underline,
             strike,
             colour,
+            shadow,
+            hidden,
         } = span.emphasis;
         if script != Script::Normal {
             let shift = match script {
@@ -2056,12 +2066,20 @@ fn layout_text(
                 StyleProperty::Brush(Ink {
                     code: true,
                     colour,
+                    shadow,
+                    hidden,
                     ..ink
                 }),
                 range,
             );
-        } else if colour.is_some() {
-            b.push(StyleProperty::Brush(Ink { colour, ..ink }), range);
+        } else if colour.is_some() || shadow.is_some() || hidden {
+            let brush = Ink {
+                colour,
+                shadow,
+                hidden,
+                ..ink
+            };
+            b.push(StyleProperty::Brush(brush), range);
         }
     }
     for (range, scale) in small {
@@ -2183,6 +2201,7 @@ fn over_first_line(text: &Text, end: usize, extra: Emphasis) -> Text {
                 underline: own.underline || extra.underline,
                 strike: own.strike || extra.strike,
                 colour: own.colour.or(extra.colour),
+                shadow: own.shadow.or(extra.shadow),
                 ..own
             },
             false => own,
@@ -2369,9 +2388,10 @@ impl OpenBox {
         let edged = border
             .iter()
             .zip(&edges)
-            .any(|(w, e)| *w > 0.0 && *e != Edge::None);
+            .any(|(w, e)| *w > 0.0 && e.draws());
         let p = &self.placed;
-        let drawn = edged || p.fill.is_some() || p.backdrop.is_some();
+        let finished = p.finish.as_ref().is_some_and(|f| f.shows());
+        let drawn = edged || p.fill.is_some() || p.backdrop.is_some() || finished;
         let rect = [p.x, self.top, p.width, bottom - self.top];
         drawn.then(|| Deco {
             rect: rect.map(|v| if v.is_finite() { v } else { 0.0 }),
@@ -2382,6 +2402,8 @@ impl OpenBox {
             backdrop: p.backdrop.clone(),
             em: p.em,
             radius: p.radius,
+            finish: p.finish.clone(),
+            continued: [self.continued, !closed],
         })
     }
 }

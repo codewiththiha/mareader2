@@ -11,14 +11,15 @@ use html5ever::tokenizer::{
 };
 use mareader_reflow::{
     Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
-    Emphasis, Flex, Floated, Frame, GridRow, Inline, Justify, Length, Links, Look, Picture, Role,
-    Row, Script, Table, Text, VAlign,
+    Emphasis, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow, Inline, Justify,
+    Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text, TextShadow, VAlign,
 };
 
 use crate::css::{
     self, BorderStyle, Computed, Ctx, Decl, Display, El, Float, FontFace, Len, Line, MAX_SHEET,
     PictureSize, PseudoEl, ROOT_PX, Stylesheet, TextAlign,
 };
+use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
 use crate::svg::{self, Capture};
@@ -264,6 +265,8 @@ struct BoxOpen {
     first: usize,
     /// Its background's full strength, drawn only if it holds no text.
     contrast: Option<f32>,
+    /// Its finish at full strength, likewise.
+    finish: Option<Arc<Finish>>,
 }
 
 /// The outermost layout table being read; nested ones read flat.
@@ -493,6 +496,8 @@ struct State<'a> {
     drawing: Option<Drawing>,
     /// The cascade the next start tag takes: a generated box's.
     forced: Option<Decl>,
+    /// The next box opened stands for an `<hr>`.
+    rule_next: bool,
     /// Counters in scope: name, value, and their element's depth.
     counters: Vec<(String, i32, usize)>,
     /// Quotes open, which pick the next marks.
@@ -940,20 +945,25 @@ impl State<'_> {
         let name: &str = &tag.name;
         // A table of data draws its own grid, not a box.
         let layout = name != "table" || self.lays_out(tag);
-        let (contrast, backdrop) = match layout {
+        let rule = std::mem::take(&mut self.rule_next);
+        let (contrast, backdrop, finish) = match layout {
             true => self.paint(c),
-            false => (None, None),
+            false => (None, None, None),
         };
         let spec = layout.then(|| boxed(name, c, d, cell)).flatten();
-        let painted = contrast.is_some() || backdrop.is_some();
+        let shows = finish.as_ref().is_some_and(Finish::shows);
+        let painted = contrast.is_some() || backdrop.is_some() || shows;
         let spec = spec.or_else(|| painted.then(|| bare(c)));
         let colours = c
             .border_colour
             .map(|ink| ink.and_then(|ink| self.drawn(ink, MAX_BORDER_FADE)));
+        let finish = finish.map(Arc::new);
         let spec = spec.map(|spec| Boxed {
             fill: contrast.map(|c| c.min(MAX_TEXT_FILL)),
             colours,
             backdrop,
+            finish: finish.as_deref().map(|f| Arc::new(capped(f))),
+            rule,
             ..spec
         });
         let snapshot = self.gap;
@@ -970,37 +980,162 @@ impl State<'_> {
             gap: snapshot,
             first: self.blocks.len(),
             contrast,
+            finish,
         });
         true
     }
 
     /// A background's ink strength, its contrast with the page; its picture.
-    fn paint(&mut self, c: &Computed) -> (Option<f32>, Option<Arc<Backdrop>>) {
+    fn paint(&mut self, c: &Computed) -> (Option<f32>, Option<Arc<Backdrop>>, Option<Finish>) {
         let contrast = c
             .fill
             .map(|f| (css::luminance(f) - css::luminance(self.page)).abs());
-        let picture = c.picture.as_deref().and_then(|p| self.library.picture(p));
-        let backdrop = picture.map(|picture| {
-            let length = |l: Option<Len>| match l? {
-                Len::Px(px) => Some(Length::Em(px / ROOT_PX)),
-                Len::Em(e) | Len::Rem(e) => Some(Length::Em(e)),
-                Len::Percent(p) => Some(Length::Percent(p)),
-                _ => None,
-            };
-            let size = match c.picture_size {
-                PictureSize::Auto => BackdropSize::Auto,
-                PictureSize::Cover => BackdropSize::Cover,
-                PictureSize::Contain => BackdropSize::Contain,
-                PictureSize::Set([w, h]) => BackdropSize::Set([length(w), length(h)]),
-            };
-            Arc::new(Backdrop {
-                picture,
-                size,
-                at: c.picture_at,
-                repeat: c.picture_repeat,
-            })
+        let backdrop = c.picture.as_deref().and_then(|p| self.backdrop(p, c));
+        (
+            contrast.filter(|c| *c >= MIN_FILL),
+            backdrop,
+            self.box_finish(c),
+        )
+    }
+
+    /// A background picture at `url`, sized and placed as `c` says.
+    fn backdrop(&mut self, url: &str, c: &Computed) -> Option<Arc<Backdrop>> {
+        let picture = self.css_picture(url)?;
+        let length = |l: Option<Len>| match l? {
+            Len::Px(px) => Some(Length::Em(px / ROOT_PX)),
+            Len::Em(e) | Len::Rem(e) => Some(Length::Em(e)),
+            Len::Percent(p) => Some(Length::Percent(p)),
+            _ => None,
+        };
+        let size = match c.picture_size {
+            PictureSize::Auto => BackdropSize::Auto,
+            PictureSize::Cover => BackdropSize::Cover,
+            PictureSize::Contain => BackdropSize::Contain,
+            PictureSize::Set([w, h]) => BackdropSize::Set([length(w), length(h)]),
+        };
+        Some(Arc::new(Backdrop {
+            picture,
+            size,
+            at: c.picture_at,
+            repeat: c.picture_repeat,
+        }))
+    }
+
+    /// How strongly `tint` shows on the page, as a share of the ink.
+    fn strength(&self, (rgb, alpha): Tint, c: &Computed) -> f32 {
+        let rgb = rgb.or(c.ink).unwrap_or(self.book_ink);
+        let contrast = (css::luminance(rgb) - css::luminance(self.page)).abs();
+        (contrast * alpha).clamp(0.0, 1.0)
+    }
+
+    /// Shadows, gradients, a border picture, an outline and opacity.
+    fn box_finish(&mut self, c: &Computed) -> Option<Finish> {
+        let em = |l: Len| l.px(c.size, css::BASE_WIDTH).unwrap_or(0.0) / ROOT_PX;
+        let shadows = c.shadows.iter().map(|s| mareader_reflow::Shadow {
+            at: s.at.map(em),
+            blur: em(s.blur).max(0.0),
+            spread: em(s.spread),
+            strength: self.strength(s.tint, c),
+            inset: s.inset,
         });
-        (contrast.filter(|c| *c >= MIN_FILL), backdrop)
+        let shadows = shadows.filter(|s| s.strength >= 0.01).collect();
+        let mut layers = Vec::new();
+        for layer in c.layers.iter() {
+            let made = match layer {
+                decor::Layer::Url(url) => {
+                    self.backdrop(url, c).map(mareader_reflow::Layer::Picture)
+                }
+                decor::Layer::Gradient(g) => {
+                    Some(mareader_reflow::Layer::Gradient(self.gradient(g, c)))
+                }
+            };
+            layers.extend(made);
+        }
+        let frame = c.frame.as_deref().and_then(|url| self.frame9(url, c));
+        let outline = (c.outline > 0.0 && c.outline_style != BorderStyle::None).then(|| Outline {
+            width: c.outline / ROOT_PX,
+            offset: c.outline_offset / ROOT_PX,
+            edge: edge(c.outline_style),
+            colour: c
+                .outline_colour
+                .and_then(|ink| self.drawn(ink, MAX_BORDER_FADE)),
+        });
+        let finish = Finish {
+            shadows,
+            layers,
+            frame,
+            outline,
+            opacity: if c.invisible {
+                0.0
+            } else {
+                c.opacity.clamp(0.0, 1.0)
+            },
+        };
+        (finish.shows() || finish.opacity < 0.99).then_some(finish)
+    }
+
+    /// A gradient's stops as strengths, its places as lengths.
+    fn gradient(&self, g: &decor::Gradient, c: &Computed) -> mareader_reflow::Gradient {
+        let place = |l: Len| match l {
+            Len::Percent(p) => Length::Percent(p),
+            Len::Em(e) => Length::Em(e * c.size / ROOT_PX),
+            other => Length::Em(other.px(c.size, css::BASE_WIDTH).unwrap_or(0.0) / ROOT_PX),
+        };
+        let shape = match g.radial {
+            true => GradientShape::Radial {
+                at: g.at,
+                circle: g.circle,
+                near: g.near,
+            },
+            false => GradientShape::Linear(g.angle),
+        };
+        mareader_reflow::Gradient {
+            shape,
+            stops: g
+                .stops
+                .iter()
+                .map(|(tint, at)| (at.map(place), self.strength(*tint, c)))
+                .collect(),
+            repeating: g.repeating,
+        }
+    }
+
+    /// A border picture at `url`, cut and sized as `c` says.
+    fn frame9(&mut self, url: &str, c: &Computed) -> Option<Frame9> {
+        let picture = self.css_picture(url)?;
+        let (pw, ph) = (picture.width as f32, picture.height as f32);
+        if pw < 1.0 || ph < 1.0 {
+            return None;
+        }
+        let s = c.frame_slice;
+        let dims = [ph, pw, ph, pw];
+        let at = |a: &[f32; 4], i: usize| a.get(i).copied().unwrap_or_default();
+        let slice: [f32; 4] = std::array::from_fn(|i| {
+            let cut = at(&s.cut, i);
+            let share = match s.percent.get(i).copied().unwrap_or(true) {
+                true => cut / 100.0,
+                false => cut / at(&dims, i),
+            };
+            share.clamp(0.0, 1.0)
+        });
+        let span = |spans: &[Span; 4], i: usize| {
+            let px = match spans.get(i).copied().unwrap_or_default() {
+                Span::Auto => at(&slice, i) * at(&dims, i),
+                Span::Times(n) => n * at(&c.border, i),
+                Span::Len(l) => l.px(c.size, css::BASE_WIDTH).unwrap_or(0.0),
+            };
+            px.max(0.0) / ROOT_PX
+        };
+        let width = std::array::from_fn(|i| span(&c.frame_width, i));
+        let outset = std::array::from_fn(|i| span(&c.frame_outset, i));
+        Some(Frame9 {
+            picture,
+            slice,
+            fill: s.fill,
+            width,
+            outset,
+            tile: c.frame_tile,
+        })
     }
 
     /// Closes the innermost box, giving its blocks its bottom inside.
@@ -1009,7 +1144,8 @@ impl State<'_> {
             return self.space_below(c);
         };
         let inside = c.border[2] + c.padding[2];
-        let painted = open.spec.fill.is_some() || open.spec.backdrop.is_some();
+        let shows = open.spec.finish.as_ref().is_some_and(|f| f.shows());
+        let painted = open.spec.fill.is_some() || open.spec.backdrop.is_some() || shows;
         let edged = painted || open.spec.border.iter().any(|w| *w > 0.0);
         let held = self.blocks.get(open.first..).unwrap_or_default();
         if edged && open.arc.is_some() && held.iter().all(Block::is_blank) {
@@ -1040,6 +1176,7 @@ impl State<'_> {
                 self.gap = open.gap;
                 // No text to hide: a line or block shows at full strength.
                 open.spec.fill = open.contrast;
+                open.spec.finish = open.finish.clone();
                 self.boxes.push(open);
                 let mut block = Block::new(Content::Space(height.max(0.0)));
                 block.frame = self.frame();
@@ -1152,14 +1289,43 @@ impl State<'_> {
             case: c.map_or(Case::Normal, Computed::case),
             underline,
             strike,
-            colour: c
-                .and_then(|c| c.ink)
-                .and_then(|ink| self.drawn(ink, MAX_FADE)),
+            colour: self.text_colour(c),
+            shadow: c.and_then(|c| self.text_shadow(c)),
+            hidden: c.is_some_and(|c| c.invisible),
         }
     }
 
-    /// `ink` as the page draws it, given the background it sits on.
-    fn drawn(&self, ink: css::Rgb, most: f32) -> Option<css::Rgb> {
+    /// The text's shadow, unless it barely differs from the page.
+    fn text_shadow(&self, c: &Computed) -> Option<TextShadow> {
+        let s = c.text_shadow.as_ref()?;
+        let strength = self.strength(s.tint, c);
+        let share = |l: Len| l.px(c.size, css::BASE_WIDTH).unwrap_or(0.0) / c.size.max(1.0) * 100.0;
+        (strength >= MIN_FILL).then(|| TextShadow {
+            at: s.at.map(|l| share(l).round().clamp(-127.0, 127.0) as i8),
+            blur: share(s.blur).round().clamp(0.0, 255.0) as u8,
+            strength: (strength * 255.0).round() as u8,
+        })
+    }
+
+    /// Text's colour as drawn, faded toward its ground by opacity.
+    fn text_colour(&self, c: Option<&Computed>) -> Option<css::Rgb> {
+        let c = c?;
+        if c.opacity >= 0.99 {
+            return c.ink.and_then(|ink| self.drawn(ink, MAX_FADE));
+        }
+        let ink = c.ink.unwrap_or(self.book_ink);
+        let ground = self.ground();
+        let a = c.opacity.clamp(0.0, 1.0);
+        let mixed: css::Rgb = std::array::from_fn(|i| {
+            let (f, g) = (ink.get(i).copied(), ground.get(i).copied());
+            let (f, g) = (f32::from(f.unwrap_or(0)), f32::from(g.unwrap_or(255)));
+            (f * a + g * (1.0 - a)).round().clamp(0.0, 255.0) as u8
+        });
+        self.drawn(mixed, MAX_FADE)
+    }
+
+    /// The background text sits on: its nearest block's, or the page.
+    fn ground(&self) -> css::Rgb {
         let ground = self
             .stack
             .iter()
@@ -1168,8 +1334,12 @@ impl State<'_> {
                 true => o.computed.fill,
                 false => None,
             });
-        let ground = ground.unwrap_or(self.page);
-        drawn(ink, (ground, self.book_ink, self.page), most)
+        ground.unwrap_or(self.page)
+    }
+
+    /// `ink` as the page draws it, given the background it sits on.
+    fn drawn(&self, ink: css::Rgb, most: f32) -> Option<css::Rgb> {
+        drawn(ink, (self.ground(), self.book_ink, self.page), most)
     }
 
     /// The colour a data table's grid takes: its first drawn border's.
@@ -2161,6 +2331,10 @@ impl State<'_> {
             self.ornament(declared, (before, after));
             return false;
         }
+        if name == "hr" && shown && self.table.is_none() && styled_rule(&declared) {
+            self.rule_box(declared);
+            return false;
+        }
         let signals = shown && self.observe(name, &computed, &declared);
         if matches!(name, "html" | "body") {
             self.page = computed.fill.unwrap_or(self.page);
@@ -2316,6 +2490,16 @@ impl State<'_> {
             self.generate(d);
         }
         self.end("div");
+    }
+
+    /// An `<hr>` the book draws itself: a box of its borders and ground.
+    fn rule_box(&mut self, mut d: Decl) {
+        d.display = Some(Display::Block);
+        self.forced = Some(d);
+        self.rule_next = true;
+        self.start(&synthetic("div"));
+        self.end("div");
+        self.rule_next = false;
     }
 
     fn end(&mut self, name: &str) {
@@ -2516,13 +2700,12 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
     if matches!(name, "tr" | "thead" | "tbody" | "tfoot" | "caption" | "hr") {
         return None;
     }
-    let edges = c.border_style.map(|s| match s {
-        BorderStyle::None => Edge::None,
-        BorderStyle::Solid => Edge::Solid,
-        BorderStyle::Double => Edge::Double,
-        BorderStyle::Dashed => Edge::Dashed,
-        BorderStyle::Dotted => Edge::Dotted,
-    });
+    let mut edges = c.border_style.map(edge);
+    for (e, clear) in edges.iter_mut().zip(c.border_clear) {
+        if clear && *e != Edge::None {
+            *e = Edge::Clear;
+        }
+    }
     let mut border = c.border.map(|w| w.max(0.0) / ROOT_PX);
     for (w, e) in border.iter_mut().zip(&edges) {
         if *e == Edge::None {
@@ -2568,6 +2751,50 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
         radius: radius(c),
         ..Boxed::default()
     })
+}
+
+/// A border style as the page draws it.
+fn edge(s: BorderStyle) -> Edge {
+    match s {
+        BorderStyle::None => Edge::None,
+        BorderStyle::Solid => Edge::Solid,
+        BorderStyle::Double => Edge::Double,
+        BorderStyle::Dashed => Edge::Dashed,
+        BorderStyle::Dotted => Edge::Dotted,
+        BorderStyle::Groove => Edge::Groove,
+        BorderStyle::Ridge => Edge::Ridge,
+        BorderStyle::Inset => Edge::Inset,
+        BorderStyle::Outset => Edge::Outset,
+    }
+}
+
+/// A finish with its gradients no stronger than text can sit on.
+fn capped(f: &Finish) -> Finish {
+    let mut f = f.clone();
+    for layer in &mut f.layers {
+        if let mareader_reflow::Layer::Gradient(g) = layer {
+            for stop in &mut g.stops {
+                stop.1 = stop.1.min(MAX_TEXT_FILL);
+            }
+        }
+    }
+    f
+}
+
+/// Whether the book draws an `<hr>` itself: borders, a ground, a picture.
+fn styled_rule(d: &Decl) -> bool {
+    let bordered = (d.border_style.iter().zip(&d.border_width)).any(|(s, w)| {
+        let thin = matches!(w, Some(Len::Px(px)) if *px <= 0.0);
+        matches!(s, Some(s) if *s != BorderStyle::None) && !thin
+    });
+    let shadowed = d.shadows.as_ref().is_some_and(|s| !s.is_empty());
+    let layered = d.layers.as_ref().is_some_and(|l| !l.is_empty());
+    bordered
+        || shadowed
+        || layered
+        || d.background == Some(true)
+        || d.background_image == Some(true)
+        || d.frame.as_ref().is_some_and(Option::is_some)
 }
 
 /// A box's corner radius as the book sets it.
@@ -3004,6 +3231,7 @@ pub(crate) fn read_chapter(
         grid: None,
         drawing: None,
         forced: None,
+        rule_next: false,
         counters: Vec::new(),
         quotes: 0,
         initial: None,
@@ -3618,6 +3846,158 @@ mod tests {
         // Hidden drawings and their text show nothing.
         let none = read("<svg style='display:none'><path d='M0 0'/><text>x</text></svg>");
         assert!(none.is_empty(), "{none:?}");
+    }
+
+    #[test]
+    fn transparent_borders_keep_their_room_but_draw_nothing() {
+        let b = read(
+            "<div style='border: 4px solid transparent; border-top-color: red'><p>a</p></div>",
+        );
+        let spec = b.first().and_then(|b| b.frame.boxes.first());
+        let edges = spec.map(|b| b.edges);
+        assert_eq!(
+            edges,
+            Some([Edge::Solid, Edge::Clear, Edge::Clear, Edge::Clear])
+        );
+        let room = 4.0 / ROOT_PX;
+        assert!(spec.is_some_and(|b| b.border.iter().all(|w| (w - room).abs() < 1e-3)));
+    }
+
+    #[test]
+    fn a_book_drawn_hr_is_a_box_and_a_plain_one_a_rule() {
+        let b = read(
+            "<html><head><style>hr.s { border: 0; border-top: 3px double; width: 30%; \
+             margin: 1em auto } hr.g { border: none; height: 2px; \
+             background: linear-gradient(to right, transparent, #000, transparent) }\
+             </style></head><body><p>a</p><hr/><hr class='s'/><hr class='g'/><p>b</p>\
+             </body></html>",
+        );
+        assert_eq!(kinds(&b), ["text", "rule", "space", "space", "text"]);
+        let boxed = |i: usize| b.get(i).and_then(|b| b.frame.boxes.first());
+        assert!(boxed(2).is_some_and(|x| x.rule
+            && x.edges[0] == Edge::Double
+            && x.width == Some(Length::Percent(30.0))));
+        // Empty, its gradient shows at full strength.
+        let ramp = boxed(3).and_then(|x| x.finish.clone());
+        let stops = ramp.and_then(|f| match f.layers.first() {
+            Some(mareader_reflow::Layer::Gradient(g)) => Some(g.stops.clone()),
+            _ => None,
+        });
+        assert!(stops.is_some_and(|s| s.len() == 3 && s.get(1).is_some_and(|s| s.1 > 0.9)));
+    }
+
+    #[test]
+    fn boxes_carry_shadows_gradients_outlines_and_border_pictures() {
+        let svg = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+                   width='90' height='90'%3E%3C/svg%3E";
+        let css = format!(
+            ".f {{ box-shadow: 2px 2px 4px rgba(0,0,0,.5); background: \
+             linear-gradient(to right, #000, transparent), url(\"{svg}\"); \
+             outline: 1px dashed; outline-offset: 2px; border: 30px solid transparent; \
+             border-image: url(\"{svg}\") 30 round; opacity: .5 }}"
+        );
+        let b = read(&format!(
+            "<html><head><style>{css}</style></head><body>\
+             <div class='f'><p>a</p></div></body></html>"
+        ));
+        let spec = b.first().and_then(|b| b.frame.boxes.first()).cloned();
+        assert_eq!(spec.as_ref().map(|s| s.edges), Some([Edge::Clear; 4]));
+        let f = spec.and_then(|s| s.finish.clone());
+        let Some(f) = f else {
+            return assert!(b.is_empty(), "no finish");
+        };
+        let shadow = f.shadows.first().copied().unwrap_or_default();
+        assert!((shadow.strength - 0.5).abs() < 0.02 && (shadow.at[0] - 0.125).abs() < 1e-3);
+        assert!(matches!(f.layers.as_slice(), [
+            mareader_reflow::Layer::Gradient(g),
+            mareader_reflow::Layer::Picture(_),
+        ] if g.stops.iter().all(|s| s.1 <= MAX_TEXT_FILL)));
+        let outline = f.outline.map(|o| (o.edge, o.width, o.offset));
+        assert_eq!(outline, Some((Edge::Dashed, 1.0 / ROOT_PX, 2.0 / ROOT_PX)));
+        let frame = f.frame.as_ref().map(|r| (r.slice, r.width, r.tile, r.fill));
+        let third = 30.0 / 90.0;
+        assert_eq!(
+            frame,
+            Some((
+                [third; 4],
+                [30.0 / ROOT_PX; 4],
+                [mareader_reflow::Tile::Round; 2],
+                false
+            ))
+        );
+        assert!((f.opacity - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn carved_borders_keep_their_style() {
+        let b = read("<div style='border: 3px groove; border-left-style: outset'><p>a</p></div>");
+        let edges = b
+            .first()
+            .and_then(|b| b.frame.boxes.first())
+            .map(|b| b.edges);
+        assert_eq!(
+            edges,
+            Some([Edge::Groove, Edge::Groove, Edge::Groove, Edge::Outset])
+        );
+    }
+
+    #[test]
+    fn text_shadow_and_opacity_reach_the_text() {
+        let b = read(
+            "<p>a <span style='text-shadow: 1px 1px #000'>b</span> \
+             <span style='opacity: 0.5'>c</span> \
+             <span style='text-shadow: 0 0 3px #fff'>d</span></p>",
+        );
+        let spans = b.first().and_then(text).map_or(Vec::new(), |t| {
+            t.spans.iter().map(|s| s.emphasis).collect::<Vec<_>>()
+        });
+        // A white shadow on white paper is nothing to draw.
+        let shadows: Vec<_> = spans.iter().filter_map(|e| e.shadow).collect();
+        let one = TextShadow {
+            at: [6, 6],
+            blur: 0,
+            strength: 255,
+        };
+        assert_eq!(shadows, [one], "{spans:?}");
+        let grey = |e: &Emphasis| e.colour.is_some_and(|[r, ..]| r > 60 && r < 200);
+        assert!(spans.iter().any(grey), "{spans:?}");
+    }
+
+    #[test]
+    fn hidden_text_keeps_its_room_and_filters_fade_boxes() {
+        let b = read(
+            "<div style='visibility: hidden; border: 1px solid'><p>a \
+             <span style='visibility: visible'>b</span></p></div>\
+             <div style='filter: opacity(50%) drop-shadow(1px 1px 2px #000); \
+             border: 1px solid'><p>c</p></div>",
+        );
+        let hidden = b.first().and_then(text).map_or(Vec::new(), |t| {
+            let spans = t.spans.iter().filter(|s| s.emphasis.hidden);
+            let words = spans.filter_map(|s| t.text.get(s.range.clone()));
+            words.map(|w| w.trim().to_owned()).collect::<Vec<_>>()
+        });
+        assert_eq!(hidden, ["a"]);
+        let finish = |i: usize| {
+            let spec = b.get(i).and_then(|b| b.frame.boxes.first());
+            spec.and_then(|s| s.finish.clone())
+        };
+        assert!(finish(0).is_some_and(|f| f.opacity == 0.0));
+        let faded = finish(1);
+        assert!(faded.is_some_and(|f| (f.opacity - 0.5).abs() < 1e-3 && f.shadows.len() == 1));
+    }
+
+    #[test]
+    fn background_pictures_may_be_data_urls() {
+        let svg = "data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 \
+                   width=%2220%22 height=%2220%22%3E%3C/svg%3E";
+        let b = read(&format!(
+            "<div style=\"background: url('{svg}') no-repeat; padding: 1em\"><p>a</p></div>"
+        ));
+        let spec = b.first().and_then(|b| b.frame.boxes.first());
+        let size = spec
+            .and_then(|s| s.backdrop.as_ref())
+            .map(|d| d.picture.width);
+        assert_eq!(size, Some(20));
     }
 
     #[test]

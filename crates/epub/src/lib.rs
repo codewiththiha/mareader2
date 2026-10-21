@@ -12,6 +12,7 @@
 mod book;
 mod convert;
 mod css;
+mod decor;
 mod generated;
 mod guard;
 mod href;
