@@ -44,6 +44,8 @@ pub struct Emphasis {
     pub hidden: bool,
     /// Type features the book turns on or off for it.
     pub features: Features,
+    /// The book's own family for it, as 1 + an index into [`Text::faces`].
+    pub face: u8,
 }
 
 /// OpenType features turned on or off, as bits of [`FEATURES`].
@@ -158,6 +160,17 @@ pub struct Text {
     pub initial: usize,
     /// What its first line adds, as `::first-line` does.
     pub first_line: Option<Emphasis>,
+    /// Ruby: small notes set over runs of it, in order and apart.
+    pub ruby: Vec<Annotation>,
+    /// Families its runs ask for, as [`Look::faces`]; see [`Emphasis::face`].
+    pub faces: Vec<Vec<String>>,
+}
+
+/// A ruby note, as `<rt>`, over the base text `range`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Annotation {
+    pub range: Range<usize>,
+    pub text: String,
 }
 
 /// A picture in a line of text, sized in ems of the text around it.
@@ -217,6 +230,8 @@ impl Text {
             inlines: Vec::new(),
             initial: 0,
             first_line: None,
+            ruby: Vec::new(),
+            faces: Vec::new(),
         }
     }
 
@@ -683,6 +698,18 @@ pub struct Frame {
     pub rotate: f32,
     /// With a look: how page breaks treat it.
     pub keep: Keep,
+    /// Its text's direction; lists and quotes mirror for right to left.
+    pub dir: Dir,
+}
+
+/// A block's direction, as `dir` and CSS `direction`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Dir {
+    /// From its first strong letter.
+    #[default]
+    Auto,
+    Ltr,
+    Rtl,
 }
 
 /// How page breaks treat a block, as `widows`, `orphans` and `break-*`.
@@ -839,6 +866,7 @@ mod tests {
         shadow: None,
         hidden: false,
         features: Features { on: 0, off: 0 },
+        face: 0,
     };
 
     #[test]

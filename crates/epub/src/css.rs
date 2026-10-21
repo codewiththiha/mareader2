@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Features, Justify, LastLine, Rise, Script, Tile, VAlign};
+use mareader_reflow::{Align, Case, Dir, Features, Justify, LastLine, Rise, Script, Tile, VAlign};
 
 use crate::calc::{self, Vars};
 use crate::decor::{self, Slice, Span};
@@ -230,6 +230,8 @@ pub(crate) struct Decl {
     /// `break-inside: avoid`, and `break-after: avoid`.
     pub(crate) whole: Option<bool>,
     pub(crate) keep_next: Option<bool>,
+    /// `direction`, or the `dir` attribute, which may be auto.
+    pub(crate) dir: Option<Dir>,
     pub(crate) transform: Option<Case>,
     /// Underline and line-through.
     pub(crate) decoration: Option<(bool, bool)>,
@@ -353,7 +355,7 @@ macro_rules! each_field {
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
             break_before, break_after, valign, script, small_caps, numeric, ligatures, position,
-            kerning, settings, last, orphans, widows, whole, keep_next, transform, decoration,
+            kerning, settings, last, orphans, widows, whole, keep_next, dir, transform, decoration,
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
             basis, radius, rotate, lift, content, counter_reset, counter_increment,
@@ -533,6 +535,13 @@ impl Decl {
             "font-kerning" => self.kerning = kerning(v).or(self.kerning),
             "font-feature-settings" => self.settings = feature_settings(v).or(self.settings),
             "text-align-last" => self.last = last_line(v).or(self.last),
+            "direction" => {
+                self.dir = match v {
+                    "rtl" => Some(Dir::Rtl),
+                    "ltr" => Some(Dir::Ltr),
+                    _ => self.dir,
+                }
+            }
             "orphans" => self.orphans = lines_kept(v).or(self.orphans),
             "widows" => self.widows = lines_kept(v).or(self.widows),
             "break-inside" | "page-break-inside" => {
@@ -1100,6 +1109,7 @@ fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
         | "font-variant-position"
         | "font-feature-settings" => ("normal", true, true),
         "font-kerning" | "text-align-last" => ("auto", true, true),
+        "direction" => ("ltr", true, true),
         "orphans" | "widows" => ("2", true, true),
         "break-inside" | "page-break-inside" => ("auto", true, false),
         "line-height" | "letter-spacing" | "word-spacing" => ("normal", true, true),
@@ -2815,6 +2825,7 @@ pub(crate) struct Computed {
     pub(crate) widows: u8,
     pub(crate) whole: bool,
     pub(crate) keep_next: bool,
+    pub(crate) dir: Dir,
     pub(crate) transform: Case,
     pub(crate) text_shadow: Option<decor::Shadow>,
     /// Custom properties, inherited.
@@ -2897,6 +2908,7 @@ impl Default for Computed {
             widows: 0,
             whole: false,
             keep_next: false,
+            dir: Dir::Auto,
             transform: Case::Normal,
             text_shadow: None,
             vars: Arc::from([]),
@@ -3030,6 +3042,7 @@ impl Computed {
             widows: d.widows.unwrap_or(self.widows),
             whole: d.whole.unwrap_or(false),
             keep_next: d.keep_next.unwrap_or(false),
+            dir: d.dir.unwrap_or(self.dir),
             transform: d.transform.unwrap_or(self.transform),
             text_shadow: match &d.text_shadow {
                 Some(own) => own.clone(),

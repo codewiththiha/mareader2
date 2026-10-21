@@ -6,14 +6,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use hypher::Lang;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName,
-    FontFeatures, FontStyle, FontWeight, GenericFamily, IndentOptions, InlineBox, InlineBoxKind,
-    Layout, LineHeight, OverflowWrap, Selection, StyleProperty, VerticalAlign,
+    Affinity, Alignment, AlignmentOptions, BaseDirection, Cursor as Caret, FontFamily,
+    FontFamilyName, FontFeatures, FontStyle, FontWeight, GenericFamily, IndentOptions, InlineBox,
+    InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection, StyleProperty, VerticalAlign,
 };
 
 use crate::block::{
-    Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Finish, Floated, Frame,
-    GridRow, Inline, Justify, LastLine, Length, Link, Look, Rise, Role, Script, Table, Text,
+    Align, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Finish, Floated,
+    Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Rise, Role, Script, Table, Text,
     VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
@@ -215,6 +215,9 @@ struct Style<'a> {
     sized: bool,
     /// How the last line sits; none follows the rest.
     last: Option<LastLine>,
+    dir: Dir,
+    /// Stacks for runs' own families, by [`Emphasis::face`].
+    runs: &'a [Stack],
 }
 
 /// A text layout, its soft-hyphen lines, and line starts in source bytes.
@@ -230,6 +233,15 @@ pub(crate) struct Para {
     links: Vec<Link>,
     /// Pictures in its lines, by their boxes' ids.
     pub(crate) pictures: Vec<Arc<Picture>>,
+    /// Ruby notes over its runs, bases in bytes of the text as set.
+    pub(crate) ruby: Vec<Note>,
+}
+
+/// A ruby note: its base in the text as set, then the note laid small.
+pub(crate) struct Note {
+    pub(crate) range: Range<usize>,
+    text: String,
+    pub(crate) para: Option<Box<Para>>,
 }
 
 /// What a set block draws; positions are relative to the block.
@@ -444,6 +456,8 @@ pub(crate) struct Set {
     pub(crate) width: f32,
     /// Quote bars' left edges within the column.
     pub(crate) bars: Vec<f32>,
+    /// Right to left: its marker hangs right of its text.
+    pub(crate) rtl: bool,
     pub(crate) draw: Draw,
     /// Each unit's top and bottom: lines, rows or the whole image.
     pub(crate) units: Vec<(f32, f32)>,
@@ -1126,6 +1140,8 @@ impl<'a> Setter<'a> {
             word: typo.word_spacing,
             sized: false,
             last: None,
+            dir: frame.dir,
+            runs: &[],
         }
     }
 
@@ -1259,8 +1275,11 @@ impl<'a> Setter<'a> {
             (false, false) => (0.0, column, Vec::new(), None),
         };
         // Deep nesting stops indenting at half the column.
-        let mut x = left + (frame.inset * em).clamp(0.0, room / 2.0);
-        let mut width = room - (x - left);
+        let indent = (frame.inset * em).clamp(0.0, room / 2.0);
+        // Right to left, lists and quotes indent from the right.
+        let rtl = right_to_left(block);
+        let mut x = if rtl { left } else { left + indent };
+        let mut width = room - indent;
         let float = self.float_box.filter(|_| designed).map(|(fx, fw)| {
             // The float's own boxes wrap its narrower content.
             let depth = frame.float.as_ref().map_or(0, |f| usize::from(f.depth));
@@ -1347,7 +1366,9 @@ impl<'a> Setter<'a> {
                 .bars
                 .iter()
                 .map(|b| (b * em).min(column / 2.0))
+                .map(|b| if rtl { column - b - BAR_ROOM } else { b })
                 .collect(),
+            rtl,
             draw,
             units,
             starts,
@@ -1459,6 +1480,22 @@ impl<'a> Setter<'a> {
             },
             None => style,
         };
+        let runs: Vec<Stack> = match self.typed(frame) {
+            Some(_) => (text.faces.iter())
+                .map(|names| {
+                    let look = Look {
+                        faces: names.clone(),
+                        ..Look::default()
+                    };
+                    self.look_faces(&look, laid, style.faces)
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let style = Style {
+            runs: &runs,
+            ..style
+        };
         let initial = self.initial(text, style);
         let beside = match &initial {
             Some((_, room)) => Some(match beside {
@@ -1475,6 +1512,7 @@ impl<'a> Setter<'a> {
         if let Some(extra) = text.first_line.filter(|_| style.sized) {
             para = self.first_line(text, (extra, para), style, (inner, beside));
         }
+        self.notes(text, &mut para, style);
         let mut units = line_units(&para.layout);
         // The padding rides on the first and last lines.
         if let Some(first) = units.first_mut() {
@@ -1516,6 +1554,43 @@ impl<'a> Setter<'a> {
             initial,
         };
         (Draw::Text { pad, shaded }, laid, units, starts)
+    }
+
+    /// Lays `para`'s ruby notes small, each in its base's emphasis.
+    fn notes(&mut self, text: &Text, para: &mut Para, style: Style<'_>) {
+        let small = Style {
+            size: (style.size * RUBY_SCALE).clamp(MIN_SIZE, MAX_SIZE),
+            line_height: 1.0,
+            align: Align::Start,
+            pre: false,
+            justify: false,
+            hyphens: None,
+            indent: 0.0,
+            letter: 0.0,
+            word: 0.0,
+            last: None,
+            dir: Dir::Auto,
+            ..style
+        };
+        for (note, own) in para.ruby.iter_mut().zip(&text.ruby) {
+            let at = own.range.start;
+            let base = (text.spans.iter())
+                .find(|s| s.range.start <= at && at < s.range.end)
+                .map(|s| s.emphasis)
+                .unwrap_or_default();
+            let mut t = Text::new(Role::Paragraph);
+            let plain = Emphasis {
+                size: 0,
+                script: Script::Normal,
+                underline: false,
+                strike: false,
+                case: Case::Normal,
+                ..base
+            };
+            t.push(&note.text, plain);
+            t.faces.clone_from(&text.faces);
+            note.para = Some(Box::new(layout_text(self.fonts, &t, small, (None, None))));
+        }
     }
 
     /// The drop cap `text` starts with, and the room its lines leave it.
@@ -1968,6 +2043,26 @@ fn cell_span(row: &GridRow, column: usize, width: f32, em: f32) -> (f32, f32) {
     (left, widths.clone().nth(column).unwrap_or(0.0))
 }
 
+/// Whether a block reads right to left: as set, or by its first strong letter.
+fn right_to_left(block: &Block) -> bool {
+    match (block.frame.dir, &block.content) {
+        (Dir::Rtl, _) => true,
+        (Dir::Auto, Content::Text(t)) => {
+            let strong = t.text.chars().find(|&c| rtl_letter(c) || c.is_alphabetic());
+            strong.is_some_and(rtl_letter)
+        }
+        _ => false,
+    }
+}
+
+/// Hebrew, Arabic, Syriac, Thaana, N'Ko and their presentation forms.
+fn rtl_letter(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF
+    )
+}
+
 /// A look's family names, then `rest`.
 fn look_stack(names: &[&String], rest: &[FontFamilyName<'static>]) -> Stack {
     let named = names
@@ -2005,6 +2100,11 @@ fn layout_text(
     };
     let (shown, small) = cased(text);
     let mut b = layout.ranged_builder(fonts, &shown, 1.0, false);
+    b.set_base_direction(match style.dir {
+        Dir::Auto => BaseDirection::Auto,
+        Dir::Ltr => BaseDirection::Ltr,
+        Dir::Rtl => BaseDirection::Rtl,
+    });
     b.push_default(StyleProperty::FontFamily(FontFamily::List(Cow::Borrowed(
         style.faces,
     ))));
@@ -2023,6 +2123,11 @@ fn layout_text(
     if style.pre {
         b.push_default(StyleProperty::OverflowWrap(OverflowWrap::Anywhere));
     }
+    for note in &text.ruby {
+        // Room above the base for its note.
+        let tall = LineHeight::FontSizeRelative(style.line_height + RUBY_ROOM);
+        b.push(StyleProperty::LineHeight(tall), note.range.clone());
+    }
     for span in &text.spans {
         let range = span.range.clone();
         let Emphasis {
@@ -2039,6 +2144,7 @@ fn layout_text(
             shadow,
             hidden,
             features,
+            face,
         } = span.emphasis;
         if !features.is_empty() {
             let source = FontFeatures::Source(Cow::Owned(features.source()));
@@ -2076,8 +2182,14 @@ fn layout_text(
             let weight = FontWeight::new((style.weight - LIGHTER).max(100.0));
             b.push(StyleProperty::FontWeight(weight), range.clone());
         }
+        let own = usize::from(face).checked_sub(1);
+        let own = own.and_then(|i| style.runs.get(i)).map(Vec::as_slice);
+        if let Some(stack) = own {
+            let family = FontFamily::List(Cow::Borrowed(stack));
+            b.push(StyleProperty::FontFamily(family), range.clone());
+        }
         if code && !style.pre {
-            let mono = FontFamily::List(Cow::Borrowed(style.mono));
+            let mono = FontFamily::List(Cow::Borrowed(own.unwrap_or(style.mono)));
             b.push(StyleProperty::FontFamily(mono), range.clone());
             b.push(
                 StyleProperty::FontSize(style.size * CODE_SCALE),
@@ -2173,6 +2285,13 @@ fn layout_text(
             .unwrap_or_default(),
         starts,
         links: text.links.clone(),
+        ruby: (text.ruby.iter())
+            .map(|a| Note {
+                range: a.range.clone(),
+                text: a.text.clone(),
+                para: None,
+            })
+            .collect(),
         pictures: text
             .inlines
             .iter()
@@ -2587,6 +2706,11 @@ pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 const MIN_COLUMN: f32 = 160.0;
 /// The most cells a grid row lays side by side.
 const MAX_COLUMNS: usize = 64;
+/// A ruby note's size per base size, and the line room it adds, in ems.
+const RUBY_SCALE: f32 = 0.5;
+const RUBY_ROOM: f32 = 0.6;
+/// A quote bar's width and air, mirrored right to left.
+const BAR_ROOM: f32 = 3.0;
 /// The most lines `widows` and `orphans` keep together.
 const MAX_KEPT_LINES: u8 = 8;
 /// Pictures set in one block's lines, at most.
@@ -4470,5 +4594,79 @@ mod tests {
         assert_eq!(missing.page_count(), plain.page_count());
         let pages = |f: &Flow| f.pages.clone();
         assert_eq!(pages(&missing), pages(&plain));
+    }
+
+    /// A paragraph of `text` that reads `dir`.
+    fn directed(text: &str, dir: Dir) -> Block {
+        let mut b = Block::text(Role::Paragraph, text);
+        b.frame.dir = dir;
+        b
+    }
+
+    #[test]
+    fn hebrew_or_arabic_reads_right_to_left_unless_told_otherwise() {
+        let hebrew = "שלום עולם";
+        let f = flow(&[
+            directed(hebrew, Dir::Auto),
+            directed("word word", Dir::Auto),
+            directed(hebrew, Dir::Ltr),
+            directed("word word", Dir::Rtl),
+        ]);
+        let rtl: Vec<bool> = f.blocks.iter().map(|s| s.rtl).collect();
+        assert_eq!(rtl, [true, false, false, true]);
+        // A short right-to-left line sits at the right of its column.
+        let first = |b| line_lefts(&f, b).first().copied().unwrap_or(f32::NAN);
+        assert!(
+            first(0) > f.width / 2.0 && first(2) < 1.0,
+            "{} {}",
+            first(0),
+            first(2)
+        );
+    }
+
+    #[test]
+    fn right_to_left_quote_bars_move_to_the_right() {
+        let quote = |dir| {
+            let mut b = directed("word word", dir);
+            b.frame.bars = vec![0.0];
+            b
+        };
+        let f = flow(&[quote(Dir::Ltr), quote(Dir::Rtl)]);
+        let bar = |i: usize| {
+            let set = f.blocks.get(i);
+            set.and_then(|s| s.bars.first().copied())
+                .unwrap_or(f32::NAN)
+        };
+        assert!(
+            bar(0) < 1.0 && bar(1) > f.width / 2.0,
+            "{} {}",
+            bar(0),
+            bar(1)
+        );
+    }
+
+    #[test]
+    fn ruby_lays_its_note_and_makes_room_above_the_line() {
+        let mut noted = Block::text(Role::Paragraph, "word word");
+        if let Content::Text(t) = &mut noted.content {
+            t.ruby.push(crate::block::Annotation {
+                range: 0..4,
+                text: "note".into(),
+            });
+        }
+        let f = flow(&[noted, Block::text(Role::Paragraph, "word word")]);
+        let tall = |i: usize| {
+            let set = f.blocks.get(i);
+            set.and_then(|s| s.units.first()).map_or(0.0, |u| u.1 - u.0)
+        };
+        assert!(tall(0) > tall(1) + 1.0, "{} {}", tall(0), tall(1));
+        let note = match &*f.laid(0) {
+            Laid::Text { para, .. } => para
+                .ruby
+                .first()
+                .map(|n| (n.range.clone(), n.para.is_some())),
+            _ => None,
+        };
+        assert_eq!(note, Some((0..4, true)));
     }
 }
