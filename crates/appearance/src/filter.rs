@@ -16,6 +16,8 @@ pub enum FilterOp {
     Brightness(f32),
     Contrast(f32),
     Sepia(f32),
+    /// Levels: this much and darker turns black; the rest stretch to white.
+    BlackPoint(f32),
 }
 
 /// Rows are output r, g, b; columns are input r, g, b and a constant.
@@ -52,6 +54,15 @@ impl ColorMatrix {
             }
             row
         }))
+    }
+
+    /// Whether every in-range colour stays in range, so no clamp follows it.
+    fn keeps_range(&self) -> bool {
+        self.0.iter().all(|&[x, y, z, w]| {
+            let low = w + x.min(0.0) + y.min(0.0) + z.min(0.0);
+            let high = w + x.max(0.0) + y.max(0.0) + z.max(0.0);
+            low >= -1e-6 && high <= 1.0 + 1e-6
+        })
     }
 
     /// Applies the matrix and clamps, as CSS does after every function.
@@ -100,6 +111,10 @@ impl FilterOp {
                         0.072 + cos * 0.928 + sin * 0.072,
                     ],
                 ])
+            }
+            Self::BlackPoint(k) => {
+                let k = k.clamp(0.0, 0.9);
+                ColorMatrix::scale_offset(1.0 / (1.0 - k), -k / (1.0 - k))
             }
             Self::Sepia(a) => {
                 let k = 1.0 - a.clamp(0.0, 1.0);
@@ -165,6 +180,12 @@ impl Appearance {
                 FilterOp::Saturate(0.75),
                 FilterOp::Contrast(0.9),
             ],
+            // Smart invert: hues come back, near-white paper becomes black.
+            BaseMode::Black => vec![
+                FilterOp::Invert(1.0),
+                FilterOp::BlackPoint(BLACK_POINT),
+                FilterOp::HueRotate(180.0),
+            ],
         };
         if self.has_tint() {
             let t = self.tint_amount() as f32;
@@ -178,15 +199,11 @@ impl Appearance {
 
     /// Everything the page pass needs to theme a page.
     pub fn page_tone(&self) -> PageTone {
-        let ops = self.page_filter();
-        let mut matrices = [ColorMatrix::linear(IDENTITY); MAX_FILTER_OPS];
-        for (slot, op) in matrices.iter_mut().zip(&ops) {
-            *slot = op.matrix();
-        }
+        let (matrices, count) = folded(&self.page_filter());
         let p = self.ui_tokens().paper;
         PageTone {
             matrices,
-            count: ops.len().min(MAX_FILTER_OPS),
+            count,
             blend: Some(self.page_blend()),
             paper: [p.0, p.1, p.2].map(|c| f32::from(c) / 255.0),
             ink: None,
@@ -209,8 +226,34 @@ impl Appearance {
             BaseMode::Light => Blend::Multiply,
             BaseMode::Dark => Blend::Screen,
             BaseMode::Dim => Blend::SoftLight,
+            // Screen over black paper leaves the page as the chain made it.
+            BaseMode::Black => Blend::Screen,
         }
     }
+}
+
+/// Paper this light, after inverting, is black: scans' grey paper included.
+const BLACK_POINT: f32 = 0.15;
+
+/// The chain as few matrices: a step joins one whose output needs no clamp.
+fn folded(ops: &[FilterOp]) -> ([ColorMatrix; MAX_FILTER_OPS], usize) {
+    let mut out = [ColorMatrix::linear(IDENTITY); MAX_FILTER_OPS];
+    let mut count: usize = 0;
+    for op in ops {
+        let m = op.matrix();
+        let last = count.checked_sub(1).and_then(|i| out.get_mut(i));
+        match last {
+            Some(prev) if prev.keeps_range() => *prev = m.after(*prev),
+            _ => {
+                let Some(slot) = out.get_mut(count) else {
+                    break;
+                };
+                *slot = m;
+                count += 1;
+            }
+        }
+    }
+    (out, count)
 }
 
 /// `a` moved toward `b` by `t`.
@@ -393,6 +436,62 @@ mod tests {
     }
 
     #[test]
+    fn black_turns_paper_pitch_black_and_text_white() {
+        let a = Appearance {
+            base: BaseMode::Black,
+            ..Default::default()
+        };
+        let tone = a.page_tone();
+        assert_eq!(tone.paper, [0.0; 3]);
+        // White and a scan's grey paper alike, exactly black.
+        for paper in [[1.0; 3], [0.93, 0.92, 0.88]] {
+            assert_eq!(tone.apply(paper), [0.0; 3], "{paper:?}");
+        }
+        assert!(
+            close(tone.apply([0.0; 3]), [1.0; 3]),
+            "black text turns white"
+        );
+        let [r, g, b] = tone.apply([0.8, 0.1, 0.1]);
+        assert!(r > g + 0.2 && r > b + 0.2, "red stays red: {r} {g} {b}");
+    }
+
+    #[test]
+    fn folding_the_chain_changes_no_colour() {
+        let colours = [
+            [0.0; 3],
+            [1.0; 3],
+            [0.5; 3],
+            [0.8, 0.1, 0.1],
+            [0.1, 0.6, 0.9],
+        ];
+        for base in BaseMode::ALL {
+            for tint_strength in [0, 25, 100] {
+                let a = Appearance {
+                    base,
+                    tint_strength,
+                    tint_hue: 200,
+                    ..Default::default()
+                };
+                let (tone, ops) = (a.page_tone(), a.page_filter());
+                for c in colours {
+                    let want = a.page_blend().apply(tone.paper, apply_filter(&ops, c));
+                    let got = tone.apply(c);
+                    assert!(close(got, want), "{base:?} {tint_strength} {c:?}");
+                }
+            }
+        }
+        let count = |base| {
+            let a = Appearance {
+                base,
+                ..Default::default()
+            };
+            a.page_tone().count
+        };
+        assert_eq!(count(BaseMode::Dim), 1, "three range-keeping steps fold");
+        assert_eq!(count(BaseMode::Black), 2);
+    }
+
+    #[test]
     fn dark_turns_white_paper_near_black() {
         let a = Appearance {
             base: BaseMode::Dark,
@@ -470,7 +569,7 @@ mod tests {
                 ..Default::default()
             };
             let tone = a.page_tone();
-            assert_eq!(tone.count, a.page_filter().len());
+            assert!(tone.count <= a.page_filter().len());
             let ink = [0.1, 0.3, 0.2];
             let want = a
                 .page_blend()
@@ -540,7 +639,7 @@ mod tests {
     #[test]
     fn a_backdrop_over_white_is_its_paper_themed() {
         let cream = [0.98, 0.95, 0.88];
-        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
+        for base in BaseMode::ALL {
             let a = Appearance {
                 base,
                 ..Appearance::default()

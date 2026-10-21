@@ -158,7 +158,7 @@ fn colour_group(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut
     ) {
         return;
     }
-    segments(ui, &mut a.base, &BaseMode::ALL, 3, |b| {
+    segments(ui, &mut a.base, &BaseMode::ALL, 4, |b| {
         (Some(mode_icon(b)), b.label())
     });
     hue(ui, a);
@@ -474,6 +474,7 @@ fn mode_icon(b: BaseMode) -> Icon {
         BaseMode::Light => Icon::Light,
         BaseMode::Dark => Icon::Dark,
         BaseMode::Dim => Icon::Dim,
+        BaseMode::Black => Icon::Black,
     }
 }
 
