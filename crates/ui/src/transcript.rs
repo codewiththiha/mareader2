@@ -31,6 +31,11 @@ impl Transcripts {
         }
     }
 
+    /// Shows card `card`'s transcript, in `track` if given.
+    pub fn open(&mut self, card: usize, track: Option<usize>) {
+        self.open.insert(card, track);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.open.is_empty()
     }

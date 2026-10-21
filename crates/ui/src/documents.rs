@@ -268,6 +268,15 @@ impl Documents {
         self.own.get(&pane).unwrap_or(&self.window)
     }
 
+    /// Opens card `card`'s transcript in `pane`'s book; false if none shows.
+    pub fn open_transcript(&mut self, pane: PaneId, card: usize, track: Option<usize>) -> bool {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return false;
+        };
+        view.transcripts.open(card, track);
+        true
+    }
+
     /// The transcripts `pane`'s book has open, as results; none if none.
     pub fn transcripts(
         &mut self,

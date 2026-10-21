@@ -119,7 +119,8 @@ fn audio_and_missing_clips_show_their_words_too() {
         "{all}"
     );
     assert!(all.contains("Only words remain."), "{all}");
-    assert!(!all.contains("Show transcript"), "{all}");
+    // Only the first card's link is left.
+    assert_eq!(all.matches("Show transcript").count(), 1, "{all}");
 }
 
 #[test]
