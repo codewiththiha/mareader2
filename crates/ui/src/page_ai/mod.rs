@@ -1157,12 +1157,12 @@ impl PageAi {
 
     fn room(view: &AiView, page: usize) -> (egui::Vec2, egui::Vec2, f32) {
         match &*view.document {
-            Document::Epub { book, .. } => {
+            Document::Epub { book, .. } if !book.fixed(page) => {
                 let (x, w) = book.column(page);
                 let width = book.page_size().0;
                 (vec2(x, PAD), vec2(w, PAGE_HEIGHT - 2.0 * PAD), width)
             }
-            Document::Pdf(_) => {
+            _ => {
                 let size = view.document.page_sizes().get(page).copied();
                 let (w, h) = size.map_or((612.0, 792.0), |s| (s.width, s.height));
                 let m = 0.08 * w.min(h);

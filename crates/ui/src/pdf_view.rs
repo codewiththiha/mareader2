@@ -168,6 +168,8 @@ pub struct PdfView {
     keep: Option<(usize, Vec2)>,
     /// The document's pages turn right to left.
     rtl: bool,
+    /// The pages it wants alone before spreads pair them.
+    lead: usize,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
@@ -201,6 +203,7 @@ impl PdfView {
             resize: None,
             keep: None,
             rtl: false,
+            lead: 0,
             moved_at: 0.0,
             footnote: None,
             viewer: None,
@@ -317,7 +320,7 @@ impl PdfView {
     /// An arrow key: a turn, or along a strip a line and then a glide.
     pub fn arrow(&mut self, arrow: Arrow, count: usize, now: f64) {
         if let Some(forward) = arrow.turns(self.mode, self.rtl) {
-            self.go(self.mode.turn(self.current, forward, count));
+            self.go(self.mode.turn(self.current, forward, (count, self.lead)));
             return;
         }
         // Up and down across the strip do nothing, as in mareader.
@@ -358,7 +361,7 @@ impl PdfView {
 
     /// A page turn from a button: it turns in every mode.
     pub fn turn(&mut self, forward: bool, count: usize) {
-        self.go(self.mode.turn(self.current, forward, count));
+        self.go(self.mode.turn(self.current, forward, (count, self.lead)));
     }
 
     /// Jumps to `page`, kept within the document's `count`.
@@ -418,7 +421,7 @@ impl PdfView {
     /// Auto Resize: refits to the page read; returns any wait left.
     fn follow_size(&mut self, sizes: &[PageSize], on: bool, now: f64) -> Option<f64> {
         let page = self.current;
-        let fit_box = |p| layout::fit_box(self.mode, sizes, p);
+        let fit_box = |p| layout::fit_box(self.mode, sizes, (p, self.lead));
         // A refit mid-glide would move the glide's end; it waits.
         let gliding = self.jump.is_some() || self.aim.is_some();
         if !on || gliding || self.zoom.fit.is_none() || fit_box(page) == fit_box(self.zoom.fit_page)
@@ -451,7 +454,7 @@ impl PdfView {
 
     /// Shows `page` from its start.
     fn go(&mut self, page: usize) {
-        self.focus = self.mode.start(page);
+        self.focus = self.mode.start(page, self.lead);
         self.current = page;
         self.reveal = Some(if self.mode.paged() { self.focus } else { page });
     }
@@ -579,6 +582,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let frame = ui.max_rect();
     let sizes = doc.page_sizes();
     view.rtl = doc.right_to_left();
+    view.lead = doc.lead();
     // A book's vertical strip is a stream: each page cut to its text.
     let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
     if ui.rect_contains_pointer(frame) {
@@ -607,7 +611,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     if view.mode == ViewMode::Horizontal && view.zoom.fit == Some(Fit::Page) {
         room.x = f32::INFINITY;
     }
-    let fit_box = layout::fit_box(view.mode, sizes, view.zoom.fit_page);
+    let fit_box = layout::fit_box(view.mode, sizes, (view.zoom.fit_page, view.lead));
     let follow = motion::follow(&ctx);
     if let Some(wait) = view
         .zoom
@@ -633,6 +637,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             None => egui::Align::Center,
         },
         rtl: view.rtl,
+        lead: view.lead,
     };
     let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
     if rebuilt {
@@ -1779,6 +1784,7 @@ mod tests {
             margin: MARGIN,
             align: egui::Align::Center,
             rtl: false,
+            lead: 0,
         };
         Layout::new(&[LETTER; 20], inputs)
     }
