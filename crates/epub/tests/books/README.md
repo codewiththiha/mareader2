@@ -23,6 +23,7 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `media.epub` | *Sound and Fallbacks*, written for these tests (4 KB); its pictures are flat colours and its clips are stand-in bytes | A video with a poster and a song as cards that play outside the reader, a file that must never play, `epub:switch`, `object` and `noscript` fallbacks, an image map, and manifest fallbacks for a picture and a spine item |
 | `narration.epub` | *Read to Me*, written for these tests (4 KB); its sound is a generated tone | Media overlays: sentences timed by id and by `xpointer`, clock values in every form, a table read as one, a page number and a note marked skippable, a chapter narrated whole, and the active-class colour |
 | `subtitles.epub` | *Words Under the Waves*, written for these tests (4 KB); its clips are stand-in bytes | Subtitle tracks: a video with English WebVTT (default), French SubRip and Burmese captions, a chapters track and a missing file to skip, a song with TTML lyrics, a clip in a table cell, and a clip missing from the book whose words remain |
+| `triggers.epub` | *Press to Find Out*, written for these tests (3 KB); its clips are stand-in bytes | `epub:trigger`: a hidden answer shown and hidden, a hint hidden in its line, a tip hidden with `display: none` inside a line, a bordered box hidden, a hidden sound played and muted, a video played, a picture that plays, a hover trigger to ignore, and a hidden ending at a chapter's end |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
 
@@ -39,6 +40,8 @@ sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee
 sha256 of `narration.epub`: `480889f7ab1f0ca0d752d2e24e74f93112f8ae737bdac3f51470ea420006b645`
 
 sha256 of `subtitles.epub`: `db6ee795ebaea483877a8d3ccdcb0e1b50a5a686caeb892a2bf8ee30b708142d`
+
+sha256 of `triggers.epub`: `8537380826e5085ecedf9245e4f6ffb6d83691da8fafd6cd4a6f70466b7d7da0`
 
 ## Text files
 

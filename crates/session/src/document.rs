@@ -100,6 +100,14 @@ impl Document {
         }
     }
 
+    /// What a book's trigger link `link` sets off.
+    pub fn trigger(&self, link: usize) -> Vec<mareader_epub::Triggered> {
+        match self {
+            Self::Pdf(_) => Vec::new(),
+            Self::Epub { book, .. } => book.trigger(link),
+        }
+    }
+
     /// A book's narration, if its chapters have media overlays.
     pub fn narration(&self) -> Option<Arc<mareader_epub::Narration>> {
         match self {
@@ -319,6 +327,10 @@ impl Document {
                 Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
                 Destination::Media { path, video } => LinkTarget::Media { path, video },
                 Destination::Transcript { card, track } => LinkTarget::Transcript { card, track },
+                Destination::Trigger(link) => LinkTarget::Trigger {
+                    link,
+                    what: mareader_epub::Triggered::label(&book.trigger(link)),
+                },
             };
             Some(Link {
                 bounds: bounds(l.rect),

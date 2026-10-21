@@ -1,5 +1,5 @@
 //! One opened EPUB: its chapters read, set and paginated up front.
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -17,6 +17,7 @@ use crate::media::{self, Media};
 use crate::overlay::{self, Narration};
 use crate::splice::{At, Insert, Inserts, Spliced, next_layout};
 use crate::subtitles::{self, Subtitle, Track, Wanted};
+use crate::trigger::{self, Action, Triggered};
 use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
 
@@ -67,6 +68,8 @@ pub enum Destination {
         card: usize,
         track: Option<usize>,
     },
+    /// What a click sets off, for [`Book::trigger`].
+    Trigger(usize),
 }
 
 /// A link's box on one line of a page, in page units.
@@ -372,7 +375,13 @@ impl Book {
             for c in refs.cards.iter_mut() {
                 c.caption = c.caption.map(|b| b + 1);
             }
+            for t in refs.targets.iter_mut() {
+                if let trigger::Place::Held(held) = &mut t.place {
+                    held.at += 1;
+                }
+            }
         }
+        trigger::find_targets(&mut refs);
         if blocks.is_empty() {
             return Err(OpenError::Empty);
         }
@@ -386,6 +395,7 @@ impl Book {
         let narration = narration(&epub, &mut shelf, pars, (&refs, blocks.len()));
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
         let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
+        let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
         let archive = plays.then(|| Arc::clone(&bytes));
         Ok(Self {
             blocks,
@@ -472,6 +482,33 @@ impl Book {
             blocks: Arc::new(blocks),
             language: picked.language.clone(),
         })
+    }
+
+    /// What clicking trigger link `n` sets off, in the order written.
+    pub fn trigger(&self, n: usize) -> Vec<Triggered> {
+        let Some(actions) = self.refs.triggers.get(n) else {
+            return Vec::new();
+        };
+        let act = |(action, key): &(Action, String)| match action.shows() {
+            true => {
+                let target = *self.refs.target_keys.get(key)?;
+                Some(Triggered::Show(target, *action == Action::Show))
+            }
+            false => {
+                let (path, video) = self.refs.clips.get(key)?;
+                Some(Triggered::Clip {
+                    action: *action,
+                    path: path.clone()?,
+                    video: *video,
+                })
+            }
+        };
+        actions.iter().filter_map(act).collect()
+    }
+
+    /// The blocks to lay so each target in `shown` shows as it says.
+    pub fn triggered(&self, shown: &BTreeMap<usize, bool>) -> Vec<Insert> {
+        trigger::inserts(&self.blocks, &self.refs.targets, shown)
     }
 
     /// Its files, to read sound from after the book itself is gone.
@@ -589,6 +626,7 @@ impl Book {
                     card: usize::try_from(*card).ok()?,
                     track: track.and_then(|t| usize::try_from(t).ok()),
                 },
+                Href::Trigger(n) => Destination::Trigger(usize::try_from(*n).ok()?),
             })
         };
         let (flow, page, _) = self.part(page);

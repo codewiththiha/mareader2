@@ -296,6 +296,43 @@ impl Documents {
         Some(view.transcripts.inserts(book, wanted))
     }
 
+    /// What triggers show in `pane`'s book, as results; none if untouched.
+    pub fn triggered(&mut self, pane: PaneId) -> Option<(u64, Vec<Arc<mareader_epub::Insert>>)> {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return None;
+        };
+        let entry = self.session.as_ref()?.get(view.doc)?;
+        let Document::Epub { book, .. } = &*entry.doc else {
+            return None;
+        };
+        view.triggers.inserts(book)
+    }
+
+    /// Shows or hides trigger target `target` in `pane`; false if no pane.
+    pub fn set_trigger(&mut self, pane: PaneId, target: usize, visible: bool) -> bool {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return false;
+        };
+        view.triggers.set(target, visible);
+        true
+    }
+
+    /// Clips triggers were clicked to play, each with its book.
+    pub fn take_clips(&mut self) -> Vec<(Arc<Document>, crate::trigger::ClipAction)> {
+        let mut out = Vec::new();
+        for content in self.panes.values_mut() {
+            let Content::Pdf(view) = content else {
+                continue;
+            };
+            let clips = std::mem::take(&mut view.triggers.clips);
+            let entry = self.session.as_ref().and_then(|s| s.get(view.doc));
+            if let Some(entry) = entry {
+                out.extend(clips.into_iter().map(|c| (Arc::clone(&entry.doc), c)));
+            }
+        }
+        out
+    }
+
     /// The results `pane`'s book should show in its pages.
     pub fn set_inserts(&mut self, pane: PaneId, inserts: Arc<Inserts>) {
         if self.inserts.get(&pane).map_or(0, |i| i.key) == inserts.key {

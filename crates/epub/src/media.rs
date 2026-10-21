@@ -45,6 +45,10 @@ pub(crate) struct Pending {
     pub(crate) width: Option<Length>,
     /// Its `<track>`s of subtitles or captions, as written.
     pub(crate) tracks: Vec<TrackTag>,
+    /// Its id, by which triggers play it.
+    pub(crate) id: Option<String>,
+    /// Hidden, but read so triggers can play it.
+    pub(crate) unseen: bool,
 }
 
 /// A `<track>` as its card read it, its file not yet found.

@@ -82,6 +82,10 @@ pub struct MareaderApp {
     read_aloud_shot: bool,
     /// Cards' transcripts, and their tracks, to open for a screenshot.
     transcript_shot: Vec<(usize, Option<usize>)>,
+    /// Trigger targets to show or hide for a screenshot.
+    trigger_shot: Vec<(usize, bool)>,
+    /// Clips the books' triggers play.
+    clips: crate::trigger::Clips,
     /// Shots and tests: a page AI result kept, or a run started (true).
     page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     /// Shots: pages the word list window opens on, once shown.
@@ -194,6 +198,8 @@ impl MareaderApp {
             menu_shot: false,
             read_aloud_shot: false,
             transcript_shot: Vec::new(),
+            trigger_shot: Vec::new(),
+            clips: crate::trigger::Clips::default(),
             page_ai_seed: None,
             word_window_seed: None,
             tree: PaneTree::new(),
@@ -1154,6 +1160,14 @@ impl MareaderApp {
                     self.transcript_shot.push((card, track.parse().ok()));
                 }
             }
+            "trigger" => {
+                // `target` shows it, `target:hide` hides it; comma separated.
+                for one in value.split(',') {
+                    let (target, how) = one.split_once(':').unwrap_or((one, "show"));
+                    let target = target.parse().map_err(|_| "trigger: target[:hide],…")?;
+                    self.trigger_shot.push((target, how != "hide"));
+                }
+            }
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -1556,7 +1570,9 @@ impl MareaderApp {
             let who = (book, name.as_str());
             let ai = self.page_ai.inserts(model, pane, &self.documents, who);
             let own = self.documents.transcripts(pane, &wanted);
-            if let Some(inserts) = crate::transcript::combine(ai, own) {
+            let shown = self.documents.triggered(pane);
+            let ai = crate::transcript::combine(ai, own);
+            if let Some(inserts) = crate::transcript::combine(ai, shown) {
                 self.documents.set_inserts(pane, inserts);
             }
         }
@@ -2039,6 +2055,7 @@ impl MareaderApp {
             Command::PageAi(action) => self.page_ai_act(ctx, action),
             Command::ReadAloud { pane, from } => {
                 if let Some(reading) = self.documents.reading(pane) {
+                    self.clips.stop();
                     self.read_aloud
                         .start(&reading, from, &self.settings.read_aloud);
                 }
@@ -3090,6 +3107,16 @@ impl eframe::App for MareaderApp {
                 self.transcript_shot.push((card, track));
             }
         }
+        let shot = std::mem::take(&mut self.trigger_shot);
+        for (target, visible) in shot {
+            if !self.documents.set_trigger(self.active, target, visible) {
+                self.trigger_shot.push((target, visible));
+            }
+        }
+        for (doc, clip) in self.documents.take_clips() {
+            self.clips.act(&doc, clip, &mut self.read_aloud);
+        }
+        self.clips.tick();
         self.read_aloud
             .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
         let read_aloud = &self.read_aloud;

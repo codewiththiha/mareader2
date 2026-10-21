@@ -27,6 +27,7 @@ pub mod sample;
 mod splice;
 mod subtitles;
 mod svg;
+mod trigger;
 mod xhtml;
 
 pub use book::{
@@ -40,6 +41,7 @@ pub use media::Media;
 pub use overlay::{MAX_PHRASES, Narration, Phrase, Run, Skips, Spoken};
 pub use splice::{Insert, Inserts};
 pub use subtitles::{Cue, MAX_TRACKS, Subtitle, Track, Wanted, cues, pick, stamp, track_name};
+pub use trigger::{Action, Triggered};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

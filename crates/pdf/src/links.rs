@@ -26,6 +26,8 @@ pub enum LinkTarget {
     Media { path: String, video: bool },
     /// Shows or hides a book's clip transcript, in a track if given.
     Transcript { card: usize, track: Option<usize> },
+    /// A book's trigger: shows, hides or plays something; `what` says which.
+    Trigger { link: usize, what: String },
 }
 
 /// A clickable area on a page, in page points.
