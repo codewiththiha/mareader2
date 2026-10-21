@@ -67,6 +67,7 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | E10 | Read-aloud: media overlays played in the reader, the phrase read lit, pages turning to follow. |
 | E11 | Subtitles: `track` files beside clips handed to the player, and transcripts shown in the pages. |
 | E12 | `epub:trigger`: clicks that show and hide parts of the page, and play, pause and mute clips. |
+| E13 | Scripted content: a chapter's scripts run in a sandboxed engine and change the page, which is laid again. |
 
 ## SVG (E1)
 
@@ -398,7 +399,7 @@ and links to the item land on it.
 
 Media overlays read aloud in the reader (E10, below), and `track`
 subtitles show as transcripts (E11, below). `epub:trigger` works too
-(E12, below); scripted content isn't supported yet.
+(E12, below), and scripted content runs (E13, below).
 
 sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
 
@@ -531,3 +532,49 @@ lays out as a block, table or line by its tag, so a flex or grid
 `display` it had is read as a block.
 
 sha256 of `triggers.epub`: `2aa2ea9eaa31efb7a821dd4acaa4182cdbbbe7d073d43a4552d32b6f2dd49cda`
+
+## Scripts (E13)
+
+A chapter with `script` elements (no `type`, or a JavaScript one;
+inline or a file in the book) runs them in the reader's own engine:
+Boa, a JavaScript engine written in Rust, on a thread of its own, one
+context per chapter. No web view is involved. Scripts see a small page
+model built from the chapter, and nothing else: no network, files,
+storage, workers or other chapters. `localStorage` keeps values only
+until the book closes.
+
+| Scripts can | How |
+| --- | --- |
+| Find elements | `getElementById`, `querySelector(All)` with CSS selectors (combinators, attributes, `:not`, `:is`, `:has`, `:nth-*`, `:checked`), `closest`, `matches`, the tree's parents, children and siblings |
+| Change them | text, `innerHTML` and `outerHTML`, attributes, `classList`, `dataset`, inline `style`, creating, moving and removing nodes |
+| Read styles | `getComputedStyle` for `display` and `visibility`, from the book's sheets, `style` elements, inline styles and `hidden` |
+| Answer the reader | `click` listeners, `on…` properties and attributes, capture and bubbling, `preventDefault`; `change` and `input` on form controls |
+| Wait | `setTimeout`, `setInterval`, `requestAnimationFrame`, promises |
+| Speak | `alert` shows a message under the page; `confirm` says yes |
+
+After each click, field change or timer that changed something, the
+page is written back as markup and laid again the way triggers do
+(E12): only blocks that came out different replace the book's own, and
+triggers still act on the scripted page. Before the first run the
+chapter shows as written; then `noscript` goes.
+
+What a script answers clicks on becomes a link: elements with a click
+listener, labels, buttons and `summary`, and, under a parent that
+handles its children's clicks, the likely targets (links, list items,
+cells, pictures, and elements with an `id`, `class`, `role` or `data-`
+attribute). Form controls are drawn as text: □ and ■ checkboxes, ◇ and
+◆ radio buttons, a menu as its choice and ▼ (a click picks the next
+one), buttons in bold, and text fields underlined with their value or
+hint. Clicking a text field opens a small card to type in; Enter, Done
+or a click away sends it, as leaving a field does in a browser, and
+Escape drops it.
+
+Each loop stops after 2,000,000 turns and calls nest 400 deep, and a
+script that throws stops alone. A runtime that takes longer than four
+seconds over one call is turned off for the book, with a message. The
+page model has no layout, so sizes and positions read as zero; canvas,
+media elements' methods, frames and network calls are absent, and
+large frameworks won't run. The browser build shows scripted chapters
+as written.
+
+sha256 of `scripts.epub`: `3bdb9d8c054c336d1697221cfdc0f3d66347aca9bbcd96eb97d3c440f0c82ddf`
