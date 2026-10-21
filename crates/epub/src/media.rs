@@ -45,6 +45,16 @@ pub(crate) struct Pending {
     pub(crate) width: Option<Length>,
 }
 
+/// What a card's clip is to this reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Clip {
+    /// In the book with a type players know, or on the web.
+    Plays,
+    /// In the book, but not something a player opens.
+    Held,
+    Gone,
+}
+
 /// An `<area>` of an image map: its bounds in image pixels, or all of it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MapArea {
