@@ -23,6 +23,9 @@ use crate::flow::{
     Deco, Draw, Flow, Grid, Initial, Laid, MARKER_GAP, Para, Piece, Set, resolve, span_height,
 };
 use crate::fonts::{Ink, Tone};
+
+/// A fixed page's layers: borders then pieces, bottom up.
+type Layers<'a> = &'a [(Range<usize>, Range<usize>)];
 use crate::picture::{Decoded, Picture};
 
 /// The largest side a raster may have, matching the PDF path.
@@ -104,16 +107,20 @@ impl Flow {
         let origin = self.origin(page);
         // Vertical pages are laid on their side and drawn turned.
         let turn = self.turned(page).then(|| self.page_size().0);
+        // Fixed pages are laid at the book's size and drawn fitted.
+        let fixed = self.fixed(page);
+        let layers = fixed.map_or(&[][..], |f| f.layers.as_slice());
+        let scale = scale * self.fit(page);
         catch_unwind(AssertUnwindSafe(|| {
             let decos = self.decos.get(page).map_or(&[][..], Vec::as_slice);
-            self.draw((pieces, decos), (scale, origin, turn), region)
+            self.draw((pieces, decos, layers), (scale, origin, turn), region)
         }))
         .ok()?
     }
 
     fn draw(
         &self,
-        (pieces, decos): (&[Piece], &[Deco]),
+        (pieces, decos, layers): (&[Piece], &[Deco], Layers),
         (scale, (left, top), turn): (f32, (f32, f32), Option<f32>),
         region: Region,
     ) -> Option<Pixels> {
@@ -146,12 +153,17 @@ impl Flow {
             scale,
             coords: Vec::new(),
         };
-        for deco in decos {
-            p.deco(deco, &self.decoded);
-        }
-        for piece in pieces {
-            if let Some(set) = self.blocks.get(piece.block) {
-                p.piece(set, piece, &self.decoded, || self.laid(piece.block));
+        // Borders under text, or a fixed page's layers bottom up.
+        let all = [(0..decos.len(), 0..pieces.len())];
+        let layers = if layers.is_empty() { &all[..] } else { layers };
+        for (borders, laid) in layers {
+            for deco in decos.get(borders.clone()).unwrap_or_default() {
+                p.deco(deco, &self.decoded);
+            }
+            for piece in pieces.get(laid.clone()).unwrap_or_default() {
+                if let Some(set) = self.blocks.get(piece.block) {
+                    p.piece(set, piece, &self.decoded, || self.laid(piece.block));
+                }
             }
         }
         let Painter {

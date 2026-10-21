@@ -709,6 +709,36 @@ pub struct Frame {
     pub turned: bool,
     /// How vertical text stands, as `text-orientation`.
     pub orient: Orient,
+    /// Its chapter's fixed page; blocks of one page share it.
+    pub sheet: Option<Arc<Sheet>>,
+    /// On a fixed page: the positioned box it is in; blocks of one share it.
+    pub spot: Option<Arc<Spot>>,
+}
+
+/// A fixed-layout page: its blocks laid at the book's own viewport.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Sheet {
+    /// The viewport in CSS px.
+    pub width: f32,
+    pub height: f32,
+    /// What the page's root paints under everything.
+    pub ground: Option<Arc<Boxed>>,
+}
+
+/// A box `position` sets on a fixed page, in the page's CSS px.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Spot {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    /// A set height: pictures inside fit it.
+    pub height: Option<f32>,
+    /// Hung from this line instead of `y`, as `bottom` without `top`.
+    pub bottom: Option<f32>,
+    /// `z-index`: higher ones paint later.
+    pub z: i32,
+    /// How many of the frame's boxes hold it; the rest are its own.
+    pub depth: u8,
 }
 
 /// How vertical text stands, as `text-orientation`.
