@@ -459,4 +459,20 @@ mod tests {
         assert!((time - 1.1).abs() < 1e-6, "{time}");
         assert!(!ring.done());
     }
+
+    #[test]
+    fn muted_sound_is_silent_but_keeps_its_time() {
+        let mut f = feed(8000);
+        f.play(vec![segment("a.wav", 1.0, None, 9)]);
+        let mut shared = crate::Shared {
+            muted: true,
+            ..Default::default()
+        };
+        f.fill(&mut shared.ring, 4000);
+        let mut out = vec![1.0; 2 * 800];
+        shared.take(&mut out);
+        assert!(out.iter().all(|s| *s == 0.0));
+        let (_, time) = shared.ring.now().unwrap();
+        assert!((time - 1.1).abs() < 1e-6, "{time}");
+    }
 }

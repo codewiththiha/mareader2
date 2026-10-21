@@ -59,6 +59,7 @@ pub struct Status {
     /// The segment heard and how far into its file, in seconds.
     pub at: Option<(u64, f64)>,
     pub paused: bool,
+    pub muted: bool,
     /// Every segment has been heard.
     pub done: bool,
     pub fault: Option<Fault>,
@@ -81,6 +82,8 @@ enum Command {
 pub(crate) struct Shared {
     pub(crate) ring: feed::Ring,
     pub(crate) paused: bool,
+    /// Plays on unheard, as time keeps going.
+    pub(crate) muted: bool,
     pub(crate) fault: Option<Fault>,
     /// Bumped by each play or stop; older samples are dropped.
     pub(crate) generation: u64,
@@ -94,6 +97,9 @@ impl Shared {
             return;
         }
         self.ring.take(out);
+        if self.muted {
+            out.fill(0.0);
+        }
     }
 }
 
@@ -148,6 +154,11 @@ impl Player {
         lock(&self.shared).paused = false;
     }
 
+    /// Plays on silent, or heard again.
+    pub fn set_muted(&self, muted: bool) {
+        lock(&self.shared).muted = muted;
+    }
+
     /// Plays on at `rate` times the speed, from what is heard now.
     pub fn set_rate(&self, rate: f32) {
         self.send(Command::Rate(rate));
@@ -167,6 +178,7 @@ impl Player {
         Status {
             at: s.ring.now(),
             paused: s.paused,
+            muted: s.muted,
             done: s.ring.done(),
             fault: s.fault.clone(),
         }

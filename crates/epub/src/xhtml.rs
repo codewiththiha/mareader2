@@ -29,6 +29,7 @@ use crate::media::{self, Clip};
 use crate::query;
 use crate::subtitles;
 use crate::svg::{self, Capture};
+use crate::trigger;
 
 /// Open elements tracked at once; deeper nesting is read as flat.
 pub const MAX_DEPTH: usize = 256;
@@ -116,6 +117,8 @@ pub(crate) enum Href {
     Media { path: String, video: bool },
     /// Shows or hides card `card`'s transcript; a track picks its language.
     Transcript { card: u32, track: Option<u32> },
+    /// What a click sets off: its entry in [`Refs::triggers`].
+    Trigger(u32),
 }
 
 /// The places a book's ids mark and its links' destinations.
@@ -135,6 +138,13 @@ pub(crate) struct Refs {
     pub(crate) faces: Vec<FontFace>,
     /// Clips with subtitle tracks, by the card that plays them.
     pub(crate) cards: Vec<subtitles::Card>,
+    /// Each trigger link's actions, and the `path#id`s they act on.
+    pub(crate) triggers: Vec<Vec<(trigger::Action, String)>>,
+    /// Elements triggers show or hide, and their index by `path#id`.
+    pub(crate) targets: Vec<trigger::Target>,
+    pub(crate) target_keys: HashMap<String, usize>,
+    /// Clips by `path#id`: the file, if it plays, and whether a video.
+    pub(crate) clips: HashMap<String, (Option<String>, bool)>,
 }
 
 /// The blocks an element with an id holds, and whether it is a note.
@@ -589,6 +599,22 @@ struct State<'a> {
     grounded: bool,
     /// Containing blocks open on a fixed page, innermost last.
     places: Vec<Place>,
+    /// The chapter's triggers, read ahead.
+    triggers: trigger::Chapter,
+    /// A hidden element read aside, to lay once a trigger shows it.
+    holding: Option<Holding>,
+    /// Targets this chapter set aside, which its end styles too.
+    held: Vec<usize>,
+}
+
+/// A held element: its depth, target, and what it read from.
+struct Holding {
+    depth: usize,
+    target: usize,
+    /// Its first block, and the gap and page break it found.
+    start: usize,
+    gap: Gap,
+    opens: bool,
 }
 
 /// A fixed page's containing block: its depth, rect and positioned box.
@@ -2304,6 +2330,7 @@ impl State<'_> {
             _ => {}
         }
         if !shown {
+            self.unseen_clip(name, tag);
             return false;
         }
         match name {
@@ -2318,6 +2345,8 @@ impl State<'_> {
                     title: owned("title").or_else(|| owned("aria-label")),
                     width: picture_width(c).or_else(|| attr_width(tag)),
                     tracks: Vec::new(),
+                    id: owned("id").filter(|s| !s.is_empty()),
+                    unseen: false,
                 });
                 return true;
             }
@@ -2333,6 +2362,128 @@ impl State<'_> {
             _ => {}
         }
         false
+    }
+
+    /// A hidden clip a trigger plays: read as a card that never shows.
+    fn unseen_clip(&mut self, name: &str, tag: &Tag) {
+        let id = attr(tag, "id").map(str::trim).filter(|id| !id.is_empty());
+        let played = id.is_some_and(|id| self.triggers.played.contains(id));
+        if !played || !matches!(name, "video" | "audio") || self.media.is_some() {
+            return;
+        }
+        self.media = Some(media::Pending {
+            depth: self.stack.len(),
+            video: name == "video",
+            src: attr(tag, "src").map(|s| s.trim().to_owned()),
+            id: id.map(str::to_owned),
+            unseen: true,
+            ..Default::default()
+        });
+    }
+
+    /// Readies an element a trigger shows; whether it is read aside.
+    fn trigger_target(&mut self, tag: &Tag, computed: &mut Computed) -> bool {
+        let id = attr(tag, "id").map(str::trim).unwrap_or_default();
+        let hidden = computed.display == Display::None && !self.top().hidden;
+        if !hidden || !self.triggers.targets.contains(id) || self.holding.is_some() {
+            return false;
+        }
+        let name: &str = &tag.name;
+        let alone = !tag.self_closing && !is_void(name) && self.table.is_none();
+        if is_block(name) && alone && !self.fixed {
+            computed.display = Display::Block;
+            return true;
+        }
+        // Shown later in its room, which it keeps meanwhile.
+        computed.display = match is_block(name) {
+            true => Display::Block,
+            false => Display::Inline,
+        };
+        computed.invisible = true;
+        false
+    }
+
+    /// Notes an element triggers show or hide, and holds it if `held`.
+    fn add_target(&mut self, tag: &Tag, (shown, held): (bool, bool), visible: bool) {
+        let id = attr(tag, "id").map(str::trim).unwrap_or_default();
+        let key = format!("{}#{id}", self.base);
+        let known = self.refs.target_keys.contains_key(&key);
+        let full = self.refs.targets.len() >= trigger::MAX_TARGETS;
+        let wanted = self.triggers.targets.contains(id) && shown;
+        // What a held element holds shows and hides with it.
+        if !wanted || known || full || (self.holding.is_some() && !held) {
+            return;
+        }
+        let target = self.refs.targets.len();
+        let place = match held {
+            true => trigger::Place::Held(trigger::Held {
+                blocks: Vec::new(),
+                at: 0,
+                opens: false,
+            }),
+            false => trigger::Place::Laid(None),
+        };
+        self.refs.target_keys.insert(key.clone(), target);
+        self.refs.targets.push(trigger::Target {
+            key,
+            boxes: self.boxes.len(),
+            visible: visible && !held,
+            place,
+        });
+        if held {
+            self.finish();
+            let (start, gap, opens) = (self.blocks.len(), self.gap, self.chapter);
+            let depth = self.stack.len();
+            self.holding = Some(Holding {
+                depth,
+                target,
+                start,
+                gap,
+                opens,
+            });
+        }
+    }
+
+    /// Takes a held element's blocks out once it has closed.
+    fn release_held(&mut self) {
+        let Some(h) = self.holding.take_if(|h| self.stack.len() <= h.depth) else {
+            return;
+        };
+        self.finish();
+        let start = h.start.min(self.blocks.len());
+        let blocks: Vec<Block> = self.blocks.drain(start..).collect();
+        self.gap = h.gap;
+        self.chapter |= h.opens;
+        // Extents and captions inside it would name the wrong blocks.
+        let from = self.first + start;
+        self.refs.extents.retain(|_, e| e.blocks.start < from);
+        for card in self.refs.cards.iter_mut() {
+            card.caption = card.caption.filter(|c| *c < from);
+        }
+        self.held.push(h.target);
+        if let Some(t) = self.refs.targets.get_mut(h.target) {
+            let at = from;
+            t.place = trigger::Place::Held(trigger::Held {
+                blocks,
+                at,
+                opens: h.opens,
+            });
+        }
+    }
+
+    /// A link to what clicking `tag` sets off, if triggers observe it.
+    fn observer_link(&mut self, tag: &Tag) -> Option<u32> {
+        let id = attr(tag, "id").map(str::trim)?;
+        let actions = self.triggers.observers.get(id)?;
+        let base = self.base;
+        let keyed = actions.iter().map(|(a, t)| (*a, format!("{base}#{t}")));
+        let keyed: Vec<_> = keyed.collect();
+        if self.refs.hrefs.len() >= MAX_LINKS {
+            return None;
+        }
+        let n = u32::try_from(self.refs.triggers.len()).ok()?;
+        self.refs.triggers.push(keyed);
+        self.add_href(Href::Trigger(n))
     }
 
     /// Ends the cards, switches and source pickers closed just now.
@@ -2482,7 +2633,15 @@ impl State<'_> {
 
     /// `<video>` or `<audio>` as a card: its poster or a drawn player.
     fn media_card(&mut self, m: media::Pending) {
-        if self.top().hidden {
+        if let Some(id) = &m.id {
+            let plays = m.src.as_deref().filter(|s| self.clip(s) == Clip::Plays);
+            let path = plays.and_then(|s| href::resolve(self.base, s.trim()));
+            let key = format!("{}#{}", self.base, id.trim());
+            if self.refs.clips.len() < trigger::MAX_TARGETS {
+                self.refs.clips.insert(key, (path, m.video));
+            }
+        }
+        if self.top().hidden || m.unseen {
             return;
         }
         let clip = m.src.as_deref().map_or(Clip::Gone, |s| self.clip(s));
@@ -3135,10 +3294,11 @@ impl State<'_> {
             }
         };
         self.styled |= attr(tag, "style").is_some();
-        let computed = match self.stack.last() {
+        let mut computed = match self.stack.last() {
             Some(open) => open.computed.child(&declared),
             None => Computed::default().child(&declared),
         };
+        let held = !generated && self.trigger_target(tag, &mut computed);
         if !generated {
             self.adopt(&el);
         }
@@ -3213,6 +3373,8 @@ impl State<'_> {
                 if let Some(p) = &picture {
                     self.areas = self.map_areas(tag, p);
                 }
+                let link = self.observer_link(tag).map(Area::whole);
+                self.areas.extend(link);
                 self.picture(picture, alt, (width, Some(&computed)));
                 self.areas.clear();
                 self.place_end(self.stack.len());
@@ -3243,6 +3405,9 @@ impl State<'_> {
                 let key = format!("{}#{}", self.base, id.trim());
                 extent = Some((key, self.first + self.blocks.len(), is_note(tag)));
             }
+        }
+        if !generated {
+            self.add_target(tag, (shown, held), !computed.invisible);
         }
         let (mut boxed, mut part) = (false, Part::None);
         if is_block(name) && shown && computed.break_before && self.table.is_none() {
@@ -3322,6 +3487,9 @@ impl State<'_> {
             if let Some(i) = style.link.filter(|_| is_noteref(tag)) {
                 self.refs.noterefs.insert(i);
             }
+        }
+        if !generated && let Some(link) = self.observer_link(tag) {
+            style.link = Some(link);
         }
         self.pre_opened = name == "pre";
         self.stack.push(Open {
@@ -3476,6 +3644,7 @@ impl State<'_> {
                 self.refs.extents.insert(key, Extent { blocks, note });
             }
         }
+        self.release_held();
     }
 
     /// Ends an element's part in the layout grid.
@@ -3536,7 +3705,8 @@ impl State<'_> {
                 (Arc::as_ptr(l) as usize, Arc::new(look))
             })
             .collect();
-        for block in &mut self.blocks {
+        let held = held_blocks(&mut self.refs.targets, &self.held);
+        for block in self.blocks.iter_mut().chain(held) {
             if let Some(look) = &mut block.frame.look {
                 match new.get(&(Arc::as_ptr(look) as usize)) {
                     Some(designed) => *look = Arc::clone(designed),
@@ -3554,7 +3724,8 @@ impl State<'_> {
             self.design();
         } else if !self.styled {
             // Unstyled, as converted text is, it reads in the reader's type.
-            for block in &mut self.blocks {
+            let held = held_blocks(&mut self.refs.targets, &self.held);
+            for block in self.blocks.iter_mut().chain(held) {
                 block.frame.look = None;
             }
         }
@@ -4246,6 +4417,9 @@ fn read(
         sheet: None,
         grounded: false,
         places: Vec::new(),
+        triggers: trigger::read(xhtml),
+        holding: None,
+        held: Vec::new(),
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -4273,6 +4447,21 @@ fn read(
         }
     }
     out.extend(blocks);
+}
+
+/// The blocks of targets `held`, set aside from the chapter.
+fn held_blocks<'t>(
+    targets: &'t mut [trigger::Target],
+    held: &'t [usize],
+) -> impl Iterator<Item = &'t mut Block> {
+    let ours = targets
+        .iter_mut()
+        .enumerate()
+        .filter(|(i, _)| held.contains(i));
+    ours.flat_map(|(_, t)| match &mut t.place {
+        trigger::Place::Held(h) => h.blocks.iter_mut(),
+        trigger::Place::Laid(_) => [].iter_mut(),
+    })
 }
 
 /// A viewport `<meta>`'s size in CSS px, as `width=1200, height=1600`.

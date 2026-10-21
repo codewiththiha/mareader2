@@ -115,6 +115,14 @@ impl ReadAloud {
         self.session.is_some()
     }
 
+    /// Pauses the reading, as another sound starts.
+    pub fn pause(&mut self) {
+        if let Some(s) = self.session.as_mut().filter(|s| !s.paused && !s.finished) {
+            s.player.pause();
+            s.paused = true;
+        }
+    }
+
     /// Starts reading `reading`'s book from `from`, else its page.
     pub fn start(&mut self, reading: &Reading, from: Option<Anchor>, settings: &ReadAloudSettings) {
         let Some(narration) = reading.document.narration() else {
@@ -371,7 +379,7 @@ fn skips(settings: &ReadAloudSettings) -> Skips {
 }
 
 /// Reads sound from `files`, keeping the last file for the next run.
-fn fetch(files: Files) -> Fetch {
+pub(crate) fn fetch(files: Files) -> Fetch {
     let last: Mutex<Option<(String, Clip)>> = Mutex::new(None);
     Arc::new(move |path: &str| {
         let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);

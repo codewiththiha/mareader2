@@ -272,6 +272,7 @@ fn tooltip(response: &Response, target: &LinkTarget) {
         LinkTarget::Media { video: false, .. } => "Play the audio".to_owned(),
         LinkTarget::Transcript { track: None, .. } => "Show or hide the transcript".to_owned(),
         LinkTarget::Transcript { .. } => "Show the transcript in this language".to_owned(),
+        LinkTarget::Trigger { what, .. } => what.clone(),
     };
     response.clone().on_hover_text_at_pointer(text);
 }

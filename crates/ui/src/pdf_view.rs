@@ -176,6 +176,8 @@ pub struct PdfView {
     pub footnote: Option<crate::footnote::Footnote>,
     /// Clip transcripts open in the book's pages.
     pub transcripts: crate::transcript::Transcripts,
+    /// What the book's triggers have shown, hidden and played.
+    pub triggers: crate::trigger::Triggers,
     /// A book's picture opened large over the window.
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
@@ -209,6 +211,7 @@ impl PdfView {
             moved_at: 0.0,
             footnote: None,
             transcripts: Default::default(),
+            triggers: Default::default(),
             viewer: None,
             nudge: None,
             aim: None,
@@ -1215,6 +1218,10 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             crate::play::play(Arc::clone(doc), path);
         }
         Some(LinkTarget::Transcript { card, track }) => view.transcripts.click(card, track),
+        Some(LinkTarget::Trigger { link, .. }) => {
+            view.triggers.click(doc.trigger(link));
+            ctx.request_repaint();
+        }
         _ => {}
     }
     if cx.active {
