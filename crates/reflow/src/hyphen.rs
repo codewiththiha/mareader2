@@ -105,6 +105,9 @@ pub(crate) fn hyphenate(text: &Text, lang: Lang) -> Hyphenated {
                 })
                 .collect(),
             faces: text.faces.clone(),
+            combine: (text.combine.iter())
+                .map(|r| shift(r.start, |p, x| p <= x)..shift(r.end, |p, x| p < x))
+                .collect(),
             inlines: (text.inlines.iter())
                 .map(|i| crate::block::Inline {
                     at: shift(i.at, |p, x| p <= x),

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use parley::{BreakReason, PositionedLayoutItem};
 use skrifa::{FontRef, Tag};
 
-use crate::flow::{Draw, Flow, Laid, PAD, Para};
+use crate::flow::{Draw, Flow, Laid, Para};
 use crate::hyphen::SHY;
 use crate::picture::Picture;
 
@@ -30,10 +30,15 @@ pub struct PageLine {
 impl Flow {
     /// Page `page`'s text by line; list markers are left out.
     pub fn text(&self, page: usize) -> Vec<PageLine> {
-        let mut out = Vec::new();
+        let mut out: Vec<PageLine> = Vec::new();
         self.each_para(page, |para, range, place| {
             lines(para, range, place, &mut out)
         });
+        if self.turned(page) {
+            for c in out.iter_mut().flat_map(|l| l.chars.iter_mut()) {
+                c.rect = self.turn_rect(page, c.rect);
+            }
+        }
         out
     }
 
@@ -43,18 +48,18 @@ impl Flow {
         self.each_para(page, |para, range, ((x, y), _)| {
             colour_runs(para, range, (x, y), &mut out);
         });
-        out
+        out.into_iter().map(|r| self.turn_rect(page, r)).collect()
     }
 
     /// Each paragraph's lines on page `page`, with where they are drawn.
     fn each_para(&self, page: usize, mut visit: impl FnMut(&Para, Range<usize>, Origin)) {
-        let left = self.column(page).0;
+        let (left, top) = self.origin(page);
         for piece in self.pages.get(page).map_or(&[][..], Vec::as_slice) {
             let Some(set) = self.blocks.get(piece.block) else {
                 continue;
             };
             let x = left + set.x;
-            let y = PAD + piece.dy;
+            let y = top + piece.dy;
             match (&set.draw, &*self.laid(piece.block)) {
                 (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     let at = (x + pad, y);
@@ -98,18 +103,18 @@ impl Flow {
 
     /// Page `page`'s pictures where drawn, those in lines of text too.
     fn shown(&self, page: usize) -> Vec<([f32; 4], Arc<Picture>)> {
-        let left = self.column(page).0;
+        let (left, top) = self.origin(page);
         let pieces = self.pages.get(page).map_or(&[][..], Vec::as_slice);
         let mut out: Vec<([f32; 4], Arc<Picture>)> = pieces
             .iter()
             .filter_map(|piece| {
                 let set = self.blocks.get(piece.block)?;
-                let Draw::Image { rect, picture } = &set.draw else {
+                let Draw::Image { rect, picture, .. } = &set.draw else {
                     return None;
                 };
                 let [x, y, w, h] = *rect;
                 Some((
-                    [left + set.x + x, PAD + piece.dy + y, w, h],
+                    [left + set.x + x, top + piece.dy + y, w, h],
                     Arc::clone(picture),
                 ))
             })
@@ -132,6 +137,9 @@ impl Flow {
                 }
             }
         });
+        for (rect, _) in &mut out {
+            *rect = self.turn_rect(page, *rect);
+        }
         out
     }
 }
@@ -218,6 +226,7 @@ fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine
 mod tests {
     use super::*;
     use crate::block::{Block, Content, Emphasis, Role, Text};
+    use crate::flow::PAD;
     use crate::flow::{PAGE_HEIGHT, PAGE_WIDTH, Typography};
     use crate::fonts::Fonts;
     use crate::picture::tests::png;
