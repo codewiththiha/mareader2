@@ -65,6 +65,7 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | E8 | MathML: fractions, scripts, roots, rows, operators, tables. |
 | E9 | Media and fallbacks: audio and video as their poster or a labelled box, `object` and `epub:switch` fallbacks, manifest fallback chains. |
 | E10 | Read-aloud: media overlays played in the reader, the phrase read lit, pages turning to follow. |
+| E11 | Subtitles: `track` files beside clips handed to the player, and transcripts shown in the pages. |
 
 ## SVG (E1)
 
@@ -394,8 +395,9 @@ picture that won't decode shows its first fallback that does. A spine
 item that isn't XHTML or a picture reads as its first fallback that is,
 and links to the item land on it.
 
-Media overlays read aloud in the reader (E10, below). `track` captions,
-`epub:trigger` and scripted content aren't supported yet.
+Media overlays read aloud in the reader (E10, below), and `track`
+subtitles show as transcripts (E11, below). `epub:trigger` and scripted
+content aren't supported yet.
 
 sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
 
@@ -440,3 +442,45 @@ plays, isn't applied. Overlays with more than 100,000 phrases are cut
 there, and an overlay file is read up to 16 MB.
 
 sha256 of `narration.epub`: `480889f7ab1f0ca0d752d2e24e74f93112f8ae737bdac3f51470ea420006b645`
+
+## Subtitles (E11)
+
+A `video` or `audio` element's `track` children of kind `subtitles` or
+`captions` (or no kind) are read; `chapters`, `descriptions` and
+`metadata` tracks are skipped, as are files the manifest doesn't list.
+Eight tracks a clip are kept.
+
+| Format | Read |
+| --- | --- |
+| WebVTT | Cue timings in both clock forms; voice tags name the speaker, other tags are dropped; `NOTE`, `STYLE` and `REGION` blocks are skipped |
+| SubRip | Numbered cues with comma times; tags are dropped |
+| TTML | Each `p` with `begin` and `end` or `dur`, clock values with frames or offsets; `br` keeps a space |
+
+The format is told by what the file holds, not its name. Rolling captions
+that repeat a line keep it once.
+
+**Transcripts.** Under a clip's card, **Show transcript** lays the track's
+lines into the page in its place: a **Hide transcript** link, the other
+tracks as links that switch to them, then each line with its start time.
+The pages after it move down, as page results do. The track shown is the
+first that matches, by full tag then by language:
+
+1. the language pages are translated into,
+2. the language words are explained in,
+3. the system's languages,
+4. else the track marked `default`, else the first.
+
+A clip missing from the book still shows its words. A clip in a table cell
+or on a fixed page has no transcript link; its subtitles still go to the
+player. Transcripts belong to the pane and close with the book. Where a
+page result covers the same text, the one asked first is shown.
+
+**Players.** Playing a clip also copies its tracks beside it in the
+temporary folder, named after the copy as `<clip>.<language>.vtt` (or
+`.srt`, `.ttml`), so players that look for subtitles next to a video find
+them. The language is kept to letters, digits and hyphens.
+
+A track file is read up to 4 MB and 4,000 lines; a line keeps 2,000
+characters.
+
+sha256 of `subtitles.epub`: `db6ee795ebaea483877a8d3ccdcb0e1b50a5a686caeb892a2bf8ee30b708142d`

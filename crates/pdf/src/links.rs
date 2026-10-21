@@ -24,6 +24,8 @@ pub enum LinkTarget {
     Web(String),
     /// A book's sound or video by its path in the book, for its player.
     Media { path: String, video: bool },
+    /// Shows or hides a book's clip transcript, in a track if given.
+    Transcript { card: usize, track: Option<usize> },
 }
 
 /// A clickable area on a page, in page points.

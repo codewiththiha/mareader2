@@ -268,6 +268,25 @@ impl Documents {
         self.own.get(&pane).unwrap_or(&self.window)
     }
 
+    /// The transcripts `pane`'s book has open, as results; none if none.
+    pub fn transcripts(
+        &mut self,
+        pane: PaneId,
+        wanted: &[String],
+    ) -> Option<(u64, Vec<Arc<mareader_epub::Insert>>)> {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return None;
+        };
+        if view.transcripts.is_empty() {
+            return None;
+        }
+        let entry = self.session.as_ref()?.get(view.doc)?;
+        let Document::Epub { book, .. } = &*entry.doc else {
+            return None;
+        };
+        Some(view.transcripts.inserts(book, wanted))
+    }
+
     /// The results `pane`'s book should show in its pages.
     pub fn set_inserts(&mut self, pane: PaneId, inserts: Arc<Inserts>) {
         if self.inserts.get(&pane).map_or(0, |i| i.key) == inserts.key {

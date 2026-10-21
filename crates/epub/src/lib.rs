@@ -25,6 +25,7 @@ mod overlay;
 mod query;
 pub mod sample;
 mod splice;
+mod subtitles;
 mod svg;
 mod xhtml;
 
@@ -38,6 +39,7 @@ pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
 pub use media::Media;
 pub use overlay::{MAX_PHRASES, Narration, Phrase, Run, Skips, Spoken};
 pub use splice::{Insert, Inserts};
+pub use subtitles::{Cue, MAX_TRACKS, Subtitle, Track, Wanted, cues, pick, stamp, track_name};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
