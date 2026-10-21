@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use egui::containers::menu::MenuButton;
 use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Order, Rect, RichText, Ui};
 use mareader_audio::{Clip, Fault, Fetch, Player, RATES, Segment};
 use mareader_epub::{Files, Narration, Run, Skips};
@@ -20,6 +21,10 @@ use crate::widgets;
 const TICK: Duration = Duration::from_millis(50);
 /// Space between the bar and the page bar below it.
 const LIFT: f32 = 12.0;
+/// The bar's controls: one height, one icon size, even gaps.
+const SIZE: f32 = 30.0;
+const ICON: f32 = 16.0;
+const GAP: f32 = 2.0;
 
 /// The phrase being read, to paint in its pane.
 #[derive(Clone, Debug, PartialEq)]
@@ -235,7 +240,7 @@ impl ReadAloud {
             .stroke(egui::Stroke::new(1.0, t.line))
             .corner_radius(t.radius_lg)
             .shadow(ctx.global_style().visuals.window_shadow)
-            .inner_margin(Margin::same(6));
+            .inner_margin(Margin::same(4));
         let mut close = false;
         egui::Area::new(Id::new("read-aloud-bar"))
             .fade_in(false)
@@ -245,7 +250,10 @@ impl ReadAloud {
             .constrain_to(rect)
             .show(ctx, |ui| {
                 frame.show(ui, |ui| {
-                    ui.horizontal(|ui| close = controls(ui, s, settings, &t));
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(SIZE);
+                        close = controls(ui, s, settings, &t);
+                    });
                 });
             });
         if close {
@@ -256,37 +264,38 @@ impl ReadAloud {
 
 /// The bar's buttons; true when closed.
 fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &Tokens) -> bool {
-    ui.add(Icon::ReadAloud.image(16.0).tint(t.muted));
+    ui.spacing_mut().item_spacing = egui::vec2(GAP, 0.0);
+    let (slot, _) = ui.allocate_exact_size(egui::Vec2::splat(SIZE), egui::Sense::hover());
+    let mark = Rect::from_center_size(slot.center(), egui::Vec2::splat(ICON));
+    Icon::ReadAloud.paint(ui, mark, t.muted);
+    divider(ui, t);
     let heard = s.heard.unwrap_or(s.started);
     let back = s.narration.previous(heard, s.skip);
-    let back_button = ui.add_enabled_ui(back.is_some(), |ui| {
-        widgets::small_icon_button(ui, Icon::SkipBack, "Previous phrase")
-    });
-    if back_button.inner.clicked() {
+    if button(ui, Icon::SkipBack, "Previous phrase", back.is_some()).clicked() {
         s.step(back);
     }
     let (icon, name) = match s.paused || s.finished {
         true => (Icon::Resume, "Play"),
         false => (Icon::Pause, "Pause"),
     };
-    if widgets::icon_button(ui, icon, name, false).clicked() {
+    if button(ui, icon, name, true).clicked() {
         s.toggle();
     }
     let next = s.narration.next(heard, s.skip);
-    let next_button = ui.add_enabled_ui(next.is_some(), |ui| {
-        widgets::small_icon_button(ui, Icon::SkipForward, "Next phrase")
-    });
-    if next_button.inner.clicked() {
+    if button(ui, Icon::SkipForward, "Next phrase", next.is_some()).clicked() {
         s.step(next);
     }
     if let Some(out) = s.narration.escape(heard, s.skip) {
-        let leave = widgets::small_icon_button(ui, Icon::LeaveTable, "Skip the rest of this table");
+        let leave = button(ui, Icon::LeaveTable, "Skip the rest of this table", true);
         if leave.clicked() {
             s.step(Some(out));
         }
     }
+    divider(ui, t);
     let speed = RichText::new(rate_label(settings.rate)).size(t.text_small);
-    ui.menu_button(speed, |ui| {
+    let speed = egui::Button::new(speed).frame_when_inactive(false);
+    let speed = speed.min_size(egui::vec2(SIZE + 12.0, SIZE));
+    let (resp, _) = MenuButton::from_button(speed).ui(ui, |ui| {
         for rate in RATES {
             let on = (settings.rate - rate).abs() < 0.01;
             if ui.selectable_label(on, rate_label(rate)).clicked() {
@@ -294,23 +303,50 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
                 ui.close();
             }
         }
-    })
-    .response
-    .on_hover_text("Speed");
-    let more = Icon::More.image(t.icon).tint(ui.visuals().text_color());
-    ui.menu_image_button(more, |ui| {
+    });
+    widgets::tip(&resp, "Speed", None);
+    let more = egui::Button::image(Icon::More.image(ICON))
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .min_size(egui::Vec2::splat(SIZE));
+    let (resp, _) = MenuButton::from_button(more).ui(ui, |ui| {
         ui.checkbox(&mut settings.skip_notes, "Skip notes");
         ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
         ui.checkbox(&mut settings.follow, "Turn pages to follow");
-    })
-    .response
-    .on_hover_text("Read-aloud options");
-    if let Some(why) = s.fault.as_ref().map(fault_text) {
-        ui.label(RichText::new(why).size(t.text_small).color(t.danger));
-    } else if s.finished {
-        ui.label(RichText::new("The end").size(t.text_small).color(t.muted));
+    });
+    widgets::tip(&resp, "Read-aloud options", None);
+    let note = match (&s.fault, s.finished) {
+        (Some(fault), _) => Some((fault_text(fault), t.danger)),
+        (None, true) => Some(("The end".to_owned(), t.muted)),
+        (None, false) => None,
+    };
+    if let Some((text, colour)) = note {
+        ui.add_space(4.0);
+        ui.label(RichText::new(text).size(t.text_small).color(colour));
+        ui.add_space(4.0);
     }
-    widgets::small_icon_button(ui, Icon::Close, "Stop reading aloud").clicked()
+    divider(ui, t);
+    button(ui, Icon::Close, "Stop reading aloud", true).clicked()
+}
+
+/// One of the bar's square buttons, all one size.
+fn button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response {
+    let b = egui::Button::image(icon.image(ICON))
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .min_size(egui::Vec2::splat(SIZE));
+    let resp = ui.add_enabled(enabled, b);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    widgets::tip(&resp, label, None);
+    resp
+}
+
+/// A short rule between the bar's groups.
+fn divider(ui: &mut Ui, t: &Tokens) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(9.0, SIZE), egui::Sense::hover());
+    let x = r.center().x.round() + 0.5;
+    let y = (r.top() + SIZE * 0.25)..=(r.bottom() - SIZE * 0.25);
+    ui.painter().vline(x, y, egui::Stroke::new(1.0, t.line));
 }
 
 fn rate_label(rate: f32) -> String {
