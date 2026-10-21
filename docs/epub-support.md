@@ -66,6 +66,7 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | E9 | Media and fallbacks: audio and video as their poster or a labelled box, `object` and `epub:switch` fallbacks, manifest fallback chains. |
 | E10 | Read-aloud: media overlays played in the reader, the phrase read lit, pages turning to follow. |
 | E11 | Subtitles: `track` files beside clips handed to the player, and transcripts shown in the pages. |
+| E12 | `epub:trigger`: clicks that show and hide parts of the page, and play, pause and mute clips. |
 
 ## SVG (E1)
 
@@ -396,8 +397,8 @@ item that isn't XHTML or a picture reads as its first fallback that is,
 and links to the item land on it.
 
 Media overlays read aloud in the reader (E10, below), and `track`
-subtitles show as transcripts (E11, below). `epub:trigger` and scripted
-content aren't supported yet.
+subtitles show as transcripts (E11, below). `epub:trigger` works too
+(E12, below); scripted content isn't supported yet.
 
 sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
 
@@ -484,3 +485,40 @@ A track file is read up to 4 MB and 4,000 lines; a line keeps 2,000
 characters.
 
 sha256 of `subtitles.epub`: `db6ee795ebaea483877a8d3ccdcb0e1b50a5a686caeb892a2bf8ee30b708142d`
+
+## Triggers (E12)
+
+`epub:trigger` (EPUB 3.0, deprecated since 3.3) makes a click on one
+element act on another. A trigger is read from the chapter's `head` or
+body, by any namespace prefix; `ev:observer` names the element clicked,
+`ref` the one acted on, both in the same chapter. Only click-like events
+count (`click`, `activate`, `DOMActivate`, mouse and touch presses);
+hovering and the rest never come from a reader, so those triggers are
+ignored. An observer's text and block pictures become a link, its
+tooltip saying what it does; a link it already was is replaced.
+
+| Action | What it does |
+| --- | --- |
+| `show`, `hide` | The element shows or hides, keeping its room as `visibility` does; the page is laid again |
+| `play` | An `audio` clip plays in the reader from its start, pausing read-aloud; a `video` opens in the system player |
+| `pause`, `resume` | The clip playing pauses or plays on; `resume` starts a clip not yet playing |
+| `mute`, `unmute` | The clip plays on silently, or is heard again; it stays muted when played again |
+
+An element the book hides with `display: none` is set aside and laid in
+its place once shown, so the text after it moves down; at a chapter's
+end it stays in that chapter. Inside a line, such an element keeps its
+room while hidden instead. Hiding text leaves a gap the same size;
+pictures and the element's own borders and backgrounds go blank with it.
+A hidden `audio` or `video` that a trigger plays has no card. Only one
+clip plays at a time, and it stops when its book closes or read-aloud
+starts; pausing, muting and resuming a video do nothing, as its player
+is outside the reader.
+
+What is shown belongs to the pane and resets with the book. Tables and
+rules aren't hidden; a picture the book already hides with `visibility:
+hidden` still draws; elements in tables, on fixed pages or with no
+content keep their room rather than being set aside. A small picture set
+in a line isn't an observer itself. A chapter keeps 512 triggers, 32 for
+one click, and a book 4,096 elements shown or hidden.
+
+sha256 of `triggers.epub`: `8537380826e5085ecedf9245e4f6ffb6d83691da8fafd6cd4a6f70466b7d7da0`
