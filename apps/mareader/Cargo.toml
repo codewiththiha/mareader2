@@ -91,10 +91,11 @@ minimum-system-version = "11.0"
 # Ad hoc: Gatekeeper asks once. CI swaps in a Developer ID when it has one.
 signing-identity = "-"
 
-# Loaded at run time, so dpkg can't see them: fonts, keyboard, GPU.
+# Loaded at run time, so dpkg can't see them: fonts, keyboard, GPU;
+# and ALSA, which the narration's sound goes through.
 [package.metadata.packager.deb]
-depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1"]
+depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1", "libasound2t64 | libasound2"]
 
 # The same for Arch; libglvnd gives EGL where Vulkan is missing.
 [package.metadata.packager.pacman]
-depends = ["fontconfig", "libxkbcommon", "libxkbcommon-x11", "libglvnd"]
+depends = ["fontconfig", "libxkbcommon", "libxkbcommon-x11", "libglvnd", "alsa-lib"]
