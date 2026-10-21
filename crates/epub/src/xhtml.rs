@@ -11,8 +11,9 @@ use html5ever::tokenizer::{
 };
 use mareader_reflow::{
     Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
-    Emphasis, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow, Inline, Justify,
-    Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text, TextShadow, VAlign,
+    Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow, Inline,
+    Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text,
+    TextShadow, VAlign,
 };
 
 use crate::calc::Vars;
@@ -32,6 +33,21 @@ const MAX_COLUMNS: usize = 32;
 /// The most rows a one-column table may have and still read as a box.
 const MAX_BOX_ROWS: usize = 8;
 const MAX_BARS: usize = 8;
+/// Elements that set as one text block, kept whole without a box.
+const TEXT_BLOCKS: [&str; 12] = [
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "dt",
+    "pre",
+    "caption",
+    "figcaption",
+];
 const MAX_CLASSES: usize = 16;
 const MAX_ATTRS: usize = 16;
 /// Earlier siblings kept per element, for `+` and `~` selectors.
@@ -613,6 +629,14 @@ impl State<'_> {
         let turns = self.stack.iter().map(|o| o.computed.rotate);
         f.rotate = turns.sum::<f32>() % 360.0;
         f.before = self.gap.take() / ROOT_PX;
+        if let Some(c) = self.block_computed() {
+            f.keep = Keep {
+                orphans: c.orphans,
+                widows: c.widows,
+                whole: c.whole,
+                with_next: c.keep_next,
+            };
+        }
         f
     }
 
@@ -962,7 +986,9 @@ impl State<'_> {
         let spec = layout.then(|| boxed(name, c, d, cell)).flatten();
         let shows = finish.as_ref().is_some_and(Finish::shows);
         let painted = contrast.is_some() || backdrop.is_some() || shows;
-        let spec = spec.or_else(|| painted.then(|| bare(c)));
+        // Kept whole, a plain wrapper's blocks need a box to share.
+        let wraps = c.whole && !TEXT_BLOCKS.contains(&name);
+        let spec = spec.or_else(|| (painted || wraps).then(|| bare(c)));
         let colours = c
             .border_colour
             .map(|ink| ink.and_then(|ink| self.drawn(ink, MAX_BORDER_FADE)));
@@ -973,6 +999,7 @@ impl State<'_> {
             backdrop,
             finish: finish.as_deref().map(|f| Arc::new(capped(f))),
             rule,
+            whole: c.whole,
             ..spec
         });
         let snapshot = self.gap;
@@ -1235,6 +1262,7 @@ impl State<'_> {
             weight: f32::from(c.weight),
             faces,
             justify: c.align == TextAlign::Justify,
+            last: c.last,
         };
         if let Some(known) = self.looks.iter().rev().take(8).find(|l| ***l == look) {
             return Arc::clone(known);
@@ -1309,6 +1337,7 @@ impl State<'_> {
             colour: self.text_colour(c),
             shadow: c.and_then(|c| self.text_shadow(c)),
             hidden: c.is_some_and(|c| c.invisible),
+            features: c.map_or_else(Features::default, Computed::features),
         }
     }
 

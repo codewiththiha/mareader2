@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Justify, Rise, Script, Tile, VAlign};
+use mareader_reflow::{Align, Case, Features, Justify, LastLine, Rise, Script, Tile, VAlign};
 
 use crate::calc::{self, Vars};
 use crate::decor::{self, Slice, Span};
@@ -117,6 +117,15 @@ pub(crate) enum Weight {
     Lighter,
 }
 
+/// `font-variant-caps`, as the text shows it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Caps {
+    #[default]
+    Normal,
+    Small,
+    AllSmall,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum TextAlign {
     #[default]
@@ -207,7 +216,20 @@ pub(crate) struct Decl {
     pub(crate) break_after: Option<bool>,
     pub(crate) valign: Option<VAlign>,
     pub(crate) script: Option<Script>,
-    pub(crate) small_caps: Option<bool>,
+    pub(crate) small_caps: Option<Caps>,
+    /// `font-variant-*` groups, `font-kerning`, then `font-feature-settings`.
+    pub(crate) numeric: Option<Features>,
+    pub(crate) ligatures: Option<Features>,
+    pub(crate) position: Option<Features>,
+    pub(crate) kerning: Option<Features>,
+    pub(crate) settings: Option<Features>,
+    /// `text-align-last`; `Some(None)` is auto.
+    pub(crate) last: Option<Option<LastLine>>,
+    pub(crate) orphans: Option<u8>,
+    pub(crate) widows: Option<u8>,
+    /// `break-inside: avoid`, and `break-after: avoid`.
+    pub(crate) whole: Option<bool>,
+    pub(crate) keep_next: Option<bool>,
     pub(crate) transform: Option<Case>,
     /// Underline and line-through.
     pub(crate) decoration: Option<(bool, bool)>,
@@ -330,7 +352,8 @@ macro_rules! each_field {
         $m!($a, $b;
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
-            break_before, break_after, valign, script, small_caps, transform, decoration,
+            break_before, break_after, valign, script, small_caps, numeric, ligatures, position,
+            kerning, settings, last, orphans, widows, whole, keep_next, transform, decoration,
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
             basis, radius, rotate, lift, content, counter_reset, counter_increment,
@@ -500,11 +523,20 @@ impl Decl {
                     _ => Script::Normal,
                 });
             }
-            "font-variant" | "font-variant-caps" => {
-                let small = v
-                    .split_ascii_whitespace()
-                    .any(|w| w.ends_with("small-caps"));
-                self.small_caps = Some(small);
+            "font-variant" => self.font_variant(v),
+            "font-variant-caps" => self.small_caps = caps(v).or(self.small_caps),
+            "font-variant-numeric" => self.numeric = group(v, numeric_words).or(self.numeric),
+            "font-variant-ligatures" => {
+                self.ligatures = group(v, ligature_words).or(self.ligatures)
+            }
+            "font-variant-position" => self.position = group(v, position_words).or(self.position),
+            "font-kerning" => self.kerning = kerning(v).or(self.kerning),
+            "font-feature-settings" => self.settings = feature_settings(v).or(self.settings),
+            "text-align-last" => self.last = last_line(v).or(self.last),
+            "orphans" => self.orphans = lines_kept(v).or(self.orphans),
+            "widows" => self.widows = lines_kept(v).or(self.widows),
+            "break-inside" | "page-break-inside" => {
+                self.whole = Some(matches!(v, "avoid" | "avoid-page"));
             }
             "text-transform" => {
                 self.transform = match v {
@@ -561,7 +593,10 @@ impl Decl {
                 self.rotate = Some(rotation(v).unwrap_or(0.0));
             }
             "page-break-before" | "break-before" => self.break_before = Some(page_break(v)),
-            "page-break-after" | "break-after" => self.break_after = Some(page_break(v)),
+            "page-break-after" | "break-after" => {
+                self.break_after = Some(page_break(v));
+                self.keep_next = Some(matches!(v, "avoid" | "avoid-page"));
+            }
             _ => self.side(name, v),
         }
     }
@@ -781,9 +816,17 @@ impl Decl {
         }) else {
             return;
         };
+        // The shorthand resets the variants and kerning it can't set.
+        self.small_caps = Some(Caps::Normal);
+        let normal = Some(Features::default());
+        (self.numeric, self.ligatures, self.position, self.kerning) =
+            (normal, normal, normal, normal);
         for w in words.iter().take(at) {
             self.italic = italic(w).or(self.italic);
             self.weight = weight(w).or(self.weight);
+            if *w == "small-caps" {
+                self.small_caps = Some(Caps::Small);
+            }
         }
         let mut sized = words.get(at).unwrap_or(&"").split('/');
         self.size = sized.next().and_then(font_size).or(self.size);
@@ -793,6 +836,32 @@ impl Decl {
         if !rest.is_empty() {
             self.family = Some(families(&rest.join(" ")));
         }
+    }
+
+    /// `font-variant`: caps and each group it names; the rest normal.
+    fn font_variant(&mut self, v: &str) {
+        let mut caps_set = Caps::Normal;
+        let mut sets = [Features::default(); 3];
+        if v == "none" {
+            sets[1] = ligature_words("none").unwrap_or_default();
+        } else if v != "normal" {
+            for w in v.split_ascii_whitespace() {
+                if let Some(c) = caps(w) {
+                    caps_set = c;
+                }
+                for (set, read) in
+                    sets.iter_mut()
+                        .zip([numeric_words, ligature_words, position_words])
+                {
+                    if let Some(f) = read(w) {
+                        *set = set.then(f);
+                    }
+                }
+            }
+        }
+        self.small_caps = Some(caps_set);
+        let [n, l, p] = sets;
+        (self.numeric, self.ligatures, self.position) = (Some(n), Some(l), Some(p));
     }
 
     /// Sets each property `top` sets, as a later rule does.
@@ -890,6 +959,126 @@ fn closing_bracket(text: &str) -> Option<usize> {
     None
 }
 
+/// A `font-variant-caps` value; titling and unicase show as normal.
+fn caps(v: &str) -> Option<Caps> {
+    Some(match v {
+        "normal" | "unicase" | "titling-caps" => Caps::Normal,
+        "small-caps" | "petite-caps" => Caps::Small,
+        "all-small-caps" | "all-petite-caps" => Caps::AllSmall,
+        _ => return None,
+    })
+}
+
+/// Features `tags` all turned on, or all off.
+fn tagged(tags: &[&str], on: bool) -> Option<Features> {
+    joined(tags.iter().map(|t| Features::of(t, on)))
+}
+
+/// A `font-variant-*` group read word by word; one unknown word voids it.
+fn group(v: &str, read: fn(&str) -> Option<Features>) -> Option<Features> {
+    if v == "normal" {
+        return Some(Features::default());
+    }
+    joined(v.split_ascii_whitespace().map(read))
+}
+
+/// Features joined in order, later over earlier; none if one is unknown.
+fn joined(each: impl IntoIterator<Item = Option<Features>>) -> Option<Features> {
+    each.into_iter()
+        .try_fold(Features::default(), |all, f| Some(all.then(f?)))
+}
+
+fn numeric_words(w: &str) -> Option<Features> {
+    let tag = match w {
+        "lining-nums" => "lnum",
+        "oldstyle-nums" => "onum",
+        "proportional-nums" => "pnum",
+        "tabular-nums" => "tnum",
+        "diagonal-fractions" => "frac",
+        "stacked-fractions" => "afrc",
+        "ordinal" => "ordn",
+        "slashed-zero" => "zero",
+        _ => return None,
+    };
+    Features::of(tag, true)
+}
+
+fn ligature_words(w: &str) -> Option<Features> {
+    let (tags, on): (&[&str], bool) = match w {
+        "none" => (&["liga", "clig", "dlig", "hlig", "calt"], false),
+        "common-ligatures" => (&["liga", "clig"], true),
+        "no-common-ligatures" => (&["liga", "clig"], false),
+        "discretionary-ligatures" => (&["dlig"], true),
+        "no-discretionary-ligatures" => (&["dlig"], false),
+        "historical-ligatures" => (&["hlig"], true),
+        "no-historical-ligatures" => (&["hlig"], false),
+        "contextual" => (&["calt"], true),
+        "no-contextual" => (&["calt"], false),
+        _ => return None,
+    };
+    tagged(tags, on)
+}
+
+fn position_words(w: &str) -> Option<Features> {
+    match w {
+        "sub" => Features::of("subs", true),
+        "super" => Features::of("sups", true),
+        _ => None,
+    }
+}
+
+fn kerning(v: &str) -> Option<Features> {
+    match v {
+        "auto" => Some(Features::default()),
+        "normal" => Features::of("kern", true),
+        "none" => Features::of("kern", false),
+        _ => None,
+    }
+}
+
+/// `font-feature-settings`; tags the shaper isn't asked for are skipped.
+fn feature_settings(v: &str) -> Option<Features> {
+    if v == "normal" {
+        return Some(Features::default());
+    }
+    let mut out = Features::default();
+    for item in v.split(',') {
+        let mut parts = item.split_ascii_whitespace();
+        let tag = parts.next()?;
+        let tag = tag
+            .strip_prefix(['"', '\''])
+            .and_then(|t| t.strip_suffix(['"', '\'']))?;
+        if tag.len() != 4 {
+            return None;
+        }
+        let on = match parts.next() {
+            None | Some("on") => true,
+            Some("off") => false,
+            Some(n) => n.parse::<u32>().ok()? > 0,
+        };
+        if let Some(f) = Features::of(tag, on) {
+            out = out.then(f);
+        }
+    }
+    Some(out)
+}
+
+fn last_line(v: &str) -> Option<Option<LastLine>> {
+    Some(match v {
+        "auto" => None,
+        "start" | "left" => Some(LastLine::Start),
+        "center" => Some(LastLine::Center),
+        "end" | "right" => Some(LastLine::End),
+        "justify" => Some(LastLine::Justify),
+        _ => return None,
+    })
+}
+
+/// A `widows` or `orphans` count, at least 1.
+fn lines_kept(v: &str) -> Option<u8> {
+    v.parse::<u8>().ok().filter(|n| *n > 0)
+}
+
 /// Sets `name` in a list of declarations, moving it last.
 fn upsert(list: &mut Vec<(String, String)>, name: &str, value: &str) {
     list.retain(|(n, _)| n != name);
@@ -906,6 +1095,13 @@ fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
         "font-style" | "font-weight" | "font-variant" | "font-variant-caps" => {
             ("normal", true, true)
         }
+        "font-variant-numeric"
+        | "font-variant-ligatures"
+        | "font-variant-position"
+        | "font-feature-settings" => ("normal", true, true),
+        "font-kerning" | "text-align-last" => ("auto", true, true),
+        "orphans" | "widows" => ("2", true, true),
+        "break-inside" | "page-break-inside" => ("auto", true, false),
         "line-height" | "letter-spacing" | "word-spacing" => ("normal", true, true),
         "font-size" => ("medium", true, true),
         "text-indent" => ("0", true, true),
@@ -2607,7 +2803,18 @@ pub(crate) struct Computed {
     /// Hidden by `visibility`, inherited.
     pub(crate) invisible: bool,
     // Inherited.
-    pub(crate) small_caps: bool,
+    pub(crate) small_caps: Caps,
+    pub(crate) numeric: Features,
+    pub(crate) ligatures: Features,
+    pub(crate) position: Features,
+    pub(crate) kerning: Features,
+    pub(crate) settings: Features,
+    pub(crate) last: Option<LastLine>,
+    /// 0 is the usual 2.
+    pub(crate) orphans: u8,
+    pub(crate) widows: u8,
+    pub(crate) whole: bool,
+    pub(crate) keep_next: bool,
     pub(crate) transform: Case,
     pub(crate) text_shadow: Option<decor::Shadow>,
     /// Custom properties, inherited.
@@ -2679,7 +2886,17 @@ impl Default for Computed {
             border_clear: [false; 4],
             opacity: 1.0,
             invisible: false,
-            small_caps: false,
+            small_caps: Caps::Normal,
+            numeric: Features::default(),
+            ligatures: Features::default(),
+            position: Features::default(),
+            kerning: Features::default(),
+            settings: Features::default(),
+            last: None,
+            orphans: 0,
+            widows: 0,
+            whole: false,
+            keep_next: false,
             transform: Case::Normal,
             text_shadow: None,
             vars: Arc::from([]),
@@ -2803,6 +3020,16 @@ impl Computed {
             opacity: self.opacity * d.opacity.unwrap_or(1.0) * d.filter_opacity.unwrap_or(1.0),
             invisible: d.visible.map_or(self.invisible, |v| !v),
             small_caps: d.small_caps.unwrap_or(self.small_caps),
+            numeric: d.numeric.unwrap_or(self.numeric),
+            ligatures: d.ligatures.unwrap_or(self.ligatures),
+            position: d.position.unwrap_or(self.position),
+            kerning: d.kerning.unwrap_or(self.kerning),
+            settings: d.settings.unwrap_or(self.settings),
+            last: d.last.unwrap_or(self.last),
+            orphans: d.orphans.unwrap_or(self.orphans),
+            widows: d.widows.unwrap_or(self.widows),
+            whole: d.whole.unwrap_or(false),
+            keep_next: d.keep_next.unwrap_or(false),
             transform: d.transform.unwrap_or(self.transform),
             text_shadow: match &d.text_shadow {
                 Some(own) => own.clone(),
@@ -2815,9 +3042,16 @@ impl Computed {
     /// The letter case its text shows.
     pub(crate) fn case(&self) -> Case {
         match (self.transform, self.small_caps) {
-            (Case::Normal | Case::Lower, true) => Case::Small,
+            (_, Caps::AllSmall) | (Case::Lower, Caps::Small) => Case::AllSmall,
+            (Case::Normal, Caps::Small) => Case::Small,
             (case, _) => case,
         }
+    }
+
+    /// The type features its text asks for, settings last.
+    pub(crate) fn features(&self) -> Features {
+        let groups = [self.ligatures, self.position, self.kerning, self.settings];
+        groups.into_iter().fold(self.numeric, Features::then)
     }
 
     /// One line's height in px.
@@ -2958,6 +3192,55 @@ mod tests {
         let child = parent.child(&Decl::default());
         assert_eq!(child.list_style, generated::list_style("upper-roman"));
         assert!(child.quotes.is_some());
+    }
+
+    #[test]
+    fn type_features_join_their_groups_then_the_settings() {
+        let d = Decl::parse(
+            "font-variant-numeric: oldstyle-nums tabular-nums; font-variant-ligatures: none; \
+             font-kerning: none; font-feature-settings: \"liga\" 1, 'zero', \"tnum\" off, \"wxyz\"",
+        );
+        let c = Computed::default().child(&d);
+        let wanted = "\"liga\" 1, \"clig\" 0, \"dlig\" 0, \"hlig\" 0, \"calt\" 0, \
+                      \"kern\" 0, \"onum\" 1, \"tnum\" 0, \"zero\" 1";
+        assert_eq!(c.features().source(), wanted);
+        // They inherit; an unknown word voids only its own declaration.
+        let child = c.child(&Decl::parse("font-variant-numeric: lining-nums wide"));
+        assert_eq!(child.features(), c.features());
+        let shorthand = Decl::parse("font-variant: all-small-caps slashed-zero");
+        let c = Computed::default().child(&shorthand);
+        assert_eq!(
+            (c.case(), c.features().source()),
+            (Case::AllSmall, "\"zero\" 1".into())
+        );
+        let font = c.child(&Decl::parse("font: small-caps 1em serif"));
+        assert_eq!(
+            (font.case(), font.features()),
+            (Case::Small, Features::default())
+        );
+        let lower = Decl::parse("text-transform: lowercase; font-variant-caps: small-caps");
+        assert_eq!(Computed::default().child(&lower).case(), Case::AllSmall);
+    }
+
+    #[test]
+    fn last_lines_and_page_breaks_read_as_written() {
+        let d = Decl::parse(
+            "text-align-last: center; widows: 3; orphans: 0; break-inside: avoid; \
+             page-break-after: avoid",
+        );
+        let c = Computed::default().child(&d);
+        assert_eq!(
+            (c.last, c.widows, c.orphans),
+            (Some(LastLine::Center), 3, 0)
+        );
+        assert!(c.whole && c.keep_next);
+        // Lines and alignment inherit; breaks belong to their box.
+        let child = c.child(&Decl::default());
+        assert_eq!((child.last, child.widows), (Some(LastLine::Center), 3));
+        assert!(!child.whole && !child.keep_next);
+        let auto = c.child(&Decl::parse("text-align-last: auto; widows: initial"));
+        assert_eq!((auto.last, auto.widows), (None, 2));
+        assert!(understood("font-kerning", "none") && !understood("widows", "lots"));
     }
 
     #[test]

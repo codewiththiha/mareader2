@@ -42,6 +42,61 @@ pub struct Emphasis {
     pub shadow: Option<TextShadow>,
     /// Takes its room but isn't drawn, as `visibility: hidden`.
     pub hidden: bool,
+    /// Type features the book turns on or off for it.
+    pub features: Features,
+}
+
+/// OpenType features turned on or off, as bits of [`FEATURES`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct Features {
+    pub on: u32,
+    pub off: u32,
+}
+
+/// The features CSS asks for by name, each its bit in [`Features`].
+pub const FEATURES: [&str; 32] = [
+    "liga", "clig", "dlig", "hlig", "calt", "kern", "onum", "lnum", "tnum", "pnum", "frac", "afrc",
+    "ordn", "zero", "smcp", "c2sc", "pcap", "c2pc", "unic", "titl", "swsh", "salt", "ss01", "ss02",
+    "ss03", "ss04", "ss05", "ss06", "ss07", "ss08", "subs", "sups",
+];
+
+impl Features {
+    /// Feature `tag` turned on or off; none for a tag not in [`FEATURES`].
+    pub fn of(tag: &str, on: bool) -> Option<Self> {
+        let bit = FEATURES.iter().position(|t| *t == tag)?;
+        let bit = 1u32.checked_shl(u32::try_from(bit).ok()?)?;
+        Some(if on {
+            Self { on: bit, off: 0 }
+        } else {
+            Self { on: 0, off: bit }
+        })
+    }
+
+    /// These with `later` set over them.
+    pub fn then(self, later: Self) -> Self {
+        Self {
+            on: (self.on & !later.off) | later.on,
+            off: (self.off & !later.on) | later.off,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.on == 0 && self.off == 0
+    }
+
+    /// As CSS `font-feature-settings`, which the shaper reads.
+    pub fn source(self) -> String {
+        let mut out = Vec::new();
+        for (bit, tag) in FEATURES.iter().enumerate() {
+            let mask = 1u32 << bit;
+            if self.on & mask != 0 {
+                out.push(format!("\"{tag}\" 1"));
+            } else if self.off & mask != 0 {
+                out.push(format!("\"{tag}\" 0"));
+            }
+        }
+        out.join(", ")
+    }
 }
 
 /// A text shadow: offset and blur in hundredths of the text size.
@@ -71,6 +126,8 @@ pub enum Case {
     Lower,
     /// Small letters shown as smaller capitals.
     Small,
+    /// Every letter shown as a smaller capital.
+    AllSmall,
 }
 
 /// `range` is in bytes of the block's text.
@@ -296,6 +353,17 @@ pub struct Look {
     /// Families tried before the reader's, the book's own included.
     pub faces: Vec<String>,
     pub justify: bool,
+    /// How a paragraph's last line sits; none follows the rest.
+    pub last: Option<LastLine>,
+}
+
+/// A paragraph's last line, as `text-align-last`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastLine {
+    Start,
+    Center,
+    End,
+    Justify,
 }
 
 impl Default for Look {
@@ -310,6 +378,7 @@ impl Default for Look {
             weight: 400.0,
             faces: Vec::new(),
             justify: false,
+            last: None,
         }
     }
 }
@@ -367,6 +436,8 @@ pub struct Boxed {
     pub finish: Option<Arc<Finish>>,
     /// Stands for a rule: read as prose, it draws a plain one.
     pub rule: bool,
+    /// Kept on one page when it fits, as `break-inside: avoid`.
+    pub whole: bool,
 }
 
 /// What a box draws beyond its ground, picture and borders.
@@ -610,6 +681,20 @@ pub struct Frame {
     pub float: Option<Arc<Floated>>,
     /// With a look: a turn in degrees, clockwise; drawn, not laid out.
     pub rotate: f32,
+    /// With a look: how page breaks treat it.
+    pub keep: Keep,
+}
+
+/// How page breaks treat a block, as `widows`, `orphans` and `break-*`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Keep {
+    /// Lines kept together at its start and end; 0 is the usual 2.
+    pub orphans: u8,
+    pub widows: u8,
+    /// Kept on one page when it fits.
+    pub whole: bool,
+    /// Kept on the page of the block after it.
+    pub with_next: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -753,6 +838,7 @@ mod tests {
         colour: None,
         shadow: None,
         hidden: false,
+        features: Features { on: 0, off: 0 },
     };
 
     #[test]
