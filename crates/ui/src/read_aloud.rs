@@ -297,7 +297,8 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
     })
     .response
     .on_hover_text("Speed");
-    ui.menu_image_button(Icon::More.image(t.icon), |ui| {
+    let more = Icon::More.image(t.icon).tint(ui.visuals().text_color());
+    ui.menu_image_button(more, |ui| {
         ui.checkbox(&mut settings.skip_notes, "Skip notes");
         ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
         ui.checkbox(&mut settings.follow, "Turn pages to follow");
