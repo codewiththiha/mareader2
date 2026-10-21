@@ -29,14 +29,14 @@ mod svg;
 mod xhtml;
 
 pub use book::{
-    Book, Destination, Link, MAX_BLOCKS, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry, cover,
-    describe,
+    Book, Destination, Files, Link, MAX_BLOCKS, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, TocEntry,
+    cover, describe,
 };
 pub use convert::{Format, MAX_PICTURE_FILE, MAX_TEXT, Pictures, convert};
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
 pub use media::Media;
-pub use overlay::{MAX_PHRASES, Narration, Phrase, Skips, Spoken};
+pub use overlay::{MAX_PHRASES, Narration, Phrase, Run, Skips, Spoken};
 pub use splice::{Insert, Inserts};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
 
