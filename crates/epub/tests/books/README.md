@@ -21,6 +21,7 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `fxl.epub` | *Pages as Drawn*, written for these tests (4 KB); its pictures are flat colours | Fixed pages at their own viewports: a cover on the far side, boxes placed by `position` and ordered by `z-index` over a background picture, a landscape page, a picture in the spine, then a reflowable chapter |
 | `math.epub` | *Lines of Formulas*, written for these tests (2 KB); its picture is a flat colour | MathML in a line, a display formula centred as its own block, a prefixed `m:math`, formulas in table cells, and formulas too deep to set falling back to their `alttext` or `altimg` |
 | `media.epub` | *Sound and Fallbacks*, written for these tests (4 KB); its pictures are flat colours and its clips are stand-in bytes | A video with a poster and a song as cards that play outside the reader, a file that must never play, `epub:switch`, `object` and `noscript` fallbacks, an image map, and manifest fallbacks for a picture and a spine item |
+| `narration.epub` | *Read to Me*, written for these tests (4 KB); its sound is a generated tone | Media overlays: sentences timed by id and by `xpointer`, clock values in every form, a table read as one, a page number and a note marked skippable, a chapter narrated whole, and the active-class colour |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
 
@@ -33,6 +34,8 @@ sha256 of `fxl.epub`: `85764517a37055bb1ffea996559fad292c7067a9f66a5cf4c4357ca05
 sha256 of `math.epub`: `a9b54ffb7b329a7352072e0379844b7b1a351122880b5b5260f385217f6cb488`
 
 sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
+
+sha256 of `narration.epub`: `480889f7ab1f0ca0d752d2e24e74f93112f8ae737bdac3f51470ea420006b645`
 
 ## Text files
 
