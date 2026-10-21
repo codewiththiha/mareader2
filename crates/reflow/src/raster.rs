@@ -7,10 +7,15 @@ use parley::{GlyphRun, Layout, PositionedInlineBox, PositionedLayoutItem};
 use skrifa::{FontRef, MetadataProvider};
 use vello_cpu::color::{AlphaColor, Srgb};
 use vello_cpu::kurbo::{Affine, BezPath, Point, Rect, RoundedRect, Shape, Stroke};
-use vello_cpu::peniko::{ImageAlphaType, ImageQuality, ImageSampler};
+use vello_cpu::peniko::{
+    ColorStop, Extend, Fill, Gradient as Ramp, ImageAlphaType, ImageQuality, ImageSampler,
+};
 use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
-use crate::block::{Backdrop, BackdropSize, Edge};
+use crate::block::{
+    Backdrop, BackdropSize, Edge, Finish, Frame9, Gradient, GradientShape, Layer, Outline,
+    TextShadow, Tile,
+};
 use crate::flow::{
     Deco, Draw, Flow, Grid, Initial, Laid, MARKER_GAP, PAD, Para, Piece, Set, resolve, span_height,
 };
@@ -37,6 +42,13 @@ const HEAD_GROUND: Color = Color::from_rgba8(0, 0, 0, 10);
 /// Stands in for an image that won't decode.
 const MISSING: Color = Color::from_rgba8(0, 0, 0, 24);
 const BAR_WIDTH: f64 = 3.0;
+/// The lit side of a carved or raised border, as a share of its ink.
+const LIGHT_SIDE: f32 = 0.45;
+/// The most shadows one box casts.
+const MAX_SHADOWS: usize = 4;
+const SQRT_2: f32 = std::f32::consts::SQRT_2;
+/// A full-strength text shadow's alpha.
+const TEXT_SHADOW_ALPHA: f32 = 0.6;
 /// mareader draws link underlines 2 px below where fonts put them.
 const UNDERLINE_GAP: f32 = 2.0;
 const UNDERLINE_MIN: f32 = 0.75;
@@ -256,43 +268,70 @@ impl Painter {
 
     /// A book box's borders, in the ink the page pass themes.
     fn deco(&mut self, deco: &Deco, decoded: &Decoded) {
-        let [x, y, w, h] = deco.rect;
-        if !self.visible(y - 8.0, y + h + 8.0) {
+        let [_, y, w, h] = deco.rect;
+        let finish = deco.finish.as_deref();
+        let reach = finish.map_or(0.0, |f| reach(f, deco.em)) + 8.0;
+        if !self.visible(y - reach, y + h + reach) {
             return;
         }
-        let radius = deco.radius.min(w / 2.0).min(h / 2.0);
-        if radius >= 0.5 {
-            return self.rounded(deco, radius, decoded);
+        let opacity = finish.map_or(1.0, |f| f.opacity.clamp(0.0, 1.0));
+        if opacity < 0.01 {
+            return;
         }
-        if let Some(alpha) = deco.fill {
-            self.fill(BODY.with_alpha(alpha.clamp(0.0, 1.0)), x, y, w, h);
+        let faded = opacity < 0.99;
+        if faded {
+            self.ctx.push_opacity_layer(opacity);
         }
-        if let Some(backdrop) = &deco.backdrop {
-            self.backdrop(backdrop, deco.em, deco.rect, decoded);
+        let radius = deco.radius.min(w / 2.0).min(h / 2.0).max(0.0);
+        let shape = (radius >= 0.5).then(|| round_rect(deco.rect, radius, 0.0));
+        if let Some(f) = finish {
+            self.shadows(f, deco, radius, false);
         }
-        self.edges(deco);
-    }
-
-    /// A box with round corners: its ground, picture and borders.
-    fn rounded(&mut self, deco: &Deco, radius: f32, decoded: &Decoded) {
-        let [x, y, w, h] = deco.rect;
-        let shape = |inset: f32| {
-            let r = f64::from((radius - inset).max(0.0));
-            let (l, t) = (f64::from(x + inset), f64::from(y + inset));
-            let (rr, b) = (f64::from(x + w - inset), f64::from(y + h - inset));
-            RoundedRect::new(l, t, rr.max(l), b.max(t), r).to_path(0.1)
-        };
         self.ctx.set_transform(self.view);
         if let Some(alpha) = deco.fill {
             self.ctx.set_paint(BODY.with_alpha(alpha.clamp(0.0, 1.0)));
-            self.ctx.fill_path(&shape(0.0));
+            match &shape {
+                Some(path) => self.ctx.fill_path(path),
+                None => self.ctx.fill_rect(&rect_of(deco.rect)),
+            }
         }
-        if let Some(backdrop) = &deco.backdrop {
-            self.ctx.push_clip_layer(&shape(0.0));
-            self.backdrop(backdrop, deco.em, deco.rect, decoded);
+        let layered = finish.is_some_and(|f| !f.layers.is_empty());
+        if layered || deco.backdrop.is_some() {
+            let clip = shape
+                .clone()
+                .unwrap_or_else(|| rect_of(deco.rect).to_path(0.1));
+            self.ctx.push_clip_layer(&clip);
+            for layer in finish.map_or(&[][..], |f| &f.layers).iter().rev() {
+                match layer {
+                    Layer::Picture(b) => self.backdrop(b, deco.em, deco.rect, decoded),
+                    Layer::Gradient(g) => self.gradient(g, deco.rect, deco.em),
+                }
+            }
+            if let Some(backdrop) = &deco.backdrop {
+                self.backdrop(backdrop, deco.em, deco.rect, decoded);
+            }
             self.ctx.set_transform(self.view);
+            self.ctx.reset_paint_transform();
             self.ctx.pop_layer();
         }
+        if let Some(f) = finish {
+            self.shadows(f, deco, radius, true);
+        }
+        match finish.and_then(|f| f.frame.as_ref()) {
+            Some(frame) => self.frame9(frame, deco, decoded),
+            None if radius >= 0.5 => self.rounded(deco, radius),
+            None => self.edges(deco),
+        }
+        if let Some(outline) = finish.and_then(|f| f.outline) {
+            self.outline(&outline, deco, radius);
+        }
+        if faded {
+            self.ctx.pop_layer();
+        }
+    }
+
+    /// A round-cornered box's borders.
+    fn rounded(&mut self, deco: &Deco, radius: f32) {
         let first = deco.edges[0];
         let same = deco.edges.iter().all(|e| *e == first)
             && deco.colours.iter().all(|c| *c == deco.colours[0]);
@@ -303,17 +342,24 @@ impl Painter {
         }
         let least = 1.0 / self.scale.max(0.01);
         let thick = deco.border.iter().fold(0.0f32, |a, b| a.max(*b)).max(least);
+        let ink = book(deco.colours[0], BODY);
+        self.ring(deco.rect, radius, (first, ink), thick);
+    }
+
+    /// A line `thick` inside `rect`'s rounded edge, styled as `edge`.
+    fn ring(&mut self, rect: [f32; 4], radius: f32, (edge, ink): (Edge, Color), thick: f32) {
         let line = |inset: f32, width: f32, dashes: Option<[f64; 2]>| {
             let stroke = Stroke::new(f64::from(width));
             let stroke = match dashes {
                 Some(d) => stroke.with_dashes(0.0, d),
                 None => stroke,
             };
-            (shape(inset), stroke)
+            (round_rect(rect, radius, inset), stroke, 1.0)
         };
         let t = f64::from(thick);
-        let strokes: Vec<(BezPath, Stroke)> = match first {
-            Edge::None => Vec::new(),
+        let half = thick / 2.0;
+        let strokes: Vec<(BezPath, Stroke, f32)> = match edge {
+            Edge::None | Edge::Clear => Vec::new(),
             Edge::Double if thick * self.scale >= 3.0 => {
                 let third = thick / 3.0;
                 vec![
@@ -321,18 +367,289 @@ impl Painter {
                     line(thick - third / 2.0, third, None),
                 ]
             }
-            Edge::Solid | Edge::Double => vec![line(thick / 2.0, thick, None)],
-            Edge::Dashed => vec![line(thick / 2.0, thick, Some([t * 3.0, t * 2.0]))],
-            Edge::Dotted => vec![line(thick / 2.0, thick, Some([t, t]))],
+            Edge::Groove | Edge::Ridge => {
+                let (outer, inner) = if edge == Edge::Groove {
+                    (1.0, LIGHT_SIDE)
+                } else {
+                    (LIGHT_SIDE, 1.0)
+                };
+                let (mut a, mut b) = (line(half / 2.0, half, None), line(half * 1.5, half, None));
+                (a.2, b.2) = (outer, inner);
+                vec![a, b]
+            }
+            Edge::Solid | Edge::Double | Edge::Inset | Edge::Outset => {
+                vec![line(half, thick, None)]
+            }
+            Edge::Dashed => vec![line(half, thick, Some([t * 3.0, t * 2.0]))],
+            Edge::Dotted => vec![line(half, thick, Some([t, t]))],
         };
         self.ctx.set_transform(self.view);
-        self.ctx.set_paint(book(deco.colours[0], BODY));
-        for (path, stroke) in strokes {
+        for (path, stroke, alpha) in strokes {
+            self.ctx.set_paint(ink.multiply_alpha(alpha));
             self.ctx.set_stroke(stroke);
             self.ctx.stroke_path(&path);
         }
     }
 
+    /// The box's shadows: those cast outside, or if `inset` inside.
+    fn shadows(&mut self, f: &Finish, deco: &Deco, radius: f32, inset: bool) {
+        let em = deco.em;
+        let [x, y, w, h] = deco.rect;
+        let mine = f.shadows.iter().rev().filter(|s| s.inset == inset);
+        let mut clipped = false;
+        for s in mine.take(MAX_SHADOWS) {
+            let strength = s.strength.clamp(0.0, 1.0);
+            if strength < 0.01 {
+                continue;
+            }
+            if !clipped {
+                // CSS shows outer shadows only outside the box, inner inside.
+                let mut clip = round_rect(deco.rect, radius, 0.0);
+                if !inset {
+                    let far = reach(f, em) + 1.0;
+                    let around = Rect::new(
+                        f64::from(x - far),
+                        f64::from(y - far),
+                        f64::from(x + w + far),
+                        f64::from(y + h + far),
+                    );
+                    clip.extend(around.path_elements(0.1));
+                    self.ctx.set_fill_rule(Fill::EvenOdd);
+                }
+                self.ctx.set_transform(self.view);
+                self.ctx.push_clip_layer(&clip);
+                self.ctx.set_fill_rule(Fill::NonZero);
+                clipped = true;
+            }
+            let spread = if inset { -s.spread } else { s.spread } * em;
+            let (dx, dy) = (s.at[0] * em, s.at[1] * em);
+            let (l, t) = (x - spread + dx, y - spread + dy);
+            let (r, b) = (x + w + spread + dx, y + h + spread + dy);
+            let rect = Rect::new(
+                f64::from(l),
+                f64::from(t),
+                f64::from(r.max(l)),
+                f64::from(b.max(t)),
+            );
+            let corner = (radius + spread).max(0.0);
+            let sigma = s.blur.max(0.0) * em / 2.0;
+            self.ctx.set_transform(self.view);
+            self.ctx.set_paint(BODY.with_alpha(strength));
+            if sigma * self.scale < 0.3 && !inset {
+                let path = RoundedRect::from_rect(rect, f64::from(corner)).to_path(0.1);
+                self.ctx.fill_path(&path);
+            } else {
+                self.ctx
+                    .fill_blurred_rounded_rect(&rect, corner, sigma.max(0.01), inset);
+            }
+        }
+        if clipped {
+            self.ctx.pop_layer();
+        }
+    }
+
+    /// A gradient across `rect`, as the book's CSS lays it.
+    fn gradient(&mut self, g: &Gradient, rect: [f32; 4], em: f32) {
+        let [x, y, w, h] = rect;
+        if w < 0.5 || h < 0.5 || g.stops.len() < 2 {
+            return;
+        }
+        let (cx, cy) = (f64::from(x + w / 2.0), f64::from(y + h / 2.0));
+        let (length, ramp, unit) = match g.shape {
+            GradientShape::Linear(degrees) => {
+                let a = f64::from(degrees).to_radians();
+                let (sin, cos) = a.sin_cos();
+                let length = (f64::from(w) * sin).abs() + (f64::from(h) * cos).abs();
+                (length.max(1.0) as f32, Some((sin, -cos)), None)
+            }
+            GradientShape::Radial { at, circle, near } => {
+                let [ax, ay] = at.map(|a| a.clamp(0.0, 1.0));
+                let (px, py) = (x + w * ax, y + h * ay);
+                let (dx, dy) = match near {
+                    true => ((px - x).min(x + w - px), (py - y).min(y + h - py)),
+                    false => ((px - x).max(x + w - px), (py - y).max(y + h - py)),
+                };
+                let (rx, ry) = match (circle, near) {
+                    (true, true) => (dx.min(dy), dx.min(dy)),
+                    (true, false) => (dx.hypot(dy), dx.hypot(dy)),
+                    (false, true) => (dx, dy),
+                    (false, false) => (dx * SQRT_2, dy * SQRT_2),
+                };
+                (rx.max(1.0), None, Some((px, py, rx.max(1.0), ry.max(1.0))))
+            }
+        };
+        let mut stops = gradient_stops(g, length, em);
+        let mut extend = Extend::Pad;
+        let (mut from, mut to) = (0.0f32, 1.0f32);
+        if g.repeating
+            && let (Some(first), Some(last)) = (stops.first(), stops.last())
+            && last.0 - first.0 > 0.002
+        {
+            (from, to) = (first.0, last.0);
+            for s in &mut stops {
+                s.0 = (s.0 - from) / (to - from);
+            }
+            extend = Extend::Repeat;
+        }
+        let colours: Vec<ColorStop> = stops
+            .iter()
+            .map(|(at, a)| ColorStop::from((at.clamp(0.0, 1.0), BODY.with_alpha(*a))))
+            .collect();
+        let half = f64::from(length) / 2.0;
+        let paint = match (ramp, unit) {
+            (Some((dx, dy)), _) => {
+                let along = |t: f32| {
+                    let d = f64::from(t) * f64::from(length) - half;
+                    (cx + dx * d, cy + dy * d)
+                };
+                Ramp::new_linear(along(from), along(to))
+            }
+            (None, Some((px, py, rx, ry))) => {
+                let scale = Affine::scale_non_uniform(1.0, f64::from(ry / rx));
+                let at = Affine::translate((f64::from(px), f64::from(py)));
+                self.ctx.set_paint_transform(at * scale);
+                Ramp::new_radial((0.0, 0.0), rx * to.max(0.01))
+            }
+            (None, None) => return,
+        };
+        self.ctx.set_transform(self.view);
+        self.ctx
+            .set_paint(paint.with_extend(extend).with_stops(colours.as_slice()));
+        self.ctx.fill_rect(&rect_of(rect));
+        self.ctx.reset_paint_transform();
+    }
+
+    /// A border picture cut in nine over the box's border.
+    fn frame9(&mut self, f: &Frame9, deco: &Deco, decoded: &Decoded) {
+        let em = deco.em;
+        let [x, y, w, h] = deco.rect;
+        let [ot, or, ob, ol] = f.outset.map(|o| o.max(0.0) * em);
+        let (x, y, w, h) = (x - ol, y - ot, w + ol + or, h + ot + ob);
+        let mut width = f.width.map(|v| v.max(0.0) * em);
+        // Sides wider than the box shrink together, as CSS does.
+        let fit = (w / (width[1] + width[3]).max(0.01))
+            .min(h / (width[0] + width[2]).max(0.01))
+            .min(1.0);
+        for v in &mut width {
+            *v *= fit;
+        }
+        let [dt, dr, db, dl] = width;
+        let [dt, db] = [
+            if deco.continued[0] { 0.0 } else { dt },
+            if deco.continued[1] { 0.0 } else { db },
+        ];
+        let (pw, ph) = (f.picture.width as f32, f.picture.height as f32);
+        if pw < 1.0 || ph < 1.0 || w < 0.5 || h < 0.5 {
+            return;
+        }
+        let [st, sr, sb, sl] = f.slice;
+        let (st, sb) = ((st * ph).min(ph), (sb * ph).min(ph));
+        let (sl, sr) = ((sl * pw).min(pw), (sr * pw).min(pw));
+        let (smw, smh) = ((pw - sl - sr).max(0.0), (ph - st - sb).max(0.0));
+        let (mw, mh) = ((w - dl - dr).max(0.0), (h - dt - db).max(0.0));
+        // Source and target: left, top, width, height.
+        let cols = [
+            (0.0, sl, x, dl),
+            (sl, smw, x + dl, mw),
+            (pw - sr, sr, x + w - dr, dr),
+        ];
+        let rows = [
+            (0.0, st, y, dt),
+            (st, smh, y + dt, mh),
+            (ph - sb, sb, y + h - db, db),
+        ];
+        for (r, row) in rows.iter().enumerate() {
+            for (c, col) in cols.iter().enumerate() {
+                let middle = r == 1 && c == 1;
+                if middle && !f.fill {
+                    continue;
+                }
+                let source = [col.0, row.0, col.1, row.1];
+                let target = [col.2, row.2, col.3, row.3];
+                // Edges keep their breadth's scale along their length.
+                let along = [
+                    match (c, r) {
+                        (1, 0) => Some(dt / st.max(0.01)),
+                        (1, 2) => Some(db / sb.max(0.01)),
+                        (1, _) => Some(dt.max(db) / st.max(sb).max(0.01)),
+                        _ => None,
+                    },
+                    match (r, c) {
+                        (1, 0) => Some(dl / sl.max(0.01)),
+                        (1, 2) => Some(dr / sr.max(0.01)),
+                        (1, _) => Some(dl.max(dr) / sl.max(sr).max(0.01)),
+                        _ => None,
+                    },
+                ];
+                self.slice9(f, decoded, (source, target), (along, f.tile));
+            }
+        }
+    }
+
+    /// One of a border picture's nine parts, from `source` into `target`.
+    fn slice9(
+        &mut self,
+        f: &Frame9,
+        decoded: &Decoded,
+        ([sx, sy, sw, sh], target): ([f32; 4], [f32; 4]),
+        (along, tile): ([Option<f32>; 2], [Tile; 2]),
+    ) {
+        let [tx, ty, tw, th] = target;
+        if sw < 0.01 || sh < 0.01 || tw < 0.1 || th < 0.1 {
+            return;
+        }
+        // Each axis: a tile's size and where tiles start.
+        let axis = |scale: Option<f32>, tile: Tile, s: f32, t: f32, at: f32| {
+            let size = match (tile, scale) {
+                (Tile::Stretch, _) | (_, None) => return (t, vec![at]),
+                (_, Some(k)) => (s * k).max(0.5),
+            };
+            let (size, count) = match tile {
+                Tile::Round => {
+                    let n = (t / size).round().max(1.0);
+                    (t / n, n)
+                }
+                _ => (size, (t / size).ceil()),
+            };
+            let start = at + (t - size * count) / 2.0;
+            let n = (count as usize).min(MAX_TILES);
+            (size, (0..n).map(|i| start + size * i as f32).collect())
+        };
+        let (iw, xs) = axis(along[0], tile[0], sw, tw, tx);
+        let (ih, ys) = axis(along[1], tile[1], sh, th, ty);
+        let (kx, ky) = (iw / sw, ih / sh);
+        let (pw, ph) = (f.picture.width as f32, f.picture.height as f32);
+        let mut drawn = 0;
+        for y in &ys {
+            for x in &xs {
+                if drawn >= MAX_TILES {
+                    return;
+                }
+                let whole = [x - sx * kx, y - sy * ky, pw * kx, ph * ky];
+                let clip = [
+                    x.max(tx),
+                    y.max(ty),
+                    iw.min(tx + tw - x),
+                    ih.min(ty + th - y),
+                ];
+                self.clipped(&f.picture, decoded, whole, clip);
+                drawn += 1;
+            }
+        }
+    }
+
+    /// A line around the box's border, clear of it by its offset.
+    fn outline(&mut self, o: &Outline, deco: &Deco, radius: f32) {
+        let em = deco.em;
+        let least = 1.0 / self.scale.max(0.01);
+        let width = (o.width * em).max(least);
+        let out = o.offset * em + width;
+        let [x, y, w, h] = deco.rect;
+        let rect = [x - out, y - out, w + 2.0 * out, h + 2.0 * out];
+        let ink = book(o.colour, BODY);
+        let r = if radius >= 0.5 { radius + out } else { 0.0 };
+        self.ring(rect, r, (o.edge, ink), width);
+    }
     /// A background picture in `rect`, sized and placed as the book asks.
     fn backdrop(&mut self, b: &Backdrop, em: f32, rect: [f32; 4], decoded: &Decoded) {
         let [x, y, w, h] = rect;
@@ -425,10 +742,42 @@ impl Painter {
         let [top, right, bottom, left] = deco.border;
         let [et, er, eb, el] = deco.edges;
         let [ct, cr, cb, cl] = deco.colours.map(|c| book(c, BODY));
-        self.edge((et, ct), [x, y, w, top], true);
-        self.edge((eb, cb), [x, y + h - bottom, w, bottom], true);
-        self.edge((el, cl), [x, y, left, h], false);
-        self.edge((er, cr), [x + w - right, y, right, h], false);
+        self.shaded((et, ct), [x, y, w, top], (true, true));
+        self.shaded((eb, cb), [x, y + h - bottom, w, bottom], (true, false));
+        self.shaded((el, cl), [x, y, left, h], (false, true));
+        self.shaded((er, cr), [x + w - right, y, right, h], (false, false));
+    }
+
+    /// A side, two-toned if carved or raised; `lit` is the top or left.
+    fn shaded(&mut self, (edge, ink): (Edge, Color), rect: [f32; 4], (across, lit): (bool, bool)) {
+        let light = ink.multiply_alpha(LIGHT_SIDE);
+        let (near, far) = if lit { (ink, light) } else { (light, ink) };
+        let [x, y, w, h] = rect;
+        let halves = || match across {
+            true => ([x, y, w, h / 2.0], [x, y + h / 2.0, w, h / 2.0]),
+            false => ([x, y, w / 2.0, h], [x + w / 2.0, y, w / 2.0, h]),
+        };
+        // The outer half is the half away from the box's middle.
+        let (outer, inner) = match lit {
+            true => halves(),
+            false => {
+                let (a, b) = halves();
+                (b, a)
+            }
+        };
+        match edge {
+            Edge::Inset => self.edge((Edge::Solid, near), rect, across),
+            Edge::Outset => self.edge((Edge::Solid, far), rect, across),
+            Edge::Groove => {
+                self.edge((Edge::Solid, near), outer, across);
+                self.edge((Edge::Solid, far), inner, across);
+            }
+            Edge::Ridge => {
+                self.edge((Edge::Solid, far), outer, across);
+                self.edge((Edge::Solid, near), inner, across);
+            }
+            _ => self.edge((edge, ink), rect, across),
+        }
     }
 
     /// One border side in `rect`, its lines running across if `across`.
@@ -442,7 +791,7 @@ impl Painter {
         };
         let thick = if across { h } else { w };
         match edge {
-            Edge::None => {}
+            Edge::None | Edge::Clear => {}
             Edge::Double if thick * self.scale >= 3.0 => {
                 let line = thick / 3.0;
                 let (far_x, far_y) = if across {
@@ -454,7 +803,12 @@ impl Painter {
                 self.fill(ink, x, y, lw, lh);
                 self.fill(ink, far_x, far_y, lw, lh);
             }
-            Edge::Solid | Edge::Double => self.fill(ink, x, y, w, h),
+            Edge::Solid
+            | Edge::Double
+            | Edge::Groove
+            | Edge::Ridge
+            | Edge::Inset
+            | Edge::Outset => self.fill(ink, x, y, w, h),
             Edge::Dashed | Edge::Dotted => {
                 let dash = if edge == Edge::Dashed {
                     thick * 3.0
@@ -524,6 +878,9 @@ impl Painter {
                 let PositionedLayoutItem::GlyphRun(run) = item else {
                     continue;
                 };
+                if run.style().brush.hidden {
+                    continue;
+                }
                 if run.style().brush.code {
                     // mareader's code ground: a pad around the run.
                     let size = run.run().font_size();
@@ -547,6 +904,13 @@ impl Painter {
                 let PositionedLayoutItem::GlyphRun(glyphs) = item else {
                     continue;
                 };
+                if glyphs.style().brush.hidden {
+                    last = None;
+                    continue;
+                }
+                if let Some(shadow) = glyphs.style().brush.shadow {
+                    self.text_shadow(&glyphs, shadow);
+                }
                 let placed = glyphs.positioned_glyphs().map(|g| Glyph {
                     id: g.id,
                     x: g.x,
@@ -597,11 +961,54 @@ impl Painter {
 
     /// `placed` in `run`'s font, size, variation and tone.
     fn glyphs(&mut self, run: &GlyphRun<'_, Ink>, placed: impl Iterator<Item = Glyph> + Clone) {
+        self.inked(run, placed, tone(run.style().brush));
+    }
+
+    /// A copy of `run` behind it, ringed by copies where it blurs.
+    fn text_shadow(&mut self, run: &GlyphRun<'_, Ink>, s: TextShadow) {
+        let size = run.run().font_size() / 100.0;
+        let [dx, dy] = s.at.map(|v| f32::from(v) * size);
+        let reach = f32::from(s.blur) * size / 2.0;
+        let plain = Ink {
+            colour: None,
+            ..run.style().brush
+        };
+        let alpha = f32::from(s.strength) / 255.0 * TEXT_SHADOW_ALPHA;
+        let rings: &[(f32, f32)] = match reach * self.scale >= 0.5 {
+            true => &[
+                (0.0, 0.0),
+                (-1.0, -1.0),
+                (1.0, -1.0),
+                (-1.0, 1.0),
+                (1.0, 1.0),
+            ],
+            false => &[(0.0, 0.0)],
+        };
+        let share = if rings.len() > 1 { 0.5 } else { 1.0 };
+        let ink = tone(plain).multiply_alpha(alpha * share);
+        for (rx, ry) in rings {
+            let (ox, oy) = (dx + rx * reach, dy + ry * reach);
+            let copy = run.positioned_glyphs().map(move |g| Glyph {
+                id: g.id,
+                x: g.x + ox,
+                y: g.y + oy,
+            });
+            self.inked(run, copy, ink);
+        }
+    }
+
+    /// `placed` in `run`'s font, size and variation, in `ink`.
+    fn inked(
+        &mut self,
+        run: &GlyphRun<'_, Ink>,
+        placed: impl Iterator<Item = Glyph> + Clone,
+        ink: Color,
+    ) {
         let font = run.run();
         self.coords.clear();
         self.coords
             .extend(font.normalized_coords().iter().map(|c| c.to_bits()));
-        self.ctx.set_paint(tone(run.style().brush));
+        self.ctx.set_paint(ink);
         // A glyph the font can't draw is left blank, not fatal.
         let _ = self
             .ctx
@@ -692,6 +1099,83 @@ impl Painter {
             }
         }
     }
+}
+
+/// `rect` as a kurbo rectangle.
+fn rect_of([x, y, w, h]: [f32; 4]) -> Rect {
+    let (l, t) = (f64::from(x), f64::from(y));
+    Rect::new(l, t, l + f64::from(w.max(0.0)), t + f64::from(h.max(0.0)))
+}
+
+/// `rect` with `radius` corners, `inset` in from its edge.
+fn round_rect(rect: [f32; 4], radius: f32, inset: f32) -> BezPath {
+    let [x, y, w, h] = rect;
+    let r = f64::from((radius - inset).max(0.0));
+    let (l, t) = (f64::from(x + inset), f64::from(y + inset));
+    let (rr, b) = (f64::from(x + w - inset), f64::from(y + h - inset));
+    RoundedRect::new(l, t, rr.max(l), b.max(t), r).to_path(0.1)
+}
+
+/// How far past its border a box's shadows and outline reach.
+fn reach(f: &Finish, em: f32) -> f32 {
+    let shadow = f.shadows.iter().filter(|s| !s.inset).fold(0.0f32, |m, s| {
+        let off = s.at[0].abs().max(s.at[1].abs());
+        m.max(off + s.spread.max(0.0) + s.blur.max(0.0) * 1.5)
+    });
+    let outline = f
+        .outline
+        .map_or(0.0, |o| o.offset.max(0.0) + o.width.max(0.0));
+    let frame = f
+        .frame
+        .as_ref()
+        .map_or(0.0, |r| r.outset.iter().fold(0.0f32, |m, o| m.max(*o)));
+    (shadow.max(outline).max(frame) * em).min(1000.0)
+}
+
+/// A gradient's stops as shares of its `length`, in order, as CSS places them.
+fn gradient_stops(g: &Gradient, length: f32, em: f32) -> Vec<(f32, f32)> {
+    let last = g.stops.len().saturating_sub(1);
+    let mut at: Vec<Option<f32>> = g
+        .stops
+        .iter()
+        .map(|(l, _)| l.map(|l| resolve(l, length, em) / length.max(0.01)))
+        .collect();
+    if let Some(first) = at.first_mut() {
+        first.get_or_insert(0.0);
+    }
+    if let Some(end) = at.last_mut() {
+        end.get_or_insert(1.0);
+    }
+    // No stop sits before the one ahead of it.
+    let mut most = f32::MIN;
+    for v in at.iter_mut().flatten() {
+        most = most.max(*v);
+        *v = most;
+    }
+    // Unplaced stops share the room between their placed neighbours.
+    let mut i = 0;
+    while i <= last {
+        if at.get(i).is_some_and(Option::is_some) {
+            i += 1;
+            continue;
+        }
+        let before = i.saturating_sub(1);
+        let after = (i..=last).find(|j| at.get(*j).is_some_and(Option::is_some));
+        let after = after.unwrap_or(last);
+        let a = at.get(before).copied().flatten().unwrap_or(0.0);
+        let b = at.get(after).copied().flatten().unwrap_or(1.0);
+        let gap = (after - before).max(1) as f32;
+        for j in i..after {
+            if let Some(v) = at.get_mut(j) {
+                *v = Some(a + (b - a) * (j - before) as f32 / gap);
+            }
+        }
+        i = after.max(i + 1);
+    }
+    at.into_iter()
+        .zip(&g.stops)
+        .map(|(v, (_, a))| (v.unwrap_or(0.0), a.clamp(0.0, 1.0)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -809,6 +1293,133 @@ mod tests {
         // A bullet and a grid of thin lines, all red.
         let reds = pixels.iter().filter(red).count();
         assert!(reds > 300, "{reds} red pixels");
+    }
+
+    /// The ink a space in box `b` draws, all alphas added up.
+    fn box_ink(b: crate::block::Boxed) -> u64 {
+        use crate::block::Look;
+        let mut block = Block::new(Content::Space(4.0));
+        let look = Look {
+            designed: true,
+            ..Look::default()
+        };
+        block.frame.look = Some(Arc::new(look));
+        block.frame.boxes = vec![Arc::new(b)];
+        let f = Flow::new(
+            Arc::new(vec![block]),
+            &Typography::default(),
+            Fonts::bundled(),
+        );
+        let px = f.render(0, 1.0, [0, 0, 794, 400]);
+        let rgba = px.as_ref().map_or(&[][..], |p| p.rgba.as_slice());
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| u64::from(p[3]))
+            .sum()
+    }
+
+    #[test]
+    fn shadows_gradients_frames_and_outlines_draw() {
+        use crate::block::{
+            Boxed, Edge, Finish, Frame9, Gradient, GradientShape, Layer, Outline, Shadow, Tile,
+        };
+        let base = Boxed {
+            border: [0.5; 4],
+            edges: [Edge::Clear; 4],
+            padding: [1.0; 4],
+            ..Boxed::default()
+        };
+        let with = |f: Finish| Boxed {
+            finish: Some(Arc::new(f)),
+            ..base.clone()
+        };
+        // A see-through border takes room and draws nothing.
+        assert_eq!(box_ink(base.clone()), 0);
+        let shadow = Finish {
+            shadows: vec![Shadow {
+                at: [0.5, 0.5],
+                blur: 0.5,
+                spread: 0.0,
+                strength: 0.8,
+                inset: false,
+            }],
+            ..Finish::default()
+        };
+        let ramp = Gradient {
+            shape: GradientShape::Linear(90.0),
+            stops: vec![(None, 1.0), (None, 0.0)],
+            repeating: false,
+        };
+        let outline = Outline {
+            width: 0.1,
+            offset: 0.2,
+            edge: Edge::Dashed,
+            colour: None,
+        };
+        let picture = Picture::probe(png(30, 30)).map(Arc::new);
+        let frame = picture.ok().map(|picture| Frame9 {
+            picture,
+            slice: [1.0 / 3.0; 4],
+            fill: false,
+            width: [0.5; 4],
+            outset: [0.0; 4],
+            tile: [Tile::Round; 2],
+        });
+        let cases = [
+            ("shadow", shadow.clone()),
+            (
+                "gradient",
+                Finish {
+                    layers: vec![Layer::Gradient(ramp)],
+                    ..Finish::default()
+                },
+            ),
+            (
+                "outline",
+                Finish {
+                    outline: Some(outline),
+                    ..Finish::default()
+                },
+            ),
+            (
+                "frame",
+                Finish {
+                    frame,
+                    ..Finish::default()
+                },
+            ),
+        ];
+        for (name, finish) in cases {
+            let ink = box_ink(with(finish));
+            assert!(ink > 2000, "{name}: {ink}");
+        }
+        // Opacity fades the whole box.
+        let full = box_ink(with(shadow.clone()));
+        let half = box_ink(with(Finish {
+            opacity: 0.5,
+            ..shadow
+        }));
+        assert!(half > 0 && half * 10 < full * 7, "{half} of {full}");
+    }
+
+    #[test]
+    fn gradient_stops_spread_as_css_places_them() {
+        use crate::block::{Gradient, GradientShape, Length};
+        let g = Gradient {
+            shape: GradientShape::Linear(180.0),
+            stops: vec![
+                (None, 1.0),
+                (None, 0.5),
+                (Some(Length::Percent(80.0)), 0.2),
+                (Some(Length::Percent(40.0)), 0.0),
+                (None, 0.1),
+            ],
+            repeating: false,
+        };
+        let stops = super::gradient_stops(&g, 100.0, 16.0);
+        let at: Vec<f32> = stops.iter().map(|s| (s.0 * 100.0).round()).collect();
+        assert_eq!(at, [0.0, 40.0, 80.0, 80.0, 100.0]);
     }
 
     #[test]

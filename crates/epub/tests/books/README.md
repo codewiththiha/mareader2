@@ -11,6 +11,12 @@ Gutenberg License it ships with, unchanged.
 
 sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a8679e`
 
+| File | What it is | Why it's here |
+|---|---|---|
+| `frames.epub` | *Frames and Shades*, written for these tests (3 KB) | Box shadows, gradients, a framing picture cut in nine, carved borders, outlines, opacity, hidden text and rules the book styles |
+
+sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
+
 ## Text files
 
 Markdown and plain text open converted to EPUBs (`docs/epub.md`).

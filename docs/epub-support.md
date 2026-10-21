@@ -111,3 +111,34 @@ native digits of Arabic, Indic, Thai, Lao, Khmer, Tibetan, Mongolian and
 Myanmar scripts, symbols, and strings. `type` and `value` attributes count
 as in HTML. `list-style-image` hangs the picture as the marker, at most a
 line tall. `::marker` sets the marker's text and colour.
+
+## Backgrounds and borders (E3)
+
+Boxes draw what CSS paints around them, in the theme's ink:
+
+- `box-shadow`, outer and inset, blurred and spread, several per box.
+- `linear-gradient` and `radial-gradient`, repeating too, with the old
+  prefixed forms; several background layers, the first on top.
+- `border-image`: the picture cut in nine by `slice`, its sides stretched,
+  repeated or rounded, with `width`, `outset` and `fill`.
+- `outline` and `outline-offset`, outside the border, taking no room.
+- Groove, ridge, inset and outset borders in two tones.
+- A transparent border takes its room and draws nothing.
+- `opacity` fades a box and everything in it, text included.
+- `visibility: hidden` keeps the room and draws nothing; the text is still
+  found by search. `filter` applies `opacity()` and `drop-shadow()`;
+  colour filters are left to the theme.
+- `text-shadow` draws a soft copy behind the glyphs.
+- Background pictures and border pictures may be `data:` URLs.
+
+Shades are strengths of the ink, as backgrounds are, so they follow every
+theme. A gradient behind text is kept faint enough to read; in an empty box
+it shows at full strength.
+
+## Rules as the book draws them (E3)
+
+An `hr` the book styles itself (a border, a background, a gradient, a
+picture, a shadow) is drawn as a box in the book's width, margins and
+style, so a centred short line, a double rule or a gradient fade shows as
+designed. Read as the reader's own, it is the reader's plain rule. An `hr`
+the book leaves alone is the reader's faint rule.

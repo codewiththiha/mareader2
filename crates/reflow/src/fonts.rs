@@ -118,6 +118,10 @@ pub(crate) struct Ink {
     pub(crate) code: bool,
     /// The book's colour, over the tone.
     pub(crate) colour: Option<[u8; 3]>,
+    /// Drawn over a soft offset copy of itself.
+    pub(crate) shadow: Option<crate::block::TextShadow>,
+    /// Laid but not drawn.
+    pub(crate) hidden: bool,
 }
 
 /// Font data plus layout scratch; one per layout job, never shared.

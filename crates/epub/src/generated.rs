@@ -417,7 +417,7 @@ pub(crate) fn string(s: &str) -> Option<(String, &str)> {
 }
 
 /// The end of a function's arguments: its `)`, outside quotes.
-fn close_paren(s: &str) -> Option<usize> {
+pub(crate) fn close_paren(s: &str) -> Option<usize> {
     let mut quote = None;
     for (i, c) in s.char_indices() {
         match (quote, c) {
