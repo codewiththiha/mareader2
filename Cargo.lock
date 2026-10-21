@@ -3147,6 +3147,7 @@ dependencies = [
  "image",
  "mareader-appearance",
  "mareader-assist",
+ "mareader-audio",
  "mareader-cefr",
  "mareader-dict",
  "mareader-epub",

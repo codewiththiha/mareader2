@@ -90,6 +90,8 @@ pub enum Gloss {
     PageMenu {
         page: usize,
         at: Pos2,
+        /// The book's text under the pointer, if any.
+        place: Option<mareader_session::Anchor>,
     },
     /// A page's AI bubble was clicked, or right-clicked.
     Bubble {

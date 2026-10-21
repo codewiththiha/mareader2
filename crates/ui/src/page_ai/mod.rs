@@ -204,6 +204,8 @@ struct Menu {
     step: Step,
     /// Picked pages, asked as groups; none for the page's own menu.
     pages: Vec<usize>,
+    /// Where a narrated book would read aloud from, else none.
+    narrated: Option<Option<mareader_session::Anchor>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1423,8 +1425,14 @@ impl PageAi {
         }
     }
 
-    /// Opens the page's menu, at a right-click.
-    pub fn open_menu(&mut self, pane: PaneId, page: usize, at: Pos2) {
+    /// Opens the page's menu at a right-click; `narrated` offers read-aloud.
+    pub fn open_menu(
+        &mut self,
+        pane: PaneId,
+        page: usize,
+        at: Pos2,
+        narrated: Option<Option<mareader_session::Anchor>>,
+    ) {
         self.bubble_menu = None;
         self.filter.clear();
         self.remember = false;
@@ -1434,6 +1442,7 @@ impl PageAi {
             at,
             step: Step::Tasks,
             pages: Vec::new(),
+            narrated,
         });
     }
 
@@ -1450,6 +1459,7 @@ impl PageAi {
             at,
             step: Step::Languages,
             pages,
+            narrated: None,
         });
     }
 

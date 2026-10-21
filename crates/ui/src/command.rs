@@ -138,6 +138,11 @@ pub enum Command {
     Study(crate::study::Action),
     /// The page AI's menus: a task to run, a result to show.
     PageAi(crate::page_ai::Action),
+    /// Reads the pane's book aloud from a place, else its page.
+    ReadAloud {
+        pane: PaneId,
+        from: Option<mareader_session::Anchor>,
+    },
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
     /// Looks the pane's selection up in the dictionaries.

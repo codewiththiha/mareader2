@@ -176,3 +176,38 @@ impl Default for MotionSettings {
         }
     }
 }
+
+/// How a book with narration is read aloud.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReadAloudSettings {
+    /// Playback speed; 1 is the narrator's own pace.
+    pub rate: f32,
+    pub skip_notes: bool,
+    pub skip_page_numbers: bool,
+    /// Pages turn to keep the phrase read in view.
+    pub follow: bool,
+}
+
+impl ReadAloudSettings {
+    pub const SLOWEST: f32 = 0.5;
+    pub const FASTEST: f32 = 3.0;
+
+    pub fn sanitize(&mut self) {
+        self.rate = match self.rate.is_finite() {
+            true => self.rate.clamp(Self::SLOWEST, Self::FASTEST),
+            false => 1.0,
+        };
+    }
+}
+
+impl Default for ReadAloudSettings {
+    fn default() -> Self {
+        Self {
+            rate: 1.0,
+            skip_notes: false,
+            skip_page_numbers: true,
+            follow: true,
+        }
+    }
+}

@@ -105,6 +105,11 @@ pub enum Icon {
     Show,
     /// Continuous mode: on as one reads.
     Repeat,
+    /// Read-aloud: its bar, steps and the way out of a table.
+    ReadAloud,
+    SkipBack,
+    SkipForward,
+    LeaveTable,
 }
 
 impl Icon {
@@ -187,6 +192,10 @@ impl Icon {
             Self::Stop => Lucide::CircleStop,
             Self::Show => Lucide::Eye,
             Self::Repeat => Lucide::Repeat,
+            Self::ReadAloud => Lucide::Headphones,
+            Self::SkipBack => Lucide::SkipBack,
+            Self::SkipForward => Lucide::SkipForward,
+            Self::LeaveTable => Lucide::ArrowRightFromLine,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,

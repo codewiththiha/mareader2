@@ -496,6 +496,8 @@ pub struct ViewContext {
     pub shading: Option<crate::vocab::Look>,
     /// The find bar's hits, in the pane it searches.
     pub found: Option<crate::search::Lit>,
+    /// The phrase read aloud, in the pane reading.
+    pub narrated: Option<crate::read_aloud::Lit>,
     /// Shots: opens the newest drawn mark's menu.
     pub menu_shot: bool,
     /// The page AI's bubbles and results on the pages shown.
@@ -971,6 +973,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
             }
+            if let Some(lit) = &cx.narrated {
+                crate::read_aloud::paint(ui, &text, lit, &t);
+            }
             if let Some(lit) = &cx.found {
                 crate::search::paint(ui, &text, lit, &t);
             }
@@ -1028,7 +1033,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 && !on_selection(&text, *selection, at)
                 && let Some(s) = sheets.iter().find(|s| s.shown.contains(at))
             {
-                gloss.push(Gloss::PageMenu { page: s.page, at });
+                let place = text.texts.get(text.doc, s.page).and_then(|layer| {
+                    let (x, y) = s.to_page(at);
+                    let i = layer.text.caret_at(x, y);
+                    let before = i.checked_sub(1).and_then(|i| layer.place(i));
+                    layer.place(i).or(before)
+                });
+                let place = place.map(|(block, offset)| mareader_session::Anchor { block, offset });
+                gloss.push(Gloss::PageMenu {
+                    page: s.page,
+                    at,
+                    place,
+                });
             } else if cx.menu_shot
                 && let Some(m) = placed.last()
             {
