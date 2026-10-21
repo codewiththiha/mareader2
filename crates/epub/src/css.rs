@@ -222,6 +222,10 @@ pub(crate) struct Decl {
     pub(crate) background: Option<bool>,
     pub(crate) background_image: Option<bool>,
     pub(crate) float: Option<Float>,
+    /// `position`, its `top`, `right`, `bottom` and `left`, and `z-index`.
+    pub(crate) placing: Option<Placing>,
+    pub(crate) offsets: [Option<Len>; 4],
+    pub(crate) z_index: Option<i32>,
     pub(crate) break_before: Option<bool>,
     pub(crate) break_after: Option<bool>,
     pub(crate) valign: Option<VAlign>,
@@ -335,6 +339,16 @@ pub(crate) enum Lift {
 /// A colour's red, green and blue.
 pub(crate) type Rgb = [u8; 3];
 
+/// `position`: only fixed pages place boxes by it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Placing {
+    #[default]
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Float {
     #[default]
@@ -368,7 +382,7 @@ macro_rules! each_field {
     ($m:ident, $a:ident, $b:ident) => {
         $m!($a, $b;
             italic, weight, align, display, unmarked, width, height, size, line,
-            letter, word, indent, family, background, background_image, float,
+            letter, word, indent, family, background, background_image, float, placing, z_index,
             break_before, break_after, valign, script, small_caps, numeric, ligatures, position,
             kerning, settings, last, orphans, widows, whole, keep_next, dir, writing, orient, combine,
             transform, decoration,
@@ -378,7 +392,7 @@ macro_rules! each_field {
             counter_set, quotes, list_style, list_image, layers, shadows, text_shadow,
             opacity, outline_width, outline_style, outline_colour, outline_offset, frame,
             frame_slice, frame_width, frame_outset, frame_tile, visible, filter_opacity, drop;
-            margin, padding, border_width, border_style, border_colour, border_clear)
+            margin, padding, border_width, border_style, border_colour, border_clear, offsets)
     };
 }
 
@@ -520,6 +534,26 @@ impl Decl {
             "border-image-width" => self.frame_width = decor::spans(v).or(self.frame_width),
             "border-image-outset" => self.frame_outset = decor::spans(v).or(self.frame_outset),
             "border-image-repeat" => self.frame_tile = decor::tiles(v).or(self.frame_tile),
+            "position" => {
+                self.placing = match v {
+                    "relative" | "sticky" => Some(Placing::Relative),
+                    "absolute" => Some(Placing::Absolute),
+                    "fixed" => Some(Placing::Fixed),
+                    "static" => Some(Placing::Static),
+                    _ => self.placing,
+                }
+            }
+            "top" => set_side(&mut self.offsets, 0, len(v)),
+            "right" => set_side(&mut self.offsets, 1, len(v)),
+            "bottom" => set_side(&mut self.offsets, 2, len(v)),
+            "left" => set_side(&mut self.offsets, 3, len(v)),
+            "inset" => sides(&mut self.offsets, v, len),
+            "z-index" => {
+                self.z_index = match v {
+                    "auto" => Some(0),
+                    _ => v.parse::<i32>().ok().or(self.z_index),
+                }
+            }
             "float" => {
                 self.float = match v {
                     "left" | "inline-start" => Some(Float::Left),
@@ -1196,6 +1230,8 @@ fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
         "page-break-before" | "page-break-after" | "break-before" | "break-after" => {
             ("auto", true, false)
         }
+        "position" => ("static", true, false),
+        "top" | "right" | "bottom" | "left" | "inset" | "z-index" => ("auto", true, false),
         "float"
         | "text-decoration"
         | "text-decoration-line"
@@ -2829,6 +2865,10 @@ pub(crate) struct Computed {
     pub(crate) height: Len,
     pub(crate) background: bool,
     pub(crate) float: Float,
+    pub(crate) placing: Placing,
+    /// Top, right, bottom, left: px, percentages or auto.
+    pub(crate) offsets: [Len; 4],
+    pub(crate) z_index: i32,
     pub(crate) break_before: bool,
     pub(crate) break_after: bool,
     /// A cell's `vertical-align`, if set.
@@ -2928,6 +2968,9 @@ impl Default for Computed {
             height: Len::Auto,
             background: false,
             float: Float::None,
+            placing: Placing::Static,
+            offsets: [Len::Auto; 4],
+            z_index: 0,
             break_before: false,
             break_after: false,
             valign: None,
@@ -3056,6 +3099,9 @@ impl Computed {
             height: d.height.map_or(Len::Auto, |l| l.computed(size)),
             background: d.background.unwrap_or(false) || d.background_image.unwrap_or(false),
             float: d.float.unwrap_or_default(),
+            placing: d.placing.unwrap_or_default(),
+            offsets: d.offsets.map(|o| o.map_or(Len::Auto, |l| l.computed(size))),
+            z_index: d.z_index.unwrap_or(0),
             break_before: d.break_before.unwrap_or(false),
             break_after: d.break_after.unwrap_or(false),
             valign: d.valign,

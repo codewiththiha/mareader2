@@ -8,6 +8,7 @@ use mareader_reflow::{
     Typography,
 };
 use rbook::Epub;
+use rbook::ebook::element::Properties;
 use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::css::{FontFace, MAX_SHEET, Stylesheet};
@@ -140,6 +141,8 @@ pub struct Book {
     language: Option<String>,
     /// Its pages turn right to left.
     rtl: bool,
+    /// The pages before spreads start pairing; `usize::MAX` pairs none.
+    lead: usize,
 }
 
 impl std::fmt::Debug for Book {
@@ -193,6 +196,7 @@ impl Book {
                 author: self.author.clone(),
                 language: self.language.clone(),
                 rtl: self.rtl,
+                lead: self.lead,
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
@@ -218,11 +222,17 @@ impl Book {
         let mut markup = 0;
         // The first chapter with content, where a cover may already be.
         let mut opening = None;
+        let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
         // A chapter that won't read is skipped, as a reader would.
-        for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
-            if entry.media_type() == SVG {
+        for item in epub.spine().iter() {
+            let Some(entry) = item.manifest_entry() else {
+                continue;
+            };
+            let fixed = fixed_item(item.properties(), book_fixed);
+            if is_picture(&entry) {
                 let (path, start) = (entry.href().decode(), blocks.len());
-                xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs));
+                let out = (&mut blocks, &mut refs);
+                xhtml::read_svg_page(&path, &mut shelf, out, fixed);
                 if opening.is_none() && blocks.len() > start {
                     opening = Some(start..blocks.len());
                 }
@@ -238,7 +248,10 @@ impl Book {
             let path = entry.href().decode();
             let start = blocks.len();
             let out = (&mut blocks, &mut refs);
-            xhtml::read_chapter(&content, &path, &mut shelf, out);
+            match fixed {
+                true => xhtml::read_fixed_chapter(&content, &path, &mut shelf, out),
+                false => xhtml::read_chapter(&content, &path, &mut shelf, out),
+            }
             if blocks.len() > MAX_BLOCKS {
                 return Err(OpenError::TooLarge);
             }
@@ -248,7 +261,9 @@ impl Book {
         }
         let cover = epub.manifest().cover_image().map(|e| e.href().decode());
         let cover = cover.and_then(|path| shelf.picture(&path));
-        if let Some(cover) = cover
+        // A fixed book's first page is its cover as the book draws it.
+        let drawn = blocks.first().is_some_and(|b| b.frame.sheet.is_some());
+        if let Some(cover) = cover.filter(|_| !drawn)
             && place_cover(&mut blocks, opening.unwrap_or(0..0), cover)
         {
             for at in refs.places.values_mut() {
@@ -262,6 +277,7 @@ impl Book {
             return Err(OpenError::Empty);
         }
         let rtl = right_to_left(&epub, language.as_deref(), &blocks);
+        let lead = spread_lead(&epub, rtl, &blocks);
         let blocks = Arc::new(blocks);
         let faces = load_faces(&epub, &refs.faces);
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
@@ -279,6 +295,7 @@ impl Book {
             notes: Arc::new(notes),
             toc: Arc::new(toc),
             rtl,
+            lead,
             title,
             author,
             language,
@@ -310,6 +327,23 @@ impl Book {
     /// Every page's width and height, in layout units (CSS px).
     pub fn page_size(&self) -> (f32, f32) {
         self.flow.page_size()
+    }
+
+    /// Page `page`'s width and height: a fixed page keeps its own shape.
+    pub fn size(&self, page: usize) -> (f32, f32) {
+        let (flow, page, _) = self.part(page);
+        flow.size(page)
+    }
+
+    /// Whether page `page` is a fixed-layout page, drawn as the book laid it.
+    pub fn fixed(&self, page: usize) -> bool {
+        let (flow, page, _) = self.part(page);
+        flow.is_fixed(page)
+    }
+
+    /// Pages shown alone before spreads pair; `usize::MAX` pairs none.
+    pub fn lead(&self) -> usize {
+        self.lead
     }
 
     /// The fonts it ships that its designed chapters use, unpacked.
@@ -584,8 +618,8 @@ pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
         let (mut blocks, mut refs) = (Vec::new(), Refs::default());
         for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
             let path = entry.href().decode();
-            if entry.media_type() == SVG {
-                xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs));
+            if is_picture(&entry) {
+                xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs), false);
                 if !blocks.is_empty() {
                     break;
                 }
@@ -775,6 +809,50 @@ fn right_to_left(epub: &Epub, language: Option<&str>, blocks: &[Block]) -> bool 
         .and_then(|l| l.split(['-', '_']).next())
         .unwrap_or_default();
     RTL_LANGUAGES.contains(&primary.to_ascii_lowercase().as_str())
+}
+
+/// `rendition:layout` for pages laid out by the book.
+const PRE_PAGINATED: &str = "pre-paginated";
+
+/// The first value of a package `<meta property>`, trimmed.
+fn meta(epub: &Epub, property: &str) -> Option<String> {
+    let first = epub.metadata().by_property(property).next();
+    first.map(|m| m.value().trim().to_owned())
+}
+
+/// Whether a spine item is fixed: its own override, else the book's.
+fn fixed_item(properties: &Properties, book: bool) -> bool {
+    let has = |p: &str| properties.has_property(p);
+    match () {
+        _ if has("rendition:layout-pre-paginated") => true,
+        _ if has("rendition:layout-reflowable") => false,
+        _ => book,
+    }
+}
+
+/// A spine item that is a picture, shown as a page of its own.
+fn is_picture(entry: &EpubManifestEntry) -> bool {
+    entry.media_type() == SVG || entry.media_type().starts_with("image/")
+}
+
+/// Pages alone before spreads: one if the first wants the far side.
+fn spread_lead(epub: &Epub, rtl: bool, blocks: &[Block]) -> usize {
+    if blocks.first().is_none_or(|b| b.frame.sheet.is_none()) {
+        return 0;
+    }
+    if meta(epub, "rendition:spread").as_deref() == Some("none") {
+        return usize::MAX;
+    }
+    let far = if rtl {
+        "page-spread-left"
+    } else {
+        "page-spread-right"
+    };
+    let first = epub.spine().iter().next();
+    let props = first.map(|s| s.properties());
+    let alone =
+        props.is_some_and(|p| p.has_property(far) || p.has_property(&format!("rendition:{far}")));
+    usize::from(alone)
 }
 
 /// Languages written right to left, by their primary subtag.
