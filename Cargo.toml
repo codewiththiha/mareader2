@@ -45,6 +45,8 @@ parley = { version = "0.12", default-features = false, features = ["std", "syste
 fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
 hypher = "0.1.8"
+# SVG pictures; the version egui_extras already builds.
+resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
 rbook = { version = "0.7.12", default-features = false, features = ["threadsafe", "write"] }
 html5ever = "0.40"

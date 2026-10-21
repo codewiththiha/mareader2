@@ -17,6 +17,7 @@ mod href;
 mod notes;
 pub mod sample;
 mod splice;
+mod svg;
 mod xhtml;
 
 pub use book::{

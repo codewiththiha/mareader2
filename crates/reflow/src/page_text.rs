@@ -86,9 +86,14 @@ impl Flow {
         })
     }
 
-    /// Page `page`'s pictures: left, top, width, height in page units.
+    /// Page `page`'s pictures keeping colours, black art aside:
+    /// left, top, width, height in page units.
     pub fn pictures(&self, page: usize) -> Vec<[f32; 4]> {
-        self.shown(page).into_iter().map(|(rect, _)| rect).collect()
+        let shown = self.shown(page).into_iter();
+        shown
+            .filter(|(_, p)| !p.ink())
+            .map(|(rect, _)| rect)
+            .collect()
     }
 
     /// Page `page`'s pictures where drawn, those in lines of text too.

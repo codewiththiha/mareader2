@@ -62,6 +62,8 @@ struct Shelf<'e> {
     epub: &'e Epub,
     pictures: HashMap<String, Option<Arc<Picture>>>,
     sheets: HashMap<String, Option<Arc<Stylesheet>>>,
+    /// Files SVG pictures link.
+    files: HashMap<String, Option<Arc<Vec<u8>>>>,
     budget: usize,
 }
 
@@ -74,10 +76,29 @@ impl Library for Shelf<'_> {
         let bytes = bytes.filter(|b| b.len() <= self.budget);
         let picture = bytes.and_then(|b| {
             self.budget -= b.len();
-            Picture::probe(b).ok().map(Arc::new)
+            let picture = if Picture::is_svg(&b) {
+                let links = xhtml::svg_links(self, path, Picture::svg_links(&b));
+                Picture::svg(b, links)
+            } else {
+                Picture::probe(b)
+            };
+            picture.ok().map(Arc::new)
         });
         self.pictures.insert(path.to_owned(), picture.clone());
         picture
+    }
+
+    fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>> {
+        if let Some(known) = self.files.get(path) {
+            return known.clone();
+        }
+        let bytes = self.epub.read_resource_bytes(path).ok();
+        let bytes = bytes.filter(|b| b.len() <= self.budget).map(|b| {
+            self.budget -= b.len();
+            Arc::new(b)
+        });
+        self.files.insert(path.to_owned(), bytes.clone());
+        bytes
     }
 
     fn stylesheet(&mut self, path: &str) -> Option<Arc<Stylesheet>> {
@@ -185,6 +206,7 @@ impl Book {
             epub: &epub,
             pictures: HashMap::new(),
             sheets: HashMap::new(),
+            files: HashMap::new(),
             budget: MAX_PICTURE_BYTES,
         };
         let mut blocks = Vec::new();
@@ -194,6 +216,14 @@ impl Book {
         let mut opening = None;
         // A chapter that won't read is skipped, as a reader would.
         for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
+            if entry.media_type() == SVG {
+                let (path, start) = (entry.href().decode(), blocks.len());
+                xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs));
+                if opening.is_none() && blocks.len() > start {
+                    opening = Some(start..blocks.len());
+                }
+                continue;
+            }
             let Some(content) = chapter_text(&entry) else {
                 continue;
             };
@@ -522,6 +552,7 @@ pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
             epub: &epub,
             pictures: HashMap::new(),
             sheets: HashMap::new(),
+            files: HashMap::new(),
             budget: MAX_PICTURE_BYTES,
         };
         let declared = epub.manifest().cover_image().map(|e| e.href().decode());
@@ -530,10 +561,17 @@ pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
         }
         let (mut blocks, mut refs) = (Vec::new(), Refs::default());
         for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
+            let path = entry.href().decode();
+            if entry.media_type() == SVG {
+                xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs));
+                if !blocks.is_empty() {
+                    break;
+                }
+                continue;
+            }
             let Some(content) = chapter_text(&entry).filter(|c| c.len() <= MAX_MARKUP) else {
                 continue;
             };
-            let path = entry.href().decode();
             xhtml::read_chapter(&content, &path, &mut shelf, (&mut blocks, &mut refs));
             if !blocks.is_empty() {
                 break;
@@ -549,6 +587,9 @@ pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
     };
     catch_unwind(AssertUnwindSafe(find)).ok().flatten()
 }
+
+/// The media type of SVG pages in the spine.
+const SVG: &str = "image/svg+xml";
 
 /// A chapter's markup; stray bytes that aren't UTF-8 become U+FFFD.
 fn chapter_text(entry: &EpubManifestEntry) -> Option<String> {
@@ -850,6 +891,61 @@ mod tests {
             assert!(x >= 0.0 && y >= 0.0 && x + lw <= w && y + lh <= h, "{l:?}");
             assert!(lh > 10.0 && lh < 60.0, "{l:?}");
         }
+    }
+
+    /// A book of `files`, stored: path, then contents; the package is
+    /// `OPS/p.opf`.
+    fn zipped(files: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let container = "<?xml version='1.0'?><container version='1.0' \
+            xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles>\
+            <rootfile full-path='OPS/p.opf' media-type='application/oebps-package+xml'/>\
+            </rootfiles></container>";
+        let all = [
+            ("mimetype", "application/epub+zip"),
+            ("META-INF/container.xml", container),
+        ];
+        for (name, body) in all.iter().chain(files) {
+            let _ = zip.start_file(*name, stored);
+            let _ = zip.write_all(body.as_bytes());
+        }
+        zip.finish()
+            .map(std::io::Cursor::into_inner)
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn an_svg_cover_page_in_the_spine_shows_once() {
+        let opf = "<?xml version='1.0'?><package xmlns='http://www.idpf.org/2007/opf' \
+            version='3.0' unique-identifier='id'><metadata \
+            xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='id'>x\
+            </dc:identifier><dc:title>T</dc:title><dc:language>en</dc:language></metadata>\
+            <manifest><item id='c' href='c.svg' media-type='image/svg+xml' \
+            properties='cover-image'/><item id='a' href='a.xhtml' \
+            media-type='application/xhtml+xml'/><item id='n' href='n.xhtml' \
+            media-type='application/xhtml+xml' properties='nav'/></manifest>\
+            <spine><itemref idref='c'/><itemref idref='a'/></spine></package>";
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='600' height='800'>\
+            <rect width='600' height='800' fill='teal'/></svg>";
+        let page = "<html xmlns='http://www.w3.org/1999/xhtml'><body><p>Words</p></body></html>";
+        let nav = "<html xmlns='http://www.w3.org/1999/xhtml' \
+            xmlns:epub='http://www.idpf.org/2007/ops'><body><nav epub:type='toc'>\
+            <ol><li><a href='a.xhtml'>A</a></li></ol></nav></body></html>";
+        let bytes = zipped(&[
+            ("OPS/p.opf", opf),
+            ("OPS/c.svg", svg),
+            ("OPS/a.xhtml", page),
+            ("OPS/n.xhtml", nav),
+        ]);
+        let book = open(bytes, &Typography::default());
+        let blocks = book.as_ref().map(|b| Arc::clone(b.blocks()));
+        let kinds: Vec<bool> = (blocks.iter().flat_map(|b| b.iter()))
+            .map(|b| matches!(b.content, Content::Image { cover: true, .. }))
+            .collect();
+        assert_eq!(kinds, [true, false], "{kinds:?}");
     }
 
     #[test]
