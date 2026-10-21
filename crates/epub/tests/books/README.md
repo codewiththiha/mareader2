@@ -16,8 +16,11 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `frames.epub` | *Frames and Shades*, written for these tests (3 KB) | Box shadows, gradients, a framing picture cut in nine, carved borders, outlines, opacity, hidden text and rules the book styles |
 | `values.epub` | *Values and Queries*, written for these tests (4 KB) | Sums and limits, custom properties, `@import`, `@supports`, `@media`, `@layer`, alternate and print sheets, global keywords |
 | `fonts.epub` | *Fonts and Figures*, written for these tests (93 KB); its fonts are subsets of the bundled Inter and JetBrains Mono (SIL Open Font License) | The same fonts hidden by the IDPF and Adobe schemes and packed as WOFF and WOFF2, then type features, last-line alignment and unbroken boxes |
+| `direction.epub` | *Directions and Notes*, written for these tests (64 KB); its fonts are subsets of DejaVu Sans (DejaVu Fonts License), Noto Sans CJK JP (SIL Open Font License) and the bundled JetBrains Mono | Arabic and Hebrew read right to left with right-to-left page order, ruby over Japanese and Latin bases, and a run in its own font family |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
+
+sha256 of `direction.epub`: `d10c8ded2d32f023152ac04b8296d2b533bcaeb5d01f6c38ba0580341d49e8db`
 
 ## Text files
 

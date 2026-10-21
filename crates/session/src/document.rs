@@ -184,6 +184,11 @@ impl Document {
         matches!(self, Self::Pdf(d) if d.cut_short())
     }
 
+    /// Whether its pages turn right to left, as a book may ask.
+    pub fn right_to_left(&self) -> bool {
+        matches!(self, Self::Epub { book, .. } if book.right_to_left())
+    }
+
     /// Whether the text reflows: the typography settings apply.
     pub fn is_reflowable(&self) -> bool {
         matches!(self, Self::Epub { .. })

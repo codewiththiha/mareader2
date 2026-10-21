@@ -138,6 +138,8 @@ pub struct Book {
     author: Option<String>,
     /// The `dc:language` tag, for hyphenation.
     language: Option<String>,
+    /// Its pages turn right to left.
+    rtl: bool,
 }
 
 impl std::fmt::Debug for Book {
@@ -190,6 +192,7 @@ impl Book {
                 title: self.title.clone(),
                 author: self.author.clone(),
                 language: self.language.clone(),
+                rtl: self.rtl,
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
@@ -274,6 +277,7 @@ impl Book {
             faces: Arc::new(faces),
             notes: Arc::new(notes),
             toc: Arc::new(toc),
+            rtl: right_to_left(&epub, language.as_deref()),
             title,
             author,
             language,
@@ -310,6 +314,11 @@ impl Book {
     /// The fonts it ships that its designed chapters use, unpacked.
     pub fn faces(&self) -> &[BookFace] {
         &self.faces
+    }
+
+    /// Whether its pages turn right to left, as its spine or language asks.
+    pub fn right_to_left(&self) -> bool {
+        self.rtl
     }
 
     /// The `dc:title` as written, if any.
@@ -744,6 +753,21 @@ fn place_cover(
     blocks.insert(0, block);
     true
 }
+
+/// The spine's page direction; with none, right to left for such languages.
+fn right_to_left(epub: &Epub, language: Option<&str>) -> bool {
+    let direction = epub.spine().page_direction();
+    if !direction.is_default() {
+        return direction.is_rtl();
+    }
+    let primary = language
+        .and_then(|l| l.split(['-', '_']).next())
+        .unwrap_or_default();
+    RTL_LANGUAGES.contains(&primary.to_ascii_lowercase().as_str())
+}
+
+/// Languages written right to left, by their primary subtag.
+const RTL_LANGUAGES: [&str; 10] = ["ar", "he", "iw", "fa", "ur", "yi", "ps", "sd", "ug", "dv"];
 
 #[cfg(test)]
 mod tests {

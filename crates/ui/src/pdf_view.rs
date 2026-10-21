@@ -166,6 +166,8 @@ pub struct PdfView {
     resize: Option<(usize, f64)>,
     /// A strip's spot to keep once the pages are laid out anew.
     keep: Option<(usize, Vec2)>,
+    /// The document's pages turn right to left.
+    rtl: bool,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
@@ -198,6 +200,7 @@ impl PdfView {
             fresh: true,
             resize: None,
             keep: None,
+            rtl: false,
             moved_at: 0.0,
             footnote: None,
             viewer: None,
@@ -313,7 +316,7 @@ impl PdfView {
 
     /// An arrow key: a turn, or along a strip a line and then a glide.
     pub fn arrow(&mut self, arrow: Arrow, count: usize, now: f64) {
-        if let Some(forward) = arrow.turns(self.mode) {
+        if let Some(forward) = arrow.turns(self.mode, self.rtl) {
             self.go(self.mode.turn(self.current, forward, count));
             return;
         }
@@ -575,6 +578,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     view.ease = motion::zoom(&ctx);
     let frame = ui.max_rect();
     let sizes = doc.page_sizes();
+    view.rtl = doc.right_to_left();
     // A book's vertical strip is a stream: each page cut to its text.
     let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
     if ui.rect_contains_pointer(frame) {
@@ -628,6 +632,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             Some(_) => cx.page.column,
             None => egui::Align::Center,
         },
+        rtl: view.rtl,
     };
     let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
     if rebuilt {
@@ -1773,6 +1778,7 @@ mod tests {
             gap: GAP,
             margin: MARGIN,
             align: egui::Align::Center,
+            rtl: false,
         };
         Layout::new(&[LETTER; 20], inputs)
     }

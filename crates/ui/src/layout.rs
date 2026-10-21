@@ -86,8 +86,14 @@ impl Arrow {
     }
 
     /// mareader's rule: arrows turn, except along a strip's own axis.
-    pub fn turns(self, mode: ViewMode) -> Option<bool> {
-        let forward = matches!(self, Self::Right | Self::Down);
+    pub fn turns(self, mode: ViewMode, rtl: bool) -> Option<bool> {
+        // A right-to-left book's pages turn leftward.
+        let ahead = if rtl && mode.paged() {
+            Self::Left
+        } else {
+            Self::Right
+        };
+        let forward = self == ahead || self == Self::Down;
         let along = match self {
             Self::Left | Self::Right => mode == ViewMode::Horizontal,
             Self::Up | Self::Down => !mode.paged(),
@@ -123,6 +129,8 @@ pub struct Inputs {
     pub margin: f32,
     /// Where vertical pages sit across a wider pane, `margin` off an edge.
     pub align: Align,
+    /// A spread's first page sits right, as a right-to-left book's.
+    pub rtl: bool,
 }
 
 /// Page rects in content space, for the pages laid out.
@@ -201,7 +209,7 @@ impl Layout {
                     inputs.inset + ((room.y - block.y) / 2.0).max(0.0) + MARGIN,
                 );
                 let mut x = at.x;
-                let rects = shown
+                let mut rects: Vec<Rect> = shown
                     .iter()
                     .map(|s| {
                         let r = Rect::from_min_size(pos2(x, at.y), *s);
@@ -209,6 +217,14 @@ impl Layout {
                         r
                     })
                     .collect();
+                if inputs.rtl
+                    && let [first, second] = rects.as_mut_slice()
+                {
+                    // The pair swaps sides, keeping its own widths.
+                    let (left, w) = (first.left(), second.width());
+                    *second = second.translate(vec2(left - second.left(), 0.0));
+                    *first = first.translate(vec2(w, 0.0));
+                }
                 let size = vec2(frame.x.max(block.x), frame.y.max(inputs.inset + block.y));
                 Self::with(inputs, first, rects, size)
             }
@@ -326,6 +342,7 @@ mod tests {
             gap: GAP,
             margin: MARGIN,
             align: Align::Center,
+            rtl: false,
         }
     }
 
@@ -353,6 +370,23 @@ mod tests {
     }
 
     #[test]
+    fn a_right_to_left_spread_shows_its_first_page_right() {
+        let sizes = [LETTER, WIDE, LETTER];
+        let ltr = layout(ViewMode::Spread, &sizes, 1.0, 0);
+        let rtl = Layout::new(
+            &sizes,
+            Inputs {
+                rtl: true,
+                ..inputs(ViewMode::Spread, 1.0, 0)
+            },
+        );
+        let left = |l: &Layout, p| l.rect(p).map(|r| r.left());
+        assert_eq!(left(&rtl, 1), left(&ltr, 0));
+        assert_eq!(left(&rtl, 0), left(&ltr, 0).map(|x| x + WIDE.width));
+        assert_eq!(rtl.rect(0).map(|r| r.width()), Some(LETTER.width));
+    }
+
+    #[test]
     fn spreads_pair_pages_from_the_first_and_steps_clamp() {
         let m = ViewMode::Spread;
         assert_eq!(
@@ -371,12 +405,16 @@ mod tests {
 
     #[test]
     fn arrows_turn_except_along_a_strip() {
-        assert_eq!(Arrow::Down.turns(ViewMode::Single), Some(true));
-        assert_eq!(Arrow::Left.turns(ViewMode::Spread), Some(false));
-        assert_eq!(Arrow::Right.turns(ViewMode::Vertical), Some(true));
-        assert_eq!(Arrow::Down.turns(ViewMode::Vertical), None);
-        assert_eq!(Arrow::Right.turns(ViewMode::Horizontal), None);
-        assert_eq!(Arrow::Up.turns(ViewMode::Horizontal), None);
+        assert_eq!(Arrow::Down.turns(ViewMode::Single, false), Some(true));
+        assert_eq!(Arrow::Left.turns(ViewMode::Spread, false), Some(false));
+        assert_eq!(Arrow::Right.turns(ViewMode::Vertical, false), Some(true));
+        assert_eq!(Arrow::Down.turns(ViewMode::Vertical, false), None);
+        assert_eq!(Arrow::Right.turns(ViewMode::Horizontal, false), None);
+        assert_eq!(Arrow::Up.turns(ViewMode::Horizontal, false), None);
+        // Right to left, Left turns on and Right back.
+        assert_eq!(Arrow::Left.turns(ViewMode::Spread, true), Some(true));
+        assert_eq!(Arrow::Right.turns(ViewMode::Single, true), Some(false));
+        assert_eq!(Arrow::Right.turns(ViewMode::Vertical, true), Some(true));
     }
 
     #[test]

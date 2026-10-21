@@ -45,7 +45,7 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | `font-variant`, `font-feature-settings`, `text-align-last`, widows and orphans, `break-inside` | Missing | E5 |
 | `dir`, right-to-left text and page order | Missing | E6 |
 | Ruby | Read as plain text | E6 |
-| Vertical writing (`writing-mode`) | Missing | E6 |
+| Vertical writing (`writing-mode`) | Missing | E6b |
 | Fixed layout (`pre-paginated`, spreads) | Read as reflowable | E7 |
 | MathML | Skipped | E8 |
 | Audio, video, `object` fallbacks, `epub:switch`, manifest fallbacks | Missing | E9 |
@@ -59,7 +59,8 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | E3 | Backgrounds and borders: `border-image`, shadows, gradients, layered backgrounds, outlines, opacity, visibility, text shadows, `hr` as the book draws it. |
 | E4 | CSS values and queries: maths functions, custom properties, media features, importance. |
 | E5 | Fonts and text: de-obfuscation, WOFF and WOFF2, font features, last-line alignment, widows and orphans, unbroken blocks. |
-| E6 | Languages: bidirectional text, right-to-left page order, ruby, vertical writing. |
+| E6 | Languages: bidirectional text, right-to-left page order, ruby, runs in their own font family. |
+| E6b | Vertical writing: `writing-mode`, upright and sideways runs, columns read right to left. |
 | E7 | Fixed layout: pre-paginated pages at their viewport, spreads, absolute positions. |
 | E8 | MathML: fractions, scripts, roots, rows, operators, tables. |
 | E9 | Media and fallbacks: audio and video as their poster or a labelled box, `object` and `epub:switch` fallbacks, manifest fallback chains. |
@@ -208,3 +209,37 @@ the book's `widows` and `orphans` (up to eight lines; two by default).
 page when it fits on one, and `break-after: avoid` keeps a block with the
 next as headings are kept. These follow the book in designed chapters;
 prose keeps the reader's two-line rule.
+
+## Right to left (E6)
+
+A block's direction comes from its `dir` attribute or the CSS `direction`
+property, inherited, the sheet winning over the attribute. `auto`, or no
+direction at all, reads the block's first strong letter: Hebrew, Arabic,
+Syriac, Thaana and N'Ko read right to left, anything else left to right.
+Lines then start at the right and mixed runs are ordered by the Unicode
+bidirectional algorithm, so English words and numbers in an Arabic line
+keep their own order. List and quote indents, quote bars and list markers
+move to the right side. Drop caps, table columns and an explicit `left`
+or `right` alignment keep their sides.
+
+Pages turn right to left when the spine's `page-progression-direction` is
+`rtl`, or, with none given, when the book's language is Arabic, Hebrew,
+Persian, Urdu, Yiddish, Pashto, Sindhi, Uyghur or Dhivehi. A spread then
+shows its first page on the right, and in single and spread views the left
+arrow goes forward. Scrolling views are unchanged.
+
+## Ruby and run fonts (E6)
+
+The text of `<rt>` and `<rtc>` becomes a note over the base read since the
+ruby began or since its last note, trimmed of space; `<rp>` fallbacks are
+hidden. Notes are drawn at half the base's size, centred over the first
+line part of their base, and a line holding one grows by 0.6 em to make
+room. Notes keep to reading order, never overlap, and hold at most 256
+bytes; they aren't part of the page's text, so search and selection see
+only the base.
+
+In designed chapters, a run whose `font-family` differs from its block's
+is set in its own stack (up to 255 per block), and a font the book ships
+loads when only such runs use it. The book's family on `code` now wins
+over the reader's monospace.
+
