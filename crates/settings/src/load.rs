@@ -214,7 +214,8 @@ fn parse_sections(
         dictionary,
         ai,
         workspace,
-        library
+        library,
+        read_aloud
     );
     // What's left was never read: a section missing above resets each launch.
     root.remove("version");
