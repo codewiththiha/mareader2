@@ -315,3 +315,42 @@ Only the first page's `page-spread-*` is read, so
 landscape-only spreads aren't followed.
 
 sha256 of `fxl.epub`: `85764517a37055bb1ffea996559fad292c7067a9f66a5cf4c4357ca056333361`
+
+## MathML (E8)
+
+Presentation MathML is laid out by the reader, without scripts, and
+drawn as a picture. Its type is STIX Two Math (OFL), bundled as a subset
+of the math ranges with its MATH table, whose constants set every shift,
+gap and rule. Glyphs are drawn as outlines, so formulas stay sharp at any
+zoom. A black formula is line art: it takes the theme's ink, as text does.
+`mathcolor` keeps its colour.
+
+A `math` element sits in its line, its baseline on the text's. With
+`display="block"`, or `display: block` from the book's CSS, it's its own
+block, centred and set in display style. Formulas show in table cells
+too, where display math sits in the cell's line. A prefixed `m:math`
+reads the same.
+
+| Element | How it's set |
+| --- | --- |
+| `mi`, `mn`, `mo`, `mtext`, `ms`, `mspace` | One-letter `mi` in italic; `mathvariant` maps letters, Greek and digits to the math alphabets |
+| `mo` | An operator dictionary: spacing by kind, a sign after an operator is unary, `form`, `lspace`, `rspace`, `stretchy`, `largeop`, `movablelimits`, `accent` |
+| `mrow`, `mstyle`, `mpadded`, `mphantom`, `merror` | `displaystyle`, `scriptlevel`, `mathsize`, `mathcolor`; padding by lengths, percentages and `width`, `height`, `depth` |
+| `mfrac` | `linethickness` (none for binomials), `numalign`, `denomalign`, `bevelled` |
+| `msqrt`, `mroot` | The radical grows by size variants, then by parts; the index sits by the MATH kerns |
+| `msub`, `msup`, `msubsup`, `mmultiscripts` | Scripts shrink a level and shift by the MATH rules, prescripts too |
+| `munder`, `mover`, `munderover` | Limits above and below in display style, beside as scripts in a line; accents sit close; braces and arrows stretch across |
+| `mtable`, `mtr`, `mtd` | Centred on the math axis; `columnalign`, `columnspacing`, `rowspacing`, `columnlines`, `rowlines`, `frame` |
+| `menclose` | `box`, `roundedbox`, `circle`, sides, `actuarial`, `madruwb`, `longdiv`, `radical` and the strikes |
+| `mfenced`, `semantics`, `maction`, `mstack` | Fences and separators; the first child that isn't an annotation; the selected child; rows right-aligned |
+
+Fences in a row grow to what they hold. Large operators take their
+display size in display style. A formula that nests deeper than 48
+levels or holds over 4096 elements isn't set. Its `altimg` shows
+instead, else its `alttext`, else its text.
+
+`mlabeledtr` labels are left out. `mglyph` and `annotation-xml` aren't
+drawn. Line breaking inside a formula isn't done: a long inline formula
+stays in one piece. Copy and search skip formulas.
+
+sha256 of `math.epub`: `a9b54ffb7b329a7352072e0379844b7b1a351122880b5b5260f385217f6cb488`
