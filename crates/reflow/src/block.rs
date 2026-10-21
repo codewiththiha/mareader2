@@ -217,6 +217,8 @@ pub struct Row {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Table {
     pub rows: Vec<Row>,
+    /// The grid's colour, as [`Emphasis::colour`]; `None` is the faint rule.
+    pub rule: Option<[u8; 3]>,
 }
 
 /// What a block holds.
@@ -319,6 +321,8 @@ pub struct Boxed {
     pub centre: Option<f32>,
     /// Its background as a strength of the theme's ink, 0 to 1.
     pub fill: Option<f32>,
+    /// Each border side's colour, as [`Emphasis::colour`]; `None` is ink.
+    pub colours: [Option<[u8; 3]>; 4],
     /// The least height of its content, in body ems.
     pub height: Option<f32>,
     pub backdrop: Option<Arc<Backdrop>>,
@@ -434,6 +438,8 @@ pub struct Frame {
     pub bars: Vec<f32>,
     /// A list marker hung left of the first line, like "•" or "3.".
     pub marker: Option<String>,
+    /// The marker's colour, as [`Emphasis::colour`].
+    pub marker_colour: Option<[u8; 3]>,
     pub align: Align,
     /// A small gap above, as between list items.
     pub tight: bool,
@@ -522,7 +528,7 @@ impl Block {
             Content::Text(t) => Content::Text(t.cut(range)),
             Content::Table(t) => {
                 let rows = t.rows.get(range).map(<[_]>::to_vec).unwrap_or_default();
-                Content::Table(Table { rows })
+                Content::Table(Table { rows, rule: t.rule })
             }
             other => other.clone(),
         };
@@ -633,7 +639,7 @@ mod tests {
             }],
             head: false,
         };
-        let table = |rows| Block::new(Content::Table(Table { rows }));
+        let table = |rows| Block::new(Content::Table(Table { rows, rule: None }));
         assert!(table(vec![row(" ")]).is_blank());
         assert!(table(vec![]).is_blank());
         assert!(!table(vec![row(" "), row("x")]).is_blank());
@@ -653,7 +659,10 @@ mod tests {
             cells: vec![cell("ab"), cell("")],
             head: false,
         };
-        let table = Block::new(Content::Table(Table { rows: vec![row] }));
+        let table = Block::new(Content::Table(Table {
+            rows: vec![row],
+            rule: None,
+        }));
         assert_eq!(table.layout_cost(), 2 * LAYOUT_BYTES + 2 * CHAR_BYTES);
         assert_eq!(Block::new(Content::Rule).layout_cost(), 0);
     }

@@ -389,6 +389,7 @@ struct State<'a> {
     book_ink: css::Rgb,
     /// A list item's marker, waiting for its first block.
     marker: Option<String>,
+    marker_colour: Option<css::Rgb>,
     /// The first block of an outermost list keeps the full gap above.
     list_opened: bool,
     /// Just inside `<pre>`, where one leading newline is dropped.
@@ -851,8 +852,12 @@ impl State<'_> {
         let spec = layout.then(|| boxed(name, c, d, cell)).flatten();
         let painted = contrast.is_some() || backdrop.is_some();
         let spec = spec.or_else(|| painted.then(|| bare(c)));
+        let colours = c
+            .border_colour
+            .map(|ink| ink.and_then(|ink| self.drawn(ink, MAX_BORDER_FADE)));
         let spec = spec.map(|spec| Boxed {
             fill: contrast.map(|c| c.min(MAX_TEXT_FILL)),
+            colours,
             backdrop,
             ..spec
         });
@@ -1052,12 +1057,14 @@ impl State<'_> {
             case: c.map_or(Case::Normal, Computed::case),
             underline,
             strike,
-            colour: c.and_then(|c| c.ink).and_then(|ink| self.drawn(ink)),
+            colour: c
+                .and_then(|c| c.ink)
+                .and_then(|ink| self.drawn(ink, MAX_FADE)),
         }
     }
 
     /// `ink` as the page draws it, given the background it sits on.
-    fn drawn(&self, ink: css::Rgb) -> Option<css::Rgb> {
+    fn drawn(&self, ink: css::Rgb, most: f32) -> Option<css::Rgb> {
         let ground = self
             .stack
             .iter()
@@ -1066,7 +1073,20 @@ impl State<'_> {
                 true => o.computed.fill,
                 false => None,
             });
-        drawn(ink, ground.unwrap_or(self.page), self.book_ink, self.page)
+        let ground = ground.unwrap_or(self.page);
+        drawn(ink, (ground, self.book_ink, self.page), most)
+    }
+
+    /// The colour a data table's grid takes: its first drawn border's.
+    fn rule(&mut self, c: &Computed) {
+        let seen = c.border.iter().zip(&c.border_style).zip(&c.border_colour);
+        let ink = seen
+            .filter(|((w, s), _)| **w > 0.0 && **s != BorderStyle::None)
+            .find_map(|(_, ink)| *ink);
+        let drawn = ink.and_then(|ink| self.drawn(ink, MAX_BORDER_FADE));
+        if let Some(t) = self.table.as_mut().filter(|t| t.nested == 0) {
+            t.table.rule = t.table.rule.or(drawn);
+        }
     }
 
     fn role(&self) -> Role {
@@ -1167,6 +1187,7 @@ impl State<'_> {
         if self.current.is_none() {
             let mut frame = self.frame();
             frame.marker = self.marker.take();
+            frame.marker_colour = self.marker_colour.take();
             let role = self.role();
             if let Some(look) = frame.look.clone() {
                 self.observe_text(&look, role);
@@ -1752,6 +1773,9 @@ impl State<'_> {
             "table" | "thead" | "tbody" | "tfoot" | "tr" | "td" | "th" | "caption"
         ) {
             self.start_table(name, tag);
+            if matches!(name, "table" | "td" | "th") {
+                self.rule(&computed);
+            }
         }
         if is_void(name) || tag.self_closing || self.stack.len() >= MAX_DEPTH {
             if shown && is_block(name) && self.table.is_none() {
@@ -1775,6 +1799,7 @@ impl State<'_> {
             // An unmarked item still counts, as CSS counters do.
             let marker = self.next_marker();
             self.marker = (!style.unmarked).then_some(marker);
+            self.marker_colour = computed.ink.and_then(|ink| self.drawn(ink, MAX_FADE));
         }
         if let Some(href) = attr(tag, "href").filter(|_| name == "a") {
             style.link = self.link_to(href);
@@ -1946,13 +1971,18 @@ impl State<'_> {
     }
 }
 
+/// A colour's background, the book's text colour and its page colour.
+type Grounds = (css::Rgb, css::Rgb, css::Rgb);
+
 /// How far a book's text colour may fade toward the paper, staying legible.
 const MAX_FADE: f32 = 0.55;
+/// Borders may stay fainter: a book's light rules are meant quiet.
+const MAX_BORDER_FADE: f32 = 0.85;
 /// Below this gap between the book's text and page, its colours mean little.
 const MIN_SPAN: f32 = 0.3;
 
 /// `ink` on the page's greys, faded by how far its contrast falls short.
-fn drawn(ink: css::Rgb, ground: css::Rgb, base: css::Rgb, page: css::Rgb) -> Option<css::Rgb> {
+fn drawn(ink: css::Rgb, (ground, base, page): Grounds, most: f32) -> Option<css::Rgb> {
     let unit = |c: css::Rgb| c.map(|v| f32::from(v) / 255.0);
     let luma = |[r, g, b]: [f32; 3]| 0.2126 * r + 0.7152 * g + 0.0722 * b;
     let span = (luma(unit(base)) - luma(unit(page))).abs();
@@ -1965,7 +1995,7 @@ fn drawn(ink: css::Rgb, ground: css::Rgb, base: css::Rgb, page: css::Rgb) -> Opt
     let off = colour.map(|v| v - grey);
     // Never darker than the hue needs: black holds none.
     let need = off.iter().fold(0.0f32, |n, &o| n.max(-o));
-    let fade = (1.0 - contrast).max(need).clamp(0.0, MAX_FADE);
+    let fade = (1.0 - contrast).max(need).clamp(0.0, most);
     if fade < 0.03 && off.iter().all(|o| o.abs() < 0.04) {
         return None;
     }
@@ -2417,6 +2447,7 @@ pub(crate) fn read_chapter(
         page: [255; 3],
         book_ink: [0; 3],
         marker: None,
+        marker_colour: None,
         list_opened: false,
         pre_opened: false,
         top: Vec::new(),
@@ -2557,6 +2588,44 @@ mod tests {
         assert!(near(of("grey"), 128), "{marks:?}");
         // A faint colour fades only so far.
         assert!(near(of("faint"), 140), "{marks:?}");
+    }
+
+    #[test]
+    fn borders_markers_and_grids_take_the_books_colours() {
+        let b = read(
+            "<html><head><style>.box { border: 2px solid #c00; border-left-color: #000 } \
+             .tint { color: #1c71d8; border-bottom: 1px dotted } .faint { border: 1px solid #ddd } \
+             li { color: #c00 } td { border: 1px solid #c00 }</style></head><body>\
+             <div class='box'><p>boxed</p></div><p class='tint'>tinted</p>\
+             <div class='faint'><p>faint</p></div><ul><li>item</li></ul>\
+             <table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table></body></html>",
+        );
+        let block = |word: &str| {
+            b.iter()
+                .find(|b| text(b).is_some_and(|t| t.text.trim() == word))
+        };
+        let sides = |word: &str| {
+            let frame = block(word).map(|b| &b.frame);
+            frame.and_then(|f| f.boxes.last()).map(|b| b.colours)
+        };
+        let red = Some([204, 0, 0]);
+        // The book's own ink stays the theme's; other sides keep theirs.
+        assert_eq!(sides("boxed"), Some([red, red, red, None]));
+        // Unsaid, a border takes its text's colour.
+        let blue = sides("tinted").and_then(|s| s[2]);
+        assert!(blue.is_some_and(|[r, _, b]| b > r + 100), "{blue:?}");
+        // A light rule may stay lighter than text would.
+        let faint = sides("faint").and_then(|s| s[0]);
+        assert!(
+            faint.is_some_and(|c| c.iter().all(|v| *v > 150)),
+            "{faint:?}"
+        );
+        assert_eq!(block("item").and_then(|b| b.frame.marker_colour), red);
+        let grid = b.iter().find_map(|b| match &b.content {
+            Content::Table(t) => Some(t.rule),
+            _ => None,
+        });
+        assert_eq!(grid, Some(red));
     }
 
     #[test]

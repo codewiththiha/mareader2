@@ -244,6 +244,7 @@ pub(crate) struct Placed {
     width: f32,
     border: [f32; 4],
     edges: [Edge; 4],
+    colours: [Option<[u8; 3]>; 4],
     /// From its top border to its first block, its last block to the bottom.
     top: f32,
     bottom: f32,
@@ -334,6 +335,7 @@ pub(crate) struct Deco {
     pub(crate) rect: [f32; 4],
     pub(crate) border: [f32; 4],
     pub(crate) edges: [Edge; 4],
+    pub(crate) colours: [Option<[u8; 3]>; 4],
     pub(crate) fill: Option<f32>,
     pub(crate) backdrop: Option<Arc<Backdrop>>,
     pub(crate) em: f32,
@@ -347,6 +349,8 @@ pub(crate) struct Grid {
     pub(crate) pad: [f32; 2],
     /// Which rows are head rows.
     pub(crate) heads: Vec<bool>,
+    /// The book's colour for the grid, if it sets one.
+    pub(crate) rule: Option<[u8; 3]>,
 }
 
 /// A block's text layouts: the bulk of a set book, so laid on demand.
@@ -1406,7 +1410,14 @@ impl<'a> Setter<'a> {
         }
         let marker = frame.marker.as_deref().map(|m| {
             let mut t = Text::new(Role::Paragraph);
-            t.push(m, Emphasis::default());
+            let colour = frame.marker_colour;
+            t.push(
+                m,
+                Emphasis {
+                    colour,
+                    ..Emphasis::default()
+                },
+            );
             let style = Style {
                 align: Align::Start,
                 pre: false,
@@ -1448,7 +1459,17 @@ impl<'a> Setter<'a> {
             heads.push(row.head);
         }
         let pad = [pad_x, pad_y];
-        (Grid { column, pad, heads }, rows, units)
+        let rule = table.rule;
+        (
+            Grid {
+                column,
+                pad,
+                heads,
+                rule,
+            },
+            rows,
+            units,
+        )
     }
 }
 
@@ -1483,6 +1504,7 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         width: outer,
         border: b.border.map(|w| w * em),
         edges: b.edges,
+        colours: b.colours,
         top: b.top * em,
         bottom: b.bottom * em,
         centre: b.centre,
@@ -2156,6 +2178,7 @@ impl OpenBox {
             rect: rect.map(|v| if v.is_finite() { v } else { 0.0 }),
             border,
             edges,
+            colours: p.colours,
             fill: p.fill,
             backdrop: p.backdrop.clone(),
             em: p.em,
@@ -3509,7 +3532,7 @@ mod tests {
                 head: i == 0,
             })
             .collect();
-        let f = flow(&[Block::new(Content::Table(Table { rows }))]);
+        let f = flow(&[Block::new(Content::Table(Table { rows, rule: None }))]);
         assert!(f.page_count() >= 2, "{}", f.page_count());
         let rows: Vec<usize> = f
             .pages
@@ -3534,7 +3557,7 @@ mod tests {
         // Some lead-in length leaves room for only the head row.
         for words in (200..900).step_by(9) {
             let rows = vec![row(true), row(false), row(false)];
-            let table = Block::new(Content::Table(Table { rows }));
+            let table = Block::new(Content::Table(Table { rows, rule: None }));
             let f = flow(&[para(words), table]);
             for page in &f.pages {
                 let last = page.last();
