@@ -1,0 +1,402 @@
+//! Narration: a chapter's media overlay read into timed phrases (E10).
+
+use quick_xml::Reader;
+use quick_xml::events::{BytesStart, Event};
+
+use std::sync::Arc;
+
+use mareader_reflow::Anchor;
+
+use crate::css::{self, Ctx, Decl, El, Rgb, Stylesheet};
+use crate::href;
+use crate::xhtml::Refs;
+
+/// Phrases kept from one overlay file, so a huge one can't swamp memory.
+pub const MAX_PHRASES: usize = 100_000;
+/// `seq` nesting followed; deeper ones count as their outermost.
+const MAX_DEPTH: usize = 64;
+
+/// Kinds of secondary content a listener may choose to skip.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Skips {
+    /// Footnotes, endnotes and other notes.
+    pub notes: bool,
+    /// Printed page numbers.
+    pub page_numbers: bool,
+}
+
+impl Skips {
+    fn of(kinds: &str) -> Self {
+        let has = |names: &[&str]| kinds.split_ascii_whitespace().any(|k| names.contains(&k));
+        Self {
+            notes: has(&["footnote", "endnote", "rearnote", "note", "noteref"]),
+            page_numbers: has(&["pagebreak", "page-break"]),
+        }
+    }
+
+    fn or(self, other: Self) -> Self {
+        Self {
+            notes: self.notes || other.notes,
+            page_numbers: self.page_numbers || other.page_numbers,
+        }
+    }
+
+    pub fn any(self) -> bool {
+        self.notes || self.page_numbers
+    }
+}
+
+/// Whether `kinds` names a structure a listener may step out of.
+fn escapable(kinds: &str) -> bool {
+    let names = [
+        "table",
+        "table-row",
+        "table-cell",
+        "list",
+        "list-item",
+        "figure",
+        "aside",
+        "sidebar",
+    ];
+    kinds.split_ascii_whitespace().any(|k| names.contains(&k))
+}
+
+/// One `par` as written: the text it shows and the audio that reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Par {
+    /// The text's file and its fragment, if it names one.
+    pub(crate) file: String,
+    pub(crate) id: Option<String>,
+    pub(crate) audio: Option<Spoken>,
+    pub(crate) skips: Skips,
+    /// The outermost escapable structure it is in, numbered book-wide.
+    pub(crate) escape: Option<u32>,
+}
+
+/// A stretch of an audio file, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spoken {
+    /// Its path in the archive.
+    pub path: String,
+    pub begin: f64,
+    /// `None` plays to the file's end.
+    pub end: Option<f64>,
+}
+
+/// A stretch of the book read aloud, and where its sound is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Phrase {
+    /// The text it reads, from `start` up to `end`.
+    pub start: Anchor,
+    pub end: Anchor,
+    pub audio: Spoken,
+    pub skips: Skips,
+    /// Phrases sharing one leave a table or list together.
+    pub escape: Option<u32>,
+}
+
+/// A book's narration: its phrases in order, and how it shows them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Narration {
+    pub phrases: Vec<Phrase>,
+    /// The fill the book gives the phrase being read, if any.
+    pub highlight: Option<Rgb>,
+    pub narrator: Option<String>,
+    /// The whole book's length in seconds, as its metadata says.
+    pub duration: Option<f64>,
+}
+
+/// `pars` as phrases of the book; those without sound are dropped.
+pub(crate) fn phrases(pars: Vec<Par>, refs: &Refs, blocks: usize) -> Vec<Phrase> {
+    let mut starts: Vec<usize> = (refs.places.iter())
+        .filter(|(key, _)| !key.contains('#'))
+        .map(|(_, at)| at.block)
+        .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    // A whole chapter runs to where the next one starts.
+    let chapter = |start: Anchor| {
+        let next = starts.iter().find(|b| **b > start.block);
+        let block = next.copied().unwrap_or(blocks.max(start.block + 1));
+        (start, Anchor { block, offset: 0 })
+    };
+    let span = |par: &Par| {
+        let file = *refs.places.get(&par.file)?;
+        let Some(id) = &par.id else {
+            return Some(chapter(file));
+        };
+        let key = format!("{}#{id}", par.file);
+        let Some(start) = refs.places.get(&key).copied() else {
+            return Some(chapter(file));
+        };
+        let next = Anchor {
+            block: start.block + 1,
+            offset: 0,
+        };
+        let end = refs.ends.get(&key).copied().filter(|e| *e > start);
+        Some((start, end.unwrap_or(next)))
+    };
+    (pars.into_iter())
+        .filter_map(|par| {
+            let (start, end) = span(&par)?;
+            Some(Phrase {
+                start,
+                end,
+                audio: par.audio?,
+                skips: par.skips,
+                escape: par.escape,
+            })
+        })
+        .collect()
+}
+
+/// The background `sheets` give an element of class `class`.
+pub(crate) fn highlight(sheets: &[Arc<Stylesheet>], class: &str) -> Option<Rgb> {
+    let class = class.trim();
+    if class.is_empty() {
+        return None;
+    }
+    let el = El {
+        tag: "span".to_owned(),
+        id: None,
+        classes: vec![class.to_owned()],
+        attrs: vec![("class".to_owned(), class.to_owned())],
+        index: 1,
+        type_index: 1,
+    };
+    let path = [Ctx {
+        el: &el,
+        before: &[],
+    }];
+    let decl = css::declared(sheets, &path, &Decl::default(), (None, ""), &Arc::from([]));
+    decl.fill.flatten()
+}
+
+/// A `seq` being read: what it marks and its escape number, if any.
+struct Seq {
+    skips: Skips,
+    escape: Option<u32>,
+}
+
+/// Overlay `xml`'s pars in order; `escapes` numbers tables book-wide.
+pub(crate) fn read(xml: &[u8], base: &str, escapes: &mut u32) -> Vec<Par> {
+    let mut reader = Reader::from_reader(xml);
+    let mut seqs: Vec<Seq> = Vec::new();
+    let mut out = Vec::new();
+    // The `par` open now: its own kinds, text and audio.
+    let mut par: Option<(Skips, Option<String>, Option<Spoken>)> = None;
+    while out.len() < MAX_PHRASES {
+        let event = match reader.read_event() {
+            Ok(Event::Eof) | Err(_) => break,
+            Ok(e) => e,
+        };
+        let (start, empty) = match &event {
+            Event::Start(e) => (Some(e), false),
+            Event::Empty(e) => (Some(e), true),
+            _ => (None, false),
+        };
+        if let Some(e) = start {
+            match e.local_name().as_ref() {
+                "seq" if !empty => {
+                    let kinds = value(e, "type").unwrap_or_default();
+                    let outer = seqs.last();
+                    let mut escape = outer.and_then(|s| s.escape);
+                    if escape.is_none() && escapable(&kinds) {
+                        *escapes = escapes.saturating_add(1);
+                        escape = Some(*escapes);
+                    }
+                    let inherited = outer.map_or(Skips::default(), |s| s.skips);
+                    if seqs.len() < MAX_DEPTH {
+                        seqs.push(Seq {
+                            skips: Skips::of(&kinds).or(inherited),
+                            escape,
+                        });
+                    }
+                }
+                "par" => {
+                    let kinds = value(e, "type").unwrap_or_default();
+                    par = (!empty).then(|| (Skips::of(&kinds), None, None));
+                }
+                "text" => {
+                    if let Some((_, text, _)) = par.as_mut() {
+                        *text = value(e, "src");
+                    }
+                }
+                "audio" => {
+                    if let Some((_, _, audio)) = par.as_mut() {
+                        *audio = clip(e, base);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Event::End(e) = &event else {
+            continue;
+        };
+        match e.local_name().as_ref() {
+            "seq" => {
+                seqs.pop();
+            }
+            "par" => {
+                let Some((own, text, audio)) = par.take() else {
+                    continue;
+                };
+                let Some((file, id)) = text.as_deref().and_then(|t| target(t, base)) else {
+                    continue;
+                };
+                let outer = seqs.last();
+                out.push(Par {
+                    file,
+                    id,
+                    audio,
+                    skips: own.or(outer.map_or(Skips::default(), |s| s.skips)),
+                    escape: outer.and_then(|s| s.escape),
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// An `audio` element's file and span; `None` if it names no file.
+fn clip(e: &BytesStart, base: &str) -> Option<Spoken> {
+    let path = href::resolve(base, &value(e, "src")?)?;
+    let begin = value(e, "clipBegin").and_then(|v| clock(&v)).unwrap_or(0.0);
+    let end = value(e, "clipEnd").and_then(|v| clock(&v));
+    Some(Spoken {
+        path,
+        begin,
+        end: end.filter(|end| *end > begin),
+    })
+}
+
+/// A `text` element's file and the id its fragment names.
+fn target(src: &str, base: &str) -> Option<(String, Option<String>)> {
+    let file = href::resolve(base, src)?;
+    let fragment = src.split_once('#').map(|(_, f)| href::percent_decode(f));
+    let id = fragment.and_then(|f| fragment_id(&f));
+    Some((file, id))
+}
+
+/// The id a fragment names: plain, or as `xpointer(id('…'))`.
+fn fragment_id(fragment: &str) -> Option<String> {
+    let f = fragment.trim();
+    if let Some(inner) = f
+        .strip_prefix("xpointer(id(")
+        .and_then(|r| r.strip_suffix("))"))
+    {
+        let id = inner.trim_matches(|c| c == '\'' || c == '"');
+        return (!id.is_empty()).then(|| id.to_owned());
+    }
+    // Other schemes, such as `epubcfi(…)`, aren't followed.
+    (!f.is_empty() && !f.contains('(')).then(|| f.to_owned())
+}
+
+/// A SMIL clock value in seconds: `h:mm:ss.f`, `mm:ss.f` or `2.5s`.
+pub(crate) fn clock(value: &str) -> Option<f64> {
+    let v = value.trim();
+    let parts: Vec<&str> = v.split(':').collect();
+    let number = |s: &str| -> Option<f64> {
+        let ok = !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit() || b == b'.');
+        s.parse::<f64>().ok().filter(|n| ok && n.is_finite())
+    };
+    let seconds = match parts.as_slice() {
+        [h, m, s] => number(h)? * 3600.0 + number(m)? * 60.0 + number(s)?,
+        [m, s] => number(m)? * 60.0 + number(s)?,
+        [count] => {
+            let units = [("ms", 0.001), ("min", 60.0), ("h", 3600.0), ("s", 1.0)];
+            let (digits, scale) = units
+                .iter()
+                .find_map(|(unit, scale)| count.strip_suffix(unit).map(|d| (d, *scale)))
+                .unwrap_or((count, 1.0));
+            number(digits.trim())? * scale
+        }
+        _ => return None,
+    };
+    (seconds >= 0.0 && seconds.is_finite()).then_some(seconds)
+}
+
+/// Attribute `name`'s value by its local name, unescaped.
+fn value(e: &BytesStart, name: &str) -> Option<String> {
+    let mut attributes = e.attributes();
+    attributes.with_checks(false);
+    let raw = attributes
+        .flatten()
+        .find(|a| a.key.local_name().as_ref() == name)?
+        .value;
+    let unescaped = quick_xml::escape::unescape(&raw).map(|v| v.into_owned());
+    Some(unescaped.unwrap_or_else(|_| raw.into_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clock_values_read_in_every_form() {
+        assert_eq!(clock("0:00:24.500"), Some(24.5));
+        assert_eq!(clock("1:02:03"), Some(3723.0));
+        assert_eq!(clock("02:30.25"), Some(150.25));
+        assert_eq!(clock("3.2s"), Some(3.2));
+        assert_eq!(clock("1.5min"), Some(90.0));
+        assert_eq!(clock("250ms"), Some(0.25));
+        assert_eq!(clock("2h"), Some(7200.0));
+        assert_eq!(clock(" 12 "), Some(12.0));
+        for bad in ["", "x", "-1s", "1:2:3:4", "1e3", "NaNs", "inf"] {
+            assert_eq!(clock(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn pars_name_their_text_and_audio_from_the_overlay_file() {
+        let smil = r#"<smil xmlns="http://www.w3.org/ns/SMIL" xmlns:epub="http://www.idpf.org/2007/ops" version="3.0">
+            <body><seq epub:textref="c1.xhtml" epub:type="chapter">
+              <par id="p1"><text src="../text/c1.xhtml#s1"/>
+                <audio src="../audio/a.mp3" clipBegin="0:00:01.000" clipEnd="0:00:02.500"/></par>
+              <par><audio src="../audio/a.mp3" clipBegin="2.5s"/><text src="../text/c1.xhtml#xpointer(id('s2'))"/></par>
+              <par><text src="../text/c1.xhtml"/></par>
+              <par><audio src="../audio/a.mp3"/></par>
+            </seq></body></smil>"#;
+        let mut escapes = 0;
+        let pars = read(smil.as_bytes(), "/OPS/smil/c1.smil", &mut escapes);
+        assert_eq!(pars.len(), 3, "{pars:?}");
+        assert_eq!(pars[0].file, "/OPS/text/c1.xhtml");
+        assert_eq!(pars[0].id.as_deref(), Some("s1"));
+        let a = pars[0].audio.as_ref().unwrap();
+        assert_eq!(
+            (a.path.as_str(), a.begin, a.end),
+            ("/OPS/audio/a.mp3", 1.0, Some(2.5))
+        );
+        assert_eq!(pars[1].id.as_deref(), Some("s2"));
+        assert_eq!(pars[1].audio.as_ref().unwrap().end, None);
+        // A par with no audio is kept; one with no text isn't.
+        assert_eq!(
+            (pars[2].id.as_deref(), pars[2].audio.is_none()),
+            (None, true)
+        );
+    }
+
+    #[test]
+    fn notes_and_page_numbers_can_be_skipped_and_tables_left() {
+        let smil = r#"<smil><body>
+            <par epub:type="pagebreak"><text src="c.xhtml#pg1"/><audio src="a.mp3"/></par>
+            <seq epub:type="footnote"><par><text src="c.xhtml#n1"/><audio src="a.mp3"/></par></seq>
+            <seq epub:type="table"><seq epub:type="table-row">
+              <par><text src="c.xhtml#r1"/><audio src="a.mp3"/></par></seq>
+              <par><text src="c.xhtml#r2"/><audio src="a.mp3"/></par></seq>
+            <seq epub:type="list"><par><text src="c.xhtml#l1"/><audio src="a.mp3"/></par></seq>
+            <par><text src="c.xhtml#after"/><audio src="a.mp3"/></par>
+        </body></smil>"#;
+        let mut escapes = 0;
+        let pars = read(smil.as_bytes(), "/c.smil", &mut escapes);
+        let skips: Vec<Skips> = pars.iter().map(|p| p.skips).collect();
+        assert!(skips[0].page_numbers && !skips[0].notes);
+        assert!(skips[1].notes);
+        assert!(!skips[2].any() && !skips[5].any());
+        let escape: Vec<Option<u32>> = pars.iter().map(|p| p.escape).collect();
+        // The row is inside the table: both leave as one.
+        assert_eq!(escape, [None, None, Some(1), Some(1), Some(2), None]);
+        assert_eq!(escapes, 2);
+    }
+}

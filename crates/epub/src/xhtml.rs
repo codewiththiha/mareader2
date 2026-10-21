@@ -122,6 +122,8 @@ pub(crate) struct Refs {
     pub(crate) places: HashMap<String, Anchor>,
     /// Indexed by the target a link's text carries.
     pub(crate) hrefs: Vec<Href>,
+    /// `path#id` to just past where each element ends.
+    pub(crate) ends: HashMap<String, Anchor>,
     /// `path#id` of block elements to the blocks they hold.
     pub(crate) extents: HashMap<String, Extent>,
     /// Links marked as leading to a note.
@@ -1512,6 +1514,23 @@ impl State<'_> {
             offset: written,
         };
         self.refs.places.entry(key).or_insert(at);
+    }
+
+    /// Just past what's written: mid-paragraph, else the next block.
+    fn end_anchor(&self) -> Anchor {
+        let block = self.first + self.blocks.len();
+        if self.table.is_some() {
+            // A table is one block; what ends in it ends with it.
+            return Anchor {
+                block: block + 1,
+                offset: 0,
+            };
+        }
+        let offset = match self.current.as_ref().map(|b| &b.content) {
+            Some(Content::Text(t)) => t.text.len(),
+            _ => 0,
+        };
+        Anchor { block, offset }
     }
 
     /// `href`'s index in [`Refs::hrefs`], resolved from this chapter.
@@ -3334,6 +3353,14 @@ impl State<'_> {
         }
         let end = self.first + self.blocks.len();
         let closed: Vec<Open> = self.stack.drain(at..).collect();
+        let ended = self.end_anchor();
+        for id in closed.iter().filter_map(|o| o.el.id.as_deref()) {
+            let id = id.trim();
+            if !id.is_empty() && self.refs.ends.len() < MAX_PLACES {
+                let key = format!("{}#{id}", self.base);
+                self.refs.ends.entry(key).or_insert(ended);
+            }
+        }
         self.counters.retain(|c| c.2 <= at);
         if self.initial.as_ref().is_some_and(|i| i.0 >= at) {
             self.initial = None;

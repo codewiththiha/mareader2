@@ -14,6 +14,7 @@ use rbook::epub::manifest::EpubManifestEntry;
 use crate::css::{FontFace, MAX_SHEET, Stylesheet};
 use crate::fontfile;
 use crate::media::{self, Media};
+use crate::overlay::{self, Narration};
 use crate::splice::{At, Inserts, Spliced, next_layout};
 use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
@@ -29,6 +30,8 @@ pub const MAX_PICTURE_BYTES: usize = 256 << 20;
 pub const MAX_TOC: usize = 20_000;
 /// An entry's title is cut to this many characters.
 const MAX_TITLE: usize = 200;
+/// Bytes read of one chapter's overlay file.
+const MAX_OVERLAY: usize = 16 << 20;
 
 /// A table of contents entry, or a heading when the book lists none.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +176,7 @@ pub struct Book {
     lead: usize,
     /// The file itself, kept only when it holds sound or video to play.
     archive: Option<Arc<Vec<u8>>>,
+    narration: Arc<Narration>,
 }
 
 impl std::fmt::Debug for Book {
@@ -228,6 +232,7 @@ impl Book {
                 rtl: self.rtl,
                 lead: self.lead,
                 archive: self.archive.clone(),
+                narration: Arc::clone(&self.narration),
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
@@ -254,6 +259,8 @@ impl Book {
         // The first chapter with content, where a cover may already be.
         let mut opening = None;
         let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
+        // Each chapter's narration, and the structures it can leave.
+        let (mut pars, mut escapes) = (Vec::new(), 0);
         // A chapter that won't read is skipped, as a reader would.
         for item in epub.spine().iter() {
             let Some(listed) = item.manifest_entry() else {
@@ -289,6 +296,12 @@ impl Book {
                 block: start,
                 offset: 0,
             };
+            let smil = listed.media_overlay().or_else(|| entry.media_overlay());
+            if let Some(smil) = smil.filter(|_| pars.len() < overlay::MAX_PHRASES) {
+                let xml = smil.read_bytes().unwrap_or_default();
+                let xml = xml.get(..xml.len().min(MAX_OVERLAY)).unwrap_or_default();
+                pars.extend(overlay::read(xml, &smil.href().decode(), &mut escapes));
+            }
             let listed = listed.href().decode().into_owned();
             refs.places.entry(listed).or_insert(anchor);
             if blocks.len() > MAX_BLOCKS {
@@ -305,7 +318,7 @@ impl Book {
         if let Some(cover) = cover.filter(|_| !drawn)
             && place_cover(&mut blocks, opening.unwrap_or(0..0), cover)
         {
-            for at in refs.places.values_mut() {
+            for at in refs.places.values_mut().chain(refs.ends.values_mut()) {
                 at.block += 1;
             }
             for e in refs.extents.values_mut() {
@@ -322,7 +335,9 @@ impl Book {
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
         let toc = contents(&epub, &refs, &blocks);
         let notes = crate::notes::find(&blocks, &refs);
+        let narration = narration(&epub, &mut shelf, pars, (&refs, blocks.len()));
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
+        let plays = plays || !narration.phrases.is_empty();
         let archive = plays.then(|| Arc::clone(&bytes));
         Ok(Self {
             blocks,
@@ -341,7 +356,13 @@ impl Book {
             author,
             language,
             archive,
+            narration: Arc::new(narration),
         })
+    }
+
+    /// Its narration; no phrases if it has none.
+    pub fn narration(&self) -> &Narration {
+        &self.narration
     }
 
     /// Sound or video at `path` to hand to a player; none for other files.
@@ -883,6 +904,31 @@ fn right_to_left(epub: &Epub, language: Option<&str>, blocks: &[Block]) -> bool 
 
 /// `rendition:layout` for pages laid out by the book.
 const PRE_PAGINATED: &str = "pre-paginated";
+
+/// The book's narration from `pars`, styled as it asks.
+fn narration(
+    epub: &Epub,
+    shelf: &mut Shelf,
+    pars: Vec<overlay::Par>,
+    (refs, blocks): (&Refs, usize),
+) -> Narration {
+    let phrases = overlay::phrases(pars, refs, blocks);
+    if phrases.is_empty() {
+        return Narration::default();
+    }
+    let class = meta(epub, "media:active-class");
+    let sheets: Vec<Arc<Stylesheet>> = (epub.manifest().styles())
+        .filter(|_| class.is_some())
+        .filter_map(|e| shelf.stylesheet(&e.href().decode()))
+        .collect();
+    let duration = meta(epub, "media:duration").and_then(|d| overlay::clock(&d));
+    Narration {
+        phrases,
+        highlight: class.and_then(|c| overlay::highlight(&sheets, &c)),
+        narrator: meta(epub, "media:narrator").filter(|n| !n.is_empty()),
+        duration,
+    }
+}
 
 /// The first value of a package `<meta property>`, trimmed.
 fn meta(epub: &Epub, property: &str) -> Option<String> {
