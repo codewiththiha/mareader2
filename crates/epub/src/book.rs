@@ -148,6 +148,32 @@ impl Library for Shelf<'_> {
     }
 }
 
+/// A book's file, shared, to read its sound and video from.
+#[derive(Clone)]
+pub struct Files {
+    archive: Arc<Vec<u8>>,
+}
+
+impl std::fmt::Debug for Files {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Files({} bytes)", self.archive.len())
+    }
+}
+
+impl Files {
+    /// The sound or video at `path`, if the manifest names its type.
+    pub fn media(&self, path: &str) -> Option<Media> {
+        let read = || {
+            let epub = guard::open(&self.archive).ok()?;
+            let entry = epub.manifest().by_href(path)?;
+            let extension = media::extension(entry.media_type())?;
+            let data = entry.read_bytes().ok()?;
+            Some(Media { data, extension })
+        };
+        catch_unwind(AssertUnwindSafe(read)).ok().flatten()
+    }
+}
+
 /// An open book. `Send + Sync`: workers share one through an `Arc`.
 pub struct Book {
     /// What the chapters say, kept to set again in other type.
@@ -361,21 +387,19 @@ impl Book {
     }
 
     /// Its narration; no phrases if it has none.
-    pub fn narration(&self) -> &Narration {
+    pub fn narration(&self) -> &Arc<Narration> {
         &self.narration
     }
 
     /// Sound or video at `path` to hand to a player; none for other files.
     pub fn media(&self, path: &str) -> Option<Media> {
-        let bytes = self.archive.as_ref()?;
-        let read = || {
-            let epub = guard::open(bytes).ok()?;
-            let entry = epub.manifest().by_href(path)?;
-            let extension = media::extension(entry.media_type())?;
-            let data = entry.read_bytes().ok()?;
-            Some(Media { data, extension })
-        };
-        catch_unwind(AssertUnwindSafe(read)).ok().flatten()
+        self.files()?.media(path)
+    }
+
+    /// Its files, to read sound from after the book itself is gone.
+    pub fn files(&self) -> Option<Files> {
+        let archive = Arc::clone(self.archive.as_ref()?);
+        Some(Files { archive })
     }
 
     pub fn page_count(&self) -> usize {

@@ -106,6 +106,88 @@ pub struct Narration {
     pub duration: Option<f64>,
 }
 
+/// Clips this close count as one read straight on.
+const TOUCHING: f64 = 0.002;
+
+/// Phrases read straight through one stretch of one file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Run {
+    pub path: String,
+    pub from: f64,
+    pub until: Option<f64>,
+    /// The phrases it reads, by index, in order.
+    pub phrases: Vec<usize>,
+}
+
+impl Narration {
+    /// Whether phrase `i` is read when `skip`'s kinds are left out.
+    pub fn reads(&self, i: usize, skip: Skips) -> bool {
+        self.phrases.get(i).is_some_and(|p| {
+            let s = p.skips;
+            !(s.notes && skip.notes || s.page_numbers && skip.page_numbers)
+        })
+    }
+
+    /// What is read from phrase `from` to the end, in runs.
+    pub fn runs(&self, from: usize, skip: Skips) -> Vec<Run> {
+        let mut runs: Vec<Run> = Vec::new();
+        for (i, p) in self.phrases.iter().enumerate().skip(from) {
+            if !self.reads(i, skip) {
+                continue;
+            }
+            let a = &p.audio;
+            if let Some(run) = runs.last_mut() {
+                let on = run.until.is_some_and(|u| (u - a.begin).abs() < TOUCHING);
+                if on && run.path == a.path {
+                    run.until = a.end;
+                    run.phrases.push(i);
+                    continue;
+                }
+            }
+            runs.push(Run {
+                path: a.path.clone(),
+                from: a.begin,
+                until: a.end,
+                phrases: vec![i],
+            });
+        }
+        runs
+    }
+
+    /// The phrase `run` reads `time` seconds into its file.
+    pub fn phrase_at(&self, run: &Run, time: f64) -> Option<usize> {
+        let begins = |i: &&usize| {
+            let p = self.phrases.get(**i);
+            p.is_some_and(|p| p.audio.begin <= time + TOUCHING)
+        };
+        let last = run.phrases.iter().rev().find(begins);
+        last.or(run.phrases.first()).copied()
+    }
+
+    /// The next phrase read after `i`.
+    pub fn next(&self, i: usize, skip: Skips) -> Option<usize> {
+        (i + 1..self.phrases.len()).find(|&j| self.reads(j, skip))
+    }
+
+    /// The phrase read before `i`.
+    pub fn previous(&self, i: usize, skip: Skips) -> Option<usize> {
+        (0..i).rev().find(|&j| self.reads(j, skip))
+    }
+
+    /// The first phrase read past the table or list `i` is in.
+    pub fn escape(&self, i: usize, skip: Skips) -> Option<usize> {
+        let from = self.phrases.get(i)?.escape?;
+        let out = |j: &usize| self.phrases.get(*j).is_some_and(|p| p.escape != Some(from));
+        (i + 1..self.phrases.len()).find(|j| out(j) && self.reads(*j, skip))
+    }
+
+    /// The first phrase read that ends after `at`.
+    pub fn from_anchor(&self, at: Anchor, skip: Skips) -> Option<usize> {
+        let ends = |i: &usize| self.phrases.get(*i).is_some_and(|p| p.end > at);
+        (0..self.phrases.len()).find(|i| ends(i) && self.reads(*i, skip))
+    }
+}
+
 /// `pars` as phrases of the book; those without sound are dropped.
 pub(crate) fn phrases(pars: Vec<Par>, refs: &Refs, blocks: usize) -> Vec<Phrase> {
     let mut starts: Vec<usize> = (refs.places.iter())
@@ -332,6 +414,85 @@ fn value(e: &BytesStart, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn phrase(block: usize, path: &str, (begin, end): (f64, f64), skips: Skips) -> Phrase {
+        Phrase {
+            start: Anchor { block, offset: 0 },
+            end: Anchor {
+                block: block + 1,
+                offset: 0,
+            },
+            audio: Spoken {
+                path: path.into(),
+                begin,
+                end: Some(end),
+            },
+            skips,
+            escape: None,
+        }
+    }
+
+    fn told() -> Narration {
+        let note = Skips {
+            notes: true,
+            ..Skips::default()
+        };
+        let plain = Skips::default();
+        let mut phrases = vec![
+            phrase(0, "a", (0.0, 1.0), plain),
+            phrase(1, "a", (1.0, 2.0), plain),
+            phrase(2, "a", (2.0, 2.5), note),
+            phrase(3, "a", (2.5, 3.0), plain),
+            phrase(4, "a", (3.0, 4.0), plain),
+            phrase(5, "b", (4.0, 5.0), plain),
+        ];
+        phrases[3].escape = Some(1);
+        phrases[4].escape = Some(1);
+        Narration {
+            phrases,
+            ..Narration::default()
+        }
+    }
+
+    #[test]
+    fn touching_clips_read_as_one_run_and_skips_split_them() {
+        let n = told();
+        let all = n.runs(0, Skips::default());
+        let spans: Vec<(&str, f64, Option<f64>)> = (all.iter())
+            .map(|r| (r.path.as_str(), r.from, r.until))
+            .collect();
+        assert_eq!(spans, [("a", 0.0, Some(4.0)), ("b", 4.0, Some(5.0))]);
+        assert_eq!(all[0].phrases, [0, 1, 2, 3, 4]);
+        let skip = Skips {
+            notes: true,
+            ..Skips::default()
+        };
+        let runs = n.runs(1, skip);
+        let phrases: Vec<&[usize]> = runs.iter().map(|r| r.phrases.as_slice()).collect();
+        assert_eq!(phrases, [&[1][..], &[3, 4], &[5]]);
+        assert_eq!(n.phrase_at(&all[0], 2.7), Some(3));
+        assert_eq!(n.phrase_at(&all[0], 0.0), Some(0));
+        assert_eq!(n.phrase_at(&all[0], 1.0), Some(1));
+    }
+
+    #[test]
+    fn stepping_skips_what_is_left_out_and_escapes_leave_the_table() {
+        let n = told();
+        let skip = Skips {
+            notes: true,
+            ..Skips::default()
+        };
+        assert_eq!(n.next(1, skip), Some(3));
+        assert_eq!(n.next(1, Skips::default()), Some(2));
+        assert_eq!(n.previous(3, skip), Some(1));
+        assert_eq!(n.next(5, skip), None);
+        assert_eq!(n.escape(3, skip), Some(5));
+        assert_eq!(n.escape(1, skip), None);
+        let at = |block, offset| Anchor { block, offset };
+        assert_eq!(n.from_anchor(at(2, 3), skip), Some(3));
+        assert_eq!(n.from_anchor(at(0, 0), skip), Some(0));
+        assert_eq!(n.from_anchor(at(9, 0), skip), None);
+    }
 
     #[test]
     fn clock_values_read_in_every_form() {

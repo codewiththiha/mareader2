@@ -92,6 +92,25 @@ impl Document {
         }
     }
 
+    /// A book's narration, if its chapters have media overlays.
+    pub fn narration(&self) -> Option<Arc<mareader_epub::Narration>> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => {
+                let n = book.narration();
+                (!n.phrases.is_empty()).then(|| Arc::clone(n))
+            }
+        }
+    }
+
+    /// A book's files, to read its narration's sound from.
+    pub fn files(&self) -> Option<mareader_epub::Files> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.files(),
+        }
+    }
+
     /// The same book in other type; none for a PDF or on failure.
     pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
         self.reset(typo, None)
