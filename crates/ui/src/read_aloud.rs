@@ -297,7 +297,7 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
     })
     .response
     .on_hover_text("Speed");
-    ui.menu_button(RichText::new("⋯").size(t.text), |ui| {
+    ui.menu_image_button(Icon::More.image(t.icon), |ui| {
         ui.checkbox(&mut settings.skip_notes, "Skip notes");
         ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
         ui.checkbox(&mut settings.follow, "Turn pages to follow");
@@ -390,19 +390,74 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
     }
 }
 
-/// The book's highlight laid lightly over the page; the accent if none.
+/// The book's highlight, else the accent, toned to the page's paper.
 fn fill(book: Option<[u8; 3]>, t: &Tokens) -> Color32 {
-    match (book, t.dark) {
-        (Some([r, g, b]), false) => Color32::from_rgba_unmultiplied(r, g, b, 150),
-        (Some([r, g, b]), true) => Color32::from_rgba_unmultiplied(r, g, b, 64),
-        (None, false) => t.accent.gamma_multiply(0.30),
-        (None, true) => t.accent.gamma_multiply(0.26),
-    }
+    let paper = t.book.paper.map(|c| c.clamp(0.0, 1.0) * 255.0);
+    let light = paper.iter().sum::<f32>() > 3.0 * 128.0;
+    let accent = [t.accent.r(), t.accent.g(), t.accent.b()];
+    // A light page takes the book's colour as is; a dark one a tint.
+    let (colour, share) = match (book, light) {
+        (Some(c), true) => (c, 1.0),
+        (Some(c), false) => (c, 0.22),
+        (None, true) => (accent, 0.30),
+        (None, false) => (accent, 0.26),
+    };
+    let target = std::array::from_fn(|i| {
+        let p = paper.get(i).copied().unwrap_or(255.0);
+        p + (f32::from(colour.get(i).copied().unwrap_or(255)) - p) * share
+    });
+    over(paper, target)
+}
+
+/// The darkest fill that turns `paper` into `target`, so ink stays dark.
+fn over(paper: [f32; 3], target: [f32; 3]) -> Color32 {
+    let pairs = || paper.into_iter().zip(target);
+    let darker = |(p, t): (f32, f32)| (p - t).max(0.0) / p.max(1.0);
+    let lighter = |(p, t): (f32, f32)| (t - p).max(0.0) / (255.0 - p).max(1.0);
+    // Darkening sets the strength; lightening only when nothing darkens.
+    let dark = pairs().map(darker).fold(0.0_f32, f32::max);
+    let need = match dark > 0.01 {
+        true => dark,
+        false => pairs().map(lighter).fold(0.0_f32, f32::max),
+    };
+    let alpha = need.clamp(0.12, 1.0);
+    let channel = |(p, t): (f32, f32)| ((t - (1.0 - alpha) * p) / alpha).clamp(0.0, 255.0);
+    let [r, g, b] = {
+        let mut out = [0u8; 3];
+        for (slot, pair) in out.iter_mut().zip(pairs()) {
+            *slot = channel(pair).round() as u8;
+        }
+        out
+    };
+    Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0).round() as u8)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `fill` over `under` shows, as egui blends it.
+    fn shown(fill: Color32, under: f32) -> [f32; 3] {
+        let a = f32::from(fill.a()) / 255.0;
+        let c = [fill.r(), fill.g(), fill.b()];
+        c.map(|c| f32::from(c) + under * (1.0 - a))
+    }
+
+    #[test]
+    fn the_fill_turns_paper_to_the_book_colour_and_keeps_ink_dark() {
+        let fill = over([250.0; 3], [255.0, 255.0, 187.0]);
+        let paper = shown(fill, 250.0);
+        assert!(
+            (paper[2] - 187.0).abs() < 2.0 && paper[0] > 248.0,
+            "{paper:?}"
+        );
+        let ink = shown(fill, 0.0);
+        assert!(ink.iter().all(|c| *c < 90.0), "{ink:?}");
+        // On a dark page the tint lightens, and is faint.
+        let fill = over([30.0; 3], [60.0, 60.0, 40.0]);
+        assert!(fill.a() < 64, "{fill:?}");
+        assert!((shown(fill, 30.0)[0] - 60.0).abs() < 2.0);
+    }
 
     #[test]
     fn speeds_read_short() {
