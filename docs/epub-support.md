@@ -275,3 +275,43 @@ to inline runs, and `text-combine-upright: digits` combines the
 whole run.
 
 sha256 of `vertical.epub`: `18aadeea5e9ac0d666d5fddc2b5537cb4348ab481945b52bf72d5fd7472231f8`
+
+## Fixed layout (E7)
+
+A book whose package sets `rendition:layout` to `pre-paginated` is laid
+out by the book, page by page. A spine item's
+`rendition:layout-pre-paginated` or `rendition:layout-reflowable`
+overrides that, so one book may mix fixed pages and reflowed chapters.
+
+Each fixed item is one page at its viewport: the size its
+`<meta name="viewport" content="width=…, height=…">` names, else its
+body's width and height in px, else the reflowed page's size. A picture
+in the spine, SVG or bitmap, is a page the picture's size. The page is
+laid out in CSS px, an em being 16 px, with the book's own type: the
+reader's font, size, spacing and margins don't apply. It's then scaled
+to fit the reader's page and keeps its shape. The theme's paper and ink
+still apply, as in reflowed chapters.
+
+`position: absolute` and `fixed` take a box out of the flow and set it
+at its `top`, `right`, `bottom` and `left`: px, percentages, or viewport
+units of the page. Its `width` and `height` come from the book, or else
+from the room its offsets leave. A box with no offsets sits at the corner
+of its containing block. `position: relative` stays in the flow and is
+the containing block for the boxes it holds. Positioned boxes paint over
+the flow, in `z-index` order, ties in document order; a negative
+`z-index` paints under the flow. The background of the root (else the
+body) covers the whole page, under everything.
+
+In the Two pages view, a first page marked `page-spread-right` (or
+`page-spread-left` in a right-to-left book) shows alone, and the pages
+after it pair. `rendition:spread` set to `none` shows every page alone.
+Each page in a spread keeps its own size. Selection, search, links,
+pictures and page AI work on fixed pages at their scale.
+
+A positioned box with no width takes the room its offsets leave, not
+its content's width. `position: relative` doesn't move the box itself.
+Only the first page's `page-spread-*` is read, so
+`rendition:page-spread-center`, `rendition:orientation` and the
+landscape-only spreads aren't followed.
+
+sha256 of `fxl.epub`: `85764517a37055bb1ffea996559fad292c7067a9f66a5cf4c4357ca056333361`
