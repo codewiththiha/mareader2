@@ -243,3 +243,33 @@ is set in its own stack (up to 255 per block), and a font the book ships
 loads when only such runs use it. The book's family on `code` now wins
 over the reader's monospace.
 
+
+## Vertical writing (E6b)
+
+`writing-mode: vertical-rl`, or its `-epub-` and `-webkit-` forms and the
+older `tb-rl`, on the root or body turns a chapter: its lines run down the
+page and follow one another from right to left. `vertical-lr` and the
+`sideways` modes are read as `vertical-rl`. A chapter that doesn't ask
+stays level, so a book may mix both; each run of vertical blocks gets
+pages of its own.
+
+In a vertical line, Chinese, Japanese and Korean letters, kana, Hangul and
+full-width forms stand upright and take the font's vertical forms (`vert`),
+so punctuation and brackets turn. Other letters lie on their side.
+`text-orientation: upright` stands every letter, `sideways` lays every
+letter down. `text-combine-upright: all` (or the older `horizontal`)
+sets its run, at most 256 bytes, across the column in half widths,
+squeezed to one em: dates such as 10月21日. Ruby notes sit to the right
+of their base. Pictures, inline or alone, stay upright, sized for the
+column.
+
+When the spine gives no `page-progression-direction`, a book with any
+vertical chapter turns its pages right to left. Selection, search, links
+and pictures follow the turned page: a drag down a column selects along
+it, and columns are read from the right.
+
+Margins aren't remapped to the turned page, `vertical-lr` columns aren't
+read left to right, and `text-combine-upright: digits` combines the
+whole run.
+
+sha256 of `vertical.epub`: `b0e7878d96707056d287a4874f321c6cf674a581a73a1af5c1e6ecf29aabe937`

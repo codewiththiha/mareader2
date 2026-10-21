@@ -287,7 +287,10 @@ impl Document {
             let chars = l.chars.into_iter().map(|c| (c.ch, bounds(c.rect)));
             (l.wraps, chars.collect())
         });
-        let text = PageText::from_lines(lines);
+        let mut text = PageText::from_lines(lines);
+        if book.turned(page) {
+            text.set_vertical();
+        }
         places.truncate(text.len());
         Ok(TextLayer {
             text,

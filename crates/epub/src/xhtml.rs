@@ -35,6 +35,8 @@ const MAX_BOX_ROWS: usize = 8;
 const MAX_BARS: usize = 8;
 /// The longest ruby note kept, in bytes.
 const MAX_NOTE: usize = 256;
+/// Runs set across vertical lines, per block.
+const MAX_COMBINED: usize = 256;
 /// Elements that set as one text block, kept whole without a box.
 const TEXT_BLOCKS: [&str; 12] = [
     "p",
@@ -479,6 +481,10 @@ struct State<'a> {
     ruby: Option<(usize, Option<usize>)>,
     /// The ruby note being read.
     note: String,
+    /// The chapter is written vertically.
+    turned: bool,
+    /// A run set across vertical lines: its element's depth and start.
+    combining: Option<(usize, usize)>,
     /// Whether that `<style>`'s `media` applies.
     style_applies: bool,
     /// `html`, styled before its head's sheets; its custom values wait.
@@ -647,7 +653,9 @@ impl State<'_> {
                 with_next: c.keep_next,
             };
             f.dir = c.dir;
+            f.orient = c.orient;
         }
+        f.turned = self.turned;
         f
     }
 
@@ -2048,7 +2056,8 @@ impl State<'_> {
         )
     }
 
-    /// `:root`'s custom properties, read now the head's sheets are in.
+    /// `:root`'s custom properties, writing mode and direction, read now
+    /// the head's sheets are in.
     fn root_vars(&mut self) {
         let Some(root) = self.root.take() else {
             return;
@@ -2059,11 +2068,14 @@ impl State<'_> {
         }];
         let none: Vars = Arc::from([]);
         let d = css::declared(&self.sheets, &path, &Decl::default(), (None, ""), &none);
-        if let (Some(vars), Some(open)) = (d.vars, self.stack.first_mut())
-            && open.name == "html"
-        {
+        let Some(open) = self.stack.first_mut().filter(|o| o.name == "html") else {
+            return;
+        };
+        if let Some(vars) = d.vars {
             open.computed.vars = vars;
         }
+        open.computed.writing = d.writing.unwrap_or(open.computed.writing);
+        open.computed.dir = d.dir.unwrap_or(open.computed.dir);
     }
 
     /// The generated boxes rules give `el`, about to open; `d` is its own.
@@ -2506,6 +2518,11 @@ impl State<'_> {
         if matches!(name, "html" | "body") {
             self.page = computed.fill.unwrap_or(self.page);
             self.book_ink = computed.ink.unwrap_or(self.book_ink);
+            // Only the chapter's root turns it; inner boxes stay level.
+            self.turned = computed.writing;
+        }
+        if computed.combine && self.combining.is_none() && !is_block(name) {
+            self.combining = Some((self.stack.len(), self.text_len()));
         }
         let id = attr(tag, "id").or_else(|| attr(tag, "name").filter(|_| name == "a"));
         if let Some(id) = id.filter(|_| !is_block(name)) {
@@ -2707,6 +2724,24 @@ impl State<'_> {
             "rt" | "rtc" if !self.top().note => self.annotate(),
             "ruby" => self.ruby = None,
             _ => {}
+        }
+        if let Some((_, from)) = self.combining.filter(|c| self.stack.len() <= c.0) {
+            self.combining = None;
+            self.combine(from);
+        }
+    }
+
+    /// Sets the text read since `from` across the vertical line.
+    fn combine(&mut self, from: usize) {
+        let Some(t) = self.target() else {
+            return;
+        };
+        let run = t.text.get(from..).unwrap_or_default();
+        let lead = run.len() - run.trim_start().len();
+        let range = from + lead..from + run.trim_end().len();
+        let apart = t.combine.last().is_none_or(|r| r.end <= range.start);
+        if !range.is_empty() && apart && t.combine.len() < MAX_COMBINED {
+            t.combine.push(range);
         }
     }
 
@@ -3435,6 +3470,8 @@ pub(crate) fn read_chapter(
         style_text: String::new(),
         ruby: None,
         note: String::new(),
+        turned: false,
+        combining: None,
         style_applies: true,
         root: None,
         blocks: Vec::new(),

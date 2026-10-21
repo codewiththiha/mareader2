@@ -261,6 +261,7 @@ impl Book {
         if blocks.is_empty() {
             return Err(OpenError::Empty);
         }
+        let rtl = right_to_left(&epub, language.as_deref(), &blocks);
         let blocks = Arc::new(blocks);
         let faces = load_faces(&epub, &refs.faces);
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
@@ -277,7 +278,7 @@ impl Book {
             faces: Arc::new(faces),
             notes: Arc::new(notes),
             toc: Arc::new(toc),
-            rtl: right_to_left(&epub, language.as_deref()),
+            rtl,
             title,
             author,
             language,
@@ -314,6 +315,12 @@ impl Book {
     /// The fonts it ships that its designed chapters use, unpacked.
     pub fn faces(&self) -> &[BookFace] {
         &self.faces
+    }
+
+    /// Whether page `page` is written vertically: its text runs down.
+    pub fn turned(&self, page: usize) -> bool {
+        let (flow, page, _) = self.part(page);
+        flow.turned(page)
     }
 
     /// Whether its pages turn right to left, as its spine or language asks.
@@ -755,10 +762,14 @@ fn place_cover(
 }
 
 /// The spine's page direction; with none, right to left for such languages.
-fn right_to_left(epub: &Epub, language: Option<&str>) -> bool {
+fn right_to_left(epub: &Epub, language: Option<&str>, blocks: &[Block]) -> bool {
     let direction = epub.spine().page_direction();
     if !direction.is_default() {
         return direction.is_rtl();
+    }
+    // Vertical writing reads its columns, and so its pages, leftward.
+    if blocks.iter().any(|b| b.frame.turned) {
+        return true;
     }
     let primary = language
         .and_then(|l| l.split(['-', '_']).next())
