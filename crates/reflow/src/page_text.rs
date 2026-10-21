@@ -34,7 +34,8 @@ impl Flow {
         self.each_para(page, |para, range, place| {
             lines(para, range, place, &mut out)
         });
-        if self.turned(page) {
+        // Turned or fitted pages show their letters elsewhere than laid.
+        if self.turned(page) || self.is_fixed(page) {
             for c in out.iter_mut().flat_map(|l| l.chars.iter_mut()) {
                 c.rect = self.shown_rect(page, c.rect);
             }
