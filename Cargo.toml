@@ -44,6 +44,8 @@ parley = { version = "0.12", default-features = false, features = ["std", "syste
 # Fontconfig loads at run time, so Linux builds need no headers.
 fontique = { version = "0.12", default-features = false, features = ["fontconfig-dlopen"] }
 skrifa = { version = "0.44", default-features = false, features = ["std"] }
+# MathML: the math font's MATH table, glyph outlines and metrics.
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 hypher = "0.1.8"
 # SVG pictures; the version egui_extras already builds.
 resvg = { version = "0.45", default-features = false, features = ["text", "raster-images"] }
