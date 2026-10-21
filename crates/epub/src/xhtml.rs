@@ -10,10 +10,10 @@ use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mareader_reflow::{
-    Align, Anchor, Annotation, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content,
-    Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow,
-    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Rise, Role, Row, Script, Sheet,
-    Spot, Table, Text, TextShadow, VAlign,
+    Align, Anchor, Annotation, Area, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns,
+    Content, Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape,
+    GridRow, Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Rise, Role, Row, Script,
+    Sheet, Spot, Table, Text, TextShadow, VAlign,
 };
 
 use crate::calc::Vars;
@@ -25,6 +25,7 @@ use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
 use crate::math;
+use crate::media;
 use crate::query;
 use crate::svg::{self, Capture};
 
@@ -110,6 +111,8 @@ pub(crate) enum Href {
     Inside(String),
     /// Anything with a scheme, checked only when followed.
     Outside(String),
+    /// Sound or video in the archive, played outside the reader.
+    Media { path: String, video: bool },
 }
 
 /// The places a book's ids mark and its links' destinations.
@@ -152,6 +155,8 @@ pub(crate) trait Library {
     fn stylesheet(&mut self, path: &str) -> Option<Arc<Stylesheet>>;
     /// A file an SVG links, as it is; `None` if missing or too large.
     fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>>;
+    /// The type the manifest declares for `path`, if it lists it.
+    fn media_type(&mut self, path: &str) -> Option<String>;
 }
 
 /// The images SVG at `base` links by `hrefs`, read from the book.
@@ -416,7 +421,7 @@ fn heading(name: &str) -> Option<u8> {
 fn is_raw(name: &str) -> bool {
     matches!(
         name,
-        "style" | "script" | "title" | "noscript" | "template" | "textarea" | "xmp"
+        "style" | "script" | "title" | "template" | "textarea" | "xmp"
     )
 }
 
@@ -505,6 +510,16 @@ struct State<'a> {
     table: Option<TableBuild>,
     /// By each `<table>` in order: whether it only lays things out.
     layouts: Vec<bool>,
+    /// The chapter's image maps by name, read ahead.
+    maps: HashMap<String, Vec<media::MapArea>>,
+    /// Links the next picture block carries, as its map's areas.
+    areas: Vec<Area>,
+    /// A `<video>` or `<audio>` being read, shown as a card at its end.
+    media: Option<media::Pending>,
+    /// Open `epub:switch`es: their depth, and whether a case showed.
+    switches: Vec<(usize, bool)>,
+    /// An open `<picture>`: its depth, and the source it picked.
+    sources: Option<(usize, Option<String>)>,
     /// How many `<table>` tags have started.
     tables: usize,
     /// Layout tables open around the text being read.
@@ -1516,12 +1531,30 @@ impl State<'_> {
         } else {
             return None;
         };
+        self.add_href(target)
+    }
+
+    /// `target`'s index in [`Refs::hrefs`], once added.
+    fn add_href(&mut self, target: Href) -> Option<u32> {
         if self.refs.hrefs.len() >= MAX_LINKS {
             return None;
         }
         let index = u32::try_from(self.refs.hrefs.len()).ok()?;
         self.refs.hrefs.push(target);
         Some(index)
+    }
+
+    /// A link that plays `src`: in the book, or at a web address.
+    fn media_link(&mut self, src: &str, video: bool) -> Option<u32> {
+        let src = src.trim();
+        let target = match href::resolve(self.base, src) {
+            Some(path) => Href::Media { path, video },
+            None if src.starts_with("https://") || src.starts_with("http://") => {
+                Href::Outside(src.to_owned())
+            }
+            None => return None,
+        };
+        self.add_href(target)
     }
 
     fn finish(&mut self) {
@@ -2028,7 +2061,7 @@ impl State<'_> {
             "code" | "kbd" | "samp" | "tt" => st.code = true,
             "pre" | "listing" | "xmp" => st.pre = true,
             "svg" | "math" => st.graphic = true,
-            "head" | "style" | "script" | "title" | "template" | "noscript" | "rp" => {
+            "head" | "style" | "script" | "title" | "template" | "rp" => {
                 st.hidden = true;
             }
             "rt" | "rtc" => st.note = true,
@@ -2214,6 +2247,231 @@ impl State<'_> {
         }
     }
 
+    /// Whether `name` starts content this reader shows otherwise or not.
+    fn holds_back(&mut self, name: &str, tag: &Tag, (c, shown): (&Computed, bool)) -> bool {
+        let depth = self.stack.len();
+        let local = name.split_once(':').map(|(_, l)| l);
+        let switch = self.switches.last_mut().filter(|s| s.0 + 1 == depth);
+        match (local, switch) {
+            (Some("switch"), _) => self.switches.push((depth, false)),
+            (Some("case"), Some(sw)) => {
+                let ns = attr(tag, "required-namespace").unwrap_or_default();
+                let show = !sw.1 && media::drawn_namespace(ns);
+                sw.1 |= show;
+                return !show;
+            }
+            (Some("default"), Some(sw)) => return sw.1,
+            _ => {}
+        }
+        if !shown {
+            return false;
+        }
+        match name {
+            "picture" => self.sources = Some((depth, None)),
+            "video" | "audio" if self.media.is_none() => {
+                let owned = |n: &str| attr(tag, n).map(|v| v.trim().to_owned());
+                self.media = Some(media::Pending {
+                    depth,
+                    video: name == "video",
+                    src: owned("src").filter(|s| !s.is_empty()),
+                    poster: owned("poster"),
+                    title: owned("title").or_else(|| owned("aria-label")),
+                    width: picture_width(c).or_else(|| attr_width(tag)),
+                });
+                return true;
+            }
+            "object" => return self.embedded((attr(tag, "data"), attr(tag, "type")), c),
+            "iframe" => {
+                if let Some(src) = attr(tag, "src").filter(|s| !s.trim().is_empty()) {
+                    let target = self.link_to(src);
+                    let name = media::label(attr(tag, "title"), src);
+                    self.caption(&format!("Open the embedded page: {name}"), target);
+                }
+                return true;
+            }
+            _ => {}
+        }
+        false
+    }
+
+    /// Ends the cards, switches and source pickers closed just now.
+    fn closed_embeds(&mut self) {
+        let depth = self.stack.len();
+        if self.media.as_ref().is_some_and(|m| depth <= m.depth)
+            && let Some(m) = self.media.take()
+        {
+            self.media_card(m);
+        }
+        self.switches.retain(|s| s.0 < depth);
+        if self.sources.as_ref().is_some_and(|s| depth <= s.0) {
+            self.sources = None;
+        }
+    }
+
+    /// A `<source>`: the clip a card plays, or a picture's pick.
+    fn source(&mut self, tag: &Tag) {
+        if let Some(m) = self.media.as_mut() {
+            let src = attr(tag, "src").map(str::trim).filter(|s| !s.is_empty());
+            if m.src.is_none() {
+                m.src = src.map(str::to_owned);
+            }
+            return;
+        }
+        if let Some((_, picked)) = self.sources.as_mut()
+            && picked.is_none()
+        {
+            let fits = attr(tag, "media").is_none_or(query::media);
+            let typed = attr(tag, "type").is_none_or(media::decodes);
+            if fits && typed {
+                *picked = attr(tag, "srcset").and_then(media::best_candidate);
+            }
+        }
+    }
+
+    /// An `<object>` or `<embed>` drawn as its picture or card; false if not.
+    fn embedded(&mut self, (src, kind): (Option<&str>, Option<&str>), c: &Computed) -> bool {
+        let Some(src) = src.map(str::trim).filter(|s| !s.is_empty()) else {
+            return false;
+        };
+        let path = href::resolve(self.base, src);
+        let declared = path.as_deref().and_then(|p| self.library.media_type(p));
+        let kind = kind.map(str::to_owned).or(declared).unwrap_or_default();
+        if media::plays(&kind) {
+            let video = kind.trim().to_ascii_lowercase().starts_with("video/");
+            let src = Some(src.to_owned());
+            let width = picture_width(c);
+            let depth = self.stack.len();
+            let pending = media::Pending {
+                depth,
+                video,
+                src,
+                width,
+                ..Default::default()
+            };
+            self.media_card(pending);
+            return true;
+        }
+        let image = kind.is_empty() || kind.trim().to_ascii_lowercase().starts_with("image/");
+        let Some(picture) = self.load(src).filter(|_| image) else {
+            return false;
+        };
+        self.picture(Some(picture), None, (picture_width(c), Some(c)));
+        true
+    }
+
+    /// `<video>` or `<audio>` as a card: its poster or a drawn player.
+    fn media_card(&mut self, m: media::Pending) {
+        if self.top().hidden {
+            return;
+        }
+        let target = m.src.as_deref().and_then(|s| self.media_link(s, m.video));
+        let name = media::label(m.title.as_deref(), m.src.as_deref().unwrap_or_default());
+        let what = if m.video { "video" } else { "audio" };
+        let text = match (target.is_some(), name.is_empty()) {
+            (true, false) => format!("Play the {what}: {name}"),
+            (true, true) => format!("Play the {what}"),
+            (false, _) => format!("The {what} isn't in this book"),
+        };
+        if self.table.is_some() {
+            return self.caption(&text, target);
+        }
+        let poster = m.poster.as_deref().filter(|_| m.video);
+        let art = poster.and_then(|p| self.poster(p)).or_else(|| {
+            let card = if m.video {
+                media::video_card()
+            } else {
+                media::audio_card()
+            };
+            Picture::svg(card, Vec::new()).ok().map(Arc::new)
+        });
+        if let Some(picture) = art {
+            self.finish();
+            let full = if m.video {
+                Length::Percent(100.0)
+            } else {
+                Length::Em(20.0)
+            };
+            let mut block = Block::new(Content::Image {
+                picture,
+                cover: false,
+                width: m.width.or(Some(full)),
+                links: target.map(Area::whole).into_iter().collect(),
+            });
+            block.frame = self.frame();
+            block.frame.align = Align::Center;
+            self.emit(block);
+        }
+        self.caption(&text, target);
+    }
+
+    /// Poster `src` with a play mark over it; a vector one as it is.
+    fn poster(&mut self, src: &str) -> Option<Arc<Picture>> {
+        let picture = self.load(src)?;
+        if picture.vector() {
+            return Some(picture);
+        }
+        let data = Arc::new(picture.bytes().to_vec());
+        let card = media::poster_card(picture.width, picture.height);
+        Picture::svg(card, vec![(media::POSTER.to_owned(), data)])
+            .ok()
+            .map(Arc::new)
+    }
+
+    /// A centred line of small text, a link to `target` if there is one.
+    fn caption(&mut self, text: &str, target: Option<u32>) {
+        let small = Emphasis {
+            size: 90,
+            ..Emphasis::default()
+        };
+        if self.table.is_some() {
+            if let Some(cell) = self.target() {
+                put(cell, text, small, target);
+            }
+            return;
+        }
+        self.finish();
+        if let Some(t) = self.target() {
+            put(t, text, small, target);
+        }
+        if let Some(b) = self.current.as_mut() {
+            b.frame.align = Align::Center;
+        }
+        self.finish();
+    }
+
+    /// The links of `tag`'s image map over `picture`, as shares of it.
+    fn map_areas(&mut self, tag: &Tag, picture: &Picture) -> Vec<Area> {
+        let name = attr(tag, "usemap").map(|m| m.trim().trim_start_matches('#'));
+        let Some(areas) = name.and_then(|n| self.maps.get(n)).cloned() else {
+            return Vec::new();
+        };
+        let size = |n: &str, natural: u32| {
+            let given = attr(tag, n).and_then(|v| v.trim().trim_end_matches("px").parse().ok());
+            given
+                .filter(|v: &f32| *v > 0.0)
+                .unwrap_or(natural.max(1) as f32)
+        };
+        let (w, h) = (size("width", picture.width), size("height", picture.height));
+        let mut out = Vec::new();
+        for area in areas {
+            let Some(target) = self.link_to(&area.href) else {
+                continue;
+            };
+            let rect = match area.bounds {
+                Some([x0, y0, x1, y1]) => {
+                    let clamp = |v: f32, side: f32| (v / side).clamp(0.0, 1.0);
+                    let (l, t) = (clamp(x0, w), clamp(y0, h));
+                    [l, t, clamp(x1, w) - l, clamp(y1, h) - t]
+                }
+                None => [0.0, 0.0, 1.0, 1.0],
+            };
+            if rect[2] > 0.0 && rect[3] > 0.0 {
+                out.push(Area { rect, target });
+            }
+        }
+        out
+    }
+
     fn link(&mut self, tag: &Tag) {
         let rel = |want: &str| {
             attr(tag, "rel").is_some_and(|r| {
@@ -2239,18 +2497,19 @@ impl State<'_> {
         alt: Option<&str>,
         sized: (Option<Length>, Option<&Computed>),
     ) {
-        let src = src.map(str::trim);
-        let picture = match src {
-            Some(s) if s.starts_with("data:") => {
-                let bytes = href::data_url(s);
-                bytes.and_then(|b| Picture::probe(b).ok()).map(Arc::new)
-            }
-            _ => {
-                let path = src.and_then(|s| href::resolve(self.base, s));
-                path.and_then(|p| self.library.picture(&p))
-            }
-        };
+        let picture = src.and_then(|s| self.load(s));
         self.picture(picture, alt, sized);
+    }
+
+    /// The picture at `src`, a data URL or a file of the book.
+    fn load(&mut self, src: &str) -> Option<Arc<Picture>> {
+        let src = src.trim();
+        if src.starts_with("data:") {
+            let bytes = href::data_url(src);
+            return bytes.and_then(|b| Picture::probe(b).ok()).map(Arc::new);
+        }
+        let path = href::resolve(self.base, src)?;
+        self.library.picture(&path)
     }
 
     /// Starts reading an inline drawing at its `svg` or `math` start tag.
@@ -2339,6 +2598,7 @@ impl State<'_> {
                 picture,
                 cover: false,
                 width: Some(Length::Em(f.width)),
+                links: Vec::new(),
             });
             b.frame = self.frame();
             b.frame.align = Align::Center;
@@ -2561,11 +2821,14 @@ impl State<'_> {
             }
         }
         self.finish();
+        let mut links = std::mem::take(&mut self.areas);
+        links.extend(self.top().link.map(Area::whole));
         if let Some(picture) = picture {
             let mut block = Block::new(Content::Image {
                 picture,
                 cover: false,
                 width,
+                links,
             });
             block.frame = self.frame();
             // A grid's portrait sits over its centred name, read in a row.
@@ -2724,6 +2987,7 @@ impl State<'_> {
             "meta" if self.fixed && attr(tag, "name").is_some_and(|n| n.trim() == "viewport") => {
                 self.viewport = attr(tag, "content").and_then(viewport).or(self.viewport);
             }
+            "source" => self.source(tag),
             _ => {}
         }
         let quiet = self.top().hidden || self.top().graphic;
@@ -2808,7 +3072,22 @@ impl State<'_> {
             "img" => {
                 let width = picture_width(&computed);
                 let alt = attr(tag, "alt");
-                self.image(attr(tag, "src"), alt, (width, Some(&computed)));
+                let picked = self.sources.as_mut().and_then(|s| s.1.take());
+                let set = attr(tag, "srcset").and_then(media::best_candidate);
+                let tries = [picked.as_deref(), attr(tag, "src"), set.as_deref()];
+                let picture = tries.into_iter().flatten().find_map(|s| self.load(s));
+                if let Some(p) = &picture {
+                    self.areas = self.map_areas(tag, p);
+                }
+                self.picture(picture, alt, (width, Some(&computed)));
+                self.areas.clear();
+                self.place_end(self.stack.len());
+                return false;
+            }
+            "embed" => {
+                if shown {
+                    self.embedded((attr(tag, "src"), attr(tag, "type")), &computed);
+                }
                 self.place_end(self.stack.len());
                 return false;
             }
@@ -2882,6 +3161,7 @@ impl State<'_> {
             .and_then(|s| s.trim().parse::<u32>().ok())
             .map_or(0, |s| s.saturating_sub(1));
         let mut style = self.style_for(name, &computed);
+        style.hidden |= self.holds_back(name, tag, (&computed, shown));
         if name == "li" {
             self.list_marker(tag, (&computed, &style), pseudos.marker);
         }
@@ -2976,6 +3256,7 @@ impl State<'_> {
         if let Some(at) = self.stack.iter().rposition(|o| o.name == name) {
             self.close_from(at);
         }
+        self.closed_embeds();
         if matches!(name, "ul" | "ol") && !self.in_list() {
             self.list_opened = false;
         }
@@ -3396,6 +3677,16 @@ impl RowBuild {
     }
 }
 
+/// A `width` attribute in pixels, as ems of the root.
+fn attr_width(tag: &Tag) -> Option<Length> {
+    let px: f32 = attr(tag, "width")?
+        .trim()
+        .trim_end_matches("px")
+        .parse()
+        .ok()?;
+    (px > 0.0 && px.is_finite()).then(|| Length::Em((px / ROOT_PX).min(200.0)))
+}
+
 /// An image's width as the book sets it, in reader ems or percent.
 fn picture_width(c: &Computed) -> Option<Length> {
     match c.width {
@@ -3711,6 +4002,7 @@ pub(crate) fn read_svg_page(
         picture,
         cover: true,
         width: None,
+        links: Vec::new(),
     });
     block.break_before = true;
     block.frame.sheet = sheet.map(Arc::new);
@@ -3767,6 +4059,11 @@ fn read(
         current: None,
         table: None,
         layouts: layout_tables(xhtml),
+        maps: media::image_maps(xhtml),
+        areas: Vec::new(),
+        media: None,
+        switches: Vec::new(),
+        sources: None,
         tables: 0,
         laying: 0,
         stack: Vec::new(),
@@ -3886,6 +4183,10 @@ mod tests {
 
         fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>> {
             self.files.get(path).cloned()
+        }
+
+        fn media_type(&mut self, _path: &str) -> Option<String> {
+            None
         }
     }
 
@@ -5300,5 +5601,227 @@ mod tests {
             t.map(|t| (t.text.as_str(), t.ruby.len())),
             Some(("base moreend", 0))
         );
+    }
+
+    fn read_all(shelf: &mut Shelf, xhtml: &str) -> (Vec<Block>, Refs) {
+        let (mut out, mut refs) = (Vec::new(), Refs::default());
+        read_chapter(xhtml, BASE, shelf, (&mut out, &mut refs));
+        (out, refs)
+    }
+
+    /// Each picture block's links: where they lead, over which share.
+    fn picture_links<'r>(blocks: &[Block], refs: &'r Refs) -> Vec<Vec<(&'r Href, [f32; 4])>> {
+        let lead = |a: &Area| Some((refs.hrefs.get(usize::try_from(a.target).ok()?)?, a.rect));
+        (blocks.iter())
+            .filter_map(|b| match &b.content {
+                Content::Image { links, .. } => Some(links.iter().filter_map(lead).collect()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn pictures_of(blocks: &[Block]) -> Vec<Arc<Picture>> {
+        (blocks.iter())
+            .filter_map(|b| match &b.content {
+                Content::Image { picture, .. } => Some(Arc::clone(picture)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn video_is_a_card_that_plays_its_first_source() {
+        let (b, refs) = read_all(
+            &mut Shelf::default(),
+            "<p>Before.</p><video controls='controls' title='Ocean'>\
+             <source src='../media/clip.webm' type='video/webm'/>\
+             <source src='../media/clip.mp4' type='video/mp4'/>\
+             <p>zqold readers only</p></video><p>After.</p>",
+        );
+        let all = texts(&b);
+        assert_eq!(all, ["Before.", "Play the video: Ocean", "After."]);
+        let clip = Href::Media {
+            path: "/OEBPS/media/clip.webm".into(),
+            video: true,
+        };
+        assert_eq!(picture_links(&b, &refs), [[(&clip, [0.0, 0.0, 1.0, 1.0])]]);
+        let caption = b
+            .iter()
+            .filter_map(text)
+            .find(|t| t.text.starts_with("Play"));
+        assert_eq!(caption.map(|t| t.links.len()), Some(1));
+        let card = pictures_of(&b);
+        assert!(
+            card.first().is_some_and(|p| p.vector() && p.ink()),
+            "{card:?}"
+        );
+    }
+
+    #[test]
+    fn audio_cards_name_their_file_and_web_clips_open_outside() {
+        let (b, refs) = read_all(
+            &mut Shelf::default(),
+            "<audio src='../media/song%20one.mp3'>zqfallback</audio>\
+             <audio src='https://example.org/a.ogg'/><video><p>zqnone</p></video>",
+        );
+        let all = texts(&b);
+        assert_eq!(
+            all,
+            [
+                "Play the audio: song one.mp3",
+                "Play the audio: a.ogg",
+                "The video isn't in this book"
+            ]
+        );
+        let song = Href::Media {
+            path: "/OEBPS/media/song one.mp3".into(),
+            video: false,
+        };
+        assert!(refs.hrefs.contains(&song), "{:?}", refs.hrefs);
+        let web = Href::Outside("https://example.org/a.ogg".into());
+        assert!(refs.hrefs.contains(&web), "{:?}", refs.hrefs);
+        // Drawn cards are line art, so they take the theme's ink.
+        let cards = pictures_of(&b);
+        assert!(
+            cards.len() == 3 && cards.iter().all(|p| p.ink()),
+            "{cards:?}"
+        );
+    }
+
+    #[test]
+    fn a_poster_shows_under_a_play_mark() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(64, 36) {
+            shelf.pictures.insert("/OEBPS/images/still.png".into(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<video src='../media/v.mp4' poster='../images/still.png'/>",
+        );
+        let pictures = pictures_of(&b);
+        assert_eq!(pictures.len(), 1, "{pictures:?}");
+        let Some(p) = pictures.first() else { return };
+        assert!(p.vector() && (p.width, p.height) == (64, 36), "{p:?}");
+        assert!(!p.ink(), "a photo keeps its colours");
+        let drawn = p.thumbnail(64);
+        // Black poster, white play mark: the middle is light, a corner dark.
+        let shade = |x: u32, y: u32| {
+            let (w, _, px) = drawn.as_ref()?;
+            let i = usize::try_from((y * w + x) * 4).ok()?;
+            px.get(i).copied()
+        };
+        assert!(
+            shade(32, 18).is_some_and(|v| v > 150),
+            "{:?}",
+            shade(32, 18)
+        );
+        assert!(shade(1, 1).is_some_and(|v| v < 40), "{:?}", shade(1, 1));
+    }
+
+    #[test]
+    fn a_switch_shows_its_first_drawn_case_or_its_default() {
+        let b = read(
+            "<epub:switch id='s1'>\
+             <epub:case required-namespace='http://www.xml-cml.org/schema'><p>zqchem</p></epub:case>\
+             <epub:case required-namespace='http://www.w3.org/1998/Math/MathML'><p>Drawn</p></epub:case>\
+             <epub:case required-namespace='http://www.w3.org/2000/svg'><p>zqsecond</p></epub:case>\
+             <epub:default><p>zqdefault</p></epub:default></epub:switch>\
+             <epub:switch><epub:case required-namespace='urn:x'><p>zqx</p></epub:case>\
+             <epub:default><p>Default</p></epub:default></epub:switch>",
+        );
+        assert_eq!(texts(&b), ["Drawn", "Default"]);
+    }
+
+    #[test]
+    fn noscript_shows_since_scripts_never_run() {
+        let b = read(
+            "<script>var zq = 1;</script><noscript><p>Turn on <b>scripts</b>.</p></noscript>\
+             <canvas width='9'><p>Canvas words</p></canvas>",
+        );
+        assert_eq!(texts(&b), ["Turn on scripts.", "Canvas words"]);
+    }
+
+    #[test]
+    fn objects_show_their_picture_or_else_their_fallback() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(8, 8) {
+            shelf.pictures.insert("/OEBPS/images/a.png".into(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<object data='../images/a.png' type='image/png'><p>zqhidden</p></object>\
+             <object data='widget.xhtml' type='application/xhtml+xml'><p>Fallback words</p></object>\
+             <object data='../media/t.mp3' type='audio/mpeg'><p>zqgone</p></object>\
+             <object data='gone.png'><p>Missing words</p></object>\
+             <embed src='../images/a.png'/>",
+        );
+        let all = texts(&b);
+        assert_eq!(
+            all,
+            ["Fallback words", "Play the audio: t.mp3", "Missing words"]
+        );
+        let sizes: Vec<_> = pictures_of(&b).iter().map(|p| p.width).collect();
+        assert_eq!(sizes, [8, 320, 8]);
+    }
+
+    #[test]
+    fn a_picture_takes_its_first_fitting_source() {
+        let mut shelf = Shelf::default();
+        for (name, w) in [
+            ("small.png", 4),
+            ("big.webp", 40),
+            ("wide.png", 20),
+            ("x2.png", 30),
+        ] {
+            if let Some(p) = png(w, 4) {
+                shelf.pictures.insert(format!("/OEBPS/images/{name}"), p);
+            }
+        }
+        let b = read_with(
+            &mut shelf,
+            "<picture><source srcset='../images/new.avif' type='image/avif'/>\
+             <source srcset='../images/wide.png' media='print'/>\
+             <source srcset='../images/small.png 1x, ../images/big.webp 2x' type='image/webp'/>\
+             <img src='../images/small.png' alt=''/></picture>\
+             <picture><img src='../images/small.png' alt=''/></picture>\
+             <img srcset='../images/wide.png 300w, ../images/x2.png 900w' alt='no src'/>",
+        );
+        let sizes: Vec<_> = pictures_of(&b).iter().map(|p| p.width).collect();
+        assert_eq!(sizes, [40, 4, 30]);
+    }
+
+    #[test]
+    fn linked_pictures_and_image_maps_lead_where_they_say() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(200, 100) {
+            shelf.pictures.insert("/OEBPS/images/a.png".into(), p);
+        }
+        let (b, refs) = read_all(
+            &mut shelf,
+            "<div><a href='c2.xhtml'><img src='../images/a.png' alt=''/></a></div>\
+             <img src='../images/a.png' usemap='#nav' alt=''/>\
+             <map name='nav'><area shape='rect' coords='0,0,100,50' href='c3.xhtml#top'/>\
+             <area shape='circle' coords='150,50,50' href='https://example.org/'/></map>",
+        );
+        let c2 = Href::Inside("/OEBPS/text/c2.xhtml".into());
+        let c3 = Href::Inside("/OEBPS/text/c3.xhtml#top".into());
+        let web = Href::Outside("https://example.org/".into());
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        let want = vec![
+            vec![(&c2, whole)],
+            vec![(&c3, [0.0, 0.0, 0.5, 0.5]), (&web, [0.5, 0.0, 0.5, 1.0])],
+        ];
+        assert_eq!(picture_links(&b, &refs), want);
+    }
+
+    #[test]
+    fn an_iframe_is_a_link_to_its_page() {
+        let (b, refs) = read_all(
+            &mut Shelf::default(),
+            "<iframe src='quiz.xhtml' title='Quiz'>zqx</iframe>",
+        );
+        assert_eq!(texts(&b), ["Open the embedded page: Quiz"]);
+        let quiz = Href::Inside("/OEBPS/text/quiz.xhtml".into());
+        assert!(refs.hrefs.contains(&quiz), "{:?}", refs.hrefs);
     }
 }

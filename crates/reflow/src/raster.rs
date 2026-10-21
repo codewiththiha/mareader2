@@ -290,6 +290,7 @@ impl Painter {
                 picture,
                 rect,
                 turned,
+                ..
             } => {
                 let [x, y, w, h] = *rect;
                 let rect = [set.x + x, piece.dy + y, w, h];
@@ -1624,6 +1625,7 @@ mod tests {
                     picture,
                     cover: false,
                     width: None,
+                    links: Vec::new(),
                 })
             })
             .collect();

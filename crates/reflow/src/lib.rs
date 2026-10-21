@@ -20,7 +20,7 @@ mod raster;
 mod svg;
 
 pub use block::{
-    Align, Annotation, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns,
+    Align, Annotation, Area, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns,
     Content, Dir, Edge, Emphasis, FEATURES, Features, Finish, Flex, Floated, Frame, Frame9,
     Gradient, GradientShape, GridRow, Inline, Justify, Keep, LAYOUT_BYTES, LastLine, Layer, Length,
     Link, Look, Orient, Outline, Rise, Role, Row, Script, Shadow, Sheet, Span, Spot, Table, Text,

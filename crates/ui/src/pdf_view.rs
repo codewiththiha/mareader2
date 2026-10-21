@@ -1192,6 +1192,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         Some(LinkTarget::Web(url)) if web_address(url.as_bytes()).is_some() => {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
+        Some(LinkTarget::Media { path, .. }) => {
+            crate::play::play(Arc::clone(doc), path);
+        }
         _ => {}
     }
     if cx.active {

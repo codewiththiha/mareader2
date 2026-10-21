@@ -335,6 +335,7 @@ mod tests {
                 picture,
                 cover: false,
                 width: None,
+                links: Vec::new(),
             }),
         ];
         let f = with(&blocks, &Typography::default());

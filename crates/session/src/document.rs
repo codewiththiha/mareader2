@@ -84,6 +84,14 @@ impl Document {
         }
     }
 
+    /// A book's sound or video at `path`, read to hand to a player.
+    pub fn media(&self, path: &str) -> Option<mareader_epub::Media> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.media(path),
+        }
+    }
+
     /// The same book in other type; none for a PDF or on failure.
     pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
         self.reset(typo, None)
@@ -282,6 +290,7 @@ impl Document {
                 Destination::Note { page, text } => LinkTarget::Note { page, text },
                 // The same schemes a PDF's links may use.
                 Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
+                Destination::Media { path, video } => LinkTarget::Media { path, video },
             };
             Some(Link {
                 bounds: bounds(l.rect),
