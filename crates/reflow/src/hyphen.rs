@@ -96,6 +96,8 @@ pub(crate) fn hyphenate(text: &Text, lang: Lang) -> Hyphenated {
             text: out,
             spans,
             links,
+            initial: text.initial,
+            first_line: text.first_line,
             inlines: (text.inlines.iter())
                 .map(|i| crate::block::Inline {
                     at: shift(i.at, |p, x| p <= x),

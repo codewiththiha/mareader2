@@ -13,7 +13,7 @@ use parley::{
 
 use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Floated, Frame, GridRow,
-    Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
+    Inline, Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -116,6 +116,18 @@ const READER: (f32, f32, f32, f32) = (17.0, 1.7, 1.0, 400.0);
 const RULE_HEIGHT: f32 = 0.5;
 /// From a list marker's right edge to the text.
 pub(crate) const MARKER_GAP: f32 = 0.5;
+/// A capital's height in ems, near enough for most faces.
+const CAP_HEIGHT: f32 = 0.7;
+/// Lines a drop cap may span, and its gap to the text in ems.
+const MAX_DROP: usize = 6;
+const DROP_GAP: f32 = 0.2;
+/// A drop cap's letter in the text: there, but too small to see.
+const HIDDEN_SIZE: f32 = 0.01;
+const FIRST_LINE_PASSES: usize = 3;
+/// Px of a marker picture per em of its text.
+const MARKER_PX: f32 = 16.0;
+/// Holds a picture-only marker's line open; draws nothing.
+const WORD_JOINER: &str = "\u{2060}";
 
 /// A heading's size in body ems, as mareader's stylesheet has it.
 fn heading_scale(level: u8) -> f32 {
@@ -353,12 +365,19 @@ pub(crate) struct Grid {
     pub(crate) rule: Option<[u8; 3]>,
 }
 
+/// A drop cap: its letter laid large, sitting on this line's baseline.
+pub(crate) struct Initial {
+    pub(crate) para: Para,
+    pub(crate) line: usize,
+}
+
 /// A block's text layouts: the bulk of a set book, so laid on demand.
 pub(crate) enum Laid {
     Text {
         para: Box<Para>,
         /// A list marker, hung left of the first line.
         marker: Option<Box<Para>>,
+        initial: Option<Box<Initial>>,
     },
     /// Each row's cells.
     Table(Vec<Vec<Para>>),
@@ -1422,7 +1441,22 @@ impl<'a> Setter<'a> {
             },
             None => style,
         };
+        let initial = self.initial(text, style);
+        let beside = match &initial {
+            Some((_, room)) => Some(match beside {
+                Some(b) => Beside {
+                    left: b.left + room.left,
+                    height: b.height.max(room.height),
+                    ..b
+                },
+                None => *room,
+            }),
+            None => beside,
+        };
         let mut para = layout_text(self.fonts, text, style, (Some(inner), beside));
+        if let Some(extra) = text.first_line.filter(|_| style.sized) {
+            para = self.first_line(text, (extra, para), style, (inner, beside));
+        }
         let mut units = line_units(&para.layout);
         // The padding rides on the first and last lines.
         if let Some(first) = units.first_mut() {
@@ -1449,12 +1483,83 @@ impl<'a> Setter<'a> {
                 indent: 0.0,
                 ..style
             };
+            if let Some(picture) = &frame.marker_picture {
+                t.inlines.push(marker_inline(picture, t.text.len()));
+                t.push(WORD_JOINER, Emphasis::default());
+            }
             Box::new(layout_text(self.fonts, &t, style, (None, None)))
         });
         let starts = std::mem::take(&mut para.starts);
         let para = Box::new(para);
-        let laid = Laid::Text { para, marker };
+        let initial = initial.map(|(i, _)| Box::new(i));
+        let laid = Laid::Text {
+            para,
+            marker,
+            initial,
+        };
         (Draw::Text { pad, shaded }, laid, units, starts)
+    }
+
+    /// The drop cap `text` starts with, and the room its lines leave it.
+    fn initial(&mut self, text: &Text, style: Style<'_>) -> Option<(Initial, Beside)> {
+        let letter = text
+            .text
+            .get(..text.initial)
+            .filter(|l| style.sized && !l.is_empty())?;
+        let own = (text.spans.first()).filter(|s| s.range.start == 0);
+        let emphasis = own.map(|s| s.emphasis).unwrap_or_default();
+        let size = style.size * f32::from(emphasis.size.max(100)) / 100.0;
+        let mut t = Text::new(Role::Paragraph);
+        let plain = Emphasis {
+            size: 0,
+            script: Script::Normal,
+            underline: false,
+            ..emphasis
+        };
+        t.push(letter, plain);
+        let big = Style {
+            size: size.clamp(MIN_SIZE, MAX_SIZE),
+            line_height: 1.0,
+            align: Align::Start,
+            pre: false,
+            justify: false,
+            hyphens: None,
+            indent: 0.0,
+            ..style
+        };
+        let para = layout_text(self.fonts, &t, big, (None, None));
+        let line = style.size * style.line_height;
+        // It spans the lines from the first's capitals to its own baseline.
+        let drop = ((size - style.size) * CAP_HEIGHT / line.max(1.0)).round();
+        let lines = (drop as usize + 1).clamp(1, MAX_DROP);
+        let room = Beside {
+            left: para.layout.width() + DROP_GAP * style.size,
+            right: 0.0,
+            height: (lines - 1) as f32 * line + 1.0,
+        };
+        Some((Initial { para, line: lines }, room))
+    }
+
+    /// Lays `text` again with `extra` over what its first line holds.
+    fn first_line(
+        &mut self,
+        text: &Text,
+        (extra, mut para): (Emphasis, Para),
+        style: Style<'_>,
+        (inner, beside): (f32, Option<Beside>),
+    ) -> Para {
+        let mut end = para.starts.get(1).copied().unwrap_or(text.text.len());
+        // A styled line may hold less; a few passes settle it.
+        for _ in 0..FIRST_LINE_PASSES {
+            let styled = over_first_line(text, end, extra);
+            para = layout_text(self.fonts, &styled, style, (Some(inner), beside));
+            let held = para.starts.get(1).copied().unwrap_or(text.text.len());
+            if held >= end {
+                break;
+            }
+            end = held;
+        }
+        para
     }
 
     fn table(&mut self, table: &Table, frame: &Frame, width: f32) -> (Grid, Vec<Vec<Para>>, Units) {
@@ -1969,6 +2074,11 @@ fn layout_text(
     for link in &text.links {
         b.push(StyleProperty::Underline(true), link.range.clone());
     }
+    // A drop cap's letter keeps its place in the text but shows apart.
+    let initial = text.initial.min(shown.len());
+    if style.sized && initial > 0 && shown.is_char_boundary(initial) {
+        b.push(StyleProperty::FontSize(HIDDEN_SIZE), 0..initial);
+    }
     for (n, inline) in text.inlines.iter().enumerate().take(MAX_INLINES) {
         let size = |ems: f32| (ems * style.size).clamp(1.0, MAX_SIZE * 8.0);
         b.push_inline_box(InlineBox {
@@ -2020,6 +2130,66 @@ fn layout_text(
             .map(|i| Arc::clone(&i.picture))
             .collect(),
     }
+}
+
+/// A list marker's picture at `at`, at most a line of text tall.
+fn marker_inline(picture: &Arc<Picture>, at: usize) -> Inline {
+    let ems = |px: u32| px.max(1) as f32 / MARKER_PX;
+    let (width, height) = (ems(picture.width), ems(picture.height));
+    let scale = (1.0 / height).min(1.0);
+    Inline {
+        at,
+        picture: Arc::clone(picture),
+        width: width * scale,
+        height: height * scale,
+        rise: Rise::Baseline,
+    }
+}
+
+/// `text` with `extra` added over its first `end` bytes.
+fn over_first_line(text: &Text, end: usize, extra: Emphasis) -> Text {
+    let len = text.text.len();
+    let mut cuts: Vec<usize> = (text.spans.iter())
+        .flat_map(|s| [s.range.start, s.range.end])
+        .chain([0, end, len])
+        .filter(|&c| c <= len && text.text.is_char_boundary(c))
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut out = Text {
+        text: String::with_capacity(len),
+        spans: Vec::new(),
+        ..text.clone()
+    };
+    for pair in cuts.windows(2) {
+        let (Some(&a), Some(&b)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        let own = (text.spans.iter())
+            .find(|s| s.range.start <= a && a < s.range.end)
+            .map(|s| s.emphasis)
+            .unwrap_or_default();
+        let e = match b <= end {
+            true => Emphasis {
+                italic: own.italic || extra.italic,
+                bold: own.bold || extra.bold,
+                light: own.light && !extra.bold,
+                size: if own.size == 0 { extra.size } else { own.size },
+                case: if extra.case == Case::Normal {
+                    own.case
+                } else {
+                    extra.case
+                },
+                underline: own.underline || extra.underline,
+                strike: own.strike || extra.strike,
+                colour: own.colour.or(extra.colour),
+                ..own
+            },
+            false => own,
+        };
+        out.push(text.text.get(a..b).unwrap_or_default(), e);
+    }
+    out
 }
 
 /// Breaks `layout`'s lines in `width`, those beside a float narrower.
@@ -3306,6 +3476,73 @@ mod tests {
                 .map_or(0.0, |s| span_height(s, 0..s.units.len()))
         };
         assert!(tall(0) > tall(1) * 1.2, "{} {}", tall(0), tall(1));
+    }
+
+    #[test]
+    fn a_drop_cap_spans_lines_with_the_text_beside_it() {
+        let mut t = Text::new(Role::Paragraph);
+        let big = Emphasis {
+            size: 300,
+            ..Emphasis::default()
+        };
+        t.push("A", big);
+        let rest = "lice was beginning to get very tired of sitting by her sister ";
+        t.push(&rest.repeat(6), Emphasis::default());
+        t.initial = 1;
+        let mut b = Block::new(Content::Text(t));
+        b.frame.look = Some(Arc::new(Look::default()));
+        let f = flow(&[b.clone()]);
+        let line = match &*f.laid(0) {
+            Laid::Text {
+                initial: Some(i), ..
+            } => i.line,
+            _ => 0,
+        };
+        assert_eq!(line, 2);
+        let lefts = line_lefts(&f, 0);
+        assert!(lefts.iter().take(2).all(|x| *x > 17.0), "{lefts:?}");
+        assert!(lefts.get(2).is_some_and(|x| *x == 0.0), "{lefts:?}");
+        // Read as the reader's own, the letter stays in its line.
+        b.frame.look = None;
+        let plain = flow(&[b]);
+        assert!(matches!(&*plain.laid(0), Laid::Text { initial: None, .. }));
+    }
+
+    #[test]
+    fn marker_pictures_and_first_lines_lay_out() {
+        let mut item = para(3);
+        item.frame.marker = Some(String::new());
+        item.frame.marker_picture = Picture::probe(png(32, 32)).ok().map(Arc::new);
+        let f = flow(&[item]);
+        let pictures = match &*f.laid(0) {
+            Laid::Text {
+                marker: Some(m), ..
+            } => m.pictures.len(),
+            _ => 0,
+        };
+        assert_eq!(pictures, 1);
+        let mut t = Text::new(Role::Paragraph);
+        t.push("one ", Emphasis::default());
+        let bold = Emphasis {
+            bold: true,
+            ..Emphasis::default()
+        };
+        t.push("two three", bold);
+        let upper = Emphasis {
+            case: Case::Upper,
+            ..Emphasis::default()
+        };
+        let styled = over_first_line(&t, 7, upper);
+        let spans: Vec<(Range<usize>, bool, Case)> = (styled.spans.iter())
+            .map(|s| (s.range.clone(), s.emphasis.bold, s.emphasis.case))
+            .collect();
+        let want = [
+            (0..4, false, Case::Upper),
+            (4..7, true, Case::Upper),
+            (7..13, true, Case::Normal),
+        ];
+        assert_eq!(spans, want);
+        assert_eq!(styled.text, t.text);
     }
 
     #[test]

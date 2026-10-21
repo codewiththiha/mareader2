@@ -17,8 +17,9 @@ use mareader_reflow::{
 
 use crate::css::{
     self, BorderStyle, Computed, Ctx, Decl, Display, El, Float, FontFace, Len, Line, MAX_SHEET,
-    PictureSize, ROOT_PX, Stylesheet, TextAlign,
+    PictureSize, PseudoEl, ROOT_PX, Stylesheet, TextAlign,
 };
+use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
 use crate::svg::{self, Capture};
 
@@ -32,6 +33,8 @@ const MAX_CLASSES: usize = 16;
 const MAX_ATTRS: usize = 16;
 /// Earlier siblings kept per element, for `+` and `~` selectors.
 const MAX_SIBLINGS: usize = 64;
+/// Counters in scope past this are not made.
+const MAX_COUNTERS: usize = 256;
 /// What a book face's family is registered as: never a machine's own.
 pub(crate) const BOOK_FACE: &str = mareader_reflow::BOOK_FACE;
 /// Generic families: the reader's own faces stand in.
@@ -178,6 +181,61 @@ struct Open {
     floated: bool,
     /// It looks laid out: a strong sign of a designed chapter.
     signals: bool,
+    /// Its `::after` box, shown as it closes.
+    after: Option<Box<Decl>>,
+}
+
+/// The generated boxes rules give an element.
+#[derive(Default)]
+struct Pseudos {
+    before: Option<Decl>,
+    after: Option<Decl>,
+    letter: Option<Decl>,
+    line: Option<Decl>,
+    marker: Option<Decl>,
+}
+
+/// What a counter property does to its counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Reset,
+    Add,
+    Set,
+}
+
+/// Whether `d` makes a `::before` or `::after` box.
+fn generates(d: &Decl) -> bool {
+    matches!(d.content, Some(Generated::Items(_))) && d.display != Some(Display::None)
+}
+
+/// A start tag the reader makes for a generated box.
+fn synthetic(name: &str) -> Tag {
+    Tag {
+        kind: TagKind::StartTag,
+        name: name.into(),
+        self_closing: false,
+        attrs: Vec::new(),
+        had_duplicate_attributes: false,
+    }
+}
+
+/// The bytes of a text's first letter, with punctuation before it.
+fn first_letter(s: &str) -> usize {
+    let mark = |c: char| {
+        matches!(c as u32, 0x300..=0x36f | 0x1ab0..=0x1aff | 0x20d0..=0x20ff | 0xfe20..=0xfe2f)
+            || matches!(c as u32, 0x102b..=0x103e | 0x1056..=0x1059 | 0x1062..=0x1064)
+    };
+    let (mut end, mut letter) = (0, false);
+    for (i, c) in s.char_indices() {
+        let next = i + c.len_utf8();
+        match (letter, c) {
+            (false, c) if c.is_alphanumeric() => (end, letter) = (next, true),
+            (false, c) if !c.is_whitespace() && !c.is_alphanumeric() => end = next,
+            (true, c) if mark(c) => end = next,
+            _ => break,
+        }
+    }
+    if letter { end } else { 0 }
 }
 
 /// An element's part in a layout grid.
@@ -433,6 +491,19 @@ struct State<'a> {
     grid: Option<GridBuild>,
     /// An inline drawing read to its end before it is shown.
     drawing: Option<Drawing>,
+    /// The cascade the next start tag takes: a generated box's.
+    forced: Option<Decl>,
+    /// Counters in scope: name, value, and their element's depth.
+    counters: Vec<(String, i32, usize)>,
+    /// Quotes open, which pick the next marks.
+    quotes: usize,
+    /// `::first-letter` and `::first-line` waiting for text, by their depth.
+    initial: Option<(usize, Decl)>,
+    first_line: Option<(usize, Decl)>,
+    /// A floated inline starting a block, by depth: a drop cap.
+    drop: Option<usize>,
+    /// A list item's marker picture, waiting with its marker.
+    marker_picture: Option<Arc<Picture>>,
 }
 
 /// Vertical space waiting for the next block, in px: margins collapse.
@@ -1212,6 +1283,7 @@ impl State<'_> {
             let mut frame = self.frame();
             frame.marker = self.marker.take();
             frame.marker_colour = self.marker_colour.take();
+            frame.marker_picture = self.marker_picture.take();
             let role = self.role();
             if let Some(look) = frame.look.clone() {
                 self.observe_text(&look, role);
@@ -1226,7 +1298,54 @@ impl State<'_> {
         }
     }
 
+    /// Text, its block's first letter and line styled as rules say.
     fn characters(&mut self, input: &str) {
+        let pending = self.initial.is_some() || self.first_line.is_some();
+        let fresh = pending && self.table.is_none() && !self.top().pre && self.fresh();
+        if !fresh || input.chars().all(is_html_space) || self.top().hidden {
+            return self.read_text(input);
+        }
+        let line = self.first_line.take().map(|(_, d)| self.emphasis_with(d));
+        let body = input.trim_start_matches(is_html_space);
+        let split = first_letter(body);
+        match self.initial.take().filter(|_| split > 0) {
+            Some((_, d)) => {
+                let (letter, rest) = body.split_at(split);
+                self.read_text(input.get(..input.len() - body.len()).unwrap_or_default());
+                self.forced = Some(d);
+                self.start(&synthetic("span"));
+                self.read_text(letter);
+                self.end("span");
+                self.read_text(rest);
+            }
+            None => self.read_text(input),
+        }
+        if let (Some(line), Some(Content::Text(t))) =
+            (line, self.current.as_mut().map(|b| &mut b.content))
+        {
+            t.first_line = Some(line);
+        }
+    }
+
+    /// Whether the open block has no text yet.
+    fn fresh(&self) -> bool {
+        match self.current.as_ref().map(|b| &b.content) {
+            None => true,
+            Some(Content::Text(t)) => t.text.trim().is_empty() && t.inlines.is_empty(),
+            Some(_) => false,
+        }
+    }
+
+    /// The emphasis text styled by `d` would take, here.
+    fn emphasis_with(&mut self, d: Decl) -> Emphasis {
+        self.forced = Some(d);
+        self.start(&synthetic("span"));
+        let emphasis = self.emphasis();
+        self.end("span");
+        emphasis
+    }
+
+    fn read_text(&mut self, input: &str) {
         let style = self.top();
         if self.stack.last().is_some_and(|o| o.name == "style") {
             if self.style_text.len() + input.len() <= MAX_SHEET {
@@ -1340,7 +1459,9 @@ impl State<'_> {
         }
     }
 
-    fn next_marker(&mut self) -> String {
+    /// Counts a list item; `value` resets the count.
+    /// Gives its number and the list's marker.
+    fn next_item(&mut self, value: Option<u32>) -> (u32, ListStyle) {
         let depth = self
             .stack
             .iter()
@@ -1351,17 +1472,226 @@ impl State<'_> {
             .iter_mut()
             .rev()
             .find(|o| o.name == "ul" || o.name == "ol");
-        match list {
-            Some(ol) if ol.name == "ol" => {
-                ol.counter = ol.counter.saturating_add(1);
-                format!("{}.", ol.counter)
+        let Some(list) = list else {
+            return (1, ListStyle::Symbol('•'));
+        };
+        list.counter = value.unwrap_or_else(|| list.counter.saturating_add(1));
+        let style = match depth % 3 {
+            _ if list.name == "ol" => ListStyle::Decimal,
+            2 => ListStyle::Symbol('◦'),
+            0 => ListStyle::Symbol('▪'),
+            _ => ListStyle::Symbol('•'),
+        };
+        (list.counter, style)
+    }
+
+    /// Sets a list item's marker: its text, picture and colour.
+    fn list_marker(
+        &mut self,
+        tag: &Tag,
+        (computed, style): (&Computed, &Style),
+        marker: Option<Decl>,
+    ) {
+        let value = attr(tag, "value").and_then(|v| v.trim().parse::<u32>().ok());
+        // An unmarked item still counts, as CSS counters do.
+        let (n, own) = self.next_item(value);
+        let list_style = computed.list_style.clone().unwrap_or(own);
+        let n = i32::try_from(n).unwrap_or(i32::MAX);
+        let mut text = generated::marker(n, &list_style).filter(|_| !style.unmarked);
+        let picture = (computed.list_image.as_deref()).and_then(|url| self.css_picture(url));
+        let mut ink = computed.ink;
+        if let Some(d) = marker {
+            if let Some(Generated::Items(items)) = &d.content {
+                let (shown, _) = self.content_text(items);
+                text = Some(shown).filter(|s| !s.trim().is_empty());
             }
-            _ => match depth % 3 {
-                2 => "◦",
-                0 if depth > 0 => "▪",
-                _ => "•",
+            ink = computed.child(&d).ink.or(ink);
+        }
+        self.marker_picture = picture;
+        self.marker = match self.marker_picture.is_some() {
+            true => Some(String::new()),
+            false => text,
+        };
+        self.marker_colour = ink.and_then(|ink| self.drawn(ink, MAX_FADE));
+    }
+
+    /// A picture a stylesheet names, by archive path or `data:` URL.
+    fn css_picture(&mut self, url: &str) -> Option<Arc<Picture>> {
+        match url.starts_with("data:") {
+            true => href::data_url(url)
+                .and_then(|b| Picture::probe(b).ok())
+                .map(Arc::new),
+            false => self.library.picture(url),
+        }
+    }
+
+    /// Applies `d`'s counter resets, increments and sets at `depth`.
+    fn count(&mut self, d: &Decl, depth: usize) {
+        let each = |c: &Option<css::Counters>| c.as_deref().unwrap_or_default().to_vec();
+        let resets = each(&d.counter_reset).into_iter().map(|c| (c, Step::Reset));
+        let adds = each(&d.counter_increment)
+            .into_iter()
+            .map(|c| (c, Step::Add));
+        let sets = each(&d.counter_set).into_iter().map(|c| (c, Step::Set));
+        for ((name, n), step) in resets.chain(adds).chain(sets) {
+            // A reset replaces a sibling's; the rest take the innermost.
+            let found = match step {
+                Step::Reset => (self.counters.iter()).rposition(|c| c.0 == name && c.2 == depth),
+                _ => self.counters.iter().rposition(|c| c.0 == name),
+            };
+            let full = self.counters.len() >= MAX_COUNTERS;
+            match found.and_then(|at| self.counters.get_mut(at)) {
+                Some(c) if step == Step::Add => c.1 = c.1.saturating_add(n),
+                Some(c) => c.1 = n,
+                None if full => {}
+                None if step == Step::Reset => self.counters.push((name, n, depth)),
+                // Never reset, a counter counts from the root.
+                None => self.counters.push((name, n, 0)),
             }
-            .to_owned(),
+        }
+    }
+
+    /// A counter's value; `list-item` is the list's own count.
+    fn counter(&self, name: &str) -> i32 {
+        if let Some(c) = self.counters.iter().rev().find(|c| c.0 == name) {
+            return c.1;
+        }
+        let list = self
+            .stack
+            .iter()
+            .rev()
+            .find(|o| o.name == "ul" || o.name == "ol");
+        match list.filter(|_| name == "list-item") {
+            Some(list) => i32::try_from(list.counter).unwrap_or(i32::MAX),
+            None => 0,
+        }
+    }
+
+    /// The next quote mark, opening or closing, by how many are open.
+    fn quote(&mut self, open: bool) -> String {
+        let marks = self.stack.last().and_then(|o| o.computed.quotes.clone());
+        let marks = marks.unwrap_or_else(generated::default_quotes);
+        if !open {
+            if self.quotes == 0 {
+                return String::new();
+            }
+            self.quotes -= 1;
+        }
+        let depth = self.quotes.min(marks.len().saturating_sub(1));
+        let pair = marks.get(depth);
+        if open {
+            self.quotes = self.quotes.saturating_add(1);
+        }
+        pair.map(|p| if open { p.0.clone() } else { p.1.clone() })
+            .unwrap_or_default()
+    }
+
+    /// `content` parts as text, and the pictures after each text run.
+    fn content_text(&mut self, items: &[Item]) -> (String, Vec<(usize, String)>) {
+        let (mut text, mut pictures) = (String::new(), Vec::new());
+        for item in items {
+            match item {
+                Item::Text(t) => text.push_str(t),
+                Item::Attr(name) => {
+                    let el = self.stack.last().map(|o| &o.el);
+                    let attrs = el.into_iter().flat_map(|el| &el.attrs);
+                    if let Some((_, v)) = attrs.into_iter().find(|(k, _)| k == name) {
+                        text.push_str(v);
+                    }
+                }
+                Item::Counter(name, style) => {
+                    text.push_str(&generated::format(self.counter(name), style));
+                }
+                Item::Counters(name, joint, style) => {
+                    let all: Vec<String> = (self.counters.iter())
+                        .filter(|c| c.0 == *name)
+                        .map(|c| generated::format(c.1, style))
+                        .collect();
+                    match all.is_empty() {
+                        true => text.push_str(&generated::format(self.counter(name), style)),
+                        false => text.push_str(&all.join(joint)),
+                    }
+                }
+                Item::OpenQuote => text.push_str(&self.quote(true)),
+                Item::CloseQuote => text.push_str(&self.quote(false)),
+                Item::NoOpenQuote => self.quotes = self.quotes.saturating_add(1),
+                Item::NoCloseQuote => self.quotes = self.quotes.saturating_sub(1),
+                Item::Url(url) => pictures.push((text.len(), url.clone())),
+            }
+        }
+        (text, pictures)
+    }
+
+    /// Shows a generated box styled by `d`, as the top element's child.
+    fn generate(&mut self, d: Decl) {
+        let Some(Generated::Items(items)) = d.content.clone() else {
+            return;
+        };
+        if self.top().hidden || self.top().graphic {
+            return;
+        }
+        self.count(&d, self.stack.len());
+        let (text, pictures) = self.content_text(&items);
+        let block = matches!(
+            d.display,
+            Some(Display::Block | Display::Flex | Display::Grid | Display::Table)
+        );
+        let edged = (d.border_style.iter()).any(|s| s.is_some_and(|s| s != BorderStyle::None));
+        let painted = d.background == Some(true) || d.background_image == Some(true);
+        let shows = edged || painted || d.height.is_some();
+        // An empty box drawing nothing, as a clearfix, is skipped.
+        if text.trim().is_empty() && pictures.is_empty() && !(block && shows) {
+            return;
+        }
+        let name = if block { "div" } else { "span" };
+        let mut d = d;
+        if block {
+            d.display = Some(Display::Block);
+        }
+        self.forced = Some(d);
+        self.start(&synthetic(name));
+        let mut from = 0;
+        for (at, url) in pictures {
+            self.read_text(text.get(from..at).unwrap_or_default());
+            from = at;
+            let picture = self.css_picture(&url);
+            self.picture(picture, None, (None, None));
+        }
+        self.read_text(text.get(from..).unwrap_or_default());
+        self.end(name);
+    }
+
+    /// Shows the `::after` boxes of open elements from `at`, innermost first.
+    fn generate_after(&mut self, at: usize) {
+        loop {
+            let open = |o: &Open| o.after.is_some();
+            let Some(i) = (at..self.stack.len())
+                .rev()
+                .find(|&i| self.stack.get(i).is_some_and(open))
+            else {
+                return;
+            };
+            let after = self.stack.get_mut(i).and_then(|o| o.after.take());
+            if i + 1 < self.stack.len() {
+                self.close_from(i + 1);
+            }
+            if let Some(d) = after {
+                self.generate(*d);
+            }
+        }
+    }
+
+    /// Marks a short, large floated run starting the block as its drop cap.
+    fn mark_initial(&mut self) {
+        let Some(Content::Text(t)) = self.current.as_mut().map(|b| &mut b.content) else {
+            return;
+        };
+        let len = t.text.len();
+        let short = (1..=3).contains(&t.text.trim().chars().count()) && t.inlines.is_empty();
+        let large =
+            (t.spans.first()).is_some_and(|s| s.range == (0..len) && s.emphasis.size >= 150);
+        if short && large && !t.text.starts_with(' ') {
+            t.initial = len;
         }
     }
 
@@ -1413,6 +1743,30 @@ impl State<'_> {
 
     /// The cascade for `el`, about to open inside the stack.
     fn declared(&self, el: &El, tag: &Tag) -> Decl {
+        css::declared(
+            &self.sheets,
+            &self.path(el),
+            &hints(tag, &el.tag),
+            (attr(tag, "style"), self.base),
+        )
+    }
+
+    /// The generated boxes rules give `el`, about to open.
+    fn pseudos(&self, el: &El) -> Pseudos {
+        let path = self.path(el);
+        let get = |which| css::declared_pseudo(&self.sheets, &path, which);
+        let block = is_block(&el.tag);
+        Pseudos {
+            before: get(PseudoEl::Before).filter(generates),
+            after: get(PseudoEl::After).filter(generates),
+            letter: block.then(|| get(PseudoEl::FirstLetter)).flatten(),
+            line: block.then(|| get(PseudoEl::FirstLine)).flatten(),
+            marker: (el.tag == "li").then(|| get(PseudoEl::Marker)).flatten(),
+        }
+    }
+
+    /// The open elements as selectors see them, then `el`.
+    fn path<'s>(&'s self, el: &'s El) -> Vec<Ctx<'s>> {
         fn siblings(kids: &[El], open: bool) -> &[El] {
             match open {
                 true => kids.get(..kids.len().saturating_sub(1)).unwrap_or_default(),
@@ -1432,12 +1786,7 @@ impl State<'_> {
             el,
             before: siblings(kids, false),
         });
-        css::declared(
-            &self.sheets,
-            &path,
-            &hints(tag, &el.tag),
-            (attr(tag, "style"), self.base),
-        )
+        path
     }
 
     /// Records `el` among its parent's children.
@@ -1780,16 +2129,38 @@ impl State<'_> {
     /// Returns whether the tokenizer should read raw text next.
     fn start(&mut self, tag: &Tag) -> bool {
         let name: &str = &tag.name;
-        self.close_implied(name);
+        let forced = self.forced.take();
+        let generated = forced.is_some();
+        if !generated {
+            self.close_implied(name);
+        }
         let el = self.element(tag, name);
-        let declared = self.declared(&el, tag);
+        let quiet = self.top().hidden || self.top().graphic;
+        let (declared, pseudos) = match forced {
+            Some(d) => (d, Pseudos::default()),
+            None if quiet => (self.declared(&el, tag), Pseudos::default()),
+            None => (self.declared(&el, tag), self.pseudos(&el)),
+        };
         self.styled |= attr(tag, "style").is_some();
         let computed = match self.stack.last() {
             Some(open) => open.computed.child(&declared),
             None => Computed::default().child(&declared),
         };
-        self.adopt(&el);
+        if !generated {
+            self.adopt(&el);
+        }
         let shown = !self.top().hidden && computed.display != Display::None;
+        if shown && !generated {
+            self.count(&declared, self.stack.len());
+        }
+        let (before, after) = match shown {
+            true => (pseudos.before, pseudos.after),
+            false => (None, None),
+        };
+        if name == "hr" && (before.is_some() || after.is_some()) && self.table.is_none() {
+            self.ornament(declared, (before, after));
+            return false;
+        }
         let signals = shown && self.observe(name, &computed, &declared);
         if matches!(name, "html" | "body") {
             self.page = computed.fill.unwrap_or(self.page);
@@ -1864,7 +2235,8 @@ impl State<'_> {
                 self.rule(&computed);
             }
         }
-        if is_void(name) || tag.self_closing || self.stack.len() >= MAX_DEPTH {
+        let empty = tag.self_closing && before.is_none() && after.is_none();
+        if is_void(name) || empty || self.stack.len() >= MAX_DEPTH {
             if shown && is_block(name) && self.table.is_none() {
                 self.finish();
                 match boxed {
@@ -1883,10 +2255,20 @@ impl State<'_> {
             .map_or(0, |s| s.saturating_sub(1));
         let mut style = self.style_for(name, &computed);
         if name == "li" {
-            // An unmarked item still counts, as CSS counters do.
-            let marker = self.next_marker();
-            self.marker = (!style.unmarked).then_some(marker);
-            self.marker_colour = computed.ink.and_then(|ink| self.drawn(ink, MAX_FADE));
+            self.list_marker(tag, (&computed, &style), pseudos.marker);
+        }
+        let floated_inline = !is_block(name) && computed.float != Float::None;
+        if floated_inline && shown && self.table.is_none() && self.drop.is_none() && self.fresh() {
+            self.drop = Some(self.stack.len());
+        }
+        if is_block(name) && shown {
+            let depth = self.stack.len();
+            if let Some(d) = pseudos.letter {
+                self.initial = Some((depth, d));
+            }
+            if let Some(d) = pseudos.line {
+                self.first_line = Some((depth, d));
+            }
         }
         if let Some(href) = attr(tag, "href").filter(|_| name == "a") {
             style.link = self.link_to(href);
@@ -1909,11 +2291,31 @@ impl State<'_> {
             part,
             floated,
             signals,
+            after: after.map(Box::new),
         });
         if name == "style" {
             self.style_text.clear();
         }
+        if let Some(d) = before {
+            self.generate(d);
+        }
+        if tag.self_closing {
+            self.end(name);
+            return false;
+        }
         is_raw(name)
+    }
+
+    /// An `<hr>` showing generated content: a centred ornament, no line.
+    fn ornament(&mut self, mut d: Decl, (before, after): (Option<Decl>, Option<Decl>)) {
+        d.border_style = [Some(BorderStyle::None); 4];
+        d.display = Some(Display::Block);
+        self.forced = Some(d);
+        self.start(&synthetic("div"));
+        for d in [before, after].into_iter().flatten() {
+            self.generate(d);
+        }
+        self.end("div");
     }
 
     fn end(&mut self, name: &str) {
@@ -1921,6 +2323,9 @@ impl State<'_> {
             let text = std::mem::take(&mut self.style_text);
             let sheet = Stylesheet::parse(&text, self.base);
             self.add_sheet(Arc::new(sheet));
+        }
+        if let Some(at) = self.stack.iter().rposition(|o| o.name == name) {
+            self.generate_after(at);
         }
         if is_block(name) {
             self.boundary(name);
@@ -1937,13 +2342,24 @@ impl State<'_> {
 
     /// Pops the open elements from `at`, ending their extents.
     fn close_from(&mut self, at: usize) {
-        // A block about to close may still be open text; it counts.
+        self.generate_after(at);
+        if self.drop.is_some_and(|d| d >= at) {
+            self.drop = None;
+            self.mark_initial();
+        }
         let ends = |o: &Open| o.extent.is_some() || o.boxed || o.part != Part::None;
         if self.stack.iter().skip(at).any(ends) && self.table.is_none() {
             self.finish();
         }
         let end = self.first + self.blocks.len();
         let closed: Vec<Open> = self.stack.drain(at..).collect();
+        self.counters.retain(|c| c.2 <= at);
+        if self.initial.as_ref().is_some_and(|i| i.0 >= at) {
+            self.initial = None;
+        }
+        if self.first_line.as_ref().is_some_and(|i| i.0 >= at) {
+            self.first_line = None;
+        }
         for open in closed.iter().rev() {
             if is_block(&open.name) && !open.style.hidden && self.table.is_none() {
                 match open.boxed {
@@ -2298,6 +2714,18 @@ fn hints(tag: &Tag, name: &str) -> Decl {
         d.background = Some(true);
         d.fill = css::colour(&c.trim().to_ascii_lowercase());
     }
+    if let Some(t) = attr(tag, "type").filter(|_| matches!(name, "ol" | "ul" | "li")) {
+        // The letters' case matters here, unlike in CSS.
+        let word = match t.trim() {
+            "1" => "decimal",
+            "a" => "lower-alpha",
+            "A" => "upper-alpha",
+            "i" => "lower-roman",
+            "I" => "upper-roman",
+            other => other,
+        };
+        d.list_style = generated::list_style(word).or(d.list_style);
+    }
     if let Some(v) = attr(tag, "valign").filter(|_| matches!(name, "td" | "th" | "tr")) {
         d.valign = Decl::parse(&format!("vertical-align: {}", v.trim())).valign;
     }
@@ -2575,6 +3003,13 @@ pub(crate) fn read_chapter(
         boxes: Vec::new(),
         grid: None,
         drawing: None,
+        forced: None,
+        counters: Vec::new(),
+        quotes: 0,
+        initial: None,
+        first_line: None,
+        drop: None,
+        marker_picture: None,
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -2953,6 +3388,107 @@ mod tests {
         );
         let markers: Vec<Option<&str>> = b.iter().map(|b| b.frame.marker.as_deref()).collect();
         assert_eq!(markers, [Some("1."), None, Some("3."), None]);
+    }
+
+    #[test]
+    fn generated_content_counts_quotes_and_reads_attributes() {
+        let b = read(
+            "<html><head><style>body { counter-reset: ch } h2 { counter-increment: ch } \
+             h2::before { content: 'Chapter ' counter(ch, upper-roman) ': ' } \
+             a::after { content: ' (' attr(href) ')' } \
+             .n::before { counter-increment: note; content: counter(note) '. ' } \
+             hr.o { border: none } hr.o::after { content: '\\2766' } \
+.star::before { content: '*' } \
+             .rule::before { content: ''; display: block; border-top: 1px solid } \
+             .fix::after { content: ''; display: table }</style></head><body>\
+             <h2>Start</h2><h2>Next</h2><p><a href='x.html'>link</a></p>\
+             <p><q>a <q>b</q> c</q></p><p class='n'>one</p><p class='n'>two</p>\
+             <hr class='o'/><div class='star'/><div class='rule fix'><p>after</p></div>\
+             </body></html>",
+        );
+        let texts: Vec<String> = b
+            .iter()
+            .filter_map(text)
+            .map(|t| t.text.trim().to_owned())
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "Chapter I: Start",
+                "Chapter II: Next",
+                "link (x.html)",
+                "\u{201c}a \u{2018}b\u{2019} c\u{201d}",
+                "1. one",
+                "2. two",
+                "❦",
+                "*",
+                "after",
+            ]
+        );
+        assert!(!b.iter().any(|b| matches!(b.content, Content::Rule)));
+        // The bordered empty box shows as a rule of the book's.
+        let ruled = b.iter().rev().nth(1);
+        assert!(
+            ruled.is_some_and(|b| matches!(b.content, Content::Space(_))),
+            "{ruled:?}"
+        );
+    }
+
+    #[test]
+    fn list_styles_markers_and_marker_boxes_show() {
+        let b = read(
+            "<html><head><style>ol.r { list-style-type: lower-roman } \
+             ol.arrow li::marker { content: '→'; color: #c00 } \
+             ol.my { list-style: myanmar }</style></head><body>\
+             <ol class='r'><li>a</li><li>b</li></ol><ol type='A'><li>c</li></ol>\
+             <ul><li style='list-style: square'>d</li><li value='7'>e</li></ul>\
+             <ol class='arrow'><li>f</li></ol><ol class='my' start='4'><li>g</li></ol>\
+             <ol><li value='9'>h</li><li>i</li></ol></body></html>",
+        );
+        let markers: Vec<Option<&str>> = b.iter().map(|b| b.frame.marker.as_deref()).collect();
+        assert_eq!(
+            markers,
+            [
+                Some("i."),
+                Some("ii."),
+                Some("A."),
+                Some("▪"),
+                Some("•"),
+                Some("→"),
+                Some("၄."),
+                Some("9."),
+                Some("10.")
+            ]
+        );
+        let arrow = b.get(5).and_then(|b| b.frame.marker_colour);
+        assert!(arrow.is_some_and(|[r, g, _]| r > g), "{arrow:?}");
+    }
+
+    #[test]
+    fn drop_caps_and_first_lines_mark_their_text() {
+        let b = read(
+            "<html><head><style>p.first::first-letter { float: left; font-size: 3em } \
+             p.raised::first-letter { font-size: 2em } \
+             p.lead::first-line { font-variant: small-caps }</style></head><body>\
+             <p class='first'>\u{201c}Alice was here</p>\
+             <p><span style='float: left; font-size: 4em'>T</span>he end</p>\
+             <p class='raised'>Raised</p><p class='lead'>Lead line</p></body></html>",
+        );
+        let t: Vec<&Text> = b.iter().filter_map(text).collect();
+        let initial: Vec<usize> = t.iter().map(|t| t.initial).collect();
+        assert_eq!(initial, [4, 1, 0, 0]);
+        assert_eq!(
+            t.first().map(|t| t.text.as_str()),
+            Some("\u{201c}Alice was here")
+        );
+        let size = |i: usize| {
+            t.get(i)
+                .and_then(|t| t.spans.first())
+                .map(|s| s.emphasis.size)
+        };
+        assert_eq!((size(0), size(2)), (Some(300), Some(200)));
+        let lead = t.get(3).and_then(|t| t.first_line);
+        assert_eq!(lead.map(|e| e.case), Some(Case::Small));
     }
 
     #[test]

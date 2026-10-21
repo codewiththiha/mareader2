@@ -82,3 +82,32 @@ Prose chapters draw the boxes the book paints (a border, a background
 colour or picture), at the reader's size, with their padding, margins,
 width and corners. Boxes that only move text are left out, so prose still
 reads in the reader's column.
+
+## Generated content (E2)
+
+`::before` and `::after` (one colon too) show their `content`: strings with
+CSS escapes, `attr()`, `counter()` and `counters()` in any list style,
+`open-quote` and `close-quote` by `quotes` and depth, and `url()` pictures.
+A block box is laid as a block; an empty one shows only when it draws
+something, so a bordered divider is a rule and a clearfix is nothing.
+An `hr` with generated content shows that ornament instead of a line.
+`q` quotes as browsers do. Counters reset, increment and set as CSS says;
+one never reset counts from the root, and `list-item` is the list's count.
+
+## Drop caps and first lines (E2)
+
+A floated `::first-letter`, or a short floated run starting a paragraph,
+is a drop cap: the letter is drawn large, spanning lines by its size, and
+the text wraps beside it. The letter stays in the text, so search and
+selection still read the word. Unfloated, the letter is only restyled.
+`::first-line` styles what the first line holds, after a few passes. Both
+need the book's design; read as the reader's own, the text is plain.
+
+## Lists (E2)
+
+Every `list-style-type` counts its own way: decimal (with a leading zero),
+Roman, Latin, Greek, Armenian, Georgian, Hebrew, kana and iroha, CJK, the
+native digits of Arabic, Indic, Thai, Lao, Khmer, Tibetan, Mongolian and
+Myanmar scripts, symbols, and strings. `type` and `value` attributes count
+as in HTML. `list-style-image` hangs the picture as the marker, at most a
+line tall. `::marker` sets the marker's text and colour.
