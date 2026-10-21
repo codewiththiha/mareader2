@@ -172,6 +172,7 @@ struct Style {
     code: bool,
     pre: bool,
     align: Align,
+    sided: bool,
     /// Not shown at all: the head, scripts, `display: none`.
     hidden: bool,
     /// Inside SVG or MathML: no text, though SVG images still show.
@@ -629,6 +630,7 @@ impl State<'_> {
             }
         }
         f.align = self.top().align;
+        f.sided = self.top().sided;
         f.tight = self.in_list() && !std::mem::take(&mut self.list_opened);
         f.look = Some(self.look());
         f.boxes = self.box_arcs();
@@ -1994,6 +1996,7 @@ impl State<'_> {
             _ => {}
         }
         st.align = c.align.align();
+        st.sided = c.align.sided();
         st.unmarked = c.unmarked;
         st.hidden |= c.display == Display::None;
         st

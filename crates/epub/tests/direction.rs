@@ -62,6 +62,9 @@ fn right_to_left_lines_start_at_the_right() {
     // A short item ends at the right, its list indent aside.
     assert!(short.0 > english.0 + 200.0, "{short:?} {english:?}");
     assert!((short.1 - english.1).abs() < 70.0, "{short:?} {english:?}");
+    // Aligned `left`, a right-to-left line keeps to the left.
+    let sided = span(&line("الأيسر"));
+    assert!((sided.0 - english.0).abs() < 2.0, "{sided:?} {english:?}");
 }
 
 #[test]

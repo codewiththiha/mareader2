@@ -680,6 +680,8 @@ pub struct Frame {
     /// A picture shown as the marker, after its text.
     pub marker_picture: Option<Arc<Picture>>,
     pub align: Align,
+    /// The alignment names a side, `left` or `right`, kept in any direction.
+    pub sided: bool,
     /// A small gap above, as between list items.
     pub tight: bool,
     /// Quoted text, drawn in a softer ink.
