@@ -12,14 +12,14 @@ use html5ever::tokenizer::{
 use mareader_reflow::{
     Align, Anchor, Annotation, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content,
     Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow,
-    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text,
-    TextShadow, VAlign,
+    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Sheet, Spot,
+    Table, Text, TextShadow, VAlign,
 };
 
 use crate::calc::Vars;
 use crate::css::{
     self, BorderStyle, Computed, Ctx, Decl, Display, El, Float, FontFace, Len, Line, MAX_SHEET,
-    PictureSize, PseudoEl, ROOT_PX, Stylesheet, TextAlign,
+    PictureSize, Placing, PseudoEl, ROOT_PX, Stylesheet, TextAlign,
 };
 use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
@@ -84,6 +84,10 @@ const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
 /// Backgrounds fainter than this against the page are left out.
 const MIN_FILL: f32 = 0.08;
+/// A fixed page naming no viewport: the reflowed page box, in CSS px.
+const DEFAULT_SHEET: (f32, f32) = (794.0, 1123.0);
+/// The largest viewport side a fixed page may ask for.
+const MAX_SHEET_SIDE: f32 = 10_000.0;
 /// Rows a cell spans down, at most.
 const MAX_SPAN_DOWN: u16 = 64;
 /// Pictures set in one block's lines, at most.
@@ -548,6 +552,22 @@ struct State<'a> {
     drop: Option<usize>,
     /// A list item's marker picture, waiting with its marker.
     marker_picture: Option<Arc<Picture>>,
+    /// A fixed-layout chapter: its viewport, once read, and its page.
+    fixed: bool,
+    viewport: Option<(f32, f32)>,
+    sheet: Option<Arc<Sheet>>,
+    /// The root's ground was the body's, so the body box leaves it.
+    grounded: bool,
+    /// Containing blocks open on a fixed page, innermost last.
+    places: Vec<Place>,
+}
+
+/// A fixed page's containing block: its depth, rect and positioned box.
+#[derive(Clone)]
+struct Place {
+    depth: usize,
+    rect: [f32; 4],
+    spot: Option<Arc<Spot>>,
 }
 
 /// Vertical space waiting for the next block, in px: margins collapse.
@@ -656,6 +676,8 @@ impl State<'_> {
             f.orient = c.orient;
         }
         f.turned = self.turned;
+        f.sheet = self.sheet.clone();
+        f.spot = self.places.last().and_then(|p| p.spot.clone());
         f
     }
 
@@ -998,7 +1020,9 @@ impl State<'_> {
         // A table of data draws its own grid, not a box.
         let layout = name != "table" || self.lays_out(tag);
         let rule = std::mem::take(&mut self.rule_next);
-        let (contrast, backdrop, finish) = match layout {
+        // A fixed page's root ground is drawn under the whole page.
+        let ground = self.grounded && name == "body";
+        let (contrast, backdrop, finish) = match layout && !ground {
             true => self.paint(c),
             false => (None, None, None),
         };
@@ -2247,7 +2271,10 @@ impl State<'_> {
         let Some(d) = self.drawing.take_if(|_| done) else {
             return;
         };
+        // Its place closes with it, but the picture still goes there.
+        let places = self.places.clone();
         self.end(&d.name);
+        let after = std::mem::replace(&mut self.places, places);
         if d.shown && !d.capture.broken {
             let (width, alt) = (picture_width(&d.computed), d.alt.as_deref());
             let c = *d.capture;
@@ -2261,9 +2288,136 @@ impl State<'_> {
                 }
             }
         }
+        self.places = after;
         if matches!(token, Token::EOFToken) {
             self.eof();
         }
+    }
+
+    /// Opens a fixed page at `<body>`: its viewport and root ground.
+    fn open_sheet(&mut self, body: &Computed) {
+        let sized = |l: Len| l.px(ROOT_PX, 0.0).filter(|v| *v >= 1.0);
+        let own = sized(body.width).zip(sized(body.height));
+        let (width, height) = self.viewport.or(own).unwrap_or(DEFAULT_SHEET);
+        let root = self.stack.first().map(|o| o.computed.clone());
+        let paints = |p: &(Option<f32>, Option<Arc<Backdrop>>, Option<Finish>)| {
+            p.0.is_some() || p.1.is_some() || p.2.as_ref().is_some_and(Finish::shows)
+        };
+        let from_root = root.map(|c| self.paint(&c)).filter(paints);
+        self.grounded = from_root.is_none();
+        let (fill, backdrop, finish) = match from_root {
+            Some(p) => p,
+            None => self.paint(body),
+        };
+        let ground = Boxed {
+            fill: fill.map(|c| c.min(MAX_TEXT_FILL)),
+            backdrop,
+            finish: finish.map(|f| Arc::new(capped(&f))),
+            ..Boxed::default()
+        };
+        let shows = ground.fill.is_some() || ground.backdrop.is_some() || ground.finish.is_some();
+        self.sheet = Some(Arc::new(Sheet {
+            width,
+            height,
+            ground: shows.then(|| Arc::new(ground)),
+        }));
+        self.places.push(Place {
+            depth: 0,
+            rect: [0.0, 0.0, width, height],
+            spot: None,
+        });
+    }
+
+    /// Opens the containing block `position` makes; true when out of flow.
+    fn place_start(&mut self, c: &Computed) -> bool {
+        let Some(sheet) = self.sheet.clone().filter(|_| self.fixed) else {
+            return false;
+        };
+        let Some(outer) = self.places.last().cloned() else {
+            return false;
+        };
+        if c.placing == Placing::Static || self.table.is_some() {
+            return false;
+        }
+        let view = (sheet.width, sheet.height);
+        let [cx, cy, cw, ch] = match c.placing {
+            Placing::Fixed => [0.0, 0.0, view.0, view.1],
+            _ => outer.rect,
+        };
+        let at = |l: Len, base: f32| placed_px(l, base, view);
+        let side = |i: usize, base: f32| c.offsets.get(i).and_then(|l| at(*l, base));
+        let (top, right, bottom, left) = (side(0, ch), side(1, cw), side(2, ch), side(3, cw));
+        let depth = self.stack.len();
+        if c.placing == Placing::Relative {
+            // In the flow still: only what it holds is placed from it.
+            let x = cx + left.or(right.map(|r| -r)).unwrap_or(0.0);
+            let y = cy + top.or(bottom.map(|b| -b)).unwrap_or(0.0);
+            let (w, h) = (
+                at(c.width, cw).unwrap_or(cw),
+                at(c.height, ch).unwrap_or(ch),
+            );
+            let spot = outer.spot;
+            self.places.push(Place {
+                depth,
+                rect: [x, y, w, h],
+                spot,
+            });
+            return false;
+        }
+        let margin =
+            |i: usize, base: f32| c.margin.get(i).and_then(|m| at(*m, base)).unwrap_or(0.0);
+        let (m_top, m_right, m_bottom, m_left) =
+            (margin(0, cw), margin(1, cw), margin(2, cw), margin(3, cw));
+        let across = c.padding[1] + c.padding[3] + c.border[1] + c.border[3];
+        let down = c.padding[0] + c.padding[2] + c.border[0] + c.border[2];
+        let room = |l: Option<f32>, r: Option<f32>| {
+            cw - l.unwrap_or(0.0) - r.unwrap_or(0.0) - m_left - m_right
+        };
+        let width = at(c.width, cw)
+            .map_or_else(|| room(left, right), |w| w + across)
+            .max(1.0);
+        let x = match (left, right) {
+            (Some(l), _) => cx + l + m_left,
+            (None, Some(r)) => cx + cw - r - m_right - width,
+            (None, None) => cx + m_left,
+        };
+        let height = at(c.height, ch).map(|h| h + down);
+        let height = height.or_else(|| top.zip(bottom).map(|(t, b)| ch - t - b - m_top - m_bottom));
+        let height = height.map(|h| h.max(1.0));
+        let (y, hung) = match (top, bottom, height) {
+            (Some(t), _, _) => (cy + t + m_top, None),
+            (None, Some(b), Some(h)) => (cy + ch - b - m_bottom - h, None),
+            (None, Some(b), None) => (cy, Some(cy + ch - b - m_bottom)),
+            (None, None, _) => (cy + m_top, None),
+        };
+        let spot = Spot {
+            x,
+            y,
+            width,
+            height,
+            bottom: hung,
+            z: c.z_index,
+            depth: u8::try_from(self.boxes.len()).unwrap_or(u8::MAX),
+        };
+        // What came before stays in the flow; this starts its own blocks.
+        self.finish();
+        self.gap = Gap::default();
+        self.places.push(Place {
+            depth,
+            rect: [x, y, width, height.unwrap_or(ch)],
+            spot: Some(Arc::new(spot)),
+        });
+        true
+    }
+
+    /// Closes the containing blocks of elements at depth `at` and in.
+    fn place_end(&mut self, at: usize) {
+        let keep = self
+            .places
+            .iter()
+            .take_while(|p| p.depth < at || p.depth == 0);
+        let keep = keep.count();
+        self.places.truncate(keep);
     }
 
     /// Shows `picture` in a line or as its own block, or else its alt.
@@ -2294,6 +2448,9 @@ impl State<'_> {
         });
         let parent = self.stack.last().map(|o| o.name.as_str());
         let small = small.filter(|_| after_text || parent.is_some_and(in_line));
+        let depth = self.stack.len();
+        let own = |p: &Place| p.depth + 1 >= depth && p.spot.is_some();
+        let small = small.filter(|_| !self.places.last().is_some_and(own));
         if let (Some(picture), Some((width, height))) = (&picture, small) {
             // A small picture is a glyph of its line.
             let space = std::mem::take(&mut self.space);
@@ -2478,6 +2635,9 @@ impl State<'_> {
         match name {
             "html" if self.stack.is_empty() => self.root = Some(el.clone()),
             "body" => self.root_vars(),
+            "meta" if self.fixed && attr(tag, "name").is_some_and(|n| n.trim() == "viewport") => {
+                self.viewport = attr(tag, "content").and_then(viewport).or(self.viewport);
+            }
             _ => {}
         }
         let quiet = self.top().hidden || self.top().graphic;
@@ -2519,8 +2679,12 @@ impl State<'_> {
             self.page = computed.fill.unwrap_or(self.page);
             self.book_ink = computed.ink.unwrap_or(self.book_ink);
             // Only the chapter's root turns it; inner boxes stay level.
-            self.turned = computed.writing;
+            self.turned = computed.writing && !self.fixed;
         }
+        if name == "body" && self.fixed && self.sheet.is_none() {
+            self.open_sheet(&computed);
+        }
+        let placed = shown && self.place_start(&computed);
         if computed.combine && self.combining.is_none() && !is_block(name) {
             self.combining = Some((self.stack.len(), self.text_len()));
         }
@@ -2559,6 +2723,7 @@ impl State<'_> {
                 let width = picture_width(&computed);
                 let alt = attr(tag, "alt");
                 self.image(attr(tag, "src"), alt, (width, Some(&computed)));
+                self.place_end(self.stack.len());
                 return false;
             }
             "image" => {
@@ -2593,7 +2758,14 @@ impl State<'_> {
         }
         if is_block(name) && shown && self.table.is_none() {
             part = self.grid_start(name, tag, &computed);
-            boxed = self.open_block(tag, (&computed, &declared), part);
+            // A positioned box's place is its own: no margins, no width.
+            let own = placed.then(|| Computed {
+                width: Len::Auto,
+                margin: [Len::Px(0.0); 4],
+                ..computed.clone()
+            });
+            let c = own.as_ref().unwrap_or(&computed);
+            boxed = self.open_block(tag, (c, &declared), part);
         }
         if matches!(
             name,
@@ -2614,6 +2786,7 @@ impl State<'_> {
                 }
                 self.end_part(part);
             }
+            self.place_end(self.stack.len());
             return false;
         }
         if matches!(name, "ul" | "ol") && !self.in_list() {
@@ -2753,7 +2926,9 @@ impl State<'_> {
             self.mark_initial();
         }
         let ends = |o: &Open| o.extent.is_some() || o.boxed || o.part != Part::None;
-        if self.stack.iter().skip(at).any(ends) && self.table.is_none() {
+        let spot = |p: &Place| p.depth >= at && p.spot.is_some();
+        let placed = self.places.last().is_some_and(spot);
+        if (placed || self.stack.iter().skip(at).any(ends)) && self.table.is_none() {
             self.finish();
         }
         let end = self.first + self.blocks.len();
@@ -2780,6 +2955,7 @@ impl State<'_> {
                 self.float = None;
             }
         }
+        self.place_end(at);
         for (key, start, note) in closed.into_iter().filter_map(|o| o.extent) {
             if end > start && self.refs.extents.len() < MAX_PLACES {
                 let blocks = start..end;
@@ -3424,11 +3600,12 @@ impl TokenSink for Sink<'_> {
     }
 }
 
-/// Appends an SVG page of the spine: one picture filling its page.
+/// Appends a spine picture filling its page, its own size when `fixed`.
 pub(crate) fn read_svg_page(
     path: &str,
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
+    fixed: bool,
 ) {
     let Some(picture) = library.picture(path) else {
         return;
@@ -3438,12 +3615,19 @@ pub(crate) fn read_svg_page(
         offset: 0,
     };
     refs.places.entry(path.to_owned()).or_insert(start);
+    let side = |n: u32| (n as f32).clamp(1.0, MAX_SHEET_SIDE);
+    let sheet = fixed.then(|| Sheet {
+        width: side(picture.width),
+        height: side(picture.height),
+        ground: None,
+    });
     let mut block = Block::new(Content::Image {
         picture,
         cover: true,
         width: None,
     });
     block.break_before = true;
+    block.frame.sheet = sheet.map(Arc::new);
     out.push(block);
 }
 
@@ -3451,6 +3635,25 @@ pub(crate) fn read_svg_page(
 pub(crate) fn read_chapter(
     xhtml: &str,
     path: &str,
+    library: &mut dyn Library,
+    (out, refs): (&mut Vec<Block>, &mut Refs),
+) {
+    read(xhtml, (path, false), library, (out, refs));
+}
+
+/// Appends a fixed-layout page: its blocks laid at its own viewport.
+pub(crate) fn read_fixed_chapter(
+    xhtml: &str,
+    path: &str,
+    library: &mut dyn Library,
+    (out, refs): (&mut Vec<Block>, &mut Refs),
+) {
+    read(xhtml, (path, true), library, (out, refs));
+}
+
+fn read(
+    xhtml: &str,
+    (path, fixed): (&str, bool),
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
@@ -3508,6 +3711,11 @@ pub(crate) fn read_chapter(
         first_line: None,
         drop: None,
         marker_picture: None,
+        fixed,
+        viewport: None,
+        sheet: None,
+        grounded: false,
+        places: Vec::new(),
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -3515,7 +3723,55 @@ pub(crate) fn read_chapter(
     let _ = tokenizer.feed(&input);
     tokenizer.end();
     let state = tokenizer.sink.0.into_inner();
-    out.extend(state.blocks);
+    let mut blocks = state.blocks;
+    if fixed {
+        // One page: every block on it, and a page even when it is blank.
+        let (width, height) = state.viewport.unwrap_or(DEFAULT_SHEET);
+        let blank = || {
+            Arc::new(Sheet {
+                width,
+                height,
+                ground: None,
+            })
+        };
+        let sheet = state.sheet.unwrap_or_else(blank);
+        let mut end = Block::new(Content::Space(0.0));
+        end.break_before = blocks.is_empty();
+        blocks.push(end);
+        for block in &mut blocks {
+            block.frame.sheet = Some(Arc::clone(&sheet));
+        }
+    }
+    out.extend(blocks);
+}
+
+/// A viewport `<meta>`'s size in CSS px, as `width=1200, height=1600`.
+fn viewport(content: &str) -> Option<(f32, f32)> {
+    let mut size = (None, None);
+    for item in content.split([',', ';']) {
+        let Some((key, value)) = item.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().trim_end_matches("px").parse::<f32>().ok();
+        let value = value
+            .filter(|v| v.is_finite() && *v >= 1.0)
+            .map(|v| v.min(MAX_SHEET_SIDE));
+        match key.trim().to_ascii_lowercase().as_str() {
+            "width" => size.0 = value,
+            "height" => size.1 = value,
+            _ => {}
+        }
+    }
+    size.0.zip(size.1)
+}
+
+/// A length on a fixed page in its CSS px: viewport units are the page's.
+fn placed_px(l: Len, base: f32, (width, height): (f32, f32)) -> Option<f32> {
+    match l {
+        Len::Vw(n) => Some(n * width / 100.0),
+        Len::Vh(n) => Some(n * height / 100.0),
+        other => other.px(ROOT_PX, base),
+    }
 }
 
 #[cfg(test)]
@@ -4292,7 +4548,7 @@ mod tests {
             shelf.pictures.insert("/OPS/p1.svg".into(), p);
         }
         let (mut out, mut refs) = (Vec::new(), Refs::default());
-        read_svg_page("/OPS/p1.svg", &mut shelf, (&mut out, &mut refs));
+        read_svg_page("/OPS/p1.svg", &mut shelf, (&mut out, &mut refs), false);
         let cover = matches!(
             out.first().map(|b| &b.content),
             Some(Content::Image { cover: true, .. })
