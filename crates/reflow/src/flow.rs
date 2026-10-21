@@ -202,6 +202,8 @@ struct Style<'a> {
     weight: f32,
     tone: Tone,
     align: Align,
+    /// `align` is a side, not a start or end.
+    sided: bool,
     /// Preformatted: long lines wrap anywhere, code spans aren't resized.
     pre: bool,
     justify: bool,
@@ -1132,6 +1134,7 @@ impl<'a> Setter<'a> {
             weight: typo.weight,
             tone: if frame.soft { Tone::Soft } else { Tone::Body },
             align: frame.align,
+            sided: frame.sided,
             pre: false,
             justify: typo.justify && frame.align == Align::Start,
             hyphens: typo.hyphenate.then_some(self.lang),
@@ -2075,10 +2078,12 @@ fn alignment(style: &Style<'_>) -> Alignment {
     if style.justify {
         return Alignment::Justify;
     }
-    match style.align {
-        Align::Start => Alignment::Start,
-        Align::Center => Alignment::Center,
-        Align::End => Alignment::End,
+    match (style.align, style.sided) {
+        (Align::Start, false) => Alignment::Start,
+        (Align::Start, true) => Alignment::Left,
+        (Align::Center, _) => Alignment::Center,
+        (Align::End, false) => Alignment::End,
+        (Align::End, true) => Alignment::Right,
     }
 }
 
@@ -4615,13 +4620,15 @@ mod tests {
         let rtl: Vec<bool> = f.blocks.iter().map(|s| s.rtl).collect();
         assert_eq!(rtl, [true, false, false, true]);
         // A short right-to-left line sits at the right of its column.
-        let first = |b| line_lefts(&f, b).first().copied().unwrap_or(f32::NAN);
-        assert!(
-            first(0) > f.width / 2.0 && first(2) < 1.0,
-            "{} {}",
-            first(0),
-            first(2)
-        );
+        let first = |b| match &*f.laid(b) {
+            Laid::Text { para, .. } => para.layout.lines().next().map(|l| {
+                let m = l.metrics();
+                m.offset + m.inline_min_coord
+            }),
+            _ => None,
+        };
+        let (auto, ltr) = (first(0).unwrap_or(0.0), first(2).unwrap_or(f32::NAN));
+        assert!(auto > ltr + f.width / 3.0, "{auto} {ltr}");
     }
 
     #[test]

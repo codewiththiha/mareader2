@@ -133,15 +133,23 @@ pub(crate) enum TextAlign {
     Center,
     End,
     Justify,
+    /// `left` and `right`: sides, whatever the direction.
+    Left,
+    Right,
 }
 
 impl TextAlign {
     pub(crate) fn align(self) -> Align {
         match self {
-            Self::Start | Self::Justify => Align::Start,
+            Self::Start | Self::Justify | Self::Left => Align::Start,
             Self::Center => Align::Center,
-            Self::End => Align::End,
+            Self::End | Self::Right => Align::End,
         }
+    }
+
+    /// Whether it names a side rather than a start or end.
+    pub(crate) fn sided(self) -> bool {
+        matches!(self, Self::Left | Self::Right)
     }
 }
 
@@ -1227,8 +1235,10 @@ fn weight(v: &str) -> Option<Weight> {
 fn text_align(v: &str) -> Option<TextAlign> {
     match v.trim() {
         "center" | "-webkit-center" => Some(TextAlign::Center),
-        "right" | "end" => Some(TextAlign::End),
-        "left" | "start" => Some(TextAlign::Start),
+        "end" => Some(TextAlign::End),
+        "start" => Some(TextAlign::Start),
+        "right" => Some(TextAlign::Right),
+        "left" => Some(TextAlign::Left),
         "justify" => Some(TextAlign::Justify),
         _ => None,
     }
@@ -3337,18 +3347,18 @@ mod tests {
                    [epub|type~=\"note\"] { display: none } p::first-letter { font-size: 3em }";
         let div = el("div", &[]);
         let align = |chain: &[El]| cascade(css, chain).align;
-        assert_eq!(align(&[el("p", &[])]), Some(TextAlign::End));
+        assert_eq!(align(&[el("p", &[])]), Some(TextAlign::Right));
         assert_eq!(
             align(&[div.clone(), el("span", &[]), el("p", &[])]),
             Some(TextAlign::Center)
         );
         assert_eq!(
             align(&[div.clone(), el("p", &["x"])]),
-            Some(TextAlign::Start)
+            Some(TextAlign::Left)
         );
         assert_eq!(
             align(&[el("section", &[]), el("p", &["x"])]),
-            Some(TextAlign::End)
+            Some(TextAlign::Right)
         );
         let mut me = el("p", &[]);
         me.id = Some("me".to_owned());
@@ -3425,7 +3435,7 @@ mod tests {
             (Some("text-align: left !important"), ""),
             &none(),
         );
-        assert_eq!(d.align, Some(TextAlign::Start));
+        assert_eq!(d.align, Some(TextAlign::Left));
     }
 
     #[test]
