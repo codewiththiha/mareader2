@@ -17,6 +17,7 @@ mod label;
 mod page_text;
 mod picture;
 mod raster;
+mod svg;
 
 pub use block::{
     Align, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns, Content, Edge,
@@ -34,3 +35,4 @@ pub use label::{Fallback, Lines, fallbacks, label, label_lines, measure_lines};
 pub use page_text::{PageChar, PageLine};
 pub use picture::{MAX_PICTURE_PIXELS, MAX_PICTURE_SIDE, Picture, PictureError};
 pub use raster::{MAX_SIDE, Pixels, Region};
+pub use svg::Links;

@@ -1218,9 +1218,10 @@ impl<'a> Setter<'a> {
         } else {
             self.typo.font_size
         };
-        let (left, room, mut boxes, cell) = match designed {
-            true => self.boxes(frame, column),
-            false => (0.0, column, Vec::new(), None),
+        let (left, room, mut boxes, cell) = match (designed, typed) {
+            (true, _) => self.boxes(frame, column),
+            (false, true) => self.painted(frame, column),
+            (false, false) => (0.0, column, Vec::new(), None),
         };
         // Deep nesting stops indenting at half the column.
         let mut x = left + (frame.inset * em).clamp(0.0, room / 2.0);
@@ -1332,6 +1333,28 @@ impl<'a> Setter<'a> {
             rotate: if designed { frame.rotate } else { 0.0 },
         };
         (set, laid)
+    }
+
+    /// Prose: only painted boxes, at the reader's size, inside the column.
+    fn painted(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
+        let em = self.typo.font_size;
+        let (mut x, mut width) = (0.0, column);
+        let mut placed = Vec::new();
+        for b in frame.boxes.iter().filter(|b| painted(b)) {
+            let mut p = place(b, (x, width), em);
+            if b.width.is_none() && p.width < width / 2.0 {
+                (p.x, p.width) = (x, width);
+            }
+            let end = (p.x + p.width).min(column);
+            p.x = p.x.max(0.0);
+            p.width = (end - p.x).max(1.0);
+            p.centre = None;
+            let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
+            x = p.x + (b.border[3] + b.padding[3]) * em;
+            width = (p.width - inside).max(1.0);
+            placed.push(p);
+        }
+        (x, width, placed, None)
     }
 
     /// Places the boxes and cell in `column`: content left, width, both.
@@ -1515,6 +1538,12 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         em,
         radius: b.radius.map_or(0.0, |r| resolve(r, outer, em).max(0.0)),
     }
+}
+
+/// Whether a box shows: a drawn border, a background or its picture.
+fn painted(b: &Boxed) -> bool {
+    let edged = (b.edges.iter().zip(&b.border)).any(|(e, w)| *e != Edge::None && *w > 0.0);
+    edged || b.fill.is_some_and(|f| f > 0.02) || b.backdrop.is_some()
 }
 
 /// The float block `frame` is in, by its address.
@@ -2840,6 +2869,55 @@ mod tests {
         let deco = decos.first().map_or([0.0; 4], |d| d.rect);
         assert!(deco[1] <= top && deco[1] + deco[3] >= bottom, "{deco:?}");
         assert!(deco[1] + deco[3] <= after, "{deco:?} {after}");
+    }
+
+    #[test]
+    fn prose_draws_the_boxes_the_book_paints_at_the_readers_size() {
+        let framed = Arc::new(Boxed {
+            border: [0.1; 4],
+            edges: [Edge::Solid; 4],
+            padding: [0.0, 1.0, 0.0, 1.0],
+            ..Boxed::default()
+        });
+        // Margins alone don't show, so prose keeps its column.
+        let moved = Arc::new(Boxed {
+            margin: [Some(Length::Em(6.0)), Some(Length::Em(6.0))],
+            ..Boxed::default()
+        });
+        let prose = |boxes: &[Arc<Boxed>]| {
+            let mut b = para(3);
+            b.frame.look = Some(Arc::new(Look::default()));
+            b.frame.boxes = boxes.to_vec();
+            b
+        };
+        let f = flow(&[prose(&[Arc::clone(&moved), framed]), prose(&[moved])]);
+        let em = Typography::default().font_size;
+        let set = |i: usize| f.blocks.get(i).map(|s| (s.x, s.width, s.boxes.len()));
+        let inset = 1.1 * em;
+        let framed_at = set(0).unwrap_or_default();
+        assert!((framed_at.0 - inset).abs() < 0.5, "{framed_at:?}");
+        assert!(
+            (framed_at.1 - (f.width - 2.0 * inset)).abs() < 0.5,
+            "{framed_at:?}"
+        );
+        assert_eq!(framed_at.2, 1);
+        assert_eq!(set(1), Some((0.0, f.width, 0)));
+        let decos = f.decos.first().map_or(0, Vec::len);
+        assert_eq!(decos, 1);
+        // Read as the reader's own, nothing of the book's shows.
+        let off = Flow::new(
+            Arc::new(vec![prose(&[Arc::new(Boxed {
+                border: [0.1; 4],
+                edges: [Edge::Solid; 4],
+                ..Boxed::default()
+            })])]),
+            &Typography {
+                design: Design::Off,
+                ..Typography::default()
+            },
+            Fonts::bundled(),
+        );
+        assert_eq!(off.decos.first().map_or(0, Vec::len), 0);
     }
 
     #[test]

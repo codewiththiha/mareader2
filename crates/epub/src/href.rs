@@ -33,6 +33,43 @@ pub(crate) fn resolve(base: &str, href: &str) -> Option<String> {
     (!parts.is_empty()).then(|| format!("/{}", parts.join("/")))
 }
 
+/// The bytes a `data:` URL holds, base64 or percent-encoded.
+pub(crate) fn data_url(url: &str) -> Option<Vec<u8>> {
+    let rest = url.trim().strip_prefix("data:")?;
+    let (meta, body) = rest.split_once(',')?;
+    if meta.trim_end().to_ascii_lowercase().ends_with(";base64") {
+        base64(body)
+    } else {
+        Some(percent_decode(body).into_bytes())
+    }
+}
+
+/// Standard or URL-safe base64; whitespace is skipped, padding ends it.
+fn base64(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            c if c.is_ascii_whitespace() => continue,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
 pub(crate) fn percent_decode(s: &str) -> String {
     let hex = |b: &u8| {
         char::from(*b)

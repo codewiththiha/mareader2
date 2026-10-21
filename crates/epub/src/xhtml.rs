@@ -11,8 +11,8 @@ use html5ever::tokenizer::{
 };
 use mareader_reflow::{
     Align, Anchor, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content, Edge,
-    Emphasis, Flex, Floated, Frame, GridRow, Inline, Justify, Length, Look, Picture, Role, Row,
-    Script, Table, Text, VAlign,
+    Emphasis, Flex, Floated, Frame, GridRow, Inline, Justify, Length, Links, Look, Picture, Role,
+    Row, Script, Table, Text, VAlign,
 };
 
 use crate::css::{
@@ -20,6 +20,7 @@ use crate::css::{
     PictureSize, ROOT_PX, Stylesheet, TextAlign,
 };
 use crate::href;
+use crate::svg::{self, Capture};
 
 /// Open elements tracked at once; deeper nesting is read as flat.
 pub const MAX_DEPTH: usize = 256;
@@ -116,6 +117,27 @@ pub(crate) trait Library {
     /// `path` is absolute in the archive; `None` if missing or unusable.
     fn picture(&mut self, path: &str) -> Option<Arc<Picture>>;
     fn stylesheet(&mut self, path: &str) -> Option<Arc<Stylesheet>>;
+    /// A file an SVG links, as it is; `None` if missing or too large.
+    fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>>;
+}
+
+/// The images SVG at `base` links by `hrefs`, read from the book.
+pub(crate) fn svg_links(library: &mut dyn Library, base: &str, hrefs: Vec<String>) -> Links {
+    let take = hrefs.into_iter().take(svg::MAX_LINKS);
+    take.filter_map(|h| {
+        let path = href::resolve(base, &h)?;
+        Some((h, library.bytes(&path)?))
+    })
+    .collect()
+}
+
+/// An inline `svg` being read: its markup and how it is set.
+struct Drawing {
+    capture: Box<Capture>,
+    name: String,
+    computed: Computed,
+    shown: bool,
+    alt: Option<String>,
 }
 
 /// What open elements pass down to the text inside them.
@@ -409,6 +431,8 @@ struct State<'a> {
     /// The book's boxes open around what is read, outermost first.
     boxes: Vec<BoxOpen>,
     grid: Option<GridBuild>,
+    /// An inline drawing read to its end before it is shown.
+    drawing: Option<Drawing>,
 }
 
 /// Vertical space waiting for the next block, in px: margins collapse.
@@ -1495,6 +1519,71 @@ impl State<'_> {
         alt: Option<&str>,
         sized: (Option<Length>, Option<&Computed>),
     ) {
+        let src = src.map(str::trim);
+        let picture = match src {
+            Some(s) if s.starts_with("data:") => {
+                let bytes = href::data_url(s);
+                bytes.and_then(|b| Picture::probe(b).ok()).map(Arc::new)
+            }
+            _ => {
+                let path = src.and_then(|s| href::resolve(self.base, s));
+                path.and_then(|p| self.library.picture(&p))
+            }
+        };
+        self.picture(picture, alt, sized);
+    }
+
+    /// Starts reading an inline drawing at its `svg` start tag.
+    fn begin_drawing(&mut self, tag: &Tag) {
+        let name: &str = &tag.name;
+        if tag.self_closing || !svg::is_root(name) {
+            return;
+        }
+        let open = self.stack.last().filter(|o| o.name == name);
+        self.drawing = Some(Drawing {
+            capture: Box::new(Capture::new(tag)),
+            name: name.to_owned(),
+            computed: open.map_or_else(Computed::default, |o| o.computed.clone()),
+            shown: open.is_some_and(|o| !o.style.hidden),
+            alt: attr(tag, "aria-label").map(str::to_owned),
+        });
+    }
+
+    /// Feeds a drawing; at its end it is shown as one picture.
+    fn draw(&mut self, token: &Token) {
+        let done = self
+            .drawing
+            .as_mut()
+            .is_some_and(|d| d.capture.token(token));
+        let Some(d) = self.drawing.take_if(|_| done) else {
+            return;
+        };
+        self.end(&d.name);
+        if d.shown && !d.capture.broken {
+            let (width, alt) = (picture_width(&d.computed), d.alt.as_deref());
+            let c = *d.capture;
+            match c.images.as_slice() {
+                // A frame round one image, as covers are: that image shows.
+                [only] if !c.drawn => self.image(Some(only), alt, (None, None)),
+                _ => {
+                    let links = svg_links(&mut *self.library, self.base, c.images);
+                    let picture = Picture::svg(c.markup.into_bytes(), links).ok();
+                    self.picture(picture.map(Arc::new), alt, (width, Some(&d.computed)));
+                }
+            }
+        }
+        if matches!(token, Token::EOFToken) {
+            self.eof();
+        }
+    }
+
+    /// Shows `picture` in a line or as its own block, or else its alt.
+    fn picture(
+        &mut self,
+        picture: Option<Arc<Picture>>,
+        alt: Option<&str>,
+        sized: (Option<Length>, Option<&Computed>),
+    ) {
         let (width, computed) = sized;
         if self.top().hidden {
             return;
@@ -1506,8 +1595,6 @@ impl State<'_> {
             }
             return;
         }
-        let path = src.and_then(|s| href::resolve(self.base, s));
-        let picture = path.and_then(|p| self.library.picture(&p));
         let small = picture
             .as_ref()
             .zip(computed)
@@ -2396,12 +2483,17 @@ impl TokenSink for Sink<'_> {
 
     fn process_token(&self, token: Token, _line: u64) -> TokenSinkResult<()> {
         let mut s = self.0.borrow_mut();
+        if s.drawing.is_some() {
+            s.draw(&token);
+            return TokenSinkResult::Continue;
+        }
         match token {
             Token::TagToken(tag) => match tag.kind {
                 TagKind::StartTag => {
                     if s.start(&tag) {
                         return TokenSinkResult::RawData(RawKind::Rawtext);
                     }
+                    s.begin_drawing(&tag);
                 }
                 TagKind::EndTag => s.end(&tag.name),
             },
@@ -2411,6 +2503,29 @@ impl TokenSink for Sink<'_> {
         }
         TokenSinkResult::Continue
     }
+}
+
+/// Appends an SVG page of the spine: one picture filling its page.
+pub(crate) fn read_svg_page(
+    path: &str,
+    library: &mut dyn Library,
+    (out, refs): (&mut Vec<Block>, &mut Refs),
+) {
+    let Some(picture) = library.picture(path) else {
+        return;
+    };
+    let start = Anchor {
+        block: out.len(),
+        offset: 0,
+    };
+    refs.places.entry(path.to_owned()).or_insert(start);
+    let mut block = Block::new(Content::Image {
+        picture,
+        cover: true,
+        width: None,
+    });
+    block.break_before = true;
+    out.push(block);
 }
 
 /// Appends the blocks of `xhtml`, found at `path`; the first starts a page.
@@ -2459,6 +2574,7 @@ pub(crate) fn read_chapter(
         signals: Signals::default(),
         boxes: Vec::new(),
         grid: None,
+        drawing: None,
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -2481,6 +2597,7 @@ mod tests {
     struct Shelf {
         pictures: HashMap<String, Arc<Picture>>,
         sheets: HashMap<String, Arc<Stylesheet>>,
+        files: HashMap<String, Arc<Vec<u8>>>,
     }
 
     impl Library for Shelf {
@@ -2490,6 +2607,10 @@ mod tests {
 
         fn stylesheet(&mut self, path: &str) -> Option<Arc<Stylesheet>> {
             self.sheets.get(path).cloned()
+        }
+
+        fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>> {
+            self.files.get(path).cloned()
         }
     }
 
@@ -2787,8 +2908,13 @@ mod tests {
 
     #[test]
     fn hidden_text_stays_hidden() {
-        let b = read("<p>a<svg><text>no</text></svg>b<script>if (a<b) {}</script></p>");
+        // A small drawing joins its line; its words aren't the text's.
+        let b = read(
+            "<p>a<svg width='16' height='16'><text>no</text></svg>b\
+             <script>if (a<b) {}</script></p>",
+        );
         assert_eq!(texts(&b), ["ab"]);
+        assert_eq!(b.first().and_then(text).map(|t| t.inlines.len()), Some(1));
     }
 
     #[test]
@@ -2909,6 +3035,84 @@ mod tests {
             ..Emphasis::default()
         };
         assert_eq!(spans(b.get(3)), [("Gone", italic)]);
+    }
+
+    /// Block `i`'s picture, if it is one.
+    fn picture_of(b: &[Block], i: usize) -> Option<Arc<Picture>> {
+        match &b.get(i)?.content {
+            Content::Image { picture, .. } => Some(Arc::clone(picture)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn inline_svg_is_drawn_as_one_picture() {
+        let mut shelf = Shelf::default();
+        let dot = Arc::new(b"<svg xmlns='http://www.w3.org/2000/svg'/>".to_vec());
+        shelf.files.insert("/OEBPS/images/dot.svg".into(), dot);
+        let b = read_with(
+            &mut shelf,
+            "<p>Before</p>\
+             <svg viewBox='0 0 400 100' epub:type='ornament' aria-label='Leaf'>\
+             <style><![CDATA[ .a { fill: black } ]]></style>\
+             <lineargradient id='g'/><path class='a' d='M0 0L400 100'/>\
+             <text>No words</text><image xlink:href='../images/dot.svg'/></svg>\
+             <p>After</p>",
+        );
+        assert_eq!(kinds(&b), ["text", "image", "text"]);
+        assert_eq!(texts(&b), ["Before", "After"]);
+        let p = picture_of(&b, 1);
+        assert!(p.as_ref().is_some_and(|p| p.vector()));
+        assert_eq!(p.map(|p| (p.width, p.height)), Some((400, 100)));
+    }
+
+    #[test]
+    fn a_frame_round_one_image_shows_that_image() {
+        let mut shelf = Shelf::default();
+        if let Some(p) = png(4, 2) {
+            shelf.pictures.insert("/OEBPS/images/c.png".into(), p);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<div><svg:svg xmlns:svg='http://www.w3.org/2000/svg' viewBox='0 0 4 2'>\
+             <svg:image xlink:href='../images/c.png'/></svg:svg></div>",
+        );
+        let p = picture_of(&b, 0);
+        assert!(p.as_ref().is_some_and(|p| !p.vector() && p.width == 4));
+        // Hidden drawings and their text show nothing.
+        let none = read("<svg style='display:none'><path d='M0 0'/><text>x</text></svg>");
+        assert!(none.is_empty(), "{none:?}");
+    }
+
+    #[test]
+    fn data_urls_are_pictures() {
+        let svg = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' \
+                   width='30' height='10'%3E%3C/svg%3E";
+        let b = read(&format!("<p>a</p><img src=\"{svg}\"/>"));
+        assert_eq!(picture_of(&b, 1).map(|p| p.width), Some(30));
+        // A 1 × 1 PNG, base64.
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf\
+                   FcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        let b = read(&format!("<p>a</p><img src='{png}'/>"));
+        assert_eq!(picture_of(&b, 1).map(|p| p.width), Some(1));
+    }
+
+    #[test]
+    fn an_svg_page_fills_its_page() {
+        let mut shelf = Shelf::default();
+        let page = b"<svg xmlns='http://www.w3.org/2000/svg' width='600' height='800'/>";
+        let picture = Picture::probe(page.to_vec()).ok().map(Arc::new);
+        if let Some(p) = picture {
+            shelf.pictures.insert("/OPS/p1.svg".into(), p);
+        }
+        let (mut out, mut refs) = (Vec::new(), Refs::default());
+        read_svg_page("/OPS/p1.svg", &mut shelf, (&mut out, &mut refs));
+        let cover = matches!(
+            out.first().map(|b| &b.content),
+            Some(Content::Image { cover: true, .. })
+        );
+        assert!(cover && out.first().is_some_and(|b| b.break_before));
+        assert_eq!(refs.place("/OPS/p1.svg").map(|a| a.block), Some(0));
     }
 
     fn kinds(b: &[Block]) -> Vec<&'static str> {
