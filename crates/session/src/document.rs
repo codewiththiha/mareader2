@@ -62,8 +62,12 @@ impl Document {
     }
 
     fn epub(book: Book) -> Self {
-        let (width, height) = book.page_size();
-        let sizes = vec![PageSize { width, height }; book.page_count()];
+        // Fixed pages keep their own shape; reflowed ones share one.
+        let size = |page| {
+            let (width, height) = book.size(page);
+            PageSize { width, height }
+        };
+        let sizes = (0..book.page_count()).map(size).collect();
         let outline = book
             .toc()
             .iter()
@@ -187,6 +191,14 @@ impl Document {
     /// Whether its pages turn right to left, as a book may ask.
     pub fn right_to_left(&self) -> bool {
         matches!(self, Self::Epub { book, .. } if book.right_to_left())
+    }
+
+    /// How many pages show alone before spreads pair them, as a book asks.
+    pub fn lead(&self) -> usize {
+        match self {
+            Self::Epub { book, .. } => book.lead(),
+            Self::Pdf(_) => 0,
+        }
     }
 
     /// Whether the text reflows: the typography settings apply.

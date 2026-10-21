@@ -46,23 +46,27 @@ impl ViewMode {
         }
     }
 
-    /// The first page of what shows with `page` in it.
-    pub fn start(self, page: usize) -> usize {
+    /// What shows with `page`: first page and count; `lead` pages alone.
+    pub fn span(self, page: usize, lead: usize) -> (usize, usize) {
         match self {
-            Self::Spread => page - page % 2,
-            _ => page,
+            Self::Spread if page >= lead => (lead + (page - lead) / 2 * 2, 2),
+            _ => (page, 1),
         }
     }
 
+    /// The first page of what shows with `page` in it.
+    pub fn start(self, page: usize, lead: usize) -> usize {
+        self.span(page, lead).0
+    }
+
     /// The page one turn from `page`, clamped to the document.
-    pub fn turn(self, page: usize, forward: bool, count: usize) -> usize {
-        let step = if self == Self::Spread { 2 } else { 1 };
-        let last = self.start(count.saturating_sub(1));
-        let from = self.start(page);
-        if forward {
-            (from + step).min(last)
-        } else {
-            from.saturating_sub(step)
+    pub fn turn(self, page: usize, forward: bool, (count, lead): (usize, usize)) -> usize {
+        let last = self.start(count.saturating_sub(1), lead);
+        let (from, shown) = self.span(page, lead);
+        match (forward, from.checked_sub(1)) {
+            (true, _) => (from + shown).min(last),
+            (false, Some(back)) => self.start(back, lead),
+            (false, None) => 0,
         }
     }
 }
@@ -103,11 +107,14 @@ impl Arrow {
 }
 
 /// What a fit measures: what shows together, at zoom 1.
-pub fn fit_box(mode: ViewMode, sizes: &[PageSize], page: usize) -> Option<PageSize> {
-    let first = *sizes.get(mode.start(page)).or(sizes.first())?;
-    let second = sizes
-        .get(mode.start(page) + 1)
-        .filter(|_| mode == ViewMode::Spread);
+pub fn fit_box(
+    mode: ViewMode,
+    sizes: &[PageSize],
+    (page, lead): (usize, usize),
+) -> Option<PageSize> {
+    let (start, shown) = mode.span(page, lead);
+    let first = *sizes.get(start).or(sizes.first())?;
+    let second = sizes.get(start + 1).filter(|_| shown == 2);
     Some(second.map_or(first, |s| PageSize {
         width: first.width + s.width,
         height: first.height.max(s.height),
@@ -131,6 +138,8 @@ pub struct Inputs {
     pub align: Align,
     /// A spread's first page sits right, as a right-to-left book's.
     pub rtl: bool,
+    /// The pages a book wants alone before spreads pair them.
+    pub lead: usize,
 }
 
 /// Page rects in content space, for the pages laid out.
@@ -191,12 +200,7 @@ impl Layout {
                 Self::with(inputs, 0, rects, size)
             }
             ViewMode::Single | ViewMode::Spread => {
-                let first = inputs.mode.start(inputs.focus);
-                let count = if inputs.mode == ViewMode::Spread {
-                    2
-                } else {
-                    1
-                };
+                let (first, count) = inputs.mode.span(inputs.focus, inputs.lead);
                 let shown: Vec<Vec2> = sizes.iter().skip(first).take(count).map(scaled).collect();
                 let block = vec2(
                     shown.iter().map(|s| s.x).sum::<f32>(),
@@ -343,6 +347,7 @@ mod tests {
             margin: MARGIN,
             align: Align::Center,
             rtl: false,
+            lead: 0,
         }
     }
 
@@ -390,17 +395,32 @@ mod tests {
     fn spreads_pair_pages_from_the_first_and_steps_clamp() {
         let m = ViewMode::Spread;
         assert_eq!(
-            (m.start(0), m.start(1), m.start(2), m.start(5)),
+            (m.start(0, 0), m.start(1, 0), m.start(2, 0), m.start(5, 0)),
             (0, 0, 2, 4)
         );
-        assert_eq!(m.turn(1, true, 5), 2);
-        assert_eq!(m.turn(3, false, 5), 0);
+        assert_eq!(m.turn(1, true, (5, 0)), 2);
+        assert_eq!(m.turn(3, false, (5, 0)), 0);
         // The last spread of five pages holds page 5 alone.
-        assert_eq!(m.turn(4, true, 5), 4);
-        assert_eq!(m.turn(0, false, 5), 0);
+        assert_eq!(m.turn(4, true, (5, 0)), 4);
+        assert_eq!(m.turn(0, false, (5, 0)), 0);
         let s = ViewMode::Single;
-        assert_eq!((s.turn(3, true, 4), s.turn(0, false, 4)), (3, 0));
-        assert_eq!(s.turn(0, true, 0), 0);
+        assert_eq!((s.turn(3, true, (4, 0)), s.turn(0, false, (4, 0))), (3, 0));
+        assert_eq!(s.turn(0, true, (0, 0)), 0);
+    }
+
+    #[test]
+    fn a_lead_page_shows_alone_before_spreads_pair() {
+        let m = ViewMode::Spread;
+        // A cover on the far side: 0 alone, then 1-2, 3-4.
+        assert_eq!(
+            (m.span(0, 1), m.span(2, 1), m.span(3, 1)),
+            ((0, 1), (1, 2), (3, 2))
+        );
+        assert_eq!((m.turn(0, true, (5, 1)), m.turn(1, true, (5, 1))), (1, 3));
+        assert_eq!((m.turn(3, false, (5, 1)), m.turn(1, false, (5, 1))), (1, 0));
+        // A book wanting no spreads shows every page alone.
+        assert_eq!(m.span(7, usize::MAX), (7, 1));
+        assert_eq!(m.turn(2, true, (5, usize::MAX)), 3);
     }
 
     #[test]
@@ -420,14 +440,17 @@ mod tests {
     #[test]
     fn a_spread_fits_both_pages_and_the_strips_one() {
         let sizes = [LETTER, WIDE, LETTER];
-        let pair = fit_box(ViewMode::Spread, &sizes, 1);
+        let pair = fit_box(ViewMode::Spread, &sizes, (1, 0));
         assert_eq!(pair.map(|p| (p.width, p.height)), Some((1404.0, 792.0)));
         // The last spread's lone page fits alone.
-        let lone = fit_box(ViewMode::Spread, &sizes, 2);
+        let lone = fit_box(ViewMode::Spread, &sizes, (2, 0));
         assert_eq!(lone.map(|p| p.width), Some(612.0));
-        let one = fit_box(ViewMode::Vertical, &sizes, 1);
+        let one = fit_box(ViewMode::Vertical, &sizes, (1, 0));
         assert_eq!(one.map(|p| p.width), Some(792.0));
-        assert_eq!(fit_box(ViewMode::Single, &[], 0), None);
+        assert_eq!(fit_box(ViewMode::Single, &[], (0, 0)), None);
+        // A lead page alone fits alone; the pair after it together.
+        let led = fit_box(ViewMode::Spread, &sizes, (0, 1));
+        assert_eq!(led.map(|p| p.width), Some(612.0));
     }
 
     #[test]
