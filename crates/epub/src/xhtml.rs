@@ -3142,6 +3142,11 @@ impl State<'_> {
             }
         }
         let empty = tag.self_closing && before.is_none() && after.is_none();
+        // `<video src='…'/>` has no content to read, so its card shows now.
+        if empty && !is_void(name) {
+            self.holds_back(name, tag, (&computed, shown));
+            self.closed_embeds();
+        }
         if is_void(name) || empty || self.stack.len() >= MAX_DEPTH {
             if shown && is_block(name) && self.table.is_none() {
                 self.finish();

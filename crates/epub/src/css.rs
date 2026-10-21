@@ -2717,7 +2717,7 @@ fn user_agent() -> &'static Stylesheet {
              figure, figcaption, blockquote, ul, ol, dl, dt, dd, li, h1, h2, h3, h4, h5, h6, \
              pre, address, center, hr, caption { display: block }\n\
              table { display: table }\n\
-             head, script, style, title, template, noscript { display: none }\n\
+             head, script, style, title, template { display: none }\n\
              p, blockquote, figure, dl, ul, ol, pre { margin: 1em 0 }\n\
              h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold }\n\
              h2 { font-size: 1.5em; margin: 0.83em 0; font-weight: bold }\n\
