@@ -78,6 +78,8 @@ pub struct MareaderApp {
     chromeless: bool,
     /// Shots: the newest mark's menu opens once it is drawn.
     menu_shot: bool,
+    /// Shots: reads the focused book aloud once it opens.
+    read_aloud_shot: bool,
     /// Shots and tests: a page AI result kept, or a run started (true).
     page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     /// Shots: pages the word list window opens on, once shown.
@@ -94,6 +96,7 @@ pub struct MareaderApp {
     /// The selection bar's answers, marks and the word card.
     study: Study,
     page_ai: crate::page_ai::PageAi,
+    read_aloud: crate::read_aloud::ReadAloud,
     /// Who answers Explain, and the AI settings' background work.
     ai: crate::ai::Ai,
     /// Language packs, the lookup card and the Dictionary panel.
@@ -187,6 +190,7 @@ impl MareaderApp {
             platform: Platform::current(),
             chromeless: false,
             menu_shot: false,
+            read_aloud_shot: false,
             page_ai_seed: None,
             word_window_seed: None,
             tree: PaneTree::new(),
@@ -199,6 +203,7 @@ impl MareaderApp {
             toasts: Toasts::default(),
             study: Study::default(),
             page_ai: crate::page_ai::PageAi::default(),
+            read_aloud: crate::read_aloud::ReadAloud::default(),
             ai: crate::ai::Ai::default(),
             dict: crate::dict::Dict::default(),
             vocab: crate::vocab::Vocab::default(),
@@ -1137,6 +1142,7 @@ impl MareaderApp {
             }
             "chromeless" => self.chromeless = value == "true",
             "menu" => self.menu_shot = value == "true",
+            "read_aloud" => self.read_aloud_shot = value == "true",
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -1463,7 +1469,12 @@ impl MareaderApp {
                     }
                 }
                 Gloss::Lift(_) => {}
-                Gloss::PageMenu { page, at } => self.page_ai.open_menu(pane, page, at),
+                Gloss::PageMenu { page, at, place } => {
+                    let reading = self.documents.reading(pane);
+                    let narrated = reading.is_some_and(|r| r.document.narration().is_some());
+                    let narrated = narrated.then_some(place);
+                    self.page_ai.open_menu(pane, page, at, narrated);
+                }
                 Gloss::Bubble { page, index, at } => {
                     let now = ctx.input(|i| i.time);
                     self.page_ai.pick(pane, page, index, at, now);
@@ -2012,6 +2023,12 @@ impl MareaderApp {
                 self.queued.extend(out);
             }
             Command::PageAi(action) => self.page_ai_act(ctx, action),
+            Command::ReadAloud { pane, from } => {
+                if let Some(reading) = self.documents.reading(pane) {
+                    self.read_aloud
+                        .start(&reading, from, &self.settings.read_aloud);
+                }
+            }
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
@@ -3046,6 +3063,16 @@ impl eframe::App for MareaderApp {
             active: self.find.active(),
         });
         let lit = self.find.pane().zip(lit);
+        if self.read_aloud_shot
+            && let Some(reading) = self.documents.reading(self.active)
+            && reading.document.narration().is_some()
+        {
+            self.read_aloud_shot = false;
+            (self.read_aloud).start(&reading, None, &self.settings.read_aloud);
+        }
+        self.read_aloud
+            .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
+        let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
         let (library, library_view) = (&mut self.library, &self.settings.library);
@@ -3111,6 +3138,7 @@ impl eframe::App for MareaderApp {
                         .as_ref()
                         .filter(|(p, _)| *p == id)
                         .map(|(_, l)| l.clone()),
+                    narrated: read_aloud.lit(id),
                     ai: {
                         let book = library.book_in(documents, id);
                         let name = documents.title(id).unwrap_or_default();
@@ -3139,6 +3167,10 @@ impl eframe::App for MareaderApp {
         let top = self.titlebar.band_bottom(&ctx);
         let found = found_in(&self.search, &self.documents, &self.find);
         self.find.show(&ctx, &self.pane_rects, top, found);
+        if route == Route::Reader {
+            let settings = &mut self.settings.read_aloud;
+            self.read_aloud.bar(&ctx, &self.pane_rects, settings);
+        }
         self.drive_search(&ctx);
         // Typing, or filtered by what was typed, the field stays in view.
         let searching =

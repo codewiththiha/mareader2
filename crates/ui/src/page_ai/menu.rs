@@ -142,6 +142,17 @@ impl PageAi {
         out: &mut Commands,
     ) -> bool {
         let t = Tokens::get(ui.ctx());
+        if let Some(from) = m.narrated {
+            let label = match from {
+                Some(_) => "Read aloud from here",
+                None => "Read aloud from this page",
+            };
+            if widgets::menu_row(ui, Icon::ReadAloud, label, None, false).clicked() {
+                out.push(Command::ReadAloud { pane: m.pane, from });
+                return true;
+            }
+            ui.separator();
+        }
         if !PageTask::ALL
             .iter()
             .any(|task| ai.page_preset(*task).is_some())

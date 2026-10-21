@@ -54,6 +54,7 @@ fn reads(command: &Command) -> bool {
         C::LookUp(_) | C::Note(_) | C::Bookmark(_) => true,
         // The page AI works on a page in reading.
         C::PageAi(_) => true,
+        C::ReadAloud { .. } => true,
         // Undo of a removal is offered by a toast, which shows anywhere.
         C::Study(_) => false,
         // Downloads go on behind the library; the card closes anywhere.

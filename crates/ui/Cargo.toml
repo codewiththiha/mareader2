@@ -22,6 +22,7 @@ mareader-study = { workspace = true }
 mareader-dict = { workspace = true }
 mareader-cefr = { workspace = true }
 mareader-search = { workspace = true }
+mareader-audio = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }

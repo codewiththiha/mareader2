@@ -30,7 +30,7 @@ pub use ai::{
 pub use load::{Loaded, load, to_json};
 pub use reader::{
     ChromeSettings, FloatingLabelStyle, LayoutSettings, MotionSettings, PageIndicatorStyle,
-    PaperArea, PaperSettings, StartupFit,
+    PaperArea, PaperSettings, ReadAloudSettings, StartupFit,
 };
 pub use study::StudySettings;
 pub use study::{
@@ -69,6 +69,7 @@ pub struct Settings {
     pub workspace: WorkspaceSettings,
     /// The library page's layout and order.
     pub library: View,
+    pub read_aloud: ReadAloudSettings,
 }
 
 impl Default for Settings {
@@ -87,6 +88,7 @@ impl Default for Settings {
             ai: AiSettings::default(),
             workspace: WorkspaceSettings::default(),
             library: View::default(),
+            read_aloud: ReadAloudSettings::default(),
         }
     }
 }
@@ -103,6 +105,7 @@ impl Settings {
         self.ai.sanitize();
         self.workspace.look.sanitize();
         self.library.sanitize();
+        self.read_aloud.sanitize();
         let builtin: Vec<String> = builtin_presets().into_iter().map(|p| p.id).collect();
         self.user_presets.retain(|p| {
             !p.id.trim().is_empty() && !p.name.trim().is_empty() && !builtin.contains(&p.id)
@@ -167,6 +170,8 @@ mod tests {
         s.dictionary.langs = vec!["en-my".into()];
         s.library.layout = mareader_library::Layout::List;
         s.library.columns = Some(4);
+        s.read_aloud.rate = 1.5;
+        s.read_aloud.skip_notes = true;
         s.library.set_sort(mareader_library::SortKey::Author);
         let back = load(&to_json(&s)).settings;
         assert_eq!(back, s);
@@ -208,12 +213,14 @@ mod tests {
         let mut s = Settings::default();
         s.layout.page_margin = f32::NAN;
         s.workspace.look.gap = 99.0;
+        s.read_aloud.rate = f32::NAN;
         let mut shadow = builtin_presets().remove(0);
         shadow.name = "Mine".into();
         s.user_presets = vec![shadow];
         s.sanitize();
         assert_eq!(s.layout.page_margin, 0.0);
         assert_eq!(s.workspace.look.gap, PaneLook::MAX_GAP);
+        assert_eq!(s.read_aloud.rate, 1.0);
         assert!(s.user_presets.is_empty(), "a built-in id can't be shadowed");
     }
 }
