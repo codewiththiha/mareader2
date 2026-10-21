@@ -376,7 +376,9 @@ cards, and clicking one hands the clip to the system's player.
 
 Drawn cards are line art, so they take the theme's ink. Text inside
 `video` and `audio` is for readers that can't play them, so it stays
-hidden. A clip at an `https` address opens in the browser.
+hidden. A clip at an `https` address opens in the browser. A picture
+small enough to sit in a line of text isn't a link or a map itself; only
+the linked text around it is.
 
 A clip is copied to the system's temporary folder before it plays. Its
 name comes from the type the manifest declares, never from the book: only
@@ -392,4 +394,4 @@ and links to the item land on it.
 Media overlays, `track` captions, `epub:trigger` and scripted content
 aren't supported.
 
-sha256 of `media.epub`: `0addeca3084e6ba7a2b246ce6ff714d12276598d8baa292176241120199224d6`
+sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
