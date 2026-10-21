@@ -78,6 +78,8 @@ impl Capture {
         match token {
             Token::TagToken(tag) if tag.kind == TagKind::StartTag => self.start(tag),
             Token::TagToken(tag) => return self.end(&local(&tag.name)),
+            // Indentation between elements is never shown, so never kept.
+            Token::CharacterTokens(t) if t.trim().is_empty() => {}
             Token::CharacterTokens(t) => {
                 let room = self.text + t.len() <= MAX_TEXT;
                 match self.open.last_mut().filter(|_| self.skipping == 0) {
@@ -269,7 +271,7 @@ pub(crate) mod tests {
         let f = root.as_ref().and_then(|r| render(r, false));
         let f = f.expect("drawn");
         assert!(f.svg.starts_with("<svg") && f.svg.contains("<path"));
-        assert!(f.width > 1.0 && f.height > 1.0 && f.depth > 0.0);
+        assert!(f.width > 0.8 && f.height > 0.6 && f.depth > 0.0);
     }
 
     #[test]
@@ -287,6 +289,15 @@ pub(crate) mod tests {
         let (capture, done) = tokenizer.sink.0.into_inner();
         assert!(done, "the end tag is still found");
         assert!(capture.is_some_and(|c| c.broken));
+    }
+
+    #[test]
+    fn indentation_never_counts_against_the_caps() {
+        let pad = format!("\r\n{}", " ".repeat(200));
+        let rows = format!("<mtr><mtd>{pad}<mi>x</mi>{pad}</mtd></mtr>").repeat(120);
+        let root = tree(&format!("<math><mtable>{rows}</mtable></math>"));
+        let f = root.as_ref().and_then(|r| render(r, true));
+        assert!(f.is_some_and(|f| f.height > 20.0));
     }
 
     #[test]

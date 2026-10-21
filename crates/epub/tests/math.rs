@@ -133,7 +133,7 @@ fn formulas_in_cells_are_drawn() {
 fn formulas_too_deep_fall_back() {
     let book = open();
     let all: String = lines(&book, 0).into_iter().map(|(t, _)| t).collect();
-    assert!(all.contains("deep fallback words"), "{all}");
+    assert!(all.contains("deeply: deep fallback words"), "{all}");
     // With a picture of its own, that picture stands in instead.
     assert!(!all.contains("pictured formula"), "{all}");
     assert_eq!(book.pictures(0).len(), 1);
