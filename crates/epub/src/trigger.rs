@@ -124,6 +124,10 @@ pub(crate) struct Laid {
     /// Its links, in [`Refs::hrefs`].
     pub(crate) links: Range<usize>,
     pub(crate) fixed: bool,
+    /// Its own place in [`Refs::chapters`].
+    pub(crate) at: usize,
+    /// Its scripts, if it has any.
+    pub(crate) scripts: crate::script::Found,
 }
 
 /// What a link is matched by: where it leads, or what a click sets off.
@@ -245,6 +249,10 @@ pub(crate) fn remap(blocks: &mut [Block], fresh: &Refs, book: &Refs, laid: &Laid
         })
         .collect();
     let to = |t: u32| {
+        // Scripted pages' links name their nodes, not the book's links.
+        if crate::script::unlink(t).is_some() {
+            return Some(t);
+        }
         usize::try_from(t)
             .ok()
             .and_then(|t| map.get(t).copied().flatten())

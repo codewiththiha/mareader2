@@ -26,6 +26,7 @@ fn main() -> Result<(), String> {
     let mut tabs = 0;
     let mut right = None;
     let mut wait = 0;
+    let mut scripted = false;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -135,6 +136,13 @@ fn main() -> Result<(), String> {
             }
             // Frames to run before the shot, at 60 a second: `wait=90`.
             "wait" => wait = v.parse().map_err(|_| "wait=frames")?,
+            // A scripted book's scripts run first: `scripted=true`.
+            "scripted" => scripted = v == "true",
+            // Clicks on its scripted pages: `script=#answer,li.right`.
+            "script" => {
+                app.set_option(k, v)?;
+                scripted = true;
+            }
             "size" => {
                 let (w, h) = v.split_once('x').ok_or("size=WxH")?;
                 size = egui::vec2(
@@ -214,6 +222,9 @@ fn main() -> Result<(), String> {
         }
         harness.run_steps(4);
     }
+    if scripted {
+        wait_for_scripts(&mut harness)?;
+    }
     harness.run_steps(wait);
     for _ in 0..tabs {
         harness.key_press(egui::Key::Tab);
@@ -265,6 +276,27 @@ fn fixture_packs() -> Result<std::path::PathBuf, String> {
         mareader_dict::build(&fixtures.join(file), &db).map_err(|e| e.to_string())?;
     }
     Ok(dir)
+}
+
+/// Steps until the scripts have answered every click, for a minute at most.
+fn wait_for_scripts(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(60);
+    let mut calm = 0;
+    // Settled for a second: clicks sent were taken and answered.
+    while calm < 10 {
+        harness.run_steps(1);
+        calm = if harness.state().scripts_settled() {
+            calm + 1
+        } else {
+            0
+        };
+        if Instant::now() > until {
+            let state = harness.state().scripts_state();
+            return Err(format!("scripts: timed out ({state})"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 /// Steps until the word levels are in, for two minutes at most.

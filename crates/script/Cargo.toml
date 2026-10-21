@@ -1,0 +1,16 @@
+[package]
+name = "mareader-script"
+description = "A book's scripts, run sandboxed against a small page model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Pure-Rust JavaScript; no Intl or Temporal data, so it stays small.
+boa_engine = { workspace = true }
+html5ever = { workspace = true }
+serde_json = { workspace = true }

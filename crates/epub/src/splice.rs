@@ -49,7 +49,8 @@ pub(crate) struct Region {
     pub(crate) base: Range<usize>,
     pub(crate) flow: Flow,
     origins: Vec<Origin>,
-    ids: Vec<u128>,
+    /// What it lays in; a region is kept only for the same results.
+    made: Vec<Arc<Insert>>,
     /// The side of the spread its first page sits on.
     side: usize,
 }
@@ -96,8 +97,9 @@ impl Spliced {
         for (group, range) in groups {
             out.own(base, next..range.start);
             let first = out.pages.len();
-            let ids: Vec<u128> = group.iter().map(|i| i.id).collect();
-            let same = |r: &&Arc<Region>| r.ids == ids && r.base == range && r.side == first % 2;
+            let same = |r: &&Arc<Region>| {
+                r.base == range && r.side == first % 2 && same_results(&r.made, &group)
+            };
             let kept = old.and_then(|o| o.regions.iter().find(same)).cloned();
             let region = kept.unwrap_or_else(|| {
                 let group = (group.as_slice(), range.clone());
@@ -145,8 +147,16 @@ impl Spliced {
     }
 
     pub(crate) fn shows(&self, id: u128) -> bool {
-        self.regions.iter().any(|r| r.ids.contains(&id))
+        self.regions
+            .iter()
+            .any(|r| r.made.iter().any(|i| i.id == id))
     }
+}
+
+/// Whether `was` and `is` lay the same results, by id and content.
+fn same_results(was: &[Arc<Insert>], is: &[&Arc<Insert>]) -> bool {
+    let one = |(a, b): (&Arc<Insert>, &&Arc<Insert>)| Arc::ptr_eq(a, b) || **a == ***b;
+    was.len() == is.len() && was.iter().zip(is).all(one)
 }
 
 /// The inserts that can be laid, in order, grouped by pages they share.
@@ -219,7 +229,7 @@ impl Region {
             base: pages,
             flow,
             origins,
-            ids: group.iter().map(|i| i.id).collect(),
+            made: group.iter().map(|i| Arc::clone(i)).collect(),
             side: first % 2,
         }
     }

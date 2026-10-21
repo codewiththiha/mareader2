@@ -27,6 +27,7 @@ use crate::href;
 use crate::math;
 use crate::media::{self, Clip};
 use crate::query;
+use crate::script;
 use crate::subtitles;
 use crate::svg::{self, Capture};
 use crate::trigger;
@@ -607,6 +608,8 @@ struct State<'a> {
     overrides: HashMap<String, bool>,
     /// What clicking the picture being read sets off.
     inline_link: Option<u32>,
+    /// A scripted chapter's place in [`Refs::chapters`].
+    script_at: Option<usize>,
 }
 
 /// A fixed page's containing block: its depth, rect and positioned box.
@@ -2416,6 +2419,12 @@ impl State<'_> {
 
     /// A link to what clicking `tag` sets off, if triggers observe it.
     fn observer_link(&mut self, tag: &Tag) -> Option<u32> {
+        // A scripted page marks what its scripts answer clicks on.
+        if let Some(chapter) = self.script_at
+            && let Some(node) = attr(tag, script::NODE).and_then(|n| n.trim().parse().ok())
+        {
+            return script::link(chapter, node);
+        }
         let id = attr(tag, "id").map(str::trim)?;
         let actions = self.triggers.observers.get(id)?;
         let base = self.base;
@@ -4313,7 +4322,13 @@ pub(crate) fn read_chapter(
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
-    read(xhtml, (path, false), HashMap::new(), library, (out, refs));
+    read(
+        xhtml,
+        (path, false, None),
+        HashMap::new(),
+        library,
+        (out, refs),
+    );
 }
 
 /// Appends a fixed-layout page: its blocks laid at its own viewport.
@@ -4323,7 +4338,13 @@ pub(crate) fn read_fixed_chapter(
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
-    read(xhtml, (path, true), HashMap::new(), library, (out, refs));
+    read(
+        xhtml,
+        (path, true, None),
+        HashMap::new(),
+        library,
+        (out, refs),
+    );
 }
 
 /// Reads a chapter again with targets shown or hidden as `overrides` says.
@@ -4334,18 +4355,28 @@ pub(crate) fn reread_chapter(
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
-    let path = laid.path.as_str();
-    read(xhtml, (path, laid.fixed), overrides, library, (out, refs));
+    let (path, at) = (laid.path.as_str(), Some(laid.at));
+    read(
+        xhtml,
+        (path, laid.fixed, at),
+        overrides,
+        library,
+        (out, refs),
+    );
 }
 
 fn read(
     xhtml: &str,
-    (path, fixed): (&str, bool),
+    (path, fixed, at): (&str, bool, Option<usize>),
     overrides: HashMap<String, bool>,
     library: &mut dyn Library,
     (out, refs): (&mut Vec<Block>, &mut Refs),
 ) {
     let first = out.len();
+    let found = script::find(xhtml, path);
+    let laid_at = at.unwrap_or(refs.chapters.len());
+    // Read again, a page may have dropped its own scripts.
+    let script_at = (at.is_some() || !found.code.is_empty()).then_some(laid_at);
     let links = refs.hrefs.len();
     let start = Anchor {
         block: first,
@@ -4413,6 +4444,7 @@ fn read(
         triggers: trigger::read(xhtml),
         overrides,
         inline_link: None,
+        script_at,
     }));
     let tokenizer = Tokenizer::new(sink, TokenizerOpts::default());
     let input = BufferQueue::default();
@@ -4439,7 +4471,7 @@ fn read(
             block.frame.sheet = Some(Arc::clone(&sheet));
         }
     }
-    if !state.triggers.targets.is_empty() {
+    if !state.triggers.targets.is_empty() || script_at.is_some() {
         let blocks = first..first + blocks.len();
         let (path, links) = (path.to_owned(), links..state.refs.hrefs.len());
         state.refs.chapters.push(trigger::Laid {
@@ -4447,6 +4479,8 @@ fn read(
             blocks,
             links,
             fixed,
+            at: laid_at,
+            scripts: found,
         });
     }
     out.extend(blocks);

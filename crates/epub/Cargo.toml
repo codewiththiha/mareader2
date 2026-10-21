@@ -26,5 +26,7 @@ ttf-parser = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+# Runs the test book's scripts, as the reader does.
+mareader-script = { workspace = true }
 # Checks rebuilt WOFF2 glyphs outline as the originals do.
 skrifa = { workspace = true }

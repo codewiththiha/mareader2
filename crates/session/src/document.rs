@@ -108,6 +108,14 @@ impl Document {
         }
     }
 
+    /// A book's scripted chapters, for a script engine to run.
+    pub fn scripts(&self) -> Vec<mareader_epub::Scripted> {
+        match self {
+            Self::Pdf(_) => Vec::new(),
+            Self::Epub { book, .. } => book.scripts(),
+        }
+    }
+
     /// A book's narration, if its chapters have media overlays.
     pub fn narration(&self) -> Option<Arc<mareader_epub::Narration>> {
         match self {
@@ -331,6 +339,7 @@ impl Document {
                     link,
                     what: mareader_epub::Triggered::label(&book.trigger(link)),
                 },
+                Destination::Script { chapter, node } => LinkTarget::Script { chapter, node },
             };
             Some(Link {
                 bounds: bounds(l.rect),

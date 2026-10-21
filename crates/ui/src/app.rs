@@ -84,6 +84,9 @@ pub struct MareaderApp {
     transcript_shot: Vec<(usize, Option<usize>)>,
     /// Trigger targets to show or hide for a screenshot.
     trigger_shot: Vec<(usize, bool)>,
+    /// Selectors a screenshot clicks on scripted pages, in order.
+    script_shot: Vec<String>,
+    scripts: crate::scripts::Runtimes,
     /// Clips the books' triggers play.
     clips: crate::trigger::Clips,
     /// Shots and tests: a page AI result kept, or a run started (true).
@@ -199,6 +202,8 @@ impl MareaderApp {
             read_aloud_shot: false,
             transcript_shot: Vec::new(),
             trigger_shot: Vec::new(),
+            script_shot: Vec::new(),
+            scripts: Default::default(),
             clips: crate::trigger::Clips::default(),
             page_ai_seed: None,
             word_window_seed: None,
@@ -664,6 +669,18 @@ impl MareaderApp {
     /// The study tools: the card, its answer, session marks.
     pub fn dict(&self) -> &crate::dict::Dict {
         &self.dict
+    }
+
+    /// Whether the active pane's scripts have run and taken every click.
+    pub fn scripts_settled(&self) -> bool {
+        let pane = self.documents.scripts_idle(self.active);
+        self.script_shot.is_empty() && pane && self.scripts.idle()
+    }
+
+    /// The scripts' state, for a screenshot that waited too long.
+    pub fn scripts_state(&self) -> String {
+        let pane = self.documents.scripts_state(self.active);
+        format!("{}; {pane}", self.scripts.describe())
     }
 
     /// The word levels: the dataset and the shaded words.
@@ -1168,6 +1185,8 @@ impl MareaderApp {
                     self.trigger_shot.push((target, how != "hide"));
                 }
             }
+            // Clicks the first element each selector matches; comma separated.
+            "script" => self.script_shot.extend(value.split(',').map(str::to_owned)),
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -3112,6 +3131,18 @@ impl eframe::App for MareaderApp {
             if !self.documents.set_trigger(self.active, target, visible) {
                 self.trigger_shot.push((target, visible));
             }
+        }
+        // A screenshot's clicks wait for the scripts' first pages.
+        if let Some(first) = self.script_shot.first()
+            && self.documents.pick_script(self.active, first)
+        {
+            for selector in self.script_shot.split_off(1) {
+                self.documents.pick_script(self.active, &selector);
+            }
+            self.script_shot.clear();
+        }
+        for toast in self.scripts.tick(&ctx, &mut self.documents) {
+            self.toasts.push(toast);
         }
         for (doc, clip) in self.documents.take_clips() {
             self.clips.act(&doc, clip, &mut self.read_aloud);
