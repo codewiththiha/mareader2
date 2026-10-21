@@ -184,7 +184,9 @@ fn trimmed(mut chunk: Chunk, want: f64) -> Option<Chunk> {
 
 /// `chunk` cut at `at` seconds: what comes before, and any after.
 pub(crate) fn split(mut chunk: Chunk, at: f64) -> (Chunk, Option<Chunk>) {
-    let keep = ((at - chunk.start) * f64::from(chunk.rate)).ceil().max(0.0) as usize;
+    // Frames starting before `at`; rounding noise mustn't add one.
+    let exact = (at - chunk.start) * f64::from(chunk.rate);
+    let keep = (exact - 1e-6).ceil().max(0.0) as usize;
     if keep >= chunk.frames() {
         return (chunk, None);
     }
@@ -243,6 +245,22 @@ pub(crate) mod tests {
 
     fn all(reader: &mut Reader) -> Vec<Chunk> {
         std::iter::from_fn(|| reader.next()).collect()
+    }
+
+    #[test]
+    fn a_split_on_a_frame_edge_keeps_no_extra_frame() {
+        let chunk = |start: f64| Chunk {
+            start,
+            rate: 8000,
+            channels: 1,
+            samples: vec![0.0; 4000],
+        };
+        // 0.1 + 0.2 isn't exactly 0.3; the cut still falls on frame 1600.
+        let (head, rest) = split(chunk(0.1), 0.1 + 0.2);
+        assert_eq!(head.frames(), 1600);
+        assert_eq!(rest.map(|r| r.frames()), Some(2400));
+        let (head, _) = split(chunk(0.0), 0.0001);
+        assert_eq!(head.frames(), 1);
     }
 
     #[test]
