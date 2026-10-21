@@ -24,6 +24,7 @@ the right place.
 | L0 | `appearance` | **exists** | base mode, tint, texture, grain, presets; colour maths; the page filter chain as matrices |
 | L0 | `workspace` | **exists** | the pane split tree (≤ 4), layout, dividers, drop edges |
 | L0 | `fetch` | **exists** | resumable downloads from mirrors, checked by kind before kept; desktop only, empty in a browser |
+| L0 | `audio` | **exists** | a book's narration: clips decoded (symphonia), brought to the device's rate, sped up at the same pitch, and played on the system output (cpal); silent in a browser |
 | L1 | `pdf` | planned M2 | hayro: open, page sizes, tile raster, text and glyph boxes, outline, links, search index |
 | L1 | `reflow` | planned M4 | styled blocks → parley lines → pages; typography knobs; hit-testing |
 | L1 | `library` | planned M5 | books, locations, shelves, sources, scans (`docs/library.md`) |

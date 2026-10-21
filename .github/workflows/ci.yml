@@ -36,6 +36,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # ALSA's headers, for the narration's sound output.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -46,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # lavapipe gives wgpu a software Vulkan device for kittest renders.
-      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libasound2-dev
       - run: cargo test --workspace
       - run: cargo xtask layers
       - run: cargo xtask parity
@@ -87,6 +89,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: cargo check each new commit
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

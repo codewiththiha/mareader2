@@ -1,0 +1,17 @@
+[package]
+name = "mareader-audio"
+description = "A book's narration: decoding its clips and playing them in time"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+symphonia = { workspace = true }
+
+# A browser has no sound device here; it reports none.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = { workspace = true }

@@ -76,6 +76,10 @@ jobs:
           cargo packager --version 2>/dev/null | grep -q "$PACKAGER_VERSION" ||
             cargo install cargo-packager --locked --version "$PACKAGER_VERSION"
       # Only Apple Silicon runs Apple Intelligence, and Xcode 26 builds it.
+      # ALSA's headers, for the narration's sound output.
+      - name: Linux build headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Apple Intelligence helper
         if: matrix.helper == 'expected'
         run: tools/fm-helper.sh

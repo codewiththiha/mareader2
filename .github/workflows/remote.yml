@@ -50,7 +50,7 @@ jobs:
         with:
           shared-key: test
           save-if: false
-      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-core
+      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-core libasound2-dev
       - name: Render
         env:
           SHOTS: ${{ inputs.shots }}
@@ -93,7 +93,7 @@ jobs:
       # A colour emoji font, so README books draw emoji as a Mac does.
       - run: >-
           sudo apt-get update -q &&
-          sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-color-emoji
+          sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-color-emoji libasound2-dev
       # The M2 audit's two papers, and a long novel; a fetch may fail.
       - name: Books
         run: |
@@ -210,6 +210,7 @@ jobs:
       - name: Build what the gates build
         working-directory: /home/user/mareader2
         run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libasound2-dev
           cargo clippy -q --workspace --all-targets -- -D warnings
           cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings
           cargo test -q --workspace --no-run
