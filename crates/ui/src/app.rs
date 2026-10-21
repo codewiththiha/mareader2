@@ -80,6 +80,8 @@ pub struct MareaderApp {
     menu_shot: bool,
     /// Shots: reads the focused book aloud once it opens.
     read_aloud_shot: bool,
+    /// Cards' transcripts, and their tracks, to open for a screenshot.
+    transcript_shot: Vec<(usize, Option<usize>)>,
     /// Shots and tests: a page AI result kept, or a run started (true).
     page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     /// Shots: pages the word list window opens on, once shown.
@@ -191,6 +193,7 @@ impl MareaderApp {
             chromeless: false,
             menu_shot: false,
             read_aloud_shot: false,
+            transcript_shot: Vec::new(),
             page_ai_seed: None,
             word_window_seed: None,
             tree: PaneTree::new(),
@@ -1143,6 +1146,14 @@ impl MareaderApp {
             "chromeless" => self.chromeless = value == "true",
             "menu" => self.menu_shot = value == "true",
             "read_aloud" => self.read_aloud_shot = value == "true",
+            "transcript" => {
+                // `card` or `card:track`, comma separated.
+                for one in value.split(',') {
+                    let (card, track) = one.split_once(':').unwrap_or((one, ""));
+                    let card = card.parse().map_err(|_| "transcript: card[:track],…")?;
+                    self.transcript_shot.push((card, track.parse().ok()));
+                }
+            }
             "animations" => self.settings.motion.enabled = value == "true",
             "float" => self.settings.chrome.sidebar_overlay = value == "true",
             "glass" => self.settings.chrome.glass = value == "true",
@@ -3072,6 +3083,12 @@ impl eframe::App for MareaderApp {
         {
             self.read_aloud_shot = false;
             (self.read_aloud).start(&reading, None, &self.settings.read_aloud);
+        }
+        let shot = std::mem::take(&mut self.transcript_shot);
+        for (card, track) in shot {
+            if !self.documents.open_transcript(self.active, card, track) {
+                self.transcript_shot.push((card, track));
+            }
         }
         self.read_aloud
             .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
