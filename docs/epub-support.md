@@ -504,21 +504,30 @@ tooltip saying what it does; a link it already was is replaced.
 | `pause`, `resume` | The clip playing pauses or plays on; `resume` starts a clip not yet playing |
 | `mute`, `unmute` | The clip plays on silently, or is heard again; it stays muted when played again |
 
-An element the book hides with `display: none` is set aside and laid in
-its place once shown, so the text after it moves down; at a chapter's
-end it stays in that chapter. Inside a line, such an element keeps its
-room while hidden instead. Hiding text leaves a gap the same size;
-pictures and the element's own borders and backgrounds go blank with it.
-A hidden `audio` or `video` that a trigger plays has no card. Only one
-clip plays at a time, and it stops when its book closes or read-aloud
-starts; pausing, muting and resuming a video do nothing, as its player
-is outside the reader.
+Once a target shows or hides, its chapter is read again with the target
+changed, and only the blocks that came out different are laid in place
+of the book's own. An element the book hides with `display: none` takes
+no room until shown, so the text after it moves down; that holds inside
+a line, in a table (a row or cell left out until shown), on a fixed page
+and for an element with no content, such as an `img`. Hiding keeps the
+room, as `visibility: hidden` does: text, pictures, rules, tables, cards,
+list markers and the element's own borders and backgrounds draw nothing
+there, and its links lead nowhere. The book's own `visibility: hidden`
+works the same way before any click. A run laid again grows to the
+whole box, grid row or fixed page it cuts through, so boxes stay whole;
+links in it lead where the book's own did.
 
-What is shown belongs to the pane and resets with the book. Tables and
-rules aren't hidden; a picture the book already hides with `visibility:
-hidden` still draws; elements in tables, on fixed pages or with no
-content keep their room rather than being set aside. A small picture set
-in a line isn't an observer itself. A chapter keeps 512 triggers, 32 for
-one click, and a book 4,096 elements shown or hidden.
+A small picture set in a line is a link of its own now: an observer, or
+a picture inside a link, can be clicked on its box. A hidden `audio` or
+`video` that a trigger plays has no card until a trigger shows it. Only
+one clip plays at a time, and it stops when its book closes or
+read-aloud starts; pausing, muting and resuming a video do nothing, as
+its player is outside the reader.
 
-sha256 of `triggers.epub`: `8537380826e5085ecedf9245e4f6ffb6d83691da8fafd6cd4a6f70466b7d7da0`
+What is shown belongs to the pane and resets with the book. A chapter
+keeps 65,536 triggers and 1,024 for one click; a book shows or hides as
+many elements as it keeps ids. An element shown from `display: none`
+lays out as a block, table or line by its tag, so a flex or grid
+`display` it had is read as a block.
+
+sha256 of `triggers.epub`: `2aa2ea9eaa31efb7a821dd4acaa4182cdbbbe7d073d43a4552d32b6f2dd49cda`
