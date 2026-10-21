@@ -22,6 +22,8 @@ pub enum LinkTarget {
     Note { page: usize, text: String },
     /// An address for the browser or mail app, scheme already checked.
     Web(String),
+    /// A book's sound or video by its path in the book, for its player.
+    Media { path: String, video: bool },
 }
 
 /// A clickable area on a page, in page points.

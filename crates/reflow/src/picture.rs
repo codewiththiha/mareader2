@@ -104,6 +104,11 @@ impl Picture {
         svg::links(data)
     }
 
+    /// The picture as encoded.
+    pub fn bytes(&self) -> &[u8] {
+        &self.data
+    }
+
     /// Drawn sharp at any size, so never limited to its own pixels.
     pub fn vector(&self) -> bool {
         self.svg.is_some()

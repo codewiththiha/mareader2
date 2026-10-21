@@ -14,9 +14,9 @@ use parley::{
 
 use crate::block::clip;
 use crate::block::{
-    Align, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Features, Finish,
-    Floated, Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Orient, Rise, Role,
-    Script, Sheet, Spot, Table, Text, VAlign,
+    Align, Area, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Features,
+    Finish, Floated, Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Orient, Rise,
+    Role, Script, Sheet, Spot, Table, Text, VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -269,6 +269,7 @@ pub(crate) enum Draw {
         rect: [f32; 4],
         /// Laid on its side in vertical text, drawn standing.
         turned: bool,
+        links: Vec<Area>,
     },
     Table(Grid),
     /// Room only: a designed book's rule draws as its boxes.
@@ -957,6 +958,18 @@ impl Flow {
                         }
                     }
                 }
+                (Draw::Image { rect, links, .. }, _) => {
+                    let [ix, iy, w, h] = *rect;
+                    out.extend(links.iter().map(|a| PageLink {
+                        target: a.target,
+                        rect: [
+                            x + ix + a.rect[0] * w,
+                            y + iy + a.rect[1] * h,
+                            a.rect[2] * w,
+                            a.rect[3] * h,
+                        ],
+                    }));
+                }
                 _ => {}
             }
         }
@@ -1523,6 +1536,7 @@ impl<'a> Setter<'a> {
                 picture,
                 cover,
                 width: asked,
+                links,
             } => {
                 // Vertical: laid on its side, then drawn standing.
                 let turned = self.turned;
@@ -1544,6 +1558,7 @@ impl<'a> Setter<'a> {
                     picture,
                     rect,
                     turned,
+                    links: links.clone(),
                 };
                 (draw, Laid::None, vec![unit], vec![0])
             }
@@ -3653,6 +3668,7 @@ mod tests {
             picture,
             cover,
             width: None,
+            links: Vec::new(),
         })
     }
 
@@ -5183,5 +5199,30 @@ mod tests {
         // A line along the top of the laid page is the rightmost column.
         let [x, y, w, h] = f.shown_rect(0, [100.0, 0.0, 300.0, 20.0]);
         assert_eq!([x, y, w, h], [width - 20.0, 100.0, 20.0, 300.0]);
+    }
+
+    #[test]
+    fn a_picture_s_areas_are_link_boxes_over_it() {
+        let mut block = image(200, 100, false);
+        if let Content::Image { links, .. } = &mut block.content {
+            links.push(Area {
+                rect: [0.5, 0.0, 0.5, 1.0],
+                target: 7,
+            });
+        }
+        let f = flow(&[Block::text(Role::Paragraph, "Above."), block]);
+        let (links, drawn) = (f.links(0), f.pictures(0));
+        assert_eq!((links.len(), drawn.len()), (1, 1), "{links:?} {drawn:?}");
+        let (Some(link), Some(p)) = (links.first(), drawn.first()) else {
+            return;
+        };
+        assert_eq!(link.target, 7);
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+        assert!(near(link.rect[0], p[0] + p[2] / 2.0), "{link:?} {p:?}");
+        assert!(
+            near(link.rect[1], p[1]) && near(link.rect[2], p[2] / 2.0),
+            "{link:?}"
+        );
+        assert!(near(link.rect[3], p[3]), "{link:?} {p:?}");
     }
 }

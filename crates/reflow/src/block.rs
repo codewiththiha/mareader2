@@ -327,10 +327,30 @@ pub enum Content {
         cover: bool,
         /// The width the book asked for, if any.
         width: Option<Length>,
+        /// Its parts that lead elsewhere, as a link or image map.
+        links: Vec<Area>,
     },
     Table(Table),
     /// Blank height in body ems; only its boxes draw, as a book's rules.
     Space(f32),
+}
+
+/// A part of a picture that leads to link `target`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area {
+    /// Left, top, width, height as shares of the picture, 0 to 1.
+    pub rect: [f32; 4],
+    pub target: u32,
+}
+
+impl Area {
+    /// The whole picture, leading to `target`.
+    pub fn whole(target: u32) -> Self {
+        Self {
+            rect: [0.0, 0.0, 1.0, 1.0],
+            target,
+        }
+    }
 }
 
 /// A picture's width as a book sets it.

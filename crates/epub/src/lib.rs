@@ -19,6 +19,7 @@ mod generated;
 mod guard;
 mod href;
 mod math;
+mod media;
 mod notes;
 mod query;
 pub mod sample;
@@ -33,6 +34,7 @@ pub use book::{
 pub use convert::{Format, MAX_PICTURE_FILE, MAX_TEXT, Pictures, convert};
 pub use css::MAX_SHEET;
 pub use guard::{MAX_ENTRIES, MAX_ENTRY, MAX_REFINES, MAX_TOC_DEPTH, MAX_TOTAL};
+pub use media::Media;
 pub use splice::{Insert, Inserts};
 pub use xhtml::{MAX_DEPTH, MAX_LINKS, MAX_PLACES, MAX_SHEETS};
 

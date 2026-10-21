@@ -13,6 +13,7 @@ use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::css::{FontFace, MAX_SHEET, Stylesheet};
 use crate::fontfile;
+use crate::media::{self, Media};
 use crate::splice::{At, Inserts, Spliced, next_layout};
 use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
@@ -49,6 +50,11 @@ pub enum Destination {
     },
     /// An address outside the book, its scheme not yet checked.
     Outside(String),
+    /// Sound or video in the book, by its path, for [`Book::media`].
+    Media {
+        path: String,
+        video: bool,
+    },
 }
 
 /// A link's box on one line of a page, in page units.
@@ -69,14 +75,12 @@ struct Shelf<'e> {
     budget: usize,
 }
 
-impl Library for Shelf<'_> {
-    fn picture(&mut self, path: &str) -> Option<Arc<Picture>> {
-        if let Some(known) = self.pictures.get(path) {
-            return known.clone();
-        }
+impl Shelf<'_> {
+    /// The picture at `path` itself, its fallbacks aside.
+    fn decode(&mut self, path: &str) -> Option<Arc<Picture>> {
         let bytes = self.epub.read_resource_bytes(path).ok();
         let bytes = bytes.filter(|b| b.len() <= self.budget);
-        let picture = bytes.and_then(|b| {
+        bytes.and_then(|b| {
             self.budget -= b.len();
             let picture = if Picture::is_svg(&b) {
                 let links = xhtml::svg_links(self, path, Picture::svg_links(&b));
@@ -85,9 +89,33 @@ impl Library for Shelf<'_> {
                 Picture::probe(b)
             };
             picture.ok().map(Arc::new)
-        });
+        })
+    }
+}
+
+impl Library for Shelf<'_> {
+    /// Pictures that won't decode give way to their manifest fallbacks.
+    fn picture(&mut self, path: &str) -> Option<Arc<Picture>> {
+        if let Some(known) = self.pictures.get(path) {
+            return known.clone();
+        }
+        let mut picture = self.decode(path);
+        if picture.is_none() {
+            let paths: Vec<String> = match self.epub.manifest().by_href(path) {
+                Some(e) => (e.fallbacks().take(media::MAX_FALLBACKS))
+                    .map(|f| f.href().decode().into_owned())
+                    .collect(),
+                None => Vec::new(),
+            };
+            picture = paths.iter().find_map(|p| self.decode(p));
+        }
         self.pictures.insert(path.to_owned(), picture.clone());
         picture
+    }
+
+    fn media_type(&mut self, path: &str) -> Option<String> {
+        let entry = self.epub.manifest().by_href(path)?;
+        Some(entry.media_type().to_owned())
     }
 
     fn bytes(&mut self, path: &str) -> Option<Arc<Vec<u8>>> {
@@ -143,6 +171,8 @@ pub struct Book {
     rtl: bool,
     /// The pages before spreads start pairing; `usize::MAX` pairs none.
     lead: usize,
+    /// The file itself, kept only when it holds sound or video to play.
+    archive: Option<Arc<Vec<u8>>>,
 }
 
 impl std::fmt::Debug for Book {
@@ -197,6 +227,7 @@ impl Book {
                 language: self.language.clone(),
                 rtl: self.rtl,
                 lead: self.lead,
+                archive: self.archive.clone(),
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
@@ -225,9 +256,10 @@ impl Book {
         let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
         // A chapter that won't read is skipped, as a reader would.
         for item in epub.spine().iter() {
-            let Some(entry) = item.manifest_entry() else {
+            let Some(listed) = item.manifest_entry() else {
                 continue;
             };
+            let entry = readable(listed);
             let fixed = fixed_item(item.properties(), book_fixed);
             if is_picture(&entry) {
                 let (path, start) = (entry.href().decode(), blocks.len());
@@ -252,6 +284,13 @@ impl Book {
                 true => xhtml::read_fixed_chapter(&content, &path, &mut shelf, out),
                 false => xhtml::read_chapter(&content, &path, &mut shelf, out),
             }
+            // Links to the item it stands in for land on it.
+            let anchor = Anchor {
+                block: start,
+                offset: 0,
+            };
+            let listed = listed.href().decode().into_owned();
+            refs.places.entry(listed).or_insert(anchor);
             if blocks.len() > MAX_BLOCKS {
                 return Err(OpenError::TooLarge);
             }
@@ -283,6 +322,8 @@ impl Book {
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
         let toc = contents(&epub, &refs, &blocks);
         let notes = crate::notes::find(&blocks, &refs);
+        let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
+        let archive = plays.then(|| Arc::clone(&bytes));
         Ok(Self {
             blocks,
             flow,
@@ -299,7 +340,21 @@ impl Book {
             title,
             author,
             language,
+            archive,
         })
+    }
+
+    /// Sound or video at `path` to hand to a player; none for other files.
+    pub fn media(&self, path: &str) -> Option<Media> {
+        let bytes = self.archive.as_ref()?;
+        let read = || {
+            let epub = guard::open(bytes).ok()?;
+            let entry = epub.manifest().by_href(path)?;
+            let extension = media::extension(entry.media_type())?;
+            let data = entry.read_bytes().ok()?;
+            Some(Media { data, extension })
+        };
+        catch_unwind(AssertUnwindSafe(read)).ok().flatten()
     }
 
     pub fn page_count(&self) -> usize {
@@ -403,6 +458,10 @@ impl Book {
                     }
                 }
                 Href::Outside(address) => Destination::Outside(address.clone()),
+                Href::Media { path, video } => Destination::Media {
+                    path: path.clone(),
+                    video: *video,
+                },
             })
         };
         let (flow, page, _) = self.part(page);
@@ -616,7 +675,12 @@ pub fn cover(bytes: &Arc<Vec<u8>>) -> Option<Arc<Picture>> {
             return Some(picture);
         }
         let (mut blocks, mut refs) = (Vec::new(), Refs::default());
-        for entry in epub.spine().iter().filter_map(|s| s.manifest_entry()) {
+        for entry in epub
+            .spine()
+            .iter()
+            .filter_map(|s| s.manifest_entry())
+            .map(readable)
+        {
             let path = entry.href().decode();
             if is_picture(&entry) {
                 xhtml::read_svg_page(&path, &mut shelf, (&mut blocks, &mut refs), false);
@@ -778,10 +842,15 @@ fn place_cover(
         |b| matches!(&b.content, Content::Image { picture, .. } if Arc::ptr_eq(picture, &cover)),
     );
     if let Some(block) = shown {
+        let links = match &mut block.content {
+            Content::Image { links, .. } => std::mem::take(links),
+            _ => Vec::new(),
+        };
         block.content = Content::Image {
             picture: cover,
             cover: true,
             width: None,
+            links,
         };
         return false;
     }
@@ -789,6 +858,7 @@ fn place_cover(
         picture: cover,
         cover: true,
         width: None,
+        links: Vec::new(),
     });
     block.break_before = true;
     blocks.insert(0, block);
@@ -828,6 +898,19 @@ fn fixed_item(properties: &Properties, book: bool) -> bool {
         _ if has("rendition:layout-reflowable") => false,
         _ => book,
     }
+}
+
+/// A spine item as read: itself, or its first readable fallback.
+fn readable(entry: EpubManifestEntry) -> EpubManifestEntry {
+    let known = |e: &EpubManifestEntry| {
+        let t = e.media_type().trim().to_ascii_lowercase();
+        is_picture(e) || t == "application/xhtml+xml" || t == "text/html"
+    };
+    if known(&entry) {
+        return entry;
+    }
+    let found = entry.fallbacks().take(media::MAX_FALLBACKS).find(known);
+    found.unwrap_or(entry)
 }
 
 /// A spine item that is a picture, shown as a page of its own.
@@ -937,6 +1020,7 @@ mod tests {
                 picture: cover.clone(),
                 cover: false,
                 width: None,
+                links: Vec::new(),
             }),
             Block::text(mareader_reflow::Role::Paragraph, "text"),
         ];

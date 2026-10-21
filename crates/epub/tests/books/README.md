@@ -20,6 +20,7 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `vertical.epub` | *Columns Down the Page*, written for these tests (63 KB); its font is a subset of Noto Serif CJK JP (SIL Open Font License) | A Japanese chapter in vertical columns with ruby, combined digits, upright and sideways runs, an inline and a tall picture, then a level English colophon |
 | `fxl.epub` | *Pages as Drawn*, written for these tests (4 KB); its pictures are flat colours | Fixed pages at their own viewports: a cover on the far side, boxes placed by `position` and ordered by `z-index` over a background picture, a landscape page, a picture in the spine, then a reflowable chapter |
 | `math.epub` | *Lines of Formulas*, written for these tests (2 KB); its picture is a flat colour | MathML in a line, a display formula centred as its own block, a prefixed `m:math`, formulas in table cells, and formulas too deep to set falling back to their `alttext` or `altimg` |
+| `media.epub` | *Sound and Fallbacks*, written for these tests (4 KB); its pictures are flat colours and its clips are stand-in bytes | A video with a poster and a song as cards that play outside the reader, a file that must never play, `epub:switch`, `object` and `noscript` fallbacks, an image map, and manifest fallbacks for a picture and a spine item |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
 
@@ -30,6 +31,8 @@ sha256 of `vertical.epub`: `18aadeea5e9ac0d666d5fddc2b5537cb4348ab481945b52bf72d
 sha256 of `fxl.epub`: `85764517a37055bb1ffea996559fad292c7067a9f66a5cf4c4357ca056333361`
 
 sha256 of `math.epub`: `a9b54ffb7b329a7352072e0379844b7b1a351122880b5b5260f385217f6cb488`
+
+sha256 of `media.epub`: `0addeca3084e6ba7a2b246ce6ff714d12276598d8baa292176241120199224d6`
 
 ## Text files
 

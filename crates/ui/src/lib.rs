@@ -46,6 +46,7 @@ pub mod panes;
 pub mod paper;
 pub mod pdf_view;
 pub mod platform;
+pub mod play;
 pub mod reach;
 pub mod resize;
 pub mod reveal;
