@@ -11,6 +11,7 @@ use rbook::Epub;
 use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::css::{FontFace, MAX_SHEET, Stylesheet};
+use crate::fontfile;
 use crate::splice::{At, Inserts, Spliced, next_layout};
 use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
@@ -304,6 +305,11 @@ impl Book {
     /// Every page's width and height, in layout units (CSS px).
     pub fn page_size(&self) -> (f32, f32) {
         self.flow.page_size()
+    }
+
+    /// The fonts it ships that its designed chapters use, unpacked.
+    pub fn faces(&self) -> &[BookFace] {
+        &self.faces
     }
 
     /// The `dc:title` as written, if any.
@@ -602,16 +608,28 @@ fn chapter_text(entry: &EpubManifestEntry) -> Option<String> {
 const MAX_FACE_BYTES: usize = 32 << 20;
 const MAX_FACES_BYTES: usize = 96 << 20;
 
-/// The book's fonts that its designed text uses; unreadable ones are skipped.
+/// Fonts its designed text uses, unpacked or revealed; unreadable ones skipped.
 fn load_faces(epub: &Epub, faces: &[FontFace]) -> Vec<BookFace> {
-    let font = |b: &Vec<u8>| {
-        let magic = b.get(..4).unwrap_or_default();
-        b.len() <= MAX_FACE_BYTES && [&[0, 1, 0, 0][..], b"OTTO", b"true", b"ttcf"].contains(&magic)
+    let listed = epub.read_resource_bytes("/META-INF/encryption.xml").ok();
+    let hidden = listed.map_or_else(HashMap::new, |x| {
+        fontfile::hidden(&String::from_utf8_lossy(&x))
+    });
+    let keys = (!hidden.is_empty()).then(|| book_keys(epub));
+    let font = |path: &str| {
+        let bytes = epub.read_resource_bytes(path).ok()?;
+        if bytes.len() > MAX_FACE_BYTES {
+            return None;
+        }
+        let out = match (hidden.get(path), &keys) {
+            (Some(how), Some(keys)) => fontfile::reveal(&bytes, *how, keys)?,
+            _ => fontfile::sfnt(bytes)?,
+        };
+        (out.len() <= MAX_FACE_BYTES).then_some(out)
     };
     let mut total = 0;
     let mut out = Vec::new();
     for face in faces {
-        let read = |path: &String| epub.read_resource_bytes(path.as_str()).ok().filter(font);
+        let read = |path: &String| font(path);
         let Some(bytes) = face.src.iter().find_map(read) else {
             continue;
         };
@@ -628,6 +646,15 @@ fn load_faces(epub: &Epub, faces: &[FontFace]) -> Vec<BookFace> {
         ));
     }
     out
+}
+
+/// Obfuscation keys from the book's identifiers, its unique one first.
+fn book_keys(epub: &Epub) -> fontfile::Keys {
+    let metadata = epub.metadata();
+    let unique = metadata.identifier().map(|i| i.value().to_owned());
+    let others = metadata.identifiers().map(|i| i.value().to_owned());
+    let ids: Vec<String> = unique.into_iter().chain(others).collect();
+    fontfile::Keys::new(ids.iter().map(String::as_str))
 }
 
 /// Lays the blocks out; the book's language beats the default.

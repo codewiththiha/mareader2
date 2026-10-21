@@ -2950,14 +2950,18 @@ dependencies = [
 name = "mareader-epub"
 version = "0.0.3"
 dependencies = [
+ "brotli-decompressor",
  "chardetng",
  "encoding_rs",
+ "flate2",
  "html5ever",
  "image",
  "mareader-reflow",
  "pulldown-cmark",
  "quick-xml 0.42.0",
  "rbook",
+ "sha1",
+ "skrifa 0.44.0",
  "thiserror 2.0.21",
  "zip",
 ]
