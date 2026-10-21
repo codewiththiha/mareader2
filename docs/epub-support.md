@@ -173,3 +173,38 @@ to each theme, and a book that also flips them under `dark` would come out
 inverted twice, its ornaments vanishing on dark paper. Vendor `@media`
 types, `print`, alternate sheets, and `link` or `style` elements whose
 `media` doesn't match are not applied.
+
+## Fonts the book ships (E5)
+
+A book's fonts load however they are packed. WOFF tables are inflated
+one by one; WOFF2 is a single Brotli stream whose `glyf`, `loca` and
+`hmtx` tables may come transformed, and these are rebuilt point by point
+into plain TrueType, outlines, composites, hinting programs and side
+bearings as the original had them. A font collection packed as WOFF2 is
+not read; its family falls back to the next one named.
+
+Fonts listed in `META-INF/encryption.xml` are revealed before use. The
+IDPF scheme XORs the first 1040 bytes with the SHA-1 of the unique
+identifier, white space removed; the older Adobe scheme XORs the first
+1024 with the bytes of a `urn:uuid:` identifier. Every identifier the
+book declares is tried, the unique one first, and a key is kept only if
+the result starts as a font. Any other encryption leaves the file alone.
+Unpacked faces keep the per-face and per-book size caps.
+
+## Type features and page breaks (E5)
+
+`font-variant-numeric`, `font-variant-ligatures`, `font-variant-position`,
+`font-kerning` and `font-feature-settings` become OpenType features of the
+run, settings last, each group inheriting on its own; the `font-variant`
+shorthand sets all three groups and the caps, and `font` resets them.
+Features a face lacks do nothing, as in a browser. Small capitals are
+drawn smaller where the face has none, now for `all-small-caps` too, with
+petite caps read as small caps.
+
+`text-align-last` places a paragraph's last line, and any line before a
+forced break, in designed chapters. Paragraphs split between pages keep
+the book's `widows` and `orphans` (up to eight lines; two by default).
+`break-inside: avoid` keeps a block, or a box and all it holds, on one
+page when it fits on one, and `break-after: avoid` keeps a block with the
+next as headings are kept. These follow the book in designed chapters;
+prose keeps the reader's two-line rule.

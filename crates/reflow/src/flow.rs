@@ -6,14 +6,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use hypher::Lang;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, GenericFamily, IndentOptions, InlineBox, InlineBoxKind, Layout, LineHeight,
-    OverflowWrap, Selection, StyleProperty, VerticalAlign,
+    Affinity, Alignment, AlignmentOptions, Cursor as Caret, FontFamily, FontFamilyName,
+    FontFeatures, FontStyle, FontWeight, GenericFamily, IndentOptions, InlineBox, InlineBoxKind,
+    Layout, LineHeight, OverflowWrap, Selection, StyleProperty, VerticalAlign,
 };
 
 use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Edge, Emphasis, Finish, Floated, Frame,
-    GridRow, Inline, Justify, Length, Link, Look, Rise, Role, Script, Table, Text, VAlign,
+    GridRow, Inline, Justify, LastLine, Length, Link, Look, Rise, Role, Script, Table, Text,
+    VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -212,6 +213,8 @@ struct Style<'a> {
     word: f32,
     /// Runs keep the sizes the book gives them.
     sized: bool,
+    /// How the last line sits; none follows the rest.
+    last: Option<LastLine>,
 }
 
 /// A text layout, its soft-hyphen lines, and line starts in source bytes.
@@ -271,6 +274,8 @@ pub(crate) struct Placed {
     /// Its corners' radius in layout units, before fitting the box.
     radius: f32,
     finish: Option<Arc<Finish>>,
+    /// Kept on one page when it fits.
+    whole: bool,
 }
 
 /// A float placed in the column: its key, the boxes holding it, its place.
@@ -451,6 +456,11 @@ pub(crate) struct Set {
     before: Option<f32>,
     /// Text: avoid lone lines at a split.
     lines: bool,
+    /// Lines kept together at a split's foot and head.
+    orphans: usize,
+    widows: usize,
+    /// Kept on one page when it fits.
+    whole: bool,
     /// A table's leading head rows, never left alone at a page's foot.
     heads: usize,
     /// Designed: the book's boxes around it, outermost first.
@@ -1115,6 +1125,7 @@ impl<'a> Setter<'a> {
             letter: typo.letter_spacing * typo.font_size,
             word: typo.word_spacing,
             sized: false,
+            last: None,
         }
     }
 
@@ -1164,6 +1175,7 @@ impl<'a> Setter<'a> {
             letter: look.letter * em + typo.letter_spacing * size,
             word: look.word * em + typo.word_spacing,
             sized: true,
+            last: look.last.filter(|_| !pre),
             ..self.body(frame)
         }
     }
@@ -1339,12 +1351,15 @@ impl<'a> Setter<'a> {
             draw,
             units,
             starts,
-            keep_with_next: block.is_heading(),
+            keep_with_next: block.is_heading() || (designed && frame.keep.with_next),
             break_before: block.break_before,
             tight: frame.tight,
             // The book's margins, scaled as the reader's paragraph gap.
             before: (self.typed(frame)).map(|_| frame.before * em * self.typo.block_gap / READER.2),
             lines: matches!(block.content, Content::Text(_)),
+            orphans: lines_kept(frame.keep.orphans, designed),
+            widows: lines_kept(frame.keep.widows, designed),
+            whole: designed && frame.keep.whole,
             heads,
             boxes,
             cell,
@@ -1647,6 +1662,7 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         em,
         radius: b.radius.map_or(0.0, |r| resolve(r, outer, em).max(0.0)),
         finish: b.finish.clone(),
+        whole: b.whole,
     }
 }
 
@@ -2022,7 +2038,12 @@ fn layout_text(
             colour,
             shadow,
             hidden,
+            features,
         } = span.emphasis;
+        if !features.is_empty() {
+            let source = FontFeatures::Source(Cow::Owned(features.source()));
+            b.push(StyleProperty::FontFeatures(source), range.clone());
+        }
         if script != Script::Normal {
             let shift = match script {
                 Script::Sub => VerticalAlign::SUB,
@@ -2117,7 +2138,17 @@ fn layout_text(
         (Some(width), Some(beside)) => break_beside(&mut layout, width, beside),
         _ => layout.break_all_lines(width),
     }
-    layout.align(alignment(&style), AlignmentOptions::default());
+    let last = style.last.map(|last| match last {
+        LastLine::Start => Alignment::Start,
+        LastLine::Center => Alignment::Center,
+        LastLine::End => Alignment::End,
+        LastLine::Justify => Alignment::Justify,
+    });
+    let options = AlignmentOptions {
+        last_line_alignment: last,
+        ..AlignmentOptions::default()
+    };
+    layout.align(alignment(&style), options);
     let ends_soft = |end: usize| text.text.get(..end).is_some_and(|s| s.ends_with(SHY));
     let hyphens = layout
         .lines()
@@ -2258,9 +2289,11 @@ fn cased(text: &Text) -> (Cow<'_, str>, Vec<(Range<usize>, f32)>) {
             Case::Upper => swap(c, true),
             Case::Lower => swap(c, false),
             Case::Small => swap(c, true).filter(|_| c.is_lowercase()),
+            Case::AllSmall if c.is_uppercase() => Some(c),
+            Case::AllSmall => swap(c, true).filter(|_| c.is_lowercase()),
         };
         shown.push(out.unwrap_or(c));
-        if case == Case::Small && out.is_some() {
+        if matches!(case, Case::Small | Case::AllSmall) && out.is_some() {
             let size = span.map_or(0, |s| s.emphasis.size);
             let scale = if size == 0 {
                 1.0
@@ -2554,6 +2587,8 @@ pub const COLUMN_SCALE: (f32, f32) = (0.6, 1.4);
 const MIN_COLUMN: f32 = 160.0;
 /// The most cells a grid row lays side by side.
 const MAX_COLUMNS: usize = 64;
+/// The most lines `widows` and `orphans` keep together.
+const MAX_KEPT_LINES: u8 = 8;
 /// Pictures set in one block's lines, at most.
 const MAX_INLINES: usize = 256;
 /// Grid blocks measured for content widths; the rest share their sizes.
@@ -2685,11 +2720,19 @@ fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &
             c.break_page();
         }
     }
+    if !c.page.is_empty() {
+        // An unbroken box or block that fits a page starts one.
+        let tall = whole_height(c, blocks, i, typo).filter(|&h| h <= height);
+        if tall.is_some_and(|h| c.y + h > height) {
+            c.break_page();
+        }
+    }
     let mut start = 0;
     while start < total {
         let fit = fitting_units(block, start, height - c.y);
         let mut fit = if block.lines {
-            balance(fit, start, total, c.page.is_empty())
+            let kept = (block.orphans, block.widows);
+            balance(fit, (start, total), c.page.is_empty(), kept)
         } else if start + fit <= block.heads && fit < total && !c.page.is_empty() {
             // Head rows go on with the first body row.
             0
@@ -2912,24 +2955,71 @@ fn fitting_units(block: &Set, start: usize, room: f32) -> usize {
         .count()
 }
 
-/// Trims a fit to avoid a lone line; zero moves the block on.
-fn balance(fit: usize, start: usize, total: usize, page_empty: bool) -> usize {
+/// Trims a fit to keep lines together at a split; zero moves the block on.
+fn balance(
+    fit: usize,
+    (start, total): (usize, usize),
+    page_empty: bool,
+    (orphans, widows): (usize, usize),
+) -> usize {
     let rest = total - start;
     if fit >= rest {
         return rest;
     }
-    // Its last line alone atop the next page: take one more along.
-    if rest - fit == 1 && fit >= 3 {
-        return fit - 1;
+    // Too few lines atop the next page: take more along.
+    let trimmed = if rest - fit < widows {
+        rest.saturating_sub(widows)
+    } else {
+        fit
+    };
+    if trimmed >= orphans.max(1) {
+        return trimmed;
     }
-    if page_empty {
-        return fit;
+    // Too few at a page's foot, or no good split: move on, unless atop one.
+    if page_empty { fit } else { 0 }
+}
+
+/// Lines a split keeps together; the book's count when designed.
+fn lines_kept(count: u8, designed: bool) -> usize {
+    match count {
+        0 => 2,
+        _ if !designed => 2,
+        n => usize::from(n.min(MAX_KEPT_LINES)),
     }
-    // A lone first line at a page's foot, or no good split: move on.
-    if fit < 2 || rest - fit == 1 {
-        return 0;
+}
+
+/// The height block `i` needs on one page: its own, or its unbroken box's.
+fn whole_height(c: &Cursor, blocks: &[Set], i: usize, typo: &Typography) -> Option<f32> {
+    let block = blocks.get(i)?;
+    let depth = c.open.len();
+    let boxed = block.boxes.get(depth..).unwrap_or_default();
+    let Some((at, outer)) = boxed.iter().enumerate().find(|(_, b)| b.whole) else {
+        return block
+            .whole
+            .then(|| span_height(block, 0..block.units.len()));
+    };
+    let level = depth + at;
+    let inside = |b: &Set| b.boxes.get(level).is_some_and(|p| p.key == outer.key);
+    let mut total = outer.top + outer.bottom;
+    let mut seen: Vec<usize> = Vec::new();
+    for (k, b) in blocks
+        .iter()
+        .enumerate()
+        .skip(i)
+        .take_while(|(_, b)| inside(b))
+    {
+        if k > i {
+            total += gap(b, typo);
+        }
+        total += span_height(b, 0..b.units.len());
+        for nested in b.boxes.iter().skip(level + 1) {
+            if !seen.contains(&nested.key) {
+                seen.push(nested.key);
+                total += nested.top + nested.bottom;
+            }
+        }
     }
-    fit
+    Some(total)
 }
 
 /// A line picture's place as parley aligns boxes; `size` is the text's.
@@ -3642,6 +3732,49 @@ mod tests {
         assert_eq!(shown.len(), t.text.len());
         let runs: Vec<Range<usize>> = runs.into_iter().map(|(r, _)| r).collect();
         assert_eq!(runs, [5..8, 10..11, 12..14]);
+    }
+
+    #[test]
+    fn all_small_caps_shrink_capitals_too() {
+        let mut t = Text::new(Role::Paragraph);
+        let all = Emphasis {
+            case: Case::AllSmall,
+            ..Emphasis::default()
+        };
+        t.push("NASA flew", all);
+        let (shown, runs) = cased(&t);
+        assert_eq!(shown, "NASA FLEW");
+        let runs: Vec<Range<usize>> = runs.into_iter().map(|(r, _)| r).collect();
+        assert_eq!(runs, [0..4, 5..9]);
+    }
+
+    #[test]
+    fn splits_keep_the_books_widows_and_orphans() {
+        let usual = (2, 2);
+        // Ten lines, room for nine: two go over, as one would be alone.
+        assert_eq!(balance(9, (0, 10), false, usual), 8);
+        assert_eq!(balance(9, (0, 10), false, (2, 3)), 7);
+        // One line fits at the foot: the paragraph moves on.
+        assert_eq!(balance(1, (0, 10), false, usual), 0);
+        assert_eq!(balance(2, (0, 10), false, (3, 2)), 0);
+        assert_eq!(balance(3, (0, 10), false, (3, 2)), 3);
+        // Atop a page there is no better place: it splits anyway.
+        assert_eq!(balance(1, (0, 10), true, (3, 3)), 1);
+        assert_eq!(lines_kept(0, true), 2);
+        assert_eq!(lines_kept(4, false), 2);
+        assert_eq!(lines_kept(200, true), usize::from(MAX_KEPT_LINES));
+    }
+
+    #[test]
+    fn features_later_win_and_read_as_css() {
+        use crate::block::Features;
+        let on = |t| Features::of(t, true).unwrap_or_default();
+        let off = |t| Features::of(t, false).unwrap_or_default();
+        let early = on("liga").then(on("onum"));
+        let both = early.then(off("liga")).then(on("zero"));
+        assert_eq!(both.source(), "\"liga\" 0, \"onum\" 1, \"zero\" 1");
+        assert_eq!(Features::of("wxyz", true), None);
+        assert!(Features::default().is_empty());
     }
 
     #[test]
