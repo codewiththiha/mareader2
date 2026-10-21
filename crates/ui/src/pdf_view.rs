@@ -174,6 +174,8 @@ pub struct PdfView {
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
     pub footnote: Option<crate::footnote::Footnote>,
+    /// Clip transcripts open in the book's pages.
+    pub transcripts: crate::transcript::Transcripts,
     /// A book's picture opened large over the window.
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
@@ -206,6 +208,7 @@ impl PdfView {
             lead: 0,
             moved_at: 0.0,
             footnote: None,
+            transcripts: Default::default(),
             viewer: None,
             nudge: None,
             aim: None,
@@ -1211,6 +1214,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         Some(LinkTarget::Media { path, .. }) => {
             crate::play::play(Arc::clone(doc), path);
         }
+        Some(LinkTarget::Transcript { card, track }) => view.transcripts.click(card, track),
         _ => {}
     }
     if cx.active {

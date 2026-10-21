@@ -43,6 +43,17 @@ pub(crate) struct Pending {
     pub(crate) poster: Option<String>,
     pub(crate) title: Option<String>,
     pub(crate) width: Option<Length>,
+    /// Its `<track>`s of subtitles or captions, as written.
+    pub(crate) tracks: Vec<TrackTag>,
+}
+
+/// A `<track>` as its card read it, its file not yet found.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TrackTag {
+    pub(crate) src: String,
+    pub(crate) language: Option<String>,
+    pub(crate) label: Option<String>,
+    pub(crate) default: bool,
 }
 
 /// What a card's clip is to this reader.

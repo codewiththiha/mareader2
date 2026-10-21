@@ -31,11 +31,42 @@ fn copy_out(doc: &Document, path: &str) -> Option<PathBuf> {
     std::fs::create_dir_all(&folder).ok()?;
     prune(&folder);
     let file = folder.join(name(path, &media.data, media.extension));
-    let fresh = std::fs::metadata(&file).is_ok_and(|m| m.len() == media.data.len() as u64);
-    if !fresh {
-        std::fs::write(&file, &media.data).ok()?;
+    write_once(&file, &media.data)?;
+    // Players load subtitles named after the clip, as `<clip>.en.vtt`.
+    let stem = file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    let mut taken = Vec::new();
+    for sub in doc.subtitles(path) {
+        let named = subtitle_name(stem, sub.language.as_deref(), sub.extension);
+        if !taken.contains(&named) {
+            let _ = write_once(&folder.join(&named), &sub.data);
+            taken.push(named);
+        }
     }
     Some(file)
+}
+
+/// Writes `data` to `file` unless a copy of its size is there already.
+fn write_once(file: &Path, data: &[u8]) -> Option<()> {
+    let fresh = std::fs::metadata(file).is_ok_and(|m| m.len() == data.len() as u64);
+    if !fresh {
+        std::fs::write(file, data).ok()?;
+    }
+    Some(())
+}
+
+/// `<stem>.<language>.<extension>`, the language kept to tag characters.
+fn subtitle_name(stem: &str, language: Option<&str>, extension: &str) -> String {
+    let tag: String = (language.unwrap_or_default().chars())
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(16)
+        .collect();
+    match tag.is_empty() {
+        true => format!("{stem}.{extension}"),
+        false => format!("{stem}.{tag}.{extension}"),
+    }
 }
 
 /// `<hash>.<extension>`: the same clip keeps one name, others never share it.
@@ -82,7 +113,7 @@ fn launch(_file: &Path) {}
 
 #[cfg(test)]
 mod tests {
-    use super::name;
+    use super::{name, subtitle_name};
 
     #[test]
     fn copies_are_named_by_clip_and_type() {
@@ -91,5 +122,15 @@ mod tests {
         assert_ne!(a, name("/OPS/b.mp4", b"clip", "mp4"));
         assert_ne!(a, name("/OPS/a.mp4", b"clap", "mp4"));
         assert!(a.ends_with(".mp4") && !a.contains('/'), "{a}");
+    }
+
+    #[test]
+    fn subtitles_are_named_after_their_clip() {
+        assert_eq!(
+            subtitle_name("ab12", Some("en-GB"), "vtt"),
+            "ab12.en-GB.vtt"
+        );
+        assert_eq!(subtitle_name("ab12", None, "srt"), "ab12.srt");
+        assert_eq!(subtitle_name("ab12", Some("../x/y"), "srt"), "ab12.xy.srt");
     }
 }

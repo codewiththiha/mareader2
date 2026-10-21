@@ -1536,13 +1536,16 @@ impl MareaderApp {
             settings: &self.settings.ai,
         };
         self.page_ai.tick(ctx, &around, out);
-        // A book lays its pane's shown results into its pages.
+        // A book lays its pane's shown results and transcripts into its pages.
+        let wanted = crate::transcript::wanted(&self.settings.ai);
         for pane in self.tree.panes() {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
             let model = self.library.model();
             let who = (book, name.as_str());
-            if let Some(inserts) = self.page_ai.inserts(model, pane, &self.documents, who) {
+            let ai = self.page_ai.inserts(model, pane, &self.documents, who);
+            let own = self.documents.transcripts(pane, &wanted);
+            if let Some(inserts) = crate::transcript::combine(ai, own) {
                 self.documents.set_inserts(pane, inserts);
             }
         }

@@ -27,6 +27,7 @@ use crate::href;
 use crate::math;
 use crate::media::{self, Clip};
 use crate::query;
+use crate::subtitles;
 use crate::svg::{self, Capture};
 
 /// Open elements tracked at once; deeper nesting is read as flat.
@@ -113,6 +114,8 @@ pub(crate) enum Href {
     Outside(String),
     /// Sound or video in the archive, played outside the reader.
     Media { path: String, video: bool },
+    /// Shows or hides card `card`'s transcript; a track picks its language.
+    Transcript { card: u32, track: Option<u32> },
 }
 
 /// The places a book's ids mark and its links' destinations.
@@ -130,6 +133,8 @@ pub(crate) struct Refs {
     pub(crate) noterefs: HashSet<u32>,
     /// The book's fonts that designed text uses.
     pub(crate) faces: Vec<FontFace>,
+    /// Clips with subtitle tracks, by the card that plays them.
+    pub(crate) cards: Vec<subtitles::Card>,
 }
 
 /// The blocks an element with an id holds, and whether it is a note.
@@ -2312,6 +2317,7 @@ impl State<'_> {
                     poster: owned("poster"),
                     title: owned("title").or_else(|| owned("aria-label")),
                     width: picture_width(c).or_else(|| attr_width(tag)),
+                    tracks: Vec::new(),
                 });
                 return true;
             }
@@ -2369,6 +2375,80 @@ impl State<'_> {
         }
     }
 
+    /// A card's `<track>` of subtitles or captions; other kinds are skipped.
+    fn track(&mut self, tag: &Tag) {
+        let Some(m) = self.media.as_mut() else {
+            return;
+        };
+        let kind = attr(tag, "kind").map(|k| k.trim().to_ascii_lowercase());
+        let shown = kind
+            .as_deref()
+            .is_none_or(|k| matches!(k, "subtitles" | "captions" | ""));
+        let src = attr(tag, "src").map(str::trim).filter(|s| !s.is_empty());
+        let (Some(src), true) = (src, shown) else {
+            return;
+        };
+        if m.tracks.len() >= subtitles::MAX_TRACKS {
+            return;
+        }
+        let owned = |n: &str| {
+            attr(tag, n)
+                .map(|v| v.trim().to_owned())
+                .filter(|v| !v.is_empty())
+        };
+        m.tracks.push(media::TrackTag {
+            src: src.to_owned(),
+            language: owned("srclang"),
+            label: owned("label"),
+            default: attr(tag, "default").is_some(),
+        });
+    }
+
+    /// A card's tracks in the book, and a link to its transcript if room.
+    fn subtitled(&mut self, m: &media::Pending, clip: Option<String>) {
+        let tracks: Vec<subtitles::Track> = (m.tracks.iter())
+            .filter_map(|t| {
+                let path = href::resolve(self.base, &t.src)?;
+                self.library.media_type(&path)?;
+                Some(subtitles::Track {
+                    path,
+                    language: t.language.clone(),
+                    label: t.label.clone(),
+                    default: t.default,
+                })
+            })
+            .collect();
+        if tracks.is_empty() || self.refs.cards.len() >= subtitles::MAX_CARDS {
+            return;
+        }
+        let Ok(card) = u32::try_from(self.refs.cards.len()) else {
+            return;
+        };
+        // A table's cell or a fixed page has no room for the lines.
+        let room = self.table.is_none() && !self.fixed;
+        let toggle = room
+            .then(|| self.add_href(Href::Transcript { card, track: None }))
+            .flatten();
+        let mut picks = Vec::new();
+        for track in (0..tracks.len()).filter(|_| toggle.is_some()) {
+            let track = u32::try_from(track).ok();
+            picks.extend(self.add_href(Href::Transcript { card, track }));
+        }
+        let mut caption = None;
+        if let Some(toggle) = toggle.filter(|_| picks.len() == tracks.len()) {
+            let before = self.blocks.len();
+            self.caption("Show transcript", Some(toggle));
+            caption = (self.blocks.len() > before).then(|| self.first + self.blocks.len() - 1);
+        }
+        self.refs.cards.push(subtitles::Card {
+            clip,
+            tracks,
+            caption,
+            toggle: toggle.unwrap_or_default(),
+            picks,
+        });
+    }
+
     /// An `<object>` or `<embed>` drawn as its picture or card; false if not.
     fn embedded(&mut self, (src, kind): (Option<&str>, Option<&str>), c: &Computed) -> bool {
         let Some(src) = src.map(str::trim).filter(|s| !s.is_empty()) else {
@@ -2420,8 +2500,12 @@ impl State<'_> {
             Clip::Held => named(format!("The {what} can't play here")),
             _ => format!("The {what} isn't in this book"),
         };
+        let clip = (m.src.as_deref())
+            .filter(|_| target.is_some())
+            .and_then(|s| href::resolve(self.base, s.trim()));
         if self.table.is_some() {
-            return self.caption(&text, target);
+            self.caption(&text, target);
+            return self.subtitled(&m, clip);
         }
         let poster = m.poster.as_deref().filter(|_| m.video);
         let art = poster.and_then(|p| self.poster(p)).or_else(|| {
@@ -2450,6 +2534,7 @@ impl State<'_> {
             self.emit(block);
         }
         self.caption(&text, target);
+        self.subtitled(&m, clip);
     }
 
     /// Poster `src` with a play mark over it; a vector one as it is.
@@ -3036,6 +3121,7 @@ impl State<'_> {
                 self.viewport = attr(tag, "content").and_then(viewport).or(self.viewport);
             }
             "source" => self.source(tag),
+            "track" => self.track(tag),
             _ => {}
         }
         let quiet = self.top().hidden || self.top().graphic;

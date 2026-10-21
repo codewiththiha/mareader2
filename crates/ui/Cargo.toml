@@ -34,6 +34,8 @@ rfd = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
+# The system's languages, to pick subtitles in.
+sys-locale = "0.3"
 # AI answers and API keys; a browser has neither threads nor a keychain.
 mareader-assist = { workspace = true }
 

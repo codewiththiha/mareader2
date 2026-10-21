@@ -92,6 +92,14 @@ impl Document {
         }
     }
 
+    /// The subtitle files of a book's clip at `path`, for its player.
+    pub fn subtitles(&self, path: &str) -> Vec<mareader_epub::Subtitle> {
+        match self {
+            Self::Pdf(_) => Vec::new(),
+            Self::Epub { book, .. } => book.subtitles(path),
+        }
+    }
+
     /// A book's narration, if its chapters have media overlays.
     pub fn narration(&self) -> Option<Arc<mareader_epub::Narration>> {
         match self {
@@ -310,6 +318,7 @@ impl Document {
                 // The same schemes a PDF's links may use.
                 Destination::Outside(a) => LinkTarget::Web(web_address(a.as_bytes())?),
                 Destination::Media { path, video } => LinkTarget::Media { path, video },
+                Destination::Transcript { card, track } => LinkTarget::Transcript { card, track },
             };
             Some(Link {
                 bounds: bounds(l.rect),

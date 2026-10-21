@@ -15,9 +15,13 @@ use crate::css::{FontFace, MAX_SHEET, Stylesheet};
 use crate::fontfile;
 use crate::media::{self, Media};
 use crate::overlay::{self, Narration};
-use crate::splice::{At, Inserts, Spliced, next_layout};
+use crate::splice::{At, Insert, Inserts, Spliced, next_layout};
+use crate::subtitles::{self, Subtitle, Track, Wanted};
 use crate::xhtml::{self, BOOK_FACE, Href, Library, Refs};
 use crate::{OpenError, guard};
+
+/// Transcripts' insert ids: the top bit, then the card.
+const TRANSCRIPTS: u128 = 1 << 127;
 
 /// All chapters' markup together; past it the book is refused.
 pub const MAX_MARKUP: usize = 64 << 20;
@@ -57,6 +61,11 @@ pub enum Destination {
     Media {
         path: String,
         video: bool,
+    },
+    /// Shows or hides clip card `card`'s transcript, in `track` if given.
+    Transcript {
+        card: usize,
+        track: Option<usize>,
     },
 }
 
@@ -169,6 +178,16 @@ impl Files {
             let extension = media::extension(entry.media_type())?;
             let data = entry.read_bytes().ok()?;
             Some(Media { data, extension })
+        };
+        catch_unwind(AssertUnwindSafe(read)).ok().flatten()
+    }
+
+    /// Any file the manifest lists at `path`, if not too large.
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        let read = || {
+            let epub = guard::open(&self.archive).ok()?;
+            let data = epub.manifest().by_href(path)?.read_bytes().ok()?;
+            (data.len() <= subtitles::MAX_TRACK).then_some(data)
         };
         catch_unwind(AssertUnwindSafe(read)).ok().flatten()
     }
@@ -350,6 +369,9 @@ impl Book {
             for e in refs.extents.values_mut() {
                 e.blocks = e.blocks.start + 1..e.blocks.end + 1;
             }
+            for c in refs.cards.iter_mut() {
+                c.caption = c.caption.map(|b| b + 1);
+            }
         }
         if blocks.is_empty() {
             return Err(OpenError::Empty);
@@ -363,7 +385,7 @@ impl Book {
         let notes = crate::notes::find(&blocks, &refs);
         let narration = narration(&epub, &mut shelf, pars, (&refs, blocks.len()));
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
-        let plays = plays || !narration.phrases.is_empty();
+        let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
         let archive = plays.then(|| Arc::clone(&bytes));
         Ok(Self {
             blocks,
@@ -394,6 +416,62 @@ impl Book {
     /// Sound or video at `path` to hand to a player; none for other files.
     pub fn media(&self, path: &str) -> Option<Media> {
         self.files()?.media(path)
+    }
+
+    /// Clip `clip`'s subtitle files, for a player to load beside it.
+    pub fn subtitles(&self, clip: &str) -> Vec<Subtitle> {
+        let Some(files) = self.files() else {
+            return Vec::new();
+        };
+        let cards = self.refs.cards.iter();
+        let mut tracks: Vec<&Track> = (cards.filter(|c| c.clip.as_deref() == Some(clip)))
+            .flat_map(|c| c.tracks.iter())
+            .collect();
+        let mut seen = Vec::new();
+        tracks.retain(|t| {
+            let fresh = !seen.contains(&&t.path);
+            seen.push(&t.path);
+            fresh
+        });
+        let tracks = tracks.into_iter().take(subtitles::MAX_TRACKS);
+        tracks
+            .filter_map(|t| {
+                let data = files.read(&t.path)?;
+                let extension = subtitles::Format::of(&data).extension();
+                let language = t.language.clone();
+                Some(Subtitle {
+                    language,
+                    extension,
+                    data,
+                })
+            })
+            .collect()
+    }
+
+    /// Card `card`'s transcript, to lay where its link was; `track` or a pick.
+    pub fn transcript(&self, card: usize, track: Option<usize>, wanted: Wanted) -> Option<Insert> {
+        let c = self.refs.cards.get(card)?;
+        let at = c.caption?;
+        let caption = self.blocks.get(at)?;
+        let chosen = track.filter(|t| *t < c.tracks.len());
+        let chosen = chosen.or_else(|| subtitles::pick(&c.tracks, wanted.languages))?;
+        let picked = c.tracks.get(chosen)?;
+        let data = self.files().and_then(|f| f.read(&picked.path));
+        let cues = data.map(|d| subtitles::cues(&d)).unwrap_or_default();
+        let blocks = subtitles::transcript(caption, c, (chosen, &cues), wanted.name);
+        Some(Insert {
+            id: TRANSCRIPTS | card as u128,
+            from: Anchor {
+                block: at,
+                offset: 0,
+            },
+            to: Anchor {
+                block: at + 1,
+                offset: 0,
+            },
+            blocks: Arc::new(blocks),
+            language: picked.language.clone(),
+        })
     }
 
     /// Its files, to read sound from after the book itself is gone.
@@ -506,6 +584,10 @@ impl Book {
                 Href::Media { path, video } => Destination::Media {
                     path: path.clone(),
                     video: *video,
+                },
+                Href::Transcript { card, track } => Destination::Transcript {
+                    card: usize::try_from(*card).ok()?,
+                    track: track.and_then(|t| usize::try_from(t).ok()),
                 },
             })
         };
