@@ -49,6 +49,8 @@ pub(crate) struct Pending {
     pub(crate) id: Option<String>,
     /// Hidden, but read so triggers can play it.
     pub(crate) unseen: bool,
+    /// Keeps its room but doesn't show, as `visibility: hidden`.
+    pub(crate) invisible: bool,
 }
 
 /// A `<track>` as its card read it, its file not yet found.

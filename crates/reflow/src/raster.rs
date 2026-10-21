@@ -245,7 +245,7 @@ impl Painter {
         let units = piece.units.clone();
         let top = set.units.get(units.start).map_or(0.0, |u| u.0) + piece.dy;
         let height = span_height(set, units.clone());
-        if !self.visible(top - 8.0, top + height + 8.0) {
+        if !self.visible(top - 8.0, top + height + 8.0) || set.hidden {
             return;
         }
         for &bar in &set.bars {
@@ -892,9 +892,9 @@ impl Painter {
             })
             .collect();
         for b in boxes {
-            let picture = usize::try_from(b.id)
-                .ok()
-                .and_then(|i| para.pictures.get(i));
+            let i = usize::try_from(b.id).ok();
+            let veiled = i.and_then(|i| para.veiled.get(i)).is_some_and(|v| *v);
+            let picture = i.and_then(|i| para.pictures.get(i)).filter(|_| !veiled);
             let rect = [x + b.x, dy + b.y, b.width, b.height];
             match picture {
                 Some(picture) if para.turned => self.standing(picture, decoded, rect),

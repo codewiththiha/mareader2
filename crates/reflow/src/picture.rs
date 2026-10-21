@@ -49,6 +49,12 @@ impl PartialEq for Picture {
 }
 
 impl Picture {
+    /// The same image, if not the same picture: equal size and bytes.
+    pub fn same(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+            || (self.width == other.width && self.height == other.height && self.data == other.data)
+    }
+
     /// Reads only the header: format, then size within the caps.
     pub fn probe(data: Vec<u8>) -> Result<Self, PictureError> {
         if svg::is_svg(&data) {

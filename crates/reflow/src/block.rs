@@ -184,6 +184,10 @@ pub struct Inline {
     pub width: f32,
     pub height: f32,
     pub rise: Rise,
+    /// The link it leads to, by [`Link::target`].
+    pub link: Option<u32>,
+    /// Takes its room but isn't drawn, as `visibility: hidden`.
+    pub hidden: bool,
 }
 
 /// Where a picture in a line sits against its text, as `vertical-align`.
@@ -217,6 +221,8 @@ impl PartialEq for Inline {
             && size(self) == size(other)
             && std::mem::discriminant(&self.rise) == std::mem::discriminant(&other.rise)
             && rise(self) == rise(other)
+            && self.link == other.link
+            && self.hidden == other.hidden
     }
 }
 
@@ -733,6 +739,8 @@ pub struct Frame {
     pub sheet: Option<Arc<Sheet>>,
     /// On a fixed page: the positioned box it is in; blocks of one share it.
     pub spot: Option<Arc<Spot>>,
+    /// Takes its room but draws nothing, as `visibility: hidden`.
+    pub hidden: bool,
 }
 
 /// A fixed-layout page: its blocks laid at the book's own viewport.

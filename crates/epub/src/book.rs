@@ -90,6 +90,37 @@ struct Shelf<'e> {
     budget: usize,
 }
 
+/// What a shelf has read, kept to read chapters again as triggers change.
+#[derive(Debug, Default)]
+struct Read {
+    pictures: HashMap<String, Option<Arc<Picture>>>,
+    sheets: HashMap<String, Option<Arc<Stylesheet>>>,
+    files: HashMap<String, Option<Arc<Vec<u8>>>>,
+    budget: usize,
+}
+
+impl<'e> Shelf<'e> {
+    /// A shelf holding what `read` already has.
+    fn again(epub: &'e Epub, read: &Read) -> Self {
+        Self {
+            epub,
+            pictures: read.pictures.clone(),
+            sheets: read.sheets.clone(),
+            files: read.files.clone(),
+            budget: read.budget,
+        }
+    }
+
+    fn kept(self) -> Read {
+        Read {
+            pictures: self.pictures,
+            sheets: self.sheets,
+            files: self.files,
+            budget: self.budget,
+        }
+    }
+}
+
 impl Shelf<'_> {
     /// The picture at `path` itself, its fallbacks aside.
     fn decode(&mut self, path: &str) -> Option<Arc<Picture>> {
@@ -225,6 +256,8 @@ pub struct Book {
     /// The file itself, kept only when it holds sound or video to play.
     archive: Option<Arc<Vec<u8>>>,
     narration: Arc<Narration>,
+    /// What its chapters read, kept when triggers show and hide things.
+    read: Option<Arc<Read>>,
 }
 
 impl std::fmt::Debug for Book {
@@ -281,6 +314,7 @@ impl Book {
                 lead: self.lead,
                 archive: self.archive.clone(),
                 narration: Arc::clone(&self.narration),
+                read: self.read.clone(),
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
@@ -375,13 +409,10 @@ impl Book {
             for c in refs.cards.iter_mut() {
                 c.caption = c.caption.map(|b| b + 1);
             }
-            for t in refs.targets.iter_mut() {
-                if let trigger::Place::Held(held) = &mut t.place {
-                    held.at += 1;
-                }
+            for laid in refs.chapters.iter_mut() {
+                laid.blocks = laid.blocks.start + 1..laid.blocks.end + 1;
             }
         }
-        trigger::find_targets(&mut refs);
         if blocks.is_empty() {
             return Err(OpenError::Empty);
         }
@@ -396,7 +427,9 @@ impl Book {
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
         let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
         let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
-        let archive = plays.then(|| Arc::clone(&bytes));
+        let shows = !refs.targets.is_empty();
+        let archive = (plays || shows).then(|| Arc::clone(&bytes));
+        let read = shows.then(|| Arc::new(shelf.kept()));
         Ok(Self {
             blocks,
             flow,
@@ -415,6 +448,7 @@ impl Book {
             language,
             archive,
             narration: Arc::new(narration),
+            read,
         })
     }
 
@@ -508,7 +542,48 @@ impl Book {
 
     /// The blocks to lay so each target in `shown` shows as it says.
     pub fn triggered(&self, shown: &BTreeMap<usize, bool>) -> Vec<Insert> {
-        trigger::inserts(&self.blocks, &self.refs.targets, shown)
+        let reread = || self.reread(shown);
+        catch_unwind(AssertUnwindSafe(reread)).unwrap_or_default()
+    }
+
+    /// Reads each chapter with a target in `shown` again, as it says.
+    fn reread(&self, shown: &BTreeMap<usize, bool>) -> Vec<Insert> {
+        let (Some(read), Some(archive)) = (&self.read, &self.archive) else {
+            return Vec::new();
+        };
+        let Ok(epub) = guard::open(archive) else {
+            return Vec::new();
+        };
+        let mut chapters: BTreeMap<usize, HashMap<String, bool>> = BTreeMap::new();
+        for (&n, &visible) in shown {
+            let Some(t) = self.refs.targets.get(n) else {
+                continue;
+            };
+            let id = t.key.rsplit_once('#').map_or("", |(_, id)| id);
+            let overrides = chapters.entry(t.chapter).or_default();
+            overrides.insert(id.to_owned(), visible);
+        }
+        let mut shelf = Shelf::again(&epub, read);
+        let mut out = Vec::new();
+        for (chapter, overrides) in chapters {
+            let Some(laid) = self.refs.chapters.get(chapter) else {
+                continue;
+            };
+            let entry = epub.manifest().by_href(&laid.path);
+            let (Some(content), Some(base)) = (
+                entry.and_then(|e| chapter_text(&e)),
+                self.blocks.get(laid.blocks.clone()),
+            ) else {
+                continue;
+            };
+            let (mut blocks, mut fresh) = (Vec::new(), Refs::default());
+            let into = (&mut blocks, &mut fresh);
+            xhtml::reread_chapter(&content, laid, overrides, &mut shelf, into);
+            trigger::remap(&mut blocks, &fresh, &self.refs, laid);
+            let language = self.language.as_deref();
+            out.extend(trigger::changes(base, blocks, laid.blocks.start, language));
+        }
+        out
     }
 
     /// Its files, to read sound from after the book itself is gone.

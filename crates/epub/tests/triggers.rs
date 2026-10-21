@@ -94,6 +94,12 @@ fn clicks_on_observers_set_off_their_triggers() {
         vec![sea],
         vec![chime(Action::Play)],
         vec![Triggered::Show(5, true)],
+        vec![Triggered::Show(6, true)],
+        vec![Triggered::Show(7, false)],
+        vec![Triggered::Show(8, true)],
+        vec![Triggered::Show(9, true)],
+        vec![Triggered::Show(10, true)],
+        vec![Triggered::Show(11, true)],
     ];
     assert_eq!(got, want);
     // A hidden sound has no card; the hover trigger makes no link.
@@ -137,11 +143,11 @@ fn hiding_keeps_the_room_and_showing_gives_it_back() {
     assert_eq!(a.text, b.text);
     // A collapsed space before it may go with it; it looks the same.
     assert_eq!(hidden(laid, 0..range.start - 1), Some(false));
-    // An inline `display: none` keeps its room, so it shows in place.
-    let (tip, range) = find(blocks, "read slowly");
-    assert_eq!(hidden(tip, range.clone()), Some(true));
+    // An inline `display: none` takes no room until it shows.
+    assert!(!text(&book).contains("read slowly"));
     let ins = book.triggered(&BTreeMap::from([(2, true)]));
-    assert_eq!(hidden(ins[0].blocks.first().unwrap(), range), Some(false));
+    let (tip, range) = find(&ins[0].blocks, "read slowly");
+    assert_eq!(hidden(tip, range), Some(false));
     // The book's own `visibility: hidden` starts hidden too.
     let (muted, range) = find(blocks, "(muted)");
     assert_eq!(hidden(muted, range), Some(true));
@@ -170,4 +176,105 @@ fn a_hidden_ending_shows_after_its_chapter_not_before_the_next() {
     let ending = all.find("The ending, revealed.").expect(&all);
     assert!(all.find("Reveal the ending").unwrap() < ending);
     assert_eq!(shown.page_count(), pages);
+}
+
+/// The book's pictures that draw, and those that only keep their room.
+fn pictures(blocks: &[Block]) -> (usize, usize) {
+    let images = blocks
+        .iter()
+        .filter(|b| matches!(b.content, Content::Image { .. }));
+    let (hidden, shown): (Vec<_>, Vec<_>) = images.partition(|b| b.frame.hidden);
+    (shown.len(), hidden.len())
+}
+
+#[test]
+fn a_hidden_table_row_shows_in_its_table() {
+    let book = open();
+    assert!(!text(&book).contains("tide"));
+    let rows = |blocks: &[Block]| {
+        let tables = blocks.iter().filter_map(|b| match &b.content {
+            Content::Table(t) => Some(t.rows.len()),
+            _ => None,
+        });
+        tables.collect::<Vec<_>>()
+    };
+    // A `display: none` row is left out, not laid blank.
+    assert_eq!(rows(book.blocks()), [2]);
+    let ins = book.triggered(&BTreeMap::from([(6, true)]));
+    assert_eq!(rows(&ins[0].blocks), [3]);
+    let shown = with(&book, &[(6, true)]);
+    assert!(text(&shown).contains("the sea rising"));
+    assert_eq!(shown.page_count(), book.page_count());
+}
+
+#[test]
+fn rules_and_pictures_hide_and_keep_their_room() {
+    let book = open();
+    let rule = |blocks: &[Block]| {
+        let rules = blocks.iter().filter(|b| matches!(b.content, Content::Rule));
+        rules.map(|b| b.frame.hidden).collect::<Vec<_>>()
+    };
+    assert_eq!(rule(book.blocks()), [false]);
+    let ins = book.triggered(&BTreeMap::from([(7, false)]));
+    assert_eq!(ins.len(), 1);
+    assert_eq!(rule(&ins[0].blocks), [true]);
+    // The book's `visibility: hidden` picture keeps its room, undrawn.
+    assert_eq!(pictures(book.blocks()).1, 1);
+    let ins = book.triggered(&BTreeMap::from([(8, true)]));
+    assert_eq!(pictures(&ins[0].blocks), (1, 0));
+    let hidden = book.blocks().iter().find(|b| b.frame.hidden);
+    let Some(Content::Image { links, .. }) = hidden.map(|b| &b.content) else {
+        panic!("no hidden picture");
+    };
+    assert!(links.is_empty(), "a hidden picture leads nowhere");
+    // A `display: none` picture with no content shows once asked.
+    let ins = book.triggered(&BTreeMap::from([(9, true)]));
+    let added: usize = ins.iter().map(|i| pictures(&i.blocks).0).sum();
+    assert_eq!(added, 1);
+}
+
+#[test]
+fn a_small_picture_in_a_line_sets_off_its_trigger() {
+    let book = open();
+    let note = |b: &Book| text(b).contains("Here is the note.");
+    assert!(!note(&book));
+    let pages = 0..book.page_count();
+    let tiny = pages.flat_map(|p| book.links(p)).find_map(|l| match l.to {
+        Destination::Trigger(n) if book.trigger(n) == [Triggered::Show(10, true)] => Some(l),
+        _ => None,
+    });
+    let tiny = tiny.expect("the picture is a link");
+    // A box the size of one line's picture, not the paragraph.
+    let [_, _, w, h] = tiny.rect;
+    assert!(w > 0.0 && w < 40.0 && h < 40.0, "{:?}", tiny.rect);
+    assert!(note(&with(&book, &[(10, true)])));
+}
+
+#[test]
+fn a_fixed_page_shows_its_target_on_the_same_page() {
+    let book = open();
+    let pages = book.page_count();
+    let shown = with(&book, &[(11, true)]);
+    let all = text(&shown);
+    let note = all.find("The fixed note.").expect(&all);
+    assert!(all.find("Show the fixed note").unwrap() < note);
+    assert!(note < all.find("Below the note.").unwrap());
+    assert_eq!(shown.page_count(), pages);
+    // The page is laid again whole, its blocks on one sheet.
+    let ins = book.triggered(&BTreeMap::from([(11, true)]));
+    let sheets = ins[0].blocks.iter().map(|b| b.frame.sheet.is_some());
+    assert!(sheets.into_iter().all(|s| s));
+}
+
+#[test]
+fn targets_of_two_chapters_show_together() {
+    let book = open();
+    let shown = with(&book, &[(0, true), (5, true), (6, true)]);
+    let all = text(&shown);
+    for want in ["forty-two", "The ending, revealed.", "the sea rising"] {
+        assert!(all.contains(want), "{want}: {all}");
+    }
+    // Links in what is laid again still lead where they did.
+    let back = triggers(&shown);
+    assert!(back.contains(&vec![Triggered::Show(0, false)]), "{back:?}");
 }
