@@ -57,6 +57,10 @@ quick-xml = { version = "0.42", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 encoding_rs = "0.8"
 chardetng = "0.1"
+# Book fonts: WOFF and WOFF2 unpacked, obfuscated fonts revealed.
+flate2 = "1"
+brotli-decompressor = "5"
+sha1 = "0.10"
 
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }

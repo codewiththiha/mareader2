@@ -14,6 +14,7 @@ mod calc;
 mod convert;
 mod css;
 mod decor;
+mod fontfile;
 mod generated;
 mod guard;
 mod href;
