@@ -270,7 +270,8 @@ and pictures follow the turned page: a drag down a column selects along
 it, and columns are read from the right.
 
 Margins aren't remapped to the turned page, `vertical-lr` columns aren't
-read left to right, and `text-combine-upright: digits` combines the
+read left to right, `text-orientation` applies to whole paragraphs, not
+to inline runs, and `text-combine-upright: digits` combines the
 whole run.
 
 sha256 of `vertical.epub`: `18aadeea5e9ac0d666d5fddc2b5537cb4348ab481945b52bf72d5fd7472231f8`
