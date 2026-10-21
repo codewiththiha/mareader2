@@ -36,7 +36,8 @@ Structure rides on each block's frame:
 Boxes and rows are shared by their blocks, so a box is known by its
 address. Pagination keeps the boxes open on the page; a page break cuts
 a box's border there and reopens it overleaf. Borders are drawn in the
-theme's ink. A row taller than a page reads down the page instead.
+theme's ink, or the book's border colours adapted (see Text colours). A
+row taller than a page reads down the page instead.
 
 Backgrounds are drawn in the theme's ink too, as strong as the book's
 colour contrasts with its own page: a white line on a black page is a
@@ -53,6 +54,12 @@ ink. Any other colour is drawn on the page's greys: as far toward the
 paper as its contrast with its background falls short of the book's
 text, at most 55%, so it stays readable; never darker than its hue
 needs. The hue rides on that grey.
+
+Borders take `border-color` (a side's own, or the `border` shorthand's),
+and with none set, the element's text colour, as CSS's `currentcolor`.
+They are drawn the same way but may fade to 85%, so a book's light grey
+rule stays light. A data table's grid takes the first border colour its
+table or cells draw. List markers take their item's colour.
 
 The page pass then maps the grey from the theme's ink to its paper, as
 for all book text, and adds the hue back around it. If the hue does not

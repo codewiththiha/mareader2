@@ -45,9 +45,14 @@ const MAX_TILES: usize = 256;
 /// Book pixels to an em.
 const BOOK_EM_PX: f32 = 16.0;
 
+/// A book's colour, or `or` where it sets none.
+fn book(colour: Option<[u8; 3]>, or: Color) -> Color {
+    colour.map_or(or, |[r, g, b]| Color::from_rgba8(r, g, b, 255))
+}
+
 fn tone(ink: Ink) -> Color {
     match (ink.colour, ink.tone) {
-        (Some([r, g, b]), _) => Color::from_rgba8(r, g, b, 255),
+        (Some(c), _) => book(Some(c), BODY),
         (None, Tone::Body) => BODY,
         (None, Tone::Soft) => SOFT,
         (None, Tone::Muted) => MUTED,
@@ -255,12 +260,7 @@ impl Painter {
         if let Some(backdrop) = &deco.backdrop {
             self.backdrop(backdrop, deco.em, deco.rect, decoded);
         }
-        let [top, right, bottom, left] = deco.border;
-        let [et, er, eb, el] = deco.edges;
-        self.edge(et, [x, y, w, top], true);
-        self.edge(eb, [x, y + h - bottom, w, bottom], true);
-        self.edge(el, [x, y, left, h], false);
-        self.edge(er, [x + w - right, y, right, h], false);
+        self.edges(deco);
     }
 
     /// A box with round corners: its ground, picture and borders.
@@ -284,15 +284,11 @@ impl Painter {
             self.ctx.pop_layer();
         }
         let first = deco.edges[0];
-        let same = deco.edges.iter().all(|e| *e == first);
+        let same = deco.edges.iter().all(|e| *e == first)
+            && deco.colours.iter().all(|c| *c == deco.colours[0]);
         if !same {
             // Mixed sides keep square corners.
-            let [top, right, bottom, left] = deco.border;
-            let [et, er, eb, el] = deco.edges;
-            self.edge(et, [x, y, w, top], true);
-            self.edge(eb, [x, y + h - bottom, w, bottom], true);
-            self.edge(el, [x, y, left, h], false);
-            self.edge(er, [x + w - right, y, right, h], false);
+            self.edges(deco);
             return;
         }
         let least = 1.0 / self.scale.max(0.01);
@@ -320,7 +316,7 @@ impl Painter {
             Edge::Dotted => vec![line(thick / 2.0, thick, Some([t, t]))],
         };
         self.ctx.set_transform(self.view);
-        self.ctx.set_paint(BODY);
+        self.ctx.set_paint(book(deco.colours[0], BODY));
         for (path, stroke) in strokes {
             self.ctx.set_stroke(stroke);
             self.ctx.stroke_path(&path);
@@ -413,8 +409,20 @@ impl Painter {
         self.ctx.reset_paint_transform();
     }
 
+    /// A square box's four sides, each in its own style and colour.
+    fn edges(&mut self, deco: &Deco) {
+        let [x, y, w, h] = deco.rect;
+        let [top, right, bottom, left] = deco.border;
+        let [et, er, eb, el] = deco.edges;
+        let [ct, cr, cb, cl] = deco.colours.map(|c| book(c, BODY));
+        self.edge((et, ct), [x, y, w, top], true);
+        self.edge((eb, cb), [x, y + h - bottom, w, bottom], true);
+        self.edge((el, cl), [x, y, left, h], false);
+        self.edge((er, cr), [x + w - right, y, right, h], false);
+    }
+
     /// One border side in `rect`, its lines running across if `across`.
-    fn edge(&mut self, edge: Edge, rect: [f32; 4], across: bool) {
+    fn edge(&mut self, (edge, ink): (Edge, Color), rect: [f32; 4], across: bool) {
         let [x, y, w, h] = rect;
         // Hairlines stay visible at small scales.
         let least = 1.0 / self.scale.max(0.01);
@@ -433,10 +441,10 @@ impl Painter {
                     (x + w - line, y)
                 };
                 let (lw, lh) = if across { (w, line) } else { (line, h) };
-                self.fill(BODY, x, y, lw, lh);
-                self.fill(BODY, far_x, far_y, lw, lh);
+                self.fill(ink, x, y, lw, lh);
+                self.fill(ink, far_x, far_y, lw, lh);
             }
-            Edge::Solid | Edge::Double => self.fill(BODY, x, y, w, h),
+            Edge::Solid | Edge::Double => self.fill(ink, x, y, w, h),
             Edge::Dashed | Edge::Dotted => {
                 let dash = if edge == Edge::Dashed {
                     thick * 3.0
@@ -450,8 +458,8 @@ impl Painter {
                     let at = i as f32 * step;
                     let run = dash.min(length - at);
                     match across {
-                        true => self.fill(BODY, x + at, y, run, h),
-                        false => self.fill(BODY, x, y + at, w, run),
+                        true => self.fill(ink, x + at, y, run, h),
+                        false => self.fill(ink, x, y + at, w, run),
                     }
                 }
             }
@@ -651,7 +659,7 @@ impl Painter {
             }
             for (c, cell) in cells.iter().enumerate() {
                 let x = set.x + c as f32 * grid.column;
-                self.frame(BORDER, x, top, grid.column, h);
+                self.frame(book(grid.rule, BORDER), x, top, grid.column, h);
                 self.lines(cell, 0..cell.layout.len(), x + pad_x, top + pad_y);
             }
         }
@@ -662,7 +670,7 @@ impl Painter {
 mod tests {
     use std::sync::Arc;
 
-    use crate::block::{Block, Content, Emphasis, Role, Text};
+    use crate::block::{Block, Content, Emphasis, Role, Row, Table, Text};
     use crate::flow::{Flow, PAGE_HEIGHT, PAGE_WIDTH, Typography};
     use crate::fonts::Fonts;
     use crate::picture::Picture;
@@ -742,6 +750,37 @@ mod tests {
             .filter(|&&[r, g, b, a]| a == 255 && r < 40 && g < 40 && b < 40);
         let (red, black) = (red.count(), black.count());
         assert!(red > 100 && black > 100, "{red} red, {black} black pixels");
+    }
+
+    #[test]
+    fn a_books_grid_and_marker_colours_draw() {
+        let red = Some([204, 0, 0]);
+        let mut item = Block::text(Role::Paragraph, "An item in a list");
+        item.frame.marker = Some("•".into());
+        item.frame.marker_colour = red;
+        let cells = ["a", "b"].map(|s| Text {
+            text: s.into(),
+            ..Text::new(Role::Paragraph)
+        });
+        let row = Row {
+            cells: cells.to_vec(),
+            head: false,
+        };
+        let table = Table {
+            rows: vec![row.clone(), row],
+            rule: red,
+        };
+        let blocks = Arc::new(vec![item, Block::new(Content::Table(table))]);
+        let f = Flow::new(blocks, &Typography::default(), Fonts::bundled());
+        let px = f.render(0, 1.0, [0, 0, 794, 400]);
+        let (pixels, _) = px
+            .as_ref()
+            .map_or(&[][..], |p| p.rgba.as_slice())
+            .as_chunks::<4>();
+        let red = |&&[r, g, b, a]: &&[u8; 4]| a > 200 && r > 150 && g < 40 && b < 40;
+        // A bullet and a grid of thin lines, all red.
+        let reds = pixels.iter().filter(red).count();
+        assert!(reds > 300, "{reds} red pixels");
     }
 
     #[test]

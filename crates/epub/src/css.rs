@@ -171,6 +171,8 @@ pub(crate) struct Decl {
     pub(crate) padding: [Option<Len>; 4],
     pub(crate) border_width: [Option<Len>; 4],
     pub(crate) border_style: [Option<BorderStyle>; 4],
+    /// `Some(None)` is the text's own colour, as `currentcolor`.
+    pub(crate) border_colour: [Option<Option<Rgb>>; 4],
     pub(crate) background: Option<bool>,
     pub(crate) background_image: Option<bool>,
     pub(crate) float: Option<Float>,
@@ -304,6 +306,7 @@ impl Decl {
             "padding" => sides(&mut self.padding, v, len),
             "border-width" => sides(&mut self.border_width, v, border_width),
             "border-style" => sides(&mut self.border_style, v, border_style),
+            "border-color" => sides(&mut self.border_colour, v, |w| Some(colour(w).flatten())),
             "border" => self.border([true; 4], v),
             "background-color" => {
                 self.background = Some(!clear(v));
@@ -429,6 +432,7 @@ impl Decl {
             }
             ("border", "width") => set_side(&mut self.border_width, i, border_width(v)),
             ("border", "style") => set_side(&mut self.border_style, i, border_style(v)),
+            ("border", "color") => set_side(&mut self.border_colour, i, Some(colour(v).flatten())),
             _ => {}
         }
     }
@@ -492,13 +496,22 @@ impl Decl {
 
     /// The `border` shorthand on the sides in `which`; unsaid parts reset.
     fn border(&mut self, which: [bool; 4], v: &str) {
-        let words = || v.split_ascii_whitespace();
-        let width = words().find_map(border_width).unwrap_or(Len::Px(3.0));
-        let style = words().find_map(border_style).unwrap_or_default();
+        let words = words(v);
+        let width = words
+            .iter()
+            .find_map(|w| border_width(w))
+            .unwrap_or(Len::Px(3.0));
+        let style = words
+            .iter()
+            .find_map(|w| border_style(w))
+            .unwrap_or_default();
+        // Unsaid, the colour is the text's.
+        let ink = words.iter().find_map(|w| colour(w)).flatten();
         for (i, on) in which.into_iter().enumerate() {
             if on {
                 set_side(&mut self.border_width, i, Some(width));
                 set_side(&mut self.border_style, i, Some(style));
+                set_side(&mut self.border_colour, i, Some(ink));
             }
         }
     }
@@ -536,7 +549,7 @@ impl Decl {
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
             basis, radius, rotate, lift;
-            margin, padding, border_width, border_style);
+            margin, padding, border_width, border_style, border_colour);
     }
 
     fn is_empty(&self) -> bool {
@@ -552,7 +565,7 @@ fn set_side<T: Copy>(sides: &mut [Option<T>; 4], i: usize, v: Option<T>) {
 
 /// One to four values, as CSS spreads them over the sides.
 fn sides<T: Copy>(out: &mut [Option<T>; 4], v: &str, read: impl Fn(&str) -> Option<T>) {
-    let values: Vec<T> = v.split_ascii_whitespace().filter_map(read).collect();
+    let values: Vec<T> = words(v).into_iter().filter_map(read).collect();
     let pick = |order: [usize; 4]| order.map(|i| values.get(i).copied());
     let spread = match values.len() {
         1 => pick([0, 0, 0, 0]),
@@ -562,6 +575,16 @@ fn sides<T: Copy>(out: &mut [Option<T>; 4], v: &str, read: impl Fn(&str) -> Opti
         _ => return,
     };
     *out = spread;
+}
+
+/// A value's words, a bracket's spaces kept, as in `rgb(1, 2, 3)`.
+fn words(v: &str) -> Vec<&str> {
+    split_top(v, ' ')
+        .into_iter()
+        .flat_map(|w| split_top(w, '\t'))
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+        .collect()
 }
 
 /// `items` split at `sep`, but not inside brackets or quotes.
@@ -1835,6 +1858,8 @@ pub(crate) struct Computed {
     /// Zero where no border is drawn.
     pub(crate) border: [f32; 4],
     pub(crate) border_style: [BorderStyle; 4],
+    /// Each side's colour; `None` is the book's text colour.
+    pub(crate) border_colour: [Option<Rgb>; 4],
     pub(crate) width: Len,
     pub(crate) height: Len,
     pub(crate) background: bool,
@@ -1894,6 +1919,7 @@ impl Default for Computed {
             padding: [0.0; 4],
             border: [0.0; 4],
             border_style: [BorderStyle::None; 4],
+            border_colour: [None; 4],
             width: Len::Auto,
             height: Len::Auto,
             background: false,
@@ -1985,6 +2011,7 @@ impl Computed {
             padding: d.padding.map(|p| px(p).max(0.0)),
             border,
             border_style,
+            border_colour: d.border_colour.map(|c| c.flatten().or(d.ink).or(self.ink)),
             width: d.width.map_or(Len::Auto, |l| l.computed(size)),
             height: d.height.map_or(Len::Auto, |l| l.computed(size)),
             background: d.background.unwrap_or(false) || d.background_image.unwrap_or(false),
@@ -2124,6 +2151,23 @@ mod tests {
         let d = Decl::parse("border-top: solid 1px #FFF; font-family: \"Title A\", serif");
         assert_eq!(d.border_style[0], Some(BorderStyle::Solid));
         assert_eq!(d.border_style[1], None);
+        assert_eq!(d.border_colour[0], Some(Some([255; 3])));
+        let e = Decl::parse("border: 1px solid rgb(10, 20, 30); border-left-color: red");
+        assert_eq!(e.border_colour[1], Some(Some([10, 20, 30])));
+        assert_eq!(e.border_colour[3], Some(Some([255, 0, 0])));
+        let e = Decl::parse("color: navy; border-bottom: thin dotted");
+        let c = Computed::default().child(&e);
+        assert_eq!(c.border_colour[2], Some([0, 0, 128]));
+        let c = Computed::default().child(&Decl::parse("border-color: teal #fff"));
+        assert_eq!(
+            c.border_colour,
+            [
+                Some([0, 128, 128]),
+                Some([255; 3]),
+                Some([0, 128, 128]),
+                Some([255; 3])
+            ]
+        );
         let family: Vec<String> = d.family.iter().flat_map(|f| f.iter().cloned()).collect();
         assert_eq!(family, ["Title A", "serif"]);
         assert_eq!(Decl::parse("color: red").ink, Some([255, 0, 0]));
