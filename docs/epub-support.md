@@ -354,3 +354,42 @@ drawn. Line breaking inside a formula isn't done: a long inline formula
 stays in one piece. Copy and search skip formulas.
 
 sha256 of `math.epub`: `a9b54ffb7b329a7352072e0379844b7b1a351122880b5b5260f385217f6cb488`
+
+## Media and fallbacks (E9)
+
+The reader has no player and runs no scripts. Sound and video show as
+cards, and clicking one hands the clip to the system's player.
+
+| Content | How it shows |
+| --- | --- |
+| `video` | Its `poster` under a play mark, else a drawn player frame; a caption names it by `title`, `aria-label` or file |
+| `audio` | A drawn player strip and its caption |
+| `source` | The first one a `video` or `audio` holds is the clip it plays |
+| `object`, `embed` | A picture shows as one; sound or video as a card; anything else shows the `object`'s own content |
+| `iframe` | A link to the page it embeds |
+| `epub:switch` | The first `epub:case` whose `required-namespace` the reader draws (MathML, SVG, XHTML), else `epub:default` |
+| `noscript` | Shown, since scripts never run |
+| `canvas` | Its content, drawn as the fallback |
+| `picture`, `srcset` | The first `source` whose `media` applies and whose `type` the reader decodes; a `srcset`'s largest candidate |
+| `a` around a picture | The whole picture is the link |
+| `img usemap` | Each `area` of its `map` is a link over its share of the picture; circles and polygons by their bounds |
+
+Drawn cards are line art, so they take the theme's ink. Text inside
+`video` and `audio` is for readers that can't play them, so it stays
+hidden. A clip at an `https` address opens in the browser.
+
+A clip is copied to the system's temporary folder before it plays. Its
+name comes from the type the manifest declares, never from the book: only
+`audio/*` and `video/*` types with a known file extension are handed out.
+Copies older than a day are cleared. Only books with clips keep their file
+in memory to read them from.
+
+Manifest fallback chains are followed, eight items deep at most. A
+picture that won't decode shows its first fallback that does. A spine
+item that isn't XHTML or a picture reads as its first fallback that is,
+and links to the item land on it.
+
+Media overlays, `track` captions, `epub:trigger` and scripted content
+aren't supported.
+
+sha256 of `media.epub`: `0addeca3084e6ba7a2b246ce6ff714d12276598d8baa292176241120199224d6`
