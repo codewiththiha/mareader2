@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use mareader_reflow::{Align, Case, Dir, Features, Justify, LastLine, Rise, Script, Tile, VAlign};
+use mareader_reflow::{
+    Align, Case, Dir, Features, Justify, LastLine, Orient, Rise, Script, Tile, VAlign,
+};
 
 use crate::calc::{self, Vars};
 use crate::decor::{self, Slice, Span};
@@ -240,6 +242,11 @@ pub(crate) struct Decl {
     pub(crate) keep_next: Option<bool>,
     /// `direction`, or the `dir` attribute, which may be auto.
     pub(crate) dir: Option<Dir>,
+    /// `writing-mode`: true when vertical.
+    pub(crate) writing: Option<bool>,
+    /// `text-orientation` and `text-combine-upright`.
+    pub(crate) orient: Option<Orient>,
+    pub(crate) combine: Option<bool>,
     pub(crate) transform: Option<Case>,
     /// Underline and line-through.
     pub(crate) decoration: Option<(bool, bool)>,
@@ -363,7 +370,8 @@ macro_rules! each_field {
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float,
             break_before, break_after, valign, script, small_caps, numeric, ligatures, position,
-            kerning, settings, last, orphans, widows, whole, keep_next, dir, transform, decoration,
+            kerning, settings, last, orphans, widows, whole, keep_next, dir, writing, orient, combine,
+            transform, decoration,
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
             basis, radius, rotate, lift, content, counter_reset, counter_increment,
@@ -550,6 +558,16 @@ impl Decl {
                     _ => self.dir,
                 }
             }
+            "writing-mode" | "-epub-writing-mode" | "-webkit-writing-mode" | "-ms-writing-mode" => {
+                self.writing = writing_words(v).or(self.writing)
+            }
+            "text-orientation" | "-epub-text-orientation" | "-webkit-text-orientation" => {
+                self.orient = orient_words(v).or(self.orient)
+            }
+            "text-combine-upright"
+            | "-epub-text-combine"
+            | "-webkit-text-combine"
+            | "-ms-text-combine-horizontal" => self.combine = combine_words(v).or(self.combine),
             "orphans" => self.orphans = lines_kept(v).or(self.orphans),
             "widows" => self.widows = lines_kept(v).or(self.widows),
             "break-inside" | "page-break-inside" => {
@@ -1102,6 +1120,35 @@ fn upsert(list: &mut Vec<(String, String)>, name: &str, value: &str) {
     list.push((name.to_owned(), value.to_owned()));
 }
 
+/// `writing-mode`, old and new: whether lines run down the page.
+fn writing_words(v: &str) -> Option<bool> {
+    match v {
+        "horizontal-tb" | "lr" | "lr-tb" | "rl" | "rl-tb" => Some(false),
+        "vertical-rl" | "vertical-lr" | "tb" | "tb-rl" | "tb-lr" | "sideways-rl"
+        | "sideways-lr" => Some(true),
+        _ => None,
+    }
+}
+
+/// `text-orientation`, with the older names.
+fn orient_words(v: &str) -> Option<Orient> {
+    match v {
+        "mixed" | "vertical-right" => Some(Orient::Mixed),
+        "upright" => Some(Orient::Upright),
+        "sideways" | "sideways-right" | "rotate-right" => Some(Orient::Sideways),
+        _ => None,
+    }
+}
+
+/// `text-combine-upright`, and the older `horizontal`.
+fn combine_words(v: &str) -> Option<bool> {
+    match v.split_ascii_whitespace().next()? {
+        "none" => Some(false),
+        "all" | "horizontal" | "digits" => Some(true),
+        _ => None,
+    }
+}
+
 /// A property's initial value, whether it is literal, whether it inherits.
 fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
     Some(match name {
@@ -1118,6 +1165,15 @@ fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
         | "font-feature-settings" => ("normal", true, true),
         "font-kerning" | "text-align-last" => ("auto", true, true),
         "direction" => ("ltr", true, true),
+        "writing-mode" | "-epub-writing-mode" | "-webkit-writing-mode" => {
+            ("horizontal-tb", true, true)
+        }
+        "text-orientation" | "-epub-text-orientation" | "-webkit-text-orientation" => {
+            ("mixed", true, true)
+        }
+        "text-combine-upright" | "-epub-text-combine" | "-webkit-text-combine" => {
+            ("none", true, false)
+        }
         "orphans" | "widows" => ("2", true, true),
         "break-inside" | "page-break-inside" => ("auto", true, false),
         "line-height" | "letter-spacing" | "word-spacing" => ("normal", true, true),
@@ -2836,6 +2892,10 @@ pub(crate) struct Computed {
     pub(crate) whole: bool,
     pub(crate) keep_next: bool,
     pub(crate) dir: Dir,
+    /// Vertical writing, how its letters stand, and runs set across.
+    pub(crate) writing: bool,
+    pub(crate) orient: Orient,
+    pub(crate) combine: bool,
     pub(crate) transform: Case,
     pub(crate) text_shadow: Option<decor::Shadow>,
     /// Custom properties, inherited.
@@ -2919,6 +2979,9 @@ impl Default for Computed {
             whole: false,
             keep_next: false,
             dir: Dir::Auto,
+            writing: false,
+            orient: Orient::Mixed,
+            combine: false,
             transform: Case::Normal,
             text_shadow: None,
             vars: Arc::from([]),
@@ -3053,6 +3116,9 @@ impl Computed {
             whole: d.whole.unwrap_or(false),
             keep_next: d.keep_next.unwrap_or(false),
             dir: d.dir.unwrap_or(self.dir),
+            writing: d.writing.unwrap_or(self.writing),
+            orient: d.orient.unwrap_or(self.orient),
+            combine: d.combine.unwrap_or(false),
             transform: d.transform.unwrap_or(self.transform),
             text_shadow: match &d.text_shadow {
                 Some(own) => own.clone(),
@@ -3141,6 +3207,19 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn vertical_words_take_their_older_names() {
+        assert_eq!(writing_words("vertical-rl"), Some(true));
+        assert_eq!(writing_words("tb-rl"), Some(true));
+        assert_eq!(writing_words("horizontal-tb"), Some(false));
+        assert_eq!(writing_words("sideways"), None);
+        assert_eq!(orient_words("upright"), Some(Orient::Upright));
+        assert_eq!(orient_words("sideways-right"), Some(Orient::Sideways));
+        assert_eq!(combine_words("horizontal"), Some(true));
+        assert_eq!(combine_words("digits 2"), Some(true));
+        assert_eq!(combine_words("none"), Some(false));
+    }
 
     fn el(tag: &str, classes: &[&str]) -> El {
         El {
@@ -3647,7 +3726,7 @@ mod tests {
         let css = "@charset \"utf-8\";\n@import url(\"base.css\");\n@import 'print.css' print;\n\
                    @import url(wide.css) (min-width: 2000px);\n\
                    @import \"grid.css\" layer(x) supports(display: grid) screen;\n\
-                   @import url(\"../fonts.css\") supports(writing-mode: vertical-rl);\n\
+                   @import url(\"../fonts.css\") supports(display: run-in);\n\
                    @import url(\"two.css\") supports((display: grid) and (color: red)) (color);\n\
                    @layer base { p.l { text-align: center !important; font-style: italic } }\n\
                    p { text-align: right; font-style: normal } \

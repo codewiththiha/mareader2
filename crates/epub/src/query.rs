@@ -417,8 +417,8 @@ mod tests {
     #[test]
     fn supports_asks_the_cascade() {
         assert!(supports("(display: grid)") && supports("(display: flex)"));
-        assert!(!supports("(display: run-in)") && !supports("(writing-mode: vertical-rl)"));
-        assert!(supports("not (writing-mode: vertical-rl)"));
+        assert!(!supports("(display: run-in)") && supports("(writing-mode: vertical-rl)"));
+        assert!(supports("not (display: run-in)"));
         assert!(supports("(color: red) and (opacity: 0.5)"));
         assert!(supports("(frob: 1) or (--x: y)"));
         assert!(supports("selector(p > em)") && !supports("selector(p[)"));

@@ -17,10 +17,13 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `values.epub` | *Values and Queries*, written for these tests (4 KB) | Sums and limits, custom properties, `@import`, `@supports`, `@media`, `@layer`, alternate and print sheets, global keywords |
 | `fonts.epub` | *Fonts and Figures*, written for these tests (93 KB); its fonts are subsets of the bundled Inter and JetBrains Mono (SIL Open Font License) | The same fonts hidden by the IDPF and Adobe schemes and packed as WOFF and WOFF2, then type features, last-line alignment and unbroken boxes |
 | `direction.epub` | *Directions and Notes*, written for these tests (64 KB); its fonts are subsets of DejaVu Sans (DejaVu Fonts License), Noto Sans CJK JP (SIL Open Font License) and the bundled JetBrains Mono | Arabic and Hebrew read right to left with right-to-left page order, ruby over Japanese and Latin bases, and a run in its own font family |
+| `vertical.epub` | *Columns Down the Page*, written for these tests (55 KB); its font is a subset of Noto Serif CJK JP (SIL Open Font License) | A Japanese chapter in vertical columns with ruby, combined digits, upright and sideways runs, an inline and a tall picture, then a level English colophon |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
 
 sha256 of `direction.epub`: `d10c8ded2d32f023152ac04b8296d2b533bcaeb5d01f6c38ba0580341d49e8db`
+
+sha256 of `vertical.epub`: `b0e7878d96707056d287a4874f321c6cf674a581a73a1af5c1e6ecf29aabe937`
 
 ## Text files
 
