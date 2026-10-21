@@ -256,7 +256,8 @@ pages of its own.
 In a vertical line, Chinese, Japanese and Korean letters, kana, Hangul and
 full-width forms stand upright and take the font's vertical forms (`vert`),
 so punctuation and brackets turn. Other letters lie on their side.
-`text-orientation: upright` stands every letter, `sideways` lays every
+`text-orientation: upright` stands every letter, Latin ones in the
+font's full widths (`fwid`) when it has them; `sideways` lays every
 letter down. `text-combine-upright: all` (or the older `horizontal`)
 sets its run, at most 256 bytes, across the column in half widths,
 squeezed to one em: dates such as 10月21日. Ruby notes sit to the right
@@ -272,4 +273,4 @@ Margins aren't remapped to the turned page, `vertical-lr` columns aren't
 read left to right, and `text-combine-upright: digits` combines the
 whole run.
 
-sha256 of `vertical.epub`: `b0e7878d96707056d287a4874f321c6cf674a581a73a1af5c1e6ecf29aabe937`
+sha256 of `vertical.epub`: `18aadeea5e9ac0d666d5fddc2b5537cb4348ab481945b52bf72d5fd7472231f8`

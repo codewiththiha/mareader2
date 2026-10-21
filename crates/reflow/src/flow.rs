@@ -2233,7 +2233,8 @@ fn turned_features(
         if inside(combine, from) {
             parts.push("\"hwid\" 1".to_owned());
         } else if inside(upright, from) {
-            parts.push("\"vert\" 1".to_owned());
+            // Full widths give standing Latin letters an em each.
+            parts.push("\"vert\" 1, \"fwid\" 1".to_owned());
         }
         if !parts.is_empty() {
             let source = FontFeatures::Source(Cow::Owned(parts.join(", ")));
