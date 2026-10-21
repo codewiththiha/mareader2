@@ -64,6 +64,7 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | E7 | Fixed layout: pre-paginated pages at their viewport, spreads, absolute positions. |
 | E8 | MathML: fractions, scripts, roots, rows, operators, tables. |
 | E9 | Media and fallbacks: audio and video as their poster or a labelled box, `object` and `epub:switch` fallbacks, manifest fallback chains. |
+| E10 | Read-aloud: media overlays played in the reader, the phrase read lit, pages turning to follow. |
 
 ## SVG (E1)
 
@@ -393,7 +394,49 @@ picture that won't decode shows its first fallback that does. A spine
 item that isn't XHTML or a picture reads as its first fallback that is,
 and links to the item land on it.
 
-Media overlays, `track` captions, `epub:trigger` and scripted content
-aren't supported.
+Media overlays read aloud in the reader (E10, below). `track` captions,
+`epub:trigger` and scripted content aren't supported yet.
 
 sha256 of `media.epub`: `1c735eea7efc902ce4e1231a3cef6cfb5d4f0c20a8d585fa16578ee5c82c64d8`
+
+## Read-aloud (E10)
+
+A book whose chapters name a `media-overlay` can be read aloud. Right-click
+a page and choose **Read aloud from here**: reading starts at the phrase
+under the pointer, or at the page's first phrase. The sound plays inside
+the reader; clips in the text still open in the system's player.
+
+| Overlay | How it reads |
+| --- | --- |
+| `par` | One phrase: the text its `text` names, read by its `audio` clip |
+| `text src` | `file#id`, or `file#xpointer(id('id'))`; a phrase runs from where the element starts to where it ends. No fragment, or one the book lacks, reads the whole chapter |
+| `audio` | `clipBegin` and `clipEnd` in full, partial or timecount form; no `clipBegin` starts at 0, no `clipEnd` plays to the file's end |
+| `par` without `audio` | Skipped |
+| `seq` | Nesting is followed; its `epub:type` applies to the pars inside |
+| Skippable | Notes (`footnote`, `endnote`, `rearnote`, `note`, `noteref`) and page numbers (`pagebreak`) can each be left out |
+| Escapable | In a `table`, `list`, `figure`, `aside` or `sidebar` (and their rows, cells and items), a button leaves the whole structure |
+| `media:active-class` | The background the book's stylesheets give that class colours the phrase read; without one the theme's accent does |
+| `media:narrator`, `media:duration` | Read; the whole book's length is kept |
+
+The phrase read is lit on the page and pages turn to keep it in view.
+Reading goes on across chapters to the book's end. Text inside a table
+isn't lit, but the page still turns to it. The lit colour lies lightly
+over the page, more faintly on dark themes, so the text stays readable.
+
+The bar at the foot of the pane has the previous and next phrase, play
+and pause, the way out of a table, the speed (0.75× to 2.5×, at the
+narrator's pitch), and the options to skip notes or page numbers and to
+turn pages. Its choices are kept with the settings: by default page
+numbers are skipped and pages turn.
+
+The sound is decoded by the reader itself: MP3, AAC and M4A, FLAC, Ogg
+Vorbis and WAV, with no system codecs. Only a little of a file is decoded
+ahead of what is heard, so a long chapter doesn't fill memory. Phrases
+whose clips follow on in one file play as one, without gaps. Without a
+sound output, or with a file that won't decode, the bar says so.
+
+`media:playback-active-class`, which styles the whole document while it
+plays, isn't applied. Overlays with more than 100,000 phrases are cut
+there, and an overlay file is read up to 16 MB.
+
+sha256 of `narration.epub`: `480889f7ab1f0ca0d752d2e24e74f93112f8ae737bdac3f51470ea420006b645`
