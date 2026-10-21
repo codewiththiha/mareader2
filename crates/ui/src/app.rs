@@ -784,7 +784,7 @@ impl MareaderApp {
                 let base = BaseMode::ALL
                     .into_iter()
                     .find(|b| b.label().eq_ignore_ascii_case(value));
-                self.settings.appearance.base = base.ok_or("theme: light, dark or dim")?;
+                self.settings.appearance.base = base.ok_or("theme: light, dark, dim or black")?;
             }
             "preset" => {
                 let p = builtin_presets().into_iter().find(|p| p.id == value);

@@ -16,22 +16,25 @@ pub enum BaseMode {
     Dark,
     /// Page dimmed but not inverted: figures keep their real colours.
     Dim,
+    /// Pitch black paper: pages inverted fully, their paper crushed to black.
+    Black,
 }
 
 impl BaseMode {
-    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::Dim];
+    pub const ALL: [Self; 4] = [Self::Light, Self::Dark, Self::Dim, Self::Black];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
             Self::Dim => "Dim",
+            Self::Black => "Black",
         }
     }
 
     /// Dim reads the dark UI palette even though its page is not inverted.
     pub fn is_dark(self) -> bool {
-        matches!(self, Self::Dark | Self::Dim)
+        matches!(self, Self::Dark | Self::Dim | Self::Black)
     }
 }
 
@@ -213,6 +216,9 @@ mod tests {
         assert_eq!(a.base, BaseMode::Dim);
         assert_eq!(a.noise, NoiseMode::Animated);
         assert_eq!(a.texture_opacity, 90, "missing fields default");
+        let black: Appearance = serde_json::from_str(r#"{"base":"black"}"#).unwrap();
+        assert_eq!(black.base, BaseMode::Black);
+        assert!(black.base.is_dark());
     }
 
     #[test]

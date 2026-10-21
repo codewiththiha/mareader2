@@ -43,6 +43,16 @@ pub fn base_tokens(mode: BaseMode) -> UiTokens {
             accent: Rgb(0x7a, 0x9b, 0xd4),
             accent_soft: Rgb(0x23, 0x2b, 0x36),
         },
+        // Paper and chrome pitch black; ink a little soft to spare glare.
+        BaseMode::Black => UiTokens {
+            paper: Rgb(0x00, 0x00, 0x00),
+            ink: Rgb(0xd4, 0xd4, 0xd8),
+            muted: Rgb(0x8a, 0x8a, 0x93),
+            surface: Rgb(0x00, 0x00, 0x00),
+            line: Rgb(0x27, 0x27, 0x2a),
+            accent: Rgb(0x60, 0xa5, 0xfa),
+            accent_soft: Rgb(0x0c, 0x1e, 0x33),
+        },
     }
 }
 
@@ -115,10 +125,13 @@ impl Appearance {
             BaseMode::Light => ((0.98, 0.08), (0.15, 0.03)),
             BaseMode::Dark => ((0.24, 0.10), (0.92, 0.04)),
             BaseMode::Dim => ((0.22, 0.08), (0.12, 0.03)),
+            // Black paper holds no hue, so the tint colours the ink instead.
+            BaseMode::Black => ((0.0, 0.0), (0.86, 0.07)),
         };
         // Capped at what sRGB holds, so every step of strength still shows.
         let room = |l: f64| Oklch { l, c: 0.0, h }.max_chroma();
-        let cap = f64::min(paper_c, room(paper_l).max(room(paper_l - MAX_DARKEN)));
+        let darkest = (paper_l - MAX_DARKEN).max(0.0);
+        let cap = f64::min(paper_c, room(paper_l).max(room(darkest)));
         let paper = dimmed(Oklch {
             l: paper_l,
             c: cap * t,
@@ -143,11 +156,17 @@ impl Appearance {
         }
         let t = self.tint_amount();
         let h = ui_hue_oklch(f64::from(self.tint_hue));
+        // Black stays black: its paper and chrome take no tint.
+        let black = self.base == BaseMode::Black;
+        let ground = |token: Rgb, max_c| match black {
+            true => token,
+            false => tinted(token, h, t, max_c),
+        };
         readable(UiTokens {
-            paper: tinted(base.paper, h, t, 0.055),
+            paper: ground(base.paper, 0.055),
             ink: tinted(base.ink, h, t, 0.020),
             muted: tinted(base.muted, h, t, 0.045),
-            surface: tinted(base.surface, h, t, 0.070),
+            surface: ground(base.surface, 0.070),
             line: tinted(base.line, h, t, 0.090),
             accent: tinted(base.accent, h, t, 0.150),
             accent_soft: tinted(base.accent_soft, h, t, 0.110),
@@ -192,7 +211,7 @@ mod tests {
 
     #[test]
     fn small_ui_text_reads_on_every_ground_in_every_look() {
-        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
+        for base in BaseMode::ALL {
             for (hue, strength) in [(0, 0), (30, 35), (40, 100), (120, 60), (220, 100)] {
                 let a = Appearance {
                     base,
@@ -287,7 +306,8 @@ mod tests {
 
     #[test]
     fn every_step_of_strength_deepens_the_book_paper() {
-        for base in BaseMode::ALL {
+        // Black's paper stays black; its own test follows.
+        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
             for hue in [14, 34, 104, 160, 200, 240, 290] {
                 let chroma = |strength| {
                     let a = Appearance {
@@ -307,6 +327,26 @@ mod tests {
                 }
                 assert!(last > 0.03, "{base:?} hue {hue} tops out at {last:.4}");
             }
+        }
+    }
+
+    #[test]
+    fn black_stays_black_and_its_tint_goes_to_the_ink() {
+        let black = Rgb(0, 0, 0);
+        let mut last = -1.0;
+        for strength in [0, 10, 25, 50] {
+            let a = Appearance {
+                base: BaseMode::Black,
+                tint_hue: 34,
+                tint_strength: strength,
+                ..Appearance::default()
+            };
+            let (ui, book) = (a.ui_tokens(), a.text_palette());
+            assert_eq!((ui.paper, ui.surface, book.paper), (black, black, black));
+            let ink = book.ink.to_oklch();
+            assert!((ink.l - 0.86).abs() < 0.02, "{strength}: ink {ink:?}");
+            assert!(ink.c > last + 0.005 || strength == 0, "{strength}: {ink:?}");
+            last = ink.c;
         }
     }
 
