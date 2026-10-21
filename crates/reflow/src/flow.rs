@@ -16,7 +16,7 @@ use crate::block::clip;
 use crate::block::{
     Align, Backdrop, Block, Boxed, Case, Cell, Content, Dir, Edge, Emphasis, Features, Finish,
     Floated, Frame, GridRow, Inline, Justify, LastLine, Length, Link, Look, Orient, Rise, Role,
-    Script, Table, Text, VAlign,
+    Script, Sheet, Spot, Table, Text, VAlign,
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
@@ -507,6 +507,16 @@ pub(crate) struct Set {
     pub(crate) rotate: f32,
     /// Written vertically: laid on its side, its page drawn turned.
     pub(crate) turned: bool,
+    /// On a fixed page: that page, and the positioned box it is in.
+    pub(crate) sheet: Option<Arc<Sheet>>,
+    spot: Option<(usize, Spot)>,
+}
+
+/// A paginated fixed page: its viewport, and its layers bottom up.
+pub(crate) struct Fixed {
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+    pub(crate) layers: Vec<(Range<usize>, Range<usize>)>,
 }
 
 /// Each unit's top and bottom within its block.
@@ -553,6 +563,8 @@ pub struct Flow {
     /// Each page's box borders, drawn under its pieces.
     pub(crate) decos: Vec<Vec<Deco>>,
     pub(crate) bands: Vec<Band>,
+    /// Each page's fixed layout, if it is a fixed page.
+    pub(crate) fixed: Vec<Option<Fixed>>,
     pub(crate) book_layout: bool,
     /// Pages before its first, which decide each page's spread side.
     shift: usize,
@@ -622,25 +634,29 @@ impl Flow {
                 .filter(|(_, b)| !b.is_blank())
                 .collect();
             let mut out = Vec::with_capacity(items.len());
-            // Vertical chapters lay their lines down the page instead.
-            for group in items.chunk_by(|a, b| a.1.frame.turned == b.1.frame.turned) {
-                let turned = turnable && group.first().is_some_and(|(_, b)| b.frame.turned);
-                setter.turned = turned;
-                (setter.column, setter.height) = if turned {
-                    (height, width)
-                } else {
-                    (width, height)
+            // Vertical lines run down; fixed pages keep their viewport.
+            let part = |b: &Block| (b.frame.turned, sheet_key(&b.frame));
+            for group in items.chunk_by(|a, b| part(a.1) == part(b.1)) {
+                let first = group.first().map(|(_, b)| &b.frame);
+                let sheet = first.and_then(|f| f.sheet.as_deref());
+                let turned = turnable && sheet.is_none() && first.is_some_and(|f| f.turned);
+                (setter.turned, setter.fixed) = (turned, sheet.is_some());
+                (setter.column, setter.height) = match sheet {
+                    Some(s) => (s.width, s.height),
+                    None if turned => (height, width),
+                    None => (width, height),
                 };
                 out.extend(setter.set_all(group));
             }
             out
         };
-        let (pages, decos) = paginate_turns(&set, (cut, width), typo);
+        let (pages, decos, fixed) = paginate_parts(&set, (cut, width), typo);
         let mut flow = Self {
             blocks: set,
             pages,
             decos,
             bands: Vec::new(),
+            fixed,
             book_layout: typo.book_layout,
             shift: 0,
             width,
@@ -678,6 +694,7 @@ impl Flow {
         if flow.book_layout && (flow.pages.len() + replaced) % 2 == 1 {
             flow.pages.push(Vec::new());
             flow.decos.push(Vec::new());
+            flow.fixed.push(None);
         }
         flow.bands = (0..flow.pages.len()).map(|n| flow.band(n, &typo)).collect();
         flow.keep_pictures(self)
@@ -699,12 +716,12 @@ impl Flow {
             let mut fonts = relay.fonts.lock().unwrap_or_else(PoisonError::into_inner);
             let mut setter = Setter::new(&relay.typo, &relay.stacks, &mut fonts);
             // The column it was measured in, not the typography's own.
-            (setter.column, setter.height) = if set.turned {
-                (relay.height, self.width)
-            } else {
-                (self.width, relay.height)
+            (setter.column, setter.height) = match set.sheet.as_deref() {
+                Some(s) => (s.width, s.height),
+                None if set.turned => (relay.height, self.width),
+                None => (self.width, relay.height),
             };
-            setter.turned = set.turned;
+            (setter.turned, setter.fixed) = (set.turned, set.sheet.is_some());
             // Laid again as first set: beside its float, or as one.
             setter.float_box = set.float.map(|f| (f.x, f.width));
             setter.exclusion = set.beside;
@@ -717,6 +734,9 @@ impl Flow {
 
     /// Page `page`'s column: its left edge and width.
     pub fn column(&self, page: usize) -> (f32, f32) {
+        if self.fixed(page).is_some() {
+            return (0.0, self.size(page).0);
+        }
         let x = match (self.book_layout, (page + self.shift) % 2) {
             (false, _) => PAD,
             // Spreads pair pages from the first: even ones sit left.
@@ -734,8 +754,41 @@ impl Flow {
             .is_some_and(|s| s.turned)
     }
 
+    /// Whether page `page` is a fixed-layout page.
+    pub fn is_fixed(&self, page: usize) -> bool {
+        self.fixed(page).is_some()
+    }
+
+    /// Page `page`'s fixed layout, if it is a fixed page.
+    pub(crate) fn fixed(&self, page: usize) -> Option<&Fixed> {
+        self.fixed.get(page).and_then(Option::as_ref)
+    }
+
+    /// How much page `page` is scaled from the space it was laid in.
+    pub(crate) fn fit(&self, page: usize) -> f32 {
+        let Some(f) = self.fixed(page) else {
+            return 1.0;
+        };
+        let (width, height) = self.page_size();
+        (width / f.width.max(1.0)).min(height / f.height.max(1.0))
+    }
+
+    /// Page `page`'s size: a fixed page keeps its shape, fitted in.
+    pub fn size(&self, page: usize) -> (f32, f32) {
+        match self.fixed(page) {
+            Some(f) => {
+                let fit = self.fit(page);
+                (f.width * fit, f.height * fit)
+            }
+            None => self.page_size(),
+        }
+    }
+
     /// Where page `page`'s pieces start, in the space they were laid in.
     pub(crate) fn origin(&self, page: usize) -> (f32, f32) {
+        if self.fixed(page).is_some() {
+            return (0.0, 0.0);
+        }
         let (x, width) = self.column(page);
         match self.turned(page) {
             // On its side, the right margin is the top one.
@@ -745,7 +798,10 @@ impl Flow {
     }
 
     /// A box in page `page`'s laid space, as drawn on the page.
-    pub(crate) fn turn_rect(&self, page: usize, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+    pub(crate) fn shown_rect(&self, page: usize, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        if self.fixed(page).is_some() {
+            return [x, y, w, h].map(|v| v * self.fit(page));
+        }
         match self.turned(page) {
             true => [self.page_size().0 - y - h, x, h, w],
             false => [x, y, w, h],
@@ -758,6 +814,15 @@ impl Flow {
     }
 
     fn band(&self, page: usize, typo: &Typography) -> Band {
+        if self.fixed(page).is_some() {
+            let (width, height) = self.size(page);
+            return Band {
+                x: 0.0,
+                y: 0.0,
+                width,
+                height,
+            };
+        }
         if self.turned(page) {
             let (x, width) = self.column(page);
             let height = PAGE_HEIGHT;
@@ -814,6 +879,9 @@ impl Flow {
 
     /// How far down page `page`'s column its last line reaches.
     pub fn depth(&self, page: usize) -> f32 {
+        if let Some(f) = self.fixed(page) {
+            return f.height;
+        }
         if self.turned(page) {
             return self.relay.height;
         }
@@ -893,7 +961,7 @@ impl Flow {
             }
         }
         for link in &mut out {
-            link.rect = self.turn_rect(page, link.rect);
+            link.rect = self.shown_rect(page, link.rect);
         }
         out
     }
@@ -934,6 +1002,8 @@ struct Setter<'a> {
     places: HashMap<(usize, u16), CellPlace>,
     /// Setting vertical blocks: the column runs down the page.
     turned: bool,
+    /// Setting a fixed page: the book's own type in CSS px, as it is.
+    fixed: bool,
 }
 
 impl<'a> Setter<'a> {
@@ -950,6 +1020,7 @@ impl<'a> Setter<'a> {
             cell_place: None,
             places: HashMap::new(),
             turned: false,
+            fixed: false,
         }
     }
 
@@ -965,6 +1036,9 @@ impl<'a> Setter<'a> {
 
     /// Designed text's em: the column as a phone page, scaled as the reader's.
     fn design_em(&self) -> f32 {
+        if self.fixed {
+            return FIXED_EM;
+        }
         let em = READER.0;
         let phone = (self.column / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE);
         phone * self.typo.font_size / em
@@ -1229,12 +1303,15 @@ impl<'a> Setter<'a> {
     /// The block's look for its type: the book's unless Book design is Off.
     fn typed<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
         let look = frame.look.as_deref()?;
-        (self.typo.design != Design::Off).then_some(look)
+        (self.fixed || self.typo.design != Design::Off).then_some(look)
     }
 
     /// The block's look for its layout, if the Book design setting uses it.
     fn look<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
         let look = frame.look.as_deref()?;
+        if self.fixed {
+            return Some(look);
+        }
         match self.typo.design {
             Design::On => Some(look),
             Design::Auto if look.designed => Some(look),
@@ -1244,6 +1321,9 @@ impl<'a> Setter<'a> {
 
     /// Book type moved by the reader's settings; the caller adds faces.
     fn designed(&self, role: Role, frame: &Frame, look: &Look) -> Style<'a> {
+        if self.fixed {
+            return self.fixed_style(role, frame, look);
+        }
         let (typo, em) = (self.typo, self.em_of(frame));
         let pre = role == Role::Preformatted;
         let line = match (look.line_height, role) {
@@ -1271,6 +1351,32 @@ impl<'a> Setter<'a> {
             indent: look.indent * em + indent,
             letter: look.letter * em + typo.letter_spacing * size,
             word: look.word * em + typo.word_spacing,
+            sized: true,
+            last: look.last.filter(|_| !pre),
+            ..self.body(frame)
+        }
+    }
+
+    /// Book type on a fixed page: the reader's settings leave it be.
+    fn fixed_style(&self, role: Role, frame: &Frame, look: &Look) -> Style<'a> {
+        let pre = role == Role::Preformatted;
+        let size = (look.size * FIXED_EM).clamp(MIN_SIZE, MAX_SIZE);
+        Style {
+            faces: if pre {
+                &self.stacks.mono
+            } else {
+                &self.stacks.body
+            },
+            size,
+            line_height: look.line_height.unwrap_or(FIXED_LINE).max(MIN_LINE),
+            weight: look.weight.clamp(100.0, 900.0),
+            align: if pre { Align::Start } else { frame.align },
+            pre,
+            justify: look.justify && !pre && frame.align == Align::Start,
+            hyphens: None,
+            indent: look.indent * FIXED_EM,
+            letter: look.letter * FIXED_EM,
+            word: look.word * FIXED_EM,
             sized: true,
             last: look.last.filter(|_| !pre),
             ..self.body(frame)
@@ -1341,8 +1447,11 @@ impl<'a> Setter<'a> {
     }
 
     fn block(&mut self, source: usize, block: &Block) -> (Set, Laid) {
-        let (column, height) = (self.column, self.height);
         let frame = &block.frame;
+        let spot = frame.spot.as_deref().copied().filter(|_| self.fixed);
+        // A positioned box with a set height holds its pictures to it.
+        let height = spot.and_then(|s| s.height).unwrap_or(self.height);
+        let column = self.column;
         let designed = self.look(frame).is_some();
         let typed = self.typed(frame).is_some();
         let em = if designed {
@@ -1464,10 +1573,14 @@ impl<'a> Setter<'a> {
             units,
             starts,
             keep_with_next: block.is_heading() || (designed && frame.keep.with_next),
-            break_before: block.break_before,
+            // A fixed page is one page whatever its blocks ask.
+            break_before: block.break_before && !self.fixed,
             tight: frame.tight,
             // The book's margins, scaled as the reader's paragraph gap.
-            before: (self.typed(frame)).map(|_| frame.before * em * self.typo.block_gap / READER.2),
+            before: (self.typed(frame)).map(|_| match self.fixed {
+                true => frame.before * em,
+                false => frame.before * em * self.typo.block_gap / READER.2,
+            }),
             lines: matches!(block.content, Content::Text(_)),
             orphans: lines_kept(frame.keep.orphans, designed),
             widows: lines_kept(frame.keep.widows, designed),
@@ -1481,6 +1594,10 @@ impl<'a> Setter<'a> {
             place: self.place_of(frame).filter(|_| designed),
             rotate: if designed { frame.rotate } else { 0.0 },
             turned: self.turned,
+            sheet: frame.sheet.clone().filter(|_| self.fixed),
+            spot: spot
+                .zip(frame.spot.as_ref())
+                .map(|(s, a)| (Arc::as_ptr(a) as usize, s)),
         };
         (set, laid)
     }
@@ -1515,7 +1632,14 @@ impl<'a> Setter<'a> {
         let mut at = None;
         let depth = frame.cell.as_ref().map(|c| usize::from(c.depth));
         let mut bounds = None;
+        // A positioned box leaves the flow: the boxes outside it stay there.
+        let spot = frame.spot.as_deref().filter(|_| self.fixed);
+        let spot_depth = spot.map(|s| usize::from(s.depth));
         for (i, b) in frame.boxes.iter().enumerate() {
+            if let Some(s) = spot.filter(|_| spot_depth == Some(i)) {
+                (x, width) = (s.x, s.width.max(1.0));
+                placed.clear();
+            }
             if depth == Some(i) {
                 at = frame
                     .cell
@@ -1534,6 +1658,10 @@ impl<'a> Setter<'a> {
             x = p.x + (b.border[3] + b.padding[3]) * em;
             width = (p.width - inside).max(1.0);
             placed.push(p);
+        }
+        if let Some(s) = spot.filter(|_| spot_depth.is_some_and(|d| d >= frame.boxes.len())) {
+            (x, width) = (s.x, s.width.max(1.0));
+            placed.clear();
         }
         if at.is_none() && depth.is_some_and(|d| d >= frame.boxes.len()) {
             at = frame
@@ -2925,6 +3053,9 @@ const MEASURE_ROOM: f32 = 8.0;
 const MAX_FLEX_LINES: usize = 32;
 /// A designed page is laid as if this many book ems wide, as a phone's.
 const DESIGN_EMS: f32 = 26.0;
+/// A fixed page's body em in its CSS px, and CSS's normal line height.
+const FIXED_EM: f32 = 16.0;
+const FIXED_LINE: f32 = 1.2;
 /// The most designed type grows past the reader's size.
 const MAX_DESIGN_SCALE: f32 = 1.6;
 /// Space between a float and the text past it, in ems.
@@ -2948,28 +3079,133 @@ fn gap(block: &Set, typo: &Typography) -> f32 {
     ems * typo.font_size
 }
 
-/// Pages for runs of vertical and level blocks, each cut its own way.
-fn paginate_turns(
-    blocks: &[Set],
-    (cut, width): (f32, f32),
-    typo: &Typography,
-) -> (Vec<Vec<Piece>>, Vec<Vec<Deco>>) {
-    if !blocks.iter().any(|b| b.turned) {
-        return paginate(blocks, cut, typo);
+/// Pages and their borders, with each page's fixed layout if it has one.
+type Paged = (Vec<Vec<Piece>>, Vec<Vec<Deco>>, Vec<Option<Fixed>>);
+
+/// Pages for runs of vertical, level and fixed blocks, each cut its way.
+fn paginate_parts(blocks: &[Set], (cut, width): (f32, f32), typo: &Typography) -> Paged {
+    let none = |n: usize| (0..n).map(|_| None).collect::<Vec<_>>();
+    if !blocks.iter().any(|b| b.turned || b.sheet.is_some()) {
+        let (pages, decos) = paginate(blocks, cut, typo);
+        let fixed = none(pages.len());
+        return (pages, decos, fixed);
     }
-    let (mut pages, mut decos) = (Vec::new(), Vec::new());
+    let (mut pages, mut decos, mut fixed) = (Vec::new(), Vec::new(), Vec::new());
     let mut start = 0;
-    for group in blocks.chunk_by(|a, b| a.turned == b.turned) {
-        let turned = group.first().is_some_and(|b| b.turned);
+    let part = |b: &Set| (b.turned, b.sheet.as_ref().map(|s| Arc::as_ptr(s) as usize));
+    for group in blocks.chunk_by(|a, b| part(a) == part(b)) {
+        let first = group.first();
+        if let Some(sheet) = first.and_then(|b| b.sheet.as_deref()) {
+            let (mut own, more, layers) = paginate_sheet(group, sheet, typo);
+            for piece in &mut own {
+                piece.block += start;
+            }
+            pages.push(own);
+            decos.push(more);
+            fixed.push(Some(Fixed {
+                width: sheet.width,
+                height: sheet.height,
+                layers,
+            }));
+            start += group.len();
+            continue;
+        }
+        let turned = first.is_some_and(|b| b.turned);
         let (mut own, more) = paginate(group, if turned { width } else { cut }, typo);
         for piece in own.iter_mut().flatten() {
             piece.block += start;
         }
+        fixed.extend(none(own.len()));
         pages.extend(own);
         decos.extend(more);
         start += group.len();
     }
-    (pages, decos)
+    (pages, decos, fixed)
+}
+
+/// Layers bottom up, each some borders then some pieces, as drawn.
+type Layers = Vec<(Range<usize>, Range<usize>)>;
+
+/// A fixed page: the flow, then positioned boxes in `z-index` order.
+fn paginate_sheet(
+    blocks: &[Set],
+    sheet: &Sheet,
+    typo: &Typography,
+) -> (Vec<Piece>, Vec<Deco>, Layers) {
+    // A run of blocks in one box: its paint order, pieces and borders.
+    type Run = ((i32, bool, usize), Vec<Piece>, Vec<Deco>);
+    let mut runs: Vec<Run> = Vec::new();
+    let (mut flow_y, mut start) = (0.0, 0);
+    // Where each positioned box goes on, past a box inside it.
+    let mut tops: HashMap<usize, f32> = HashMap::new();
+    for (order, group) in blocks.chunk_by(|a, b| spot_of(a) == spot_of(b)).enumerate() {
+        let (pages, decos) = paginate(group, f32::INFINITY, typo);
+        let mut pieces: Vec<Piece> = pages.into_iter().flatten().collect();
+        let mut decos: Vec<Deco> = decos.into_iter().flatten().collect();
+        let bottom = |p: &Piece| {
+            let set = group.get(p.block)?;
+            Some(p.dy + set.units.get(p.units.end.checked_sub(1)?)?.1)
+        };
+        let lines = pieces.iter().filter_map(bottom).fold(0.0, f32::max);
+        let boxes = decos.iter().map(|d| d.rect[1] + d.rect[3]);
+        let height = boxes.fold(lines, f32::max);
+        let spot = group.first().and_then(|b| b.spot);
+        let (top, key) = match spot {
+            // Goes on below its lines: a box's least height would skip.
+            None => {
+                let top = flow_y;
+                flow_y += lines;
+                (top, (0, false, order))
+            }
+            Some((id, s)) => {
+                let top = match (tops.get(&id), s.bottom) {
+                    (Some(y), _) => *y,
+                    (None, Some(line)) => line - height,
+                    (None, None) => s.y,
+                };
+                tops.insert(id, top + height);
+                (top, (s.z, true, order))
+            }
+        };
+        for p in &mut pieces {
+            p.block += start;
+            p.dy += top;
+        }
+        for d in &mut decos {
+            d.rect[1] += top;
+        }
+        runs.push((key, pieces, decos));
+        start += group.len();
+    }
+    runs.sort_by_key(|r| r.0);
+    let (mut pieces, mut decos, mut layers) = (Vec::new(), Vec::new(), Vec::new());
+    if let Some(ground) = &sheet.ground {
+        let open = OpenBox {
+            placed: place(ground, (0.0, sheet.width), FIXED_EM),
+            top: 0.0,
+            continued: false,
+            centre: None,
+        };
+        decos.extend(open.deco(sheet.height, true));
+        layers.push((0..decos.len(), 0..0));
+    }
+    for (_, own, more) in runs {
+        let (d, p) = (decos.len(), pieces.len());
+        decos.extend(more);
+        pieces.extend(own);
+        layers.push((d..decos.len(), p..pieces.len()));
+    }
+    (pieces, decos, layers)
+}
+
+/// The positioned box a fixed page's block is in, by address.
+fn spot_of(set: &Set) -> Option<usize> {
+    set.spot.map(|(id, _)| id)
+}
+
+/// The fixed page a block is on, by address.
+fn sheet_key(frame: &Frame) -> Option<usize> {
+    frame.sheet.as_ref().map(|s| Arc::as_ptr(s) as usize)
 }
 
 /// Fills pages unit by unit; headings never end one, no lone lines.
@@ -4945,7 +5181,7 @@ mod tests {
         assert!(f.turned(0));
         let (width, _) = f.page_size();
         // A line along the top of the laid page is the rightmost column.
-        let [x, y, w, h] = f.turn_rect(0, [100.0, 0.0, 300.0, 20.0]);
+        let [x, y, w, h] = f.shown_rect(0, [100.0, 0.0, 300.0, 20.0]);
         assert_eq!([x, y, w, h], [width - 20.0, 100.0, 20.0, 300.0]);
     }
 }

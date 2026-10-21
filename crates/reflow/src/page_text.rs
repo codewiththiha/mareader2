@@ -36,7 +36,7 @@ impl Flow {
         });
         if self.turned(page) {
             for c in out.iter_mut().flat_map(|l| l.chars.iter_mut()) {
-                c.rect = self.turn_rect(page, c.rect);
+                c.rect = self.shown_rect(page, c.rect);
             }
         }
         out
@@ -48,7 +48,7 @@ impl Flow {
         self.each_para(page, |para, range, ((x, y), _)| {
             colour_runs(para, range, (x, y), &mut out);
         });
-        out.into_iter().map(|r| self.turn_rect(page, r)).collect()
+        out.into_iter().map(|r| self.shown_rect(page, r)).collect()
     }
 
     /// Each paragraph's lines on page `page`, with where they are drawn.
@@ -138,7 +138,7 @@ impl Flow {
             }
         });
         for (rect, _) in &mut out {
-            *rect = self.turn_rect(page, *rect);
+            *rect = self.shown_rect(page, *rect);
         }
         out
     }
