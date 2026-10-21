@@ -364,7 +364,7 @@ cards, and clicking one hands the clip to the system's player.
 | --- | --- |
 | `video` | Its `poster` under a play mark, else a drawn player frame; a caption names it by `title`, `aria-label` or file |
 | `audio` | A drawn player strip and its caption |
-| `source` | The first one a `video` or `audio` holds is the clip it plays |
+| `source` | The first one that plays is the clip; else the first is named |
 | `object`, `embed` | A picture shows as one; sound or video as a card; anything else shows the `object`'s own content |
 | `iframe` | A link to the page it embeds |
 | `epub:switch` | The first `epub:case` whose `required-namespace` the reader draws (MathML, SVG, XHTML), else `epub:default` |
@@ -376,7 +376,9 @@ cards, and clicking one hands the clip to the system's player.
 
 Drawn cards are line art, so they take the theme's ink. Text inside
 `video` and `audio` is for readers that can't play them, so it stays
-hidden. A clip at an `https` address opens in the browser. A picture
+hidden. A clip at an `https` address opens in the browser. A card whose
+clip the book lacks says so, and one whose type no player opens says it
+can't play here; neither is a link. A picture
 small enough to sit in a line of text isn't a link or a map itself; only
 the linked text around it is.
 

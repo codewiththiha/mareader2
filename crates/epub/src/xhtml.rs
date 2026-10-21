@@ -25,7 +25,7 @@ use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
 use crate::math;
-use crate::media;
+use crate::media::{self, Clip};
 use crate::query;
 use crate::svg::{self, Capture};
 
@@ -1544,6 +1544,22 @@ impl State<'_> {
         Some(index)
     }
 
+    /// Whether the clip at `src` plays, by the type the book gives it.
+    fn clip(&mut self, src: &str) -> Clip {
+        let src = src.trim();
+        if src.starts_with("https://") || src.starts_with("http://") {
+            return Clip::Plays;
+        }
+        let Some(path) = href::resolve(self.base, src) else {
+            return Clip::Gone;
+        };
+        match self.library.media_type(&path) {
+            Some(t) if media::extension(&t).is_some() => Clip::Plays,
+            Some(_) => Clip::Held,
+            None => Clip::Gone,
+        }
+    }
+
     /// A link that plays `src`: in the book, or at a web address.
     fn media_link(&mut self, src: &str, video: bool) -> Option<u32> {
         let src = src.trim();
@@ -2310,10 +2326,16 @@ impl State<'_> {
 
     /// A `<source>`: the clip a card plays, or a picture's pick.
     fn source(&mut self, tag: &Tag) {
-        if let Some(m) = self.media.as_mut() {
+        if let Some(m) = self.media.as_ref() {
             let src = attr(tag, "src").map(str::trim).filter(|s| !s.is_empty());
-            if m.src.is_none() {
-                m.src = src.map(str::to_owned);
+            let Some(src) = src else { return };
+            // The first that plays, else the first named, for its caption.
+            let better = match m.src.clone() {
+                Some(old) => self.clip(&old) != Clip::Plays && self.clip(src) == Clip::Plays,
+                None => true,
+            };
+            if better && let Some(m) = self.media.as_mut() {
+                m.src = Some(src.to_owned());
             }
             return;
         }
@@ -2364,13 +2386,20 @@ impl State<'_> {
         if self.top().hidden {
             return;
         }
-        let target = m.src.as_deref().and_then(|s| self.media_link(s, m.video));
+        let clip = m.src.as_deref().map_or(Clip::Gone, |s| self.clip(s));
+        let target = (m.src.as_deref())
+            .filter(|_| clip == Clip::Plays)
+            .and_then(|s| self.media_link(s, m.video));
         let name = media::label(m.title.as_deref(), m.src.as_deref().unwrap_or_default());
         let what = if m.video { "video" } else { "audio" };
-        let text = match (target.is_some(), name.is_empty()) {
-            (true, false) => format!("Play the {what}: {name}"),
-            (true, true) => format!("Play the {what}"),
-            (false, _) => format!("The {what} isn't in this book"),
+        let named = |s: String| match name.is_empty() {
+            true => s,
+            false => format!("{s}: {name}"),
+        };
+        let text = match clip {
+            _ if target.is_some() => named(format!("Play the {what}")),
+            Clip::Held => named(format!("The {what} can't play here")),
+            _ => format!("The {what} isn't in this book"),
         };
         if self.table.is_some() {
             return self.caption(&text, target);
@@ -4190,8 +4219,17 @@ mod tests {
             self.files.get(path).cloned()
         }
 
-        fn media_type(&mut self, _path: &str) -> Option<String> {
-            None
+        /// Clips are typed by name; everything else as unlisted.
+        fn media_type(&mut self, path: &str) -> Option<String> {
+            let t = match path.rsplit('.').next()? {
+                "mp4" => "video/mp4",
+                "webm" => "video/webm",
+                "mp3" => "audio/mpeg",
+                "ogg" => "audio/ogg",
+                "bin" => "application/octet-stream",
+                _ => return None,
+            };
+            Some(t.to_owned())
         }
     }
 
@@ -5660,6 +5698,23 @@ mod tests {
             card.first().is_some_and(|p| p.vector() && p.ink()),
             "{card:?}"
         );
+    }
+
+    #[test]
+    fn cards_play_the_first_clip_that_plays_or_say_why_not() {
+        let (b, refs) = read_all(
+            &mut Shelf::default(),
+            "<video><source src='../media/tool.bin'/><source src='../media/b.mp4'/></video>\
+             <video src='../media/tool.bin' title='Tool'/><audio src='../media/gone.wav'/>",
+        );
+        let words = [
+            "Play the video: b.mp4",
+            "The video can't play here: Tool",
+            "The audio isn't in this book",
+        ];
+        assert_eq!(texts(&b), words);
+        let played = |h: &Href| matches!(h, Href::Media { .. });
+        assert_eq!(refs.hrefs.iter().filter(|h| played(h)).count(), 1);
     }
 
     #[test]

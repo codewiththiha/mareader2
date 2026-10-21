@@ -61,7 +61,8 @@ fn clips_play_from_the_book_by_their_declared_type() {
 fn files_that_dont_play_are_never_handed_out() {
     let book = open(MEDIA);
     let tool = ("/OEBPS/tool.bin".to_owned(), true);
-    assert!(media_paths(&book).contains(&tool));
+    assert!(!media_paths(&book).contains(&tool));
+    assert!(page_of(&book, "The video can't play here: Tool").is_some());
     assert!(
         book.media(&tool.0).is_none(),
         "an octet stream isn't a clip"
