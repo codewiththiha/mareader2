@@ -28,6 +28,8 @@ pub enum LinkTarget {
     Transcript { card: usize, track: Option<usize> },
     /// A book's trigger: shows, hides or plays something; `what` says which.
     Trigger { link: usize, what: String },
+    /// An element a book's scripts answer clicks on, in a scripted chapter.
+    Script { chapter: usize, node: u32 },
 }
 
 /// A clickable area on a page, in page points.

@@ -15,6 +15,7 @@ use crate::css::{FontFace, MAX_SHEET, Stylesheet};
 use crate::fontfile;
 use crate::media::{self, Media};
 use crate::overlay::{self, Narration};
+use crate::script::{self, Scripted};
 use crate::splice::{At, Insert, Inserts, Spliced, next_layout};
 use crate::subtitles::{self, Subtitle, Track, Wanted};
 use crate::trigger::{self, Action, Triggered};
@@ -70,6 +71,11 @@ pub enum Destination {
     },
     /// What a click sets off, for [`Book::trigger`].
     Trigger(usize),
+    /// Element `node` of scripted chapter `chapter`, for its scripts.
+    Script {
+        chapter: usize,
+        node: u32,
+    },
 }
 
 /// A link's box on one line of a page, in page units.
@@ -204,6 +210,11 @@ impl std::fmt::Debug for Files {
 }
 
 impl Files {
+    /// Whether both come from one opening of a book, whatever its typesetting.
+    pub fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.archive, &other.archive)
+    }
+
     /// The sound or video at `path`, if the manifest names its type.
     pub fn media(&self, path: &str) -> Option<Media> {
         let read = || {
@@ -427,7 +438,8 @@ impl Book {
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
         let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
         let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
-        let shows = !refs.targets.is_empty();
+        let scripted = refs.chapters.iter().any(|l| !l.scripts.code.is_empty());
+        let shows = !refs.targets.is_empty() || scripted;
         let archive = (plays || shows).then(|| Arc::clone(&bytes));
         let read = shows.then(|| Arc::new(shelf.kept()));
         Ok(Self {
@@ -542,12 +554,68 @@ impl Book {
 
     /// The blocks to lay so each target in `shown` shows as it says.
     pub fn triggered(&self, shown: &BTreeMap<usize, bool>) -> Vec<Insert> {
-        let reread = || self.reread(shown);
+        self.relaid(shown, &BTreeMap::new())
+    }
+
+    /// Triggered blocks, with scripted chapters laid from `pages` instead.
+    pub fn relaid(
+        &self,
+        shown: &BTreeMap<usize, bool>,
+        pages: &BTreeMap<usize, String>,
+    ) -> Vec<Insert> {
+        let reread = || self.reread(shown, pages);
         catch_unwind(AssertUnwindSafe(reread)).unwrap_or_default()
     }
 
-    /// Reads each chapter with a target in `shown` again, as it says.
-    fn reread(&self, shown: &BTreeMap<usize, bool>) -> Vec<Insert> {
+    /// Its scripted chapters, with the code and sheets their scripts need.
+    pub fn scripts(&self) -> Vec<Scripted> {
+        let gather = || {
+            let archive = self.archive.as_ref()?;
+            let epub = guard::open(archive).ok()?;
+            let mut budget = script::MAX_CODE;
+            let mut read = |path: &str| {
+                let bytes = epub.read_resource_bytes(path).ok()?;
+                budget = budget.checked_sub(bytes.len())?;
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            };
+            let mut out = Vec::new();
+            for laid in self.refs.chapters.iter() {
+                let found = &laid.scripts;
+                if found.code.is_empty() {
+                    continue;
+                }
+                let entry = epub.manifest().by_href(&laid.path);
+                let Some(xhtml) = entry.and_then(|e| chapter_text(&e)) else {
+                    continue;
+                };
+                let code = found.code.iter().filter_map(|c| match c {
+                    script::Code::Inline(text) => Some(text.clone()),
+                    script::Code::File(path) => read(path),
+                });
+                let code = code.collect();
+                let styles = found.styles.iter().filter_map(|p| read(p)).collect();
+                out.push(Scripted {
+                    chapter: laid.at,
+                    path: laid.path.clone(),
+                    xhtml,
+                    code,
+                    styles,
+                });
+            }
+            Some(out)
+        };
+        catch_unwind(AssertUnwindSafe(gather))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    /// Reads chapters with a target in `shown`, or a page in `pages`, again.
+    fn reread(
+        &self,
+        shown: &BTreeMap<usize, bool>,
+        pages: &BTreeMap<usize, String>,
+    ) -> Vec<Insert> {
         let (Some(read), Some(archive)) = (&self.read, &self.archive) else {
             return Vec::new();
         };
@@ -563,6 +631,9 @@ impl Book {
             let overrides = chapters.entry(t.chapter).or_default();
             overrides.insert(id.to_owned(), visible);
         }
+        for &chapter in pages.keys() {
+            chapters.entry(chapter).or_default();
+        }
         let mut shelf = Shelf::again(&epub, read);
         let mut out = Vec::new();
         for (chapter, overrides) in chapters {
@@ -570,10 +641,12 @@ impl Book {
                 continue;
             };
             let entry = epub.manifest().by_href(&laid.path);
-            let (Some(content), Some(base)) = (
-                entry.and_then(|e| chapter_text(&e)),
-                self.blocks.get(laid.blocks.clone()),
-            ) else {
+            let content = match pages.get(&chapter) {
+                Some(page) => Some(page.clone()),
+                None => entry.and_then(|e| chapter_text(&e)),
+            };
+            let (Some(content), Some(base)) = (content, self.blocks.get(laid.blocks.clone()))
+            else {
                 continue;
             };
             let (mut blocks, mut fresh) = (Vec::new(), Refs::default());
@@ -680,6 +753,9 @@ impl Book {
     /// Page `page`'s links that lead somewhere: a box per line.
     pub fn links(&self, page: usize) -> Vec<Link> {
         let lead = |target: u32| {
+            if let Some((chapter, node)) = script::unlink(target) {
+                return Some(Destination::Script { chapter, node });
+            }
             let href = self.refs.hrefs.get(usize::try_from(target).ok()?)?;
             Some(match href {
                 Href::Inside(key) => {

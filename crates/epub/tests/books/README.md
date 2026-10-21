@@ -24,6 +24,7 @@ sha256 of the file: `8b39cb96cd0a413abb05677a6064bcabc5d07a499f74662e424ae0c0f7a
 | `narration.epub` | *Read to Me*, written for these tests (4 KB); its sound is a generated tone | Media overlays: sentences timed by id and by `xpointer`, clock values in every form, a table read as one, a page number and a note marked skippable, a chapter narrated whole, and the active-class colour |
 | `subtitles.epub` | *Words Under the Waves*, written for these tests (4 KB); its clips are stand-in bytes | Subtitle tracks: a video with English WebVTT (default), French SubRip and Burmese captions, a chapters track and a missing file to skip, a song with TTML lyrics, a clip in a table cell, and a clip missing from the book whose words remain |
 | `triggers.epub` | *Press to Find Out*, written for these tests (4 KB); its clips are stand-in bytes | `epub:trigger`: a hidden answer shown and hidden, a hint hidden in its line, a tip hidden with `display: none` inside a line, a bordered box hidden, a hidden sound played and muted, a video played, a picture that plays, a hover trigger to ignore, a hidden ending at a chapter's end, a hidden table row, a rule hidden, a `visibility: hidden` picture and an empty hidden `img` shown, a small picture in a line as observer, and a fixed page with a hidden note |
+| `scripts.epub` | *Quick Quiz*, written for these tests (4 KB) | Scripted chapters: a quiz with an external script and style sheet, a list that answers its items' clicks, an answer shown and hidden, a checkbox through its label, a text field read by a button and a `noscript` note; then a counter written inline with a timer and an alert, and a plain chapter |
 
 sha256 of the book: `27f25284b9b9bec5fa1f4fd282efd1d98cd013df833bb524bb53e353930e7c00`
 
@@ -42,6 +43,8 @@ sha256 of `narration.epub`: `480889f7ab1f0ca0d752d2e24e74f93112f8ae737bdac3f5147
 sha256 of `subtitles.epub`: `db6ee795ebaea483877a8d3ccdcb0e1b50a5a686caeb892a2bf8ee30b708142d`
 
 sha256 of `triggers.epub`: `2aa2ea9eaa31efb7a821dd4acaa4182cdbbbe7d073d43a4552d32b6f2dd49cda`
+
+sha256 of `scripts.epub`: `3bdb9d8c054c336d1697221cfdc0f3d66347aca9bbcd96eb97d3c440f0c82ddf`
 
 ## Text files
 

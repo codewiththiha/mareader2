@@ -52,6 +52,7 @@ pub mod read_aloud;
 pub mod resize;
 pub mod reveal;
 pub mod route;
+pub mod scripts;
 pub mod search;
 pub mod selection;
 pub mod settings_window;

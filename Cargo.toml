@@ -26,6 +26,7 @@ mareader-fetch = { path = "crates/fetch" }
 mareader-search = { path = "crates/search" }
 mareader-cefr = { path = "crates/cefr" }
 mareader-audio = { path = "crates/audio" }
+mareader-script = { path = "crates/script" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -53,6 +54,8 @@ resvg = { version = "0.45", default-features = false, features = ["text", "raste
 vello_cpu = { version = "0.3", default-features = false, features = ["std", "text", "u8_pipeline"] }
 rbook = { version = "0.7.12", default-features = false, features = ["threadsafe", "write"] }
 html5ever = "0.40"
+# Book scripts: a pure-Rust engine, sandboxed, without Intl data.
+boa_engine = { version = "0.22", default-features = false }
 zip = { version = "9", default-features = false }
 # The XML reader rbook uses, to measure what it would nest first.
 quick-xml = { version = "0.42", default-features = false }

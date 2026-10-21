@@ -26,6 +26,8 @@ pub struct Triggers {
     made: Option<(u64, Vec<Arc<Insert>>)>,
     /// Clips clicked since the window last looked.
     pub clips: Vec<ClipAction>,
+    /// What the book's scripts made of its scripted chapters.
+    pub script: crate::scripts::Paged,
 }
 
 impl Triggers {
@@ -56,15 +58,16 @@ impl Triggers {
 
     /// The blocks `book` lays for what is shown, and a key; none if untouched.
     pub fn inserts(&mut self, book: &Book) -> Option<(u64, Vec<Arc<Insert>>)> {
-        if self.shown.is_empty() {
+        let pages = &self.script.pages;
+        if self.shown.is_empty() && pages.is_empty() {
             return None;
         }
-        let key = hash(("triggers", &self.shown)).max(1);
+        let key = hash(("triggers", &self.shown, self.script.version)).max(1);
         if let Some(made) = self.made.as_ref().filter(|m| m.0 == key) {
             return Some(made.clone());
         }
         let list: Vec<_> = book
-            .triggered(&self.shown)
+            .relaid(&self.shown, pages)
             .into_iter()
             .map(Arc::new)
             .collect();

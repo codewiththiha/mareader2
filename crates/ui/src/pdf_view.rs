@@ -1222,7 +1222,20 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             view.triggers.click(doc.trigger(link));
             ctx.request_repaint();
         }
+        Some(LinkTarget::Script { chapter, node }) => {
+            let target = LinkTarget::Script { chapter, node };
+            let mark = mark_of(&view.sheets, texts, view.doc, &target, clicked);
+            view.triggers.script.click(chapter, node, mark);
+            ctx.request_repaint();
+        }
         _ => {}
+    }
+    if cx.active {
+        let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);
+        let paged = &mut view.triggers.script;
+        crate::scripts::edit(&ctx, paged, &view.sheets, room, &cx.tokens);
+    } else {
+        view.triggers.script.editing = None;
     }
     if cx.active {
         let room = Rect::from_min_max(frame.min + vec2(0.0, cx.top_inset), frame.max);

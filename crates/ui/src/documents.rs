@@ -308,6 +308,59 @@ impl Documents {
         view.triggers.inserts(book)
     }
 
+    /// Each pane showing a book: its document and its scripted pages.
+    pub fn scripted(&mut self) -> Vec<(PaneId, Arc<Document>, &mut crate::scripts::Paged)> {
+        let Some(session) = self.session.as_ref() else {
+            return Vec::new();
+        };
+        let views = self.panes.iter_mut().filter_map(|(pane, content)| {
+            let Content::Pdf(view) = content else {
+                return None;
+            };
+            let entry = session.get(view.doc)?;
+            let book = matches!(&*entry.doc, Document::Epub { .. });
+            let doc = Arc::clone(&entry.doc);
+            book.then_some((*pane, doc, &mut view.triggers.script))
+        });
+        views.collect()
+    }
+
+    /// Whether `pane`'s scripts have made their pages and taken every click.
+    pub fn scripts_idle(&self, pane: PaneId) -> bool {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return false;
+        };
+        let paged = &view.triggers.script;
+        !paged.pages.is_empty() && paged.asks.is_empty()
+    }
+
+    /// What `pane`'s scripts have made, for a screenshot to report.
+    pub fn scripts_state(&self, pane: PaneId) -> String {
+        let Some(Content::Pdf(view)) = self.panes.get(&pane) else {
+            return "no book in the pane".into();
+        };
+        let p = &view.triggers.script;
+        let (pages, asks, changes) = (p.pages.len(), p.asks.len(), p.changes);
+        format!(
+            "{changes} changes, {pages} pages, {asks} asks; {:?}",
+            p.errors
+        )
+    }
+
+    /// Has `pane`'s scripts click what `selector` matches; false if not yet.
+    pub fn pick_script(&mut self, pane: PaneId, selector: &str) -> bool {
+        let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
+            return false;
+        };
+        let paged = &mut view.triggers.script;
+        let Some(&chapter) = paged.pages.keys().next() else {
+            return false;
+        };
+        let ask = crate::scripts::Ask::Pick(selector.to_owned());
+        paged.asks.push((chapter, ask));
+        true
+    }
+
     /// Shows or hides trigger target `target` in `pane`; false if no pane.
     pub fn set_trigger(&mut self, pane: PaneId, target: usize, visible: bool) -> bool {
         let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
