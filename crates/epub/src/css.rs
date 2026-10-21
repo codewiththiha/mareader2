@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 
 use mareader_reflow::{Align, Case, Justify, Rise, Script, VAlign};
 
+use crate::generated::{self, Content, ListStyle};
 use crate::href;
 
 /// A stylesheet's text past this is ignored.
@@ -211,7 +212,21 @@ pub(crate) struct Decl {
     pub(crate) rotate: Option<f32>,
     /// `vertical-align` as a line picture reads it.
     pub(crate) lift: Option<Lift>,
+    /// What `::before` and `::after` show.
+    pub(crate) content: Option<Content>,
+    pub(crate) counter_reset: Option<Counters>,
+    pub(crate) counter_increment: Option<Counters>,
+    pub(crate) counter_set: Option<Counters>,
+    /// Quote marks by depth; empty for none.
+    pub(crate) quotes: Option<Quotes>,
+    pub(crate) list_style: Option<ListStyle>,
+    pub(crate) list_image: Option<Option<Arc<str>>>,
 }
+
+/// Counters a declaration names, with their values.
+pub(crate) type Counters = Arc<[(String, i32)]>;
+/// Open and close marks, outermost first.
+pub(crate) type Quotes = Arc<[(String, String)]>;
 
 /// `vertical-align` as written: a keyword's place, or a length.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -299,9 +314,26 @@ impl Decl {
             "text-indent" => self.indent = len(v).or(self.indent),
             "font-family" => self.family = Some(families(value)),
             "font" => self.font(value),
-            "list-style" | "list-style-type" => {
-                self.unmarked = Some(v.split_ascii_whitespace().any(|w| w == "none"));
+            "list-style" => self.list_style_shorthand(value),
+            "list-style-type" => {
+                if let Some(style) = generated::list_style(value) {
+                    self.unmarked = Some(style == ListStyle::None);
+                    self.list_style = Some(style);
+                }
             }
+            "list-style-image" => self.list_image = Some(generated::url(value).map(Arc::from)),
+            "content" => self.content = generated::content(value).or(self.content.take()),
+            "counter-reset" => {
+                self.counter_reset = generated::counters(value, 0).or(self.counter_reset.take());
+            }
+            "counter-increment" => {
+                self.counter_increment =
+                    generated::counters(value, 1).or(self.counter_increment.take());
+            }
+            "counter-set" => {
+                self.counter_set = generated::counters(value, 0).or(self.counter_set.take());
+            }
+            "quotes" => self.quotes = generated::quotes(value).or(self.quotes.take()),
             "margin" => sides(&mut self.margin, v, len),
             "padding" => sides(&mut self.padding, v, len),
             "border-width" => sides(&mut self.border_width, v, border_width),
@@ -487,11 +519,32 @@ impl Decl {
         self.basis = basis.or(self.basis);
     }
 
-    /// Resolves its background picture against `path`, where it was read.
+    /// Resolves its pictures against `path`, where it was read.
     pub(crate) fn resolve(&mut self, path: &str) {
         if let Some(Some(raw)) = &self.picture {
             self.picture = Some(href::resolve(path, raw).map(Arc::from));
         }
+        if let Some(content) = &mut self.content {
+            content.resolve(path);
+        }
+        if let Some(Some(raw)) = &self.list_image {
+            self.list_image = Some(generated::resolve(path, raw).map(Arc::from));
+        }
+    }
+
+    /// `list-style: square inside url(dot.png)`; a lone `none` drops both.
+    fn list_style_shorthand(&mut self, value: &str) {
+        let image = generated::url(value);
+        let words = value.split_ascii_whitespace();
+        let mut styles = words
+            .filter(|w| !w.to_ascii_lowercase().contains("url("))
+            .filter_map(generated::list_style);
+        let style = styles.find(|s| *s != ListStyle::None || image.is_none());
+        self.unmarked = Some(style == Some(ListStyle::None));
+        if let Some(style) = style {
+            self.list_style = Some(style);
+        }
+        self.list_image = Some(image.map(Arc::from));
     }
 
     /// The `border` shorthand on the sides in `which`; unsaid parts reset.
@@ -548,7 +601,8 @@ impl Decl {
             break_before, break_after, valign, script, small_caps, transform, decoration,
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
-            basis, radius, rotate, lift;
+            basis, radius, rotate, lift, content, counter_reset, counter_increment,
+            counter_set, quotes, list_style, list_image;
             margin, padding, border_width, border_style, border_colour);
     }
 
@@ -1171,6 +1225,33 @@ enum Pseudo {
     Never,
 }
 
+/// A box CSS generates for an element, as `::before`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PseudoEl {
+    Before,
+    After,
+    FirstLetter,
+    FirstLine,
+    Marker,
+}
+
+impl PseudoEl {
+    fn named(name: &str, legacy: bool) -> Option<Self> {
+        match name {
+            "before" => Some(Self::Before),
+            "after" => Some(Self::After),
+            "first-letter" => Some(Self::FirstLetter),
+            "first-line" => Some(Self::FirstLine),
+            "marker" if !legacy => Some(Self::Marker),
+            _ => None,
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
 /// One compound selector: a tag, id, classes, attributes, pseudo-classes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Compound {
@@ -1179,6 +1260,8 @@ struct Compound {
     classes: Vec<String>,
     attrs: Vec<AttrTest>,
     pseudo: Vec<Pseudo>,
+    /// Only on the subject; the rule styles that box.
+    element: Option<PseudoEl>,
 }
 
 impl Compound {
@@ -1193,6 +1276,7 @@ impl Compound {
         (u32::from(self.id.is_some()) << 16)
             + (qualifiers << 8)
             + u32::from(self.tag.is_some())
+            + u32::from(self.element.is_some())
             + not
     }
 
@@ -1262,6 +1346,11 @@ struct Selector {
 impl Selector {
     fn specificity(&self) -> u32 {
         self.parts.iter().map(|(c, _)| c.specificity()).sum()
+    }
+
+    /// The generated box it styles, if any.
+    fn element(&self) -> Option<PseudoEl> {
+        self.parts.first().and_then(|(c, _)| c.element)
     }
 }
 
@@ -1360,7 +1449,7 @@ impl Selector {
     }
 }
 
-/// Parses one selector; pseudo-elements and junk give `None`.
+/// Parses one selector; junk gives `None`.
 fn parse_selector(s: &str) -> Option<Selector> {
     let s = s.trim();
     if s.is_empty() || s.contains('\\') {
@@ -1391,6 +1480,11 @@ fn parse_selector(s: &str) -> Option<Selector> {
         if parts.len() >= MAX_PARTS {
             return None;
         }
+    }
+    // Only the subject may name a generated box.
+    let inner = parts.len().saturating_sub(1);
+    if parts.iter().take(inner).any(|(c, _)| c.element.is_some()) {
+        return None;
     }
     // Subject first: each part keeps how it joins the one to its left.
     parts.reverse();
@@ -1436,10 +1530,20 @@ fn parse_compound(s: &str) -> Option<(Compound, &str)> {
             c.attrs.push(attr_test(after.get(..close)?)?);
             rest = after.get(close + 1..)?;
         } else if let Some(after) = rest.strip_prefix(':') {
-            if after.starts_with(':') {
+            let (legacy, after) = match after.strip_prefix(':') {
+                Some(after) => (false, after),
+                None => (true, after),
+            };
+            let (name, after) = ident(after)?;
+            let lower = name.to_ascii_lowercase();
+            if let Some(element) = PseudoEl::named(&lower, legacy) {
+                c.element = Some(element);
+                rest = after;
+                continue;
+            }
+            if !legacy || c.element.is_some() {
                 return None;
             }
-            let (name, after) = ident(after)?;
             let (args, after) = match after.strip_prefix('(') {
                 Some(inner) => {
                     let close = inner.find(')')?;
@@ -1546,6 +1650,7 @@ fn an_b(s: &str) -> Option<(i32, i32)> {
 
 struct Rule {
     selector: Selector,
+    element: Option<PseudoEl>,
     normal: Decl,
     important: Decl,
     specificity: u32,
@@ -1565,6 +1670,8 @@ pub struct Stylesheet {
     known: HashMap<String, usize>,
     pub(crate) faces: Vec<FontFace>,
     seen: usize,
+    /// Each generated box its rules style, by [`PseudoEl::bit`].
+    elements: u8,
 }
 
 /// A class's rules: any tag, and by tag.
@@ -1696,8 +1803,11 @@ impl Stylesheet {
             self.any.push(at);
         }
         self.known.insert(key, at);
+        let element = selector.element();
+        self.elements |= element.map_or(0, PseudoEl::bit);
         self.rules.push(Rule {
             specificity: selector.specificity(),
+            element,
             selector,
             normal: normal.clone(),
             important: important.clone(),
@@ -1705,11 +1815,19 @@ impl Stylesheet {
         });
     }
 
-    /// Calls `found(rule)` for each rule matching the path's last element.
-    fn matching<'s>(&'s self, path: &[Ctx<'_>], found: &mut impl FnMut(&'s Rule)) {
+    /// Calls `found(rule)` for each rule matching the path's last element,
+    /// or its generated box `element`.
+    fn matching<'s>(
+        &'s self,
+        (path, element): (&[Ctx<'_>], Option<PseudoEl>),
+        found: &mut impl FnMut(&'s Rule),
+    ) {
         let Some(el) = path.last().map(|c| c.el) else {
             return;
         };
+        if element.is_some_and(|e| self.elements & e.bit() == 0) {
+            return;
+        }
         let by_id = el.id.as_ref().and_then(|id| self.by_id.get(id));
         let by_class = (el.classes.iter())
             .filter_map(|c| self.by_class.get(c))
@@ -1724,6 +1842,7 @@ impl Stylesheet {
             .chain(&self.any);
         for &at in candidates {
             if let Some(rule) = self.rules.get(at)
+                && rule.element == element
                 && rule.selector.matches(path)
             {
                 found(rule);
@@ -1792,7 +1911,9 @@ fn user_agent() -> &'static Stylesheet {
              big { font-size: larger }\n\
              center { text-align: center }\n\
              hr { margin: 0.5em 0 }\n\
-             td, th { padding: 1px }",
+             td, th { padding: 1px }\n\
+             q::before { content: open-quote }\n\
+             q::after { content: close-quote }",
             "",
         )
     })
@@ -1807,11 +1928,13 @@ pub(crate) fn declared(
     (inline, base): (Option<&str>, &str),
 ) -> Decl {
     let mut d = Decl::default();
-    user_agent().matching(path, &mut |r| d.layer(&r.normal));
+    user_agent().matching((path, None), &mut |r| d.layer(&r.normal));
     d.layer(hint);
     let mut found: Vec<(u32, usize, usize, &Rule)> = Vec::new();
     for (n, sheet) in sheets.iter().enumerate() {
-        sheet.matching(path, &mut |r| found.push((r.specificity, n, r.order, r)));
+        sheet.matching((path, None), &mut |r| {
+            found.push((r.specificity, n, r.order, r))
+        });
     }
     found.sort_by_key(|&(spec, sheet, order, _)| (spec, sheet, order));
     for (.., r) in &found {
@@ -1826,6 +1949,34 @@ pub(crate) fn declared(
     }
     d.layer(&inline_important);
     d
+}
+
+/// The cascade of generated box `which` of the path's last element;
+/// none unstyled.
+pub(crate) fn declared_pseudo(
+    sheets: &[Arc<Stylesheet>],
+    path: &[Ctx<'_>],
+    which: PseudoEl,
+) -> Option<Decl> {
+    let mut found: Vec<(u32, usize, usize, &Rule)> = Vec::new();
+    user_agent().matching((path, Some(which)), &mut |r| found.push((0, 0, r.order, r)));
+    for (n, sheet) in sheets.iter().enumerate() {
+        sheet.matching((path, Some(which)), &mut |r| {
+            found.push((r.specificity, n + 1, r.order, r));
+        });
+    }
+    if found.is_empty() {
+        return None;
+    }
+    found.sort_by_key(|&(spec, sheet, order, _)| (sheet.min(1), spec, sheet, order));
+    let mut d = Decl::default();
+    for (.., r) in &found {
+        d.layer(&r.normal);
+    }
+    for (.., r) in &found {
+        d.layer(&r.important);
+    }
+    Some(d)
 }
 
 /// A line's height as it inherits: a factor, or computed px.
@@ -1850,6 +2001,10 @@ pub(crate) struct Computed {
     pub(crate) indent: Len,
     pub(crate) align: TextAlign,
     pub(crate) unmarked: bool,
+    /// Unset, lists show their own default markers.
+    pub(crate) list_style: Option<ListStyle>,
+    pub(crate) list_image: Option<Arc<str>>,
+    pub(crate) quotes: Option<Quotes>,
     // Not inherited.
     pub(crate) display: Display,
     /// Px, percentages of the column, or auto.
@@ -1914,6 +2069,9 @@ impl Default for Computed {
             indent: Len::Px(0.0),
             align: TextAlign::Start,
             unmarked: false,
+            list_style: None,
+            list_image: None,
+            quotes: None,
             display: Display::Block,
             margin: [Len::Px(0.0); 4],
             padding: [0.0; 4],
@@ -2004,6 +2162,12 @@ impl Computed {
             indent: d.indent.map_or(self.indent, |l| l.computed(size)),
             align: d.align.unwrap_or(self.align),
             unmarked: d.unmarked.unwrap_or(self.unmarked),
+            list_style: d.list_style.clone().or_else(|| self.list_style.clone()),
+            list_image: match &d.list_image {
+                Some(image) => image.clone(),
+                None => self.list_image.clone(),
+            },
+            quotes: d.quotes.clone().or_else(|| self.quotes.clone()),
             display: d.display.unwrap_or(Display::Inline),
             margin: d
                 .margin
@@ -2129,6 +2293,64 @@ mod tests {
         let sheet = Arc::new(Stylesheet::parse(css, "/s.css"));
         let path: Vec<Ctx<'_>> = chain.iter().map(|el| Ctx { el, before: &[] }).collect();
         declared(&[sheet], &path, &Decl::default(), (None, ""))
+    }
+
+    #[test]
+    fn pseudo_element_rules_style_only_their_boxes() {
+        let css = "p::before { content: 'a' } p.x:before { content: 'b'; color: red } \
+                   p { color: blue } p::selection { color: green } \
+                   div::before span { color: red } li::marker { color: red }";
+        let sheet = Arc::new(Stylesheet::parse(css, "/s.css"));
+        let (plain, x) = (el("p", &[]), el("p", &["x"]));
+        let content = |e: &El, which| {
+            let path = [Ctx { el: e, before: &[] }];
+            declared_pseudo(&[Arc::clone(&sheet)], &path, which).and_then(|d| d.content)
+        };
+        let text = |s: &str| Some(Content::Items(Arc::from([generated::Item::Text(s.into())])));
+        assert_eq!(content(&plain, PseudoEl::Before), text("a"));
+        assert_eq!(content(&x, PseudoEl::Before), text("b"));
+        assert_eq!(content(&plain, PseudoEl::After), None);
+        // The element's own cascade takes nothing from its boxes.
+        let own = cascade(css, &[x]);
+        assert_eq!(own.content, None);
+        assert_eq!(own.ink, colour("blue").flatten());
+        assert_eq!(cascade(css, &[el("div", &[]), el("span", &[])]).ink, None);
+        let marker = [Ctx {
+            el: &el("li", &[]),
+            before: &[],
+        }];
+        let red = declared_pseudo(&[Arc::clone(&sheet)], &marker, PseudoEl::Marker);
+        assert_eq!(red.and_then(|d| d.ink), colour("red").flatten());
+        let q = [Ctx {
+            el: &el("q", &[]),
+            before: &[],
+        }];
+        let open = declared_pseudo(&[], &q, PseudoEl::Before).and_then(|d| d.content);
+        assert_eq!(
+            open,
+            Some(Content::Items(Arc::from([generated::Item::OpenQuote])))
+        );
+    }
+
+    #[test]
+    fn list_styles_counters_and_quotes_declare() {
+        let d = Decl::parse(
+            "list-style: upper-roman inside url(dot.png); counter-reset: ch 2 sec; \
+             counter-increment: ch; quotes: '«' '»'",
+        );
+        assert_eq!(d.list_style, generated::list_style("upper-roman"));
+        assert_eq!(d.list_image, Some(Some(Arc::from("dot.png"))));
+        assert_eq!(d.unmarked, Some(false));
+        let reset = d.counter_reset.as_deref().map(<[_]>::to_vec);
+        assert_eq!(reset, Some(vec![("ch".into(), 2), ("sec".into(), 0)]));
+        assert_eq!(d.counter_increment.as_deref().map(<[_]>::len), Some(1));
+        assert_eq!(d.quotes.as_deref().map(<[_]>::len), Some(1));
+        let none = Decl::parse("list-style: none");
+        assert_eq!((none.unmarked, none.list_image), (Some(true), Some(None)));
+        let parent = Computed::default().child(&d);
+        let child = parent.child(&Decl::default());
+        assert_eq!(child.list_style, generated::list_style("upper-roman"));
+        assert!(child.quotes.is_some());
     }
 
     #[test]
@@ -2373,7 +2595,7 @@ mod tests {
             before: &[],
         }];
         let mut found = 0;
-        sheet.matching(&path, &mut |_| found += 1);
+        sheet.matching((&path, None), &mut |_| found += 1);
         assert_eq!(found, 2);
         // Thousands of rules, but few an element can meet.
         let mut css = "p { font-style: italic }".repeat(5000);
@@ -2385,7 +2607,7 @@ mod tests {
             before: &[],
         }];
         let mut found = 0;
-        sheet.matching(&path, &mut |_| found += 1);
+        sheet.matching((&path, None), &mut |_| found += 1);
         assert_eq!(found, 1);
     }
 }

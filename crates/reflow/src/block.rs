@@ -84,6 +84,10 @@ pub struct Text {
     pub links: Vec<Link>,
     /// Pictures set in its lines, in order.
     pub inlines: Vec<Inline>,
+    /// Bytes of its drop cap, drawn large beside the first lines; 0 if none.
+    pub initial: usize,
+    /// What its first line adds, as `::first-line` does.
+    pub first_line: Option<Emphasis>,
 }
 
 /// A picture in a line of text, sized in ems of the text around it.
@@ -141,6 +145,8 @@ impl Text {
             spans: Vec::new(),
             links: Vec::new(),
             inlines: Vec::new(),
+            initial: 0,
+            first_line: None,
         }
     }
 
@@ -440,6 +446,8 @@ pub struct Frame {
     pub marker: Option<String>,
     /// The marker's colour, as [`Emphasis::colour`].
     pub marker_colour: Option<[u8; 3]>,
+    /// A picture shown as the marker, after its text.
+    pub marker_picture: Option<Arc<Picture>>,
     pub align: Align,
     /// A small gap above, as between list items.
     pub tight: bool,

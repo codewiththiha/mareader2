@@ -12,7 +12,7 @@ use vello_cpu::{Glyph, Image, ImageSource, Pixmap, RenderContext, Resources};
 
 use crate::block::{Backdrop, BackdropSize, Edge};
 use crate::flow::{
-    Deco, Draw, Flow, Grid, Laid, MARKER_GAP, PAD, Para, Piece, Set, resolve, span_height,
+    Deco, Draw, Flow, Grid, Initial, Laid, MARKER_GAP, PAD, Para, Piece, Set, resolve, span_height,
 };
 use crate::fonts::{Ink, Tone};
 use crate::picture::{Decoded, Picture};
@@ -215,14 +215,24 @@ impl Painter {
                     self.frame(BORDER, set.x, top, set.width, height);
                 }
                 let laid = laid();
-                let Laid::Text { para, marker } = &*laid else {
+                let Laid::Text {
+                    para,
+                    marker,
+                    initial,
+                } = &*laid
+                else {
                     return;
                 };
                 let x = set.x + pad;
                 if units.start == 0
                     && let Some(marker) = marker
                 {
-                    self.marker(&para.layout, marker, x, piece.dy);
+                    self.marker(&para.layout, marker, (x, piece.dy), decoded);
+                }
+                if units.start == 0
+                    && let Some(initial) = initial
+                {
+                    self.initial(&para.layout, initial, x, piece.dy);
                 }
                 self.lines(para, units, x, piece.dy);
                 self.inlines(para, piece.units.clone(), (x, piece.dy), decoded);
@@ -602,7 +612,13 @@ impl Painter {
     }
 
     /// The marker's right edge a gap left of `x`, on the first baseline.
-    fn marker(&mut self, text: &Layout<Ink>, marker: &Para, x: f32, dy: f32) {
+    fn marker(
+        &mut self,
+        text: &Layout<Ink>,
+        marker: &Para,
+        (x, dy): (f32, f32),
+        decoded: &Decoded,
+    ) {
         let (Some(first), Some(own)) = (text.get(0), marker.layout.get(0)) else {
             return;
         };
@@ -616,6 +632,18 @@ impl Painter {
         let left = x - MARKER_GAP * size - marker.layout.width();
         let shift = first.metrics().baseline - own.metrics().baseline;
         self.lines(marker, 0..1, left, dy + shift);
+        self.inlines(marker, 0..1, (left, dy + shift), decoded);
+    }
+
+    /// A drop cap at the text's left, on the baseline of its last line.
+    fn initial(&mut self, text: &Layout<Ink>, initial: &Initial, x: f32, dy: f32) {
+        let last = text.len().saturating_sub(1);
+        let line = text.get(initial.line.saturating_sub(1).min(last));
+        let (Some(line), Some(own)) = (line, initial.para.layout.get(0)) else {
+            return;
+        };
+        let shift = line.metrics().baseline - own.metrics().baseline;
+        self.lines(&initial.para, 0..1, x, dy + shift);
     }
 
     fn image(&mut self, picture: &Arc<Picture>, decoded: &Decoded, x: f32, y: f32, w: f32, h: f32) {
