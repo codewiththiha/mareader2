@@ -5,9 +5,11 @@ use std::sync::{Arc, OnceLock};
 
 use mareader_reflow::{Align, Case, Justify, Rise, Script, Tile, VAlign};
 
+use crate::calc::{self, Vars};
 use crate::decor::{self, Slice, Span};
 use crate::generated::{self, Content, ListStyle};
 use crate::href;
+use crate::query;
 
 /// A stylesheet's text past this is ignored.
 pub const MAX_SHEET: usize = 1 << 20;
@@ -15,11 +17,15 @@ const MAX_RULES: usize = 10_000;
 /// Compounds in one selector; longer ones are skipped.
 const MAX_PARTS: usize = 16;
 const MAX_FACES: usize = 256;
+/// Custom properties one declaration block sets.
+const MAX_CUSTOM: usize = 64;
+/// Sheets one sheet imports.
+const MAX_IMPORTS: usize = 8;
 /// What `1rem` and the root's text measure, as browsers default it.
 pub(crate) const ROOT_PX: f32 = 16.0;
 /// What `vh` and `vw` measure: the page's text box, near enough.
-const VIEW_HEIGHT: f32 = 980.0;
-const VIEW_WIDTH: f32 = 650.0;
+pub(crate) const VIEW_HEIGHT: f32 = 980.0;
+pub(crate) const VIEW_WIDTH: f32 = 650.0;
 /// Percent widths of padding and margins: a column, near enough.
 pub(crate) const BASE_WIDTH: f32 = 600.0;
 
@@ -32,6 +38,12 @@ pub(crate) enum Len {
     Percent(f32),
     Vh(f32),
     Vw(f32),
+    /// A sum, as `calc()` leaves one: px, ems and percent.
+    Mix {
+        px: f32,
+        em: f32,
+        pct: f32,
+    },
     Auto,
 }
 
@@ -45,6 +57,7 @@ impl Len {
             Self::Percent(n) => n * base / 100.0,
             Self::Vh(n) => n * VIEW_HEIGHT / 100.0,
             Self::Vw(n) => n * VIEW_WIDTH / 100.0,
+            Self::Mix { px, em: e, pct } => px + e * em + pct * base / 100.0,
             Self::Auto => return None,
         })
     }
@@ -53,6 +66,11 @@ impl Len {
     fn computed(self, em: f32) -> Self {
         match self {
             Self::Percent(_) | Self::Vw(_) | Self::Auto => self,
+            Self::Mix { px, em: e, pct } if pct != 0.0 => Self::Mix {
+                px: px + e * em,
+                em: 0.0,
+                pct,
+            },
             other => Self::Px(other.px(em, 0.0).unwrap_or(0.0)),
         }
     }
@@ -63,6 +81,9 @@ pub(crate) fn len(v: &str) -> Option<Len> {
     let v = v.trim();
     if v.eq_ignore_ascii_case("auto") {
         return Some(Len::Auto);
+    }
+    if calc::is_maths(v) {
+        return calc::maths(v).and_then(calc::Sum::length);
     }
     let numeric = |c: char| c.is_ascii_digit() || matches!(c, '.' | '-' | '+');
     let split = v.find(|c: char| !numeric(c)).unwrap_or(v.len());
@@ -248,6 +269,16 @@ pub(crate) struct Decl {
     /// `filter`'s `opacity()` and `drop-shadow()`.
     pub(crate) filter_opacity: Option<f32>,
     pub(crate) drop: Option<Arc<[decor::Shadow]>>,
+    /// `--name` declarations as written, in order.
+    pub(crate) custom: Vec<(String, String)>,
+    /// Declarations naming `var()`, set once the element's values are known.
+    pub(crate) deferred: Vec<(String, String)>,
+    /// The sheet `deferred` came from, for its `url()`s.
+    pub(crate) from: Option<Arc<str>>,
+    /// Properties set back to inherit, or to their initial values.
+    pub(crate) cleared: Option<Arc<Decl>>,
+    /// The element's custom properties, once its cascade is done.
+    pub(crate) vars: Option<Vars>,
 }
 
 /// Counters a declaration names, with their values.
@@ -283,6 +314,33 @@ pub(crate) enum PictureSize {
     Set([Option<Len>; 2]),
 }
 
+/// Unsets each field `top` sets.
+macro_rules! unlayer {
+    ($self:ident, $top:ident; $($f:ident),*; $($side:ident),*) => {
+        $(if $top.$f.is_some() { $self.$f = None; })*
+        $(for (mine, theirs) in $self.$side.iter_mut().zip(&$top.$side) {
+            if theirs.is_some() { *mine = None; }
+        })*
+    };
+}
+
+/// Calls macro `$m` with every property field, then the four-sided ones.
+macro_rules! each_field {
+    ($m:ident, $a:ident, $b:ident) => {
+        $m!($a, $b;
+            italic, weight, align, display, unmarked, width, height, size, line,
+            letter, word, indent, family, background, background_image, float,
+            break_before, break_after, valign, script, small_caps, transform, decoration,
+            fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
+            align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
+            basis, radius, rotate, lift, content, counter_reset, counter_increment,
+            counter_set, quotes, list_style, list_image, layers, shadows, text_shadow,
+            opacity, outline_width, outline_style, outline_colour, outline_offset, frame,
+            frame_slice, frame_width, frame_outset, frame_tile, visible, filter_opacity, drop;
+            margin, padding, border_width, border_style, border_colour, border_clear)
+    };
+}
+
 /// Sets each field `top` sets.
 macro_rules! layer {
     ($self:ident, $top:ident; $($f:ident),*; $($side:ident),*) => {
@@ -308,7 +366,7 @@ impl Decl {
             let Some((name, value)) = item.split_once(':') else {
                 continue;
             };
-            let name = name.trim().to_ascii_lowercase();
+            let raw = name.trim();
             let value = value.trim();
             let lower = value.to_ascii_lowercase();
             let (value, strong) = match lower.find("!important") {
@@ -316,7 +374,23 @@ impl Decl {
                 None => (value, false),
             };
             let target = if strong { &mut important } else { &mut normal };
-            target.set(&name, value);
+            if value.len() > calc::MAX_VALUE {
+                continue;
+            }
+            // Custom property names keep their case.
+            if raw.starts_with("--") {
+                if target.custom.len() < MAX_CUSTOM {
+                    upsert(&mut target.custom, raw, value);
+                }
+                continue;
+            }
+            let name = raw.to_ascii_lowercase();
+            if calc::has_var(value) {
+                upsert(&mut target.deferred, &name, value);
+            } else {
+                target.deferred.retain(|(n, _)| *n != name);
+                target.set(&name, value);
+            }
         }
         (normal, important)
     }
@@ -324,8 +398,11 @@ impl Decl {
     fn set(&mut self, name: &str, value: &str) {
         let v = value.to_ascii_lowercase();
         let v = v.as_str();
-        if matches!(v, "inherit" | "initial" | "unset" | "revert") {
-            return;
+        if matches!(
+            v,
+            "inherit" | "initial" | "unset" | "revert" | "revert-layer"
+        ) {
+            return self.keyword(name, v);
         }
         match name {
             "font-style" => self.italic = italic(v).or(self.italic),
@@ -464,7 +541,7 @@ impl Decl {
                 self.self_stretch = stretch(v).or(self.self_stretch);
             }
             "gap" | "grid-gap" => {
-                let mut words = v.split_ascii_whitespace();
+                let mut words = words(v).into_iter();
                 let first = words.next().unwrap_or_default();
                 let last = words.last().unwrap_or(first);
                 self.row_gap = len(first).or(self.row_gap);
@@ -476,10 +553,8 @@ impl Decl {
             "flex-basis" => self.basis = len(v).or(self.basis),
             "flex" => self.flex(v),
             "border-radius" => {
-                let first = v
-                    .split(['/', ' '])
-                    .find(|w| !w.is_empty())
-                    .unwrap_or_default();
+                let first = split_top(v, '/').into_iter().next().unwrap_or_default();
+                let first = words(first).into_iter().next().unwrap_or_default();
                 self.radius = len(first).or(self.radius);
             }
             "transform" | "-webkit-transform" | "-ms-transform" => {
@@ -619,7 +694,7 @@ impl Decl {
             "auto" => (1.0, None),
             "initial" => (0.0, None),
             v => {
-                let words: Vec<&str> = v.split_ascii_whitespace().collect();
+                let words = words(v);
                 let grow = words.first().and_then(|w| w.parse::<f32>().ok());
                 let basis = words.iter().skip(1).find_map(|w| len(w));
                 // `flex: 1` sets a zero basis; growth shares the row.
@@ -633,6 +708,9 @@ impl Decl {
 
     /// Resolves its pictures against `path`, where it was read.
     pub(crate) fn resolve(&mut self, path: &str) {
+        if !self.deferred.is_empty() {
+            self.from = Some(Arc::from(path));
+        }
         if let Some(Some(raw)) = &self.picture {
             self.picture = Some(generated::resolve(path, raw).map(Arc::from));
         }
@@ -719,17 +797,58 @@ impl Decl {
 
     /// Sets each property `top` sets, as a later rule does.
     pub(crate) fn layer(&mut self, top: &Self) {
-        layer!(self, top;
-            italic, weight, align, display, unmarked, width, height, size, line,
-            letter, word, indent, family, background, background_image, float,
-            break_before, break_after, valign, script, small_caps, transform, decoration,
-            fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
-            align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
-            basis, radius, rotate, lift, content, counter_reset, counter_increment,
-            counter_set, quotes, list_style, list_image, layers, shadows, text_shadow,
-            opacity, outline_width, outline_style, outline_colour, outline_offset, frame,
-            frame_slice, frame_width, frame_outset, frame_tile, visible, filter_opacity, drop;
-            margin, padding, border_width, border_style, border_colour, border_clear);
+        self.layer_set(top);
+        for (name, value) in &top.custom {
+            upsert(&mut self.custom, name, value);
+        }
+        for (name, value) in &top.deferred {
+            upsert(&mut self.deferred, name, value);
+        }
+        if top.from.is_some() {
+            self.from.clone_from(&top.from);
+        }
+    }
+
+    /// What `top` sets and resets, its custom properties aside.
+    fn layer_set(&mut self, top: &Self) {
+        if let Some(cleared) = &top.cleared {
+            self.clear(cleared);
+        }
+        each_field!(layer, self, top);
+        if top.vars.is_some() {
+            self.vars.clone_from(&top.vars);
+        }
+    }
+
+    /// Unsets each property `probe` sets, and keeps it to unset below.
+    fn clear(&mut self, probe: &Self) {
+        each_field!(unlayer, self, probe);
+        let mut all = self.cleared.as_deref().cloned().unwrap_or_default();
+        each_field!(layer, all, probe);
+        self.cleared = Some(Arc::new(all));
+    }
+
+    /// `inherit`, `initial`, `unset` and `revert` for property `name`.
+    fn keyword(&mut self, name: &str, v: &str) {
+        let Some((literal, initial, inherited)) = initial_value(name) else {
+            return;
+        };
+        // Reverted, `display` is the default sheet's, which stays set.
+        if v.starts_with("revert") && name == "display" {
+            return;
+        }
+        let set = match v {
+            "initial" => initial,
+            "unset" => initial && !inherited,
+            "inherit" if !inherited => return,
+            _ => false,
+        };
+        if set {
+            return self.set(name, literal);
+        }
+        let mut probe = Self::default();
+        probe.set(name, literal);
+        self.clear(&probe);
     }
 
     fn is_empty(&self) -> bool {
@@ -755,6 +874,97 @@ fn sides<T: Copy>(out: &mut [Option<T>; 4], v: &str, read: impl Fn(&str) -> Opti
         _ => return,
     };
     *out = spread;
+}
+
+/// Where the bracket open before `text` closes.
+fn closing_bracket(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' if depth == 0 => return Some(i),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Sets `name` in a list of declarations, moving it last.
+fn upsert(list: &mut Vec<(String, String)>, name: &str, value: &str) {
+    list.retain(|(n, _)| n != name);
+    list.push((name.to_owned(), value.to_owned()));
+}
+
+/// A property's initial value, whether it is literal, whether it inherits.
+fn initial_value(name: &str) -> Option<(&'static str, bool, bool)> {
+    Some(match name {
+        "color" => ("black", true, true),
+        "font-family" => ("serif", false, true),
+        "font" => ("16px serif", false, true),
+        "quotes" => ("none", false, true),
+        "font-style" | "font-weight" | "font-variant" | "font-variant-caps" => {
+            ("normal", true, true)
+        }
+        "line-height" | "letter-spacing" | "word-spacing" => ("normal", true, true),
+        "font-size" => ("medium", true, true),
+        "text-indent" => ("0", true, true),
+        "text-align" => ("start", true, true),
+        "text-transform" | "text-shadow" | "list-style-image" => ("none", true, true),
+        "visibility" => ("visible", true, true),
+        "list-style" | "list-style-type" => ("disc", true, true),
+        "display" => ("inline", true, false),
+        "width" | "height" | "flex-basis" => ("auto", true, false),
+        "background-color" => ("transparent", true, false),
+        "opacity" => ("1", true, false),
+        "vertical-align" => ("baseline", true, false),
+        "content" => ("normal", true, false),
+        "flex-direction" => ("row", true, false),
+        "flex-wrap" => ("nowrap", true, false),
+        "justify-content" => ("normal", true, false),
+        "flex-grow" | "gap" | "border-radius" => ("0", true, false),
+        "page-break-before" | "page-break-after" | "break-before" | "break-after" => {
+            ("auto", true, false)
+        }
+        "float"
+        | "text-decoration"
+        | "text-decoration-line"
+        | "box-shadow"
+        | "outline"
+        | "transform"
+        | "filter"
+        | "background"
+        | "background-image"
+        | "border-image"
+        | "counter-reset"
+        | "counter-increment"
+        | "counter-set"
+        | "border"
+        | "border-top"
+        | "border-right"
+        | "border-bottom"
+        | "border-left" => ("none", true, false),
+        n if n.starts_with("margin") || n.starts_with("padding") => ("0", true, false),
+        n if n.starts_with("border-") && n.ends_with("-width") => ("medium", true, false),
+        n if n.starts_with("border-") && n.ends_with("-style") => ("none", true, false),
+        n if n.starts_with("border-") && n.ends_with("-color") => ("currentcolor", true, false),
+        _ => return None,
+    })
+}
+
+/// Whether `@supports` finds a declaration this cascade reads.
+pub(crate) fn understood(name: &str, value: &str) -> bool {
+    let name = name.trim();
+    if name.starts_with("--") {
+        return true;
+    }
+    let (normal, _) = Decl::parse_both(&format!("{name}: {value}"));
+    !normal.is_empty() && normal.display != Some(Display::Other)
+}
+
+/// Whether `@supports selector()` finds a selector this cascade reads.
+pub(crate) fn selector_understood(text: &str) -> bool {
+    parse_selector(text.trim()).is_some_and(|s| s.parts.iter().all(|(c, _)| c.known()))
 }
 
 /// A value's words, a bracket's spaces kept, as in `rgb(1, 2, 3)`.
@@ -853,7 +1063,11 @@ fn line_height(v: &str) -> Option<LineHeight> {
     if v == "normal" {
         return Some(LineHeight::Normal);
     }
-    if let Ok(n) = v.parse::<f32>() {
+    let number = match calc::maths(v) {
+        Some(sum) if sum.is_number() => Some(sum.n),
+        _ => v.parse::<f32>().ok(),
+    };
+    if let Some(n) = number {
         return (n.is_finite() && n >= 0.0).then_some(LineHeight::Factor(n.min(10.0)));
     }
     len(v)
@@ -1408,6 +1622,15 @@ struct Compound {
 }
 
 impl Compound {
+    /// Whether every pseudo-class is one this cascade can match.
+    fn known(&self) -> bool {
+        self.pseudo.iter().all(|p| match p {
+            Pseudo::Never => false,
+            Pseudo::Not(inner) => inner.known(),
+            _ => true,
+        })
+    }
+
     fn specificity(&self) -> u32 {
         let not: u32 = (self.pseudo.iter())
             .map(|p| match p {
@@ -1799,7 +2022,14 @@ struct Rule {
     specificity: u32,
     /// Where it last appeared among the sheet's rules.
     order: usize,
+    /// Its `@layer`'s place, first named first; outside any, [`UNLAYERED`].
+    rank: u16,
 }
+
+/// The rank of rules outside every `@layer`, above them all.
+const UNLAYERED: u16 = u16::MAX;
+/// Layers one sheet names.
+const MAX_LAYERS: usize = 64;
 
 /// A sheet's rules, indexed by their subject's id, class or tag.
 #[derive(Default)]
@@ -1815,6 +2045,12 @@ pub struct Stylesheet {
     seen: usize,
     /// Each generated box its rules style, by [`PseudoEl::bit`].
     elements: u8,
+    /// Sheets `@import` names, in order, to read before this one.
+    pub(crate) imports: Vec<String>,
+    /// Layer names in the order first seen, nested ones dotted.
+    layer_names: Vec<String>,
+    /// The `@layer` blocks reading is inside, innermost last.
+    layer_path: Vec<String>,
 }
 
 /// A class's rules: any tag, and by tag.
@@ -1836,28 +2072,73 @@ impl Stylesheet {
         let mut sheet = Self::default();
         let css = strip_comments(css.get(..floor(css, MAX_SHEET)).unwrap_or_default());
         sheet.read(&css, path, 0);
+        sheet.settle_ranks();
         sheet
+    }
+
+    /// Ranks layers in CSS order: nested ones under their parent's own rules.
+    fn settle_ranks(&mut self) {
+        let names = &self.layer_names;
+        let place = |name: &str| names.iter().position(|n| n == name);
+        let key = |name: &String| {
+            let ends = name.match_indices('.').map(|(i, _)| i).chain([name.len()]);
+            let mut key: Vec<usize> = ends
+                .filter_map(|end| place(name.get(..end).unwrap_or_default()))
+                .collect();
+            key.push(usize::MAX);
+            key
+        };
+        let mut sorted: Vec<(Vec<usize>, usize)> =
+            names.iter().enumerate().map(|(i, n)| (key(n), i)).collect();
+        sorted.sort();
+        let mut ranks = vec![UNLAYERED - 1; names.len()];
+        for (rank, (_, i)) in sorted.into_iter().enumerate() {
+            if let Some(slot) = ranks.get_mut(i) {
+                *slot = u16::try_from(rank).unwrap_or(UNLAYERED - 1);
+            }
+        }
+        for rule in &mut self.rules {
+            if let Some(&rank) = ranks.get(usize::from(rule.rank)) {
+                rule.rank = rank;
+            }
+        }
     }
 
     fn read(&mut self, css: &str, path: &str, depth: usize) {
         let mut rest = css;
         while let Some(open) = rest.find('{') {
             // Statements like `@import x;` end before the selector.
-            let prelude = rest.get(..open).unwrap_or_default();
-            let prelude = prelude.rsplit(';').next().unwrap_or_default().trim();
+            let mut statements: Vec<&str> =
+                rest.get(..open).unwrap_or_default().split(';').collect();
+            let prelude = statements.pop().unwrap_or_default().trim();
+            for statement in statements {
+                self.statement(statement, path, depth);
+            }
             let body = rest.get(open + 1..).unwrap_or_default();
             let Some(close) = matching_brace(body) else {
                 break;
             };
             let inner = body.get(..close).unwrap_or_default();
             let lower = prelude.to_ascii_lowercase();
+            let nested = depth < 4;
             if let Some(query) = lower.strip_prefix("@media") {
-                if depth < 4 && media_applies(query) {
+                if nested && query::media(query) {
                     self.read(inner, path, depth + 1);
                 }
-            } else if lower.starts_with("@supports") {
-                if depth < 4 {
+            } else if let Some(test) = lower.strip_prefix("@supports") {
+                if nested && query::supports(test) {
                     self.read(inner, path, depth + 1);
+                }
+            } else if let Some(test) = lower.strip_prefix("@container") {
+                if nested && query::container(test) {
+                    self.read(inner, path, depth + 1);
+                }
+            } else if let Some(name) = lower.strip_prefix("@layer") {
+                if nested {
+                    let full = self.name_layer(name.trim());
+                    self.layer_path.push(full);
+                    self.read(inner, path, depth + 1);
+                    self.layer_path.pop();
                 }
             } else if lower.starts_with("@font-face") {
                 self.face(inner, path);
@@ -1872,6 +2153,110 @@ impl Stylesheet {
                 }
             }
             rest = body.get(close + 1..).unwrap_or_default();
+        }
+        for statement in rest.split(';') {
+            self.statement(statement, path, depth);
+        }
+    }
+
+    /// `name` within the current layer, ranked if new; unnamed ones fresh.
+    fn name_layer(&mut self, name: &str) -> String {
+        let name = match name {
+            "" => format!("\u{0}{}", self.layer_names.len()),
+            named => named.to_owned(),
+        };
+        let full = match self.layer_path.last() {
+            Some(parent) => format!("{parent}.{name}"),
+            None => name,
+        };
+        // `a.b` names `a` too, ranked first.
+        let ends = full.match_indices('.').map(|(i, _)| i).chain([full.len()]);
+        for end in ends.collect::<Vec<_>>() {
+            let prefix = full.get(..end).unwrap_or_default();
+            if !self.layer_names.iter().any(|n| n == prefix) && self.layer_names.len() < MAX_LAYERS
+            {
+                self.layer_names.push(prefix.to_owned());
+            }
+        }
+        full
+    }
+
+    /// The current layer's rank, or [`UNLAYERED`].
+    fn rank(&self) -> u16 {
+        let Some(current) = self.layer_path.last() else {
+            return UNLAYERED;
+        };
+        let at = self.layer_names.iter().position(|n| n == current);
+        at.map_or(UNLAYERED - 1, |at| {
+            u16::try_from(at).unwrap_or(UNLAYERED - 1)
+        })
+    }
+
+    /// `@import url(x.css) screen;`: a sheet read first, if its media apply.
+    fn statement(&mut self, text: &str, path: &str, depth: usize) {
+        let text = text.trim();
+        let lower = text.to_ascii_lowercase();
+        // `@layer a, b;` fixes the layers' order before their rules come.
+        if let Some(names) = lower.strip_prefix("@layer") {
+            for name in names.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                self.name_layer(name);
+            }
+            return;
+        }
+        if depth > 0 {
+            return;
+        }
+        let head = text.get(..7).unwrap_or_default();
+        if !head.eq_ignore_ascii_case("@import") || self.imports.len() >= MAX_IMPORTS {
+            return;
+        }
+        let rest = text.get(7..).unwrap_or_default().trim();
+        let (target, after) = if rest
+            .get(..4)
+            .is_some_and(|h| h.eq_ignore_ascii_case("url("))
+        {
+            let inner = rest.get(4..).unwrap_or_default();
+            let Some(close) = inner.find(')') else {
+                return;
+            };
+            let target = inner.get(..close).unwrap_or_default();
+            (
+                target.trim().trim_matches(['"', '\'']),
+                inner.get(close + 1..),
+            )
+        } else if let Some(q) = rest.chars().next().filter(|c| matches!(c, '"' | '\'')) {
+            let inner = rest.get(1..).unwrap_or_default();
+            let Some(close) = inner.find(q) else {
+                return;
+            };
+            (
+                inner.get(..close).unwrap_or_default(),
+                inner.get(close + 1..),
+            )
+        } else {
+            return;
+        };
+        let mut condition = after.unwrap_or_default().trim().to_ascii_lowercase();
+        // A cascade layer's name comes first; its rules count as unlayered.
+        if condition.starts_with("layer") {
+            let cut = match condition.strip_prefix("layer(") {
+                Some(r) => r.find(')').map_or(condition.len(), |c| c + 7),
+                None => 5,
+            };
+            condition = condition.get(cut..).unwrap_or_default().trim().to_owned();
+        }
+        if let Some(r) = condition.strip_prefix("supports(") {
+            let close = closing_bracket(r).unwrap_or(r.len());
+            if !query::supports(&format!("({})", r.get(..close).unwrap_or_default())) {
+                return;
+            }
+            condition = r.get(close + 1..).unwrap_or_default().trim().to_owned();
+        }
+        if !condition.is_empty() && !query::media(&condition) {
+            return;
+        }
+        if let Some(resolved) = href::resolve(path, target) {
+            self.imports.push(resolved);
         }
     }
 
@@ -1911,7 +2296,13 @@ impl Stylesheet {
 
     /// A repeated selector merges into its rule, later values winning.
     fn add(&mut self, text: &str, normal: &Decl, important: &Decl) {
-        let key = text.split_ascii_whitespace().collect::<Vec<_>>().join(" ");
+        let mut key = text.split_ascii_whitespace().collect::<Vec<_>>().join(" ");
+        let plain = key.clone();
+        // Layered rules merge only within their own layer.
+        let rank = self.rank();
+        if rank != UNLAYERED {
+            key.insert_str(0, &format!("@{rank}@"));
+        }
         let order = self.seen;
         self.seen += 1;
         if let Some(rule) = self.known.get(&key).and_then(|&at| self.rules.get_mut(at)) {
@@ -1920,7 +2311,7 @@ impl Stylesheet {
             rule.order = order;
             return;
         }
-        let Some(selector) = parse_selector(&key) else {
+        let Some(selector) = parse_selector(&plain) else {
             return;
         };
         if self.rules.len() >= MAX_RULES {
@@ -1955,6 +2346,7 @@ impl Stylesheet {
             normal: normal.clone(),
             important: important.clone(),
             order,
+            rank,
         });
     }
 
@@ -2008,25 +2400,6 @@ fn urls(value: &str, path: &str) -> Vec<String> {
         .collect()
 }
 
-/// Screen and all apply; print and other devices don't.
-fn media_applies(query: &str) -> bool {
-    split_top(query, ',').iter().any(|q| {
-        let words: Vec<&str> = q.split_ascii_whitespace().collect();
-        let (negated, words) = match words.split_first() {
-            Some((&"not", rest)) => (true, rest),
-            Some((&"only", rest)) => (false, rest),
-            _ => (false, words.as_slice()),
-        };
-        let kind = words.first().copied().unwrap_or("all");
-        let typed = match kind {
-            k if k.starts_with('(') => true,
-            "all" | "screen" => true,
-            _ => false,
-        };
-        typed != negated
-    })
-}
-
 /// The browser's own defaults, under every book sheet.
 fn user_agent() -> &'static Stylesheet {
     static SHEET: OnceLock<Stylesheet> = OnceLock::new();
@@ -2063,43 +2436,44 @@ fn user_agent() -> &'static Stylesheet {
 }
 
 /// One element's cascade: user agent, `hint`, `sheets`, `inline`.
-/// `!important` declarations then win, inline ones last.
+/// Important ones win after; `var()`s filled in.
 pub(crate) fn declared(
     sheets: &[Arc<Stylesheet>],
     path: &[Ctx<'_>],
     hint: &Decl,
     (inline, base): (Option<&str>, &str),
+    inherited: &Vars,
 ) -> Decl {
-    let mut d = Decl::default();
-    user_agent().matching((path, None), &mut |r| d.layer(&r.normal));
-    d.layer(hint);
-    let mut found: Vec<(u32, usize, usize, &Rule)> = Vec::new();
+    let mut ua = Decl::default();
+    user_agent().matching((path, None), &mut |r| ua.layer(&r.normal));
+    let mut found: Vec<(u16, u32, usize, usize, &Rule)> = Vec::new();
     for (n, sheet) in sheets.iter().enumerate() {
         sheet.matching((path, None), &mut |r| {
-            found.push((r.specificity, n, r.order, r))
+            found.push((r.rank, r.specificity, n, r.order, r));
         });
     }
-    found.sort_by_key(|&(spec, sheet, order, _)| (spec, sheet, order));
-    for (.., r) in &found {
-        d.layer(&r.normal);
-    }
+    found.sort_by_key(|&(rank, spec, sheet, order, _)| (rank, spec, sheet, order));
     let (mut inline, mut inline_important) = inline.map(Decl::parse_both).unwrap_or_default();
     inline.resolve(base);
     inline_important.resolve(base);
-    d.layer(&inline);
-    for (.., r) in &found {
-        d.layer(&r.important);
-    }
-    d.layer(&inline_important);
-    d
+    let mut layers: Vec<&Decl> = Vec::with_capacity(2 * found.len() + 4);
+    layers.extend([&ua, hint]);
+    layers.extend(found.iter().map(|f| &f.4.normal));
+    layers.push(&inline);
+    // Important rules turn the layers round: a layer's wins.
+    let mut strong: Vec<&Rule> = found.iter().map(|f| f.4).collect();
+    strong.sort_by_key(|r| std::cmp::Reverse(r.rank));
+    layers.extend(strong.iter().map(|r| &r.important));
+    layers.push(&inline_important);
+    cascade(&layers, inherited)
 }
 
-/// The cascade of generated box `which` of the path's last element;
-/// none unstyled.
+/// The cascade of the last element's generated box `which`, if styled.
 pub(crate) fn declared_pseudo(
     sheets: &[Arc<Stylesheet>],
     path: &[Ctx<'_>],
     which: PseudoEl,
+    vars: &Vars,
 ) -> Option<Decl> {
     let mut found: Vec<(u32, usize, usize, &Rule)> = Vec::new();
     user_agent().matching((path, Some(which)), &mut |r| found.push((0, 0, r.order, r)));
@@ -2112,14 +2486,35 @@ pub(crate) fn declared_pseudo(
         return None;
     }
     found.sort_by_key(|&(spec, sheet, order, _)| (sheet.min(1), spec, sheet, order));
+    let mut layers: Vec<&Decl> = found.iter().map(|f| &f.3.normal).collect();
+    layers.extend(found.iter().map(|f| &f.3.important));
+    Some(cascade(&layers, vars))
+}
+
+/// `layers` in cascade order; each one's `var()`s, filled in, set with it.
+fn cascade(layers: &[&Decl], inherited: &Vars) -> Decl {
+    let own: Vec<&[(String, String)]> = layers.iter().map(|l| l.custom.as_slice()).collect();
+    let vars = calc::resolve(inherited, &own);
     let mut d = Decl::default();
-    for (.., r) in &found {
-        d.layer(&r.normal);
+    for layer in layers {
+        d.layer_set(layer);
+        if layer.deferred.is_empty() {
+            continue;
+        }
+        let mut late = Decl::default();
+        for (name, raw) in &layer.deferred {
+            // A name with no value leaves the property unset.
+            match calc::substitute(raw, &vars) {
+                Some(value) => late.set(name, &value),
+                None => late.set(name, "unset"),
+            }
+        }
+        late.resolve(layer.from.as_deref().unwrap_or_default());
+        d.layer_set(&late);
     }
-    for (.., r) in &found {
-        d.layer(&r.important);
-    }
-    Some(d)
+    d.cleared = None;
+    d.vars = Some(vars);
+    d
 }
 
 /// A line's height as it inherits: a factor, or computed px.
@@ -2215,6 +2610,8 @@ pub(crate) struct Computed {
     pub(crate) small_caps: bool,
     pub(crate) transform: Case,
     pub(crate) text_shadow: Option<decor::Shadow>,
+    /// Custom properties, inherited.
+    pub(crate) vars: Vars,
 }
 
 impl Default for Computed {
@@ -2285,6 +2682,7 @@ impl Default for Computed {
             small_caps: false,
             transform: Case::Normal,
             text_shadow: None,
+            vars: Arc::from([]),
         }
     }
 }
@@ -2410,6 +2808,7 @@ impl Computed {
                 Some(own) => own.clone(),
                 None => self.text_shadow.clone(),
             },
+            vars: d.vars.clone().unwrap_or_else(|| Arc::clone(&self.vars)),
         }
     }
 
@@ -2479,6 +2878,11 @@ fn matching_brace(body: &str) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    /// No custom properties inherited.
+    fn none() -> Vars {
+        Arc::from([])
+    }
+
     use super::*;
 
     fn el(tag: &str, classes: &[&str]) -> El {
@@ -2495,7 +2899,7 @@ mod tests {
     fn cascade(css: &str, chain: &[El]) -> Decl {
         let sheet = Arc::new(Stylesheet::parse(css, "/s.css"));
         let path: Vec<Ctx<'_>> = chain.iter().map(|el| Ctx { el, before: &[] }).collect();
-        declared(&[sheet], &path, &Decl::default(), (None, ""))
+        declared(&[sheet], &path, &Decl::default(), (None, ""), &none())
     }
 
     #[test]
@@ -2507,7 +2911,7 @@ mod tests {
         let (plain, x) = (el("p", &[]), el("p", &["x"]));
         let content = |e: &El, which| {
             let path = [Ctx { el: e, before: &[] }];
-            declared_pseudo(&[Arc::clone(&sheet)], &path, which).and_then(|d| d.content)
+            declared_pseudo(&[Arc::clone(&sheet)], &path, which, &none()).and_then(|d| d.content)
         };
         let text = |s: &str| Some(Content::Items(Arc::from([generated::Item::Text(s.into())])));
         assert_eq!(content(&plain, PseudoEl::Before), text("a"));
@@ -2522,13 +2926,13 @@ mod tests {
             el: &el("li", &[]),
             before: &[],
         }];
-        let red = declared_pseudo(&[Arc::clone(&sheet)], &marker, PseudoEl::Marker);
+        let red = declared_pseudo(&[Arc::clone(&sheet)], &marker, PseudoEl::Marker, &none());
         assert_eq!(red.and_then(|d| d.ink), colour("red").flatten());
         let q = [Ctx {
             el: &el("q", &[]),
             before: &[],
         }];
-        let open = declared_pseudo(&[], &q, PseudoEl::Before).and_then(|d| d.content);
+        let open = declared_pseudo(&[], &q, PseudoEl::Before, &none()).and_then(|d| d.content);
         assert_eq!(
             open,
             Some(Content::Items(Arc::from([generated::Item::OpenQuote])))
@@ -2688,6 +3092,7 @@ mod tests {
                 &path,
                 &Decl::default(),
                 (None, ""),
+                &none(),
             )
         };
         assert_eq!(decl(std::slice::from_ref(&h1), &p).italic, Some(true));
@@ -2714,6 +3119,7 @@ mod tests {
             &path,
             &Decl::default(),
             (Some("text-align: left"), ""),
+            &none(),
         );
         assert_eq!(d.align, Some(TextAlign::Center));
         let d = declared(
@@ -2721,6 +3127,7 @@ mod tests {
             &path,
             &Decl::default(),
             (Some("text-align: left !important"), ""),
+            &none(),
         );
         assert_eq!(d.align, Some(TextAlign::Start));
     }
@@ -2739,7 +3146,13 @@ mod tests {
             el: &p,
             before: &[],
         }];
-        let d = declared(&[Arc::new(sheet)], &path, &Decl::default(), (None, ""));
+        let d = declared(
+            &[Arc::new(sheet)],
+            &path,
+            &Decl::default(),
+            (None, ""),
+            &none(),
+        );
         assert_eq!((d.italic, d.weight), (None, Some(Weight::Abs(700))));
         let sheet = Stylesheet::parse(
             "@font-face { font-family: \"title\"; src: url(../Fonts/title.ttf) }",
@@ -2812,5 +3225,160 @@ mod tests {
         let mut found = 0;
         sheet.matching((&path, None), &mut |_| found += 1);
         assert_eq!(found, 1);
+    }
+
+    /// The cascade for one `tag` element of `classes` under `css`.
+    fn styled(css: &str, tag: &str, classes: &[&str], inherited: &Vars) -> Decl {
+        let sheet = Arc::new(Stylesheet::parse(css, "/OEBPS/css/s.css"));
+        let e = el(tag, classes);
+        let path = [Ctx {
+            el: &e,
+            before: &[],
+        }];
+        let inline = (None, "/OEBPS/text/c.xhtml");
+        declared(&[sheet], &path, &Decl::default(), inline, inherited)
+    }
+
+    #[test]
+    fn var_reads_custom_properties_through_the_cascade() {
+        let css = "p { --ink: #336699; --gap: 2em; color: var(--ink); \
+                   margin: var(--gap) 0; text-indent: var(--none, 3em) } \
+                   p.x { --ink: #ff0000 } p.y { color: #008000 } p.z { color: var(--nothing) } \
+                   p.u { background-image: var(--art); --art: url(../img/a.png) } \
+                   p.w { width: calc(100% - var(--gap)) } p.s { --Case: 1em; text-indent: var(--Case) }";
+        let p = styled(css, "p", &[], &none());
+        assert_eq!(p.ink, Some([0x33, 0x66, 0x99]));
+        let (em2, zero) = (Some(Len::Em(2.0)), Some(Len::Px(0.0)));
+        assert_eq!(p.margin, [em2, zero, em2, zero]);
+        assert_eq!(p.indent, Some(Len::Em(3.0)));
+        assert!(p.vars.as_ref().is_some_and(|v| v.len() == 2));
+        // A more specific rule wins, by name or by value.
+        assert_eq!(styled(css, "p", &["x"], &none()).ink, Some([255, 0, 0]));
+        assert_eq!(styled(css, "p", &["y"], &none()).ink, Some([0, 128, 0]));
+        // A name with no value unsets the property, as CSS says.
+        assert_eq!(styled(css, "p", &["z"], &none()).ink, None);
+        let u = styled(css, "p", &["u"], &none());
+        assert_eq!(u.picture, Some(Some(Arc::from("/OEBPS/img/a.png"))));
+        let w = styled(css, "p", &["w"], &none()).width;
+        assert_eq!(
+            w,
+            Some(Len::Mix {
+                px: 0.0,
+                em: -2.0,
+                pct: 100.0
+            })
+        );
+        // Custom property names keep their case.
+        assert_eq!(styled(css, "p", &["s"], &none()).indent, Some(Len::Em(1.0)));
+    }
+
+    #[test]
+    fn custom_properties_reach_children_and_generated_boxes() {
+        let div = styled("div { --ink: #112233 }", "div", &[], &none());
+        let parent = Computed::default().child(&div);
+        let p = styled("p { color: var(--ink) }", "p", &[], &parent.vars);
+        assert_eq!(p.ink, Some([0x11, 0x22, 0x33]));
+        let child = parent.child(&p);
+        assert_eq!(child.vars.len(), 1);
+        let sheet = Arc::new(Stylesheet::parse(
+            "p::before { content: 'x'; color: var(--ink) }",
+            "/s.css",
+        ));
+        let e = el("p", &[]);
+        let path = [Ctx {
+            el: &e,
+            before: &[],
+        }];
+        let before = declared_pseudo(&[sheet], &path, PseudoEl::Before, &child.vars);
+        assert_eq!(before.and_then(|d| d.ink), Some([0x11, 0x22, 0x33]));
+    }
+
+    #[test]
+    fn global_keywords_reset_what_lower_rules_set() {
+        let css = "p { margin: 2em; color: #ff0000; font-weight: bold; display: none } \
+                   p.i { margin: initial; color: inherit; display: revert } \
+                   p.u { font-weight: unset; margin-top: unset } p.w { margin: inherit } \
+                   p.v { color: var(--none, inherit) }";
+        let i = styled(css, "p", &["i"], &none());
+        assert_eq!(i.margin, [Some(Len::Px(0.0)); 4]);
+        assert_eq!(i.ink, None);
+        // Reverted, display keeps what the sheets below it set.
+        assert_eq!(i.display, Some(Display::None));
+        let u = styled(css, "p", &["u"], &none());
+        assert_eq!(u.weight, None);
+        assert_eq!(
+            (u.margin[0], u.margin[1]),
+            (Some(Len::Px(0.0)), Some(Len::Em(2.0)))
+        );
+        // `inherit` on what doesn't inherit is left alone.
+        assert_eq!(
+            styled(css, "p", &["w"], &none()).margin[0],
+            Some(Len::Em(2.0))
+        );
+        assert_eq!(styled(css, "p", &["v"], &none()).ink, None);
+        // `initial` colour is the default ink, not the parent's.
+        let ink = styled("p { color: initial }", "p", &[], &none()).ink;
+        assert_eq!(ink, Some([0, 0, 0]));
+        // Below every rule, a reset clears what an earlier rule set.
+        let merged = Stylesheet::parse("p { color: #ff0000 } p { color: unset }", "/s.css");
+        let e = el("p", &[]);
+        let path = [Ctx {
+            el: &e,
+            before: &[],
+        }];
+        let d = declared(
+            &[Arc::new(merged)],
+            &path,
+            &Decl::default(),
+            (None, ""),
+            &none(),
+        );
+        assert_eq!(d.ink, None);
+    }
+
+    #[test]
+    fn imports_layers_supports_and_media_read_as_css_says() {
+        let css = "@charset \"utf-8\";\n@import url(\"base.css\");\n@import 'print.css' print;\n\
+                   @import url(wide.css) (min-width: 2000px);\n\
+                   @import \"grid.css\" layer(x) supports(display: grid) screen;\n\
+                   @import url(\"../fonts.css\") supports(writing-mode: vertical-rl);\n\
+                   @import url(\"two.css\") supports((display: grid) and (color: red)) (color);\n\
+                   @layer base { p.l { text-align: center !important; font-style: italic } }\n\
+                   p { text-align: right; font-style: normal } \
+                   p.l { text-align: left !important } \
+                   @supports (display: grid) { p { font-weight: bold } }\n\
+                   @supports not (display: grid) { p { color: #ff0000 } }\n\
+                   @media (prefers-color-scheme: dark) { p { color: #ffffff } }\n\
+                   @container (min-width: 1px) { p { text-indent: 1em } }";
+        let sheet = Stylesheet::parse(css, "/OEBPS/css/s.css");
+        assert_eq!(
+            sheet.imports,
+            [
+                "/OEBPS/css/base.css",
+                "/OEBPS/css/grid.css",
+                "/OEBPS/css/two.css"
+            ]
+        );
+        let p = styled(css, "p", &[], &none());
+        assert_eq!(p.weight, Some(Weight::Abs(700)));
+        assert_eq!((p.ink, p.indent), (None, Some(Len::Em(1.0))));
+        // Rules outside a layer beat those in one, whatever the selector...
+        let l = styled(css, "p", &["l"], &none());
+        assert_eq!(l.italic, Some(false));
+        // ...but a layer's important rules beat the rest's.
+        assert_eq!(l.align, Some(TextAlign::Center));
+        // Layers rank as first named; important ones reverse.
+        let order = "@layer base, theme; @layer theme { p { font-weight: bold; \
+                     text-align: right !important } p.n { font-style: italic } } \
+                     @layer base { p { font-weight: normal; text-align: center !important } \
+                     @layer inner { p.n { font-style: normal } } } \
+                     @layer { p { text-indent: 1em } } @layer { p { text-indent: 2em } }";
+        let p = styled(order, "p", &[], &none());
+        assert_eq!(p.weight, Some(Weight::Abs(700)));
+        assert_eq!(p.align, Some(TextAlign::Center));
+        assert_eq!(p.indent, Some(Len::Em(2.0)));
+        assert_eq!(styled(order, "p", &["n"], &none()).italic, Some(true));
+        let tail = Stylesheet::parse("p { color: red }\n@import url(late.css);", "/s.css");
+        assert_eq!(tail.imports, ["/late.css"]);
     }
 }

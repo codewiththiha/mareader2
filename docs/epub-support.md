@@ -38,6 +38,9 @@ engine (2026-10-21), and the slices that close the gaps. Layout itself
 | `hr` in the book's width, style and colour | The reader's faint rule | E3 |
 | `calc()`, `var()`, `min()`, `max()`, `clamp()` | Missing | E4 |
 | `@media` features (`prefers-color-scheme`, widths), `!important` | Partly | E4 |
+| `@import`, `@supports`, `@layer`, `@container` | Skipped, with all their rules | E4 |
+| `initial`, `inherit`, `unset`, `revert` | Read as unknown values | E4 |
+| `media` on `link` and `style`, alternate sheets | Every sheet applied | E4 |
 | Obfuscated fonts, WOFF, WOFF2 | Missing | E5 |
 | `font-variant`, `font-feature-settings`, `text-align-last`, widows and orphans, `break-inside` | Missing | E5 |
 | `dir`, right-to-left text and page order | Missing | E6 |
@@ -142,3 +145,31 @@ picture, a shadow) is drawn as a box in the book's width, margins and
 style, so a centred short line, a double rule or a gradient fade shows as
 designed. Read as the reader's own, it is the reader's plain rule. An `hr`
 the book leaves alone is the reader's faint rule.
+
+## Values and queries (E4)
+
+Lengths may be sums: `calc()`, `min()`, `max()` and `clamp()` work out to
+pixels where they can; a share of the column stays a share, so
+`calc(100% - 2em)` keeps tracking the page. Custom properties cascade and
+inherit like any other; `var()` takes the winning value or its fallback,
+and one that names itself, or names nothing, leaves its property unset.
+Properties set on `:root` reach the whole chapter, though `html` opens
+before its sheets load.
+
+Sheets meet their conditions before any rule counts. `@import` loads up to
+four sheets deep, a few per sheet, each once, imports first; one with a
+`media` list or a `supports()` test that fails is skipped. `@supports`
+asks the engine itself whether it reads a property or selector, so
+fallbacks a book writes for older readers stand down when ours draws the
+real thing. `@layer` blocks rank in the order first named, nested ones
+within their parent, all below unlayered rules; important rules turn
+that order round. `@container` reads the column. `initial`,
+`inherit`, `unset` and `revert` reset what lower rules set.
+
+Media queries see a page 650 pixels wide and 980 tall, a colour screen
+with a fine pointer and no scripting. `prefers-color-scheme` always
+answers `light`: the reader already turns the book's colours and black art
+to each theme, and a book that also flips them under `dark` would come out
+inverted twice, its ornaments vanishing on dark paper. Vendor `@media`
+types, `print`, alternate sheets, and `link` or `style` elements whose
+`media` doesn't match are not applied.
