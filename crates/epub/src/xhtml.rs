@@ -15,6 +15,7 @@ use mareader_reflow::{
     Length, Links, Look, Outline, Picture, Role, Row, Script, Table, Text, TextShadow, VAlign,
 };
 
+use crate::calc::Vars;
 use crate::css::{
     self, BorderStyle, Computed, Ctx, Decl, Display, El, Float, FontFace, Len, Line, MAX_SHEET,
     PictureSize, PseudoEl, ROOT_PX, Stylesheet, TextAlign,
@@ -22,6 +23,7 @@ use crate::css::{
 use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
+use crate::query;
 use crate::svg::{self, Capture};
 
 /// Open elements tracked at once; deeper nesting is read as flat.
@@ -55,6 +57,8 @@ const GENERIC: &[&str] = &[
 ];
 /// Stylesheets one chapter applies; later ones are ignored.
 pub const MAX_SHEETS: usize = 16;
+/// Sheets importing sheets, this deep.
+const MAX_IMPORT_DEPTH: usize = 4;
 /// Indents in body ems, as mareader's stylesheet has them.
 const LIST_INSET: f32 = 1.6;
 const QUOTE_INSET: f32 = 1.0;
@@ -450,6 +454,10 @@ struct State<'a> {
     sheets: Vec<Arc<Stylesheet>>,
     /// An inline `<style>` being read.
     style_text: String,
+    /// Whether that `<style>`'s `media` applies.
+    style_applies: bool,
+    /// `html`, styled before its head's sheets; its custom values wait.
+    root: Option<El>,
     blocks: Vec<Block>,
     current: Option<Block>,
     table: Option<TableBuild>,
@@ -810,6 +818,7 @@ impl State<'_> {
             Len::Auto => cell_width(c),
             Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
             Len::Percent(p) if p > 0.0 => Some(Length::Percent(p)),
+            Len::Mix { px, pct, .. } => mixed(px, pct),
             _ => None,
         };
         row.widths.push(basis);
@@ -1005,6 +1014,10 @@ impl State<'_> {
             Len::Px(px) => Some(Length::Em(px / ROOT_PX)),
             Len::Em(e) | Len::Rem(e) => Some(Length::Em(e)),
             Len::Percent(p) => Some(Length::Percent(p)),
+            Len::Mix { px, em, pct } => Some(Length::Mix {
+                em: px / ROOT_PX + em,
+                percent: pct,
+            }),
             _ => None,
         };
         let size = match c.picture_size {
@@ -1079,6 +1092,10 @@ impl State<'_> {
         let place = |l: Len| match l {
             Len::Percent(p) => Length::Percent(p),
             Len::Em(e) => Length::Em(e * c.size / ROOT_PX),
+            Len::Mix { px, em, pct } => Length::Mix {
+                em: (px + em * c.size) / ROOT_PX,
+                percent: pct,
+            },
             other => Length::Em(other.px(c.size, css::BASE_WIDTH).unwrap_or(0.0) / ROOT_PX),
         };
         let shape = match g.radial {
@@ -1913,18 +1930,42 @@ impl State<'_> {
 
     /// The cascade for `el`, about to open inside the stack.
     fn declared(&self, el: &El, tag: &Tag) -> Decl {
+        let inherited = match self.stack.last() {
+            Some(open) => Arc::clone(&open.computed.vars),
+            None => Arc::from([]),
+        };
         css::declared(
             &self.sheets,
             &self.path(el),
             &hints(tag, &el.tag),
             (attr(tag, "style"), self.base),
+            &inherited,
         )
     }
 
-    /// The generated boxes rules give `el`, about to open.
-    fn pseudos(&self, el: &El) -> Pseudos {
+    /// `:root`'s custom properties, read now the head's sheets are in.
+    fn root_vars(&mut self) {
+        let Some(root) = self.root.take() else {
+            return;
+        };
+        let path = [Ctx {
+            el: &root,
+            before: &[],
+        }];
+        let none: Vars = Arc::from([]);
+        let d = css::declared(&self.sheets, &path, &Decl::default(), (None, ""), &none);
+        if let (Some(vars), Some(open)) = (d.vars, self.stack.first_mut())
+            && open.name == "html"
+        {
+            open.computed.vars = vars;
+        }
+    }
+
+    /// The generated boxes rules give `el`, about to open; `d` is its own.
+    fn pseudos(&self, el: &El, d: &Decl) -> Pseudos {
         let path = self.path(el);
-        let get = |which| css::declared_pseudo(&self.sheets, &path, which);
+        let vars = d.vars.clone().unwrap_or_else(|| Arc::from([]));
+        let get = |which| css::declared_pseudo(&self.sheets, &path, which, &vars);
         let block = is_block(&el.tag);
         Pseudos {
             before: get(PseudoEl::Before).filter(generates),
@@ -2009,8 +2050,15 @@ impl State<'_> {
         }
     }
 
-    /// Every element meets every sheet, so a chapter keeps a few, once.
-    fn add_sheet(&mut self, sheet: Arc<Stylesheet>) {
+    /// A chapter keeps a few sheets, once each, imports first.
+    fn add_sheet(&mut self, sheet: Arc<Stylesheet>, depth: usize) {
+        if depth < MAX_IMPORT_DEPTH {
+            for path in &sheet.imports {
+                if let Some(imported) = self.library.stylesheet(path) {
+                    self.add_sheet(imported, depth + 1);
+                }
+            }
+        }
         let known = self.sheets.iter().any(|s| Arc::ptr_eq(s, &sheet));
         if !known && self.sheets.len() < MAX_SHEETS {
             self.sheets.push(sheet);
@@ -2019,15 +2067,20 @@ impl State<'_> {
     }
 
     fn link(&mut self, tag: &Tag) {
-        let sheet = attr(tag, "rel").is_some_and(|r| {
-            r.split_ascii_whitespace()
-                .any(|w| w.eq_ignore_ascii_case("stylesheet"))
-        });
+        let rel = |want: &str| {
+            attr(tag, "rel").is_some_and(|r| {
+                r.split_ascii_whitespace()
+                    .any(|w| w.eq_ignore_ascii_case(want))
+            })
+        };
+        // Alternate sheets wait to be picked; `media` must apply.
+        let media = attr(tag, "media").is_none_or(query::media);
+        let sheet = rel("stylesheet") && !rel("alternate") && media;
         let path = attr(tag, "href").and_then(|h| href::resolve(self.base, h));
         if let (true, Some(path)) = (sheet, path)
             && let Some(sheet) = self.library.stylesheet(&path)
         {
-            self.add_sheet(sheet);
+            self.add_sheet(sheet, 0);
         }
     }
 
@@ -2305,11 +2358,20 @@ impl State<'_> {
             self.close_implied(name);
         }
         let el = self.element(tag, name);
+        match name {
+            "html" if self.stack.is_empty() => self.root = Some(el.clone()),
+            "body" => self.root_vars(),
+            _ => {}
+        }
         let quiet = self.top().hidden || self.top().graphic;
         let (declared, pseudos) = match forced {
             Some(d) => (d, Pseudos::default()),
             None if quiet => (self.declared(&el, tag), Pseudos::default()),
-            None => (self.declared(&el, tag), self.pseudos(&el)),
+            None => {
+                let declared = self.declared(&el, tag);
+                let pseudos = self.pseudos(&el, &declared);
+                (declared, pseudos)
+            }
         };
         self.styled |= attr(tag, "style").is_some();
         let computed = match self.stack.last() {
@@ -2469,6 +2531,7 @@ impl State<'_> {
         });
         if name == "style" {
             self.style_text.clear();
+            self.style_applies = attr(tag, "media").is_none_or(query::media);
         }
         if let Some(d) = before {
             self.generate(d);
@@ -2505,8 +2568,10 @@ impl State<'_> {
     fn end(&mut self, name: &str) {
         if name == "style" && self.stack.last().is_some_and(|o| o.name == "style") {
             let text = std::mem::take(&mut self.style_text);
-            let sheet = Stylesheet::parse(&text, self.base);
-            self.add_sheet(Arc::new(sheet));
+            if self.style_applies {
+                let sheet = Stylesheet::parse(&text, self.base);
+                self.add_sheet(Arc::new(sheet), 0);
+            }
         }
         if let Some(at) = self.stack.iter().rposition(|o| o.name == name) {
             self.generate_after(at);
@@ -2715,6 +2780,10 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
     let side = |i: usize| match c.margin.get(i).copied().unwrap_or(Len::Auto) {
         Len::Auto => None,
         Len::Percent(p) | Len::Vw(p) => Some(Length::Percent(p)),
+        Len::Mix { px, pct, .. } => Some(Length::Mix {
+            em: px / ROOT_PX,
+            percent: pct,
+        }),
         _ => Some(Length::Em(c.margin_px(i) / ROOT_PX)),
     };
     let zero = Some(Length::Em(0.0));
@@ -2723,6 +2792,7 @@ fn boxed(name: &str, c: &Computed, d: &Decl, cell: bool) -> Option<Boxed> {
         _ if cell => None,
         Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
         Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        Len::Mix { px, pct, .. } => mixed(px, pct),
         _ => None,
     };
     let flex = matches!(c.display, Display::Flex | Display::Grid);
@@ -2802,6 +2872,7 @@ fn radius(c: &Computed) -> Option<Length> {
     match c.radius {
         Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
         Len::Percent(p) if p > 0.0 => Some(Length::Percent(p.min(50.0))),
+        Len::Mix { px, pct, .. } => mixed(px, pct.min(50.0)),
         _ => None,
     }
 }
@@ -2811,6 +2882,7 @@ fn bare(c: &Computed) -> Boxed {
     let width = match c.width {
         Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
         Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        Len::Mix { px, pct, .. } => mixed(px, pct),
         _ => None,
     };
     let height = match c.height {
@@ -2855,7 +2927,7 @@ fn in_line(parent: &str) -> bool {
 
 /// A small picture's size in ems of its text, to sit in a line.
 fn inline_size(picture: &Picture, c: &Computed) -> Option<(f32, f32)> {
-    if matches!(c.width, Len::Percent(_) | Len::Vw(_)) {
+    if matches!(c.width, Len::Percent(_) | Len::Vw(_) | Len::Mix { .. }) {
         return None;
     }
     let (pw, ph) = (picture.width as f32, picture.height as f32);
@@ -2882,6 +2954,7 @@ fn cell_width(c: &Computed) -> Option<Length> {
     match c.width {
         Len::Px(px) if px > 0.0 => Some(Length::Em(px / ROOT_PX)),
         Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p)),
+        Len::Mix { px, pct, .. } => mixed(px, pct),
         _ => None,
     }
 }
@@ -2910,8 +2983,18 @@ fn picture_width(c: &Computed) -> Option<Length> {
     match c.width {
         Len::Px(px) if px > 0.0 => Some(Length::Em((px / ROOT_PX).min(200.0))),
         Len::Percent(p) | Len::Vw(p) if p > 0.0 => Some(Length::Percent(p.min(100.0))),
+        Len::Mix { px, pct, .. } => mixed(px, pct.min(100.0)),
         _ => None,
     }
+}
+
+/// A computed sum as ems and a column share, if it comes out wide.
+fn mixed(px: f32, pct: f32) -> Option<Length> {
+    let rough = px + pct * css::BASE_WIDTH / 100.0;
+    (rough > 0.0).then_some(Length::Mix {
+        em: px / ROOT_PX,
+        percent: pct,
+    })
 }
 
 /// What HTML attributes say about style, beneath every sheet.
@@ -3204,6 +3287,8 @@ pub(crate) fn read_chapter(
         base: path,
         sheets: Vec::new(),
         style_text: String::new(),
+        style_applies: true,
+        root: None,
         blocks: Vec::new(),
         current: None,
         table: None,
@@ -4447,6 +4532,73 @@ mod tests {
         let aligns: Vec<Align> = b.iter().map(|b| b.frame.align).collect();
         // The linked sheet counts once, so the last style is one too many.
         assert_eq!(aligns, [Align::Center, Align::Center, Align::Start]);
+    }
+
+    #[test]
+    fn sheets_load_by_media_and_import_and_fill_in_custom_values() {
+        let mut shelf = Shelf::default();
+        for (path, css) in [
+            (
+                "/OEBPS/css/book.css",
+                "@import url(base.css); @import 'print.css' print; .it { font-style: italic }",
+            ),
+            (
+                "/OEBPS/css/base.css",
+                "p { --mid: center; text-align: var(--mid) }",
+            ),
+            ("/OEBPS/css/print.css", "p { display: none }"),
+            ("/OEBPS/css/night.css", "p { display: none }"),
+            (
+                "/OEBPS/css/loop.css",
+                "@import url(loop.css); .lp { font-weight: bold }",
+            ),
+        ] {
+            let sheet = Arc::new(Stylesheet::parse(css, path));
+            shelf.sheets.insert(path.into(), sheet);
+        }
+        let b = read_with(
+            &mut shelf,
+            "<head><link rel='stylesheet' href='../css/book.css'/>\
+             <link rel='alternate stylesheet' href='../css/night.css'/>\
+             <link rel='stylesheet' media='print' href='../css/print.css'/>\
+             <link rel='stylesheet' href='../css/loop.css'/>\
+             <style media='amzn-kf8'>p { display: none }</style>\
+             <style media='screen'>.wide { width: calc(100% - 4em) }</style></head>\
+             <p>a <span class='it lp'>b</span></p>\
+             <div class='wide' style='border: 1px solid'><p>c</p></div>",
+        );
+        assert_eq!(texts(&b), ["a b", "c"]);
+        assert_eq!(b.first().map(|b| b.frame.align), Some(Align::Center));
+        let e = Emphasis {
+            italic: true,
+            bold: true,
+            ..Emphasis::default()
+        };
+        assert_eq!(spans(b.first()), [(" b", e)]);
+        let wide = b
+            .get(1)
+            .and_then(|b| b.frame.boxes.first())
+            .map(|x| x.width);
+        let mix = Length::Mix {
+            em: -4.0,
+            percent: 100.0,
+        };
+        assert_eq!(wide, Some(Some(mix)));
+    }
+
+    #[test]
+    fn root_custom_values_reach_the_body_once_sheets_load() {
+        let b = read(
+            "<html class='x'><head><style>:root { --mid: center } \
+             html.x { --pad: 2em } p { text-align: var(--mid); text-indent: var(--pad) }\
+             </style></head><body><p>a</p></body></html>",
+        );
+        assert_eq!(b.first().map(|b| b.frame.align), Some(Align::Center));
+        let indent = b
+            .first()
+            .and_then(|b| b.frame.look.as_ref())
+            .map(|l| l.indent);
+        assert_eq!(indent, Some(2.0));
     }
 
     #[test]

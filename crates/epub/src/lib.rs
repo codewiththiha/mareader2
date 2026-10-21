@@ -10,6 +10,7 @@
 )]
 
 mod book;
+mod calc;
 mod convert;
 mod css;
 mod decor;
@@ -17,6 +18,7 @@ mod generated;
 mod guard;
 mod href;
 mod notes;
+mod query;
 pub mod sample;
 mod splice;
 mod svg;

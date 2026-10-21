@@ -1307,8 +1307,7 @@ impl<'a> Setter<'a> {
                     cover_rect(picture, column, height)
                 } else {
                     let wanted = match asked {
-                        Some(Length::Em(e)) => e * em,
-                        Some(Length::Percent(p)) => width * p / 100.0,
+                        Some(l) => resolve(*l, width, em),
                         None => picture.width as f32,
                     };
                     image_rect(picture, frame.align, (wanted, width), height)
@@ -1610,6 +1609,7 @@ pub(crate) fn resolve(length: Length, width: f32, em: f32) -> f32 {
     match length {
         Length::Em(e) => e * em,
         Length::Percent(p) => width * p / 100.0,
+        Length::Mix { em: e, percent: p } => e * em + width * p / 100.0,
     }
 }
 

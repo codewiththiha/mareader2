@@ -265,6 +265,8 @@ pub enum Length {
     Em(f32),
     /// A share of the column, 0 to 100.
     Percent(f32),
+    /// Ems plus a share of the column, as `calc()` sums them.
+    Mix { em: f32, percent: f32 },
 }
 
 /// Line alignment within the block's column.
