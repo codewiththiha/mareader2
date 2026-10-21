@@ -2345,13 +2345,13 @@ impl State<'_> {
             self.emit(b);
             return;
         }
+        if self.target().is_none_or(|t| t.inlines.len() >= MAX_INLINES) {
+            return self.formula_alt(&root);
+        }
         let space = std::mem::take(&mut self.space);
         let Some(t) = self.target() else {
             return;
         };
-        if t.inlines.len() >= MAX_INLINES {
-            return self.formula_alt(&root);
-        }
         if space && !t.text.is_empty() && !t.text.ends_with('\n') {
             t.push(" ", Emphasis::default());
         }
@@ -2371,7 +2371,11 @@ impl State<'_> {
             let src = src.to_owned();
             return self.image(Some(&src), alt.as_deref(), (None, None));
         }
+        let space = std::mem::take(&mut self.space);
         if let (Some(text), Some(t)) = (alt, self.target()) {
+            if space && !t.text.is_empty() && !t.text.ends_with('\n') {
+                t.push(" ", Emphasis::default());
+            }
             t.push(&text, Emphasis::default());
         }
     }
