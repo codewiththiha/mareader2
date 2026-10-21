@@ -18,6 +18,7 @@ mod fontfile;
 mod generated;
 mod guard;
 mod href;
+mod math;
 mod notes;
 mod query;
 pub mod sample;

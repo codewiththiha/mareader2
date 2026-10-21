@@ -12,8 +12,8 @@ use html5ever::tokenizer::{
 use mareader_reflow::{
     Align, Anchor, Annotation, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns, Content,
     Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape, GridRow,
-    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Role, Row, Script, Sheet, Spot,
-    Table, Text, TextShadow, VAlign,
+    Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Rise, Role, Row, Script, Sheet,
+    Spot, Table, Text, TextShadow, VAlign,
 };
 
 use crate::calc::Vars;
@@ -24,6 +24,7 @@ use crate::css::{
 use crate::decor::{self, Span, Tint};
 use crate::generated::{self, Content as Generated, Item, ListStyle};
 use crate::href;
+use crate::math;
 use crate::query;
 use crate::svg::{self, Capture};
 
@@ -163,9 +164,15 @@ pub(crate) fn svg_links(library: &mut dyn Library, base: &str, hrefs: Vec<String
     .collect()
 }
 
-/// An inline `svg` being read: its markup and how it is set.
+/// What an inline drawing is read into.
+enum Caught {
+    Svg(Box<Capture>),
+    Math(Box<math::Capture>),
+}
+
+/// An inline `svg` or `math` being read: its markup and how it is set.
 struct Drawing {
-    capture: Box<Capture>,
+    capture: Caught,
     name: String,
     computed: Computed,
     shown: bool,
@@ -2246,15 +2253,20 @@ impl State<'_> {
         self.picture(picture, alt, sized);
     }
 
-    /// Starts reading an inline drawing at its `svg` start tag.
+    /// Starts reading an inline drawing at its `svg` or `math` start tag.
     fn begin_drawing(&mut self, tag: &Tag) {
         let name: &str = &tag.name;
-        if tag.self_closing || !svg::is_root(name) {
-            return;
-        }
+        let capture = match () {
+            _ if tag.self_closing => return,
+            _ if svg::is_root(name) => Caught::Svg(Box::new(Capture::new(tag))),
+            _ if name.rsplit(':').next() == Some("math") => {
+                Caught::Math(Box::new(math::Capture::new(tag)))
+            }
+            _ => return,
+        };
         let open = self.stack.last().filter(|o| o.name == name);
         self.drawing = Some(Drawing {
-            capture: Box::new(Capture::new(tag)),
+            capture,
             name: name.to_owned(),
             computed: open.map_or_else(Computed::default, |o| o.computed.clone()),
             shown: open.is_some_and(|o| !o.style.hidden),
@@ -2264,10 +2276,10 @@ impl State<'_> {
 
     /// Feeds a drawing; at its end it is shown as one picture.
     fn draw(&mut self, token: &Token) {
-        let done = self
-            .drawing
-            .as_mut()
-            .is_some_and(|d| d.capture.token(token));
+        let done = self.drawing.as_mut().is_some_and(|d| match &mut d.capture {
+            Caught::Svg(c) => c.token(token),
+            Caught::Math(m) => m.token(token),
+        });
         let Some(d) = self.drawing.take_if(|_| done) else {
             return;
         };
@@ -2275,9 +2287,17 @@ impl State<'_> {
         let places = self.places.clone();
         self.end(&d.name);
         let after = std::mem::replace(&mut self.places, places);
-        if d.shown && !d.capture.broken {
+        let svg = match d.capture {
+            Caught::Svg(c) => Some(c),
+            Caught::Math(m) if d.shown => {
+                self.formula(*m, &d.computed);
+                None
+            }
+            Caught::Math(_) => None,
+        };
+        if let Some(c) = svg.filter(|c| d.shown && !c.broken) {
             let (width, alt) = (picture_width(&d.computed), d.alt.as_deref());
-            let c = *d.capture;
+            let c = *c;
             match c.images.as_slice() {
                 // A frame round one image, as covers are: that image shows.
                 [only] if !c.drawn => self.image(Some(only), alt, (None, None)),
@@ -2291,6 +2311,68 @@ impl State<'_> {
         self.places = after;
         if matches!(token, Token::EOFToken) {
             self.eof();
+        }
+    }
+
+    /// Sets a `math` element: in its line, or centred as its own block.
+    fn formula(&mut self, capture: math::Capture, computed: &Computed) {
+        if self.top().hidden {
+            return;
+        }
+        let broken = capture.broken;
+        let Some(root) = capture.root() else {
+            return;
+        };
+        let block = math::is_block(&root) || computed.display == Display::Block;
+        let drawn = (!broken).then(|| math::render(&root, block)).flatten();
+        let picture = drawn.as_ref().and_then(|f| {
+            let svg = f.svg.as_bytes().to_vec();
+            Picture::svg(svg, Links::new()).ok().map(Arc::new)
+        });
+        let (Some(f), Some(picture)) = (drawn, picture) else {
+            return self.formula_alt(&root);
+        };
+        // A table's cells hold lines only, so display math sits in one.
+        if block && self.table.is_none() {
+            self.finish();
+            let mut b = Block::new(Content::Image {
+                picture,
+                cover: false,
+                width: Some(Length::Em(f.width)),
+            });
+            b.frame = self.frame();
+            b.frame.align = Align::Center;
+            self.emit(b);
+            return;
+        }
+        let space = std::mem::take(&mut self.space);
+        let Some(t) = self.target() else {
+            return;
+        };
+        if t.inlines.len() >= MAX_INLINES {
+            return self.formula_alt(&root);
+        }
+        if space && !t.text.is_empty() && !t.text.ends_with('\n') {
+            t.push(" ", Emphasis::default());
+        }
+        t.inlines.push(Inline {
+            at: t.text.len(),
+            picture,
+            width: f.width,
+            height: f.height,
+            rise: Rise::By(-f.depth),
+        });
+    }
+
+    /// A formula that can't be drawn: its own picture, else its text.
+    fn formula_alt(&mut self, root: &math::Node) {
+        let alt = math::alt(root);
+        if let Some(src) = root.attr("altimg") {
+            let src = src.to_owned();
+            return self.image(Some(&src), alt.as_deref(), (None, None));
+        }
+        if let (Some(text), Some(t)) = (alt, self.target()) {
+            t.push(&text, Emphasis::default());
         }
     }
 
