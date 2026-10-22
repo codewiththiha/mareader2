@@ -196,6 +196,14 @@ slice 5.
 - **Drawing.** Fills are square, at Fill strength (50% by default, 20 to
   80%); half fills the lower half of each line; underlines are solid, about
   8% of the line high. Highlights are drawn first and AI marks over them.
+- **Under the ink (2026-10-22).** Fills, CEFR shading included, lie under
+  the page's text as a highlighter's do: the page pass multiplies them on
+  light paper and screens them on dark, so marked words keep their own
+  ink. On dark pages a fill starts at 80% of Fill strength and is capped
+  so the ink keeps 4.5:1 against it, or 60% of the page's own contrast
+  when that is lower; on light pages black ink stays black. The settings
+  preview uses the same rule (`PageTone::mark`). Without a GPU, fills fall
+  back to a translucent box on top.
 - **Clicks.** A click on an AI mark opens its card, as before; a click on
   your highlight opens its menu with Remove highlight, with Undo.
 - **The bar** shows the menu's buttons in order, each pen's button with
