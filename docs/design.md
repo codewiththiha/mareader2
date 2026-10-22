@@ -144,6 +144,26 @@ switch on and off and kept the ones that changed nothing visible:
   less a 16 pt margin, so its last group (Film grain) is never cut off in a
   split.
 
+**One source per control (2026-10-22).** Shots showed the same control drawn
+several ways; each now has one helper in `widgets.rs`:
+- **Dropdowns** come from `widgets::combo`, with the Lucide chevron. Clippy's
+  `disallowed-methods` refuses a raw `egui::ComboBox`, so egui's triangle
+  can't come back.
+- **Filled buttons** (accent or danger) come from `primary_button`. The
+  label takes black or white, whichever reads better on the fill
+  (`theme::ink_on`, 4.58:1 at worst): black on the dark looks' light blue,
+  white on light mode's deep blue. Disabled, a filled button fades like the
+  buttons beside it rather than swapping to a pale fill.
+- **Menu notes and headings** (`menu_note`) indent by the button padding, so
+  they line up with the rows' icons, never under the pointer at the menu's
+  corner.
+- **Empty sidebar panels** (`panel_empty`): icon, title and a wrapped hint,
+  centred a third of the way down, inset 28 pt from the sides.
+- **Bar rules** (`vrule`): one hairline between a bar's groups.
+
+The shortcuts sheet takes the window's height, less 32 pt above and below,
+before it scrolls, so a laptop-sized window shows every row.
+
 **Contrast floor.** Muted and accent ink are small text, so after any tint
 `readable` moves their OKLCH lightness just far enough for 4.5:1 (WCAG AA)
 on paper, surface and accent-soft. Light muted and light accent darken a
