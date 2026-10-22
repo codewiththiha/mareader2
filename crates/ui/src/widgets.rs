@@ -146,6 +146,22 @@ pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bo
     resp
 }
 
+/// The one filled button, its words in the ink that reads on `fill`.
+pub fn primary_button(
+    icon: Option<Icon>,
+    label: &str,
+    fill: Color32,
+    t: &Tokens,
+) -> Button<'static> {
+    let ink = crate::theme::ink_on(fill);
+    let text = RichText::new(label).color(ink);
+    let button = match icon {
+        Some(icon) => Button::image_and_text(icon.image(16.0).tint(ink), text),
+        None => Button::new(text),
+    };
+    button.fill(fill).corner_radius(t.radius)
+}
+
 /// A small muted line in a menu, lined up with the rows' icons.
 pub fn menu_note(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());

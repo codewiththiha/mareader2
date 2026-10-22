@@ -420,11 +420,9 @@ impl Open {
                 ui.add_space(4.0);
                 let ctx = ui.ctx().clone();
                 let t = Tokens::get(&ctx);
-                let label = RichText::new("Copy").color(Color32::WHITE);
-                let fill = if ready { t.accent } else { t.line };
-                let primary = egui::Button::new(label)
-                    .fill(fill)
-                    .min_size(vec2(84.0, 30.0));
+                // Disabled, it fades like the buttons beside it.
+                let primary =
+                    widgets::primary_button(None, "Copy", t.accent, &t).min_size(vec2(84.0, 30.0));
                 let copy = ui.add_enabled(ready, primary);
                 let md = ui.add_enabled(
                     ready,

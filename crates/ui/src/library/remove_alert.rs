@@ -226,11 +226,7 @@ fn toggle(ui: &mut Ui, on: &mut bool, label: &str, note: &str, warn: Option<Colo
 
 /// The red button that does it.
 fn confirm(ui: &mut Ui, label: &str, t: &Tokens) -> egui::Response {
-    let text = RichText::new(label).color(Color32::WHITE);
-    let button = Button::new(text)
-        .fill(t.danger)
-        .corner_radius(t.radius)
-        .min_size(vec2(84.0, 30.0));
+    let button = widgets::primary_button(None, label, t.danger, t).min_size(vec2(84.0, 30.0));
     ui.add(button)
 }
 

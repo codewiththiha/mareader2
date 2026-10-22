@@ -369,6 +369,5 @@ pub(super) fn buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 }
 
 pub(super) fn primary(ui: &mut Ui, label: &str, fill: Color32, t: &Tokens) -> egui::Response {
-    let text = RichText::new(label).color(Color32::WHITE);
-    ui.add(Button::new(text).fill(fill).corner_radius(t.radius))
+    ui.add(crate::widgets::primary_button(None, label, fill, t))
 }
