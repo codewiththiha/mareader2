@@ -130,8 +130,11 @@ jobs:
         if: always()
         run: |
           set -o pipefail
-          cargo test -q -p mareader-epub --test layout_memory -- --ignored --nocapture \
-            | tee -a out/layout.txt
+          # One process each: run together, one test's memory counts in the other's.
+          for t in set_books_hold_about_this_much markdown_drawn_again_and_again_holds_level; do
+            cargo test -q -p mareader-epub --test layout_memory -- --ignored --nocapture --exact "$t" \
+              | tee -a out/layout.txt
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
