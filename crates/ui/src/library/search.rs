@@ -634,7 +634,7 @@ impl Row<'_> {
             egui::WidgetInfo::selected(egui::WidgetType::Button, true, self.lit, &name)
         });
         if self.lit || resp.hovered() {
-            let fill = if self.lit { t.accent_soft } else { t.hover };
+            let fill = if self.lit { t.selected } else { t.hover };
             ui.painter().rect_filled(rect, t.radius, fill);
         }
         let thumb =

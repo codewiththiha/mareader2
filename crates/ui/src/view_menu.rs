@@ -169,7 +169,7 @@ fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Comman
         let keys = keymap::hint(platform, &command);
         widgets::tip(&r, label, keys.as_deref());
         let fill = if on {
-            t.accent_soft
+            t.selected
         } else if r.hovered() {
             t.hover
         } else {

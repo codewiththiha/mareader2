@@ -278,7 +278,7 @@ fn nav_row(ui: &mut Ui, tab: Tab, on: bool) -> egui::Response {
     let label = tab.label();
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
     let fill = if on {
-        t.accent_soft
+        t.selected
     } else if r.hovered() {
         t.hover
     } else {
