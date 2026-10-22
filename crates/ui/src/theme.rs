@@ -28,6 +28,10 @@ pub struct Tokens {
     pub pressed: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
+    /// Grouped rows' fill: a pale wash of the look, off the surface.
+    pub card: Color32,
+    /// A switch's track while off, so it reads on every ground.
+    pub track: Color32,
     /// Errors: a toast's icon and edge.
     pub danger: Color32,
     /// The title bar fill without a blurred backdrop.
@@ -59,8 +63,16 @@ impl Tokens {
         let t = a.ui_tokens();
         let (surface, line, ink) = (color(t.surface), color(t.line), color(t.ink));
         let dark = a.base.is_dark();
+        let (paper, accent_soft) = (color(t.paper), color(t.accent_soft));
+        // Light looks lift cards toward the paper; dark ones toward the line.
+        let card = match dark {
+            false => paper.lerp_to_gamma(accent_soft, 0.18),
+            true => surface
+                .lerp_to_gamma(line, 0.5)
+                .lerp_to_gamma(accent_soft, 0.25),
+        };
         Self {
-            paper: color(t.paper),
+            paper,
             page: a.page_tone(),
             book: a.text_tone(),
             ink,
@@ -70,7 +82,9 @@ impl Tokens {
             hover: line,
             pressed: line.lerp_to_gamma(ink, 0.12),
             accent: color(t.accent),
-            accent_soft: color(t.accent_soft),
+            accent_soft,
+            card,
+            track: line.lerp_to_gamma(ink, if dark { 0.18 } else { 0.22 }),
             danger: if dark {
                 Color32::from_rgb(0xf8, 0x71, 0x71)
             } else {

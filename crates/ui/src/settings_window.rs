@@ -765,10 +765,11 @@ fn section(ui: &mut Ui, title: &str) {
     ui.add_space(6.0);
 }
 
-/// A bordered block of rows.
+/// A filled, bordered block of rows.
 fn group(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
     Frame::new()
+        .fill(t.card)
         .stroke(Stroke::new(1.0, t.line))
         .corner_radius(t.radius_lg)
         .inner_margin(Margin::symmetric(14, 0))

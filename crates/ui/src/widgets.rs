@@ -331,15 +331,17 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, value, label)
     });
     let how = ui.ctx().animate_bool_responsive(resp.id, value);
-    let mut track = t.line.lerp_to_gamma(t.accent, how);
+    let mut track = t.track.lerp_to_gamma(t.accent, how);
     if resp.hovered() {
         track = track.lerp_to_gamma(t.ink, 0.08);
     }
     ui.painter()
         .rect_filled(rect, CornerRadius::same(10), track);
     let x = egui::lerp(rect.left() + 10.0..=rect.right() - 10.0, how);
+    // A faint edge keeps the knob off a pale track.
+    let edge = Stroke::new(1.0, Color32::from_black_alpha(if t.dark { 0 } else { 28 }));
     ui.painter()
-        .circle_filled(pos2(x, rect.center().y), 8.0, Color32::WHITE);
+        .circle(pos2(x, rect.center().y), 8.0, Color32::WHITE, edge);
     resp
 }
 
