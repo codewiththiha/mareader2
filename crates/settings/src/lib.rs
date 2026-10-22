@@ -138,6 +138,19 @@ impl Settings {
         self.user_presets.retain(|p| p.id != id);
     }
 
+    /// Sets the field at dotted `path` to JSON `value`, then sanitizes.
+    pub fn set_path(&mut self, path: &str, value: &str) -> Result<(), String> {
+        let mut tree = serde_json::to_value(&*self).map_err(|e| e.to_string())?;
+        let pointer = format!("/{}", path.replace('.', "/"));
+        let slot = tree
+            .pointer_mut(&pointer)
+            .ok_or(format!("no setting {path}"))?;
+        *slot = serde_json::from_str(value).map_err(|e| format!("{path}: {e}"))?;
+        *self = serde_json::from_value(tree).map_err(|e| format!("{path}: {e}"))?;
+        self.sanitize();
+        Ok(())
+    }
+
     /// Built-ins first, then the user's own: the menu's order.
     pub fn all_presets(&self) -> Vec<Preset> {
         let mut all = builtin_presets();
@@ -158,6 +171,18 @@ pub(crate) fn clamp(v: f32, lo: f32, hi: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_path_sets_one_field_and_rejects_unknown_ones() {
+        let mut s = Settings::default();
+        s.set_path("layout.page_indicator", "false").unwrap();
+        assert!(!s.layout.page_indicator);
+        s.set_path("text.font_size", "999").unwrap();
+        assert!(s.text.font_size < 999.0, "sanitized");
+        assert!(s.set_path("layout.nothing_here", "true").is_err());
+        assert!(s.set_path("layout.page_indicator", "\"yes\"").is_err());
+        assert!(!s.layout.page_indicator, "a failed set changes nothing");
+    }
 
     #[test]
     fn a_round_trip_keeps_every_field() {
