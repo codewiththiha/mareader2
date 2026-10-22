@@ -129,6 +129,10 @@ python3 tools/ci.py shots \
   example's `key=value` options (see `crates/ui/examples/shot.rs`).
   `workers=0` renders pages synchronously, so page content appears in the
   shot; without it, the shot may show blank pages.
+- **Any setting (2026-10-22).** `set=<dotted.path>:<json>` writes one
+  settings field through `Settings::set_path`, then sanitizes, for
+  example `set=layout.progress_bar:false`. Every switch can be
+  shot on and off without a new key; an unknown path fails the shot.
 - **What happens.** The `Remote` workflow renders on lavapipe, the same
   software GPU the tests use. It reuses the test job's build cache and
   uploads only the PNGs, kept for 3 days.

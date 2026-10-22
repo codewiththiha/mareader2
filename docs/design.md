@@ -128,6 +128,21 @@ the scroll, together.
 - hover fill = `line`; selected = `accent-soft` with an accent icon;
 - glass (the title bar) = surface at 96 % until the blur pass (M2 slice 3) gives
   surface at 72 % with a 20 pt backdrop blur.
+- glass, retuned (2026-10-22): surface at 59 % (`FROST` 150) over a
+  12 pt blur. At 72 % and 20 pt, shots of glass on and off differed by at
+  most 6 levels, so the switch looked dead; text under the bar now shows.
+
+**Switches show what they do (2026-10-22).** A sweep of shots turned each
+switch on and off and kept the ones that changed nothing visible:
+- **Corners and pane shadow** need room: touching panes hide both. Picking
+  rounded corners or the shadow opens an 8 pt gap (`PaneLook::make_room`)
+  when the gap is zero; a chosen gap stays. The row hint says so.
+- **Progress bar** draws a faint track under the accent line, so turning it
+  on shows even on the first page. In a rounded split the track stops short
+  of the pane's corners.
+- **Appearance popover** sizes to the room left above the window's foot,
+  less a 16 pt margin, so its last group (Film grain) is never cut off in a
+  split.
 
 **Contrast floor.** Muted and accent ink are small text, so after any tint
 `readable` moves their OKLCH lightness just far enough for 4.5:1 (WCAG AA)
