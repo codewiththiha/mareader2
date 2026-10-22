@@ -141,12 +141,7 @@ fn write(
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let ink = if t.dark {
-                egui::Color32::BLACK
-            } else {
-                egui::Color32::WHITE
-            };
-            let save = egui::Button::new(RichText::new("Save").color(ink)).fill(t.accent);
+            let save = widgets::primary_button(None, "Save", t.accent, t);
             let r = ui.add(save);
             widgets::tip(&r, "Save", Some(save_hint()));
             if r.clicked() || save_keys {

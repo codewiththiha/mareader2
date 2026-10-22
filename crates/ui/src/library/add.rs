@@ -70,10 +70,7 @@ pub fn row(ui: &mut Ui, rect: Rect, inset: f32, here: Here<'_>, t: &Tokens, out:
 
 /// The empty library's one button.
 pub fn button(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
-    let text = RichText::new("Add books").color(Color32::WHITE);
-    let button = egui::Button::image_and_text(Icon::Plus.image(16.0).tint(Color32::WHITE), text)
-        .fill(t.accent)
-        .corner_radius(t.radius)
+    let button = crate::widgets::primary_button(Some(Icon::Plus), "Add books", t.accent, t)
         .min_size(vec2(132.0, 34.0));
     let resp = ui.add(button);
     menu(&resp, here, t, out);

@@ -949,12 +949,7 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
         let (mut save, mut cancel) = (false, false);
         ui.columns(2, |cols| {
             if let [l, r] = cols {
-                let ink = if t.dark {
-                    Color32::BLACK
-                } else {
-                    Color32::WHITE
-                };
-                let primary = egui::Button::new(RichText::new("Save").color(ink)).fill(t.accent);
+                let primary = widgets::primary_button(None, "Save", t.accent, &t);
                 save = l
                     .add_enabled_ui(named, |ui| {
                         ui.add_sized([ui.available_width(), 24.0], primary)

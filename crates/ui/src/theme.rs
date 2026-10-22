@@ -157,6 +157,16 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// Black on the light accents, white on the deep ones: 4.58:1 at worst.
+pub fn ink_on(fill: Color32) -> Color32 {
+    let ground = Rgb(fill.r(), fill.g(), fill.b());
+    if ground.contrast(Rgb(0, 0, 0)) > ground.contrast(Rgb(0xff, 0xff, 0xff)) {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
+}
+
 pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(MEDIUM.into()))
 }
@@ -342,6 +352,19 @@ pub mod live {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filled_buttons_read_in_every_preset() {
+        let contrast =
+            |a: Color32, b: Color32| Rgb(a.r(), a.g(), a.b()).contrast(Rgb(b.r(), b.g(), b.b()));
+        for p in mareader_appearance::builtin_presets() {
+            let t = Tokens::new(&p.appearance);
+            for fill in [t.accent, t.danger] {
+                let ratio = contrast(ink_on(fill), fill);
+                assert!(ratio >= 4.5, "{}: {ratio:.2} on {fill:?}", p.name);
+            }
+        }
+    }
 
     #[test]
     fn apply_styles_every_widget_state_from_the_tokens() {
