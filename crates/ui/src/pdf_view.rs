@@ -182,6 +182,12 @@ pub struct PdfView {
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
+    /// A paged book's pane-sized page, in layout units, once settled.
+    sheet: Option<(f32, f32)>,
+    /// The page size the pane wants next, and since when.
+    sheet_want: Option<(Option<(f32, f32)>, f64)>,
+    /// The sheet changed this frame: the book is to be set anew.
+    pub sheet_moved: bool,
 }
 
 impl PdfView {
@@ -221,7 +227,39 @@ impl PdfView {
             landed: None,
             ease: true,
             place: None,
+            sheet: None,
+            sheet_want: None,
+            sheet_moved: false,
         }
+    }
+
+    /// The pane-sized page its book is set on; none is the A4 card.
+    pub fn sheet(&self) -> Option<(f32, f32)> {
+        self.sheet
+    }
+
+    /// Takes `want` once it holds still; else how long to wait.
+    fn settle_sheet(&mut self, want: Option<(f32, f32)>, now: f64) -> Option<f64> {
+        if want == self.sheet {
+            self.sheet_want = None;
+            return None;
+        }
+        let since = match self.sheet_want {
+            Some((w, at)) if w == want => at,
+            _ => {
+                self.sheet_want = Some((want, now));
+                now
+            }
+        };
+        // A first page or a mode change sets at once; resizes settle.
+        let quiet = now - since;
+        if self.sheet.is_some() && want.is_some() && quiet < SHEET_SETTLE {
+            return Some(SHEET_SETTLE - quiet);
+        }
+        self.sheet = want;
+        self.sheet_want = None;
+        self.sheet_moved = true;
+        None
     }
 
     /// The place the last re-set landed on, while it's still read.
@@ -574,6 +612,29 @@ pub struct Sinks<'a> {
     pub vocab: Option<&'a mut crate::vocab::Vocab>,
 }
 
+/// How long a resized pane holds still before its book is set anew.
+const SHEET_SETTLE: f64 = 0.3;
+
+/// A paged book's page: what the pane leaves each page, at its zoom.
+fn sheet_for(view: &PdfView, doc: &Document, room: Vec2) -> Option<(f32, f32)> {
+    if !doc.is_reflowable() || !view.mode.paged() {
+        return None;
+    }
+    let count = if view.mode == ViewMode::Spread {
+        2.0
+    } else {
+        1.0
+    };
+    // A fit lands at 1; a set zoom makes the page's text larger.
+    let zoom = match view.zoom.fit {
+        Some(_) => 1.0,
+        None => view.zoom.state().zoom.max(0.1),
+    };
+    let size = room / zoom;
+    let (w, h) = ((size.x / count).floor(), size.y.floor());
+    (w.is_finite() && h.is_finite() && w >= 1.0 && h >= 1.0).then_some((w, h))
+}
+
 pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>, cx: &ViewContext) {
     let Sinks {
         pages,
@@ -618,6 +679,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     // The strip fits a page's height alone: it scrolls sideways.
     if view.mode == ViewMode::Horizontal && view.zoom.fit == Some(Fit::Page) {
         room.x = f32::INFINITY;
+    }
+    if let Some(wait) = view.settle_sheet(sheet_for(view, doc, room), now) {
+        ctx.request_repaint_after_secs(wait as f32);
     }
     let fit_box = layout::fit_box(view.mode, sizes, (view.zoom.fit_page, view.lead));
     let follow = motion::follow(&ctx);
@@ -1845,6 +1909,26 @@ mod tests {
             (after.1 - before.1).length() < 1e-3,
             "{after:?} vs {before:?}"
         );
+    }
+
+    #[test]
+    fn a_resized_pane_resets_its_book_once_it_holds_still() -> Result<(), &'static str> {
+        let mut view = PdfView::new(crate::testing::doc()?);
+        // The first page size sets at once.
+        assert_eq!(view.settle_sheet(Some((400.0, 600.0)), 0.0), None);
+        assert!(std::mem::take(&mut view.sheet_moved));
+        // A resize waits for the pane to hold still.
+        let wider = Some((500.0, 600.0));
+        assert!(view.settle_sheet(wider, 1.0).is_some());
+        assert!(view.settle_sheet(wider, 1.2).is_some());
+        assert_eq!(view.sheet(), Some((400.0, 600.0)));
+        assert_eq!(view.settle_sheet(wider, 1.31), None);
+        assert_eq!(view.sheet(), wider);
+        assert!(std::mem::take(&mut view.sheet_moved));
+        // A strip goes back to the card at once.
+        assert_eq!(view.settle_sheet(None, 1.4), None);
+        assert_eq!((view.sheet(), view.sheet_moved), (None, true));
+        Ok(())
     }
 
     #[test]

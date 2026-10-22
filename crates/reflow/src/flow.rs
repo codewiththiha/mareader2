@@ -32,6 +32,75 @@ pub const PAD: f32 = 72.0;
 const GUTTER: f32 = 92.0;
 const EDGE: f32 = 56.0;
 
+/// A pane-sized page's least height and most margin.
+const MIN_SHEET: f32 = 160.0;
+const MAX_MARGIN: f32 = 240.0;
+
+/// A page's frame: its size, the pads around its column and where it sits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Card {
+    size: (f32, f32),
+    /// Above and below the column.
+    pads: (f32, f32),
+    /// The column's left edge on even pages, then odd ones.
+    lefts: (f32, f32),
+    column: f32,
+}
+
+impl Card {
+    /// The A4 card around a column `width` wide, or the pane-sized page.
+    fn of(typo: &Typography, width: f32) -> Self {
+        let sheet = typo.sheet.filter(|(w, h)| w.is_finite() && h.is_finite());
+        let Some((w, h)) = sheet else {
+            let (lefts, margins) = match typo.book_layout {
+                true => ((EDGE, GUTTER), GUTTER + EDGE),
+                false => ((PAD, PAD), 2.0 * PAD),
+            };
+            let size = (margins + width, PAGE_HEIGHT);
+            let pads = (PAD, PAD);
+            return Self {
+                size,
+                pads,
+                lefts,
+                column: width,
+            };
+        };
+        let fit = |m: f32| {
+            if m.is_finite() {
+                m.clamp(0.0, MAX_MARGIN)
+            } else {
+                0.0
+            }
+        };
+        let (my, mx) = (fit(typo.margins.0), fit(typo.margins.1));
+        let size = (w.max(MIN_COLUMN + 2.0 * mx), h.max(MIN_SHEET + 2.0 * my));
+        let line = match typo.max_line.is_finite() {
+            true => typo.max_line.max(MIN_COLUMN),
+            false => f32::INFINITY,
+        };
+        let column = (size.0 - 2.0 * mx).min(line).max(MIN_COLUMN);
+        let slack = (size.0 - column) / 2.0;
+        // Book layout leans each column toward the spine.
+        let lean = match typo.book_layout {
+            true => (slack - mx).clamp(0.0, mx) / 2.0,
+            false => 0.0,
+        };
+        let lefts = (slack + lean, slack - lean);
+        Self {
+            size,
+            pads: (my, my),
+            lefts,
+            column,
+        }
+    }
+
+    /// The column's width and height.
+    fn room(&self) -> (f32, f32) {
+        let height = self.size.1 - self.pads.0 - self.pads.1;
+        (self.column, height.max(1.0))
+    }
+}
+
 /// More than this many pages means a broken or hostile book.
 pub const MAX_PAGES: usize = 100_000;
 
@@ -72,6 +141,12 @@ pub struct Typography {
     pub language: String,
     pub faces: Faces,
     pub design: Design,
+    /// A page the pane's size, in layout units; none is the A4 card.
+    pub sheet: Option<(f32, f32)>,
+    /// On a pane-sized page: margins above and below, and beside.
+    pub margins: (f32, f32),
+    /// On a pane-sized page: the longest a line runs.
+    pub max_line: f32,
 }
 
 impl Default for Typography {
@@ -91,6 +166,9 @@ impl Default for Typography {
             language: "en".to_owned(),
             faces: Faces::default(),
             design: Design::Auto,
+            sheet: None,
+            margins: (44.0, 32.0),
+            max_line: 720.0,
         }
     }
 }
@@ -576,6 +654,7 @@ pub struct Flow {
     shift: usize,
     /// The text column's width.
     width: f32,
+    card: Card,
     pub(crate) decoded: Arc<Decoded>,
     /// Boxed: fonts and type are kilobytes, and books move.
     relay: Box<Relay>,
@@ -599,9 +678,9 @@ impl std::fmt::Debug for Flow {
 }
 
 impl Flow {
-    /// Sets `blocks` on mareader's A4 page; always at least one page.
+    /// Sets `blocks` on its page, A4 or the pane's; at least one page.
     pub fn new(blocks: Arc<Vec<Block>>, typo: &Typography, fonts: Fonts) -> Self {
-        let room = (column_width(typo), PAGE_HEIGHT - 2.0 * PAD);
+        let room = Card::of(typo, column_width(typo)).room();
         Self::set(blocks, typo, fonts, room, room.1)
     }
 
@@ -615,6 +694,7 @@ impl Flow {
     ) -> Self {
         let typo = Typography {
             book_layout: false,
+            sheet: None,
             ..typo.clone()
         };
         let room = (width.max(MIN_COLUMN), height.max(1.0));
@@ -666,6 +746,7 @@ impl Flow {
             book_layout: typo.book_layout,
             shift: 0,
             width,
+            card: Card::of(typo, width),
             decoded: Arc::default(),
             relay: Box::new(Relay {
                 source: blocks,
@@ -743,11 +824,10 @@ impl Flow {
         if self.fixed(page).is_some() {
             return (0.0, self.size(page).0);
         }
-        let x = match (self.book_layout, (page + self.shift) % 2) {
-            (false, _) => PAD,
-            // Spreads pair pages from the first: even ones sit left.
-            (true, 0) => EDGE,
-            (true, _) => GUTTER,
+        // Spreads pair pages from the first: even ones sit left.
+        let x = match (page + self.shift) % 2 {
+            0 => self.card.lefts.0,
+            _ => self.card.lefts.1,
         };
         (x, self.width)
     }
@@ -798,8 +878,8 @@ impl Flow {
         let (x, width) = self.column(page);
         match self.turned(page) {
             // On its side, the right margin is the top one.
-            true => (PAD, self.page_size().0 - x - width),
-            false => (x, PAD),
+            true => (self.card.pads.0, self.page_size().0 - x - width),
+            false => (x, self.card.pads.0),
         }
     }
 
@@ -831,7 +911,7 @@ impl Flow {
         }
         if self.turned(page) {
             let (x, width) = self.column(page);
-            let height = PAGE_HEIGHT;
+            let height = self.card.size.1;
             return Band {
                 x,
                 y: 0.0,
@@ -849,27 +929,28 @@ impl Flow {
             })
             .fold(0.0, f32::max);
         // The gap a page cut swallowed; a chapter gets a pad's worth.
+        let (top, bottom) = self.card.pads;
         let lead = match pieces.first() {
-            _ if page == 0 => PAD,
+            _ if page == 0 => top,
             Some(p) if p.units.start == 0 => self
                 .blocks
                 .get(p.block)
-                .map_or(0.0, |b| if b.break_before { PAD } else { gap(b, typo) }),
+                .map_or(0.0, |b| if b.break_before { top } else { gap(b, typo) }),
             _ => 0.0,
         }
-        .min(PAD);
+        .min(top);
         let foot = if page + 1 == self.pages.len() {
-            PAD
+            bottom
         } else {
             0.0
         };
         let (x, width) = self.column(page);
-        let y = PAD - lead;
+        let y = top - lead;
         Band {
             x,
             y,
             width,
-            height: (lead + used + foot).min(PAGE_HEIGHT - y),
+            height: (lead + used + foot).min(self.card.size.1 - y),
         }
     }
 
@@ -919,12 +1000,14 @@ impl Flow {
 
     /// Every page is the same size: width, height in layout units.
     pub fn page_size(&self) -> (f32, f32) {
-        let margins = if self.book_layout {
-            GUTTER + EDGE
-        } else {
-            2.0 * PAD
-        };
-        (margins + self.width, PAGE_HEIGHT)
+        self.card.size
+    }
+
+    /// Where page `page`'s text may run: left, top, width and height.
+    pub fn text_area(&self, page: usize) -> [f32; 4] {
+        let (x, width) = self.column(page);
+        let (_, height) = self.card.room();
+        [x, self.card.pads.0, width, height]
     }
 
     /// Where page `page` starts.
@@ -1022,6 +1105,8 @@ struct Setter<'a> {
     turned: bool,
     /// Setting a fixed page: the book's own type in CSS px, as it is.
     fixed: bool,
+    /// The card's measure, which sizes the design type at any page size.
+    measure: f32,
 }
 
 impl<'a> Setter<'a> {
@@ -1039,6 +1124,7 @@ impl<'a> Setter<'a> {
             places: HashMap::new(),
             turned: false,
             fixed: false,
+            measure: column_width(typo),
         }
     }
 
@@ -1052,13 +1138,17 @@ impl<'a> Setter<'a> {
         self.cell_place.or_else(sized)
     }
 
-    /// Designed text's em: the column as a phone page, scaled as the reader's.
+    /// Designed text's em: the A4 measure as a phone page, at reader scale.
     fn design_em(&self) -> f32 {
         if self.fixed {
             return FIXED_EM;
         }
+        // A pane-sized page is shown as it is: the book's root is the reader's.
+        if self.typo.sheet.is_some() {
+            return self.typo.font_size;
+        }
         let em = READER.0;
-        let phone = (self.column / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE);
+        let phone = (self.measure / DESIGN_EMS).clamp(em, em * MAX_DESIGN_SCALE);
         phone * self.typo.font_size / em
     }
 
@@ -3746,6 +3836,35 @@ mod tests {
         let deco = decos.first().map_or([0.0; 4], |d| d.rect);
         assert!(deco[1] <= top && deco[1] + deco[3] >= bottom, "{deco:?}");
         assert!(deco[1] + deco[3] <= after, "{deco:?} {after}");
+    }
+
+    #[test]
+    fn a_pane_sized_page_centres_a_column_no_longer_than_its_line() {
+        let typo = |book_layout| Typography {
+            sheet: Some((900.0, 700.0)),
+            margins: (40.0, 30.0),
+            max_line: 500.0,
+            book_layout,
+            ..Typography::default()
+        };
+        let blocks = Arc::new((0..40).map(|_| para(12)).collect::<Vec<_>>());
+        let f = Flow::new(Arc::clone(&blocks), &typo(false), Fonts::bundled());
+        assert_eq!(f.page_size(), (900.0, 700.0));
+        assert_eq!(f.text_area(0), [200.0, 40.0, 500.0, 620.0]);
+        assert_eq!(f.column(1), (200.0, 500.0));
+        assert!(f.page_count() > 1);
+        // Each page's last line stays inside its bottom margin.
+        assert!((0..f.page_count()).all(|p| f.depth(p) <= 620.5));
+        // Book layout leans each column toward the spine.
+        let book = Flow::new(blocks, &typo(true), Fonts::bundled());
+        assert_eq!((book.column(0).0, book.column(1).0), (215.0, 185.0));
+        // A narrow pane gives the column all but its margins.
+        let narrow = Typography {
+            sheet: Some((400.0, 700.0)),
+            ..typo(false)
+        };
+        let f = Flow::new(Arc::new(vec![para(3)]), &narrow, Fonts::bundled());
+        assert_eq!(f.column(0), (30.0, 340.0));
     }
 
     #[test]

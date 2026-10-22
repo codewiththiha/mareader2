@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use egui::{Context, Pos2, Rect, vec2};
 use mareader_library::{AiPage, AiPageId, AiTask, BookId, Library, NewAiPage, PageSpan};
-use mareader_reflow::{PAD, PAGE_HEIGHT, PAGE_WIDTH, Typography};
+use mareader_reflow::{PAGE_WIDTH, Typography};
 use mareader_session::{Anchor, Document, Insert, Inserts, Scale};
 use mareader_settings::{AiSettings, PageTask, SummaryStyle, language_name};
 use mareader_study::page::{Out, Piece, Rewritten};
@@ -1160,9 +1160,9 @@ impl PageAi {
     fn room(view: &AiView, page: usize) -> (egui::Vec2, egui::Vec2, f32) {
         match &*view.document {
             Document::Epub { book, .. } if !book.fixed(page) => {
-                let (x, w) = book.column(page);
+                let [x, y, w, h] = book.text_area(page);
                 let width = book.page_size().0;
-                (vec2(x, PAD), vec2(w, PAGE_HEIGHT - 2.0 * PAD), width)
+                (vec2(x, y), vec2(w, h), width)
             }
             _ => {
                 let size = view.document.page_sizes().get(page).copied();
