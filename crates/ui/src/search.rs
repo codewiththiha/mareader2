@@ -69,7 +69,7 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
         let on_page = lit.hits.iter().enumerate().skip(from);
         for (i, hit) in on_page.take_while(|(_, h)| h.page == sheet.page) {
             let on = lit.active == Some(i);
-            for b in layer.text.boxes(hit.chars.clone()) {
+            for b in layer.text.line_boxes(hit.chars.clone()) {
                 let r = sheet.to_screen(b).intersect(sheet.shown);
                 if !r.is_positive() {
                     continue;

@@ -413,7 +413,7 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
             match (on, from) {
                 (true, None) => from = Some(i),
                 (false, Some(f)) => {
-                    for b in layer.text.boxes(f..i) {
+                    for b in layer.text.line_boxes(f..i) {
                         let r = sheet.to_screen(b).intersect(sheet.shown);
                         if r.is_positive() {
                             painter.rect_filled(r, CornerRadius::same(2), fill);

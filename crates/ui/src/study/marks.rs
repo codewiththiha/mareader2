@@ -68,15 +68,17 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
         // The text's right edge on screen, worked out once a note needs it.
         let mut edge: Option<Option<f32>> = None;
         for mark in marks {
-            let boxes = match mark.spot {
+            // A page mark's own box, or the run of characters it covers.
+            let (own, chars) = match mark.spot {
                 Spot::Page { page, rect } if page == sheet.page => {
                     let [x, y, w, h] = rect;
-                    vec![Bounds {
+                    let b = Bounds {
                         x0: x,
                         y0: y,
                         x1: x + w,
                         y1: y + h,
-                    }]
+                    };
+                    (Some(b), 0..0)
                 }
                 Spot::Text { block, start, end } => {
                     let (Some(layer), Some((first, last))) = (&layer, span) else {
@@ -88,14 +90,14 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
                     let Some(chars) = find(layer, block, start..end) else {
                         continue;
                     };
-                    layer.text.boxes(chars)
+                    (None, chars)
                 }
                 Spot::Chars { from, to } => {
                     let Some(layer) = &layer else { continue };
                     let Some(chars) = chars(from, to).on_page(sheet.page, layer.text.len()) else {
                         continue;
                     };
-                    layer.text.boxes(chars)
+                    (None, chars)
                 }
                 Spot::Blocks { from, to } => {
                     let (Some(layer), Some((first, last))) = (&layer, span) else {
@@ -108,20 +110,19 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
                     let Some(chars) = between(layer, from, to) else {
                         continue;
                     };
-                    layer.text.boxes(chars)
+                    (None, chars)
                 }
                 Spot::Page { .. } => continue,
             };
-            let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
-            let rects: Vec<Rect> = on_screen
-                .map(|r| r.intersect(sheet.shown))
+            let lines = layer.iter().flat_map(|l| l.text.line_boxes(chars.clone()));
+            let rects: Vec<Rect> = (own.into_iter().chain(lines))
+                .map(|b| sheet.to_screen(b).intersect(sheet.shown))
                 .filter(|r| r.is_positive())
                 .collect();
             if !rects.is_empty() {
                 let column = || {
-                    let l = layer.as_ref()?;
-                    let all = l.text.boxes(0..l.text.len()).into_iter();
-                    all.map(|b| sheet.to_screen(b).right()).reduce(f32::max)
+                    let lines = layer.as_ref()?.text.line_bounds();
+                    lines.map(|b| sheet.to_screen(b).right()).reduce(f32::max)
                 };
                 let badge = match rects.last() {
                     Some(r) if mark.noted => {

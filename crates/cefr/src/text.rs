@@ -28,7 +28,11 @@ fn joiner(c: char) -> bool {
 
 /// Runs of ASCII letters; an apostrophe or hyphen joins two runs.
 pub fn tokenize(text: &str) -> Vec<Span> {
-    let chars: Vec<char> = text.chars().collect();
+    tokenize_chars(&text.chars().collect::<Vec<char>>())
+}
+
+/// As [`tokenize`], over characters a caller already holds.
+pub fn tokenize_chars(chars: &[char]) -> Vec<Span> {
     let letter = |i: usize| chars.get(i).is_some_and(char::is_ascii_alphabetic);
     let mut spans = Vec::new();
     let mut i = 0;
@@ -54,7 +58,12 @@ pub fn tokenize(text: &str) -> Vec<Span> {
 
 /// The key a word is stored under: lower case, one apostrophe.
 pub fn normalize(word: &str) -> String {
-    word.chars()
+    normalize_chars(word.chars())
+}
+
+/// As [`normalize`], straight from characters.
+pub fn normalize_chars(word: impl IntoIterator<Item = char>) -> String {
+    (word.into_iter())
         .map(|c| if c == '\u{2019}' { '\'' } else { c })
         .flat_map(char::to_lowercase)
         .collect()
@@ -63,7 +72,11 @@ pub fn normalize(word: &str) -> String {
 /// Every key that may make `word` hard: itself, a contraction's base,
 /// and a compound's parts.
 pub fn candidates(word: &str) -> Vec<String> {
-    let key = normalize(word);
+    keys(normalize(word))
+}
+
+/// The keys of a word already normalized as `key`.
+pub(crate) fn keys(key: String) -> Vec<String> {
     let mut out = vec![key.clone()];
     let base = ABBREVIATION_MAPPING
         .iter()
