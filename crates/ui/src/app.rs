@@ -780,6 +780,11 @@ impl MareaderApp {
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
         self.reconcile_texts();
         match key {
+            // Any setting by its dotted path: `layout.page_indicator:false`.
+            "set" => {
+                let (path, json) = value.split_once(':').ok_or("set: path:json")?;
+                self.settings.set_path(path, json)?;
+            }
             "theme" => {
                 let base = BaseMode::ALL
                     .into_iter()
