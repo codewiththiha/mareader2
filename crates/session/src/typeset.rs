@@ -20,6 +20,8 @@ pub fn typography(t: &TextSettings) -> Typography {
         hyphenate: t.hyphenation,
         book_layout: t.book_layout,
         column_scale: t.column_width_pct / 100.0,
+        margins: (t.page_margin_y, t.page_margin_x),
+        max_line: t.max_line_width,
         faces: Faces {
             body,
             heading: stack(&t.sans_font, Kind::Sans),

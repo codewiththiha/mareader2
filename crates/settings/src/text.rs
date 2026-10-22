@@ -161,6 +161,12 @@ pub struct TextSettings {
     pub column_align: ColumnAlign,
     /// A book's text column, in percent of its usual width.
     pub column_width_pct: f32,
+    /// A paged book's margins above and below its text, in points.
+    pub page_margin_y: f32,
+    /// Its margins beside the text, in points.
+    pub page_margin_x: f32,
+    /// The longest a paged book's line runs, in points.
+    pub max_line_width: f32,
     /// Percent of full ink contrast; lower softens text toward the paper.
     pub ink_contrast: f32,
     /// A book's pictures take the page's theme; off, their own colours.
@@ -181,6 +187,8 @@ impl TextSettings {
     /// The ink dial's floor is mareader's: text never fades out.
     pub const INK: (f32, f32) = (10.0, 100.0);
     pub const COLUMN_PCT: (f32, f32) = (60.0, 140.0);
+    pub const PAGE_MARGIN: (f32, f32) = (0.0, 160.0);
+    pub const MAX_LINE: (f32, f32) = (320.0, 1600.0);
 
     pub fn sanitize(&mut self) {
         let d = Self::default();
@@ -195,6 +203,10 @@ impl TextSettings {
         self.ink_contrast = fit(self.ink_contrast, Self::INK, d.ink_contrast);
         let column = self.column_width_pct;
         self.column_width_pct = fit(column, Self::COLUMN_PCT, d.column_width_pct);
+        let margin = Self::PAGE_MARGIN;
+        self.page_margin_y = fit(self.page_margin_y, margin, d.page_margin_y);
+        self.page_margin_x = fit(self.page_margin_x, margin, d.page_margin_x);
+        self.max_line_width = fit(self.max_line_width, Self::MAX_LINE, d.max_line_width);
     }
 }
 
@@ -217,6 +229,9 @@ impl Default for TextSettings {
             mono_font: FontChoice::Default,
             column_align: ColumnAlign::Center,
             column_width_pct: 100.0,
+            page_margin_y: 44.0,
+            page_margin_x: 32.0,
+            max_line_width: 720.0,
             ink_contrast: 100.0,
             theme_pictures: false,
             theme_emojis: false,

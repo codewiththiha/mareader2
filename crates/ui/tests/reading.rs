@@ -172,6 +172,8 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
     let pane = h.state().active_pane();
     let view = mareader_ui::layout::ViewMode::Single;
     h.state_mut().queue(Command::View(view));
+    // A single page takes the pane's size: the book is set again first.
+    h.run();
     let before = h.state().documents().page_count(pane).unwrap_or(0);
     let read = before / 2;
     h.state_mut().queue(Command::GoTo { pane, page: read });

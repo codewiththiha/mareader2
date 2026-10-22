@@ -861,6 +861,12 @@ impl Book {
         flow.column(page)
     }
 
+    /// Where page `page`'s text may run: left, top, width and height.
+    pub fn text_area(&self, page: usize) -> [f32; 4] {
+        let (flow, page, _) = self.part(page);
+        flow.text_area(page)
+    }
+
     /// Names the layout of its own pages; results laid in keep it.
     pub fn layout(&self) -> u64 {
         self.layout

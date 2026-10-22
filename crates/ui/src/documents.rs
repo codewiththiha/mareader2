@@ -192,6 +192,8 @@ pub struct Documents {
     asked: BTreeMap<PaneId, (DocId, Arc<Typography>, u64)>,
     /// The AI results each pane's book shows in its pages.
     inserts: BTreeMap<PaneId, Arc<Inserts>>,
+    /// Each paged pane's page size, so its next book opens at it.
+    sheets: BTreeMap<PaneId, (f32, f32)>,
 }
 
 impl Default for Documents {
@@ -217,6 +219,7 @@ impl Default for Documents {
             own: BTreeMap::new(),
             asked: BTreeMap::new(),
             inserts: BTreeMap::new(),
+            sheets: BTreeMap::new(),
         }
     }
 }
@@ -266,6 +269,18 @@ impl Documents {
 
     fn typo(&self, pane: PaneId) -> &Arc<Typography> {
         self.own.get(&pane).unwrap_or(&self.window)
+    }
+
+    /// `pane`'s book type on its pane-sized page, if it has one.
+    fn want(&self, pane: PaneId) -> Arc<Typography> {
+        let typo = self.typo(pane);
+        match self.sheets.get(&pane).copied() {
+            Some(sheet) if typo.sheet != Some(sheet) => Arc::new(Typography {
+                sheet: Some(sheet),
+                ..(**typo).clone()
+            }),
+            _ => Arc::clone(typo),
+        }
     }
 
     /// Opens card `card`'s transcript in `pane`'s book; false if none shows.
@@ -415,6 +430,8 @@ impl Documents {
 
     /// Moves each book whose type is stale onto a twin in its type, or asks.
     fn retype(&mut self) {
+        let wants: BTreeMap<PaneId, Arc<Typography>> =
+            self.panes.keys().map(|p| (*p, self.want(*p))).collect();
         let Some(session) = &mut self.session else {
             return;
         };
@@ -423,7 +440,9 @@ impl Documents {
             let Content::Pdf(view) = content else {
                 continue;
             };
-            let want = self.own.get(pane).unwrap_or(&self.window);
+            let Some(want) = wants.get(pane) else {
+                continue;
+            };
             let inserts = self.inserts.get(pane).cloned().unwrap_or_default();
             let Some(entry) = session.get(view.doc) else {
                 continue;
@@ -501,7 +520,7 @@ impl Documents {
         }
         let (file, page, place) = (request.file(), request.page, request.place);
         let book = request.book;
-        let typo = Arc::clone(self.typo(pane));
+        let typo = self.want(pane);
         if let Some(doc) = file.as_ref().and_then(|f| self.shown(f, &typo)) {
             let entry = self.session.as_ref().and_then(|s| s.get(doc));
             let count = entry.map_or(0, |e| e.doc.page_count());
@@ -529,6 +548,7 @@ impl Documents {
 
     pub fn close_pane(&mut self, pane: PaneId) {
         self.set(pane, None);
+        self.sheets.remove(&pane);
     }
 
     /// Replaces a pane's content, closing a document nobody shows.
@@ -662,7 +682,7 @@ impl Documents {
             .filter(|(pane, c)| {
                 let on_old = matches!(c, Content::Pdf(v) if v.doc == old);
                 let wants = self.inserts.get(*pane).map_or(0, |i| i.key) == key;
-                on_old && wants && **self.typo(**pane) == *typo
+                on_old && wants && *self.want(**pane) == *typo
             })
             .map(|(pane, _)| *pane)
             .collect();
@@ -704,6 +724,14 @@ impl Documents {
             vocab,
         };
         pdf_view::show(ui, view, &entry.doc, io, cx);
+        // A settled pane size sets its book anew on pages that fit.
+        let moved = std::mem::take(&mut view.sheet_moved);
+        if moved {
+            match view.sheet() {
+                Some(sheet) => self.sheets.insert(pane, sheet),
+                None => self.sheets.remove(&pane),
+            };
+        }
         self.gloss.extend(gloss.into_iter().map(|g| (pane, g)));
         if cx.sample {
             let count = entry.doc.page_count();
@@ -714,6 +742,9 @@ impl Documents {
                 };
                 self.demand.push((Urgency::Paper, want));
             }
+        }
+        if moved {
+            self.retype();
         }
         true
     }

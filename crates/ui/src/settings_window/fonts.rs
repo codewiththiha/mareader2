@@ -73,17 +73,24 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Comma
             ui.selectable_value(align, ColumnAlign::Left, "Left");
         });
         divider(ui);
-        // The book's measure; its pages grow and shrink with it.
-        row(ui, "Column width", "How wide a book's text runs", |ui| {
-            ui.spacing_mut().slider_width = 140.0;
-            let (lo, hi) = TextSettings::COLUMN_PCT;
-            ui.add(
-                egui::Slider::new(&mut t.column_width_pct, lo..=hi)
-                    .step_by(5.0)
-                    .fixed_decimals(0)
-                    .suffix(" %"),
-            );
-        });
+        page(ui, t);
+        divider(ui);
+        // The stream's measure; paged books take the pane's.
+        row(
+            ui,
+            "Column width",
+            "How wide the vertical stream's text runs",
+            |ui| {
+                ui.spacing_mut().slider_width = 140.0;
+                let (lo, hi) = TextSettings::COLUMN_PCT;
+                ui.add(
+                    egui::Slider::new(&mut t.column_width_pct, lo..=hi)
+                        .step_by(5.0)
+                        .fixed_decimals(0)
+                        .suffix(" %"),
+                );
+            },
+        );
     });
     section(ui, "Ink and pictures");
     group(ui, |ui| {
@@ -106,6 +113,45 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Comma
             &mut t.theme_emojis,
         );
     });
+}
+
+/// A paged book's page: it fills the pane, inside these margins.
+fn page(ui: &mut Ui, t: &mut TextSettings) {
+    let pt = |v: f32| format!("{v:.0} pt");
+    let margin = TextSettings::PAGE_MARGIN;
+    let hint = "Above and below a paged book's text";
+    stepped(
+        ui,
+        "Top and bottom margins",
+        hint,
+        &mut t.page_margin_y,
+        margin,
+        4.0,
+        pt,
+    );
+    divider(ui);
+    let hint = "Beside a paged book's text";
+    stepped(
+        ui,
+        "Side margins",
+        hint,
+        &mut t.page_margin_x,
+        margin,
+        4.0,
+        pt,
+    );
+    divider(ui);
+    let hint = "Past this, a wide page centres its text";
+    let line = TextSettings::MAX_LINE;
+    stepped(
+        ui,
+        "Longest line",
+        hint,
+        &mut t.max_line_width,
+        line,
+        20.0,
+        pt,
+    );
 }
 
 /// A PDF's AI pages: type and spacing; its page keeps their measure.
