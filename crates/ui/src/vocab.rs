@@ -12,7 +12,7 @@ use mareader_session::{DocId, TextLayer};
 use mareader_settings::Reserved;
 
 use crate::selection::Pages;
-use crate::study::marks::draw;
+use crate::study::marks::Under;
 use crate::study::words;
 
 /// Shaded words per page at most; a book's stream page holds many.
@@ -223,18 +223,11 @@ impl Vocab {
 
 /// Each shaded word in the reserved look; the one under the pointer
 /// stronger.
-pub fn paint(ui: &Ui, shaded: &[Shaded], look: &Look, hovered: Option<usize>) {
-    let painter = ui.painter();
+pub fn add(shaded: &[Shaded], look: &Look, hovered: Option<usize>, under: &mut Under) {
     for (i, word) in shaded.iter().enumerate() {
         let lift = if hovered == Some(i) { HOVER_LIFT } else { 0.0 };
         for r in &word.rects {
-            draw(
-                painter,
-                *r,
-                look.ink.pen,
-                look.ink.color,
-                look.opacity + lift,
-            );
+            under.add(*r, look.ink.pen, look.ink.color, look.opacity + lift);
         }
     }
 }

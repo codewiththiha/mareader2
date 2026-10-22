@@ -12,6 +12,7 @@
 mod color;
 mod filter;
 mod grain;
+mod mark;
 mod model;
 mod pane_looks;
 mod pattern;
@@ -21,6 +22,7 @@ mod tokens;
 pub use color::{Oklch, Rgb};
 pub use filter::{Blend, ColorMatrix, FilterOp, MAX_FILTER_OPS, PageTone, apply_filter};
 pub use grain::{CRAWL, CRAWL_SECS, FilmGrain, NOISE_FREQUENCY, NOISE_TILE, crawl, layer};
+pub use mark::{MARK_CONTRAST, MarkFill};
 pub use model::{Appearance, BaseMode, FULL_TINT, NoiseMode, TextureMode};
 pub use pane_looks::{PANE_TINT_STRENGTH, PaneLooks, Routing};
 pub use pattern::{

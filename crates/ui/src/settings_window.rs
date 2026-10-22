@@ -856,10 +856,11 @@ fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
     let below = pos2(left, rect.center().y + 9.0);
     painter.text(below, egui::Align2::LEFT_CENTER, detail, small, t.muted);
     let mark = pos2(rect.right() - 9.0, rect.center().y);
+    // Off reads like an off switch: its track, not the faint line.
     let ring = if on || resp.hovered() {
         t.accent
     } else {
-        t.line
+        t.track
     };
     painter.circle_stroke(mark, 8.0, Stroke::new(1.5, ring));
     if on {
