@@ -576,6 +576,9 @@ fn paper(r: &mut Rows<'_>, s: &mut Settings) {
     });
 }
 
+/// Touching panes hide corners and shadows, so picking one opens a gap.
+const EDGE_HINT: &str = "Shows between panes; picking it opens a gap if they touch";
+
 fn pane_look(r: &mut Rows<'_>, s: &mut Settings) {
     let w = &mut s.workspace.look;
     r.always(|ui| {
@@ -606,7 +609,7 @@ fn pane_look(r: &mut Rows<'_>, s: &mut Settings) {
         });
     });
     r.always(|ui| {
-        row(ui, "Corners", "", |ui| {
+        row(ui, "Corners", EDGE_HINT, |ui| {
             // Right to left: the last option is drawn first.
             for (corners, label) in [(Corners::Rounded, "Rounded"), (Corners::Square, "Square")] {
                 if ui
@@ -614,11 +617,20 @@ fn pane_look(r: &mut Rows<'_>, s: &mut Settings) {
                     .clicked()
                 {
                     w.corners = corners;
+                    if w.rounded() {
+                        w.make_room();
+                    }
                 }
             }
         });
     });
-    r.always(|ui| switch_row(ui, "Pane drop shadow", "", &mut w.shadow));
+    r.always(|ui| {
+        let was = w.shadow;
+        switch_row(ui, "Pane drop shadow", EDGE_HINT, &mut w.shadow);
+        if w.shadow && !was {
+            w.make_room();
+        }
+    });
 }
 
 /// Laid out right to left: the custom picker, then the palette.
@@ -687,7 +699,7 @@ fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     note(ui, page);
     rows(ui, cx, Applies::Always, "Pane themes", |r| {
         r.always(|ui| {
-            let hint = "While split, each pane keeps its own colour and texture";
+            let hint = "While split, each pane keeps its own colour; grain stays shared";
             let label = "Independent theme for each pane";
             switch_row(ui, label, hint, &mut w.independent_themes);
         });

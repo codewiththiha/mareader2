@@ -76,6 +76,8 @@ pub struct BarLook<'a> {
     pub layout: &'a LayoutSettings,
     pub backdrop: &'a Backdrop,
     pub slot: usize,
+    /// The pane's corner radius: the progress line stays between corners.
+    pub corner: f32,
 }
 
 /// Draws `pane`'s counter, progress line and bar over its document.
@@ -104,8 +106,15 @@ pub fn show(
     let layer = LayerId::new(Order::Middle, id.with("marks"));
     let painter = ctx.layer_painter(layer).with_clip_rect(pane);
     if layout.progress_bar {
-        let width = pane.width() * reading.progress.clamp(0.0, 1.0);
-        let line = Rect::from_min_size(pos2(pane.left(), pane.bottom() - 2.0), vec2(width, 2.0));
+        // A faint track first, so the bar shows even on the first page.
+        let x = look.corner.min(pane.width() * 0.5);
+        let track = Rect::from_min_max(
+            pos2(pane.left() + x, pane.bottom() - 2.0),
+            pos2(pane.right() - x, pane.bottom()),
+        );
+        painter.rect_filled(track, CornerRadius::ZERO, t.line.gamma_multiply(0.7));
+        let width = track.width() * reading.progress.clamp(0.0, 1.0);
+        let line = Rect::from_min_size(track.min, vec2(width, 2.0));
         painter.rect_filled(line, CornerRadius::ZERO, t.accent.gamma_multiply(0.8));
     }
     // The counter gives way to the bar rather than sit under it.

@@ -12,6 +12,9 @@ pub const TITLE_BAR_H: f32 = 48.0;
 pub const MEDIUM: &str = "inter-medium";
 pub const SEMIBOLD: &str = "inter-semibold";
 
+/// The glass wash's alpha; more hid the blurred pages under the bars.
+const FROST: u8 = 150;
+
 /// Everything a view or widget may ask the theme for.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
@@ -91,7 +94,8 @@ impl Tokens {
                 Color32::from_rgb(0xdc, 0x26, 0x26)
             },
             glass: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 245),
-            frost: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 184),
+            // Thin enough that pages under a bar read as soft shapes.
+            frost: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), FROST),
             shadow: Color32::from_black_alpha(if dark { 120 } else { 60 }),
             dark,
             radius: 8.0,
