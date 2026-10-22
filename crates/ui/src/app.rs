@@ -2040,6 +2040,7 @@ impl MareaderApp {
                 self.settings.text.ink_contrast = ink;
                 self.settings.text.sanitize();
             }
+            Command::SetQuickText(q) => q.apply(&mut self.settings.text),
             Command::SetIndependence(i) => {
                 self.settings.workspace.independent_themes = i.themes;
                 self.settings.workspace.independent_textures = i.textures;
@@ -2831,6 +2832,8 @@ impl MareaderApp {
             auto_scroll: self.documents.drifting(self.active),
             ink: (self.documents.reflowable(self.active))
                 .then_some(self.settings.text.ink_contrast),
+            text: (self.documents.reflowable(self.active))
+                .then(|| crate::appearance_menu::QuickText::of(&self.settings.text)),
             dictionary: {
                 let w = &self.settings.dictionary.window;
                 w.open && !w.minimized

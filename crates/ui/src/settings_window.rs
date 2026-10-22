@@ -516,22 +516,29 @@ fn motion(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     note(ui, "Anything switched off still changes, in one frame.");
 }
 
+/// The row that swaps this window for the Appearance popover.
+pub(super) fn colours_row(ui: &mut Ui, out: &mut Commands) {
+    let hint = "Opens over the page, so each change shows as you make it";
+    row(ui, "Mode, tint, texture and presets", hint, |ui| {
+        let t = Tokens::get(ui.ctx());
+        let text = RichText::new("Open Appearance").color(t.accent);
+        if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
+            out.push(Command::CloseSettings);
+            out.push(Command::ShowAppearance);
+        }
+    });
+}
+
 /// Colours stay in the popover, where the page shows each change.
 fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
-    rows(ui, cx, Applies::Always, "Colours", |r| {
-        r.always(|ui| {
-            let hint = "Opens over the page, so each change shows as you make it";
-            row(ui, "Mode, tint, texture and presets", hint, |ui| {
-                let t = Tokens::get(ui.ctx());
-                let text = RichText::new("Open Appearance").color(t.accent);
-                if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
-                    out.push(Command::CloseSettings);
-                    out.push(Command::ShowAppearance);
-                }
-            });
+    // A book's colours close its own groups, beside its ink.
+    let book = cx.applies(Applies::Book);
+    if !book {
+        rows(ui, cx, Applies::Always, "Colours", |r| {
+            r.always(|ui| colours_row(ui, out));
         });
-    });
-    if cx.applies(Applies::Book) {
+    }
+    if book {
         fonts::tab(ui, &mut s.text, cx, out);
     } else if cx.applies(Applies::AiPages) {
         fonts::ai_tab(ui, &mut s.text);

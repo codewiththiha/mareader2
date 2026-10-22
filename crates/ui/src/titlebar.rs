@@ -84,6 +84,8 @@ pub struct ReaderBar {
     pub auto_scroll: Option<bool>,
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
+    /// The popover's text dials, offered while the active pane shows a book.
+    pub text: Option<crate::appearance_menu::QuickText>,
     /// The floating Dictionary shows, so its button is pressed.
     pub dictionary: bool,
 }
@@ -444,6 +446,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
                 user: bar.user_presets,
                 gpu: bar.gpu,
                 ink: reader.and_then(|r| r.ink),
+                text: reader.and_then(|r| r.text),
                 // The shelf has no page to texture.
                 texture: reader.is_some(),
             };

@@ -74,6 +74,42 @@ pub struct MenuContext<'a> {
     pub ink: Option<f32>,
     /// Offers the page texture; the library has no page.
     pub texture: bool,
+    /// A book's quick text dials while one is active; none hides them.
+    pub text: Option<QuickText>,
+}
+
+/// The text dials the popover offers for a book, from its text settings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct QuickText {
+    pub size_pct: f32,
+    pub line_height: f32,
+    pub paragraph_margin: f32,
+    pub override_font: bool,
+    pub override_layout: bool,
+}
+
+impl QuickText {
+    pub fn of(t: &TextSettings) -> Self {
+        Self {
+            size_pct: t.size_pct(),
+            line_height: t.line_height,
+            paragraph_margin: t.paragraph_margin,
+            override_font: t.override_font,
+            override_layout: t.override_layout,
+        }
+    }
+
+    /// Writes the dials back; an untouched size keeps its exact points.
+    pub fn apply(self, t: &mut TextSettings) {
+        if self.size_pct != t.size_pct() {
+            t.set_size_pct(self.size_pct);
+        }
+        t.line_height = self.line_height;
+        t.paragraph_margin = self.paragraph_margin;
+        t.override_font = self.override_font;
+        t.override_layout = self.override_layout;
+        t.sanitize();
+    }
 }
 
 /// Edits a copy and pushes one command when anything changed.
@@ -81,6 +117,7 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     let mut a = *cx.current;
     ui.set_width(WIDTH);
     let mut split = cx.independence;
+    let mut text = cx.text;
     // The pane switches stay pinned below, so the scroll gives up their room.
     let footer = match split {
         Some(_) => ui
@@ -103,6 +140,10 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             presets_group(ui, cx, &mut a, out);
             ui.separator();
             colour_group(ui, cx, &mut a, out);
+            if let Some(q) = &mut text {
+                ui.separator();
+                text_group(ui, q);
+            }
             if cx.texture {
                 ui.separator();
                 texture_group(ui, &mut a);
@@ -126,6 +167,59 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     if a != *cx.current {
         out.push(Command::SetAppearance(a));
     }
+    if text != cx.text
+        && let Some(q) = text
+    {
+        out.push(Command::SetQuickText(q));
+    }
+}
+
+/// A book's size, spacing and overrides; the rest are in Settings.
+fn text_group(ui: &mut Ui, q: &mut QuickText) {
+    let summary = format!("{:.0}% · {:.1}×", q.size_pct, q.line_height);
+    if !fold(ui, "text", "Text", &summary, 0.0, |_| {}) {
+        return;
+    }
+    let pct = |v: f32| format!("{v:.0}%");
+    dial(
+        ui,
+        "Size",
+        &mut q.size_pct,
+        TextSettings::SIZE_PCT,
+        5.0,
+        pct,
+    );
+    let times = |v: f32| format!("{v:.1}×");
+    let lines = &mut q.line_height;
+    dial(ui, "Lines", lines, TextSettings::LINE_HEIGHT, 0.1, times);
+    let ems = |v: f32| format!("{v:.2}");
+    let gaps = &mut q.paragraph_margin;
+    dial(ui, "Gaps", gaps, TextSettings::PARAGRAPH, 0.25, ems);
+    let hint = "Your fonts and text size for all of a book's text";
+    pane_switch(ui, "Override book font", hint, &mut q.override_font);
+    let hint = "Your spacing, indent and justification for its paragraphs";
+    pane_switch(ui, "Override book layout", hint, &mut q.override_layout);
+}
+
+/// Label left, a stepped slider, then its value in a fixed box on the right.
+fn dial(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    (lo, hi): (f32, f32),
+    step: f32,
+    show: impl Fn(f32) -> String,
+) {
+    ui.horizontal(|ui| {
+        let named = name_box(ui, label);
+        let gap = ui.spacing().item_spacing.x;
+        ui.spacing_mut().slider_width = (ui.available_width() - VALUE_W - gap).max(40.0);
+        widgets::labelled(ui, named, |ui| {
+            let slider = egui::Slider::new(value, lo..=hi).step_by(f64::from(step));
+            ui.add(slider.show_value(false));
+        });
+        value_box(ui, &show(*value));
+    });
 }
 
 /// The presets, with Save current look on the header.

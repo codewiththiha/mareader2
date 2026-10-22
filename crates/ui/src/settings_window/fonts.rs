@@ -9,7 +9,7 @@ use mareader_settings::{
 
 use mareader_library::{BookId, Design};
 
-use super::{Scope, disclosure, divider, group, note, row, section, switch_row};
+use super::{Scope, Shown, disclosure, divider, group, note, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::library::Action;
 use crate::theme::Tokens;
@@ -17,83 +17,72 @@ use crate::widgets;
 
 const PICKER_WIDTH: f32 = 180.0;
 
-/// The focused book's own design choice, over the setting above.
+/// The focused book's own choice, over the setting above.
 fn this_book(ui: &mut Ui, (book, own): (BookId, Option<Design>), out: &mut Commands) {
     let hint = "This book only, over the setting above; saved with the book";
     row(ui, "This book", hint, |ui| {
-        let mut pick = own;
+        let shown = own.map(|d| d != Design::Off);
+        let mut pick = shown;
         // Added right to left, so they read left to right.
-        ui.selectable_value(&mut pick, Some(Design::Off), "Off");
-        ui.selectable_value(&mut pick, Some(Design::On), "On");
-        ui.selectable_value(&mut pick, Some(Design::Auto), "Auto");
+        ui.selectable_value(&mut pick, Some(false), "Off");
+        ui.selectable_value(&mut pick, Some(true), "On");
         ui.selectable_value(&mut pick, None, "As set");
-        if pick != own {
-            out.push(Command::Library(Action::Design(book, pick)));
+        if pick != shown {
+            let design = pick.map(|on| if on { Design::Auto } else { Design::Off });
+            out.push(Command::Library(Action::Design(book, design)));
         }
     });
 }
 
+/// A book's settings, grouped as Book, Font, Paragraph, Page and Colour.
 pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Commands) {
-    section(ui, "Book design");
+    section(ui, "Book");
     group(ui, |ui| {
-        let hint = "A book's own fonts, sizes and spacing; Auto, where it designs pages";
-        row(ui, "Use the book's design", hint, |ui| {
+        let hint = "Its own boxes, rules, fonts and spacing; off, plain text";
+        row(ui, "Book styles", hint, |ui| {
+            let was = t.book_design != BookDesign::Off;
+            let mut on = was;
             // Added right to left, so they read left to right.
-            let design = &mut t.book_design;
-            ui.selectable_value(design, BookDesign::Off, "Off");
-            ui.selectable_value(design, BookDesign::On, "On");
-            ui.selectable_value(design, BookDesign::Auto, "Auto");
+            ui.selectable_value(&mut on, false, "Off");
+            ui.selectable_value(&mut on, true, "On");
+            if on != was {
+                t.book_design = if on {
+                    BookDesign::Auto
+                } else {
+                    BookDesign::Off
+                };
+            }
         });
         if let Some(chosen) = cx.book_design {
             divider(ui);
             this_book(ui, chosen, out);
         }
     });
-    section(ui, "Typeface");
+    section(ui, "Font");
     group(ui, |ui| typeface(ui, t, true));
-    section(ui, "Spacing");
-    group(ui, |ui| spacing(ui, t, true));
-    section(ui, "Column");
+    section(ui, "Paragraph");
     group(ui, |ui| {
+        spacing(ui, t, true);
+        divider(ui);
         lines(ui, t, true);
-        divider(ui);
-        switch_row(
-            ui,
-            "Book layout",
-            "A wider margin toward the spine, as in a bound book",
-            &mut t.book_layout,
-        );
-        divider(ui);
-        let hint = "Where the vertical stream's text sits";
-        row(ui, "Column alignment", hint, |ui| {
-            // Added right to left, so they read left to right.
-            let align = &mut t.column_align;
-            ui.selectable_value(align, ColumnAlign::Right, "Right");
-            ui.selectable_value(align, ColumnAlign::Center, "Center");
-            ui.selectable_value(align, ColumnAlign::Left, "Left");
-        });
-        divider(ui);
-        page(ui, t);
-        divider(ui);
-        // The stream's measure; paged books take the pane's.
-        row(
-            ui,
-            "Column width",
-            "How wide the vertical stream's text runs",
-            |ui| {
-                ui.spacing_mut().slider_width = 140.0;
-                let (lo, hi) = TextSettings::COLUMN_PCT;
-                ui.add(
-                    egui::Slider::new(&mut t.column_width_pct, lo..=hi)
-                        .step_by(5.0)
-                        .fixed_decimals(0)
-                        .suffix(" %"),
-                );
-            },
-        );
     });
-    section(ui, "Ink and pictures");
+    // Pages take the pane's size; the stream keeps a column of its own.
+    let stream = cx.focused == Shown::Book { stream: true };
+    section(ui, if stream { "Column" } else { "Page" });
     group(ui, |ui| {
+        if stream {
+            column(ui, t);
+        } else {
+            page(ui, t);
+        }
+        divider(ui);
+        let hint = "A wider margin toward the spine, as in a bound book";
+        switch_row(ui, "Book layout", hint, &mut t.book_layout);
+    });
+    section(ui, "Colour");
+    group(ui, |ui| {
+        super::colours_row(ui, out);
+        divider(ui);
         let hint = "How dark a book's text stays; its pictures keep their colours";
         let percent = |v: f32| format!("{v:.0} %");
         let ink = &mut t.ink_contrast;
@@ -113,6 +102,38 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Comma
             &mut t.theme_emojis,
         );
     });
+}
+
+/// The vertical stream's column: how wide it runs and where it sits.
+fn column(ui: &mut Ui, t: &mut TextSettings) {
+    row(
+        ui,
+        "Column width",
+        "How wide the stream's text runs",
+        |ui| {
+            ui.spacing_mut().slider_width = 140.0;
+            let (lo, hi) = TextSettings::COLUMN_PCT;
+            ui.add(
+                egui::Slider::new(&mut t.column_width_pct, lo..=hi)
+                    .step_by(5.0)
+                    .fixed_decimals(0)
+                    .suffix(" %"),
+            );
+        },
+    );
+    divider(ui);
+    row(
+        ui,
+        "Column alignment",
+        "Where the stream's text sits",
+        |ui| {
+            // Added right to left, so they read left to right.
+            let align = &mut t.column_align;
+            ui.selectable_value(align, ColumnAlign::Right, "Right");
+            ui.selectable_value(align, ColumnAlign::Center, "Center");
+            ui.selectable_value(align, ColumnAlign::Left, "Left");
+        },
+    );
 }
 
 /// A paged book's page: it fills the pane, inside these margins.
