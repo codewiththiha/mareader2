@@ -232,10 +232,10 @@ fn retype(h: &mut App, audit: &mut Audit) {
     audit.check("Re-set books keep only the set shown", value, held);
 }
 
-/// Four quiet seconds, past the three after which caches rest.
+/// Four quiet seconds, past the three after which caches rest, then drawn.
 fn rest(h: &mut App) {
     h.run_steps(240);
-    h.render().ok();
+    settle(h);
 }
 
 /// A second's frames, drawn, so the GPU's deferred frees can land.
