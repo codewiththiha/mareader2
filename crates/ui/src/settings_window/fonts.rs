@@ -1,7 +1,7 @@
 //! A book's type, and a PDF's AI pages', in the Appearance tab.
 use std::sync::Arc;
 
-use egui::{Button, ComboBox, RichText, Ui};
+use egui::{Button, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
 use mareader_settings::{
     BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings,
@@ -374,8 +374,7 @@ fn kind(family: FontFamily) -> Kind {
 /// One slot's picker; `only` keeps a family's slot to its own faces.
 fn picker(ui: &mut Ui, name: &str, hint: &str, choice: &mut FontChoice, only: Option<FontFamily>) {
     row(ui, name, hint, |ui| {
-        ComboBox::from_id_salt(name)
-            .icon(widgets::combo_chevron)
+        widgets::combo(name)
             .width(PICKER_WIDTH)
             .selected_text(label(choice))
             .show_ui(ui, |ui| {

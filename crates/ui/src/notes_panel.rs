@@ -86,12 +86,8 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
     let noted = rows.iter().filter(|r| r.note.is_some()).count();
     let kept = rows.iter().filter(|r| r.bookmark).count();
     if rows.is_empty() {
-        empty(
-            ui,
-            "No highlights yet",
-            "Select text, then highlight it or add a note.",
-            &t,
-        );
+        let hint = "Select text, then highlight it or add a note.";
+        widgets::panel_empty(ui, Some(Icon::Note), "No highlights yet", hint);
         return;
     }
     // The last bookmark gone, its filter goes too.
@@ -155,11 +151,21 @@ pub fn show(ui: &mut Ui, reading: &Reading, rows: &[Row], out: &mut Commands) {
     ui.data_mut(|d| d.insert_temp(query_id, typed));
     ui.add_space(4.0);
     if shown.is_empty() && !words.is_empty() {
-        empty(ui, "No matches", "Try fewer or other words.", &t);
+        widgets::panel_empty(
+            ui,
+            Some(Icon::Note),
+            "No matches",
+            "Try fewer or other words.",
+        );
         return;
     }
     if shown.is_empty() {
-        empty(ui, "No notes yet", "Select text and choose Note.", &t);
+        widgets::panel_empty(
+            ui,
+            Some(Icon::Note),
+            "No notes yet",
+            "Select text and choose Note.",
+        );
         return;
     }
     let find = Find {
@@ -710,21 +716,4 @@ pub fn order(spot: &Spot) -> (usize, usize) {
         Spot::Chars { from, .. } | Spot::Blocks { from, .. } => (from[0], from[1]),
         Spot::Text { block, start, .. } => (block, start),
     }
-}
-
-fn empty(ui: &mut Ui, title: &str, hint: &str, t: &Tokens) {
-    let area = ui.max_rect().shrink2(vec2(28.0, 0.0));
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(area)
-            .layout(egui::Layout::top_down(Align::Center)),
-        |ui| {
-            ui.add_space(area.height() * 0.3);
-            let (r, _) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::hover());
-            Icon::Note.paint(ui, r, t.muted);
-            ui.add_space(6.0);
-            ui.label(RichText::new(title).font(theme::medium(14.0)).color(t.ink));
-            ui.label(RichText::new(hint).size(t.text_small).color(t.muted));
-        },
-    );
 }

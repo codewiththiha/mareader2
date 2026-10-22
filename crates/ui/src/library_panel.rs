@@ -359,7 +359,8 @@ pub fn show(
     }
     let head = library_heading(ui, cx, &t, out);
     if cx.model.is_empty() {
-        empty(ui, &t);
+        let hint = "Books you add on the Library page appear here.";
+        widgets::panel_empty(ui, Some(Icon::Library), "Your library is empty", hint);
         return true;
     }
     let reading: Option<BookId> = cx
@@ -1073,23 +1074,6 @@ fn text(ui: &Ui, left: egui::Pos2, s: &str, font: FontId, colour: Color32, room:
 
 fn indent(depth: usize) -> f32 {
     PAD_X + (depth as f32 * INDENT).min(INDENT_MAX)
-}
-
-fn empty(ui: &mut Ui, t: &Tokens) {
-    ui.add_space(24.0);
-    ui.vertical_centered(|ui| {
-        let size = vec2(20.0, 20.0);
-        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-        Icon::Library.paint(ui, rect, t.muted);
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new("Your library is empty")
-                .size(13.0)
-                .color(t.ink),
-        );
-        let hint = "Books you add on the Library page appear here.";
-        ui.label(RichText::new(hint).size(t.text_small).color(t.muted));
-    });
 }
 
 /// Where a carried book may land on the panes.

@@ -1,6 +1,6 @@
 //! The word list window: options, a live preview, then Copy or Save.
 
-use egui::{Color32, ComboBox, Frame, Id, Modal, RichText, ScrollArea, Stroke, Ui, Vec2, vec2};
+use egui::{Color32, Frame, Id, Modal, RichText, ScrollArea, Stroke, Ui, Vec2, vec2};
 use mareader_dict::PACKS;
 use mareader_settings::{
     Settings, WORD_LANGUAGES, WordGroup, WordLayout, WordList, WordOutput, WordPreset, WordSort,
@@ -273,7 +273,7 @@ impl Open {
         section(ui, "Preset", "");
         let chosen = self.preset.clone().unwrap_or_else(|| "Custom".into());
         let mut pick = None;
-        ComboBox::from_id_salt("word-list-preset")
+        widgets::combo("word-list-preset")
             .selected_text(chosen)
             .width(ui.available_width())
             .show_ui(ui, |ui| {

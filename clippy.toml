@@ -2,3 +2,8 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+disallowed-methods = [
+    { path = "egui::ComboBox::from_id_salt", reason = "use widgets::combo, which draws the Lucide chevron" },
+    { path = "egui::ComboBox::from_label", reason = "use widgets::combo, which draws the Lucide chevron" },
+    { path = "egui::ComboBox::new", reason = "use widgets::combo, which draws the Lucide chevron" },
+]

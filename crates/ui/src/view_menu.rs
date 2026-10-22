@@ -111,13 +111,9 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     }
     shortcuts_row(ui, cx.platform, out);
     ui.separator();
-    let t = Tokens::get(ui.ctx());
     let version = format!("Mareader {}", env!("CARGO_PKG_VERSION"));
     ui.add_space(2.0);
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        ui.label(RichText::new(version).size(t.text_small).color(t.muted));
-    });
+    widgets::menu_note(ui, &version);
 }
 
 /// Keeps the title bar shown; both routes' menus offer it.
@@ -142,12 +138,8 @@ fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &m
 
 /// A small muted name over a group of rows.
 fn heading(ui: &mut Ui, text: &str) {
-    let t = Tokens::get(ui.ctx());
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        ui.label(RichText::new(text).size(t.text_small).color(t.muted));
-    });
+    widgets::menu_note(ui, text);
 }
 
 /// The four view modes, each named under its icon; the menu stays open.

@@ -131,8 +131,7 @@ fn default_language(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static P
         "What the card translates into",
         |ui| {
             ui.add_enabled_ui(!offered.is_empty(), |ui| {
-                egui::ComboBox::from_id_salt("dict-default-lang")
-                    .icon(crate::widgets::combo_chevron)
+                widgets::combo("dict-default-lang")
                     .width(180.0)
                     .selected_text(shown)
                     .show_ui(ui, |ui| {
