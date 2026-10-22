@@ -186,3 +186,17 @@ Two switches decide who wins where the reader and the book disagree:
   wide gaps loses some at 0.5. A book that justifies stays justified.
 
 Fixed-layout pages leave all of these alone.
+
+## Grouped book settings (2026-10-22)
+
+With a book in the focused pane, the Appearance tab groups its settings
+as **Book** (Book styles On or Off, and This book: As set, On or Off),
+**Font**, **Paragraph**, **Page** or **Column**, and **Colour**. Page
+holds the margins and longest line and shows in Single and Two pages
+views; Column holds the column width and alignment and shows in the
+vertical stream. A PDF or an empty pane shows none of them. On is the
+old Auto: a chapter's own design leads, plain chapters read as prose.
+A stored On keeps working.
+
+The Appearance popover adds a **Text** group while a book is focused:
+text size, line spacing, paragraph gaps and both overrides.
