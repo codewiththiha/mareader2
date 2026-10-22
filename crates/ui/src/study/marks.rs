@@ -4,7 +4,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use egui::{Color32, Id, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2};
-use mareader_appearance::{PageTone, Rgb};
+use mareader_appearance::{MarkFill, PageTone, Rgb};
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 
@@ -214,9 +214,11 @@ fn note_badge(ui: &Ui, b: Rect, color: Rgb) {
 pub struct Under {
     tone: PageTone,
     fills: Vec<Quad>,
+    /// Boxes on dim pages, redrawn with their text lifted: box, tone, tint.
+    lifts: Vec<(Rect, PageTone, Color32)>,
     lines: Vec<(Rect, Color32)>,
     /// Each colour and strength's fill, worked out once.
-    seen: Vec<((Rgb, u32), Color32)>,
+    seen: Vec<((Rgb, u32), MarkFill)>,
 }
 
 impl Under {
@@ -225,6 +227,7 @@ impl Under {
         Self {
             tone,
             fills: Vec::new(),
+            lifts: Vec::new(),
             lines: Vec::new(),
             seen: Vec::new(),
         }
@@ -238,36 +241,45 @@ impl Under {
             return;
         }
         let key = (color, opacity.to_bits());
-        let tint = match self.seen.iter().find(|(k, _)| *k == key) {
-            Some((_, tint)) => *tint,
+        let fill = match self.seen.iter().find(|(k, _)| *k == key) {
+            Some((_, fill)) => *fill,
             None => {
-                let tint = self.tint(color, opacity);
-                self.seen.push((key, tint));
-                tint
+                let fill = self.tone.mark(color.to_unit(), opacity);
+                self.seen.push((key, fill));
+                fill
             }
         };
-        self.fills.push(Quad::fill(area, tint));
+        match fill.tone() {
+            // Without the page pass, a lifted box falls back to a light wash.
+            Some(tone) => self
+                .lifts
+                .push((area, tone, tint(color.to_unit(), opacity))),
+            None => self
+                .fills
+                .push(Quad::fill(area, tint(fill.color, fill.strength))),
+        }
     }
 
-    /// The premultiplied tint the page pass blends under the ink.
-    fn tint(&self, color: Rgb, opacity: f32) -> Color32 {
-        let fill = self.tone.mark(color.to_unit(), opacity);
-        let [r, g, b] = fill.color.map(|c| (c * 255.0).round() as u8);
-        let a = (fill.strength * 255.0).round() as u8;
-        Color32::from_rgba_unmultiplied(r, g, b, a)
-    }
-
-    /// Draws them within `clip`; without the page pass, fills lie on top.
-    pub fn show(self, ui: &Ui, pass: Option<&Arc<PagePass>>, clip: Rect) {
+    /// Draws them within `clip` over `pages`, the quads just drawn.
+    pub fn show(self, ui: &Ui, pass: Option<&Arc<PagePass>>, clip: Rect, pages: &[Quad]) {
         let blend = self.tone.mark([1.0; 3], 1.0).blend;
         match pass {
-            Some(pass) if !self.fills.is_empty() => {
-                let shape = PagesCallback::marks(pass.clone(), clip, self.fills, blend);
-                ui.painter().add(shape);
+            Some(pass) => {
+                if !self.fills.is_empty() {
+                    let shape = PagesCallback::marks(pass.clone(), clip, self.fills, blend);
+                    ui.painter().add(shape);
+                }
+                let lifted = lifted(&self.lifts, pages);
+                if !lifted.is_empty() {
+                    let shape = PagesCallback::shape(pass.clone(), clip, lifted);
+                    ui.painter().add(shape);
+                }
             }
-            _ => {
-                for q in self.fills {
-                    ui.painter().rect_filled(q.rect, 0.0, q.tint);
+            None => {
+                let lifts = self.lifts.iter().map(|(r, _, tint)| (*r, *tint));
+                let fills = self.fills.iter().map(|q| (q.rect, q.tint));
+                for (rect, tint) in fills.chain(lifts) {
+                    ui.painter().rect_filled(rect, 0.0, tint);
                 }
             }
         }
@@ -275,6 +287,38 @@ impl Under {
             ui.painter().rect_filled(line, 0.0, colour);
         }
     }
+}
+
+/// A premultiplied fill of `color` at `strength`.
+fn tint(color: [f32; 3], strength: f32) -> Color32 {
+    let [r, g, b] = color.map(|c| (c * 255.0).round() as u8);
+    let a = (strength * 255.0).round() as u8;
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+/// Each lifted box's page quads, clipped to it and in its tone.
+fn lifted(lifts: &[(Rect, PageTone, Color32)], pages: &[Quad]) -> Vec<Quad> {
+    let mut out = Vec::new();
+    for (area, tone, _) in lifts {
+        let start = out.len();
+        for q in pages.iter().filter(|q| q.texture.is_some()) {
+            let clip = q.clip.intersect(*area);
+            if clip.is_positive() {
+                out.push(Quad {
+                    clip,
+                    tone: *tone,
+                    ..q.clone()
+                });
+            }
+        }
+        if out.len() == start {
+            out.push(Quad::fill(
+                *area,
+                crate::theme::color(Rgb::from_unit(tone.paper)),
+            ));
+        }
+    }
+    out
 }
 
 /// Where `pen` inks a line's box `r`: all, its lower half or a rule.

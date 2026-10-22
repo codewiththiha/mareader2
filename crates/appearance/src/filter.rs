@@ -175,12 +175,10 @@ impl Appearance {
                 FilterOp::Saturate(0.85),
                 FilterOp::Brightness(1.02),
             ],
-            // A softer invert than Dark's: grey paper, light grey ink.
             BaseMode::Dim => vec![
-                FilterOp::Invert(0.86),
-                FilterOp::HueRotate(180.0),
-                FilterOp::Saturate(0.7),
-                FilterOp::Brightness(0.9),
+                FilterOp::Brightness(0.8),
+                FilterOp::Saturate(0.75),
+                FilterOp::Contrast(0.9),
             ],
             // Smart invert: hues come back, near-white paper becomes black.
             BaseMode::Black => vec![
@@ -227,7 +225,7 @@ impl Appearance {
         match self.base {
             BaseMode::Light => Blend::Multiply,
             BaseMode::Dark => Blend::Screen,
-            BaseMode::Dim => Blend::Screen,
+            BaseMode::Dim => Blend::SoftLight,
             // Screen over black paper leaves the page as the chain made it.
             BaseMode::Black => Blend::Screen,
         }
@@ -489,7 +487,7 @@ mod tests {
             };
             a.page_tone().count
         };
-        assert!(count(BaseMode::Dim) <= 2, "range-keeping steps fold");
+        assert_eq!(count(BaseMode::Dim), 1, "three range-keeping steps fold");
         assert_eq!(count(BaseMode::Black), 2);
     }
 
@@ -607,6 +605,17 @@ mod tests {
                 "{base:?}"
             );
         }
+        // Dim's low contrast mutes hues too.
+        let spread = |base| {
+            let [r, g, _] = Appearance {
+                base,
+                ..Default::default()
+            }
+            .text_tone()
+            .apply(red);
+            r - g
+        };
+        assert!(spread(BaseMode::Dim) < spread(BaseMode::Light) / 2.0);
     }
 
     #[test]
