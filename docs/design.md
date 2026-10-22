@@ -71,8 +71,8 @@ authority; fix this table if they disagree).
 | paper | `#ffffff` | `#131316` | `#1a1c1f` | `#000000` | page background, panes |
 | ink | `#1f2937` | `#e5e7eb` | `#c3c6cb` | `#d4d4d8` | text and icons |
 | muted | `#6b7280` | `#9ca3af` | `#8b8f96` | `#8a8a93` | secondary text, hints |
-| surface | `#f3f4f6` | `#1a1a1e` | `#202328` | `#000000` | chrome, the title bar |
-| line | `#e5e7eb` | `#2b2b31` | `#2e3238` | `#27272a` | separators, hover fill |
+| surface | `#ebedef` | `#16161a` | `#202328` | `#000000` | chrome, the title bar |
+| line | `#dadce1` | `#2b2b31` | `#2e3238` | `#27272a` | separators, hover fill |
 | accent | `#2563eb` | `#60a5fa` | `#7a9bd4` | `#60a5fa` | selection, the active pane, toggles |
 | accent-soft | `#dbeafe` | `#1d2b3a` | `#232b36` | `#0c1e33` | selection wash |
 
@@ -93,10 +93,22 @@ back (a "smart invert"); it composites by screen over the black paper, which
 changes nothing. A reflowed book draws straight in its palette: black paper,
 the ink at 0.86 L, book colours mapped between them.
 
+**Contrast (2026-10-22).** Chrome keeps at least 0.035 OKLCH lightness from
+a book's page, and a separator at least 0.05 from the chrome it divides, on
+whichever side each already lies (`SURFACE_GAP`, `LINE_GAP`). The bases meet
+both; a tint that would close a gap moves the token's lightness only, so a
+sepia sidebar stays sepia but no longer melts into its page. Dim is a softer
+Dark: a book's ink sits at 0.78 L on its 0.22 paper (about 8.6:1, Dark is
+13:1), and a PDF page inverts at 0.86, turns 180°, loses 30 % saturation and
+dims to 90 %, composited by screen. Settings groups fill with `card`, the
+paper washed 18 % toward accent-soft (dark looks: halfway from surface to line,
+then 25 % accent-soft), and an off switch's track is the line 22 % toward the
+ink (18 % in dark looks), its knob edged in light looks.
+
 **One pass, fewer steps.** The page chain is folded before it reaches the
 shader: a step joins the one before it whenever that one keeps every colour in
-range, as then the CSS clamp between them changes nothing. Dim runs as one
-matrix, Dark and Black as two, so every pixel does less work in every mode.
+range, as then the CSS clamp between them changes nothing. Dark, Dim and
+Black run as at most two matrices, so every pixel does less work in every mode.
 
 **Book paper.** A reflowed page's paper follows the same rule as the tokens: its
 target chroma is capped at what sRGB holds within 0.06 L of the mode's paper,
