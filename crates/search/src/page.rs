@@ -27,7 +27,7 @@ pub struct Page {
     /// Folded char for char, so positions agree with `shown`.
     folded: String,
     /// Each char's layer character, or `GAP`.
-    layer: Vec<u32>,
+    layer: Layer,
     /// Hyphens that split a word across lines; a match may skip them.
     soft: Vec<u32>,
 }
@@ -50,7 +50,7 @@ impl Page {
             if broke && !gap && g.ch.is_lowercase() && page.ends_in_a_split_word() {
                 let hyphen = page.len().saturating_sub(1);
                 page.soft.push(u32::try_from(hyphen).unwrap_or(GAP));
-            } else if (gap || broke || g.space_before) && !page.layer.is_empty() {
+            } else if (gap || broke || g.space_before) && !page.is_empty() {
                 page.push(' ', GAP);
             }
             gap = false;
@@ -59,6 +59,12 @@ impl Page {
                 None => page.push(g.ch, at),
             }
         }
+        // Kept for every page of a searched book: no room to spare.
+        page.shown.shrink_to_fit();
+        page.folded.shrink_to_fit();
+        page.layer.runs.shrink_to_fit();
+        page.layer.gaps.shrink_to_fit();
+        page.soft.shrink_to_fit();
         page
     }
 
@@ -70,11 +76,11 @@ impl Page {
 
     /// Characters, gaps included.
     pub fn len(&self) -> usize {
-        self.layer.len()
+        self.layer.len as usize
     }
 
     pub fn is_empty(&self) -> bool {
-        self.layer.is_empty()
+        self.layer.len == 0
     }
 
     /// A letter then a hyphen: a word the line end may have split.
@@ -129,9 +135,12 @@ impl Page {
 
     /// The layer characters behind `chars`, gaps at either end dropped.
     pub fn layer_range(&self, chars: Range<usize>) -> Option<Range<usize>> {
-        let span = self.layer.get(chars)?;
-        let first = *span.iter().find(|&&i| i != GAP)?;
-        let last = *span.iter().rev().find(|&&i| i != GAP)?;
+        if chars.end > self.len() {
+            return None;
+        }
+        let drawn = |i: usize| self.layer.get(i).filter(|&l| l != GAP);
+        let first = chars.clone().find_map(drawn)?;
+        let last = chars.rev().find_map(drawn)?;
         Some(first as usize..last as usize + 1)
     }
 
@@ -148,6 +157,42 @@ impl Page {
             out.push('…');
         }
         out
+    }
+}
+
+/// Each char's layer character, as runs counting up together.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Layer {
+    /// Each run's first char and that char's layer character.
+    runs: Vec<(u32, u32)>,
+    /// Chars put in for gaps, in order; no layer character stands behind.
+    gaps: Vec<u32>,
+    len: u32,
+}
+
+impl Layer {
+    fn push(&mut self, at: u32) {
+        let i = self.len;
+        self.len = self.len.saturating_add(1);
+        if at == GAP {
+            self.gaps.push(i);
+            return;
+        }
+        let counted = |&(start, first): &(u32, u32)| first.checked_add(i - start) == Some(at);
+        if !self.runs.last().is_some_and(counted) {
+            self.runs.push((i, at));
+        }
+    }
+
+    /// Char `i`'s layer character, `GAP` for a gap; none past the end.
+    fn get(&self, i: usize) -> Option<u32> {
+        let i = u32::try_from(i).ok().filter(|i| *i < self.len)?;
+        if self.gaps.binary_search(&i).is_ok() {
+            return Some(GAP);
+        }
+        let run = self.runs.partition_point(|&(start, _)| start <= i);
+        let &(start, first) = self.runs.get(run.checked_sub(1)?)?;
+        first.checked_add(i - start)
     }
 }
 
@@ -290,6 +335,30 @@ mod tests {
         assert_eq!(s.chars().count(), SNIPPET_RADIUS * 2 + 6 + 2);
         let p = page(&["target"]);
         assert_eq!(p.snippet(0..6), "target");
+    }
+
+    #[test]
+    fn the_layer_map_reads_as_a_list_in_a_few_runs() {
+        let p = page(&["say e\u{fb03}cient  words", "and^more"]);
+        // The glyph behind each char; gaps before glyphs 18 and 21 too.
+        let glyphs = "say e\u{fb03}cient  wordsandmore";
+        let (mut want, mut spaced) = (Vec::new(), false);
+        for (i, ch) in glyphs.chars().enumerate() {
+            if ch == ' ' {
+                spaced = true;
+                continue;
+            }
+            if spaced || i == 18 || i == 21 {
+                want.push(GAP);
+            }
+            spaced = false;
+            let n = if ch == '\u{fb03}' { 3 } else { 1 };
+            want.extend(std::iter::repeat_n(i as u32, n));
+        }
+        let got: Vec<u32> = (0..p.len()).map(|i| p.layer.get(i).unwrap()).collect();
+        assert_eq!(got, want);
+        assert_eq!(p.layer.get(p.len()), None);
+        assert!(p.layer.runs.len() <= 6, "runs: {:?}", p.layer.runs);
     }
 
     #[test]
