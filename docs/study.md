@@ -204,6 +204,11 @@ slice 5.
   when that is lower; on light pages black ink stays black. The settings
   preview uses the same rule (`PageTone::mark`). Without a GPU, fills fall
   back to a translucent box on top.
+- **Lifted on dim pages (2026-10-22).** Where a page's ink is darker than
+  its dark paper, as in Dim, no blend can make marked text readable, so a
+  highlight redraws the page inside its box: the paper becomes the pen's
+  wash at Fill strength and the ink near-white, the wash darkened until
+  that ink keeps 4.5:1. PDFs, books and CEFR shading share it.
 - **Clicks.** A click on an AI mark opens its card, as before; a click on
   your highlight opens its menu with Remove highlight, with Undo.
 - **The bar** shows the menu's buttons in order, each pen's button with
