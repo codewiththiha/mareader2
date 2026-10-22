@@ -719,6 +719,8 @@ pub struct Frame {
     pub look: Option<Arc<Look>>,
     /// With a look: the space above, in body ems, margins collapsed.
     pub before: f32,
+    /// The same without paragraphs' own margins, which a reader may replace.
+    pub outer: f32,
     /// With a look: the boxes around it, outermost first.
     pub boxes: Vec<Arc<Boxed>>,
     /// With a look: its place in a grid row.

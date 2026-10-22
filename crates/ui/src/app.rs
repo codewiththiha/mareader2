@@ -1207,6 +1207,13 @@ impl MareaderApp {
                 self.settings.text.sanitize();
             }
             "justify" => self.settings.text.justify = value == "true",
+            "paragraph" => {
+                let gap = value.parse().map_err(|_| "paragraph: ems")?;
+                self.settings.text.paragraph_margin = gap;
+                self.settings.text.sanitize();
+            }
+            "override_font" => self.settings.text.override_font = value == "true",
+            "override_layout" => self.settings.text.override_layout = value == "true",
             "theme_pictures" => self.settings.text.theme_pictures = value == "true",
             "theme_emojis" => self.settings.text.theme_emojis = value == "true",
             "column_width" => {
