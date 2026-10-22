@@ -143,7 +143,7 @@ pub enum Command {
     /// Reads the pane's book aloud from a place, else its page.
     ReadAloud {
         pane: PaneId,
-        from: Option<mareader_session::Anchor>,
+        from: crate::read_aloud::ReadFrom,
     },
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),

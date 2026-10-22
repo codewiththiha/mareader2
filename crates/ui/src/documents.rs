@@ -965,6 +965,15 @@ impl Documents {
         view.seek(page, spot, band, entry.doc.page_count())
     }
 
+    /// Brings read-aloud's line into view once still; false until done.
+    pub fn reveal_said(&mut self, pane: PaneId, page: usize, chars: Range<usize>) -> bool {
+        let gliding = match self.panes.get(&pane) {
+            Some(Content::Pdf(view)) => view.gliding(),
+            _ => return true,
+        };
+        !gliding && self.reveal_hit(pane, page, chars)
+    }
+
     /// The word at `chars` of `page`, as Explain asks for it.
     pub fn asked_at(&self, pane: PaneId, page: usize, chars: Range<usize>) -> Option<Asked> {
         let view = self.view(pane)?;

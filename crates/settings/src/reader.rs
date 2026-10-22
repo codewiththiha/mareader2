@@ -187,17 +187,40 @@ pub struct ReadAloudSettings {
     pub skip_page_numbers: bool,
     /// Pages turn to keep the phrase read in view.
     pub follow: bool,
+    /// The engine that reads a book with no narration of its own.
+    pub engine: String,
+    /// The voice picked for each engine, by engine; none is its default.
+    pub voices: std::collections::BTreeMap<String, String>,
+    /// Shares of the voice's own pitch and of full volume.
+    pub pitch: f32,
+    pub volume: f32,
 }
 
 impl ReadAloudSettings {
     pub const SLOWEST: f32 = 0.5;
     pub const FASTEST: f32 = 3.0;
 
+    pub const LOWEST: f32 = 0.5;
+    pub const HIGHEST: f32 = 2.0;
+    /// The engine every system has.
+    pub const SYSTEM: &str = "system";
+
     pub fn sanitize(&mut self) {
-        self.rate = match self.rate.is_finite() {
-            true => self.rate.clamp(Self::SLOWEST, Self::FASTEST),
+        let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
+            true => v.clamp(lo, hi),
             false => 1.0,
         };
+        self.rate = keep(self.rate, Self::SLOWEST, Self::FASTEST);
+        self.pitch = keep(self.pitch, Self::LOWEST, Self::HIGHEST);
+        self.volume = keep(self.volume, 0.0, 1.0);
+        if self.engine.trim().is_empty() {
+            self.engine = Self::SYSTEM.to_owned();
+        }
+    }
+
+    /// The voice picked for the engine in use, if any.
+    pub fn voice(&self) -> Option<&str> {
+        self.voices.get(&self.engine).map(String::as_str)
     }
 }
 
@@ -208,6 +231,10 @@ impl Default for ReadAloudSettings {
             skip_notes: false,
             skip_page_numbers: true,
             follow: true,
+            engine: Self::SYSTEM.to_owned(),
+            voices: std::collections::BTreeMap::new(),
+            pitch: 1.0,
+            volume: 1.0,
         }
     }
 }
