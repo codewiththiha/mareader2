@@ -126,7 +126,7 @@ fn explain_marks_the_word_and_its_card_comes_back_on_a_click() -> Out {
     assert!(h.state().documents().selection(pane).is_some());
     // Released: the bar is up under the word.
     h.get_by_label("Copy");
-    h.get_by_label("Explain").click();
+    h.get_by_label("AI Dictionary").click();
     h.run();
     let study = h.state().study();
     assert_eq!(study.card_word(), Some("quick"));
@@ -409,6 +409,12 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
     // Half takes violet, then the AI takes Half: Half moves on.
     h.get_by_label("Half highlight #a58af0").click();
     h.run();
+    // The AI's look waits in the AI tab, under its name.
+    h.get_by_label("Change in AI").click();
+    h.run();
+    h.get_by_role_and_label(Role::Button, "AI Dictionary")
+        .click();
+    h.run();
     let ai_half = h.get_by_role_and_label(Role::Button, "Half highlight");
     ai_half.scroll_to_me();
     h.run();
@@ -426,6 +432,13 @@ fn the_ai_tab_picks_who_explains() {
     use mareader_ui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
     h.state_mut().queue(Command::OpenSettings(Tab::Ai));
+    h.run();
+    // With none saved, the AI tab's one button leads to the models.
+    if h.query_by_label("Add a model").is_some() {
+        h.get_by_label("Add a model").click();
+    } else {
+        h.state_mut().queue(Command::OpenSettings(Tab::Models));
+    }
     h.run();
     h.get_by_label("+  Add a model").click();
     h.run();

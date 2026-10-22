@@ -6,6 +6,17 @@ use egui_lucide::Lucide;
 
 pub const STROKE: f32 = 2.0;
 
+/// "AI" in strokes inside a rounded frame, on Lucide's 24-unit grid.
+const AI_MARK: &str = concat!(
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" "#,
+    r#"viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" "#,
+    r#"stroke-linecap="round" stroke-linejoin="round">"#,
+    r#"<rect x="2.5" y="4.5" width="19" height="15" rx="4"/>"#,
+    r#"<path d="M6.5 16 9.25 8 12 16"/><path d="M7.6 13.2h3.3"/>"#,
+    r#"<path d="M16.5 8v8"/><path d="M15 8h3"/><path d="M15 16h3"/>"#,
+    "</svg>"
+);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     Sidebar,
@@ -75,8 +86,10 @@ pub enum Icon {
     Restore,
     More,
     Copy,
-    /// Explain a word: sparkles, as an AI answer.
-    Explain,
+    /// Anything the AI does: "AI" drawn as an icon, not a Lucide glyph.
+    Ai,
+    /// The AI's models: a processor chip, the AI mark's pair.
+    Chip,
     /// The full highlighter.
     Highlight,
     /// The half highlighter: a letter on a bar.
@@ -204,7 +217,9 @@ impl Icon {
             Self::Restore => Lucide::Undo2,
             Self::More => Lucide::Ellipsis,
             Self::Copy => Lucide::Copy,
-            Self::Explain => Lucide::Sparkles,
+            // Not drawn from it: see `AI_MARK`.
+            Self::Ai => Lucide::Square,
+            Self::Chip => Lucide::Cpu,
             Self::Highlight => Lucide::Highlighter,
             Self::HalfHighlight => Lucide::Baseline,
             Self::Underline => Lucide::Underline,
@@ -215,6 +230,16 @@ impl Icon {
 
     /// For egui widgets; tint it, or let a `Button` tint it.
     pub fn image(self, size: f32) -> Image<'static> {
+        if self == Self::Ai {
+            let source = egui::ImageSource::Bytes {
+                uri: "bytes://mareader/ai-mark.svg".into(),
+                bytes: egui::load::Bytes::Static(AI_MARK.as_bytes()),
+            };
+            return Image::new(source)
+                .fit_to_exact_size(egui::Vec2::splat(size))
+                .alt_text("AI")
+                .show_loading_spinner(false);
+        }
         self.lucide().size(size).stroke_width(STROKE).image()
     }
 
