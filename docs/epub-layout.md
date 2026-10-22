@@ -200,3 +200,9 @@ A stored On keeps working.
 
 The Appearance popover adds a **Text** group while a book is focused:
 text size, line spacing, paragraph gaps and both overrides.
+
+Checked on 2026-10-22 in a 1600 by 1000 window: Moby-Dick's extracts
+(two pages, Black), Alice and Children's Literature in Two pages view,
+and the table layout sample on a single page. Extracts sit in their
+bordered, inset boxes with right-aligned small-caps sources, headings
+centre, and both pages fill the window's height.

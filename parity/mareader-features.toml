@@ -999,8 +999,8 @@ area = "E"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/reflow/src/flow.rs::tables_split_between_rows", "crates/epub/src/xhtml.rs::lists_indent_mark_and_tighten_their_items", "crates/epub/src/xhtml.rs::tables_read_rows_cells_and_heads", "crates/epub/src/xhtml.rs::stylesheets_style_by_tag_and_class", "crates/reflow/src/flow.rs::layouts_are_laid_for_the_pages_drawn_and_no_others", "crates/reflow/src/flow.rs::a_page_laid_again_draws_and_reads_the_same", "crates/reflow/src/flow.rs::kept_layouts_stay_under_the_cap_and_the_used_stay", "crates/reflow/src/label.rs::scripts_without_spaces_break_between_words"]
-notes = "docs/epub.md: headings, lists, quotes, pre, inline code, tables, rules, images and a CSS subset (M4 slice 2); justification and hyphenation are type.justify-hyphenate. Only line boxes stay set; layouts are laid again for the pages drawn, 32 MiB kept at most"
+evidence = ["crates/reflow/src/flow.rs::long_paragraphs_split_between_lines", "crates/reflow/src/flow.rs::a_heading_never_ends_a_page", "crates/reflow/src/flow.rs::tables_split_between_rows", "crates/epub/src/xhtml.rs::lists_indent_mark_and_tighten_their_items", "crates/epub/src/xhtml.rs::tables_read_rows_cells_and_heads", "crates/epub/src/xhtml.rs::stylesheets_style_by_tag_and_class", "crates/reflow/src/flow.rs::layouts_are_laid_for_the_pages_drawn_and_no_others", "crates/reflow/src/flow.rs::a_page_laid_again_draws_and_reads_the_same", "crates/reflow/src/flow.rs::kept_layouts_stay_under_the_cap_and_the_used_stay", "crates/reflow/src/label.rs::scripts_without_spaces_break_between_words", "crates/reflow/src/flow.rs::styled_prose_keeps_its_boxes_at_the_readers_size", "crates/epub/src/xhtml.rs::avoiding_a_break_before_holds_the_block_before"]
+notes = "docs/epub.md: headings, lists, quotes, pre, inline code, tables, rules, images and a CSS subset (M4 slice 2); justification and hyphenation are type.justify-hyphenate. Only line boxes stay set; layouts are laid again for the pages drawn, 32 MiB kept at most. Every styled chapter keeps the book's boxes, margins and rules (docs/epub-layout.md)"
 reference = ["crates/reflow-core/src/pager.rs"]
 
 [[feature]]
@@ -1010,9 +1010,9 @@ area = "E"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/ui/tests/reading.rs::a_book_s_vertical_strip_streams_one_column_edge_to_edge", "crates/reflow/src/flow.rs::bands_hold_each_page_s_text_and_the_gap_its_cut_swallowed", "crates/ui/src/layout.rs::a_column_off_centre_keeps_the_margin_from_its_edge"]
+evidence = ["crates/ui/tests/reading.rs::a_book_s_vertical_strip_streams_one_column_edge_to_edge", "crates/reflow/src/flow.rs::bands_hold_each_page_s_text_and_the_gap_its_cut_swallowed", "crates/ui/src/layout.rs::a_column_off_centre_keeps_the_margin_from_its_edge", "crates/reflow/src/flow.rs::a_pane_sized_page_centres_a_column_no_longer_than_its_line", "crates/ui/src/pdf_view.rs::a_resized_pane_resets_its_book_once_it_holds_still"]
 reference = ["crates/reflow-core/src/geometry.rs"]
-notes = "Single, spread and the strip show whole pages; the vertical strip streams each page cut to its text, edge to edge on its paper. One raster per page in every mode (docs/epub.md)"
+notes = "Single, spread and the strip show whole pages; the vertical strip streams each page cut to its text, edge to edge on its paper. One raster per page in every mode (docs/epub.md). Single and spread pages take the pane's size and reset once a resize settles"
 
 [[feature]]
 id = "epub.images"
@@ -1264,9 +1264,9 @@ area = "G"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/session/src/typeset.rs::every_knob_reaches_the_typography", "crates/reflow/src/flow.rs::bigger_type_takes_more_pages_and_anchors_keep_the_place", "crates/ui/tests/reading.rs::bigger_type_sets_an_open_book_again_at_the_page_read"]
+evidence = ["crates/session/src/typeset.rs::every_knob_reaches_the_typography", "crates/reflow/src/flow.rs::bigger_type_takes_more_pages_and_anchors_keep_the_place", "crates/ui/tests/reading.rs::bigger_type_sets_an_open_book_again_at_the_page_read", "crates/settings/src/text.rs::text_size_reads_as_a_share_of_the_base"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
-notes = "A change re-sets open books off the UI thread and keeps the reading place"
+notes = "A change re-sets open books off the UI thread and keeps the reading place. Size reads as a share, 100 % being 17 pt, above a minimum size"
 
 [[feature]]
 id = "type.spacing"
@@ -1275,9 +1275,9 @@ area = "G"
 tier = "P0"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/reflow/src/flow.rs::spacing_indent_and_weight_take_effect", "crates/session/src/typeset.rs::every_knob_reaches_the_typography"]
+evidence = ["crates/reflow/src/flow.rs::spacing_indent_and_weight_take_effect", "crates/session/src/typeset.rs::every_knob_reaches_the_typography", "crates/reflow/src/flow.rs::overrides_put_the_readers_type_and_spacing_over_the_books"]
 reference = ["crates/reader-core/src/settings/typography.rs"]
-notes = "Line height, paragraph margin, word and letter spacing; the indent applies to body paragraphs only, as mareader's"
+notes = "Line height, paragraph margin, word and letter spacing; the indent applies to body paragraphs only, as mareader's. Override book font and Override book layout put the reader's over the book's"
 
 [[feature]]
 id = "type.justify-hyphenate"
@@ -1319,9 +1319,9 @@ area = "G"
 tier = "P1"
 milestone = "M4"
 status = "shipped"
-evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification", "crates/ui/tests/reading.rs::a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab"]
+evidence = ["crates/ui/tests/reading.rs::the_fonts_tab_steps_the_size_and_switches_justification", "crates/ui/tests/reading.rs::a_book_offers_the_ink_dial_in_the_popover_and_the_fonts_tab", "crates/ui/tests/reading.rs::a_books_page_and_column_rows_follow_its_view", "crates/ui/tests/reading.rs::the_appearance_popover_offers_a_books_text_dials"]
 reference = ["crates/reader-runtime/src/components/settings/fonts.rs"]
-notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Text ink steps by 5 % beside the popover's dial"
+notes = "Shown while an EPUB is open; uninstalled system faces read Not installed. Text ink steps by 5 % beside the popover's dial. Grouped as Book, Font, Paragraph, Page or Column, and Colour; Page rows in paged views, Column rows in the stream; the popover has a Text group"
 
 [[feature]]
 id = "nav.page-counter"
