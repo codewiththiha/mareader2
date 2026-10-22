@@ -350,3 +350,40 @@ Findings:
   since M4, which every block and set line carries even when unused. A
   novel of 20,000 paragraphs pays about 16 MB; moving those fields into one
   boxed, often absent part would bound it. Not yet measured field by field.
+
+## 2026-10-22: A paragraph's block and set (perf/block-size)
+
+- **Why:** the known limit above: 200,000 one-word paragraphs held 807
+  bytes each, against about 300 at M4.
+- **What:** the ignored `layout_memory.rs` test, each run in its own
+  process, and the full audit as before. Sizes came from `size_of`.
+- **How:** `tools/ci.py memory`, CI's Linux runner. Before: `11df8cc`
+  (the section above). After: run 39769928578 on `f9ee4b3`.
+
+| Measure | Before | After |
+|---|---|---|
+| `Block`, one per paragraph the book keeps | 392 B | 264 B |
+| `Set`, one per paragraph a set book keeps | 376 B | 200 B |
+| 200,000 paragraphs: open | +154 MB, 807 B each | +93 MB, 488 B each |
+| 200,000 paragraphs: read through, peak | +171 MB, 282 MB | +112 MB, 189 MB |
+| 4M characters: open, peak | +18 MB, 59 MB | +18 MB, 58 MB |
+| War and Peace: every page read, at rest | 622, 642 MiB | 606, 633 MiB |
+
+Findings:
+
+- **Empty lists cost 24 bytes each.** A text kept seven `Vec`s (spans,
+  links, pictures, ruby, faces, combined runs) and a frame two (bars,
+  boxes), nearly always empty. They are now `ThinVec`s: 8 bytes, no
+  allocation while empty, the same methods.
+- **Design parts nobody uses rode on every set block.** Its grid cell,
+  float, grid place and positioned box took 136 bytes inline; they are
+  boxed now, 8 bytes each when absent. Its line counts are `u8` and
+  `u16`, and a picture's links and a table's head rows are thin too.
+- **The block list kept its spare room.** Grown by pushing, 200,000
+  blocks sat in room for 262,144; it is shrunk before it is shared.
+- **Guarded:** `a_paragraphs_block_and_set_stay_small` fails if either
+  grows past these sizes.
+- **Known limit:** 488 bytes is still above M4's 300. What is left is
+  each paragraph's own text and its line tops and offsets, three small
+  allocations, plus the frame's look, cell and marker. Merging the line
+  tops and offsets would save about 50 bytes more.
