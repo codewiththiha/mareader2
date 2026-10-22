@@ -294,3 +294,59 @@ Findings:
   (thumbnails share it), finished jobs 32 MiB, text layers 96 pages, laid
   paragraphs 32 MiB a book, decoded pictures 64 MiB a book, covers 64 MiB,
   searches 3, shaped labels 96.
+
+## 2026-10-22: Books at rest and after closing (fix/epub-memory)
+
+- **Why:** a book's memory at rest was often larger than a PDF's.
+- **What:** as at M8, plus counts the reflow crate now keeps
+  (`mareader_reflow::held`): set books (flows) alive, their laid blocks and
+  their decoded pictures, as a column of every row.
+- **New steps:** after the search, four quiet seconds ("left alone"); six
+  text sizes and four window sizes (each sets the book again); the page
+  grid shown.
+- **How:** `tools/ci.py memory`, CI's Linux runner with lavapipe. Before:
+  run 39755733368 on `e1236d2` (the counts alone). After: on `11df8cc`.
+
+| Workload, step | Before | After |
+|---|---|---|
+| War and Peace, its pane closed: flows alive | 1 (25.1 MiB laid) | 0 |
+| War and Peace, opened again: flows alive | 2 | 1 |
+| The Raven, its pane closed: flows alive | 1 | 0 |
+| War and Peace at rest: page textures, text layers, laid | 251 MiB, 96, 16.0 MiB | 57 MiB, 2, 4.0 MiB |
+| The Raven at rest: page textures, text layers | 251 MiB, 46 | 57 MiB, 2 |
+| tracemonkey at rest: page textures, text layers | 104 MiB, 14 | 59 MiB, 1 |
+| Six text sizes and four window sizes: flows alive | 1 | 1 |
+
+Findings:
+
+- **The leak was the page grid's picks.** They kept the last book read
+  (`Picks::counted`) so picked pages could be found again in a new
+  typesetting. Nothing let it go, so a closed book stayed whole, with its
+  blocks, layouts and pictures, until another book was read. Now the
+  picks hold it only while pages are picked, and an empty pane lets go.
+- **Setting a book again does not pile up.** Ten re-sets in a row leave
+  one flow; the old ones go with their last pane.
+- **Why a book looked larger than a PDF:** per page they cost about the
+  same (8 MiB of texture at this size against 7.4). A novel has hundreds
+  of pages, so reading fills the 256 MiB texture cap, where a 14-page PDF
+  stops at 104. On top came up to 32 MiB of laid blocks and 96 text
+  layers, which only a page being drawn needs.
+- **Fixed: caches rest.** Three quiet seconds after the last input or
+  job, page textures go down to 64 MiB, text layers keep only the pages
+  shown, and each book keeps 4 MiB of laid blocks and 16 MiB of decodes
+  (`a_resting_book_keeps_only_its_newest_layouts`,
+  `at_rest_cold_pages_go_and_the_pages_in_view_stay`). Pages in view and
+  their prefetched neighbours are touched every frame, so they stay.
+- **The layout measurement ran alongside another.** The two ignored tests
+  in `layout_memory.rs` shared one process, so 4M characters read +186 MB.
+  Each now runs alone: +18 MB to open (M4: +16), peak 59 MB.
+- **Known limit, measuring:** the runner's RSS does not follow freed
+  textures. Lavapipe keeps texture memory in large blocks and wgpu frees
+  late, so RSS stayed level at rest and on closing, before and after,
+  while the counts above fell. On a Mac, Metal frees each texture on its
+  own; check the footprint in Activity Monitor.
+- **Known limit, blocks:** 200,000 one-word paragraphs now hold +154 MB
+  (807 bytes each; M4: +59 MB). Most likely the book-design fields added
+  since M4, which every block and set line carries even when unused. A
+  novel of 20,000 paragraphs pays about 16 MB; moving those fields into one
+  boxed, often absent part would bound it. Not yet measured field by field.
