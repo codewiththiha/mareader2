@@ -20,8 +20,8 @@ pub fn base_tokens(mode: BaseMode) -> UiTokens {
             paper: Rgb(0xff, 0xff, 0xff),
             ink: Rgb(0x1f, 0x29, 0x37),
             muted: Rgb(0x6b, 0x72, 0x80),
-            surface: Rgb(0xf3, 0xf4, 0xf6),
-            line: Rgb(0xe5, 0xe7, 0xeb),
+            surface: Rgb(0xeb, 0xed, 0xef),
+            line: Rgb(0xda, 0xdc, 0xe1),
             accent: Rgb(0x25, 0x63, 0xeb),
             accent_soft: Rgb(0xdb, 0xea, 0xfe),
         },
@@ -29,7 +29,7 @@ pub fn base_tokens(mode: BaseMode) -> UiTokens {
             paper: Rgb(0x13, 0x13, 0x16),
             ink: Rgb(0xe5, 0xe7, 0xeb),
             muted: Rgb(0x9c, 0xa3, 0xaf),
-            surface: Rgb(0x1a, 0x1a, 0x1e),
+            surface: Rgb(0x16, 0x16, 0x1a),
             line: Rgb(0x2b, 0x2b, 0x31),
             accent: Rgb(0x60, 0xa5, 0xfa),
             accent_soft: Rgb(0x1d, 0x2b, 0x3a),
@@ -124,7 +124,7 @@ impl Appearance {
         let ((paper_l, paper_c), (ink_l, ink_c)) = match self.base {
             BaseMode::Light => ((0.98, 0.08), (0.15, 0.03)),
             BaseMode::Dark => ((0.24, 0.10), (0.92, 0.04)),
-            BaseMode::Dim => ((0.22, 0.08), (0.12, 0.03)),
+            BaseMode::Dim => ((0.22, 0.08), (0.78, 0.03)),
             // Black paper holds no hue, so the tint colours the ink instead.
             BaseMode::Black => ((0.0, 0.0), (0.86, 0.07)),
         };
@@ -162,16 +162,44 @@ impl Appearance {
             true => token,
             false => tinted(token, h, t, max_c),
         };
+        // Chrome stays off the book's page, and lines off the chrome.
+        let surface = match black {
+            true => base.surface,
+            false => apart(
+                ground(base.surface, 0.070),
+                self.text_palette().paper,
+                SURFACE_GAP,
+            ),
+        };
+        let line = apart(tinted(base.line, h, t, 0.090), surface, LINE_GAP);
         readable(UiTokens {
             paper: ground(base.paper, 0.055),
             ink: tinted(base.ink, h, t, 0.020),
             muted: tinted(base.muted, h, t, 0.045),
-            surface: ground(base.surface, 0.070),
-            line: tinted(base.line, h, t, 0.090),
+            surface,
+            line,
             accent: tinted(base.accent, h, t, 0.150),
             accent_soft: tinted(base.accent_soft, h, t, 0.110),
         })
     }
+}
+
+/// Lightness kept between the chrome and a book's page.
+pub const SURFACE_GAP: f64 = 0.035;
+/// Lightness kept between a separator and the chrome it divides.
+pub const LINE_GAP: f64 = 0.05;
+
+/// `token` moved off `from` by at least `gap` of lightness, on its own side.
+fn apart(token: Rgb, from: Rgb, gap: f64) -> Rgb {
+    let mut lch = token.to_oklch();
+    let ground = from.to_oklch().l;
+    let up = lch.l >= ground;
+    let target = if up { ground + gap } else { ground - gap };
+    if (up && lch.l >= target) || (!up && lch.l <= target) {
+        return token;
+    }
+    lch.l = target.clamp(0.0, 1.0);
+    lch.to_rgb_in_gamut()
 }
 
 /// WCAG AA for the small text muted and accent ink are used for.
@@ -351,6 +379,28 @@ mod tests {
     }
 
     #[test]
+    fn chrome_stays_off_the_book_page_and_lines_off_the_chrome() {
+        let l = |c: Rgb| c.to_oklch().l;
+        for base in [BaseMode::Light, BaseMode::Dark, BaseMode::Dim] {
+            for (hue, strength) in [(0, 0), (30, 35), (34, 50), (104, 50), (160, 40), (220, 50)] {
+                let a = Appearance {
+                    base,
+                    tint_hue: hue,
+                    tint_strength: strength,
+                    ..Appearance::default()
+                };
+                let (ui, book) = (a.ui_tokens(), a.text_palette());
+                let at = format!("{base:?} {hue}/{strength}");
+                // Bytes round lightness by a few thousandths.
+                let page = (l(ui.surface) - l(book.paper)).abs();
+                assert!(page >= SURFACE_GAP - 0.006, "{at}: surface {page:.3}");
+                let line = (l(ui.line) - l(ui.surface)).abs();
+                assert!(line >= LINE_GAP - 0.006, "{at}: line {line:.3}");
+            }
+        }
+    }
+
+    #[test]
     fn srgb_red_maps_near_oklch_29() {
         assert!((ui_hue_oklch(0.0) - 29.2).abs() < 1.0);
         assert!((ui_hue_oklch(360.0) - ui_hue_oklch(0.0)).abs() < 1e-9);
@@ -361,7 +411,7 @@ mod tests {
         for (base, paper, ink) in [
             (BaseMode::Light, 0.98, 0.15),
             (BaseMode::Dark, 0.24, 0.92),
-            (BaseMode::Dim, 0.22, 0.12),
+            (BaseMode::Dim, 0.22, 0.78),
         ] {
             for strength in [0, 40, 100] {
                 let a = Appearance {
