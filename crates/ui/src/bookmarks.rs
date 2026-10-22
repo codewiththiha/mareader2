@@ -28,8 +28,8 @@ pub fn on_pages(
     let name = documents.title(pane).unwrap_or_default();
     let kept = study.bookmarks_of(library.model(), book, name);
     let doc = &reading.document;
-    kept.into_iter()
-        .filter_map(|(id, spot)| Some((id, page_of(doc, spot)?)))
+    kept.iter()
+        .filter_map(|&(id, spot)| Some((id, page_of(doc, spot)?)))
         .collect()
 }
 

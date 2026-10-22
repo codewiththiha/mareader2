@@ -184,7 +184,9 @@ struct Showing {
 /// A book's results by the page each starts on, for one layout.
 struct Index {
     key: u64,
-    pages: HashMap<usize, Vec<AiPageId>>,
+    /// The results' stamp and book it was counted at: unchanged, no recount.
+    stamp: (u64, BookId),
+    pages: Arc<HashMap<usize, Vec<AiPageId>>>,
 }
 
 /// What the page menu shows.
@@ -751,12 +753,23 @@ impl PageAi {
         main: &Library,
         view: &AiView,
         (book, name): (Option<BookId>, &str),
-    ) -> HashMap<usize, Vec<AiPageId>> {
+    ) -> Arc<HashMap<usize, Vec<AiPageId>>> {
         let (lib, id) = self.lib(main, book, name);
+        let stamp = (lib.ai_pages_stamp(), id);
+        if let Some(index) = self.index.get(&view.layout).filter(|i| i.stamp == stamp) {
+            return Arc::clone(&index.pages);
+        }
         let pages = lib.ai_pages(id);
-        let key = hash(pages.iter().map(|p| p.id).collect::<Vec<_>>());
-        if let Some(index) = self.index.get(&view.layout).filter(|i| i.key == key) {
-            return index.pages.clone();
+        let mut h = DefaultHasher::new();
+        pages.iter().for_each(|p| p.id.hash(&mut h));
+        let key = h.finish();
+        if self.index.get(&view.layout).is_some_and(|i| i.key == key) {
+            let index = self.index.get_mut(&view.layout);
+            return (index.map(|i| {
+                i.stamp = stamp;
+                Arc::clone(&i.pages)
+            }))
+            .unwrap_or_default();
         }
         let mut map: HashMap<usize, Vec<AiPageId>> = HashMap::new();
         let mut spans = Vec::new();
@@ -782,9 +795,14 @@ impl PageAi {
         }
         self.spans.extend(spans);
         self.covers.extend(covers);
-        let pages = map.clone();
-        self.index.insert(view.layout, Index { key, pages });
-        map
+        let pages = Arc::new(map);
+        let index = Index {
+            key,
+            stamp,
+            pages: Arc::clone(&pages),
+        };
+        self.index.insert(view.layout, index);
+        pages
     }
 
     /// What `pane`'s pages on screen show of the AI this frame.

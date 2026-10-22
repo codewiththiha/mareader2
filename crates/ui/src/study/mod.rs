@@ -10,6 +10,7 @@ pub use picking::STYLE_ID as PICK_STYLE;
 mod restyle;
 pub mod words;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
@@ -262,6 +263,23 @@ pub struct Study {
     card_rect: Option<Rect>,
     menu_rect: Option<Rect>,
     note_rect: Option<Rect>,
+    /// Books' marks as last listed: every pane asks each frame.
+    listed: RefCell<Vec<Listed>>,
+}
+
+/// A book's bookmarks and where each is.
+pub type Bookmarks = Arc<[(MarkId, Spot)]>;
+
+/// Books listed at most; a ninth lets the oldest go.
+const LISTED_CAP: usize = 8;
+
+/// A book's marks and bookmarks, while none changed and the look held.
+struct Listed {
+    stamp: u64,
+    book: BookId,
+    look: HighlightSettings,
+    shown: Arc<[marks::Shown]>,
+    bookmarks: Bookmarks,
 }
 
 impl Default for Study {
@@ -283,6 +301,7 @@ impl Default for Study {
             card_rect: None,
             menu_rect: None,
             note_rect: None,
+            listed: RefCell::default(),
         }
     }
 }
@@ -407,15 +426,29 @@ impl Study {
         book: Option<BookId>,
         name: &str,
         look: &HighlightSettings,
-    ) -> Vec<marks::Shown> {
-        let (lib, id) = match book.filter(|b| main.book(*b).is_some()) {
-            Some(id) => (main, id),
-            None => (&self.loose, BookId::original(loose_content(name))),
-        };
-        let mut out: Vec<marks::Shown> = lib
-            .marks(id)
-            .into_iter()
-            .filter(|m| m.kind != MarkKind::Bookmark)
+    ) -> Arc<[marks::Shown]> {
+        self.listed(main, book, name, look).0
+    }
+
+    /// `book`'s marks to draw and its bookmarks, listed again on a change.
+    fn listed(
+        &self,
+        main: &Library,
+        book: Option<BookId>,
+        name: &str,
+        look: &HighlightSettings,
+    ) -> (Arc<[marks::Shown]>, Bookmarks) {
+        let (lib, id) = self.lib_of(main, book, name);
+        let stamp = lib.marks_stamp();
+        let mut listed = self.listed.borrow_mut();
+        let same = |l: &&Listed| l.stamp == stamp && l.book == id && l.look == *look;
+        if let Some(l) = listed.iter().find(same) {
+            return (Arc::clone(&l.shown), Arc::clone(&l.bookmarks));
+        }
+        let all = lib.marks(id);
+        let (kept, drawn): (Vec<&Mark>, Vec<&Mark>) =
+            (all.into_iter()).partition(|m| m.kind == MarkKind::Bookmark);
+        let mut shown: Vec<marks::Shown> = (drawn.into_iter())
             .map(|m| marks::Shown {
                 id: m.id,
                 spot: m.spot,
@@ -423,24 +456,48 @@ impl Study {
                 noted: m.note.value.is_some(),
             })
             .collect();
-        out.sort_by_key(|m| m.ink.ai);
-        out
+        shown.sort_by_key(|m| m.ink.ai);
+        let bookmarks: Bookmarks = kept.iter().map(|m| (m.id, m.spot)).collect();
+        let shown: Arc<[marks::Shown]> = shown.into();
+        listed.retain(|l| l.book != id);
+        if listed.len() >= LISTED_CAP {
+            listed.remove(0);
+        }
+        listed.push(Listed {
+            stamp,
+            book: id,
+            look: look.clone(),
+            shown: Arc::clone(&shown),
+            bookmarks: Arc::clone(&bookmarks),
+        });
+        (shown, bookmarks)
     }
 
     /// `book`'s bookmarks, each with where it is.
-    pub fn bookmarks_of(
-        &self,
-        main: &Library,
-        book: Option<BookId>,
-        name: &str,
-    ) -> Vec<(MarkId, Spot)> {
-        let (lib, id) = match book.filter(|b| main.book(*b).is_some()) {
-            Some(id) => (main, id),
-            None => (&self.loose, BookId::original(loose_content(name))),
-        };
+    pub fn bookmarks_of(&self, main: &Library, book: Option<BookId>, name: &str) -> Bookmarks {
+        let (lib, id) = self.lib_of(main, book, name);
+        let stamp = lib.marks_stamp();
+        let listed = self.listed.borrow();
+        // Drawing a pane lists its marks first; the bookmarks come along.
+        if let Some(l) = listed.iter().find(|l| l.stamp == stamp && l.book == id) {
+            return Arc::clone(&l.bookmarks);
+        }
         let marks = lib.marks(id).into_iter();
         let kept = marks.filter(|m| m.kind == MarkKind::Bookmark);
         kept.map(|m| (m.id, m.spot)).collect()
+    }
+
+    /// The library keeping `book`'s marks, and its id there.
+    fn lib_of<'a>(
+        &'a self,
+        main: &'a Library,
+        book: Option<BookId>,
+        name: &str,
+    ) -> (&'a Library, BookId) {
+        match book.filter(|b| main.book(*b).is_some()) {
+            Some(id) => (main, id),
+            None => (&self.loose, BookId::original(loose_content(name))),
+        }
     }
 
     /// Bookmarks the page, or takes back its bookmark with Undo offered.
@@ -1223,5 +1280,28 @@ mod tests {
         let saved = main.mark(id).and_then(|m| m.gloss.value.clone()).unwrap();
         assert_eq!(saved.by, "Sample answers");
         assert_ne!(saved.meaning, "Fast.");
+    }
+
+    #[test]
+    fn listed_marks_are_shared_until_one_changes() {
+        let (mut main, id) = marked("Fast.");
+        let study = Study::default();
+        let look = HighlightSettings::default();
+        let book = main.mark(id).map(|m| m.book.value);
+        let first = study.marks_of(&main, book, "", &look);
+        let again = study.marks_of(&main, book, "", &look);
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "an unchanged book is not listed again"
+        );
+        assert!(main.set_note(id, Some("a note".into()), 4));
+        let noted = study.marks_of(&main, book, "", &look);
+        assert!(
+            noted.first().is_some_and(|m| m.noted),
+            "a change shows at once"
+        );
+        main.set_marks_alive(&[id], false, 5);
+        assert!(study.marks_of(&main, book, "", &look).is_empty());
+        assert!(study.bookmarks_of(&main, book, "").is_empty());
     }
 }

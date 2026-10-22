@@ -85,6 +85,23 @@ fn removing_and_undo_bring_a_mark_back_as_it_was() {
 }
 
 #[test]
+fn every_mark_change_moves_the_marks_stamp() {
+    let mut lib = Library::new(A);
+    let book = lib.record_open(opened("/a.pdf", 1), 1_000);
+    let opened_at = lib.marks_stamp();
+    let id = lib.add_mark(book, fox(100.0), 2_000).unwrap();
+    let added = lib.marks_stamp();
+    assert_ne!(added, opened_at);
+    let _ = lib.marks(book);
+    assert_eq!(lib.marks_stamp(), added, "reading leaves it be");
+    assert!(lib.set_note(id, Some("sly".into()), 2_100));
+    let noted = lib.marks_stamp();
+    assert_ne!(noted, added);
+    lib.set_marks_alive(&[id], false, 2_200);
+    assert_ne!(lib.marks_stamp(), noted);
+}
+
+#[test]
 fn marks_are_saved_and_read_back() {
     let dir = tempfile::tempdir().unwrap();
     let folder = Folder::new(dir.path());
