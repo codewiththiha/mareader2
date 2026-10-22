@@ -202,15 +202,39 @@ impl Session {
     }
 }
 
+/// What a voice-model button asks of its download.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelAction {
+    Download(mareader_speech::Item),
+    Pause(mareader_speech::Item),
+    Cancel(mareader_speech::Item),
+    Remove(mareader_speech::Item),
+}
+
 /// Read-aloud for the window: at most one book reads at a time.
 #[derive(Default)]
 pub struct ReadAloud {
     session: Option<Session>,
     /// Voices to pick from and try, while settings show them.
     pub booth: Booth,
+    /// Voice models on offer, downloaded or coming down.
+    pub shelf: mareader_speech::Shelf,
 }
 
 impl ReadAloud {
+    /// Does what a voice-model button asked.
+    pub fn act(&mut self, action: ModelAction) {
+        #[cfg(not(target_arch = "wasm32"))]
+        match action {
+            ModelAction::Download(item) => self.shelf.download(item),
+            ModelAction::Pause(item) => self.shelf.pause(item),
+            ModelAction::Cancel(item) => self.shelf.cancel(item),
+            ModelAction::Remove(item) => self.shelf.remove(item),
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = action;
+    }
+
     pub fn active(&self) -> bool {
         self.session.is_some()
     }

@@ -363,6 +363,28 @@ impl MareaderApp {
         }
     }
 
+    /// Keeps downloaded voice models in `dir`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach_voice_models(&mut self, ctx: &Context, dir: PathBuf) {
+        self.attach_voice_models_from(ctx, dir, mareader_speech::MODELS);
+    }
+
+    /// As [`Self::attach_voice_models`], offering `catalogue` instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn attach_voice_models_from(
+        &mut self,
+        ctx: &Context,
+        dir: PathBuf,
+        catalogue: &'static [mareader_speech::Model],
+    ) {
+        let ctx = ctx.clone();
+        let waker = Arc::new(move || ctx.request_repaint());
+        if let Err(e) = self.read_aloud.shelf.attach(dir, catalogue, waker) {
+            self.toasts
+                .push(Toast::info(format!("Voice models are off: {e}")));
+        }
+    }
+
     /// Keeps covers and other rebuildable files in `dir`.
     pub fn attach_cache(&mut self, dir: PathBuf) {
         self.library.attach_cache(dir);
@@ -847,6 +869,12 @@ impl MareaderApp {
                 let inline = self.study.inline();
                 self.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
                 self.dict.set_inline(inline);
+            }
+            // The models on offer, kept in this folder.
+            #[cfg(not(target_arch = "wasm32"))]
+            "voice_models" => {
+                let (dir, models) = (PathBuf::from(value), mareader_speech::MODELS);
+                self.read_aloud.shelf.attach(dir, models, Arc::new(|| {}))?;
             }
             #[cfg(not(target_arch = "wasm32"))]
             "cefr" => {
@@ -1350,7 +1378,15 @@ impl MareaderApp {
                 }
             },
             "settings" => {
-                let tab = Tab::parse(value).ok_or("settings: a tab name, e.g. theme")?;
+                // A downloaded model's tab goes by the model's id.
+                let model = self
+                    .read_aloud
+                    .shelf
+                    .ready()
+                    .into_iter()
+                    .find(|m| m.id == value);
+                let tab = Tab::parse(value).or(model.map(Tab::Model));
+                let tab = tab.ok_or("settings: a tab name, e.g. theme")?;
                 self.settings_window.open(Some(tab));
             }
             "independent" => self.settings.workspace.independent_themes = value == "true",
@@ -1598,6 +1634,9 @@ impl MareaderApp {
         let (changed, role) = self.vocab.poll();
         if changed {
             // Answers came: the pages plan their shading again.
+            ctx.request_repaint();
+        }
+        if self.read_aloud.shelf.poll() {
             ctx.request_repaint();
         }
         let word = self.study.card_words().map(|(w, _)| w.to_owned());
@@ -2136,6 +2175,7 @@ impl MareaderApp {
                 self.read_aloud.booth.try_voice(settings);
             }
             Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
+            Command::VoiceModel(action) => self.read_aloud.act(action),
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
@@ -3406,6 +3446,7 @@ impl eframe::App for MareaderApp {
         self.voices_shown(&ctx);
         let voices = crate::settings_window::Voices {
             booth: &self.read_aloud.booth,
+            shelf: &self.read_aloud.shelf,
             platform: self.platform,
         };
         self.settings_window.show(

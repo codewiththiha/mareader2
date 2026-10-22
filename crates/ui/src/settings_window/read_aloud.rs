@@ -2,9 +2,10 @@
 
 use egui::{Id, Rect, RichText, ScrollArea, Sense, Ui, pos2, vec2};
 use mareader_settings::{LANGUAGES, ReadAloudSettings};
-use mareader_speech::Voice;
+use mareader_speech::{Item, Model, Shelf, Stage, Voice};
 
-use super::{choice_row, divider, group, note, row, section, switch_row};
+use super::voice_model::controls;
+use super::{Tab, choice_row, detail_row, divider, group, note, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::keymap;
@@ -13,9 +14,11 @@ use crate::read_aloud::Booth;
 use crate::theme::Tokens;
 use crate::widgets;
 
-/// What the tab shows besides settings: the engine's voices, the keys.
+/// What the tab shows besides settings: voices, models, the keys.
 pub struct Voices<'a> {
     pub booth: &'a Booth,
+    /// Voice models on offer and their downloads.
+    pub shelf: &'a Shelf,
     pub platform: Platform,
 }
 
@@ -27,6 +30,7 @@ const ALL: &str = "";
 
 pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
     engine(ui, s, v.booth);
+    models(ui, v.shelf, out);
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
     reading(ui, s);
@@ -70,6 +74,53 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth) {
         ui.add_space(8.0);
         ui.label(RichText::new(fault).size(t.text_small).color(t.danger));
     }
+}
+
+/// Models to download; each ready one opens its own tab.
+fn models(ui: &mut Ui, shelf: &Shelf, out: &mut Commands) {
+    section(ui, "Voice models");
+    group(ui, |ui| {
+        for (i, model) in shelf.catalogue().iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            model_row(ui, model, shelf, out);
+        }
+    });
+    let text = match shelf.attached() {
+        true => {
+            "Models run on this computer and work offline once downloaded. \
+             A paused download resumes where it stopped."
+        }
+        false => "Downloads need the desktop app.",
+    };
+    note(ui, text);
+}
+
+fn model_row(ui: &mut Ui, model: &'static Model, shelf: &Shelf, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let muted = |ui: &mut Ui, text: &str| {
+        ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+    };
+    detail_row(ui, model.name, model.about, |ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        if !shelf.attached() {
+            muted(ui, &crate::dict::megabytes(model.bytes()));
+            return;
+        }
+        let item = Item::Model(model.id);
+        match shelf.stage(item) {
+            Stage::Ready => {
+                let label = format!("{} voices", model.name);
+                let open = egui::Button::new("Voices…");
+                if ui.add(open).on_hover_text(label).clicked() {
+                    out.push(Command::OpenSettings(Tab::Model(model)));
+                }
+                muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
+            }
+            stage => controls(ui, stage, (item, model.name, model.bytes()), out),
+        }
+    });
 }
 
 fn voice(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth, out: &mut Commands) {

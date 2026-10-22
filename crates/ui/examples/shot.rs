@@ -119,6 +119,11 @@ fn main() -> Result<(), String> {
                 app.set_option(k, &dir.to_string_lossy())?;
                 words = true;
             }
+            // Voice models none or downloaded: `voice_models=ready`.
+            "voice_models" if v == "absent" || v == "ready" => {
+                let dir = voice_models(v == "ready")?;
+                app.set_option(k, &dir.to_string_lossy())?;
+            }
             // The test packs, converted: `dictionaries=fixtures`.
             "dictionaries" if v == "fixtures" => {
                 let dir = fixture_packs()?;
@@ -314,4 +319,26 @@ fn wait_for_words(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> 
     // Pages ask for their levels, then repaint shaded.
     harness.run_steps(12);
     Ok(())
+}
+
+/// A fresh models folder; if `ready`, sparse files of the listed sizes.
+fn voice_models(ready: bool) -> Result<std::path::PathBuf, String> {
+    let dir = std::env::temp_dir().join("mareader-shot-voice-models");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if !ready {
+        return Ok(dir);
+    }
+    for model in mareader_speech::MODELS {
+        let extra = model.voices.iter().take(4).map(|v| v.file);
+        for f in model.core().into_iter().chain(extra) {
+            let path = dir.join(model.id).join(f.path);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+            file.set_len(f.bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(dir)
 }

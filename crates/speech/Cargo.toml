@@ -1,6 +1,6 @@
 [package]
 name = "mareader-speech"
-description = "Reading text aloud: sentences, voices and the engines that speak"
+description = "Reading text aloud: sentences, voices, engines and voice models"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,3 +12,9 @@ workspace = true
 # A browser build offers no engine yet.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tts = { workspace = true }
+# Voice models come down resumable and checked.
+mareader-fetch = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+tempfile = { workspace = true }

@@ -26,6 +26,7 @@ mod models;
 mod read_aloud;
 mod scope;
 mod vocabulary;
+mod voice_model;
 
 pub use read_aloud::Voices;
 pub use scope::{Applies, Scope, Shown};
@@ -66,6 +67,8 @@ pub enum Tab {
     Workspace,
     /// The master switch, then each motion.
     Motion,
+    /// A downloaded voice model's voices; shown once it is ready.
+    Model(&'static mareader_speech::Model),
 }
 
 impl Tab {
@@ -94,6 +97,7 @@ impl Tab {
             Tab::Models => "AI models",
             Tab::Workspace => "Workspace",
             Tab::Motion => "Motion",
+            Tab::Model(m) => m.name,
         }
     }
 
@@ -123,13 +127,14 @@ impl Tab {
             Tab::Models => Icon::Chip,
             Tab::Workspace => Icon::SplitRight,
             Tab::Motion => Icon::Motion,
+            Tab::Model(_) => Icon::VoiceModel,
         }
     }
 
     /// The heading the sidebar groups it under.
     fn group(self) -> &'static str {
         match self {
-            Tab::Appearance | Tab::Layout | Tab::ReadAloud => "Reading",
+            Tab::Appearance | Tab::Layout | Tab::ReadAloud | Tab::Model(_) => "Reading",
             Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
             Tab::Models | Tab::Workspace | Tab::Motion => "App",
         }
@@ -190,6 +195,13 @@ impl SettingsWindow {
         if !self.open {
             return;
         }
+        let models = voices.shelf.ready();
+        // A removed model's tab goes; its engine's settings stay.
+        if let Tab::Model(m) = self.tab
+            && !models.iter().any(|r| r.id == m.id)
+        {
+            self.tab = Tab::ReadAloud;
+        }
         let t = Tokens::get(ctx);
         let size = window_size(ctx.content_rect().size());
         let frame = Frame::new()
@@ -208,7 +220,7 @@ impl SettingsWindow {
                 ui.set_height(size.y);
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
                 ui.horizontal_top(|ui| {
-                    self.nav(ui, size.y);
+                    self.nav(ui, size.y, &models);
                     let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
                     let edge = Stroke::new(1.0, t.line);
                     ui.painter().vline(line.center().x, line.y_range(), edge);
@@ -248,7 +260,7 @@ impl SettingsWindow {
     }
 
     /// The sidebar: every tab named, under its group's heading.
-    fn nav(&mut self, ui: &mut Ui, height: f32) {
+    fn nav(&mut self, ui: &mut Ui, height: f32, models: &[&'static mareader_speech::Model]) {
         let t = Tokens::get(ui.ctx());
         let (rect, _) = ui.allocate_exact_size(vec2(NAV_W, height), Sense::hover());
         let r = t.radius_lg as u8;
@@ -274,6 +286,15 @@ impl SettingsWindow {
             }
             if nav_row(&mut ui, tab, tab == shown).clicked() {
                 self.tab = tab;
+            }
+            // Each downloaded model's tab follows Read aloud.
+            if tab == Tab::ReadAloud {
+                for m in models {
+                    let tab = Tab::Model(m);
+                    if nav_row(&mut ui, tab, tab == shown).clicked() {
+                        self.tab = tab;
+                    }
+                }
             }
         }
     }
@@ -356,6 +377,7 @@ fn tab_body(
         Tab::Appearance => appearance(ui, s, cx, out),
         Tab::Layout => layout(ui, s, cx),
         Tab::ReadAloud => read_aloud::tab(ui, &mut s.read_aloud, voices, out),
+        Tab::Model(m) => voice_model::tab(ui, &mut s.read_aloud, m, voices.shelf, out),
         Tab::Motion => motion(ui, s, cx),
         Tab::Highlights => highlights::tab(ui, &mut s.study.highlights, out),
         Tab::Vocabulary => {
@@ -906,6 +928,24 @@ fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
         painter.circle_filled(mark, 4.5, t.accent);
     }
     resp.clicked() && !on
+}
+
+/// A row named on two lines, its controls at the right.
+fn detail_row(ui: &mut Ui, title: &str, detail: &str, control: impl FnOnce(&mut Ui)) {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), 52.0);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+        ui.set_min_height(52.0);
+        let named = ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let r = ui.label(title);
+            ui.label(RichText::new(detail).size(t.text_small).color(t.muted));
+            r
+        });
+        widgets::labelled(ui, named.inner.id, |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), control);
+        });
+    });
 }
 
 /// Honest copy for settings whose feature has not landed yet.
