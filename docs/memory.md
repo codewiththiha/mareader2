@@ -387,3 +387,45 @@ Findings:
   each paragraph's own text and its line tops and offsets, three small
   allocations, plus the frame's look, cell and marker. Merging the line
   tops and offsets would save about 50 bytes more.
+
+## 2026-10-22: Copies while drawing, and the search index (perf/copies)
+
+- **Why:** a pass over code that copies or keeps more than it needs:
+  hard-word shading, marks, highlights, page AI and search.
+- **What:** the full audit as before, run twice because RSS on the
+  runner wanders by about 15 MiB between runs. Sizes are computed.
+- **How:** `tools/ci.py memory`, CI's Linux runner. Before: run
+  39769928578 on `f9ee4b3` (the section above). After: runs 39774922698
+  and 39777829841 on `cac57e6`.
+
+| Measure | Before | After (two runs) |
+|---|---|---|
+| War and Peace: every page read | 606 MiB | 615, 587 MiB |
+| War and Peace: searched for "the" | +27 MiB | +2, +18 MiB |
+| War and Peace: at rest, then closed | 633, 524 MiB | 619, 492; 605, 470 MiB |
+| tracemonkey: rounds 2 to 12 | 421 to 440 MiB | 425 flat; 14 MiB lower by round 12 |
+| Search index, per character kept | 4 B, plus spare room | about 0.3 B |
+
+Findings:
+
+- **Every frame copied boxes.** Marks, hits, read-aloud and hard words
+  each built a `Vec` of boxes per line, twice; a noted mark boxed every
+  character of its page. Line boxes now stream from the text layer.
+- **Hard-word shading kept each word's boxes apart.** The words of a
+  shaded page now share one list behind an `Arc`, each plan reads the
+  page's characters once, and the memo of 32 pages drops the least
+  recently used instead of starting over.
+- **Each pane listed its marks from scratch every frame,** scanning
+  every mark in the library, and page AI cloned its index and scanned
+  every result. Tracked maps now carry a stamp that moves on any
+  change; lists are rebuilt only when it moves, then shared.
+- **The search index kept a `u32` per character** pointing into the
+  text layer: 13 MB for War and Peace. It is now runs that count up
+  together plus the gaps' places, and each page drops its spare room.
+- **Guarded:** `every_change_moves_the_stamp_and_reads_do_not`,
+  `every_mark_change_moves_the_marks_stamp`,
+  `listed_marks_are_shared_until_one_changes` and
+  `the_layer_map_reads_as_a_list_in_a_few_runs`.
+- **Noise:** the first run's emoji Markdown and library grid rows came
+  out 15 to 30 MiB higher; the second run matched the earlier ones.
+  Neither workload runs the changed code.
