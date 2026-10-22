@@ -50,17 +50,21 @@ pub enum Why {
 impl Why {
     pub fn message(self) -> &'static str {
         match self {
-            Self::NotHere => "No AI is set up to explain words. Choose one in Settings › AI.",
+            Self::NotHere => "No model is set for the AI Dictionary. Choose one in Settings › AI.",
             Self::NotReady => "The model isn't ready yet. Try again in a moment.",
-            Self::Refused => "The model declined to explain this word.",
+            Self::Refused => "The model declined to look up this word.",
             Self::TimedOut => "The answer took too long.",
             Self::Busy => "The model is busy. Try again in a moment.",
             Self::BadAnswer => "The answer couldn't be read.",
-            Self::NoKey => "This provider needs an API key. Add one in Settings › AI.",
-            Self::KeysRejected => "Every API key was turned away. Check them in Settings › AI.",
+            Self::NoKey => "This provider needs an API key. Add one in Settings › AI models.",
+            Self::KeysRejected => {
+                "Every API key was turned away. Check them in Settings › AI models."
+            }
             Self::Offline => "The AI couldn't be reached. Check the connection or the server.",
-            Self::Setup => "The AI turned the request down. Check the model in Settings › AI.",
-            Self::Language => "The model can't explain words in this language.",
+            Self::Setup => {
+                "The AI turned the request down. Check the model in Settings › AI models."
+            }
+            Self::Language => "The model can't define words in this language.",
             Self::Locked => "The keychain holding the API keys is locked.",
             Self::InUse => "This model is busy with another task. Try again when it's done.",
         }

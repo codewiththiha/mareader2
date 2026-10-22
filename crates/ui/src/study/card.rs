@@ -219,7 +219,7 @@ fn shimmer(ui: &mut Ui, t: &Tokens) {
 
 fn explaining(ui: &mut Ui, t: &Tokens) {
     ui.label(
-        RichText::new("Explaining…")
+        RichText::new("Looking up…")
             .size(t.text_small)
             .color(t.muted),
     );

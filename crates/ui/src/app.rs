@@ -1816,7 +1816,7 @@ impl MareaderApp {
         }
         let Some((asked, rect)) = self.documents.asked(pane) else {
             let rule = format!(
-                "Explain takes one word, up to {} characters.",
+                "The AI Dictionary takes one word, up to {} characters.",
                 mareader_study::MAX_GLOSS_CHARS
             );
             self.toasts.push(Toast::info(rule));

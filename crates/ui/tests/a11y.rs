@@ -75,6 +75,7 @@ fn every_control_has_a_name() {
         "vocabulary",
         "dictionary",
         "ai",
+        "models",
         "workspace",
         "motion",
     ];

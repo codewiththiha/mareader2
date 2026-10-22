@@ -162,7 +162,13 @@ impl PageAi {
             widgets::menu_note(ui, why);
             ui.add_space(2.0);
             if widgets::menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
-                out.push(Command::OpenSettings(Tab::Ai));
+                // With no model saved, adding one comes first.
+                let tab = if ai.presets.is_empty() {
+                    Tab::Models
+                } else {
+                    Tab::Ai
+                };
+                out.push(Command::OpenSettings(tab));
                 return true;
             }
             return false;

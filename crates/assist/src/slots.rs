@@ -123,7 +123,7 @@ fn busy(name: &str, cap: usize, long: Option<&str>) -> Failure {
     Failure::detailed(
         Why::InUse,
         format!(
-            "“{name}” {doing} and {runs}. Raise “At once” or pick another model in Settings › AI."
+            "“{name}” {doing} and {runs}. Raise “At once” or pick another model in Settings › AI models."
         ),
     )
 }

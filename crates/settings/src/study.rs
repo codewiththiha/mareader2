@@ -58,7 +58,7 @@ impl BarItem {
     pub fn label(self) -> &'static str {
         match self {
             Self::Copy => "Copy",
-            Self::Explain => "Explain",
+            Self::Explain => "AI Dictionary",
             Self::LookUp => "Look up",
             Self::Note => "Note",
             Self::Highlight(pen) => pen.label(),

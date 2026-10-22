@@ -580,7 +580,7 @@ fn held_badge(ui: &Ui, resp: &egui::Response, centre: Pos2, r: f32, t: &Tokens) 
     let p = ui.painter();
     p.circle(centre, r, t.accent, Stroke::new(1.5, t.surface));
     let glyph = Rect::from_center_size(centre, vec2(r * 1.2, r * 1.2));
-    Icon::Explain.paint(ui, glyph, Color32::WHITE);
+    Icon::Ai.paint(ui, glyph, Color32::WHITE);
     let why = "The AI is organizing this book. It opens as usual, \
                and moves once you've seen the plan.";
     resp.clone().on_hover_text(why);

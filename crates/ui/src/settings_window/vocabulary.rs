@@ -44,10 +44,10 @@ pub fn tab(
         divider(ui);
         level_row(ui, &mut c.level);
         divider(ui);
-        let hint = "Opens the AI card for the word, marking it";
+        let hint = "Opens it in the AI Dictionary, marking it";
         switch_row(
             ui,
-            "Click a shaded word to explain it",
+            "Click a shaded word to look it up",
             hint,
             &mut c.click_explain,
         );

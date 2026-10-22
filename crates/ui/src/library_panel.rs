@@ -976,7 +976,7 @@ fn book_row(
     if look.held {
         let at =
             Rect::from_center_size(pos2(badge.left() - 10.0, row.center().y), vec2(12.0, 12.0));
-        Icon::Explain.paint(ui, at, t.accent);
+        Icon::Ai.paint(ui, at, t.accent);
         room -= 16.0;
     }
     let (font, colour) = match (look.active, look.open || resp.hovered()) {

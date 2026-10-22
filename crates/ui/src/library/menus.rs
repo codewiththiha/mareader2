@@ -325,7 +325,7 @@ pub fn organize_rows(ui: &mut Ui, organizer: Organizer<'_>, out: &mut Commands) 
         }
         None => row(
             ui,
-            Icon::Explain,
+            Icon::Ai,
             ORGANIZE,
             None,
             ORGANIZE_TIP,
@@ -404,7 +404,7 @@ fn organize_picks(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
         .collect();
     let on = !bar.busy && !books.is_empty();
     let r = ui.add_enabled_ui(on, |ui| {
-        widgets::icon_button(ui, Icon::Explain, "Organize these with AI", false)
+        widgets::icon_button(ui, Icon::Ai, "Organize these with AI", false)
     });
     let tip = match () {
         _ if bar.busy => ORGANIZING,

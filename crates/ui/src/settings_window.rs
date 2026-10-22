@@ -21,6 +21,8 @@ mod ai;
 mod dictionary;
 mod fonts;
 mod highlights;
+#[cfg(not(target_arch = "wasm32"))]
+mod models;
 mod scope;
 mod vocabulary;
 
@@ -53,21 +55,24 @@ pub enum Tab {
     Highlights,
     Vocabulary,
     Dictionary,
-    /// Who explains words; desktop builds only.
+    /// What the AI does: the AI Dictionary, the library, pages.
     Ai,
+    /// The models tasks ask, and their providers' keys.
+    Models,
     Workspace,
     /// The master switch, then each motion.
     Motion,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 8] = [
+    pub const ALL: [Tab; 9] = [
         Tab::Appearance,
         Tab::Layout,
         Tab::Highlights,
         Tab::Vocabulary,
         Tab::Dictionary,
         Tab::Ai,
+        Tab::Models,
         Tab::Workspace,
         Tab::Motion,
     ];
@@ -80,6 +85,7 @@ impl Tab {
             Tab::Vocabulary => "Vocabulary",
             Tab::Dictionary => "Dictionary",
             Tab::Ai => "AI",
+            Tab::Models => "AI models",
             Tab::Workspace => "Workspace",
             Tab::Motion => "Motion",
         }
@@ -91,6 +97,7 @@ impl Tab {
         match s.as_str() {
             "theme" | "fonts" => Some(Tab::Appearance),
             "animations" => Some(Tab::Motion),
+            "models" => Some(Tab::Models),
             _ => Self::ALL
                 .into_iter()
                 .find(|t| t.label().eq_ignore_ascii_case(&s)),
@@ -104,7 +111,8 @@ impl Tab {
             Tab::Highlights => Icon::Highlight,
             Tab::Vocabulary => Icon::Levels,
             Tab::Dictionary => Icon::Dictionary,
-            Tab::Ai => Icon::Explain,
+            Tab::Ai => Icon::Ai,
+            Tab::Models => Icon::Chip,
             Tab::Workspace => Icon::SplitRight,
             Tab::Motion => Icon::Motion,
         }
@@ -115,13 +123,13 @@ impl Tab {
         match self {
             Tab::Appearance | Tab::Layout => "Reading",
             Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
-            Tab::Workspace | Tab::Motion => "App",
+            Tab::Models | Tab::Workspace | Tab::Motion => "App",
         }
     }
 
     /// Every tab always shows, so the list never shifts under the pointer.
     fn available(self) -> bool {
-        self != Tab::Ai || cfg!(not(target_arch = "wasm32"))
+        !matches!(self, Tab::Ai | Tab::Models) || cfg!(not(target_arch = "wasm32"))
     }
 }
 
@@ -333,10 +341,7 @@ fn tab_body(
         Tab::Appearance => appearance(ui, s, cx, out),
         Tab::Layout => layout(ui, s, cx),
         Tab::Motion => motion(ui, s, cx),
-        Tab::Highlights => {
-            let study = &mut s.study;
-            highlights::tab(ui, &mut study.highlights, &mut study.gloss);
-        }
+        Tab::Highlights => highlights::tab(ui, &mut s.study.highlights, out),
         Tab::Vocabulary => {
             let (study, dictionary) = (&mut s.study, &mut s.dictionary);
             vocabulary::tab(ui, study, dictionary, vocab, out);
@@ -344,15 +349,21 @@ fn tab_body(
         Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]
         Tab::Ai => {
+            let study = &mut s.study;
+            let looks = (&mut study.highlights, &mut study.gloss);
+            ai::tab(ui, &mut s.ai, looks, ai.board(), out);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Tab::Models => {
             let in_use = |id| ai.in_use(id);
-            let live = ai.board().map(|board| ai::Live {
+            let live = ai.board().map(|board| models::Live {
                 board,
                 in_use: &in_use,
             });
-            ai::tab(ui, &mut s.ai, live, out);
+            models::models_tab(ui, &mut s.ai, live, out);
         }
         #[cfg(target_arch = "wasm32")]
-        Tab::Ai => pending(ui, "AI answers need the desktop app."),
+        Tab::Ai | Tab::Models => pending(ui, "AI answers need the desktop app."),
         Tab::Workspace => workspace(ui, s, cx),
     }
     let _ = ai;

@@ -1,12 +1,11 @@
-//! The Highlights tab: each pen's colour, the selection menu, the AI's look.
+//! The Highlights tab: each pen's colour and the selection menu.
 
 use egui::{Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2};
 use mareader_appearance::Rgb;
-use mareader_settings::{
-    BarItem, GlossDensity, GlossSettings, HighlightSettings, Pen, PickColor, Reserved,
-};
+use mareader_settings::{BarItem, HighlightSettings, Pen, PickColor, Reserved};
 
-use super::{choice_row, divider, group, note, row, section};
+use super::{Tab, choice_row, divider, group, note, row, section};
+use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::study::marks::pen_area;
 use crate::theme::{self, Tokens};
@@ -14,7 +13,7 @@ use crate::widgets;
 
 const DOT: f32 = 22.0;
 
-pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) {
+pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, out: &mut Commands) {
     section(ui, "Highlighters");
     group(ui, |ui| {
         for (i, pen) in Pen::ALL.into_iter().enumerate() {
@@ -68,10 +67,24 @@ pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) {
     section(ui, "Selection menu");
     group(ui, |ui| menu(ui, &mut h.bar));
     note(ui, "Hidden buttons stay off the selection bar.");
-    section(ui, "Words the AI explained");
-    group(ui, |ui| ai_rows(ui, h, gloss));
-    let kept = "Highlights can't take the AI's look, so none passes for an AI mark.";
-    note(ui, kept);
+    if Tab::Ai.available() {
+        ai_mark(ui, h, out);
+    }
+}
+
+/// The AI Dictionary's mark, kept off the pens; it's set in the AI tab.
+fn ai_mark(ui: &mut Ui, h: &HighlightSettings, out: &mut Commands) {
+    section(ui, "AI Dictionary");
+    group(ui, |ui| {
+        let hint = "Highlights can't take this look, so none passes for it";
+        row(ui, "Its mark", hint, |ui| {
+            if ui.link("Change in AI").clicked() {
+                out.push(Command::OpenSettings(Tab::Ai));
+            }
+            ui.add_space(8.0);
+            preview(ui, h.ai.pen, h.ai.color, h.opacity);
+        });
+    });
 }
 
 /// A pen's preview and the colours it may take.
@@ -201,36 +214,4 @@ fn menu(ui: &mut Ui, bar: &mut Vec<BarItem>) {
         Some(Move::Down(i)) => bar.swap(i, i + 1),
         None => {}
     }
-}
-
-/// The AI's pen and colour, which highlights then can't take.
-fn ai_rows(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) {
-    let mut ai = h.ai;
-    row(ui, "Mark", "How explained words are marked", |ui| {
-        for pen in Pen::ALL.into_iter().rev() {
-            let on = ai.pen == pen;
-            if ui.add(egui::Button::selectable(on, pen.label())).clicked() {
-                ai.pen = pen;
-            }
-        }
-        preview(ui, ai.pen, ai.color, h.opacity);
-    });
-    divider(ui);
-    let taken = h.color(ai.pen);
-    row(ui, "Colour", "A pen's own colour can't be used", |ui| {
-        let kept = "This pen's own colour for highlights";
-        palette(ui, ("AI", kept), &mut ai.color, |c| c != taken);
-    });
-    // A new pen may meet that pen's own colour; settings move the pen.
-    h.ai = ai;
-    divider(ui);
-    row(ui, "Card spacing", "How roomy the word card is", |ui| {
-        let all = [GlossDensity::Comfortable, GlossDensity::Compact];
-        for d in all {
-            let on = gloss.density == d;
-            if ui.add(egui::Button::selectable(on, d.label())).clicked() {
-                gloss.density = d;
-            }
-        }
-    });
 }

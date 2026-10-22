@@ -108,7 +108,7 @@ fn button(
 ) -> Option<BarPress> {
     match item {
         BarItem::Copy => action(ui, Icon::Copy, "Copy").then_some(BarPress::Copy),
-        BarItem::Explain => action(ui, Icon::Explain, "Explain").then_some(BarPress::Explain),
+        BarItem::Explain => action(ui, Icon::Ai, "AI Dictionary").then_some(BarPress::Explain),
         BarItem::LookUp => action(ui, Icon::LookUp, "Look up").then_some(BarPress::LookUp),
         BarItem::Note => action(ui, Icon::Note, "Note").then_some(BarPress::Note),
         BarItem::Highlight(pen) => {
