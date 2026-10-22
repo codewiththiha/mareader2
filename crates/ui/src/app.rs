@@ -768,7 +768,9 @@ impl MareaderApp {
         let book = self.library.book_in(&self.documents, pane);
         let name = self.documents.title(pane).unwrap_or_default();
         let look = &self.settings.study.highlights;
-        self.study.marks_of(self.library.model(), book, name, look)
+        self.study
+            .marks_of(self.library.model(), book, name, look)
+            .to_vec()
     }
 
     /// The bar's title: the active pane's document, else the app.

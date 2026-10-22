@@ -65,6 +65,11 @@ pub struct NewAiPage {
 }
 
 impl Library {
+    /// New whenever any result changes; caches of results key on it.
+    pub fn ai_pages_stamp(&self) -> u64 {
+        self.ai_pages.stamp()
+    }
+
     /// `book`'s living results, oldest first.
     pub fn ai_pages(&self, book: BookId) -> Vec<&AiPage> {
         let mut out: Vec<&AiPage> = self

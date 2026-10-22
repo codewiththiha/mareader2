@@ -197,6 +197,11 @@ impl NewMark {
 }
 
 impl Library {
+    /// New whenever any mark changes; what shows marks keys its cache on it.
+    pub fn marks_stamp(&self) -> u64 {
+        self.marks.stamp()
+    }
+
     /// `book`'s living marks, oldest first.
     pub fn marks(&self, book: BookId) -> Vec<&Mark> {
         let mut out: Vec<&Mark> = self

@@ -528,7 +528,7 @@ pub struct ViewContext {
     /// Read this pane's paper: blend is on and the pane is focused.
     pub sample: bool,
     /// The book's marks, and how marks and the selection bar look.
-    pub marks: Vec<study::marks::Shown>,
+    pub marks: Arc<[study::marks::Shown]>,
     /// Pages with a bookmark, which hang a ribbon.
     pub bookmarks: Vec<usize>,
     pub highlights: HighlightSettings,
