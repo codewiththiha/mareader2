@@ -132,3 +132,15 @@ so a bigger setting makes every size bigger rather than one size:
 | L5 | Per-book override, both samples and the test corpus checked, docs, parity. Done: the per-book choice in the Fonts tab, saved with the book; the Gutenberg Raven stays prose in Auto; hostile grids, flex rows, spans, turns, radii and line pictures open within the time cap. |
 | L6 | Leftovers. Done: `flex-direction: column` (an item narrower than the column, or placed by `align-items`/`align-self`, is its own row of one; stretched items read as prose; `row-gap`); line pictures follow `vertical-align` (keywords, lengths, percentages); a `rowspan` cell sits across the rows it spans and its last row grows to hold it; a `vh` flex page centres its content (the screen share is the page's, not a length). |
 | L7 | The book's type in prose: sizes in its own steps, weights, indents, alignment, margins, inline sizes and spacer lines, moved by the reader's settings (table above); unstyled chapters keep the reader's type; designed type scales with the reader's size. |
+
+## Book CSS everywhere (2026-10-22)
+
+Every chapter with a style of its own is now laid out by its CSS, prose
+included: boxes with their margins, padding and borders, grids, floats,
+turns and the book's page-break rules (`break-before`, `-after` and
+`-inside: avoid`, widows and orphans). A bordered note in a prose chapter
+keeps its frame and indents rather than becoming a bare rule. What still
+tells a designed chapter from prose is only its scale: designed type
+grows with a wide pane as above, while prose stays at the reader's size
+and keeps the reader's fonts for named machine fonts. Off still reads
+every chapter in the reader's type, without the book's boxes.
