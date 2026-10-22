@@ -151,6 +151,8 @@ pub enum Command {
     /// Says a line in the voice settings pick; stops that line.
     TryVoice,
     StopVoiceTry,
+    /// A voice model or voice to download, pause, cancel or remove.
+    VoiceModel(crate::read_aloud::ModelAction),
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
     /// Looks the pane's selection up in the dictionaries.

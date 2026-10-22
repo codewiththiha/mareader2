@@ -19,12 +19,13 @@ use std::time::Duration;
 
 use reqwest::StatusCode;
 use reqwest::header::{CONTENT_RANGE, RANGE};
+use sha2::{Digest, Sha256};
 
 /// A parquet starts and ends with this; an error page does neither.
 const PARQUET: &[u8; 4] = b"PAR1";
 /// Every zstd frame starts with this.
 const ZSTD: &[u8; 4] = &[0x28, 0xb5, 0x2f, 0xfd];
-/// No download comes near this; a bigger body is something else.
+/// No unlisted download comes near this; a bigger body is something else.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// Tries per address before the next mirror.
 const TRIES: usize = 2;
@@ -65,13 +66,26 @@ pub enum Kind {
     Parquet,
     /// The frame magic at the start; length comes from the server.
     Zstd,
+    /// Exactly this long, with this SHA-256 in lowercase hex.
+    Sha256 { sha256: &'static str, bytes: u64 },
 }
 
 impl Kind {
+    /// The most a body of this kind may weigh.
+    pub fn most(self) -> u64 {
+        match self {
+            Self::Sha256 { bytes, .. } => bytes,
+            Self::Parquet | Self::Zstd => MAX_BYTES,
+        }
+    }
+
     /// Whether the file at `path` is this kind, in the reader's words.
     pub fn check(self, path: &Path) -> Result<(), String> {
         let mut file = File::open(path).map_err(|e| e.to_string())?;
         let len = file.metadata().map_err(|e| e.to_string())?.len();
+        if let Self::Sha256 { sha256, bytes } = self {
+            return listed(&mut file, len, (sha256, bytes));
+        }
         let mut head = [0; 4];
         file.read_exact(&mut head)
             .map_err(|_| "the file is empty")?;
@@ -80,6 +94,7 @@ impl Kind {
             Self::Zstd if &head == ZSTD => Ok(()),
             Self::Zstd => wrong(),
             Self::Parquet if &head != PARQUET => wrong(),
+            Self::Sha256 { .. } => Ok(()),
             Self::Parquet => {
                 let mut tail = [0; 4];
                 file.seek(SeekFrom::End(-4)).map_err(|e| e.to_string())?;
@@ -91,6 +106,30 @@ impl Kind {
                 }
             }
         }
+    }
+}
+
+/// Whether `file` is `bytes` long and hashes to `sha256`.
+fn listed(file: &mut File, len: u64, (sha256, bytes): (&str, u64)) -> Result<(), String> {
+    if len < bytes {
+        return Err("the file is cut short".into());
+    }
+    if len > bytes {
+        return Err("the file is longer than listed".into());
+    }
+    let mut hash = Sha256::new();
+    let mut buf = vec![0; 256 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hash.update(buf.get(..n).unwrap_or_default());
+    }
+    let hex: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    match hex.eq_ignore_ascii_case(sha256) {
+        true => Ok(()),
+        false => Err("the file isn't the one listed".into()),
     }
 }
 
@@ -168,7 +207,7 @@ fn one(
         s if s.is_success() => (0, response.content_length()),
         s => return Err(Stopped::Failed(format!("the server answered {s}"))),
     };
-    if total.is_some_and(|t| t > MAX_BYTES) {
+    if total.is_some_and(|t| t > kind.most()) {
         return Err(Stopped::Failed("the file is far too large".into()));
     }
     let mut file = OpenOptions::new()
@@ -192,7 +231,7 @@ fn one(
         let chunk = buf.get(..n).unwrap_or_default();
         file.write_all(chunk).map_err(|e| failed(&e))?;
         got += n as u64;
-        if got > MAX_BYTES {
+        if got > kind.most() {
             return Err(Stopped::Failed("the file is far too large".into()));
         }
         progress(got, total);
@@ -356,6 +395,33 @@ mod tests {
         assert_eq!(check(b"PAR1 half"), Err("the file is cut short".into()));
         assert!(check(b"").is_err());
         assert_eq!(check(b"PAR1PAR1"), Ok(()));
+    }
+
+    #[test]
+    fn a_listed_file_is_checked_by_length_and_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x");
+        std::fs::write(&path, b"abc").unwrap();
+        // SHA-256 of "abc".
+        let sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        assert_eq!(Kind::Sha256 { sha256, bytes: 3 }.check(&path), Ok(()));
+        let long = Kind::Sha256 { sha256, bytes: 4 };
+        assert_eq!(long.check(&path), Err("the file is cut short".into()));
+        let short = Kind::Sha256 { sha256, bytes: 2 };
+        assert_eq!(
+            short.check(&path),
+            Err("the file is longer than listed".into())
+        );
+        let zeros = "0000000000000000000000000000000000000000000000000000000000000000";
+        let other = Kind::Sha256 {
+            sha256: zeros,
+            bytes: 3,
+        };
+        assert_eq!(
+            other.check(&path),
+            Err("the file isn't the one listed".into())
+        );
+        assert_eq!(long.most(), 4);
     }
 
     #[test]

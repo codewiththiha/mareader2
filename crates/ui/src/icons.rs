@@ -132,6 +132,8 @@ pub enum Icon {
     Repeat,
     /// Read-aloud: its bar, steps and the way out of a table.
     ReadAloud,
+    /// A downloaded voice model's own settings tab.
+    VoiceModel,
     SkipBack,
     SkipForward,
     LeaveTable,
@@ -219,6 +221,7 @@ impl Icon {
             Self::Show => Lucide::Eye,
             Self::Repeat => Lucide::Repeat,
             Self::ReadAloud => Lucide::Headphones,
+            Self::VoiceModel => Lucide::AudioWaveform,
             Self::SkipBack => Lucide::SkipBack,
             Self::SkipForward => Lucide::SkipForward,
             Self::LeaveTable => Lucide::ArrowRightFromLine,

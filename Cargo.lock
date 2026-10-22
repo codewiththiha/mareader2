@@ -3432,6 +3432,7 @@ name = "mareader-fetch"
 version = "0.0.3"
 dependencies = [
  "reqwest",
+ "sha2",
  "tempfile",
 ]
 
@@ -3510,6 +3511,9 @@ dependencies = [
 name = "mareader-speech"
 version = "0.0.3"
 dependencies = [
+ "mareader-fetch",
+ "sha2",
+ "tempfile",
  "tts",
 ]
 

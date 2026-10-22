@@ -15,6 +15,8 @@ workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The TLS stack ai-pool already brings.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+# Checks a listed file is the one meant.
+sha2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

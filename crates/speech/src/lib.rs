@@ -9,16 +9,20 @@
     clippy::indexing_slicing
 )]
 
+mod models;
 mod script;
 mod sentences;
+mod shelf;
 mod silent;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
 
 use std::sync::Arc;
 
+pub use models::{KOKORO, MODELS, Model, ModelFile, ModelVoice};
 pub use script::{Glyph, Script, Sentence, Spot};
 pub use sentences::{LONGEST, split};
+pub use shelf::{Item, Shelf, Stage};
 
 /// Wakes the window when an engine has news: a sentence ended, say.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;

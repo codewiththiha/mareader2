@@ -119,6 +119,7 @@ fn main() -> eframe::Result {
                 app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
                 app.attach_dictionaries(&cc.egui_ctx, dir.join("dictionaries"));
                 app.attach_vocabulary(&cc.egui_ctx, dir.join("vocabulary"));
+                app.attach_voice_models(&cc.egui_ctx, dir.join("voice-models"));
             }
             if let Some(dir) = cache_dir() {
                 app.attach_cache(dir);
