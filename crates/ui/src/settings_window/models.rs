@@ -3,7 +3,6 @@
 use egui::{
     Align, Layout, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
 };
-use mareader_appearance::Rgb;
 use mareader_assist::{AppleState, Board, Job, KeyRow, KeyState, Load, lanes};
 use mareader_settings::{AiSettings, ModelPreset, PageTask, PresetId, Provider};
 use mareader_study::Failure;
@@ -11,7 +10,7 @@ use mareader_study::Failure;
 use super::{divider, group, note, row, section};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 use crate::widgets;
 
 const FIELD_W: f32 = 260.0;
@@ -237,43 +236,29 @@ fn apple_status(board: Option<&Board>) -> &'static str {
     }
 }
 
-/// What a badge carries: initials, or an icon for the unbranded.
-enum Mark {
-    Letters(&'static str),
-    Icon(Icon),
-}
-
-/// Each provider's colour and mark, so rows tell apart at a glance.
-fn badge_look(p: Provider) -> (Rgb, Mark) {
+/// Each provider's own logo; a custom server has none, so a server.
+fn logo(p: Provider) -> Icon {
     match p {
-        Provider::OpenAi => (Rgb(0x10, 0xa3, 0x7f), Mark::Letters("OA")),
-        Provider::Gemini => (Rgb(0x42, 0x85, 0xf4), Mark::Letters("G")),
-        Provider::OpenRouter => (Rgb(0x64, 0x67, 0xf2), Mark::Letters("OR")),
-        Provider::Ollama => (Rgb(0x52, 0x5a, 0x66), Mark::Letters("OL")),
-        Provider::LmStudio => (Rgb(0x8b, 0x5c, 0xf6), Mark::Letters("LM")),
-        Provider::Custom => (Rgb(0x0e, 0x74, 0x90), Mark::Icon(Icon::Server)),
-        Provider::Apple => (Rgb(0x6b, 0x72, 0x80), Mark::Icon(Icon::Laptop)),
+        Provider::OpenAi => Icon::OpenAi,
+        Provider::Gemini => Icon::Gemini,
+        Provider::OpenRouter => Icon::OpenRouter,
+        Provider::Ollama => Icon::Ollama,
+        Provider::LmStudio => Icon::LmStudio,
+        Provider::Custom => Icon::Server,
+        Provider::Apple => Icon::Apple,
     }
 }
 
+/// The logo in ink on a quiet tile, readable in every look.
 fn badge(ui: &Ui, rect: Rect, p: Provider) {
-    let (fill, mark) = badge_look(p);
-    let fill = theme::color(fill);
-    let ink = theme::ink_on(fill);
-    ui.painter().rect_filled(rect, 7.0, fill);
-    match mark {
-        Mark::Letters(s) => {
-            let font = theme::medium(rect.height() * 0.42);
-            let at = rect.center();
-            ui.painter()
-                .text(at, egui::Align2::CENTER_CENTER, s, font, ink);
-        }
-        Mark::Icon(icon) => {
-            let side = rect.height() * 0.58;
-            let inner = Rect::from_center_size(rect.center(), Vec2::splat(side));
-            icon.image(side).tint(ink).paint_at(ui, inner);
-        }
-    }
+    let t = Tokens::get(ui.ctx());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 7.0, t.surface);
+    let edge = Stroke::new(1.0, t.line);
+    painter.rect_stroke(rect, 7.0, edge, egui::StrokeKind::Inside);
+    let side = (rect.height() * 0.6).round();
+    let inner = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    logo(p).image(side).tint(t.ink).paint_at(ui, inner);
 }
 
 /// One row's look: a badge, two lines, pills and a chevron.

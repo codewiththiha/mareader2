@@ -90,10 +90,15 @@ pub enum Icon {
     Ai,
     /// The AI's models: a processor chip, the AI mark's pair.
     Chip,
-    /// A custom server's badge.
+    /// A custom server's badge: it has no logo of its own.
     Server,
-    /// Apple Intelligence's badge: on this computer.
-    Laptop,
+    /// Providers' own logos, from `assets/logos`.
+    OpenAi,
+    Gemini,
+    OpenRouter,
+    Ollama,
+    LmStudio,
+    Apple,
     /// Try a model once.
     Try,
     /// The full highlighter.
@@ -223,11 +228,16 @@ impl Icon {
             Self::Restore => Lucide::Undo2,
             Self::More => Lucide::Ellipsis,
             Self::Copy => Lucide::Copy,
-            // Not drawn from it: see `AI_MARK`.
-            Self::Ai => Lucide::Square,
+            // Not drawn from it: see `svg`.
+            Self::Ai
+            | Self::OpenAi
+            | Self::Gemini
+            | Self::OpenRouter
+            | Self::Ollama
+            | Self::LmStudio
+            | Self::Apple => Lucide::Square,
             Self::Chip => Lucide::Cpu,
             Self::Server => Lucide::Server,
-            Self::Laptop => Lucide::Laptop,
             Self::Try => Lucide::Play,
             Self::Highlight => Lucide::Highlighter,
             Self::HalfHighlight => Lucide::Baseline,
@@ -237,16 +247,48 @@ impl Icon {
         }
     }
 
+    /// Ours, not Lucide's: its loader uri and white SVG file.
+    fn svg(self) -> Option<(&'static str, &'static str)> {
+        let logo = |name, file| Some((name, file));
+        match self {
+            Self::Ai => logo("bytes://mareader/ai-mark.svg", AI_MARK),
+            Self::OpenAi => logo(
+                "bytes://mareader/logo-openai.svg",
+                include_str!("../assets/logos/openai.svg"),
+            ),
+            Self::Gemini => logo(
+                "bytes://mareader/logo-gemini.svg",
+                include_str!("../assets/logos/gemini.svg"),
+            ),
+            Self::OpenRouter => logo(
+                "bytes://mareader/logo-openrouter.svg",
+                include_str!("../assets/logos/openrouter.svg"),
+            ),
+            Self::Ollama => logo(
+                "bytes://mareader/logo-ollama.svg",
+                include_str!("../assets/logos/ollama.svg"),
+            ),
+            Self::LmStudio => logo(
+                "bytes://mareader/logo-lm-studio.svg",
+                include_str!("../assets/logos/lm-studio.svg"),
+            ),
+            Self::Apple => logo(
+                "bytes://mareader/logo-apple.svg",
+                include_str!("../assets/logos/apple.svg"),
+            ),
+            _ => None,
+        }
+    }
+
     /// For egui widgets; tint it, or let a `Button` tint it.
     pub fn image(self, size: f32) -> Image<'static> {
-        if self == Self::Ai {
+        if let Some((uri, file)) = self.svg() {
             let source = egui::ImageSource::Bytes {
-                uri: "bytes://mareader/ai-mark.svg".into(),
-                bytes: egui::load::Bytes::Static(AI_MARK.as_bytes()),
+                uri: uri.into(),
+                bytes: egui::load::Bytes::Static(file.as_bytes()),
             };
             return Image::new(source)
                 .fit_to_exact_size(egui::Vec2::splat(size))
-                .alt_text("AI")
                 .show_loading_spinner(false);
         }
         self.lucide().size(size).stroke_width(STROKE).image()
