@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::levels::{Levels, band, plan};
+use crate::levels::{Levels, band, plan_chars};
 use crate::roles::Role;
 use crate::text::Span;
 
@@ -101,7 +101,12 @@ impl Vocabulary {
 
     /// Up to `cap` words of `text` above `level`; unknown ones get asked.
     pub fn plan(&mut self, text: &str, level: u8, cap: usize) -> Vec<Span> {
-        let planned = plan(text, &self.levels, level, cap);
+        self.plan_chars(&text.chars().collect::<Vec<char>>(), level, cap)
+    }
+
+    /// As [`Self::plan`], over characters a caller already holds.
+    pub fn plan_chars(&mut self, chars: &[char], level: u8, cap: usize) -> Vec<Span> {
+        let planned = plan_chars(chars, &self.levels, level, cap);
         if self.dataset == State::Ready {
             let fresh: Vec<String> = planned
                 .misses

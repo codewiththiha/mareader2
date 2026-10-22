@@ -352,14 +352,25 @@ impl PageText {
 
     /// One box per line touched by `range`, for painting a selection.
     pub fn boxes(&self, range: Range<usize>) -> Vec<Bounds> {
-        let mut out: Vec<(u32, Bounds)> = Vec::new();
-        for c in self.chars.get(range).unwrap_or_default() {
-            match out.last_mut() {
-                Some((line, b)) if *line == c.line => *b = b.union(c.bounds),
-                _ => out.push((c.line, c.bounds)),
+        self.line_boxes(range).collect()
+    }
+
+    /// As [`Self::boxes`], one at a time: painting each frame keeps nothing.
+    pub fn line_boxes(&self, range: Range<usize>) -> impl Iterator<Item = Bounds> + '_ {
+        let mut chars = self.chars.get(range).unwrap_or_default().iter().peekable();
+        std::iter::from_fn(move || {
+            let first = chars.next()?;
+            let mut b = first.bounds;
+            while let Some(c) = chars.next_if(|c| c.line == first.line) {
+                b = b.union(c.bounds);
             }
-        }
-        out.into_iter().map(|(_, b)| b).collect()
+            Some(b)
+        })
+    }
+
+    /// Each line's box, in reading order.
+    pub fn line_bounds(&self) -> impl Iterator<Item = Bounds> + '_ {
+        self.lines.iter().map(|l| l.bounds)
     }
 
     /// A page from `(wraps, characters)` lines in reading order.

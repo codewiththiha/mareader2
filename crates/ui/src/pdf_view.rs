@@ -1015,7 +1015,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             let placed = study::marks::place(&cx.marks, &text);
             // Shading sits under the reader's own marks.
             let shading = cx.shading.as_ref().zip(vocab.as_mut());
-            let shaded = shading.map_or_else(Vec::new, |(look, v)| v.place(look, &text));
+            let shaded =
+                shading.map_or_else(vocab::Shading::default, |(look, v)| v.place(look, &text));
             let on_word = vocab::hovered(ui, &shaded).filter(|_| cx.picked.is_none());
             // Fills go under the page's ink, so marked text stays crisp.
             let mut under = study::marks::Under::new(t.page);
@@ -1658,7 +1659,7 @@ fn selection_bar(
         let Some(range) = sel.on_page(sheet.page, layer.text.len()) else {
             continue;
         };
-        for b in layer.text.boxes(range) {
+        for b in layer.text.line_boxes(range) {
             let r = sheet.to_screen(b).intersect(sheet.shown).intersect(room);
             if r.is_positive() {
                 shown = shown.union(r);

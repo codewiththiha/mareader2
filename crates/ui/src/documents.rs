@@ -932,8 +932,9 @@ impl Documents {
         };
         let asked = study::words::asked(sel, layer)?;
         let sheet = view.sheets.iter().find(|s| s.page == asked.page)?;
-        let boxes = layer(asked.page)?.text.boxes(asked.chars.clone());
-        let on_screen = boxes.into_iter().map(|b| sheet.to_screen(b));
+        let held = layer(asked.page)?;
+        let boxes = held.text.line_boxes(asked.chars.clone());
+        let on_screen = boxes.map(|b| sheet.to_screen(b));
         let rect = on_screen.reduce(|a, b| a.union(b))?;
         Some((asked, rect))
     }
@@ -945,7 +946,7 @@ impl Documents {
         };
         let sheet = view.sheets.iter().find(|s| s.page == page)?;
         let layer = self.texts.get(view.doc, page)?;
-        let spot = layer.text.boxes(chars).into_iter().reduce(Bounds::union)?;
+        let spot = layer.text.line_boxes(chars).reduce(Bounds::union)?;
         Some(sheet.to_screen(spot))
     }
 
@@ -958,7 +959,7 @@ impl Documents {
             return true;
         };
         let layer = self.texts.get(view.doc, page);
-        let spot = layer.and_then(|l| l.text.boxes(chars).into_iter().reduce(Bounds::union));
+        let spot = layer.and_then(|l| l.text.line_boxes(chars).reduce(Bounds::union));
         let band = entry.doc.bands().and_then(|b| b.get(page));
         let band = band.map_or(Vec2::ZERO, |b| egui::vec2(b.x, b.y));
         view.seek(page, spot, band, entry.doc.page_count())
@@ -983,7 +984,7 @@ impl Documents {
         let on_sheet = |sheet: &crate::selection::Sheet| {
             let l = layer(sheet.page)?;
             let range = sel.on_page(sheet.page, l.text.len())?;
-            let boxes = l.text.boxes(range).into_iter().map(|b| sheet.to_screen(b));
+            let boxes = l.text.line_boxes(range).map(|b| sheet.to_screen(b));
             boxes.reduce(|a, b| a.union(b))
         };
         let rect = view

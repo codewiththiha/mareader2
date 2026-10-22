@@ -99,7 +99,7 @@ pub fn text_of(layer: &TextLayer, chars: Range<usize>) -> String {
 /// Where `chars` of a page stand, as a mark keeps it.
 fn spot(layer: &TextLayer, page: usize, chars: Range<usize>) -> Option<Spot> {
     if layer.places.is_empty() {
-        let b = layer.text.boxes(chars).into_iter().reduce(Bounds::union)?;
+        let b = layer.text.line_boxes(chars).reduce(Bounds::union)?;
         let rect = [b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0];
         return Some(Spot::Page { page, rect });
     }

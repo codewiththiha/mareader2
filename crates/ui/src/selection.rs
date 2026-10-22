@@ -326,7 +326,7 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, selection: Selection, tint: Color32) {
         let Some(range) = selection.on_page(sheet.page, layer.text.len()) else {
             continue;
         };
-        for b in layer.text.boxes(range) {
+        for b in layer.text.line_boxes(range) {
             painter.rect_filled(sheet.to_screen(b).intersect(sheet.shown), 1.0, tint);
         }
     }

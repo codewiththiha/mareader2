@@ -19,8 +19,8 @@ use crate::study::words;
 const PAGE_CAP: usize = 5_000;
 /// How long the pointer rests on a word before it is looked up.
 const DWELL: f64 = 0.16;
-/// Pages remembered; more and the memo starts over.
-const MEMO_CAP: usize = 96;
+/// Pages remembered; past this the least recently used goes.
+const MEMO_CAP: usize = 32;
 /// How much stronger the word under the pointer is drawn.
 const HOVER_LIFT: f32 = 0.2;
 
@@ -46,12 +46,21 @@ pub struct Look {
     pub opacity: f32,
 }
 
+/// One page's hard words: each one's characters and its run of `boxes`.
+#[derive(Default)]
+struct Words {
+    words: Vec<(Range<usize>, Range<usize>)>,
+    boxes: Vec<Bounds>,
+}
+
 /// One page's hard words and their boxes, while nothing changed.
 struct Memo {
     layer: usize,
     level: u8,
     generation: u64,
-    words: Arc<Vec<(Range<usize>, Vec<Bounds>)>>,
+    /// When it was last asked for, to let the stalest go.
+    used: u64,
+    words: Arc<Words>,
 }
 
 /// A shaded word on screen.
@@ -60,17 +69,35 @@ pub struct Shaded {
     pub page: usize,
     /// Its characters in the page's text layer.
     pub chars: Range<usize>,
-    pub rects: Vec<Rect>,
+    bounds: Rect,
+    /// Its line boxes in [`Shading`]'s list.
+    rects: Range<usize>,
 }
 
 impl Shaded {
-    pub fn contains(&self, p: Pos2) -> bool {
-        self.rects.iter().any(|r| r.contains(p))
-    }
-
     pub fn bounds(&self) -> Rect {
-        let all = self.rects.iter().copied().reduce(|a, b| a.union(b));
-        all.unwrap_or(Rect::NOTHING)
+        self.bounds
+    }
+}
+
+/// The shaded words on screen, their line boxes in one list.
+#[derive(Debug, Default)]
+pub struct Shading {
+    words: Vec<Shaded>,
+    rects: Vec<Rect>,
+}
+
+impl Shading {
+    /// Word `w`'s line boxes.
+    fn rects_of(&self, w: &Shaded) -> &[Rect] {
+        self.rects.get(w.rects.clone()).unwrap_or_default()
+    }
+}
+
+impl std::ops::Deref for Shading {
+    type Target = [Shaded];
+    fn deref(&self) -> &[Shaded] {
+        &self.words
     }
 }
 
@@ -78,6 +105,8 @@ impl Shaded {
 pub struct Vocab {
     service: Vocabulary,
     memo: HashMap<(DocId, usize), Memo>,
+    /// Counts memo asks, to know the least recently used.
+    asks: u64,
     /// The role asked for the open card, if any.
     role: Option<Ticket>,
 }
@@ -159,40 +188,49 @@ impl Vocab {
     }
 
     /// `page`'s hard words, planned again only when something changed.
-    fn page(
-        &mut self,
-        doc: DocId,
-        page: usize,
-        layer: &Arc<TextLayer>,
-        level: u8,
-    ) -> Arc<Vec<(Range<usize>, Vec<Bounds>)>> {
+    fn page(&mut self, doc: DocId, page: usize, layer: &Arc<TextLayer>, level: u8) -> Arc<Words> {
         let id = Arc::as_ptr(layer).addr();
         let generation = self.service.generation();
-        if let Some(m) = self.memo.get(&(doc, page))
+        self.asks += 1;
+        if let Some(m) = self.memo.get_mut(&(doc, page))
             && (m.layer, m.level, m.generation) == (id, level, generation)
         {
+            m.used = self.asks;
             return Arc::clone(&m.words);
         }
         let (text, index) = words::read(layer);
-        let joined: String = text.iter().collect();
-        let spans = self.service.plan(&joined, level, PAGE_CAP);
-        let words: Vec<_> = spans
-            .into_iter()
-            .filter_map(|s| {
-                let first = (*index.get(s.start)?)?;
-                let last = (*index.get(s.end.checked_sub(1)?)?)?;
-                let chars = first..last + 1;
-                Some((chars.clone(), layer.text.boxes(chars)))
-            })
-            .collect();
+        let spans = self.service.plan_chars(&text, level, PAGE_CAP);
+        let mut words = Words::default();
+        for s in spans {
+            let first = index.get(s.start).copied().flatten();
+            let last = s
+                .end
+                .checked_sub(1)
+                .and_then(|e| index.get(e).copied().flatten());
+            let (Some(first), Some(last)) = (first, last) else {
+                continue;
+            };
+            let start = words.boxes.len();
+            words.boxes.extend(layer.text.line_boxes(first..last + 1));
+            words
+                .words
+                .push((first..last + 1, start..words.boxes.len()));
+        }
+        words.words.shrink_to_fit();
+        words.boxes.shrink_to_fit();
         let words = Arc::new(words);
-        if self.memo.len() >= MEMO_CAP {
-            self.memo.clear();
+        let stalest = (self.memo.len() >= MEMO_CAP)
+            .then(|| self.memo.iter().min_by_key(|(_, m)| m.used))
+            .flatten()
+            .map(|(key, _)| *key);
+        if let Some(key) = stalest {
+            self.memo.remove(&key);
         }
         let memo = Memo {
             layer: id,
             level,
             generation,
+            used: self.asks,
             words: Arc::clone(&words),
         };
         self.memo.insert((doc, page), memo);
@@ -200,20 +238,28 @@ impl Vocab {
     }
 
     /// The shaded words on the pages on screen.
-    pub fn place(&mut self, look: &Look, pages: &Pages<'_>) -> Vec<Shaded> {
-        let mut out = Vec::new();
+    pub fn place(&mut self, look: &Look, pages: &Pages<'_>) -> Shading {
+        let mut out = Shading::default();
         for sheet in pages.sheets.iter().filter(|s| s.shown.is_positive()) {
             let Some(layer) = pages.texts.get(pages.doc, sheet.page) else {
                 continue;
             };
-            for (chars, boxes) in self.page(pages.doc, sheet.page, &layer, look.level).iter() {
-                let rects: Vec<Rect> = (boxes.iter())
-                    .map(|b| sheet.to_screen(*b).intersect(sheet.shown))
-                    .filter(|r| r.is_positive())
-                    .collect();
-                if !rects.is_empty() {
-                    let (page, chars) = (sheet.page, chars.clone());
-                    out.push(Shaded { page, chars, rects });
+            let words = self.page(pages.doc, sheet.page, &layer, look.level);
+            for (chars, boxes) in &words.words {
+                let start = out.rects.len();
+                let boxes = words.boxes.get(boxes.clone()).unwrap_or_default();
+                let on_screen = boxes
+                    .iter()
+                    .map(|b| sheet.to_screen(*b).intersect(sheet.shown));
+                out.rects.extend(on_screen.filter(|r| r.is_positive()));
+                let rects = out.rects.get(start..).unwrap_or_default();
+                if let Some(bounds) = rects.iter().copied().reduce(|a, b| a.union(b)) {
+                    out.words.push(Shaded {
+                        page: sheet.page,
+                        chars: chars.clone(),
+                        bounds,
+                        rects: start..out.rects.len(),
+                    });
                 }
             }
         }
@@ -223,22 +269,23 @@ impl Vocab {
 
 /// Each shaded word in the reserved look; the one under the pointer
 /// stronger.
-pub fn add(shaded: &[Shaded], look: &Look, hovered: Option<usize>, under: &mut Under) {
+pub fn add(shaded: &Shading, look: &Look, hovered: Option<usize>, under: &mut Under) {
     for (i, word) in shaded.iter().enumerate() {
         let lift = if hovered == Some(i) { HOVER_LIFT } else { 0.0 };
-        for r in &word.rects {
+        for r in shaded.rects_of(word) {
             under.add(*r, look.ink.pen, look.ink.color, look.opacity + lift);
         }
     }
 }
 
 /// The shaded word under `p`.
-pub fn hit(shaded: &[Shaded], p: Pos2) -> Option<usize> {
-    shaded.iter().position(|w| w.contains(p))
+pub fn hit(shaded: &Shading, p: Pos2) -> Option<usize> {
+    let on = |w: &Shaded| shaded.rects_of(w).iter().any(|r| r.contains(p));
+    shaded.iter().position(on)
 }
 
 /// The shaded word the pointer rests on, if it is free to rest.
-pub fn hovered(ui: &Ui, shaded: &[Shaded]) -> Option<usize> {
+pub fn hovered(ui: &Ui, shaded: &Shading) -> Option<usize> {
     let (pos, down) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.any_down()));
     let pos = pos.filter(|_| !down && ui.rect_contains_pointer(ui.clip_rect()))?;
     hit(shaded, pos)

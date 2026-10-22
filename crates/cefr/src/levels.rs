@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::text::{MAX_WORD_CHARS, Span, candidates, tokenize};
+use crate::text::{MAX_WORD_CHARS, Span, keys, normalize_chars, tokenize_chars};
 
 /// More answers than this and the cache starts over.
 pub const CACHE_CAP: usize = 8_192;
@@ -52,18 +52,21 @@ pub struct Plan {
 
 /// Which words of `text` are above `level`, from what `levels` knows.
 pub fn plan(text: &str, levels: &Levels, level: u8, cap: usize) -> Plan {
-    let chars: Vec<char> = text.chars().collect();
+    plan_chars(&text.chars().collect::<Vec<char>>(), levels, level, cap)
+}
+
+/// As [`plan`], over characters a caller already holds.
+pub fn plan_chars(chars: &[char], levels: &Levels, level: u8, cap: usize) -> Plan {
     let mut out = Plan::default();
-    for span in tokenize(text) {
+    for span in tokenize_chars(chars) {
         if span.len() > MAX_WORD_CHARS {
             continue;
         }
         let Some(word) = chars.get(span.start..span.end) else {
             continue;
         };
-        let keys = candidates(&word.iter().collect::<String>());
         let mut hard = false;
-        for key in keys {
+        for key in keys(normalize_chars(word.iter().copied())) {
             match levels.get(&key) {
                 Some(b) => hard |= b > level,
                 None if !out.misses.contains(&key) => out.misses.push(key),
