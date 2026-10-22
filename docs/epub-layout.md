@@ -160,3 +160,29 @@ size, with no card scale. A resized pane sets its book
 anew once it has held still for 0.3 s, keeping the place read; the next
 book opened in the pane starts at its size. The vertical stream keeps
 its column (Column width) and PDFs are unchanged.
+
+## The reader's settings over a book (2026-10-22)
+
+**Text size** is a percentage: 100 % is the standard size, 17 pt, and a
+book's own sizes count from it, so its headings and small print grow
+and shrink with it. **Minimum size** (8 pt by default) is the smallest
+any of a book's text sets. Settings files keep the size in points, so
+older ones read as the nearest percentage.
+
+Two switches decide who wins where the reader and the book disagree:
+
+- **Override book font** sets all of a book's text in the reader's
+  faces, code keeping the monospace one, and its body copy (paragraphs,
+  list items, code blocks) at the reader's text size. Headings keep the
+  book's sizes. Off, a book's embedded fonts lead and the reader's faces
+  stand in for families it only names.
+- **Override book layout** gives paragraphs the reader's line spacing,
+  paragraph margin, indent, word and letter spacing and justification
+  outright; their gap still meets the margins of the boxes and headings
+  around them as CSS margins do, the larger winning. Off, the reader's settings move the book's own: line
+  spacing scales the book's, indent and spacing add to it, and the
+  paragraph margin adds its distance from 1 to the book's gap, so a
+  book with no gaps between paragraphs gains them at 1.5 and one with
+  wide gaps loses some at 0.5. A book that justifies stays justified.
+
+Fixed-layout pages leave all of these alone.
