@@ -3280,7 +3280,7 @@ impl eframe::App for MareaderApp {
         let page = route == Route::Dictionary;
         self.titlebar.hold = self.find.is_open() || searching || tabbing || page;
         self.follow_focus(&ctx, &mut commands);
-        self.documents.end_frame();
+        self.documents.end_frame(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings.all_presets();
         let (title, look, page) = match route {

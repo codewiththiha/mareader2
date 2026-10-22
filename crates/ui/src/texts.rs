@@ -73,6 +73,12 @@ impl TextLayers {
         self.slots.is_empty()
     }
 
+    /// At rest: only the layers of pages in view this frame stay.
+    pub fn rest(&mut self) {
+        let frame = self.frame;
+        self.slots.retain(|_, (_, used)| *used == frame);
+    }
+
     /// Drops the stalest layers past the cap.
     pub fn end_frame(&mut self) {
         self.frame += 1;
@@ -116,6 +122,21 @@ mod tests {
         assert!(texts.touch(doc, 501) && texts.get(doc, 501).is_none());
         texts.forget(doc);
         assert!(texts.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn at_rest_only_the_pages_in_view_keep_their_text() -> Result<(), &'static str> {
+        let doc = crate::testing::doc()?;
+        let mut texts = TextLayers::default();
+        for page in 0..10 {
+            texts.insert(doc, page, Ok(Arc::default()));
+        }
+        texts.end_frame();
+        assert!(texts.touch(doc, 4));
+        texts.rest();
+        assert_eq!(texts.len(), 1);
+        assert!(texts.get(doc, 4).is_some());
         Ok(())
     }
 }

@@ -10,6 +10,8 @@ use crate::gpu::GpuPage;
 
 /// Textures past this are evicted, least recently drawn first.
 pub const CAP_BYTES: usize = 256 << 20;
+/// What the cache keeps at rest: pages in view, then the newest.
+pub const REST_BYTES: usize = 64 << 20;
 
 /// A page on the GPU: ours for the page pass, or egui's without one.
 #[derive(Clone)]
@@ -266,7 +268,7 @@ impl PageCache {
         self.bytes -= freed;
         self.drop_superseded_tiles();
         if self.bytes > self.cap {
-            self.evict_cold();
+            self.evict_cold(self.cap);
         }
         self.pages.retain(|_, slots| !slots.is_empty());
         self.frame += 1;
@@ -291,7 +293,14 @@ impl PageCache {
         self.bytes -= freed;
     }
 
-    fn evict_cold(&mut self) {
+    /// At rest: cold textures go down to [`REST_BYTES`]; those in view stay.
+    pub fn rest(&mut self) {
+        self.evict_cold(REST_BYTES);
+        self.pages.retain(|_, slots| !slots.is_empty());
+    }
+
+    /// Evicts what wasn't drawn this frame, coldest first, down to `to`.
+    fn evict_cold(&mut self, to: usize) {
         let frame = self.frame;
         let slots = self.pages.iter().flat_map(|(page, slots)| {
             slots
@@ -302,7 +311,7 @@ impl PageCache {
         let mut cold: Vec<(u64, Cold)> = slots.chain(tiles).filter(|(u, _)| *u < frame).collect();
         cold.sort_unstable_by_key(|(used, _)| *used);
         for (_, item) in cold {
-            if self.bytes <= self.cap {
+            if self.bytes <= to {
                 break;
             }
             match item {
@@ -382,6 +391,28 @@ mod tests {
         assert!(matches!(c.lookup(key(d, 0, 2.0)), Lookup::Sharp(_)));
         c.end_frame();
         assert_eq!((c.len(), c.bytes()), (1, 16 * 16 * 4));
+        Ok(())
+    }
+
+    #[test]
+    fn at_rest_cold_pages_go_and_the_pages_in_view_stay() -> Out {
+        let ctx = Context::default();
+        let mut c = PageCache::default();
+        let d = doc()?;
+        let r = raster(4);
+        let big = REST_BYTES / 4;
+        // One a frame, so page 7 is the newest of them.
+        for page in 0..8 {
+            let k = key(d, page, 1.0);
+            c.insert(k, PageTexture::egui(&ctx, k, &r), big);
+            c.end_frame();
+        }
+        // Page 0 is in view again.
+        assert!(matches!(c.lookup(key(d, 0, 1.0)), Lookup::Sharp(_)));
+        c.rest();
+        assert_eq!(c.bytes(), REST_BYTES);
+        assert!(c.touch(key(d, 0, 1.0)) && c.touch(key(d, 7, 1.0)));
+        assert!(!c.touch(key(d, 1, 1.0)), "the coldest went");
         Ok(())
     }
 

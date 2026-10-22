@@ -194,7 +194,13 @@ pub struct Documents {
     inserts: BTreeMap<PaneId, Arc<Inserts>>,
     /// Each paged pane's page size, so its next book opens at it.
     sheets: BTreeMap<PaneId, (f32, f32)>,
+    /// When input or work last came, and whether caches shrank since.
+    busy_at: f64,
+    rested: bool,
 }
+
+/// Seconds without input or work before caches shrink to the pages in view.
+const REST_AFTER: f64 = 3.0;
 
 impl Default for Documents {
     fn default() -> Self {
@@ -220,6 +226,8 @@ impl Default for Documents {
             asked: BTreeMap::new(),
             inserts: BTreeMap::new(),
             sheets: BTreeMap::new(),
+            busy_at: 0.0,
+            rested: true,
         }
     }
 }
@@ -849,14 +857,40 @@ impl Documents {
     }
 
     /// Publishes this frame's demand, most urgent first; trims the cache.
-    pub fn end_frame(&mut self) {
+    pub fn end_frame(&mut self, ctx: &Context) {
         let mut demand = std::mem::take(&mut self.demand);
         demand.sort_by_key(|(urgency, _)| *urgency);
         if let Some(s) = &mut self.session {
             s.want(demand.into_iter().map(|(_, want)| want));
         }
+        self.settle(ctx);
         self.pages.end_frame();
         self.texts.end_frame();
+    }
+
+    /// A while after the last input or job, caches shrink to what's shown.
+    fn settle(&mut self, ctx: &Context) {
+        let (now, input) = ctx.input(|i| {
+            let p = &i.pointer;
+            (
+                i.time,
+                !i.events.is_empty() || p.is_moving() || p.any_down(),
+            )
+        });
+        let working = self.session.as_ref().is_some_and(|s| s.pending() > 0);
+        if input || working {
+            self.busy_at = now;
+            self.rested = false;
+            // A frame once it has gone quiet, to rest in.
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(REST_AFTER));
+        } else if !self.rested && now - self.busy_at >= REST_AFTER {
+            self.rested = true;
+            if let Some(s) = &self.session {
+                s.rest();
+            }
+            self.pages.rest();
+            self.texts.rest();
+        }
     }
 
     /// The name of what `pane` shows, for the title bar.
