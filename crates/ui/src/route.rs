@@ -48,7 +48,7 @@ fn reads(command: &Command) -> bool {
         C::CyclePane { .. } | C::FindStep { .. } => true,
         // The rail's Library panel places books among the panes.
         C::PlaceBook { .. } => true,
-        C::SetIndependence(_) | C::SetInkContrast(_) => true,
+        C::SetIndependence(_) | C::SetInkContrast(_) | C::SetQuickText(_) => true,
         // Selecting and explaining act on a pane's text.
         C::Explain(_) | C::Highlight { .. } | C::SelectText { .. } => true,
         C::LookUp(_) | C::Note(_) | C::Bookmark(_) => true,

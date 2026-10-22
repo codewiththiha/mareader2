@@ -714,6 +714,43 @@ fn column_width_widens_a_book_s_pages_and_shows_only_for_books() {
     assert!(h.query_by_label("Fonts").is_none());
 }
 
+#[test]
+fn a_books_page_and_column_rows_follow_its_view() {
+    let mut h = reader(&[("epub", "sample:2"), ("settings", "fonts")]);
+    h.run_steps(3);
+    // The vertical stream keeps a column of its own.
+    assert!(shows(&h, "Column width") && !shows(&h, "Longest line"));
+    let single = mareader_ui::layout::ViewMode::Single;
+    h.state_mut().queue(Command::View(single));
+    h.run();
+    assert!(shows(&h, "Longest line") && !shows(&h, "Column width"));
+    // A PDF has neither, nor a book's overrides.
+    let mut h = reader(&[("pdf", "sample:3"), ("settings", "fonts")]);
+    h.run_steps(3);
+    for label in ["Longest line", "Column width", "Override book font"] {
+        assert!(!shows(&h, label), "{label}");
+    }
+}
+
+#[test]
+fn the_appearance_popover_offers_a_books_text_dials() {
+    let switch = "Override book layout";
+    let mut h = reader(&[("epub", "sample:2")]);
+    h.state_mut().queue(Command::ShowAppearance);
+    h.run_steps(3);
+    h.get_by_role_and_label(Role::CheckBox, switch)
+        .scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, switch).click();
+    h.run();
+    assert!(h.state().settings().text.override_layout);
+    // A PDF's page has no book type to dial.
+    let mut h = reader(&[("pdf", "sample:3")]);
+    h.state_mut().queue(Command::ShowAppearance);
+    h.run_steps(3);
+    assert!(!shows(&h, switch));
+}
+
 /// Whether the open settings window shows a row labelled `label`.
 fn shows(h: &Harness<'static, MareaderApp>, label: &str) -> bool {
     h.query_all_by_label(label).next().is_some()

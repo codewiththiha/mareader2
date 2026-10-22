@@ -124,6 +124,8 @@ pub enum Command {
     SetIndependence(Independence),
     /// The ink dial, 10 to 100 %: how dark a book's text stays.
     SetInkContrast(f32),
+    /// The popover's text dials for the active book.
+    SetQuickText(crate::appearance_menu::QuickText),
     /// Keeps `look` as a preset, in a section when `group` names one.
     SavePreset {
         name: String,
