@@ -65,6 +65,11 @@ impl ThumbState {
     pub fn set_offer(&mut self, offer: Offer) {
         self.offer = offer;
     }
+
+    /// No book to show: picks and the book they held let go.
+    pub fn forget_book(&mut self) {
+        self.picks = Picks::default();
+    }
 }
 
 /// Where each page's cell sits, from the first page's shape.
@@ -251,6 +256,7 @@ pub fn show(
                 }
             }
         });
+    state.picks.settle(reading);
 }
 
 /// Snaps to the page on opening; glides as it moves, unless browsed.

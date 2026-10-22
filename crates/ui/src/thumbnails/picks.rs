@@ -52,7 +52,7 @@ const LONG_PRESS: f64 = 0.45;
 pub struct Picks {
     /// The pane and document the pages belong to.
     owner: Option<(PaneId, DocId)>,
-    /// That document, to find the pages again once results come or go.
+    /// That document, to find picked pages again; held only while some are.
     counted: Option<Arc<Document>>,
     pages: BTreeSet<usize>,
     /// Where a Shift-click range starts.
@@ -89,6 +89,11 @@ impl Picks {
             .and_then(|a| self.pages.contains(&a).then_some(a));
         self.owner = Some(here);
         self.counted = Some(Arc::clone(&reading.document));
+    }
+
+    /// Ends a frame: the book stays held only while pages are picked.
+    pub fn settle(&mut self, reading: &Reading) {
+        self.counted = self.active().then(|| Arc::clone(&reading.document));
     }
 
     pub fn active(&self) -> bool {
@@ -133,6 +138,7 @@ impl Picks {
     /// Lets go of every page; false if none was picked.
     pub fn clear(&mut self) -> bool {
         self.anchor = None;
+        self.counted = None;
         !std::mem::take(&mut self.pages).is_empty()
     }
 }
