@@ -147,6 +147,12 @@ pub struct Typography {
     pub margins: (f32, f32),
     /// On a pane-sized page: the longest a line runs.
     pub max_line: f32,
+    /// The smallest a book's text sets, in layout units.
+    pub min_size: f32,
+    /// The reader's faces for all text, and body copy at the reader's size.
+    pub override_font: bool,
+    /// The reader's spacing, indent and justification over the book's.
+    pub override_layout: bool,
 }
 
 impl Default for Typography {
@@ -169,6 +175,9 @@ impl Default for Typography {
             sheet: None,
             margins: (44.0, 32.0),
             max_line: 720.0,
+            min_size: 8.0,
+            override_font: false,
+            override_layout: false,
         }
     }
 }
@@ -295,6 +304,8 @@ struct Style<'a> {
     word: f32,
     /// Runs keep the sizes the book gives them.
     sized: bool,
+    /// The smallest a sized run sets.
+    floor: f32,
     /// How the last line sits; none follows the rest.
     last: Option<LastLine>,
     dir: Dir,
@@ -1402,6 +1413,7 @@ impl<'a> Setter<'a> {
             letter: typo.letter_spacing * typo.font_size,
             word: typo.word_spacing,
             sized: false,
+            floor: typo.min_size,
             last: None,
             dir: frame.dir,
             turned: self.turned,
@@ -1436,15 +1448,29 @@ impl<'a> Setter<'a> {
         }
         let (typo, em) = (self.typo, self.em_of(frame));
         let pre = role == Role::Preformatted;
+        // Overridden, paragraphs take the reader's spacing outright.
+        let own = typo.override_layout && role == Role::Paragraph;
         let line = match (look.line_height, role) {
+            _ if own => typo.line_height,
             (Some(l), _) => l * typo.line_height / READER.1,
             (None, Role::Heading(_)) => HEADING_LINE_HEIGHT,
             (None, _) => typo.line_height,
         };
-        let size = (look.size * em).clamp(MIN_SIZE, MAX_SIZE);
+        let copy = matches!(role, Role::Paragraph | Role::Preformatted);
+        let scale = if typo.override_font && copy {
+            1.0
+        } else {
+            look.size
+        };
+        let size = (scale * em).max(typo.min_size).clamp(MIN_SIZE, MAX_SIZE);
         // The reader's indent adds to the book's, as in prose.
         let body = role == Role::Paragraph && !frame.soft && frame.marker.is_none();
         let indent = if body { typo.indent * size } else { 0.0 };
+        let book = |v: f32| if own { 0.0 } else { v * em };
+        let justify = match own {
+            true => typo.justify,
+            false => look.justify || typo.justify,
+        };
         Style {
             faces: if pre {
                 &self.stacks.mono
@@ -1456,11 +1482,11 @@ impl<'a> Setter<'a> {
             weight: (look.weight + typo.weight - READER.3).clamp(100.0, 900.0),
             align: if pre { Align::Start } else { frame.align },
             pre,
-            justify: (look.justify || typo.justify) && !pre && frame.align == Align::Start,
+            justify: justify && !pre && frame.align == Align::Start,
             hyphens: (typo.hyphenate && !pre).then_some(self.lang),
-            indent: look.indent * em + indent,
-            letter: look.letter * em + typo.letter_spacing * size,
-            word: look.word * em + typo.word_spacing,
+            indent: book(look.indent) + indent,
+            letter: book(look.letter) + typo.letter_spacing * size,
+            word: book(look.word) + typo.word_spacing,
             sized: true,
             last: look.last.filter(|_| !pre),
             ..self.body(frame)
@@ -1488,8 +1514,25 @@ impl<'a> Setter<'a> {
             letter: look.letter * FIXED_EM,
             word: look.word * FIXED_EM,
             sized: true,
+            floor: MIN_SIZE,
             last: look.last.filter(|_| !pre),
             ..self.body(frame)
+        }
+    }
+
+    /// The space above a styled block: the book's, moved by the reader's.
+    fn before(&self, block: &Block, em: f32) -> f32 {
+        let book = block.frame.before * em;
+        let paragraph = matches!(&block.content, Content::Text(t) if t.role == Role::Paragraph);
+        let gap = self.typo.block_gap;
+        if self.fixed || !paragraph {
+            book
+        } else if self.typo.override_layout {
+            // Overridden, the reader's gap collapses with the boxes' around.
+            (block.frame.outer * em).max(gap * em)
+        } else {
+            // Otherwise the reader's gap adds to the book's, or takes away.
+            (book + (gap - READER.2) * em).max(0.0)
         }
     }
 
@@ -1683,11 +1726,7 @@ impl<'a> Setter<'a> {
             // A fixed page is one page whatever its blocks ask.
             break_before: block.break_before && !self.fixed,
             tight: frame.tight,
-            // The book's margins, scaled as the reader's paragraph gap.
-            before: (self.look(frame)).map(|_| match self.fixed {
-                true => frame.before * em,
-                false => frame.before * em * self.typo.block_gap / READER.2,
-            }),
+            before: (self.look(frame)).map(|_| self.before(block, em)),
             lines: matches!(block.content, Content::Text(_)),
             orphans: lines_kept(frame.keep.orphans, designed),
             widows: lines_kept(frame.keep.widows, designed),
@@ -1776,7 +1815,9 @@ impl<'a> Setter<'a> {
         let inner = (width - 2.0 * pad).max(em);
         // The book's families first, the reader's after.
         let laid = self.scaled(frame);
-        let faces = (self.look(frame))
+        // Overridden, the book's families give way to the reader's.
+        let named = self.look(frame).filter(|_| !self.typo.override_font);
+        let faces = named
             .filter(|l| !l.faces.is_empty())
             .map(|l| self.look_faces(l, laid, style.faces));
         let style = match &faces {
@@ -1786,7 +1827,7 @@ impl<'a> Setter<'a> {
             },
             None => style,
         };
-        let runs: Vec<Stack> = match self.look(frame) {
+        let runs: Vec<Stack> = match named {
             Some(_) => (text.faces.iter())
                 .map(|names| {
                     let look = Look {
@@ -2549,7 +2590,7 @@ fn layout_text(
             b.push(StyleProperty::Strikethrough(true), range.clone());
         }
         if size != 0 && style.sized {
-            let size = style.size * f32::from(size) / 100.0;
+            let size = (style.size * f32::from(size) / 100.0).max(style.floor);
             let size = StyleProperty::FontSize(size.clamp(MIN_SIZE, MAX_SIZE));
             b.push(size, range.clone());
         }
@@ -3789,6 +3830,20 @@ mod tests {
         block
     }
 
+    /// Where block `block`'s first glyph run starts in its first line.
+    fn first_glyph(f: &Flow, block: usize) -> f32 {
+        let Laid::Text { para, .. } = &*f.laid(block) else {
+            return -1.0;
+        };
+        let line = para.layout.lines().next();
+        let runs = line.into_iter().flat_map(|l| l.items());
+        let mut offsets = runs.filter_map(|item| match item {
+            PositionedLayoutItem::GlyphRun(run) => Some(run.offset()),
+            PositionedLayoutItem::InlineBox(_) => None,
+        });
+        offsets.next().unwrap_or(-1.0)
+    }
+
     /// Each line's left edge in block `block`'s text.
     fn line_lefts(f: &Flow, block: usize) -> Vec<f32> {
         match &*f.laid(block) {
@@ -4292,6 +4347,54 @@ mod tests {
         assert!(near(gap(&off), READER.0), "{}", gap(&off));
         // Off sets every paragraph in the reader's one size.
         assert!(near(tall(&off, 2), tall(&off, 1)));
+    }
+
+    #[test]
+    fn overrides_put_the_readers_type_and_spacing_over_the_books() {
+        // Small print, tight lines, an indent and no gap: the book's own.
+        let styled = || {
+            let mut b = para(1);
+            b.frame.look = Some(Arc::new(Look {
+                size: 0.5,
+                line_height: Some(1.0),
+                indent: 2.0,
+                justify: true,
+                ..Look::default()
+            }));
+            b
+        };
+        let typo = |override_font, override_layout| Typography {
+            block_gap: 2.0,
+            override_font,
+            override_layout,
+            ..Typography::default()
+        };
+        let em = Typography::default().font_size;
+        let set = |t: &Typography| {
+            let f = Flow::new(Arc::new(vec![styled(), styled()]), t, Fonts::bundled());
+            let second = f.blocks.get(1);
+            let tall = second.map_or(0.0, |s| span_height(s, 0..s.units.len()));
+            let left = first_glyph(&f, 1);
+            (tall, second.and_then(|s| s.before), left)
+        };
+        // As the book sets it; the reader's wider gap adds to its none.
+        let (tall, before, left) = set(&typo(false, false));
+        assert!((tall - 0.5 * em).abs() < 1.0, "{tall}");
+        assert_eq!((before, left), (Some(em), 2.0 * em));
+        // The reader's font: body copy at the reader's size.
+        let (tall, _, _) = set(&typo(true, false));
+        assert!((tall - em).abs() < 1.0, "{tall}");
+        // The reader's layout: its lines, gap and indent outright.
+        let (tall, before, left) = set(&typo(true, true));
+        assert!((tall - em * 1.7).abs() < 1.0, "{tall}");
+        assert_eq!((before, left), (Some(2.0 * em), 0.0));
+        // Small print stops at the minimum size.
+        let floor = Typography {
+            min_size: 12.0,
+            ..typo(false, false)
+        };
+        let (tall, _, _) = set(&floor);
+        assert!((tall - 12.0).abs() < 1.0, "{tall}");
     }
 
     #[test]

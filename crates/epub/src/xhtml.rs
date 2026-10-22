@@ -620,15 +620,15 @@ struct Place {
     spot: Option<Arc<Spot>>,
 }
 
-/// Vertical space waiting for the next block, in px: margins collapse.
+/// Margins and fixed space, in px: margins collapse.
 #[derive(Debug, Default, Clone, Copy)]
-struct Gap {
+struct Space {
     positive: f32,
     negative: f32,
     fixed: f32,
 }
 
-impl Gap {
+impl Space {
     fn margin(&mut self, px: f32) {
         if px >= 0.0 {
             self.positive = self.positive.max(px);
@@ -637,20 +637,52 @@ impl Gap {
         }
     }
 
-    /// Space margins don't collapse through, like padding or a blank line.
     fn fixed(&mut self, px: f32) {
         self.fixed += self.positive + self.negative + px;
         (self.positive, self.negative) = (0.0, 0.0);
     }
 
+    fn total(&self) -> f32 {
+        self.fixed + self.positive + self.negative
+    }
+}
+
+/// Vertical space waiting for the next block, in px.
+#[derive(Debug, Default, Clone, Copy)]
+struct Gap {
+    all: Space,
+    /// The same without paragraphs' own margins: what a reader's gap meets.
+    outer: Space,
+}
+
+impl Gap {
+    /// A margin; `own` is a paragraph's, which a reader's gap may replace.
+    fn margin(&mut self, px: f32, own: bool) {
+        self.all.margin(px);
+        if !own {
+            self.outer.margin(px);
+        }
+    }
+
+    /// Space margins don't collapse through, like padding or a blank line.
+    fn fixed(&mut self, px: f32) {
+        self.all.fixed(px);
+        self.outer.fixed(px);
+    }
+
     fn take(&mut self) -> f32 {
-        let total = self.total();
+        self.take_both().0
+    }
+
+    /// The whole space, and the space without paragraphs' own margins.
+    fn take_both(&mut self) -> (f32, f32) {
+        let both = (self.all.total(), self.outer.total());
         *self = Self::default();
-        total
+        both
     }
 
     fn total(&self) -> f32 {
-        self.fixed + self.positive + self.negative
+        self.all.total()
     }
 }
 
@@ -714,7 +746,8 @@ impl State<'_> {
         f.float = self.float.as_ref().map(|(_, f)| Arc::clone(f));
         let turns = self.stack.iter().map(|o| o.computed.rotate);
         f.rotate = turns.sum::<f32>() % 360.0;
-        f.before = self.gap.take() / ROOT_PX;
+        let (before, outer) = self.gap.take_both();
+        (f.before, f.outer) = (before / ROOT_PX, outer / ROOT_PX);
         if let Some(c) = self.block_computed() {
             f.keep = Keep {
                 orphans: c.orphans,
@@ -1065,7 +1098,7 @@ impl State<'_> {
     fn open_block(&mut self, tag: &Tag, (c, d): (&Computed, &Decl), part: Part) -> bool {
         let cell = part == Part::Cell;
         if !cell {
-            self.gap.margin(c.margin_px(0));
+            self.gap.margin(c.margin_px(0), &*tag.name == "p");
         }
         let name: &str = &tag.name;
         // A table of data draws its own grid, not a box.
@@ -1277,9 +1310,9 @@ impl State<'_> {
     }
 
     /// Closes the innermost box, giving its blocks its bottom inside.
-    fn close_box(&mut self, c: &Computed) {
+    fn close_box(&mut self, c: &Computed, own: bool) {
         let Some(mut open) = self.boxes.pop() else {
-            return self.space_below(c);
+            return self.space_below(c, own);
         };
         let inside = c.border[2] + c.padding[2];
         let shows = open.spec.finish.as_ref().is_some_and(|f| f.shows());
@@ -1324,7 +1357,7 @@ impl State<'_> {
             None if inside > 0.0 => self.gap.fixed(inside),
             None => {}
         }
-        self.gap.margin(c.margin_px(2));
+        self.gap.margin(c.margin_px(2), own);
     }
 
     /// The computed style of the innermost open block element.
@@ -3354,7 +3387,7 @@ impl State<'_> {
                     rule.frame = self.frame();
                     rule.frame.hidden = computed.invisible;
                     self.emit(rule);
-                    self.space_below(&computed);
+                    self.space_below(&computed, false);
                 }
                 return false;
             }
@@ -3445,9 +3478,10 @@ impl State<'_> {
         if is_void(name) || empty || self.stack.len() >= MAX_DEPTH {
             if shown && is_block(name) && self.table.is_none() {
                 self.finish();
+                let own = name == "p";
                 match boxed {
-                    true => self.close_box(&computed),
-                    false => self.space_below(&computed),
+                    true => self.close_box(&computed, own),
+                    false => self.space_below(&computed, own),
                 }
                 self.end_part(part);
             }
@@ -3620,9 +3654,10 @@ impl State<'_> {
         }
         for open in closed.iter().rev() {
             if is_block(&open.name) && !open.style.hidden && self.table.is_none() {
+                let own = open.name == "p";
                 match open.boxed {
-                    true => self.close_box(&open.computed),
-                    false => self.space_below(&open.computed),
+                    true => self.close_box(&open.computed, own),
+                    false => self.space_below(&open.computed, own),
                 }
                 self.end_part(open.part);
                 if open.computed.break_after {
@@ -3672,19 +3707,20 @@ impl State<'_> {
 
     /// A block's top margin, then its border and padding, above what follows.
     fn space_above(&mut self, c: &Computed) {
-        self.gap.margin(c.margin_px(0));
+        self.gap.margin(c.margin_px(0), false);
         let inside = c.border[0] + c.padding[0];
         if inside > 0.0 {
             self.gap.fixed(inside);
         }
     }
 
-    fn space_below(&mut self, c: &Computed) {
+    /// `own`: the margin is a paragraph's, which a reader's gap may replace.
+    fn space_below(&mut self, c: &Computed, own: bool) {
         let inside = c.border[2] + c.padding[2];
         if inside > 0.0 {
             self.gap.fixed(inside);
         }
-        self.gap.margin(c.margin_px(2));
+        self.gap.margin(c.margin_px(2), own);
     }
 
     /// Marks every look of the chapter as designed.
@@ -5895,6 +5931,9 @@ mod tests {
         // Margins collapse to the largest; a block's own are in its em.
         let before: Vec<f32> = b.iter().map(|b| b.frame.before).collect();
         assert_eq!(before, [1.0, 1.0, 0.5]);
+        // Without paragraphs' own margins, only the div's is left.
+        let outer: Vec<f32> = b.iter().map(|b| b.frame.outer).collect();
+        assert_eq!(outer, [0.0, 1.0, 0.0]);
         assert_eq!(look(b.get(1)).and_then(|l| l.line_height), Some(1.0));
     }
 

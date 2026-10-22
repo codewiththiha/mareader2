@@ -152,7 +152,14 @@ pub struct TextSettings {
     pub text_indent: f32,
     pub justify: bool,
     pub hyphenation: bool,
+    /// The standard text size in points, shown as a share of the base.
     pub font_size: f32,
+    /// The smallest a book's text sets, in points.
+    pub min_font_size: f32,
+    /// The reader's fonts and size for all of a book's text, over its own.
+    pub override_font: bool,
+    /// The reader's spacing, indent and justification over a book's own.
+    pub override_layout: bool,
     pub font_weight: f32,
     pub default_font: FontChoice,
     pub serif_font: FontChoice,
@@ -182,13 +189,28 @@ impl TextSettings {
     pub const WORD_SPACING: (f32, f32) = (-2.0, 10.0);
     pub const LETTER_SPACING: (f32, f32) = (-0.02, 0.3);
     pub const INDENT: (f32, f32) = (0.0, 4.0);
-    pub const FONT_SIZE: (f32, f32) = (10.0, 32.0);
+    pub const FONT_SIZE: (f32, f32) = (8.5, 34.0);
+    /// The size shown as 100 %.
+    pub const BASE_SIZE: f32 = 17.0;
+    /// Text size as a share of the base, in percent.
+    pub const SIZE_PCT: (f32, f32) = (50.0, 200.0);
+    pub const MIN_FONT: (f32, f32) = (6.0, 24.0);
     pub const FONT_WEIGHT: (f32, f32) = (100.0, 900.0);
     /// The ink dial's floor is mareader's: text never fades out.
     pub const INK: (f32, f32) = (10.0, 100.0);
     pub const COLUMN_PCT: (f32, f32) = (60.0, 140.0);
     pub const PAGE_MARGIN: (f32, f32) = (0.0, 160.0);
     pub const MAX_LINE: (f32, f32) = (320.0, 1600.0);
+
+    /// The text size in percent of the base, to the nearest step.
+    pub fn size_pct(&self) -> f32 {
+        (self.font_size / Self::BASE_SIZE * 100.0).round()
+    }
+
+    pub fn set_size_pct(&mut self, pct: f32) {
+        let (lo, hi) = Self::SIZE_PCT;
+        self.font_size = pct.clamp(lo, hi) * Self::BASE_SIZE / 100.0;
+    }
 
     pub fn sanitize(&mut self) {
         let d = Self::default();
@@ -199,6 +221,7 @@ impl TextSettings {
         self.letter_spacing = fit(self.letter_spacing, Self::LETTER_SPACING, d.letter_spacing);
         self.text_indent = fit(self.text_indent, Self::INDENT, d.text_indent);
         self.font_size = fit(self.font_size, Self::FONT_SIZE, d.font_size);
+        self.min_font_size = fit(self.min_font_size, Self::MIN_FONT, d.min_font_size);
         self.font_weight = fit(self.font_weight, Self::FONT_WEIGHT, d.font_weight);
         self.ink_contrast = fit(self.ink_contrast, Self::INK, d.ink_contrast);
         let column = self.column_width_pct;
@@ -222,6 +245,9 @@ impl Default for TextSettings {
             justify: false,
             hyphenation: false,
             font_size: 17.0,
+            min_font_size: 8.0,
+            override_font: false,
+            override_layout: false,
             font_weight: 400.0,
             default_font: FontChoice::Default,
             serif_font: FontChoice::Default,
@@ -243,6 +269,19 @@ impl Default for TextSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_size_reads_as_a_share_of_the_base() {
+        let mut t = TextSettings::default();
+        assert_eq!(t.size_pct(), 100.0);
+        t.set_size_pct(150.0);
+        assert_eq!((t.font_size, t.size_pct()), (25.5, 150.0));
+        // Old sizes in points read as the nearest percent.
+        t.font_size = 21.0;
+        assert_eq!(t.size_pct(), 124.0);
+        t.set_size_pct(900.0);
+        assert_eq!(t.size_pct(), 200.0);
+    }
 
     #[test]
     fn font_choices_parse_leniently() {

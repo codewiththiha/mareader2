@@ -50,12 +50,12 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Comma
         }
     });
     section(ui, "Typeface");
-    group(ui, |ui| typeface(ui, t));
+    group(ui, |ui| typeface(ui, t, true));
     section(ui, "Spacing");
-    group(ui, |ui| spacing(ui, t));
+    group(ui, |ui| spacing(ui, t, true));
     section(ui, "Column");
     group(ui, |ui| {
-        lines(ui, t);
+        lines(ui, t, true);
         divider(ui);
         switch_row(
             ui,
@@ -163,20 +163,20 @@ pub(super) fn ai_tab(ui: &mut Ui, t: &mut TextSettings) {
         its page: past the room, its text shrinks to fit.",
     );
     section(ui, "Typeface");
-    group(ui, |ui| typeface(ui, t));
+    group(ui, |ui| typeface(ui, t, false));
     section(ui, "Spacing");
-    group(ui, |ui| spacing(ui, t));
+    group(ui, |ui| spacing(ui, t, false));
     section(ui, "Lines");
-    group(ui, |ui| lines(ui, t));
+    group(ui, |ui| lines(ui, t, false));
 }
 
-fn lines(ui: &mut Ui, t: &mut TextSettings) {
-    switch_row(
-        ui,
-        "Full justification",
-        "Stretch every line but a paragraph's last to both margins",
-        &mut t.justify,
-    );
+/// Justification and hyphenation; `book` adds what a book's own wins over.
+fn lines(ui: &mut Ui, t: &mut TextSettings, book: bool) {
+    let hint = match book && !t.override_layout {
+        true => "Stretch lines to both margins; a justified book stays so",
+        false => "Stretch every line but a paragraph's last to both margins",
+    };
+    switch_row(ui, "Full justification", hint, &mut t.justify);
     divider(ui);
     switch_row(
         ui,
@@ -186,14 +186,51 @@ fn lines(ui: &mut Ui, t: &mut TextSettings) {
     );
 }
 
-fn typeface(ui: &mut Ui, t: &mut TextSettings) {
+/// Faces, size and weight; `book` adds the book's own overrides.
+fn typeface(ui: &mut Ui, t: &mut TextSettings, book: bool) {
+    if book {
+        let hint = "Your fonts and text size for all of a book's text";
+        switch_row(ui, "Override book font", hint, &mut t.override_font);
+        divider(ui);
+    }
     let body = "The body text; Default follows the serif font";
     picker(ui, "Body font", body, &mut t.default_font, None);
     divider(ui);
-    let size = TextSettings::FONT_SIZE;
-    let px = |v: f32| format!("{v:.0} px");
-    stepped(ui, "Font size", "", &mut t.font_size, size, 1.0, px);
+    // A share of the standard size: a book's sizes scale from it.
+    let hint = match book {
+        true => "A book's headings and small print scale with it",
+        false => "",
+    };
+    let mut pct = t.size_pct();
+    let percent = |v: f32| format!("{v:.0} %");
+    stepped(
+        ui,
+        "Text size",
+        hint,
+        &mut pct,
+        TextSettings::SIZE_PCT,
+        5.0,
+        percent,
+    );
+    if pct != t.size_pct() {
+        t.set_size_pct(pct);
+    }
     divider(ui);
+    if book {
+        let hint = "A book's small print never sets smaller";
+        let pt = |v: f32| format!("{v:.0} pt");
+        let floor = &mut t.min_font_size;
+        stepped(
+            ui,
+            "Minimum size",
+            hint,
+            floor,
+            TextSettings::MIN_FONT,
+            1.0,
+            pt,
+        );
+        divider(ui);
+    }
     let hint = "Headings keep their own";
     let weight = TextSettings::FONT_WEIGHT;
     let plain = |v: f32| format!("{v:.0}");
@@ -217,19 +254,29 @@ fn typeface(ui: &mut Ui, t: &mut TextSettings) {
     picker(ui, "Serif font", "", &mut t.serif_font, serif);
     divider(ui);
     let sans = Some(FontFamily::Sans);
-    picker(ui, "Sans-serif font", "Headings", &mut t.sans_font, sans);
+    let hint = "Plain books' headings, and where a book asks for it";
+    picker(ui, "Sans-serif font", hint, &mut t.sans_font, sans);
     divider(ui);
     let mono = Some(FontFamily::Mono);
     picker(ui, "Monospace font", "Code", &mut t.mono_font, mono);
 }
 
-fn spacing(ui: &mut Ui, t: &mut TextSettings) {
+/// Line, paragraph, word and letter spacing; `book` adds its override.
+fn spacing(ui: &mut Ui, t: &mut TextSettings, book: bool) {
+    if book {
+        let hint = "Your spacing, indent and justification for its paragraphs";
+        switch_row(ui, "Override book layout", hint, &mut t.override_layout);
+        divider(ui);
+    }
     let em2 = |v: f32| format!("{v:.2} em");
     let line = TextSettings::LINE_HEIGHT;
     let times = |v: f32| format!("{v:.1}×");
     stepped(ui, "Line spacing", "", &mut t.line_height, line, 0.1, times);
     divider(ui);
-    let hint = "Space between paragraphs";
+    let hint = match book && !t.override_layout {
+        true => "At 1, a book's own gaps; more or less moves them",
+        false => "Space between paragraphs",
+    };
     let gap = TextSettings::PARAGRAPH;
     stepped(
         ui,

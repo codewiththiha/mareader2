@@ -379,7 +379,7 @@ mod tests {
     fn loading_clamps_out_of_range_values() {
         let json = r#"{"version":1,"text":{"font_size":400,"line_height":0.2}}"#;
         let text = load(json).settings.text;
-        assert_eq!(text.font_size, 32.0);
+        assert_eq!(text.font_size, 34.0);
         assert_eq!(text.line_height, 1.0);
     }
 }

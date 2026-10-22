@@ -324,7 +324,7 @@ fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
     };
     let mut plain = reader(&[("pdf", "sample:5")]);
     open(&mut plain);
-    assert!(plain.query_by_label("More font size").is_none());
+    assert!(plain.query_by_label("More text size").is_none());
     assert!(!plain.state().settings_scope().ai_pages);
     let mut h = reader(&[
         ("pdf", "sample:5"),
@@ -335,7 +335,7 @@ fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
     open(&mut h);
     assert!(h.state().settings_scope().ai_pages);
     let size = h.state().settings().text.font_size;
-    h.get_by_label("More font size").click();
+    h.get_by_label("More text size").click();
     h.run();
     assert!(
         h.state().settings().text.font_size > size,

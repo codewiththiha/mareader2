@@ -260,10 +260,17 @@ fn the_fonts_tab_steps_the_size_and_switches_justification() {
     h.state_mut().set_option("settings", "fonts").ok();
     h.run_steps(3);
     assert_eq!(h.state().settings().text.font_size, 17.0);
-    h.get_by_role_and_label(Role::Button, "More font size")
+    h.get_by_role_and_label(Role::Button, "More text size")
         .click();
     h.run_steps(2);
-    assert_eq!(h.state().settings().text.font_size, 18.0);
+    // A step is five percent of the standard size.
+    assert_eq!(h.state().settings().text.size_pct(), 105.0);
+    let own = "Override book font";
+    h.get_by_role_and_label(Role::CheckBox, own).scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, own).click();
+    h.run();
+    assert!(h.state().settings().text.override_font);
     let justify = "Full justification";
     h.get_by_role_and_label(Role::CheckBox, justify)
         .scroll_to_me();

@@ -22,6 +22,9 @@ pub fn typography(t: &TextSettings) -> Typography {
         column_scale: t.column_width_pct / 100.0,
         margins: (t.page_margin_y, t.page_margin_x),
         max_line: t.max_line_width,
+        min_size: t.min_font_size,
+        override_font: t.override_font,
+        override_layout: t.override_layout,
         faces: Faces {
             body,
             heading: stack(&t.sans_font, Kind::Sans),
@@ -110,9 +113,13 @@ mod tests {
             hyphenation: true,
             book_layout: true,
             column_width_pct: 120.0,
+            min_font_size: 11.0,
+            override_font: true,
+            override_layout: true,
             ..TextSettings::default()
         };
         let t = typography(&s);
+        assert!(t.override_font && t.override_layout && t.min_size == 11.0);
         assert_eq!(t.column_scale, 1.2);
         assert_eq!(
             (t.font_size, t.weight, t.line_height, t.block_gap),
