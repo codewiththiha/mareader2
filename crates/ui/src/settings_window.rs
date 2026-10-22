@@ -916,17 +916,27 @@ fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
     let small = egui::FontId::proportional(t.text_small);
     let below = pos2(left, rect.center().y + 9.0);
     painter.text(below, egui::Align2::LEFT_CENTER, detail, small, t.muted);
-    let mark = pos2(rect.right() - 9.0, rect.center().y);
+    let at = pos2(rect.right() - 9.0, rect.center().y);
+    mark(painter, &t, at, on, resp.hovered());
+    resp.clicked() && !on
+}
+
+/// The settings radio ring, filled when `on`.
+fn mark(painter: &egui::Painter, t: &Tokens, at: egui::Pos2, on: bool, hot: bool) {
     // Off reads like an off switch: its track, not the faint line.
-    let ring = if on || resp.hovered() {
-        t.accent
-    } else {
-        t.track
-    };
-    painter.circle_stroke(mark, 8.0, Stroke::new(1.5, ring));
+    let ring = if on || hot { t.accent } else { t.track };
+    painter.circle_stroke(at, 8.0, Stroke::new(1.5, ring));
     if on {
-        painter.circle_filled(mark, 4.5, t.accent);
+        painter.circle_filled(at, 4.5, t.accent);
     }
+}
+
+/// A lone settings radio named `name`; true when newly picked.
+fn radio(ui: &mut Ui, on: bool, name: &str) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let (rect, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, name));
+    mark(ui.painter(), &t, rect.center(), on, resp.hovered());
     resp.clicked() && !on
 }
 
@@ -934,18 +944,37 @@ fn choice_row(ui: &mut Ui, title: &str, detail: &str, on: bool) -> bool {
 fn detail_row(ui: &mut Ui, title: &str, detail: &str, control: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
     let size = vec2(ui.available_width(), 52.0);
-    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
-        ui.set_min_height(52.0);
-        let named = ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 2.0;
-            let r = ui.label(title);
-            ui.label(RichText::new(detail).size(t.text_small).color(t.muted));
-            r
-        });
-        widgets::labelled(ui, named.inner.id, |ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), control);
-        });
-    });
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    // Controls first: the lines take the room they leave, cut short.
+    let name = ui.id().with(("detail_row", title));
+    let builder = UiBuilder::new()
+        .max_rect(rect)
+        .layout(Layout::right_to_left(Align::Center));
+    let mut right = ui.new_child(builder);
+    widgets::labelled(&mut right, name, control);
+    let room = (rect.width() - right.min_rect().width() - 16.0).max(40.0);
+    let fit = |text: RichText| {
+        let wrap = Some(egui::TextWrapMode::Truncate);
+        egui::WidgetText::from(text).into_galley(ui, wrap, room, egui::TextStyle::Body)
+    };
+    let top = fit(RichText::new(title).size(t.text).color(t.ink));
+    let low = fit(RichText::new(detail).size(t.text_small).color(t.muted));
+    let gap = 2.0;
+    let y = rect.center().y - (top.size().y + gap + low.size().y) / 2.0;
+    let at = pos2(rect.left(), y);
+    let top_rect = Rect::from_min_size(at, top.size());
+    let low_at = pos2(rect.left(), top_rect.bottom() + gap);
+    let cut = top.elided || low.elided;
+    let painter = ui.painter();
+    painter.galley(at, top, t.ink);
+    painter.galley(low_at, low, t.muted);
+    let named = ui.interact(top_rect, name, Sense::hover());
+    named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    if cut {
+        let lines = Rect::from_min_max(at, pos2(rect.left() + room, rect.bottom()));
+        let whole = ui.interact(lines, name.with("whole"), Sense::hover());
+        whole.on_hover_text(format!("{title}\n{detail}"));
+    }
 }
 
 /// Honest copy for settings whose feature has not landed yet.

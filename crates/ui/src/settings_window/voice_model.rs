@@ -4,7 +4,7 @@ use egui::{ProgressBar, RichText, Ui};
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::{Item, Model, ModelVoice, Shelf, Stage};
 
-use super::{detail_row, divider, group, note, row, section};
+use super::{detail_row, divider, group, note, radio, row, section};
 use crate::command::{Command, Commands};
 use crate::dict::megabytes;
 use crate::icons::Icon;
@@ -104,12 +104,7 @@ fn voice_row(
             );
             return;
         }
-        let radio = ui.radio(on, "");
-        let name = format!("Use {}", voice.name);
-        radio.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, &name)
-        });
-        if radio.clicked() && !on {
+        if radio(ui, on, &format!("Use {}", voice.name)) {
             pick = Some(voice.id);
         }
         // The first voice came with the model and goes with it.
