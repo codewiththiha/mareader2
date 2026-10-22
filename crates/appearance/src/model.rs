@@ -32,7 +32,7 @@ impl BaseMode {
         }
     }
 
-    /// Dim reads the dark UI palette; its pages invert more softly than Dark's.
+    /// Dim reads the dark UI palette even though its page is not inverted.
     pub fn is_dark(self) -> bool {
         matches!(self, Self::Dark | Self::Dim | Self::Black)
     }

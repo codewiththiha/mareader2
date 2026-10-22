@@ -997,7 +997,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             if let (Some(pass), false) = (pass, quads.is_empty()) {
                 let shape = PagesCallback::shape(pass.clone(), ui.clip_rect(), quads.clone());
                 ui.painter().add(shape);
-                drawn.extend(quads);
+                drawn.extend(quads.iter().cloned());
             }
             // A result covers its page's text: nothing there selects or marks.
             let open: Vec<Sheet> = sheets
@@ -1039,7 +1039,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 }
             }
             study::marks::add(&placed, cx.highlights.opacity, &mut under);
-            under.show(ui, pass, ui.clip_rect());
+            under.show(ui, pass, ui.clip_rect(), &quads);
             study::marks::badges(ui, &placed);
             for s in sheets.iter().filter(|s| cx.bookmarks.contains(&s.page)) {
                 crate::bookmarks::ribbon(ui.painter(), s.rect, t.accent);

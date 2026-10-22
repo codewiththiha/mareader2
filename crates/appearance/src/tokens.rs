@@ -124,7 +124,7 @@ impl Appearance {
         let ((paper_l, paper_c), (ink_l, ink_c)) = match self.base {
             BaseMode::Light => ((0.98, 0.08), (0.15, 0.03)),
             BaseMode::Dark => ((0.24, 0.10), (0.92, 0.04)),
-            BaseMode::Dim => ((0.22, 0.08), (0.78, 0.03)),
+            BaseMode::Dim => ((0.22, 0.08), (0.12, 0.03)),
             // Black paper holds no hue, so the tint colours the ink instead.
             BaseMode::Black => ((0.0, 0.0), (0.86, 0.07)),
         };
@@ -411,7 +411,7 @@ mod tests {
         for (base, paper, ink) in [
             (BaseMode::Light, 0.98, 0.15),
             (BaseMode::Dark, 0.24, 0.92),
-            (BaseMode::Dim, 0.22, 0.78),
+            (BaseMode::Dim, 0.22, 0.12),
         ] {
             for strength in [0, 40, 100] {
                 let a = Appearance {
