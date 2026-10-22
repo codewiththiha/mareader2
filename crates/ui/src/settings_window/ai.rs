@@ -169,7 +169,7 @@ fn pages(ui: &mut Ui, ai: &mut AiSettings, board: Option<&Board>) {
                 SummaryStyle::Paragraphs => "Paragraphs",
                 SummaryStyle::Points => "Key points",
             };
-            egui::ComboBox::from_id_salt("ai-summary-style")
+            widgets::combo("ai-summary-style")
                 .width(PICK_W)
                 .selected_text(name(*style))
                 .show_ui(ui, |ui| {
@@ -275,7 +275,7 @@ fn start_picker(ui: &mut Ui, salt: &str, start: &mut PageStart) {
         PageStart::Page => "This page",
         PageStart::Continuous => "Continuous",
     };
-    egui::ComboBox::from_id_salt(salt)
+    widgets::combo(salt)
         .width(PICK_W)
         .selected_text(name(*start))
         .show_ui(ui, |ui| {
@@ -295,7 +295,7 @@ fn preset_picker(
 ) {
     let title = |id: PresetId| presets.iter().find(|p| p.id == id).map(ModelPreset::title);
     let shown = chosen.and_then(title).unwrap_or_else(|| none.to_owned());
-    egui::ComboBox::from_id_salt(salt)
+    widgets::combo(salt)
         .width(PICK_W)
         .selected_text(shown)
         .show_ui(ui, |ui| {
@@ -314,7 +314,7 @@ fn language_picker(
     speaks: &dyn Fn(&str) -> Option<bool>,
 ) {
     let name = chosen.as_deref().and_then(mareader_settings::language_name);
-    egui::ComboBox::from_id_salt(salt)
+    widgets::combo(salt)
         .width(PICK_W)
         .height(320.0)
         .selected_text(name.unwrap_or(none))
@@ -493,7 +493,7 @@ fn fields(ui: &mut Ui, p: &mut ModelPreset, board: Option<&Board>, out: &mut Com
 fn provider_picker(ui: &mut Ui, p: &mut ModelPreset) {
     let mac = cfg!(target_os = "macos");
     let before = p.provider;
-    egui::ComboBox::from_id_salt(("ai-provider", p.id.0))
+    widgets::combo(("ai-provider", p.id.0))
         .width(PICK_W)
         .selected_text(p.provider.label())
         .show_ui(ui, |ui| {

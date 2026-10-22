@@ -1138,7 +1138,8 @@ fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Com
 }
 
 fn empty_state(ui: &mut Ui, rect: Rect, model: &Library, t: &Tokens, out: &mut Commands) {
-    let at = Rect::from_center_size(rect.center(), vec2(rect.width(), 200.0));
+    // A measure narrow enough that the hint wraps into two short lines.
+    let at = Rect::from_center_size(rect.center(), vec2(rect.width().min(440.0), 200.0));
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(at));
     ui.vertical_centered(|ui| {
         ui.add(Icon::Library.image(40.0).tint(t.muted));

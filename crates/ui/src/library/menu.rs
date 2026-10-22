@@ -7,7 +7,6 @@ use super::{Action, ShelfAction};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::platform::Platform;
-use crate::theme::Tokens;
 use crate::titlebar::LibraryBar;
 use crate::widgets;
 
@@ -120,7 +119,7 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
 /// Auto, or a pinned count stepped from what Auto shows now.
 fn columns(ui: &mut Ui, view: &mut View, auto: u8) {
     ui.horizontal(|ui| {
-        ui.add_space(8.0);
+        ui.add_space(ui.spacing().button_padding.x);
         ui.label("Columns");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let shown = view.columns.unwrap_or(auto);
@@ -147,11 +146,6 @@ fn columns(ui: &mut Ui, view: &mut View, auto: u8) {
 }
 
 fn heading(ui: &mut Ui, text: &str) {
-    let t = Tokens::get(ui.ctx());
     ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        ui.label(RichText::new(text).size(t.text_small).color(t.muted));
-    });
-    ui.add_space(2.0);
+    widgets::menu_note(ui, text);
 }

@@ -19,6 +19,10 @@ const WIDTH: f32 = 720.0;
 /// Narrower than this, the groups stack in one column.
 const TWO_UP: f32 = 560.0;
 const COLUMN_GAP: f32 = 32.0;
+/// Kept clear above and below the sheet.
+const EDGE: f32 = 32.0;
+/// The sheet's margins, header and filter, above and around the list.
+const CHROME: f32 = 124.0;
 /// A key cap's padding either side of its text.
 const CAP_PAD: f32 = 6.0;
 
@@ -62,7 +66,7 @@ pub fn show(ctx: &Context, platform: Platform) {
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     let width = WIDTH.min(screen.width() - 48.0).max(280.0);
-    let body_height = (screen.height() * 0.8 - 120.0).max(160.0);
+    let body_height = (screen.height() - 2.0 * EDGE - CHROME).max(160.0);
     let frame = Frame::new()
         .fill(t.surface)
         .stroke(Stroke::new(1.0, t.line))

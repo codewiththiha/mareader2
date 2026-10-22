@@ -67,7 +67,7 @@ pub fn show(
             for item in &look.bar {
                 let pen = matches!(item, BarItem::Highlight(_));
                 if was_pen.is_some_and(|was| was != pen) {
-                    divider(ui, &t);
+                    widgets::vrule(ui, 20.0);
                 }
                 was_pen = Some(pen);
                 if let Some(press) = button(ui, *item, look, &mut open) {
@@ -92,14 +92,6 @@ pub fn show(
     });
     ctx.data_mut(|d| d.insert_temp(open_id, open.filter(|_| pressed.is_none())));
     pressed
-}
-
-/// A hairline between the actions and the highlighters.
-fn divider(ui: &mut Ui, t: &Tokens) {
-    let (rect, _) = ui.allocate_exact_size(vec2(9.0, 20.0), Sense::hover());
-    let x = rect.center().x;
-    ui.painter()
-        .vline(x, rect.y_range(), Stroke::new(1.0, t.line));
 }
 
 /// An action as its icon alone; the name is its tooltip.

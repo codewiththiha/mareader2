@@ -276,7 +276,7 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
     let (slot, _) = ui.allocate_exact_size(egui::Vec2::splat(SIZE), egui::Sense::hover());
     let mark = Rect::from_center_size(slot.center(), egui::Vec2::splat(ICON));
     Icon::ReadAloud.paint(ui, mark, t.muted);
-    divider(ui, t);
+    widgets::vrule(ui, SIZE * 0.5);
     let heard = s.heard.unwrap_or(s.started);
     let back = s.narration.previous(heard, s.skip);
     if button(ui, Icon::SkipBack, "Previous phrase", back.is_some()).clicked() {
@@ -299,7 +299,7 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
             s.step(Some(out));
         }
     }
-    divider(ui, t);
+    widgets::vrule(ui, SIZE * 0.5);
     let speed = RichText::new(rate_label(settings.rate)).size(t.text_small);
     let speed = egui::Button::new(speed).frame_when_inactive(false);
     let speed = speed.min_size(egui::vec2(SIZE + 12.0, SIZE));
@@ -333,7 +333,7 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
         ui.label(RichText::new(text).size(t.text_small).color(colour));
         ui.add_space(4.0);
     }
-    divider(ui, t);
+    widgets::vrule(ui, SIZE * 0.5);
     button(ui, Icon::Close, "Stop reading aloud", true).clicked()
 }
 
@@ -347,14 +347,6 @@ fn button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     widgets::tip(&resp, label, None);
     resp
-}
-
-/// A short rule between the bar's groups.
-fn divider(ui: &mut Ui, t: &Tokens) {
-    let (r, _) = ui.allocate_exact_size(egui::vec2(9.0, SIZE), egui::Sense::hover());
-    let x = r.center().x.round() + 0.5;
-    let y = (r.top() + SIZE * 0.25)..=(r.bottom() - SIZE * 0.25);
-    ui.painter().vline(x, y, egui::Stroke::new(1.0, t.line));
 }
 
 fn rate_label(rate: f32) -> String {

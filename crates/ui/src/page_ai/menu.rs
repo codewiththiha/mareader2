@@ -158,7 +158,9 @@ impl PageAi {
             .any(|task| ai.page_preset(*task).is_some())
         {
             let why = "Summarize, translate and simplify pages with an AI model.";
-            ui.add(egui::Label::new(RichText::new(why).size(t.text_small).color(t.muted)).wrap());
+            ui.add_space(4.0);
+            widgets::menu_note(ui, why);
+            ui.add_space(2.0);
             if widgets::menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
                 out.push(Command::OpenSettings(Tab::Ai));
                 return true;
@@ -279,7 +281,7 @@ impl PageAi {
         }
         rule(ui, &t);
         ui.horizontal(|ui| {
-            ui.add_space(8.0);
+            ui.add_space(ui.spacing().button_padding.x);
             let label = RichText::new("Remember my choice").size(t.text_small);
             ui.checkbox(&mut self.remember, label)
                 .on_hover_text("Change it later in Settings › AI");
@@ -483,7 +485,7 @@ impl PageAi {
             let small = |s: String| RichText::new(s).size(t.text_small).color(t.muted);
             ui.add_space(2.0);
             ui.horizontal(|ui| {
-                ui.add_space(8.0);
+                ui.add_space(ui.spacing().button_padding.x);
                 ui.vertical(|ui| {
                     ui.label(small(what.clone()));
                     if !by.is_empty() {

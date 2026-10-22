@@ -13,6 +13,7 @@ use crate::command::{Command, Commands};
 use crate::documents::Reading;
 use crate::motion;
 use crate::theme::{self, Tokens};
+use crate::widgets;
 
 const ROW_H: f32 = 28.0;
 /// Indent per level; levels past `MAX_DEPTH` share the last one.
@@ -55,7 +56,8 @@ pub fn show(
     let entries = reading.document.outline();
     let t = Tokens::get(ui.ctx());
     if entries.is_empty() {
-        empty(ui, &t);
+        let hint = "This document has no table of contents.";
+        widgets::panel_empty(ui, None, "No outline", hint);
         return;
     }
     let active = state.active(reading, entries);
@@ -187,29 +189,6 @@ fn follow(
     }
     state.followed = Some(here);
     Some((None, motion::jump(ctx)))
-}
-
-/// A file with no outline says so where the rows would be.
-fn empty(ui: &mut Ui, t: &Tokens) {
-    let area = ui.max_rect().shrink2(vec2(28.0, 0.0));
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(area)
-            .layout(egui::Layout::top_down(Align::Center)),
-        |ui| {
-            ui.add_space(area.height() * 0.3);
-            ui.label(
-                RichText::new("No outline")
-                    .font(theme::medium(14.0))
-                    .color(t.ink),
-            );
-            ui.label(
-                RichText::new("This document has no table of contents.")
-                    .size(t.text_small)
-                    .color(t.muted),
-            );
-        },
-    );
 }
 
 #[cfg(test)]

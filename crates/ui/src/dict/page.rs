@@ -439,8 +439,7 @@ fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack], wi
         .first()
         .and_then(|id| ready.iter().find(|p| p.id == id));
     let shown = chosen.map_or("Every dictionary".to_owned(), |p| p.label());
-    let pick = egui::ComboBox::from_id_salt("dict-pack")
-        .icon(widgets::combo_chevron)
+    let pick = widgets::combo("dict-pack")
         .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {
@@ -480,8 +479,7 @@ fn language_box(
     langs: &[&str],
 ) {
     let shown = value.as_deref().map_or("Automatic".to_owned(), language);
-    let pick = egui::ComboBox::from_id_salt(id.0)
-        .icon(widgets::combo_chevron)
+    let pick = widgets::combo(id.0)
         .width(width)
         .selected_text(shown)
         .show_ui(ui, |ui| {

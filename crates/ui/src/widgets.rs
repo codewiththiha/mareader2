@@ -146,6 +146,51 @@ pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bo
     resp
 }
 
+/// A small muted line in a menu, lined up with the rows' icons.
+pub fn menu_note(ui: &mut Ui, text: &str) {
+    let t = Tokens::get(ui.ctx());
+    let pad = ui.spacing().button_padding.x as i8;
+    Frame::new()
+        .inner_margin(Margin::symmetric(pad, 2))
+        .show(ui, |ui| {
+            ui.add(egui::Label::new(RichText::new(text).size(t.text_small).color(t.muted)).wrap());
+        });
+}
+
+/// A hairline `length` tall between a bar's groups.
+pub fn vrule(ui: &mut Ui, length: f32) {
+    let t = Tokens::get(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(9.0, length), Sense::hover());
+    let x = rect.center().x.round() + 0.5;
+    ui.painter()
+        .vline(x, rect.y_range(), Stroke::new(1.0, t.line));
+}
+
+/// A sidebar panel with nothing to list: icon, title and hint, centred.
+pub fn panel_empty(ui: &mut Ui, icon: Option<Icon>, title: &str, hint: &str) {
+    let t = Tokens::get(ui.ctx());
+    let max = ui.max_rect();
+    let area = Rect::from_min_max(pos2(max.left(), ui.cursor().top()), max.max);
+    let area = area.shrink2(vec2(28.0, 0.0));
+    let builder = egui::UiBuilder::new()
+        .max_rect(area)
+        .layout(egui::Layout::top_down(egui::Align::Center));
+    ui.scope_builder(builder, |ui| {
+        ui.add_space((area.height() * 0.3).clamp(16.0, 200.0));
+        if let Some(icon) = icon {
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+            icon.paint(ui, r, t.muted);
+            ui.add_space(6.0);
+        }
+        ui.label(
+            RichText::new(title)
+                .font(crate::theme::medium(14.0))
+                .color(t.ink),
+        );
+        ui.add(egui::Label::new(RichText::new(hint).size(t.text_small).color(t.muted)).wrap());
+    });
+}
+
 /// The app's tooltip: a small chip, the shortcut beside the words.
 pub fn tip(resp: &Response, label: &str, keys: Option<&str>) {
     let t = Tokens::get(&resp.ctx);
@@ -345,8 +390,14 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     resp
 }
 
+/// A dropdown with the Lucide chevron; every combo box starts here.
+#[allow(clippy::disallowed_methods)]
+pub fn combo(salt: impl egui::AsIdSalt) -> egui::ComboBox {
+    egui::ComboBox::from_id_salt(salt).icon(combo_chevron)
+}
+
 /// A combo box's Lucide chevron, in place of egui's triangle.
-pub fn combo_chevron(ui: &Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, open: bool) {
+fn combo_chevron(ui: &Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, open: bool) {
     let icon = if open {
         Icon::ChevronUp
     } else {
