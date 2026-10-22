@@ -135,6 +135,13 @@ impl Document {
         }
     }
 
+    /// At rest: a book lets go of layouts and decodes out of view.
+    pub fn rest(&self) {
+        if let Self::Epub { book, .. } = self {
+            book.rest();
+        }
+    }
+
     /// The same book in other type; none for a PDF or on failure.
     pub fn retypeset(&self, typo: &Typography) -> Option<Self> {
         self.reset(typo, None)

@@ -538,14 +538,18 @@ impl Recent {
         }
         self.bytes += bytes;
         meter::add(&meter::LAID, bytes);
-        if self.bytes <= MAX_LAID {
-            return;
-        }
         // Over: drop the oldest down to half, so eviction is rare.
+        if self.bytes > MAX_LAID {
+            self.shrink(MAX_LAID / 2, Some(block));
+        }
+    }
+
+    /// Drops the oldest layouts down to `to` bytes, stopping at `keep`.
+    fn shrink(&mut self, to: usize, keep: Option<usize>) {
         let mut ages: Vec<(u64, usize)> = self.laid.iter().map(|(&b, e)| (e.1, b)).collect();
         ages.sort_unstable();
         for (_, old) in ages {
-            if self.bytes <= MAX_LAID / 2 || old == block {
+            if self.bytes <= to || Some(old) == keep {
                 break;
             }
             if let Some(gone) = self.laid.remove(&old) {
@@ -564,6 +568,8 @@ impl Drop for Recent {
 
 /// Estimated bytes of layouts a book keeps; the rest are laid again.
 pub const MAX_LAID: usize = 32 << 20;
+/// What a resting book keeps: its newest layouts, the pages in view.
+const REST_LAID: usize = 4 << 20;
 
 /// One block set: `x` and `width` within the column.
 pub(crate) struct Set {
@@ -980,6 +986,18 @@ impl Flow {
             width,
             height: (lead + used + foot).min(self.card.size.1 - y),
         }
+    }
+
+    /// At rest: only the newest layouts and decodes stay, for pages in view.
+    pub fn rest(&self) {
+        let mut recent = self
+            .relay
+            .recent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        recent.shrink(REST_LAID, None);
+        drop(recent);
+        self.decoded.rest();
     }
 
     /// Shares `other`'s decoded pictures: a re-set book shows the same.
@@ -5290,6 +5308,32 @@ mod tests {
         // One block past the cap alone is still kept while used.
         recent.put(5, laid(), 2 * MAX_LAID);
         assert!(recent.get(5).is_some());
+    }
+
+    #[test]
+    fn a_resting_book_keeps_only_its_newest_layouts() {
+        let mut recent = Recent::default();
+        let laid = || Arc::new(Laid::None);
+        for block in 0..8 {
+            recent.put(block, laid(), REST_LAID / 2);
+        }
+        // Block 0 was used last, so it outlives the newer puts.
+        assert!(recent.get(0).is_some());
+        recent.shrink(REST_LAID, None);
+        assert!(recent.bytes <= REST_LAID);
+        let mut kept: Vec<usize> = recent.laid.keys().copied().collect();
+        kept.sort_unstable();
+        assert_eq!(kept, [0, 7]);
+    }
+
+    #[test]
+    fn a_resting_flow_draws_the_same() {
+        let f = flow(&book());
+        let region = [0, 0, PAGE_WIDTH as u32, PAGE_HEIGHT as u32];
+        let first = f.render(1, 1.0, region);
+        f.rest();
+        assert_eq!(f.render(1, 1.0, region), first);
+        assert!(first.is_some());
     }
 
     #[test]

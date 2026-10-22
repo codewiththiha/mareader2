@@ -14,6 +14,8 @@ pub const MAX_PICTURE_SIDE: u32 = 16_384;
 pub const MAX_PICTURE_PIXELS: u64 = 50_000_000;
 /// Decoded images kept for redraws, in bytes of pixels.
 const CACHE_BYTES: usize = 64 << 20;
+/// What a resting book keeps: the pictures drawn last.
+const REST_BYTES: usize = 16 << 20;
 /// Decoding never allocates more than this.
 const DECODE_BYTES: u64 = 256 << 20;
 
@@ -279,6 +281,18 @@ impl Decoded {
             }
         }
         pixmap
+    }
+
+    /// Drops the least recent decodes down to the resting budget.
+    pub(crate) fn rest(&self) {
+        let Ok(mut cache) = self.0.lock() else {
+            return;
+        };
+        let mut total: usize = cache.iter().map(Entry::bytes).sum();
+        while total > REST_BYTES && !cache.is_empty() {
+            total -= cache.first().map_or(0, Entry::bytes);
+            cache.remove(0);
+        }
     }
 }
 

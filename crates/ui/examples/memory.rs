@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 use egui_kittest::Harness;
 use mareader_ui::command::Command;
 use mareader_ui::library::{Action, SearchAction};
-use mareader_ui::pages::CAP_BYTES;
+use mareader_ui::pages::{CAP_BYTES, REST_BYTES};
 use mareader_ui::{MareaderApp, OpenRequest};
 use mareader_workspace::{PaneId, SplitAxis};
 
@@ -24,6 +24,8 @@ const ROUND_SLACK: f64 = 16.0;
 const PER_BOOK_KIB: f64 = 16.0;
 /// What scrolling a big library may add at its peak, covers included.
 const SCROLL_PEAK: f64 = 256.0;
+/// Laid blocks a resting book keeps, as `flow.rs` holds them.
+const REST_LAID: usize = 4 << 20;
 
 /// A `/proc/self/status` field, in MiB.
 fn status(field: &str) -> Option<f64> {
@@ -230,6 +232,12 @@ fn retype(h: &mut App, audit: &mut Audit) {
     audit.check("Re-set books keep only the set shown", value, held);
 }
 
+/// Four quiet seconds, past the three after which caches rest.
+fn rest(h: &mut App) {
+    h.run_steps(240);
+    h.render().ok();
+}
+
 /// A second's frames, drawn, so the GPU's deferred frees can land.
 fn settle(h: &mut App) {
     for _ in 0..6 {
@@ -289,6 +297,15 @@ fn book(path: &Path, count: usize) -> Result<bool, String> {
     audit.row(&mut h, "every page read");
     search(&mut h, "the");
     audit.row(&mut h, "searched for \"the\"");
+    rest(&mut h);
+    let rested = audit.row(&mut h, "left alone four seconds");
+    let value = format!(
+        "{:.0} MiB of pages, {:.1} MiB laid",
+        rested.page_bytes as f64 / MIB,
+        rested.laid as f64 / MIB
+    );
+    let held = rested.page_bytes <= REST_BYTES && rested.laid <= REST_LAID;
+    audit.check("At rest, only the pages in view stay", value, held);
     retype(&mut h, &mut audit);
     // The page grid follows the pane read, picks and all.
     h.state_mut().set_option("sidebar", "thumbnails").ok();

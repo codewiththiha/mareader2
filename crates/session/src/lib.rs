@@ -262,6 +262,11 @@ impl Session {
         self.pool.retypeset(ticket, (id, doc), typo, inserts, stale);
     }
 
+    /// At rest: every open book keeps only what its pages in view need.
+    pub fn rest(&self) {
+        self.docs.values().for_each(|e| e.doc.rest());
+    }
+
     pub fn get(&self, id: DocId) -> Option<&Entry> {
         self.docs.get(&id)
     }

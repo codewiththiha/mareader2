@@ -850,6 +850,13 @@ impl Book {
         self.language.as_deref()
     }
 
+    /// At rest: its flows keep only what the pages in view need.
+    pub fn rest(&self) {
+        self.flow.rest();
+        let regions = self.spliced.iter().flat_map(|s| &s.regions);
+        regions.for_each(|r| r.flow.rest());
+    }
+
     /// Shares the book's decoded pictures with `flow`, set from its blocks.
     pub fn with_pictures(&self, flow: Flow) -> Flow {
         flow.keep_pictures(&self.flow)
