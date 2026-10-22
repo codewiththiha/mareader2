@@ -6,6 +6,7 @@ use image::{DynamicImage, ImageReader, Limits};
 use vello_cpu::peniko::ImageAlphaType;
 use vello_cpu::{PixelMetadata, Pixmap};
 
+use crate::meter;
 use crate::svg::{self, Links};
 
 /// Larger images are refused before any pixel is decoded.
@@ -226,6 +227,12 @@ impl Entry {
     }
 }
 
+impl Drop for Entry {
+    fn drop(&mut self) {
+        meter::take(&meter::DECODED, self.bytes());
+    }
+}
+
 /// Recently drawn decodes, least recent first; shared by the workers.
 #[derive(Default)]
 pub(crate) struct Decoded(Mutex<Vec<Entry>>);
@@ -258,11 +265,13 @@ impl Decoded {
         let _ = picture.ink();
         if let Ok(mut cache) = self.0.lock() {
             cache.retain(|e| !found(e));
-            cache.push(Entry {
+            let entry = Entry {
                 picture: picture.clone(),
                 side,
                 pixmap: pixmap.clone(),
-            });
+            };
+            meter::add(&meter::DECODED, entry.bytes());
+            cache.push(entry);
             let mut total: usize = cache.iter().map(Entry::bytes).sum();
             while total > CACHE_BYTES && cache.len() > 1 {
                 total -= cache.first().map_or(0, Entry::bytes);

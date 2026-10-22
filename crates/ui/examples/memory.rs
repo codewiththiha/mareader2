@@ -50,6 +50,10 @@ struct Row {
     jobs: usize,
     searches: usize,
     cover_bytes: usize,
+    /// Set books alive, their laid blocks and decoded pictures.
+    flows: usize,
+    laid: usize,
+    decoded: usize,
 }
 
 /// Every row so far, and the budgets checked against them.
@@ -63,15 +67,16 @@ impl Audit {
     fn header() {
         println!(
             "| Step | RSS MiB | Peak MiB | Docs | Pages (MiB) | Text layers | Jobs | Searches \
-             | Covers MiB | egui textures |"
+             | Covers MiB | egui textures | Flows (laid, decoded MiB) |"
         );
-        println!("|---|---|---|---|---|---|---|---|---|---|");
+        println!("|---|---|---|---|---|---|---|---|---|---|---|");
     }
 
     fn row(&mut self, h: &mut App, step: &str) -> Row {
         h.render().ok();
         let app = h.state();
         let m = app.documents().meter();
+        let held = mareader_reflow::held();
         let row = Row {
             rss: status("VmRSS:").unwrap_or(0.0),
             peak: status("VmHWM:").unwrap_or(0.0),
@@ -82,11 +87,15 @@ impl Audit {
             jobs: m.jobs,
             searches: app.searches(),
             cover_bytes: app.library_state().covers().bytes(),
+            flows: held.flows,
+            laid: held.laid,
+            decoded: held.decoded,
         };
         let textures = h.ctx.tex_manager().read().num_allocated();
         let peak = row.peak;
         println!(
-            "| {step} | {:.0} | {peak:.0} | {} | {} ({:.0}) | {} | {} | {} | {:.1} | {textures} |",
+            "| {step} | {:.0} | {peak:.0} | {} | {} ({:.0}) | {} | {} | {} | {:.1} | {textures} \
+             | {} ({:.1}, {:.1}) |",
             row.rss,
             row.documents,
             row.pages,
@@ -95,6 +104,9 @@ impl Audit {
             row.jobs,
             row.searches,
             row.cover_bytes as f64 / MIB,
+            row.flows,
+            row.laid as f64 / MIB,
+            row.decoded as f64 / MIB,
         );
         reset_peak();
         self.rows.push((step.to_owned(), row));
@@ -181,7 +193,41 @@ fn close(h: &mut App, pane: PaneId) {
 
 /// Nothing the app counts is left of a closed book.
 fn emptied(r: &Row) -> bool {
-    r.documents + r.pages + r.texts + r.jobs + r.searches == 0
+    r.documents + r.pages + r.texts + r.jobs + r.searches + r.flows == 0
+}
+
+/// A book set again in new text sizes, then in new window sizes.
+fn retype(h: &mut App, audit: &mut Audit) {
+    // A PDF has nothing to set again.
+    if mareader_reflow::held().flows == 0 {
+        return;
+    }
+    let was = h.state().settings().text.font_size;
+    for size in [14.0, 18.0, 22.0, 26.0, 30.0, was] {
+        let mut s = h.state().settings().clone();
+        s.text.font_size = size;
+        h.state_mut().queue(Command::SetSettings(Box::new(s)));
+        h.run();
+        h.render().ok();
+    }
+    let sized = audit.row(h, "set again in six text sizes");
+    for (w, ht) in [
+        (1000.0, 700.0),
+        (1400.0, 900.0),
+        (1100.0, 760.0),
+        (1200.0, 800.0),
+    ] {
+        h.set_size(egui::vec2(w, ht));
+        h.run();
+        h.render().ok();
+    }
+    audit.row(h, "and in four window sizes");
+    settle(h);
+    let rest = audit.row(h, "a second later");
+    // Old sets die with their last pane; only the one shown is kept.
+    let value = format!("{} after sizes, {} at rest", sized.flows, rest.flows);
+    let held = sized.flows <= 1 && rest.flows <= 1;
+    audit.check("Re-set books keep only the set shown", value, held);
 }
 
 /// A second's frames, drawn, so the GPU's deferred frees can land.
@@ -243,10 +289,16 @@ fn book(path: &Path, count: usize) -> Result<bool, String> {
     audit.row(&mut h, "every page read");
     search(&mut h, "the");
     audit.row(&mut h, "searched for \"the\"");
+    retype(&mut h, &mut audit);
+    // The page grid follows the pane read, picks and all.
+    h.state_mut().set_option("sidebar", "thumbnails").ok();
+    h.run();
+    audit.row(&mut h, "thumbnails shown");
     close(&mut h, right);
     let closed = audit.row(&mut h, "its pane closed");
     settle(&mut h);
     audit.row(&mut h, "a second later");
+    h.state_mut().set_option("sidebar", "closed").ok();
     let value = format!(
         "{} documents, {} searches",
         closed.documents, closed.searches
