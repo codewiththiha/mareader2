@@ -1056,7 +1056,8 @@ fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: boo
         .find(|c| c.is_alphanumeric())
         .map(|c| c.to_uppercase().collect::<String>())
         .unwrap_or_default();
-    let ink = faded(t.ink, 0.55 * fade);
+    // Over every hue in every look: 3:1 for the initial, 4.5:1 for the label.
+    let ink = faded(t.ink, 0.8 * fade);
     let middle = pos2(spine.right() + (rect.right() - spine.right()) / 2.0, 0.0);
     if small {
         let size = rect.width() * 0.5;
@@ -1079,7 +1080,7 @@ fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: boo
         Align2::CENTER_BOTTOM,
         book.format.label(),
         theme::medium((rect.width() / 16.0).clamp(9.0, 13.0)),
-        faded(t.muted, fade),
+        faded(t.ink, 0.9 * fade),
     );
 }
 

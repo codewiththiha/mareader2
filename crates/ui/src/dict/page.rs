@@ -580,7 +580,7 @@ fn row(ui: &mut Ui, e: &Entry, i: usize, on: bool, t: &Tokens) -> Response {
     let rect = inner.response.rect;
     let resp = ui.interact(rect, ui.id().with(("dict-row", i)), Sense::click());
     let fill = if on {
-        t.accent_soft
+        t.selected
     } else if resp.hovered() {
         t.hover
     } else {

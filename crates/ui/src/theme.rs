@@ -31,6 +31,8 @@ pub struct Tokens {
     pub pressed: Color32,
     pub accent: Color32,
     pub accent_soft: Color32,
+    /// The fill that marks a pick; clear of the card in every look.
+    pub selected: Color32,
     /// Grouped rows' fill: a pale wash of the look, off the surface.
     pub card: Color32,
     /// A switch's track while off, so it reads on every ground.
@@ -86,6 +88,10 @@ impl Tokens {
             pressed: line.lerp_to_gamma(ink, 0.12),
             accent: color(t.accent),
             accent_soft,
+            selected: match dark {
+                false => accent_soft,
+                true => accent_soft.lerp_to_gamma(color(t.accent), 0.3),
+            },
             card,
             track: line.lerp_to_gamma(ink, if dark { 0.18 } else { 0.22 }),
             danger: if dark {
@@ -211,7 +217,7 @@ pub fn visuals(t: &Tokens) -> egui::Visuals {
     v.extreme_bg_color = t.surface;
     v.faint_bg_color = t.surface;
     v.code_bg_color = t.surface;
-    v.selection.bg_fill = t.accent_soft;
+    v.selection.bg_fill = t.selected;
     v.selection.stroke = Stroke::new(1.0, t.accent);
     v.hyperlink_color = t.accent;
     v.override_text_color = Some(t.ink);
@@ -339,7 +345,7 @@ pub mod live {
         for (key, val) in map {
             let used = fields!(t, key, val;
                 colours: paper, ink, muted, surface, line, hover, pressed, accent,
-                    accent_soft, glass, frost, shadow;
+                    accent_soft, selected, glass, frost, shadow;
                 numbers: radius, radius_lg, control, icon, text, text_small, gap);
             if !used {
                 bad.push(key.clone());
@@ -363,6 +369,16 @@ mod tests {
                 let ratio = contrast(ink_on(fill), fill);
                 assert!(ratio >= 4.5, "{}: {ratio:.2} on {fill:?}", p.name);
             }
+        }
+    }
+
+    #[test]
+    fn picks_stand_off_the_card_in_every_preset() {
+        let rgb = |c: Color32| Rgb(c.r(), c.g(), c.b());
+        for p in mareader_appearance::builtin_presets() {
+            let t = Tokens::new(&p.appearance);
+            let ratio = rgb(t.selected).contrast(rgb(t.card));
+            assert!(ratio >= 1.1, "{}: {ratio:.2}", p.name);
         }
     }
 

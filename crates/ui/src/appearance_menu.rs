@@ -439,7 +439,7 @@ fn segments<T: Copy + PartialEq>(
         }
         let on = *value == v;
         let fill = match (on, resp.hovered()) {
-            (true, _) => t.accent_soft,
+            (true, _) => t.selected,
             (false, true) => t.hover,
             (false, false) => Color32::TRANSPARENT,
         };
@@ -447,18 +447,20 @@ fn segments<T: Copy + PartialEq>(
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
         ui.painter().rect_filled(cell, CornerRadius::same(4), fill);
+        // Accent ink marks the pick where the soft fill barely shows (Dim).
+        let ink = if on { t.accent } else { t.ink };
         let font = FontId::proportional(t.text);
-        let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.ink);
+        let galley = ui.painter().layout_no_wrap(label.to_owned(), font, ink);
         let icon_w = if icon.is_some() { 18.0 } else { 0.0 };
         let mut x = cell.center().x - (icon_w + galley.size().x) / 2.0;
         let y = cell.center().y;
         if let Some(icon) = icon {
             let at = Rect::from_min_size(pos2(x, y - 7.0), Vec2::splat(14.0));
-            icon.image(14.0).tint(t.ink).paint_at(ui, at);
+            icon.image(14.0).tint(ink).paint_at(ui, at);
             x += icon_w;
         }
         let top = y - galley.size().y / 2.0;
-        ui.painter().galley(pos2(x, top), galley, t.ink);
+        ui.painter().galley(pos2(x, top), galley, ink);
         resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, on, label));
     }
 }
