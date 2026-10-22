@@ -721,6 +721,7 @@ impl State<'_> {
                 widows: c.widows,
                 whole: c.whole,
                 with_next: c.keep_next,
+                with_last: c.keep_last,
             };
             f.dir = c.dir;
             f.orient = c.orient;
@@ -1517,6 +1518,11 @@ impl State<'_> {
         };
         for key in self.pending.drain(..) {
             self.refs.places.entry(key).or_insert(at);
+        }
+        // `break-before: avoid` holds the block before to this one.
+        let last = self.blocks.last_mut().filter(|_| !block.break_before);
+        if let Some(prev) = last.filter(|_| block.frame.keep.with_last) {
+            prev.frame.keep.with_next = true;
         }
         self.blocks.push(block);
     }
@@ -4724,6 +4730,16 @@ mod tests {
         );
         let breaks: Vec<bool> = b.iter().map(|b| b.break_before).collect();
         assert_eq!(breaks, [true, false, true, true, false]);
+    }
+
+    #[test]
+    fn avoiding_a_break_before_holds_the_block_before() {
+        let b = read(
+            "<p>a</p><p>quote</p>\
+             <p style='page-break-before: avoid; text-align: right'>source</p><p>c</p>",
+        );
+        let held: Vec<bool> = b.iter().map(|b| b.frame.keep.with_next).collect();
+        assert_eq!(held, [false, true, false, false]);
     }
 
     #[test]
