@@ -144,3 +144,19 @@ tells a designed chapter from prose is only its scale: designed type
 grows with a wide pane as above, while prose stays at the reader's size
 and keeps the reader's fonts for named machine fonts. Off still reads
 every chapter in the reader's type, without the book's boxes.
+
+## Pane-sized pages (2026-10-22)
+
+In the Single and Two pages views a book's pages take the pane's size,
+so a spread fills the whole window's height. Each page is what the pane
+leaves it (half for two pages) at the pane's zoom: a fit sets the page
+at the pane's own scale, and a set zoom makes the page smaller in
+layout units, so its text reads larger. The text column runs inside
+the **Top and bottom margins** and **Side margins**, never past the
+**Longest line** (720 pt by default); a wider page centres it, and Book
+layout leans it a little toward the spine. Such a page is shown at its
+own size, so a designed chapter's type counts from the reader's text
+size, with no card scale. A resized pane sets its book
+anew once it has held still for 0.3 s, keeping the place read; the next
+book opened in the pane starts at its size. The vertical stream keeps
+its column (Column width) and PDFs are unchanged.
