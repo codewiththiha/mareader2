@@ -142,10 +142,10 @@ impl PageAi {
         out: &mut Commands,
     ) -> bool {
         let t = Tokens::get(ui.ctx());
-        if let Some(from) = m.narrated {
-            let label = match from {
-                Some(_) => "Read aloud from here",
-                None => "Read aloud from this page",
+        if let Some(from) = m.aloud {
+            let label = match from.here() {
+                true => "Read aloud from here",
+                false => "Read aloud from this page",
             };
             if widgets::menu_row(ui, Icon::ReadAloud, label, None, false).clicked() {
                 out.push(Command::ReadAloud { pane: m.pane, from });

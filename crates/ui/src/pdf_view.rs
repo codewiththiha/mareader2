@@ -413,6 +413,11 @@ impl PdfView {
         self.go(page.min(count.saturating_sub(1)));
     }
 
+    /// True while a page turn or reveal still glides.
+    pub fn gliding(&self) -> bool {
+        self.jump.is_some() || self.reveal.is_some() || self.aim.is_some()
+    }
+
     /// Shows `spot` on `page`, offset by its stream `band`; false if unknown.
     pub fn seek(&mut self, page: usize, spot: Option<Bounds>, band: Vec2, count: usize) -> bool {
         // Already heading there: going again would restart the glide.
@@ -541,7 +546,7 @@ pub struct ViewContext {
     /// The find bar's hits, in the pane it searches.
     pub found: Option<crate::search::Lit>,
     /// The phrase read aloud, in the pane reading.
-    pub narrated: Option<crate::read_aloud::Lit>,
+    pub aloud: Option<crate::read_aloud::Lit>,
     /// Shots: opens the newest drawn mark's menu.
     pub menu_shot: bool,
     /// The page AI's bubbles and results on the pages shown.
@@ -1048,7 +1053,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
             }
-            if let Some(lit) = &cx.narrated {
+            if let Some(lit) = &cx.aloud {
                 crate::read_aloud::paint(ui, &text, lit, &t);
             }
             if let Some(lit) = &cx.found {
@@ -1108,8 +1113,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 && !on_selection(&text, *selection, at)
                 && let Some(s) = sheets.iter().find(|s| s.shown.contains(at))
             {
-                let place = text.texts.get(text.doc, s.page).and_then(|layer| {
-                    let (x, y) = s.to_page(at);
+                let layer = text.texts.get(text.doc, s.page);
+                let (x, y) = s.to_page(at);
+                let caret = (layer.as_ref())
+                    .filter(|l| l.text.on_line(x, y))
+                    .map(|l| l.text.caret_at(x, y));
+                let place = layer.and_then(|layer| {
                     let i = layer.text.caret_at(x, y);
                     let before = i.checked_sub(1).and_then(|i| layer.place(i));
                     layer.place(i).or(before)
@@ -1119,6 +1128,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     page: s.page,
                     at,
                     place,
+                    caret,
                 });
             } else if cx.menu_shot
                 && let Some(m) = placed.last()

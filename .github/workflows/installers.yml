@@ -79,7 +79,7 @@ jobs:
       # ALSA's headers, for the narration's sound output.
       - name: Linux build headers
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libspeechd-dev libclang-dev
       - name: Apple Intelligence helper
         if: matrix.helper == 'expected'
         run: tools/fm-helper.sh

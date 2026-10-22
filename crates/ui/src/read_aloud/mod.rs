@@ -9,6 +9,7 @@ use mareader_audio::{Clip, Fault, Fetch, Player, RATES, Segment};
 use mareader_epub::{Files, Narration, Run, Skips};
 use mareader_session::Anchor;
 use mareader_settings::ReadAloudSettings;
+use mareader_speech::Spot;
 use mareader_workspace::PaneId;
 
 use crate::documents::{Documents, Reading};
@@ -16,6 +17,10 @@ use crate::icons::Icon;
 use crate::selection::Pages;
 use crate::theme::Tokens;
 use crate::widgets;
+
+mod spoken;
+
+use spoken::Spoken;
 
 /// How often the lit phrase is checked while it plays.
 const TICK: Duration = Duration::from_millis(50);
@@ -26,17 +31,36 @@ const SIZE: f32 = 30.0;
 const ICON: f32 = 16.0;
 const GAP: f32 = 2.0;
 
-/// The phrase being read, to paint in its pane.
+/// The words being read, to paint in their pane.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lit {
-    pub start: Anchor,
-    pub end: Anchor,
+    pub span: Span,
     /// The book's own highlight, if it names one.
     pub fill: Option<[u8; 3]>,
 }
 
-/// One book being read aloud in one pane.
-struct Session {
+/// Where reading starts: the place or character under the pointer, or the page.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ReadFrom {
+    pub anchor: Option<Anchor>,
+    pub at: Option<Spot>,
+}
+
+impl ReadFrom {
+    pub fn here(&self) -> bool {
+        self.anchor.is_some() || self.at.is_some()
+    }
+}
+
+/// Where the words read are: by place in the book, or on its pages.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Span {
+    Anchors { start: Anchor, end: Anchor },
+    Chars { start: Spot, end: Spot },
+}
+
+/// A narrated book being read aloud in one pane: its own recordings.
+struct Narrated {
     pane: PaneId,
     narration: Arc<Narration>,
     player: Player,
@@ -54,7 +78,7 @@ struct Session {
     fault: Option<Fault>,
 }
 
-impl Session {
+impl Narrated {
     fn play_from(&mut self, from: usize) {
         self.runs = self.narration.runs(from, self.skip);
         let segments = (self.runs.iter().enumerate())
@@ -102,6 +126,77 @@ impl Session {
             self.play_from(to);
         }
     }
+
+    /// Follows what is heard and turns pages to it; false once it ends.
+    fn tick(
+        &mut self,
+        ctx: &Context,
+        documents: &mut Documents,
+        settings: &ReadAloudSettings,
+    ) -> bool {
+        let reading = documents.reading(self.pane);
+        let narration = reading.as_ref().and_then(|r| r.document.narration());
+        // Another book in the pane, or none, ends the reading.
+        let (Some(reading), true) = (
+            reading,
+            narration.is_some_and(|n| Arc::ptr_eq(&n, &self.narration)),
+        ) else {
+            return false;
+        };
+        if (settings.rate - self.rate).abs() > f32::EPSILON {
+            self.rate = settings.rate;
+            self.player.set_rate(self.rate);
+        }
+        let status = self.player.status();
+        let run = |tag: u64| usize::try_from(tag).ok().and_then(|t| self.runs.get(t));
+        if let Some((run, time)) = status.at.and_then(|(tag, time)| Some((run(tag)?, time))) {
+            self.heard = self.narration.phrase_at(run, time).or(self.heard);
+        }
+        self.paused = status.paused;
+        self.finished = status.done && status.fault.is_none() && !self.runs.is_empty();
+        self.fault = status.fault;
+        let skip = skips(settings);
+        if skip != self.skip {
+            self.skip = skip;
+            let from = self.heard.unwrap_or(self.started);
+            if let Some(from) = self.read_from(from).filter(|_| !self.finished) {
+                self.play_from(from);
+            }
+        }
+        let shown = self.heard.and_then(|i| self.narration.phrases.get(i));
+        let page = shown.and_then(|p| reading.document.locate(p.start));
+        follow(documents, &reading, settings, page, &mut self.followed);
+        if !self.paused && !self.finished {
+            ctx.request_repaint_after(TICK);
+        }
+        true
+    }
+
+    fn lit(&self) -> Option<Lit> {
+        let phrase = self.narration.phrases.get(self.heard?)?;
+        Some(Lit {
+            span: Span::Anchors {
+                start: phrase.start,
+                end: phrase.end,
+            },
+            fill: self.narration.highlight,
+        })
+    }
+}
+
+/// What reads: the book's narration, or a voice saying its text.
+enum Session {
+    Narrated(Narrated),
+    Spoken(Box<Spoken>),
+}
+
+impl Session {
+    fn pane(&self) -> PaneId {
+        match self {
+            Self::Narrated(s) => s.pane,
+            Self::Spoken(s) => s.pane,
+        }
+    }
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -117,14 +212,44 @@ impl ReadAloud {
 
     /// Pauses the reading, as another sound starts.
     pub fn pause(&mut self) {
-        if let Some(s) = self.session.as_mut().filter(|s| !s.paused && !s.finished) {
-            s.player.pause();
-            s.paused = true;
+        match self.session.as_mut() {
+            Some(Session::Narrated(s)) if !s.paused && !s.finished => {
+                s.player.pause();
+                s.paused = true;
+            }
+            Some(Session::Spoken(s)) => s.pause(),
+            _ => {}
         }
     }
 
-    /// Starts reading `reading`'s book from `from`, else its page.
-    pub fn start(&mut self, reading: &Reading, from: Option<Anchor>, settings: &ReadAloudSettings) {
+    /// Reads from `from`, `at` or the page: narration, else a chosen voice.
+    pub fn start(
+        &mut self,
+        ctx: &Context,
+        reading: &Reading,
+        (from, at): (Option<Anchor>, Option<Spot>),
+        settings: &ReadAloudSettings,
+    ) {
+        if reading.document.narration().is_none() {
+            let start = match (from, at) {
+                (Some(anchor), _) => spoken::Start::Anchor(anchor),
+                (None, Some(spot)) => spoken::Start::Spot(spot),
+                (None, None) => spoken::Start::Spot(Spot {
+                    page: reading.current,
+                    char: 0,
+                }),
+            };
+            if let Some(Session::Spoken(s)) = self.session.as_mut()
+                && s.reads(reading)
+            {
+                s.restart(reading, start, settings);
+                return;
+            }
+            self.session = Some(Session::Spoken(Box::new(Spoken::new(
+                ctx, reading, start, settings,
+            ))));
+            return;
+        }
         let Some(narration) = reading.document.narration() else {
             return;
         };
@@ -134,12 +259,15 @@ impl ReadAloud {
         let Some(first) = first.or_else(|| narration.from_anchor(Anchor::default(), skip)) else {
             return;
         };
-        let same = (self.session.as_ref()).is_some_and(|s| Arc::ptr_eq(&s.narration, &narration));
+        let same = match self.session.as_ref() {
+            Some(Session::Narrated(s)) => Arc::ptr_eq(&s.narration, &narration),
+            _ => false,
+        };
         if !same {
             let Some(files) = reading.document.files() else {
                 return;
             };
-            self.session = Some(Session {
+            self.session = Some(Session::Narrated(Narrated {
                 pane: reading.pane,
                 narration,
                 player: Player::new(fetch(files)),
@@ -152,9 +280,9 @@ impl ReadAloud {
                 paused: false,
                 finished: false,
                 fault: None,
-            });
+            }));
         }
-        if let Some(s) = self.session.as_mut() {
+        if let Some(Session::Narrated(s)) = self.session.as_mut() {
             s.pane = reading.pane;
             s.skip = skip;
             s.rate = settings.rate;
@@ -168,61 +296,22 @@ impl ReadAloud {
 
     /// Each frame: follows what is heard and turns pages to it.
     pub fn tick(&mut self, ctx: &Context, documents: &mut Documents, settings: &ReadAloudSettings) {
-        let Some(s) = self.session.as_mut() else {
-            return;
+        let going = match self.session.as_mut() {
+            Some(Session::Narrated(s)) => s.tick(ctx, documents, settings),
+            Some(Session::Spoken(s)) => s.tick(ctx, documents, settings),
+            None => return,
         };
-        let reading = documents.reading(s.pane);
-        let narration = reading.as_ref().and_then(|r| r.document.narration());
-        // Another book in the pane, or none, ends the reading.
-        let (Some(reading), true) = (
-            reading,
-            narration.is_some_and(|n| Arc::ptr_eq(&n, &s.narration)),
-        ) else {
+        if !going {
             self.session = None;
-            return;
-        };
-        if (settings.rate - s.rate).abs() > f32::EPSILON {
-            s.rate = settings.rate;
-            s.player.set_rate(s.rate);
-        }
-        let status = s.player.status();
-        let run = |tag: u64| usize::try_from(tag).ok().and_then(|t| s.runs.get(t));
-        if let Some((run, time)) = status.at.and_then(|(tag, time)| Some((run(tag)?, time))) {
-            s.heard = s.narration.phrase_at(run, time).or(s.heard);
-        }
-        s.paused = status.paused;
-        s.finished = status.done && status.fault.is_none() && !s.runs.is_empty();
-        s.fault = status.fault;
-        let skip = skips(settings);
-        if skip != s.skip {
-            s.skip = skip;
-            let from = s.heard.unwrap_or(s.started);
-            if let Some(from) = s.read_from(from).filter(|_| !s.finished) {
-                s.play_from(from);
-            }
-        }
-        let shown = s.heard.and_then(|i| s.narration.phrases.get(i));
-        let page = shown.and_then(|p| reading.document.locate(p.start));
-        if settings.follow && page.is_some() && page != s.followed {
-            s.followed = page;
-            if let Some(page) = page.filter(|p| *p != reading.current) {
-                documents.go_to(s.pane, page);
-            }
-        }
-        if !s.paused && !s.finished {
-            ctx.request_repaint_after(TICK);
         }
     }
 
-    /// The phrase to light in `pane`, if it is reading.
+    /// The words to light in `pane`, if it is reading.
     pub fn lit(&self, pane: PaneId) -> Option<Lit> {
-        let s = self.session.as_ref().filter(|s| s.pane == pane)?;
-        let phrase = s.narration.phrases.get(s.heard?)?;
-        Some(Lit {
-            start: phrase.start,
-            end: phrase.end,
-            fill: s.narration.highlight,
-        })
+        match self.session.as_ref().filter(|s| s.pane() == pane)? {
+            Session::Narrated(s) => s.lit(),
+            Session::Spoken(s) => s.lit(),
+        }
     }
 
     /// The player, at the foot of its pane.
@@ -235,7 +324,8 @@ impl ReadAloud {
         let Some(s) = self.session.as_mut() else {
             return;
         };
-        let Some(rect) = panes.iter().find(|(p, _)| *p == s.pane).map(|(_, r)| *r) else {
+        let pane = s.pane();
+        let Some(rect) = panes.iter().find(|(p, _)| *p == pane).map(|(_, r)| *r) else {
             return;
         };
         let t = Tokens::get(ctx);
@@ -260,7 +350,16 @@ impl ReadAloud {
                 frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.set_min_height(SIZE);
-                        close = controls(ui, s, settings, &t);
+                        ui.spacing_mut().item_spacing = egui::vec2(GAP, 0.0);
+                        let (slot, _) =
+                            ui.allocate_exact_size(egui::Vec2::splat(SIZE), egui::Sense::hover());
+                        let mark = Rect::from_center_size(slot.center(), egui::Vec2::splat(ICON));
+                        Icon::ReadAloud.paint(ui, mark, t.muted);
+                        widgets::vrule(ui, SIZE * 0.5);
+                        close = match s {
+                            Session::Narrated(s) => controls(ui, s, settings, &t),
+                            Session::Spoken(s) => s.controls(ui, settings, &t),
+                        };
                     });
                 });
             });
@@ -270,13 +369,24 @@ impl ReadAloud {
     }
 }
 
+/// Turns `reading`'s pane to `page` when it is new and following is on.
+fn follow(
+    documents: &mut Documents,
+    reading: &Reading,
+    settings: &ReadAloudSettings,
+    page: Option<usize>,
+    followed: &mut Option<usize>,
+) {
+    if settings.follow && page.is_some() && page != *followed {
+        *followed = page;
+        if let Some(page) = page.filter(|p| *p != reading.current) {
+            documents.go_to(reading.pane, page);
+        }
+    }
+}
+
 /// The bar's buttons; true when closed.
-fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &Tokens) -> bool {
-    ui.spacing_mut().item_spacing = egui::vec2(GAP, 0.0);
-    let (slot, _) = ui.allocate_exact_size(egui::Vec2::splat(SIZE), egui::Sense::hover());
-    let mark = Rect::from_center_size(slot.center(), egui::Vec2::splat(ICON));
-    Icon::ReadAloud.paint(ui, mark, t.muted);
-    widgets::vrule(ui, SIZE * 0.5);
+fn controls(ui: &mut Ui, s: &mut Narrated, settings: &mut ReadAloudSettings, t: &Tokens) -> bool {
     let heard = s.heard.unwrap_or(s.started);
     let back = s.narration.previous(heard, s.skip);
     if button(ui, Icon::SkipBack, "Previous phrase", back.is_some()).clicked() {
@@ -300,6 +410,22 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
         }
     }
     widgets::vrule(ui, SIZE * 0.5);
+    speed(ui, settings, t);
+    options(ui, |ui| {
+        ui.checkbox(&mut settings.skip_notes, "Skip notes");
+        ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
+        ui.checkbox(&mut settings.follow, "Turn pages to follow");
+    });
+    let note = match (&s.fault, s.finished) {
+        (Some(fault), _) => Some((fault_text(fault), t.danger)),
+        (None, true) => Some(("The end".to_owned(), t.muted)),
+        (None, false) => None,
+    };
+    ending(ui, note, t)
+}
+
+/// The speed picker: the rates offered, the one in use shown.
+fn speed(ui: &mut Ui, settings: &mut ReadAloudSettings, t: &Tokens) {
     let speed = RichText::new(rate_label(settings.rate)).size(t.text_small);
     let speed = egui::Button::new(speed).frame_when_inactive(false);
     let speed = speed.min_size(egui::vec2(SIZE + 12.0, SIZE));
@@ -313,21 +439,20 @@ fn controls(ui: &mut Ui, s: &mut Session, settings: &mut ReadAloudSettings, t: &
         }
     });
     widgets::tip(&resp, "Speed", None);
+}
+
+/// The options menu behind the bar's More button.
+fn options(ui: &mut Ui, menu: impl FnOnce(&mut Ui)) {
     let more = egui::Button::image(Icon::More.image(ICON))
         .image_tint_follows_text_color(true)
         .frame_when_inactive(false)
         .min_size(egui::Vec2::splat(SIZE));
-    let (resp, _) = MenuButton::from_button(more).ui(ui, |ui| {
-        ui.checkbox(&mut settings.skip_notes, "Skip notes");
-        ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
-        ui.checkbox(&mut settings.follow, "Turn pages to follow");
-    });
+    let (resp, _) = MenuButton::from_button(more).ui(ui, menu);
     widgets::tip(&resp, "Read-aloud options", None);
-    let note = match (&s.fault, s.finished) {
-        (Some(fault), _) => Some((fault_text(fault), t.danger)),
-        (None, true) => Some(("The end".to_owned(), t.muted)),
-        (None, false) => None,
-    };
+}
+
+/// A short note if any, then the close button; true when closed.
+fn ending(ui: &mut Ui, note: Option<(String, Color32)>, t: &Tokens) -> bool {
     if let Some((text, colour)) = note {
         ui.add_space(4.0);
         ui.label(RichText::new(text).size(t.text_small).color(colour));
@@ -388,40 +513,59 @@ pub(crate) fn fetch(files: Files) -> Fetch {
     })
 }
 
-/// The phrase's words on the pages shown, in the book's colour.
+/// The words read on the pages shown, in the book's colour.
 pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
     let fill = fill(lit.fill, t);
     let painter = ui.painter();
-    let (start, end) = (lit.start, lit.end);
-    let inside = |at: Option<(u32, u32)>| {
-        at.is_some_and(|(b, i)| {
-            let at = Anchor {
-                block: b as usize,
-                offset: i as usize,
-            };
-            start <= at && at < end
-        })
-    };
     for sheet in pages.sheets.iter().filter(|s| s.shown.is_positive()) {
         let Some(layer) = pages.texts.get(pages.doc, sheet.page) else {
             continue;
         };
-        let mut from = None;
-        let count = layer.places.len();
-        for i in 0..=count {
-            let on = i < count && inside(layer.places.get(i).copied().flatten());
-            match (on, from) {
-                (true, None) => from = Some(i),
-                (false, Some(f)) => {
-                    for b in layer.text.line_boxes(f..i) {
-                        let r = sheet.to_screen(b).intersect(sheet.shown);
-                        if r.is_positive() {
-                            painter.rect_filled(r, CornerRadius::same(2), fill);
+        let mut runs = Vec::new();
+        match lit.span {
+            Span::Anchors { start, end } => {
+                let inside = |at: Option<(u32, u32)>| {
+                    at.is_some_and(|(b, i)| {
+                        let at = Anchor {
+                            block: b as usize,
+                            offset: i as usize,
+                        };
+                        start <= at && at < end
+                    })
+                };
+                let mut from = None;
+                let count = layer.places.len();
+                for i in 0..=count {
+                    let on = i < count && inside(layer.places.get(i).copied().flatten());
+                    match (on, from) {
+                        (true, None) => from = Some(i),
+                        (false, Some(f)) => {
+                            runs.push(f..i);
+                            from = None;
                         }
+                        _ => {}
                     }
-                    from = None;
                 }
-                _ => {}
+            }
+            Span::Chars { start, end } => {
+                let page = sheet.page;
+                if (start.page..=end.page).contains(&page) {
+                    let from = if page == start.page { start.char } else { 0 };
+                    let to = if page == end.page {
+                        end.char
+                    } else {
+                        layer.text.len()
+                    };
+                    runs.push(from..to.min(layer.text.len()));
+                }
+            }
+        }
+        for run in runs.into_iter().filter(|r| !r.is_empty()) {
+            for b in layer.text.line_boxes(run) {
+                let r = sheet.to_screen(b).intersect(sheet.shown);
+                if r.is_positive() {
+                    painter.rect_filled(r, CornerRadius::same(2), fill);
+                }
             }
         }
     }

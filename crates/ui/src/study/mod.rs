@@ -93,6 +93,8 @@ pub enum Gloss {
         at: Pos2,
         /// The book's text under the pointer, if any.
         place: Option<mareader_session::Anchor>,
+        /// The character under the pointer, on a line of text.
+        caret: Option<usize>,
     },
     /// A page's AI bubble was clicked, or right-clicked.
     Bubble {

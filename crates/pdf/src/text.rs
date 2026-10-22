@@ -315,7 +315,8 @@ impl PageText {
         self.lines.first().is_some_and(|l| l.wraps)
     }
 
-    fn wraps(&self, line: u32) -> bool {
+    /// Line `line` goes on from the one before, unbroken by a paragraph.
+    pub fn wraps(&self, line: u32) -> bool {
         let line = self.lines.get(line as usize);
         line.is_some_and(|l| l.wraps)
     }

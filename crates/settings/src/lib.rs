@@ -239,6 +239,8 @@ mod tests {
         s.layout.page_margin = f32::NAN;
         s.workspace.look.gap = 99.0;
         s.read_aloud.rate = f32::NAN;
+        s.read_aloud.pitch = 9.0;
+        s.read_aloud.engine = " ".into();
         let mut shadow = builtin_presets().remove(0);
         shadow.name = "Mine".into();
         s.user_presets = vec![shadow];
@@ -246,6 +248,8 @@ mod tests {
         assert_eq!(s.layout.page_margin, 0.0);
         assert_eq!(s.workspace.look.gap, PaneLook::MAX_GAP);
         assert_eq!(s.read_aloud.rate, 1.0);
+        assert_eq!(s.read_aloud.pitch, 2.0);
+        assert_eq!(s.read_aloud.engine, "system");
         assert!(s.user_presets.is_empty(), "a built-in id can't be shadowed");
     }
 }

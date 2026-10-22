@@ -1,0 +1,14 @@
+[package]
+name = "mareader-speech"
+description = "Reading text aloud: sentences, voices and the engines that speak"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+# A browser build offers no engine yet.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tts = { workspace = true }

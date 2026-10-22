@@ -92,10 +92,11 @@ minimum-system-version = "11.0"
 signing-identity = "-"
 
 # Loaded at run time, so dpkg can't see them: fonts, keyboard, GPU;
-# and ALSA, which the narration's sound goes through.
+# and ALSA, which the narration's sound goes through. The system voices
+# go through Speech Dispatcher, linked, and its daemon.
 [package.metadata.packager.deb]
-depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1", "libasound2t64 | libasound2"]
+depends = ["libfontconfig1", "libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1 | libegl1", "libasound2t64 | libasound2", "libspeechd2", "speech-dispatcher"]
 
 # The same for Arch; libglvnd gives EGL where Vulkan is missing.
 [package.metadata.packager.pacman]
-depends = ["fontconfig", "libxkbcommon", "libxkbcommon-x11", "libglvnd", "alsa-lib"]
+depends = ["fontconfig", "libxkbcommon", "libxkbcommon-x11", "libglvnd", "alsa-lib", "speech-dispatcher"]

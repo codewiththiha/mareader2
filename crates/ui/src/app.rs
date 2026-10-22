@@ -40,6 +40,7 @@ use crate::pane_texts::PaneTexts;
 use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{NativeLights, Platform};
+use crate::read_aloud::ReadFrom;
 use crate::route::Route;
 use crate::search::{Found, Lit, Search};
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
@@ -290,6 +291,10 @@ impl MareaderApp {
     /// Changes apply next frame, as the settings window's do.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
+    }
+
+    pub fn read_aloud(&self) -> &crate::read_aloud::ReadAloud {
+        &self.read_aloud
     }
 
     /// Reopens what was read at exit, if its file is still there.
@@ -1527,11 +1532,17 @@ impl MareaderApp {
                     }
                 }
                 Gloss::Lift(_) => {}
-                Gloss::PageMenu { page, at, place } => {
-                    let reading = self.documents.reading(pane);
-                    let narrated = reading.is_some_and(|r| r.document.narration().is_some());
-                    let narrated = narrated.then_some(place);
-                    self.page_ai.open_menu(pane, page, at, narrated);
+                Gloss::PageMenu {
+                    page,
+                    at,
+                    place,
+                    caret,
+                } => {
+                    let aloud = self.documents.reading(pane).map(|_| ReadFrom {
+                        anchor: place,
+                        at: caret.map(|char| mareader_speech::Spot { page, char }),
+                    });
+                    self.page_ai.open_menu(pane, page, at, aloud);
                 }
                 Gloss::Bubble { page, index, at } => {
                     let now = ctx.input(|i| i.time);
@@ -2090,8 +2101,9 @@ impl MareaderApp {
             Command::ReadAloud { pane, from } => {
                 if let Some(reading) = self.documents.reading(pane) {
                     self.clips.stop();
-                    self.read_aloud
-                        .start(&reading, from, &self.settings.read_aloud);
+                    let settings = &self.settings.read_aloud;
+                    let from = (from.anchor, from.at);
+                    self.read_aloud.start(ctx, &reading, from, settings);
                 }
             }
             Command::Explain(pane) => self.explain(ctx, pane),
@@ -3136,10 +3148,10 @@ impl eframe::App for MareaderApp {
         let lit = self.find.pane().zip(lit);
         if self.read_aloud_shot
             && let Some(reading) = self.documents.reading(self.active)
-            && reading.document.narration().is_some()
         {
             self.read_aloud_shot = false;
-            (self.read_aloud).start(&reading, None, &self.settings.read_aloud);
+            let settings = &self.settings.read_aloud;
+            (self.read_aloud).start(&ctx, &reading, (None, None), settings);
         }
         let shot = std::mem::take(&mut self.transcript_shot);
         for (card, track) in shot {
@@ -3237,7 +3249,7 @@ impl eframe::App for MareaderApp {
                         .as_ref()
                         .filter(|(p, _)| *p == id)
                         .map(|(_, l)| l.clone()),
-                    narrated: read_aloud.lit(id),
+                    aloud: read_aloud.lit(id),
                     ai: {
                         let book = library.book_in(documents, id);
                         let name = documents.title(id).unwrap_or_default();

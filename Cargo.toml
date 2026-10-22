@@ -27,6 +27,7 @@ mareader-search = { path = "crates/search" }
 mareader-cefr = { path = "crates/cefr" }
 mareader-audio = { path = "crates/audio" }
 mareader-script = { path = "crates/script" }
+mareader-speech = { path = "crates/speech" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -77,6 +78,8 @@ rfd = "0.17"
 # Narration: pure-Rust decoders for the core audio types, and the device.
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm", "adpcm"] }
 cpal = "0.18"
+# The system's own voices; Linux reaches them through Speech Dispatcher.
+tts = "0.26"
 thin-vec = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
