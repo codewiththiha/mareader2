@@ -553,7 +553,7 @@ mod tests {
         let boxed = Arc::new(mareader_reflow::Boxed::default());
         let in_box = |s: &str, b: &Arc<mareader_reflow::Boxed>| {
             let mut block = words(s);
-            block.frame.boxes = vec![Arc::clone(b)];
+            block.frame.boxes = mareader_reflow::thin_vec![Arc::clone(b)];
             block
         };
         let base = [

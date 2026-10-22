@@ -2,6 +2,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use thin_vec::ThinVec;
+
 use crate::picture::Picture;
 
 /// A text block's part; it picks the face, size and spacing.
@@ -151,21 +153,21 @@ pub struct Link {
 pub struct Text {
     pub role: Role,
     pub text: String,
-    pub spans: Vec<Span>,
+    pub spans: ThinVec<Span>,
     /// Linked runs, in order and apart.
-    pub links: Vec<Link>,
+    pub links: ThinVec<Link>,
     /// Pictures set in its lines, in order.
-    pub inlines: Vec<Inline>,
+    pub inlines: ThinVec<Inline>,
     /// Bytes of its drop cap, drawn large beside the first lines; 0 if none.
     pub initial: usize,
     /// What its first line adds, as `::first-line` does.
     pub first_line: Option<Emphasis>,
     /// Ruby: small notes set over runs of it, in order and apart.
-    pub ruby: Vec<Annotation>,
+    pub ruby: ThinVec<Annotation>,
     /// Families its runs ask for, as [`Look::faces`]; see [`Emphasis::face`].
-    pub faces: Vec<Vec<String>>,
+    pub faces: ThinVec<Vec<String>>,
     /// Vertical text: runs set across the column, as `text-combine-upright`.
-    pub combine: Vec<Range<usize>>,
+    pub combine: ThinVec<Range<usize>>,
 }
 
 /// A ruby note, as `<rt>`, over the base text `range`.
@@ -233,14 +235,14 @@ impl Text {
         Self {
             role,
             text: String::new(),
-            spans: Vec::new(),
-            links: Vec::new(),
-            inlines: Vec::new(),
+            spans: ThinVec::new(),
+            links: ThinVec::new(),
+            inlines: ThinVec::new(),
             initial: 0,
             first_line: None,
-            ruby: Vec::new(),
-            faces: Vec::new(),
-            combine: Vec::new(),
+            ruby: ThinVec::new(),
+            faces: ThinVec::new(),
+            combine: ThinVec::new(),
         }
     }
 
@@ -701,7 +703,7 @@ pub struct Frame {
     /// Left indent in body ems.
     pub inset: f32,
     /// Quote bars, each at this many body ems from the column's left.
-    pub bars: Vec<f32>,
+    pub bars: ThinVec<f32>,
     /// A list marker hung left of the first line, like "•" or "3.".
     pub marker: Option<String>,
     /// The marker's colour, as [`Emphasis::colour`].
@@ -722,7 +724,7 @@ pub struct Frame {
     /// The same without paragraphs' own margins, which a reader may replace.
     pub outer: f32,
     /// With a look: the boxes around it, outermost first.
-    pub boxes: Vec<Arc<Boxed>>,
+    pub boxes: ThinVec<Arc<Boxed>>,
     /// With a look: its place in a grid row.
     pub cell: Option<Cell>,
     /// With a look: the float it is in; blocks of one float share it.

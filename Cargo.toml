@@ -77,6 +77,7 @@ rfd = "0.17"
 # Narration: pure-Rust decoders for the core audio types, and the device.
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm", "adpcm"] }
 cpal = "0.18"
+thin-vec = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [workspace.lints.rust]
