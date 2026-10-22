@@ -11,6 +11,7 @@ use mareader_speech::{Event, Glyph, Script, Sentence, Spot, Tone, Voicer, Waker}
 use mareader_workspace::PaneId;
 
 use super::{Lit, Span, TICK, button, ending, follow, options, speed};
+use crate::command::Commands;
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -254,6 +255,10 @@ impl Spoken {
         }
     }
 
+    pub fn playing(&self) -> bool {
+        !self.paused && !self.finished && self.voicer.is_some()
+    }
+
     pub fn pause(&mut self) {
         if self.paused || self.finished {
             return;
@@ -267,7 +272,7 @@ impl Spoken {
         self.paused = true;
     }
 
-    fn toggle(&mut self) {
+    pub fn toggle(&mut self) {
         if self.finished {
             self.paused = false;
             self.read_from(Start::Spot(Spot::default()));
@@ -385,7 +390,12 @@ impl Spoken {
     }
 
     /// The bar's buttons; true when closed.
-    pub fn controls(&mut self, ui: &mut Ui, settings: &mut ReadAloudSettings, t: &Tokens) -> bool {
+    pub fn controls(
+        &mut self,
+        ui: &mut Ui,
+        settings: &mut ReadAloudSettings,
+        (t, out): (&Tokens, &mut Commands),
+    ) -> bool {
         let can = self.voicer.is_some();
         let back = !self.behind.is_empty() && can;
         if button(ui, Icon::SkipBack, "Previous sentence", back).clicked() {
@@ -404,7 +414,7 @@ impl Spoken {
         }
         crate::widgets::vrule(ui, super::SIZE * 0.5);
         speed(ui, settings, t);
-        options(ui, |ui| {
+        options(ui, out, |ui| {
             ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
             ui.checkbox(&mut settings.follow, "Turn pages to follow");
         });
@@ -426,7 +436,7 @@ impl Drop for Spoken {
     }
 }
 
-fn tone(settings: &ReadAloudSettings) -> Tone {
+pub(super) fn tone(settings: &ReadAloudSettings) -> Tone {
     Tone {
         rate: settings.rate,
         pitch: settings.pitch,

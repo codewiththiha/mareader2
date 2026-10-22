@@ -145,3 +145,61 @@ fn a_sentence_below_the_fold_is_brought_into_view() {
         .expect("drawn");
     assert!(shown.contains_rect(at), "{at:?} shows within {shown:?}");
 }
+
+/// The reader with settings open on the Read aloud tab.
+fn voice_settings(pages: usize) -> Harness<'static, MareaderApp> {
+    let mut h = reader(pages);
+    let tab = mareader_ui::settings_window::Tab::ReadAloud;
+    h.state_mut().queue(Command::OpenSettings(tab));
+    h.run_steps(4);
+    h
+}
+
+#[test]
+fn the_tab_lists_the_engine_voices_and_picks_one() {
+    let mut h = voice_settings(1);
+    assert!(h.state().read_aloud().booth.is_open());
+    // English first: the French voice waits behind the language picker.
+    let _ = h.get_by_label("System default");
+    assert!(h.query_by_label("Hush").is_none());
+    h.get_by_label("Quiet").click();
+    h.run_steps(2);
+    let picked = h.state().settings().read_aloud.voice().map(str::to_owned);
+    assert_eq!(picked.as_deref(), Some("quiet-en"));
+    h.get_by_label("System default").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings().read_aloud.voice(), None);
+}
+
+#[test]
+fn a_preview_says_a_line_and_the_book_waits() {
+    let mut h = voice_settings(1);
+    start(&mut h, ReadFrom::default());
+    assert!(h.state().read_aloud().playing());
+    h.get_by_label("Preview").click();
+    h.run_steps(1);
+    assert_eq!(h.state().read_aloud().booth.samples(), 1);
+    assert!(!h.state().read_aloud().playing(), "the book pauses");
+    // The silent voice ends its line within a few looks.
+    step_until(&mut h, |h| !h.state().read_aloud().booth.trying());
+    let _ = h.get_by_label("Preview");
+    h.state_mut().queue(Command::CloseSettings);
+    h.run_steps(2);
+    assert!(
+        !h.state().read_aloud().booth.is_open(),
+        "closing lets it go"
+    );
+}
+
+#[test]
+fn the_shortcut_starts_reading_then_pauses_it() {
+    let mut h = reader(1);
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    h.key_press_modifiers(keys, egui::Key::U);
+    step_until(&mut h, |h| lit(h).is_some());
+    assert!(h.state().read_aloud().playing());
+    h.key_press_modifiers(keys, egui::Key::U);
+    h.run_steps(1);
+    assert!(!h.state().read_aloud().playing(), "the same keys pause");
+    assert!(lit(&h).is_some(), "paused, it stays lit");
+}

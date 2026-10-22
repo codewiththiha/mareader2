@@ -34,6 +34,8 @@ pub struct MenuContext<'a> {
     pub zoom: Option<ZoomState>,
     pub mode: Option<ViewMode>,
     pub auto_scroll: Option<bool>,
+    /// Whether a book reads aloud; no row without a book.
+    pub aloud: Option<bool>,
     /// The title bar stays shown instead of waiting for a hover.
     pub pinned: bool,
 }
@@ -76,6 +78,9 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     heading(ui, "Reading");
     if let (Some(on), Some(mode)) = (cx.auto_scroll, cx.mode) {
         auto_scroll_row(ui, on, !mode.paged(), cx.platform, out);
+    }
+    if let Some(on) = cx.aloud {
+        read_aloud_row(ui, on, cx.platform, out);
     }
     let full = Command::Window(WindowCommand::ToggleFullscreen);
     let (icon, label) = if cx.fullscreen {
@@ -134,6 +139,19 @@ fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &m
             ui.close();
         }
     });
+}
+
+/// Starts reading the book aloud, or stops it.
+fn read_aloud_row(ui: &mut Ui, on: bool, platform: Platform, out: &mut Commands) {
+    let keys = keymap::hint(platform, &Command::ToggleReadAloud);
+    let (label, command) = match on {
+        true => ("Stop reading aloud", Command::StopReadAloud),
+        false => ("Read aloud", Command::ToggleReadAloud),
+    };
+    if widgets::menu_row(ui, Icon::ReadAloud, label, keys.as_deref(), on).clicked() {
+        out.push(command);
+        ui.close();
+    }
 }
 
 /// A small muted name over a group of rows.

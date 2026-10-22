@@ -116,6 +116,40 @@ pub trait Voicer {
     fn events(&mut self) -> Vec<Event>;
 }
 
+/// A line for trying a voice, in its language where we have one.
+pub fn sample(language: &str) -> &'static str {
+    let primary = language.split(['-', '_']).next().unwrap_or_default();
+    let found = SAMPLES
+        .iter()
+        .find(|(tag, _)| primary.eq_ignore_ascii_case(tag));
+    found.map_or(SAMPLE, |(_, line)| line)
+}
+
+const SAMPLE: &str = "This is how your books will sound when read aloud.";
+const SAMPLES: [(&str, &str); 12] = [
+    ("en", SAMPLE),
+    ("de", "So klingen Ihre Bücher, wenn sie vorgelesen werden."),
+    ("es", "Así sonarán tus libros cuando se lean en voz alta."),
+    (
+        "fr",
+        "Voici comment vos livres sonneront, lus à voix haute.",
+    ),
+    (
+        "it",
+        "Ecco come suoneranno i tuoi libri letti ad alta voce.",
+    ),
+    ("ja", "本を読み上げると、このように聞こえます。"),
+    ("ko", "책을 소리 내어 읽으면 이렇게 들립니다."),
+    ("my", "သင့်စာအုပ်များကို အသံထွက်ဖတ်သောအခါ ဤသို့ ကြားရပါမည်။"),
+    ("nl", "Zo klinken je boeken als ze worden voorgelezen."),
+    (
+        "pt",
+        "É assim que os seus livros vão soar lidos em voz alta.",
+    ),
+    ("ru", "Так будут звучать ваши книги при чтении вслух."),
+    ("zh", "这就是您的书被朗读时的声音。"),
+];
+
 /// The engines this build has, by id and the name shown for each.
 pub fn engines() -> Vec<(&'static str, &'static str)> {
     vec![(SYSTEM, "System voices")]
@@ -172,6 +206,18 @@ mod tests {
         assert!(v.resume());
         assert_eq!(v.events(), [Event::Finished(7)]);
         assert!(v.events().is_empty());
+    }
+
+    #[test]
+    fn samples_follow_the_voice_language() {
+        assert_eq!(sample("fr-FR"), sample("fr"));
+        assert_ne!(sample("fr"), sample("en"));
+        assert_eq!(
+            sample("tlh"),
+            sample("en-GB"),
+            "unknown falls back to English"
+        );
+        assert_eq!(sample(""), SAMPLE);
     }
 
     #[test]

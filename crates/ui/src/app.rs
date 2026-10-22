@@ -569,6 +569,18 @@ impl MareaderApp {
         }
     }
 
+    /// The voice booth opens with the Read aloud tab and closes after it.
+    fn voices_shown(&mut self, ctx: &egui::Context) {
+        let booth = &mut self.read_aloud.booth;
+        let tab = crate::settings_window::Tab::ReadAloud;
+        if self.settings_window.is_open() && self.settings_window.tab() == tab {
+            booth.open(ctx, &self.settings.read_aloud.engine);
+            booth.tick(ctx);
+        } else if booth.is_open() {
+            booth.close();
+        }
+    }
+
     pub fn settings_window(&self) -> &SettingsWindow {
         &self.settings_window
     }
@@ -2106,6 +2118,24 @@ impl MareaderApp {
                     self.read_aloud.start(ctx, &reading, from, settings);
                 }
             }
+            Command::ToggleReadAloud => {
+                if !self.read_aloud.toggle()
+                    && let Some(reading) = self.documents.reading(self.active)
+                {
+                    self.clips.stop();
+                    let settings = &self.settings.read_aloud;
+                    self.read_aloud.start(ctx, &reading, (None, None), settings);
+                }
+            }
+            Command::StopReadAloud => self.read_aloud.stop(),
+            Command::TryVoice => {
+                // One voice at a time: the book waits for the sample.
+                self.read_aloud.pause();
+                self.clips.stop();
+                let settings = &self.settings.read_aloud;
+                self.read_aloud.booth.try_voice(settings);
+            }
+            Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),
@@ -2853,6 +2883,7 @@ impl MareaderApp {
             zoom: self.documents.zoom_state(self.active),
             mode: self.documents.mode(self.active),
             auto_scroll: self.documents.drifting(self.active),
+            aloud: (self.documents.reading(self.active)).map(|_| self.read_aloud.active()),
             ink: (self.documents.reflowable(self.active))
                 .then_some(self.settings.text.ink_contrast),
             text: (self.documents.reflowable(self.active))
@@ -3280,7 +3311,7 @@ impl eframe::App for MareaderApp {
         self.find.show(&ctx, &self.pane_rects, top, found);
         if route == Route::Reader {
             let settings = &mut self.settings.read_aloud;
-            self.read_aloud.bar(&ctx, &self.pane_rects, settings);
+            (self.read_aloud).bar(&ctx, &self.pane_rects, settings, &mut commands);
         }
         self.drive_search(&ctx);
         // Typing, or filtered by what was typed, the field stays in view.
@@ -3372,11 +3403,16 @@ impl eframe::App for MareaderApp {
         let runs = &mut self.library.runs;
         library::runs::show(&ctx, runs, (stage, lift), paused, &mut commands);
         let window = self.settings_scope();
+        self.voices_shown(&ctx);
+        let voices = crate::settings_window::Voices {
+            booth: &self.read_aloud.booth,
+            platform: self.platform,
+        };
         self.settings_window.show(
             &ctx,
             &self.settings,
             &window,
-            (&self.ai, &self.dict, &self.vocab),
+            (&self.ai, &self.dict, &self.vocab, &voices),
             &mut commands,
         );
         crate::shortcuts::show(&ctx, self.platform);

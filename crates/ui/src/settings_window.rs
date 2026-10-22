@@ -23,9 +23,11 @@ mod fonts;
 mod highlights;
 #[cfg(not(target_arch = "wasm32"))]
 mod models;
+mod read_aloud;
 mod scope;
 mod vocabulary;
 
+pub use read_aloud::Voices;
 pub use scope::{Applies, Scope, Shown};
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.
@@ -51,6 +53,8 @@ pub enum Tab {
     #[default]
     Appearance,
     Layout,
+    /// The engine, its voice and how books are read aloud.
+    ReadAloud,
     /// The pens, the selection menu and the AI's reserved look.
     Highlights,
     Vocabulary,
@@ -65,9 +69,10 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 9] = [
+    pub const ALL: [Tab; 10] = [
         Tab::Appearance,
         Tab::Layout,
+        Tab::ReadAloud,
         Tab::Highlights,
         Tab::Vocabulary,
         Tab::Dictionary,
@@ -81,6 +86,7 @@ impl Tab {
         match self {
             Tab::Appearance => "Appearance",
             Tab::Layout => "Layout",
+            Tab::ReadAloud => "Read aloud",
             Tab::Highlights => "Highlights",
             Tab::Vocabulary => "Vocabulary",
             Tab::Dictionary => "Dictionary",
@@ -98,6 +104,7 @@ impl Tab {
             "theme" | "fonts" => Some(Tab::Appearance),
             "animations" => Some(Tab::Motion),
             "models" => Some(Tab::Models),
+            "voices" | "read_aloud" | "speech" => Some(Tab::ReadAloud),
             _ => Self::ALL
                 .into_iter()
                 .find(|t| t.label().eq_ignore_ascii_case(&s)),
@@ -108,6 +115,7 @@ impl Tab {
         match self {
             Tab::Appearance => Icon::Appearance,
             Tab::Layout => Icon::Layout,
+            Tab::ReadAloud => Icon::ReadAloud,
             Tab::Highlights => Icon::Highlight,
             Tab::Vocabulary => Icon::Levels,
             Tab::Dictionary => Icon::Dictionary,
@@ -121,7 +129,7 @@ impl Tab {
     /// The heading the sidebar groups it under.
     fn group(self) -> &'static str {
         match self {
-            Tab::Appearance | Tab::Layout => "Reading",
+            Tab::Appearance | Tab::Layout | Tab::ReadAloud => "Reading",
             Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
             Tab::Models | Tab::Workspace | Tab::Motion => "App",
         }
@@ -171,7 +179,12 @@ impl SettingsWindow {
         ctx: &egui::Context,
         current: &Settings,
         cx: &Scope,
-        (ai, dict, vocab): (&crate::ai::Ai, &crate::dict::Dict, &crate::vocab::Vocab),
+        (ai, dict, vocab, voices): (
+            &crate::ai::Ai,
+            &crate::dict::Dict,
+            &crate::vocab::Vocab,
+            &Voices<'_>,
+        ),
         out: &mut Commands,
     ) {
         if !self.open {
@@ -218,7 +231,8 @@ impl SettingsWindow {
                                 };
                                 Frame::new().inner_margin(margin).show(ui, |ui| {
                                     ui.spacing_mut().item_spacing.y = 0.0;
-                                    tab_body(ui, tab, &mut draft, (cx, ai, dict, vocab), out);
+                                    let live = (cx, ai, dict, vocab, voices);
+                                    tab_body(ui, tab, &mut draft, live, out);
                                 });
                             });
                         widgets::scroll_fades(ui, &body, t.surface);
@@ -329,17 +343,19 @@ fn tab_body(
     ui: &mut Ui,
     tab: Tab,
     s: &mut Settings,
-    (cx, ai, dict, vocab): (
+    (cx, ai, dict, vocab, voices): (
         &Scope,
         &crate::ai::Ai,
         &crate::dict::Dict,
         &crate::vocab::Vocab,
+        &Voices<'_>,
     ),
     out: &mut Commands,
 ) {
     match tab {
         Tab::Appearance => appearance(ui, s, cx, out),
         Tab::Layout => layout(ui, s, cx),
+        Tab::ReadAloud => read_aloud::tab(ui, &mut s.read_aloud, voices, out),
         Tab::Motion => motion(ui, s, cx),
         Tab::Highlights => highlights::tab(ui, &mut s.study.highlights, out),
         Tab::Vocabulary => {
