@@ -2611,6 +2611,9 @@ impl MareaderApp {
                 .then(|| self.titlebar.band_bottom(ctx)),
             sidebar_open: self.sidebar.offset().is_some(),
         };
+        let tokens = theme::Tokens::get(ctx);
+        let rounded = rects.len() > 1 && self.settings.workspace.look.rounded();
+        let corner = if rounded { tokens.radius_lg } else { 0.0 };
         // The title bar's glass takes slot 0.
         for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
@@ -2623,6 +2626,7 @@ impl MareaderApp {
                     layout: &self.settings.layout,
                     backdrop,
                     slot: i + 1,
+                    corner,
                 };
                 let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, *id);
                 let marked = kept.iter().any(|(_, p)| *p == reading.current);

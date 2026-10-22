@@ -7,8 +7,8 @@ use egui::{Color32, Rect, pos2};
 
 use super::page_pass::{self, PagePass, Quad};
 
-/// Blur sigma in points and saturation: mareader's backdrop filter.
-pub const BLUR: f32 = 20.0;
+/// Blur sigma in points and saturation; 20 points smeared text to grey.
+pub const BLUR: f32 = 12.0;
 pub const SATURATE: f32 = 1.8;
 /// Sigma in strip texels; the strip shrinks to keep it there.
 const SIGMA_TEXELS: f32 = 4.0;

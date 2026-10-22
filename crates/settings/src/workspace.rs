@@ -81,6 +81,15 @@ impl Default for PaneLook {
 impl PaneLook {
     pub const MAX_GAP: f32 = 24.0;
     pub const MAX_OUTLINE: f32 = 8.0;
+    /// The gap opened for corners or a shadow, which touching panes hide.
+    pub const EDGE_GAP: f32 = 8.0;
+
+    /// Opens a gap if panes touch, so corners and shadows can show.
+    pub fn make_room(&mut self) {
+        if self.gap < 1.0 {
+            self.gap = Self::EDGE_GAP;
+        }
+    }
 
     pub fn sanitize(&mut self) {
         let d = Self::default();
@@ -96,5 +105,20 @@ impl PaneLook {
     /// The outline colour, or `None` to follow the theme's accent.
     pub fn outline_rgb(&self) -> Option<Rgb> {
         self.outline_color.rgb(self.outline_custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corners_and_shadows_open_a_gap_only_when_panes_touch() {
+        let mut look = PaneLook::default();
+        look.make_room();
+        assert!((look.gap - PaneLook::EDGE_GAP).abs() < f32::EPSILON);
+        look.gap = 3.0;
+        look.make_room();
+        assert!((look.gap - 3.0).abs() < f32::EPSILON, "a chosen gap stays");
     }
 }

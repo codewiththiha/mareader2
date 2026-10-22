@@ -35,6 +35,8 @@ const STRENGTH_ON_HUE: u8 = 18;
 const INTENSITY_ON: u8 = 25;
 /// The tallest the popover grows before it scrolls, as mareader's 32 rem.
 pub const MAX_HEIGHT: f32 = 512.0;
+/// Kept clear between the popover and the window's foot.
+const FOOT_MARGIN: f32 = 16.0;
 /// A card's texture against a page's, as mareader's preview.
 const CARD_ZOOM: f32 = 0.34;
 const CARD_RADIUS: f32 = 6.0;
@@ -125,8 +127,9 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             .unwrap_or(96.0),
         None => 0.0,
     };
-    let cap = (ui.ctx().content_rect().height() * 0.7).min(MAX_HEIGHT);
-    let max = (cap - footer).max(160.0);
+    // The room down to the window's foot holds the body and the switches.
+    let room = ui.ctx().content_rect().bottom() - ui.cursor().top() - FOOT_MARGIN;
+    let max = (room - footer).clamp(160.0, MAX_HEIGHT);
     // egui caps a popup's first frame; claiming the height lifts it.
     let t = Tokens::get(ui.ctx());
     let body = egui::ScrollArea::vertical()
