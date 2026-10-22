@@ -145,6 +145,12 @@ pub enum Command {
         pane: PaneId,
         from: crate::read_aloud::ReadFrom,
     },
+    /// Plays or pauses the reading; starts the focused book if none.
+    ToggleReadAloud,
+    StopReadAloud,
+    /// Says a line in the voice settings pick; stops that line.
+    TryVoice,
+    StopVoiceTry,
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
     /// Looks the pane's selection up in the dictionaries.

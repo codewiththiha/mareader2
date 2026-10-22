@@ -8,21 +8,36 @@ pub struct Silent {
     said: Option<u64>,
     started: Option<u64>,
     paused: bool,
+    voice: Option<String>,
 }
 
 impl Voicer for Silent {
     fn caps(&self) -> Caps {
         Caps {
+            rate: true,
+            pitch: true,
+            volume: true,
+            voices: true,
             pause: true,
-            ..Caps::default()
         }
     }
 
+    /// Two voices in two languages, so pickers have something to pick.
     fn voices(&self) -> Vec<Voice> {
-        Vec::new()
+        let voice = |id: &str, name: &str, language: &str| Voice {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            language: language.to_owned(),
+        };
+        vec![
+            voice("quiet-en", "Quiet", "en-US"),
+            voice("hush-fr", "Hush", "fr-FR"),
+        ]
     }
 
-    fn set_voice(&mut self, _id: Option<&str>) {}
+    fn set_voice(&mut self, id: Option<&str>) {
+        self.voice = id.map(str::to_owned);
+    }
 
     fn set_tone(&mut self, _tone: Tone) {}
 

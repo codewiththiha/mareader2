@@ -12,14 +12,17 @@ use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
 
+use crate::command::{Command, Commands};
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::selection::Pages;
 use crate::theme::Tokens;
 use crate::widgets;
 
+mod booth;
 mod spoken;
 
+pub use booth::Booth;
 use spoken::Spoken;
 
 /// How often the lit phrase is checked while it plays.
@@ -203,11 +206,32 @@ impl Session {
 #[derive(Default)]
 pub struct ReadAloud {
     session: Option<Session>,
+    /// Voices to pick from and try, while settings show them.
+    pub booth: Booth,
 }
 
 impl ReadAloud {
     pub fn active(&self) -> bool {
         self.session.is_some()
+    }
+
+    /// Plays or pauses; false when nothing is reading.
+    pub fn toggle(&mut self) -> bool {
+        match self.session.as_mut() {
+            Some(Session::Narrated(s)) => s.toggle(),
+            Some(Session::Spoken(s)) => s.toggle(),
+            None => return false,
+        }
+        true
+    }
+
+    /// True while reading, not paused or done.
+    pub fn playing(&self) -> bool {
+        match self.session.as_ref() {
+            Some(Session::Narrated(s)) => !s.paused && !s.finished,
+            Some(Session::Spoken(s)) => s.playing(),
+            None => false,
+        }
     }
 
     /// Pauses the reading, as another sound starts.
@@ -320,6 +344,7 @@ impl ReadAloud {
         ctx: &Context,
         panes: &[(PaneId, Rect)],
         settings: &mut ReadAloudSettings,
+        out: &mut Commands,
     ) {
         let Some(s) = self.session.as_mut() else {
             return;
@@ -357,8 +382,8 @@ impl ReadAloud {
                         Icon::ReadAloud.paint(ui, mark, t.muted);
                         widgets::vrule(ui, SIZE * 0.5);
                         close = match s {
-                            Session::Narrated(s) => controls(ui, s, settings, &t),
-                            Session::Spoken(s) => s.controls(ui, settings, &t),
+                            Session::Narrated(s) => controls(ui, s, settings, (&t, out)),
+                            Session::Spoken(s) => s.controls(ui, settings, (&t, out)),
                         };
                     });
                 });
@@ -386,7 +411,12 @@ fn follow(
 }
 
 /// The bar's buttons; true when closed.
-fn controls(ui: &mut Ui, s: &mut Narrated, settings: &mut ReadAloudSettings, t: &Tokens) -> bool {
+fn controls(
+    ui: &mut Ui,
+    s: &mut Narrated,
+    settings: &mut ReadAloudSettings,
+    (t, out): (&Tokens, &mut Commands),
+) -> bool {
     let heard = s.heard.unwrap_or(s.started);
     let back = s.narration.previous(heard, s.skip);
     if button(ui, Icon::SkipBack, "Previous phrase", back.is_some()).clicked() {
@@ -411,7 +441,7 @@ fn controls(ui: &mut Ui, s: &mut Narrated, settings: &mut ReadAloudSettings, t: 
     }
     widgets::vrule(ui, SIZE * 0.5);
     speed(ui, settings, t);
-    options(ui, |ui| {
+    options(ui, out, |ui| {
         ui.checkbox(&mut settings.skip_notes, "Skip notes");
         ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
         ui.checkbox(&mut settings.follow, "Turn pages to follow");
@@ -441,13 +471,25 @@ fn speed(ui: &mut Ui, settings: &mut ReadAloudSettings, t: &Tokens) {
     widgets::tip(&resp, "Speed", None);
 }
 
-/// The options menu behind the bar's More button.
-fn options(ui: &mut Ui, menu: impl FnOnce(&mut Ui)) {
+/// The options menu behind the bar's More button, ending in settings.
+fn options(ui: &mut Ui, out: &mut Commands, menu: impl FnOnce(&mut Ui)) {
     let more = egui::Button::image(Icon::More.image(ICON))
         .image_tint_follows_text_color(true)
         .frame_when_inactive(false)
         .min_size(egui::Vec2::splat(SIZE));
-    let (resp, _) = MenuButton::from_button(more).ui(ui, menu);
+    let (resp, _) = MenuButton::from_button(more).ui(ui, |ui| {
+        // Menu rows fill what they're given, so the menu sets its width.
+        ui.set_width(210.0);
+        menu(ui);
+        ui.separator();
+        let row = widgets::menu_row(ui, Icon::Settings, "Voice settings…", None, false);
+        if row.clicked() {
+            out.push(Command::OpenSettings(
+                crate::settings_window::Tab::ReadAloud,
+            ));
+            ui.close();
+        }
+    });
     widgets::tip(&resp, "Read-aloud options", None);
 }
 
@@ -474,7 +516,7 @@ fn button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response
     resp
 }
 
-fn rate_label(rate: f32) -> String {
+pub(crate) fn rate_label(rate: f32) -> String {
     let text = format!("{rate:.2}");
     let text = text.trim_end_matches('0').trim_end_matches('.');
     format!("{text}×")

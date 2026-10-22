@@ -82,6 +82,8 @@ pub struct ReaderBar {
     pub mode: Option<ViewMode>,
     /// Whether the active pane auto-scrolls, if it shows a document.
     pub auto_scroll: Option<bool>,
+    /// Whether a book reads aloud, once the active pane shows one.
+    pub aloud: Option<bool>,
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
     /// The popover's text dials, offered while the active pane shows a book.
@@ -401,6 +403,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
                 zoom: reader.zoom,
                 mode: reader.mode,
                 auto_scroll: reader.auto_scroll,
+                aloud: reader.aloud,
                 pinned,
             };
             view_menu::button(ui, &menu, &mut out);

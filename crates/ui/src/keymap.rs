@@ -16,7 +16,7 @@ pub struct Binding {
 }
 
 /// Every bound shortcut; features add theirs here as they land.
-pub fn bindings(platform: Platform) -> [Binding; 38] {
+pub fn bindings(platform: Platform) -> [Binding; 39] {
     // Each desktop's own full-screen key.
     let fullscreen = match platform {
         Platform::Mac => KeyboardShortcut::new(Modifiers::CTRL | Modifiers::MAC_CMD, Key::F),
@@ -114,6 +114,12 @@ pub fn bindings(platform: Platform) -> [Binding; 38] {
             label: "Bookmark this page",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::D),
             command: Command::Bookmark(None),
+        },
+        // Where browsers put their own read-aloud.
+        Binding {
+            label: "Read aloud, or pause",
+            shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::U),
+            command: Command::ToggleReadAloud,
         },
         Binding {
             label: "Previous pane",
