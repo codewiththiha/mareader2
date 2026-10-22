@@ -14,6 +14,7 @@ mod flow;
 mod fonts;
 mod hyphen;
 mod label;
+mod meter;
 mod page_text;
 mod picture;
 mod raster;
@@ -34,6 +35,7 @@ pub use fonts::{
     BOOK_FACE, BookFace, FACES, Face, Faces, Family, Fonts, Kind, MONO, SANS, SERIF, has_family,
 };
 pub use label::{Fallback, Lines, fallbacks, label, label_lines, measure_lines};
+pub use meter::{Held, held};
 pub use page_text::{PageChar, PageLine};
 pub use picture::{MAX_PICTURE_PIXELS, MAX_PICTURE_SIDE, Picture, PictureError};
 pub use raster::{MAX_SIDE, Pixels, Region};

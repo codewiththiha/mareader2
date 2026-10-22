@@ -20,6 +20,7 @@ use crate::block::{
 };
 use crate::fonts::{BOOK_FACE, Faces, Family, Fonts, Ink, Kind, SANS, Tone};
 use crate::hyphen::{self, SHY};
+use crate::meter;
 use crate::picture::{Decoded, Picture};
 
 /// mareader's page: an A4 card at 96 dpi, in layout units.
@@ -533,8 +534,10 @@ impl Recent {
         self.tick += 1;
         if let Some(old) = self.laid.insert(block, (laid, self.tick, bytes)) {
             self.bytes -= old.2;
+            meter::take(&meter::LAID, old.2);
         }
         self.bytes += bytes;
+        meter::add(&meter::LAID, bytes);
         if self.bytes <= MAX_LAID {
             return;
         }
@@ -547,8 +550,15 @@ impl Recent {
             }
             if let Some(gone) = self.laid.remove(&old) {
                 self.bytes -= gone.2;
+                meter::take(&meter::LAID, gone.2);
             }
         }
+    }
+}
+
+impl Drop for Recent {
+    fn drop(&mut self) {
+        meter::take(&meter::LAID, self.bytes);
     }
 }
 
@@ -682,6 +692,12 @@ struct Relay {
     recent: Mutex<Recent>,
 }
 
+impl Drop for Relay {
+    fn drop(&mut self) {
+        meter::take(&meter::FLOWS, 1);
+    }
+}
+
 impl std::fmt::Debug for Flow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Flow({} pages)", self.pages.len())
@@ -748,6 +764,7 @@ impl Flow {
             out
         };
         let (pages, decos, fixed) = paginate_parts(&set, (cut, width), typo);
+        meter::add(&meter::FLOWS, 1);
         let mut flow = Self {
             blocks: set,
             pages,
