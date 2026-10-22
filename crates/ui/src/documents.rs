@@ -818,6 +818,7 @@ impl Documents {
         out: &mut Commands,
     ) -> bool {
         let Some(reading) = self.reading(pane) else {
+            state.forget_book();
             return false;
         };
         let io = Sinks {
