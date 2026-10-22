@@ -440,8 +440,11 @@ fn the_ai_tab_picks_who_explains() {
         h.state_mut().queue(Command::OpenSettings(Tab::Models));
     }
     h.run();
-    h.get_by_label("+  Add a model").click();
-    h.run();
+    // Tiles show at once while none is saved; else they open on a click.
+    if h.query_by_label("+  Add a model").is_some() {
+        h.get_by_label("+  Add a model").click();
+        h.run();
+    }
     h.get_by_label("OpenAI").click();
     h.run();
     let ai = &h.state().settings().ai;
@@ -451,8 +454,8 @@ fn the_ai_tab_picks_who_explains() {
     if !cfg!(target_os = "macos") {
         assert_eq!(ai.tasks.explain.preset, id, "the first model explains");
     }
-    // Its provider shows below; the address waits under Advanced.
-    h.get_by_label("Advanced");
+    // Its provider opens below it, address and all.
+    assert!(h.query_all_by_label("Address").next().is_some());
 }
 
 #[test]

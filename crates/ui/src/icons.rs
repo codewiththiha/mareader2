@@ -90,6 +90,12 @@ pub enum Icon {
     Ai,
     /// The AI's models: a processor chip, the AI mark's pair.
     Chip,
+    /// A custom server's badge.
+    Server,
+    /// Apple Intelligence's badge: on this computer.
+    Laptop,
+    /// Try a model once.
+    Try,
     /// The full highlighter.
     Highlight,
     /// The half highlighter: a letter on a bar.
@@ -220,6 +226,9 @@ impl Icon {
             // Not drawn from it: see `AI_MARK`.
             Self::Ai => Lucide::Square,
             Self::Chip => Lucide::Cpu,
+            Self::Server => Lucide::Server,
+            Self::Laptop => Lucide::Laptop,
+            Self::Try => Lucide::Play,
             Self::Highlight => Lucide::Highlighter,
             Self::HalfHighlight => Lucide::Baseline,
             Self::Underline => Lucide::Underline,
