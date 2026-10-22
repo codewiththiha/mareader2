@@ -138,6 +138,10 @@ fit together is in `docs/assist.md`.
 - **Changing the AI settings** takes effect on the next new word; saved
   answers stay, and Ask again on a card reaches the new provider.
 - The browser preview hides the AI tab; `Unavailable` still answers there.
+- **AI Dictionary (2026-10-22).** Explain is now the AI Dictionary, on the
+  selection bar and everywhere else. Its model, mark, colour and card
+  spacing are set in Settings › AI; Highlights shows its mark with a link
+  there. Models and keys live in Settings › AI models (`docs/assist.md`).
 
 ## Saved answers
 
@@ -208,7 +212,7 @@ slice 5.
   its dark paper, as in Dim, no blend can make marked text readable, so a
   highlight redraws the page inside its box: the paper becomes the pen's
   wash at Fill strength and the ink near-white, the wash darkened until
-  that ink keeps 4.5:1. PDFs, books and CEFR shading share it.
+  that ink keeps 5:1. PDFs, books and CEFR shading share it.
 - **Clicks.** A click on an AI mark opens its card, as before; a click on
   your highlight opens its menu with Remove highlight, with Undo.
 - **The bar** shows the menu's buttons in order, each pen's button with
