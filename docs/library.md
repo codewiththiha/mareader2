@@ -979,6 +979,8 @@ there's no need to leave the book.
   goes inside itself or its own shelves. Missing books aren't carried.
 - **Books the AI is organizing** show a small sparkle. They open as
   usual but stay put, so moving one says why.
+- **The AI mark (2026-10-22)** replaces that sparkle, and the one on the
+  selection bar's Organize button (`docs/design.md`, Icons).
 - **At the pane limit.** With 4 panes open the tree is still grabbable
   for moving. Dropping onto a pane's edge shows "4 panes are open.
   Close one to open another." and opens nothing. An empty pane still

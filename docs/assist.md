@@ -164,6 +164,35 @@ A new task adds a field to `AiTasks`, a resolver on `AiSettings` (as
 `organize_preset()`, which may fall back to another task's model), and a
 row under Tasks in Settings › AI.
 
+## Two tabs: AI and AI models (2026-10-22)
+
+The owner split the one AI tab in two and renamed Explain:
+
+- **AI** (Study group) is what the AI does. **Words** holds the **AI
+  Dictionary**, the word card that gives a word's meaning, usage and
+  examples (Explain before; `tasks.explain` and `BarItem::Explain` keep
+  their saved names). Clicking its name folds open how its words are
+  marked: Mark, Colour and Card spacing, moved here from Highlights.
+  **Library** holds Organize library and Books per request; **Pages** and
+  **More than one page** hold the page tasks. With no model saved, the tab
+  opens with one button to AI models, and every task reads None.
+- **AI models** (App group) is where models are made and kept
+  (`settings_window/models.rs`):
+  - Each row shows its provider's logo, its name once, and small print
+    that says what needs a hand: no API key, every key set aside, the
+    server not reachable, or a model gone from it. Pills name every task
+    the model runs, fallbacks included, two at most and then a count.
+  - An open model edits Name, Provider, Model and At once, and can be
+    tried, made the AI Dictionary's, duplicated under a fresh name such
+    as "(2)" with the same At once, or deleted after a second click.
+  - **Add a model** shows the providers as tiles; with none saved they
+    show at once. Adding opens the new model and its provider's row.
+  - **Providers** lists the ones in use, each a row with its standing
+    ("2 keys ready", "3 models on this computer"). It opens on the address
+    and keys, and opens by itself when it needs a hand.
+- Messages about keys and models point to Settings › AI models; the page
+  menu's "Set up AI…" opens it when no model is saved.
+
 ## Room: how many tasks a model runs
 
 Every task holds a slot of its model's `Slots` while it runs (`slots.rs`).

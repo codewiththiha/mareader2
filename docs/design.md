@@ -398,6 +398,13 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 - Icons are rasterised white and tinted: in a `Button` by
   `image_tint_follows_text_color`, in custom widgets by `Icon::paint`.
 - Stroke 2 throughout.
+- **Our own SVGs (2026-10-22).** `Icon::svg` serves the few that aren't
+  Lucide's, white and tinted like the rest. The **AI mark**, "AI" in
+  strokes in a rounded frame, marks everything the AI does; it replaced
+  the sparkles everywhere. The AI models tab pairs it with Lucide's chip.
+  Providers' logos (`crates/ui/assets/logos`, from Simple Icons under
+  CC0) sit in ink on a quiet tile, so they read in every look; a custom
+  server, having none, shows Lucide's server.
 
 ## Motion
 

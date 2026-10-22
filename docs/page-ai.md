@@ -190,6 +190,11 @@ At the end of the AI tab, after the models:
 | Time on a page | 25 s |
 | Pages at once | 5 |
 
+Since 2026-10-22 the models sit in their own AI models tab. Pages keeps the
+rows above, and **More than one page** holds Time on a page, Pages at once
+and Pages per request. A task without its own model reads "Same as AI
+Dictionary", or None while that has none either.
+
 ## Where it lives
 
 | Part | Path |
