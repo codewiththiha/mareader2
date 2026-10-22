@@ -799,6 +799,8 @@ pub struct Keep {
     pub whole: bool,
     /// Kept on the page of the block after it.
     pub with_next: bool,
+    /// Kept on the page of the block before it, as `break-before: avoid`.
+    pub with_last: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

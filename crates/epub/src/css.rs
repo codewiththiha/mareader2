@@ -244,6 +244,8 @@ pub(crate) struct Decl {
     /// `break-inside: avoid`, and `break-after: avoid`.
     pub(crate) whole: Option<bool>,
     pub(crate) keep_next: Option<bool>,
+    /// `break-before: avoid`: kept with the block before.
+    pub(crate) keep_last: Option<bool>,
     /// `direction`, or the `dir` attribute, which may be auto.
     pub(crate) dir: Option<Dir>,
     /// `writing-mode`: true when vertical.
@@ -384,7 +386,8 @@ macro_rules! each_field {
             italic, weight, align, display, unmarked, width, height, size, line,
             letter, word, indent, family, background, background_image, float, placing, z_index,
             break_before, break_after, valign, script, small_caps, numeric, ligatures, position,
-            kerning, settings, last, orphans, widows, whole, keep_next, dir, writing, orient, combine,
+            kerning, settings, last, orphans, widows, whole, keep_next, keep_last, dir,
+            writing, orient, combine,
             transform, decoration,
             fill, ink, picture, picture_size, picture_at, picture_repeat, flex_column, justify,
             align_items, align_self, items_stretch, self_stretch, wrap, gap, row_gap, grow,
@@ -661,7 +664,10 @@ impl Decl {
             "transform" | "-webkit-transform" | "-ms-transform" => {
                 self.rotate = Some(rotation(v).unwrap_or(0.0));
             }
-            "page-break-before" | "break-before" => self.break_before = Some(page_break(v)),
+            "page-break-before" | "break-before" => {
+                self.break_before = Some(page_break(v));
+                self.keep_last = Some(matches!(v, "avoid" | "avoid-page"));
+            }
             "page-break-after" | "break-after" => {
                 self.break_after = Some(page_break(v));
                 self.keep_next = Some(matches!(v, "avoid" | "avoid-page"));
@@ -2931,6 +2937,7 @@ pub(crate) struct Computed {
     pub(crate) widows: u8,
     pub(crate) whole: bool,
     pub(crate) keep_next: bool,
+    pub(crate) keep_last: bool,
     pub(crate) dir: Dir,
     /// Vertical writing, how its letters stand, and runs set across.
     pub(crate) writing: bool,
@@ -3021,6 +3028,7 @@ impl Default for Computed {
             widows: 0,
             whole: false,
             keep_next: false,
+            keep_last: false,
             dir: Dir::Auto,
             writing: false,
             orient: Orient::Mixed,
@@ -3161,6 +3169,7 @@ impl Computed {
             widows: d.widows.unwrap_or(self.widows),
             whole: d.whole.unwrap_or(false),
             keep_next: d.keep_next.unwrap_or(false),
+            keep_last: d.keep_last.unwrap_or(false),
             dir: d.dir.unwrap_or(self.dir),
             writing: d.writing.unwrap_or(self.writing),
             orient: d.orient.unwrap_or(self.orient),
@@ -3374,18 +3383,18 @@ mod tests {
     fn last_lines_and_page_breaks_read_as_written() {
         let d = Decl::parse(
             "text-align-last: center; widows: 3; orphans: 0; break-inside: avoid; \
-             page-break-after: avoid",
+             page-break-after: avoid; break-before: avoid",
         );
         let c = Computed::default().child(&d);
         assert_eq!(
             (c.last, c.widows, c.orphans),
             (Some(LastLine::Center), 3, 0)
         );
-        assert!(c.whole && c.keep_next);
+        assert!(c.whole && c.keep_next && c.keep_last);
         // Lines and alignment inherit; breaks belong to their box.
         let child = c.child(&Decl::default());
         assert_eq!((child.last, child.widows), (Some(LastLine::Center), 3));
-        assert!(!child.whole && !child.keep_next);
+        assert!(!child.whole && !child.keep_next && !child.keep_last);
         let auto = c.child(&Decl::parse("text-align-last: auto; widows: initial"));
         assert_eq!((auto.last, auto.widows), (None, 2));
         assert!(understood("font-kerning", "none") && !understood("widows", "lots"));

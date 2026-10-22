@@ -1064,9 +1064,9 @@ impl<'a> Setter<'a> {
 
     /// The em `frame`'s book type is set in: the reader's in prose.
     fn em_of(&self, frame: &Frame) -> f32 {
-        match self.look(frame) {
-            Some(_) => self.design_em(),
-            None => self.typo.font_size,
+        match self.scaled(frame) {
+            true => self.design_em(),
+            false => self.typo.font_size,
         }
     }
 
@@ -1103,7 +1103,7 @@ impl<'a> Setter<'a> {
             self.exclusion = None;
             let mut clear = false;
             if let Some(w) = wrap.take() {
-                let height = w.height - block.frame.before * self.design_em();
+                let height = w.height - block.frame.before * self.em_of(&block.frame);
                 let within = w.within.hold(&block.frame) && self.look(&block.frame).is_some();
                 if within && matches!(block.content, Content::Text(_)) && height > 0.0 {
                     self.exclusion = Some(Exclusion {
@@ -1139,7 +1139,7 @@ impl<'a> Setter<'a> {
         let Some(cell) = first.frame.cell.as_ref() else {
             return places;
         };
-        let em = self.design_em();
+        let em = self.em_of(&first.frame);
         let (gx, room) = self.grid_room(&first.frame);
         let mut extents: Vec<Extent> = Vec::new();
         for &(i, b) in group.iter().take(MAX_MEASURED) {
@@ -1228,7 +1228,7 @@ impl<'a> Setter<'a> {
 
     /// Where a block's grid sits: the left and width its boxes leave.
     fn grid_room(&self, frame: &Frame) -> (f32, f32) {
-        let em = self.design_em();
+        let em = self.em_of(frame);
         let (mut x, mut width) = (0.0, self.column);
         let depth = frame.cell.as_ref().map_or(0, |c| usize::from(c.depth));
         for b in frame.boxes.iter().take(depth) {
@@ -1258,7 +1258,9 @@ impl<'a> Setter<'a> {
         self.float_box = Some((left, want));
         let sets: Vec<Set> = group.iter().map(|&(i, b)| self.block(i, b).0).collect();
         self.float_box = None;
-        let em = self.design_em();
+        let em = group
+            .first()
+            .map_or(self.typo.font_size, |(_, b)| self.em_of(&b.frame));
         let depth = usize::from(f.depth);
         let own = sets.first().and_then(|s| s.boxes.get(depth));
         let (near, far) = own.map_or((left, left + want), |p| (p.x, p.x + p.width));
@@ -1318,22 +1320,22 @@ impl<'a> Setter<'a> {
         }
     }
 
-    /// The block's look for its type: the book's unless Book design is Off.
-    fn typed<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
+    /// The block's look, type and layout: the book's unless Book design is Off.
+    fn look<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
         let look = frame.look.as_deref()?;
         (self.fixed || self.typo.design != Design::Off).then_some(look)
     }
 
-    /// The block's look for its layout, if the Book design setting uses it.
-    fn look<'f>(&self, frame: &'f Frame) -> Option<&'f Look> {
-        let look = frame.look.as_deref()?;
-        if self.fixed {
-            return Some(look);
-        }
+    /// Whether the block's type takes the design scale, as a designed page.
+    fn scaled(&self, frame: &Frame) -> bool {
+        let Some(look) = self.look(frame) else {
+            return false;
+        };
         match self.typo.design {
-            Design::On => Some(look),
-            Design::Auto if look.designed => Some(look),
-            Design::Auto | Design::Off => None,
+            _ if self.fixed => true,
+            Design::On => true,
+            Design::Auto => look.designed,
+            Design::Off => false,
         }
     }
 
@@ -1417,7 +1419,7 @@ impl<'a> Setter<'a> {
     }
 
     fn text_style(&self, role: Role, frame: &Frame) -> Style<'a> {
-        if let Some(look) = self.typed(frame) {
+        if let Some(look) = self.look(frame) {
             return self.designed(role, frame, look);
         }
         let body = self.body(frame);
@@ -1470,17 +1472,12 @@ impl<'a> Setter<'a> {
         // A positioned box with a set height holds its pictures to it.
         let height = spot.and_then(|s| s.height).unwrap_or(self.height);
         let column = self.column;
+        // Every chapter the book styles is laid out by its CSS.
         let designed = self.look(frame).is_some();
-        let typed = self.typed(frame).is_some();
-        let em = if designed {
-            self.design_em()
-        } else {
-            self.typo.font_size
-        };
-        let (left, room, mut boxes, cell) = match (designed, typed) {
-            (true, _) => self.boxes(frame, column),
-            (false, true) => self.painted(frame, column),
-            (false, false) => (0.0, column, Vec::new(), None),
+        let em = self.em_of(frame);
+        let (left, room, mut boxes, cell) = match designed {
+            true => self.boxes(frame, column),
+            false => (0.0, column, Vec::new(), None),
         };
         // Deep nesting stops indenting at half the column.
         let indent = (frame.inset * em).clamp(0.0, room / 2.0);
@@ -1527,7 +1524,7 @@ impl<'a> Setter<'a> {
                 let unit = (0.0, RULE_HEIGHT * em);
                 (Draw::Rule, Laid::None, vec![unit], vec![0])
             }
-            Content::Space(h) if typed => {
+            Content::Space(h) if designed => {
                 let unit = (0.0, (h * em).max(0.0));
                 (Draw::Space, Laid::None, vec![unit], vec![0])
             }
@@ -1597,7 +1594,7 @@ impl<'a> Setter<'a> {
             break_before: block.break_before && !self.fixed,
             tight: frame.tight,
             // The book's margins, scaled as the reader's paragraph gap.
-            before: (self.typed(frame)).map(|_| match self.fixed {
+            before: (self.look(frame)).map(|_| match self.fixed {
                 true => frame.before * em,
                 false => frame.before * em * self.typo.block_gap / READER.2,
             }),
@@ -1623,31 +1620,9 @@ impl<'a> Setter<'a> {
         (set, laid)
     }
 
-    /// Prose: only painted boxes, at the reader's size, inside the column.
-    fn painted(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
-        let em = self.typo.font_size;
-        let (mut x, mut width) = (0.0, column);
-        let mut placed = Vec::new();
-        for b in frame.boxes.iter().filter(|b| painted(b)) {
-            let mut p = place(b, (x, width), em);
-            if b.width.is_none() && p.width < width / 2.0 {
-                (p.x, p.width) = (x, width);
-            }
-            let end = (p.x + p.width).min(column);
-            p.x = p.x.max(0.0);
-            p.width = (end - p.x).max(1.0);
-            p.centre = None;
-            let inside = (b.border[1] + b.border[3] + b.padding[1] + b.padding[3]) * em;
-            x = p.x + (b.border[3] + b.padding[3]) * em;
-            width = (p.width - inside).max(1.0);
-            placed.push(p);
-        }
-        (x, width, placed, None)
-    }
-
     /// Places the boxes and cell in `column`: content left, width, both.
     fn boxes(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
-        let em = self.design_em();
+        let em = self.em_of(frame);
         let (mut x, mut width) = (0.0, column);
         let mut placed = Vec::with_capacity(frame.boxes.len());
         let mut at = None;
@@ -1710,8 +1685,8 @@ impl<'a> Setter<'a> {
         };
         let inner = (width - 2.0 * pad).max(em);
         // The book's families first, the reader's after.
-        let laid = self.look(frame).is_some();
-        let faces = (self.typed(frame))
+        let laid = self.scaled(frame);
+        let faces = (self.look(frame))
             .filter(|l| !l.faces.is_empty())
             .map(|l| self.look_faces(l, laid, style.faces));
         let style = match &faces {
@@ -1721,7 +1696,7 @@ impl<'a> Setter<'a> {
             },
             None => style,
         };
-        let runs: Vec<Stack> = match self.typed(frame) {
+        let runs: Vec<Stack> = match self.look(frame) {
             Some(_) => (text.faces.iter())
                 .map(|names| {
                     let look = Look {
@@ -1980,13 +1955,6 @@ fn place(b: &Arc<Boxed>, (x, width): (f32, f32), em: f32) -> Placed {
         finish: b.finish.clone(),
         whole: b.whole,
     }
-}
-
-/// Whether a box shows: a drawn border, a background or its picture.
-fn painted(b: &Boxed) -> bool {
-    let edged = (b.edges.iter().zip(&b.border)).any(|(e, w)| e.draws() && *w > 0.0);
-    let finished = b.finish.as_ref().is_some_and(|f| f.shows());
-    edged || b.fill.is_some_and(|f| f > 0.02) || b.backdrop.is_some() || finished
 }
 
 /// The float block `frame` is in, by its address.
@@ -3781,14 +3749,14 @@ mod tests {
     }
 
     #[test]
-    fn prose_draws_the_boxes_the_book_paints_at_the_readers_size() {
+    fn styled_prose_keeps_its_boxes_at_the_readers_size() {
         let framed = Arc::new(Boxed {
             border: [0.1; 4],
             edges: [Edge::Solid; 4],
             padding: [0.0, 1.0, 0.0, 1.0],
             ..Boxed::default()
         });
-        // Margins alone don't show, so prose keeps its column.
+        // Margins show too: the book's CSS lays out prose as well.
         let moved = Arc::new(Boxed {
             margin: [Some(Length::Em(6.0)), Some(Length::Em(6.0))],
             ..Boxed::default()
@@ -3802,15 +3770,15 @@ mod tests {
         let f = flow(&[prose(&[Arc::clone(&moved), framed]), prose(&[moved])]);
         let em = Typography::default().font_size;
         let set = |i: usize| f.blocks.get(i).map(|s| (s.x, s.width, s.boxes.len()));
-        let inset = 1.1 * em;
+        let inset = 7.1 * em;
         let framed_at = set(0).unwrap_or_default();
         assert!((framed_at.0 - inset).abs() < 0.5, "{framed_at:?}");
-        assert!(
-            (framed_at.1 - (f.width - 2.0 * inset)).abs() < 0.5,
-            "{framed_at:?}"
-        );
-        assert_eq!(framed_at.2, 1);
-        assert_eq!(set(1), Some((0.0, f.width, 0)));
+        let inner = f.width - 12.0 * em - 2.2 * em;
+        assert!((framed_at.1 - inner).abs() < 0.5, "{framed_at:?}");
+        assert_eq!(framed_at.2, 2);
+        let moved_at = set(1).unwrap_or_default();
+        assert!((moved_at.0 - 6.0 * em).abs() < 0.5, "{moved_at:?}");
+        assert!((moved_at.1 - (f.width - 12.0 * em)).abs() < 0.5);
         let decos = f.decos.first().map_or(0, Vec::len);
         assert_eq!(decos, 1);
         // Read as the reader's own, nothing of the book's shows.
