@@ -202,6 +202,9 @@ pub struct PagePass {
     /// Draws to the screen, and to the glass strip at a fraction of it.
     pub(super) screen: wgpu::RenderPipeline,
     pub(super) strip: wgpu::RenderPipeline,
+    /// Highlighter fills under the ink: multiplied, or screened on dark.
+    multiply: wgpu::RenderPipeline,
+    lighten: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     tone_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -264,7 +267,7 @@ impl PagePass {
             bind_group_layouts: &[Some(&layout), Some(&tone_layout)],
             immediate_size: 0,
         });
-        let pipeline = |entry: &str| {
+        let pipeline = |entry: &str, blend: wgpu::BlendState| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&pipeline_layout),
@@ -293,7 +296,7 @@ impl PagePass {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -309,8 +312,16 @@ impl PagePass {
         });
         let white = upload(device, queue, (&layout, &sampler), [1, 1], &[255; 4]);
         Self {
-            screen: pipeline("fs"),
-            strip: pipeline("fs_strip"),
+            screen: pipeline("fs", wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            strip: pipeline("fs_strip", wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            multiply: pipeline(
+                "fs",
+                under(wgpu::BlendFactor::Dst, wgpu::BlendFactor::OneMinusSrcAlpha),
+            ),
+            lighten: pipeline(
+                "fs",
+                under(wgpu::BlendFactor::OneMinusDst, wgpu::BlendFactor::One),
+            ),
             layout,
             tone_layout,
             sampler,
@@ -359,6 +370,23 @@ impl PagePass {
             pass.set_bind_group(1, &tones.group, &[*offset]);
             pass.draw(0..4, i..i + 1);
         }
+    }
+}
+
+/// A premultiplied fill `c·a` blended as `c·a·src + dst·dst_factor`.
+fn under(src: wgpu::BlendFactor, dst: wgpu::BlendFactor) -> wgpu::BlendState {
+    let keep = wgpu::BlendComponent {
+        src_factor: wgpu::BlendFactor::Zero,
+        dst_factor: wgpu::BlendFactor::One,
+        operation: wgpu::BlendOperation::Add,
+    };
+    wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: src,
+            dst_factor: dst,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: keep,
     }
 }
 
@@ -484,14 +512,31 @@ pub(super) fn scissor(clip: Rect, area: Rect, px: [u32; 2]) -> Option<[u32; 4]> 
 pub struct PagesCallback {
     pass: Arc<PagePass>,
     quads: Vec<Quad>,
+    /// Set for highlighter fills: how they meet the page.
+    under: Option<Blend>,
     instances: OnceLock<(wgpu::Buffer, Tones, Rect, [u32; 2])>,
 }
 
 impl PagesCallback {
     pub fn shape(pass: Arc<PagePass>, clip: Rect, quads: Vec<Quad>) -> egui::Shape {
+        Self::with(pass, clip, quads, None)
+    }
+
+    /// Highlighter fills, `blend`ed under the ink already drawn.
+    pub fn marks(pass: Arc<PagePass>, clip: Rect, quads: Vec<Quad>, blend: Blend) -> egui::Shape {
+        Self::with(pass, clip, quads, Some(blend))
+    }
+
+    fn with(
+        pass: Arc<PagePass>,
+        clip: Rect,
+        quads: Vec<Quad>,
+        under: Option<Blend>,
+    ) -> egui::Shape {
         let callback = Self {
             pass,
             quads,
+            under,
             instances: OnceLock::new(),
         };
         egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(clip, callback))
@@ -530,7 +575,12 @@ impl egui_wgpu::CallbackTrait for PagesCallback {
         };
         // egui's clamped viewport squashes pages hanging off screen.
         pass.set_viewport(0.0, 0.0, px[0] as f32, px[1] as f32, 0.0, 1.0);
-        pass.set_pipeline(&self.pass.screen);
+        let pipeline = match self.under {
+            None => &self.pass.screen,
+            Some(Blend::Screen) => &self.pass.lighten,
+            Some(_) => &self.pass.multiply,
+        };
+        pass.set_pipeline(pipeline);
         let clip = info.clip_rect;
         self.pass.draw(pass, (buffer, tones), &self.quads, |q| {
             scissor(q.intersect(clip), *area, *px)

@@ -1,13 +1,15 @@
 //! Marks on the pages on screen: where each lands, drawn and hit.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use egui::{Color32, Id, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2};
-use mareader_appearance::Rgb;
+use mareader_appearance::{PageTone, Rgb};
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 
 use super::words::find;
+use crate::gpu::{PagePass, PagesCallback, Quad};
 use crate::selection::{Caret, Pages, Selection};
 
 /// How a mark is drawn, resolved from its record and the settings.
@@ -171,13 +173,18 @@ fn between(layer: &TextLayer, from: (usize, usize), to: (usize, usize)) -> Optio
     Some(start..end + 1)
 }
 
-/// Each mark in its pen: fills at `opacity`, underlines solid.
-pub fn paint(ui: &Ui, placed: &[Placed], opacity: f32) {
-    let painter = ui.painter();
+/// Each mark's boxes in its pen, at `opacity`.
+pub fn add(placed: &[Placed], opacity: f32, under: &mut Under) {
     for mark in placed {
         for r in &mark.rects {
-            draw(painter, *r, mark.ink.pen, mark.ink.color, opacity);
+            under.add(*r, mark.ink.pen, mark.ink.color, opacity);
         }
+    }
+}
+
+/// Noted marks' badges, over the page and its fills.
+pub fn badges(ui: &Ui, placed: &[Placed]) {
+    for mark in placed {
         if let Some(b) = mark.badge {
             note_badge(ui, b, mark.ink.color);
         }
@@ -203,22 +210,81 @@ fn note_badge(ui: &Ui, b: Rect, color: Rgb) {
     crate::icons::Icon::Note.paint(ui, glyph, ink);
 }
 
-/// One line's box in `pen`: a square highlight.
-pub fn draw(painter: &Painter, r: Rect, pen: Pen, color: Rgb, opacity: f32) {
-    let solid = crate::theme::color(color);
-    let fill = solid.gamma_multiply(opacity.clamp(0.0, 1.0));
+/// One page's marks: fills laid under its ink, underlines over it.
+pub struct Under {
+    tone: PageTone,
+    fills: Vec<Quad>,
+    lines: Vec<(Rect, Color32)>,
+    /// Each colour and strength's fill, worked out once.
+    seen: Vec<((Rgb, u32), Color32)>,
+}
+
+impl Under {
+    /// Marks for pages drawn in `tone`.
+    pub fn new(tone: PageTone) -> Self {
+        Self {
+            tone,
+            fills: Vec::new(),
+            lines: Vec::new(),
+            seen: Vec::new(),
+        }
+    }
+
+    /// One line's box in `pen`: a square highlight, or a solid underline.
+    pub fn add(&mut self, r: Rect, pen: Pen, color: Rgb, opacity: f32) {
+        let area = pen_area(r, pen);
+        if pen == Pen::Underline {
+            self.lines.push((area, crate::theme::color(color)));
+            return;
+        }
+        let key = (color, opacity.to_bits());
+        let tint = match self.seen.iter().find(|(k, _)| *k == key) {
+            Some((_, tint)) => *tint,
+            None => {
+                let tint = self.tint(color, opacity);
+                self.seen.push((key, tint));
+                tint
+            }
+        };
+        self.fills.push(Quad::fill(area, tint));
+    }
+
+    /// The premultiplied tint the page pass blends under the ink.
+    fn tint(&self, color: Rgb, opacity: f32) -> Color32 {
+        let fill = self.tone.mark(color.to_unit(), opacity);
+        let [r, g, b] = fill.color.map(|c| (c * 255.0).round() as u8);
+        let a = (fill.strength * 255.0).round() as u8;
+        Color32::from_rgba_unmultiplied(r, g, b, a)
+    }
+
+    /// Draws them within `clip`; without the page pass, fills lie on top.
+    pub fn show(self, ui: &Ui, pass: Option<&Arc<PagePass>>, clip: Rect) {
+        let blend = self.tone.mark([1.0; 3], 1.0).blend;
+        match pass {
+            Some(pass) if !self.fills.is_empty() => {
+                let shape = PagesCallback::marks(pass.clone(), clip, self.fills, blend);
+                ui.painter().add(shape);
+            }
+            _ => {
+                for q in self.fills {
+                    ui.painter().rect_filled(q.rect, 0.0, q.tint);
+                }
+            }
+        }
+        for (line, colour) in self.lines {
+            ui.painter().rect_filled(line, 0.0, colour);
+        }
+    }
+}
+
+/// Where `pen` inks a line's box `r`: all, its lower half or a rule.
+pub fn pen_area(r: Rect, pen: Pen) -> Rect {
     match pen {
-        Pen::Full => {
-            painter.rect_filled(r, 0.0, fill);
-        }
-        Pen::Half => {
-            let lower = Rect::from_min_max(pos2(r.left(), r.center().y), r.max);
-            painter.rect_filled(lower, 0.0, fill);
-        }
+        Pen::Full => r,
+        Pen::Half => Rect::from_min_max(pos2(r.left(), r.center().y), r.max),
         Pen::Underline => {
             let thick = (r.height() * 0.08).max(1.0);
-            let line = Rect::from_min_max(pos2(r.left(), r.bottom() - thick), r.max);
-            painter.rect_filled(line, 0.0, solid);
+            Rect::from_min_max(pos2(r.left(), r.bottom() - thick), r.max)
         }
     }
 }

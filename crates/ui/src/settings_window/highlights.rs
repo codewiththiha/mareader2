@@ -1,6 +1,6 @@
 //! The Highlights tab: each pen's colour, the selection menu, the AI's look.
 
-use egui::{Align2, FontId, Sense, Stroke, Ui, Vec2, vec2};
+use egui::{Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2};
 use mareader_appearance::Rgb;
 use mareader_settings::{
     BarItem, GlossDensity, GlossSettings, HighlightSettings, Pen, PickColor, Reserved,
@@ -8,7 +8,7 @@ use mareader_settings::{
 
 use super::{choice_row, divider, group, note, row, section};
 use crate::icons::Icon;
-use crate::study::marks::draw;
+use crate::study::marks::pen_area;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
@@ -97,9 +97,19 @@ fn pen_row(ui: &mut Ui, h: &mut HighlightSettings, pen: Pen) {
 pub(super) fn preview(ui: &mut Ui, pen: Pen, color: Rgb, opacity: f32) {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(34.0, 22.0), Sense::hover());
-    let line = rect.shrink2(vec2(3.0, 3.0));
+    let area = pen_area(rect.shrink2(vec2(3.0, 3.0)), pen);
+    // As a page lays it: under the ink, on the group's fill.
+    let fill = if pen == Pen::Underline {
+        theme::color(color)
+    } else {
+        let [r, g, b, _] = t.card.to_array();
+        let ground = [r, g, b].map(|c| f32::from(c) / 255.0);
+        let lit = t.page.mark(color.to_unit(), opacity).over(ground);
+        let [r, g, b] = lit.map(|c| (c * 255.0).round() as u8);
+        Color32::from_rgb(r, g, b)
+    };
     let painter = ui.painter();
-    draw(painter, line, pen, color, opacity);
+    painter.rect_filled(area, 0.0, fill);
     let font = FontId::proportional(t.text);
     painter.text(rect.center(), Align2::CENTER_CENTER, "Aa", font, t.ink);
 }

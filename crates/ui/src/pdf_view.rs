@@ -1017,13 +1017,15 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             let shading = cx.shading.as_ref().zip(vocab.as_mut());
             let shaded = shading.map_or_else(Vec::new, |(look, v)| v.place(look, &text));
             let on_word = vocab::hovered(ui, &shaded).filter(|_| cx.picked.is_none());
+            // Fills go under the page's ink, so marked text stays crisp.
+            let mut under = study::marks::Under::new(t.page);
             if let Some(look) = &cx.shading {
                 let under_mark = |i: usize| {
                     let w = shaded.get(i);
                     w.is_some_and(|w| placed.iter().any(|m| m.contains(w.bounds().center())))
                 };
                 let lit = on_word.filter(|i| !under_mark(*i));
-                vocab::paint(ui, &shaded, look, lit);
+                vocab::add(&shaded, look, lit, &mut under);
                 let id = egui::Id::new(("shade-rest", doc_id));
                 if let Some(i) = vocab::dwell(ui, id, &shaded, lit, look)
                     && let Some(w) = shaded.get(i)
@@ -1036,7 +1038,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     });
                 }
             }
-            study::marks::paint(ui, &placed, cx.highlights.opacity);
+            study::marks::add(&placed, cx.highlights.opacity, &mut under);
+            under.show(ui, pass, ui.clip_rect());
+            study::marks::badges(ui, &placed);
             for s in sheets.iter().filter(|s| cx.bookmarks.contains(&s.page)) {
                 crate::bookmarks::ribbon(ui.painter(), s.rect, t.accent);
             }
