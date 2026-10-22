@@ -11,6 +11,7 @@ use parley::{
     InlineBoxKind, Layout, LineHeight, OverflowWrap, PositionedLayoutItem, RangedBuilder,
     Selection, StyleProperty, VerticalAlign,
 };
+use thin_vec::ThinVec;
 
 use crate::block::clip;
 use crate::block::{
@@ -362,7 +363,7 @@ pub(crate) enum Draw {
         rect: [f32; 4],
         /// Laid on its side in vertical text, drawn standing.
         turned: bool,
-        links: Vec<Area>,
+        links: ThinVec<Area>,
     },
     Table(Grid),
     /// Room only: a designed book's rule draws as its boxes.
@@ -489,7 +490,7 @@ pub(crate) struct Grid {
     /// Cell padding: across, down.
     pub(crate) pad: [f32; 2],
     /// Which rows are head rows.
-    pub(crate) heads: Vec<bool>,
+    pub(crate) heads: ThinVec<bool>,
     /// The book's colour for the grid, if it sets one.
     pub(crate) rule: Option<[u8; 3]>,
 }
@@ -578,7 +579,7 @@ pub(crate) struct Set {
     pub(crate) x: f32,
     pub(crate) width: f32,
     /// Quote bars' left edges within the column.
-    pub(crate) bars: Vec<f32>,
+    pub(crate) bars: ThinVec<f32>,
     /// Right to left: its marker hangs right of its text.
     pub(crate) rtl: bool,
     pub(crate) draw: Draw,
@@ -594,24 +595,24 @@ pub(crate) struct Set {
     /// Text: avoid lone lines at a split.
     lines: bool,
     /// Lines kept together at a split's foot and head.
-    orphans: usize,
-    widows: usize,
+    orphans: u8,
+    widows: u8,
     /// Kept on one page when it fits.
     whole: bool,
     /// A table's leading head rows, never left alone at a page's foot.
-    heads: usize,
+    heads: u16,
     /// Designed: the book's boxes around it, outermost first.
-    boxes: Vec<Placed>,
+    boxes: ThinVec<Placed>,
     /// Designed: its place in a grid row.
-    cell: Option<CellAt>,
+    cell: Option<Box<CellAt>>,
     /// Designed: the float it is in.
-    float: Option<FloatAt>,
+    float: Option<Box<FloatAt>>,
     /// Designed: a float beside its first lines.
     beside: Option<Exclusion>,
     /// It starts below the float before it.
     clear: bool,
     /// Designed, in a grid: its item's place, as sized.
-    place: Option<CellPlace>,
+    place: Option<Box<CellPlace>>,
     /// Designed: a turn in degrees, drawn about its middle.
     pub(crate) rotate: f32,
     /// Takes its room but draws nothing and leads nowhere.
@@ -620,7 +621,19 @@ pub(crate) struct Set {
     pub(crate) turned: bool,
     /// On a fixed page: that page, and the positioned box it is in.
     pub(crate) sheet: Option<Arc<Sheet>>,
-    spot: Option<(usize, Spot)>,
+    spot: Option<Box<(usize, Spot)>>,
+}
+
+impl Set {
+    /// Its place in a grid row, if designed in one.
+    fn cell(&self) -> Option<CellAt> {
+        self.cell.as_deref().copied()
+    }
+
+    /// The float it is in, if designed in one.
+    fn float(&self) -> Option<FloatAt> {
+        self.float.as_deref().copied()
+    }
 }
 
 /// A paginated fixed page: its viewport, and its layers bottom up.
@@ -844,9 +857,9 @@ impl Flow {
             };
             (setter.turned, setter.fixed) = (set.turned, set.sheet.is_some());
             // Laid again as first set: beside its float, or as one.
-            setter.float_box = set.float.map(|f| (f.x, f.width));
+            setter.float_box = set.float().map(|f| (f.x, f.width));
             setter.exclusion = set.beside;
-            setter.cell_place = set.place;
+            setter.cell_place = set.place.as_deref().copied();
             Arc::new(setter.block(set.source, source).1)
         };
         recent().put(block, Arc::clone(&laid), source.layout_cost());
@@ -1645,7 +1658,7 @@ impl<'a> Setter<'a> {
         let em = self.em_of(frame);
         let (left, room, mut boxes, cell) = match designed {
             true => self.boxes(frame, column),
-            false => (0.0, column, Vec::new(), None),
+            false => (0.0, column, ThinVec::new(), None),
         };
         // Deep nesting stops indenting at half the column.
         let indent = (frame.inset * em).clamp(0.0, room / 2.0);
@@ -1728,7 +1741,7 @@ impl<'a> Setter<'a> {
                     picture,
                     rect,
                     turned,
-                    links: links.clone(),
+                    links: links.iter().cloned().collect(),
                 };
                 (draw, Laid::None, vec![unit], vec![0])
             }
@@ -1743,6 +1756,7 @@ impl<'a> Setter<'a> {
             Content::Table(t) => t.rows.iter().take_while(|r| r.head).count(),
             _ => 0,
         };
+        let heads = u16::try_from(heads).unwrap_or(u16::MAX);
         let set = Set {
             source,
             x: if cover { 0.0 } else { x },
@@ -1768,27 +1782,27 @@ impl<'a> Setter<'a> {
             whole: designed && frame.keep.whole,
             heads,
             boxes,
-            cell,
-            float,
+            cell: cell.map(Box::new),
+            float: float.map(Box::new),
             beside: self.exclusion.filter(|_| designed),
             clear: false,
-            place: self.place_of(frame).filter(|_| designed),
+            place: self.place_of(frame).filter(|_| designed).map(Box::new),
             rotate: if designed { frame.rotate } else { 0.0 },
             hidden: frame.hidden,
             turned: self.turned,
             sheet: frame.sheet.clone().filter(|_| self.fixed),
             spot: spot
                 .zip(frame.spot.as_ref())
-                .map(|(s, a)| (Arc::as_ptr(a) as usize, s)),
+                .map(|(s, a)| Box::new((Arc::as_ptr(a) as usize, s))),
         };
         (set, laid)
     }
 
     /// Places the boxes and cell in `column`: content left, width, both.
-    fn boxes(&self, frame: &Frame, column: f32) -> (f32, f32, Vec<Placed>, Option<CellAt>) {
+    fn boxes(&self, frame: &Frame, column: f32) -> (f32, f32, ThinVec<Placed>, Option<CellAt>) {
         let em = self.em_of(frame);
         let (mut x, mut width) = (0.0, column);
-        let mut placed = Vec::with_capacity(frame.boxes.len());
+        let mut placed = ThinVec::with_capacity(frame.boxes.len());
         let mut at = None;
         let depth = frame.cell.as_ref().map(|c| usize::from(c.depth));
         let mut bounds = None;
@@ -2045,7 +2059,7 @@ impl<'a> Setter<'a> {
         let inner = (column - 2.0 * pad_x).max(em);
         let mut units = Vec::with_capacity(table.rows.len());
         let mut rows = Vec::with_capacity(table.rows.len());
-        let mut heads = Vec::with_capacity(table.rows.len());
+        let mut heads = ThinVec::with_capacity(table.rows.len());
         let mut y = 0.0;
         for row in &table.rows {
             let style = self.cell_style(frame, row.head);
@@ -2759,7 +2773,7 @@ fn layout_text(
             .map(|h| h.marks.clone())
             .unwrap_or_default(),
         starts,
-        links: text.links.clone(),
+        links: text.links.to_vec(),
         turned: style.turned,
         upright,
         combine,
@@ -2808,7 +2822,7 @@ fn over_first_line(text: &Text, end: usize, extra: Emphasis) -> Text {
     cuts.dedup();
     let mut out = Text {
         text: String::with_capacity(len),
-        spans: Vec::new(),
+        spans: ThinVec::new(),
         ..text.clone()
     };
     for pair in cuts.windows(2) {
@@ -3324,7 +3338,7 @@ fn paginate_sheet(
         let lines = pieces.iter().filter_map(bottom).fold(0.0, f32::max);
         let boxes = decos.iter().map(|d| d.rect[1] + d.rect[3]);
         let height = boxes.fold(lines, f32::max);
-        let spot = group.first().and_then(|b| b.spot);
+        let spot = group.first().and_then(|b| b.spot.as_deref().copied());
         let (top, key) = match spot {
             // Goes on below its lines: a box's least height would skip.
             None => {
@@ -3375,7 +3389,7 @@ fn paginate_sheet(
 
 /// The positioned box a fixed page's block is in, by address.
 fn spot_of(set: &Set) -> Option<usize> {
-    set.spot.map(|(id, _)| id)
+    set.spot.as_deref().map(|&(id, _)| id)
 }
 
 /// The fixed page a block is on, by address.
@@ -3389,8 +3403,8 @@ fn paginate(blocks: &[Set], height: f32, typo: &Typography) -> (Vec<Vec<Piece>>,
         height,
         ..Cursor::default()
     };
-    let row = |i: usize| blocks.get(i).and_then(|b| b.cell).map(|c| c.key);
-    let float = |i: usize| blocks.get(i).and_then(|b| b.float).map(|f| f.key);
+    let row = |i: usize| blocks.get(i).and_then(|b| b.cell()).map(|c| c.key);
+    let float = |i: usize| blocks.get(i).and_then(|b| b.float()).map(|f| f.key);
     let mut i = 0;
     while i < blocks.len() && c.pages.len() < MAX_PAGES {
         if let (None, Some(key)) = (row(i), float(i)) {
@@ -3437,7 +3451,7 @@ fn place_float(c: &mut Cursor, blocks: &[Set], float: Range<usize>, room: (f32, 
     }
     let depth = blocks
         .get(float.start)
-        .and_then(|b| b.float)
+        .and_then(|b| b.float())
         .map_or(0, |f| f.depth);
     c.close(depth.min(c.open.len()));
     c.float_bottom = c.y;
@@ -3492,9 +3506,9 @@ fn place_block(c: &mut Cursor, blocks: &[Set], i: usize, (height, typo): (f32, &
     while start < total {
         let fit = fitting_units(block, start, height - c.y);
         let mut fit = if block.lines {
-            let kept = (block.orphans, block.widows);
+            let kept = (usize::from(block.orphans), usize::from(block.widows));
             balance(fit, (start, total), c.page.is_empty(), kept)
-        } else if start + fit <= block.heads && fit < total && !c.page.is_empty() {
+        } else if start + fit <= usize::from(block.heads) && fit < total && !c.page.is_empty() {
             // Head rows go on with the first body row.
             0
         } else {
@@ -3524,17 +3538,17 @@ fn place_row(
     row: Range<usize>,
     (height, typo): (f32, &Typography),
 ) -> bool {
-    let Some((first, cell)) = blocks.get(row.start).and_then(|b| Some((b, b.cell?))) else {
+    let Some((first, cell)) = blocks.get(row.start).and_then(|b| Some((b, b.cell()?))) else {
         return false;
     };
     let members = blocks.get(row.clone()).unwrap_or_default();
     let columns = members
         .iter()
-        .filter_map(|b| b.cell)
+        .filter_map(|b| b.cell())
         .map(|c| c.column + 1)
         .max();
     let columns = columns.unwrap_or(1).clamp(1, MAX_COLUMNS);
-    let column = |b: &Set| b.cell.map_or(0, |c| c.column).min(columns - 1);
+    let column = |b: &Set| b.cell().map_or(0, |c| c.column).min(columns - 1);
     // Each block's top in its column, then each column's height.
     let mut heights = vec![0.0; columns];
     let mut last: Vec<Option<&Set>> = vec![None; columns];
@@ -3551,7 +3565,7 @@ fn place_row(
             continue;
         };
         if let Some((key, start)) = *float
-            && b.float.map(|f| f.key) != Some(key)
+            && b.float().map(|f| f.key) != Some(key)
         {
             // The float ends: what follows starts at its top, beside it.
             (*float_end, *h, *float) = (float_end.max(*h), start, None);
@@ -3559,7 +3573,7 @@ fn place_row(
         if b.clear {
             *h = h.max(*float_end);
         }
-        if let (Some(f), None) = (b.float, *float) {
+        if let (Some(f), None) = (b.float(), *float) {
             *float = Some((f.key, *h));
         }
         let gap = match end {
@@ -3582,7 +3596,7 @@ fn place_row(
     // A cell spanning down leaves this row's height to the rest.
     let down = |col: usize| {
         let b = last.get(col).copied().flatten();
-        b.and_then(|b| b.cell).map_or(1, |c| c.down)
+        b.and_then(|b| b.cell()).map_or(1, |c| c.down)
     };
     let (mut tall, mut need) = (0.0f32, 0.0f32);
     for (col, h) in heights.iter().enumerate() {
@@ -3618,7 +3632,7 @@ fn place_row(
     for ((k, b), at) in row.clone().zip(members).zip(&tops) {
         let col = column(b);
         let room = tall - heights.get(col).copied().unwrap_or(0.0);
-        let shift = match b.cell.map(|c| c.valign) {
+        let shift = match b.cell().map(|c| c.valign) {
             _ if down(col) > 1 => 0.0,
             Some(VAlign::Top) | None => 0.0,
             Some(VAlign::Middle) => room / 2.0,
@@ -3651,7 +3665,7 @@ fn place_row(
         if pieces.is_empty() {
             continue;
         }
-        let valign = last.get(col).copied().flatten().and_then(|b| b.cell);
+        let valign = last.get(col).copied().flatten().and_then(|b| b.cell());
         c.hangs.push(Hang {
             grid: cell.grid,
             rows: down(col) - 1,
@@ -3741,11 +3755,11 @@ fn balance(
 }
 
 /// Lines a split keeps together; the book's count when designed.
-fn lines_kept(count: u8, designed: bool) -> usize {
+fn lines_kept(count: u8, designed: bool) -> u8 {
     match count {
         0 => 2,
         _ if !designed => 2,
-        n => usize::from(n.min(MAX_KEPT_LINES)),
+        n => n.min(MAX_KEPT_LINES),
     }
 }
 
@@ -3847,7 +3861,7 @@ mod tests {
             ..Look::default()
         };
         block.frame.look = Some(Arc::new(look));
-        block.frame.boxes = boxes.to_vec();
+        block.frame.boxes = boxes.iter().cloned().collect();
         block.frame.cell = cell;
         block
     }
@@ -3973,7 +3987,7 @@ mod tests {
         let prose = |boxes: &[Arc<Boxed>]| {
             let mut b = para(3);
             b.frame.look = Some(Arc::new(Look::default()));
-            b.frame.boxes = boxes.to_vec();
+            b.frame.boxes = boxes.iter().cloned().collect();
             b
         };
         let f = flow(&[prose(&[Arc::clone(&moved), framed]), prose(&[moved])]);
@@ -4605,6 +4619,13 @@ mod tests {
     }
 
     #[test]
+    fn a_paragraphs_block_and_set_stay_small() {
+        // A book keeps one of each per paragraph; see docs/memory.md.
+        assert!(std::mem::size_of::<Block>() <= 264);
+        assert!(std::mem::size_of::<Set>() <= 200);
+    }
+
+    #[test]
     fn splits_keep_the_books_widows_and_orphans() {
         let usual = (2, 2);
         // Ten lines, room for nine: two go over, as one would be alone.
@@ -4618,7 +4639,7 @@ mod tests {
         assert_eq!(balance(1, (0, 10), true, (3, 3)), 1);
         assert_eq!(lines_kept(0, true), 2);
         assert_eq!(lines_kept(4, false), 2);
-        assert_eq!(lines_kept(200, true), usize::from(MAX_KEPT_LINES));
+        assert_eq!(lines_kept(200, true), MAX_KEPT_LINES);
     }
 
     #[test]
@@ -5388,7 +5409,7 @@ mod tests {
     fn right_to_left_quote_bars_move_to_the_right() {
         let quote = |dir| {
             let mut b = directed("word word", dir);
-            b.frame.bars = vec![0.0];
+            b.frame.bars = crate::thin_vec![0.0];
             b
         };
         let f = flow(&[quote(Dir::Ltr), quote(Dir::Rtl)]);

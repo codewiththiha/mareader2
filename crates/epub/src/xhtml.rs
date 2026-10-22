@@ -13,7 +13,7 @@ use mareader_reflow::{
     Align, Anchor, Annotation, Area, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns,
     Content, Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape,
     GridRow, Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Rise, Role, Row, Script,
-    Sheet, Spot, Table, Text, TextShadow, VAlign,
+    Sheet, Spot, Table, Text, TextShadow, ThinVec, VAlign,
 };
 
 use crate::calc::Vars;
@@ -766,9 +766,9 @@ impl State<'_> {
     }
 
     /// The open boxes, each made at its first block with its top inside.
-    fn box_arcs(&mut self) -> Vec<Arc<Boxed>> {
+    fn box_arcs(&mut self) -> ThinVec<Arc<Boxed>> {
         let (total, first) = (self.gap.total(), self.blocks.len());
-        let mut arcs = Vec::with_capacity(self.boxes.len());
+        let mut arcs = ThinVec::with_capacity(self.boxes.len());
         for b in &mut self.boxes {
             if b.arc.is_none() {
                 let mut spec = b.spec.clone();

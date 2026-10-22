@@ -429,6 +429,7 @@ impl Book {
         }
         let rtl = right_to_left(&epub, language.as_deref(), &blocks);
         let lead = spread_lead(&epub, rtl, &blocks);
+        blocks.shrink_to_fit();
         let blocks = Arc::new(blocks);
         let faces = load_faces(&epub, &refs.faces);
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));

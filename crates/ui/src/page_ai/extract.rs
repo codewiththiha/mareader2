@@ -279,7 +279,7 @@ fn text_block(role: Role, text: &str, code: &[Range<usize>], from: Option<&Block
                 frame.tight = true;
             }
             Role::Quote => {
-                frame.bars = vec![0.5];
+                frame.bars = mareader_reflow::thin_vec![0.5];
                 frame.inset = 1.5;
                 frame.soft = true;
             }

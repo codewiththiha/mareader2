@@ -17,4 +17,5 @@ parley = { workspace = true }
 resvg = { workspace = true }
 skrifa = { workspace = true }
 thiserror = { workspace = true }
+thin-vec = { workspace = true }
 vello_cpu = { workspace = true }

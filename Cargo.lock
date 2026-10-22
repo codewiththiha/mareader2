@@ -3343,6 +3343,7 @@ dependencies = [
  "parley",
  "resvg",
  "skrifa 0.44.0",
+ "thin-vec",
  "thiserror 2.0.21",
  "vello_cpu 0.3.0",
 ]

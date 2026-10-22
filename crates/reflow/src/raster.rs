@@ -1466,7 +1466,7 @@ mod tests {
             ..Look::default()
         };
         block.frame.look = Some(Arc::new(look));
-        block.frame.boxes = vec![Arc::new(b)];
+        block.frame.boxes = crate::thin_vec![Arc::new(b)];
         let f = Flow::new(
             Arc::new(vec![block]),
             &Typography::default(),
