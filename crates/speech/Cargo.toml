@@ -14,8 +14,11 @@ workspace = true
 tts = { workspace = true }
 # Voice models come down resumable and checked.
 mareader-fetch = { workspace = true }
+# Kokoro: text to phonemes to samples, played as they are made.
+mareader-g2p = { workspace = true }
+mareader-kokoro = { workspace = true }
+mareader-audio = { workspace = true }
 
 [dev-dependencies]
-mareader-g2p = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }

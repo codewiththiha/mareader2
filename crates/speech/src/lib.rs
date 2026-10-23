@@ -9,11 +9,15 @@
     clippy::indexing_slicing
 )]
 
+#[cfg(not(target_arch = "wasm32"))]
+mod kokoro;
 mod models;
 mod script;
 mod sentences;
 mod shelf;
 mod silent;
+#[cfg(not(target_arch = "wasm32"))]
+mod studio;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
 
@@ -116,6 +120,8 @@ pub trait Voicer {
     fn resume(&mut self) -> bool {
         false
     }
+    /// Sentences likely said next, in order, to get ready ahead.
+    fn prepare(&mut self, _texts: &[&str]) {}
     /// What happened since the last call, oldest first.
     fn events(&mut self) -> Vec<Event>;
 }
@@ -154,19 +160,51 @@ const SAMPLES: [(&str, &str); 12] = [
     ("zh", "这就是您的书被朗读时的声音。"),
 ];
 
-/// The engines this build has, by id and the name shown for each.
-pub fn engines() -> Vec<(&'static str, &'static str)> {
-    vec![(SYSTEM, "System voices")]
+/// The engines to pick from, by id and name: the system's, then models ready.
+pub fn engines(shelf: &Shelf) -> Vec<(&'static str, &'static str)> {
+    // A browser build runs no model yet.
+    let runs = |m: &&Model| cfg!(not(target_arch = "wasm32")) && m.id == KOKORO.id;
+    let models = shelf
+        .ready()
+        .into_iter()
+        .filter(runs)
+        .map(|m| (m.id, m.name));
+    std::iter::once((SYSTEM, "System voices"))
+        .chain(models)
+        .collect()
 }
 
 /// Starts engine `id`; `wake` is called whenever it has events.
-pub fn open(id: &str, wake: Waker) -> Result<Box<dyn Voicer>, Fault> {
+pub fn open(id: &str, shelf: &Shelf, wake: Waker) -> Result<Box<dyn Voicer>, Fault> {
     match id {
         #[cfg(not(target_arch = "wasm32"))]
         SYSTEM => Ok(Box::new(system::System::new(wake)?)),
         SILENT => Ok(Box::new(silent::Silent::default())),
+        #[cfg(not(target_arch = "wasm32"))]
+        id if id == KOKORO.id => {
+            let ready = shelf.ready().into_iter().find(|m| m.id == id);
+            let folder = ready.and_then(|m| shelf.folder(m));
+            let (Some(model), Some(folder)) = (ready, folder) else {
+                return Err(Fault::Unavailable(format!(
+                    "{} isn't downloaded",
+                    KOKORO.name
+                )));
+            };
+            let voices = (model.voices.iter())
+                .filter(|v| shelf.has(model, v.id))
+                .map(|v| Voice {
+                    id: v.id.to_owned(),
+                    name: v.name.to_owned(),
+                    language: v.language.to_owned(),
+                });
+            // The voice that came with the model leads, as the default.
+            let (mut voices, first): (Vec<Voice>, _) = (voices.collect(), model.first_voice);
+            voices.sort_by_key(|v| v.id != first);
+            let engine = kokoro::Engine::open(folder, voices, shelf.studio().clone(), wake)?;
+            Ok(Box::new(engine))
+        }
         _ => {
-            let _ = wake;
+            let _ = (wake, shelf);
             Err(Fault::Unavailable(format!("No speech engine named {id}")))
         }
     }
@@ -200,7 +238,7 @@ mod tests {
     #[test]
     fn the_silent_engine_starts_then_ends_each_sentence() {
         let wake: Waker = Arc::new(|| {});
-        let Ok(mut v) = open(SILENT, wake) else {
+        let Ok(mut v) = open(SILENT, &Shelf::default(), wake) else {
             panic!("the silent engine always opens");
         };
         assert_eq!(v.say(7, "Hello."), Ok(()));
@@ -227,6 +265,15 @@ mod tests {
     #[test]
     fn an_unknown_engine_is_unavailable() {
         let wake: Waker = Arc::new(|| {});
-        assert!(matches!(open("nope", wake), Err(Fault::Unavailable(_))));
+        let shelf = Shelf::default();
+        assert!(matches!(
+            open("nope", &shelf, wake.clone()),
+            Err(Fault::Unavailable(_))
+        ));
+        assert!(matches!(
+            open(KOKORO.id, &shelf, wake),
+            Err(Fault::Unavailable(_))
+        ));
+        assert_eq!(engines(&shelf), [(SYSTEM, "System voices")]);
     }
 }

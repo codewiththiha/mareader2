@@ -1,7 +1,7 @@
 //! Voice models in settings: downloaded, a tab of their own; removed, gone.
 
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_speech::{Model, ModelFile, ModelVoice};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -86,6 +86,8 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
     let _ = h.get_by_label("All voices");
+    let kept = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Speech kept");
+    assert_eq!(kept.accesskit_node().numeric_value(), Some(64.0));
     // The first voice came with it; the other is a download away.
     let _ = h.get_by_label("Download Bo");
     assert!(h.query_by_label("Remove Ada").is_none());

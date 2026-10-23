@@ -29,7 +29,7 @@ const VOICE_H: f32 = 34.0;
 const ALL: &str = "";
 
 pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
-    engine(ui, s, v.booth);
+    engine(ui, s, v);
     models(ui, v.shelf, out);
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
@@ -41,16 +41,16 @@ pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Com
     );
 }
 
-fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth) {
+fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>) {
     section(ui, "Engine");
-    let mut engines: Vec<(String, &str)> = (mareader_speech::engines().into_iter())
+    let mut engines: Vec<(String, &str)> = (mareader_speech::engines(v.shelf).into_iter())
         .map(|(id, name)| (id.to_owned(), name))
         .collect();
     // One unlisted still shows, so it can be left.
     if !engines.iter().any(|(id, _)| *id == s.engine) {
         let name = match s.engine.as_str() {
             mareader_speech::SILENT => "Silent voice",
-            _ => "Unavailable engine",
+            id => v.shelf.model(id).map_or("Unavailable engine", |m| m.name),
         };
         engines.push((s.engine.clone(), name));
     }
@@ -62,6 +62,10 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth) {
             let detail = match id.as_str() {
                 mareader_speech::SYSTEM => "Built into your system: nothing to download",
                 mareader_speech::SILENT => "Says nothing: for tests and screenshots",
+                id if v.shelf.ready().iter().any(|m| m.id == id) => {
+                    "Runs on this computer and works offline"
+                }
+                id if v.shelf.model(id).is_some() => "Not downloaded: get it under Voice models",
                 _ => "Not in this build",
             };
             if choice_row(ui, name, detail, s.engine == *id) {
@@ -69,7 +73,7 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth) {
             }
         }
     });
-    if let Some(fault) = booth.fault() {
+    if let Some(fault) = v.booth.fault() {
         let t = Tokens::get(ui.ctx());
         ui.add_space(8.0);
         ui.label(RichText::new(fault).size(t.text_small).color(t.danger));

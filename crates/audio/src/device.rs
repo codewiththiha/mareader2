@@ -57,6 +57,12 @@ fn run(fetch: &Fetch, shared: &Arc<Mutex<Shared>>, rx: &Receiver<Command>) {
                     None => lock(shared).fault = Some(Fault::NoDevice),
                 }
             }
+            Ok(Command::Queue(segments, current)) => {
+                if let Some(o) = output.as_mut().filter(|_| current == generation) {
+                    o.feed.queue(segments);
+                    lock(shared).ring.reopen();
+                }
+            }
             Ok(Command::Rate(rate)) => {
                 if let Some(o) = output.as_mut() {
                     let mut s = lock(shared);

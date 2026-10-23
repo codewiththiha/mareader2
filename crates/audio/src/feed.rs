@@ -54,6 +54,11 @@ impl Ring {
         self.ended
     }
 
+    /// More samples are coming after all.
+    pub(crate) fn reopen(&mut self) {
+        self.ended = false;
+    }
+
     pub(crate) fn done(&self) -> bool {
         self.ended && self.samples.is_empty()
     }
@@ -158,6 +163,11 @@ impl Feed {
         self.queue = segments.into();
         self.close();
         self.fault = None;
+    }
+
+    /// Adds `segments` after those queued.
+    pub(crate) fn queue(&mut self, segments: Vec<Segment>) {
+        self.queue.extend(segments);
     }
 
     /// Goes on at `speed` from `at`, a segment and its file time.
@@ -444,6 +454,31 @@ mod tests {
         assert!((7800..=8200).contains(&frames), "{frames}");
         let last = marks.last().unwrap().1;
         assert!(last > 1.8 && last <= 2.0, "{last}");
+    }
+
+    #[test]
+    fn queued_segments_play_after_the_rest() {
+        let made: Fetch = Arc::new(|path: &str| {
+            let samples: Arc<[i16]> = Arc::from(vec![100i16; 2400]);
+            (path == "made").then_some(Clip::Pcm {
+                samples,
+                rate: 24_000,
+            })
+        });
+        let mut f = Feed::new(made, 48_000, 2);
+        f.play(vec![segment("made", 0.0, None, 1)]);
+        f.queue(vec![segment("made", 0.0, None, 2)]);
+        let (samples, marks) = f.drain();
+        assert!(f.fault.is_none());
+        // Two tenths of a second, doubled in rate, two channels each.
+        assert!(
+            (samples.len() as i64 - 4 * 4800).abs() < 64,
+            "{}",
+            samples.len()
+        );
+        assert_eq!(marks.first().map(|m| m.0), Some(1));
+        assert_eq!(marks.last().map(|m| m.0), Some(2));
+        assert!(f.ended());
     }
 
     #[test]

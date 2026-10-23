@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::Context;
 use mareader_settings::ReadAloudSettings;
-use mareader_speech::{Caps, Event, Voice, Voicer, Waker};
+use mareader_speech::{Caps, Event, Shelf, Voice, Voicer, Waker};
 
 use super::TICK;
 
@@ -23,7 +23,7 @@ pub struct Booth {
 
 impl Booth {
     /// Opens `engine` unless it is open, or failed, already.
-    pub fn open(&mut self, ctx: &Context, engine: &str) {
+    pub fn open(&mut self, ctx: &Context, engine: &str, shelf: &Shelf) {
         let tried = self.voicer.is_some() || self.fault.is_some();
         if self.engine == engine && tried {
             return;
@@ -32,7 +32,7 @@ impl Booth {
         self.engine = engine.to_owned();
         let ctx = ctx.clone();
         let wake: Waker = Arc::new(move || ctx.request_repaint());
-        match mareader_speech::open(engine, wake) {
+        match mareader_speech::open(engine, shelf, wake) {
             Ok(voicer) => {
                 self.voices = voicer.voices();
                 self.voices.sort_by(|a, b| {

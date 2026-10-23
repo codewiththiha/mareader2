@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
 use egui::{Context, Ui};
 use mareader_session::{Anchor, DocId, Document, TextLayer};
 use mareader_settings::ReadAloudSettings;
-use mareader_speech::{Event, Glyph, Script, Sentence, Spot, Tone, Voicer, Waker};
+use mareader_speech::{Event, Glyph, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
 use super::{Lit, Span, TICK, button, ending, follow, options, speed};
@@ -20,6 +20,8 @@ use crate::theme::Tokens;
 const AHEAD: usize = 8;
 /// Sentences kept behind the voice, for stepping back.
 const BEHIND: usize = 200;
+/// Sentences after the current, handed to the voice to make ahead.
+const LOOK: usize = 3;
 
 /// Where reading starts.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -46,7 +48,7 @@ pub(super) struct Spoken {
     behind: VecDeque<Said>,
     /// The sentence said now, or next once the voice is free.
     current: Option<Said>,
-    /// Sentences stepped back over, said again before new ones.
+    /// Sentences after the current: stepped back over, or read ahead.
     ahead: VecDeque<Said>,
     /// The voice's id for `current`, and whether it is saying it.
     id: u64,
@@ -68,7 +70,7 @@ impl Spoken {
         ctx: &Context,
         reading: &Reading,
         start: Start,
-        settings: &ReadAloudSettings,
+        (settings, shelf): (&ReadAloudSettings, &Shelf),
     ) -> Self {
         let ctx = ctx.clone();
         let wake: Waker = Arc::new(move || ctx.request_repaint());
@@ -94,7 +96,7 @@ impl Spoken {
             followed: None,
             revealed: None,
         };
-        spoken.open(settings);
+        spoken.open(settings, shelf);
         spoken.read_from(start);
         spoken
     }
@@ -105,22 +107,22 @@ impl Spoken {
     }
 
     /// Reads again from `start`, as asked from the page's menu.
-    pub fn restart(&mut self, reading: &Reading, start: Start, settings: &ReadAloudSettings) {
+    pub fn restart(&mut self, reading: &Reading, start: Start, on: (&ReadAloudSettings, &Shelf)) {
         self.document = Arc::clone(&reading.document);
-        self.apply(settings);
+        self.apply(on);
         self.paused = false;
         self.read_from(start);
     }
 
     /// Starts the engine settings name, keeping its fault if it fails.
-    fn open(&mut self, settings: &ReadAloudSettings) {
+    fn open(&mut self, settings: &ReadAloudSettings, shelf: &Shelf) {
         if let Some(v) = self.voicer.as_mut() {
             v.stop();
         }
         self.engine = settings.engine.clone();
         self.voice = settings.voice().map(str::to_owned);
         self.tone = tone(settings);
-        match mareader_speech::open(&self.engine, Arc::clone(&self.wake)) {
+        match mareader_speech::open(&self.engine, shelf, Arc::clone(&self.wake)) {
             Ok(mut voicer) => {
                 voicer.set_voice(self.voice.as_deref());
                 voicer.set_tone(self.tone);
@@ -155,10 +157,10 @@ impl Spoken {
     }
 
     /// Takes up changed settings; a changed voice says the sentence again.
-    fn apply(&mut self, settings: &ReadAloudSettings) {
+    fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
         if settings.engine != self.engine {
             let at = self.place();
-            self.open(settings);
+            self.open(settings, shelf);
             if let Some(at) = at {
                 self.read_from(at);
             }
@@ -219,9 +221,11 @@ impl Spoken {
 
     /// The next sentence; none while the thread reads, the end once done.
     fn next(&mut self) -> Option<Said> {
-        if let Some(said) = self.ahead.pop_front() {
-            return Some(said);
-        }
+        self.ahead.pop_front().or_else(|| self.pull())
+    }
+
+    /// A new sentence off the pages, if the thread has one.
+    fn pull(&mut self) -> Option<Said> {
         match self.feed.as_ref()?.try_recv() {
             Ok(said) => Some(said),
             Err(TryRecvError::Empty) => None,
@@ -229,6 +233,21 @@ impl Spoken {
                 self.feed = None;
                 None
             }
+        }
+    }
+
+    /// Hands the voice the sentences after the current, to make ahead.
+    fn look_ahead(&mut self) {
+        while self.ahead.len() < LOOK
+            && let Some(said) = self.pull()
+        {
+            self.ahead.push_back(said);
+        }
+        let texts: Vec<&str> = (self.ahead.iter().take(LOOK))
+            .map(|s| s.sentence.text.as_str())
+            .collect();
+        if let Some(v) = self.voicer.as_mut() {
+            v.prepare(&texts);
         }
     }
 
@@ -316,7 +335,7 @@ impl Spoken {
         &mut self,
         ctx: &Context,
         documents: &mut Documents,
-        settings: &ReadAloudSettings,
+        (settings, shelf): (&ReadAloudSettings, &Shelf),
     ) -> bool {
         let Some(reading) = documents.reading(self.pane) else {
             return false;
@@ -334,7 +353,7 @@ impl Spoken {
             let at = self.place().unwrap_or(page);
             self.read_from(at);
         }
-        self.apply(settings);
+        self.apply((settings, shelf));
         let events = self.voicer.as_mut().map(|v| v.events()).unwrap_or_default();
         for event in events {
             if event == Event::Finished(self.id) && self.saying {
@@ -344,6 +363,9 @@ impl Spoken {
         }
         if !self.paused && !self.saying && !self.finished {
             self.go_on();
+        }
+        if !self.finished {
+            self.look_ahead();
         }
         let page = self.current.as_ref().map(|s| s.sentence.start.page);
         // Only a real turn shows the new page's first sentence.

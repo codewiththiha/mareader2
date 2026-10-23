@@ -593,10 +593,10 @@ impl MareaderApp {
 
     /// The voice booth opens with the Read aloud tab and closes after it.
     fn voices_shown(&mut self, ctx: &egui::Context) {
-        let booth = &mut self.read_aloud.booth;
+        let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
         let tab = crate::settings_window::Tab::ReadAloud;
         if self.settings_window.is_open() && self.settings_window.tab() == tab {
-            booth.open(ctx, &self.settings.read_aloud.engine);
+            booth.open(ctx, &self.settings.read_aloud.engine, shelf);
             booth.tick(ctx);
         } else if booth.is_open() {
             booth.close();
@@ -1639,6 +1639,8 @@ impl MareaderApp {
         if self.read_aloud.shelf.poll() {
             ctx.request_repaint();
         }
+        let memory = self.settings.read_aloud.speech_memory_mb as usize;
+        self.read_aloud.shelf.set_speech_memory(memory << 20);
         let word = self.study.card_words().map(|(w, _)| w.to_owned());
         if let (Some(role), Some(word)) = (role, word) {
             self.study.set_role(&word, role);

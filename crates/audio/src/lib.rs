@@ -18,20 +18,28 @@ mod stretch;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// The bytes of one audio file and the extension its type goes by.
+/// What a segment plays: a file's bytes, or samples already made.
 #[derive(Clone)]
-pub struct Clip {
-    pub data: Arc<Vec<u8>>,
-    pub extension: &'static str,
+pub enum Clip {
+    /// The bytes of one audio file and the extension its type goes by.
+    File {
+        data: Arc<Vec<u8>>,
+        extension: &'static str,
+    },
+    /// Mono samples, `rate` a second, as a voice renders them.
+    Pcm { samples: Arc<[i16]>, rate: u32 },
 }
 
 impl std::fmt::Debug for Clip {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Clip({} bytes, {})", self.data.len(), self.extension)
+        match self {
+            Self::File { data, extension } => write!(f, "Clip({} bytes, {extension})", data.len()),
+            Self::Pcm { samples, rate } => write!(f, "Clip({} samples, {rate} Hz)", samples.len()),
+        }
     }
 }
 
-/// Reads a book's audio file by its path in the archive.
+/// Reads an audio file, or made samples, by its path.
 pub type Fetch = Arc<dyn Fn(&str) -> Option<Clip> + Send + Sync>;
 
 /// A stretch of one file to play: `from` to `until` seconds, or its end.
@@ -73,12 +81,14 @@ pub const RATES: [f32; 7] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5];
 enum Command {
     /// Segments, and the generation whose samples may be heard.
     Play(Vec<Segment>, u64),
+    /// More segments after those queued, for the same generation.
+    Queue(Vec<Segment>, u64),
     Rate(f32),
     Stop,
 }
 
 /// The device side: samples waiting to be heard, and what they are.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Shared {
     pub(crate) ring: feed::Ring,
     pub(crate) paused: bool,
@@ -87,6 +97,21 @@ pub(crate) struct Shared {
     pub(crate) fault: Option<Fault>,
     /// Bumped by each play or stop; older samples are dropped.
     pub(crate) generation: u64,
+    /// Share of full loudness, 0 to 1.
+    pub(crate) volume: f32,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            ring: feed::Ring::default(),
+            paused: false,
+            muted: false,
+            fault: None,
+            generation: 0,
+            volume: 1.0,
+        }
+    }
 }
 
 impl Shared {
@@ -99,6 +124,8 @@ impl Shared {
         self.ring.take(out);
         if self.muted {
             out.fill(0.0);
+        } else if self.volume < 1.0 {
+            out.iter_mut().for_each(|s| *s *= self.volume);
         }
     }
 }
@@ -146,6 +173,12 @@ impl Player {
         self.send(Command::Play(segments, generation));
     }
 
+    /// Plays `segments` after those queued, cutting nothing off.
+    pub fn queue(&self, segments: Vec<Segment>) {
+        let generation = lock(&self.shared).generation;
+        self.send(Command::Queue(segments, generation));
+    }
+
     pub fn pause(&self) {
         lock(&self.shared).paused = true;
     }
@@ -157,6 +190,12 @@ impl Player {
     /// Plays on silent, or heard again.
     pub fn set_muted(&self, muted: bool) {
         lock(&self.shared).muted = muted;
+    }
+
+    /// Plays at `volume`, a share of full loudness.
+    pub fn set_volume(&self, volume: f32) {
+        let volume = if volume.is_finite() { volume } else { 1.0 };
+        lock(&self.shared).volume = volume.clamp(0.0, 1.0);
     }
 
     /// Plays on at `rate` times the speed, from what is heard now.
