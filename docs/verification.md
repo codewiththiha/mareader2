@@ -273,14 +273,17 @@ through all eight; both sides speak those same ids at speed 1.
 `python3 tools/ci.py ipa --ref BRANCH --rev SHA` builds `mareader-ipa`'s
 `ipa` example and runs `tools/ipa-parity/check.py`: 500 public-domain
 sentences a language, our phonemes against espeak-ng's, which Kokoro's Spanish,
-Italian, Portuguese and French voices were trained on.
+Italian, Portuguese, French and Hindi voices were trained on.
 
 - **As the voices read them.** espeak's side takes misaki's steps for Kokoro,
   ties written as single letters; both sides keep only Kokoro's vocabulary.
 - **The gate.** Phoneme error at most 0.5% for Spanish, whose spelling gives
   its sounds and stress, and 5% for Italian, where stress and open vowels are
   partly a matter of the word. Portuguese and French may err 2%: open vowels
-  and links between words follow the word there too.
+  and links between words follow the word there too. Hindi may err 2%, where
+  the unsaid `a` and stress follow the shape of the word.
+- **The danda.** espeak says nothing for `।`; our rules read it as a full
+  stop, so Kokoro pauses there. The check hands espeak a full stop instead.
 - **Where it lands.** `target/remote/ipa/summary.md`, with the most frequent
   words that differ. espeak-ng and phonemizer are installed in this job only.
 
