@@ -3767,6 +3767,7 @@ dependencies = [
  "mareader-fetch",
  "mareader-g2p",
  "mareader-kokoro",
+ "mareader-vits",
  "sha2",
  "tempfile",
  "tts",

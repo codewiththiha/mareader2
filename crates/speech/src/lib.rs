@@ -11,7 +11,11 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod kokoro;
+#[cfg(not(target_arch = "wasm32"))]
+mod local;
 mod models;
+#[cfg(not(target_arch = "wasm32"))]
+mod piper;
 mod script;
 mod sentences;
 mod shelf;
@@ -21,9 +25,10 @@ mod studio;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub use models::{Build, KOKORO, MODELS, Model, ModelFile, ModelVoice};
+pub use models::{Build, Gender, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER};
 pub use script::{Glyph, Script, Sentence, Spot};
 pub use sentences::{LONGEST, split};
 pub use shelf::{Item, Shelf, Stage};
@@ -135,6 +140,8 @@ pub trait Voicer {
     }
     /// Sentences likely said next, in order, to get ready ahead.
     fn prepare(&mut self, _texts: &[&str]) {}
+    /// Sets the model's own [`Knob`]s by id; one not given is 1.
+    fn set_knobs(&mut self, _values: &BTreeMap<String, f32>) {}
     /// What happened since the last call, oldest first.
     fn events(&mut self) -> Vec<Event>;
 }
@@ -176,7 +183,8 @@ const SAMPLES: [(&str, &str); 12] = [
 /// The engines to pick from, by id and name: the system's, then models ready.
 pub fn engines(shelf: &Shelf) -> Vec<(&'static str, &'static str)> {
     // A browser build runs no model yet.
-    let runs = |m: &&Model| cfg!(not(target_arch = "wasm32")) && m.id == KOKORO.id;
+    let runs =
+        |m: &&Model| cfg!(not(target_arch = "wasm32")) && [KOKORO.id, PIPER.id].contains(&m.id);
     let models = shelf
         .ready()
         .into_iter()
@@ -199,32 +207,35 @@ pub fn open(
         SYSTEM => Ok(Box::new(system::System::new(wake)?)),
         SILENT => Ok(Box::new(silent::Silent::default())),
         #[cfg(not(target_arch = "wasm32"))]
-        id if id == KOKORO.id => {
+        id if id == KOKORO.id || id == PIPER.id => {
             let ready = shelf.ready().into_iter().find(|m| m.id == id);
             let folder = ready.and_then(|m| shelf.folder(m));
-            let build = ready.and_then(|m| shelf.build(m, build));
-            let (Some(model), Some(folder), Some(build)) = (ready, folder, build) else {
-                return Err(Fault::Unavailable(format!(
-                    "{} isn't downloaded",
-                    KOKORO.name
-                )));
+            let (Some(model), Some(folder)) = (ready, folder) else {
+                let name = shelf.model(id).map_or(id, |m| m.name);
+                return Err(Fault::Unavailable(format!("{name} isn't downloaded")));
             };
-            let voices = (model.voices.iter())
-                .filter(|v| shelf.has(model, v.id))
-                .map(|v| Voice {
-                    id: v.id.to_owned(),
-                    name: v.name.to_owned(),
-                    language: v.language.to_owned(),
-                });
-            // The voice that came with the model leads, as the default.
-            let (mut voices, first): (Vec<Voice>, _) = (voices.collect(), model.first_voice);
-            voices.sort_by_key(|v| v.id != first);
-            let source = kokoro::Source {
-                weights: folder.join(build.file.path),
-                folder,
-                name: label(model, build).into(),
+            let studio = shelf.studio().clone();
+            let engine = match model.builds.is_empty() {
+                true => open_piper(model, folder, shelf, wake)?,
+                false => {
+                    let build = shelf.build(model, build).ok_or_else(|| {
+                        Fault::Unavailable(format!("{} has no build downloaded", model.name))
+                    })?;
+                    let source = kokoro::Source {
+                        weights: folder.join(build.file.path),
+                        folder,
+                        name: label(model, build).into(),
+                    };
+                    let setup = local::Setup {
+                        name: Arc::clone(&source.name),
+                        voices: voices_here(model, shelf),
+                        speeds: kokoro::SPEEDS,
+                        knobs: model.knobs,
+                    };
+                    let synth = kokoro::Kokoro::new(source, studio.clone());
+                    local::Engine::open(synth, setup, studio, wake)?
+                }
             };
-            let engine = kokoro::Engine::open(source, voices, shelf.studio().clone(), wake)?;
             Ok(Box::new(engine))
         }
         _ => {
@@ -232,6 +243,50 @@ pub fn open(
             Err(Fault::Unavailable(format!("No speech engine named {id}")))
         }
     }
+}
+
+/// Piper in its downloaded voices, each a model of its own.
+#[cfg(not(target_arch = "wasm32"))]
+fn open_piper(
+    model: &'static Model,
+    folder: std::path::PathBuf,
+    shelf: &Shelf,
+    wake: Waker,
+) -> Result<local::Engine, Fault> {
+    let mut files = std::collections::HashMap::new();
+    for v in model.voices.iter().filter(|v| shelf.has(model, v.id)) {
+        let Some(settings) = v.extra else { continue };
+        let found = piper::Files {
+            weights: folder.join(v.file.path),
+            settings: folder.join(settings.path),
+            name: format!("{} ({})", model.name, v.name).into(),
+        };
+        files.insert(v.id.to_owned(), found);
+    }
+    let setup = local::Setup {
+        name: model.name.into(),
+        voices: voices_here(model, shelf),
+        speeds: piper::SPEEDS,
+        knobs: model.knobs,
+    };
+    let studio = shelf.studio().clone();
+    let synth = piper::Piper::new(folder, files, studio.clone());
+    local::Engine::open(synth, setup, studio, wake)
+}
+
+/// The voices of `model` downloaded, the one that came with it first.
+#[cfg(not(target_arch = "wasm32"))]
+fn voices_here(model: &Model, shelf: &Shelf) -> Vec<Voice> {
+    let voices = (model.voices.iter())
+        .filter(|v| shelf.has(model, v.id))
+        .map(|v| Voice {
+            id: v.id.to_owned(),
+            name: v.name.to_owned(),
+            language: v.language.to_owned(),
+        });
+    let mut voices: Vec<Voice> = voices.collect();
+    voices.sort_by_key(|v| v.id != model.first_voice);
+    voices
 }
 
 /// A model's name with its build's, as `Kokoro (Small)`.
@@ -305,10 +360,12 @@ mod tests {
             open("nope", None, &shelf, wake.clone()),
             Err(Fault::Unavailable(_))
         ));
-        assert!(matches!(
-            open(KOKORO.id, Some("small"), &shelf, wake),
-            Err(Fault::Unavailable(_))
-        ));
+        for model in [KOKORO.id, PIPER.id] {
+            assert!(matches!(
+                open(model, Some("small"), &shelf, wake.clone()),
+                Err(Fault::Unavailable(_))
+            ));
+        }
         assert_eq!(engines(&shelf), [(SYSTEM, "System voices")]);
     }
 }

@@ -193,6 +193,8 @@ pub struct ReadAloudSettings {
     pub voices: std::collections::BTreeMap<String, String>,
     /// The build each model runs, by model; none is its best one here.
     pub builds: std::collections::BTreeMap<String, String>,
+    /// Each model's own settings by model, then by setting; 1 is normal.
+    pub knobs: std::collections::BTreeMap<String, std::collections::BTreeMap<String, f32>>,
     /// Shares of the voice's own pitch and of full volume.
     pub pitch: f32,
     pub volume: f32,
@@ -214,6 +216,8 @@ impl ReadAloudSettings {
     pub const MEMORY_MB: (u32, u32, u32) = (16, 64, 1024);
     /// The idle times offered, in minutes; 0 is while reading.
     pub const IDLE_MIN: [u32; 5] = [1, 2, 5, 15, 0];
+    /// A model's setting at most, as a share of its normal.
+    pub const KNOB_MOST: f32 = 4.0;
 
     pub fn sanitize(&mut self) {
         let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
@@ -231,6 +235,15 @@ impl ReadAloudSettings {
         if !Self::IDLE_MIN.contains(&self.model_idle_min) {
             self.model_idle_min = Self::default().model_idle_min;
         }
+        for knobs in self.knobs.values_mut() {
+            knobs.retain(|_, v| v.is_finite() && (0.0..=Self::KNOB_MOST).contains(v));
+        }
+        self.knobs.retain(|_, knobs| !knobs.is_empty());
+    }
+
+    /// The engine in use's own settings; none set is empty.
+    pub fn knobs(&self) -> std::collections::BTreeMap<String, f32> {
+        self.knobs.get(&self.engine).cloned().unwrap_or_default()
     }
 
     /// How long an unused model stays loaded; `None` while reading.
@@ -260,6 +273,7 @@ impl Default for ReadAloudSettings {
             engine: Self::SYSTEM.to_owned(),
             voices: std::collections::BTreeMap::new(),
             builds: std::collections::BTreeMap::new(),
+            knobs: std::collections::BTreeMap::new(),
             pitch: 1.0,
             volume: 1.0,
             speech_memory_mb: Self::MEMORY_MB.1,

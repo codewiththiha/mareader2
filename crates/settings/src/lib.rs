@@ -243,6 +243,12 @@ mod tests {
         s.read_aloud.engine = " ".into();
         s.read_aloud.speech_memory_mb = 0;
         s.read_aloud.model_idle_min = 7;
+        let knobs = [("expression", 0.5), ("rhythm", f32::NAN), ("wild", 99.0)];
+        let knobs = knobs.map(|(k, v)| (k.to_owned(), v)).into();
+        s.read_aloud.knobs.insert("piper".into(), knobs);
+        s.read_aloud
+            .knobs
+            .insert("gone".into(), [("x".into(), -1.0)].into());
         let mut shadow = builtin_presets().remove(0);
         shadow.name = "Mine".into();
         s.user_presets = vec![shadow];
@@ -254,6 +260,10 @@ mod tests {
         assert_eq!(s.read_aloud.engine, "system");
         assert_eq!(s.read_aloud.speech_memory_mb, 16);
         assert_eq!(s.read_aloud.model_idle_min, 2, "only offered times");
+        let kept = [("piper".into(), [("expression".into(), 0.5)].into())].into();
+        assert_eq!(s.read_aloud.knobs, kept, "only numbers in range stay");
+        s.read_aloud.engine = "piper".into();
+        assert_eq!(s.read_aloud.knobs().get("expression"), Some(&0.5));
         s.read_aloud.model_idle_min = 0;
         assert_eq!(s.read_aloud.model_idle(), None);
         s.read_aloud.model_idle_min = 5;

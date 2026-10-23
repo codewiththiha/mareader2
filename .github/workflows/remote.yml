@@ -196,6 +196,15 @@ jobs:
         run: |
           set -o pipefail
           cargo run -q --release --manifest-path tools/kokoro-parity/Cargo.toml -- kokoro out
+      # The app's own engine over the model folder, laid out as downloads leave it.
+      - name: Engine
+        if: always()
+        run: |
+          set -o pipefail
+          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
+          MAREADER_KOKORO="$PWD/kokoro" cargo test -q --release -p mareader-speech kokoro -- --nocapture \
+            | tee out/engine.txt
+          { echo; echo '## Engine'; echo; grep 'engine:' out/engine.txt; } >> out/summary.md
       - name: Summary
         if: always()
         run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
@@ -281,6 +290,21 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name: *//p')
           printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
           exit "$status"
+      # The app's own engine over voices laid out as downloads leave them.
+      - name: Engine
+        if: always()
+        run: |
+          set -o pipefail
+          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
+          for v in en_US/ljspeech/medium en_GB/cori/medium; do
+            name=$(echo "$v" | awk -F/ '{print $1"-"$2"-"$3}')
+            mkdir -p "model/en/$v"
+            ln -sf "$PWD/piper/voices/$name.onnx" "$PWD/piper/voices/$name.onnx.json" "model/en/$v/"
+          done
+          ln -sf "$PWD"/piper/g2p/* model/
+          MAREADER_PIPER="$PWD/model" cargo test -q --release -p mareader-speech piper -- --nocapture \
+            | tee out/engine.txt
+          { echo; echo '## Engine'; echo; grep 'engine' out/engine.txt; } >> out/summary.md
       - name: Summary
         if: always()
         run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true

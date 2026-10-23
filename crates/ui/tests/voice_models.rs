@@ -2,7 +2,7 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
-use mareader_speech::{Build, Model, ModelFile, ModelVoice};
+use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::settings_window::Tab;
@@ -20,45 +20,80 @@ const fn file(path: &'static str, bytes: u64) -> ModelFile {
 }
 
 /// A model of a few bytes, from a host that refuses every call.
-const TINY: &[Model] = &[Model {
-    id: "tiny",
-    name: "Tiny",
-    about: "A model for tests",
+const TINY: &[Model] = &[
+    Model {
+        id: "tiny",
+        name: "Tiny",
+        about: "A model for tests",
+        license: "MIT",
+        hosts: &["http://127.0.0.1:9/"],
+        files: &[file("config.json", 4)],
+        builds: &[
+            Build {
+                id: "big",
+                name: "Big",
+                about: "Every weight",
+                file: file("weights.bin", 5),
+            },
+            Build {
+                id: "lite",
+                name: "Lite",
+                about: "Fewer bytes",
+                file: file("lite.bin", 3),
+            },
+        ],
+        voices: &[
+            ModelVoice {
+                id: "ada",
+                name: "Ada",
+                language: "en-US",
+                gender: Gender::Female,
+                file: file("voices/ada.pt", 2),
+                extra: None,
+                note: "",
+            },
+            ModelVoice {
+                id: "bo",
+                name: "Bo",
+                language: "en-GB",
+                gender: Gender::Male,
+                file: file("voices/bo.pt", 3),
+                extra: None,
+                note: "",
+            },
+        ],
+        first_voice: "ada",
+        knobs: &[],
+    },
+    SOLO,
+];
+
+/// A model whose voice is its weights: no builds, a setting of its own.
+const SOLO: Model = Model {
+    id: "solo",
+    name: "Solo",
+    about: "A model with no builds",
     license: "MIT",
     hosts: &["http://127.0.0.1:9/"],
-    files: &[file("config.json", 4)],
-    builds: &[
-        Build {
-            id: "big",
-            name: "Big",
-            about: "Every weight",
-            file: file("weights.bin", 5),
-        },
-        Build {
-            id: "lite",
-            name: "Lite",
-            about: "Fewer bytes",
-            file: file("lite.bin", 3),
-        },
-    ],
-    voices: &[
-        ModelVoice {
-            id: "ada",
-            name: "Ada",
-            language: "en-US",
-            feminine: true,
-            file: file("voices/ada.pt", 2),
-        },
-        ModelVoice {
-            id: "bo",
-            name: "Bo",
-            language: "en-GB",
-            feminine: false,
-            file: file("voices/bo.pt", 3),
-        },
-    ],
-    first_voice: "ada",
-}];
+    files: &[file("words.bin", 4)],
+    builds: &[],
+    voices: &[ModelVoice {
+        id: "cy",
+        name: "Cy",
+        language: "en-US",
+        gender: Gender::Neutral,
+        file: file("cy.onnx", 2),
+        extra: Some(file("cy.onnx.json", 2)),
+        note: "Slower to make",
+    }],
+    first_voice: "cy",
+    knobs: &[Knob {
+        id: "expression",
+        name: "Expression",
+        about: "How much the tone moves",
+        range: (0.0, 1.5),
+    }],
+};
 
 /// The app over `dir`, the Read aloud tab open.
 fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
@@ -187,4 +222,43 @@ fn a_model_not_yet_downloaded_offers_a_build_to_start_with() {
     let h = settings(dir.path());
     let _ = h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "Tiny build");
     let _ = h.get_by_label("Download Tiny");
+}
+
+#[test]
+fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = settings(dir.path());
+    assert!(
+        (h.query_by_role_and_label(egui::accesskit::Role::ComboBox, "Solo build")).is_none(),
+        "nothing to pick"
+    );
+    let _ = h.get_by_label("Download Solo");
+    drop(h);
+    let folder = dir.path().join("solo");
+    std::fs::create_dir_all(&folder).unwrap();
+    for (name, bytes) in [("words.bin", 4), ("cy.onnx", 2), ("cy.onnx.json", 2)] {
+        std::fs::write(folder.join(name), vec![0; bytes]).unwrap();
+    }
+    let mut h = settings(dir.path());
+    assert!(h.query_by_label("Download Solo").is_none());
+    h.get_by_label("Voices…").click();
+    h.run_steps(3);
+    assert!(matches!(tab(&h), Tab::Model(m) if m.id == "solo"));
+    let _ = h.get_by_label("Use Cy");
+    let slider = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Expression");
+    assert_eq!(slider.accesskit_node().numeric_value(), Some(1.0));
+    h.state_mut()
+        .settings_mut()
+        .read_aloud
+        .knobs
+        .insert("solo".into(), [("expression".into(), 0.5)].into());
+    h.run_steps(2);
+    let slider = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Expression");
+    assert_eq!(slider.accesskit_node().numeric_value(), Some(0.5));
+    h.get_by_label("Reset").click();
+    h.run_steps(2);
+    assert!(
+        h.state().settings().read_aloud.knobs.is_empty(),
+        "back as made"
+    );
 }

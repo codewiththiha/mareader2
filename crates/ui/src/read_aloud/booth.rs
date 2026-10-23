@@ -80,6 +80,13 @@ impl Booth {
         };
         v.set_voice(picked);
         v.set_tone(super::spoken::tone(settings));
+        v.set_knobs(
+            &settings
+                .knobs
+                .get(&self.engine)
+                .cloned()
+                .unwrap_or_default(),
+        );
         self.said = self.said.wrapping_add(1);
         match v.say(self.said, line) {
             Ok(()) => {
