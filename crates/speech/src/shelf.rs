@@ -153,7 +153,10 @@ impl Shelf {
         if !self.shared(model) {
             return false;
         }
-        let own = |v: &&crate::ModelVoice| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready;
+        // A voice with no file of its own comes inside every build.
+        let own = |v: &&crate::ModelVoice| {
+            v.file.is_none() || *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready
+        };
         voice == model.first_voice || model.voice(voice).as_ref().is_some_and(own)
     }
 
@@ -164,7 +167,14 @@ impl Shelf {
         }
         let extra = model.voices.iter().filter(|v| v.id != model.first_voice);
         let extra = extra.filter(|v| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready);
-        let builds = self.builds(model).iter().map(|b| b.file.bytes).sum::<u64>();
+        // A file two builds share is on disk once.
+        let mut files: Vec<ModelFile> = Vec::new();
+        for f in self.builds(model).iter().flat_map(|b| b.files()) {
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+        let builds = files.iter().map(|f| f.bytes).sum::<u64>();
         model.bytes() + builds + extra.map(|v| v.bytes()).sum::<u64>()
     }
 
@@ -203,6 +213,7 @@ impl Shelf {
     fn items(model: &'static Model) -> impl Iterator<Item = Item> {
         let builds = model.builds.iter().map(|b| Item::Build(model.id, b.id));
         let voices = model.voices.iter().filter(|v| v.id != model.first_voice);
+        let voices = voices.filter(|v| v.file.is_some());
         let voices = voices.map(|v| Item::Voice(model.id, v.id));
         std::iter::once(Item::Model(model.id))
             .chain(builds)
@@ -272,16 +283,22 @@ impl Shelf {
         match item {
             Item::Model(_) => Some((model, model.core())),
             Item::Build(_, b) => {
-                let file = model.build(b)?.file;
+                let build = model.build(b)?;
                 // The first build comes with what every build shares.
                 let mut files = match self.shared(model) {
                     true => Vec::new(),
                     false => model.core(),
                 };
-                files.push(file);
+                // A file another build here has is that build's to keep.
+                let others = self.builds(model).into_iter().filter(|o| o.id != b);
+                let theirs: Vec<ModelFile> = others.flat_map(|o| o.files()).collect();
+                files.extend(build.files().into_iter().filter(|f| !theirs.contains(f)));
                 Some((model, files))
             }
-            Item::Voice(_, v) => Some((model, model.voice(v)?.files())),
+            Item::Voice(_, v) => {
+                let files = model.voice(v)?.files();
+                (!files.is_empty()).then_some((model, files))
+            }
         }
     }
 }
@@ -303,6 +320,14 @@ impl Shelf {
         for model in catalogue {
             for item in Self::items(model) {
                 if let Some((model, files)) = self.files(item) {
+                    self.stages.insert(item, desk.found(model, &files));
+                }
+            }
+            // Once all builds are known, files one keeps leave the others.
+            for item in Self::items(model).filter(|i| matches!(i, Item::Build(..))) {
+                if *self.stage(item) != Stage::Ready
+                    && let Some((model, files)) = self.files(item)
+                {
                     self.stages.insert(item, desk.found(model, &files));
                 }
             }
@@ -740,6 +765,7 @@ mod tests {
                 bytes: n as u64,
                 sha256: if wrong { sha(b"other") } else { sha(&b) },
                 hosts: None,
+                from: None,
             };
             files.insert(format!("/{id}/{path}"), b);
             file
@@ -761,13 +787,14 @@ mod tests {
                 name: bid,
                 about: "A test build",
                 file,
+                extra: None,
             };
             let voice = |vid: &'static str, file| ModelVoice {
                 id: vid,
                 name: vid,
                 language: "en-US",
                 gender: crate::models::Gender::Female,
-                file,
+                file: Some(file),
                 extra: None,
                 note: "",
             };
@@ -860,6 +887,50 @@ mod tests {
     }
 
     #[test]
+    fn builds_share_a_file_and_voices_inside_them_need_no_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let (models, _) = catalogue(&["kit"], false);
+        let one = models[0];
+        let shared = one.voices[1].file.unwrap();
+        let with = |b: Build| Build {
+            extra: Some(shared),
+            ..b
+        };
+        let inside = ModelVoice {
+            file: None,
+            ..one.voices[1]
+        };
+        let kit = Model {
+            builds: Box::leak(vec![with(one.builds[0]), with(one.builds[1])].into_boxed_slice()),
+            voices: Box::leak(vec![one.voices[0], inside].into_boxed_slice()),
+            ..one
+        };
+        let all: &'static [Model] = Box::leak(vec![kit].into_boxed_slice());
+        let model = &all[0];
+        let mut s = shelf(dir.path(), all);
+        assert!(Shelf::items(model).all(|i| i != Item::Voice("kit", "b")));
+        let (big, lite) = (Item::Build("kit", "big"), Item::Build("kit", "lite"));
+        s.download(big);
+        settle(&mut s, |s| *s.stage(big) == Stage::Ready);
+        assert!(s.has(model, "b"), "it came inside the build");
+        s.download(Item::Voice("kit", "b"));
+        assert_eq!(*s.stage(Item::Voice("kit", "b")), Stage::Absent);
+        s.download(lite);
+        settle(&mut s, |s| *s.stage(lite) == Stage::Ready);
+        assert_eq!(s.on_disk(model), 40 + 2_000 + 300_000 + 100_000 + 3_000);
+        let folder = dir.path().join("kit");
+        s.remove(big);
+        assert!(!folder.join("weights.bin").exists());
+        assert!(
+            folder.join("voices/b.pt").exists(),
+            "the other build keeps it"
+        );
+        let again = shelf(dir.path(), all);
+        assert_eq!(*again.stage(lite), Stage::Ready);
+        assert_eq!(*again.stage(big), Stage::Absent);
+    }
+
+    #[test]
     fn a_model_without_builds_is_ready_alone_and_links_files_another_has() {
         let dir = tempfile::tempdir().unwrap();
         let (models, _) = catalogue(&["one"], false);
@@ -875,8 +946,8 @@ mod tests {
             hosts: &["http://127.0.0.1:9/"],
             builds: &[],
             voices: Box::leak(Box::new([ModelVoice {
-                file: here(a.file),
-                extra: Some(here(b.file)),
+                file: a.file.map(here),
+                extra: b.file.map(here),
                 ..a
             }])),
             ..one

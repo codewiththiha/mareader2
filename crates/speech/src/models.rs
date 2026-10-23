@@ -9,6 +9,8 @@ pub struct ModelFile {
     pub sha256: &'static str,
     /// Its own addresses, when not the model's.
     pub hosts: Option<&'static [&'static str]>,
+    /// Its name there, when not `path`.
+    pub from: Option<&'static str>,
 }
 
 /// How a voice sounds to a listener.
@@ -37,7 +39,8 @@ pub struct ModelVoice {
     /// A BCP 47 tag, as `en-GB`.
     pub language: &'static str,
     pub gender: Gender,
-    pub file: ModelFile,
+    /// None when the voice comes inside every build.
+    pub file: Option<ModelFile>,
     /// A small file the voice needs beside `file`, such as its settings.
     pub extra: Option<ModelFile>,
     /// What sets it apart, as `Slower to make`; empty if nothing.
@@ -47,7 +50,7 @@ pub struct ModelVoice {
 impl ModelVoice {
     /// Every file the voice downloads.
     pub fn files(&self) -> Vec<ModelFile> {
-        std::iter::once(self.file).chain(self.extra).collect()
+        self.file.into_iter().chain(self.extra).collect()
     }
 
     pub fn bytes(&self) -> u64 {
@@ -86,6 +89,19 @@ pub struct Build {
     /// One line on what it trades.
     pub about: &'static str,
     pub file: ModelFile,
+    /// A small file the build needs beside `file`, such as its voices.
+    pub extra: Option<ModelFile>,
+}
+
+impl Build {
+    /// Every file the build downloads.
+    pub fn files(&self) -> Vec<ModelFile> {
+        std::iter::once(self.file).chain(self.extra).collect()
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.files().iter().map(|f| f.bytes).sum()
+    }
 }
 
 /// A model on offer: the engine it becomes once downloaded.
@@ -141,18 +157,19 @@ impl Model {
 
     /// What a first download with `build` weighs.
     pub fn bytes_with(&self, build: &Build) -> u64 {
-        self.bytes() + build.file.bytes
+        self.bytes() + build.bytes()
     }
 
     /// Every address `file` can be fetched from.
     pub fn urls(&self, file: &ModelFile) -> Vec<String> {
         let hosts = file.hosts.unwrap_or(self.hosts);
-        hosts.iter().map(|h| format!("{h}{}", file.path)).collect()
+        let name = file.from.unwrap_or(file.path);
+        hosts.iter().map(|h| format!("{h}{name}")).collect()
     }
 }
 
 /// Every model on offer.
-pub const MODELS: &[Model] = &[KOKORO, PIPER];
+pub const MODELS: &[Model] = &[KOKORO, PIPER, KITTEN];
 
 /// Pinned, so a file never changes under its checksum.
 const KOKORO_HOSTS: &[&str] = &[
@@ -179,6 +196,7 @@ const fn g2p(path: &'static str, bytes: u64, sha256: &'static str) -> ModelFile 
         bytes,
         sha256,
         hosts: Some(G2P_HOSTS),
+        from: None,
     }
 }
 
@@ -239,6 +257,7 @@ pub const KOKORO: Model = Model {
             bytes: 2_351,
             sha256: "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
             hosts: None,
+            from: None,
         },
         G2P[0],
         G2P[1],
@@ -259,7 +278,9 @@ pub const KOKORO: Model = Model {
                 bytes: 327_212_226,
                 sha256: "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
                 hosts: None,
+                from: None,
             },
+            extra: None,
         },
         Build {
             id: "half",
@@ -270,7 +291,9 @@ pub const KOKORO: Model = Model {
                 bytes: 163_728_096,
                 sha256: "341d5e96c2d7f06fc71dbc8d955150a5b6e3a59840f8905cb3fbe9b12120df52",
                 hosts: Some(GGUF_HOSTS),
+                from: None,
             },
+            extra: None,
         },
         Build {
             id: "small",
@@ -281,7 +304,9 @@ pub const KOKORO: Model = Model {
                 bytes: 141_322_336,
                 sha256: "3c8b60064b287a10abd35396a59c9981675c618db8bc91bd290db63f55eb492d",
                 hosts: Some(GGUF_HOSTS),
+                from: None,
             },
+            extra: None,
         },
     ],
     voices: KOKORO_VOICES,
@@ -304,12 +329,13 @@ const fn voice(
             true => Gender::Female,
             false => Gender::Male,
         },
-        file: ModelFile {
+        file: Some(ModelFile {
             path,
             bytes,
             sha256,
             hosts: None,
-        },
+            from: None,
+        }),
         extra: None,
         note: "",
     }
@@ -618,7 +644,7 @@ const fn piper(
         name,
         language,
         gender,
-        file: listed(weights),
+        file: Some(listed(weights)),
         extra: Some(listed(settings)),
         note,
     }
@@ -630,6 +656,7 @@ const fn listed((path, bytes, sha256): Listed) -> ModelFile {
         bytes,
         sha256,
         hosts: None,
+        from: None,
     }
 }
 
@@ -825,6 +852,180 @@ const PIPER_VOICES: &[ModelVoice] = &[
     ),
 ];
 
+/// Each Kitten size is its own repository, every one pinned.
+macro_rules! kitten_hosts {
+    ($repo:literal, $rev:literal) => {
+        &[
+            concat!(
+                "https://huggingface.co/KittenML/",
+                $repo,
+                "/resolve/",
+                $rev,
+                "/"
+            ),
+            concat!(
+                "https://hf-mirror.com/KittenML/",
+                $repo,
+                "/resolve/",
+                $rev,
+                "/"
+            ),
+        ]
+    };
+}
+
+const KITTEN_NANO: &[&str] = kitten_hosts!(
+    "kitten-tts-nano-0.8-fp32",
+    "7a1db645b1f3ab9420761d87428e042b9cec3f26"
+);
+const KITTEN_NANO8: &[&str] = kitten_hosts!(
+    "kitten-tts-nano-0.8-int8",
+    "84781d74e29ee25217551556398b42f80593a813"
+);
+const KITTEN_MICRO: &[&str] = kitten_hosts!(
+    "kitten-tts-micro-0.8",
+    "1ccf72b2c2048fd17efac7de2fab32d10e225084"
+);
+const KITTEN_MINI: &[&str] = kitten_hosts!(
+    "kitten-tts-mini-0.8",
+    "c02725660cea441db4c383af69f1f26f5cd00947"
+);
+
+/// A Kitten file kept as `path`, fetched as `from` off `hosts`.
+const fn kitten_file(
+    (path, from): (&'static str, &'static str),
+    hosts: &'static [&'static str],
+    (bytes, sha256): (u64, &'static str),
+) -> ModelFile {
+    ModelFile {
+        path,
+        bytes,
+        sha256,
+        hosts: Some(hosts),
+        from: Some(from),
+    }
+}
+
+/// The nano builds' voices: one file, so both share it.
+const NANO_VOICES: ModelFile = kitten_file(
+    ("nano-voices.npz", "voices.npz"),
+    KITTEN_NANO,
+    (
+        3_278_902,
+        "8aa7cee235abb0739cb51e6559685f65a4dacd95568833d05699b1633f519b3f",
+    ),
+);
+
+/// Small English models that run on the computer; every build has every voice.
+pub const KITTEN: Model = Model {
+    id: "kitten",
+    name: "Kitten",
+    about: "Light English voices from tiny models, 15 to 80 million parameters",
+    license: "Apache 2.0",
+    hosts: KITTEN_NANO,
+    // American English is all Kitten speaks.
+    files: &[G2P[0], G2P[1], G2P[2], G2P[3], G2P[4]],
+    builds: &[
+        Build {
+            id: "mini",
+            name: "Mini",
+            about: "80 million parameters: the best sound",
+            file: kitten_file(
+                ("mini.onnx", "kitten_tts_mini_v0_8.onnx"),
+                KITTEN_MINI,
+                (
+                    78_268_016,
+                    "0f5bbae4fc4800c98dbc544a87ecfa79510de2fb8222db30d12e5bfe9177df91",
+                ),
+            ),
+            extra: Some(kitten_file(
+                ("mini-voices.npz", "voices.npz"),
+                KITTEN_MINI,
+                (
+                    3_278_902,
+                    "40ad2638952b77b7b2f30127e2608e169fc69dd256b53bd8aaa3409a33193c42",
+                ),
+            )),
+        },
+        Build {
+            id: "micro",
+            name: "Micro",
+            about: "40 million parameters: near the best, sooner heard",
+            file: kitten_file(
+                ("micro.onnx", "kitten_tts_micro_v0_8.onnx"),
+                KITTEN_MICRO,
+                (
+                    41_384_970,
+                    "95481626fee1ba70ce683e69c534fc7cb38433c46ce42d3abbeafb4b9f1a4123",
+                ),
+            ),
+            extra: Some(kitten_file(
+                ("micro-voices.npz", "voices.npz"),
+                KITTEN_MICRO,
+                (
+                    3_278_902,
+                    "112710c1be8ad0e967c190fb0fd95cbe5848ec4791b93209f20b28b7da20dac1",
+                ),
+            )),
+        },
+        Build {
+            id: "nano",
+            name: "Nano",
+            about: "15 million parameters: the quickest",
+            file: kitten_file(
+                ("nano.onnx", "kitten_tts_nano_v0_8.onnx"),
+                KITTEN_NANO,
+                (
+                    56_767_095,
+                    "320564d2615f235de972ca27a7f39551c94185cfa24ca85b07a29084135f1e5e",
+                ),
+            ),
+            extra: Some(NANO_VOICES),
+        },
+        Build {
+            id: "nano8",
+            name: "Nano 8-bit",
+            about: "Nano in 8-bit weights: the smallest download, a little rougher",
+            file: kitten_file(
+                ("nano-8bit.onnx", "kitten_tts_nano_v0_8.onnx"),
+                KITTEN_NANO8,
+                (
+                    24_369_971,
+                    "f7b0afcbee92870b32b8e0276d855b954dc25470c9f051b376ac7eee537c76fc",
+                ),
+            ),
+            extra: Some(NANO_VOICES),
+        },
+    ],
+    voices: KITTEN_VOICES,
+    first_voice: "expr-voice-2-f",
+    knobs: &[],
+};
+
+/// A voice inside every Kitten build.
+const fn kitten_voice(id: &'static str, name: &'static str, gender: Gender) -> ModelVoice {
+    ModelVoice {
+        id,
+        name,
+        language: "en-US",
+        gender,
+        file: None,
+        extra: None,
+        note: "",
+    }
+}
+
+const KITTEN_VOICES: &[ModelVoice] = &[
+    kitten_voice("expr-voice-2-f", "Bella", Gender::Female),
+    kitten_voice("expr-voice-2-m", "Jasper", Gender::Male),
+    kitten_voice("expr-voice-3-f", "Luna", Gender::Female),
+    kitten_voice("expr-voice-3-m", "Bruno", Gender::Male),
+    kitten_voice("expr-voice-4-f", "Rosie", Gender::Female),
+    kitten_voice("expr-voice-4-m", "Hugo", Gender::Male),
+    kitten_voice("expr-voice-5-f", "Kiki", Gender::Female),
+    kitten_voice("expr-voice-5-m", "Leo", Gender::Male),
+];
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -839,7 +1040,7 @@ mod tests {
                 model.id
             );
             let all = (model.files.iter().copied())
-                .chain(model.builds.iter().map(|b| b.file))
+                .chain(model.builds.iter().flat_map(|b| b.files()))
                 .chain(model.voices.iter().flat_map(|v| v.files()));
             for f in all {
                 assert!(f.bytes > 0, "{}", f.path);
@@ -853,13 +1054,14 @@ mod tests {
                 assert_eq!(model.builds.iter().filter(|c| c.id == b.id).count(), 1);
             }
             for f in (model.core().into_iter())
-                .chain(model.builds.iter().map(|b| b.file))
+                .chain(model.builds.iter().flat_map(|b| b.files()))
                 .chain(model.voices.iter().flat_map(|v| v.files()))
             {
                 let urls = model.urls(&f);
                 assert!(urls.len() > 1, "{} has no mirror", f.path);
                 assert!(urls.iter().all(|u| u.starts_with("https://")));
-                assert!(urls.iter().all(|u| u.ends_with(f.path)));
+                let name = f.from.unwrap_or(f.path);
+                assert!(urls.iter().all(|u| u.ends_with(name)));
             }
         }
     }
@@ -881,8 +1083,9 @@ mod tests {
         assert!(sizes.windows(2).all(|w| w[0] > w[1]));
         assert_eq!(KOKORO.voices.len(), 28);
         for v in KOKORO.voices {
-            assert_eq!(v.files(), [v.file]);
-            assert_eq!(v.file.path, format!("voices/{}.pt", v.id));
+            let file = v.file.unwrap();
+            assert_eq!(v.files(), [file]);
+            assert_eq!(file.path, format!("voices/{}.pt", v.id));
         }
     }
 
@@ -915,6 +1118,30 @@ mod tests {
         assert_eq!(knob.clamp(None), 1.0);
         assert_eq!(knob.clamp(Some(f32::NAN)), 1.0);
         assert_eq!(knob.clamp(Some(9.0)), knob.range.1);
+    }
+
+    #[test]
+    fn each_kitten_build_brings_its_voices_and_every_voice_comes_with_it() {
+        assert_eq!(KITTEN.files, &G2P[..5]);
+        assert_eq!(KITTEN.bytes(), 10_606_674);
+        let ids: Vec<&str> = KITTEN.builds.iter().map(|b| b.id).collect();
+        assert_eq!(ids, ["mini", "micro", "nano", "nano8"]);
+        let nano = |id| KITTEN.build(id).unwrap().extra;
+        assert_eq!(nano("nano"), nano("nano8"), "one voices file for both");
+        assert_eq!(nano("nano").unwrap().path, "nano-voices.npz");
+        for b in KITTEN.builds {
+            let [onnx, voices] = b.files()[..] else {
+                panic!("{} brings weights and voices", b.id);
+            };
+            assert!(onnx.path.ends_with(".onnx") && voices.path.ends_with(".npz"));
+            assert_eq!(voices.from, Some("voices.npz"));
+            assert_eq!(b.bytes(), onnx.bytes + 3_278_902);
+        }
+        let url = KITTEN.urls(&KITTEN.build("micro").unwrap().file);
+        assert!(url[0].ends_with("kitten-tts-micro-0.8/resolve/1ccf72b2c2048fd17efac7de2fab32d10e225084/kitten_tts_micro_v0_8.onnx"));
+        assert_eq!(KITTEN.voices.len(), 8);
+        assert!(KITTEN.voices.iter().all(|v| v.files().is_empty()));
+        assert!(KITTEN.core().iter().all(|f| KITTEN.files.contains(f)));
     }
 
     #[test]

@@ -140,7 +140,7 @@ fn scales(own: Scales, line: &Line<'_>) -> Scales {
 }
 
 /// Phonemes split at clauses: a short first if `lead`, none past [`LONGEST`].
-fn pieces(phonemes: &str, lead: bool) -> Vec<String> {
+pub(crate) fn pieces(phonemes: &str, lead: bool) -> Vec<String> {
     let clauses = phonemes.split_inclusive([',', ';', ':']);
     let parts = clauses.flat_map(|clause| {
         // A clause too long alone is split between words.
@@ -269,12 +269,14 @@ mod tests {
         let mut files = HashMap::new();
         let mut voices = Vec::new();
         for v in model.voices.iter().filter(|v| v.note.is_empty()) {
-            let Some(settings) = v.extra else { continue };
-            if !dir.join(v.file.path).exists() {
+            let (Some(weights), Some(settings)) = (v.file, v.extra) else {
+                continue;
+            };
+            if !dir.join(weights.path).exists() {
                 continue;
             }
             let name: Arc<str> = format!("Piper ({})", v.name).into();
-            let (weights, settings) = (dir.join(v.file.path), dir.join(settings.path));
+            let (weights, settings) = (dir.join(weights.path), dir.join(settings.path));
             files.insert(
                 v.id.to_owned(),
                 Files {
