@@ -14,6 +14,7 @@ chooses per session, and the user can override the choice at any time.
 | Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
 | Kokoro parity | none (needs the 650 MB model and builds) | `python3 tools/ci.py kokoro --ref BRANCH` |
 | Piper parity | none (needs six voices and onnxruntime) | `python3 tools/ci.py piper --ref BRANCH` |
+| Kitten parity | none (needs four builds and onnxruntime) | `python3 tools/ci.py kitten --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -239,6 +240,32 @@ sides speak those same ids.
 - **The engine.** The app's own Piper engine then speaks two sentences from
   two voices laid out as downloads leave them, and the summary gains when the
   first sound was ready. The kokoro task does the same for Kokoro.
+
+## Kitten parity from CI
+
+`python3 tools/ci.py kitten --ref BRANCH --rev SHA` runs `tools/kitten-parity`
+on Kitten's four pinned builds: Nano in full precision and 8-bit, Micro and
+Mini. Our G2P writes ten sentences' phonemes and ids once, the voice rotating
+through all eight; both sides speak those same ids at speed 1.
+
+- **Seeded alike.** The reference graph's random nodes are swapped for our
+  seeded noise and fixed phases, so `mareader-kokoro` must match onnxruntime
+  on full-precision Nano: equal durations and length in at least 80% of
+  sentences and waveform correlation of 0.99 or more. Silenced noise would not
+  do: unvoiced stretches then turn constant, and their spectrum's empty bins
+  get phases from rounding alone.
+- **Weights by name.** Every build must yield each weight full-precision Nano
+  does, since a missing norm or bias would otherwise load as its default. An
+  export that merged identical norms drops their nodes; those count apart, as
+  Mini's norms are all 1 and 0.
+- **Every build.** Total length within 10% and RMS within 25%. The 8-bit
+  builds round activations as onnxruntime runs them, so their waves differ.
+- **Phonemes.** Ours against espeak's, as for Piper, under 25% error. espeak
+  and onnxruntime are installed in this job only.
+- **Where it lands.** `target/remote/kitten/summary.md`, with the sizes read
+  from each file, load time, real-time factors and the first takes as WAV.
+- **The engine.** The app's own Kitten engine then speaks two sentences from
+  a Nano build laid out as downloads leave it.
 
 ## The sandbox cache
 

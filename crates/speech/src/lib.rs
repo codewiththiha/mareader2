@@ -10,6 +10,8 @@
 )]
 
 #[cfg(not(target_arch = "wasm32"))]
+mod kitten;
+#[cfg(not(target_arch = "wasm32"))]
 mod kokoro;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
@@ -28,7 +30,9 @@ mod system;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-pub use models::{Build, Gender, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER};
+pub use models::{
+    Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER,
+};
 pub use script::{Glyph, Script, Sentence, Spot};
 pub use sentences::{LONGEST, split};
 pub use shelf::{Item, Shelf, Stage};
@@ -180,11 +184,13 @@ const SAMPLES: [(&str, &str); 12] = [
     ("zh", "这就是您的书被朗读时的声音。"),
 ];
 
+/// The models with an engine, by id.
+const RUNNABLE: [&str; 3] = [KOKORO.id, PIPER.id, KITTEN.id];
+
 /// The engines to pick from, by id and name: the system's, then models ready.
 pub fn engines(shelf: &Shelf) -> Vec<(&'static str, &'static str)> {
     // A browser build runs no model yet.
-    let runs =
-        |m: &&Model| cfg!(not(target_arch = "wasm32")) && [KOKORO.id, PIPER.id].contains(&m.id);
+    let runs = |m: &&Model| cfg!(not(target_arch = "wasm32")) && RUNNABLE.contains(&m.id);
     let models = shelf
         .ready()
         .into_iter()
@@ -207,33 +213,47 @@ pub fn open(
         SYSTEM => Ok(Box::new(system::System::new(wake)?)),
         SILENT => Ok(Box::new(silent::Silent::default())),
         #[cfg(not(target_arch = "wasm32"))]
-        id if id == KOKORO.id || id == PIPER.id => {
+        id if RUNNABLE.contains(&id) => {
             let ready = shelf.ready().into_iter().find(|m| m.id == id);
             let folder = ready.and_then(|m| shelf.folder(m));
             let (Some(model), Some(folder)) = (ready, folder) else {
                 let name = shelf.model(id).map_or(id, |m| m.name);
                 return Err(Fault::Unavailable(format!("{name} isn't downloaded")));
             };
+            if model.builds.is_empty() {
+                return Ok(Box::new(open_piper(model, folder, shelf, wake)?));
+            }
+            let build = shelf.build(model, build).ok_or_else(|| {
+                Fault::Unavailable(format!("{} has no build downloaded", model.name))
+            })?;
+            let name: Arc<str> = label(model, build).into();
+            let setup = |speeds| local::Setup {
+                name: Arc::clone(&name),
+                voices: voices_here(model, shelf),
+                speeds,
+                knobs: model.knobs,
+            };
             let studio = shelf.studio().clone();
-            let engine = match model.builds.is_empty() {
-                true => open_piper(model, folder, shelf, wake)?,
+            let engine = match model.id == KITTEN.id {
+                true => {
+                    let source = kitten::Source {
+                        weights: folder.join(build.file.path),
+                        voices: folder.join(build.extra.map_or("", |f| f.path)),
+                        folder,
+                        name: Arc::clone(&name),
+                        nano: build.id.starts_with("nano"),
+                    };
+                    let synth = kitten::Kitten::new(source, studio.clone());
+                    local::Engine::open(synth, setup(kitten::SPEEDS), studio, wake)?
+                }
                 false => {
-                    let build = shelf.build(model, build).ok_or_else(|| {
-                        Fault::Unavailable(format!("{} has no build downloaded", model.name))
-                    })?;
                     let source = kokoro::Source {
                         weights: folder.join(build.file.path),
                         folder,
-                        name: label(model, build).into(),
-                    };
-                    let setup = local::Setup {
-                        name: Arc::clone(&source.name),
-                        voices: voices_here(model, shelf),
-                        speeds: kokoro::SPEEDS,
-                        knobs: model.knobs,
+                        name: Arc::clone(&name),
                     };
                     let synth = kokoro::Kokoro::new(source, studio.clone());
-                    local::Engine::open(synth, setup, studio, wake)?
+                    local::Engine::open(synth, setup(kokoro::SPEEDS), studio, wake)?
                 }
             };
             Ok(Box::new(engine))
@@ -255,9 +275,11 @@ fn open_piper(
 ) -> Result<local::Engine, Fault> {
     let mut files = std::collections::HashMap::new();
     for v in model.voices.iter().filter(|v| shelf.has(model, v.id)) {
-        let Some(settings) = v.extra else { continue };
+        let (Some(weights), Some(settings)) = (v.file, v.extra) else {
+            continue;
+        };
         let found = piper::Files {
-            weights: folder.join(v.file.path),
+            weights: folder.join(weights.path),
             settings: folder.join(settings.path),
             name: format!("{} ({})", model.name, v.name).into(),
         };
@@ -360,7 +382,7 @@ mod tests {
             open("nope", None, &shelf, wake.clone()),
             Err(Fault::Unavailable(_))
         ));
-        for model in [KOKORO.id, PIPER.id] {
+        for model in RUNNABLE {
             assert!(matches!(
                 open(model, Some("small"), &shelf, wake.clone()),
                 Err(Fault::Unavailable(_))

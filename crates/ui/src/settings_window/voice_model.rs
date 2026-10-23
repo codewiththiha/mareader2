@@ -23,6 +23,8 @@ pub fn tab(
         builds(ui, s, model, shelf, out);
     }
     section(ui, "Voices");
+    // Voices with no file of their own come inside every build.
+    let inside = model.voices.iter().all(|v| v.file.is_none());
     // A voice picked, then removed, falls back to the first.
     let picked = s.voices.get(model.id).and_then(|v| model.voice(v));
     let picked = picked
@@ -33,17 +35,25 @@ pub fn tab(
         let shown: Vec<&'static ModelVoice> = (model.voices.iter())
             .filter(|v| shown.is_none_or(|l| v.language == l))
             .collect();
-        every_voice(ui, model, &shown, shelf, out);
-        for voice in shown {
-            divider(ui);
+        if !inside {
+            every_voice(ui, model, &shown, shelf, out);
+        }
+        for (i, voice) in shown.into_iter().enumerate() {
+            if i > 0 || !inside {
+                divider(ui);
+            }
             if let Some(id) = voice_row(ui, (model, voice), picked == voice.id, shelf, out) {
                 s.voices.insert(model.id.to_owned(), id.to_owned());
             }
         }
     });
+    let offline = match inside {
+        true => "Every voice comes with each build and works offline.",
+        false => "Each voice works offline once downloaded.",
+    };
     note(
         ui,
-        "Reading with this model uses the voice picked here. Each voice works offline once downloaded.",
+        &format!("Reading with this model uses the voice picked here. {offline}"),
     );
     if !model.knobs.is_empty() {
         sound(ui, s, model);
@@ -131,11 +141,19 @@ fn builds(
             }
         }
     });
-    note(
-        ui,
-        "Builds share the voices. A smaller build saves download and disk; \
-         each takes the same memory once loaded.",
-    );
+    // Builds that bring their own voices are models of their own sizes.
+    let own = model.builds.iter().any(|b| b.extra.is_some());
+    let about = match own {
+        true => {
+            "Each build is a model of its own size: a larger one sounds better, \
+                 a smaller one speaks sooner and takes less memory."
+        }
+        false => {
+            "Builds share the voices. A smaller build saves download and disk; \
+                  each takes the same memory once loaded."
+        }
+    };
+    note(ui, about);
 }
 
 /// One build: used, or its download; true when picked now.
@@ -154,7 +172,7 @@ fn build_row(
         ui.spacing_mut().item_spacing.x = 6.0;
         let stage = shelf.stage(item);
         if *stage != Stage::Ready {
-            controls(ui, stage, (item, &name, build.file.bytes), out);
+            controls(ui, stage, (item, &name, build.bytes()), out);
             return;
         }
         pick = radio(ui, on, &format!("Use {}", build.name));
@@ -162,7 +180,7 @@ fn build_row(
         if here > 1 {
             remove(ui, &t, (item, &name), out);
         }
-        muted(ui, &t, &megabytes(build.file.bytes));
+        muted(ui, &t, &megabytes(build.bytes()));
     });
     pick
 }
@@ -263,7 +281,7 @@ fn voice_row(
             pick = Some(voice.id);
         }
         // The first voice came with the model and goes with it.
-        if voice.id != model.first_voice {
+        if voice.id != model.first_voice && voice.file.is_some() {
             remove(ui, &t, (item, voice.name), out);
         }
     });

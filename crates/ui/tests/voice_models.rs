@@ -16,6 +16,7 @@ const fn file(path: &'static str, bytes: u64) -> ModelFile {
         bytes,
         sha256: NO_SUM,
         hosts: None,
+        from: None,
     }
 }
 
@@ -34,12 +35,14 @@ const TINY: &[Model] = &[
                 name: "Big",
                 about: "Every weight",
                 file: file("weights.bin", 5),
+                extra: None,
             },
             Build {
                 id: "lite",
                 name: "Lite",
                 about: "Fewer bytes",
                 file: file("lite.bin", 3),
+                extra: None,
             },
         ],
         voices: &[
@@ -48,7 +51,7 @@ const TINY: &[Model] = &[
                 name: "Ada",
                 language: "en-US",
                 gender: Gender::Female,
-                file: file("voices/ada.pt", 2),
+                file: Some(file("voices/ada.pt", 2)),
                 extra: None,
                 note: "",
             },
@@ -57,7 +60,7 @@ const TINY: &[Model] = &[
                 name: "Bo",
                 language: "en-GB",
                 gender: Gender::Male,
-                file: file("voices/bo.pt", 3),
+                file: Some(file("voices/bo.pt", 3)),
                 extra: None,
                 note: "",
             },
@@ -66,6 +69,7 @@ const TINY: &[Model] = &[
         knobs: &[],
     },
     SOLO,
+    DUO,
 ];
 
 /// A model whose voice is its weights: no builds, a setting of its own.
@@ -82,7 +86,7 @@ const SOLO: Model = Model {
         name: "Cy",
         language: "en-US",
         gender: Gender::Neutral,
-        file: file("cy.onnx", 2),
+        file: Some(file("cy.onnx", 2)),
         extra: Some(file("cy.onnx.json", 2)),
         note: "Slower to make",
     }],
@@ -93,6 +97,51 @@ const SOLO: Model = Model {
         about: "How much the tone moves",
         range: (0.0, 1.5),
     }],
+};
+
+/// The voices both of Duo's builds bring.
+const PACK: ModelFile = file("voices.npz", 3);
+
+/// A voice inside every build, with no file of its own.
+const fn inside(id: &'static str, name: &'static str) -> ModelVoice {
+    ModelVoice {
+        id,
+        name,
+        language: "en-US",
+        gender: Gender::Neutral,
+        file: None,
+        extra: None,
+        note: "",
+    }
+}
+
+/// A model whose builds bring its voices, sharing one file.
+const DUO: Model = Model {
+    id: "duo",
+    name: "Duo",
+    about: "A model whose builds hold its voices",
+    license: "MIT",
+    hosts: &["http://127.0.0.1:9/"],
+    files: &[file("words.bin", 4)],
+    builds: &[
+        Build {
+            id: "large",
+            name: "Large",
+            about: "More weights",
+            file: file("large.onnx", 6),
+            extra: Some(PACK),
+        },
+        Build {
+            id: "small",
+            name: "Small",
+            about: "Fewer weights",
+            file: file("small.onnx", 2),
+            extra: Some(PACK),
+        },
+    ],
+    voices: &[inside("eve", "Eve"), inside("max", "Max")],
+    first_voice: "eve",
+    knobs: &[],
 };
 
 /// The app over `dir`, the Read aloud tab open.
@@ -261,4 +310,41 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
         h.state().settings().read_aloud.knobs.is_empty(),
         "back as made"
     );
+}
+
+#[test]
+fn voices_inside_the_builds_need_no_download_and_builds_share_their_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("duo");
+    std::fs::create_dir_all(&folder).unwrap();
+    let files = [
+        ("words.bin", 4),
+        ("large.onnx", 6),
+        ("small.onnx", 2),
+        ("voices.npz", 3),
+    ];
+    for (name, bytes) in files {
+        std::fs::write(folder.join(name), vec![0; bytes]).unwrap();
+    }
+    let mut h = settings(dir.path());
+    let model = TINY.get(2).unwrap();
+    h.state_mut()
+        .queue(Command::OpenSettings(Tab::Model(model)));
+    h.run_steps(3);
+    assert!(h.query_by_label("All voices").is_none(), "nothing to fetch");
+    assert!(h.query_by_label("Download Max").is_none());
+    assert!(h.query_by_label("Remove Max").is_none());
+    h.get_by_label("Use Max").click();
+    h.run_steps(2);
+    let voices = &h.state().settings().read_aloud.voices;
+    assert_eq!(voices.get("duo").map(String::as_str), Some("max"));
+    h.get_by_label("Remove Duo (Large)").click();
+    h.run_steps(3);
+    assert!(!folder.join("large.onnx").exists());
+    assert!(
+        folder.join("voices.npz").exists(),
+        "the small build keeps it"
+    );
+    let _ = h.get_by_label("Use Max");
+    let _ = h.get_by_label("Use Small");
 }
