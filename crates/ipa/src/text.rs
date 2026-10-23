@@ -100,9 +100,9 @@ fn word_len(text: &str) -> usize {
     len
 }
 
-/// Accents typed apart from their letter.
+/// Accents typed apart from their letter; Devanagari virama and nukta.
 fn is_mark(ch: char) -> bool {
-    ('\u{300}'..='\u{36f}').contains(&ch)
+    ('\u{300}'..='\u{36f}').contains(&ch) || matches!(ch, '\u{93c}' | '\u{94d}')
 }
 
 /// Digits, with `.` or `,` only between them.
