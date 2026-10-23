@@ -3678,6 +3678,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-hanzi"
+version = "0.0.3"
+
+[[package]]
 name = "mareader-ipa"
 version = "0.0.3"
 

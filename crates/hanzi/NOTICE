@@ -1,0 +1,28 @@
+mareader-hanzi reimplements the Chinese reader Kokoro-82M uses: misaki's
+first ZHG2P, with the segmenter, pinyin and number rules it calls.
+
+  misaki ZHG2P and its pinyin-to-IPA table — https://github.com/hexgrad/misaki
+  Apache License 2.0. The table is adapted there from pinyin-to-ipa,
+  https://github.com/stefantaubert/pinyin-to-ipa, MIT License.
+
+  jieba 0.42.1 — https://github.com/fxsjy/jieba
+  Copyright (c) 2013 Sun Junyi. MIT License. Its word graph, its route by
+  word counts and its hidden Markov model are reimplemented; the start and
+  transition odds are copied from finalseg.
+
+  pypinyin 0.55.0 — https://github.com/mozillazg/python-pinyin
+  Copyright (c) 2016 mozillazg, 闲耘 <hotoo.cn@gmail.com>. MIT License. Its
+  phrase matching and tone handling are reimplemented.
+
+  cn2an 0.5.24 — https://github.com/Ailln/cn2an
+  Copyright (c) 2017 Ailln. MIT License. Its digits-to-numerals transform is
+  reimplemented.
+
+The data the app downloads at run time, unchanged, from pinned commits:
+
+  pinyin_dict.json, phrases_dict.json — pypinyin 0.55.0, commit
+  df101577145af2eb1abe5656e592e34e3bb56d23, built from pinyin-data and
+  phrase-pinyin-data (its pinyin.txt, not the CC-CEDICT one). MIT License.
+
+  dict.txt, finalseg/prob_emit.py — jieba 0.42.1, commit
+  1e20c89b66f56c9301b0feed211733ffaa1bd72a. MIT License.
