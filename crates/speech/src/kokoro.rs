@@ -185,18 +185,33 @@ mod tests {
             return;
         };
         let dir = PathBuf::from(dir);
+        let english = engine(&dir, ("af_heart", "Heart", "en-US"));
+        crate::local::tests::live(english, "kokoro engine");
+        // Chinese reads from the dictionaries its voices download.
+        if dir.join("hanzi").is_dir() {
+            let chinese = engine(&dir, ("zf_xiaobei", "Xiaobei", "zh-CN"));
+            let lines = (
+                "我们今天去北京天安门，看看那里的风景。",
+                "然后我们一起回家吃饭。",
+            );
+            crate::local::tests::live_saying(chinese, "kokoro engine in Chinese", lines);
+        }
+    }
+
+    /// Kokoro's engine over the model in `dir`, with only `voice`.
+    fn engine(dir: &Path, (id, voice, language): (&str, &str, &str)) -> Engine {
         let name: Arc<str> = "Kokoro (Full)".into();
         let source = Source {
             weights: dir.join(mareader_kokoro::WEIGHTS),
-            folder: dir,
+            folder: dir.to_owned(),
             name: Arc::clone(&name),
         };
         let setup = Setup {
             name,
             voices: vec![Voice {
-                id: "af_heart".into(),
-                name: "Heart".into(),
-                language: "en-US".into(),
+                id: id.into(),
+                name: voice.into(),
+                language: language.into(),
             }],
             speeds: SPEEDS,
             knobs: &[],
@@ -204,7 +219,7 @@ mod tests {
         let studio = Studio::default();
         let synth = Kokoro::new(source, studio.clone());
         match Engine::open(synth, setup, studio, std::sync::Arc::new(|| {})) {
-            Ok(e) => crate::local::tests::live(e, "kokoro engine"),
+            Ok(e) => e,
             Err(e) => panic!("{e}"),
         }
     }

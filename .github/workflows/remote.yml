@@ -202,9 +202,26 @@ jobs:
         run: |
           set -o pipefail
           sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
+          # A Chinese voice and the dictionaries, where downloads leave them.
+          hf=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
+          py=https://raw.githubusercontent.com/mozillazg/python-pinyin/df101577145af2eb1abe5656e592e34e3bb56d23/pypinyin
+          jb=https://raw.githubusercontent.com/fxsjy/jieba/1e20c89b66f56c9301b0feed211733ffaa1bd72a/jieba
+          mkdir -p kokoro/hanzi
+          curl -sSfL --retry 3 -o kokoro/voices/zf_xiaobei.pt "$hf/voices/zf_xiaobei.pt"
+          curl -sSfL --retry 3 -o kokoro/hanzi/pinyin_dict.json "$py/pinyin_dict.json"
+          curl -sSfL --retry 3 -o kokoro/hanzi/phrases_dict.json "$py/phrases_dict.json"
+          curl -sSfL --retry 3 -o kokoro/hanzi/dict.txt "$jb/dict.txt"
+          curl -sSfL --retry 3 -o kokoro/hanzi/prob_emit.py "$jb/finalseg/prob_emit.py"
+          sha256sum -c <<'SUMS'
+          9b76be63dab4f4f96962030acc0126a9aee9728608fbbe115e2b58a2bd504df6  kokoro/voices/zf_xiaobei.pt
+          5f294c01e6c6c0a1c8e329c79335a3f8e0b27d06bf1de7a99244b765892d1e5b  kokoro/hanzi/pinyin_dict.json
+          a45ff140a6b631ca9c82127b280a2f414e0aba6bb2824a0e9d1e77fff359c665  kokoro/hanzi/phrases_dict.json
+          7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8  kokoro/hanzi/dict.txt
+          27d46b1c9efe4dd148fde8be042a21be40e3562d0c7f1273f9de7abae12ebb8d  kokoro/hanzi/prob_emit.py
+          SUMS
           MAREADER_KOKORO="$PWD/kokoro" cargo test -q --release -p mareader-speech kokoro -- --nocapture \
             | tee out/engine.txt
-          { echo; echo '## Engine'; echo; grep 'engine:' out/engine.txt; } >> out/summary.md
+          { echo; echo '## Engine'; echo; grep -E 'engine( in [A-Z][a-z]+)?:' out/engine.txt; } >> out/summary.md
       - name: Summary
         if: always()
         run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
