@@ -160,13 +160,45 @@ impl Shelf {
         voice == model.first_voice || model.voice(voice).as_ref().is_some_and(own)
     }
 
+    /// The files of `model`'s extra voices here, but for `except`'s.
+    fn kept_by_voices(&self, model: &Model, except: Option<&str>) -> Vec<ModelFile> {
+        let here = |v: &&crate::ModelVoice| {
+            Some(v.id) != except
+                && v.id != model.first_voice
+                && *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready
+        };
+        let mut files: Vec<ModelFile> = Vec::new();
+        for f in model.voices.iter().filter(here).flat_map(|v| v.files()) {
+            if !files.contains(&f) {
+                files.push(f);
+            }
+        }
+        files
+    }
+
+    /// What getting `voices` would fetch: files here or shared count once.
+    pub fn to_fetch(&self, model: &Model, voices: &[&crate::ModelVoice]) -> u64 {
+        let mut seen = self.kept_by_voices(model, None);
+        let mut bytes = 0;
+        for f in voices.iter().flat_map(|v| v.files()) {
+            if !seen.contains(&f) {
+                bytes += f.bytes;
+                seen.push(f);
+            }
+        }
+        bytes
+    }
+
     /// The bytes `model` keeps on disk once downloaded.
     pub fn on_disk(&self, model: &Model) -> u64 {
         if !self.shared(model) {
             return 0;
         }
-        let extra = model.voices.iter().filter(|v| v.id != model.first_voice);
-        let extra = extra.filter(|v| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready);
+        let voices: u64 = self
+            .kept_by_voices(model, None)
+            .iter()
+            .map(|f| f.bytes)
+            .sum();
         // A file two builds share is on disk once.
         let mut files: Vec<ModelFile> = Vec::new();
         for f in self.builds(model).iter().flat_map(|b| b.files()) {
@@ -175,7 +207,7 @@ impl Shelf {
             }
         }
         let builds = files.iter().map(|f| f.bytes).sum::<u64>();
-        model.bytes() + builds + extra.map(|v| v.bytes()).sum::<u64>()
+        model.bytes() + builds + voices
     }
 
     /// Takes in what downloads sent; true if anything changed.
@@ -297,7 +329,13 @@ impl Shelf {
             }
             Item::Voice(_, v) => {
                 let files = model.voice(v)?.files();
-                (!files.is_empty()).then_some((model, files))
+                if files.is_empty() {
+                    return None;
+                }
+                // A file another voice here has is that voice's to keep.
+                let theirs = self.kept_by_voices(model, Some(v));
+                let own = files.into_iter().filter(|f| !theirs.contains(f));
+                Some((model, own.collect()))
             }
         }
     }
@@ -323,8 +361,9 @@ impl Shelf {
                     self.stages.insert(item, desk.found(model, &files));
                 }
             }
-            // Once all builds are known, files one keeps leave the others.
-            for item in Self::items(model).filter(|i| matches!(i, Item::Build(..))) {
+            // Once all are known, files one keeps leave the others.
+            let kept = |i: &Item| matches!(i, Item::Build(..) | Item::Voice(..));
+            for item in Self::items(model).filter(kept) {
                 if *self.stage(item) != Stage::Ready
                     && let Some((model, files)) = self.files(item)
                 {
@@ -778,6 +817,9 @@ mod tests {
             let lite = listed(id, "lite.bin", 100_000, seed + 4);
             let a = listed(id, "voices/a.pt", 2_000, seed + 2);
             let b = listed(id, "voices/b.pt", 3_000, seed + 3);
+            // Served for tests that add a voice and a file voices share.
+            listed(id, "voices/c.pt", 1_000, seed + 5);
+            listed(id, "words.txt", 5_000, seed + 6);
             specs.push((leak((*id).to_owned()), config, [weights, lite], [a, b]));
         }
         let host = serve(files.clone());
@@ -796,6 +838,7 @@ mod tests {
                 gender: crate::models::Gender::Female,
                 file: Some(file),
                 extra: None,
+                shared: &[],
                 note: "",
             };
             let hosts: &'static [&'static str] =
@@ -928,6 +971,62 @@ mod tests {
         let again = shelf(dir.path(), all);
         assert_eq!(*again.stage(lite), Stage::Ready);
         assert_eq!(*again.stage(big), Stage::Absent);
+    }
+
+    #[test]
+    fn voices_share_a_file_that_stays_while_one_needs_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (models, _) = catalogue(&["zh"], false);
+        let one = models[0];
+        let made = |path: &'static str, n: usize, seed: u8| ModelFile {
+            path,
+            bytes: n as u64,
+            sha256: sha(&body(n, seed)),
+            hosts: None,
+            from: None,
+        };
+        let words: &'static [ModelFile] = Box::leak(Box::new([made("words.txt", 5_000, 6)]));
+        let b = ModelVoice {
+            shared: words,
+            ..one.voices[1]
+        };
+        let c = ModelVoice {
+            id: "c",
+            file: Some(made("voices/c.pt", 1_000, 5)),
+            ..b
+        };
+        let zh = Model {
+            voices: Box::leak(vec![one.voices[0], b, c].into_boxed_slice()),
+            ..one
+        };
+        let all: &'static [Model] = Box::leak(vec![zh].into_boxed_slice());
+        let model = &all[0];
+        let mut s = shelf(dir.path(), all);
+        s.download(Item::Build("zh", "lite"));
+        settle(&mut s, |s| s.ready().len() == 1);
+        let (vb, vc) = (Item::Voice("zh", "b"), Item::Voice("zh", "c"));
+        assert_eq!(s.to_fetch(model, &[&b, &c]), 3_000 + 1_000 + 5_000);
+        s.download(vb);
+        settle(&mut s, |s| s.has(model, "b"));
+        // The second voice fetches only its own file.
+        assert_eq!(s.to_fetch(model, &[&c]), 1_000);
+        s.download(vc);
+        settle(&mut s, |s| s.has(model, "c"));
+        assert_eq!(
+            s.on_disk(model),
+            40 + 100_000 + 2_000 + 3_000 + 1_000 + 5_000
+        );
+        let folder = dir.path().join("zh");
+        s.remove(vb);
+        assert!(!folder.join("voices/b.pt").exists());
+        assert!(folder.join("words.txt").exists(), "c still needs it");
+        assert!(s.has(model, "c") && !s.has(model, "b"));
+        // Found again on the next start, by what is on disk.
+        let again = shelf(dir.path(), all);
+        assert_eq!(*again.stage(vc), Stage::Ready);
+        assert_eq!(*again.stage(vb), Stage::Absent);
+        s.remove(vc);
+        assert!(!folder.join("words.txt").exists(), "the last one takes it");
     }
 
     #[test]

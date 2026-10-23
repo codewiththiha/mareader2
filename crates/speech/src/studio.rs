@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use mareader_g2p::{Dialect, G2p};
+use mareader_hanzi::Hanzi;
 
 use crate::Usage;
 
@@ -140,6 +141,7 @@ struct Inner {
     loading: Mutex<()>,
     american: Slot<G2p>,
     british: Slot<G2p>,
+    hanzi: Slot<Hanzi>,
     takes: Mutex<Takes>,
     idle: Mutex<Option<Duration>>,
 }
@@ -232,6 +234,14 @@ impl Studio {
             Dialect::American => self.0.american.get(load),
             Dialect::British => self.0.british.get(load),
         }
+    }
+
+    /// The Chinese reader, loaded once for every Chinese voice.
+    pub(crate) fn hanzi(
+        &self,
+        load: impl FnOnce() -> Result<Hanzi, String>,
+    ) -> Result<Arc<Hanzi>, String> {
+        self.0.hanzi.get(load)
     }
 }
 
