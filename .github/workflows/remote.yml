@@ -275,7 +275,12 @@ jobs:
           # espeak and onnxruntime come with piper-tts, here only, never in the app.
           python3 -m venv .ref && .ref/bin/pip install -q piper-tts==1.3.0
           .ref/bin/python tools/piper-parity/reference.py piper/voices out
-          "$bin" compare piper/voices out
+          status=0
+          "$bin" compare piper/voices out || status=$?
+          # Speeds only compare on like hardware; runners vary.
+          cpu=$(lscpu | sed -n 's/^Model name: *//p')
+          printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
+          exit "$status"
       - name: Summary
         if: always()
         run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
