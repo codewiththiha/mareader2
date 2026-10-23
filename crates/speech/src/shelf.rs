@@ -2,12 +2,14 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use crate::models::{MODELS, Model, ModelFile};
+use crate::models::{Build, MODELS, Model, ModelFile};
 
-/// One download: a model's own files, or one of its voices.
+/// One download: a model's shared files, a build of it, or a voice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Item {
     Model(&'static str),
+    /// A model's id, then the build's; brings the shared files if missing.
+    Build(&'static str, &'static str),
     /// A model's id, then the voice's.
     Voice(&'static str, &'static str),
 }
@@ -15,7 +17,7 @@ pub enum Item {
 impl Item {
     pub fn model(self) -> &'static str {
         match self {
-            Self::Model(m) | Self::Voice(m, _) => m,
+            Self::Model(m) | Self::Build(m, _) | Self::Voice(m, _) => m,
         }
     }
 }
@@ -121,15 +123,33 @@ impl Shelf {
         self.stages.get(&item).unwrap_or(&ABSENT)
     }
 
-    /// The models downloaded whole, in offer order.
+    /// The models downloaded whole, with a build, in offer order.
     pub fn ready(&self) -> Vec<&'static Model> {
-        let ready = |m: &&Model| *self.stage(Item::Model(m.id)) == Stage::Ready;
+        let ready = |m: &&Model| self.shared(m) && !self.builds(m).is_empty();
         self.catalogue.iter().filter(ready).collect()
+    }
+
+    /// Whether the files every build of `model` needs are here.
+    fn shared(&self, model: &Model) -> bool {
+        *self.stage(Item::Model(model.id)) == Stage::Ready
+    }
+
+    /// The builds of `model` downloaded, best first.
+    pub fn builds(&self, model: &Model) -> Vec<&'static Build> {
+        let here = |b: &&Build| *self.stage(Item::Build(model.id, b.id)) == Stage::Ready;
+        model.builds.iter().filter(here).collect()
+    }
+
+    /// The build to run: `wanted` if here, else the best one here.
+    pub fn build(&self, model: &Model, wanted: Option<&str>) -> Option<&'static Build> {
+        let builds = self.builds(model);
+        let wanted = builds.iter().find(|b| Some(b.id) == wanted);
+        wanted.or(builds.first()).copied()
     }
 
     /// Whether `model` can speak in `voice` now.
     pub fn has(&self, model: &Model, voice: &str) -> bool {
-        if *self.stage(Item::Model(model.id)) != Stage::Ready {
+        if !self.shared(model) {
             return false;
         }
         let own = |v: &&crate::ModelVoice| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready;
@@ -138,12 +158,13 @@ impl Shelf {
 
     /// The bytes `model` keeps on disk once downloaded.
     pub fn on_disk(&self, model: &Model) -> u64 {
-        if *self.stage(Item::Model(model.id)) != Stage::Ready {
+        if !self.shared(model) {
             return 0;
         }
         let extra = model.voices.iter().filter(|v| v.id != model.first_voice);
         let extra = extra.filter(|v| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready);
-        model.bytes() + extra.map(|v| v.file.bytes).sum::<u64>()
+        let builds = self.builds(model).iter().map(|b| b.file.bytes).sum::<u64>();
+        model.bytes() + builds + extra.map(|v| v.file.bytes).sum::<u64>()
     }
 
     /// Takes in what downloads sent; true if anything changed.
@@ -156,6 +177,14 @@ impl Shelf {
             let (events, ended) = desk.poll();
             let changed = !events.is_empty();
             for (item, stage) in events {
+                // A first build brought the shared files with it.
+                if let (Item::Build(m, _), Stage::Ready) = (item, &stage)
+                    && let Some(model) = self.model(m)
+                    && let Some(desk) = &self.desk
+                {
+                    let shared = desk.found(model, &model.core());
+                    self.stages.insert(Item::Model(m), shared);
+                }
                 self.stages.insert(item, stage);
             }
             if let Some(model) = ended {
@@ -168,11 +197,15 @@ impl Shelf {
         false
     }
 
-    /// Each item of `model`: its own files, then each extra voice.
+    /// Each item of `model`: shared files, each build, each extra voice.
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     fn items(model: &'static Model) -> impl Iterator<Item = Item> {
+        let builds = model.builds.iter().map(|b| Item::Build(model.id, b.id));
         let voices = model.voices.iter().filter(|v| v.id != model.first_voice);
-        std::iter::once(Item::Model(model.id)).chain(voices.map(|v| Item::Voice(model.id, v.id)))
+        let voices = voices.map(|v| Item::Voice(model.id, v.id));
+        std::iter::once(Item::Model(model.id))
+            .chain(builds)
+            .chain(voices)
     }
 
     /// Every stage of `model` back to absent.
@@ -212,6 +245,16 @@ impl Shelf {
         let model = self.model(item.model())?;
         match item {
             Item::Model(_) => Some((model, model.core())),
+            Item::Build(_, b) => {
+                let file = model.build(b)?.file;
+                // The first build comes with what every build shares.
+                let mut files = match self.shared(model) {
+                    true => Vec::new(),
+                    false => model.core(),
+                };
+                files.push(file);
+                Some((model, files))
+            }
             Item::Voice(_, v) => Some((model, vec![model.voice(v)?.file])),
         }
     }
@@ -296,8 +339,16 @@ impl Shelf {
         self.stages.insert(item, Stage::Absent);
     }
 
-    /// Deletes `item`: a model goes with all its voices.
+    /// Deletes `item`: a model, or its last build, takes everything.
     pub fn remove(&mut self, item: Item) {
+        let last = |s: &Self, m: &'static str| {
+            let model = s.model(m);
+            model.is_none_or(|model| s.builds(model).iter().all(|b| Item::Build(m, b.id) == item))
+        };
+        let item = match item {
+            Item::Build(m, _) if last(self, m) => Item::Model(m),
+            other => other,
+        };
         let Some(desk) = &mut self.desk else { return };
         match item {
             Item::Model(m) => {
@@ -310,7 +361,7 @@ impl Shelf {
                 }
                 self.forget(m);
             }
-            Item::Voice(..) => {
+            Item::Build(..) | Item::Voice(..) => {
                 if desk.current() == Some(item) {
                     desk.halt(mareader_fetch::Halt::Cancel);
                     return;
@@ -631,7 +682,7 @@ mod tests {
         format!("http://{addr}")
     }
 
-    /// Models `ids`, each with a config, a weight file and two voices.
+    /// Models `ids`, each with a config, two builds and two voices.
     fn catalogue(ids: &[&str], wrong: bool) -> (&'static [Model], HashMap<String, Vec<u8>>) {
         let mut files = HashMap::new();
         let mut models = Vec::new();
@@ -651,12 +702,19 @@ mod tests {
             let seed = i as u8 * 7;
             let config = listed(id, "config.json", 40, seed);
             let weights = listed(id, "weights.bin", 300_000, seed + 1);
+            let lite = listed(id, "lite.bin", 100_000, seed + 4);
             let a = listed(id, "voices/a.pt", 2_000, seed + 2);
             let b = listed(id, "voices/b.pt", 3_000, seed + 3);
-            specs.push((leak((*id).to_owned()), [config, weights], [a, b]));
+            specs.push((leak((*id).to_owned()), config, [weights, lite], [a, b]));
         }
         let host = serve(files.clone());
-        for (id, own, [a, b]) in specs {
+        for (id, config, [weights, lite], [a, b]) in specs {
+            let build = |bid: &'static str, file| Build {
+                id: bid,
+                name: bid,
+                about: "A test build",
+                file,
+            };
             let voice = |vid: &'static str, file| ModelVoice {
                 id: vid,
                 name: vid,
@@ -672,7 +730,10 @@ mod tests {
                 about: "A test model",
                 license: "MIT",
                 hosts,
-                files: Box::leak(own.to_vec().into_boxed_slice()),
+                files: Box::leak(vec![config].into_boxed_slice()),
+                builds: Box::leak(
+                    vec![build("big", weights), build("lite", lite)].into_boxed_slice(),
+                ),
                 voices: Box::leak(vec![voice("a", a), voice("b", b)].into_boxed_slice()),
                 first_voice: "a",
             });
@@ -705,30 +766,47 @@ mod tests {
         let (models, _) = catalogue(&["tiny"], false);
         let mut s = shelf(dir.path(), models);
         let model = &models[0];
+        let (big, lite) = (Item::Build("tiny", "big"), Item::Build("tiny", "lite"));
         assert_eq!(*s.stage(Item::Voice("tiny", "b")), Stage::Absent);
         // A voice waits for its model.
         s.download(Item::Voice("tiny", "b"));
         assert_eq!(*s.stage(Item::Voice("tiny", "b")), Stage::Absent);
-        s.download(Item::Model("tiny"));
-        assert!(s.stage(Item::Model("tiny")).busy());
-        settle(&mut s, |s| *s.stage(Item::Model("tiny")) == Stage::Ready);
+        // The first build brings the shared files and first voice.
+        s.download(big);
+        assert!(s.stage(big).busy());
+        settle(&mut s, |s| *s.stage(big) == Stage::Ready);
+        assert_eq!(*s.stage(Item::Model("tiny")), Stage::Ready);
         assert!(s.has(model, "a") && !s.has(model, "b"));
         assert_eq!(s.ready().len(), 1);
         let folder = dir.path().join("tiny");
         assert!(folder.join("weights.bin").exists() && folder.join("voices/a.pt").exists());
+        assert!(!folder.join("lite.bin").exists());
         s.download(Item::Voice("tiny", "b"));
         settle(&mut s, |s| s.has(model, "b"));
         assert_eq!(s.on_disk(model), 40 + 300_000 + 2_000 + 3_000);
         s.remove(Item::Voice("tiny", "b"));
         assert!(!s.has(model, "b") && !folder.join("voices/b.pt").exists());
-        s.remove(Item::Model("tiny"));
+        // A second build shares the rest.
+        s.download(lite);
+        settle(&mut s, |s| *s.stage(lite) == Stage::Ready);
+        assert_eq!(s.builds(model).len(), 2);
+        assert_eq!(s.on_disk(model), 40 + 300_000 + 100_000 + 2_000);
+        assert_eq!(s.build(model, Some("lite")).map(|b| b.id), Some("lite"));
+        assert_eq!(s.build(model, Some("gone")).map(|b| b.id), Some("big"));
+        s.remove(big);
+        assert!(!folder.join("weights.bin").exists() && folder.join("lite.bin").exists());
+        assert_eq!(s.build(model, Some("big")).map(|b| b.id), Some("lite"));
+        // The last build takes the model with it.
+        s.remove(lite);
         assert!(!folder.exists());
         assert!(s.ready().is_empty());
         // Found again on the next start, by what is on disk.
-        s.download(Item::Model("tiny"));
-        settle(&mut s, |s| *s.stage(Item::Model("tiny")) == Stage::Ready);
+        s.download(lite);
+        settle(&mut s, |s| *s.stage(lite) == Stage::Ready);
         let again = shelf(dir.path(), models);
         assert_eq!(*again.stage(Item::Model("tiny")), Stage::Ready);
+        assert_eq!(*again.stage(lite), Stage::Ready);
+        assert_eq!(*again.stage(big), Stage::Absent);
     }
 
     #[test]
@@ -736,19 +814,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (models, _) = catalogue(&["one", "two", "three"], false);
         let mut s = shelf(dir.path(), models);
+        let big = |id| Item::Build(id, "big");
         for id in ["one", "two", "three"] {
-            s.download(Item::Model(id));
+            s.download(big(id));
         }
-        assert!(matches!(
-            s.stage(Item::Model("one")),
-            Stage::Fetching { .. }
-        ));
-        assert_eq!(*s.stage(Item::Model("two")), Stage::Waiting);
-        s.cancel(Item::Model("three"));
-        assert_eq!(*s.stage(Item::Model("three")), Stage::Absent);
-        settle(&mut s, |s| *s.stage(Item::Model("two")) == Stage::Ready);
-        assert_eq!(*s.stage(Item::Model("one")), Stage::Ready);
-        assert_eq!(*s.stage(Item::Model("three")), Stage::Absent);
+        assert!(matches!(s.stage(big("one")), Stage::Fetching { .. }));
+        assert_eq!(*s.stage(big("two")), Stage::Waiting);
+        s.cancel(big("three"));
+        assert_eq!(*s.stage(big("three")), Stage::Absent);
+        settle(&mut s, |s| *s.stage(big("two")) == Stage::Ready);
+        assert_eq!(*s.stage(big("one")), Stage::Ready);
+        assert_eq!(*s.stage(big("three")), Stage::Absent);
         assert!(!dir.path().join("three").exists());
     }
 
@@ -757,12 +833,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (models, _) = catalogue(&["bad"], true);
         let mut s = shelf(dir.path(), models);
-        s.download(Item::Model("bad"));
-        settle(&mut s, |s| {
-            matches!(s.stage(Item::Model("bad")), Stage::Failed(_))
-        });
+        let item = Item::Build("bad", "big");
+        s.download(item);
+        settle(&mut s, |s| matches!(s.stage(item), Stage::Failed(_)));
         let why = Stage::Failed("the file isn't the one listed".into());
-        assert_eq!(*s.stage(Item::Model("bad")), why);
+        assert_eq!(*s.stage(item), why);
         assert!(!dir.path().join("bad/config.json").exists());
     }
 
@@ -775,14 +850,15 @@ mod tests {
         let weights = &files["/half/weights.bin"];
         std::fs::write(folder.join("weights.bin.part"), &weights[..100_000]).unwrap();
         let mut s = shelf(dir.path(), models);
-        let total = models[0].bytes();
+        let item = Item::Build("half", "big");
+        let total = models[0].bytes_with(&models[0].builds[0]);
         let paused = Stage::Paused {
             got: 100_000,
             total,
         };
-        assert_eq!(*s.stage(Item::Model("half")), paused);
-        s.download(Item::Model("half"));
-        settle(&mut s, |s| *s.stage(Item::Model("half")) == Stage::Ready);
+        assert_eq!(*s.stage(item), paused);
+        s.download(item);
+        settle(&mut s, |s| *s.stage(item) == Stage::Ready);
         assert_eq!(std::fs::read(folder.join("weights.bin")).unwrap(), *weights);
         assert!(!folder.join("weights.bin.part").exists());
     }

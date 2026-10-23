@@ -12,6 +12,8 @@ use super::TICK;
 #[derive(Default)]
 pub struct Booth {
     engine: String,
+    /// The model build opened, for a model's engine.
+    build: Option<&'static str>,
     voicer: Option<Box<dyn Voicer>>,
     voices: Vec<Voice>,
     caps: Caps,
@@ -22,17 +24,19 @@ pub struct Booth {
 }
 
 impl Booth {
-    /// Opens `engine` unless it is open, or failed, already.
-    pub fn open(&mut self, ctx: &Context, engine: &str, shelf: &Shelf) {
+    /// Opens the engine and build picked unless open, or failed, already.
+    pub fn open(&mut self, ctx: &Context, s: &ReadAloudSettings, shelf: &Shelf) {
         let tried = self.voicer.is_some() || self.fault.is_some();
-        if self.engine == engine && tried {
+        let build = mareader_speech::build_of(&s.engine, s.build(), shelf);
+        if self.engine == s.engine && self.build == build && tried {
             return;
         }
         self.close();
-        self.engine = engine.to_owned();
+        self.engine.clone_from(&s.engine);
+        self.build = build;
         let ctx = ctx.clone();
         let wake: Waker = Arc::new(move || ctx.request_repaint());
-        match mareader_speech::open(engine, shelf, wake) {
+        match mareader_speech::open(&s.engine, build, shelf, wake) {
             Ok(voicer) => {
                 self.voices = voicer.voices();
                 self.voices.sort_by(|a, b| {

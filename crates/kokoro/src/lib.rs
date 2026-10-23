@@ -132,6 +132,7 @@ impl Kokoro {
         Self::from_files(&dir.join("config.json"), &dir.join(WEIGHTS))
     }
 
+    /// `weights` may be the `.pth`, safetensors or a GGUF build.
     pub fn from_files(config: &Path, weights: &Path) -> Result<Self> {
         let bytes =
             std::fs::read(config).map_err(|e| Error::Load(format!("{}: {e}", config.display())))?;
@@ -142,7 +143,8 @@ impl Kokoro {
 
     /// Built from named weights, as the model file lays them out.
     pub fn from_tensors(config: Config, tensors: HashMap<String, Tensor>) -> Result<Self> {
-        let vb = VarBuilder::from_tensors(tensors, DType::F32, &Device::Cpu);
+        let lenient = Box::new(weights::Lenient(tensors));
+        let vb = VarBuilder::from_backend(lenient, DType::F32, Device::Cpu);
         Self::build(config, &vb).map_err(|e| Error::Load(e.to_string()))
     }
 

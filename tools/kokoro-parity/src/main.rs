@@ -1,6 +1,6 @@
 //! Runs mareader-kokoro and the reference on one model, stage by stage.
 
-//! Usage: kokoro-parity <model dir> <out dir> [g2p]
+//! Usage: kokoro-parity <model dir> <out dir> [g2p | builds]
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -18,6 +18,7 @@ use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::VarBuilder;
 use mareader_kokoro as ours;
 
+mod builds;
 mod g2p;
 mod refdecoder;
 
@@ -315,7 +316,7 @@ fn seconds(samples: usize) -> f64 {
 fn main() -> R<()> {
     let args: Vec<String> = std::env::args().collect();
     let (Some(dir), Some(out)) = (args.get(1), args.get(2)) else {
-        return Err("usage: kokoro-parity <model dir> <out dir> [g2p]".into());
+        return Err("usage: kokoro-parity <model dir> <out dir> [g2p | builds]".into());
     };
     let (dir, out) = (PathBuf::from(dir), PathBuf::from(out));
     std::fs::create_dir_all(&out)?;
@@ -324,6 +325,25 @@ fn main() -> R<()> {
     let mut failed = Vec::new();
     g2p::check(&dir, &mut report, &mut failed)?;
     if args.get(3).is_some_and(|a| a == "g2p") {
+        return finish(&out, &report, &failed);
+    }
+    if args.get(3).is_some_and(|a| a == "builds") {
+        let start = Instant::now();
+        let model = ours::Kokoro::load(&dir)?;
+        let took = start.elapsed().as_secs_f64();
+        writeln!(report, "Loading Full: {took:.2} s.\n")?;
+        let voice = ours::Voice::load(&dir.join("voices/af_heart.pt"))?;
+        let config = KokoroConfig::from_bytes(std::fs::read(dir.join("config.json"))?)?;
+        let mut inputs = Vec::new();
+        for (n, text) in SENTENCES.iter().enumerate() {
+            let phonemes = phonemizer::phonemize(text, "en-us", &config.vocab)?;
+            let chunks = model.chunks(&model.normalise(&phonemes));
+            let first = chunks.first().ok_or("no chunks")?;
+            let ids = [&[0u32][..], &first.ids, &[0]].concat();
+            inputs.push((format!("s{}", n + 1), ids));
+        }
+        let pair = (&model, &voice);
+        builds::check(&dir, &out, pair, &inputs, (&mut report, &mut failed))?;
         return finish(&out, &report, &failed);
     }
 
@@ -351,6 +371,7 @@ fn main() -> R<()> {
     let mut speed_rows = String::new();
     let mut diag_rows = String::new();
     let mut twin_rows = String::new();
+    let mut inputs = Vec::new();
 
     for (n, text) in SENTENCES.iter().enumerate() {
         let tag = format!("s{}", n + 1);
@@ -370,6 +391,7 @@ fn main() -> R<()> {
         ids.push(0);
         let style = voice.style(ids.len())?;
         let style_v: Vec<f32> = style.flatten_all()?.to_vec1()?;
+        inputs.push((tag.clone(), ids.clone()));
 
         let start = Instant::now();
         let trace = model.trace(&ids, &style, 1.0)?;
@@ -580,6 +602,8 @@ fn main() -> R<()> {
     writeln!(report, "|---|---|---|---|---|---|---|")?;
     report.push_str(&speed_rows);
     writeln!(report)?;
+    let ours_pair = (&model, &voice);
+    builds::check(&dir, &out, ours_pair, &inputs, (&mut report, &mut failed))?;
     finish(&out, &report, &failed)
 }
 

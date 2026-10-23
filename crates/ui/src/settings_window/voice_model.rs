@@ -2,7 +2,7 @@
 
 use egui::{ProgressBar, RichText, Ui};
 use mareader_settings::ReadAloudSettings;
-use mareader_speech::{Item, Model, ModelVoice, Shelf, Stage};
+use mareader_speech::{Build, Item, Model, ModelVoice, Shelf, Stage};
 
 use super::{detail_row, divider, group, note, radio, row, section};
 use crate::command::{Command, Commands};
@@ -19,6 +19,9 @@ pub fn tab(
     shelf: &Shelf,
     out: &mut Commands,
 ) {
+    if model.builds.len() > 1 {
+        builds(ui, s, model, shelf, out);
+    }
     section(ui, "Voices");
     // A voice picked, then removed, falls back to the first.
     let picked = s.voices.get(model.id).and_then(|v| model.voice(v));
@@ -26,8 +29,12 @@ pub fn tab(
         .filter(|v| shelf.has(model, v.id))
         .map_or(model.first_voice, |v| v.id);
     group(ui, |ui| {
-        every_voice(ui, model, shelf, out);
-        for voice in model.voices {
+        let shown = language_filter(ui, model);
+        let shown: Vec<&'static ModelVoice> = (model.voices.iter())
+            .filter(|v| shown.is_none_or(|l| v.language == l))
+            .collect();
+        every_voice(ui, model, &shown, shelf, out);
+        for voice in shown {
             divider(ui);
             if let Some(id) = voice_row(ui, (model, voice), picked == voice.id, shelf, out) {
                 s.voices.insert(model.id.to_owned(), id.to_owned());
@@ -51,17 +58,122 @@ pub fn tab(
     });
     note(
         ui,
-        "Removing the model deletes its voices too; it can be downloaded again.",
+        "Removing the model deletes its voices and builds too; it can be downloaded again.",
     );
 }
 
-/// Downloads every voice still missing at once.
-fn every_voice(ui: &mut Ui, model: &'static Model, shelf: &Shelf, out: &mut Commands) {
+/// The builds on offer: each downloads alone, one is used.
+fn builds(
+    ui: &mut Ui,
+    s: &mut ReadAloudSettings,
+    model: &'static Model,
+    shelf: &Shelf,
+    out: &mut Commands,
+) {
+    section(ui, "Build");
+    let wanted = s.builds.get(model.id).map(String::as_str);
+    let used = shelf.build(model, wanted).map(|b| b.id);
+    let here = shelf.builds(model).len();
+    group(ui, |ui| {
+        for (i, build) in model.builds.iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            if build_row(
+                ui,
+                (model, build),
+                (used == Some(build.id), here),
+                shelf,
+                out,
+            ) {
+                s.builds.insert(model.id.to_owned(), build.id.to_owned());
+            }
+        }
+    });
+    note(
+        ui,
+        "Builds share the voices. A smaller build saves download and disk; \
+         each takes the same memory once loaded.",
+    );
+}
+
+/// One build: used, or its download; true when picked now.
+fn build_row(
+    ui: &mut Ui,
+    (model, build): (&'static Model, &'static Build),
+    (on, here): (bool, usize),
+    shelf: &Shelf,
+    out: &mut Commands,
+) -> bool {
     let t = Tokens::get(ui.ctx());
-    let missing: Vec<&ModelVoice> = (model.voices.iter())
+    let item = Item::Build(model.id, build.id);
+    let name = mareader_speech::label(model, build);
+    let mut pick = false;
+    detail_row(ui, build.name, build.about, |ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let stage = shelf.stage(item);
+        if *stage != Stage::Ready {
+            controls(ui, stage, (item, &name, build.file.bytes), out);
+            return;
+        }
+        pick = radio(ui, on, &format!("Use {}", build.name));
+        // The last build goes with the model, below.
+        if here > 1 {
+            remove(ui, &t, (item, &name), out);
+        }
+        muted(ui, &t, &megabytes(build.file.bytes));
+    });
+    pick
+}
+
+/// Picks which voices show, by language, where a model speaks more than one.
+fn language_filter(ui: &mut Ui, model: &'static Model) -> Option<&'static str> {
+    let mut languages: Vec<&'static str> = Vec::new();
+    for v in model.voices {
+        if !languages.contains(&v.language) {
+            languages.push(v.language);
+        }
+    }
+    if languages.len() < 2 {
+        return None;
+    }
+    let id = egui::Id::new(("voice language", model.id));
+    let kept = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or_default();
+    // 0 shows every language; 1 on, each in turn.
+    let mut at = kept.min(languages.len());
+    let name = |at: usize| match at.checked_sub(1).and_then(|i| languages.get(i)) {
+        Some(l) => accent(l),
+        None => "All languages",
+    };
+    row(ui, "Language", "", |ui| {
+        widgets::combo(id)
+            .selected_text(name(at))
+            .show_ui(ui, |ui| {
+                for i in 0..=languages.len() {
+                    ui.selectable_value(&mut at, i, name(i));
+                }
+            });
+    });
+    divider(ui);
+    if at != kept {
+        ui.data_mut(|d| d.insert_temp(id, at));
+    }
+    at.checked_sub(1).and_then(|i| languages.get(i)).copied()
+}
+
+/// Downloads every voice shown still missing at once.
+fn every_voice(
+    ui: &mut Ui,
+    model: &'static Model,
+    shown: &[&'static ModelVoice],
+    shelf: &Shelf,
+    out: &mut Commands,
+) {
+    let t = Tokens::get(ui.ctx());
+    let missing: Vec<&ModelVoice> = (shown.iter().copied())
         .filter(|v| !shelf.has(model, v.id))
         .collect();
-    let detail = format!("{} voices", model.voices.len());
+    let detail = format!("{} voices", shown.len());
     detail_row(ui, "All voices", &detail, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if missing.is_empty() {

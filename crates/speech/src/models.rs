@@ -22,6 +22,16 @@ pub struct ModelVoice {
     pub file: ModelFile,
 }
 
+/// One way to get a model's weights: the voices are shared, the sizes differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Build {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// One line on what it trades.
+    pub about: &'static str,
+    pub file: ModelFile,
+}
+
 /// A model on offer: the engine it becomes once downloaded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Model {
@@ -33,8 +43,10 @@ pub struct Model {
     pub license: &'static str,
     /// Addresses a file's path is joined to, tried in turn.
     pub hosts: &'static [&'static str],
-    /// What it needs before any voice.
+    /// What every build needs before any voice.
     pub files: &'static [ModelFile],
+    /// Its weights in each size offered, the best first.
+    pub builds: &'static [Build],
     pub voices: &'static [ModelVoice],
     /// Comes with the model, so it can speak at once.
     pub first_voice: &'static str,
@@ -51,7 +63,11 @@ impl Model {
         self.voice(self.first_voice)
     }
 
-    /// The files of the model's own download: its files and first voice.
+    pub fn build(&self, id: &str) -> Option<&'static Build> {
+        self.builds.iter().find(|b| b.id == id)
+    }
+
+    /// The files every build shares: its files and first voice.
     pub fn core(&self) -> Vec<ModelFile> {
         let mut files: Vec<ModelFile> = self.files.to_vec();
         // Small files first, so the big one ends the download.
@@ -60,9 +76,14 @@ impl Model {
         files
     }
 
-    /// What the model's own download weighs.
+    /// What the shared files weigh.
     pub fn bytes(&self) -> u64 {
         self.core().iter().map(|f| f.bytes).sum()
+    }
+
+    /// What a first download with `build` weighs.
+    pub fn bytes_with(&self, build: &Build) -> u64 {
+        self.bytes() + build.file.bytes
     }
 
     /// Every address `file` can be fetched from.
@@ -79,6 +100,12 @@ pub const MODELS: &[Model] = &[KOKORO];
 const KOKORO_HOSTS: &[&str] = &[
     "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/",
     "https://hf-mirror.com/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/",
+];
+
+/// The same weights converted to GGUF, Apache 2.0 as well; pinned.
+const GGUF_HOSTS: &[&str] = &[
+    "https://huggingface.co/cstr/kokoro-82m-GGUF/resolve/ab19534a3b5cc12bc2741478e9790eadb328654a/",
+    "https://hf-mirror.com/cstr/kokoro-82m-GGUF/resolve/ab19534a3b5cc12bc2741478e9790eadb328654a/",
 ];
 
 /// Pinned to a commit; the files are loqui-g2p 0.4.0's, byte for byte.
@@ -109,12 +136,6 @@ pub const KOKORO: Model = Model {
             path: "config.json",
             bytes: 2_351,
             sha256: "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
-            hosts: None,
-        },
-        ModelFile {
-            path: "kokoro-v1_0.pth",
-            bytes: 327_212_226,
-            sha256: "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
             hosts: None,
         },
         g2p(
@@ -157,6 +178,41 @@ pub const KOKORO: Model = Model {
             3_011_692,
             "4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703",
         ),
+    ],
+    builds: &[
+        Build {
+            id: "full",
+            name: "Full",
+            about: "The original weights: the best sound",
+            file: ModelFile {
+                path: "kokoro-v1_0.pth",
+                bytes: 327_212_226,
+                sha256: "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+                hosts: None,
+            },
+        },
+        Build {
+            id: "half",
+            name: "Half",
+            about: "Half-precision weights: half the download, near the same sound",
+            file: ModelFile {
+                path: "kokoro-82m-f16.gguf",
+                bytes: 163_728_096,
+                sha256: "341d5e96c2d7f06fc71dbc8d955150a5b6e3a59840f8905cb3fbe9b12120df52",
+                hosts: Some(GGUF_HOSTS),
+            },
+        },
+        Build {
+            id: "small",
+            name: "Small",
+            about: "8-bit weights: the smallest download, a little rougher",
+            file: ModelFile {
+                path: "kokoro-82m-q8_0.gguf",
+                bytes: 141_322_336,
+                sha256: "3c8b60064b287a10abd35396a59c9981675c618db8bc91bd290db63f55eb492d",
+                hosts: Some(GGUF_HOSTS),
+            },
+        },
     ],
     voices: KOKORO_VOICES,
     first_voice: "af_heart",
@@ -452,9 +508,9 @@ mod tests {
                 "{} lacks its first voice",
                 model.id
             );
-            let all = model
-                .files
-                .iter()
+            assert!(!model.builds.is_empty(), "{} has no build", model.id);
+            let all = (model.files.iter())
+                .chain(model.builds.iter().map(|b| &b.file))
                 .chain(model.voices.iter().map(|v| &v.file));
             for f in all {
                 assert!(f.bytes > 0, "{}", f.path);
@@ -465,7 +521,14 @@ mod tests {
                 assert_eq!(v.file.path, format!("voices/{}.pt", v.id));
                 assert_eq!(model.voices.iter().filter(|w| w.id == v.id).count(), 1);
             }
-            for f in model.core() {
+            for b in model.builds {
+                assert_eq!(model.builds.iter().filter(|c| c.id == b.id).count(), 1);
+            }
+            for f in model
+                .core()
+                .into_iter()
+                .chain(model.builds.iter().map(|b| b.file))
+            {
                 let urls = model.urls(&f);
                 assert!(urls.len() > 1, "{} has no mirror", f.path);
                 assert!(urls.iter().all(|u| u.starts_with("https://")));
@@ -475,13 +538,20 @@ mod tests {
     }
 
     #[test]
-    fn the_model_downloads_with_one_voice_and_its_big_file_last() {
+    fn the_model_downloads_with_one_voice_and_a_build_of_its_choosing() {
         let core = KOKORO.core();
-        assert_eq!(core.len(), 11);
-        assert_eq!(core.last().unwrap().path, "kokoro-v1_0.pth");
+        assert_eq!(core.len(), 10);
         assert!(core.iter().any(|f| f.path == "voices/af_heart.pt"));
+        assert!(core.iter().all(|f| !f.path.contains("kokoro-")));
         let g2p = 20_120_816;
-        assert_eq!(KOKORO.bytes(), 2_351 + 523_425 + 327_212_226 + g2p);
+        assert_eq!(KOKORO.bytes(), 2_351 + 523_425 + g2p);
+        let ids: Vec<&str> = KOKORO.builds.iter().map(|b| b.id).collect();
+        assert_eq!(ids, ["full", "half", "small"]);
+        let small = KOKORO.build("small").unwrap();
+        assert_eq!(KOKORO.bytes_with(small), KOKORO.bytes() + 141_322_336);
+        // Each smaller build is a smaller download.
+        let sizes: Vec<u64> = KOKORO.builds.iter().map(|b| b.file.bytes).collect();
+        assert!(sizes.windows(2).all(|w| w[0] > w[1]));
         assert_eq!(KOKORO.voices.len(), 28);
     }
 
