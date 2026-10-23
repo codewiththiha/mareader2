@@ -11,6 +11,14 @@ fn it(text: &str) -> String {
     phonemize(Language::Italian, text)
 }
 
+fn pt(text: &str) -> String {
+    phonemize(Language::Portuguese, text)
+}
+
+fn fr(text: &str) -> String {
+    phonemize(Language::French, text)
+}
+
 #[test]
 fn a_kokoro_voice_names_its_language_by_its_first_letter() {
     assert_eq!(
@@ -20,6 +28,14 @@ fn a_kokoro_voice_names_its_language_by_its_first_letter() {
     assert_eq!(
         Language::for_kokoro_voice("im_nicola"),
         Some(Language::Italian)
+    );
+    assert_eq!(
+        Language::for_kokoro_voice("pf_dora"),
+        Some(Language::Portuguese)
+    );
+    assert_eq!(
+        Language::for_kokoro_voice("ff_siwis"),
+        Some(Language::French)
     );
     assert_eq!(Language::for_kokoro_voice("af_heart"), None);
     assert_eq!(Language::for_kokoro_voice(""), None);
@@ -99,6 +115,54 @@ fn italian_joins_a_word_cut_short_to_the_next() {
 fn italian_numbers_are_said_a_group_at_a_time() {
     assert_eq!(it("2026"), "dˈue mˈila ventisˈɛi");
     assert_eq!(it("3,5"), "trˈe vˈirɡola t^ʃˈinkwe");
+}
+
+#[test]
+fn portuguese_reads_as_espeak_does() {
+    let said = pt("O menino disse que não tinha visto a cidade.");
+    let want = "ʊ mˌenˈinʊ d^ʒˈisy ky nˌɐ̃^ʊ̃ t^ʃˌiɲæ vˈistw a sˌidˈad^ʒy.";
+    assert_eq!(said, want);
+    let said = pt("um coração alto e volta");
+    let want = "u\u{303}ŋ kˌoɾasˈɐ\u{303}^ʊ\u{303} ˈa^ʊtw i vˈɔltæ";
+    assert_eq!(said, want);
+}
+
+#[test]
+fn portuguese_links_a_word_to_the_vowel_after_it() {
+    let said = pt("Levantou-se e foi embora.");
+    assert_eq!(said, "lˌevɐ̃ŋtˈowsj i fo^ɪ ˌe^ɪmbˈɔɾæ.");
+    let said = pt("Os homens de hoje, o sol e a lua.");
+    assert_eq!(said, "ʊs ˈome^ɪŋz d^ʒy ˈoʒy, ʊ sˈɔl i a lˈuæ.");
+}
+
+#[test]
+fn portuguese_numbers_are_said_in_words() {
+    let want = "mˈi^ʊ ˈo^ɪtʊsˈe^ɪŋtʊzˌi novˈe^ɪŋtæ";
+    assert_eq!(pt("1890"), want);
+}
+
+#[test]
+fn french_reads_as_espeak_does() {
+    let said = fr("la campagne, le compagnon, la fille et la ville");
+    assert_eq!(said, "la kɑ̃pˈaɲ, lə kɔ̃panjˈɔ̃, la fˈij e la vˈil");
+    let said = fr("Catherine acheva maintenant.");
+    assert_eq!(said, "katʁˈin aʃvˈa mɛ̃tnˈɑ̃.");
+}
+
+#[test]
+fn french_links_a_silent_consonant_to_a_vowel() {
+    let said = fr("Est-ce que vous venez? Dit-il.");
+    assert_eq!(said, "ɛs kə vu vənˈe? dˈitˈil.");
+    let said = fr("un grand homme, les héros");
+    assert_eq!(said, "œ̃ ɡʁˈɑ̃t ˈɔm, le eʁˈo");
+    let said = fr("Il y a vingt-quatre heures.");
+    assert_eq!(said, "il i a vˈɛ̃tkˈatʁ ˈœʁ.");
+}
+
+#[test]
+fn french_numbers_stress_only_their_last_word() {
+    assert_eq!(fr("1987"), "mil nœfsɑ̃ katʁəvɛ̃sˈɛt");
+    assert_eq!(fr("3,5"), "tʁwa viʁɡyl sˈɛ̃k");
 }
 
 #[test]
