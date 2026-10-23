@@ -30,6 +30,7 @@ mareader-script = { path = "crates/script" }
 mareader-speech = { path = "crates/speech" }
 mareader-kokoro = { path = "crates/kokoro" }
 mareader-g2p = { path = "crates/g2p" }
+mareader-ipa = { path = "crates/ipa" }
 mareader-vits = { path = "crates/vits" }
 
 serde = { version = "1", features = ["derive"] }
