@@ -4,8 +4,10 @@ mod albert;
 mod chunks;
 mod config;
 mod decoder;
+pub mod kitten;
 mod layers;
 mod noise;
+mod onnx;
 mod prosody;
 mod weights;
 
@@ -87,6 +89,12 @@ impl Voice {
         }
     }
 
+    /// The style `[1, 256]` at row `at`, or the last row past the end.
+    pub fn row(&self, at: usize) -> Result<Tensor> {
+        let last = self.rows.dim(0)?.saturating_sub(1);
+        Ok(self.rows.narrow(0, at.min(last), 1)?)
+    }
+
     /// The style `[1, 256]` for a padded run of `tokens`.
     pub fn style(&self, tokens: usize) -> Result<Tensor> {
         let last = self.rows.dim(0)?.saturating_sub(1);
@@ -141,6 +149,25 @@ impl Kokoro {
         Self::from_tensors(config, read_model(weights)?)
     }
 
+    /// An ONNX export of the network, as Kitten's builds are.
+    pub fn from_onnx(path: &Path) -> Result<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|e| Error::Load(format!("{}: {e}", path.display())))?;
+        let (config, tensors) = onnx::read(&bytes)?;
+        drop(bytes);
+        Self::from_tensors(config, tensors)
+    }
+
+    /// Every weight name an ONNX file yields, sorted, for checks.
+    #[doc(hidden)]
+    pub fn onnx_names(path: &Path) -> Result<Vec<String>> {
+        let bytes =
+            std::fs::read(path).map_err(|e| Error::Load(format!("{}: {e}", path.display())))?;
+        let mut names: Vec<String> = onnx::read(&bytes)?.1.into_keys().collect();
+        names.sort();
+        Ok(names)
+    }
+
     /// Built from named weights, as the model file lays them out.
     pub fn from_tensors(config: Config, tensors: HashMap<String, Tensor>) -> Result<Self> {
         let lenient = Box::new(weights::Lenient(tensors));
@@ -169,7 +196,12 @@ impl Kokoro {
                 config.n_token,
                 &vb.pp("text_encoder"),
             )?,
-            decoder: Decoder::load(hidden, style, &config.istftnet, &vb.pp("decoder"))?,
+            decoder: Decoder::load(
+                (hidden, config.decoder_dim),
+                style,
+                &config.istftnet,
+                &vb.pp("decoder"),
+            )?,
             config,
         })
     }

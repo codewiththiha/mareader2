@@ -36,6 +36,7 @@ fn tiny() -> Result<Kokoro> {
         n_token: 12,
         n_layer: 1,
         max_dur: 4,
+        decoder_dim: 32,
         plbert: Plbert {
             vocab_size: 12,
             hidden_size: 8,
