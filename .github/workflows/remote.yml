@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory, cache, kokoro, piper, kitten or ipa
+        description: shots, web, memory, cache, kokoro, piper, kitten, ipa or hanzi
         required: true
         type: choice
-        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa]
+        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -446,6 +446,37 @@ jobs:
         if: always()
         with:
           name: ipa
+          path: out/summary.md
+          retention-days: 7
+
+  hanzi:
+    name: Remote / hanzi
+    if: inputs.task == 'hanzi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compare
+        run: |
+          set -o pipefail
+          # misaki and its Chinese tools are the reference here only.
+          python3 -m venv .ref && .ref/bin/pip install -q "misaki[zh]==0.9.4" \
+            jieba==0.42.1 pypinyin==0.55.0 cn2an==0.5.24
+          cargo build -q --release -p mareader-hanzi --example hanzi
+          .ref/bin/python tools/hanzi-parity/check.py target/release/examples/hanzi out
+      - name: Summary
+        if: always()
+        run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hanzi
           path: out/summary.md
           retention-days: 7
 
