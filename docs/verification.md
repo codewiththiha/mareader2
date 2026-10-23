@@ -16,6 +16,7 @@ chooses per session, and the user can override the choice at any time.
 | Piper parity | none (needs six voices and onnxruntime) | `python3 tools/ci.py piper --ref BRANCH` |
 | Kitten parity | none (needs four builds and onnxruntime) | `python3 tools/ci.py kitten --ref BRANCH` |
 | Other languages' phonemes | none (needs espeak-ng) | `python3 tools/ci.py ipa --ref BRANCH` |
+| Chinese phonemes | none (needs misaki) | `python3 tools/ci.py hanzi --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -286,6 +287,21 @@ Italian, Portuguese, French and Hindi voices were trained on.
   stop, so Kokoro pauses there. The check hands espeak a full stop instead.
 - **Where it lands.** `target/remote/ipa/summary.md`, with the most frequent
   words that differ. espeak-ng and phonemizer are installed in this job only.
+
+## Chinese phonemes from CI
+
+`python3 tools/ci.py hanzi --ref BRANCH --rev SHA` builds `mareader-hanzi`'s
+`hanzi` example and runs `tools/hanzi-parity/check.py`: 500 sentences, most
+from two public-domain novels, the rest numbers, punctuation and mixed
+scripts, our phonemes against misaki's `ZHG2P()`, the reader Kokoro-82M runs.
+
+- **The same data.** The check fetches the dictionaries from the commits the
+  app pins, sizes and checksums checked; misaki runs with jieba, pypinyin and
+  cn2an at those versions.
+- **The gate.** Phoneme error at most 0.1%: this is a port, not rules of our
+  own, so it should agree word for word, spaces included.
+- **Where it lands.** `target/remote/hanzi/summary.md`. misaki and its
+  Chinese tools are installed in this job only.
 
 ## The sandbox cache
 
