@@ -10,6 +10,7 @@
 )]
 
 mod config;
+mod dense;
 mod duration;
 mod encoder;
 mod flow;
