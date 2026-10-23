@@ -13,6 +13,7 @@ chooses per session, and the user can override the choice at any time.
 | Browser preview | `tools/web.sh --serve` | `python3 tools/ci.py web` |
 | Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
 | Kokoro parity | none (needs the 650 MB model and builds) | `python3 tools/ci.py kokoro --ref BRANCH` |
+| Piper parity | none (needs six voices and onnxruntime) | `python3 tools/ci.py piper --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -210,6 +211,28 @@ voice and frame timing.
   WAV to listen to. Speed rows give real-time factors on CI's CPU.
 - **The model.** Fetched from its pinned revision, checked by SHA-256 and kept
   in the Actions cache.
+
+## Piper parity from CI
+
+`python3 tools/ci.py piper --ref BRANCH --rev SHA` runs `tools/piper-parity`
+on six pinned voices: low, medium and high quality, American and British, one
+with 109 speakers. Our G2P writes each sentence's phonemes and ids once; both
+sides speak those same ids.
+
+- **Noiseless.** With both noise scales at 0 the model is deterministic, so
+  `mareader-vits` must match onnxruntime running the voice's own ONNX file:
+  the same length to the sample (in at least 80% of sentences, since a
+  duration can round across a frame) and waveform correlation of 0.999 or more.
+- **With noise.** The noise differs, so totals are compared: length within
+  15% and RMS within 25% of the reference.
+- **Phonemes.** Our G2P's phonemes, respelled for the voice's espeak style,
+  against espeak's own for the same text; the error rate must stay under 25%.
+  espeak and onnxruntime come from `piper-tts` in this job only; neither is
+  linked into or shipped with the app.
+- **Where it lands.** `target/remote/piper/summary.md`, with load time and
+  real-time factors for both sides, and the first takes as WAV.
+- **The voices.** Fetched from their pinned revision, checked by SHA-256 and
+  kept in the Actions cache.
 
 ## The sandbox cache
 

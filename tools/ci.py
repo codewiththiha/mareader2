@@ -9,6 +9,7 @@
   python3 tools/ci.py web                  # the browser preview, built + screenshot
   python3 tools/ci.py memory --ref feat/x  # docs/memory.md's workloads and budgets
   python3 tools/ci.py kokoro --ref feat/x  # the Kokoro port against its reference
+  python3 tools/ci.py piper --ref feat/x   # the Piper voices against onnxruntime
   python3 tools/ci.py installers --ref ci/x # every platform's installers, checked
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
@@ -236,7 +237,7 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int,
         run = refresh(repo, token, run)
         # A Remote run is named by its title: "task sha id".
         task = run.name.split()[0]
-        if task in ("shots", "web", "memory", "cache", "kokoro"):
+        if task in ("shots", "web", "memory", "cache", "kokoro", "piper"):
             run.name = f"Remote {task}"
         running = [j.name for j in run.jobs if j.status != "completed"]
         state = f"{run.status} {', '.join(running)}"
@@ -481,7 +482,7 @@ def remote_task(args, task: str, name: str, **inputs: str) -> tuple[int, str]:
     run = dispatch(args.repo, token, task, sha, getattr(args, "ref", "main"), **inputs)
     run = follow(args.repo, token, run, args.timeout, args.poll)
     # A broken budget still leaves its tables to read.
-    if run.conclusion != "success" and task not in ("memory", "kokoro"):
+    if run.conclusion != "success" and task not in ("memory", "kokoro", "piper"):
         return 1, ""
     item = artifact(args.repo, token, run.id, name)
     raw = api(token, item["archive_download_url"], raw=True)
@@ -720,8 +721,8 @@ def memory(args) -> int:
     return 1
 
 
-def kokoro(args) -> int:
-    code, out = remote_task(args, "kokoro", "kokoro")
+def kokoro(args, task: str = "kokoro") -> int:
+    code, out = remote_task(args, task, task)
     report = os.path.join(out, "summary.md")
     if not os.path.exists(report):
         return 1
@@ -788,6 +789,9 @@ def main() -> int:
     ko = sub.add_parser("kokoro", help="check the Kokoro port against its reference in CI")
     ko.add_argument("--ref", default="main",
                     help="branch whose workflow runs (one with the kokoro task)")
+    pi = sub.add_parser("piper", help="check the Piper voices against onnxruntime in CI")
+    pi.add_argument("--ref", default="main",
+                    help="branch whose workflow runs (one with the piper task)")
     ins = sub.add_parser("installers", help="build and check every platform's installers")
     ins.add_argument("--ref", default="main",
                      help="branch whose workflow runs (one with installers.yml)")
@@ -800,12 +804,12 @@ def main() -> int:
                    help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
     c.add_argument("--force", action="store_true", help="replace an existing cache")
-    for p in (w, s, wb, me, ko, ins, c):
+    for p in (w, s, wb, me, ko, pi, ins, c):
         p.add_argument("--timeout", type=int, default=3600, help="seconds to wait")
         p.add_argument("--poll", type=int, default=15, help="seconds between polls")
-    for p in (s, wb, me, ko, ins, c):
+    for p in (s, wb, me, ko, pi, ins, c):
         p.add_argument("--rev", default="HEAD", help="commit to use (must be pushed)")
-    for p in (s, wb, me, ko, ins):
+    for p in (s, wb, me, ko, pi, ins):
         p.add_argument("--out", help="where to unpack (default target/remote/<task>)")
 
     args = ap.parse_args()
@@ -825,6 +829,8 @@ def main() -> int:
         return memory(args)
     if args.cmd == "kokoro":
         return kokoro(args)
+    if args.cmd == "piper":
+        return kokoro(args, "piper")
     if args.cmd == "installers":
         return installers(args)
     if args.action == "seed":
