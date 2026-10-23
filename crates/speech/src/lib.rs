@@ -160,7 +160,7 @@ pub fn sample(language: &str) -> &'static str {
 }
 
 const SAMPLE: &str = "This is how your books will sound when read aloud.";
-const SAMPLES: [(&str, &str); 12] = [
+const SAMPLES: [(&str, &str); 13] = [
     ("en", SAMPLE),
     ("de", "So klingen Ihre Bücher, wenn sie vorgelesen werden."),
     ("es", "Así sonarán tus libros cuando se lean en voz alta."),
@@ -168,6 +168,7 @@ const SAMPLES: [(&str, &str); 12] = [
         "fr",
         "Voici comment vos livres sonneront, lus à voix haute.",
     ),
+    ("hi", "ज़ोर से पढ़ी जाने पर आपकी किताबें ऐसी सुनाई देंगी।"),
     (
         "it",
         "Ecco come suoneranno i tuoi libri letti ad alta voce.",

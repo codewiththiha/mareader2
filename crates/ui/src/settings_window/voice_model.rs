@@ -358,6 +358,7 @@ fn accent(tag: &str) -> &str {
         "it-IT" => "Italian",
         "pt-BR" => "Brazilian Portuguese",
         "fr-FR" => "French",
+        "hi-IN" => "Hindi",
         other => other,
     }
 }
@@ -373,6 +374,7 @@ mod tests {
         assert_eq!(accent("it-IT"), "Italian");
         assert_eq!(accent("pt-BR"), "Brazilian Portuguese");
         assert_eq!(accent("fr-FR"), "French");
-        assert_eq!(accent("hi-IN"), "hi-IN");
+        assert_eq!(accent("hi-IN"), "Hindi");
+        assert_eq!(accent("ja-JP"), "ja-JP");
     }
 }
