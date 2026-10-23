@@ -2,12 +2,17 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::time::Duration;
 
 use mareader_g2p::{Dialect, G2p};
 use mareader_kokoro::Kokoro;
 
+use crate::Usage;
+
 /// Speech kept by default, in bytes.
 const MEMORY: usize = 64 << 20;
+/// How long an unused model stays loaded by default.
+const IDLE: Duration = Duration::from_secs(120);
 
 /// One loaded thing, kept only while someone holds it.
 struct Slot<T>(Mutex<Weak<T>>);
@@ -28,6 +33,11 @@ impl<T> Slot<T> {
         let it = Arc::new(load()?);
         *held = Arc::downgrade(&it);
         Ok(it)
+    }
+
+    fn held(&self) -> bool {
+        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.strong_count() > 0
     }
 }
 
@@ -101,6 +111,7 @@ struct Inner {
     american: Slot<G2p>,
     british: Slot<G2p>,
     takes: Mutex<Takes>,
+    idle: Mutex<Option<Duration>>,
 }
 
 /// Models load once however many voicers use them, and go with the last.
@@ -111,6 +122,7 @@ impl Default for Studio {
     fn default() -> Self {
         let studio = Self(Arc::default());
         studio.set_memory(MEMORY);
+        studio.set_idle(Some(IDLE));
         studio
     }
 }
@@ -119,6 +131,27 @@ impl Studio {
     /// Keeps at most `bytes` of speech made.
     pub fn set_memory(&self, bytes: usize) {
         self.takes().set_cap(bytes);
+    }
+
+    /// Lets an unused model go after `idle`; `None` keeps it while open.
+    pub fn set_idle(&self, idle: Option<Duration>) {
+        *self.0.idle.lock().unwrap_or_else(PoisonError::into_inner) = idle;
+    }
+
+    pub(crate) fn idle(&self) -> Option<Duration> {
+        *self.0.idle.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn usage(&self) -> Usage {
+        let kokoro = self.has_kokoro().then_some(crate::KOKORO.name);
+        Usage {
+            models: kokoro.into_iter().collect(),
+            speech: self.takes().used,
+        }
+    }
+
+    pub(crate) fn has_kokoro(&self) -> bool {
+        self.0.kokoro.held()
     }
 
     pub(crate) fn takes(&self) -> MutexGuard<'_, Takes> {
@@ -188,13 +221,26 @@ mod tests {
     }
 
     #[test]
+    fn usage_counts_speech_kept_and_no_model_until_one_loads() {
+        let studio = Studio::default();
+        assert_eq!(studio.usage(), Usage::default());
+        studio.takes().put(key("a"), pcm(100));
+        assert_eq!(studio.usage().speech, 200);
+        assert_eq!(studio.idle(), Some(IDLE));
+        studio.set_idle(None);
+        assert_eq!(studio.idle(), None);
+    }
+
+    #[test]
     fn a_loaded_thing_is_shared_then_let_go() {
         let slot: Slot<u32> = Slot::default();
         let one = slot.get(|| Ok(1));
         let two = slot.get(|| Ok(2));
         assert_eq!(one.as_deref(), Ok(&1));
         assert_eq!(two.as_deref(), Ok(&1), "loaded once while held");
+        assert!(slot.held());
         drop((one, two));
+        assert!(!slot.held());
         assert_eq!(slot.get(|| Ok(3)).as_deref(), Ok(&3));
         assert!(slot.get(|| Err::<u32, _>("gone".into())).is_err());
     }

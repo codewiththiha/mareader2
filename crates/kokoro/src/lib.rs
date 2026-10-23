@@ -187,6 +187,12 @@ impl Kokoro {
         chunks::split(phonemes, &self.config.vocab, most)
     }
 
+    /// As [`Self::chunks`], the first ending near `lead` tokens, sooner heard.
+    pub fn chunks_led(&self, phonemes: &str, lead: usize) -> Vec<Chunk> {
+        let most = self.config.plbert.max_position_embeddings.saturating_sub(2);
+        chunks::split_led(phonemes, &self.config.vocab, lead, most)
+    }
+
     /// One chunk spoken, with its pause after; equal input sounds equal.
     pub fn render(&self, chunk: &Chunk, voice: &Voice, speed: f32) -> Result<Vec<f32>> {
         let mut ids = Vec::with_capacity(chunk.ids.len() + 2);

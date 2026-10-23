@@ -67,6 +67,15 @@ impl Default for Tone {
     }
 }
 
+/// What voice models hold in memory now.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    /// Names of the models loaded.
+    pub models: Vec<&'static str>,
+    /// Bytes of speech kept to say again.
+    pub speech: usize,
+}
+
 /// What an engine can change.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Caps {
@@ -118,6 +127,10 @@ pub trait Voicer {
     }
     /// Goes on from a pause; true if it did.
     fn resume(&mut self) -> bool {
+        false
+    }
+    /// True while the engine reads its model from disk, before speaking.
+    fn loading(&self) -> bool {
         false
     }
     /// Sentences likely said next, in order, to get ready ahead.

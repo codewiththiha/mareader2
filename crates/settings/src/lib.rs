@@ -242,6 +242,7 @@ mod tests {
         s.read_aloud.pitch = 9.0;
         s.read_aloud.engine = " ".into();
         s.read_aloud.speech_memory_mb = 0;
+        s.read_aloud.model_idle_min = 7;
         let mut shadow = builtin_presets().remove(0);
         shadow.name = "Mine".into();
         s.user_presets = vec![shadow];
@@ -252,6 +253,11 @@ mod tests {
         assert_eq!(s.read_aloud.pitch, 2.0);
         assert_eq!(s.read_aloud.engine, "system");
         assert_eq!(s.read_aloud.speech_memory_mb, 16);
+        assert_eq!(s.read_aloud.model_idle_min, 2, "only offered times");
+        s.read_aloud.model_idle_min = 0;
+        assert_eq!(s.read_aloud.model_idle(), None);
+        s.read_aloud.model_idle_min = 5;
+        assert_eq!(s.read_aloud.model_idle().map(|d| d.as_secs()), Some(300));
         assert!(s.user_presets.is_empty(), "a built-in id can't be shadowed");
     }
 }

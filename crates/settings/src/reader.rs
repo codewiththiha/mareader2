@@ -196,6 +196,8 @@ pub struct ReadAloudSettings {
     pub volume: f32,
     /// Megabytes of speech voice models keep made, to say again at once.
     pub speech_memory_mb: u32,
+    /// Minutes an unused voice model stays loaded; 0 keeps it while reading.
+    pub model_idle_min: u32,
 }
 
 impl ReadAloudSettings {
@@ -208,6 +210,8 @@ impl ReadAloudSettings {
     pub const SYSTEM: &str = "system";
     /// Least, default and most speech kept, in megabytes.
     pub const MEMORY_MB: (u32, u32, u32) = (16, 64, 1024);
+    /// The idle times offered, in minutes; 0 is while reading.
+    pub const IDLE_MIN: [u32; 5] = [1, 2, 5, 15, 0];
 
     pub fn sanitize(&mut self) {
         let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
@@ -222,6 +226,15 @@ impl ReadAloudSettings {
         }
         let (least, _, most) = Self::MEMORY_MB;
         self.speech_memory_mb = self.speech_memory_mb.clamp(least, most);
+        if !Self::IDLE_MIN.contains(&self.model_idle_min) {
+            self.model_idle_min = Self::default().model_idle_min;
+        }
+    }
+
+    /// How long an unused model stays loaded; `None` while reading.
+    pub fn model_idle(&self) -> Option<std::time::Duration> {
+        let minutes = u64::from(self.model_idle_min);
+        (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
     }
 
     /// The voice picked for the engine in use, if any.
@@ -242,6 +255,7 @@ impl Default for ReadAloudSettings {
             pitch: 1.0,
             volume: 1.0,
             speech_memory_mb: Self::MEMORY_MB.1,
+            model_idle_min: 2,
         }
     }
 }

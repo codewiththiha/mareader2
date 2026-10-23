@@ -38,13 +38,6 @@ pub fn tab(
         ui,
         "Reading with this model uses the voice picked here. Each voice works offline once downloaded.",
     );
-    section(ui, "Memory");
-    group(ui, |ui| memory_row(ui, s));
-    note(
-        ui,
-        "Sentences are made just ahead of the voice and kept a while, so stepping back plays at once. \
-         The model leaves memory after two minutes unused.",
-    );
     section(ui, "Model");
     group(ui, |ui| {
         let t = Tokens::get(ui.ctx());
@@ -60,26 +53,6 @@ pub fn tab(
         ui,
         "Removing the model deletes its voices too; it can be downloaded again.",
     );
-}
-
-/// How much speech models keep made, in megabytes.
-fn memory_row(ui: &mut Ui, s: &mut ReadAloudSettings) {
-    let (least, _, most) = ReadAloudSettings::MEMORY_MB;
-    let hint = "Made ahead and heard lately, to play again at once";
-    row(ui, "Speech kept", hint, |ui| {
-        ui.spacing_mut().slider_width = 160.0;
-        let slider = egui::Slider::new(&mut s.speech_memory_mb, least..=most)
-            .logarithmic(true)
-            .custom_formatter(|mb, _| memory_label(mb as u32));
-        ui.add(slider);
-    });
-}
-
-/// Megabytes, and about how long that much speech plays.
-fn memory_label(mb: u32) -> String {
-    // Kept as 16-bit samples, 24,000 a second.
-    let minutes = u64::from(mb) * (1 << 20) / 48_000 / 60;
-    format!("{mb} MB · {minutes} min")
 }
 
 /// Downloads every voice still missing at once.
@@ -215,12 +188,6 @@ fn accent(tag: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn speech_memory_shows_how_long_it_plays() {
-        assert_eq!(memory_label(16), "16 MB · 5 min");
-        assert_eq!(memory_label(64), "64 MB · 23 min");
-    }
 
     #[test]
     fn english_voices_are_named_by_their_accent() {

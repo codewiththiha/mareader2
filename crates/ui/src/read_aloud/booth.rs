@@ -128,6 +128,11 @@ impl Booth {
         self.fault.as_deref()
     }
 
+    /// True while the engine reads its model, before the sample sounds.
+    pub fn loading(&self) -> bool {
+        self.voicer.as_ref().is_some_and(|v| v.loading())
+    }
+
     /// True while a sample is being said.
     pub fn trying(&self) -> bool {
         self.trying.is_some()

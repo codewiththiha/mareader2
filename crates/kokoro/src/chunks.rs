@@ -23,20 +23,24 @@ fn rank(ch: char, previous: u8) -> u8 {
 
 /// Chunks of at most `most` tokens, split at the strongest pause.
 pub(crate) fn split(phonemes: &str, vocab: &HashMap<String, u32>, most: usize) -> Vec<Chunk> {
-    let mut tokens: Vec<(u32, u8)> = Vec::new();
-    let mut previous = 0;
-    let mut utf8 = [0u8; 4];
-    for ch in phonemes.chars() {
-        let boundary = rank(ch, previous);
-        if let Some(&id) = vocab.get(&*ch.encode_utf8(&mut utf8)) {
-            tokens.push((id, boundary));
-        } else if let (true, Some((_, last))) = (boundary > 0, tokens.last_mut()) {
-            *last = (*last).max(boundary);
-        }
-        previous = boundary;
-    }
+    split_led(phonemes, vocab, 0, most)
+}
+
+/// As [`split`], but the first chunk ends near `lead` tokens; 0 never does.
+pub(crate) fn split_led(
+    phonemes: &str,
+    vocab: &HashMap<String, u32>,
+    lead: usize,
+    most: usize,
+) -> Vec<Chunk> {
+    let tokens = tokens(phonemes, vocab);
     let mut chunks = Vec::new();
     let mut rest = tokens.as_slice();
+    if let Some((end, boundary)) = lead_end(rest, lead.min(most)) {
+        let (head, tail) = rest.split_at(end);
+        chunks.push(chunk(head, boundary));
+        rest = tail;
+    }
     while !rest.is_empty() && most > 0 {
         let window = rest.get(..most.min(rest.len())).unwrap_or(rest);
         let (end, boundary) = if window.len() == rest.len() {
@@ -50,17 +54,58 @@ pub(crate) fn split(phonemes: &str, vocab: &HashMap<String, u32>, most: usize) -
                 .unwrap_or((window.len(), 0))
         };
         let (head, tail) = rest.split_at(end);
-        chunks.push(Chunk {
-            ids: head.iter().map(|t| t.0).collect(),
-            pause_ms: match boundary {
-                3 => 200,
-                2 => 100,
-                _ => 0,
-            },
-        });
+        chunks.push(chunk(head, boundary));
         rest = tail;
     }
     chunks
+}
+
+/// A short first chunk's end and pause: an early clause, else a word.
+fn lead_end(tokens: &[(u32, u8)], lead: usize) -> Option<(usize, u8)> {
+    if lead == 0 || tokens.len() <= lead {
+        return None;
+    }
+    let from = (lead / 3).max(1);
+    let window = tokens.get(from..lead)?;
+    if let Some(at) = window.iter().position(|t| t.1 >= 2) {
+        let mut end = from + at + 1;
+        // The space after a comma goes with it.
+        while tokens.get(end).is_some_and(|t| t.1 >= 2) {
+            end += 1;
+        }
+        let boundary = tokens.get(from + at).map_or(2, |t| t.1);
+        return Some((end, boundary));
+    }
+    let at = window.iter().rposition(|t| t.1 == 1)?;
+    Some((from + at + 1, 0))
+}
+
+fn chunk(tokens: &[(u32, u8)], boundary: u8) -> Chunk {
+    Chunk {
+        ids: tokens.iter().map(|t| t.0).collect(),
+        pause_ms: match boundary {
+            3 => 200,
+            2 => 100,
+            _ => 0,
+        },
+    }
+}
+
+/// Each known symbol's id, with the strongest pause it ends.
+fn tokens(phonemes: &str, vocab: &HashMap<String, u32>) -> Vec<(u32, u8)> {
+    let mut tokens: Vec<(u32, u8)> = Vec::new();
+    let mut previous = 0;
+    let mut utf8 = [0u8; 4];
+    for ch in phonemes.chars() {
+        let boundary = rank(ch, previous);
+        if let Some(&id) = vocab.get(&*ch.encode_utf8(&mut utf8)) {
+            tokens.push((id, boundary));
+        } else if let (true, Some((_, last))) = (boundary > 0, tokens.last_mut()) {
+            *last = (*last).max(boundary);
+        }
+        previous = boundary;
+    }
+    tokens
 }
 
 /// Pads with silence to end quiet for `millis`, counting quiet already there.
@@ -143,6 +188,27 @@ mod tests {
         // The space after a stop never makes a chunk alone.
         let chunks = split("aa. aaa aaa. a", &v, 5);
         assert_eq!(sizes(&chunks), [4, 4, 5, 1]);
+    }
+
+    #[test]
+    fn a_led_first_chunk_ends_at_an_early_clause_else_a_word() {
+        let v = vocab("a ,.");
+        // A comma past a third of the lead ends it, with its space.
+        let chunks = split_led("aaaa, aaaaaaaa aaaaaaaa aaaa.", &v, 12, 510);
+        assert_eq!(sizes(&chunks), [6, 23]);
+        assert_eq!(chunks.first().map(|c| c.pause_ms), Some(100));
+        // Too early a comma is passed over for the last word in reach.
+        let chunks = split_led("a, aaaa aaaa aaaa aaaa.", &v, 12, 510);
+        assert_eq!(sizes(&chunks), [8, 15]);
+        assert_eq!(chunks.first().map(|c| c.pause_ms), Some(0));
+        // Short text, one long word, or no lead: as split makes it.
+        let short = "aaaa, aaaa.";
+        assert_eq!(split_led(short, &v, 12, 510), split(short, &v, 510));
+        assert_eq!(sizes(&split_led(&"a".repeat(40), &v, 12, 510)), [40]);
+        let long = "aaaa, aaaaaaaa aaaaaaaa aaaa.";
+        assert_eq!(split_led(long, &v, 0, 510), split(long, &v, 510));
+        let all: usize = sizes(&split_led(long, &v, 12, 8)).iter().sum();
+        assert_eq!(all, long.chars().count(), "every token kept");
     }
 
     #[test]
