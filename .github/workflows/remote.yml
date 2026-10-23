@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory or cache
+        description: shots, web, memory, cache or kokoro
         required: true
         type: choice
-        options: [shots, web, memory, cache]
+        options: [shots, web, memory, cache, kokoro]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -139,6 +139,51 @@ jobs:
         if: always()
         with:
           name: memory
+          path: out/
+          retention-days: 7
+
+  kokoro:
+    name: Remote / kokoro
+    if: inputs.task == 'kokoro'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: kokoro
+          workspaces: tools/kokoro-parity
+      # The pinned published model; 330 MB, so kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: kokoro
+          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987
+      - name: Model
+        run: |
+          base=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
+          mkdir -p kokoro/voices
+          for f in config.json kokoro-v1_0.pth voices/af_heart.pt; do
+            [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$base/$f"
+          done
+          sha256sum -c <<'SUMS'
+          5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f  kokoro/config.json
+          496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4  kokoro/kokoro-v1_0.pth
+          0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff  kokoro/voices/af_heart.pt
+          SUMS
+      - name: Compare
+        run: |
+          set -o pipefail
+          cargo run -q --release --manifest-path tools/kokoro-parity/Cargo.toml -- kokoro out
+      - name: Summary
+        if: always()
+        run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kokoro
           path: out/
           retention-days: 7
 
