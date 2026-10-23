@@ -3770,6 +3770,7 @@ dependencies = [
  "mareader-audio",
  "mareader-fetch",
  "mareader-g2p",
+ "mareader-ipa",
  "mareader-kokoro",
  "mareader-vits",
  "sha2",

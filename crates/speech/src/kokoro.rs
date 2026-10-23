@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_g2p::{Dialect, G2p};
+use mareader_ipa::Language;
 use mareader_kokoro::{Kokoro as Model, SAMPLE_RATE, Voice as Pack};
 
 use crate::local::{Line, Out, Synth, trim_join};
@@ -25,8 +26,16 @@ pub(crate) struct Source {
 /// What a voice needs once loaded.
 struct Loaded {
     model: Arc<Model>,
-    g2p: Arc<G2p>,
+    reader: Reader,
     voice: (String, Pack),
+}
+
+/// What turns a voice's text into phonemes.
+enum Reader {
+    /// English, from the downloaded G2P data.
+    English(Arc<G2p>),
+    /// Another language, by spelling rules alone.
+    Rules(Language),
 }
 
 /// Kokoro's build from `source`, speaking a voice at a time.
@@ -45,7 +54,7 @@ impl Kokoro {
         }
     }
 
-    fn load_fresh(&self, voice: &str, dialect: Dialect) -> Result<Loaded, String> {
+    fn load_fresh(&self, voice: &str) -> Result<Loaded, String> {
         let Source {
             folder,
             weights,
@@ -55,13 +64,19 @@ impl Kokoro {
             let config = folder.join("config.json");
             Model::from_files(&config, weights).map_err(|e| e.to_string())
         })?;
-        let g2p = (self.studio).g2p(dialect, || {
-            G2p::load(folder, dialect).map_err(|e| e.to_string())
-        })?;
+        let reader = match Language::for_kokoro_voice(voice) {
+            Some(language) => Reader::Rules(language),
+            None => {
+                let dialect = Dialect::for_kokoro_voice(voice).unwrap_or(Dialect::American);
+                Reader::English((self.studio).g2p(dialect, || {
+                    G2p::load(folder, dialect).map_err(|e| e.to_string())
+                })?)
+            }
+        };
         let pack = Pack::load(&pack_path(folder, voice)).map_err(|e| e.to_string())?;
         Ok(Loaded {
             model,
-            g2p,
+            reader,
             voice: (voice.to_owned(), pack),
         })
     }
@@ -73,10 +88,9 @@ impl Synth for Kokoro {
     }
 
     fn load(&mut self, voice: &str) -> Result<(), String> {
-        let dialect = Dialect::for_kokoro_voice(voice).unwrap_or(Dialect::American);
-        let fits = |l: &Loaded| l.voice.0 == voice && l.g2p.dialect() == dialect;
+        let fits = |l: &Loaded| l.voice.0 == voice;
         if !self.loaded.as_ref().is_some_and(fits) {
-            self.loaded = Some(self.load_fresh(voice, dialect)?);
+            self.loaded = Some(self.load_fresh(voice)?);
         }
         Ok(())
     }
@@ -91,14 +105,24 @@ impl Synth for Kokoro {
 
     fn render(&mut self, line: &Line<'_>, out: &mut Out<'_>) -> Result<(), String> {
         let loaded = self.loaded.as_ref();
-        let Loaded { model, g2p, voice } = loaded.ok_or("Kokoro was let go")?;
-        let mut phonemes = String::new();
-        for token in g2p.tokens(line.text) {
-            phonemes.push_str(&token.phonemes);
-            if token.whitespace {
-                phonemes.push(' ');
+        let Loaded {
+            model,
+            reader,
+            voice,
+        } = loaded.ok_or("Kokoro was let go")?;
+        let phonemes = match reader {
+            Reader::English(g2p) => {
+                let mut phonemes = String::new();
+                for token in g2p.tokens(line.text) {
+                    phonemes.push_str(&token.phonemes);
+                    if token.whitespace {
+                        phonemes.push(' ');
+                    }
+                }
+                phonemes
             }
-        }
+            Reader::Rules(language) => mareader_ipa::kokoro(*language, line.text),
+        };
         let phonemes = model.normalise(&phonemes);
         let chunks = match line.lead {
             true => model.chunks_led(&phonemes, LEAD),

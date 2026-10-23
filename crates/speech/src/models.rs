@@ -244,11 +244,11 @@ const G2P: [ModelFile; 8] = [
     ),
 ];
 
-/// Natural English from a small model that runs on the computer.
+/// Natural speech from a small model that runs on the computer.
 pub const KOKORO: Model = Model {
     id: "kokoro",
     name: "Kokoro",
-    about: "Natural English voices from a small model, 82 million parameters",
+    about: "Natural voices in English, Spanish and Italian from a small model, 82 million parameters",
     license: "Apache 2.0",
     hosts: KOKORO_HOSTS,
     files: &[
@@ -341,7 +341,7 @@ const fn voice(
     }
 }
 
-/// The English voices: American (`a`) and British (`b`), female or male.
+/// Ids: American `a`, British `b`, Spanish `e`, Italian `i`; `f` or `m`.
 const KOKORO_VOICES: &[ModelVoice] = &[
     voice(
         ("af_alloy", "Alloy", "en-US"),
@@ -593,6 +593,51 @@ const KOKORO_VOICES: &[ModelVoice] = &[
         (
             523_425,
             "b5204750dcba01029d2ac9cec17aec3b20a6d64073c579d694a23cb40effbd0e",
+        ),
+    ),
+    voice(
+        ("ef_dora", "Dora", "es-ES"),
+        true,
+        "voices/ef_dora.pt",
+        (
+            523_420,
+            "d9d69b0f8a2b87a345f269d89639f89dfbd1a6c9da0c498ae36dd34afcf35530",
+        ),
+    ),
+    voice(
+        ("em_alex", "Alex", "es-ES"),
+        false,
+        "voices/em_alex.pt",
+        (
+            523_420,
+            "5eac53f767c3f31a081918ba531969aea850bed18fe56419b804d642c6973431",
+        ),
+    ),
+    voice(
+        ("em_santa", "Santa", "es-ES"),
+        false,
+        "voices/em_santa.pt",
+        (
+            523_430,
+            "aa8620cb96cec705823efca0d956a63e158e09ad41aca934d354b7f0778f63cb",
+        ),
+    ),
+    voice(
+        ("if_sara", "Sara", "it-IT"),
+        true,
+        "voices/if_sara.pt",
+        (
+            523_425,
+            "6c0b253b955fe32f1a1a86006aebe83d050ea95afd0e7be15182f087deedbf55",
+        ),
+    ),
+    voice(
+        ("im_nicola", "Nicola", "it-IT"),
+        false,
+        "voices/im_nicola.pt",
+        (
+            523_341,
+            "234ed06648649f9bd874b37508ea17560b9c993ef85b4ddb3e3a71e062bd2c12",
         ),
     ),
 ];
@@ -1081,7 +1126,7 @@ mod tests {
         // Each smaller build is a smaller download.
         let sizes: Vec<u64> = KOKORO.builds.iter().map(|b| b.file.bytes).collect();
         assert!(sizes.windows(2).all(|w| w[0] > w[1]));
-        assert_eq!(KOKORO.voices.len(), 28);
+        assert_eq!(KOKORO.voices.len(), 33);
         for v in KOKORO.voices {
             let file = v.file.unwrap();
             assert_eq!(v.files(), [file]);
