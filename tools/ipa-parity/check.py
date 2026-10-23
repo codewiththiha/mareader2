@@ -25,6 +25,7 @@ LANGUAGES = [
     ("it", "it", 5.0),
     ("pt", "pt-br", 2.0),
     ("fr", "fr-fr", 2.0),
+    ("hi", "hi", 2.0),
 ]
 
 # Kokoro-82M's vocabulary, from its config.json.
@@ -53,7 +54,9 @@ def normalise(phonemes: str) -> str:
 def espeak(voice: str, lines: list[str]) -> list[str]:
     backend = EspeakBackend(voice, preserve_punctuation=True, with_stress=True,
                             tie="^", language_switch="remove-flags")
-    table = str.maketrans({"«": "“", "»": "”", "(": "«", ")": "»"})
+    # espeak drops the danda; we read it as a full stop, so give it one.
+    table = str.maketrans({"«": "“", "»": "”", "(": "«", ")": "»",
+                           "।": ".", "॥": "."})
     said = backend.phonemize([line.translate(table) for line in lines])
     out = []
     for phonemes in said:
