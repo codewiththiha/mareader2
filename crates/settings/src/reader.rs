@@ -194,6 +194,8 @@ pub struct ReadAloudSettings {
     /// Shares of the voice's own pitch and of full volume.
     pub pitch: f32,
     pub volume: f32,
+    /// Megabytes of speech voice models keep made, to say again at once.
+    pub speech_memory_mb: u32,
 }
 
 impl ReadAloudSettings {
@@ -204,6 +206,8 @@ impl ReadAloudSettings {
     pub const HIGHEST: f32 = 2.0;
     /// The engine every system has.
     pub const SYSTEM: &str = "system";
+    /// Least, default and most speech kept, in megabytes.
+    pub const MEMORY_MB: (u32, u32, u32) = (16, 64, 1024);
 
     pub fn sanitize(&mut self) {
         let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
@@ -216,6 +220,8 @@ impl ReadAloudSettings {
         if self.engine.trim().is_empty() {
             self.engine = Self::SYSTEM.to_owned();
         }
+        let (least, _, most) = Self::MEMORY_MB;
+        self.speech_memory_mb = self.speech_memory_mb.clamp(least, most);
     }
 
     /// The voice picked for the engine in use, if any.
@@ -235,6 +241,7 @@ impl Default for ReadAloudSettings {
             voices: std::collections::BTreeMap::new(),
             pitch: 1.0,
             volume: 1.0,
+            speech_memory_mb: Self::MEMORY_MB.1,
         }
     }
 }

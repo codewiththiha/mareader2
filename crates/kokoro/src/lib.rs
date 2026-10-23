@@ -178,7 +178,7 @@ impl Kokoro {
 
     /// G2P output reduced to the symbols this model knows.
     pub fn normalise(&self, phonemes: &str) -> String {
-        chunks::normalise(phonemes, &self.config.vocab)
+        self.config.normalise(phonemes)
     }
 
     /// Phonemes in pieces short enough to speak one at a time.

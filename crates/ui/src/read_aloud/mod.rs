@@ -290,12 +290,12 @@ impl ReadAloud {
             if let Some(Session::Spoken(s)) = self.session.as_mut()
                 && s.reads(reading)
             {
-                s.restart(reading, start, settings);
+                s.restart(reading, start, (settings, &self.shelf));
                 return;
             }
-            self.session = Some(Session::Spoken(Box::new(Spoken::new(
-                ctx, reading, start, settings,
-            ))));
+            let on = (settings, &self.shelf);
+            let spoken = Spoken::new(ctx, reading, start, on);
+            self.session = Some(Session::Spoken(Box::new(spoken)));
             return;
         }
         let Some(narration) = reading.document.narration() else {
@@ -346,7 +346,7 @@ impl ReadAloud {
     pub fn tick(&mut self, ctx: &Context, documents: &mut Documents, settings: &ReadAloudSettings) {
         let going = match self.session.as_mut() {
             Some(Session::Narrated(s)) => s.tick(ctx, documents, settings),
-            Some(Session::Spoken(s)) => s.tick(ctx, documents, settings),
+            Some(Session::Spoken(s)) => s.tick(ctx, documents, (settings, &self.shelf)),
             None => return,
         };
         if !going {
@@ -570,7 +570,7 @@ pub(crate) fn fetch(files: Files) -> Fetch {
             return Some(clip.clone());
         }
         let media = files.media(path)?;
-        let clip = Clip {
+        let clip = Clip::File {
             data: Arc::new(media.data),
             extension: media.extension,
         };

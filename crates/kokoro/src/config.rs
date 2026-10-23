@@ -96,6 +96,11 @@ impl Config {
     pub fn parse(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(bytes)
     }
+
+    /// G2P output reduced to the symbols this model knows.
+    pub fn normalise(&self, phonemes: &str) -> String {
+        crate::chunks::normalise(phonemes, &self.vocab)
+    }
 }
 
 #[cfg(test)]

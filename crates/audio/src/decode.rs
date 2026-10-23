@@ -43,8 +43,104 @@ impl Chunk {
     }
 }
 
+/// Frames a made clip hands over at a time.
+const SLICE: usize = 4096;
+
+/// One clip open for reading: a file decoded, or samples already made.
+pub(crate) enum Reader {
+    File(Box<Coded>),
+    Made(Made),
+}
+
+impl Reader {
+    /// Opens `clip`; `None` if it isn't audio this reader decodes.
+    pub(crate) fn open(clip: &Clip) -> Option<Self> {
+        match clip {
+            Clip::File { data, extension } => {
+                Coded::open(data, extension).map(Box::new).map(Self::File)
+            }
+            Clip::Pcm { samples, rate } => (*rate > 0).then(|| {
+                Self::Made(Made {
+                    samples: Arc::clone(samples),
+                    rate: *rate,
+                    at: 0,
+                    pending: None,
+                })
+            }),
+        }
+    }
+
+    /// Goes to `at` seconds; the next chunk starts exactly there.
+    pub(crate) fn seek(&mut self, at: f64) {
+        match self {
+            Self::File(r) => r.seek(at),
+            Self::Made(r) => r.seek(at),
+        }
+    }
+
+    /// Gives `chunk` back, to come first from `next`.
+    pub(crate) fn unread(&mut self, chunk: Chunk) {
+        match self {
+            Self::File(r) => r.pending = Some(chunk),
+            Self::Made(r) => r.pending = Some(chunk),
+        }
+    }
+
+    /// Where the next samples start, in seconds.
+    pub(crate) fn next_start(&self) -> f64 {
+        match self {
+            Self::File(r) => r.pending.as_ref().map_or(r.clock, |c| c.start),
+            Self::Made(r) => {
+                (r.pending.as_ref()).map_or(r.at as f64 / f64::from(r.rate), |c| c.start)
+            }
+        }
+    }
+
+    /// The next samples; `None` at the clip's end.
+    pub(crate) fn next(&mut self) -> Option<Chunk> {
+        match self {
+            Self::File(r) => r.next(),
+            Self::Made(r) => r.next(),
+        }
+    }
+}
+
+/// Mono samples already made, read a slice at a time.
+pub(crate) struct Made {
+    samples: Arc<[i16]>,
+    rate: u32,
+    /// The next sample's index.
+    at: usize,
+    pending: Option<Chunk>,
+}
+
+impl Made {
+    fn seek(&mut self, at: f64) {
+        let index = (at.max(0.0) * f64::from(self.rate)).round() as usize;
+        self.at = index.min(self.samples.len());
+        self.pending = None;
+    }
+
+    fn next(&mut self) -> Option<Chunk> {
+        if let Some(chunk) = self.pending.take() {
+            return Some(chunk);
+        }
+        let end = (self.at + SLICE).min(self.samples.len());
+        let slice = self.samples.get(self.at..end).filter(|s| !s.is_empty())?;
+        let samples = slice.iter().map(|&s| f32::from(s) / 32768.0).collect();
+        let start = self.at as f64 / f64::from(self.rate);
+        self.at = end;
+        Some(Chunk {
+            start,
+            rate: self.rate,
+            channels: 1,
+            samples,
+        })
+    }
+}
+
 /// One file open for decoding.
-pub(crate) struct Reader {
+pub(crate) struct Coded {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
     track: u32,
@@ -57,13 +153,12 @@ pub(crate) struct Reader {
     pending: Option<Chunk>,
 }
 
-impl Reader {
-    /// Opens `clip`; `None` if it isn't audio this reader decodes.
-    pub(crate) fn open(clip: &Clip) -> Option<Self> {
-        let source = Box::new(Cursor::new(Bytes(Arc::clone(&clip.data))));
+impl Coded {
+    fn open(data: &Arc<Vec<u8>>, extension: &str) -> Option<Self> {
+        let source = Box::new(Cursor::new(Bytes(Arc::clone(data))));
         let stream = MediaSourceStream::new(source, Default::default());
         let mut hint = Hint::new();
-        hint.with_extension(clip.extension);
+        hint.with_extension(extension);
         let (formats, meta) = (FormatOptions::default(), MetadataOptions::default());
         let probe = symphonia::default::get_probe();
         let format = probe.probe(&hint, stream, formats, meta).ok()?;
@@ -84,8 +179,7 @@ impl Reader {
         })
     }
 
-    /// Goes to `at` seconds; the next chunk starts exactly there.
-    pub(crate) fn seek(&mut self, at: f64) {
+    fn seek(&mut self, at: f64) {
         let at = at.max(0.0);
         let time = Time::try_from_secs_f64(at).unwrap_or(Time::ZERO);
         let to = SeekTo::Time {
@@ -102,18 +196,7 @@ impl Reader {
         self.pending = None;
     }
 
-    /// Gives `chunk` back, to come first from `next`.
-    pub(crate) fn unread(&mut self, chunk: Chunk) {
-        self.pending = Some(chunk);
-    }
-
-    /// Where the next samples start, in seconds.
-    pub(crate) fn next_start(&self) -> f64 {
-        self.pending.as_ref().map_or(self.clock, |c| c.start)
-    }
-
-    /// The next decoded samples; `None` at the file's end.
-    pub(crate) fn next(&mut self) -> Option<Chunk> {
+    fn next(&mut self) -> Option<Chunk> {
         if let Some(chunk) = self.pending.take() {
             return Some(chunk);
         }
@@ -237,7 +320,7 @@ pub(crate) mod tests {
                 out.extend_from_slice(&v.to_le_bytes());
             }
         }
-        Clip {
+        Clip::File {
             data: Arc::new(out),
             extension: "wav",
         }
@@ -292,10 +375,36 @@ pub(crate) mod tests {
 
     #[test]
     fn what_isnt_audio_doesnt_open() {
-        let junk = Clip {
+        let junk = Clip::File {
             data: Arc::new(b"zq not a sound file at all".to_vec()),
             extension: "mp3",
         };
         assert!(Reader::open(&junk).is_none());
+        let rateless = Clip::Pcm {
+            samples: Arc::from(vec![0i16; 10]),
+            rate: 0,
+        };
+        assert!(Reader::open(&rateless).is_none());
+    }
+
+    #[test]
+    fn made_samples_read_and_seek_like_a_file() {
+        let samples: Vec<i16> = (0..10_000).map(|i| i as i16).collect();
+        let clip = Clip::Pcm {
+            samples: Arc::from(samples),
+            rate: 1000,
+        };
+        let mut r = Reader::open(&clip).unwrap();
+        let chunks = all(&mut r);
+        let frames: usize = chunks.iter().map(Chunk::frames).sum();
+        assert_eq!(frames, 10_000);
+        assert!(chunks.iter().all(|c| c.rate == 1000 && c.channels == 1));
+        let mut r = Reader::open(&clip).unwrap();
+        r.seek(2.5);
+        assert!((r.next_start() - 2.5).abs() < 1e-9);
+        let first = r.next().unwrap();
+        assert!((first.samples[0] - 2500.0 / 32768.0).abs() < 1e-6);
+        r.unread(first.clone());
+        assert_eq!(r.next(), Some(first));
     }
 }

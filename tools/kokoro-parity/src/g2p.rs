@@ -1,5 +1,6 @@
 //! mareader-g2p against loqui-g2p 0.4.0, the crate it ports, input by input.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::hint::black_box;
 use std::path::Path;
@@ -238,6 +239,10 @@ pub fn check(dir: &Path, report: &mut String, failed: &mut Vec<String>) -> R<()>
     writeln!(report, "## G2P parity: mareader-g2p vs loqui-g2p 0.4.0\n")?;
     let mut rows = String::new();
     let mut shown = String::new();
+    let config = mareader_kokoro::Config::parse(&std::fs::read(dir.join("config.json"))?)?;
+    // Symbols our G2P gives that Kokoro's vocabulary drops, by count.
+    let mut dropped: BTreeMap<char, usize> = BTreeMap::new();
+    let mut known: BTreeMap<char, bool> = BTreeMap::new();
     let dialects = [
         (
             ours::Dialect::American,
@@ -280,6 +285,17 @@ pub fn check(dir: &Path, report: &mut String, failed: &mut Vec<String>) -> R<()>
                 .into_iter()
                 .map(|t| (t.text, t.phonemes, t.whitespace))
                 .collect();
+            for ch in ta.iter().flat_map(|t| t.1.chars()) {
+                if ch.is_whitespace() || ch == '\u{0361}' {
+                    continue;
+                }
+                let kept = *known
+                    .entry(ch)
+                    .or_insert_with(|| !config.normalise(&ch.to_string()).is_empty());
+                if !kept {
+                    *dropped.entry(ch).or_default() += 1;
+                }
+            }
             same_text += usize::from(a == b);
             same_tokens += usize::from(ta == tb);
             if (a != b || ta != tb) && listed < SHOWN {
@@ -315,6 +331,24 @@ pub fn check(dir: &Path, report: &mut String, failed: &mut Vec<String>) -> R<()>
     report.push_str(&rows);
     if !shown.is_empty() {
         writeln!(report, "\nFirst differences:\n\n{shown}")?;
+    }
+    let symbols = known.len();
+    match dropped.is_empty() {
+        true => writeln!(
+            report,
+            "\nKokoro's vocabulary: all {symbols} symbols our G2P gives are known."
+        )?,
+        false => {
+            let list: Vec<String> = (dropped.iter())
+                .map(|(ch, n)| format!("`{ch}` U+{:04X} × {n}", u32::from(*ch)))
+                .collect();
+            writeln!(
+                report,
+                "\nKokoro's vocabulary drops {} of {symbols} symbols: {}.",
+                dropped.len(),
+                list.join(", ")
+            )?;
+        }
     }
     writeln!(report)?;
     Ok(())

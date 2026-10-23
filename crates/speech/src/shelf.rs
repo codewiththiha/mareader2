@@ -58,6 +58,8 @@ pub struct Shelf {
     queue: VecDeque<Item>,
     #[cfg(not(target_arch = "wasm32"))]
     desk: Option<desk::Desk>,
+    #[cfg(not(target_arch = "wasm32"))]
+    studio: crate::studio::Studio,
 }
 
 impl Default for Shelf {
@@ -68,6 +70,8 @@ impl Default for Shelf {
             queue: VecDeque::new(),
             #[cfg(not(target_arch = "wasm32"))]
             desk: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            studio: crate::studio::Studio::default(),
         }
     }
 }
@@ -79,6 +83,14 @@ impl Shelf {
 
     pub fn model(&self, id: &str) -> Option<&'static Model> {
         self.catalogue.iter().find(|m| m.id == id)
+    }
+
+    /// Keeps at most `bytes` of speech the models made, to say again.
+    pub fn set_speech_memory(&self, bytes: usize) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.studio.set_memory(bytes);
+        #[cfg(target_arch = "wasm32")]
+        let _ = bytes;
     }
 
     /// Whether downloads can happen here.
@@ -296,6 +308,11 @@ impl Shelf {
                 self.stages.insert(item, Stage::Absent);
             }
         }
+    }
+
+    /// The models loaded and the speech they made.
+    pub(crate) fn studio(&self) -> &crate::studio::Studio {
+        &self.studio
     }
 
     /// Where `model` is kept, once attached.
