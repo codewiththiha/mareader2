@@ -1,6 +1,6 @@
 [package]
 name = "mareader-ipa"
-description = "Text in Spanish and Italian to IPA, by our own spelling rules"
+description = "Text in other languages to IPA, by our own spelling rules"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
