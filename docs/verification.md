@@ -12,7 +12,7 @@ chooses per session, and the user can override the choice at any time.
 | Screenshots | `cargo run -p mareader-ui --example shot` | `python3 tools/ci.py shots` |
 | Browser preview | `tools/web.sh --serve` | `python3 tools/ci.py web` |
 | Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
-| Kokoro parity | none (needs the 330 MB model) | `python3 tools/ci.py kokoro --ref BRANCH` |
+| Kokoro parity | none (needs the 350 MB model) | `python3 tools/ci.py kokoro --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -194,6 +194,12 @@ voice and frame timing.
   draws noise as ours does. Fed the same seed, every generator step is listed
   side by side, and the final audio must correlate above 0.99. Noise
   diagnostics show how far reseeding or silencing the noise moves each take.
+- **G2P.** `mareader-g2p` against `loqui-g2p` 0.4.0, the crate it ports, in
+  both dialects: prose, tricky sentences, thousands of numbers, years, money,
+  a third of each lexicon with cased and suffixed forms, and made-up words for
+  the neural model. Every input must give the same phonemes and tokens. The
+  G2P files download with the model; `kokoro-parity <dir> <out> g2p` runs
+  this part alone.
 - **Where it lands.** `target/remote/kokoro/summary.md`, plus each take as
   WAV to listen to. Speed rows give real-time factors on CI's CPU.
 - **The model.** Fetched from its pinned revision, checked by SHA-256 and kept

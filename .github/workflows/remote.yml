@@ -156,11 +156,11 @@ jobs:
         with:
           shared-key: kokoro
           workspaces: tools/kokoro-parity
-      # The pinned published model; 330 MB, so kept between runs.
+      # The pinned published model and its G2P data; 350 MB, so kept.
       - uses: actions/cache@v4
         with:
           path: kokoro
-          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987
+          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987-g2p-717691a
       - name: Model
         run: |
           base=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
@@ -168,10 +168,23 @@ jobs:
           for f in config.json kokoro-v1_0.pth voices/af_heart.pt; do
             [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$base/$f"
           done
+          g2p=https://raw.githubusercontent.com/Awakened-Labs/loqui/717691aadf67408c85d87dc33e5d1d77b2ea4b4d/crates/loqui-g2p/data
+          for f in spacy-en-tokenizer.json tagger-en.bin misaki-us_gold.json misaki-us_silver.json \
+                   g2p-en-us.safetensors misaki-gb_gold.json misaki-gb_silver.json g2p-en-gb.safetensors; do
+            [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$g2p/$f"
+          done
           sha256sum -c <<'SUMS'
           5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f  kokoro/config.json
           496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4  kokoro/kokoro-v1_0.pth
           0ab5709b8ffab19bfd849cd11d98f75b60af7733253ad0d67b12382a102cb4ff  kokoro/voices/af_heart.pt
+          2ffa6b3b6f4da114531ff897c02f3d2551485ef45c3ca1f6e6b2fdc80e034d1d  kokoro/spacy-en-tokenizer.json
+          df3d6cb2c34d7da57f92e47ae9dea6bcc9c9f8ed7cf9ceec703e84d7d67d698f  kokoro/tagger-en.bin
+          dc414872a49a28ae6c141463d502fd945f3b2fde040484fdc47d00cc4612686f  kokoro/misaki-us_gold.json
+          de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475  kokoro/misaki-us_silver.json
+          dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5  kokoro/g2p-en-us.safetensors
+          29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71  kokoro/misaki-gb_gold.json
+          48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce  kokoro/misaki-gb_silver.json
+          4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703  kokoro/g2p-en-gb.safetensors
           SUMS
       - name: Compare
         run: |

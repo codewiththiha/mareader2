@@ -1,0 +1,29 @@
+mareader-g2p ports the English grapheme-to-phoneme pipeline of loqui-g2p 0.4.0
+to read its data from downloaded files.
+
+  loqui-g2p — https://github.com/Awakened-Labs/loqui
+  Copyright (c) 2026 Awakened Labs Inc. MIT License.
+
+The pipeline it ports, and the data the app downloads at run time from
+Awakened-Labs/loqui at commit 717691aadf67408c85d87dc33e5d1d77b2ea4b4d:
+
+  misaki English G2P logic and lexicons, version 0.9.4 (us/gb gold and
+  silver) — https://github.com/hexgrad/misaki
+  Apache License 2.0.
+
+  spaCy English tokenizer rules (spaCy 3.8) — https://github.com/explosion/spaCy
+  Copyright (c) 2016-2026 ExplosionAI GmbH, 2016 spaCy GmbH, 2015 Matthew
+  Honnibal. MIT License. The tokenizer algorithm is reimplemented.
+
+  Part-of-speech tagger weights (tagger-en.bin), original to loqui, trained on
+  public-domain text labelled by spaCy's MIT-licensed en_core_web_sm. MIT.
+
+  Grapheme-to-phoneme BART models trained on the misaki lexicons:
+    https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us
+    https://huggingface.co/PeterReid/graphemes_to_phonemes_en_gb
+  Apache License 2.0.
+
+  Number wording follows num2words 0.5.14 (LGPL); none of its code is used.
+
+No GPL code is used: where misaki asks eSpeak NG about unknown words, the
+BART model answers instead.

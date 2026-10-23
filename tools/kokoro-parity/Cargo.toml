@@ -1,6 +1,6 @@
 [package]
 name = "kokoro-parity"
-description = "Checks mareader-kokoro against a reference Kokoro build, stage by stage"
+description = "Checks mareader-kokoro and mareader-g2p against the crates they port"
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -10,6 +10,9 @@ publish = false
 
 [dependencies]
 mareader-kokoro = { path = "../../crates/kokoro" }
+mareader-g2p = { path = "../../crates/g2p" }
+loqui-g2p = "=0.4.0"
+serde_json = "1"
 any-tts = { version = "=0.2.0", default-features = false, features = ["kokoro"] }
 candle-core = "=0.10.2"
 candle-nn = "=0.10.2"

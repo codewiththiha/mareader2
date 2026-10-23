@@ -27,6 +27,7 @@ the right place.
 | L0 | `audio` | **exists** | a book's narration: clips decoded (symphonia), brought to the device's rate, sped up at the same pitch, and played on the system output (cpal); silent in a browser |
 | L0 | `script` | **exists** | a book's scripts in a sandboxed JavaScript engine (Boa) over a small page model: elements, events, timers, form controls; pages written back as markup; desktop only |
 | L0 | `kokoro` | **exists** | a small neural voice: Kokoro-82M's inference ported to candle, phonemes in and 24 kHz speech out, chunked at pauses, its noise seeded so equal text sounds equal; weights and voices read from the downloaded PyTorch files; credits in its `NOTICE`; desktop only |
+| L0 | `g2p` | **exists** | English text to the phonemes Kokoro was trained on: misaki's pipeline ported (spaCy's tokenizer, a part-of-speech tagger, the misaki lexicons, numbers, and a small neural model for unknown words); its data downloads with Kokoro; credits in its `NOTICE` |
 | L1 | `speech` | **exists** | reading text aloud: sentences cut from page text with their page and character spans, and the engines behind one `Voicer` trait (the system's own voices through `tts`; a silent one for tests); voice models on offer, downloaded one at a time through `fetch` and checked by SHA-256; desktop only |
 | L1 | `pdf` | planned M2 | hayro: open, page sizes, tile raster, text and glyph boxes, outline, links, search index |
 | L1 | `reflow` | planned M4 | styled blocks → parley lines → pages; typography knobs; hit-testing |

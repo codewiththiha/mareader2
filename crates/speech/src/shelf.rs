@@ -426,7 +426,8 @@ mod desk {
     ) -> Stage {
         let total: u64 = files.iter().map(|f| f.bytes).sum();
         let mut base = 0;
-        let mut last = Instant::now() - TELL_EVERY;
+        let now = Instant::now();
+        let mut last = now.checked_sub(TELL_EVERY).unwrap_or(now);
         for f in files {
             let path = folder.join(f.path);
             if len(&path) == Some(f.bytes) {
@@ -452,7 +453,7 @@ mod desk {
                     say(Stage::Fetching { got, total });
                 }
             };
-            match fetch(&model.urls(f.path), &part, kind, flag, &mut progress) {
+            match fetch(&model.urls(f), &part, kind, flag, &mut progress) {
                 Ok(()) => {
                     if let Err(e) = std::fs::rename(&part, &path) {
                         return Stage::Failed(e.to_string());
@@ -607,6 +608,7 @@ mod tests {
                 path: leak(path.to_owned()),
                 bytes: n as u64,
                 sha256: if wrong { sha(b"other") } else { sha(&b) },
+                hosts: None,
             };
             files.insert(format!("/{id}/{path}"), b);
             file
