@@ -133,6 +133,48 @@ struct Stft {
     /// `cos` and `sin` of `2π k n / N`, row `k` after row.
     cos: Vec<f32>,
     sin: Vec<f32>,
+    /// Set for Kitten's ONNX files, whose STFT runs on stored kernels.
+    kernels: Option<Kernels>,
+}
+
+/// What the export adds under each magnitude's square root.
+const EXPORT_FLOOR: f32 = 1e-14;
+
+/// Stored STFT kernels, `[bins, n_fft]`: near-empty bins' phases hinge on them.
+struct Kernels {
+    forward_real: Vec<f32>,
+    forward_imag: Vec<f32>,
+    backward_real: Vec<f32>,
+    backward_imag: Vec<f32>,
+}
+
+impl Kernels {
+    fn load(bins: usize, n_fft: usize, vb: &VarBuilder) -> Result<Self> {
+        let get = |name: &str| -> Result<Vec<f32>> {
+            vb.get((bins, 1, n_fft), name)?
+                .flatten_all()?
+                .to_dtype(DType::F32)?
+                .to_vec1()
+        };
+        Ok(Self {
+            forward_real: get("weight_forward_real")?,
+            forward_imag: get("weight_forward_imag")?,
+            backward_real: get("weight_backward_real")?,
+            backward_imag: get("weight_backward_imag")?,
+        })
+    }
+}
+
+/// `atan2` as the export builds it from `Atan` and three selects.
+fn export_phase(re: f32, im: f32) -> f32 {
+    use std::f32::consts::PI;
+    match (re < 0.0, im) {
+        (true, 0.0) => PI,
+        (true, im) if im > 0.0 => (im / re).atan() + PI,
+        (true, im) => (im / re).atan() - PI,
+        (false, 0.0) if re == 0.0 => 0.0,
+        (false, im) => (im / re).atan(),
+    }
 }
 
 impl Stft {
@@ -154,7 +196,15 @@ impl Stft {
             window,
             cos: angles.iter().map(|a| a.cos()).collect(),
             sin: angles.iter().map(|a| a.sin()).collect(),
+            kernels: None,
         })
+    }
+
+    fn with_kernels(self, kernels: Kernels) -> Self {
+        Self {
+            kernels: Some(kernels),
+            ..self
+        }
     }
 
     fn bins(&self) -> usize {
@@ -168,9 +218,17 @@ impl Stft {
             candle_core::bail!("{} samples is too short for the STFT", samples.len());
         }
         let len = samples.len();
+        let mut out = Vec::with_capacity(len + 2 * pad);
+        if let (true, Some(&first), Some(&last)) =
+            (self.kernels.is_some(), samples.first(), samples.last())
+        {
+            out.extend(std::iter::repeat_n(first, pad));
+            out.extend_from_slice(samples);
+            out.extend(std::iter::repeat_n(last, pad));
+            return Ok(out);
+        }
         let head = samples.iter().skip(1).take(pad).rev();
         let tail = samples.iter().rev().skip(1).take(pad);
-        let mut out = Vec::with_capacity(len + 2 * pad);
         out.extend(head);
         out.extend_from_slice(samples);
         out.extend(tail);
@@ -183,6 +241,9 @@ impl Stft {
         let padded = self.reflected(&samples)?;
         let frames = 1 + samples.len() / self.hop;
         let bins = self.bins();
+        if let Some(kernels) = &self.kernels {
+            return self.transform_stored(kernels, &padded, frames);
+        }
         let mut magnitude = vec![0f32; bins * frames];
         let mut phase = vec![0f32; bins * frames];
         let mut frame = vec![0f32; self.n_fft];
@@ -222,6 +283,9 @@ impl Stft {
         }
         let mags: Vec<f32> = magnitude.flatten_all()?.to_dtype(DType::F32)?.to_vec1()?;
         let phases: Vec<f32> = phase.flatten_all()?.to_dtype(DType::F32)?.to_vec1()?;
+        if let Some(kernels) = &self.kernels {
+            return Ok(self.inverse_stored(kernels, &mags, &phases, frames));
+        }
         let n = self.n_fft;
         let half = n / 2;
         let len = n + self.hop * (frames - 1);
@@ -267,6 +331,78 @@ impl Stft {
         match len > 2 * half {
             true => Ok(out.into_iter().skip(half).take(len - 2 * half).collect()),
             false => Ok(out),
+        }
+    }
+
+    /// [`Self::transform`] on stored kernels, frames taken from `padded`.
+    fn transform_stored(
+        &self,
+        kernels: &Kernels,
+        padded: &[f32],
+        frames: usize,
+    ) -> Result<(Tensor, Tensor)> {
+        let (n, bins) = (self.n_fft, self.bins());
+        let mut magnitude = vec![0f32; bins * frames];
+        let mut phase = vec![0f32; bins * frames];
+        let rows = kernels
+            .forward_real
+            .chunks_exact(n)
+            .zip(kernels.forward_imag.chunks_exact(n));
+        for (k, (real, imag)) in rows.take(bins).enumerate() {
+            for f in 0..frames {
+                let piece = padded.iter().skip(f * self.hop).take(n);
+                let (re, im) = piece
+                    .zip(real.iter().zip(imag))
+                    .fold((0f32, 0f32), |(a, b), (s, (r, i))| (a + s * r, b + s * i));
+                if let Some(m) = magnitude.get_mut(k * frames + f) {
+                    *m = (re * re + im * im + EXPORT_FLOOR).sqrt();
+                }
+                if let Some(p) = phase.get_mut(k * frames + f) {
+                    *p = export_phase(re, im);
+                }
+            }
+        }
+        let shape = (1, bins, frames);
+        Ok((
+            Tensor::from_vec(magnitude, shape, &Device::Cpu)?,
+            Tensor::from_vec(phase, shape, &Device::Cpu)?,
+        ))
+    }
+
+    /// [`Self::inverse`] on stored kernels: frames summed, not normalised.
+    fn inverse_stored(
+        &self,
+        kernels: &Kernels,
+        mags: &[f32],
+        phases: &[f32],
+        frames: usize,
+    ) -> Vec<f32> {
+        let (n, bins, half) = (self.n_fft, self.bins(), self.n_fft / 2);
+        let len = n + self.hop * (frames - 1);
+        let mut out = vec![0f32; len];
+        let rows = || {
+            (kernels.backward_real.chunks_exact(n))
+                .zip(kernels.backward_imag.chunks_exact(n))
+                .take(bins)
+        };
+        for f in 0..frames {
+            let mut acc = vec![0f32; n];
+            for (k, (real, imag)) in rows().enumerate() {
+                let i = k * frames + f;
+                let m = mags.get(i).copied().unwrap_or(0.0);
+                let p = phases.get(i).copied().unwrap_or(0.0);
+                let (r, j) = (m * p.cos(), m * p.sin());
+                for (a, (br, bi)) in acc.iter_mut().zip(real.iter().zip(imag)) {
+                    *a += r * br - j * bi;
+                }
+            }
+            for (slot, a) in out.iter_mut().skip(f * self.hop).take(n).zip(acc) {
+                *slot += a;
+            }
+        }
+        match len > 2 * half {
+            true => out.into_iter().skip(half).take(len - 2 * half).collect(),
+            false => out,
         }
     }
 }
@@ -409,7 +545,14 @@ impl Generator {
             .collect::<Result<_>>()?;
         Ok(Self {
             source: Source::load(f0_scale, &vb.pp("m_source"))?,
-            stft: Stft::new(n_fft, c.gen_istft_hop_size)?,
+            stft: match vb.contains_tensor("stft.weight_forward_real") {
+                true => Stft::new(n_fft, c.gen_istft_hop_size)?.with_kernels(Kernels::load(
+                    n_fft / 2 + 1,
+                    n_fft,
+                    &vb.pp("stft"),
+                )?),
+                false => Stft::new(n_fft, c.gen_istft_hop_size)?,
+            },
             stages,
             post: Conv::new(first >> count, n_fft + 2, 7)
                 .padding(3)
@@ -472,6 +615,9 @@ impl Generator {
     }
 }
 
+/// Channels of the text features carried into each decoder block.
+const ASR: usize = 64;
+
 /// Largest log-magnitude the generator may pass to `exp`, about 1e13.
 const LOG_CEILING: f32 = 30.0;
 
@@ -485,16 +631,27 @@ pub(crate) struct Decoder {
 }
 
 impl Decoder {
-    pub(crate) fn load(hidden: usize, style: usize, c: &Istft, vb: &VarBuilder) -> Result<Self> {
-        let wide = 1024 + 2 + 64;
+    /// `widths` are the text features' and the decoder's own.
+    pub(crate) fn load(
+        widths: (usize, usize),
+        style: usize,
+        c: &Istft,
+        vb: &VarBuilder,
+    ) -> Result<Self> {
+        let (hidden, width) = widths;
+        let wide = width + 2 + ASR;
         let decode = (0..4)
             .map(|i| {
-                let out = if i == 3 { 512 } else { 1024 };
+                let out = if i == 3 {
+                    c.upsample_initial_channel
+                } else {
+                    width
+                };
                 AdainResBlk1d::load((wide, out), style, i == 3, &vb.pp("decode").pp(i))
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            encode: AdainResBlk1d::load((hidden + 2, 1024), style, false, &vb.pp("encode"))?,
+            encode: AdainResBlk1d::load((hidden + 2, width), style, false, &vb.pp("encode"))?,
             decode,
             f0_conv: Conv::new(1, 1, 3)
                 .stride(2)
@@ -504,7 +661,7 @@ impl Decoder {
                 .stride(2)
                 .padding(1)
                 .load(&vb.pp("N_conv"))?,
-            asr_res: Conv::new(hidden, 64, 1).load(&vb.pp("asr_res.0"))?,
+            asr_res: Conv::new(hidden, ASR, 1).load(&vb.pp("asr_res.0"))?,
             generator: Generator::load(c, style, &vb.pp("generator"))?,
         })
     }
@@ -572,5 +729,65 @@ mod tests {
             .fold(0f32, f32::max);
         assert!(worst < 1e-4, "round trip off by {worst}");
         Ok(())
+    }
+
+    #[test]
+    fn the_exported_stft_repeats_edges_and_sums_frames_unnormalised() -> Result<()> {
+        let plain = Stft::new(20, 5)?;
+        let rows = |table: &[f32], sign: f32, scale: f32| -> Vec<f32> {
+            let windowed = table.as_chunks::<20>().0.iter().take(11).flat_map(|row| {
+                row.iter()
+                    .zip(&plain.window)
+                    .map(move |(v, w)| sign * v * w / scale)
+            });
+            windowed.collect()
+        };
+        let kernels = Kernels {
+            forward_real: rows(&plain.cos, 1.0, 1.0),
+            forward_imag: rows(&plain.sin, -1.0, 1.0),
+            backward_real: rows(&plain.cos, 1.0, 20.0),
+            backward_imag: rows(&plain.sin, 1.0, 20.0),
+        };
+        let stft = Stft::new(20, 5)?.with_kernels(kernels);
+        assert_eq!(stft.reflected(&[1.0; 11])?.len(), 31);
+        let edges = stft.reflected(&(0..11).map(|i| i as f32).collect::<Vec<_>>())?;
+        assert_eq!(
+            (edges[0], edges[9], edges[10], edges[30]),
+            (0.0, 0.0, 0.0, 10.0)
+        );
+        let silence = Tensor::zeros((1, 100), DType::F32, &Device::Cpu)?;
+        let (m, _) = stft.transform(&silence)?;
+        let floor = EXPORT_FLOOR.sqrt();
+        assert!(
+            m.flatten_all()?
+                .to_vec1::<f32>()?
+                .iter()
+                .all(|v| *v == floor)
+        );
+        // DC alone: four Hann frames overlap to 2, over 20 points.
+        let frames = 9;
+        let mut mags = vec![0f32; 11 * frames];
+        mags[..frames].fill(1.0);
+        let m = Tensor::from_vec(mags, (1, 11, frames), &Device::Cpu)?;
+        let back = stft.inverse(&m, &m.zeros_like()?)?;
+        assert!((back[20] - 0.1).abs() < 1e-5, "{}", back[20]);
+        Ok(())
+    }
+
+    #[test]
+    fn the_exported_phase_is_atan2_with_pi_for_negative_reals() {
+        use std::f32::consts::PI;
+        for (re, im) in [
+            (1.0, 1.0),
+            (-1.0, 1.0),
+            (-1.0, -1.0),
+            (0.0, 1.0),
+            (0.3, -2.0),
+        ] {
+            assert!((export_phase(re, im) - f32::atan2(im, re)).abs() < 1e-6);
+        }
+        assert_eq!(export_phase(-1.0, -0.0), PI);
+        assert_eq!(export_phase(-1.0, 0.0), PI);
+        assert_eq!(export_phase(0.0, 0.0), 0.0);
     }
 }

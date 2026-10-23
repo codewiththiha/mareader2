@@ -29,3 +29,9 @@ The model itself, Kokoro-82M by hexgrad
 (https://huggingface.co/hexgrad/Kokoro-82M), is Apache-2.0. Its weights and
 voices are not part of this crate; the app downloads them on request. Kokoro
 builds on StyleTTS 2 and iSTFTNet.
+
+Kitten TTS 0.8 by KittenML (https://github.com/KittenML/KittenTTS), Apache-2.0,
+is a smaller model of the same design. `kitten.rs` follows its runtime: the
+phoneme alphabet, the padding, the voice row picked by text length and the
+tail cut from each run. Its weights and voices are not part of this crate
+either; the app downloads them on request.

@@ -14,6 +14,8 @@ pub struct Config {
     pub n_layer: usize,
     pub max_dur: usize,
     pub text_encoder_kernel_size: usize,
+    /// The decoder's width before the generator.
+    pub decoder_dim: usize,
     pub plbert: Plbert,
     pub istftnet: Istft,
     /// Each phoneme symbol and its token id.
@@ -29,6 +31,7 @@ impl Default for Config {
             n_layer: 3,
             max_dur: 50,
             text_encoder_kernel_size: 5,
+            decoder_dim: 1024,
             plbert: Plbert::default(),
             istftnet: Istft::default(),
             vocab: HashMap::new(),
@@ -128,6 +131,7 @@ mod tests {
             panic!("a partial config parses");
         };
         assert_eq!(c.hidden_dim, 512);
+        assert_eq!(c.decoder_dim, 1024);
         assert_eq!(c.plbert.hidden_size, 8);
         assert_eq!(c.plbert.embedding_size, 128);
         assert_eq!(c.istftnet.upsample_rates, [10, 6]);
