@@ -2,10 +2,11 @@
 
 use candle_core::Tensor;
 
-use crate::layers::{Conv, Weights, leaky_relu};
+use crate::dense::{Prep, Signal};
+use crate::layers::{Conv, Weights};
 use crate::{Error, Result};
 
-const SLOPE: f64 = 0.1;
+const SLOPE: f32 = 0.1;
 
 /// A residual block: pairs of convolutions, or single ones in the smaller kind.
 enum ResBlock {
@@ -32,18 +33,19 @@ impl ResBlock {
         Ok(Self::Singles(singles))
     }
 
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    fn forward(&self, x: &Signal) -> Result<Signal> {
+        let leaky = Prep::leaky(SLOPE);
         let mut x = x.clone();
         match self {
             Self::Pairs(pairs) => {
                 for (a, b) in pairs {
-                    let t = a.forward(&leaky_relu(&x, SLOPE)?)?;
-                    x = (b.forward(&leaky_relu(&t, SLOPE)?)? + x)?;
+                    let t = a.forward_signal(&x, leaky, None)?;
+                    x = b.forward_signal(&t, leaky, Some(&x))?;
                 }
             }
             Self::Singles(convs) => {
                 for c in convs {
-                    x = (c.forward(&leaky_relu(&x, SLOPE)?)? + x)?;
+                    x = c.forward_signal(&x, leaky, Some(&x))?;
                 }
             }
         }
@@ -89,25 +91,36 @@ impl Generator {
 
     /// Samples in −1..1 from latent frames `[1, C, F]`.
     pub(crate) fn forward(&self, z: &Tensor, speaker: Option<&Tensor>) -> Result<Vec<f32>> {
-        let mut x = self.pre.forward(z)?;
+        let z = Signal::from_tensor(z)?;
+        let mut x = self.pre.forward_signal(&z, Prep::NONE, None)?;
         if let (Some(cond), Some(g)) = (&self.cond, speaker) {
-            x = x.broadcast_add(&cond.forward(g)?)?;
+            x.add_per_channel(&cond.forward(g)?.flatten_all()?.to_vec1::<f32>()?)?;
         }
+        // The blocks' mean is taken inside the next layer's input pass.
+        let mut scale = 1.0;
         for (up, blocks) in &self.stages {
-            x = up.forward(&leaky_relu(&x, SLOPE)?)?;
-            let mut sum: Option<Tensor> = None;
+            let prep = Prep {
+                scale,
+                slope: Some(SLOPE),
+            };
+            x = up.forward_signal(&x, prep, None)?;
+            let mut sum: Option<Signal> = None;
             for block in blocks {
                 let y = block.forward(&x)?;
-                sum = Some(match sum {
-                    Some(s) => (s + y)?,
-                    None => y,
-                });
+                match &mut sum {
+                    Some(s) => s.add(&y)?,
+                    None => sum = Some(y),
+                }
             }
-            if let Some(sum) = sum {
-                x = sum.affine(1.0 / blocks.len() as f64, 0.0)?;
-            }
+            x = sum.ok_or_else(|| Error::Load("a stage has no blocks".into()))?;
+            scale = 1.0 / blocks.len() as f32;
         }
-        let x = self.post.forward(&leaky_relu(&x, 0.01)?)?.tanh()?;
-        Ok(x.flatten_all()?.to_vec1::<f32>()?)
+        let prep = Prep {
+            scale,
+            slope: Some(0.01),
+        };
+        let mut out = self.post.forward_signal(&x, prep, None)?.data;
+        out.iter_mut().for_each(|v| *v = v.tanh());
+        Ok(out)
     }
 }

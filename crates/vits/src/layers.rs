@@ -2,6 +2,7 @@
 
 use candle_core::{D, Tensor};
 
+use crate::dense::{DenseConv, Depthwise, Prep, Signal};
 use crate::onnx::{ConvSpec, Graph};
 use crate::{Error, Result};
 
@@ -56,12 +57,21 @@ impl Weights {
     }
 }
 
-/// A 1-D convolution, plain or transposed, as the file's node ran it.
-pub(crate) struct Conv {
-    weight: Tensor,
-    bias: Option<Tensor>,
-    spec: ConvSpec,
-    transposed: bool,
+/// A 1-D convolution as the file's node ran it.
+pub(crate) enum Conv {
+    /// Stride 1 and ungrouped: one wide multiply.
+    Dense(DenseConv),
+    /// Stride 1, one group per channel: a few multiply-adds per step.
+    Depthwise(Depthwise),
+    /// Strided, grouped or transposed: through candle.
+    Candle(Strided),
+}
+
+pub(crate) struct Strided {
+    pub(crate) weight: Tensor,
+    pub(crate) bias: Option<Tensor>,
+    pub(crate) spec: ConvSpec,
+    pub(crate) transposed: bool,
 }
 
 impl Conv {
@@ -79,25 +89,74 @@ impl Conv {
             return Err(Error::Load(format!("{module} is not a 1-D convolution")));
         }
         let bias = w.get(&format!("{module}.bias")).ok();
-        Ok(Self {
+        let spec = w.spec(module);
+        if !transposed && spec.stride == 1 && spec.groups == 1 {
+            return Ok(Self::Dense(DenseConv::new(&weight, bias.as_ref(), spec)?));
+        }
+        if !transposed && let Some(d) = Depthwise::new(&weight, bias.as_ref(), spec)? {
+            return Ok(Self::Depthwise(d));
+        }
+        Ok(Self::Candle(Strided {
             weight,
             bias,
-            spec: w.spec(module),
+            spec,
             transposed,
-        })
+        }))
     }
 
     /// Output channels.
     pub(crate) fn outputs(&self) -> usize {
-        let dims = self.weight.dims();
-        let at = usize::from(self.transposed);
-        dims.get(at).copied().unwrap_or(0)
+        match self {
+            Self::Dense(d) => d.outputs(),
+            Self::Depthwise(d) => d.channels(),
+            Self::Candle(c) => {
+                let at = usize::from(c.transposed);
+                c.weight.dims().get(at).copied().unwrap_or(0)
+            }
+        }
     }
 
     pub(crate) fn kernel(&self) -> usize {
-        self.weight.dims().get(2).copied().unwrap_or(0)
+        match self {
+            Self::Dense(d) => d.kernel(),
+            Self::Depthwise(d) => d.kernel(),
+            Self::Candle(c) => c.weight.dims().get(2).copied().unwrap_or(0),
+        }
     }
 
+    /// `[1, C, T]` in and out.
+    pub(crate) fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        match self {
+            Self::Dense(d) => d
+                .forward(&Signal::from_tensor(x)?, Prep::NONE, None)?
+                .into_tensor(),
+            Self::Depthwise(d) => d.forward(&Signal::from_tensor(x)?)?.into_tensor(),
+            Self::Candle(c) => c.forward(x),
+        }
+    }
+
+    /// `conv(prep(x)) + residual`, staying on plain buffers where it can.
+    pub(crate) fn forward_signal(
+        &self,
+        x: &Signal,
+        prep: Prep,
+        residual: Option<&Signal>,
+    ) -> Result<Signal> {
+        match self {
+            Self::Dense(d) => d.forward(x, prep, residual),
+            _ => {
+                let y = self.forward(&x.prepped(prep).into_tensor()?)?;
+                let mut y = Signal::from_tensor(&y)?;
+                if let Some(r) = residual {
+                    y.add(r)?;
+                }
+                Ok(y)
+            }
+        }
+    }
+}
+
+impl Strided {
     pub(crate) fn forward(&self, x: &Tensor) -> Result<Tensor> {
         let s = self.spec;
         let out = if self.transposed {
@@ -144,10 +203,6 @@ impl ChannelNorm {
             .broadcast_mul(&self.gamma)?
             .broadcast_add(&self.beta)?)
     }
-}
-
-pub(crate) fn leaky_relu(x: &Tensor, slope: f64) -> Result<Tensor> {
-    Ok(x.maximum(&x.affine(slope, 0.0)?)?)
 }
 
 /// Channels in reverse order, as the flows' `Flip` does.
