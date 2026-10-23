@@ -53,6 +53,7 @@ const TINY: &[Model] = &[
                 gender: Gender::Female,
                 file: Some(file("voices/ada.pt", 2)),
                 extra: None,
+                shared: &[],
                 note: "",
             },
             ModelVoice {
@@ -62,6 +63,7 @@ const TINY: &[Model] = &[
                 gender: Gender::Male,
                 file: Some(file("voices/bo.pt", 3)),
                 extra: None,
+                shared: &[],
                 note: "",
             },
         ],
@@ -88,6 +90,7 @@ const SOLO: Model = Model {
         gender: Gender::Neutral,
         file: Some(file("cy.onnx", 2)),
         extra: Some(file("cy.onnx.json", 2)),
+        shared: &[],
         note: "Slower to make",
     }],
     first_voice: "cy",
@@ -111,6 +114,7 @@ const fn inside(id: &'static str, name: &'static str) -> ModelVoice {
         gender: Gender::Neutral,
         file: None,
         extra: None,
+        shared: &[],
         note: "",
     }
 }

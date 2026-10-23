@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_g2p::{Dialect, G2p};
+use mareader_hanzi::Hanzi;
 use mareader_ipa::Language;
 use mareader_kokoro::{Kokoro as Model, SAMPLE_RATE, Voice as Pack};
 
@@ -36,6 +37,8 @@ enum Reader {
     English(Arc<G2p>),
     /// Another language, by spelling rules alone.
     Rules(Language),
+    /// Chinese, from the dictionaries Chinese voices download.
+    Chinese(Arc<Hanzi>),
 }
 
 /// Kokoro's build from `source`, speaking a voice at a time.
@@ -64,8 +67,13 @@ impl Kokoro {
             let config = folder.join("config.json");
             Model::from_files(&config, weights).map_err(|e| e.to_string())
         })?;
+        let chinese = voice.starts_with('z');
         let reader = match Language::for_kokoro_voice(voice) {
             Some(language) => Reader::Rules(language),
+            None if chinese => Reader::Chinese(
+                (self.studio)
+                    .hanzi(|| Hanzi::load(&folder.join("hanzi")).map_err(|e| e.to_string()))?,
+            ),
             None => {
                 let dialect = Dialect::for_kokoro_voice(voice).unwrap_or(Dialect::American);
                 Reader::English((self.studio).g2p(dialect, || {
@@ -122,6 +130,7 @@ impl Synth for Kokoro {
                 phonemes
             }
             Reader::Rules(language) => mareader_ipa::kokoro(*language, line.text),
+            Reader::Chinese(hanzi) => hanzi.phonemize(line.text),
         };
         let phonemes = model.normalise(&phonemes);
         let chunks = match line.lead {
@@ -151,6 +160,23 @@ mod tests {
     use super::*;
     use crate::Voice;
     use crate::local::{Engine, Setup};
+
+    #[test]
+    fn chinese_voices_bring_what_the_reader_loads() {
+        let paths: Vec<String> = mareader_hanzi::FILES
+            .iter()
+            .map(|f| format!("hanzi/{f}"))
+            .collect();
+        let listed: Vec<&str> = crate::models::HANZI.iter().map(|f| f.path).collect();
+        assert_eq!(listed, paths);
+        let voices = crate::models::KOKORO.voices.iter();
+        let chinese: Vec<&str> = voices
+            .filter(|v| v.language == "zh-CN")
+            .map(|v| v.id)
+            .collect();
+        assert_eq!(chinese.len(), 8);
+        assert!(chinese.iter().all(|id| id.starts_with('z')));
+    }
 
     #[test]
     fn a_downloaded_model_makes_the_sentence_said_then_the_next() {

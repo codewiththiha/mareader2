@@ -43,6 +43,8 @@ pub struct ModelVoice {
     pub file: Option<ModelFile>,
     /// A small file the voice needs beside `file`, such as its settings.
     pub extra: Option<ModelFile>,
+    /// Files other voices need too, such as a language's dictionaries.
+    pub shared: &'static [ModelFile],
     /// What sets it apart, as `Slower to make`; empty if nothing.
     pub note: &'static str,
 }
@@ -50,7 +52,8 @@ pub struct ModelVoice {
 impl ModelVoice {
     /// Every file the voice downloads.
     pub fn files(&self) -> Vec<ModelFile> {
-        self.file.into_iter().chain(self.extra).collect()
+        let own = self.file.into_iter().chain(self.extra);
+        own.chain(self.shared.iter().copied()).collect()
     }
 
     pub fn bytes(&self) -> u64 {
@@ -248,7 +251,7 @@ const G2P: [ModelFile; 8] = [
 pub const KOKORO: Model = Model {
     id: "kokoro",
     name: "Kokoro",
-    about: "Natural voices in English, Spanish, Italian, Portuguese, French and Hindi from a small model, 82 million parameters",
+    about: "Natural voices in English, Spanish, Italian, Portuguese, French, Hindi and Chinese from a small model, 82 million parameters",
     license: "Apache 2.0",
     hosts: KOKORO_HOSTS,
     files: &[
@@ -337,11 +340,71 @@ const fn voice(
             from: None,
         }),
         extra: None,
+        shared: &[],
         note: "",
     }
 }
 
-/// Ids: language `a`, `b`, `e`, `i`, `p`, `f` or `h`, then `f` or `m`.
+/// pypinyin 0.55.0's readings, pinned to its release commit.
+const PINYIN_HOSTS: &[&str] = &[
+    "https://raw.githubusercontent.com/mozillazg/python-pinyin/df101577145af2eb1abe5656e592e34e3bb56d23/pypinyin/",
+    "https://cdn.jsdelivr.net/gh/mozillazg/python-pinyin@df101577145af2eb1abe5656e592e34e3bb56d23/pypinyin/",
+];
+
+/// jieba 0.42.1's words, pinned to its release commit.
+const JIEBA_HOSTS: &[&str] = &[
+    "https://raw.githubusercontent.com/fxsjy/jieba/1e20c89b66f56c9301b0feed211733ffaa1bd72a/jieba/",
+    "https://cdn.jsdelivr.net/gh/fxsjy/jieba@1e20c89b66f56c9301b0feed211733ffaa1bd72a/jieba/",
+];
+
+/// What `mareader-hanzi` reads, in `hanzi/`; every Chinese voice shares it.
+pub(crate) const HANZI: [ModelFile; 4] = [
+    hanzi(
+        ("hanzi/pinyin_dict.json", "pinyin_dict.json", PINYIN_HOSTS),
+        788_780,
+        "5f294c01e6c6c0a1c8e329c79335a3f8e0b27d06bf1de7a99244b765892d1e5b",
+    ),
+    hanzi(
+        ("hanzi/phrases_dict.json", "phrases_dict.json", PINYIN_HOSTS),
+        2_545_585,
+        "a45ff140a6b631ca9c82127b280a2f414e0aba6bb2824a0e9d1e77fff359c665",
+    ),
+    hanzi(
+        ("hanzi/dict.txt", "dict.txt", JIEBA_HOSTS),
+        5_071_852,
+        "7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8",
+    ),
+    hanzi(
+        ("hanzi/prob_emit.py", "finalseg/prob_emit.py", JIEBA_HOSTS),
+        1_321_732,
+        "27d46b1c9efe4dd148fde8be042a21be40e3562d0c7f1273f9de7abae12ebb8d",
+    ),
+];
+
+/// Chinese reading data: its path here, its name there, and where.
+const fn hanzi(
+    (path, from, hosts): (&'static str, &'static str, &'static [&'static str]),
+    bytes: u64,
+    sha256: &'static str,
+) -> ModelFile {
+    ModelFile {
+        path,
+        bytes,
+        sha256,
+        hosts: Some(hosts),
+        from: Some(from),
+    }
+}
+
+/// A Kokoro voice that reads Chinese, so it needs the dictionaries.
+const fn chinese(voice: ModelVoice) -> ModelVoice {
+    ModelVoice {
+        shared: &HANZI,
+        ..voice
+    }
+}
+
+/// Ids: language `a`, `b`, `e`, `i`, `p`, `f`, `h` or `z`, then `f` or `m`.
 const KOKORO_VOICES: &[ModelVoice] = &[
     voice(
         ("af_alloy", "Alloy", "en-US"),
@@ -712,6 +775,78 @@ const KOKORO_VOICES: &[ModelVoice] = &[
             "2f0f055cea4f1083f4ef127ece48d71606347f6557dbb961c0ca5740a2da485b",
         ),
     ),
+    chinese(voice(
+        ("zf_xiaobei", "Xiaobei", "zh-CN"),
+        true,
+        "voices/zf_xiaobei.pt",
+        (
+            523_435,
+            "9b76be63dab4f4f96962030acc0126a9aee9728608fbbe115e2b58a2bd504df6",
+        ),
+    )),
+    chinese(voice(
+        ("zf_xiaoni", "Xiaoni", "zh-CN"),
+        true,
+        "voices/zf_xiaoni.pt",
+        (
+            523_430,
+            "95b49f169bf1640f4f43c25e13daa39f7b98d15d00823e83ef5c14b3ced59e49",
+        ),
+    )),
+    chinese(voice(
+        ("zf_xiaoxiao", "Xiaoxiao", "zh-CN"),
+        true,
+        "voices/zf_xiaoxiao.pt",
+        (
+            523_440,
+            "cfaf6f2ded1ee56f1ff94fcd2b0e6cdf32e5b794bdc05b44e7439d44aef5887c",
+        ),
+    )),
+    chinese(voice(
+        ("zf_xiaoyi", "Xiaoyi", "zh-CN"),
+        true,
+        "voices/zf_xiaoyi.pt",
+        (
+            523_430,
+            "b5235dbaeef85a4c613bf78af9a88ff63c25bac5f26ba77e36186d8b7ebf05e2",
+        ),
+    )),
+    chinese(voice(
+        ("zm_yunjian", "Yunjian", "zh-CN"),
+        false,
+        "voices/zm_yunjian.pt",
+        (
+            523_435,
+            "76cbf8bad35901d011d9628a2fdceb7b4f1f127e7a3269cb393b3941eb7fc417",
+        ),
+    )),
+    chinese(voice(
+        ("zm_yunxi", "Yunxi", "zh-CN"),
+        false,
+        "voices/zm_yunxi.pt",
+        (
+            523_425,
+            "dbe6e1ce7c3dbaf2f5667432947b638b1c6831ccbe154c4610dbcc44f431e27b",
+        ),
+    )),
+    chinese(voice(
+        ("zm_yunxia", "Yunxia", "zh-CN"),
+        false,
+        "voices/zm_yunxia.pt",
+        (
+            523_430,
+            "bb2b03b08e84d64e1214440ce3b624987fac177f2eeb5bab8571799a3d980acd",
+        ),
+    )),
+    chinese(voice(
+        ("zm_yunyang", "Yunyang", "zh-CN"),
+        false,
+        "voices/zm_yunyang.pt",
+        (
+            523_435,
+            "5238ac22e0c7f8b6cdd2eddd6e444b8a700b73c4674d9a047d59a94ff96379a2",
+        ),
+    )),
 ];
 
 /// Pinned, so a file never changes under its checksum.
@@ -763,6 +898,7 @@ const fn piper(
         gender,
         file: Some(listed(weights)),
         extra: Some(listed(settings)),
+        shared: &[],
         note,
     }
 }
@@ -1128,6 +1264,7 @@ const fn kitten_voice(id: &'static str, name: &'static str, gender: Gender) -> M
         gender,
         file: None,
         extra: None,
+        shared: &[],
         note: "",
     }
 }
@@ -1198,11 +1335,15 @@ mod tests {
         // Each smaller build is a smaller download.
         let sizes: Vec<u64> = KOKORO.builds.iter().map(|b| b.file.bytes).collect();
         assert!(sizes.windows(2).all(|w| w[0] > w[1]));
-        assert_eq!(KOKORO.voices.len(), 41);
+        assert_eq!(KOKORO.voices.len(), 49);
         for v in KOKORO.voices {
             let file = v.file.unwrap();
-            assert_eq!(v.files(), [file]);
             assert_eq!(file.path, format!("voices/{}.pt", v.id));
+            // Chinese voices share the dictionaries; the rest bring one file.
+            match v.language {
+                "zh-CN" => assert_eq!(v.files()[1..], HANZI),
+                _ => assert_eq!(v.files(), [file]),
+            }
         }
     }
 

@@ -17,6 +17,7 @@ mareader-fetch = { workspace = true }
 # Kokoro and Piper: text to phonemes to samples, played as they are made.
 mareader-g2p = { workspace = true }
 mareader-ipa = { workspace = true }
+mareader-hanzi = { workspace = true }
 mareader-kokoro = { workspace = true }
 mareader-vits = { workspace = true }
 mareader-audio = { workspace = true }

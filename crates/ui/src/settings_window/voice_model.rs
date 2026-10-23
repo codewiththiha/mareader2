@@ -246,7 +246,7 @@ fn every_voice(
                 out.push(Command::VoiceModel(ModelAction::Download(item)));
             }
         }
-        let bytes = missing.iter().map(|v| v.bytes()).sum();
+        let bytes = shelf.to_fetch(model, &missing);
         muted(ui, &t, &format!("{} to go", megabytes(bytes)));
     });
 }
@@ -272,7 +272,7 @@ fn voice_row(
             controls(
                 ui,
                 shelf.stage(item),
-                (item, voice.name, voice.bytes()),
+                (item, voice.name, shelf.to_fetch(model, &[voice])),
                 out,
             );
             return;
@@ -359,6 +359,7 @@ fn accent(tag: &str) -> &str {
         "pt-BR" => "Brazilian Portuguese",
         "fr-FR" => "French",
         "hi-IN" => "Hindi",
+        "zh-CN" => "Mandarin Chinese",
         other => other,
     }
 }
@@ -375,6 +376,7 @@ mod tests {
         assert_eq!(accent("pt-BR"), "Brazilian Portuguese");
         assert_eq!(accent("fr-FR"), "French");
         assert_eq!(accent("hi-IN"), "Hindi");
+        assert_eq!(accent("zh-CN"), "Mandarin Chinese");
         assert_eq!(accent("ja-JP"), "ja-JP");
     }
 }
