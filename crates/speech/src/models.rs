@@ -248,7 +248,7 @@ const G2P: [ModelFile; 8] = [
 pub const KOKORO: Model = Model {
     id: "kokoro",
     name: "Kokoro",
-    about: "Natural voices in English, Spanish, Italian, Portuguese and French from a small model, 82 million parameters",
+    about: "Natural voices in English, Spanish, Italian, Portuguese, French and Hindi from a small model, 82 million parameters",
     license: "Apache 2.0",
     hosts: KOKORO_HOSTS,
     files: &[
@@ -341,7 +341,7 @@ const fn voice(
     }
 }
 
-/// Ids: language `a`, `b`, `e`, `i`, `p` or `f`, then `f` or `m`.
+/// Ids: language `a`, `b`, `e`, `i`, `p`, `f` or `h`, then `f` or `m`.
 const KOKORO_VOICES: &[ModelVoice] = &[
     voice(
         ("af_alloy", "Alloy", "en-US"),
@@ -674,6 +674,42 @@ const KOKORO_VOICES: &[ModelVoice] = &[
         (
             523_425,
             "8073bf2d2c4b9543a90f2f0fd2144de4ed157e2d4b79ddeb0d5123066171fbc9",
+        ),
+    ),
+    voice(
+        ("hf_alpha", "Alpha", "hi-IN"),
+        true,
+        "voices/hf_alpha.pt",
+        (
+            523_425,
+            "06906fe05746d13a79c5c01e21fd7233b05027221a933c9ada650f5aafc8f044",
+        ),
+    ),
+    voice(
+        ("hf_beta", "Beta", "hi-IN"),
+        true,
+        "voices/hf_beta.pt",
+        (
+            523_420,
+            "63c0a1a6272e98d43f4511bba40e30dd9c8ceaf5f39af869509b9f51a71c503e",
+        ),
+    ),
+    voice(
+        ("hm_omega", "Omega", "hi-IN"),
+        false,
+        "voices/hm_omega.pt",
+        (
+            523_425,
+            "b55f02a8e8483fffe0afa566e7d22ed8013acf47ad4f6bbee2795a840155703e",
+        ),
+    ),
+    voice(
+        ("hm_psi", "Psi", "hi-IN"),
+        false,
+        "voices/hm_psi.pt",
+        (
+            523_351,
+            "2f0f055cea4f1083f4ef127ece48d71606347f6557dbb961c0ca5740a2da485b",
         ),
     ),
 ];
@@ -1162,7 +1198,7 @@ mod tests {
         // Each smaller build is a smaller download.
         let sizes: Vec<u64> = KOKORO.builds.iter().map(|b| b.file.bytes).collect();
         assert!(sizes.windows(2).all(|w| w[0] > w[1]));
-        assert_eq!(KOKORO.voices.len(), 37);
+        assert_eq!(KOKORO.voices.len(), 41);
         for v in KOKORO.voices {
             let file = v.file.unwrap();
             assert_eq!(v.files(), [file]);
