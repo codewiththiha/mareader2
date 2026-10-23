@@ -331,7 +331,10 @@ fn voice_models(ready: bool) -> Result<std::path::PathBuf, String> {
     }
     for model in mareader_speech::MODELS {
         let extra = model.voices.iter().take(4).map(|v| v.file);
-        for f in model.core().into_iter().chain(extra) {
+        // The best build and the smallest, so one is left to download.
+        let builds = [model.builds.first(), model.builds.last()];
+        let builds = builds.into_iter().flatten().map(|b| b.file);
+        for f in model.core().into_iter().chain(builds).chain(extra) {
             let path = dir.join(model.id).join(f.path);
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

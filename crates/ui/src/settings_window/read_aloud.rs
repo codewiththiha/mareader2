@@ -2,7 +2,7 @@
 
 use egui::{Id, Rect, RichText, ScrollArea, Sense, Ui, pos2, vec2};
 use mareader_settings::{LANGUAGES, ReadAloudSettings};
-use mareader_speech::{Item, Model, Shelf, Stage, Voice};
+use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::voice_model::controls;
 use super::{Tab, choice_row, detail_row, divider, group, note, row, section, switch_row};
@@ -30,7 +30,7 @@ const ALL: &str = "";
 
 pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
     engine(ui, s, v);
-    models(ui, v.shelf, out);
+    models(ui, s, v.shelf, out);
     memory(ui, s, v.shelf);
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
@@ -82,14 +82,14 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>) {
 }
 
 /// Models to download; each ready one opens its own tab.
-fn models(ui: &mut Ui, shelf: &Shelf, out: &mut Commands) {
+fn models(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf, out: &mut Commands) {
     section(ui, "Voice models");
     group(ui, |ui| {
         for (i, model) in shelf.catalogue().iter().enumerate() {
             if i > 0 {
                 divider(ui);
             }
-            model_row(ui, model, shelf, out);
+            model_row(ui, s, model, shelf, out);
         }
     });
     let text = match shelf.attached() {
@@ -102,30 +102,82 @@ fn models(ui: &mut Ui, shelf: &Shelf, out: &mut Commands) {
     note(ui, text);
 }
 
-fn model_row(ui: &mut Ui, model: &'static Model, shelf: &Shelf, out: &mut Commands) {
+fn model_row(
+    ui: &mut Ui,
+    s: &mut ReadAloudSettings,
+    model: &'static Model,
+    shelf: &Shelf,
+    out: &mut Commands,
+) {
     let t = Tokens::get(ui.ctx());
     let muted = |ui: &mut Ui, text: &str| {
         ui.label(RichText::new(text).size(t.text_small).color(t.muted));
     };
+    let wanted = s.builds.get(model.id).and_then(|b| model.build(b));
+    let Some(picked) = wanted.or(model.builds.first()) else {
+        return;
+    };
     detail_row(ui, model.name, model.about, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.attached() {
-            muted(ui, &crate::dict::megabytes(model.bytes()));
+            muted(ui, &crate::dict::megabytes(model.bytes_with(picked)));
             return;
         }
-        let item = Item::Model(model.id);
-        match shelf.stage(item) {
-            Stage::Ready => {
-                let label = format!("{} voices", model.name);
-                let open = egui::Button::new("Voices…");
-                if ui.add(open).on_hover_text(label).clicked() {
-                    out.push(Command::OpenSettings(Tab::Model(model)));
-                }
-                muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
+        if shelf.ready().iter().any(|m| m.id == model.id) {
+            let label = format!("{} voices", model.name);
+            let open = egui::Button::new("Voices…");
+            if ui.add(open).on_hover_text(label).clicked() {
+                out.push(Command::OpenSettings(Tab::Model(model)));
             }
-            stage => controls(ui, stage, (item, model.name, model.bytes()), out),
+            muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
+            return;
+        }
+        // A build already here lacks only the shared files.
+        if !shelf.builds(model).is_empty() {
+            let item = Item::Model(model.id);
+            controls(
+                ui,
+                shelf.stage(item),
+                (item, model.name, model.bytes()),
+                out,
+            );
+            return;
+        }
+        // A build begun, else the one picked, with the shared files.
+        let begun = (model.builds.iter())
+            .find(|b| *shelf.stage(Item::Build(model.id, b.id)) != Stage::Absent);
+        let build = begun.unwrap_or(picked);
+        let item = Item::Build(model.id, build.id);
+        let stage = shelf.stage(item);
+        controls(ui, stage, (item, model.name, model.bytes_with(build)), out);
+        if *stage == Stage::Absent
+            && model.builds.len() > 1
+            && let Some(id) = build_pick(ui, model, build)
+        {
+            s.builds.insert(model.id.to_owned(), id.to_owned());
         }
     });
+}
+
+/// Which build a first download brings; the id when changed.
+fn build_pick(ui: &mut Ui, model: &'static Model, on: &Build) -> Option<&'static str> {
+    let mut pick = on.id;
+    let combo = widgets::combo(("first build", model.id))
+        .selected_text(on.name)
+        .width(72.0);
+    let shown = combo.show_ui(ui, |ui| {
+        for b in model.builds {
+            let size = crate::dict::megabytes(model.bytes_with(b));
+            let r = ui.selectable_value(&mut pick, b.id, format!("{} · {size}", b.name));
+            r.on_hover_text(b.about);
+        }
+    });
+    let label = format!("{} build", model.name);
+    shown
+        .response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, &label));
+    shown.response.on_hover_text(on.about);
+    (pick != on.id).then_some(pick)
 }
 
 /// What downloaded models keep in memory, once one is downloaded.
@@ -454,8 +506,8 @@ mod tests {
         assert_eq!(usage_label(&usage), "Nothing loaded");
         usage.speech = 2_500_000;
         assert_eq!(usage_label(&usage), "2.5 MB of speech");
-        usage.models.push("Kokoro");
-        assert_eq!(usage_label(&usage), "Kokoro · 2.5 MB of speech");
+        usage.models.push("Kokoro (Small)".into());
+        assert_eq!(usage_label(&usage), "Kokoro (Small) · 2.5 MB of speech");
     }
 
     #[test]

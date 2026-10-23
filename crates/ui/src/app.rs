@@ -596,7 +596,7 @@ impl MareaderApp {
         let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
         let tab = crate::settings_window::Tab::ReadAloud;
         if self.settings_window.is_open() && self.settings_window.tab() == tab {
-            booth.open(ctx, &self.settings.read_aloud.engine, shelf);
+            booth.open(ctx, &self.settings.read_aloud, shelf);
             booth.tick(ctx);
         } else if booth.is_open() {
             booth.close();

@@ -191,6 +191,8 @@ pub struct ReadAloudSettings {
     pub engine: String,
     /// The voice picked for each engine, by engine; none is its default.
     pub voices: std::collections::BTreeMap<String, String>,
+    /// The build each model runs, by model; none is its best one here.
+    pub builds: std::collections::BTreeMap<String, String>,
     /// Shares of the voice's own pitch and of full volume.
     pub pitch: f32,
     pub volume: f32,
@@ -241,6 +243,11 @@ impl ReadAloudSettings {
     pub fn voice(&self) -> Option<&str> {
         self.voices.get(&self.engine).map(String::as_str)
     }
+
+    /// The build picked for the engine in use, if any.
+    pub fn build(&self) -> Option<&str> {
+        self.builds.get(&self.engine).map(String::as_str)
+    }
 }
 
 impl Default for ReadAloudSettings {
@@ -252,6 +259,7 @@ impl Default for ReadAloudSettings {
             follow: true,
             engine: Self::SYSTEM.to_owned(),
             voices: std::collections::BTreeMap::new(),
+            builds: std::collections::BTreeMap::new(),
             pitch: 1.0,
             volume: 1.0,
             speech_memory_mb: Self::MEMORY_MB.1,

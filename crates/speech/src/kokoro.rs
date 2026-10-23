@@ -76,6 +76,8 @@ struct Part {
 
 /// Kokoro, ready to speak in its downloaded voices.
 pub(crate) struct Engine {
+    /// The build's name, so its speech isn't taken for another's.
+    name: Arc<str>,
     voices: Vec<Voice>,
     voice: String,
     first: String,
@@ -99,10 +101,18 @@ pub(crate) struct Engine {
     events: Vec<Event>,
 }
 
+/// Where a Kokoro build is kept, and its name.
+pub(crate) struct Source {
+    pub folder: PathBuf,
+    pub weights: PathBuf,
+    /// The model's name with its build's, as `Kokoro (Small)`.
+    pub name: Arc<str>,
+}
+
 impl Engine {
-    /// Kokoro in `folder`, speaking `voices`; the first is the default.
+    /// Kokoro from `source`, speaking `voices`; the first is the default.
     pub(crate) fn open(
-        folder: PathBuf,
+        source: Source,
         voices: Vec<Voice>,
         studio: Studio,
         wake: Waker,
@@ -111,9 +121,10 @@ impl Engine {
         let first = first.ok_or_else(|| Fault::Unavailable("Kokoro has no voice yet".into()))?;
         let desk = Arc::new(Desk::default());
         let (tx, made) = channel();
+        let name = Arc::clone(&source.name);
         let worker = Worker {
             studio: studio.clone(),
-            folder,
+            source,
             desk: Arc::clone(&desk),
             out: tx,
             wake,
@@ -127,6 +138,7 @@ impl Engine {
         let held = Arc::clone(&clips);
         let fetch: Fetch = Arc::new(move |path: &str| lock(&held).get(path).cloned());
         Ok(Self {
+            name,
             voices,
             voice: first.clone(),
             first,
@@ -150,6 +162,7 @@ impl Engine {
 
     fn key(&self, text: &str) -> Key {
         Key {
+            model: Arc::clone(&self.name),
             voice: self.voice.clone(),
             speed: self.speed.to_bits(),
             text: text.to_owned(),
@@ -433,7 +446,7 @@ struct Loaded {
 /// Makes the sentence said now first, then those ahead; idle, it lets go.
 struct Worker {
     studio: Studio,
-    folder: PathBuf,
+    source: Source,
     desk: Arc<Desk>,
     out: Sender<Made>,
     wake: Waker,
@@ -574,7 +587,7 @@ impl Worker {
         let dialect = Dialect::for_kokoro_voice(voice).unwrap_or(Dialect::American);
         let fits = |l: &Loaded| l.voice.0 == voice && l.g2p.dialect() == dialect;
         if !self.loaded.as_ref().is_some_and(fits) {
-            let cold = !self.studio.has_kokoro();
+            let cold = !self.studio.has_kokoro(&self.source.name);
             if cold {
                 self.desk.loading.store(true, Ordering::Relaxed);
                 (self.wake)();
@@ -592,8 +605,15 @@ impl Worker {
     }
 
     fn load_fresh(&self, voice: &str, dialect: Dialect) -> Result<Loaded, String> {
-        let folder = &self.folder;
-        let kokoro = (self.studio).kokoro(|| Kokoro::load(folder).map_err(|e| e.to_string()))?;
+        let Source {
+            folder,
+            weights,
+            name,
+        } = &self.source;
+        let kokoro = (self.studio).kokoro(name, || {
+            let config = folder.join("config.json");
+            Kokoro::from_files(&config, weights).map_err(|e| e.to_string())
+        })?;
         let g2p = (self.studio).g2p(dialect, || {
             G2p::load(folder, dialect).map_err(|e| e.to_string())
         })?;
@@ -645,7 +665,12 @@ mod tests {
             language: "en-US".into(),
         }];
         let wake: Waker = Arc::new(|| {});
-        match Engine::open(dir, voices, Studio::default(), wake) {
+        let source = Source {
+            weights: dir.join(mareader_kokoro::WEIGHTS),
+            folder: dir,
+            name: "Kokoro (Full)".into(),
+        };
+        match Engine::open(source, voices, Studio::default(), wake) {
             Ok(e) => e,
             Err(e) => panic!("{e}"),
         }

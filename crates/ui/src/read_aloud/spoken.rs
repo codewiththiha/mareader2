@@ -57,6 +57,8 @@ pub(super) struct Spoken {
     finished: bool,
     fault: Option<String>,
     engine: String,
+    /// The model build opened, for a model's engine.
+    build: Option<&'static str>,
     voice: Option<String>,
     tone: Tone,
     skip_folios: bool,
@@ -90,6 +92,7 @@ impl Spoken {
             finished: false,
             fault: None,
             engine: String::new(),
+            build: None,
             voice: None,
             tone: Tone::default(),
             skip_folios: settings.skip_page_numbers,
@@ -120,9 +123,11 @@ impl Spoken {
             v.stop();
         }
         self.engine = settings.engine.clone();
+        self.build = mareader_speech::build_of(&self.engine, settings.build(), shelf);
         self.voice = settings.voice().map(str::to_owned);
         self.tone = tone(settings);
-        match mareader_speech::open(&self.engine, shelf, Arc::clone(&self.wake)) {
+        let wake = Arc::clone(&self.wake);
+        match mareader_speech::open(&self.engine, self.build, shelf, wake) {
             Ok(mut voicer) => {
                 voicer.set_voice(self.voice.as_deref());
                 voicer.set_tone(self.tone);
@@ -158,7 +163,8 @@ impl Spoken {
 
     /// Takes up changed settings; a changed voice says the sentence again.
     fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
-        if settings.engine != self.engine {
+        let build = mareader_speech::build_of(&settings.engine, settings.build(), shelf);
+        if settings.engine != self.engine || build != self.build {
             let at = self.place();
             self.open(settings, shelf);
             if let Some(at) = at {

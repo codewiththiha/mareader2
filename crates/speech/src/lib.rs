@@ -23,7 +23,7 @@ mod system;
 
 use std::sync::Arc;
 
-pub use models::{KOKORO, MODELS, Model, ModelFile, ModelVoice};
+pub use models::{Build, KOKORO, MODELS, Model, ModelFile, ModelVoice};
 pub use script::{Glyph, Script, Sentence, Spot};
 pub use sentences::{LONGEST, split};
 pub use shelf::{Item, Shelf, Stage};
@@ -70,8 +70,8 @@ impl Default for Tone {
 /// What voice models hold in memory now.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Usage {
-    /// Names of the models loaded.
-    pub models: Vec<&'static str>,
+    /// Names of the models loaded, with their build: `Kokoro (Small)`.
+    pub models: Vec<String>,
     /// Bytes of speech kept to say again.
     pub speech: usize,
 }
@@ -187,8 +187,13 @@ pub fn engines(shelf: &Shelf) -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
-/// Starts engine `id`; `wake` is called whenever it has events.
-pub fn open(id: &str, shelf: &Shelf, wake: Waker) -> Result<Box<dyn Voicer>, Fault> {
+/// Starts engine `id`, a model's in `build` if here; `wake` hears events.
+pub fn open(
+    id: &str,
+    build: Option<&str>,
+    shelf: &Shelf,
+    wake: Waker,
+) -> Result<Box<dyn Voicer>, Fault> {
     match id {
         #[cfg(not(target_arch = "wasm32"))]
         SYSTEM => Ok(Box::new(system::System::new(wake)?)),
@@ -197,7 +202,8 @@ pub fn open(id: &str, shelf: &Shelf, wake: Waker) -> Result<Box<dyn Voicer>, Fau
         id if id == KOKORO.id => {
             let ready = shelf.ready().into_iter().find(|m| m.id == id);
             let folder = ready.and_then(|m| shelf.folder(m));
-            let (Some(model), Some(folder)) = (ready, folder) else {
+            let build = ready.and_then(|m| shelf.build(m, build));
+            let (Some(model), Some(folder), Some(build)) = (ready, folder, build) else {
                 return Err(Fault::Unavailable(format!(
                     "{} isn't downloaded",
                     KOKORO.name
@@ -213,14 +219,30 @@ pub fn open(id: &str, shelf: &Shelf, wake: Waker) -> Result<Box<dyn Voicer>, Fau
             // The voice that came with the model leads, as the default.
             let (mut voices, first): (Vec<Voice>, _) = (voices.collect(), model.first_voice);
             voices.sort_by_key(|v| v.id != first);
-            let engine = kokoro::Engine::open(folder, voices, shelf.studio().clone(), wake)?;
+            let source = kokoro::Source {
+                weights: folder.join(build.file.path),
+                folder,
+                name: label(model, build).into(),
+            };
+            let engine = kokoro::Engine::open(source, voices, shelf.studio().clone(), wake)?;
             Ok(Box::new(engine))
         }
         _ => {
-            let _ = (wake, shelf);
+            let _ = (wake, shelf, build);
             Err(Fault::Unavailable(format!("No speech engine named {id}")))
         }
     }
+}
+
+/// A model's name with its build's, as `Kokoro (Small)`.
+pub fn label(model: &Model, build: &Build) -> String {
+    format!("{} ({})", model.name, build.name)
+}
+
+/// The build `engine` runs: `wanted` if downloaded, else the best one.
+pub fn build_of(engine: &str, wanted: Option<&str>, shelf: &Shelf) -> Option<&'static str> {
+    let model = shelf.model(engine)?;
+    shelf.build(model, wanted).map(|b| b.id)
 }
 
 /// Maps `share` (`bottom..1..top`) onto `min..normal..max`.
@@ -251,7 +273,7 @@ mod tests {
     #[test]
     fn the_silent_engine_starts_then_ends_each_sentence() {
         let wake: Waker = Arc::new(|| {});
-        let Ok(mut v) = open(SILENT, &Shelf::default(), wake) else {
+        let Ok(mut v) = open(SILENT, None, &Shelf::default(), wake) else {
             panic!("the silent engine always opens");
         };
         assert_eq!(v.say(7, "Hello."), Ok(()));
@@ -280,11 +302,11 @@ mod tests {
         let wake: Waker = Arc::new(|| {});
         let shelf = Shelf::default();
         assert!(matches!(
-            open("nope", &shelf, wake.clone()),
+            open("nope", None, &shelf, wake.clone()),
             Err(Fault::Unavailable(_))
         ));
         assert!(matches!(
-            open(KOKORO.id, &shelf, wake),
+            open(KOKORO.id, Some("small"), &shelf, wake),
             Err(Fault::Unavailable(_))
         ));
         assert_eq!(engines(&shelf), [(SYSTEM, "System voices")]);

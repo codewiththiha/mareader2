@@ -34,16 +34,13 @@ impl<T> Slot<T> {
         *held = Arc::downgrade(&it);
         Ok(it)
     }
-
-    fn held(&self) -> bool {
-        let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        held.strong_count() > 0
-    }
 }
 
 /// What a sentence was said with, and the sentence.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Key {
+    /// The model and build that said it, as `Kokoro (Small)`.
+    pub model: Arc<str>,
     pub voice: String,
     /// The speed's bits, so equal speeds hash equal.
     pub speed: u32,
@@ -107,7 +104,8 @@ fn bytes(pcm: &Pcm) -> usize {
 
 #[derive(Default)]
 struct Inner {
-    kokoro: Slot<Kokoro>,
+    /// The loaded build's name, and the model.
+    kokoro: Mutex<(Arc<str>, Weak<Kokoro>)>,
     american: Slot<G2p>,
     british: Slot<G2p>,
     takes: Mutex<Takes>,
@@ -143,26 +141,44 @@ impl Studio {
     }
 
     pub fn usage(&self) -> Usage {
-        let kokoro = self.has_kokoro().then_some(crate::KOKORO.name);
+        let kokoro = self.kokoro_slot();
+        let held = (kokoro.1.strong_count() > 0).then(|| kokoro.0.to_string());
+        drop(kokoro);
         Usage {
-            models: kokoro.into_iter().collect(),
+            models: held.into_iter().collect(),
             speech: self.takes().used,
         }
     }
 
-    pub(crate) fn has_kokoro(&self) -> bool {
-        self.0.kokoro.held()
+    /// Whether build `name` of Kokoro is loaded.
+    pub(crate) fn has_kokoro(&self, name: &str) -> bool {
+        let kokoro = self.kokoro_slot();
+        *kokoro.0 == *name && kokoro.1.strong_count() > 0
+    }
+
+    fn kokoro_slot(&self) -> MutexGuard<'_, (Arc<str>, Weak<Kokoro>)> {
+        self.0.kokoro.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(crate) fn takes(&self) -> MutexGuard<'_, Takes> {
         self.0.takes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Build `name` of Kokoro, loaded once; another build is loaded anew.
     pub(crate) fn kokoro(
         &self,
+        name: &Arc<str>,
         load: impl FnOnce() -> Result<Kokoro, String>,
     ) -> Result<Arc<Kokoro>, String> {
-        self.0.kokoro.get(load)
+        let mut held = self.kokoro_slot();
+        if held.0 == *name
+            && let Some(it) = held.1.upgrade()
+        {
+            return Ok(it);
+        }
+        let it = Arc::new(load()?);
+        *held = (Arc::clone(name), Arc::downgrade(&it));
+        Ok(it)
     }
 
     pub(crate) fn g2p(
@@ -183,6 +199,7 @@ mod tests {
 
     fn key(text: &str) -> Key {
         Key {
+            model: "Kokoro (Full)".into(),
             voice: "af_heart".into(),
             speed: 1f32.to_bits(),
             text: text.into(),
@@ -238,9 +255,10 @@ mod tests {
         let two = slot.get(|| Ok(2));
         assert_eq!(one.as_deref(), Ok(&1));
         assert_eq!(two.as_deref(), Ok(&1), "loaded once while held");
-        assert!(slot.held());
+        let held = |s: &Slot<u32>| s.0.lock().unwrap().strong_count() > 0;
+        assert!(held(&slot));
         drop((one, two));
-        assert!(!slot.held());
+        assert!(!held(&slot));
         assert_eq!(slot.get(|| Ok(3)).as_deref(), Ok(&3));
         assert!(slot.get(|| Err::<u32, _>("gone".into())).is_err());
     }

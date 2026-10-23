@@ -156,11 +156,11 @@ jobs:
         with:
           shared-key: kokoro
           workspaces: tools/kokoro-parity
-      # The pinned published model and its G2P data; 350 MB, so kept.
+      # The pinned published model, its builds and G2P data; 650 MB, so kept.
       - uses: actions/cache@v4
         with:
           path: kokoro
-          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987-g2p-717691a
+          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987-g2p-717691a-gguf-ab19534
       - name: Model
         run: |
           base=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
@@ -172,6 +172,10 @@ jobs:
           for f in spacy-en-tokenizer.json tagger-en.bin misaki-us_gold.json misaki-us_silver.json \
                    g2p-en-us.safetensors misaki-gb_gold.json misaki-gb_silver.json g2p-en-gb.safetensors; do
             [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$g2p/$f"
+          done
+          gguf=https://huggingface.co/cstr/kokoro-82m-GGUF/resolve/ab19534a3b5cc12bc2741478e9790eadb328654a
+          for f in kokoro-82m-f16.gguf kokoro-82m-q8_0.gguf; do
+            [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$gguf/$f"
           done
           sha256sum -c <<'SUMS'
           5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f  kokoro/config.json
@@ -185,6 +189,8 @@ jobs:
           29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71  kokoro/misaki-gb_gold.json
           48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce  kokoro/misaki-gb_silver.json
           4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703  kokoro/g2p-en-gb.safetensors
+          341d5e96c2d7f06fc71dbc8d955150a5b6e3a59840f8905cb3fbe9b12120df52  kokoro/kokoro-82m-f16.gguf
+          3c8b60064b287a10abd35396a59c9981675c618db8bc91bd290db63f55eb492d  kokoro/kokoro-82m-q8_0.gguf
           SUMS
       - name: Compare
         run: |

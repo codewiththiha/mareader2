@@ -2,7 +2,7 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
-use mareader_speech::{Model, ModelFile, ModelVoice};
+use mareader_speech::{Build, Model, ModelFile, ModelVoice};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::settings_window::Tab;
@@ -27,6 +27,20 @@ const TINY: &[Model] = &[Model {
     license: "MIT",
     hosts: &["http://127.0.0.1:9/"],
     files: &[file("config.json", 4)],
+    builds: &[
+        Build {
+            id: "big",
+            name: "Big",
+            about: "Every weight",
+            file: file("weights.bin", 5),
+        },
+        Build {
+            id: "lite",
+            name: "Lite",
+            about: "Fewer bytes",
+            file: file("lite.bin", 3),
+        },
+    ],
     voices: &[
         ModelVoice {
             id: "ada",
@@ -64,11 +78,12 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
     h
 }
 
-/// Puts the model's own files on disk, as a finished download leaves them.
+/// Puts the model's first download on disk, as a finished one leaves it.
 fn downloaded(dir: &std::path::Path) {
     let folder = dir.join("tiny");
     std::fs::create_dir_all(folder.join("voices")).unwrap();
     std::fs::write(folder.join("config.json"), b"{}{}").unwrap();
+    std::fs::write(folder.join("weights.bin"), b"12345").unwrap();
     std::fs::write(folder.join("voices/ada.pt"), b"ad").unwrap();
 }
 
@@ -90,6 +105,10 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
     let _ = h.get_by_label("All voices");
+    // The other build is a download away; one build here can't go alone.
+    let _ = h.get_by_label("Download Tiny (Lite)");
+    let _ = h.get_by_label("Use Big");
+    assert!(h.query_by_label("Remove Tiny (Big)").is_none());
     // The first voice came with it; the other is a download away.
     let _ = h.get_by_label("Download Bo");
     assert!(h.query_by_label("Remove Ada").is_none());
@@ -136,4 +155,36 @@ fn a_download_that_cannot_reach_its_host_offers_another_try() {
     }
     let _ = h.get_by_label("Try again Tiny");
     let _ = h.get_by_label("Couldn't download");
+}
+
+#[test]
+fn a_second_build_is_picked_for_its_model_then_removed_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    downloaded(dir.path());
+    std::fs::write(dir.path().join("tiny/lite.bin"), b"abc").unwrap();
+    let mut h = settings(dir.path());
+    let model = TINY.first().unwrap();
+    h.state_mut()
+        .queue(Command::OpenSettings(Tab::Model(model)));
+    h.run_steps(3);
+    h.get_by_label("Use Lite").click();
+    h.run_steps(2);
+    let builds = &h.state().settings().read_aloud.builds;
+    assert_eq!(builds.get("tiny").map(String::as_str), Some("lite"));
+    h.get_by_label("Remove Tiny (Lite)").click();
+    h.run_steps(3);
+    assert!(!dir.path().join("tiny/lite.bin").exists());
+    assert!(dir.path().join("tiny/weights.bin").exists());
+    // The model stays, on the build left.
+    assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
+    let _ = h.get_by_label("Download Tiny (Lite)");
+    let _ = h.get_by_label("Use Big");
+}
+
+#[test]
+fn a_model_not_yet_downloaded_offers_a_build_to_start_with() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = settings(dir.path());
+    let _ = h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "Tiny build");
+    let _ = h.get_by_label("Download Tiny");
 }
