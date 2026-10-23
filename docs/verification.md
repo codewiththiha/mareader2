@@ -183,6 +183,9 @@ which loads the pinned Kokoro model twice: once through `mareader-kokoro`, once
 through the reference Rust build it was ported from. Both get the same phonemes,
 voice and frame timing.
 
+- **Activation.** The reference runs ALBERT's feed-forward with exact GELU.
+  PyTorch's Kokoro, left at ALBERT's default, and Kitten's exports use its
+  tanh form, as the app does; here ours is set to exact GELU to compare alike.
 - **Exact stages.** Phoneme encoder, projection, duration encoder, raw and
   rounded durations, pitch and energy curves, text encoder. Each is "same"
   under 1e-3 relative error, "close" under 1e-2, else it fails.

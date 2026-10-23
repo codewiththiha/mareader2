@@ -45,6 +45,7 @@ fn tiny() -> Result<Kokoro> {
             max_position_embeddings: 8,
             embedding_size: 4,
             type_vocab_size: 2,
+            ..Plbert::default()
         },
         istftnet: Istft {
             upsample_rates: vec![2, 2],
@@ -135,5 +136,15 @@ fn a_voice_picks_its_row_by_length() -> Result<()> {
     assert_eq!(row(5)?, 2.0);
     assert_eq!(row(99)?, 3.0);
     assert!(Voice::from_tensor(Tensor::zeros((2, 2, 2, 2), DType::F32, &Device::Cpu)?).is_err());
+    Ok(())
+}
+
+#[test]
+fn albert_takes_the_tanh_gelu_unless_told_otherwise() -> std::result::Result<(), serde_json::Error>
+{
+    let unset = Config::parse(br#"{"plbert": {"hidden_size": 768}}"#)?;
+    assert_eq!(unset.plbert.hidden_act, crate::Activation::GeluNew);
+    let exact = Config::parse(br#"{"plbert": {"hidden_act": "gelu"}}"#)?;
+    assert_eq!(exact.plbert.hidden_act, crate::Activation::Gelu);
     Ok(())
 }
