@@ -45,6 +45,9 @@ pub fn tab(
         ui,
         "Reading with this model uses the voice picked here. Each voice works offline once downloaded.",
     );
+    if !model.knobs.is_empty() {
+        sound(ui, s, model);
+    }
     section(ui, "Model");
     group(ui, |ui| {
         let t = Tokens::get(ui.ctx());
@@ -59,6 +62,44 @@ pub fn tab(
     note(
         ui,
         "Removing the model deletes its voices and builds too; it can be downloaded again.",
+    );
+}
+
+/// The model's own settings, each a share of how a voice was made.
+fn sound(ui: &mut Ui, s: &mut ReadAloudSettings, model: &'static Model) {
+    section(ui, "Sound");
+    let knobs = s.knobs.entry(model.id.to_owned()).or_default();
+    group(ui, |ui| {
+        for (i, knob) in model.knobs.iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            let mut value = knob.clamp(knobs.get(knob.id).copied());
+            row(ui, knob.name, knob.about, |ui| {
+                ui.spacing_mut().slider_width = 160.0;
+                let (least, most) = knob.range;
+                let slider = egui::Slider::new(&mut value, least..=most)
+                    .step_by(0.05)
+                    .custom_formatter(|v, _| format!("{:.0}%", v * 100.0));
+                if ui.add(slider).changed() {
+                    knobs.insert(knob.id.to_owned(), value);
+                }
+            });
+        }
+        divider(ui);
+        let set = knobs.values().any(|v| *v != 1.0);
+        row(ui, "As made", "Every setting back to 100%", |ui| {
+            if ui.add_enabled(set, egui::Button::new("Reset")).clicked() {
+                knobs.clear();
+            }
+        });
+    });
+    if knobs.is_empty() {
+        s.knobs.remove(model.id);
+    }
+    note(
+        ui,
+        "100% is each voice as it was made. Speech already made is made again.",
     );
 }
 
@@ -187,7 +228,7 @@ fn every_voice(
                 out.push(Command::VoiceModel(ModelAction::Download(item)));
             }
         }
-        let bytes = missing.iter().map(|v| v.file.bytes).sum();
+        let bytes = missing.iter().map(|v| v.bytes()).sum();
         muted(ui, &t, &format!("{} to go", megabytes(bytes)));
     });
 }
@@ -201,8 +242,10 @@ fn voice_row(
     out: &mut Commands,
 ) -> Option<&'static str> {
     let t = Tokens::get(ui.ctx());
-    let kind = if voice.feminine { "female" } else { "male" };
-    let detail = format!("{}, {kind}", accent(voice.language));
+    let mut detail = format!("{}, {}", accent(voice.language), voice.gender.label());
+    if !voice.note.is_empty() {
+        detail = format!("{detail} · {}", voice.note);
+    }
     let item = Item::Voice(model.id, voice.id);
     let mut pick = None;
     detail_row(ui, voice.name, &detail, |ui| {
@@ -211,7 +254,7 @@ fn voice_row(
             controls(
                 ui,
                 shelf.stage(item),
-                (item, voice.name, voice.file.bytes),
+                (item, voice.name, voice.bytes()),
                 out,
             );
             return;

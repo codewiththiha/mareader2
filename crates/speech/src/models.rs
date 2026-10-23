@@ -11,6 +11,24 @@ pub struct ModelFile {
     pub hosts: Option<&'static [&'static str]>,
 }
 
+/// How a voice sounds to a listener.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gender {
+    Female,
+    Male,
+    Neutral,
+}
+
+impl Gender {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Female => "female",
+            Self::Male => "male",
+            Self::Neutral => "neutral",
+        }
+    }
+}
+
 /// A voice a model speaks in; each downloads on its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelVoice {
@@ -18,8 +36,46 @@ pub struct ModelVoice {
     pub name: &'static str,
     /// A BCP 47 tag, as `en-GB`.
     pub language: &'static str,
-    pub feminine: bool,
+    pub gender: Gender,
     pub file: ModelFile,
+    /// A small file the voice needs beside `file`, such as its settings.
+    pub extra: Option<ModelFile>,
+    /// What sets it apart, as `Slower to make`; empty if nothing.
+    pub note: &'static str,
+}
+
+impl ModelVoice {
+    /// Every file the voice downloads.
+    pub fn files(&self) -> Vec<ModelFile> {
+        std::iter::once(self.file).chain(self.extra).collect()
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.files().iter().map(|f| f.bytes).sum()
+    }
+}
+
+/// A setting a model offers, as a share of each voice's own.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Knob {
+    /// Its key in settings.
+    pub id: &'static str,
+    pub name: &'static str,
+    /// One line on what it changes.
+    pub about: &'static str,
+    /// Least and most; 1 is the voice as it was made.
+    pub range: (f32, f32),
+}
+
+/// Ranges are listed numbers, never NaN, so each equals itself.
+impl Eq for Knob {}
+
+impl Knob {
+    /// `value` within range; a value not set, or not a number, is 1.
+    pub fn clamp(&self, value: Option<f32>) -> f32 {
+        let value = value.filter(|v| v.is_finite()).unwrap_or(1.0);
+        value.clamp(self.range.0, self.range.1)
+    }
 }
 
 /// One way to get a model's weights: the voices are shared, the sizes differ.
@@ -45,11 +101,13 @@ pub struct Model {
     pub hosts: &'static [&'static str],
     /// What every build needs before any voice.
     pub files: &'static [ModelFile],
-    /// Its weights in each size offered, the best first.
+    /// Its weights in each size, best first; none when voices bring their own.
     pub builds: &'static [Build],
     pub voices: &'static [ModelVoice],
     /// Comes with the model, so it can speak at once.
     pub first_voice: &'static str,
+    /// Settings that change how it sounds.
+    pub knobs: &'static [Knob],
 }
 
 impl Model {
@@ -71,7 +129,7 @@ impl Model {
     pub fn core(&self) -> Vec<ModelFile> {
         let mut files: Vec<ModelFile> = self.files.to_vec();
         // Small files first, so the big one ends the download.
-        files.extend(self.first().map(|v| v.file));
+        files.extend(self.first().iter().flat_map(|v| v.files()));
         files.sort_by_key(|f| f.bytes);
         files
     }
@@ -94,7 +152,7 @@ impl Model {
 }
 
 /// Every model on offer.
-pub const MODELS: &[Model] = &[KOKORO];
+pub const MODELS: &[Model] = &[KOKORO, PIPER];
 
 /// Pinned, so a file never changes under its checksum.
 const KOKORO_HOSTS: &[&str] = &[
@@ -124,6 +182,50 @@ const fn g2p(path: &'static str, bytes: u64, sha256: &'static str) -> ModelFile 
     }
 }
 
+/// Every file `mareader-g2p` reads, for both dialects.
+const G2P: [ModelFile; 8] = [
+    g2p(
+        "spacy-en-tokenizer.json",
+        79_554,
+        "2ffa6b3b6f4da114531ff897c02f3d2551485ef45c3ca1f6e6b2fdc80e034d1d",
+    ),
+    g2p(
+        "tagger-en.bin",
+        1_415_442,
+        "df3d6cb2c34d7da57f92e47ae9dea6bcc9c9f8ed7cf9ceec703e84d7d67d698f",
+    ),
+    g2p(
+        "misaki-us_gold.json",
+        3_000_469,
+        "dc414872a49a28ae6c141463d502fd945f3b2fde040484fdc47d00cc4612686f",
+    ),
+    g2p(
+        "misaki-us_silver.json",
+        3_099_517,
+        "de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475",
+    ),
+    g2p(
+        "g2p-en-us.safetensors",
+        3_011_692,
+        "dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5",
+    ),
+    g2p(
+        "misaki-gb_gold.json",
+        2_838_552,
+        "29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71",
+    ),
+    g2p(
+        "misaki-gb_silver.json",
+        3_663_898,
+        "48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce",
+    ),
+    g2p(
+        "g2p-en-gb.safetensors",
+        3_011_692,
+        "4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703",
+    ),
+];
+
 /// Natural English from a small model that runs on the computer.
 pub const KOKORO: Model = Model {
     id: "kokoro",
@@ -138,46 +240,14 @@ pub const KOKORO: Model = Model {
             sha256: "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
             hosts: None,
         },
-        g2p(
-            "spacy-en-tokenizer.json",
-            79_554,
-            "2ffa6b3b6f4da114531ff897c02f3d2551485ef45c3ca1f6e6b2fdc80e034d1d",
-        ),
-        g2p(
-            "tagger-en.bin",
-            1_415_442,
-            "df3d6cb2c34d7da57f92e47ae9dea6bcc9c9f8ed7cf9ceec703e84d7d67d698f",
-        ),
-        g2p(
-            "misaki-us_gold.json",
-            3_000_469,
-            "dc414872a49a28ae6c141463d502fd945f3b2fde040484fdc47d00cc4612686f",
-        ),
-        g2p(
-            "misaki-us_silver.json",
-            3_099_517,
-            "de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475",
-        ),
-        g2p(
-            "g2p-en-us.safetensors",
-            3_011_692,
-            "dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5",
-        ),
-        g2p(
-            "misaki-gb_gold.json",
-            2_838_552,
-            "29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71",
-        ),
-        g2p(
-            "misaki-gb_silver.json",
-            3_663_898,
-            "48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce",
-        ),
-        g2p(
-            "g2p-en-gb.safetensors",
-            3_011_692,
-            "4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703",
-        ),
+        G2P[0],
+        G2P[1],
+        G2P[2],
+        G2P[3],
+        G2P[4],
+        G2P[5],
+        G2P[6],
+        G2P[7],
     ],
     builds: &[
         Build {
@@ -216,6 +286,7 @@ pub const KOKORO: Model = Model {
     ],
     voices: KOKORO_VOICES,
     first_voice: "af_heart",
+    knobs: &[],
 };
 
 /// A Kokoro voice; `path` is `voices/<id>.pt`.
@@ -229,13 +300,18 @@ const fn voice(
         id,
         name,
         language,
-        feminine,
+        gender: match feminine {
+            true => Gender::Female,
+            false => Gender::Male,
+        },
         file: ModelFile {
             path,
             bytes,
             sha256,
             hosts: None,
         },
+        extra: None,
+        note: "",
     }
 }
 
@@ -495,6 +571,260 @@ const KOKORO_VOICES: &[ModelVoice] = &[
     ),
 ];
 
+/// Pinned, so a file never changes under its checksum.
+const PIPER_HOSTS: &[&str] = &[
+    "https://huggingface.co/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/",
+    "https://hf-mirror.com/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/",
+];
+
+/// Quick English voices, each a small model of its own.
+pub const PIPER: Model = Model {
+    id: "piper",
+    name: "Piper",
+    about: "Quick, clear English voices; each is a small model of its own",
+    license: "MIT; voices public domain, CC0 or Apache 2.0",
+    hosts: PIPER_HOSTS,
+    files: &G2P,
+    builds: &[],
+    voices: PIPER_VOICES,
+    first_voice: "en_US-ljspeech-medium",
+    knobs: &[
+        Knob {
+            id: "expression",
+            name: "Expression",
+            about: "How much the voice's tone rises and falls",
+            range: (0.0, 1.5),
+        },
+        Knob {
+            id: "rhythm",
+            name: "Rhythm",
+            about: "How freely the timing of words varies",
+            range: (0.0, 1.5),
+        },
+    ],
+};
+
+type Listed = (&'static str, u64, &'static str);
+
+/// A Piper voice: its weights, then its settings beside them.
+const fn piper(
+    (id, name, language): (&'static str, &'static str, &'static str),
+    (gender, note): (Gender, &'static str),
+    weights: Listed,
+    settings: Listed,
+) -> ModelVoice {
+    ModelVoice {
+        id,
+        name,
+        language,
+        gender,
+        file: listed(weights),
+        extra: Some(listed(settings)),
+        note,
+    }
+}
+
+const fn listed((path, bytes, sha256): Listed) -> ModelFile {
+    ModelFile {
+        path,
+        bytes,
+        sha256,
+        hosts: None,
+    }
+}
+
+/// Voices whose recordings are public domain, CC0 or Apache 2.0.
+const PIPER_VOICES: &[ModelVoice] = &[
+    piper(
+        ("en_US-ljspeech-medium", "LJ", "en-US"),
+        (Gender::Female, ""),
+        (
+            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx",
+            63_531_379,
+            "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
+        ),
+        (
+            "en/en_US/ljspeech/medium/en_US-ljspeech-medium.onnx.json",
+            4_972,
+            "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860",
+        ),
+    ),
+    piper(
+        ("en_US-ljspeech-high", "LJ, finer", "en-US"),
+        (
+            Gender::Female,
+            "Finer sound, about six times slower to make",
+        ),
+        (
+            "en/en_US/ljspeech/high/en_US-ljspeech-high.onnx",
+            114_199_011,
+            "5d4f08ba6a2a48c44592eed3ce56bf85e9de3dd4e20df90541ae68a8310c029a",
+        ),
+        (
+            "en/en_US/ljspeech/high/en_US-ljspeech-high.onnx.json",
+            4_970,
+            "7e1f4634af596d83cca997fb7a931ba80b70f8a316a2655ee69c55365e0ace14",
+        ),
+    ),
+    piper(
+        ("en_US-kristin-medium", "Kristin", "en-US"),
+        (Gender::Female, ""),
+        (
+            "en/en_US/kristin/medium/en_US-kristin-medium.onnx",
+            63_531_379,
+            "5849957f929cbf720c258f8458692d6103fff2f0e3d3b19c8259474bb06a18d4",
+        ),
+        (
+            "en/en_US/kristin/medium/en_US-kristin-medium.onnx.json",
+            4_968,
+            "5681426d4aead22195de70531eeeeddb46493cfaffc5764b2ea3db73428b651c",
+        ),
+    ),
+    piper(
+        ("en_US-kathleen-low", "Kathleen", "en-US"),
+        (Gender::Female, "Quickest to make, a little muffled"),
+        (
+            "en/en_US/kathleen/low/en_US-kathleen-low.onnx",
+            63_104_526,
+            "87adf17f5326bc0782282147a8b9788406236245f0f9b0e68dacb651bc1de8b6",
+        ),
+        (
+            "en/en_US/kathleen/low/en_US-kathleen-low.onnx.json",
+            4_169,
+            "39ebab88416edce0f63781754651788620cb97b9bb73ddf3c01f28e29a648feb",
+        ),
+    ),
+    piper(
+        ("en_US-joe-medium", "Joe", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/joe/medium/en_US-joe-medium.onnx",
+            63_201_294,
+            "58afce0321b8d9c46d7cdf9c16500cc55a793b4220212dba6b70fb788b3baf06",
+        ),
+        (
+            "en/en_US/joe/medium/en_US-joe-medium.onnx.json",
+            4_794,
+            "3d6d5410b3795cb1950595247ef8f06190719e6fdbfa3a2356d8ec368e1aad33",
+        ),
+    ),
+    piper(
+        ("en_US-john-medium", "John", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/john/medium/en_US-john-medium.onnx",
+            63_531_379,
+            "789c6c875726e627ddee93d51d8727859abe9c091c3d141591f4b83c2072e988",
+        ),
+        (
+            "en/en_US/john/medium/en_US-john-medium.onnx.json",
+            4_965,
+            "af60f177b6b550f3d7a302720c0fb89e7f94a82b5dca464775ef63b1c69ba09a",
+        ),
+    ),
+    piper(
+        ("en_US-norman-medium", "Norman", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/norman/medium/en_US-norman-medium.onnx",
+            63_531_379,
+            "b9739443232a80a59c7d18810dd856899bf16a7964725f5ab81ea49b1351cb71",
+        ),
+        (
+            "en/en_US/norman/medium/en_US-norman-medium.onnx.json",
+            4_968,
+            "6c2db7f558a4a8deb9fe822583c1c5105f6c4e834dd0f9de8ad17a888ee9fe1d",
+        ),
+    ),
+    piper(
+        ("en_US-bryce-medium", "Bryce", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/bryce/medium/en_US-bryce-medium.onnx",
+            63_531_379,
+            "dc9caa6c313199ffb5ac698b6e542fa6cba388aeaf2731e25262e33b9810aef1",
+        ),
+        (
+            "en/en_US/bryce/medium/en_US-bryce-medium.onnx.json",
+            4_966,
+            "7ceb1bc4af6d4e41b6d1edbb86c67e91e01eaa71f66db4cd0ae92ac704d415be",
+        ),
+    ),
+    piper(
+        ("en_US-mike-medium", "Mike", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/mike/medium/en_US-mike-medium.onnx",
+            63_221_984,
+            "3157e69e2c580cab297483f4b301ee975a4590c17d35a9757e33347d0e90fae2",
+        ),
+        (
+            "en/en_US/mike/medium/en_US-mike-medium.onnx.json",
+            5_439,
+            "0a2538c0b1e06a6cab7c46b97c79abd5e6a34a6c05b74b9376874c7099d81dad",
+        ),
+    ),
+    piper(
+        ("en_US-reza_ibrahim-medium", "Reza", "en-US"),
+        (Gender::Male, ""),
+        (
+            "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx",
+            63_511_038,
+            "99f0c31464a2120831ca87d079e10a9a2b3e426cc1ee662d80ff9042df15cd3c",
+        ),
+        (
+            "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx.json",
+            4_976,
+            "465ddf1702917fe617b7d69ed81301d6a2f39f083a754bd1cf6db8955d09a381",
+        ),
+    ),
+    piper(
+        ("en_US-sam-medium", "Sam", "en-US"),
+        (Gender::Neutral, ""),
+        (
+            "en/en_US/sam/medium/en_US-sam-medium.onnx",
+            62_950_044,
+            "56417b3b4afe8ec6bb4cabf06e17d67261fdd5bf334592abcfc80052fba11163",
+        ),
+        (
+            "en/en_US/sam/medium/en_US-sam-medium.onnx.json",
+            5_040,
+            "8c7fb47f19683b0b81037c5564f9a5ad4699a9da685e0e5da0a72fd3c3f5c1c4",
+        ),
+    ),
+    piper(
+        ("en_GB-cori-medium", "Cori", "en-GB"),
+        (Gender::Female, ""),
+        (
+            "en/en_GB/cori/medium/en_GB-cori-medium.onnx",
+            63_531_379,
+            "1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d",
+        ),
+        (
+            "en/en_GB/cori/medium/en_GB-cori-medium.onnx.json",
+            4_966,
+            "e262c16d7f192f69d4edd6b4ef8a5915379e67495fcc402f1ab15eeb33da3d36",
+        ),
+    ),
+    piper(
+        ("en_GB-cori-high", "Cori, finer", "en-GB"),
+        (
+            Gender::Female,
+            "Finer sound, about six times slower to make",
+        ),
+        (
+            "en/en_GB/cori/high/en_GB-cori-high.onnx",
+            114_219_352,
+            "470b4dd634c98f8a4850d7626ffc3dfc90774628eeef6605a6dd8f88f30a5903",
+        ),
+        (
+            "en/en_GB/cori/high/en_GB-cori-high.onnx.json",
+            4_963,
+            "9e7fb5b5671612c22f3c81cbe46c1ae87b031a4632bcb509e499dad6f1e2adec",
+        ),
+    ),
+];
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -508,26 +838,23 @@ mod tests {
                 "{} lacks its first voice",
                 model.id
             );
-            assert!(!model.builds.is_empty(), "{} has no build", model.id);
-            let all = (model.files.iter())
-                .chain(model.builds.iter().map(|b| &b.file))
-                .chain(model.voices.iter().map(|v| &v.file));
+            let all = (model.files.iter().copied())
+                .chain(model.builds.iter().map(|b| b.file))
+                .chain(model.voices.iter().flat_map(|v| v.files()));
             for f in all {
                 assert!(f.bytes > 0, "{}", f.path);
                 assert_eq!(f.sha256.len(), 64, "{}", f.path);
                 assert!(f.sha256.bytes().all(|b| b.is_ascii_hexdigit()));
             }
             for v in model.voices {
-                assert_eq!(v.file.path, format!("voices/{}.pt", v.id));
                 assert_eq!(model.voices.iter().filter(|w| w.id == v.id).count(), 1);
             }
             for b in model.builds {
                 assert_eq!(model.builds.iter().filter(|c| c.id == b.id).count(), 1);
             }
-            for f in model
-                .core()
-                .into_iter()
+            for f in (model.core().into_iter())
                 .chain(model.builds.iter().map(|b| b.file))
+                .chain(model.voices.iter().flat_map(|v| v.files()))
             {
                 let urls = model.urls(&f);
                 assert!(urls.len() > 1, "{} has no mirror", f.path);
@@ -553,15 +880,52 @@ mod tests {
         let sizes: Vec<u64> = KOKORO.builds.iter().map(|b| b.file.bytes).collect();
         assert!(sizes.windows(2).all(|w| w[0] > w[1]));
         assert_eq!(KOKORO.voices.len(), 28);
+        for v in KOKORO.voices {
+            assert_eq!(v.files(), [v.file]);
+            assert_eq!(v.file.path, format!("voices/{}.pt", v.id));
+        }
     }
 
     #[test]
-    fn the_model_brings_every_file_its_pronunciation_reads() {
+    fn each_piper_voice_brings_its_weights_and_settings() {
+        assert!(PIPER.builds.is_empty());
+        assert_eq!(PIPER.files, &G2P[..]);
+        let first = PIPER.first().unwrap();
+        assert_eq!(PIPER.core().len(), G2P.len() + 2);
+        assert_eq!(PIPER.bytes(), 20_120_816 + first.bytes());
+        for v in PIPER.voices {
+            let [weights, settings] = v.files()[..] else {
+                panic!("{} has two files", v.id);
+            };
+            // As `en/en_US/joe/medium/en_US-joe-medium.onnx`.
+            let [locale, speaker, quality] = v.id.splitn(3, '-').collect::<Vec<_>>()[..] else {
+                panic!("{} is locale-speaker-quality", v.id);
+            };
+            let stem = format!("en/{locale}/{speaker}/{quality}/{}", v.id);
+            assert_eq!(weights.path, format!("{stem}.onnx"));
+            assert_eq!(settings.path, format!("{stem}.onnx.json"));
+            assert_eq!(v.language, locale.replace('_', "-"));
+            // High voices are slow to make, and say so.
+            assert_eq!(
+                quality == "high",
+                !v.note.is_empty() && v.note.contains("slower")
+            );
+        }
+        let knob = PIPER.knobs[0];
+        assert_eq!(knob.clamp(None), 1.0);
+        assert_eq!(knob.clamp(Some(f32::NAN)), 1.0);
+        assert_eq!(knob.clamp(Some(9.0)), knob.range.1);
+    }
+
+    #[test]
+    fn the_models_bring_every_file_their_pronunciation_reads() {
         use mareader_g2p::{Dialect, TAGGER, TOKENIZER};
         let dialects = [Dialect::American, Dialect::British];
         let needed = dialects.iter().flat_map(|d| d.files());
         for name in needed.chain([TOKENIZER, TAGGER]) {
-            assert!(KOKORO.files.iter().any(|f| f.path == name), "{name}");
+            for model in [KOKORO, PIPER] {
+                assert!(model.files.iter().any(|f| f.path == name), "{name}");
+            }
         }
     }
 }

@@ -114,13 +114,12 @@ fn model_row(
         ui.label(RichText::new(text).size(t.text_small).color(t.muted));
     };
     let wanted = s.builds.get(model.id).and_then(|b| model.build(b));
-    let Some(picked) = wanted.or(model.builds.first()) else {
-        return;
-    };
+    let picked = wanted.or(model.builds.first());
     detail_row(ui, model.name, model.about, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.attached() {
-            muted(ui, &crate::dict::megabytes(model.bytes_with(picked)));
+            let bytes = picked.map_or(model.bytes(), |b| model.bytes_with(b));
+            muted(ui, &crate::dict::megabytes(bytes));
             return;
         }
         if shelf.ready().iter().any(|m| m.id == model.id) {
@@ -132,8 +131,8 @@ fn model_row(
             muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
             return;
         }
-        // A build already here lacks only the shared files.
-        if !shelf.builds(model).is_empty() {
+        // Without builds, or with one here, only the shared files are owed.
+        let Some(picked) = picked.filter(|_| shelf.builds(model).is_empty()) else {
             let item = Item::Model(model.id);
             controls(
                 ui,
@@ -142,7 +141,7 @@ fn model_row(
                 out,
             );
             return;
-        }
+        };
         // A build begun, else the one picked, with the shared files.
         let begun = (model.builds.iter())
             .find(|b| *shelf.stage(Item::Build(model.id, b.id)) != Stage::Absent);

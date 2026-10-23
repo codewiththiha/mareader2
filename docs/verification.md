@@ -233,6 +233,9 @@ sides speak those same ids.
   real-time factors for both sides, and the first takes as WAV.
 - **The voices.** Fetched from their pinned revision, checked by SHA-256 and
   kept in the Actions cache.
+- **The engine.** The app's own Piper engine then speaks two sentences from
+  two voices laid out as downloads leave them, and the summary gains when the
+  first sound was ready. The kokoro task does the same for Kokoro.
 
 ## The sandbox cache
 

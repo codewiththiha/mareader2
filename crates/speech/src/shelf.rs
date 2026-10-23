@@ -123,9 +123,10 @@ impl Shelf {
         self.stages.get(&item).unwrap_or(&ABSENT)
     }
 
-    /// The models downloaded whole, with a build, in offer order.
+    /// The models downloaded whole, with a build if they have builds.
     pub fn ready(&self) -> Vec<&'static Model> {
-        let ready = |m: &&Model| self.shared(m) && !self.builds(m).is_empty();
+        let built = |m: &Model| m.builds.is_empty() || !self.builds(m).is_empty();
+        let ready = |m: &&Model| self.shared(m) && built(m);
         self.catalogue.iter().filter(ready).collect()
     }
 
@@ -164,7 +165,7 @@ impl Shelf {
         let extra = model.voices.iter().filter(|v| v.id != model.first_voice);
         let extra = extra.filter(|v| *self.stage(Item::Voice(model.id, v.id)) == Stage::Ready);
         let builds = self.builds(model).iter().map(|b| b.file.bytes).sum::<u64>();
-        model.bytes() + builds + extra.map(|v| v.file.bytes).sum::<u64>()
+        model.bytes() + builds + extra.map(|v| v.bytes()).sum::<u64>()
     }
 
     /// Takes in what downloads sent; true if anything changed.
@@ -226,6 +227,7 @@ impl Shelf {
             let Some((model, files)) = self.files(item) else {
                 continue;
             };
+            let twins = self.twins(model, &files);
             if let Some(desk) = &mut self.desk {
                 let got = desk.found(model, &files);
                 let total = files.iter().map(|f| f.bytes).sum();
@@ -233,10 +235,34 @@ impl Shelf {
                     Stage::Paused { got, .. } => got,
                     _ => 0,
                 };
-                desk.start(item, model, files);
+                desk.start(item, model, files, twins);
                 self.stages.insert(item, Stage::Fetching { got, total });
             }
         }
+    }
+
+    /// For each of `files`, the same file whole in another model's folder.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    fn twins(&self, model: &Model, files: &[ModelFile]) -> Vec<Option<std::path::PathBuf>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(desk) = &self.desk {
+            let others = self.catalogue.iter().filter(|m| m.id != model.id);
+            let others: Vec<&Model> = others.collect();
+            let twin = |f: &ModelFile| {
+                others.iter().find_map(|m| {
+                    let same = m
+                        .files
+                        .iter()
+                        .find(|g| g.sha256 == f.sha256 && g.bytes == f.bytes);
+                    let path = desk.folder(m).join(same?.path);
+                    let whole = std::fs::metadata(&path).is_ok_and(|d| d.len() == f.bytes);
+                    whole.then_some(path)
+                })
+            };
+            return files.iter().map(twin).collect();
+        }
+        let _ = model;
+        vec![None; files.len()]
     }
 
     /// What `item` downloads, and from which model.
@@ -255,7 +281,7 @@ impl Shelf {
                 files.push(file);
                 Some((model, files))
             }
-            Item::Voice(_, v) => Some((model, vec![model.voice(v)?.file])),
+            Item::Voice(_, v) => Some((model, model.voice(v)?.files())),
         }
     }
 }
@@ -484,8 +510,14 @@ mod desk {
             (events, doomed)
         }
 
-        /// Fetches `files` of `model` on a thread of its own.
-        pub fn start(&mut self, item: Item, model: &'static Model, files: Vec<ModelFile>) {
+        /// Fetches `files` on a thread; a file with a twin is linked instead.
+        pub fn start(
+            &mut self,
+            item: Item,
+            model: &'static Model,
+            files: Vec<ModelFile>,
+            twins: Vec<Option<PathBuf>>,
+        ) {
             let flag = Arc::new(AtomicU8::new(Halt::Go as u8));
             self.current = Some((item, Arc::clone(&flag)));
             let folder = self.folder(model);
@@ -495,7 +527,7 @@ mod desk {
                     let _ = tell.send((item, stage));
                     waker();
                 };
-                let stage = run(model, (&folder, &files), &flag, &say);
+                let stage = run(model, (&folder, &files, &twins), &flag, &say);
                 say(stage);
             });
         }
@@ -504,7 +536,7 @@ mod desk {
     /// Each file not yet whole, in turn; the stage it ends at.
     fn run(
         model: &Model,
-        (folder, files): (&Path, &[ModelFile]),
+        (folder, files, twins): (&Path, &[ModelFile], &[Option<PathBuf>]),
         flag: &AtomicU8,
         say: &dyn Fn(Stage),
     ) -> Stage {
@@ -512,7 +544,7 @@ mod desk {
         let mut base = 0;
         let now = Instant::now();
         let mut last = now.checked_sub(TELL_EVERY).unwrap_or(now);
-        for f in files {
+        for (i, f) in files.iter().enumerate() {
             let path = folder.join(f.path);
             if len(&path) == Some(f.bytes) {
                 base += f.bytes;
@@ -524,6 +556,14 @@ mod desk {
                 return Stage::Failed(e.to_string());
             }
             let part = part(&path);
+            let twin = twins.get(i).and_then(Option::as_deref);
+            if let Some(twin) = twin
+                && link(twin, &part, f.bytes)
+                && std::fs::rename(&part, &path).is_ok()
+            {
+                base += f.bytes;
+                continue;
+            }
             let kind = Kind::Sha256 {
                 sha256: f.sha256,
                 bytes: f.bytes,
@@ -586,6 +626,13 @@ mod desk {
             let _ = std::fs::remove_file(part(&path));
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    /// `to` made the same file as `from`, shared on disk where it can be.
+    fn link(from: &Path, to: &Path, bytes: u64) -> bool {
+        let _ = std::fs::remove_file(to);
+        let made = std::fs::hard_link(from, to).is_ok() || std::fs::copy(from, to).is_ok();
+        made && len(to) == Some(bytes)
     }
 
     fn len(path: &Path) -> Option<u64> {
@@ -719,8 +766,10 @@ mod tests {
                 id: vid,
                 name: vid,
                 language: "en-US",
-                feminine: true,
+                gender: crate::models::Gender::Female,
                 file,
+                extra: None,
+                note: "",
             };
             let hosts: &'static [&'static str] =
                 Box::leak(vec![leak(format!("{host}/{id}/"))].into_boxed_slice());
@@ -736,6 +785,7 @@ mod tests {
                 ),
                 voices: Box::leak(vec![voice("a", a), voice("b", b)].into_boxed_slice()),
                 first_voice: "a",
+                knobs: &[],
             });
         }
         (Box::leak(models.into_boxed_slice()), files)
@@ -807,6 +857,54 @@ mod tests {
         assert_eq!(*again.stage(Item::Model("tiny")), Stage::Ready);
         assert_eq!(*again.stage(lite), Stage::Ready);
         assert_eq!(*again.stage(big), Stage::Absent);
+    }
+
+    #[test]
+    fn a_model_without_builds_is_ready_alone_and_links_files_another_has() {
+        let dir = tempfile::tempdir().unwrap();
+        let (models, _) = catalogue(&["one"], false);
+        let one = models[0];
+        let (a, b) = (one.voices[0], one.voices[1]);
+        let here = |f: ModelFile| ModelFile {
+            hosts: Some(one.hosts),
+            ..f
+        };
+        // Its own host has nothing: the shared config can only be linked.
+        let bare = Model {
+            id: "bare",
+            hosts: &["http://127.0.0.1:9/"],
+            builds: &[],
+            voices: Box::leak(Box::new([ModelVoice {
+                file: here(a.file),
+                extra: Some(here(b.file)),
+                ..a
+            }])),
+            ..one
+        };
+        let all: &'static [Model] = Box::leak(vec![one, bare].into_boxed_slice());
+        let mut s = shelf(dir.path(), all);
+        s.download(Item::Build("one", "big"));
+        settle(&mut s, |s| s.ready().len() == 1);
+        s.download(Item::Model("bare"));
+        settle(&mut s, |s| !s.stage(Item::Model("bare")).busy());
+        assert_eq!(*s.stage(Item::Model("bare")), Stage::Ready);
+        assert_eq!(s.ready().len(), 2, "no build needed");
+        assert!(s.has(&all[1], "a"));
+        assert_eq!(s.on_disk(&all[1]), 40 + 2_000 + 3_000);
+        let shared = dir.path().join("bare/config.json");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let inode = |p: std::path::PathBuf| std::fs::metadata(p).unwrap().ino();
+            assert_eq!(
+                inode(shared.clone()),
+                inode(dir.path().join("one/config.json"))
+            );
+        }
+        // Each keeps its copy when the other goes.
+        s.remove(Item::Model("one"));
+        assert!(shared.exists());
+        assert_eq!(s.ready().len(), 1);
     }
 
     #[test]

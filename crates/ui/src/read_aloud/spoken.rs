@@ -61,6 +61,8 @@ pub(super) struct Spoken {
     build: Option<&'static str>,
     voice: Option<String>,
     tone: Tone,
+    /// The model's own settings, as last given to it.
+    knobs: std::collections::BTreeMap<String, f32>,
     skip_folios: bool,
     followed: Option<usize>,
     /// The sentence last brought into view.
@@ -95,6 +97,7 @@ impl Spoken {
             build: None,
             voice: None,
             tone: Tone::default(),
+            knobs: std::collections::BTreeMap::new(),
             skip_folios: settings.skip_page_numbers,
             followed: None,
             revealed: None,
@@ -126,11 +129,13 @@ impl Spoken {
         self.build = mareader_speech::build_of(&self.engine, settings.build(), shelf);
         self.voice = settings.voice().map(str::to_owned);
         self.tone = tone(settings);
+        self.knobs = settings.knobs();
         let wake = Arc::clone(&self.wake);
         match mareader_speech::open(&self.engine, self.build, shelf, wake) {
             Ok(mut voicer) => {
                 voicer.set_voice(self.voice.as_deref());
                 voicer.set_tone(self.tone);
+                voicer.set_knobs(&self.knobs);
                 self.voicer = Some(voicer);
                 self.fault = None;
             }
@@ -186,6 +191,12 @@ impl Spoken {
         if tone != self.tone {
             v.set_tone(tone);
             self.tone = tone;
+            again = true;
+        }
+        let knobs = settings.knobs();
+        if knobs != self.knobs {
+            v.set_knobs(&knobs);
+            self.knobs = knobs;
             again = true;
         }
         if again && self.saying {

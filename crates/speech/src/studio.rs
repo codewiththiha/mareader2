@@ -1,11 +1,11 @@
 //! Loaded voice models and the speech they made, shared by every voicer.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use mareader_g2p::{Dialect, G2p};
-use mareader_kokoro::Kokoro;
 
 use crate::Usage;
 
@@ -44,11 +44,38 @@ pub(crate) struct Key {
     pub voice: String,
     /// The speed's bits, so equal speeds hash equal.
     pub speed: u32,
+    /// The model's settings, as bits, in the order it lists them.
+    pub knobs: Vec<u32>,
     pub text: String,
 }
 
-/// Mono samples at the model's rate.
-pub(crate) type Pcm = Arc<[i16]>;
+/// Mono samples, and how many play a second.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Pcm {
+    pub samples: Arc<[i16]>,
+    pub rate: u32,
+}
+
+impl Pcm {
+    pub fn new(samples: &[i16], rate: u32) -> Self {
+        Self {
+            samples: Arc::from(samples),
+            rate,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    pub fn seconds(&self) -> f64 {
+        self.len() as f64 / f64::from(self.rate.max(1))
+    }
+}
 
 /// Speech already made, the least recently heard let go past the cap.
 #[derive(Default)]
@@ -64,7 +91,7 @@ impl Takes {
         self.clock += 1;
         let (pcm, used) = self.kept.get_mut(key)?;
         *used = self.clock;
-        Some(Arc::clone(pcm))
+        Some(pcm.clone())
     }
 
     pub fn has(&self, key: &Key) -> bool {
@@ -99,13 +126,18 @@ impl Takes {
 }
 
 fn bytes(pcm: &Pcm) -> usize {
-    std::mem::size_of_val(&**pcm)
+    std::mem::size_of_val(&*pcm.samples)
 }
+
+/// A loaded model of any kind, by the name it shows as.
+type Held = (Arc<str>, Weak<dyn Any + Send + Sync>);
 
 #[derive(Default)]
 struct Inner {
-    /// The loaded build's name, and the model.
-    kokoro: Mutex<(Arc<str>, Weak<Kokoro>)>,
+    /// Every model loaded, kept only while someone holds it.
+    models: Mutex<Vec<Held>>,
+    /// Held while a model loads, so each loads once.
+    loading: Mutex<()>,
     american: Slot<G2p>,
     british: Slot<G2p>,
     takes: Mutex<Takes>,
@@ -141,44 +173,54 @@ impl Studio {
     }
 
     pub fn usage(&self) -> Usage {
-        let kokoro = self.kokoro_slot();
-        let held = (kokoro.1.strong_count() > 0).then(|| kokoro.0.to_string());
-        drop(kokoro);
+        let models = self.models().iter().map(|(n, _)| n.to_string()).collect();
         Usage {
-            models: held.into_iter().collect(),
+            models,
             speech: self.takes().used,
         }
     }
 
-    /// Whether build `name` of Kokoro is loaded.
-    pub(crate) fn has_kokoro(&self, name: &str) -> bool {
-        let kokoro = self.kokoro_slot();
-        *kokoro.0 == *name && kokoro.1.strong_count() > 0
+    /// Whether the model named `name` is loaded.
+    pub(crate) fn has_model(&self, name: &str) -> bool {
+        self.models().iter().any(|(n, _)| **n == *name)
     }
 
-    fn kokoro_slot(&self) -> MutexGuard<'_, (Arc<str>, Weak<Kokoro>)> {
-        self.0.kokoro.lock().unwrap_or_else(PoisonError::into_inner)
+    /// The models still held, the rest let go of.
+    fn models(&self) -> MutexGuard<'_, Vec<Held>> {
+        let mut models = self.0.models.lock().unwrap_or_else(PoisonError::into_inner);
+        models.retain(|(_, it)| it.strong_count() > 0);
+        models
+    }
+
+    /// The model named `name`, loaded by `load` unless held already.
+    pub(crate) fn model<T: Any + Send + Sync>(
+        &self,
+        name: &Arc<str>,
+        load: impl FnOnce() -> Result<T, String>,
+    ) -> Result<Arc<T>, String> {
+        let find = |s: &Self| {
+            let models = s.models();
+            let held = models.iter().find(|(n, _)| n == name);
+            held.and_then(|(_, it)| it.upgrade()?.downcast::<T>().ok())
+        };
+        let _one = self
+            .0
+            .loading
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(it) = find(self) {
+            return Ok(it);
+        }
+        let it = Arc::new(load()?);
+        let any: Arc<dyn Any + Send + Sync> = it.clone();
+        let mut models = self.models();
+        models.retain(|(n, _)| n != name);
+        models.push((Arc::clone(name), Arc::downgrade(&any)));
+        Ok(it)
     }
 
     pub(crate) fn takes(&self) -> MutexGuard<'_, Takes> {
         self.0.takes.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Build `name` of Kokoro, loaded once; another build is loaded anew.
-    pub(crate) fn kokoro(
-        &self,
-        name: &Arc<str>,
-        load: impl FnOnce() -> Result<Kokoro, String>,
-    ) -> Result<Arc<Kokoro>, String> {
-        let mut held = self.kokoro_slot();
-        if held.0 == *name
-            && let Some(it) = held.1.upgrade()
-        {
-            return Ok(it);
-        }
-        let it = Arc::new(load()?);
-        *held = (Arc::clone(name), Arc::downgrade(&it));
-        Ok(it)
     }
 
     pub(crate) fn g2p(
@@ -202,12 +244,13 @@ mod tests {
             model: "Kokoro (Full)".into(),
             voice: "af_heart".into(),
             speed: 1f32.to_bits(),
+            knobs: Vec::new(),
             text: text.into(),
         }
     }
 
     fn pcm(samples: usize) -> Pcm {
-        Arc::from(vec![0i16; samples])
+        Pcm::new(&vec![0i16; samples], 24_000)
     }
 
     #[test]
@@ -246,6 +289,26 @@ mod tests {
         assert_eq!(studio.idle(), Some(IDLE));
         studio.set_idle(None);
         assert_eq!(studio.idle(), None);
+    }
+
+    #[test]
+    fn models_of_any_kind_load_once_show_by_name_and_go_with_the_last() {
+        let studio = Studio::default();
+        let (big, small): (Arc<str>, Arc<str>) = ("Big".into(), "Small".into());
+        let one = studio.model(&big, || Ok(1u32)).unwrap();
+        let again = studio.model(&big, || Ok(2u32)).unwrap();
+        assert_eq!((*one, *again), (1, 1), "loaded once while held");
+        let other = studio.model(&small, || Ok("words".to_owned())).unwrap();
+        assert!(studio.has_model("Big") && studio.has_model("Small"));
+        assert_eq!(studio.usage().models, ["Big", "Small"]);
+        // The same name as another kind loads afresh.
+        assert_eq!(*studio.model(&big, || Ok(3u64)).unwrap(), 3);
+        drop((one, again));
+        assert_eq!(studio.usage().models, ["Small"]);
+        assert!(studio.model(&big, || Err::<u32, _>("gone".into())).is_err());
+        drop(other);
+        assert_eq!(studio.usage(), Usage::default());
+        assert_eq!(pcm(48_000).seconds(), 2.0);
     }
 
     #[test]
