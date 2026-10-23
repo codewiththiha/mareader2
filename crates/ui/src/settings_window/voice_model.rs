@@ -354,6 +354,8 @@ fn accent(tag: &str) -> &str {
     match tag {
         "en-US" => "American English",
         "en-GB" => "British English",
+        "es-ES" => "Spanish",
+        "it-IT" => "Italian",
         other => other,
     }
 }
@@ -366,6 +368,7 @@ mod tests {
     fn english_voices_are_named_by_their_accent() {
         assert_eq!(accent("en-US"), "American English");
         assert_eq!(accent("en-GB"), "British English");
+        assert_eq!(accent("it-IT"), "Italian");
         assert_eq!(accent("fr-FR"), "fr-FR");
     }
 }
