@@ -9,8 +9,10 @@
     clippy::indexing_slicing
 )]
 
+mod french;
 mod italian;
 mod letters;
+mod portuguese;
 mod spanish;
 mod text;
 
@@ -23,16 +25,22 @@ pub enum Language {
     /// Castilian, as `es` in espeak-ng.
     Spanish,
     Italian,
+    /// Brazilian, as `pt-br` in espeak-ng.
+    Portuguese,
+    /// As `fr-fr` in espeak-ng.
+    French,
 }
 
 impl Language {
-    pub const ALL: [Self; 2] = [Self::Spanish, Self::Italian];
+    pub const ALL: [Self; 4] = [Self::Spanish, Self::Italian, Self::Portuguese, Self::French];
 
     /// The language of a Kokoro voice, from the first letter of its id.
     pub fn for_kokoro_voice(voice: &str) -> Option<Self> {
         match voice.as_bytes().first()? {
             b'e' => Some(Self::Spanish),
             b'i' => Some(Self::Italian),
+            b'p' => Some(Self::Portuguese),
+            b'f' => Some(Self::French),
             _ => None,
         }
     }
@@ -42,6 +50,8 @@ impl Language {
         match self {
             Self::Spanish => "es",
             Self::Italian => "it",
+            Self::Portuguese => "pt",
+            Self::French => "fr",
         }
     }
 }
@@ -52,6 +62,8 @@ pub fn phonemize(language: Language, text: &str) -> String {
     let spoken = match language {
         Language::Spanish => spanish::read(&tokens),
         Language::Italian => italian::read(&tokens),
+        Language::Portuguese => portuguese::read(&tokens),
+        Language::French => french::read(&tokens),
     };
     render(&spoken)
 }

@@ -15,6 +15,8 @@ pub(crate) enum Piece<'a> {
 pub(crate) struct Token<'a> {
     pub piece: Piece<'a>,
     pub space: bool,
+    /// Joined to the word before by one hyphen, as `dá-lhe`.
+    pub hyphen: bool,
 }
 
 /// Punctuation kept as it stands; it marks a pause.
@@ -24,6 +26,7 @@ const MARKS: &str = ";:,.!?¡¿—…\"«»“”(){}[]";
 pub(crate) fn split(text: &str) -> Vec<Token<'_>> {
     let mut tokens = Vec::new();
     let mut space = false;
+    let mut hyphen = false;
     let mut rest = text;
     while let Some(ch) = rest.chars().next() {
         let (piece, len) = if ch.is_alphabetic() {
@@ -36,12 +39,20 @@ pub(crate) fn split(text: &str) -> Vec<Token<'_>> {
             (Some(Piece::Mark(ch)), ch.len_utf8())
         } else if let Some(len) = dash_len(rest) {
             (Some(Piece::Break), len)
+        } else if ch == '-' && joins(&tokens, space, rest) {
+            hyphen = true;
+            (None, 1)
         } else {
             (None, ch.len_utf8())
         };
         match piece {
             Some(piece) => {
-                tokens.push(Token { piece, space });
+                let hyphen = std::mem::take(&mut hyphen);
+                tokens.push(Token {
+                    piece,
+                    space,
+                    hyphen,
+                });
                 space = false;
             }
             None => space = true,
@@ -49,6 +60,13 @@ pub(crate) fn split(text: &str) -> Vec<Token<'_>> {
         rest = rest.get(len..).unwrap_or_default();
     }
     tokens
+}
+
+/// Whether the hyphen at `rest` runs straight from a word into another.
+fn joins(tokens: &[Token<'_>], space: bool, rest: &str) -> bool {
+    let after_word = matches!(tokens.last().map(|t| t.piece), Some(Piece::Word(_)));
+    let next = rest.get(1..).and_then(|r| r.chars().next());
+    after_word && !space && next.is_some_and(char::is_alphabetic)
 }
 
 /// Hyphens standing for a dash: two or more, or one with space round it.
