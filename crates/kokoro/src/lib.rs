@@ -16,7 +16,7 @@ use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::{Linear, VarBuilder};
 
 pub use chunks::Chunk;
-pub use config::{Config, Istft, Plbert};
+pub use config::{Activation, Config, Istft, Plbert};
 pub use weights::read_model;
 
 use albert::Albert;

@@ -3,7 +3,7 @@
 use candle_core::{D, DType, Module, Result, Tensor};
 use candle_nn::{Embedding, Linear, VarBuilder};
 
-use crate::config::Plbert;
+use crate::config::{Activation, Plbert};
 use crate::layers::normalised;
 
 /// ALBERT's own epsilon, as the original model sets it.
@@ -46,6 +46,7 @@ struct Layer {
     ffn_output: Linear,
     attention_norm: LayerNorm,
     output_norm: LayerNorm,
+    act: Activation,
 }
 
 struct Attention {
@@ -116,6 +117,7 @@ impl Layer {
             ffn_output: candle_nn::linear(c.intermediate_size, h, vb.pp("ffn_output"))?,
             attention_norm: norm(h, vb.pp("attention.LayerNorm"))?,
             output_norm: norm(h, vb.pp("full_layer_layer_norm"))?,
+            act: c.hidden_act,
         })
     }
 
@@ -123,7 +125,11 @@ impl Layer {
         let x = self
             .attention_norm
             .forward(&(x + self.attention.forward(x)?)?)?;
-        let ffn = self.ffn.forward(&x)?.gelu_erf()?;
+        let ffn = self.ffn.forward(&x)?;
+        let ffn = match self.act {
+            Activation::GeluNew => ffn.gelu()?,
+            Activation::Gelu => ffn.gelu_erf()?,
+        };
         let ffn = self.ffn_output.forward(&ffn)?;
         self.output_norm.forward(&(x + ffn)?)
     }

@@ -48,6 +48,19 @@ pub struct Plbert {
     pub max_position_embeddings: usize,
     pub embedding_size: usize,
     pub type_vocab_size: usize,
+    pub hidden_act: Activation,
+}
+
+/// The feed-forward activation, unset meaning ALBERT's own default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+pub enum Activation {
+    /// GELU by its tanh approximation.
+    #[default]
+    #[serde(rename = "gelu_new")]
+    GeluNew,
+    /// GELU exactly, by the error function.
+    #[serde(rename = "gelu")]
+    Gelu,
 }
 
 impl Default for Plbert {
@@ -61,6 +74,7 @@ impl Default for Plbert {
             max_position_embeddings: 512,
             embedding_size: 128,
             type_vocab_size: 2,
+            hidden_act: Activation::GeluNew,
         }
     }
 }
