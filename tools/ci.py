@@ -11,7 +11,7 @@
   python3 tools/ci.py kokoro --ref feat/x  # the Kokoro port against its reference
   python3 tools/ci.py piper --ref feat/x   # the Piper voices against onnxruntime
   python3 tools/ci.py kitten --ref feat/x  # the Kitten builds against onnxruntime
-  python3 tools/ci.py ipa --ref feat/x     # our Spanish and Italian against espeak
+  python3 tools/ci.py ipa --ref feat/x     # our other languages against espeak
   python3 tools/ci.py installers --ref ci/x # every platform's installers, checked
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
@@ -798,7 +798,7 @@ def main() -> int:
     ki = sub.add_parser("kitten", help="check the Kitten builds against onnxruntime in CI")
     ki.add_argument("--ref", default="main",
                     help="branch whose workflow runs (one with the kitten task)")
-    ip = sub.add_parser("ipa", help="check our Spanish and Italian against espeak in CI")
+    ip = sub.add_parser("ipa", help="check our other languages against espeak in CI")
     ip.add_argument("--ref", default="main",
                     help="branch whose workflow runs (one with the ipa task)")
     ins = sub.add_parser("installers", help="build and check every platform's installers")
