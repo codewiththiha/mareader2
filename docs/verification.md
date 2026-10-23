@@ -12,6 +12,7 @@ chooses per session, and the user can override the choice at any time.
 | Screenshots | `cargo run -p mareader-ui --example shot` | `python3 tools/ci.py shots` |
 | Browser preview | `tools/web.sh --serve` | `python3 tools/ci.py web` |
 | Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
+| Kokoro parity | none (needs the 330 MB model) | `python3 tools/ci.py kokoro --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -173,6 +174,30 @@ books without files, then the EPUB layout test. It takes about 15 minutes.
   Piped through `sed` or `grep`, that status is lost, so read the file.
 - **What the numbers mean.** `docs/memory.md`, including why RSS on CI's
   software GPU counts what a real GPU keeps in VRAM.
+
+## Kokoro parity from CI
+
+`python3 tools/ci.py kokoro --ref BRANCH --rev SHA` runs `tools/kokoro-parity`,
+which loads the pinned Kokoro model twice: once through `mareader-kokoro`, once
+through the reference Rust build it was ported from. Both get the same phonemes,
+voice and frame timing.
+
+- **Exact stages.** Phoneme encoder, projection, duration encoder, raw and
+  rounded durations, pitch and energy curves, text encoder. Each is "same"
+  under 1e-3 relative error, "close" under 1e-2, else it fails.
+- **Audio.** The noise source is seeded here but random there, so waveforms
+  can't match sample for sample. Takes must agree in length (within 2%), RMS
+  (within 0.9 to 1.1 times), 10 ms loudness curve and waveform (correlation
+  above 0.98 each; two reference runs reach about 0.994). This holds for the
+  decoder alone and for whole texts, chunks and pauses included.
+- **Generator steps.** The tool carries a copy of the reference decoder that
+  draws noise as ours does. Fed the same seed, every generator step is listed
+  side by side, and the final audio must correlate above 0.99. Noise
+  diagnostics show how far reseeding or silencing the noise moves each take.
+- **Where it lands.** `target/remote/kokoro/summary.md`, plus each take as
+  WAV to listen to. Speed rows give real-time factors on CI's CPU.
+- **The model.** Fetched from its pinned revision, checked by SHA-256 and kept
+  in the Actions cache.
 
 ## The sandbox cache
 

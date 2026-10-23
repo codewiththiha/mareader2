@@ -28,6 +28,7 @@ mareader-cefr = { path = "crates/cefr" }
 mareader-audio = { path = "crates/audio" }
 mareader-script = { path = "crates/script" }
 mareader-speech = { path = "crates/speech" }
+mareader-kokoro = { path = "crates/kokoro" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -58,6 +59,9 @@ html5ever = "0.40"
 # Book scripts: a pure-Rust engine, sandboxed, without Intl data.
 boa_engine = { version = "0.22", default-features = false }
 zip = { version = "9", default-features = false }
+# Neural voices run on candle, CPU first.
+candle-core = "0.9.2"
+candle-nn = "0.9.2"
 # The XML reader rbook uses, to measure what it would nest first.
 quick-xml = { version = "0.42", default-features = false }
 # Markdown and plain text become EPUBs on open.
