@@ -850,11 +850,16 @@ pub(crate) mod tests {
     }
 
     /// Says two sentences with a downloaded model, timing the first sound.
-    pub(crate) fn live(mut e: Engine, what: &str) {
-        let (first, next) = (
+    pub(crate) fn live(e: Engine, what: &str) {
+        let english = (
             "Hello there, this is the first sentence, read aloud.",
             "And this is the one after it.",
         );
+        live_saying(e, what, english);
+    }
+
+    /// As `live`, saying `first` then making `next` ahead.
+    pub(crate) fn live_saying(mut e: Engine, what: &str, (first, next): (&str, &str)) {
         let start = std::time::Instant::now();
         assert_eq!(e.say(1, first), Ok(()));
         e.prepare(&[next]);
