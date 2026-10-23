@@ -2,9 +2,10 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mareader_audio::{Clip, Fetch, Player, Segment};
 use mareader_g2p::{Dialect, G2p};
@@ -13,8 +14,14 @@ use mareader_kokoro::{Kokoro, SAMPLE_RATE, SPEEDS, Voice as Pack};
 use crate::studio::{Key, Pcm, Studio};
 use crate::{Caps, Event, Fault, Tone, Voice, Voicer, Waker};
 
-/// A model unused this long is let go; the next sentence loads it again.
-const IDLE: Duration = Duration::from_secs(120);
+/// How often a loaded model's idle time is checked against the setting.
+const RECHECK: Duration = Duration::from_secs(30);
+/// Tokens in the first piece of a sentence wanted now, about two seconds.
+const LEAD: usize = 32;
+/// Quiet left at a join inside a sentence, beside the pause owed, in seconds.
+const JOIN: f64 = 0.02;
+/// Samples quieter than this count as silence at a join.
+const QUIET: f32 = 0.003;
 /// A piece counts as heard this close to its end, in seconds.
 const END: f64 = 0.01;
 
@@ -33,6 +40,8 @@ struct Plan {
 struct Desk {
     plan: Mutex<Plan>,
     bell: Condvar,
+    /// The model is being read from disk.
+    loading: AtomicBool,
 }
 
 /// What the thread sends back about the sentence said now.
@@ -361,6 +370,10 @@ impl Voicer for Engine {
         true
     }
 
+    fn loading(&self) -> bool {
+        self.desk.loading.load(Ordering::Relaxed)
+    }
+
     fn prepare(&mut self, texts: &[&str]) {
         if self
             .ahead
@@ -436,6 +449,7 @@ impl Worker {
 
     /// The next sentence to make, waiting for one; `None` once closed.
     fn next(&mut self) -> Option<(Option<u64>, Key)> {
+        let since = Instant::now();
         let mut plan = lock(&self.desk.plan);
         loop {
             if plan.closed {
@@ -450,13 +464,20 @@ impl Worker {
             if let Some(key) = ahead {
                 return Some((None, key));
             }
-            let (held, waited) = (self.desk.bell)
-                .wait_timeout(plan, IDLE)
-                .unwrap_or_else(PoisonError::into_inner);
-            plan = held;
-            if waited.timed_out() {
+            let idle = self.studio.idle();
+            if self.loaded.is_some() && idle.is_some_and(|d| since.elapsed() >= d) {
                 self.loaded = None;
+                (self.wake)();
             }
+            let bell = &self.desk.bell;
+            plan = match (&self.loaded, idle) {
+                (None, _) => bell.wait(plan).unwrap_or_else(PoisonError::into_inner),
+                (Some(_), idle) => {
+                    let left = idle.map_or(RECHECK, |d| d.saturating_sub(since.elapsed()));
+                    let waited = bell.wait_timeout(plan, left.min(RECHECK));
+                    waited.unwrap_or_else(PoisonError::into_inner).0
+                }
+            };
         }
     }
 
@@ -498,7 +519,11 @@ impl Worker {
                 phonemes.push(' ');
             }
         }
-        let chunks = kokoro.chunks(&kokoro.normalise(&phonemes));
+        let phonemes = kokoro.normalise(&phonemes);
+        let chunks = match ticket {
+            Some(_) => kokoro.chunks_led(&phonemes, LEAD),
+            None => kokoro.chunks(&phonemes),
+        };
         let speed = f32::from_bits(key.speed);
         let mut all: Vec<i16> = Vec::new();
         for (i, chunk) in chunks.iter().enumerate() {
@@ -507,9 +532,12 @@ impl Worker {
             }
             let pack = self.loaded.as_ref().map(|l| &l.voice.1);
             let pack = pack.ok_or_else(|| "Kokoro was let go".to_owned())?;
-            let audio = kokoro
+            let mut audio = kokoro
                 .render(chunk, pack, speed)
                 .map_err(|e| e.to_string())?;
+            let owed = f64::from(chunk.pause_ms) / 1000.0 / f64::from(speed);
+            let after = (i + 1 < chunks.len()).then_some(owed);
+            trim_join(&mut audio, i > 0, after);
             let piece: Vec<i16> = audio.iter().map(|&s| sample(s)).collect();
             self.send(ticket, Arc::from(piece.as_slice()), i + 1 == chunks.len());
             all.extend(piece);
@@ -546,27 +574,55 @@ impl Worker {
         let dialect = Dialect::for_kokoro_voice(voice).unwrap_or(Dialect::American);
         let fits = |l: &Loaded| l.voice.0 == voice && l.g2p.dialect() == dialect;
         if !self.loaded.as_ref().is_some_and(fits) {
-            let folder = &self.folder;
-            let kokoro =
-                (self.studio).kokoro(|| Kokoro::load(folder).map_err(|e| e.to_string()))?;
-            let g2p = self.studio.g2p(dialect, || {
-                G2p::load(folder, dialect).map_err(|e| e.to_string())
-            })?;
-            let pack = Pack::load(&pack_path(folder, voice)).map_err(|e| e.to_string())?;
-            self.loaded = Some(Loaded {
-                kokoro,
-                g2p,
-                voice: (voice.to_owned(), pack),
-            });
+            let cold = !self.studio.has_kokoro();
+            if cold {
+                self.desk.loading.store(true, Ordering::Relaxed);
+                (self.wake)();
+            }
+            let loaded = self.load_fresh(voice, dialect);
+            if cold {
+                self.desk.loading.store(false, Ordering::Relaxed);
+                (self.wake)();
+            }
+            self.loaded = Some(loaded?);
         }
         self.loaded
             .as_ref()
             .ok_or_else(|| "Kokoro was let go".to_owned())
     }
+
+    fn load_fresh(&self, voice: &str, dialect: Dialect) -> Result<Loaded, String> {
+        let folder = &self.folder;
+        let kokoro = (self.studio).kokoro(|| Kokoro::load(folder).map_err(|e| e.to_string()))?;
+        let g2p = (self.studio).g2p(dialect, || {
+            G2p::load(folder, dialect).map_err(|e| e.to_string())
+        })?;
+        let pack = Pack::load(&pack_path(folder, voice)).map_err(|e| e.to_string())?;
+        Ok(Loaded {
+            kokoro,
+            g2p,
+            voice: (voice.to_owned(), pack),
+        })
+    }
 }
 
 fn pack_path(folder: &Path, voice: &str) -> PathBuf {
     folder.join("voices").join(format!("{voice}.pt"))
+}
+
+/// Trims a piece's lead-in if `start`, and its tail to `end` seconds.
+fn trim_join(audio: &mut Vec<f32>, start: bool, end: Option<f64>) {
+    let rate = f64::from(SAMPLE_RATE);
+    let keep = (rate * JOIN) as usize;
+    if let Some(pause) = end {
+        let owed = keep.saturating_add((rate * pause.clamp(0.0, 1.0)) as usize);
+        let quiet = audio.iter().rev().take_while(|s| s.abs() < QUIET).count();
+        audio.truncate(audio.len().saturating_sub(quiet.saturating_sub(owed)));
+    }
+    if start {
+        let quiet = audio.iter().take_while(|s| s.abs() < QUIET).count();
+        audio.drain(..quiet.saturating_sub(keep));
+    }
 }
 
 /// A model sample as 16 bits.
@@ -688,6 +744,26 @@ mod tests {
         assert_eq!(heard, [Event::Started(4), Event::Finished(4)]);
         assert!(matches!(e.say(5, "Next."), Err(Fault::Failed(_))));
         assert_eq!(e.say(5, "Next."), Ok(()), "told once");
+    }
+
+    #[test]
+    fn joins_inside_a_sentence_keep_only_the_pause_owed() {
+        let rate = SAMPLE_RATE as usize;
+        let keep = rate / 50;
+        let piece = || [vec![0.0; rate], vec![0.5; 100], vec![0.0; rate]].concat();
+        // Head of a sentence: lead-in kept, tail cut to a 0.1 s pause.
+        let mut head = piece();
+        trim_join(&mut head, false, Some(0.1));
+        assert_eq!(head.len(), rate + 100 + keep + rate / 10);
+        // Tail of a sentence: lead-in cut, its own ending kept.
+        let mut tail = piece();
+        trim_join(&mut tail, true, None);
+        assert_eq!(tail.len(), keep + 100 + rate);
+        // Silence alone, or nothing, never panics.
+        let mut quiet = vec![0.0; 10];
+        trim_join(&mut quiet, true, Some(0.0));
+        assert!(quiet.len() <= 10);
+        trim_join(&mut Vec::new(), true, Some(5.0));
     }
 
     #[test]

@@ -440,9 +440,11 @@ impl Spoken {
             ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
             ui.checkbox(&mut settings.follow, "Turn pages to follow");
         });
+        let loading = self.voicer.as_ref().is_some_and(|v| v.loading());
         let note = match (&self.fault, self.finished) {
             (Some(fault), _) => Some((fault.clone(), t.danger)),
             (None, true) => Some(("The end".to_owned(), t.muted)),
+            (None, false) if loading => Some(("Loading voice…".to_owned(), t.muted)),
             (None, false) => None,
         };
         ending(ui, note, t)

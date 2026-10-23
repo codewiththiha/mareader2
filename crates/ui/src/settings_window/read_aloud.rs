@@ -31,6 +31,7 @@ const ALL: &str = "";
 pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
     engine(ui, s, v);
     models(ui, v.shelf, out);
+    memory(ui, s, v.shelf);
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
     reading(ui, s);
@@ -125,6 +126,77 @@ fn model_row(ui: &mut Ui, model: &'static Model, shelf: &Shelf, out: &mut Comman
             stage => controls(ui, stage, (item, model.name, model.bytes()), out),
         }
     });
+}
+
+/// What downloaded models keep in memory, once one is downloaded.
+fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
+    if shelf.ready().is_empty() {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    section(ui, "Memory");
+    group(ui, |ui| {
+        let (least, _, most) = ReadAloudSettings::MEMORY_MB;
+        let hint = "Made ahead and heard lately, to play again at once";
+        row(ui, "Speech kept", hint, |ui| {
+            ui.spacing_mut().slider_width = 160.0;
+            let slider = egui::Slider::new(&mut s.speech_memory_mb, least..=most)
+                .logarithmic(true)
+                .custom_formatter(|mb, _| memory_label(mb as u32));
+            ui.add(slider);
+        });
+        divider(ui);
+        let hint = "While nothing is read with it";
+        row(ui, "Keep a model loaded", hint, |ui| {
+            widgets::combo("model-idle")
+                .width(150.0)
+                .selected_text(idle_label(s.model_idle_min))
+                .show_ui(ui, |ui| {
+                    for minutes in ReadAloudSettings::IDLE_MIN {
+                        let label = idle_label(minutes);
+                        ui.selectable_value(&mut s.model_idle_min, minutes, label);
+                    }
+                });
+        });
+        divider(ui);
+        row(ui, "In memory now", "", |ui| {
+            let text = usage_label(&shelf.usage());
+            ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+        });
+    });
+    note(
+        ui,
+        "A model loads when reading starts, which takes a moment, and leaves memory once unused.",
+    );
+}
+
+/// Megabytes, and about how long that much speech plays.
+fn memory_label(mb: u32) -> String {
+    // Kept as 16-bit samples, 24,000 a second.
+    let minutes = u64::from(mb) * (1 << 20) / 48_000 / 60;
+    format!("{mb} MB · {minutes} min")
+}
+
+fn idle_label(minutes: u32) -> String {
+    match minutes {
+        0 => "While reading".to_owned(),
+        1 => "For 1 minute".to_owned(),
+        n => format!("For {n} minutes"),
+    }
+}
+
+fn usage_label(usage: &mareader_speech::Usage) -> String {
+    let speech = (usage.speech > 0).then(|| {
+        let mb = crate::dict::megabytes(usage.speech as u64);
+        format!("{mb} of speech")
+    });
+    let parts: Vec<String> = (usage.models.iter().map(|m| (*m).to_owned()))
+        .chain(speech)
+        .collect();
+    match parts.is_empty() {
+        true => "Nothing loaded".to_owned(),
+        false => parts.join(" · "),
+    }
 }
 
 fn voice(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth, out: &mut Commands) {
@@ -261,22 +333,23 @@ fn voice_row(ui: &mut Ui, name: &str, tag: &str, on: bool) -> bool {
 
 /// Tries the voice picked, or stops the try.
 fn preview_row(ui: &mut Ui, booth: &Booth, open: bool, out: &mut Commands) {
-    row(
-        ui,
-        "Hear a sample",
-        "Says a line in this voice, at this speed",
-        |ui| {
-            let (icon, text, command) = match booth.trying() {
-                true => (Icon::Pause, "Stop", Command::StopVoiceTry),
-                false => (Icon::Resume, "Preview", Command::TryVoice),
-            };
-            let button = egui::Button::image_and_text(icon.image(14.0), text)
-                .image_tint_follows_text_color(true);
-            if ui.add_enabled(open, button).clicked() {
-                out.push(command);
-            }
-        },
-    );
+    let hint = "Says a line in this voice, at this speed";
+    row(ui, "Hear a sample", hint, |ui| {
+        let (icon, text, command) = match booth.trying() {
+            true => (Icon::Pause, "Stop", Command::StopVoiceTry),
+            false => (Icon::Resume, "Preview", Command::TryVoice),
+        };
+        let button = egui::Button::image_and_text(icon.image(14.0), text)
+            .image_tint_follows_text_color(true);
+        if ui.add_enabled(open, button).clicked() {
+            out.push(command);
+        }
+        if booth.loading() {
+            let t = Tokens::get(ui.ctx());
+            let text = RichText::new("Loading voice…").size(t.text_small);
+            ui.label(text.color(t.muted));
+        }
+    });
 }
 
 fn sound(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth) {
@@ -369,6 +442,21 @@ fn language_name(tag: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_rows_read_plainly() {
+        assert_eq!(memory_label(16), "16 MB · 5 min");
+        assert_eq!(memory_label(64), "64 MB · 23 min");
+        assert_eq!(idle_label(0), "While reading");
+        assert_eq!(idle_label(1), "For 1 minute");
+        assert_eq!(idle_label(15), "For 15 minutes");
+        let mut usage = mareader_speech::Usage::default();
+        assert_eq!(usage_label(&usage), "Nothing loaded");
+        usage.speech = 2_500_000;
+        assert_eq!(usage_label(&usage), "2.5 MB of speech");
+        usage.models.push("Kokoro");
+        assert_eq!(usage_label(&usage), "Kokoro · 2.5 MB of speech");
+    }
 
     #[test]
     fn languages_are_named_by_their_first_part() {

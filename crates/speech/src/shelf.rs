@@ -93,6 +93,22 @@ impl Shelf {
         let _ = bytes;
     }
 
+    /// Lets an unused model go after `idle`; `None` keeps it while reading.
+    pub fn set_model_idle(&self, idle: Option<std::time::Duration>) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.studio.set_idle(idle);
+        #[cfg(target_arch = "wasm32")]
+        let _ = idle;
+    }
+
+    /// What the models hold in memory now.
+    pub fn usage(&self) -> crate::Usage {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.studio.usage();
+        #[cfg(target_arch = "wasm32")]
+        crate::Usage::default()
+    }
+
     /// Whether downloads can happen here.
     pub fn attached(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]

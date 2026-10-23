@@ -1641,6 +1641,7 @@ impl MareaderApp {
         }
         let memory = self.settings.read_aloud.speech_memory_mb as usize;
         self.read_aloud.shelf.set_speech_memory(memory << 20);
+        (self.read_aloud.shelf).set_model_idle(self.settings.read_aloud.model_idle());
         let word = self.study.card_words().map(|(w, _)| w.to_owned());
         if let (Some(role), Some(word)) = (role, word) {
             self.study.set_role(&word, role);
