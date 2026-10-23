@@ -20,7 +20,12 @@ from phonemizer.backend import EspeakBackend
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Language tag, espeak's voice, and the most phoneme error allowed.
-LANGUAGES = [("es", "es", 0.5), ("it", "it", 5.0)]
+LANGUAGES = [
+    ("es", "es", 0.5),
+    ("it", "it", 5.0),
+    ("pt", "pt-br", 2.0),
+    ("fr", "fr-fr", 2.0),
+]
 
 # Kokoro-82M's vocabulary, from its config.json.
 VOCAB = set(
