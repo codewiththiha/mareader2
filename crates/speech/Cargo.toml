@@ -16,5 +16,6 @@ tts = { workspace = true }
 mareader-fetch = { workspace = true }
 
 [dev-dependencies]
+mareader-g2p = { workspace = true }
 sha2 = { workspace = true }
 tempfile = { workspace = true }

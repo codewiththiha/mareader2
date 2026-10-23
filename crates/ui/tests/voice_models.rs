@@ -15,6 +15,7 @@ const fn file(path: &'static str, bytes: u64) -> ModelFile {
         path,
         bytes,
         sha256: NO_SUM,
+        hosts: None,
     }
 }
 

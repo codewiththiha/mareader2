@@ -1,6 +1,6 @@
 //! Runs mareader-kokoro and the reference on one model, stage by stage.
 
-//! Usage: kokoro-parity <model dir> <out dir>
+//! Usage: kokoro-parity <model dir> <out dir> [g2p]
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -18,6 +18,7 @@ use candle_core::{DType, Device, Module, Tensor};
 use candle_nn::VarBuilder;
 use mareader_kokoro as ours;
 
+mod g2p;
 mod refdecoder;
 
 type R<T> = Result<T, Box<dyn std::error::Error>>;
@@ -314,10 +315,17 @@ fn seconds(samples: usize) -> f64 {
 fn main() -> R<()> {
     let args: Vec<String> = std::env::args().collect();
     let (Some(dir), Some(out)) = (args.get(1), args.get(2)) else {
-        return Err("usage: kokoro-parity <model dir> <out dir>".into());
+        return Err("usage: kokoro-parity <model dir> <out dir> [g2p]".into());
     };
     let (dir, out) = (PathBuf::from(dir), PathBuf::from(out));
     std::fs::create_dir_all(&out)?;
+
+    let mut report = String::new();
+    let mut failed = Vec::new();
+    g2p::check(&dir, &mut report, &mut failed)?;
+    if args.get(3).is_some_and(|a| a == "g2p") {
+        return finish(&out, &report, &failed);
+    }
 
     let start = Instant::now();
     let model = ours::Kokoro::load(&dir)?;
@@ -331,8 +339,6 @@ fn main() -> R<()> {
         TtsConfig::new(ModelType::Kokoro).with_model_path(dir.to_string_lossy().to_string()),
     )?;
 
-    let mut report = String::new();
-    let mut failed = Vec::new();
     writeln!(report, "## Kokoro parity\n")?;
     writeln!(
         report,
@@ -574,11 +580,17 @@ fn main() -> R<()> {
     writeln!(report, "|---|---|---|---|---|---|---|")?;
     report.push_str(&speed_rows);
     writeln!(report)?;
+    finish(&out, &report, &failed)
+}
+
+/// Writes the summary and turns any failure into an error.
+fn finish(out: &Path, report: &str, failed: &[String]) -> R<()> {
+    let mut report = report.to_owned();
     if failed.is_empty() {
         writeln!(report, "**All checks pass.**")?;
     } else {
         writeln!(report, "**{} check(s) failed:**\n", failed.len())?;
-        for f in &failed {
+        for f in failed {
             writeln!(report, "- {f}")?;
         }
     }

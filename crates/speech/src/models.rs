@@ -7,6 +7,8 @@ pub struct ModelFile {
     pub bytes: u64,
     /// Lowercase hex, checked before the file is kept.
     pub sha256: &'static str,
+    /// Its own addresses, when not the model's.
+    pub hosts: Option<&'static [&'static str]>,
 }
 
 /// A voice a model speaks in; each downloads on its own.
@@ -63,9 +65,10 @@ impl Model {
         self.core().iter().map(|f| f.bytes).sum()
     }
 
-    /// Every address `path` can be fetched from.
-    pub fn urls(&self, path: &str) -> Vec<String> {
-        self.hosts.iter().map(|h| format!("{h}{path}")).collect()
+    /// Every address `file` can be fetched from.
+    pub fn urls(&self, file: &ModelFile) -> Vec<String> {
+        let hosts = file.hosts.unwrap_or(self.hosts);
+        hosts.iter().map(|h| format!("{h}{}", file.path)).collect()
     }
 }
 
@@ -77,6 +80,22 @@ const KOKORO_HOSTS: &[&str] = &[
     "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/",
     "https://hf-mirror.com/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/",
 ];
+
+/// Pinned to a commit; the files are loqui-g2p 0.4.0's, byte for byte.
+const G2P_HOSTS: &[&str] = &[
+    "https://raw.githubusercontent.com/Awakened-Labs/loqui/717691aadf67408c85d87dc33e5d1d77b2ea4b4d/crates/loqui-g2p/data/",
+    "https://cdn.jsdelivr.net/gh/Awakened-Labs/loqui@717691aadf67408c85d87dc33e5d1d77b2ea4b4d/crates/loqui-g2p/data/",
+];
+
+/// English pronunciation data, read by `mareader-g2p`.
+const fn g2p(path: &'static str, bytes: u64, sha256: &'static str) -> ModelFile {
+    ModelFile {
+        path,
+        bytes,
+        sha256,
+        hosts: Some(G2P_HOSTS),
+    }
+}
 
 /// Natural English from a small model that runs on the computer.
 pub const KOKORO: Model = Model {
@@ -90,12 +109,54 @@ pub const KOKORO: Model = Model {
             path: "config.json",
             bytes: 2_351,
             sha256: "5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f",
+            hosts: None,
         },
         ModelFile {
             path: "kokoro-v1_0.pth",
             bytes: 327_212_226,
             sha256: "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+            hosts: None,
         },
+        g2p(
+            "spacy-en-tokenizer.json",
+            79_554,
+            "2ffa6b3b6f4da114531ff897c02f3d2551485ef45c3ca1f6e6b2fdc80e034d1d",
+        ),
+        g2p(
+            "tagger-en.bin",
+            1_415_442,
+            "df3d6cb2c34d7da57f92e47ae9dea6bcc9c9f8ed7cf9ceec703e84d7d67d698f",
+        ),
+        g2p(
+            "misaki-us_gold.json",
+            3_000_469,
+            "dc414872a49a28ae6c141463d502fd945f3b2fde040484fdc47d00cc4612686f",
+        ),
+        g2p(
+            "misaki-us_silver.json",
+            3_099_517,
+            "de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475",
+        ),
+        g2p(
+            "g2p-en-us.safetensors",
+            3_011_692,
+            "dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5",
+        ),
+        g2p(
+            "misaki-gb_gold.json",
+            2_838_552,
+            "29e62f4b60261c88f7f3c2c7811ca3825978948090b72d2b27d565b729282f71",
+        ),
+        g2p(
+            "misaki-gb_silver.json",
+            3_663_898,
+            "48131e2d92ccc41655f4543e87e0f938e71463eb5a54be7f0693bb712ebb6bce",
+        ),
+        g2p(
+            "g2p-en-gb.safetensors",
+            3_011_692,
+            "4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703",
+        ),
     ],
     voices: KOKORO_VOICES,
     first_voice: "af_heart",
@@ -117,6 +178,7 @@ const fn voice(
             path,
             bytes,
             sha256,
+            hosts: None,
         },
     }
 }
@@ -403,22 +465,33 @@ mod tests {
                 assert_eq!(v.file.path, format!("voices/{}.pt", v.id));
                 assert_eq!(model.voices.iter().filter(|w| w.id == v.id).count(), 1);
             }
-            assert!(
-                model
-                    .urls("config.json")
-                    .iter()
-                    .all(|u| u.starts_with("https://"))
-            );
+            for f in model.core() {
+                let urls = model.urls(&f);
+                assert!(urls.len() > 1, "{} has no mirror", f.path);
+                assert!(urls.iter().all(|u| u.starts_with("https://")));
+                assert!(urls.iter().all(|u| u.ends_with(f.path)));
+            }
         }
     }
 
     #[test]
     fn the_model_downloads_with_one_voice_and_its_big_file_last() {
         let core = KOKORO.core();
-        assert_eq!(core.len(), 3);
+        assert_eq!(core.len(), 11);
         assert_eq!(core.last().unwrap().path, "kokoro-v1_0.pth");
         assert!(core.iter().any(|f| f.path == "voices/af_heart.pt"));
-        assert_eq!(KOKORO.bytes(), 2_351 + 523_425 + 327_212_226);
+        let g2p = 20_120_816;
+        assert_eq!(KOKORO.bytes(), 2_351 + 523_425 + 327_212_226 + g2p);
         assert_eq!(KOKORO.voices.len(), 28);
+    }
+
+    #[test]
+    fn the_model_brings_every_file_its_pronunciation_reads() {
+        use mareader_g2p::{Dialect, TAGGER, TOKENIZER};
+        let dialects = [Dialect::American, Dialect::British];
+        let needed = dialects.iter().flat_map(|d| d.files());
+        for name in needed.chain([TOKENIZER, TAGGER]) {
+            assert!(KOKORO.files.iter().any(|f| f.path == name), "{name}");
+        }
     }
 }
