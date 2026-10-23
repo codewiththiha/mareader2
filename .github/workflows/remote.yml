@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory, cache, kokoro, piper or kitten
+        description: shots, web, memory, cache, kokoro, piper, kitten or ipa
         required: true
         type: choice
-        options: [shots, web, memory, cache, kokoro, piper, kitten]
+        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -416,6 +416,37 @@ jobs:
             out/summary.md
             out/cases.json
             out/wav/
+          retention-days: 7
+
+  ipa:
+    name: Remote / ipa
+    if: inputs.task == 'ipa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compare
+        run: |
+          set -o pipefail
+          # espeak-ng is the reference here only, never in the app.
+          sudo apt-get update -q && sudo apt-get install -yq espeak-ng
+          python3 -m venv .ref && .ref/bin/pip install -q phonemizer==3.4.0
+          cargo build -q --release -p mareader-ipa --example ipa
+          .ref/bin/python tools/ipa-parity/check.py target/release/examples/ipa out
+      - name: Summary
+        if: always()
+        run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipa
+          path: out/summary.md
           retention-days: 7
 
   web:

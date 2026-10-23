@@ -15,6 +15,7 @@ chooses per session, and the user can override the choice at any time.
 | Kokoro parity | none (needs the 650 MB model and builds) | `python3 tools/ci.py kokoro --ref BRANCH` |
 | Piper parity | none (needs six voices and onnxruntime) | `python3 tools/ci.py piper --ref BRANCH` |
 | Kitten parity | none (needs four builds and onnxruntime) | `python3 tools/ci.py kitten --ref BRANCH` |
+| Other languages' phonemes | none (needs espeak-ng) | `python3 tools/ci.py ipa --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -266,6 +267,21 @@ through all eight; both sides speak those same ids at speed 1.
   from each file, load time, real-time factors and the first takes as WAV.
 - **The engine.** The app's own Kitten engine then speaks two sentences from
   a Nano build laid out as downloads leave it.
+
+## Other languages' phonemes from CI
+
+`python3 tools/ci.py ipa --ref BRANCH --rev SHA` builds `mareader-ipa`'s
+`ipa` example and runs `tools/ipa-parity/check.py`: 500 public-domain
+sentences a language, our phonemes against espeak-ng's, which Kokoro's Spanish
+and Italian voices were trained on.
+
+- **As the voices read them.** espeak's side takes misaki's steps for Kokoro,
+  ties written as single letters; both sides keep only Kokoro's vocabulary.
+- **The gate.** Phoneme error at most 0.5% for Spanish, whose spelling gives
+  its sounds and stress, and 5% for Italian, where stress and open vowels are
+  partly a matter of the word.
+- **Where it lands.** `target/remote/ipa/summary.md`, with the most frequent
+  words that differ. espeak-ng and phonemizer are installed in this job only.
 
 ## The sandbox cache
 
