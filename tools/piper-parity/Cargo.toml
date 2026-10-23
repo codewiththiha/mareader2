@@ -1,0 +1,18 @@
+[package]
+name = "piper-parity"
+description = "Checks mareader-vits against Piper's own ONNX models run by onnxruntime"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# CI only: kept out of the app's workspace and lockfile.
+[workspace]
+
+[dependencies]
+mareader-vits = { path = "../../crates/vits" }
+mareader-g2p = { path = "../../crates/g2p" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+debug = false

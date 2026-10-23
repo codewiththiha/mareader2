@@ -3816,6 +3816,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-vits"
+version = "0.0.3"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mareader-web"
 version = "0.0.3"
 dependencies = [

@@ -1,0 +1,37 @@
+mareader-vits ports the inference half of VITS, as Piper trains and exports
+it, to Rust and candle.
+
+The port follows Piper's training code (https://github.com/rhasspy/piper,
+src/python/piper_train/vits): the text encoder with relative attention, the
+stochastic duration predictor and its spline flows, the coupling flow and the
+HiFi-GAN generator. Piper is MIT-licensed:
+
+  Copyright (c) 2022 Michael Hansen
+
+That code derives from VITS (https://github.com/jaywalnut310/vits), also
+MIT-licensed:
+
+  Copyright (c) 2021 Jaehyeon Kim
+
+Both under these terms:
+
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+The voices are not part of this crate; the app downloads them on request,
+each with its own licence, shown before download.
