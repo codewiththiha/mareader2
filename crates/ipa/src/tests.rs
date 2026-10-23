@@ -19,6 +19,10 @@ fn fr(text: &str) -> String {
     phonemize(Language::French, text)
 }
 
+fn hi(text: &str) -> String {
+    phonemize(Language::Hindi, text)
+}
+
 #[test]
 fn a_kokoro_voice_names_its_language_by_its_first_letter() {
     assert_eq!(
@@ -36,6 +40,10 @@ fn a_kokoro_voice_names_its_language_by_its_first_letter() {
     assert_eq!(
         Language::for_kokoro_voice("ff_siwis"),
         Some(Language::French)
+    );
+    assert_eq!(
+        Language::for_kokoro_voice("hf_alpha"),
+        Some(Language::Hindi)
     );
     assert_eq!(Language::for_kokoro_voice("af_heart"), None);
     assert_eq!(Language::for_kokoro_voice(""), None);
@@ -163,6 +171,44 @@ fn french_links_a_silent_consonant_to_a_vowel() {
 fn french_numbers_stress_only_their_last_word() {
     assert_eq!(fr("1987"), "mil nœfsɑ̃ katʁəvɛ̃sˈɛt");
     assert_eq!(fr("3,5"), "tʁwa viʁɡyl sˈɛ̃k");
+}
+
+#[test]
+fn hindi_reads_as_espeak_does_with_the_danda_as_a_full_stop() {
+    let said = hi("वह अपने घर में बैठी थी।");
+    assert_eq!(said, "ʋˌəh ˈʌpnˌeː ɡʰˈʌɾ me\u{303}ː bˈɛːʈʰi tʰi.");
+    let said = hi("कृष्णचन्द्र ने पत्र पढ़कर कहा, क्या यह सच है?");
+    let want = "kɾˌɪʂɳəcˈʌndɾə nˈeː pˈʌtɾə pˈʌr.həkˌəɾ kˈʌhaː, kːjaː jˌəh sˈʌc hɛː?";
+    assert_eq!(said, want);
+}
+
+#[test]
+fn hindi_drops_the_silent_a_and_stresses_by_weight() {
+    let said = hi("हिंदी में बचपन, जानवर और विद्यालय");
+    assert_eq!(
+        said,
+        "hˈi\u{303}di me\u{303}ː bˈʌcəpˌən, ɟˈaːnəʋˌəɾ ɔːɾ ʋɪdjˈaːlˌɛj"
+    );
+    let said = hi("अधिकारियों के सामने समय पर हृदय की बात");
+    let want = "ˌʌdʰɪkˈaːɾɪjˌo\u{303} keː sˈaːmnˌeː sˈʌmˌɛj pˈʌɾ hɾˈɪdˌɛj ki bˈaːt";
+    assert_eq!(said, want);
+}
+
+#[test]
+fn hindi_nasals_follow_the_sign_and_the_sound_after() {
+    let said = hi("उसने आँखें खोलीं और गाँव की ओर देखा");
+    let want = "ˈʊsnˌeː ˈaːnkʰe\u{303}ː kʰˈoːli\u{303} ɔːɾ ɡˈa\u{303}nʋ ki ˈoːɾ dˈeːkʰaː";
+    assert_eq!(said, want);
+    let said = hi("देवताओं की कथाएँ सुनकर बच्चे हँसते रहे");
+    let want = "dˌeːʋtˈaːw ki kətʰˈaːj sˈʊnəkˌəɾ bˈʌcːeː hˈʌnsətˌeː ɾˌəheː";
+    assert_eq!(said, want);
+}
+
+#[test]
+fn hindi_numbers_group_in_lakhs_and_crores() {
+    assert_eq!(hi("100000"), "ˈeːk lˈaːkʰ");
+    assert_eq!(hi("१९९९"), "ˈeːk həɟˈaːɾ nˈɔːsˈɔː nɪnjˈaːnbˌeː");
+    assert_eq!(hi("2,00,00,000"), "dˈoː kəɾˈoːr.");
 }
 
 #[test]

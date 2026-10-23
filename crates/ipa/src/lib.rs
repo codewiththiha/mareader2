@@ -10,6 +10,7 @@
 )]
 
 mod french;
+mod hindi;
 mod italian;
 mod letters;
 mod portuguese;
@@ -29,10 +30,17 @@ pub enum Language {
     Portuguese,
     /// As `fr-fr` in espeak-ng.
     French,
+    Hindi,
 }
 
 impl Language {
-    pub const ALL: [Self; 4] = [Self::Spanish, Self::Italian, Self::Portuguese, Self::French];
+    pub const ALL: [Self; 5] = [
+        Self::Spanish,
+        Self::Italian,
+        Self::Portuguese,
+        Self::French,
+        Self::Hindi,
+    ];
 
     /// The language of a Kokoro voice, from the first letter of its id.
     pub fn for_kokoro_voice(voice: &str) -> Option<Self> {
@@ -41,6 +49,7 @@ impl Language {
             b'i' => Some(Self::Italian),
             b'p' => Some(Self::Portuguese),
             b'f' => Some(Self::French),
+            b'h' => Some(Self::Hindi),
             _ => None,
         }
     }
@@ -52,18 +61,27 @@ impl Language {
             Self::Italian => "it",
             Self::Portuguese => "pt",
             Self::French => "fr",
+            Self::Hindi => "hi",
         }
     }
 }
 
 /// `text` in IPA, stress marks before vowels and `^` tying affricates.
 pub fn phonemize(language: Language, text: &str) -> String {
+    let normal;
+    let text = if language == Language::Hindi {
+        normal = hindi::normalise(text);
+        normal.as_str()
+    } else {
+        text
+    };
     let tokens = text::split(text);
     let spoken = match language {
         Language::Spanish => spanish::read(&tokens),
         Language::Italian => italian::read(&tokens),
         Language::Portuguese => portuguese::read(&tokens),
         Language::French => french::read(&tokens),
+        Language::Hindi => hindi::read(&tokens),
     };
     render(&spoken)
 }
