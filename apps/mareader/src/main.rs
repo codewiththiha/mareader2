@@ -87,7 +87,30 @@ fn viewport() -> egui::ViewportBuilder {
     }
 }
 
+/// Restarts with macOS malloc's large-block cache off; it kept freed models.
+#[cfg(target_os = "macos")]
+fn without_large_cache() {
+    use std::os::unix::process::CommandExt;
+    const KEY: &str = "MallocLargeCache";
+    // Set already, by us or the user: theirs wins.
+    if std::env::var_os(KEY).is_some() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // libmalloc reads it only at start, so the process runs again.
+    let args = std::env::args_os().skip(1);
+    let failed = std::process::Command::new(exe)
+        .args(args)
+        .env(KEY, "0")
+        .exec();
+    eprintln!("mareader: kept malloc's large cache: {failed}");
+}
+
 fn main() -> eframe::Result {
+    #[cfg(target_os = "macos")]
+    without_large_cache();
     let files: Vec<PathBuf> = std::env::args_os()
         .skip(1)
         .filter(|a| !open_files::is_launch_noise(a))
