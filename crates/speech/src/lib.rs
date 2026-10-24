@@ -10,8 +10,6 @@
 )]
 
 #[cfg(not(target_arch = "wasm32"))]
-mod allocator;
-#[cfg(not(target_arch = "wasm32"))]
 mod kitten;
 #[cfg(not(target_arch = "wasm32"))]
 mod kokoro;

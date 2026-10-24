@@ -21,6 +21,7 @@ mareader-hanzi = { workspace = true }
 mareader-kokoro = { workspace = true }
 mareader-vits = { workspace = true }
 mareader-audio = { workspace = true }
+mareader-memory = { workspace = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 # The default voice comes back by the user's language: Apple's speech opens once.

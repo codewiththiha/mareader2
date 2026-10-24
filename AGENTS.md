@@ -75,9 +75,9 @@ it may crash the app or lose the user's place. In non-test code:
 - No `unsafe`: the workspace denies `unsafe_code`. The owner allowed four
   exceptions: `apps/mareader/src/traffic_lights.rs` and `open_files.rs` for
   AppKit; `crates/speech/src/mac_voices.rs`, which asks which listed voices
-  have their sound; and `crates/speech/src/allocator.rs`, which hands an
-  unloaded model's memory back on macOS and Linux. `cargo xtask unsafe`
-  fails if any other file allows it.
+  have their sound; and `crates/memory/src/lib.rs`, which hands freed memory
+  back on macOS and Linux. `cargo xtask unsafe` fails if any other file
+  allows it.
 - Every crash fix gets a synthetic regression test.
 
 ## Layering

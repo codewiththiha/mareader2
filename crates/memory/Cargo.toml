@@ -1,0 +1,10 @@
+[package]
+name = "mareader-memory"
+description = "Hands memory the app has freed back to the system"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
