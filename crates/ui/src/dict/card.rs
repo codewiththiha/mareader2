@@ -60,6 +60,8 @@ pub struct View<'a> {
     pub room: Rect,
     /// Its word is being said aloud.
     pub saying: bool,
+    /// How it sounds, once looked up.
+    pub sound: &'a [crate::sounds::Line],
 }
 
 pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> Rect {
@@ -147,6 +149,7 @@ fn header(ui: &mut Ui, view: &View<'_>, way: Option<&str>, t: &Tokens, out: &mut
                 ui.with_layout(Layout::left_to_right(align), |ui| headword.show(ui, t));
             });
         });
+        crate::sounds::show(ui, view.sound, t);
         if let Some(way) = way {
             languages(ui, way, t);
         }

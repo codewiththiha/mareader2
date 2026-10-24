@@ -63,6 +63,7 @@ fn reads(command: &Command) -> bool {
         C::Study(_) => false,
         // Downloads go on behind the library; the card closes anywhere.
         C::Dict(_) | C::SetDictionary(_) | C::Vocab(_) => false,
+        C::Pronunciation(_) => false,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
         // The dictionary comes up from every page.

@@ -440,3 +440,27 @@ meaning: the book's language (the default) or one of 40 listed ones.
   (`supportedLanguages`, matched on the primary subtag). The others are
   greyed out in the list, and a language chosen earlier that it can't
   write gets a note under Tasks.
+
+## Pronunciation (2026-10-24)
+
+Settings › Vocabulary › **Pronunciation** is a download of its own, about
+20 MB: the English pronunciation data the voice models read, American and
+British. Once it is in, the dictionary and AI cards show how an English
+word sounds under the word.
+
+- **Sharing.** Kokoro and Piper keep the same eight files, and Kitten keeps
+  the five American ones. When a voice model already holds every file, the
+  pack counts as downloaded: its files are hard links to the model's, so
+  nothing is fetched and no space is used twice. The row then reads
+  "Shared with Kokoro" and has no Remove button, because removing it would
+  free nothing. A model downloaded later links the pack's files the same
+  way. Removing one side leaves the other's links working.
+- **Accent.** Both (tagged US and UK), American or British.
+- **Written as.** IPA as dictionaries write it (/jɒt/, /jɑːt/), Easy to
+  read (yot, yaat: syllables split with dots, the stressed one in bold),
+  or Raw, the phonemes exactly as the voices read them.
+- Words are looked up on a thread, and the data loads only for the accent
+  shown. It is freed two minutes after the last lookup, or shared with a
+  voice that is already holding it. Only short English selections (up to
+  three words) are sounded out, and a word that can't be sounded out
+  shows nothing.

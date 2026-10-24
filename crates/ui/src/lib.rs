@@ -60,6 +60,7 @@ pub mod settings_window;
 pub mod shaped;
 pub mod shortcuts;
 pub mod sidebar;
+pub mod sounds;
 pub mod study;
 pub mod texts;
 pub mod theme;
