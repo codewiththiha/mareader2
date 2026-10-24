@@ -336,6 +336,11 @@ fn loose_content(name: &str) -> ContentId {
 }
 
 impl Study {
+    /// True while someone answers for the AI Dictionary.
+    pub fn explains(&self) -> bool {
+        !self.explainer.by().is_empty()
+    }
+
     pub fn set_explainer(&mut self, explainer: Arc<dyn Explainer>) {
         // Saved answers stay; Ask again reaches the new AI.
         self.explainer = explainer;

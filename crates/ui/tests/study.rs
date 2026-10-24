@@ -427,6 +427,19 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
 }
 
 #[test]
+fn marks_kept_off_the_pens_show_only_while_in_use() {
+    use mareader_ui::settings_window::Tab;
+    let mut h = reader(&[("pdf", "sample"), ("explain", "none")]);
+    h.set_size(egui::vec2(1000.0, 1200.0));
+    h.state_mut().queue(Command::OpenSettings(Tab::Highlights));
+    h.run();
+    // No model answers and no word levels are in: nothing to show.
+    assert!(h.query_by_label("Change in AI").is_none());
+    assert!(h.query_by_label("Change in Vocabulary").is_none());
+    assert!(h.query_by_label("Other marks").is_none());
+}
+
+#[test]
 fn the_ai_tab_picks_who_explains() {
     use mareader_settings::Provider;
     use mareader_ui::settings_window::Tab;

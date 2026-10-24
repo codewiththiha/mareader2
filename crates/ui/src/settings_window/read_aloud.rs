@@ -6,7 +6,7 @@ use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::voice_model::controls;
 use super::{
-    Tab, choice_row, detail_row, divider, fold_row, group, note, row, section, switch_row,
+    Tab, choice_row, detail_row_tip, divider, fold_row, group, note, row, section, switch_row,
 };
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -115,7 +115,8 @@ fn model_row(
     };
     let wanted = s.builds.get(model.id).and_then(|b| model.build(b));
     let picked = wanted.or(model.builds.first());
-    detail_row(ui, model.name, model.about, |ui| {
+    let offer = offer(model);
+    detail_row_tip(ui, (model.name, &offer), model.about, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.attached() {
             let bytes = picked.map_or(model.bytes(), |b| model.bytes_with(b));
@@ -123,9 +124,13 @@ fn model_row(
             return;
         }
         if shelf.ready().iter().any(|m| m.id == model.id) {
+            let open = egui::Button::new(("Voices", Icon::ChevronRight.image(14.0)))
+                .image_tint_follows_text_color(true);
+            let r = ui.add(open);
             let label = format!("{} voices", model.name);
-            let open = egui::Button::new("Voices…");
-            if ui.add(open).on_hover_text(label).clicked() {
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+            let hint = format!("Opens {}'s voices and settings", model.name);
+            if r.on_hover_text(hint).clicked() {
                 out.push(Command::OpenSettings(Tab::Model(model)));
             }
             muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
@@ -158,6 +163,21 @@ fn model_row(
     });
 }
 
+/// What a model offers, short enough for its row.
+fn offer(model: &Model) -> String {
+    let mut languages: Vec<String> = model.voices.iter().map(|v| primary(v.language)).collect();
+    languages.sort();
+    languages.dedup();
+    let voices = match model.voices.len() {
+        1 => "1 voice".to_owned(),
+        n => format!("{n} voices"),
+    };
+    match languages.as_slice() {
+        [one] => format!("{} · {voices}", language_name(one)),
+        many => format!("{} languages · {voices}", many.len()),
+    }
+}
+
 /// Which build a first download brings; the id when changed.
 fn build_pick(ui: &mut Ui, model: &'static Model, on: &Build) -> Option<&'static str> {
     let mut pick = on.id;
@@ -188,13 +208,23 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
     section(ui, "Memory");
     group(ui, |ui| {
         let (least, _, most) = ReadAloudSettings::MEMORY_MB;
-        let hint = "Made ahead and heard lately, to play again at once";
-        row(ui, "Speech kept", hint, |ui| {
+        let rate = speech_rate(ui, s, shelf);
+        let made = "Made ahead and heard lately, to play again at once.";
+        let hint = match (rate, shelf.model(&s.engine)) {
+            (Some(rate), Some(m)) => {
+                let khz = f64::from(rate) / 1000.0;
+                format!("{made} Minutes are for {}, at {khz} kHz.", m.name)
+            }
+            _ => format!("{made} Pick a voice model to see how long it plays."),
+        };
+        row(ui, "Speech kept", &hint, |ui| {
             ui.spacing_mut().slider_width = 160.0;
             let slider = egui::Slider::new(&mut s.speech_memory_mb, least..=most)
                 .logarithmic(true)
-                .custom_formatter(|mb, _| memory_label(mb as u32));
+                .show_value(false);
             ui.add(slider);
+            let text = memory_label(s.speech_memory_mb, rate);
+            ui.label(RichText::new(text).size(t.text_small).color(t.muted));
         });
         divider(ui);
         let hint = "While nothing is read with it";
@@ -221,11 +251,32 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
     );
 }
 
-/// Megabytes, and about how long that much speech plays.
-fn memory_label(mb: u32) -> String {
-    // Kept as 16-bit samples, 24,000 a second.
-    let minutes = u64::from(mb) * (1 << 20) / 48_000 / 60;
-    format!("{mb} MB · {minutes} min")
+/// The engine's rate, as [`mareader_speech::speech_rate`], read once.
+fn speech_rate(ui: &Ui, s: &ReadAloudSettings, shelf: &Shelf) -> Option<u32> {
+    // A download can tell the rate; the count keys it afresh.
+    let here = shelf.ready().len();
+    let id = Id::new(("speech rate", s.engine.as_str(), s.voice(), here));
+    if let Some(rate) = ui.data(|d| d.get_temp::<Option<u32>>(id)) {
+        return rate;
+    }
+    let rate = mareader_speech::speech_rate(&s.engine, s.voice(), shelf);
+    ui.data_mut(|d| d.insert_temp(id, rate));
+    rate
+}
+
+/// Megabytes, and about how long that much speech plays at `rate`.
+fn memory_label(mb: u32, rate: Option<u32>) -> String {
+    let Some(rate) = rate.filter(|r| *r > 0) else {
+        return format!("{mb} MB");
+    };
+    // Kept as 16-bit samples: two bytes each.
+    let minutes = u64::from(mb) * (1 << 20) / (u64::from(rate) * 2) / 60;
+    let time = match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    };
+    format!("{mb} MB · about {time}")
 }
 
 fn idle_label(minutes: u32) -> String {
@@ -532,8 +583,12 @@ mod tests {
 
     #[test]
     fn memory_rows_read_plainly() {
-        assert_eq!(memory_label(16), "16 MB · 5 min");
-        assert_eq!(memory_label(64), "64 MB · 23 min");
+        assert_eq!(memory_label(16, Some(24_000)), "16 MB · about 5 min");
+        assert_eq!(memory_label(64, Some(24_000)), "64 MB · about 23 min");
+        // A Piper voice made at 16 kHz holds half as long again.
+        assert_eq!(memory_label(64, Some(16_000)), "64 MB · about 34 min");
+        assert_eq!(memory_label(400, Some(22_050)), "400 MB · about 2 h 38 min");
+        assert_eq!(memory_label(100, None), "100 MB");
         assert_eq!(idle_label(0), "While reading");
         assert_eq!(idle_label(1), "For 1 minute");
         assert_eq!(idle_label(15), "For 15 minutes");
@@ -543,6 +598,13 @@ mod tests {
         assert_eq!(usage_label(&usage), "2.5 MB of speech");
         usage.models.push("Kokoro (Small)".into());
         assert_eq!(usage_label(&usage), "Kokoro (Small) · 2.5 MB of speech");
+    }
+
+    #[test]
+    fn a_model_row_names_its_languages_and_voices() {
+        let kokoro = offer(&mareader_speech::KOKORO);
+        assert!(kokoro.ends_with(" languages · 49 voices"), "{kokoro}");
+        assert!(offer(&mareader_speech::PIPER).starts_with("English · "));
     }
 
     #[test]
