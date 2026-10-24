@@ -120,6 +120,11 @@ impl Spoken {
         self.read_from(start);
     }
 
+    /// The engine read with.
+    pub fn engine(&self) -> &str {
+        &self.engine
+    }
+
     /// Starts the engine settings name, keeping its fault if it fails.
     fn open(&mut self, settings: &ReadAloudSettings, shelf: &Shelf) {
         if let Some(v) = self.voicer.as_mut() {
