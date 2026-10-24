@@ -166,6 +166,10 @@ fn voice_settings(pages: usize) -> Harness<'static, MareaderApp> {
 fn the_tab_lists_the_engine_voices_and_picks_one() {
     let mut h = voice_settings(1);
     assert!(h.state().read_aloud().booth.is_open());
+    // The list starts folded, its pick named on the fold.
+    assert!(h.query_by_label("System default").is_none());
+    press(&mut h, "Voices");
+    h.run_steps(2);
     // English first: the French voice waits behind the language picker.
     let _ = h.get_by_label("System default");
     assert!(h.query_by_label("Hush").is_none());
@@ -188,6 +192,8 @@ fn the_tab_lists_the_engine_voices_and_picks_one() {
 #[test]
 fn each_voice_says_a_line_in_itself() {
     let mut h = voice_settings(1);
+    press(&mut h, "Voices");
+    h.run_steps(2);
     press(&mut h, "Preview Quiet");
     h.run_steps(1);
     let booth = &h.state().read_aloud().booth;

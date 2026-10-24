@@ -173,8 +173,7 @@ struct Room<'a> {
     picked: &'static str,
 }
 
-/// Each language's voices folded, open first
-/// for the pick's language or one with downloads.
+/// Each language's voices, folded until opened.
 fn languages(
     ui: &mut Ui,
     room: &Room<'_>,
@@ -219,9 +218,8 @@ fn languages(
             (n, true) => format!("{n} voices"),
             (n, false) => format!("{n} voices · {here} downloaded"),
         };
-        let first = voices.iter().any(|v| v.id == room.picked) || (here > 0 && !inside);
         let id = egui::Id::new(("voice language", model.id, language));
-        if fold_row(ui, id, (accent(language), &detail), first) {
+        if fold_row(ui, id, (accent(language), &detail)) {
             divider(ui);
             folded(ui, |ui| rows(ui, &voices));
         }

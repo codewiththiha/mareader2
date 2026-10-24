@@ -382,7 +382,7 @@ fn voice_list(
         .and_then(|p| voices.iter().find(|v| v.id == p))
         .map_or("System default", |v| v.name.as_str());
     let detail = format!("{name} · {}", count(shown.len()));
-    if !fold_row(ui, Id::new("read-aloud-voices"), ("Voices", &detail), true) {
+    if !fold_row(ui, Id::new("read-aloud-voices"), ("Voices", &detail)) {
         return None;
     }
     divider(ui);
