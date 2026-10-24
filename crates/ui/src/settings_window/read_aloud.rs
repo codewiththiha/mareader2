@@ -216,6 +216,7 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
                 .logarithmic(true)
                 .show_value(false);
             ui.add(slider);
+            ui.add_space(t.gap);
             let text = memory_label(s.speech_memory_mb, rate);
             ui.label(RichText::new(text).size(t.text_small).color(t.muted));
         });
