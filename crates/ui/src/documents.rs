@@ -23,6 +23,7 @@ use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
 use crate::paper::Papers;
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
+use crate::reading_place;
 use crate::selection::{Selection, Sheet};
 use crate::study::{self, Asked, Gloss};
 use crate::texts::TextLayers;
@@ -209,10 +210,36 @@ pub struct Documents {
     /// When input or work last came, and whether caches shrank since.
     busy_at: f64,
     rested: bool,
+    /// The pane read aloud, and where the words heard start.
+    said: Option<(PaneId, Anchor)>,
 }
 
 /// Seconds without input or work before caches shrink to the pages in view.
 const REST_AFTER: f64 = 3.0;
+/// Air above the line read when a book set anew lands on it.
+const LAND_AIR: f32 = 8.0;
+
+/// Where `view` reads in `doc`, to find once the book is set anew.
+fn reading_place(
+    view: &PdfView,
+    doc: Option<&Document>,
+    texts: &TextLayers,
+    id: DocId,
+) -> Option<Anchor> {
+    let doc = doc?;
+    // Unmoved since the last re-set: the same place, so it never drifts.
+    if let Some(at) = view.place() {
+        return Some(at);
+    }
+    // A strip reads from its top line, its sentence's start if near.
+    let line = view.reading_line().and_then(|(page, y)| {
+        let band = doc.bands().and_then(|b| b.get(page)).map_or(0.0, |b| b.y);
+        let held = texts.get(id, page);
+        let layer = held.or_else(|| doc.text_layer(page).ok().map(Arc::new))?;
+        reading_place::line_at(&layer, y + band)
+    });
+    line.or_else(|| doc.anchor(view.current))
+}
 
 impl Default for Documents {
     fn default() -> Self {
@@ -240,6 +267,7 @@ impl Default for Documents {
             sheets: BTreeMap::new(),
             busy_at: 0.0,
             rested: true,
+            said: None,
         }
     }
 }
@@ -511,6 +539,7 @@ impl Documents {
         };
         let doc = session.get(new).map(|e| &*e.doc);
         let previous = session.get(old).map(|e| &*e.doc);
+        let said = self.said.filter(|(p, _)| *p == pane).map(|(_, a)| a);
         let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
             return;
         };
@@ -522,11 +551,41 @@ impl Documents {
             self.asked.remove(&pane);
             return;
         }
-        // Unmoved since the last re-set: the same place.
-        let place = view.place().or_else(|| previous?.anchor(view.current));
+        let heard = said.filter(|a| {
+            previous
+                .and_then(|d| d.locate(*a))
+                .is_some_and(|p| view.visible.contains(&p))
+        });
+        let place = heard.or_else(|| reading_place(view, previous, &self.texts, old));
         let page = place.and_then(|a| doc?.locate(a));
         view.retypeset(new, page.unwrap_or(view.current), count, place);
+        // A strip shows the place's line on top in the new pages' first frame.
+        if let (Some(doc), Some(at), Some(page)) = (doc, place, page)
+            && let Ok(layer) = doc.text_layer(page)
+            && let Some(y) = reading_place::top_of(&layer, at)
+        {
+            let band = doc.bands().and_then(|b| b.get(page)).map_or(0.0, |b| b.y);
+            // Read-aloud's line clears where the find bar floats.
+            let air = if heard.is_some() {
+                pdf_view::FIND_CLEARANCE
+            } else {
+                LAND_AIR
+            };
+            view.land(page, y - band, air);
+        }
         self.asked.remove(&pane);
+    }
+
+    /// Where `pane` reads now, as a book set anew would find it.
+    pub fn place_read(&self, pane: PaneId) -> Option<Anchor> {
+        let view = self.view(pane)?;
+        let doc = self.session.as_ref()?.get(view.doc).map(|e| &*e.doc);
+        reading_place(view, doc, &self.texts, view.doc)
+    }
+
+    /// Keeps where read-aloud is, for a book set anew to land there.
+    pub fn hold_said(&mut self, said: Option<(PaneId, Anchor)>) {
+        self.said = said;
     }
 
     /// Starts opening into `pane`; a refusal comes back as a note.

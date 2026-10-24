@@ -67,6 +67,8 @@ pub(super) struct Spoken {
     followed: Option<usize>,
     /// The sentence last brought into view.
     revealed: Option<Spot>,
+    /// Set anew: the sentence said is being found on the new pages.
+    relaid: bool,
 }
 
 impl Spoken {
@@ -101,6 +103,7 @@ impl Spoken {
             skip_folios: settings.skip_page_numbers,
             followed: None,
             revealed: None,
+            relaid: false,
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -118,6 +121,11 @@ impl Spoken {
         self.apply(on);
         self.paused = false;
         self.read_from(start);
+    }
+
+    /// Where the sentence said starts in the book, while it is placed.
+    pub fn said(&self) -> Option<Anchor> {
+        self.current.as_ref().filter(|_| !self.relaid)?.anchor
     }
 
     /// The engine read with.
@@ -161,6 +169,7 @@ impl Spoken {
         self.finished = false;
         self.followed = None;
         self.revealed = None;
+        self.relaid = false;
         self.behind.clear();
         self.ahead.clear();
         self.current = None;
@@ -362,18 +371,19 @@ impl Spoken {
         let Some(reading) = documents.reading(self.pane) else {
             return false;
         };
-        if reading.doc != self.doc || reading.document.narration().is_some() {
+        if reading.document.narration().is_some() {
             return false;
         }
+        // Set in new type, the book opens anew; it is still this book.
+        if reading.doc != self.doc {
+            if !reading.document.same_book(&self.document) {
+                return false;
+            }
+            self.doc = reading.doc;
+        }
         if !Arc::ptr_eq(&reading.document, &self.document) {
-            // Laid out again: new pages, so read on from the same place.
             self.document = Arc::clone(&reading.document);
-            let page = Start::Spot(Spot {
-                page: reading.current,
-                char: 0,
-            });
-            let at = self.place().unwrap_or(page);
-            self.read_from(at);
+            self.relay(reading.current);
         }
         self.apply((settings, shelf));
         let events = self.voicer.as_mut().map(|v| v.events()).unwrap_or_default();
@@ -382,6 +392,14 @@ impl Spoken {
                 self.saying = false;
                 self.pass();
             }
+        }
+        if self.relaid {
+            self.relocate();
+        }
+        if self.relaid {
+            // Nothing more is said until the place is found.
+            ctx.request_repaint_after(TICK);
+            return true;
         }
         if !self.paused && !self.saying && !self.finished {
             self.go_on();
@@ -398,6 +416,42 @@ impl Spoken {
             ctx.request_repaint_after(TICK);
         }
         true
+    }
+
+    /// New pages: the voice goes on while its place is found on them.
+    fn relay(&mut self, page: usize) {
+        let anchor = self.current.as_ref().and_then(|s| s.anchor);
+        let (Some(anchor), Some(_)) = (anchor, self.voicer.as_ref()) else {
+            self.read_from(Start::Spot(Spot { page, char: 0 }));
+            return;
+        };
+        // Places behind and ahead are the old pages'; ahead comes again.
+        self.behind.clear();
+        self.ahead.clear();
+        self.followed = None;
+        self.revealed = None;
+        self.relaid = true;
+        let document = Arc::clone(&self.document);
+        let wake = Arc::clone(&self.wake);
+        let start = Start::Anchor(anchor);
+        self.feed = Some(spawn(document, start, self.skip_folios, wake));
+    }
+
+    /// The new pages' first sentence is the one said: it takes its place.
+    fn relocate(&mut self) {
+        let Some(found) = self.pull() else {
+            // The book ended first: the old place has to do.
+            self.relaid = self.feed.is_some();
+            return;
+        };
+        self.relaid = false;
+        // Said to its end meanwhile: it is behind, and reading goes on.
+        let Some(said) = self.current.as_mut() else {
+            return;
+        };
+        said.sentence.start = found.sentence.start;
+        said.sentence.end = found.sentence.end;
+        said.anchor = found.anchor;
     }
 
     /// Keeps the sentence said in view; a turned page shows its first.
@@ -423,7 +477,10 @@ impl Spoken {
     }
 
     pub fn lit(&self) -> Option<Lit> {
-        let said = self.current.as_ref().filter(|_| !self.finished)?;
+        let said = self
+            .current
+            .as_ref()
+            .filter(|_| !self.finished && !self.relaid)?;
         Some(Lit {
             span: Span::Chars {
                 start: said.sentence.start,

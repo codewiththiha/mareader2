@@ -239,3 +239,55 @@ fn the_shortcut_starts_reading_then_pauses_it() {
     assert!(!h.state().read_aloud().playing(), "the same keys pause");
     assert!(lit(&h).is_some(), "paused, it stays lit");
 }
+
+#[test]
+fn a_book_set_in_new_type_reads_on_from_the_same_sentence() {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("epub", "sample:3").ok();
+    app.set_option("set", "read_aloud.engine:\"silent\"").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let pane = h.state().active_pane();
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(Spot { page: 1, char: 0 }),
+    };
+    start(&mut h, from);
+    let first = lit(&h);
+    step_until(&mut h, |h| lit(h) != first);
+    h.get_by_label("Pause").click();
+    h.run_steps(2);
+    let said = |h: &Harness<'static, MareaderApp>| h.state().read_aloud().said().map(|(_, a)| a);
+    let before = said(&h).expect("the sentence has a place");
+    let doc =
+        |h: &Harness<'static, MareaderApp>| h.state().documents().reading(pane).map(|r| r.doc);
+    let was = doc(&h);
+    // Bigger type sets the book anew, as another document.
+    h.state_mut().set_option("text_size", "28").ok();
+    step_until(&mut h, |h| doc(h) != was && lit(h).is_some());
+    assert_ne!(doc(&h), was, "set anew");
+    assert!(h.state().read_aloud().active(), "reading goes on");
+    assert_eq!(said(&h), Some(before), "the same sentence");
+    let _ = h.get_by_label("Play");
+    // Lit, and shown, where the new pages have it.
+    let reading = h.state().documents().reading(pane).expect("a book");
+    let page = reading.document.locate(before);
+    assert!(page.is_some(), "the new pages have it");
+    assert_eq!(lit(&h).map(|(s, _)| s.page), page);
+    let shown = h.state().documents().visible(pane).unwrap_or(0..0);
+    assert!(
+        page.is_some_and(|p| shown.contains(&p)),
+        "{page:?} in {shown:?}"
+    );
+    // Playing goes on past it.
+    h.get_by_label("Play").click();
+    let now = lit(&h);
+    step_until(&mut h, |h| lit(h) > now);
+    assert!(lit(&h) > now, "playing goes on");
+}

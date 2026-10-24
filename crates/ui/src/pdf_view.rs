@@ -182,6 +182,10 @@ pub struct PdfView {
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.
     place: Option<(mareader_session::Anchor, usize)>,
+    /// A strip's offset once landed on `place`; moved from, it is stale.
+    placed_at: Option<Vec2>,
+    /// Set anew: a page, a height on it and the air above, to show first.
+    land: Option<(usize, f32, f32)>,
     /// A paged book's pane-sized page, in layout units, once settled.
     sheet: Option<(f32, f32)>,
     /// The page size the pane wants next, and since when.
@@ -227,6 +231,8 @@ impl PdfView {
             landed: None,
             ease: true,
             place: None,
+            placed_at: None,
+            land: None,
             sheet: None,
             sheet_want: None,
             sheet_moved: false,
@@ -264,9 +270,33 @@ impl PdfView {
 
     /// The place the last re-set landed on, while it's still read.
     pub fn place(&self) -> Option<mareader_session::Anchor> {
+        // A strip holds it while unmoved since; scrolled, it reads elsewhere.
+        if self.mode == ViewMode::Vertical {
+            let still = |at: Vec2| (at - self.offset).length() < 2.0;
+            return self
+                .place
+                .filter(|_| self.placed_at.is_some_and(still))
+                .map(|(a, _)| a);
+        }
         self.place
             .filter(|(_, page)| *page == self.current)
             .map(|(a, _)| a)
+    }
+
+    /// A strip's reading line: the page at the view's top, and how far down.
+    pub fn reading_line(&self) -> Option<(usize, f32)> {
+        let layout = self
+            .layout
+            .as_ref()
+            .filter(|_| self.mode == ViewMode::Vertical)?;
+        let top = vec2(self.viewport.x / 2.0, layout.inputs.inset);
+        let (page, at) = layout.locate(Pos2::ZERO + self.offset + top)?;
+        Some((page, at.y.max(0.0)))
+    }
+
+    /// Shows height `y` of `page` at a strip's top, `air` below its edge.
+    pub fn land(&mut self, page: usize, y: f32, air: f32) {
+        self.land = (self.mode == ViewMode::Vertical).then_some((page, y, air));
     }
 
     /// Keeps `place` as the page being read's, as a re-set does.
@@ -294,6 +324,7 @@ impl PdfView {
         self.resize = None;
         self.zoom.fit_page = page;
         self.place = place.map(|a| (a, page));
+        (self.placed_at, self.land) = (None, None);
         self.go(page);
     }
 
@@ -507,6 +538,26 @@ impl PdfView {
         self.current = page;
         self.reveal = Some(if self.mode.paged() { self.focus } else { page });
     }
+}
+
+/// Set anew, a strip starts at the place read, in the pages' first frame.
+fn land(view: &mut PdfView) {
+    let Some((page, y, air)) = view.land else {
+        return;
+    };
+    let Some(layout) = view.layout.as_ref() else {
+        return;
+    };
+    view.land = None;
+    let Some(rect) = layout.rect(page) else {
+        return;
+    };
+    let x = view.scroll_to.map_or(view.offset.x, |(to, _)| to.x);
+    let top = rect.top() + y * layout.zoom() - layout.inputs.inset - air;
+    let to = vec2(x, top).max(Vec2::ZERO);
+    view.scroll_to = Some((to, 2));
+    view.placed_at = Some(to);
+    (view.jump, view.aim) = (None, None);
 }
 
 /// The offset keeping the point under the pivot there in `new`.
@@ -783,6 +834,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             view.jump = None;
         }
     }
+    land(view);
     if let Some(wait) = view.zoom.sharpen(now) {
         ctx.request_repaint_after_secs(wait);
     }
@@ -1768,7 +1820,7 @@ impl Tiles {
 /// Glyphs may overhang the column a little: a hung hyphen, an italic.
 const STREAM_SLACK: f32 = 24.0;
 /// What a revealed hit keeps clear at the top: the find bar and its air.
-const FIND_CLEARANCE: f32 = 72.0;
+pub(crate) const FIND_CLEARANCE: f32 = 72.0;
 /// Air a revealed hit keeps from the other edges.
 const SEEK_MARGIN: f32 = 24.0;
 
