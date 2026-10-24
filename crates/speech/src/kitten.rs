@@ -260,6 +260,12 @@ mod tests {
         kb.map_or(0.0, |kb| (kb / 1024.0).round())
     }
 
+    /// Resident megabytes once the thread letting go has handed it back.
+    fn settled_mb() -> f64 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        resident_mb()
+    }
+
     /// Seconds until `done`, or None after `most`.
     fn waited(most: u64, done: impl Fn() -> bool) -> Option<f64> {
         let start = std::time::Instant::now();
@@ -306,7 +312,7 @@ mod tests {
             // No sound device here, so reading only ends when stopped.
             voicer.stop();
             let gone = waited(60, || !loaded(&shelf));
-            let after = resident_mb();
+            let after = settled_mb();
             println!(
                 "kitten memory: round {round}: {held} MB loaded, \
                  let go after {gone:?} s quiet, {after} MB after"
@@ -345,7 +351,7 @@ mod tests {
         let gone = waited(10, || !loaded(&shelf));
         println!(
             "kitten memory: limit cut to 1 s, let go after {gone:?} s, {} MB",
-            resident_mb()
+            settled_mb()
         );
         assert!(gone.is_some_and(|s| s < 5.0), "{gone:?} s after the cut");
         drop(voicer);
