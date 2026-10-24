@@ -38,6 +38,8 @@ pub struct View<'a> {
     /// The pane it's kept inside.
     pub room: Rect,
     pub density: GlossDensity,
+    /// Its word is being said aloud.
+    pub saying: bool,
 }
 
 /// Draws the card under or over its word, pointing at it.
@@ -95,6 +97,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
             if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                 out.push(Command::Study(Action::Close));
             }
+            crate::read_aloud::say_button(ui, view.word, view.saying, out);
         });
     });
     match &view.answer {

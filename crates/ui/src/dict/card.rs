@@ -19,8 +19,8 @@ use crate::widgets;
 const WIDTH: f32 = 320.0;
 /// The word asked stays whole on up to this many lines, then ends in "…".
 const WORD_ROWS: usize = 3;
-/// Two header buttons and the air before them.
-const BUTTONS_W: f32 = 24.0 * 2.0 + 10.0;
+/// Three header buttons and the air before them.
+const BUTTONS_W: f32 = 24.0 * 3.0 + 12.0;
 /// Up to this many entries page by dots; more, by a count.
 const DOTS_MAX: usize = 7;
 const DOT: f32 = 6.0;
@@ -58,6 +58,8 @@ pub struct View<'a> {
     pub attached: bool,
     pub at: Rect,
     pub room: Rect,
+    /// Its word is being said aloud.
+    pub saying: bool,
 }
 
 pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> Rect {
@@ -83,7 +85,7 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
         (Some(from), Some(to)) => Some(format!("{} → {}", language(from), language(to))),
         _ => None,
     });
-    header(ui, view.word, way.as_deref(), t, out);
+    header(ui, view, way.as_deref(), t, out);
     rule(ui, t);
     let Some(reply) = view.reply else {
         section(ui, |ui| muted(ui, t, "Looking up…"));
@@ -114,7 +116,8 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
 pub const PURSUE: &str = "Open in the Dictionary";
 
 /// The word large and whole, its buttons, and the languages under it.
-fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Commands) {
+fn header(ui: &mut Ui, view: &View<'_>, way: Option<&str>, t: &Tokens, out: &mut Commands) {
+    let word = view.word;
     let margin = Margin {
         left: PAD,
         right: 8,
@@ -140,6 +143,7 @@ fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Comm
                 if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
                     out.push(Command::Dict(Action::Pursue(word.to_owned())));
                 }
+                crate::read_aloud::say_button(ui, word, view.saying, out);
                 ui.with_layout(Layout::left_to_right(align), |ui| headword.show(ui, t));
             });
         });

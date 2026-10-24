@@ -256,7 +256,7 @@ impl Dict {
     pub fn show(
         &mut self,
         ctx: &Context,
-        panes: &[(PaneId, Rect)],
+        (panes, saying): (&[(PaneId, Rect)], Option<&str>),
         offset: impl Fn(PaneId) -> Option<Vec2>,
         out: &mut Commands,
     ) {
@@ -290,6 +290,7 @@ impl Dict {
                 attached,
                 at: c.at,
                 room: room(c.pane)?,
+                saying: saying == Some(c.word.as_str()),
             };
             Some(card::show(ctx, &view, &t, out))
         });

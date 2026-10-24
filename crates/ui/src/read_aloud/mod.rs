@@ -33,6 +33,11 @@ const LIFT: f32 = 12.0;
 const SIZE: f32 = 30.0;
 const ICON: f32 = 16.0;
 const GAP: f32 = 2.0;
+/// Seconds after a card's word before its engine is let go.
+const WORD_IDLE: f64 = 60.0;
+/// The speaker on a word's card, and the same button while it speaks.
+pub const SAY: &str = "Say aloud";
+pub const STOP_SAYING: &str = "Stop saying";
 
 /// The words being read, to paint in their pane.
 #[derive(Clone, Debug, PartialEq)]
@@ -219,6 +224,11 @@ pub struct ReadAloud {
     pub booth: Booth,
     /// Voice models on offer, downloaded or coming down.
     pub shelf: mareader_speech::Shelf,
+    /// Says a card's word in the voice books are read in.
+    word: Booth,
+    /// The word being said, and when one was last asked.
+    saying: Option<String>,
+    said_at: f64,
 }
 
 impl ReadAloud {
@@ -237,6 +247,8 @@ impl ReadAloud {
                 let removed = self.shelf.remove(item);
                 // Samples may hold the model; the booth opens again when shown.
                 self.booth.close();
+                self.stop_word();
+                self.word.close();
                 self.let_go(settings);
                 return removed;
             }
@@ -372,6 +384,7 @@ impl ReadAloud {
 
     /// Each frame: follows what is heard and turns pages to it.
     pub fn tick(&mut self, ctx: &Context, documents: &mut Documents, settings: &ReadAloudSettings) {
+        self.tick_word(ctx);
         let going = match self.session.as_mut() {
             Some(Session::Narrated(s)) => s.tick(ctx, documents, settings),
             Some(Session::Spoken(s)) => s.tick(ctx, documents, (settings, &self.shelf)),
@@ -379,6 +392,54 @@ impl ReadAloud {
         };
         if !going {
             self.session = None;
+        }
+    }
+
+    /// Says `word` in the engine and voice books are read in.
+    pub fn say_word(
+        &mut self,
+        ctx: &Context,
+        settings: &ReadAloudSettings,
+        word: &str,
+    ) -> Result<(), String> {
+        self.word.open(ctx, &settings.engine, settings, &self.shelf);
+        self.word.say(settings, word);
+        self.said_at = ctx.input(|i| i.time);
+        if let Some(why) = self.word.fault() {
+            self.saying = None;
+            return Err(format!("Couldn't say “{word}”: {why}"));
+        }
+        self.saying = self.word.trying().then(|| word.to_owned());
+        Ok(())
+    }
+
+    pub fn stop_word(&mut self) {
+        self.word.stop_trying();
+        self.saying = None;
+    }
+
+    /// The card word being said, if any.
+    pub fn saying(&self) -> Option<&str> {
+        self.saying.as_deref()
+    }
+
+    /// Words said from cards since the window opened.
+    pub fn words_said(&self) -> u64 {
+        self.word.samples()
+    }
+
+    /// Hears the word end; lets the engine go a while after.
+    fn tick_word(&mut self, ctx: &Context) {
+        if !self.word.is_open() {
+            return;
+        }
+        self.word.tick(ctx);
+        if !self.word.trying() {
+            self.saying = None;
+        }
+        let idle = ctx.input(|i| i.time) - self.said_at;
+        if self.saying.is_none() && idle > WORD_IDLE {
+            self.word.close();
         }
     }
 
@@ -577,6 +638,28 @@ fn button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     widgets::tip(&resp, label, None);
     resp
+}
+
+/// The speaker on a word's card: says it, or stops it; accented meanwhile.
+pub fn say_button(ui: &mut Ui, word: &str, saying: bool, out: &mut Commands) {
+    // No voice here speaks Burmese and its kin.
+    if crate::shaped::needs_shaping(word) {
+        return;
+    }
+    let (label, command) = match saying {
+        true => (STOP_SAYING, Command::StopSaying),
+        false => (SAY, Command::SayWord(word.to_owned())),
+    };
+    let accent = Tokens::get(ui.ctx()).accent;
+    let r = ui.scope(|ui| {
+        if saying {
+            ui.visuals_mut().override_text_color = Some(accent);
+        }
+        widgets::small_icon_button(ui, Icon::Speak, label)
+    });
+    if r.inner.clicked() {
+        out.push(command);
+    }
 }
 
 pub(crate) fn rate_label(rate: f32) -> String {

@@ -153,6 +153,9 @@ pub enum Command {
     /// Says a line in this voice of the voice tab's engine.
     TryVoiceOf(String),
     StopVoiceTry,
+    /// Says a card's word in the reading voice; stops it.
+    SayWord(String),
+    StopSaying,
     /// A voice model or voice to download, pause, cancel or remove.
     VoiceModel(crate::read_aloud::ModelAction),
     /// Explains the word selected in the pane, marking it.

@@ -506,3 +506,28 @@ fn a_bridge_names_english_and_each_answer_its_word() {
     h.get_by_label("via English");
     assert!(h.query_all_by_label("via light").count() >= 1);
 }
+
+#[test]
+fn the_card_says_its_word_in_the_reading_voice() {
+    use mareader_ui::read_aloud::SAY;
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let mut s = h.state().settings().clone();
+    s.read_aloud.engine = "silent".into();
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.run();
+    select(&mut h, "quick");
+    h.get_by_label("Look up").click();
+    h.run();
+    assert_eq!(h.state().read_aloud().words_said(), 0);
+    h.get_by_label(SAY).click();
+    h.run_steps(3);
+    assert_eq!(h.state().read_aloud().words_said(), 1);
+    h.run();
+    assert_eq!(h.state().read_aloud().saying(), None, "the word ends");
+    assert_eq!(
+        h.state().dict().card_word(),
+        Some("quick"),
+        "the card stays"
+    );
+}
