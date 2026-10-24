@@ -196,7 +196,8 @@ impl TitleBar {
 
     fn update_hover(&mut self, ctx: &Context, band: Rect) {
         let now = ctx.input(|i| i.time);
-        let inside = ctx.pointer_hover_pos().is_some_and(|p| band.contains(p));
+        let own = egui::LayerId::new(Order::Foreground, Id::new("titlebar"));
+        let inside = crate::widgets::bare_pointer(ctx, own).is_some_and(|p| band.contains(p));
         let held = self.hold
             || egui::Popup::is_any_open(ctx)
             || (self.shown && ctx.input(|i| i.pointer.any_down()));
