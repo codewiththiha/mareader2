@@ -92,10 +92,10 @@ fn a_query_counts_every_page_and_enter_steps_through_them() {
     let mut h = reader(&[("pdf", "sample:5")]);
     search(&mut h, "QUICK");
     assert_eq!(hit_pages(&h), vec![0, 1, 2, 3, 4]);
-    assert!(h.query_all_by_label("5").next().is_some());
+    let _ = h.get_by_label("5 found");
     enter(&mut h, false);
     assert_eq!(h.state().find().active(), Some(0));
-    let _ = h.get_by_label("1/5");
+    let _ = h.get_by_label("1 of 5");
     enter(&mut h, false);
     assert_eq!(h.state().find().active(), Some(1));
     assert_eq!(current(&h), 1, "the second hit's page is brought in");
@@ -120,7 +120,7 @@ fn a_match_runs_across_lines_and_misses_count_zero() {
     h.get_by_role(egui::accesskit::Role::TextInput)
         .type_text("zz");
     h.run_steps(20);
-    let _ = h.get_by_label("0/0");
+    let _ = h.get_by_label("No matches");
 }
 
 #[test]
