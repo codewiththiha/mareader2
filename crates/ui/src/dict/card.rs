@@ -1,8 +1,9 @@
 //! The lookup card: one entry at a time, its caret on the words.
 
+use egui::text::{LayoutJob, TextWrapping};
 use egui::{
-    Align, Context, Direction, Frame, Id, Layout, Margin, Rect, RichText, ScrollArea, Sense,
-    Stroke, Ui, vec2,
+    Align, Color32, Context, CornerRadius, Direction, Frame, Id, Label, Layout, Margin, Rect,
+    RichText, ScrollArea, Sense, Stroke, TextFormat, Ui, vec2,
 };
 use mareader_dict::{Entry, Reply, language};
 
@@ -12,10 +13,17 @@ use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::shaped;
-use crate::theme::Tokens;
+use crate::theme::{self, Tokens};
 use crate::widgets;
 
-const WIDTH: f32 = 300.0;
+const WIDTH: f32 = 320.0;
+/// The word asked stays whole on up to this many lines, then ends in "…".
+const WORD_ROWS: usize = 3;
+/// Two header buttons and the air before them.
+const BUTTONS_W: f32 = 24.0 * 2.0 + 10.0;
+/// Up to this many entries page by dots; more, by a count.
+const DOTS_MAX: usize = 7;
+const DOT: f32 = 6.0;
 /// Room each section keeps from the card's sides, and above and below.
 const PAD: i8 = 14;
 const PAD_Y: i8 = 10;
@@ -105,39 +113,100 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
 /// The button carrying the card's word into the Dictionary.
 pub const PURSUE: &str = "Open in the Dictionary";
 
-/// The word large, the close button, and the languages under them.
+/// The word large and whole, its buttons, and the languages under it.
 fn header(ui: &mut Ui, word: &str, way: Option<&str>, t: &Tokens, out: &mut Commands) {
     let margin = Margin {
         left: PAD,
         right: 8,
-        top: 8,
-        bottom: 8,
+        top: 10,
+        bottom: 10,
     };
     Frame::new().inner_margin(margin).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        let room = (ui.available_width() - BUTTONS_W).max(60.0);
+        let headword = Headword::new(ui, word, room, t);
+        // One line sits level with the buttons; more hang from the top.
+        let align = if headword.rows() > 1 {
+            Align::Min
+        } else {
+            Align::Center
+        };
         ui.horizontal(|ui| {
-            // The close button claims its room first; the word takes the rest.
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.with_layout(Layout::right_to_left(align), |ui| {
                 if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                     out.push(Command::Dict(Action::CloseCard));
                 }
                 if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
                     out.push(Command::Dict(Action::Pursue(word.to_owned())));
                 }
-                // The languages ride the word's line, quiet, before the close.
-                if let Some(way) = way {
-                    ui.label(RichText::new(way).size(t.text_small).color(t.muted));
-                }
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    if shaped::needs_shaping(word) {
-                        shaped::label(ui, word, t.text * 1.1, t.ink);
-                    } else {
-                        let big = RichText::new(word).size(t.text * 1.2).strong();
-                        ui.add(egui::Label::new(big.color(t.ink)).truncate());
-                    }
-                });
+                ui.with_layout(Layout::left_to_right(align), |ui| headword.show(ui, t));
             });
         });
+        if let Some(way) = way {
+            languages(ui, way, t);
+        }
     });
+}
+
+/// The word asked, laid out for the header.
+enum Headword<'a> {
+    /// Burmese and its kin, shaped on drawing.
+    Shaped(&'a str, f32),
+    Laid(&'a str, std::sync::Arc<egui::Galley>),
+}
+
+impl<'a> Headword<'a> {
+    /// `word` laid out within `room`.
+    fn new(ui: &Ui, word: &'a str, room: f32, t: &Tokens) -> Self {
+        if shaped::needs_shaping(word) {
+            return Self::Shaped(word, room);
+        }
+        let font = theme::medium(t.text * 1.3);
+        let mut job = LayoutJob::single_section(word.to_owned(), TextFormat::simple(font, t.ink));
+        job.wrap = TextWrapping {
+            max_width: room,
+            max_rows: WORD_ROWS,
+            break_anywhere: false,
+            overflow_character: Some('…'),
+        };
+        Self::Laid(word, ui.painter().layout_job(job))
+    }
+
+    fn rows(&self) -> usize {
+        match self {
+            Self::Shaped(..) => 1,
+            Self::Laid(_, galley) => galley.rows.len(),
+        }
+    }
+
+    fn show(self, ui: &mut Ui, t: &Tokens) {
+        match self {
+            Self::Shaped(word, room) => {
+                ui.set_max_width(room);
+                shaped::label(ui, word, t.text * 1.15, t.ink);
+            }
+            Self::Laid(word, galley) => {
+                let cut = galley.rows.len() >= WORD_ROWS;
+                let shown = ui.add(Label::new(galley).selectable(false));
+                if cut {
+                    shown.on_hover_text(word);
+                }
+            }
+        }
+    }
+}
+
+/// "English → Burmese" in a quiet pill under the word.
+fn languages(ui: &mut Ui, way: &str, t: &Tokens) {
+    Frame::new()
+        .fill(t.ink.gamma_multiply(0.07))
+        .corner_radius(CornerRadius::same(255))
+        .inner_margin(Margin::symmetric(8, 2))
+        .show(ui, |ui| {
+            let text = RichText::new(way).size(t.text_small * 0.95);
+            ui.add(Label::new(text.color(t.muted)).selectable(false));
+        });
 }
 
 /// The entry turned to, scrolling only when taller than the room.
@@ -165,7 +234,7 @@ fn body(ui: &mut Ui, asked: &str, e: &Entry, (p, list): (&mut Pager, f32), t: &T
     p.edges = (off <= 0.5, off >= room - 0.5);
 }
 
-/// ‹ 2 of 5 ›: the entries one at a time.
+/// Dots, or "2 of 9", between the arrows: one entry at a time.
 fn footer(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
     Frame::new()
         .inner_margin(Margin::symmetric(8, 5))
@@ -178,8 +247,12 @@ fn footer(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
                 let middle = vec2(ui.available_width() - 24.0, 24.0);
                 let centred = Layout::centered_and_justified(Direction::LeftToRight);
                 ui.allocate_ui_with_layout(middle, centred, |ui| {
-                    let count = format!("{} of {n}", p.at + 1);
-                    ui.label(RichText::new(count).size(t.text_small).color(t.muted));
+                    if n <= DOTS_MAX {
+                        dots(ui, p, n, t);
+                    } else {
+                        let count = format!("{} of {n}", p.at + 1);
+                        ui.label(RichText::new(count).size(t.text_small).color(t.muted));
+                    }
                 });
                 let next = ui.add_enabled_ui(p.at + 1 < n, |ui| {
                     widgets::small_icon_button(ui, Icon::ChevronRight, "Next entry").clicked()
@@ -192,6 +265,37 @@ fn footer(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
                 }
             });
         });
+}
+
+/// A dot per entry, the shown one long and accented; a click turns.
+fn dots(ui: &mut Ui, p: &mut Pager, n: usize, t: &Tokens) {
+    let gap = DOT * 1.2;
+    let long = DOT * 2.6;
+    let width = long + (n.saturating_sub(1)) as f32 * (DOT + gap);
+    let row = Rect::from_center_size(ui.max_rect().center(), vec2(width, DOT * 3.0));
+    let response = ui.allocate_rect(row, Sense::hover());
+    let label = format!("Entry {} of {n}", p.at + 1);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+    let mut x = row.left();
+    for i in 0..n {
+        let w = if i == p.at { long } else { DOT };
+        let dot = Rect::from_min_size(egui::pos2(x, row.center().y - DOT / 2.0), vec2(w, DOT));
+        let hit = ui.interact(
+            dot.expand(gap / 2.0),
+            ui.id().with(("dot", i)),
+            Sense::click(),
+        );
+        let fill: Color32 = match (i == p.at, hit.hovered()) {
+            (true, _) => t.accent,
+            (false, true) => t.muted,
+            (false, false) => t.muted.gamma_multiply(0.45),
+        };
+        ui.painter().rect_filled(dot, CornerRadius::same(255), fill);
+        if hit.clicked() {
+            p.at = i;
+        }
+        x += w + gap;
+    }
 }
 
 /// Why there is no entry, and the way to one when there is.
