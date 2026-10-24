@@ -12,6 +12,7 @@
 mod en;
 mod lexicon;
 mod neural;
+pub mod notation;
 mod numbers;
 mod tagger;
 mod text;
