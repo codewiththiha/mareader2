@@ -7,6 +7,7 @@ use std::path::Path;
 const ALLOWED: &[&str] = &[
     "apps/mareader/src/traffic_lights.rs",
     "apps/mareader/src/open_files.rs",
+    "crates/speech/src/mac_voices.rs",
 ];
 
 /// This checker, which names the lifts it looks for.
