@@ -25,6 +25,9 @@ mareader-audio = { workspace = true }
 [target.'cfg(target_vendor = "apple")'.dependencies]
 # The default voice comes back by the user's language: Apple's speech opens once.
 sys-locale = "0.3"
+# Asks which listed voices have their sound here (owner-approved unsafe).
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
 
 [dev-dependencies]
 sha2 = { workspace = true }

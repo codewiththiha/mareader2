@@ -15,6 +15,8 @@ mod kitten;
 mod kokoro;
 #[cfg(not(target_arch = "wasm32"))]
 mod local;
+#[cfg(target_vendor = "apple")]
+mod mac_voices;
 mod models;
 #[cfg(not(target_arch = "wasm32"))]
 mod piper;
@@ -124,6 +126,10 @@ impl std::fmt::Display for Fault {
 pub trait Voicer {
     fn caps(&self) -> Caps;
     fn voices(&self) -> Vec<Voice>;
+    /// Moves on whenever [`Self::voices`] changes, as voices turn out mute.
+    fn voices_seen(&self) -> u64 {
+        0
+    }
     /// Picks a voice by its id; none, or an unknown one, is the default.
     fn set_voice(&mut self, id: Option<&str>);
     fn set_tone(&mut self, tone: Tone);

@@ -1,6 +1,7 @@
 //! System voices via `tts`: kept on the window's thread, never asked its voice.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -13,6 +14,9 @@ const RATES: (f32, f32) = (0.5, 3.0);
 const PITCHES: (f32, f32) = (0.5, 2.0);
 /// Characters a second at normal speed, when nothing reports an end.
 const PACE: f32 = 14.0;
+
+/// Voices reporting their sound unspoken: past this, the reports are true.
+const WARM: usize = 10;
 
 /// Apple's speech opens once a run: a second open fails, so voicers share it.
 const ONCE: bool = cfg!(target_vendor = "apple");
@@ -46,6 +50,13 @@ struct Speech {
     speaker: Cell<u64>,
     /// A voice was set, so the default must be found again.
     voiced: Cell<bool>,
+    /// Listed voices with no sound here, which the system reads in another.
+    mute: RefCell<HashSet<String>>,
+    /// Voices heard to the end, and whether `mute` is known for good.
+    spoken: RefCell<HashSet<String>>,
+    settled: Cell<bool>,
+    /// Counts changes to `mute`.
+    seen: Cell<u64>,
 }
 
 impl Speech {
@@ -78,7 +89,7 @@ impl Speech {
                 features.utterance_callbacks = false;
             }
         }
-        Ok(Self {
+        let speech = Self {
             tts,
             features,
             voices,
@@ -86,7 +97,30 @@ impl Speech {
             tuned: Cell::new(0),
             speaker: Cell::new(0),
             voiced: Cell::new(false),
-        })
+            mute: RefCell::default(),
+            spoken: RefCell::default(),
+            settled: Cell::new(false),
+            seen: Cell::new(0),
+        };
+        speech.judge();
+        Ok(speech)
+    }
+
+    /// Learns again which voices are mute, until that is known for good.
+    fn judge(&self) {
+        if self.settled.get() {
+            return;
+        }
+        let Some(sounds) = sounds() else {
+            self.settled.set(true);
+            return;
+        };
+        let (mute, settled) = mute(&sounds, &self.spoken.borrow());
+        if mute != *self.mute.borrow() {
+            *self.mute.borrow_mut() = mute;
+            self.seen.set(self.seen.get() + 1);
+        }
+        self.settled.set(settled);
     }
 
     /// This thread's speech: the shared one where it opens only once.
@@ -268,6 +302,38 @@ fn usual(voices: impl Iterator<Item = (String, String)>, locale: &str) -> Option
     (!rank(&best).0).then_some(i)
 }
 
+/// Each listed voice's id and how many audio settings it reports.
+#[cfg(target_vendor = "apple")]
+fn sounds() -> Option<Vec<(String, usize)>> {
+    Some(crate::mac_voices::sounds())
+}
+
+/// Elsewhere every listed voice has its sound.
+#[cfg(not(target_vendor = "apple"))]
+fn sounds() -> Option<Vec<(String, usize)>> {
+    None
+}
+
+/// The mute voices among `sounds`, and whether that is known for good.
+fn mute(sounds: &[(String, usize)], spoken: &HashSet<String>) -> (HashSet<String>, bool) {
+    // Until speech starts, macOS reports no settings for any voice.
+    let alive = sounds.iter().any(|(_, n)| *n > 0);
+    let unspoken = sounds
+        .iter()
+        .filter(|(id, n)| *n > 0 && !spoken.contains(id));
+    let warm = unspoken.count() >= WARM;
+    // Cold, only a voice heard to the end and still bare is known mute.
+    let found: HashSet<String> = (sounds.iter())
+        .filter(|(id, n)| *n == 0 && (warm || (alive && spoken.contains(id))))
+        .map(|(id, _)| id.clone())
+        .collect();
+    // Every voice mute would be a report gone wrong.
+    if found.len() >= sounds.len() {
+        return (HashSet::new(), false);
+    }
+    (found, warm)
+}
+
 impl Voicer for System {
     fn caps(&self) -> Caps {
         let features = self.features();
@@ -286,7 +352,17 @@ impl Voicer for System {
             name: v.name(),
             language: v.language().to_string(),
         };
-        self.speech.voices.iter().map(voice).collect()
+        let mute = self.speech.mute.borrow();
+        let heard = self
+            .speech
+            .voices
+            .iter()
+            .filter(|v| !mute.contains(&v.id()));
+        heard.map(voice).collect()
+    }
+
+    fn voices_seen(&self) -> u64 {
+        self.speech.seen.get()
     }
 
     fn set_voice(&mut self, id: Option<&str>) {
@@ -342,6 +418,7 @@ impl Voicer for System {
             self.current = None;
         }
         let mut out = Vec::new();
+        let mut ended = false;
         for (begun, name) in heard {
             let Some((ours, id)) = self.current.clone() else {
                 continue;
@@ -355,8 +432,15 @@ impl Voicer for System {
                 false => {
                     out.push(Event::Finished(id));
                     self.current = None;
+                    ended = true;
                 }
             }
+        }
+        if ended {
+            if let Some(voice) = self.voice.clone() {
+                self.speech.spoken.borrow_mut().insert(voice);
+            }
+            self.speech.judge();
         }
         if !self.features().utterance_callbacks
             && let Some((_, id)) = self.current.clone()
@@ -407,6 +491,37 @@ mod tests {
         assert_eq!(usual(pairs(&[]), "en-US"), None);
     }
 
+    fn sounds(pairs: &[(&str, usize)]) -> Vec<(String, usize)> {
+        pairs.iter().map(|(id, n)| ((*id).to_owned(), *n)).collect()
+    }
+
+    /// As the owner's Mac reported: bare until speech starts, then Eloquence.
+    #[test]
+    fn voices_without_sound_are_mute_once_others_report_theirs() {
+        let none = HashSet::new();
+        let eddy = "com.apple.eloquence.en-GB.Eddy";
+        // Before anything spoke, every voice is bare: none is judged.
+        let cold: Vec<_> = (0..40).map(|i| (format!("v{i}"), 0)).collect();
+        assert_eq!(mute(&cold, &none), (HashSet::new(), false));
+        // Warm: many unspoken voices report theirs, so the bare are mute.
+        let mut warm: Vec<_> = (0..20).map(|i| (format!("v{i}"), 7)).collect();
+        warm.push((eddy.to_owned(), 0));
+        let (found, settled) = mute(&warm, &none);
+        assert_eq!(
+            (found.len(), found.contains(eddy), settled),
+            (1, true, true)
+        );
+        // Cold but alive: only a voice heard to the end and still bare.
+        let some = sounds(&[("samantha", 7), (eddy, 0), ("flo", 0)]);
+        let heard = HashSet::from([eddy.to_owned()]);
+        assert_eq!(mute(&some, &none).0, HashSet::new());
+        assert_eq!(mute(&some, &heard), (heard.clone(), false));
+        // Never every voice, even heard.
+        let all = HashSet::from([eddy.to_owned(), "samantha".to_owned()]);
+        let bare = sounds(&[("samantha", 0), (eddy, 0)]);
+        assert_eq!(mute(&bare, &all), (HashSet::new(), false));
+    }
+
     /// Only where the system's speech runs in CI: the remote `system` task.
     #[cfg(any(target_vendor = "apple", windows))]
     #[test]
@@ -417,7 +532,9 @@ mod tests {
             Err(e) => panic!("{e}"),
         };
         let listed = first.voices().len();
-        println!("system voices: {listed} listed");
+        let mute = first.speech.voices.len() - listed;
+        println!("system voices: {listed} listed, {mute} mute");
+        assert!(listed > 0);
         drop(first);
         // Read aloud stopped and started, and the settings tab reopened.
         for _ in 0..3 {

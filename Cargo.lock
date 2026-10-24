@@ -3778,6 +3778,8 @@ dependencies = [
  "mareader-ipa",
  "mareader-kokoro",
  "mareader-vits",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
  "sha2",
  "sys-locale",
  "tempfile",

@@ -16,6 +16,8 @@ pub struct Booth {
     build: Option<&'static str>,
     voicer: Option<Box<dyn Voicer>>,
     voices: Vec<Voice>,
+    /// The engine's count of changes to its voices when last listed.
+    seen: u64,
     caps: Caps,
     fault: Option<String>,
     /// The sample being said, by its id; ids count every sample.
@@ -38,15 +40,23 @@ impl Booth {
         let wake: Waker = Arc::new(move || ctx.request_repaint());
         match mareader_speech::open(&s.engine, build, shelf, wake) {
             Ok(voicer) => {
-                self.voices = voicer.voices();
-                self.voices.sort_by(|a, b| {
-                    (a.language.as_str(), a.name.as_str()).cmp(&(&b.language, &b.name))
-                });
                 self.caps = voicer.caps();
                 self.voicer = Some(voicer);
+                self.relist();
             }
             Err(fault) => self.fault = Some(fault.to_string()),
         }
+    }
+
+    /// Lists the engine's voices again, by language then name.
+    fn relist(&mut self) {
+        let Some(v) = self.voicer.as_ref() else {
+            return;
+        };
+        self.seen = v.voices_seen();
+        self.voices = v.voices();
+        (self.voices)
+            .sort_by(|a, b| (a.language.as_str(), a.name.as_str()).cmp(&(&b.language, &b.name)));
     }
 
     /// Stops any sample and lets the engine go.
@@ -109,6 +119,14 @@ impl Booth {
 
     /// Each frame while open: hears the sample end.
     pub fn tick(&mut self, ctx: &Context) {
+        // A voice found mute, here or by the book's reading, leaves the list.
+        if self
+            .voicer
+            .as_ref()
+            .is_some_and(|v| v.voices_seen() != self.seen)
+        {
+            self.relist();
+        }
         let (Some(v), Some(id)) = (self.voicer.as_mut(), self.trying) else {
             return;
         };

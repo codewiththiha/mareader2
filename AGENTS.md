@@ -72,9 +72,11 @@ it may crash the app or lose the user's place. In non-test code:
   zero and NaN or infinite casts (`f32::NAN.clamp(..)` stays NaN).
 - Cap allocations sized by input; bound recursion with depth limits. EPUB adds
   zip bombs, deep XML, path escapes and huge images to the list.
-- No `unsafe`: the workspace denies `unsafe_code`. The owner allowed two
-  macOS exceptions for AppKit calls: `apps/mareader/src/traffic_lights.rs` and
-  `open_files.rs`. `cargo xtask unsafe` fails if any other file allows it.
+- No `unsafe`: the workspace denies `unsafe_code`. The owner allowed three
+  macOS exceptions: `apps/mareader/src/traffic_lights.rs` and `open_files.rs`
+  for AppKit, and `crates/speech/src/mac_voices.rs`, which asks which listed
+  voices have their sound. `cargo xtask unsafe` fails if any other file
+  allows it.
 - Every crash fix gets a synthetic regression test.
 
 ## Layering
