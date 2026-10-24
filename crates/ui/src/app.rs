@@ -2192,7 +2192,12 @@ impl MareaderApp {
                 booth.try_voice_of(ctx, &self.settings.read_aloud, shelf, &voice);
             }
             Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
-            Command::VoiceModel(action) => self.read_aloud.act(action),
+            Command::VoiceModel(action) => {
+                let settings = &mut self.settings.read_aloud;
+                if let Err(why) = self.read_aloud.act(action, settings) {
+                    self.toasts.push(Toast::error(why));
+                }
+            }
             Command::Explain(pane) => self.explain(ctx, pane),
             Command::LookUp(pane) => self.look_up(pane),
             Command::Dict(crate::dict::Action::Window(w)) => self.dict_window(w),

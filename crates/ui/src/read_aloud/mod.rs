@@ -222,19 +222,45 @@ pub struct ReadAloud {
 }
 
 impl ReadAloud {
-    /// Does what a voice-model button asked.
-    pub fn act(&mut self, action: ModelAction) {
+    /// Does what a voice-model button asked; a failed delete says why.
+    pub fn act(
+        &mut self,
+        action: ModelAction,
+        settings: &mut ReadAloudSettings,
+    ) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         match action {
             ModelAction::Download(item) => self.shelf.download(item),
             ModelAction::Pause(item) => self.shelf.pause(item),
             ModelAction::Cancel(item) => self.shelf.cancel(item),
             ModelAction::Remove(item) => {
-                let _ = self.shelf.remove(item);
+                let removed = self.shelf.remove(item);
+                // Samples may hold the model; the booth opens again when shown.
+                self.booth.close();
+                self.let_go(settings);
+                return removed;
             }
         }
         #[cfg(target_arch = "wasm32")]
-        let _ = action;
+        let _ = (action, settings);
+        Ok(())
+    }
+
+    /// Off a model no longer downloaded, onto the system voices.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn let_go(&mut self, settings: &mut ReadAloudSettings) {
+        let engine = settings.engine.as_str();
+        let shelf = &self.shelf;
+        let gone = shelf.model(engine).is_some() && !shelf.ready().iter().any(|m| m.id == engine);
+        if !gone {
+            return;
+        }
+        if let Some(Session::Spoken(s)) = &self.session
+            && s.engine() == engine
+        {
+            self.stop();
+        }
+        settings.engine = mareader_speech::SYSTEM.to_owned();
     }
 
     pub fn active(&self) -> bool {

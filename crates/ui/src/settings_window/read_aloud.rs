@@ -220,7 +220,7 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
             ui.label(RichText::new(text).size(t.text_small).color(t.muted));
         });
         divider(ui);
-        let hint = "While nothing is read with it";
+        let hint = "Counted from when reading pauses or stops";
         row(ui, "Keep a model loaded", hint, |ui| {
             widgets::combo("model-idle")
                 .width(150.0)

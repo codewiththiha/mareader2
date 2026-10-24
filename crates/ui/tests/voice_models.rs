@@ -227,6 +227,25 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
 }
 
 #[test]
+fn removing_the_model_read_with_goes_back_to_system_voices() {
+    let dir = tempfile::tempdir().unwrap();
+    downloaded(dir.path());
+    let mut h = settings(dir.path());
+    let engine = |h: &Harness<'static, MareaderApp>| h.state().settings().read_aloud.engine.clone();
+    h.state_mut()
+        .set_option("set", "read_aloud.engine:\"tiny\"")
+        .unwrap();
+    h.run_steps(2);
+    assert_eq!(engine(&h), "tiny");
+    press(&mut h, "Manage Tiny");
+    h.run_steps(3);
+    press(&mut h, "Remove Tiny");
+    h.run_steps(4);
+    assert!(!dir.path().join("tiny").exists());
+    assert_eq!(engine(&h), mareader_speech::SYSTEM);
+}
+
+#[test]
 fn a_voice_picked_in_the_model_tab_is_kept_for_its_engine() {
     let dir = tempfile::tempdir().unwrap();
     downloaded(dir.path());
