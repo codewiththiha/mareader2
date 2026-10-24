@@ -243,7 +243,12 @@ impl ReadAloudSettings {
 
     /// The engine in use's own settings; none set is empty.
     pub fn knobs(&self) -> std::collections::BTreeMap<String, f32> {
-        self.knobs.get(&self.engine).cloned().unwrap_or_default()
+        self.knobs_for(&self.engine)
+    }
+
+    /// `engine`'s own settings; none set is empty.
+    pub fn knobs_for(&self, engine: &str) -> std::collections::BTreeMap<String, f32> {
+        self.knobs.get(engine).cloned().unwrap_or_default()
     }
 
     /// How long an unused model stays loaded; `None` while reading.
@@ -254,12 +259,22 @@ impl ReadAloudSettings {
 
     /// The voice picked for the engine in use, if any.
     pub fn voice(&self) -> Option<&str> {
-        self.voices.get(&self.engine).map(String::as_str)
+        self.voice_for(&self.engine)
+    }
+
+    /// The voice picked for `engine`, if any.
+    pub fn voice_for(&self, engine: &str) -> Option<&str> {
+        self.voices.get(engine).map(String::as_str)
     }
 
     /// The build picked for the engine in use, if any.
     pub fn build(&self) -> Option<&str> {
-        self.builds.get(&self.engine).map(String::as_str)
+        self.build_for(&self.engine)
+    }
+
+    /// The build picked for `engine`, if any.
+    pub fn build_for(&self, engine: &str) -> Option<&str> {
+        self.builds.get(engine).map(String::as_str)
     }
 }
 
