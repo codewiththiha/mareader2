@@ -429,3 +429,72 @@ Findings:
 - **Noise:** the first run's emoji Markdown and library grid rows came
   out 15 to 30 MiB higher; the second run matched the earlier ones.
   Neither workload runs the changed code.
+
+## 2026-10-24: An egui app's memory, and macOS giving it back
+
+- **Why:** to find memory handling carried over from a web front end that
+  an immediate-mode app does not need, check whether virtual lists help in
+  egui, and make macOS let go of memory while reading and scrolling as
+  Linux and Windows do.
+- **How:** `tools/ci.py memory`, now on two runners. Linux as before
+  (lavapipe). macOS on a real GPU, reading the footprint Activity Monitor
+  shows (`footprint`), each book run as the app runs, with
+  `MallocLargeCache=0`, and tracemonkey once more with macOS's default
+  allocator for comparison. Before: `4942826`. After: `b66b326`.
+
+What an immediate-mode app needs, and what was checked:
+
+- **No retained widget tree.** egui rebuilds the frame from the app's own
+  state, so there is no DOM, style engine, script heap or second process to
+  feed. egui's own share is a few MiB, mostly the font atlas. Idle, two
+  empty panes, the app's footprint on macOS is **27 MiB**.
+- **Nothing web-shaped was found.** Page rasters go straight to GPU
+  textures and the CPU copy is dropped; no images travel as PNG or base64;
+  JSON is only for settings, export and AI replies. The things a web front
+  end needed (frames, message passing, measuring the DOM, pdf.js latches)
+  were never carried over (ADR 0005).
+- **Virtual lists stay.** egui's `show_rows` and `show_viewport` lay out
+  and paint only what is in view: library grid and list, the tree, find
+  results, thumbnails and the outline. That saves work each frame, not
+  memory egui would keep; the data behind them is capped on its own. The
+  highlights panel lays out every row (rows differ in height) and costs
+  only while open; the word list stops its preview already.
+- **Kept, as they help an egui app:** the byte-capped caches that rest
+  after three quiet seconds, the upload limit per frame (no frame stalls),
+  waiting for a resize to settle before drawing pages again, and machine
+  fonts lent to egui from mapped files, never copied. egui's URI image
+  loaders keep every image forever; here they hold only a few small logos.
+
+| Workload, step (MiB) | Linux before | Linux after | macOS, default allocator | macOS, as the app runs |
+|---|---|---|---|---|
+| tracemonkey, every page read | 372 | 370 | 383 | 133 |
+| tracemonkey, left alone four seconds | 365 | 350 | 443 | 91 |
+| tracemonkey, its pane closed | 366 | 383 | 414 | 33 |
+| tracemonkey, after six rounds | 426 | 438 | 972 | 33 |
+| War and Peace, every page read | 605 | 598 | — | 326 |
+| War and Peace, left alone | 621 | 558 | — | 131 |
+| War and Peace, its pane closed | 493 | 493 | — | 40 |
+| The Raven, left alone | 541 | 518 | — | — |
+| Attention, left alone | 371 | 341 | — | — |
+| Library of 3,000, list scrolled to the end | 450 | 429 | — | 108 |
+
+Findings:
+
+- **macOS kept what the app freed.** Its allocator holds freed large blocks
+  (page rasters, pictures, decoded fonts) as its own until the machine is
+  short, and counts them in the app's footprint: six rounds of reading and
+  closing a 14-page PDF reach 972 MiB with nothing open. The app now starts
+  itself with that cache off (`apps/mareader/src/main.rs`); the same rounds
+  end at 33 MiB, and memory follows the caches down as pages scroll away,
+  rest and close. The setting is read only at start, hence the relaunch.
+- **Resting caches now hand memory back.** A second after caches rest, a
+  short thread asks the allocator to return free pages
+  (`mareader_memory::give_back`: `malloc_trim` on Linux, pressure relief on
+  macOS; Windows returns it already). On Linux, books at rest are 15 to 63
+  MiB lower and the library 21 MiB.
+- **Known limit, measuring:** on Linux the rows right after closing hardly
+  move, as before: lavapipe keeps texture memory in large blocks. macOS
+  frees each texture, so its rows show what the app holds.
+- **Known limit, cost:** without the large-block cache, macOS gets that
+  memory from the system again each time. Others report 4 to 8% slower
+  allocation-heavy work; not yet measured here.
