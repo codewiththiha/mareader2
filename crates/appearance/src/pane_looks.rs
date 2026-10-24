@@ -46,6 +46,10 @@ pub struct PaneLooks<K> {
     /// The panes, and the one in front, at the last reconcile.
     placed: Vec<K>,
     front: Option<K>,
+    /// The panes by age, eldest first.
+    born: Vec<K>,
+    /// The pane the window, and so the interface, wears the look of.
+    crown: Option<K>,
 }
 
 impl<K> Default for PaneLooks<K> {
@@ -54,6 +58,8 @@ impl<K> Default for PaneLooks<K> {
             looks: Vec::new(),
             placed: Vec::new(),
             front: None,
+            born: Vec::new(),
+            crown: None,
         }
     }
 }
@@ -94,11 +100,31 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
         }
         global.noise = after.noise;
         global.noise_intensity = after.noise_intensity;
-        global.sanitize();
         if r.any() {
             look.sanitize();
             self.set(pane, look);
+            // The crowned pane's look is the window's too.
+            if self.crown == Some(pane) {
+                *global = self.shown(pane, global, r);
+            }
         }
+        global.sanitize();
+    }
+
+    /// Lands an edit of the window's look: the crowned pane's, while split.
+    pub fn edit_window(&mut self, global: &mut Appearance, r: Routing, after: Appearance) {
+        match self.crown.filter(|_| r.any()) {
+            Some(crown) => self.edit(crown, global, r, after),
+            None => {
+                *global = after;
+                global.sanitize();
+            }
+        }
+    }
+
+    /// The pane whose look the window wears, while panes have their own.
+    pub fn crowned(&self) -> Option<K> {
+        self.crown
     }
 
     /// Follows this frame's routing and panes from the last frame's.
@@ -111,15 +137,23 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
     ) {
         let before = std::mem::replace(&mut self.placed, placed.to_vec());
         let front = self.front.replace(active);
+        self.born.retain(|k| placed.contains(k));
+        for &k in placed {
+            if !self.born.contains(&k) {
+                self.born.push(k);
+            }
+        }
         if was.split && !now.split {
             // The survivor's look becomes the window's.
             if let (true, Some(&survivor)) = (was.any(), placed.first()) {
                 *global = self.shown(survivor, global, was);
             }
+            self.crown = None;
             self.looks.clear();
             return;
         }
         if !now.any() {
+            self.crown = None;
             self.looks.clear();
             return;
         }
@@ -145,6 +179,7 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
                 copy_texture(look, global);
             }
         }
+        self.coronate(keeper, global, now);
         if enabled {
             return;
         }
@@ -153,6 +188,20 @@ impl<K: Copy + PartialEq> PaneLooks<K> {
             let look = self.distinct_look(from, global, now, random);
             self.set(pane, look);
         }
+    }
+
+    /// Crowns the keeper when none is, the eldest when the crowned closed.
+    fn coronate(&mut self, keeper: K, global: &mut Appearance, r: Routing) {
+        if self.crown.is_some_and(|c| self.placed.contains(&c)) {
+            return;
+        }
+        let heir = match self.crown {
+            Some(_) => self.born.first().copied().unwrap_or(keeper),
+            None => keeper,
+        };
+        self.crown = Some(heir);
+        // The window, and the interface with it, takes on the heir's look.
+        *global = self.shown(heir, global, r);
     }
 
     fn get(&self, pane: K) -> Option<Appearance> {
@@ -432,6 +481,56 @@ mod tests {
         looks.reconcile((SPLIT, one), (&[2], 2), &mut global, &mut fixed(0.5));
         assert_eq!(global, two);
         assert_eq!(looks.shown(2, &global, one), two);
+    }
+
+    #[test]
+    fn the_window_wears_the_first_pane_s_look_as_it_changes() {
+        let mut global = Appearance::default();
+        let mut looks = split(SPLIT, &mut global);
+        assert_eq!(looks.crowned(), Some(1), "the pane split from");
+        let mut dark = looks.shown(1, &global, SPLIT);
+        dark.base = BaseMode::Dark;
+        looks.edit(1, &mut global, SPLIT, dark);
+        assert_eq!(global.base, BaseMode::Dark, "the interface follows it");
+        let mut light = looks.shown(2, &global, SPLIT);
+        light.base = BaseMode::Light;
+        looks.edit(2, &mut global, SPLIT, light);
+        assert_eq!(global.base, BaseMode::Dark, "not another pane");
+        // An edit of the window's own look is the crowned pane's.
+        let mut dim = global;
+        dim.base = BaseMode::Dim;
+        looks.edit_window(&mut global, SPLIT, dim);
+        assert_eq!(looks.shown(1, &global, SPLIT).base, BaseMode::Dim);
+        assert_eq!(looks.shown(2, &global, SPLIT).base, BaseMode::Light);
+    }
+
+    #[test]
+    fn closing_the_crowned_pane_crowns_the_eldest_left() {
+        let mut global = Appearance::default();
+        let mut looks = split(SPLIT, &mut global);
+        let all = [1, 2, 3];
+        looks.reconcile((SPLIT, SPLIT), (&all, 3), &mut global, &mut fixed(0.5));
+        let two = looks.shown(2, &global, SPLIT);
+        looks.reconcile((SPLIT, SPLIT), (&[2, 3], 3), &mut global, &mut fixed(0.5));
+        assert_eq!(looks.crowned(), Some(2));
+        assert_eq!(global, two, "the window wears the heir's look");
+        assert_eq!(looks.shown(2, &global, SPLIT), two);
+        assert_ne!(looks.shown(3, &global, SPLIT), two, "the other keeps its");
+    }
+
+    #[test]
+    fn enabling_in_a_split_crowns_the_front_pane() {
+        let off = Routing {
+            themes: false,
+            ..SPLIT
+        };
+        let mut global = Appearance::default();
+        let mut looks = PaneLooks::default();
+        let placed = [1, 2, 3];
+        looks.reconcile((off, off), (&placed, 2), &mut global, &mut fixed(0.5));
+        looks.reconcile((off, SPLIT), (&placed, 2), &mut global, &mut fixed(0.5));
+        assert_eq!(looks.crowned(), Some(2));
+        assert_eq!(global, Appearance::default(), "its look was the window's");
     }
 
     #[test]
