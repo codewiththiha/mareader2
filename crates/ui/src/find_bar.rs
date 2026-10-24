@@ -57,6 +57,8 @@ pub struct FindBar {
     rect: Option<Rect>,
     /// When it last came up, for its rise.
     shown_at: Option<f64>,
+    /// The list scrolls to the current hit on its next frame.
+    reveal: bool,
 }
 
 impl FindBar {
@@ -144,6 +146,7 @@ impl FindBar {
     fn activate(&mut self, hit: usize) {
         self.active = Some(hit);
         self.seek = Some((hit, SEEK_FRAMES));
+        self.reveal = true;
     }
 
     /// A step from the keys or buttons: through the hits, or once they come.
@@ -284,6 +287,7 @@ impl FindBar {
                     };
                     if knob(ui, t, Icon::List, name, self.list).clicked() {
                         self.list = !self.list;
+                        self.reveal = self.list;
                     }
                     let (back, next) = steps(ui, t);
                     if let Some((text, tone)) = self.tally(found) {
@@ -376,6 +380,10 @@ impl FindBar {
         frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 6.0;
+            if self.query.trim().is_empty() {
+                hint(ui, t);
+                return;
+            }
             let hits = found.map_or(&[][..], |f| f.hits.as_slice());
             let Some(f) = found.filter(|_| !hits.is_empty()) else {
                 self.nothing(ui, t, found);
@@ -411,14 +419,19 @@ impl FindBar {
     }
 
     /// The rows, scrolling past a few; the one clicked, if any.
-    fn rows(&self, ui: &mut Ui, t: &Tokens, hits: &[Hit]) -> Option<usize> {
+    fn rows(&mut self, ui: &mut Ui, t: &Tokens, hits: &[Hit]) -> Option<usize> {
         let mut picked = None;
         let needle = self.query.trim();
         // Inside an area the list would shrink to egui's 64 pt floor.
         ui.spacing_mut().item_spacing.y = 2.0;
         let tall = hits.len() as f32 * (ROW_H + 2.0) - 2.0;
-        egui::ScrollArea::vertical()
-            .max_height(LIST_MAX_H)
+        let mut list = egui::ScrollArea::vertical();
+        if let Some(i) = self.active.filter(|_| std::mem::take(&mut self.reveal)) {
+            // The current row, centred, wherever it was picked from.
+            let top = i as f32 * (ROW_H + 2.0) - (LIST_MAX_H - ROW_H) / 2.0;
+            list = list.vertical_scroll_offset(top.max(0.0));
+        }
+        list.max_height(LIST_MAX_H)
             .min_scrolled_height(tall.min(LIST_MAX_H))
             .auto_shrink([false, true])
             .show_rows(ui, ROW_H, hits.len(), |ui, rows| {
@@ -434,6 +447,18 @@ impl FindBar {
             });
         picked
     }
+}
+
+/// Before any query: what the list will hold, not a search.
+fn hint(ui: &mut Ui, t: &Tokens) {
+    ui.horizontal(|ui| {
+        ui.set_min_height(36.0);
+        ui.add_space(4.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+        Icon::Search.paint(ui, rect, t.muted);
+        let words = "Type a word to see every place it appears";
+        ui.label(RichText::new(words).color(t.muted));
+    });
 }
 
 /// A count's mood: something found, or nothing.
@@ -573,7 +598,11 @@ fn map(ui: &mut Ui, t: &Tokens, f: &Found, active: Option<usize>) -> Option<usiz
         let r = ui.interact(tick.expand2(vec2(3.0, 4.0)), id, Sense::click());
         let ink = if r.hovered() { t.ink } else { t.muted };
         ui.painter().rect_filled(tick, CornerRadius::same(1), ink);
-        let r = r.on_hover_text(format!("Page {}", hit.page + 1));
+        let page = hit.page + 1;
+        r.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tick_name(page))
+        });
+        let r = r.on_hover_text(format!("Page {page}"));
         if r.clicked() {
             went = Some(i);
         }
@@ -586,6 +615,11 @@ fn map(ui: &mut Ui, t: &Tokens, f: &Found, active: Option<usize>) -> Option<usiz
             .circle_stroke(at, 4.5, Stroke::new(1.5, t.surface));
     }
     went
+}
+
+/// A map tick's name, for screen readers and tests.
+pub fn tick_name(page: usize) -> String {
+    format!("Go to page {page}")
 }
 
 /// A page chip, then two lines of words with the match marked.

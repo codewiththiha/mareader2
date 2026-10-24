@@ -213,3 +213,29 @@ fn escape_closes_the_bar_and_keeps_the_query() {
     assert!(!h.state().find().is_open());
     assert_eq!(h.state().find().query(), "quick");
 }
+
+#[test]
+fn a_page_picked_on_the_map_scrolls_the_list_to_its_row() {
+    let mut h = reader(&[("pdf", "sample:30")]);
+    search(&mut h, "quick");
+    h.get_by_label("Show results").click();
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("Page 25: ").is_none());
+    h.get_by_label(&mareader_ui::find_bar::tick_name(25))
+        .click();
+    h.run_steps(3);
+    assert_eq!(h.state().find().active(), Some(24));
+    let row = h.get_by_label_contains("Page 25: ").rect();
+    let bar = h.state().find().rect().unwrap_or(egui::Rect::NOTHING);
+    assert!(bar.contains_rect(row), "row in view: {bar:?} {row:?}");
+}
+
+#[test]
+fn the_list_before_a_query_hints_instead_of_searching() {
+    let mut h = reader(&[("pdf", "sample:3")]);
+    search(&mut h, "");
+    h.get_by_label("Show results").click();
+    h.run_steps(3);
+    let _ = h.get_by_label("Type a word to see every place it appears");
+    assert!(h.query_by_label("Searching…").is_none());
+}
