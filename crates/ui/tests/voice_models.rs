@@ -166,6 +166,13 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
     h
 }
 
+/// Scrolls the control named `label` into view, then clicks it.
+fn press(h: &mut Harness<'static, MareaderApp>, label: &str) {
+    h.get_by_label(label).scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label(label).click();
+}
+
 /// Puts the model's first download on disk, as a finished one leaves it.
 fn downloaded(dir: &std::path::Path) {
     let folder = dir.join("tiny");
@@ -189,7 +196,7 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     let kept = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Speech kept");
     assert_eq!(kept.accesskit_node().numeric_value(), Some(64.0));
     let _ = h.get_by_label("Nothing loaded");
-    h.get_by_label("Voices…").click();
+    press(&mut h, "Voices…");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
     let _ = h.get_by_label("All voices");
@@ -197,11 +204,17 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     let _ = h.get_by_label("Download Tiny (Lite)");
     let _ = h.get_by_label("Use Big");
     assert!(h.query_by_label("Remove Tiny (Big)").is_none());
+    // The pick's language starts open; the other opens on a click.
+    assert!(h.query_by_label("Download Bo").is_none());
+    press(&mut h, "British English");
+    h.run_steps(2);
     // The first voice came with it; the other is a download away.
     let _ = h.get_by_label("Download Bo");
+    let _ = h.get_by_label("Preview Ada");
+    assert!(h.query_by_label("Preview Bo").is_none());
     assert!(h.query_by_label("Remove Ada").is_none());
     let _ = h.get_by_label("Use Ada");
-    h.get_by_label("Remove Tiny").click();
+    press(&mut h, "Remove Tiny");
     h.run_steps(4);
     assert_eq!(tab(&h), Tab::ReadAloud);
     assert!(!dir.path().join("tiny").exists());
@@ -219,11 +232,11 @@ fn a_voice_picked_in_the_model_tab_is_kept_for_its_engine() {
         .queue(Command::OpenSettings(Tab::Model(model)));
     h.run_steps(3);
     assert!(h.query_by_label("Download Bo").is_none());
-    h.get_by_label("Use Bo").click();
+    press(&mut h, "Use Bo");
     h.run_steps(2);
     let voices = &h.state().settings().read_aloud.voices;
     assert_eq!(voices.get("tiny").map(String::as_str), Some("bo"));
-    h.get_by_label("Remove Bo").click();
+    press(&mut h, "Remove Bo");
     h.run_steps(3);
     assert!(!dir.path().join("tiny/voices/bo.pt").exists());
     let _ = h.get_by_label("Download Bo");
@@ -233,7 +246,7 @@ fn a_voice_picked_in_the_model_tab_is_kept_for_its_engine() {
 fn a_download_that_cannot_reach_its_host_offers_another_try() {
     let dir = tempfile::tempdir().unwrap();
     let mut h = settings(dir.path());
-    h.get_by_label("Download Tiny").click();
+    press(&mut h, "Download Tiny");
     for _ in 0..600 {
         h.run_steps(1);
         if h.query_by_label("Try again Tiny").is_some() {
@@ -255,11 +268,11 @@ fn a_second_build_is_picked_for_its_model_then_removed_alone() {
     h.state_mut()
         .queue(Command::OpenSettings(Tab::Model(model)));
     h.run_steps(3);
-    h.get_by_label("Use Lite").click();
+    press(&mut h, "Use Lite");
     h.run_steps(2);
     let builds = &h.state().settings().read_aloud.builds;
     assert_eq!(builds.get("tiny").map(String::as_str), Some("lite"));
-    h.get_by_label("Remove Tiny (Lite)").click();
+    press(&mut h, "Remove Tiny (Lite)");
     h.run_steps(3);
     assert!(!dir.path().join("tiny/lite.bin").exists());
     assert!(dir.path().join("tiny/weights.bin").exists());
@@ -294,7 +307,7 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
     }
     let mut h = settings(dir.path());
     assert!(h.query_by_label("Download Solo").is_none());
-    h.get_by_label("Voices…").click();
+    press(&mut h, "Voices…");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "solo"));
     let _ = h.get_by_label("Use Cy");
@@ -308,7 +321,7 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
     h.run_steps(2);
     let slider = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Expression");
     assert_eq!(slider.accesskit_node().numeric_value(), Some(0.5));
-    h.get_by_label("Reset").click();
+    press(&mut h, "Reset");
     h.run_steps(2);
     assert!(
         h.state().settings().read_aloud.knobs.is_empty(),
@@ -338,11 +351,11 @@ fn voices_inside_the_builds_need_no_download_and_builds_share_their_file() {
     assert!(h.query_by_label("All voices").is_none(), "nothing to fetch");
     assert!(h.query_by_label("Download Max").is_none());
     assert!(h.query_by_label("Remove Max").is_none());
-    h.get_by_label("Use Max").click();
+    press(&mut h, "Use Max");
     h.run_steps(2);
     let voices = &h.state().settings().read_aloud.voices;
     assert_eq!(voices.get("duo").map(String::as_str), Some("max"));
-    h.get_by_label("Remove Duo (Large)").click();
+    press(&mut h, "Remove Duo (Large)");
     h.run_steps(3);
     assert!(!folder.join("large.onnx").exists());
     assert!(

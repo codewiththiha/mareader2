@@ -146,6 +146,13 @@ fn a_sentence_below_the_fold_is_brought_into_view() {
     assert!(shown.contains_rect(at), "{at:?} shows within {shown:?}");
 }
 
+/// Scrolls the control named `label` into view, then clicks it.
+fn press(h: &mut Harness<'static, MareaderApp>, label: &str) {
+    h.get_by_label(label).scroll_to_me();
+    h.run_steps(30);
+    h.get_by_label(label).click();
+}
+
 /// The reader with settings open on the Read aloud tab.
 fn voice_settings(pages: usize) -> Harness<'static, MareaderApp> {
     let mut h = reader(pages);
@@ -162,13 +169,36 @@ fn the_tab_lists_the_engine_voices_and_picks_one() {
     // English first: the French voice waits behind the language picker.
     let _ = h.get_by_label("System default");
     assert!(h.query_by_label("Hush").is_none());
-    h.get_by_label("Quiet").click();
+    press(&mut h, "Quiet");
     h.run_steps(2);
     let picked = h.state().settings().read_aloud.voice().map(str::to_owned);
     assert_eq!(picked.as_deref(), Some("quiet-en"));
-    h.get_by_label("System default").click();
+    press(&mut h, "System default");
     h.run_steps(2);
     assert_eq!(h.state().settings().read_aloud.voice(), None);
+    // The list folds away, its pick still named.
+    press(&mut h, "Voices");
+    h.run_steps(2);
+    assert!(h.query_by_label("Quiet").is_none());
+    press(&mut h, "Voices");
+    h.run_steps(2);
+    let _ = h.get_by_label("Quiet");
+}
+
+#[test]
+fn each_voice_says_a_line_in_itself() {
+    let mut h = voice_settings(1);
+    press(&mut h, "Preview Quiet");
+    h.run_steps(1);
+    let booth = &h.state().read_aloud().booth;
+    assert_eq!(booth.samples(), 1);
+    assert_eq!(booth.trying_voice(), Some("quiet-en"));
+    // Its picked voice stays as it was.
+    assert_eq!(h.state().settings().read_aloud.voice(), None);
+    // Once the line ends, its button offers it again.
+    step_until(&mut h, |h| !h.state().read_aloud().booth.trying());
+    h.run_steps(1);
+    let _ = h.get_by_label("Preview Quiet");
 }
 
 #[test]
@@ -176,7 +206,7 @@ fn a_preview_says_a_line_and_the_book_waits() {
     let mut h = voice_settings(1);
     start(&mut h, ReadFrom::default());
     assert!(h.state().read_aloud().playing());
-    h.get_by_label("Preview").click();
+    press(&mut h, "Preview");
     h.run_steps(1);
     assert_eq!(h.state().read_aloud().booth.samples(), 1);
     assert!(!h.state().read_aloud().playing(), "the book pauses");

@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
@@ -27,6 +28,7 @@ fn main() -> Result<(), String> {
     let mut right = None;
     let mut wait = 0;
     let mut scripted = false;
+    let mut clicks = Vec::new();
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -141,6 +143,8 @@ fn main() -> Result<(), String> {
             }
             // Frames to run before the shot, at 60 a second: `wait=90`.
             "wait" => wait = v.parse().map_err(|_| "wait=frames")?,
+            // Pressed by its name, `_` for a space: `click=All_voices`.
+            "click" => clicks.push(v.replace('_', " ")),
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
             // Clicks on its scripted pages: `script=#answer,li.right`.
@@ -231,6 +235,11 @@ fn main() -> Result<(), String> {
         wait_for_scripts(&mut harness)?;
     }
     harness.run_steps(wait);
+    for label in &clicks {
+        let node = (harness.query_by_label(label)).ok_or(format!("nothing named {label}"))?;
+        node.click();
+        harness.run_steps(8);
+    }
     for _ in 0..tabs {
         harness.key_press(egui::Key::Tab);
         harness.run_steps(4);
