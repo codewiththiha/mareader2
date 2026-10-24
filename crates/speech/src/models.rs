@@ -174,6 +174,23 @@ impl Model {
 /// Every model on offer.
 pub const MODELS: &[Model] = &[KOKORO, PIPER, KITTEN];
 
+/// How English words sound, for word cards: the voices' own data, alone.
+pub const PRONUNCIATION: Model = Model {
+    id: "pronunciation",
+    name: "Pronunciation",
+    about: "How English words sound, in American and British English",
+    license: "Apache 2.0",
+    hosts: G2P_HOSTS,
+    files: &G2P,
+    builds: &[],
+    voices: &[],
+    first_voice: "",
+    knobs: &[],
+};
+
+/// Downloads beside the voice models, sharing their files.
+pub const AIDS: &[Model] = &[PRONUNCIATION];
+
 /// Pinned, so a file never changes under its checksum.
 const KOKORO_HOSTS: &[&str] = &[
     "https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987/",
