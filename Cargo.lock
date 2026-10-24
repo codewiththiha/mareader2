@@ -3779,6 +3779,7 @@ dependencies = [
  "mareader-kokoro",
  "mareader-vits",
  "sha2",
+ "sys-locale",
  "tempfile",
  "tts",
 ]
