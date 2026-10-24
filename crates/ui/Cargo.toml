@@ -24,6 +24,7 @@ mareader-cefr = { workspace = true }
 mareader-search = { workspace = true }
 mareader-audio = { workspace = true }
 mareader-speech = { workspace = true }
+mareader-memory = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }
