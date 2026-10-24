@@ -22,6 +22,10 @@ mareader-kokoro = { workspace = true }
 mareader-vits = { workspace = true }
 mareader-audio = { workspace = true }
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# The default voice comes back by the user's language: Apple's speech opens once.
+sys-locale = "0.3"
+
 [dev-dependencies]
 sha2 = { workspace = true }
 tempfile = { workspace = true }
