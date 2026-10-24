@@ -3815,6 +3815,7 @@ dependencies = [
  "mareader-dict",
  "mareader-epub",
  "mareader-library",
+ "mareader-memory",
  "mareader-pdf",
  "mareader-reflow",
  "mareader-script",
