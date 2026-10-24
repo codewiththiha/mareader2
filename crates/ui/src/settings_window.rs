@@ -909,11 +909,11 @@ fn disclosure(ui: &mut Ui, label: &str, hint: &str) -> bool {
 }
 
 /// Two lines folding the rows below; true while open.
-/// Starts as `first`, then kept.
-fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str), first: bool) -> bool {
+/// Starts folded, then stays as left.
+fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str)) -> bool {
     let t = Tokens::get(ui.ctx());
     let kept = ui.data(|d| d.get_temp::<bool>(id));
-    let mut open = kept.unwrap_or(first);
+    let mut open = kept.unwrap_or(false);
     let size = vec2(ui.available_width(), 52.0);
     let (rect, r) = ui.allocate_exact_size(size, Sense::click());
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, title));

@@ -204,8 +204,11 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     let _ = h.get_by_label("Download Tiny (Lite)");
     let _ = h.get_by_label("Use Big");
     assert!(h.query_by_label("Remove Tiny (Big)").is_none());
-    // The pick's language starts open; the other opens on a click.
+    // Each language starts folded and opens on a click.
+    assert!(h.query_by_label("Use Ada").is_none());
     assert!(h.query_by_label("Download Bo").is_none());
+    press(&mut h, "American English");
+    h.run_steps(2);
     press(&mut h, "British English");
     h.run_steps(2);
     // The first voice came with it; the other is a download away.
@@ -234,6 +237,8 @@ fn a_voice_picked_in_the_model_tab_is_kept_for_its_engine() {
         .queue(Command::OpenSettings(Tab::Model(model)));
     h.run_steps(3);
     assert!(h.query_by_label("Download Bo").is_none());
+    press(&mut h, "British English");
+    h.run_steps(2);
     press(&mut h, "Use Bo");
     h.run_steps(2);
     let voices = &h.state().settings().read_aloud.voices;
