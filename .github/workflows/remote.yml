@@ -138,6 +138,83 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: memory-linux
+          path: out/
+          retention-days: 7
+
+  # macOS's footprint, as Activity Monitor shows it, on a real GPU.
+  memory-macos:
+    name: Remote / memory macOS
+    if: inputs.task == 'memory'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: memory-macos
+      - name: Books
+        run: |
+          mkdir -p books out
+          get() { curl -sSfL -A "Mozilla/5.0" --retry 3 -o "books/$1" "$2" || rm -f "books/$1"; }
+          get tracemonkey.pdf https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf
+          get war-and-peace.epub https://www.gutenberg.org/ebooks/2600.epub3.images
+          ls -l books
+      - name: Measure
+        run: |
+          set -o pipefail
+          cargo build -q -p mareader-ui --example memory
+          md=out/memory-macos.md
+          status=0
+          # The app starts itself with the large-block cache off; so do these.
+          run() {
+            title=$1; shift
+            case "$1" in books/*) [ -f "$1" ] || { echo "skipped: $title" | tee -a $md; return; } ;; esac
+            printf '## macOS: %s\n\n' "$title" >> $md
+            MallocLargeCache=0 target/debug/examples/memory "$@" | tee -a $md || status=1
+            echo >> $md
+          }
+          run "tracemonkey, 14 pp" books/tracemonkey.pdf 6
+          run "War and Peace, EPUB" books/war-and-peace.epub 2
+          run "Library, 3,000 PDFs read in place" --library 3000
+          # For comparison only: macOS's default allocator, budgets not held.
+          if [ -f books/tracemonkey.pdf ]; then
+            printf '## macOS, default allocator: tracemonkey, 14 pp\n\n' >> $md
+            target/debug/examples/memory books/tracemonkey.pdf 6 | sed 's/| \*\*no\*\* |/| no (default allocator) |/' | tee -a $md || true
+            echo >> $md
+          fi
+          cat $md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memory-macos
+          path: out/
+          retention-days: 7
+
+  memory-report:
+    name: Remote / memory report
+    if: always() && inputs.task == 'memory'
+    needs: [memory, memory-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: memory-*
+          path: in
+      - name: Merge
+        run: |
+          mkdir -p out
+          cp in/memory-linux/* out/ 2>/dev/null || true
+          cat in/memory-macos/memory-macos.md >> out/memory.md 2>/dev/null || echo "macOS: no report" >> out/memory.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: memory
           path: out/
           retention-days: 7
