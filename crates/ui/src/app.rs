@@ -674,6 +674,7 @@ impl MareaderApp {
             any_text: self.tree.panes().into_iter().any(text),
             ai_pages: focused == Shown::Pdf && ai(self.active),
             sideways: reading.is_some_and(|r| r.mode == ViewMode::Horizontal),
+            explains: self.study.explains(),
         }
     }
 

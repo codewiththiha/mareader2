@@ -196,7 +196,7 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     let kept = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Speech kept");
     assert_eq!(kept.accesskit_node().numeric_value(), Some(64.0));
     let _ = h.get_by_label("Nothing loaded");
-    press(&mut h, "Voices…");
+    press(&mut h, "Tiny voices");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
     let _ = h.get_by_label("All voices");
@@ -307,7 +307,7 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
     }
     let mut h = settings(dir.path());
     assert!(h.query_by_label("Download Solo").is_none());
-    press(&mut h, "Voices…");
+    press(&mut h, "Solo voices");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "solo"));
     let _ = h.get_by_label("Use Cy");

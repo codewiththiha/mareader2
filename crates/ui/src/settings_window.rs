@@ -379,7 +379,13 @@ fn tab_body(
         Tab::ReadAloud => read_aloud::tab(ui, &mut s.read_aloud, voices, out),
         Tab::Model(m) => voice_model::tab(ui, &mut s.read_aloud, m, voices, out),
         Tab::Motion => motion(ui, s, cx),
-        Tab::Highlights => highlights::tab(ui, &mut s.study.highlights, out),
+        Tab::Highlights => {
+            let marks = highlights::Marks {
+                ai: cx.explains && Tab::Ai.available(),
+                shading: *vocab.state(mareader_cefr::Part::Dataset) == mareader_cefr::State::Ready,
+            };
+            highlights::tab(ui, &mut s.study.highlights, marks, out);
+        }
         Tab::Vocabulary => {
             let (study, dictionary) = (&mut s.study, &mut s.dictionary);
             vocabulary::tab(ui, study, dictionary, vocab, out);
@@ -990,6 +996,16 @@ fn radio(ui: &mut Ui, on: bool, name: &str) -> bool {
 
 /// A row named on two lines, its controls at the right.
 fn detail_row(ui: &mut Ui, title: &str, detail: &str, control: impl FnOnce(&mut Ui)) {
+    detail_row_tip(ui, (title, detail), "", control);
+}
+
+/// A [`detail_row`] whose lines tell more on hover.
+fn detail_row_tip(
+    ui: &mut Ui,
+    (title, detail): (&str, &str),
+    tip: &str,
+    control: impl FnOnce(&mut Ui),
+) {
     let t = Tokens::get(ui.ctx());
     let size = vec2(ui.available_width(), 52.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -1018,11 +1034,14 @@ fn detail_row(ui: &mut Ui, title: &str, detail: &str, control: impl FnOnce(&mut 
     painter.galley(low_at, low, t.muted);
     let named = ui.interact(top_rect, name, Sense::hover());
     named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
-    if cut {
-        let lines = Rect::from_min_max(at, pos2(rect.left() + room, rect.bottom()));
-        let whole = ui.interact(lines, name.with("whole"), Sense::hover());
-        whole.on_hover_text(format!("{title}\n{detail}"));
-    }
+    let told = match (cut, tip.is_empty()) {
+        (_, false) => tip.to_owned(),
+        (true, true) => format!("{title}\n{detail}"),
+        (false, true) => return,
+    };
+    let lines = Rect::from_min_max(at, pos2(rect.left() + room, rect.bottom()));
+    let whole = ui.interact(lines, name.with("whole"), Sense::hover());
+    whole.on_hover_text(told);
 }
 
 /// Honest copy for settings whose feature has not landed yet.

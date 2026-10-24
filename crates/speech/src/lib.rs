@@ -323,6 +323,32 @@ pub fn label(model: &Model, build: &Build) -> String {
     format!("{} ({})", model.name, build.name)
 }
 
+/// Samples a second `engine` keeps `voice` at;
+/// None when not kept or downloaded.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn speech_rate(engine: &str, voice: Option<&str>, shelf: &Shelf) -> Option<u32> {
+    let model = shelf.ready().into_iter().find(|m| m.id == engine)?;
+    match model.id {
+        id if id == KOKORO.id || id == KITTEN.id => Some(mareader_kokoro::SAMPLE_RATE),
+        id if id == PIPER.id => {
+            // Each Piper voice says its own rate in its settings.
+            let picked = voice.filter(|v| shelf.has(model, v));
+            let voice = model.voice(picked.unwrap_or(model.first_voice))?;
+            let settings = shelf.folder(model)?.join(voice.extra?.path);
+            let bytes = std::fs::read(settings).ok()?;
+            let config = mareader_vits::Config::parse(&bytes).ok()?;
+            Some(config.audio.sample_rate)
+        }
+        _ => None,
+    }
+}
+
+/// No speech is kept on the web.
+#[cfg(target_arch = "wasm32")]
+pub fn speech_rate(_engine: &str, _voice: Option<&str>, _shelf: &Shelf) -> Option<u32> {
+    None
+}
+
 /// The build `engine` runs: `wanted` if downloaded, else the best one.
 pub fn build_of(engine: &str, wanted: Option<&str>, shelf: &Shelf) -> Option<&'static str> {
     let model = shelf.model(engine)?;

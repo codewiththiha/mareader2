@@ -13,7 +13,16 @@ use crate::widgets;
 
 const DOT: f32 = 22.0;
 
-pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, out: &mut Commands) {
+/// The looks kept off the pens that are in use now.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Marks {
+    /// A model answers the AI Dictionary, which marks words.
+    pub ai: bool,
+    /// The word levels are in, so words can be shaded.
+    pub shading: bool,
+}
+
+pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, marks: Marks, out: &mut Commands) {
     section(ui, "Highlighters");
     group(ui, |ui| {
         for (i, pen) in Pen::ALL.into_iter().enumerate() {
@@ -67,24 +76,46 @@ pub fn tab(ui: &mut Ui, h: &mut HighlightSettings, out: &mut Commands) {
     section(ui, "Selection menu");
     group(ui, |ui| menu(ui, &mut h.bar));
     note(ui, "Hidden buttons stay off the selection bar.");
-    if Tab::Ai.available() {
-        ai_mark(ui, h, out);
-    }
+    other_marks(ui, h, marks, out);
 }
 
-/// The AI Dictionary's mark, kept off the pens; it's set in the AI tab.
-fn ai_mark(ui: &mut Ui, h: &HighlightSettings, out: &mut Commands) {
-    section(ui, "AI Dictionary");
+/// The AI's and the shading's looks, each set in its own tab.
+fn other_marks(ui: &mut Ui, h: &HighlightSettings, marks: Marks, out: &mut Commands) {
+    if !marks.ai && !marks.shading {
+        return;
+    }
+    section(ui, "Other marks");
     group(ui, |ui| {
-        let hint = "Highlights can't take this look, so none passes for it";
-        row(ui, "Its mark", hint, |ui| {
-            if ui.link("Change in AI").clicked() {
-                out.push(Command::OpenSettings(Tab::Ai));
-            }
-            ui.add_space(8.0);
-            preview(ui, h.ai.pen, h.ai.color, h.opacity);
-        });
+        if marks.ai {
+            let hint = "Words the AI Dictionary explained";
+            row(ui, "AI Dictionary", hint, |ui| {
+                change(ui, ("Change in AI", Tab::Ai), out);
+                preview(ui, h.ai.pen, h.ai.color, h.opacity);
+            });
+        }
+        if marks.ai && marks.shading {
+            divider(ui);
+        }
+        if marks.shading {
+            let hint = "Words above your level, while shading is on";
+            row(ui, "Vocabulary shading", hint, |ui| {
+                change(ui, ("Change in Vocabulary", Tab::Vocabulary), out);
+                preview(ui, h.cefr.pen, h.cefr.color, h.opacity);
+            });
+        }
     });
+    note(
+        ui,
+        "Highlights can't take these looks, so none passes for them.",
+    );
+}
+
+/// A link to the tab where a mark's look is set.
+fn change(ui: &mut Ui, (text, tab): (&str, Tab), out: &mut Commands) {
+    if ui.link(text).clicked() {
+        out.push(Command::OpenSettings(tab));
+    }
+    ui.add_space(8.0);
 }
 
 /// A pen's preview and the colours it may take.
