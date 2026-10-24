@@ -1,27 +1,34 @@
-//! The Vocabulary tab: the word data, then shading once it is in.
+//! The Vocabulary tab: word data, shading, and how words sound.
 
 use egui::{ProgressBar, RichText, Slider, Ui};
 use mareader_cefr::{DATASET, Part, State, TAGGER};
-use mareader_settings::{CefrLevel, DictionarySettings, Pen, StudySettings};
+use mareader_settings::{
+    Accent, CefrLevel, DictionarySettings, Notation, Pen, PronunciationSettings, StudySettings,
+};
+use mareader_speech::Stage;
 
 use super::highlights::{palette, preview};
 use super::{divider, group, note, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::dict::{count, megabytes};
 use crate::icons::Icon;
+use crate::sounds::{Action as SoundAction, Sounds};
 use crate::theme::Tokens;
 use crate::vocab::{Action, Vocab};
 use crate::widgets;
 
 pub fn tab(
     ui: &mut Ui,
-    study: &mut StudySettings,
-    dictionary: &mut DictionarySettings,
-    vocab: &Vocab,
+    (study, dictionary): (&mut StudySettings, &mut DictionarySettings),
+    (vocab, sounds): (&Vocab, &Sounds),
     out: &mut Commands,
 ) {
     section(ui, "Word data");
-    group(ui, |ui| data_row(ui, vocab, out));
+    group(ui, |ui| {
+        data_row(ui, vocab, out);
+        divider(ui);
+        sounds_row(ui, sounds, out);
+    });
     // Shading needs the levels: its options wait for them.
     let ready = *vocab.state(Part::Dataset) == State::Ready;
     if !vocab.attached() {
@@ -33,9 +40,17 @@ pub fn tab(
              and a paused download resumes where it stopped.",
         );
     }
-    if !ready {
-        return;
+    if ready {
+        shading(ui, study, dictionary);
     }
+    if sounds.ready() {
+        section(ui, "Pronunciation");
+        group(ui, |ui| pronunciation(ui, &mut study.pronunciation));
+    }
+}
+
+/// Shading words above the reader's level, and how it looks.
+fn shading(ui: &mut Ui, study: &mut StudySettings, dictionary: &mut DictionarySettings) {
     section(ui, "Vocabulary highlighter");
     group(ui, |ui| {
         let c = &mut study.cefr;
@@ -66,6 +81,36 @@ pub fn tab(
         ui,
         "Highlights can't take this look, so none passes for shading.",
     );
+}
+
+/// Whether the cards show how words sound, which accent, written how.
+fn pronunciation(ui: &mut Ui, p: &mut PronunciationSettings) {
+    let hint = "Under the word on dictionary and AI cards";
+    switch_row(ui, "Show on word cards", hint, &mut p.shown);
+    divider(ui);
+    row(ui, "Accent", "Which English the cards say", |ui| {
+        for accent in Accent::ALL.into_iter().rev() {
+            let on = p.accent == accent;
+            if ui
+                .add(egui::Button::selectable(on, accent.label()))
+                .clicked()
+            {
+                p.accent = accent;
+            }
+        }
+    });
+    divider(ui);
+    row(ui, "Written as", p.notation.detail(), |ui| {
+        for notation in Notation::ALL.into_iter().rev() {
+            let on = p.notation == notation;
+            if ui
+                .add(egui::Button::selectable(on, notation.label()))
+                .clicked()
+            {
+                p.notation = notation;
+            }
+        }
+    });
 }
 
 /// Both files as the one download the reader sees.
@@ -229,6 +274,63 @@ fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
                 words(ui, vocab, &t);
             }
             Whole::Failed(why) => failed(ui, &t, why, out),
+        }
+    });
+}
+
+fn sound_press(ui: &mut Ui, out: &mut Commands, (icon, name): (Icon, &str), action: SoundAction) {
+    let label = format!("{name} pronunciation");
+    if widgets::icon_button(ui, icon, &label, false).clicked() {
+        out.push(Command::Pronunciation(action));
+    }
+}
+
+/// The pronunciation pack; one a voice model holds is in already.
+fn sounds_row(ui: &mut Ui, sounds: &Sounds, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let hint = "How words sound, American and British, shared with voice models";
+    let size = sounds.bytes();
+    row(ui, "Pronunciation", hint, |ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        if !sounds.attached() {
+            muted(ui, &t, &megabytes(size));
+            return;
+        }
+        match sounds.stage() {
+            Stage::Absent => {
+                sound_press(ui, out, (Icon::Download, "Download"), SoundAction::Download);
+                muted(ui, &t, &megabytes(size));
+            }
+            Stage::Waiting | Stage::Checking => {
+                ui.spinner();
+                muted(ui, &t, "Preparing…");
+            }
+            Stage::Fetching { got, total } => {
+                sound_press(ui, out, (Icon::Close, "Cancel"), SoundAction::Cancel);
+                sound_press(ui, out, (Icon::Pause, "Pause"), SoundAction::Pause);
+                progress(ui, *got, Some(*total), size);
+            }
+            Stage::Paused { got, .. } => {
+                sound_press(ui, out, (Icon::Close, "Cancel"), SoundAction::Cancel);
+                sound_press(ui, out, (Icon::Resume, "Resume"), SoundAction::Download);
+                muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
+            }
+            Stage::Ready => match sounds.shared_with().first() {
+                // Its files are a voice model's too: removing frees nothing.
+                Some(name) => muted(ui, &t, &format!("Shared with {name}")),
+                None => {
+                    ui.visuals_mut().override_text_color = Some(t.danger);
+                    sound_press(ui, out, (Icon::Remove, "Remove"), SoundAction::Remove);
+                    ui.visuals_mut().override_text_color = None;
+                    muted(ui, &t, &megabytes(size));
+                }
+            },
+            Stage::Failed(why) => {
+                let action = SoundAction::Download;
+                sound_press(ui, out, (Icon::Rescan, "Try again"), action);
+                let r = ui.label(RichText::new("Couldn't download").color(t.danger));
+                widgets::tip(&r, why, None);
+            }
         }
     });
 }

@@ -388,7 +388,7 @@ fn tab_body(
         }
         Tab::Vocabulary => {
             let (study, dictionary) = (&mut s.study, &mut s.dictionary);
-            vocabulary::tab(ui, study, dictionary, vocab, out);
+            vocabulary::tab(ui, (study, dictionary), (vocab, voices.sounds), out);
         }
         Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]

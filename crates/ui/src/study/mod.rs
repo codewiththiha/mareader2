@@ -376,7 +376,7 @@ impl Study {
         Some((n.mark.id, n.draft.as_deref()))
     }
 
-    /// The word the open card explains, for tests.
+    /// The word the open card explains.
     pub fn card_word(&self) -> Option<&str> {
         self.card.as_ref().map(|c| c.word.as_str())
     }
@@ -1078,7 +1078,7 @@ impl Study {
         &mut self,
         ctx: &Context,
         main: &Library,
-        (panes, saying): (&[(PaneId, Rect)], Option<&str>),
+        (panes, heard): (&[(PaneId, Rect)], crate::sounds::Heard<'_>),
         (look, pens): (&GlossSettings, &HighlightSettings),
         out: &mut Commands,
     ) {
@@ -1128,7 +1128,8 @@ impl Study {
                 at: c.at,
                 room: room(c.pane)?,
                 density: look.density,
-                saying: saying == Some(c.word.as_str()),
+                saying: heard.saying(&c.word),
+                sound: heard.lines(&c.word),
             };
             Some(card::show(ctx, &view, &t, out))
         });

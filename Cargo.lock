@@ -3814,6 +3814,7 @@ dependencies = [
  "mareader-cefr",
  "mareader-dict",
  "mareader-epub",
+ "mareader-g2p",
  "mareader-library",
  "mareader-memory",
  "mareader-pdf",

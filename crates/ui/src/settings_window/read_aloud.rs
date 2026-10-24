@@ -20,6 +20,8 @@ pub struct Voices<'a> {
     /// Voice models on offer and their downloads.
     pub shelf: &'a Shelf,
     pub platform: Platform,
+    /// The pronunciation pack, which shares the models' files.
+    pub sounds: &'a crate::sounds::Sounds,
 }
 
 const VOICE_H: f32 = 34.0;

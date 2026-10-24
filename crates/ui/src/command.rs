@@ -168,6 +168,8 @@ pub enum Command {
     SetDictionary(Box<mareader_settings::DictionarySettings>),
     /// The word-level dataset: download, pause, cancel, remove.
     Vocab(crate::vocab::Action),
+    /// The pronunciation download, beside the word levels.
+    Pronunciation(crate::sounds::Action),
     /// Highlights the pane's selection; a colour if one was picked.
     Highlight {
         pane: PaneId,

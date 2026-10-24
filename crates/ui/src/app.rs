@@ -112,6 +112,8 @@ pub struct MareaderApp {
     /// Language packs, the lookup card and the Dictionary panel.
     dict: crate::dict::Dict,
     vocab: crate::vocab::Vocab,
+    /// How card words sound; shares files with the voice models.
+    sounds: crate::sounds::Sounds,
     /// A selection the options asked for, made once its page is laid out.
     staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
@@ -222,6 +224,7 @@ impl MareaderApp {
             ai: crate::ai::Ai::default(),
             dict: crate::dict::Dict::default(),
             vocab: crate::vocab::Vocab::default(),
+            sounds: crate::sounds::Sounds::default(),
             staged: Default::default(),
             lights: NativeLights::default(),
             documents: Documents::default(),
@@ -378,8 +381,11 @@ impl MareaderApp {
         catalogue: &'static [mareader_speech::Model],
     ) {
         let ctx = ctx.clone();
-        let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.read_aloud.shelf.attach(dir, catalogue, waker) {
+        let waker: mareader_speech::Waker = Arc::new(move || ctx.request_repaint());
+        let shelf = &mut self.read_aloud.shelf;
+        let attached = shelf.attach(dir.clone(), catalogue, waker.clone());
+        let attached = attached.and_then(|()| self.sounds.attach(dir, waker, shelf));
+        if let Err(e) = attached {
             self.toasts
                 .push(Toast::info(format!("Voice models are off: {e}")));
         }
@@ -882,7 +888,9 @@ impl MareaderApp {
             #[cfg(not(target_arch = "wasm32"))]
             "voice_models" => {
                 let (dir, models) = (PathBuf::from(value), mareader_speech::MODELS);
-                self.read_aloud.shelf.attach(dir, models, Arc::new(|| {}))?;
+                let shelf = &mut self.read_aloud.shelf;
+                shelf.attach(dir.clone(), models, Arc::new(|| {}))?;
+                self.sounds.attach(dir, Arc::new(|| {}), shelf)?;
             }
             #[cfg(not(target_arch = "wasm32"))]
             "cefr" => {
@@ -900,6 +908,7 @@ impl MareaderApp {
                 self.study.set_inline(n == 0);
                 self.page_ai.set_inline(n == 0);
                 self.dict.set_inline(n == 0);
+                self.sounds.set_inline(n == 0);
                 self.search.set_inline(n == 0);
             }
             // The floating Dictionary, searching for any word given.
@@ -1645,6 +1654,11 @@ impl MareaderApp {
             ctx.request_repaint();
         }
         if self.read_aloud.shelf.poll() {
+            // A voice model came or went: the pronunciation pack follows.
+            self.sounds.voices_changed();
+            ctx.request_repaint();
+        }
+        if self.sounds.poll(ctx.input(|i| i.time)) {
             ctx.request_repaint();
         }
         let memory = self.settings.read_aloud.speech_memory_mb as usize;
@@ -1654,10 +1668,15 @@ impl MareaderApp {
         if let (Some(role), Some(word)) = (role, word) {
             self.study.set_role(&word, role);
         }
+        let sounds = self.card_sounds(ctx.input(|i| i.time));
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
         let saying = self.read_aloud.saying();
-        let panes = (&self.pane_rects[..], saying);
+        let heard = crate::sounds::Heard {
+            saying,
+            sounds: &sounds,
+        };
+        let panes = (&self.pane_rects[..], heard);
         self.study.show(ctx, model, panes, looks, out);
         let gpu = self.documents.gpu();
         self.page_ai
@@ -1697,7 +1716,21 @@ impl MareaderApp {
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         let saying = self.read_aloud.saying();
-        self.dict.show(ctx, (&self.pane_rects, saying), offset, out);
+        let heard = crate::sounds::Heard {
+            saying,
+            sounds: &sounds,
+        };
+        self.dict.show(ctx, (&self.pane_rects, heard), offset, out);
+    }
+
+    /// How the open cards' words sound, as the settings write them.
+    fn card_sounds(&mut self, now: f64) -> Vec<(String, Vec<crate::sounds::Line>)> {
+        let words = [self.study.card_word(), self.dict.card_word()];
+        let words: Vec<String> = words.into_iter().flatten().map(str::to_owned).collect();
+        let shown = &self.settings.study.pronunciation;
+        let sounds = &mut self.sounds;
+        let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));
+        words.into_iter().filter_map(lines).collect()
     }
 
     /// Asks the tagger for the open card's word's role.
@@ -2220,6 +2253,11 @@ impl MareaderApp {
             Command::Dict(crate::dict::Action::Pursue(word)) => self.pursue(&word),
             Command::Dict(action) => self.dict.act(action),
             Command::Vocab(action) => self.vocab.act(action),
+            Command::Pronunciation(action) => {
+                if let Err(e) = self.sounds.act(action) {
+                    self.toasts.push(Toast::info(e));
+                }
+            }
             Command::SetDictionary(d) => {
                 self.settings.dictionary = *d;
                 self.settings.dictionary.sanitize();
@@ -3488,6 +3526,7 @@ impl eframe::App for MareaderApp {
             booth: &self.read_aloud.booth,
             shelf: &self.read_aloud.shelf,
             platform: self.platform,
+            sounds: &self.sounds,
         };
         self.settings_window.show(
             &ctx,

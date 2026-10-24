@@ -159,7 +159,7 @@ impl Dict {
         self.card.as_ref().is_some_and(|c| c.rest)
     }
 
-    /// The word the card shows, for tests.
+    /// The word the card shows.
     pub fn card_word(&self) -> Option<&str> {
         self.card.as_ref().map(|c| c.word.as_str())
     }
@@ -256,7 +256,7 @@ impl Dict {
     pub fn show(
         &mut self,
         ctx: &Context,
-        (panes, saying): (&[(PaneId, Rect)], Option<&str>),
+        (panes, heard): (&[(PaneId, Rect)], crate::sounds::Heard<'_>),
         offset: impl Fn(PaneId) -> Option<Vec2>,
         out: &mut Commands,
     ) {
@@ -290,7 +290,8 @@ impl Dict {
                 attached,
                 at: c.at,
                 room: room(c.pane)?,
-                saying: saying == Some(c.word.as_str()),
+                saying: heard.saying(&c.word),
+                sound: heard.lines(&c.word),
             };
             Some(card::show(ctx, &view, &t, out))
         });

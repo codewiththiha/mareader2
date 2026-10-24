@@ -42,6 +42,8 @@ sys-locale = "0.3"
 mareader-assist = { workspace = true }
 # A book's scripts; the browser build shows their pages as written.
 mareader-script = { workspace = true }
+# How English words sound, for word cards.
+mareader-g2p = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"

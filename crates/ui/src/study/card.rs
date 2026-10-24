@@ -40,6 +40,8 @@ pub struct View<'a> {
     pub density: GlossDensity,
     /// Its word is being said aloud.
     pub saying: bool,
+    /// How it sounds, once looked up.
+    pub sound: &'a [crate::sounds::Line],
 }
 
 /// Draws the card under or over its word, pointing at it.
@@ -100,6 +102,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
             crate::read_aloud::say_button(ui, view.word, view.saying, out);
         });
     });
+    crate::sounds::show(ui, view.sound, t);
     match &view.answer {
         Answer::Waiting => shimmer(ui, t),
         Answer::Partial(info) => {
