@@ -1078,7 +1078,7 @@ impl Study {
         &mut self,
         ctx: &Context,
         main: &Library,
-        panes: &[(PaneId, Rect)],
+        (panes, saying): (&[(PaneId, Rect)], Option<&str>),
         (look, pens): (&GlossSettings, &HighlightSettings),
         out: &mut Commands,
     ) {
@@ -1128,6 +1128,7 @@ impl Study {
                 at: c.at,
                 room: room(c.pane)?,
                 density: look.density,
+                saying: saying == Some(c.word.as_str()),
             };
             Some(card::show(ctx, &view, &t, out))
         });

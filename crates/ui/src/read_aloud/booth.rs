@@ -108,11 +108,22 @@ impl Booth {
         self.tried = self.trying.map(|_| id.to_owned());
     }
 
+    /// Says `text` in the voice and tone `settings` pick.
+    pub fn say(&mut self, settings: &ReadAloudSettings, text: &str) {
+        let picked = settings.voices.get(&self.engine).cloned();
+        self.speak(settings, picked.as_deref(), text);
+        self.tried = None;
+    }
+
     fn say_sample(&mut self, settings: &ReadAloudSettings, picked: Option<&str>) {
         let language = picked
             .and_then(|id| self.voices.iter().find(|v| v.id == id))
             .map_or("en", |v| v.language.as_str());
         let line = mareader_speech::sample(language);
+        self.speak(settings, picked, line);
+    }
+
+    fn speak(&mut self, settings: &ReadAloudSettings, picked: Option<&str>, line: &str) {
         let Some(v) = self.voicer.as_mut() else {
             return;
         };

@@ -101,6 +101,8 @@ pub enum Icon {
     Apple,
     /// Try a model once.
     Try,
+    /// Say a word aloud.
+    Speak,
     /// The full highlighter.
     Highlight,
     /// The half highlighter: a letter on a bar.
@@ -242,6 +244,7 @@ impl Icon {
             Self::Chip => Lucide::Cpu,
             Self::Server => Lucide::Server,
             Self::Try => Lucide::Play,
+            Self::Speak => Lucide::Volume2,
             Self::Highlight => Lucide::Highlighter,
             Self::HalfHighlight => Lucide::Baseline,
             Self::Underline => Lucide::Underline,

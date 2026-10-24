@@ -1656,7 +1656,9 @@ impl MareaderApp {
         }
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
-        self.study.show(ctx, model, &self.pane_rects, looks, out);
+        let saying = self.read_aloud.saying();
+        let panes = (&self.pane_rects[..], saying);
+        self.study.show(ctx, model, panes, looks, out);
         let gpu = self.documents.gpu();
         self.page_ai
             .receive(ctx, self.library.model_mut(), gpu, out);
@@ -1694,7 +1696,8 @@ impl MareaderApp {
         self.word_window.show(ctx, &self.settings, services, out);
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
-        self.dict.show(ctx, &self.pane_rects, offset, out);
+        let saying = self.read_aloud.saying();
+        self.dict.show(ctx, (&self.pane_rects, saying), offset, out);
     }
 
     /// Asks the tagger for the open card's word's role.
@@ -2194,6 +2197,17 @@ impl MareaderApp {
                 booth.try_voice_of(ctx, &self.settings.read_aloud, shelf, &voice);
             }
             Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
+            Command::SayWord(word) => {
+                // One voice at a time: the book waits for the word.
+                self.read_aloud.pause();
+                self.clips.stop();
+                self.read_aloud.booth.stop_trying();
+                let settings = &self.settings.read_aloud;
+                if let Err(why) = self.read_aloud.say_word(ctx, settings, &word) {
+                    self.toasts.push(Toast::error(why));
+                }
+            }
+            Command::StopSaying => self.read_aloud.stop_word(),
             Command::VoiceModel(action) => {
                 let settings = &mut self.settings.read_aloud;
                 if let Err(why) = self.read_aloud.act(action, settings) {
