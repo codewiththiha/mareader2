@@ -133,10 +133,9 @@ impl Sounds {
         waker: mareader_speech::Waker,
         voices: &mut Shelf,
     ) -> Result<(), String> {
-        voices.set_neighbours(mareader_speech::AIDS);
         self.shelf
             .attach(dir, mareader_speech::AIDS, waker.clone())?;
-        self.shelf.set_neighbours(voices.catalogue());
+        self.shelf.share_with(voices);
         self.lexicons = Some(voices.lexicons());
         self.waker = Some(waker);
         self.shelf.adopt();

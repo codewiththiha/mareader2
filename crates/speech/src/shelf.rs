@@ -90,9 +90,10 @@ impl Shelf {
         self.catalogue.iter().find(|m| m.id == id)
     }
 
-    /// Shares files with `models`, which another shelf keeps beside these.
-    pub fn set_neighbours(&mut self, models: &'static [Model]) {
-        self.neighbours = models;
+    /// Shares files both ways with `other`; call once both have attached.
+    pub fn share_with(&mut self, other: &mut Shelf) {
+        self.neighbours = other.catalogue;
+        other.neighbours = self.catalogue;
     }
 
     /// Every other model here or beside, which may hold the same files.
@@ -119,6 +120,7 @@ impl Shelf {
 
     /// Takes in absent models whose files others hold, linked, not fetched.
     pub fn adopt(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
         for model in self.catalogue {
             let item = Item::Model(model.id);
             if *self.stage(item) == Stage::Absent && !self.holders(model).is_empty() {
@@ -1239,8 +1241,7 @@ mod tests {
         let aids: &'static [Model] = Box::leak(vec![aid].into_boxed_slice());
         let mut voices = shelf(dir.path(), models);
         let mut extra = shelf(dir.path(), aids);
-        voices.set_neighbours(aids);
-        extra.set_neighbours(models);
+        extra.share_with(&mut voices);
         extra.adopt();
         assert_eq!(*extra.stage(Item::Model("aid")), Stage::Absent);
         voices.download(Item::Build("one", "big"));
