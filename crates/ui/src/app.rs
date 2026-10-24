@@ -2107,9 +2107,11 @@ impl MareaderApp {
             Command::SetRatio(path, ratio) => {
                 self.tree.set_ratio(&path, ratio);
             }
-            // The shelf wears the window's look; no pane is in view.
+            // The shelf wears the window's look, the crowned pane's if split.
             Command::SetAppearance(a) if self.route() != Route::Reader => {
-                self.settings.appearance = a;
+                let routing = self.routing();
+                let global = &mut self.settings.appearance;
+                self.looks.edit_window(global, routing, a);
             }
             Command::SetAppearance(a) => {
                 let routing = self.routing();

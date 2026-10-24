@@ -910,16 +910,40 @@ fn a_mode_switch_changes_only_the_active_pane_unless_shared() {
             ("shared_base", flag),
         ];
         let mut h = with(&options);
+        // The second pane in front; the first wears the window's look.
+        h.state_mut().set_option("focus", "2").ok();
+        h.run();
         open_appearance(&mut h);
         h.get_by_label("Dark").click();
         h.run_steps(2);
         let app = h.state();
         let dark = |p| app.look(p).base == mareader_appearance::BaseMode::Dark;
         let (one, two) = (app.panes()[0], app.panes()[1]);
-        assert!(dark(one), "the active pane is dark");
-        assert_eq!(dark(two), shared, "the other follows only when shared");
+        assert!(dark(two), "the active pane is dark");
+        assert_eq!(dark(one), shared, "the other follows only when shared");
         assert_eq!(app.settings().appearance.base.is_dark(), shared);
     }
+}
+
+#[test]
+fn the_interface_wears_the_look_of_the_pane_split_from() {
+    let options = [("panes", "3"), ("independent", "true")];
+    let mut h = with(&options);
+    let panes = h.state().panes();
+    let (one, two) = (panes[0], panes[1]);
+    // Its own look turned dark: the window, and so the interface, follow.
+    open_appearance(&mut h);
+    h.get_by_label("Dark").click();
+    h.run_steps(2);
+    assert!(h.state().settings().appearance.base.is_dark());
+    assert_eq!(h.state().look(one), h.state().settings().appearance);
+    // Closed, the eldest left is crowned and the window wears its look.
+    let heir = h.state().look(two);
+    h.state_mut()
+        .queue(mareader_ui::command::Command::ClosePane(one));
+    h.run_steps(3);
+    assert_eq!(h.state().panes().len(), 2);
+    assert_eq!(h.state().settings().appearance, heir, "the heir's look");
 }
 
 #[test]
