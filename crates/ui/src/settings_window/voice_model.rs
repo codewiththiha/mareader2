@@ -4,8 +4,10 @@ use egui::{ProgressBar, RichText, Ui};
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::{Build, Item, Model, ModelVoice, Shelf, Stage};
 
-use super::read_aloud::Voices;
-use super::{detail_row, divider, fold_row, folded, group, note, radio, row, section};
+use super::read_aloud::{Voices, offer};
+use super::{
+    detail_row, detail_row_tip, divider, fold_row, folded, group, note, radio, row, section,
+};
 use crate::command::{Command, Commands};
 use crate::dict::megabytes;
 use crate::icons::Icon;
@@ -52,32 +54,21 @@ pub fn tab(
     if let Some(why) = v.booth.fault().filter(|_| failed) {
         note(ui, &format!("Voices can't be heard here: {why}"));
     }
-    let offline = match inside {
-        true => "Every voice comes with each build and works offline.",
-        false => "Each voice works offline once downloaded.",
-    };
-    note(
-        ui,
-        &format!("Reading with this model uses the voice picked here. {offline}"),
-    );
     if !model.knobs.is_empty() {
         sound(ui, s, model);
     }
     section(ui, "Model");
     group(ui, |ui| {
         let t = Tokens::get(ui.ctx());
-        detail_row(ui, model.name, model.about, |ui| {
+        let offer = offer(model);
+        detail_row_tip(ui, (model.name, &offer), model.about, |ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             remove(ui, &t, (Item::Model(model.id), model.name), out);
-            muted(ui, &t, &megabytes(shelf.on_disk(model)));
+            let size = megabytes(shelf.on_disk(model));
+            let r = ui.label(RichText::new(size).size(t.text_small).color(t.muted));
+            r.on_hover_text("Removing it deletes all of this: its voices and builds too");
         });
-        divider(ui);
-        row(ui, "License", "", |ui| muted(ui, &t, model.license));
     });
-    note(
-        ui,
-        "Removing the model deletes its voices and builds too; it can be downloaded again.",
-    );
 }
 
 /// The model's own settings, each a share of how a voice was made.
@@ -112,10 +103,6 @@ fn sound(ui: &mut Ui, s: &mut ReadAloudSettings, model: &'static Model) {
     if knobs.is_empty() {
         s.knobs.remove(model.id);
     }
-    note(
-        ui,
-        "100% is each voice as it was made. Speech already made is made again.",
-    );
 }
 
 /// The builds on offer: each downloads alone, one is used.
@@ -146,19 +133,6 @@ fn builds(
             }
         }
     });
-    // Builds that bring their own voices are models of their own sizes.
-    let own = model.builds.iter().any(|b| b.extra.is_some());
-    let about = match own {
-        true => {
-            "Each build is a model of its own size: a larger one sounds better, \
-                 a smaller one speaks sooner and takes less memory."
-        }
-        false => {
-            "Builds share the voices. A smaller build saves download and disk; \
-                  each takes the same memory once loaded."
-        }
-    };
-    note(ui, about);
 }
 
 /// One build: used, or its download; true when picked now.

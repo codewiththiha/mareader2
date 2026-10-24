@@ -189,7 +189,7 @@ impl Shelf {
         bytes
     }
 
-    /// The bytes `model` keeps on disk once downloaded.
+    /// All `model` keeps on disk, which removing it deletes.
     pub fn on_disk(&self, model: &Model) -> u64 {
         if !self.shared(model) {
             return 0;
@@ -207,7 +207,15 @@ impl Shelf {
             }
         }
         let builds = files.iter().map(|f| f.bytes).sum::<u64>();
-        model.bytes() + builds + voices
+        // Half-done downloads take room too, and go with the model.
+        let partial: u64 = (self.stages.iter())
+            .filter(|(item, _)| item.model() == model.id)
+            .map(|(_, stage)| match stage {
+                Stage::Fetching { got, .. } | Stage::Paused { got, .. } => *got,
+                _ => 0,
+            })
+            .sum();
+        model.bytes() + builds + voices + partial
     }
 
     /// Takes in what downloads sent; true if anything changed.
@@ -911,6 +919,14 @@ mod tests {
         settle(&mut s, |s| *s.stage(lite) == Stage::Ready);
         assert_eq!(s.builds(model).len(), 2);
         assert_eq!(s.on_disk(model), 40 + 300_000 + 100_000 + 2_000);
+        // A paused voice's part is on disk too, and goes with the model.
+        let paused = Stage::Paused {
+            got: 1_000,
+            total: 3_000,
+        };
+        s.stages.insert(Item::Voice("tiny", "b"), paused);
+        assert_eq!(s.on_disk(model), 40 + 300_000 + 100_000 + 2_000 + 1_000);
+        s.stages.remove(&Item::Voice("tiny", "b"));
         assert_eq!(s.build(model, Some("lite")).map(|b| b.id), Some("lite"));
         assert_eq!(s.build(model, Some("gone")).map(|b| b.id), Some("big"));
         s.remove(big);

@@ -5,9 +5,7 @@ use mareader_settings::{LANGUAGES, ReadAloudSettings};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::voice_model::controls;
-use super::{
-    Tab, choice_row, detail_row_tip, divider, fold_row, group, note, row, section, switch_row,
-};
+use super::{Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::keymap;
@@ -29,9 +27,7 @@ const VOICE_H: f32 = 34.0;
 const ALL: &str = "";
 
 pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
-    engine(ui, s, v);
-    models(ui, s, v.shelf, out);
-    memory(ui, s, v.shelf);
+    engine(ui, s, v, out);
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
     reading(ui, s);
@@ -40,75 +36,64 @@ pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Com
         ui,
         &format!("Start or pause reading with {keys}, or right-click a page to read from there."),
     );
+    memory(ui, s, v.shelf);
 }
 
-fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>) {
+/// The system's voices, then each model: picked here, managed in its tab.
+fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Commands) {
     section(ui, "Engine");
-    let mut engines: Vec<(String, &str)> = (mareader_speech::engines(v.shelf).into_iter())
-        .map(|(id, name)| (id.to_owned(), name))
-        .collect();
-    // One unlisted still shows, so it can be left.
-    if !engines.iter().any(|(id, _)| *id == s.engine) {
-        let name = match s.engine.as_str() {
-            mareader_speech::SILENT => "Silent voice",
-            id => v.shelf.model(id).map_or("Unavailable engine", |m| m.name),
-        };
-        engines.push((s.engine.clone(), name));
-    }
+    let shelf = v.shelf;
+    let runs = mareader_speech::engines(shelf);
+    let system = mareader_speech::SYSTEM;
+    let booth = v.booth;
+    let heard = booth.engine() == system && booth.ready() && booth.caps().voices;
+    let detail = match heard {
+        true => format!("Built into your system · {}", count(booth.voices().len())),
+        false => "Built into your system".to_owned(),
+    };
     group(ui, |ui| {
-        for (i, (id, name)) in engines.iter().enumerate() {
-            if i > 0 {
-                divider(ui);
-            }
-            let detail = match id.as_str() {
-                mareader_speech::SYSTEM => "Built into your system: nothing to download",
-                mareader_speech::SILENT => "Says nothing: for tests and screenshots",
-                id if v.shelf.ready().iter().any(|m| m.id == id) => {
-                    "Runs on this computer and works offline"
-                }
-                id if v.shelf.model(id).is_some() => "Not downloaded: get it under Voice models",
-                _ => "Not in this build",
-            };
-            if choice_row(ui, name, detail, s.engine == *id) {
-                s.engine = id.clone();
+        let on = Some(s.engine == system);
+        if pick_row(ui, ("System voices", &detail), "", on, |_| {}) {
+            s.engine = system.to_owned();
+        }
+        for model in shelf.catalogue() {
+            divider(ui);
+            let runs = runs.iter().any(|(id, _)| *id == model.id);
+            if model_row(ui, s, model, (shelf, runs), out) {
+                s.engine = model.id.to_owned();
             }
         }
+        // One unlisted still shows, so it can be left.
+        let listed = s.engine == system || shelf.model(&s.engine).is_some();
+        if !listed {
+            let lines = match s.engine.as_str() {
+                mareader_speech::SILENT => {
+                    ("Silent voice", "Says nothing: for tests and screenshots")
+                }
+                _ => ("Unavailable engine", "Not in this build"),
+            };
+            divider(ui);
+            pick_row(ui, lines, "", Some(true), |_| {});
+        }
     });
-    if let Some(fault) = v.booth.fault() {
+    if !shelf.attached() {
+        note(ui, "Downloads need the desktop app.");
+    }
+    if let Some(fault) = booth.fault() {
         let t = Tokens::get(ui.ctx());
         ui.add_space(8.0);
         ui.label(RichText::new(fault).size(t.text_small).color(t.danger));
     }
 }
 
-/// Models to download; each ready one opens its own tab.
-fn models(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf, out: &mut Commands) {
-    section(ui, "Voice models");
-    group(ui, |ui| {
-        for (i, model) in shelf.catalogue().iter().enumerate() {
-            if i > 0 {
-                divider(ui);
-            }
-            model_row(ui, s, model, shelf, out);
-        }
-    });
-    let text = match shelf.attached() {
-        true => {
-            "Models run on this computer and work offline once downloaded. \
-             A paused download resumes where it stopped."
-        }
-        false => "Downloads need the desktop app.",
-    };
-    note(ui, text);
-}
-
+/// A model: picked once it runs here, else its download; true when picked.
 fn model_row(
     ui: &mut Ui,
     s: &mut ReadAloudSettings,
     model: &'static Model,
-    shelf: &Shelf,
+    (shelf, runs): (&Shelf, bool),
     out: &mut Commands,
-) {
+) -> bool {
     let t = Tokens::get(ui.ctx());
     let muted = |ui: &mut Ui, text: &str| {
         ui.label(RichText::new(text).size(t.text_small).color(t.muted));
@@ -116,7 +101,8 @@ fn model_row(
     let wanted = s.builds.get(model.id).and_then(|b| model.build(b));
     let picked = wanted.or(model.builds.first());
     let offer = offer(model);
-    detail_row_tip(ui, (model.name, &offer), model.about, |ui| {
+    let on = (runs || s.engine == model.id).then_some(s.engine == model.id);
+    pick_row(ui, (model.name, &offer), model.about, on, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.attached() {
             let bytes = picked.map_or(model.bytes(), |b| model.bytes_with(b));
@@ -124,16 +110,18 @@ fn model_row(
             return;
         }
         if shelf.ready().iter().any(|m| m.id == model.id) {
-            let open = egui::Button::new(("Voices", Icon::ChevronRight.image(14.0)))
+            let open = egui::Button::new(("Manage", Icon::ChevronRight.image(14.0)))
                 .image_tint_follows_text_color(true);
             let r = ui.add(open);
-            let label = format!("{} voices", model.name);
+            let label = format!("Manage {}", model.name);
             r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
-            let hint = format!("Opens {}'s voices and settings", model.name);
+            let hint = format!("{}'s voices, builds and sound", model.name);
             if r.on_hover_text(hint).clicked() {
                 out.push(Command::OpenSettings(Tab::Model(model)));
             }
-            muted(ui, &crate::dict::megabytes(shelf.on_disk(model)));
+            let size = crate::dict::megabytes(shelf.on_disk(model));
+            let r = ui.label(RichText::new(size).size(t.text_small).color(t.muted));
+            r.on_hover_text("On disk with its voices and builds");
             return;
         }
         // Without builds, or with one here, only the shared files are owed.
@@ -160,18 +148,23 @@ fn model_row(
         {
             s.builds.insert(model.id.to_owned(), id.to_owned());
         }
-    });
+    })
+}
+
+/// "1 voice", "49 voices".
+fn count(voices: usize) -> String {
+    match voices {
+        1 => "1 voice".to_owned(),
+        n => format!("{n} voices"),
+    }
 }
 
 /// What a model offers, short enough for its row.
-fn offer(model: &Model) -> String {
+pub(super) fn offer(model: &Model) -> String {
     let mut languages: Vec<String> = model.voices.iter().map(|v| primary(v.language)).collect();
     languages.sort();
     languages.dedup();
-    let voices = match model.voices.len() {
-        1 => "1 voice".to_owned(),
-        n => format!("{n} voices"),
-    };
+    let voices = count(model.voices.len());
     match languages.as_slice() {
         [one] => format!("{} · {voices}", language_name(one)),
         many => format!("{} languages · {voices}", many.len()),
@@ -245,10 +238,6 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
             ui.label(RichText::new(text).size(t.text_small).color(t.muted));
         });
     });
-    note(
-        ui,
-        "A model loads when reading starts, which takes a moment, and leaves memory once unused.",
-    );
 }
 
 /// The engine's rate, as [`mareader_speech::speech_rate`], read once.
@@ -392,11 +381,7 @@ fn voice_list(
     let name = picked
         .and_then(|p| voices.iter().find(|v| v.id == p))
         .map_or("System default", |v| v.name.as_str());
-    let count = match shown.len() {
-        1 => "1 voice".to_owned(),
-        n => format!("{n} voices"),
-    };
-    let detail = format!("{name} · {count}");
+    let detail = format!("{name} · {}", count(shown.len()));
     if !fold_row(ui, Id::new("read-aloud-voices"), ("Voices", &detail), true) {
         return None;
     }
