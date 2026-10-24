@@ -15,6 +15,15 @@ pub const POPUP_SENSE: Sense = Sense::CLICK;
 /// A context menu's width unless it sets its own; never its row's.
 pub const MENU_W: f32 = 200.0;
 
+/// The pointer, unless a modal, card or menu other than `own` lies over it.
+pub fn bare_pointer(ctx: &egui::Context, own: egui::LayerId) -> Option<egui::Pos2> {
+    let at = ctx.pointer_hover_pos()?;
+    // Chrome under something else stays down, or it would rise above it.
+    let on = ctx.layer_id_at(at);
+    on.is_none_or(|l| l == own || l.order == egui::Order::Background)
+        .then_some(at)
+}
+
 /// Closes a menu when Enter or Space presses one of its rows.
 pub fn close_on_key(ui: &Ui) {
     let ctx = ui.ctx();

@@ -40,11 +40,11 @@ impl PageBar {
         self.shown = true;
     }
 
-    fn update_hover(&mut self, ctx: &Context, pane: Rect, held: bool) {
+    fn update_hover(&mut self, ctx: &Context, (pane, own): (Rect, LayerId), held: bool) {
         let now = ctx.input(|i| i.time);
         let reach = if self.shown { BAR_H } else { EDGE };
         let band = Rect::from_min_max(pos2(pane.left(), pane.bottom() - reach), pane.max);
-        let inside = ctx.pointer_hover_pos().is_some_and(|p| band.contains(p));
+        let inside = widgets::bare_pointer(ctx, own).is_some_and(|p| band.contains(p));
         if inside || held {
             self.shown = true;
             self.left_at = None;
@@ -99,8 +99,9 @@ pub fn show(
             i.pointer.any_down() && origin.is_some_and(|p| home.contains(p))
         });
     let tabbing = crate::focus::within(ctx, home);
-    bar.update_hover(ctx, pane, typing || dragging || tabbing);
     let id = Id::new(("page-bar", reading.pane));
+    let own = LayerId::new(Order::Foreground, id);
+    bar.update_hover(ctx, (pane, own), typing || dragging || tabbing);
     let fade = ctx.animate_bool_with_time(id, bar.shown, motion::secs(ctx, FADE));
     let t = Tokens::get(ctx);
     let layer = LayerId::new(Order::Middle, id.with("marks"));
