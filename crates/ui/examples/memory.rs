@@ -1,6 +1,6 @@
 //! `memory BOOK [ROUNDS] | --library N | --seeded N | --markdown N`.
 
-// Linux only: it reads `/proc/self/status`. See `docs/memory.md`.
+// Linux reads `/proc/self/status`; macOS, its footprint. See `docs/memory.md`.
 // Exits 1 when a budget breaks.
 
 use std::path::{Path, PathBuf};
@@ -27,7 +27,42 @@ const SCROLL_PEAK: f64 = 256.0;
 /// Laid blocks a resting book keeps, as `flow.rs` holds them.
 const REST_LAID: usize = 4 << 20;
 
+/// Resident MiB and their peak since the last reset.
+fn resident() -> (f64, f64) {
+    #[cfg(target_os = "macos")]
+    {
+        // The footprint's peak can't be reset, so each row's is its own.
+        let now = footprint().unwrap_or(0.0);
+        (now, now)
+    }
+    #[cfg(not(target_os = "macos"))]
+    (
+        status("VmRSS:").unwrap_or(0.0),
+        status("VmHWM:").unwrap_or(0.0),
+    )
+}
+
+/// What Activity Monitor shows, in MiB, from the `footprint` tool.
+#[cfg(target_os = "macos")]
+fn footprint() -> Option<f64> {
+    let pid = std::process::id().to_string();
+    let out = std::process::Command::new("footprint")
+        .arg(&pid)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut words = text.split_whitespace().skip_while(|w| *w != "Footprint:");
+    let n: f64 = words.nth(1)?.parse().ok()?;
+    match words.next()? {
+        "KB" => Some(n / 1024.0),
+        "MB" => Some(n),
+        "GB" => Some(n * 1024.0),
+        _ => None,
+    }
+}
+
 /// A `/proc/self/status` field, in MiB.
+#[cfg(not(target_os = "macos"))]
 fn status(field: &str) -> Option<f64> {
     let text = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = text.lines().find(|l| l.starts_with(field))?;
@@ -79,9 +114,10 @@ impl Audit {
         let app = h.state();
         let m = app.documents().meter();
         let held = mareader_reflow::held();
+        let (rss, peak) = resident();
         let row = Row {
-            rss: status("VmRSS:").unwrap_or(0.0),
-            peak: status("VmHWM:").unwrap_or(0.0),
+            rss,
+            peak,
             documents: m.documents,
             pages: m.pages,
             page_bytes: m.page_bytes,
@@ -236,6 +272,8 @@ fn retype(h: &mut App, audit: &mut Audit) {
 fn rest(h: &mut App) {
     h.run_steps(240);
     settle(h);
+    // Frames here outrun the clock; the freed heap goes back a second on.
+    std::thread::sleep(Duration::from_millis(1500));
 }
 
 /// A second's frames, drawn, so the GPU's deferred frees can land.

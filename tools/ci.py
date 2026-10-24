@@ -486,7 +486,8 @@ def remote_task(args, task: str, name: str, **inputs: str) -> tuple[int, str]:
     sha = pushed_sha(args.repo, token, args.rev)
     run = dispatch(args.repo, token, task, sha, getattr(args, "ref", "main"), **inputs)
     # A failed platform still leaves the report job to wait for.
-    run = follow(args.repo, token, run, args.timeout, args.poll, whole=task == "system")
+    whole = task in ("system", "memory")
+    run = follow(args.repo, token, run, args.timeout, args.poll, whole=whole)
     # A broken budget still leaves its tables to read.
     if run.conclusion != "success" and task not in ("memory", "kokoro", "piper", "kitten",
                                                     "ipa", "hanzi", "system"):
