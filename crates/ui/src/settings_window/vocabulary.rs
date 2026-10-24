@@ -130,6 +130,7 @@ fn level_row(ui: &mut Ui, level: &mut CefrLevel) {
     row(ui, "My level", level.detail(), |ui| {
         let t = Tokens::get(ui.ctx());
         ui.label(RichText::new(level.label()).strong().color(t.ink));
+        ui.add_space(t.gap);
         let max = all.len().saturating_sub(1);
         let slider = Slider::new(&mut at, 0..=max).show_value(false);
         let r = ui.add_sized([150.0, 20.0], slider);
