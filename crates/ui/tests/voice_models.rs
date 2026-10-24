@@ -196,7 +196,7 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     let kept = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Speech kept");
     assert_eq!(kept.accesskit_node().numeric_value(), Some(64.0));
     let _ = h.get_by_label("Nothing loaded");
-    press(&mut h, "Tiny voices");
+    press(&mut h, "Manage Tiny");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "tiny"));
     let _ = h.get_by_label("All voices");
@@ -218,7 +218,9 @@ fn a_downloaded_model_has_its_own_tab_until_removed() {
     h.run_steps(4);
     assert_eq!(tab(&h), Tab::ReadAloud);
     assert!(!dir.path().join("tiny").exists());
+    // Removed, its row offers the download again, not its tab.
     let _ = h.get_by_label("Download Tiny");
+    assert!(h.query_by_label("Manage Tiny").is_none());
 }
 
 #[test]
@@ -299,6 +301,7 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
         "nothing to pick"
     );
     let _ = h.get_by_label("Download Solo");
+    assert!(h.query_by_label("Manage Solo").is_none());
     drop(h);
     let folder = dir.path().join("solo");
     std::fs::create_dir_all(&folder).unwrap();
@@ -307,7 +310,7 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
     }
     let mut h = settings(dir.path());
     assert!(h.query_by_label("Download Solo").is_none());
-    press(&mut h, "Solo voices");
+    press(&mut h, "Manage Solo");
     h.run_steps(3);
     assert!(matches!(tab(&h), Tab::Model(m) if m.id == "solo"));
     let _ = h.get_by_label("Use Cy");
