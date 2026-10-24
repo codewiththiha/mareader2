@@ -8,7 +8,7 @@ use mareader_settings::{
 };
 
 use super::highlights::{palette, preview};
-use super::{ROW_H, Tab, divider, group, note, row, section};
+use super::{ROW_H, Tab, choices, divider, group, note, row, section};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -184,12 +184,7 @@ fn look_rows(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) 
     let mut ai = h.ai;
     divider(ui);
     row(ui, "Mark", "How its words are marked on the page", |ui| {
-        for pen in Pen::ALL.into_iter().rev() {
-            let on = ai.pen == pen;
-            if ui.add(egui::Button::selectable(on, pen.label())).clicked() {
-                ai.pen = pen;
-            }
-        }
+        choices(ui, &mut ai.pen, &Pen::ALL, Pen::label);
     });
     divider(ui);
     let taken = h.color(ai.pen);
@@ -201,13 +196,8 @@ fn look_rows(ui: &mut Ui, h: &mut HighlightSettings, gloss: &mut GlossSettings) 
     h.ai = ai;
     divider(ui);
     row(ui, "Card spacing", "How roomy the word card is", |ui| {
-        let all = [GlossDensity::Comfortable, GlossDensity::Compact];
-        for d in all {
-            let on = gloss.density == d;
-            if ui.add(egui::Button::selectable(on, d.label())).clicked() {
-                gloss.density = d;
-            }
-        }
+        let all = [GlossDensity::Compact, GlossDensity::Comfortable];
+        choices(ui, &mut gloss.density, &all, GlossDensity::label);
     });
     // A thread down the fold ties its rows to the name above.
     let x = ui.min_rect().left() - 8.0;

@@ -11,6 +11,7 @@ use mareader_pdf::Bounds;
 use mareader_session::{DocId, TextLayer};
 use mareader_settings::Reserved;
 
+use crate::command::Download;
 use crate::selection::Pages;
 use crate::study::marks::Under;
 use crate::study::words;
@@ -23,15 +24,6 @@ const DWELL: f64 = 0.16;
 const MEMO_CAP: usize = 32;
 /// How much stronger the word under the pointer is drawn.
 const HOVER_LIFT: f32 = 0.2;
-
-/// What the Vocabulary tab asks of the dataset.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    Download,
-    Pause,
-    Cancel,
-    Remove,
-}
 
 /// How shading looks and acts in a pane, from the settings.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -142,13 +134,13 @@ impl Vocab {
         self.service.words()
     }
 
-    pub fn act(&mut self, action: Action) {
+    pub fn act(&mut self, action: Download) {
         #[cfg(not(target_arch = "wasm32"))]
         match action {
-            Action::Download => self.service.download(),
-            Action::Pause => self.service.pause(),
-            Action::Cancel => self.service.cancel(),
-            Action::Remove => self.service.remove(),
+            Download::Start => self.service.download(),
+            Download::Pause => self.service.pause(),
+            Download::Cancel => self.service.cancel(),
+            Download::Remove => self.service.remove(),
         }
         let _ = action;
     }

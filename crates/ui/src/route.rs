@@ -56,7 +56,7 @@ fn reads(command: &Command) -> bool {
         C::PageAi(_) => true,
         C::ReadAloud { .. } | C::ToggleReadAloud | C::StopReadAloud => true,
         // A voice is tried from settings, which open over any page.
-        C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(_) => false,
+        C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(..) => false,
         // A card's word is said wherever its card shows.
         C::SayWord(_) | C::StopSaying => false,
         // Undo of a removal is offered by a toast, which shows anywhere.

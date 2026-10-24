@@ -381,14 +381,30 @@ impl MareaderApp {
         catalogue: &'static [mareader_speech::Model],
     ) {
         let ctx = ctx.clone();
-        let waker: mareader_speech::Waker = Arc::new(move || ctx.request_repaint());
-        let shelf = &mut self.read_aloud.shelf;
-        let attached = shelf.attach(dir.clone(), catalogue, waker.clone());
-        let attached = attached.and_then(|()| self.sounds.attach(dir, waker, shelf));
-        if let Err(e) = attached {
+        let waker = Arc::new(move || ctx.request_repaint());
+        if let Err(e) = self.attach_voices(dir, catalogue, waker) {
             self.toasts
                 .push(Toast::info(format!("Voice models are off: {e}")));
         }
+    }
+
+    /// Voice models and the pronunciation pack, sharing files in `dir`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn attach_voices(
+        &mut self,
+        dir: PathBuf,
+        catalogue: &'static [mareader_speech::Model],
+        waker: mareader_speech::Waker,
+    ) -> Result<(), String> {
+        let shelf = &mut self.read_aloud.shelf;
+        shelf.attach(dir.clone(), catalogue, waker.clone())?;
+        self.sounds.attach(dir, waker, shelf)
+    }
+
+    /// One voice at a time: the book pauses; clips, samples and words stop.
+    fn hush(&mut self) {
+        self.clips.stop();
+        self.read_aloud.hush();
     }
 
     /// Keeps covers and other rebuildable files in `dir`.
@@ -888,9 +904,7 @@ impl MareaderApp {
             #[cfg(not(target_arch = "wasm32"))]
             "voice_models" => {
                 let (dir, models) = (PathBuf::from(value), mareader_speech::MODELS);
-                let shelf = &mut self.read_aloud.shelf;
-                shelf.attach(dir.clone(), models, Arc::new(|| {}))?;
-                self.sounds.attach(dir, Arc::new(|| {}), shelf)?;
+                self.attach_voices(dir, models, Arc::new(|| {}))?;
             }
             #[cfg(not(target_arch = "wasm32"))]
             "cefr" => {
@@ -2217,33 +2231,27 @@ impl MareaderApp {
             }
             Command::StopReadAloud => self.read_aloud.stop(),
             Command::TryVoice => {
-                // One voice at a time: the book waits for the sample.
-                self.read_aloud.pause();
-                self.clips.stop();
+                self.hush();
                 let settings = &self.settings.read_aloud;
                 self.read_aloud.booth.try_voice(settings);
             }
             Command::TryVoiceOf(voice) => {
-                self.read_aloud.pause();
-                self.clips.stop();
+                self.hush();
                 let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
                 booth.try_voice_of(ctx, &self.settings.read_aloud, shelf, &voice);
             }
             Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
             Command::SayWord(word) => {
-                // One voice at a time: the book waits for the word.
-                self.read_aloud.pause();
-                self.clips.stop();
-                self.read_aloud.booth.stop_trying();
+                self.hush();
                 let settings = &self.settings.read_aloud;
                 if let Err(why) = self.read_aloud.say_word(ctx, settings, &word) {
                     self.toasts.push(Toast::error(why));
                 }
             }
             Command::StopSaying => self.read_aloud.stop_word(),
-            Command::VoiceModel(action) => {
+            Command::VoiceModel(item, action) => {
                 let settings = &mut self.settings.read_aloud;
-                if let Err(why) = self.read_aloud.act(action, settings) {
+                if let Err(why) = self.read_aloud.act((item, action), settings) {
                     self.toasts.push(Toast::error(why));
                 }
             }
@@ -2254,8 +2262,8 @@ impl MareaderApp {
             Command::Dict(action) => self.dict.act(action),
             Command::Vocab(action) => self.vocab.act(action),
             Command::Pronunciation(action) => {
-                if let Err(e) = self.sounds.act(action) {
-                    self.toasts.push(Toast::info(e));
+                if let Err(why) = self.sounds.act(action) {
+                    self.toasts.push(Toast::error(why));
                 }
             }
             Command::SetDictionary(d) => {

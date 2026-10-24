@@ -31,7 +31,7 @@ impl Booth {
     /// Opens `engine` in its picked build unless open, or failed, already.
     pub fn open(&mut self, ctx: &Context, engine: &str, s: &ReadAloudSettings, shelf: &Shelf) {
         let tried = self.voicer.is_some() || self.fault.is_some();
-        let wanted = s.builds.get(engine).map(String::as_str);
+        let wanted = s.build_for(engine);
         let build = mareader_speech::build_of(engine, wanted, shelf);
         if self.engine == engine && self.build == build && tried {
             return;
@@ -87,8 +87,8 @@ impl Booth {
 
     /// Says a line in the voice and tone `settings` pick.
     pub fn try_voice(&mut self, settings: &ReadAloudSettings) {
-        let picked = settings.voices.get(&self.engine).cloned();
-        self.say_sample(settings, picked.as_deref());
+        let picked = settings.voice_for(&self.engine);
+        self.say_sample(settings, picked);
         self.tried = None;
     }
 
@@ -110,8 +110,8 @@ impl Booth {
 
     /// Says `text` in the voice and tone `settings` pick.
     pub fn say(&mut self, settings: &ReadAloudSettings, text: &str) {
-        let picked = settings.voices.get(&self.engine).cloned();
-        self.speak(settings, picked.as_deref(), text);
+        let picked = settings.voice_for(&self.engine);
+        self.speak(settings, picked, text);
         self.tried = None;
     }
 
@@ -129,13 +129,7 @@ impl Booth {
         };
         v.set_voice(picked);
         v.set_tone(super::spoken::tone(settings));
-        v.set_knobs(
-            &settings
-                .knobs
-                .get(&self.engine)
-                .cloned()
-                .unwrap_or_default(),
-        );
+        v.set_knobs(&settings.knobs_for(&self.engine));
         self.said = self.said.wrapping_add(1);
         match v.say(self.said, line) {
             Ok(()) => {

@@ -1,18 +1,18 @@
-//! A downloaded model's tab, and the download controls both tabs share.
+//! A downloaded model's tab.
 
-use egui::{ProgressBar, RichText, Ui};
+use egui::Ui;
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::{Build, Item, Model, ModelVoice, Shelf, Stage};
 
+use super::downloads::{Buttons, muted};
 use super::read_aloud::{Voices, offer};
 use super::{
     detail_row, detail_row_tip, divider, fold_row, folded, group, note, radio, row, section,
 };
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Download};
 use crate::dict::megabytes;
 use crate::icons::Icon;
-use crate::read_aloud::{Booth, ModelAction};
-use crate::theme::Tokens;
+use crate::read_aloud::Booth;
 use crate::widgets;
 
 pub fn tab(
@@ -30,7 +30,7 @@ pub fn tab(
     // Voices with no file of their own come inside every build.
     let inside = model.voices.iter().all(|v| v.file.is_none());
     // A voice picked, then removed, falls back to the first.
-    let picked = s.voices.get(model.id).and_then(|v| model.voice(v));
+    let picked = s.voice_for(model.id).and_then(|v| model.voice(v));
     let picked = picked
         .filter(|v| shelf.has(model, v.id))
         .map_or(model.first_voice, |v| v.id);
@@ -59,13 +59,12 @@ pub fn tab(
     }
     section(ui, "Model");
     group(ui, |ui| {
-        let t = Tokens::get(ui.ctx());
         let offer = offer(model);
         detail_row_tip(ui, (model.name, &offer), model.about, |ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            remove(ui, &t, (Item::Model(model.id), model.name), out);
+            buttons(Item::Model(model.id), model.name).remove(ui, out);
             let size = megabytes(shelf.on_disk(model));
-            let r = ui.label(RichText::new(size).size(t.text_small).color(t.muted));
+            let r = muted(ui, &size);
             r.on_hover_text("Removing it deletes all of this: its voices and builds too");
         });
     });
@@ -114,7 +113,7 @@ fn builds(
     out: &mut Commands,
 ) {
     section(ui, "Build");
-    let wanted = s.builds.get(model.id).map(String::as_str);
+    let wanted = s.build_for(model.id);
     let used = shelf.build(model, wanted).map(|b| b.id);
     let here = shelf.builds(model).len();
     group(ui, |ui| {
@@ -143,7 +142,6 @@ fn build_row(
     shelf: &Shelf,
     out: &mut Commands,
 ) -> bool {
-    let t = Tokens::get(ui.ctx());
     let item = Item::Build(model.id, build.id);
     let name = mareader_speech::label(model, build);
     let mut pick = false;
@@ -151,15 +149,15 @@ fn build_row(
         ui.spacing_mut().item_spacing.x = 6.0;
         let stage = shelf.stage(item);
         if *stage != Stage::Ready {
-            controls(ui, stage, (item, &name, build.bytes()), out);
+            buttons(item, &name).controls(ui, stage, build.bytes(), out);
             return;
         }
         pick = radio(ui, on, &format!("Use {}", build.name));
         // The last build goes with the model, below.
         if here > 1 {
-            remove(ui, &t, (item, &name), out);
+            buttons(item, &name).remove(ui, out);
         }
-        muted(ui, &t, &megabytes(build.bytes()));
+        muted(ui, &megabytes(build.bytes()));
     });
     pick
 }
@@ -235,7 +233,6 @@ fn every_voice(
     shelf: &Shelf,
     out: &mut Commands,
 ) {
-    let t = Tokens::get(ui.ctx());
     let missing: Vec<&ModelVoice> = (shown.iter().copied())
         .filter(|v| !shelf.has(model, v.id))
         .collect();
@@ -243,18 +240,18 @@ fn every_voice(
     detail_row(ui, "All voices", &detail, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if missing.is_empty() {
-            muted(ui, &t, "All downloaded");
+            muted(ui, "All downloaded");
             return;
         }
         let label = "Download every voice";
         if widgets::icon_button(ui, Icon::Download, label, false).clicked() {
             for v in &missing {
                 let item = Item::Voice(model.id, v.id);
-                out.push(Command::VoiceModel(ModelAction::Download(item)));
+                out.push(Command::VoiceModel(item, Download::Start));
             }
         }
         let bytes = shelf.to_fetch(model, &missing);
-        muted(ui, &t, &format!("{} to go", megabytes(bytes)));
+        muted(ui, &format!("{} to go", megabytes(bytes)));
     });
 }
 
@@ -267,7 +264,6 @@ fn voice_row(
 ) -> Option<&'static str> {
     let (model, shelf) = (room.model, room.shelf);
     let on = room.picked == voice.id;
-    let t = Tokens::get(ui.ctx());
     let mut detail = format!("{}, {}", accent(voice.language), voice.gender.label());
     if !voice.note.is_empty() {
         detail = format!("{detail} · {}", voice.note);
@@ -277,12 +273,8 @@ fn voice_row(
     detail_row(ui, voice.name, &detail, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.has(model, voice.id) {
-            controls(
-                ui,
-                shelf.stage(item),
-                (item, voice.name, shelf.to_fetch(model, &[voice])),
-                out,
-            );
+            let bytes = shelf.to_fetch(model, &[voice]);
+            buttons(item, voice.name).controls(ui, shelf.stage(item), bytes, out);
             return;
         }
         if radio(ui, on, &format!("Use {}", voice.name)) {
@@ -291,7 +283,7 @@ fn voice_row(
         preview(ui, room, voice, out);
         // The first voice came with the model and goes with it.
         if voice.id != model.first_voice && voice.file.is_some() {
-            remove(ui, &t, (item, voice.name), out);
+            buttons(item, voice.name).remove(ui, out);
         }
     });
     pick
@@ -322,65 +314,12 @@ fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut C
     }
 }
 
-/// A download's buttons and progress, right to left.
-pub(super) fn controls(
-    ui: &mut Ui,
-    stage: &Stage,
-    (item, name, bytes): (Item, &str, u64),
-    out: &mut Commands,
-) {
-    let t = Tokens::get(ui.ctx());
-    let mut press = |ui: &mut Ui, icon, verb: &str, action| {
-        let label = format!("{verb} {name}");
-        if widgets::icon_button(ui, icon, &label, false).clicked() {
-            out.push(Command::VoiceModel(action));
-        }
-    };
-    match stage {
-        Stage::Absent => {
-            press(ui, Icon::Download, "Download", ModelAction::Download(item));
-            muted(ui, &t, &megabytes(bytes));
-        }
-        Stage::Ready => muted(ui, &t, "Downloaded"),
-        Stage::Waiting => {
-            press(ui, Icon::Close, "Cancel", ModelAction::Cancel(item));
-            muted(ui, &t, "Waiting…");
-        }
-        Stage::Fetching { got, total } => {
-            press(ui, Icon::Close, "Cancel", ModelAction::Cancel(item));
-            press(ui, Icon::Pause, "Pause", ModelAction::Pause(item));
-            let done = (*got as f32 / (*total).max(1) as f32).clamp(0.0, 1.0);
-            let text = format!("{} of {}", megabytes(*got), megabytes(*total));
-            ui.add(ProgressBar::new(done).desired_width(150.0).text(text));
-        }
-        Stage::Paused { got, .. } => {
-            press(ui, Icon::Close, "Cancel", ModelAction::Cancel(item));
-            press(ui, Icon::Resume, "Resume", ModelAction::Download(item));
-            muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
-        }
-        Stage::Checking => {
-            ui.spinner();
-            muted(ui, &t, "Checking…");
-        }
-        Stage::Failed(why) => {
-            press(ui, Icon::Rescan, "Try again", ModelAction::Download(item));
-            let r = ui.label(RichText::new("Couldn't download").color(t.danger));
-            widgets::tip(&r, why, None);
-        }
+/// The buttons of the voice-model download `item`, called `name`.
+pub(super) fn buttons(item: Item, name: &str) -> Buttons<'_, impl Fn(Download) -> Command> {
+    Buttons {
+        name,
+        ask: move |what| Command::VoiceModel(item, what),
     }
-}
-
-fn remove(ui: &mut Ui, t: &Tokens, (item, name): (Item, &str), out: &mut Commands) {
-    ui.visuals_mut().override_text_color = Some(t.danger);
-    let label = format!("Remove {name}");
-    if widgets::icon_button(ui, Icon::Remove, &label, false).clicked() {
-        out.push(Command::VoiceModel(ModelAction::Remove(item)));
-    }
-    ui.visuals_mut().override_text_color = None;
-}
-
-fn muted(ui: &mut Ui, t: &Tokens, text: &str) {
-    ui.label(RichText::new(text).size(t.text_small).color(t.muted));
 }
 
 /// A voice's language as a listener names it: `en-GB` is British English.

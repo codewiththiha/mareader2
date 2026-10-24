@@ -1,21 +1,21 @@
 //! The Vocabulary tab: word data, shading, and how words sound.
 
-use egui::{ProgressBar, RichText, Slider, Ui};
+use egui::{RichText, Slider, Ui};
 use mareader_cefr::{DATASET, Part, State, TAGGER};
 use mareader_settings::{
     Accent, CefrLevel, DictionarySettings, Notation, Pen, PronunciationSettings, StudySettings,
 };
 use mareader_speech::Stage;
 
+use super::downloads::{Buttons, muted, progress};
 use super::highlights::{palette, preview};
-use super::{divider, group, note, row, section, switch_row};
-use crate::command::{Command, Commands};
+use super::{choices, divider, group, note, row, section, switch_row};
+use crate::command::{Command, Commands, Download};
 use crate::dict::{count, megabytes};
 use crate::icons::Icon;
-use crate::sounds::{Action as SoundAction, Sounds};
+use crate::sounds::Sounds;
 use crate::theme::Tokens;
-use crate::vocab::{Action, Vocab};
-use crate::widgets;
+use crate::vocab::Vocab;
 
 pub fn tab(
     ui: &mut Ui,
@@ -89,27 +89,11 @@ fn pronunciation(ui: &mut Ui, p: &mut PronunciationSettings) {
     switch_row(ui, "Show on word cards", hint, &mut p.shown);
     divider(ui);
     row(ui, "Accent", "Which English the cards say", |ui| {
-        for accent in Accent::ALL.into_iter().rev() {
-            let on = p.accent == accent;
-            if ui
-                .add(egui::Button::selectable(on, accent.label()))
-                .clicked()
-            {
-                p.accent = accent;
-            }
-        }
+        choices(ui, &mut p.accent, &Accent::ALL, Accent::label);
     });
     divider(ui);
     row(ui, "Written as", p.notation.detail(), |ui| {
-        for notation in Notation::ALL.into_iter().rev() {
-            let on = p.notation == notation;
-            if ui
-                .add(egui::Button::selectable(on, notation.label()))
-                .clicked()
-            {
-                p.notation = notation;
-            }
-        }
+        choices(ui, &mut p.notation, &Notation::ALL, Notation::label);
     });
 }
 
@@ -194,12 +178,7 @@ fn look_rows(ui: &mut Ui, study: &mut StudySettings) {
     let h = &mut study.highlights;
     let mut cefr = h.cefr;
     row(ui, "Mark", "How hard words are shaded", |ui| {
-        for pen in Pen::ALL.into_iter().rev() {
-            let on = cefr.pen == pen;
-            if ui.add(egui::Button::selectable(on, pen.label())).clicked() {
-                cefr.pen = pen;
-            }
-        }
+        choices(ui, &mut cefr.pen, &Pen::ALL, Pen::label);
         preview(ui, cefr.pen, cefr.color, h.opacity);
     });
     divider(ui);
@@ -217,143 +196,87 @@ fn look_rows(ui: &mut Ui, study: &mut StudySettings) {
     h.cefr = cefr;
 }
 
-fn press(ui: &mut Ui, out: &mut Commands, (icon, name): (Icon, &str), action: Action) {
-    let label = format!("{name} word data");
-    if widgets::icon_button(ui, icon, &label, false).clicked() {
-        out.push(Command::Vocab(action));
-    }
-}
-
-fn progress(ui: &mut Ui, got: u64, total: Option<u64>, guess: u64) {
-    let total = total.unwrap_or(guess).max(1);
-    let done = (got as f32 / total as f32).clamp(0.0, 1.0);
-    let text = format!("{} of {}", megabytes(got), megabytes(total));
-    ui.add(ProgressBar::new(done).desired_width(150.0).text(text));
-}
-
 /// The levels and the roles model, downloaded, paused and removed as one.
 fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
-    let t = Tokens::get(ui.ctx());
+    let data = Buttons {
+        name: "word data",
+        ask: Command::Vocab,
+    };
     let hint = "Each word's CEFR level, and a model of its role in a sentence";
     let all = DATASET.bytes + TAGGER.bytes;
     row(ui, "Word data", hint, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !vocab.attached() {
-            muted(ui, &t, &megabytes(all));
+            muted(ui, &megabytes(all));
             return;
         }
         let levels = vocab.state(Part::Dataset);
         match whole(levels, vocab.state(Part::Tagger)) {
             Whole::Absent => {
-                press(ui, out, (Icon::Download, "Download"), Action::Download);
-                muted(ui, &t, &megabytes(all));
+                data.press(ui, (Icon::Download, "Download"), Download::Start, out);
+                muted(ui, &megabytes(all));
             }
             Whole::Fetching { got, total } => {
-                press(ui, out, (Icon::Close, "Cancel"), Action::Cancel);
-                press(ui, out, (Icon::Pause, "Pause"), Action::Pause);
-                progress(ui, got, Some(total), all);
+                data.press(ui, (Icon::Close, "Cancel"), Download::Cancel, out);
+                data.press(ui, (Icon::Pause, "Pause"), Download::Pause, out);
+                progress(ui, got, total);
             }
-            Whole::Paused { got, .. } => {
-                press(ui, out, (Icon::Close, "Cancel"), Action::Cancel);
-                press(ui, out, (Icon::Resume, "Resume"), Action::Download);
-                muted(ui, &t, &format!("Paused at {}", megabytes(got)));
-            }
+            Whole::Paused { got, .. } => data.paused(ui, got, out),
             Whole::Preparing => {
                 ui.spinner();
-                muted(ui, &t, "Preparing…");
+                muted(ui, "Preparing…");
             }
             Whole::Partial => {
-                remove(ui, &t, out);
+                data.remove(ui, out);
                 // The roles came later: shading works, a click's role waits.
-                press(ui, out, (Icon::Download, "Download"), Action::Download);
-                muted(ui, &t, "Word roles missing");
-                words(ui, vocab, &t);
+                data.press(ui, (Icon::Download, "Download"), Download::Start, out);
+                muted(ui, "Word roles missing");
+                words(ui, vocab);
             }
             Whole::Ready => {
-                remove(ui, &t, out);
-                words(ui, vocab, &t);
+                data.remove(ui, out);
+                words(ui, vocab);
             }
-            Whole::Failed(why) => failed(ui, &t, why, out),
+            Whole::Failed(why) => data.failed(ui, why, out),
         }
     });
 }
 
-fn sound_press(ui: &mut Ui, out: &mut Commands, (icon, name): (Icon, &str), action: SoundAction) {
-    let label = format!("{name} pronunciation");
-    if widgets::icon_button(ui, icon, &label, false).clicked() {
-        out.push(Command::Pronunciation(action));
-    }
-}
-
 /// The pronunciation pack; one a voice model holds is in already.
 fn sounds_row(ui: &mut Ui, sounds: &Sounds, out: &mut Commands) {
-    let t = Tokens::get(ui.ctx());
+    let pack = Buttons {
+        name: "pronunciation",
+        ask: Command::Pronunciation,
+    };
     let hint = "How words sound, American and British, shared with voice models";
     let size = sounds.bytes();
     row(ui, "Pronunciation", hint, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !sounds.attached() {
-            muted(ui, &t, &megabytes(size));
+            muted(ui, &megabytes(size));
             return;
         }
-        match sounds.stage() {
-            Stage::Absent => {
-                sound_press(ui, out, (Icon::Download, "Download"), SoundAction::Download);
-                muted(ui, &t, &megabytes(size));
+        let stage = sounds.stage();
+        if *stage != Stage::Ready {
+            pack.controls(ui, stage, size, out);
+            return;
+        }
+        match sounds.shared_with().first() {
+            // Its files are a voice model's too: removing frees nothing.
+            Some(name) => {
+                muted(ui, &format!("Shared with {name}"));
             }
-            Stage::Waiting | Stage::Checking => {
-                ui.spinner();
-                muted(ui, &t, "Preparing…");
-            }
-            Stage::Fetching { got, total } => {
-                sound_press(ui, out, (Icon::Close, "Cancel"), SoundAction::Cancel);
-                sound_press(ui, out, (Icon::Pause, "Pause"), SoundAction::Pause);
-                progress(ui, *got, Some(*total), size);
-            }
-            Stage::Paused { got, .. } => {
-                sound_press(ui, out, (Icon::Close, "Cancel"), SoundAction::Cancel);
-                sound_press(ui, out, (Icon::Resume, "Resume"), SoundAction::Download);
-                muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
-            }
-            Stage::Ready => match sounds.shared_with().first() {
-                // Its files are a voice model's too: removing frees nothing.
-                Some(name) => muted(ui, &t, &format!("Shared with {name}")),
-                None => {
-                    ui.visuals_mut().override_text_color = Some(t.danger);
-                    sound_press(ui, out, (Icon::Remove, "Remove"), SoundAction::Remove);
-                    ui.visuals_mut().override_text_color = None;
-                    muted(ui, &t, &megabytes(size));
-                }
-            },
-            Stage::Failed(why) => {
-                let action = SoundAction::Download;
-                sound_press(ui, out, (Icon::Rescan, "Try again"), action);
-                let r = ui.label(RichText::new("Couldn't download").color(t.danger));
-                widgets::tip(&r, why, None);
+            None => {
+                pack.remove(ui, out);
+                muted(ui, &megabytes(size));
             }
         }
     });
 }
 
-fn remove(ui: &mut Ui, t: &Tokens, out: &mut Commands) {
-    ui.visuals_mut().override_text_color = Some(t.danger);
-    press(ui, out, (Icon::Remove, "Remove"), Action::Remove);
-    ui.visuals_mut().override_text_color = None;
-}
-
-fn words(ui: &mut Ui, vocab: &Vocab, t: &Tokens) {
+fn words(ui: &mut Ui, vocab: &Vocab) {
     let words = vocab.words().map(|n| format!("{} words", count(n)));
-    muted(ui, t, words.as_deref().unwrap_or("Downloaded"));
-}
-
-fn failed(ui: &mut Ui, t: &Tokens, why: &str, out: &mut Commands) {
-    press(ui, out, (Icon::Rescan, "Try again"), Action::Download);
-    let r = ui.label(RichText::new("Couldn't download").color(t.danger));
-    widgets::tip(&r, why, None);
-}
-
-fn muted(ui: &mut Ui, t: &Tokens, text: &str) {
-    ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+    muted(ui, words.as_deref().unwrap_or("Downloaded"));
 }
 
 #[cfg(test)]

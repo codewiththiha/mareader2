@@ -19,6 +19,7 @@ use crate::widgets;
 #[cfg(not(target_arch = "wasm32"))]
 mod ai;
 mod dictionary;
+mod downloads;
 mod fonts;
 mod highlights;
 #[cfg(not(target_arch = "wasm32"))]
@@ -982,6 +983,21 @@ fn mark(painter: &egui::Painter, t: &Tokens, at: egui::Pos2, on: bool, hot: bool
     painter.circle_stroke(at, 8.0, Stroke::new(1.5, ring));
     if on {
         painter.circle_filled(at, 4.5, t.accent);
+    }
+}
+
+/// Each of `all` as a selectable button, laid right to left in a row.
+fn choices<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    value: &mut T,
+    all: &[T],
+    label: impl Fn(T) -> &'static str,
+) {
+    for &choice in all.iter().rev() {
+        let button = egui::Button::selectable(*value == choice, label(choice));
+        if ui.add(button).clicked() {
+            *value = choice;
+        }
     }
 }
 

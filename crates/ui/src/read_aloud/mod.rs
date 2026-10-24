@@ -12,7 +12,7 @@ use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Download};
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::selection::Pages;
@@ -207,15 +207,6 @@ impl Session {
     }
 }
 
-/// What a voice-model button asks of its download.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ModelAction {
-    Download(mareader_speech::Item),
-    Pause(mareader_speech::Item),
-    Cancel(mareader_speech::Item),
-    Remove(mareader_speech::Item),
-}
-
 /// Read-aloud for the window: at most one book reads at a time.
 #[derive(Default)]
 pub struct ReadAloud {
@@ -235,15 +226,15 @@ impl ReadAloud {
     /// Does what a voice-model button asked; a failed delete says why.
     pub fn act(
         &mut self,
-        action: ModelAction,
+        (item, action): (mareader_speech::Item, Download),
         settings: &mut ReadAloudSettings,
     ) -> Result<(), String> {
         #[cfg(not(target_arch = "wasm32"))]
         match action {
-            ModelAction::Download(item) => self.shelf.download(item),
-            ModelAction::Pause(item) => self.shelf.pause(item),
-            ModelAction::Cancel(item) => self.shelf.cancel(item),
-            ModelAction::Remove(item) => {
+            Download::Start => self.shelf.download(item),
+            Download::Pause => self.shelf.pause(item),
+            Download::Cancel => self.shelf.cancel(item),
+            Download::Remove => {
                 let removed = self.shelf.remove(item);
                 // Samples may hold the model; the booth opens again when shown.
                 self.booth.close();
@@ -254,7 +245,7 @@ impl ReadAloud {
             }
         }
         #[cfg(target_arch = "wasm32")]
-        let _ = (action, settings);
+        let _ = (item, action, settings);
         Ok(())
     }
 
@@ -277,6 +268,13 @@ impl ReadAloud {
 
     pub fn active(&self) -> bool {
         self.session.is_some()
+    }
+
+    /// Pauses the book and silences samples and card words.
+    pub fn hush(&mut self) {
+        self.pause();
+        self.booth.stop_trying();
+        self.stop_word();
     }
 
     /// Plays or pauses; false when nothing is reading.
@@ -804,6 +802,12 @@ fn over(paper: [f32; 3], target: [f32; 3]) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_and_speech_name_the_system_voice_alike() {
+        // Settings can't see speech, so each spells the id itself.
+        assert_eq!(ReadAloudSettings::SYSTEM, mareader_speech::SYSTEM);
+    }
 
     /// What `fill` over `under` shows, as egui blends it.
     fn shown(fill: Color32, under: f32) -> [f32; 3] {

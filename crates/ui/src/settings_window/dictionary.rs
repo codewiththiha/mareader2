@@ -1,15 +1,15 @@
 //! The Dictionary tab: language packs to download, and the card's
 //! language.
 
-use egui::{ProgressBar, RichText, Ui};
+use egui::Ui;
 use mareader_dict::{HUB, PACKS, Pack, State, language, languages};
 use mareader_settings::{DictionaryOpens, DictionarySettings};
 
+use super::downloads::{Buttons, muted, progress};
 use super::{choice_row, divider, group, note, row, section};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Download};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
-use crate::theme::Tokens;
 use crate::widgets;
 
 pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Commands) {
@@ -51,54 +51,46 @@ pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Comma
 }
 
 fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
-    let t = Tokens::get(ui.ctx());
     let hint = format!("{} words", count(pack.entries));
     let label = pack.label();
     let id = pack.id;
+    let buttons = Buttons {
+        name: &label,
+        ask: |what| {
+            Command::Dict(match what {
+                Download::Start => Action::Download(id),
+                Download::Pause => Action::Pause(id),
+                Download::Cancel => Action::Cancel(id),
+                Download::Remove => Action::Remove(id),
+            })
+        },
+    };
     row(ui, &label, &hint, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !dict.attached() {
-            muted(ui, &t, &megabytes(pack.bytes));
+            muted(ui, &megabytes(pack.bytes));
             return;
         }
-        let mut press = |ui: &mut Ui, icon, name: &str, action| {
-            if widgets::icon_button(ui, icon, &format!("{name} {label}"), false).clicked() {
-                out.push(Command::Dict(action));
-            }
-        };
         match dict.state(pack) {
             State::Absent => {
-                press(ui, Icon::Download, "Download", Action::Download(id));
-                muted(ui, &t, &megabytes(pack.bytes));
+                buttons.press(ui, (Icon::Download, "Download"), Download::Start, out);
+                muted(ui, &megabytes(pack.bytes));
             }
             State::Fetching { got, total } => {
-                press(ui, Icon::Close, "Cancel", Action::Cancel(id));
-                press(ui, Icon::Pause, "Pause", Action::Pause(id));
-                let total = total.unwrap_or(pack.bytes).max(1);
-                let done = (*got as f32 / total as f32).clamp(0.0, 1.0);
-                let text = format!("{} of {}", megabytes(*got), megabytes(total));
-                ui.add(ProgressBar::new(done).desired_width(150.0).text(text));
+                buttons.press(ui, (Icon::Close, "Cancel"), Download::Cancel, out);
+                buttons.press(ui, (Icon::Pause, "Pause"), Download::Pause, out);
+                progress(ui, *got, total.unwrap_or(pack.bytes));
             }
-            State::Paused { got, .. } => {
-                press(ui, Icon::Close, "Cancel", Action::Cancel(id));
-                press(ui, Icon::Resume, "Resume", Action::Download(id));
-                muted(ui, &t, &format!("Paused at {}", megabytes(*got)));
-            }
+            State::Paused { got, .. } => buttons.paused(ui, *got, out),
             State::Converting => {
                 ui.spinner();
-                muted(ui, &t, "Preparing…");
+                muted(ui, "Preparing…");
             }
             State::Ready => {
-                ui.visuals_mut().override_text_color = Some(t.danger);
-                press(ui, Icon::Remove, "Remove", Action::Remove(id));
-                ui.visuals_mut().override_text_color = None;
-                muted(ui, &t, "Downloaded");
+                buttons.remove(ui, out);
+                muted(ui, "Downloaded");
             }
-            State::Failed(why) => {
-                press(ui, Icon::Rescan, "Try again", Action::Download(id));
-                let r = ui.label(RichText::new("Couldn't download").color(t.danger));
-                widgets::tip(&r, why, None);
-            }
+            State::Failed(why) => buttons.failed(ui, why, out),
         }
     });
 }
@@ -150,8 +142,4 @@ fn default_language(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static P
             });
         },
     );
-}
-
-fn muted(ui: &mut Ui, t: &Tokens, text: &str) {
-    ui.label(RichText::new(text).size(t.text_small).color(t.muted));
 }

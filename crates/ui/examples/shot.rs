@@ -6,9 +6,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
 use mareader_ui::MareaderApp;
-use mareader_ui::command::Command;
+use mareader_ui::command::{Command, Download};
 use mareader_ui::layout::{Arrow, ViewMode};
-use mareader_ui::vocab::Action;
 use mareader_ui::zoom::{Fit, Step, ZoomCommand};
 
 fn main() -> Result<(), String> {
@@ -171,7 +170,7 @@ fn main() -> Result<(), String> {
         .build_eframe(|_| app);
     harness.run_steps(4);
     if words {
-        harness.state_mut().queue(Command::Vocab(Action::Download));
+        harness.state_mut().queue(Command::Vocab(Download::Start));
         wait_for_words(&mut harness)?;
     }
     for c in queued {

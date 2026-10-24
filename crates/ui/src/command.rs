@@ -19,6 +19,15 @@ pub struct Independence {
     pub textures: bool,
 }
 
+/// What a download's buttons ask of it; Start also resumes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Download {
+    Start,
+    Pause,
+    Cancel,
+    Remove,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     ToggleSidebar,
@@ -157,7 +166,7 @@ pub enum Command {
     SayWord(String),
     StopSaying,
     /// A voice model or voice to download, pause, cancel or remove.
-    VoiceModel(crate::read_aloud::ModelAction),
+    VoiceModel(mareader_speech::Item, Download),
     /// Explains the word selected in the pane, marking it.
     Explain(PaneId),
     /// Looks the pane's selection up in the dictionaries.
@@ -166,10 +175,10 @@ pub enum Command {
     Dict(crate::dict::Action),
     /// The Dictionary panel's choices, saved with the settings.
     SetDictionary(Box<mareader_settings::DictionarySettings>),
-    /// The word-level dataset: download, pause, cancel, remove.
-    Vocab(crate::vocab::Action),
+    /// The word-level dataset.
+    Vocab(Download),
     /// The pronunciation download, beside the word levels.
-    Pronunciation(crate::sounds::Action),
+    Pronunciation(Download),
     /// Highlights the pane's selection; a colour if one was picked.
     Highlight {
         pane: PaneId,

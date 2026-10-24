@@ -4,7 +4,8 @@ use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use mareader_settings::{LANGUAGES, ReadAloudSettings};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
-use super::voice_model::controls;
+use super::downloads::muted;
+use super::voice_model::buttons;
 use super::{Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -96,11 +97,7 @@ fn model_row(
     (shelf, runs): (&Shelf, bool),
     out: &mut Commands,
 ) -> bool {
-    let t = Tokens::get(ui.ctx());
-    let muted = |ui: &mut Ui, text: &str| {
-        ui.label(RichText::new(text).size(t.text_small).color(t.muted));
-    };
-    let wanted = s.builds.get(model.id).and_then(|b| model.build(b));
+    let wanted = s.build_for(model.id).and_then(|b| model.build(b));
     let picked = wanted.or(model.builds.first());
     let offer = offer(model);
     let on = (runs || s.engine == model.id).then_some(s.engine == model.id);
@@ -122,19 +119,13 @@ fn model_row(
                 out.push(Command::OpenSettings(Tab::Model(model)));
             }
             let size = crate::dict::megabytes(shelf.on_disk(model));
-            let r = ui.label(RichText::new(size).size(t.text_small).color(t.muted));
-            r.on_hover_text("On disk with its voices and builds");
+            muted(ui, &size).on_hover_text("On disk with its voices and builds");
             return;
         }
         // Without builds, or with one here, only the shared files are owed.
         let Some(picked) = picked.filter(|_| shelf.builds(model).is_empty()) else {
             let item = Item::Model(model.id);
-            controls(
-                ui,
-                shelf.stage(item),
-                (item, model.name, model.bytes()),
-                out,
-            );
+            buttons(item, model.name).controls(ui, shelf.stage(item), model.bytes(), out);
             return;
         };
         // A build begun, else the one picked, with the shared files.
@@ -143,7 +134,7 @@ fn model_row(
         let build = begun.unwrap_or(picked);
         let item = Item::Build(model.id, build.id);
         let stage = shelf.stage(item);
-        controls(ui, stage, (item, model.name, model.bytes_with(build)), out);
+        buttons(item, model.name).controls(ui, stage, model.bytes_with(build), out);
         if *stage == Stage::Absent
             && model.builds.len() > 1
             && let Some(id) = build_pick(ui, model, build)
@@ -219,8 +210,7 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
                 .show_value(false);
             ui.add(slider);
             ui.add_space(t.gap);
-            let text = memory_label(s.speech_memory_mb, rate);
-            ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+            muted(ui, &memory_label(s.speech_memory_mb, rate));
         });
         divider(ui);
         let hint = "Counted from when reading pauses or stops";
@@ -237,8 +227,7 @@ fn memory(ui: &mut Ui, s: &mut ReadAloudSettings, shelf: &Shelf) {
         });
         divider(ui);
         row(ui, "In memory now", "", |ui| {
-            let text = usage_label(&shelf.usage());
-            ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+            muted(ui, &usage_label(&shelf.usage()));
         });
     });
 }
@@ -300,9 +289,7 @@ fn voice(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth, out: &mut Comman
     group(ui, |ui| {
         if failed {
             row(ui, "Voice", "", |ui| {
-                let t = Tokens::get(ui.ctx());
-                let text = "Voices show once the engine starts";
-                ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+                muted(ui, "Voices show once the engine starts");
             });
             divider(ui);
         } else if open && booth.caps().voices {
@@ -318,9 +305,7 @@ fn voice(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth, out: &mut Comman
             divider(ui);
         } else if open {
             row(ui, "Voice", "", |ui| {
-                let t = Tokens::get(ui.ctx());
-                let text = "This engine speaks in one voice";
-                ui.label(RichText::new(text).size(t.text_small).color(t.muted));
+                muted(ui, "This engine speaks in one voice");
             });
             divider(ui);
         }

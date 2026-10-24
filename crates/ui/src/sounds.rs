@@ -8,9 +8,12 @@ use std::sync::{Arc, mpsc};
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{FontId, Ui};
+use mareader_g2p::Dialect;
+pub use mareader_g2p::notation::Beat;
 use mareader_settings::{Accent, Notation, PronunciationSettings};
 use mareader_speech::{Item, PRONUNCIATION, Shelf, Stage};
 
+use crate::command::Download;
 use crate::theme::{self, Tokens};
 
 /// Lookups remembered; past this the list starts over.
@@ -22,44 +25,12 @@ const IDLE: f64 = 120.0;
 const MOST_WORDS: usize = 3;
 const MOST_CHARS: usize = 40;
 
-/// What the Vocabulary tab asks of the download.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    Download,
-    Pause,
-    Cancel,
-    Remove,
-}
-
-/// An accent the data holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Way {
-    American,
-    British,
-}
-
-impl Way {
-    fn tag(self) -> &'static str {
-        match self {
-            Self::American => "US",
-            Self::British => "UK",
-        }
+/// The tag a line wears when both accents show.
+fn tag(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::American => "US",
+        Dialect::British => "UK",
     }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn dialect(self) -> mareader_g2p::Dialect {
-        match self {
-            Self::American => mareader_g2p::Dialect::American,
-            Self::British => mareader_g2p::Dialect::British,
-        }
-    }
-}
-
-/// One syllable as written, and whether it takes the stress.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Beat {
-    pub text: String,
-    pub stressed: bool,
 }
 
 /// One accent on a card: its tag, then each word's beats.
@@ -90,7 +61,7 @@ impl Heard<'_> {
     }
 }
 
-type Key = (String, Way);
+type Key = (String, Dialect);
 
 #[cfg(not(target_arch = "wasm32"))]
 type Answer = Result<(String, Arc<mareader_g2p::G2p>), String>;
@@ -169,17 +140,20 @@ impl Sounds {
         holders.iter().map(|m| m.name).collect()
     }
 
-    pub fn act(&mut self, action: Action) -> Result<(), String> {
+    pub fn act(&mut self, action: Download) -> Result<(), String> {
         let item = Item::Model(PRONUNCIATION.id);
+        #[cfg(not(target_arch = "wasm32"))]
         match action {
-            Action::Download => self.shelf.download(item),
-            Action::Pause => self.shelf.pause(item),
-            Action::Cancel => self.shelf.cancel(item),
-            Action::Remove => {
+            Download::Start => self.shelf.download(item),
+            Download::Pause => self.shelf.pause(item),
+            Download::Cancel => self.shelf.cancel(item),
+            Download::Remove => {
                 self.forget();
                 return self.shelf.remove(item);
             }
         }
+        #[cfg(target_arch = "wasm32")]
+        let _ = (item, action);
         Ok(())
     }
 
@@ -190,20 +164,22 @@ impl Sounds {
 
     /// Takes in downloads and answers; true when something changed.
     pub fn poll(&mut self, now: f64) -> bool {
-        let mut changed = self.shelf.poll();
+        let changed = self.shelf.poll();
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            changed |= self.receive();
+        let changed = {
+            let answered = self.receive();
             self.pump();
             if self.asking.is_none() && now - self.used > IDLE {
                 self.held.clear();
             }
-        }
+            changed | answered
+        };
         #[cfg(target_arch = "wasm32")]
         let _ = now;
         changed
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     fn forget(&mut self) {
         self.found.clear();
         self.wanted.clear();
@@ -225,18 +201,18 @@ impl Sounds {
         if !settings.shown || !self.ready() || !speakable(word) {
             return None;
         }
-        let ways: &[Way] = match settings.accent {
-            Accent::Both => &[Way::American, Way::British],
-            Accent::American => &[Way::American],
-            Accent::British => &[Way::British],
+        let dialects: &[Dialect] = match settings.accent {
+            Accent::Both => &[Dialect::American, Dialect::British],
+            Accent::American => &[Dialect::American],
+            Accent::British => &[Dialect::British],
         };
         let mut lines = Vec::new();
-        for &way in ways {
-            let key = (word.to_owned(), way);
+        for &dialect in dialects {
+            let key = (word.to_owned(), dialect);
             match self.found.get(&key) {
                 Some(Some(phonemes)) => {
-                    let mut line = format(phonemes, way, settings.notation);
-                    line.tag = if ways.len() > 1 { way.tag() } else { "" };
+                    let mut line = format(phonemes, dialect, settings.notation);
+                    line.tag = if dialects.len() > 1 { tag(dialect) } else { "" };
                     lines.push(line);
                 }
                 Some(None) => {}
@@ -279,7 +255,7 @@ impl Sounds {
                 continue;
             };
             let (tx, rx) = mpsc::channel();
-            let (word, dialect) = (key.0.clone(), key.1.dialect());
+            let (word, dialect) = (key.0.clone(), key.1);
             let job = move || {
                 let g2p = lexicons.load(&dir, dialect)?;
                 Ok((g2p.phonemize(&word), g2p))
@@ -339,7 +315,7 @@ fn speakable(word: &str) -> bool {
 }
 
 /// The phonemes, or None where a word wasn't known.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn understood(phonemes: &str) -> Option<String> {
     let said = phonemes.trim();
     let known = !said.is_empty() && !said.contains(mareader_g2p::UNKNOWN);
@@ -347,10 +323,8 @@ fn understood(phonemes: &str) -> Option<String> {
 }
 
 /// `phonemes` written as `notation` asks.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn format(phonemes: &str, way: Way, notation: Notation) -> Line {
+pub fn format(phonemes: &str, dialect: Dialect, notation: Notation) -> Line {
     use mareader_g2p::notation;
-    let dialect = way.dialect();
     let letters = |w: &str| w.chars().filter(|c| c.is_alphabetic()).collect();
     let spoken = phonemes.split_whitespace().map(letters);
     let words = spoken.filter(|w: &String| !w.is_empty()).map(|w| {
@@ -363,27 +337,12 @@ pub fn format(phonemes: &str, way: Way, notation: Notation) -> Line {
         match notation {
             Notation::Ipa => one(notation::ipa(&w, dialect)),
             Notation::Raw => one(notation::raw(&w)),
-            Notation::Easy => notation::easy(&w, dialect)
-                .into_iter()
-                .map(|b| Beat {
-                    text: b.text,
-                    stressed: b.stressed,
-                })
-                .collect(),
+            Notation::Easy => notation::easy(&w, dialect),
         }
     });
     Line {
         tag: "",
         words: words.collect(),
-        slashed: notation != Notation::Easy,
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn format(_: &str, _: Way, notation: Notation) -> Line {
-    Line {
-        tag: "",
-        words: Vec::new(),
         slashed: notation != Notation::Easy,
     }
 }
@@ -431,7 +390,6 @@ fn layout(line: &Line, t: &Tokens) -> LayoutJob {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::indexing_slicing)]
 mod tests {
     use super::*;
@@ -449,14 +407,14 @@ mod tests {
 
     #[test]
     fn each_notation_writes_the_phonemes_its_way() {
-        let us = |n| text(&format("jˈɑt", Way::American, n));
+        let us = |n| text(&format("jˈɑt", Dialect::American, n));
         assert_eq!(us(Notation::Ipa), "jɑːt");
         assert_eq!(us(Notation::Easy), "yaat");
         assert_eq!(us(Notation::Raw), "jˈɑt");
-        let two = format("ɡˈʊd mˈɔɹnɪŋ,", Way::American, Notation::Easy);
+        let two = format("ɡˈʊd mˈɔɹnɪŋ,", Dialect::American, Notation::Easy);
         assert_eq!(text(&two), "gud MOR·ning");
         assert!(!two.slashed);
-        assert!(format("jˈɒt", Way::British, Notation::Ipa).slashed);
+        assert!(format("jˈɒt", Dialect::British, Notation::Ipa).slashed);
     }
 
     #[test]
@@ -475,7 +433,7 @@ mod tests {
 
     #[test]
     fn cards_find_their_words_lines() {
-        let line = format("jˈɑt", Way::American, Notation::Easy);
+        let line = format("jˈɑt", Dialect::American, Notation::Easy);
         let sounds = [("yacht".to_owned(), vec![line.clone()])];
         let heard = Heard {
             saying: Some("yacht"),
