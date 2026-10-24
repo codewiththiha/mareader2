@@ -591,12 +591,19 @@ impl MareaderApp {
         }
     }
 
-    /// The voice booth opens with the Read aloud tab and closes after it.
+    /// The voice booth opens with a voice tab and closes after it.
     fn voices_shown(&mut self, ctx: &egui::Context) {
+        use crate::settings_window::Tab;
         let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
-        let tab = crate::settings_window::Tab::ReadAloud;
-        if self.settings_window.is_open() && self.settings_window.tab() == tab {
-            booth.open(ctx, &self.settings.read_aloud, shelf);
+        let s = &self.settings.read_aloud;
+        let engine = match self.settings_window.tab() {
+            _ if !self.settings_window.is_open() => None,
+            Tab::ReadAloud => Some(s.engine.as_str()),
+            Tab::Model(m) => Some(m.id),
+            _ => None,
+        };
+        if let Some(engine) = engine {
+            booth.open(ctx, engine, s, shelf);
             booth.tick(ctx);
         } else if booth.is_open() {
             booth.close();
@@ -2176,6 +2183,12 @@ impl MareaderApp {
                 self.clips.stop();
                 let settings = &self.settings.read_aloud;
                 self.read_aloud.booth.try_voice(settings);
+            }
+            Command::TryVoiceOf(voice) => {
+                self.read_aloud.pause();
+                self.clips.stop();
+                let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
+                booth.try_voice_of(ctx, &self.settings.read_aloud, shelf, &voice);
             }
             Command::StopVoiceTry => self.read_aloud.booth.stop_trying(),
             Command::VoiceModel(action) => self.read_aloud.act(action),

@@ -150,6 +150,8 @@ pub enum Command {
     StopReadAloud,
     /// Says a line in the voice settings pick; stops that line.
     TryVoice,
+    /// Says a line in this voice of the voice tab's engine.
+    TryVoiceOf(String),
     StopVoiceTry,
     /// A voice model or voice to download, pause, cancel or remove.
     VoiceModel(crate::read_aloud::ModelAction),

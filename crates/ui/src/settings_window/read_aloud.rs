@@ -1,11 +1,13 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
-use egui::{Id, Rect, RichText, ScrollArea, Sense, Ui, pos2, vec2};
+use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use mareader_settings::{LANGUAGES, ReadAloudSettings};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::voice_model::controls;
-use super::{Tab, choice_row, detail_row, divider, group, note, row, section, switch_row};
+use super::{
+    Tab, choice_row, detail_row, divider, fold_row, group, note, row, section, switch_row,
+};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::keymap;
@@ -22,8 +24,6 @@ pub struct Voices<'a> {
     pub platform: Platform,
 }
 
-/// The voice list's height at most; it scrolls past this.
-const LIST_H: f32 = 232.0;
 const VOICE_H: f32 = 34.0;
 /// The language filter's pick for every language.
 const ALL: &str = "";
@@ -266,7 +266,7 @@ fn voice(ui: &mut Ui, s: &mut ReadAloudSettings, booth: &Booth, out: &mut Comman
             let picked = s.voice().map(str::to_owned);
             let language = language_filter(ui, booth.voices(), picked.as_deref());
             divider(ui);
-            if let Some(pick) = voice_list(ui, booth.voices(), &language, picked.as_deref()) {
+            if let Some(pick) = voice_list(ui, booth, &language, picked.as_deref(), out) {
                 match pick {
                     Some(id) => s.voices.insert(s.engine.clone(), id),
                     None => s.voices.remove(&s.engine),
@@ -325,43 +325,62 @@ fn language_filter(ui: &mut Ui, voices: &[Voice], picked: Option<&str>) -> Strin
     language
 }
 
-/// The default voice, then each voice in `language`; a click picks one.
+/// The default voice, then each in `language`, under a fold.
+/// A click picks one.
 fn voice_list(
     ui: &mut Ui,
-    voices: &[Voice],
+    booth: &Booth,
     language: &str,
     picked: Option<&str>,
+    out: &mut Commands,
 ) -> Option<Option<String>> {
+    let voices = booth.voices();
+    let shown: Vec<&Voice> = (voices.iter())
+        .filter(|v| language == ALL || primary(&v.language) == language)
+        .collect();
+    let name = picked
+        .and_then(|p| voices.iter().find(|v| v.id == p))
+        .map_or("System default", |v| v.name.as_str());
+    let count = match shown.len() {
+        1 => "1 voice".to_owned(),
+        n => format!("{n} voices"),
+    };
+    let detail = format!("{name} · {count}");
+    if !fold_row(ui, Id::new("read-aloud-voices"), ("Voices", &detail), true) {
+        return None;
+    }
+    divider(ui);
     let mut pick = None;
-    let shown = voices
-        .iter()
-        .filter(|v| language == ALL || primary(&v.language) == language);
-    ScrollArea::vertical()
-        .id_salt("read-aloud-voices")
-        .max_height(LIST_H)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.add_space(4.0);
-            if voice_row(ui, "System default", "", picked.is_none()) {
-                pick = Some(None);
-            }
-            for v in shown {
-                let on = picked == Some(v.id.as_str());
-                if voice_row(ui, &v.name, &v.language, on) {
-                    pick = Some(Some(v.id.clone()));
-                }
-            }
-            ui.add_space(4.0);
-        });
+    ui.add_space(4.0);
+    if voice_row(ui, ("System default", ""), picked.is_none(), None, out) {
+        pick = Some(None);
+    }
+    for v in shown {
+        let on = picked == Some(v.id.as_str());
+        let saying = booth.trying_voice() == Some(v.id.as_str());
+        if voice_row(ui, (&v.name, &v.language), on, Some((&v.id, saying)), out) {
+            pick = Some(Some(v.id.clone()));
+        }
+    }
+    ui.add_space(4.0);
     pick
 }
 
-/// One voice: its name, its language tag, a check while picked.
-fn voice_row(ui: &mut Ui, name: &str, tag: &str, on: bool) -> bool {
+/// A voice: name, tag, check if picked;
+/// `say` is its id and if it sounds.
+fn voice_row(
+    ui: &mut Ui,
+    (name, tag): (&str, &str),
+    on: bool,
+    say: Option<(&str, bool)>,
+    out: &mut Commands,
+) -> bool {
     let t = Tokens::get(ui.ctx());
     let (rect, r) = ui.allocate_exact_size(vec2(ui.available_width(), VOICE_H), Sense::click());
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, name));
-    let fill = match (on, r.hovered()) {
+    // Its button sits on top; the row stays lit under it.
+    let hot = ui.rect_contains_pointer(rect);
+    let fill = match (on, hot) {
         (true, _) => t.selected,
         (false, true) => t.hover,
         (false, false) => egui::Color32::TRANSPARENT,
@@ -372,8 +391,25 @@ fn voice_row(ui: &mut Ui, name: &str, tag: &str, on: bool) -> bool {
     let left = pos2(rect.left() + 10.0, rect.center().y);
     painter.text(left, egui::Align2::LEFT_CENTER, name, font, t.ink);
     let small = egui::FontId::proportional(t.text_small);
-    let right = pos2(rect.right() - 34.0, rect.center().y);
+    let room = if say.is_some() { 64.0 } else { 34.0 };
+    let right = pos2(rect.right() - room, rect.center().y);
     painter.text(right, egui::Align2::RIGHT_CENTER, tag, small, t.muted);
+    if let Some((id, saying)) = say {
+        let at =
+            Rect::from_center_size(pos2(rect.right() - 46.0, rect.center().y), vec2(24.0, 24.0));
+        let place = UiBuilder::new()
+            .max_rect(at)
+            .layout(Layout::left_to_right(Align::Center));
+        let mut slot = ui.new_child(place);
+        let (icon, verb, command) = match saying {
+            true => (Icon::Stop, "Stop", Command::StopVoiceTry),
+            false => (Icon::Try, "Preview", Command::TryVoiceOf(id.to_owned())),
+        };
+        let label = format!("{verb} {name}");
+        if widgets::small_icon_button(&mut slot, icon, &label).clicked() {
+            out.push(command);
+        }
+    }
     if on {
         let mark =
             Rect::from_center_size(pos2(rect.right() - 17.0, rect.center().y), vec2(16.0, 16.0));

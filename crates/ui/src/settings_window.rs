@@ -377,7 +377,7 @@ fn tab_body(
         Tab::Appearance => appearance(ui, s, cx, out),
         Tab::Layout => layout(ui, s, cx),
         Tab::ReadAloud => read_aloud::tab(ui, &mut s.read_aloud, voices, out),
-        Tab::Model(m) => voice_model::tab(ui, &mut s.read_aloud, m, voices.shelf, out),
+        Tab::Model(m) => voice_model::tab(ui, &mut s.read_aloud, m, voices, out),
         Tab::Motion => motion(ui, s, cx),
         Tab::Highlights => highlights::tab(ui, &mut s.study.highlights, out),
         Tab::Vocabulary => {
@@ -900,6 +900,54 @@ fn disclosure(ui: &mut Ui, label: &str, hint: &str) -> bool {
     let mark = Rect::from_center_size(pos2(rect.right() - 9.0, rect.center().y), Vec2::splat(16.0));
     chevron.image(16.0).tint(ink).paint_at(ui, mark);
     open
+}
+
+/// Two lines folding the rows below; true while open.
+/// Starts as `first`, then kept.
+fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str), first: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let kept = ui.data(|d| d.get_temp::<bool>(id));
+    let mut open = kept.unwrap_or(first);
+    let size = vec2(ui.available_width(), 52.0);
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, title));
+    if r.clicked() {
+        open = !open;
+    }
+    if r.clicked() || kept.is_none() {
+        ui.data_mut(|d| d.insert_temp(id, open));
+    }
+    let mid = rect.center().y;
+    let ink = if r.hovered() { t.accent } else { t.ink };
+    let text = Rect::from_min_max(rect.min, pos2(rect.right() - 26.0, rect.bottom()));
+    let painter = ui.painter().with_clip_rect(text);
+    let font = egui::FontId::proportional(t.text);
+    let top = pos2(rect.left(), mid - 9.0);
+    painter.text(top, egui::Align2::LEFT_CENTER, title, font, ink);
+    let small = egui::FontId::proportional(t.text_small);
+    let below = pos2(rect.left(), mid + 9.0);
+    painter.text(below, egui::Align2::LEFT_CENTER, detail, small, t.muted);
+    let chevron = if open {
+        Icon::ChevronDown
+    } else {
+        Icon::ChevronRight
+    };
+    let mark = Rect::from_center_size(pos2(rect.right() - 9.0, mid), Vec2::splat(16.0));
+    chevron.image(16.0).tint(t.muted).paint_at(ui, mark);
+    open
+}
+
+/// The rows under an open [`fold_row`], set in a step.
+fn folded(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .inner_margin(Margin {
+            left: 14,
+            ..Margin::ZERO
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui);
+        });
 }
 
 /// A titled choice with its detail and a radio mark; true when picked.

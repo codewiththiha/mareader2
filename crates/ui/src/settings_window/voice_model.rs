@@ -4,11 +4,12 @@ use egui::{ProgressBar, RichText, Ui};
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::{Build, Item, Model, ModelVoice, Shelf, Stage};
 
-use super::{detail_row, divider, group, note, radio, row, section};
+use super::read_aloud::Voices;
+use super::{detail_row, divider, fold_row, folded, group, note, radio, row, section};
 use crate::command::{Command, Commands};
 use crate::dict::megabytes;
 use crate::icons::Icon;
-use crate::read_aloud::ModelAction;
+use crate::read_aloud::{Booth, ModelAction};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -16,9 +17,10 @@ pub fn tab(
     ui: &mut Ui,
     s: &mut ReadAloudSettings,
     model: &'static Model,
-    shelf: &Shelf,
+    v: &Voices<'_>,
     out: &mut Commands,
 ) {
+    let shelf = v.shelf;
     if model.builds.len() > 1 {
         builds(ui, s, model, shelf, out);
     }
@@ -30,23 +32,26 @@ pub fn tab(
     let picked = picked
         .filter(|v| shelf.has(model, v.id))
         .map_or(model.first_voice, |v| v.id);
+    let room = Room {
+        model,
+        shelf,
+        booth: v.booth,
+        picked,
+    };
     group(ui, |ui| {
-        let shown = language_filter(ui, model);
-        let shown: Vec<&'static ModelVoice> = (model.voices.iter())
-            .filter(|v| shown.is_none_or(|l| v.language == l))
-            .collect();
         if !inside {
-            every_voice(ui, model, &shown, shelf, out);
+            let every: Vec<&'static ModelVoice> = model.voices.iter().collect();
+            every_voice(ui, model, &every, shelf, out);
+            divider(ui);
         }
-        for (i, voice) in shown.into_iter().enumerate() {
-            if i > 0 || !inside {
-                divider(ui);
-            }
-            if let Some(id) = voice_row(ui, (model, voice), picked == voice.id, shelf, out) {
-                s.voices.insert(model.id.to_owned(), id.to_owned());
-            }
+        if let Some(id) = languages(ui, &room, inside, out) {
+            s.voices.insert(model.id.to_owned(), id.to_owned());
         }
     });
+    let failed = v.booth.engine() == model.id && !v.booth.ready();
+    if let Some(why) = v.booth.fault().filter(|_| failed) {
+        note(ui, &format!("Voices can't be heard here: {why}"));
+    }
     let offline = match inside {
         true => "Every voice comes with each build and works offline.",
         false => "Each voice works offline once downloaded.",
@@ -185,39 +190,69 @@ fn build_row(
     pick
 }
 
-/// Picks which voices show, by language, where a model speaks more than one.
-fn language_filter(ui: &mut Ui, model: &'static Model) -> Option<&'static str> {
+/// What a voice row looks at besides its voice.
+struct Room<'a> {
+    model: &'static Model,
+    shelf: &'a Shelf,
+    /// Says a line in a voice, once it opened this model.
+    booth: &'a Booth,
+    picked: &'static str,
+}
+
+/// Each language's voices folded, open first
+/// for the pick's language or one with downloads.
+fn languages(
+    ui: &mut Ui,
+    room: &Room<'_>,
+    inside: bool,
+    out: &mut Commands,
+) -> Option<&'static str> {
+    let model = room.model;
     let mut languages: Vec<&'static str> = Vec::new();
     for v in model.voices {
         if !languages.contains(&v.language) {
             languages.push(v.language);
         }
     }
-    if languages.len() < 2 {
-        return None;
-    }
-    let id = egui::Id::new(("voice language", model.id));
-    let kept = ui.data(|d| d.get_temp::<usize>(id)).unwrap_or_default();
-    // 0 shows every language; 1 on, each in turn.
-    let mut at = kept.min(languages.len());
-    let name = |at: usize| match at.checked_sub(1).and_then(|i| languages.get(i)) {
-        Some(l) => accent(l),
-        None => "All languages",
+    let mut pick = None;
+    let mut rows = |ui: &mut Ui, voices: &[&'static ModelVoice]| {
+        for (i, voice) in voices.iter().enumerate() {
+            if i > 0 {
+                divider(ui);
+            }
+            if let Some(id) = voice_row(ui, room, voice, out) {
+                pick = Some(id);
+            }
+        }
     };
-    row(ui, "Language", "", |ui| {
-        widgets::combo(id)
-            .selected_text(name(at))
-            .show_ui(ui, |ui| {
-                for i in 0..=languages.len() {
-                    ui.selectable_value(&mut at, i, name(i));
-                }
-            });
-    });
-    divider(ui);
-    if at != kept {
-        ui.data_mut(|d| d.insert_temp(id, at));
+    let one = languages.len() < 2;
+    for (i, language) in languages.into_iter().enumerate() {
+        let voices: Vec<&'static ModelVoice> = (model.voices.iter())
+            .filter(|v| v.language == language)
+            .collect();
+        if one {
+            rows(ui, &voices);
+            continue;
+        }
+        if i > 0 {
+            divider(ui);
+        }
+        let here = (voices.iter())
+            .filter(|v| room.shelf.has(model, v.id))
+            .count();
+        let detail = match (voices.len(), inside) {
+            (1, _) => "1 voice".to_owned(),
+            (n, true) => format!("{n} voices"),
+            (n, false) => format!("{n} voices · {here} downloaded"),
+        };
+        let first = voices.iter().any(|v| v.id == room.picked) || (here > 0 && !inside);
+        let id = egui::Id::new(("voice language", model.id, language));
+        if fold_row(ui, id, (accent(language), &detail), first) {
+            divider(ui);
+            folded(ui, |ui| rows(ui, &voices));
+        }
     }
-    at.checked_sub(1).and_then(|i| languages.get(i)).copied()
+    pick
 }
 
 /// Downloads every voice shown still missing at once.
@@ -254,11 +289,12 @@ fn every_voice(
 /// One voice: picked, or its download; the id when picked now.
 fn voice_row(
     ui: &mut Ui,
-    (model, voice): (&'static Model, &'static ModelVoice),
-    on: bool,
-    shelf: &Shelf,
+    room: &Room<'_>,
+    voice: &'static ModelVoice,
     out: &mut Commands,
 ) -> Option<&'static str> {
+    let (model, shelf) = (room.model, room.shelf);
+    let on = room.picked == voice.id;
     let t = Tokens::get(ui.ctx());
     let mut detail = format!("{}, {}", accent(voice.language), voice.gender.label());
     if !voice.note.is_empty() {
@@ -280,12 +316,38 @@ fn voice_row(
         if radio(ui, on, &format!("Use {}", voice.name)) {
             pick = Some(voice.id);
         }
+        preview(ui, room, voice, out);
         // The first voice came with the model and goes with it.
         if voice.id != model.first_voice && voice.file.is_some() {
             remove(ui, &t, (item, voice.name), out);
         }
     });
     pick
+}
+
+/// Says a line in a downloaded voice, or stops it.
+fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut Commands) {
+    let booth = room.booth;
+    let here = booth.engine() == room.model.id;
+    let saying = here && booth.trying_voice() == Some(voice.id);
+    let (icon, verb, command) = match saying {
+        true => (Icon::Stop, "Stop", Command::StopVoiceTry),
+        false => (
+            Icon::Try,
+            "Preview",
+            Command::TryVoiceOf(voice.id.to_owned()),
+        ),
+    };
+    let label = format!("{verb} {}", voice.name);
+    let r = ui.add_enabled_ui(here && booth.ready(), |ui| {
+        widgets::icon_button(ui, icon, &label, saying)
+    });
+    if r.inner.clicked() {
+        out.push(command);
+    }
+    if saying && booth.loading() {
+        ui.spinner();
+    }
 }
 
 /// A download's buttons and progress, right to left.

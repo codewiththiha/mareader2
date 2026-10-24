@@ -1,4 +1,4 @@
-//! The settings tab's voices: an engine opened to list and try them.
+//! The voice tabs' booth: an engine opened to list and try voices.
 
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use mareader_speech::{Caps, Event, Shelf, Voice, Voicer, Waker};
 
 use super::TICK;
 
-/// Opened while the Read aloud tab shows; let go once it closes.
+/// Opened while a voice tab shows; let go once it closes.
 #[derive(Default)]
 pub struct Booth {
     engine: String,
@@ -22,23 +22,30 @@ pub struct Booth {
     fault: Option<String>,
     /// The sample being said, by its id; ids count every sample.
     trying: Option<u64>,
+    /// The voice asked for by name, not the one picked.
+    tried: Option<String>,
     said: u64,
 }
 
 impl Booth {
-    /// Opens the engine and build picked unless open, or failed, already.
-    pub fn open(&mut self, ctx: &Context, s: &ReadAloudSettings, shelf: &Shelf) {
+    /// Opens `engine` in its picked build unless open, or failed, already.
+    pub fn open(&mut self, ctx: &Context, engine: &str, s: &ReadAloudSettings, shelf: &Shelf) {
         let tried = self.voicer.is_some() || self.fault.is_some();
-        let build = mareader_speech::build_of(&s.engine, s.build(), shelf);
-        if self.engine == s.engine && self.build == build && tried {
+        let wanted = s.builds.get(engine).map(String::as_str);
+        let build = mareader_speech::build_of(engine, wanted, shelf);
+        if self.engine == engine && self.build == build && tried {
             return;
         }
+        self.start(ctx, engine.to_owned(), build, shelf);
+    }
+
+    fn start(&mut self, ctx: &Context, engine: String, build: Option<&'static str>, shelf: &Shelf) {
         self.close();
-        self.engine.clone_from(&s.engine);
+        self.engine = engine;
         self.build = build;
         let ctx = ctx.clone();
         let wake: Waker = Arc::new(move || ctx.request_repaint());
-        match mareader_speech::open(&s.engine, build, shelf, wake) {
+        match mareader_speech::open(&self.engine, build, shelf, wake) {
             Ok(voicer) => {
                 self.caps = voicer.caps();
                 self.voicer = Some(voicer);
@@ -80,7 +87,28 @@ impl Booth {
 
     /// Says a line in the voice and tone `settings` pick.
     pub fn try_voice(&mut self, settings: &ReadAloudSettings) {
-        let picked = settings.voices.get(&self.engine).map(String::as_str);
+        let picked = settings.voices.get(&self.engine).cloned();
+        self.say_sample(settings, picked.as_deref());
+        self.tried = None;
+    }
+
+    /// Says a line in the voice `id`, in the tone `settings` pick.
+    pub fn try_voice_of(
+        &mut self,
+        ctx: &Context,
+        settings: &ReadAloudSettings,
+        shelf: &Shelf,
+        id: &str,
+    ) {
+        // Downloaded since it opened: the engine lists it once reopened.
+        if self.ready() && !self.voices.iter().any(|v| v.id == id) {
+            self.start(ctx, self.engine.clone(), self.build, shelf);
+        }
+        self.say_sample(settings, Some(id));
+        self.tried = self.trying.map(|_| id.to_owned());
+    }
+
+    fn say_sample(&mut self, settings: &ReadAloudSettings, picked: Option<&str>) {
         let language = picked
             .and_then(|id| self.voices.iter().find(|v| v.id == id))
             .map_or("en", |v| v.language.as_str());
@@ -115,6 +143,7 @@ impl Booth {
             v.stop();
         }
         self.trying = None;
+        self.tried = None;
     }
 
     /// Each frame while open: hears the sample end.
@@ -132,6 +161,7 @@ impl Booth {
         };
         if v.events().contains(&Event::Finished(id)) {
             self.trying = None;
+            self.tried = None;
         } else {
             // Some systems only tell when asked.
             ctx.request_repaint_after(TICK);
@@ -165,6 +195,11 @@ impl Booth {
     /// True while a sample is being said.
     pub fn trying(&self) -> bool {
         self.trying.is_some()
+    }
+
+    /// The voice being said, when asked for by name.
+    pub fn trying_voice(&self) -> Option<&str> {
+        self.trying.and(self.tried.as_deref())
     }
 
     /// Samples said since the window opened.
