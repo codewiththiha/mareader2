@@ -133,6 +133,11 @@ fn bytes(pcm: &Pcm) -> usize {
 /// A loaded model of any kind, by the name it shows as.
 type Held = (Arc<str>, Weak<dyn Any + Send + Sync>);
 
+/// Rung when the idle limit changes, so a waiting thread looks again.
+pub(crate) trait Bell: Send + Sync {
+    fn ring(&self);
+}
+
 #[derive(Default)]
 struct Inner {
     /// Every model loaded, kept only while someone holds it.
@@ -144,6 +149,8 @@ struct Inner {
     hanzi: Slot<Hanzi>,
     takes: Mutex<Takes>,
     idle: Mutex<Option<Duration>>,
+    /// Each engine's thread, told when the idle limit changes.
+    bells: Mutex<Vec<Weak<dyn Bell>>>,
 }
 
 /// Models load once however many voicers use them, and go with the last.
@@ -167,7 +174,28 @@ impl Studio {
 
     /// Lets an unused model go after `idle`; `None` keeps it while open.
     pub fn set_idle(&self, idle: Option<Duration>) {
-        *self.0.idle.lock().unwrap_or_else(PoisonError::into_inner) = idle;
+        let mut held = self.0.idle.lock().unwrap_or_else(PoisonError::into_inner);
+        let changed = *held != idle;
+        *held = idle;
+        // Let go first: a thread rung reads the limit again.
+        drop(held);
+        if changed {
+            for bell in self.bells() {
+                bell.ring();
+            }
+        }
+    }
+
+    /// Rings `bell` whenever the idle limit changes.
+    pub(crate) fn hear(&self, bell: Weak<dyn Bell>) {
+        let mut bells = self.0.bells.lock().unwrap_or_else(PoisonError::into_inner);
+        bells.retain(|b| b.strong_count() > 0);
+        bells.push(bell);
+    }
+
+    fn bells(&self) -> Vec<Arc<dyn Bell>> {
+        let bells = self.0.bells.lock().unwrap_or_else(PoisonError::into_inner);
+        bells.iter().filter_map(Weak::upgrade).collect()
     }
 
     pub(crate) fn idle(&self) -> Option<Duration> {

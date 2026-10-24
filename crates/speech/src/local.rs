@@ -50,8 +50,8 @@ pub(crate) struct Setup {
     pub knobs: &'static [Knob],
 }
 
-/// How often a loaded model's idle time is checked against the setting.
-const RECHECK: Duration = Duration::from_secs(30);
+/// With no limit set, a model goes this long after reading pauses or stops.
+const GRACE: Duration = Duration::from_secs(30);
 /// Quiet left at a join inside a sentence, beside the pause owed, in seconds.
 const JOIN: f64 = 0.02;
 /// Samples quieter than this count as silence at a join.
@@ -67,6 +67,10 @@ struct Plan {
     /// Sentences likely next, made once nothing is said.
     ahead: Vec<Key>,
     closed: bool,
+    /// Something is playing or about to; idle time counts from quiet.
+    speaking: bool,
+    /// When playing last stopped, by pause, stop or the end.
+    quiet_since: Option<Instant>,
 }
 
 /// The plan, and a bell rung when it changes.
@@ -76,6 +80,14 @@ struct Desk {
     bell: Condvar,
     /// The model is being read from disk.
     loading: AtomicBool,
+}
+
+impl crate::studio::Bell for Desk {
+    fn ring(&self) {
+        // Held, so the ring can't fall between a look and a wait.
+        let _plan = lock(&self.plan);
+        self.bell.notify_all();
+    }
 }
 
 /// What the thread sends back about the sentence said now.
@@ -156,6 +168,8 @@ impl Engine {
         let first = voices.first().map(|v| v.id.clone());
         let first = first.ok_or_else(|| Fault::Unavailable(format!("{name} has no voice yet")))?;
         let desk = Arc::new(Desk::default());
+        let bell: Arc<dyn crate::studio::Bell> = desk.clone();
+        studio.hear(Arc::downgrade(&bell));
         let (tx, made) = channel();
         let worker = Worker {
             synth,
@@ -213,6 +227,17 @@ impl Engine {
     fn plan(&self, change: impl FnOnce(&mut Plan)) {
         change(&mut lock(&self.desk.plan));
         self.desk.bell.notify_all();
+    }
+
+    /// Tells the thread whether anything is playing or about to.
+    fn mark(&self) {
+        let speaking = !self.paused && (self.making.is_some() || !self.line.is_empty());
+        let mut plan = lock(&self.desk.plan);
+        if plan.speaking != speaking {
+            plan.speaking = speaking;
+            plan.quiet_since = (!speaking).then(Instant::now);
+            self.desk.bell.notify_all();
+        }
     }
 
     fn plan_ahead(&self) {
@@ -405,22 +430,26 @@ impl Voicer for Engine {
                 self.plan(|p| p.now = Some((ticket, key)));
             }
         }
+        self.mark();
         Ok(())
     }
 
     fn stop(&mut self) {
         self.cut();
+        self.mark();
     }
 
     fn pause(&mut self) -> bool {
         self.paused = true;
         self.player.pause();
+        self.mark();
         true
     }
 
     fn resume(&mut self) -> bool {
         self.paused = false;
         self.player.resume();
+        self.mark();
         true
     }
 
@@ -477,6 +506,7 @@ impl Voicer for Engine {
         }
         self.follow();
         self.queue_next();
+        self.mark();
         std::mem::take(&mut self.events)
     }
 }
@@ -506,6 +536,9 @@ impl<S: Synth> Worker<S> {
         while let Some((ticket, key)) = self.next() {
             self.make(ticket, &key);
         }
+        // Closed: the model goes with the thread, its memory back too.
+        drop(self);
+        crate::allocator::give_back();
     }
 
     /// The next sentence to make, waiting for one; `None` once closed.
@@ -526,17 +559,25 @@ impl<S: Synth> Worker<S> {
             if let Some(key) = ahead {
                 return Some((None, key));
             }
-            let idle = crew.studio.idle();
-            if self.synth.loaded() && idle.is_some_and(|d| since.elapsed() >= d) {
+            // Idle from when playing stopped or the work ran out, the later.
+            let quiet = plan.quiet_since.map_or(since, |q| q.max(since));
+            let idle = crew.studio.idle().unwrap_or(GRACE);
+            let left = idle.saturating_sub(quiet.elapsed());
+            let counting = self.synth.loaded() && !plan.speaking;
+            if counting && left.is_zero() {
+                // Unlocked: letting go takes a moment, and reading may resume.
+                drop(plan);
                 self.synth.unload();
+                crate::allocator::give_back();
                 (crew.wake)();
+                plan = lock(&crew.desk.plan);
+                continue;
             }
             let bell = &crew.desk.bell;
-            plan = match (self.synth.loaded(), idle) {
-                (false, _) => bell.wait(plan).unwrap_or_else(PoisonError::into_inner),
-                (true, idle) => {
-                    let left = idle.map_or(RECHECK, |d| d.saturating_sub(since.elapsed()));
-                    let waited = bell.wait_timeout(plan, left.min(RECHECK));
+            plan = match counting {
+                false => bell.wait(plan).unwrap_or_else(PoisonError::into_inner),
+                true => {
+                    let waited = bell.wait_timeout(plan, left);
                     waited.unwrap_or_else(PoisonError::into_inner).0
                 }
             };
