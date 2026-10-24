@@ -1,7 +1,16 @@
-//! Hands an unloaded model's memory back; Windows does it itself.
+//! Hands freed memory back to the system; Windows does it itself.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::unreachable,
+    clippy::indexing_slicing
+)]
 
-/// Asks the allocator to return its free pages to the system.
-pub(crate) fn give_back() {
+/// Returns the allocator's free pages; it walks the heap, so call it at rest.
+pub fn give_back() {
     #[cfg(target_os = "macos")]
     mac();
     #[cfg(all(target_os = "linux", target_env = "gnu"))]

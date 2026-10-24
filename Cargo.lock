@@ -3709,6 +3709,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-memory"
+version = "0.0.3"
+
+[[package]]
 name = "mareader-pdf"
 version = "0.0.3"
 dependencies = [
@@ -3777,6 +3781,7 @@ dependencies = [
  "mareader-hanzi",
  "mareader-ipa",
  "mareader-kokoro",
+ "mareader-memory",
  "mareader-vits",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",

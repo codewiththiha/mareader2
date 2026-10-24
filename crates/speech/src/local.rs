@@ -538,7 +538,7 @@ impl<S: Synth> Worker<S> {
         }
         // Closed: the model goes with the thread, its memory back too.
         drop(self);
-        crate::allocator::give_back();
+        mareader_memory::give_back();
     }
 
     /// The next sentence to make, waiting for one; `None` once closed.
@@ -568,7 +568,7 @@ impl<S: Synth> Worker<S> {
                 // Unlocked: letting go takes a moment, and reading may resume.
                 drop(plan);
                 self.synth.unload();
-                crate::allocator::give_back();
+                mareader_memory::give_back();
                 (crew.wake)();
                 plan = lock(&crew.desk.plan);
                 continue;
