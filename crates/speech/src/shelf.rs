@@ -364,23 +364,28 @@ impl Shelf {
         self.queue.clear();
         let desk = desk::Desk::new(dir, waker);
         for model in catalogue {
-            for item in Self::items(model) {
-                if let Some((model, files)) = self.files(item) {
-                    self.stages.insert(item, desk.found(model, &files));
-                }
-            }
-            // Once all are known, files one keeps leave the others.
-            let kept = |i: &Item| matches!(i, Item::Build(..) | Item::Voice(..));
-            for item in Self::items(model).filter(kept) {
-                if *self.stage(item) != Stage::Ready
-                    && let Some((model, files)) = self.files(item)
-                {
-                    self.stages.insert(item, desk.found(model, &files));
-                }
-            }
+            self.scan(&desk, model);
         }
         self.desk = Some(desk);
         Ok(())
+    }
+
+    /// Each item of `model` as found on disk.
+    fn scan(&mut self, desk: &desk::Desk, model: &'static Model) {
+        for item in Self::items(model) {
+            if let Some((model, files)) = self.files(item) {
+                self.stages.insert(item, desk.found(model, &files));
+            }
+        }
+        // Once all are known, files one keeps leave the others.
+        let kept = |i: &Item| matches!(i, Item::Build(..) | Item::Voice(..));
+        for item in Self::items(model).filter(kept) {
+            if *self.stage(item) != Stage::Ready
+                && let Some((model, files)) = self.files(item)
+            {
+                self.stages.insert(item, desk.found(model, &files));
+            }
+        }
     }
 
     /// Queues `item`, or resumes it; a voice waits for its model.
@@ -432,13 +437,13 @@ impl Shelf {
         if let Some((model, files)) = self.files(item)
             && let Some(desk) = &self.desk
         {
-            desk.drop_files(model, &files);
+            let _ = desk.drop_files(model, &files);
         }
         self.stages.insert(item, Stage::Absent);
     }
 
-    /// Deletes `item`: a model, or its last build, takes everything.
-    pub fn remove(&mut self, item: Item) {
+    /// Deletes `item`, or all for a last build; failing, keeps what's left.
+    pub fn remove(&mut self, item: Item) -> Result<(), String> {
         let last = |s: &Self, m: &'static str| {
             let model = s.model(m);
             model.is_none_or(|model| s.builds(model).iter().all(|b| Item::Build(m, b.id) == item))
@@ -447,32 +452,45 @@ impl Shelf {
             Item::Build(m, _) if last(self, m) => Item::Model(m),
             other => other,
         };
-        let Some(desk) = &mut self.desk else { return };
-        match item {
+        let Some(desk) = &mut self.desk else {
+            return Ok(());
+        };
+        let dropped = match item {
             Item::Model(m) => {
                 let running = desk.current().is_some_and(|i| i.model() == m);
-                if running {
-                    // Deleted once the download has let go of its files.
-                    desk.doom(m);
-                } else {
-                    desk.drop_model(m);
-                }
+                // A running download's files go once it lets them go.
+                let dropped = match running {
+                    true => {
+                        desk.doom(m);
+                        Ok(())
+                    }
+                    false => desk.drop_model(m),
+                };
                 self.forget(m);
+                dropped
             }
             Item::Build(..) | Item::Voice(..) => {
                 if desk.current() == Some(item) {
                     desk.halt(mareader_fetch::Halt::Cancel);
-                    return;
+                    return Ok(());
                 }
                 self.queue.retain(|i| *i != item);
-                if let Some((model, files)) = self.files(item)
-                    && let Some(desk) = &self.desk
-                {
-                    desk.drop_files(model, &files);
-                }
+                let dropped = match (self.files(item), &self.desk) {
+                    (Some((model, files)), Some(desk)) => desk.drop_files(model, &files),
+                    _ => Ok(()),
+                };
                 self.stages.insert(item, Stage::Absent);
+                dropped
             }
+        };
+        let Err(why) = dropped else { return Ok(()) };
+        let model = self.model(item.model());
+        if let (Some(model), Some(desk)) = (model, self.desk.take()) {
+            self.scan(&desk, model);
+            self.desk = Some(desk);
         }
+        let name = model.map_or(item.model(), |m| m.name);
+        Err(format!("Couldn't delete all of {name}: {why}"))
     }
 
     /// The models loaded and the speech they made.
@@ -552,12 +570,13 @@ mod desk {
             found(&self.folder(model), files)
         }
 
-        pub fn drop_files(&self, model: &Model, files: &[ModelFile]) {
-            drop_files(&self.folder(model), files);
+        pub fn drop_files(&self, model: &Model, files: &[ModelFile]) -> Result<(), String> {
+            drop_files(&self.folder(model), files).map_err(|e| e.to_string())
         }
 
-        pub fn drop_model(&self, model: &str) {
-            let _ = std::fs::remove_dir_all(self.dir.join(model));
+        /// Deletes `model`'s folder; one already gone counts as deleted.
+        pub fn drop_model(&self, model: &str) -> Result<(), String> {
+            gone(std::fs::remove_dir_all(self.dir.join(model))).map_err(|e| e.to_string())
         }
 
         /// What came, and a doomed model's id once deleted.
@@ -577,7 +596,7 @@ mod desk {
             self.current = None;
             let doomed = self.doomed.take();
             if let Some(model) = doomed {
-                self.drop_model(model);
+                let _ = self.drop_model(model);
             }
             (events, doomed)
         }
@@ -660,7 +679,7 @@ mod desk {
                     return Stage::Paused { got, total };
                 }
                 Err(Stopped::Halted(_)) => {
-                    drop_files(folder, files);
+                    let _ = drop_files(folder, files);
                     return Stage::Absent;
                 }
                 Err(Stopped::Failed(why)) => return Stage::Failed(why),
@@ -692,11 +711,28 @@ mod desk {
         }
     }
 
-    fn drop_files(folder: &Path, files: &[ModelFile]) {
+    /// Deletes `files` and their parts, trying each; the first error wins.
+    fn drop_files(folder: &Path, files: &[ModelFile]) -> std::io::Result<()> {
+        let mut first = Ok(());
         for f in files {
             let path = folder.join(f.path);
-            let _ = std::fs::remove_file(part(&path));
-            let _ = std::fs::remove_file(path);
+            for done in [
+                std::fs::remove_file(part(&path)),
+                std::fs::remove_file(path),
+            ] {
+                if first.is_ok() {
+                    first = gone(done);
+                }
+            }
+        }
+        first
+    }
+
+    /// A delete that found nothing left to delete still worked.
+    fn gone(done: std::io::Result<()>) -> std::io::Result<()> {
+        match done {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
         }
     }
 
@@ -888,6 +924,38 @@ mod tests {
         panic!("never settled: {:?}", shelf.stages);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_delete_that_fails_says_why_and_shows_what_is_left() {
+        use std::fs::{Permissions, set_permissions};
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let (models, _) = catalogue(&["tiny"], false);
+        let mut s = shelf(dir.path(), models);
+        let model = &models[0];
+        s.download(Item::Build("tiny", "big"));
+        settle(&mut s, |s| {
+            *s.stage(Item::Build("tiny", "big")) == Stage::Ready
+        });
+        s.download(Item::Voice("tiny", "b"));
+        settle(&mut s, |s| s.has(model, "b"));
+        let voices = dir.path().join("tiny/voices");
+        set_permissions(&voices, Permissions::from_mode(0o555)).unwrap();
+        let removed = s.remove(Item::Voice("tiny", "b"));
+        set_permissions(&voices, Permissions::from_mode(0o755)).unwrap();
+        // Root deletes anyway, leaving nothing to check.
+        if !voices.join("b.pt").exists() {
+            return;
+        }
+        let why = removed.unwrap_err();
+        assert!(why.starts_with("Couldn't delete all of"), "{why}");
+        assert!(s.has(model, "b"));
+        // Already gone by other means, it still deletes.
+        std::fs::remove_file(voices.join("b.pt")).unwrap();
+        s.remove(Item::Voice("tiny", "b")).unwrap();
+        assert!(!s.has(model, "b"));
+    }
+
     #[test]
     fn a_model_comes_with_a_voice_takes_more_and_goes_whole() {
         let dir = tempfile::tempdir().unwrap();
@@ -912,7 +980,7 @@ mod tests {
         s.download(Item::Voice("tiny", "b"));
         settle(&mut s, |s| s.has(model, "b"));
         assert_eq!(s.on_disk(model), 40 + 300_000 + 2_000 + 3_000);
-        s.remove(Item::Voice("tiny", "b"));
+        s.remove(Item::Voice("tiny", "b")).unwrap();
         assert!(!s.has(model, "b") && !folder.join("voices/b.pt").exists());
         // A second build shares the rest.
         s.download(lite);
@@ -929,11 +997,11 @@ mod tests {
         s.stages.remove(&Item::Voice("tiny", "b"));
         assert_eq!(s.build(model, Some("lite")).map(|b| b.id), Some("lite"));
         assert_eq!(s.build(model, Some("gone")).map(|b| b.id), Some("big"));
-        s.remove(big);
+        s.remove(big).unwrap();
         assert!(!folder.join("weights.bin").exists() && folder.join("lite.bin").exists());
         assert_eq!(s.build(model, Some("big")).map(|b| b.id), Some("lite"));
         // The last build takes the model with it.
-        s.remove(lite);
+        s.remove(lite).unwrap();
         assert!(!folder.exists());
         assert!(s.ready().is_empty());
         // Found again on the next start, by what is on disk.
@@ -978,7 +1046,7 @@ mod tests {
         settle(&mut s, |s| *s.stage(lite) == Stage::Ready);
         assert_eq!(s.on_disk(model), 40 + 2_000 + 300_000 + 100_000 + 3_000);
         let folder = dir.path().join("kit");
-        s.remove(big);
+        s.remove(big).unwrap();
         assert!(!folder.join("weights.bin").exists());
         assert!(
             folder.join("voices/b.pt").exists(),
@@ -1033,7 +1101,7 @@ mod tests {
             40 + 100_000 + 2_000 + 3_000 + 1_000 + 5_000
         );
         let folder = dir.path().join("zh");
-        s.remove(vb);
+        s.remove(vb).unwrap();
         assert!(!folder.join("voices/b.pt").exists());
         assert!(folder.join("words.txt").exists(), "c still needs it");
         assert!(s.has(model, "c") && !s.has(model, "b"));
@@ -1041,7 +1109,7 @@ mod tests {
         let again = shelf(dir.path(), all);
         assert_eq!(*again.stage(vc), Stage::Ready);
         assert_eq!(*again.stage(vb), Stage::Absent);
-        s.remove(vc);
+        s.remove(vc).unwrap();
         assert!(!folder.join("words.txt").exists(), "the last one takes it");
     }
 
@@ -1088,7 +1156,7 @@ mod tests {
             );
         }
         // Each keeps its copy when the other goes.
-        s.remove(Item::Model("one"));
+        s.remove(Item::Model("one")).unwrap();
         assert!(shared.exists());
         assert_eq!(s.ready().len(), 1);
     }

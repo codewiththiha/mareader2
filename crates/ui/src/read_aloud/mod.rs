@@ -229,7 +229,9 @@ impl ReadAloud {
             ModelAction::Download(item) => self.shelf.download(item),
             ModelAction::Pause(item) => self.shelf.pause(item),
             ModelAction::Cancel(item) => self.shelf.cancel(item),
-            ModelAction::Remove(item) => self.shelf.remove(item),
+            ModelAction::Remove(item) => {
+                let _ = self.shelf.remove(item);
+            }
         }
         #[cfg(target_arch = "wasm32")]
         let _ = action;

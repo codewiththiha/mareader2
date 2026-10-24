@@ -303,46 +303,53 @@ mod tests {
             let text = format!("This is round {round}, read aloud to load the model.");
             say(&mut voicer, &shelf, &text);
             let held = resident_mb();
+            // No sound device here, so reading only ends when stopped.
+            voicer.stop();
             let gone = waited(60, || !loaded(&shelf));
             let after = resident_mb();
             println!(
                 "kitten memory: round {round}: {held} MB loaded, \
-                 let go after {gone:?} s idle, {after} MB after"
+                 let go after {gone:?} s quiet, {after} MB after"
             );
             assert!(gone.is_some(), "round {round}: still loaded");
         }
-        // While reading: no limit, so it stays loaded.
+        // While reading: kept as long as it reads, then half a minute.
         shelf.set_model_idle(None);
         say(
             &mut voicer,
             &shelf,
             "Now it should stay loaded while reading.",
         );
-        std::thread::sleep(Duration::from_secs(5));
-        println!(
-            "kitten memory: kept while reading, 5 s idle: loaded {}",
-            loaded(&shelf)
-        );
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(loaded(&shelf), "let go in the middle of reading");
+        voicer.pause();
+        let gone = waited(60, || !loaded(&shelf));
+        println!("kitten memory: while reading, let go {gone:?} s after pause");
+        assert!(gone.is_some_and(|s| s > 20.0), "{gone:?} s after pause");
+        // A limit changed applies at once, not at the next look.
+        voicer.stop();
+        shelf.set_model_idle(Some(Duration::from_secs(600)));
+        say(&mut voicer, &shelf, "Loaded once more, then removed.");
+        voicer.stop();
         // Removed while loaded: the files go at once.
-        shelf.remove(Item::Model("kitten"));
+        shelf.remove(Item::Model("kitten")).unwrap();
         println!(
             "kitten disk: removed while loaded, folder left: {}",
             folder.exists()
         );
         assert!(!folder.exists(), "the folder outlived its removal");
         assert_eq!(*shelf.stage(Item::Build("kitten", "mini")), Stage::Absent);
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(loaded(&shelf), "let go before its ten minutes");
         shelf.set_model_idle(Some(Duration::from_secs(1)));
-        let gone = waited(60, || !loaded(&shelf));
+        let gone = waited(10, || !loaded(&shelf));
         println!(
-            "kitten memory: after removal, let go after {gone:?} s, {} MB",
+            "kitten memory: limit cut to 1 s, let go after {gone:?} s, {} MB",
             resident_mb()
         );
-        voicer.stop();
+        assert!(gone.is_some_and(|s| s < 5.0), "{gone:?} s after the cut");
         drop(voicer);
-        let closed = waited(10, || !loaded(&shelf));
-        println!(
-            "kitten memory: engine closed, unloaded after {closed:?} s, {} MB",
-            resident_mb()
-        );
+        std::thread::sleep(Duration::from_secs(1));
+        println!("kitten memory: engine closed, {} MB", resident_mb());
     }
 }
