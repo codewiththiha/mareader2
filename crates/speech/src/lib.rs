@@ -33,10 +33,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub use models::{
-    Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER,
+    AIDS, Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER,
+    PRONUNCIATION,
 };
 pub use script::{Glyph, Script, Sentence, Spot};
 pub use sentences::{LONGEST, split};
+#[cfg(not(target_arch = "wasm32"))]
+pub use shelf::Lexicons;
 pub use shelf::{Item, Shelf, Stage};
 
 /// Wakes the window when an engine has news: a sentence ended, say.

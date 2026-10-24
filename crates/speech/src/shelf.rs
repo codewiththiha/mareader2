@@ -55,6 +55,8 @@ const ABSENT: Stage = Stage::Absent;
 /// The models on offer and the downloads in hand.
 pub struct Shelf {
     catalogue: &'static [Model],
+    /// Models another shelf keeps in the same folder, to share files with.
+    neighbours: &'static [Model],
     stages: HashMap<Item, Stage>,
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     queue: VecDeque<Item>,
@@ -68,6 +70,7 @@ impl Default for Shelf {
     fn default() -> Self {
         Self {
             catalogue: MODELS,
+            neighbours: &[],
             stages: HashMap::new(),
             queue: VecDeque::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -85,6 +88,43 @@ impl Shelf {
 
     pub fn model(&self, id: &str) -> Option<&'static Model> {
         self.catalogue.iter().find(|m| m.id == id)
+    }
+
+    /// Shares files with `models`, which another shelf keeps beside these.
+    pub fn set_neighbours(&mut self, models: &'static [Model]) {
+        self.neighbours = models;
+    }
+
+    /// Every other model here or beside, which may hold the same files.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    fn others(&self, model: &Model) -> impl Iterator<Item = &'static Model> {
+        let id = model.id;
+        let all = self.catalogue.iter().chain(self.neighbours);
+        all.filter(move |m| m.id != id)
+    }
+
+    /// Other models holding every file `model` needs, whole on disk.
+    pub fn holders(&self, model: &Model) -> Vec<&'static Model> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(desk) = &self.desk {
+            let files = model.core();
+            let holds = |m: &&Model| {
+                !files.is_empty() && files.iter().all(|f| twin_in(desk, m, f).is_some())
+            };
+            return self.others(model).filter(holds).collect();
+        }
+        let _ = model;
+        Vec::new()
+    }
+
+    /// Takes in absent models whose files others hold, linked, not fetched.
+    pub fn adopt(&mut self) {
+        for model in self.catalogue {
+            let item = Item::Model(model.id);
+            if *self.stage(item) == Stage::Absent && !self.holders(model).is_empty() {
+                self.download(item);
+            }
+        }
     }
 
     /// Keeps at most `bytes` of speech the models made, to say again.
@@ -297,19 +337,8 @@ impl Shelf {
     fn twins(&self, model: &Model, files: &[ModelFile]) -> Vec<Option<std::path::PathBuf>> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(desk) = &self.desk {
-            let others = self.catalogue.iter().filter(|m| m.id != model.id);
-            let others: Vec<&Model> = others.collect();
-            let twin = |f: &ModelFile| {
-                others.iter().find_map(|m| {
-                    let same = m
-                        .files
-                        .iter()
-                        .find(|g| g.sha256 == f.sha256 && g.bytes == f.bytes);
-                    let path = desk.folder(m).join(same?.path);
-                    let whole = std::fs::metadata(&path).is_ok_and(|d| d.len() == f.bytes);
-                    whole.then_some(path)
-                })
-            };
+            let others: Vec<&Model> = self.others(model).collect();
+            let twin = |f: &ModelFile| others.iter().find_map(|m| twin_in(desk, m, f));
             return files.iter().map(twin).collect();
         }
         let _ = model;
@@ -349,8 +378,40 @@ impl Shelf {
     }
 }
 
+/// `f` whole in `m`'s folder, under whatever name `m` lists it.
+#[cfg(not(target_arch = "wasm32"))]
+fn twin_in(desk: &desk::Desk, m: &Model, f: &ModelFile) -> Option<std::path::PathBuf> {
+    let same = (m.files.iter()).find(|g| g.sha256 == f.sha256 && g.bytes == f.bytes)?;
+    let path = desk.folder(m).join(same.path);
+    let whole = std::fs::metadata(&path).is_ok_and(|d| d.len() == f.bytes);
+    whole.then_some(path)
+}
+
+/// English pronunciations, loaded once for voices and word cards alike.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+pub struct Lexicons(crate::studio::Studio);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Lexicons {
+    /// `dialect`'s phonemizer from the files in `dir`, unless held already.
+    pub fn load(
+        &self,
+        dir: &std::path::Path,
+        dialect: mareader_g2p::Dialect,
+    ) -> Result<std::sync::Arc<mareader_g2p::G2p>, String> {
+        let load = || mareader_g2p::G2p::load(dir, dialect).map_err(|e| e.to_string());
+        self.0.g2p(dialect, load)
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 impl Shelf {
+    /// What voices read pronunciations with, to share with others.
+    pub fn lexicons(&self) -> Lexicons {
+        Lexicons(self.studio.clone())
+    }
+
     /// Keeps the models of `catalogue` in `dir`, made if missing.
     pub fn attach(
         &mut self,
@@ -1159,6 +1220,52 @@ mod tests {
         s.remove(Item::Model("one")).unwrap();
         assert!(shared.exists());
         assert_eq!(s.ready().len(), 1);
+    }
+
+    #[test]
+    fn a_neighbour_shelf_adopts_files_a_model_holds_and_lends_them_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (models, _) = catalogue(&["one"], false);
+        let one = models[0];
+        // Its own host has nothing: the config can only be linked.
+        let aid = Model {
+            id: "aid",
+            hosts: &["http://127.0.0.1:9/"],
+            builds: &[],
+            voices: &[],
+            first_voice: "",
+            ..one
+        };
+        let aids: &'static [Model] = Box::leak(vec![aid].into_boxed_slice());
+        let mut voices = shelf(dir.path(), models);
+        let mut extra = shelf(dir.path(), aids);
+        voices.set_neighbours(aids);
+        extra.set_neighbours(models);
+        extra.adopt();
+        assert_eq!(*extra.stage(Item::Model("aid")), Stage::Absent);
+        voices.download(Item::Build("one", "big"));
+        settle(&mut voices, |s| s.ready().len() == 1);
+        let names = |s: &Shelf| s.holders(&aids[0]).iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(names(&extra), ["one"]);
+        extra.adopt();
+        settle(&mut extra, |s| !s.stage(Item::Model("aid")).busy());
+        assert_eq!(*extra.stage(Item::Model("aid")), Stage::Ready);
+        let kept = dir.path().join("aid/config.json");
+        assert!(kept.exists());
+        // The model goes; the aid keeps its link and holds it alone.
+        voices.remove(Item::Model("one")).unwrap();
+        assert!(kept.exists());
+        assert!(names(&extra).is_empty());
+        // Back again, the model takes the aid's file rather than a copy.
+        voices.download(Item::Build("one", "big"));
+        settle(&mut voices, |s| s.ready().len() == 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let inode = |p: std::path::PathBuf| std::fs::metadata(p).unwrap().ino();
+            let config = dir.path().join("one/config.json");
+            assert_eq!(inode(kept), inode(config));
+        }
     }
 
     #[test]
