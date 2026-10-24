@@ -941,6 +941,11 @@ impl Book {
         }
     }
 
+    /// The same book in any type: set again from the same content.
+    pub fn same_book(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.blocks, &other.blocks)
+    }
+
     /// The page of `other` that looks just like page `page`, if any.
     pub fn same_page(&self, page: usize, other: &Self) -> Option<usize> {
         if !Arc::ptr_eq(&self.flow, &other.flow) {

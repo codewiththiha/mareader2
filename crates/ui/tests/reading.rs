@@ -889,6 +889,57 @@ fn raven() -> std::path::PathBuf {
 }
 
 #[test]
+fn a_book_set_anew_keeps_the_line_read_on_top() {
+    let mut h = reader(&[]);
+    let pane = h.state().active_pane();
+    let open = OpenRequest {
+        pane: Some(pane),
+        ..OpenRequest::path(raven())
+    };
+    h.state_mut().queue(Command::Open(open));
+    h.run();
+    let book =
+        |h: &Harness<'static, MareaderApp>| h.state().documents().reading(pane).expect("a book");
+    // Into the poem, to a line partway down a page, not a picture.
+    h.hover_at(egui::pos2(450.0, 400.0));
+    let mut before = None;
+    for _ in 0..80 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -170.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.run();
+        let read = h.state().documents().place_read(pane);
+        let page = read.and_then(|at| book(&h).document.locate(at));
+        // Not the page's start, which a re-set used to land on.
+        let start = page.and_then(|p| book(&h).document.anchor(p));
+        if read.is_some() && start < read {
+            before = read;
+            break;
+        }
+    }
+    let before = before.expect("a line mid-page");
+    let was = book(&h).doc;
+    h.state_mut().set_option("text_size", "28").ok();
+    h.run();
+    assert_ne!(book(&h).doc, was, "set anew");
+    let now = book(&h).document.locate(before).expect("on a page");
+    let shown = h.state().documents().visible(pane).unwrap_or(0..0);
+    assert!(shown.contains(&now), "{now} in {shown:?}");
+    // Landed on that line: it stays the place read, without drift.
+    assert_eq!(h.state().documents().place_read(pane), Some(before));
+    h.state_mut().set_option("text_size", "17").ok();
+    h.run();
+    assert_eq!(
+        h.state().documents().place_read(pane),
+        Some(before),
+        "and back"
+    );
+}
+
+#[test]
 fn independent_text_sets_each_pane_in_its_own_type() {
     let mut h = reader(&[("panes", "2"), ("independent_text", "true")]);
     let panes = h.state().panes();

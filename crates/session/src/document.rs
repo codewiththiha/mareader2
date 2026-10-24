@@ -208,6 +208,14 @@ impl Document {
         }
     }
 
+    /// The same book, perhaps set in other type; a PDF only as itself.
+    pub fn same_book(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Epub { book, .. }, Self::Epub { book: o, .. }) => book.same_book(o),
+            _ => std::ptr::eq(self, other),
+        }
+    }
+
     /// The page of `other` drawn just like page `page`, if any.
     pub fn same_page(&self, page: usize, other: &Self) -> Option<usize> {
         match (self, other) {

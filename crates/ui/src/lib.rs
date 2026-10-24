@@ -49,6 +49,7 @@ pub mod platform;
 pub mod play;
 pub mod reach;
 pub mod read_aloud;
+pub mod reading_place;
 pub mod resize;
 pub mod reveal;
 pub mod route;

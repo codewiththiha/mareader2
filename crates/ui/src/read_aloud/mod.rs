@@ -382,6 +382,17 @@ impl ReadAloud {
         }
     }
 
+    /// The pane read in, and where in its book the words heard start.
+    pub fn said(&self) -> Option<(PaneId, Anchor)> {
+        match self.session.as_ref()? {
+            Session::Narrated(s) => {
+                let phrase = s.narration.phrases.get(s.heard?)?;
+                Some((s.pane, phrase.start))
+            }
+            Session::Spoken(s) => Some((s.pane, s.said()?)),
+        }
+    }
+
     /// The words to light in `pane`, if it is reading.
     pub fn lit(&self, pane: PaneId) -> Option<Lit> {
         match self.session.as_ref().filter(|s| s.pane() == pane)? {

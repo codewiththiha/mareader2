@@ -3051,6 +3051,8 @@ impl eframe::App for MareaderApp {
         own.retain(|(pane, _)| designed.iter().all(|(p, _)| p != pane));
         own.extend(designed.iter().map(|(pane, text)| (*pane, text)));
         self.documents.set_text(&self.settings.text, &own);
+        // Set anew, a book read aloud lands on the words heard.
+        self.documents.hold_said(self.read_aloud.said());
         self.documents.receive(&ctx, &mut commands);
         self.files.collect(&mut commands);
         self.library.receive(&ctx, &mut commands);
