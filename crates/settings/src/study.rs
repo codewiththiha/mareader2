@@ -272,6 +272,81 @@ impl Default for CefrSettings {
     }
 }
 
+/// Which English a word's sound is given in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Accent {
+    #[default]
+    Both,
+    American,
+    British,
+}
+
+impl Accent {
+    pub const ALL: [Accent; 3] = [Self::Both, Self::American, Self::British];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Both => "Both",
+            Self::American => "American",
+            Self::British => "British",
+        }
+    }
+}
+
+/// How a word's sound is written.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Notation {
+    /// As dictionaries write it: `/jɒt/`.
+    #[default]
+    Ipa,
+    /// Spelled as it sounds, stress in bold: `yot`.
+    Easy,
+    /// The phonemes the voices read, stress on each vowel.
+    Raw,
+}
+
+impl Notation {
+    pub const ALL: [Notation; 3] = [Self::Ipa, Self::Easy, Self::Raw];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ipa => "IPA",
+            Self::Easy => "Easy to read",
+            Self::Raw => "Raw",
+        }
+    }
+
+    /// "yacht", written this way.
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Ipa => "As dictionaries write it: “yacht” is /jɒt/",
+            Self::Easy => "Spelled as it sounds: “yacht” is yot",
+            Self::Raw => "Just as the voices read it: “yacht” is jˈɒt",
+        }
+    }
+}
+
+/// A word's sound on its cards, once the pronunciation is downloaded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PronunciationSettings {
+    pub shown: bool,
+    pub accent: Accent,
+    pub notation: Notation,
+}
+
+impl Default for PronunciationSettings {
+    fn default() -> Self {
+        Self {
+            shown: true,
+            accent: Accent::Both,
+            notation: Notation::Ipa,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StudySettings {
@@ -279,6 +354,7 @@ pub struct StudySettings {
     pub highlights: HighlightSettings,
     pub cefr: CefrSettings,
     pub words: crate::words::WordListSettings,
+    pub pronunciation: PronunciationSettings,
 }
 
 impl StudySettings {
