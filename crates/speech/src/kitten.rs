@@ -219,4 +219,130 @@ mod tests {
             Err(e) => panic!("{e}"),
         }
     }
+
+    /// The process's resident memory, in MB, where the system tells it.
+    fn resident_mb() -> f64 {
+        let pid = std::process::id().to_string();
+        #[cfg(target_os = "linux")]
+        let kb = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                let line = s.lines().find(|l| l.starts_with("VmRSS:"))?;
+                line.split_whitespace().nth(1)?.parse::<f64>().ok()
+            });
+        #[cfg(target_os = "macos")]
+        let kb = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &pid])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+            });
+        #[cfg(windows)]
+        let kb = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command"])
+            .arg(format!("(Get-Process -Id {pid}).WorkingSet64"))
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+            })
+            .map(|bytes| bytes / 1024.0);
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        let kb: Option<f64> = None;
+        let _ = pid;
+        kb.map_or(0.0, |kb| (kb / 1024.0).round())
+    }
+
+    /// Seconds until `done`, or None after `most`.
+    fn waited(most: u64, done: impl Fn() -> bool) -> Option<f64> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(most) {
+            if done() {
+                return Some(start.elapsed().as_secs_f64());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        None
+    }
+
+    #[test]
+    fn a_kitten_let_go_and_removed_leaves_memory_and_disk() {
+        use crate::{Item, Shelf, Stage, Voicer};
+        use std::time::Duration;
+        // Only where a downloaded shelf is given, as the remote check does.
+        let Some(dir) = std::env::var_os("MAREADER_KITTEN_SHELF") else {
+            return;
+        };
+        let dir = PathBuf::from(dir);
+        let folder = dir.join("kitten");
+        let mut shelf = Shelf::default();
+        shelf.attach(dir, crate::MODELS, Arc::new(|| {})).unwrap();
+        assert_eq!(*shelf.stage(Item::Build("kitten", "mini")), Stage::Ready);
+        let loaded = |shelf: &Shelf| !shelf.usage().models.is_empty();
+        let mut voicer: Box<dyn Voicer> =
+            crate::open("kitten", Some("mini"), &shelf, Arc::new(|| {})).unwrap();
+        let mut said = 0;
+        let mut say = |voicer: &mut Box<dyn Voicer>, shelf: &Shelf, text: &str| {
+            said += 1;
+            let made = shelf.usage().speech;
+            voicer.say(said, text).unwrap();
+            let took = waited(600, || shelf.usage().speech > made);
+            assert!(took.is_some(), "{text:?} was never made");
+        };
+        let start = resident_mb();
+        println!("kitten memory: {start} MB before any model");
+        shelf.set_model_idle(Some(Duration::from_secs(1)));
+        for round in 1..=2 {
+            let text = format!("This is round {round}, read aloud to load the model.");
+            say(&mut voicer, &shelf, &text);
+            let held = resident_mb();
+            let gone = waited(60, || !loaded(&shelf));
+            let after = resident_mb();
+            println!(
+                "kitten memory: round {round}: {held} MB loaded, \
+                 let go after {gone:?} s idle, {after} MB after"
+            );
+            assert!(gone.is_some(), "round {round}: still loaded");
+        }
+        // While reading: no limit, so it stays loaded.
+        shelf.set_model_idle(None);
+        say(
+            &mut voicer,
+            &shelf,
+            "Now it should stay loaded while reading.",
+        );
+        std::thread::sleep(Duration::from_secs(5));
+        println!(
+            "kitten memory: kept while reading, 5 s idle: loaded {}",
+            loaded(&shelf)
+        );
+        // Removed while loaded: the files go at once.
+        shelf.remove(Item::Model("kitten"));
+        println!(
+            "kitten disk: removed while loaded, folder left: {}",
+            folder.exists()
+        );
+        assert!(!folder.exists(), "the folder outlived its removal");
+        assert_eq!(*shelf.stage(Item::Build("kitten", "mini")), Stage::Absent);
+        shelf.set_model_idle(Some(Duration::from_secs(1)));
+        let gone = waited(60, || !loaded(&shelf));
+        println!(
+            "kitten memory: after removal, let go after {gone:?} s, {} MB",
+            resident_mb()
+        );
+        voicer.stop();
+        drop(voicer);
+        let closed = waited(10, || !loaded(&shelf));
+        println!(
+            "kitten memory: engine closed, unloaded after {closed:?} s, {} MB",
+            resident_mb()
+        );
+    }
 }
