@@ -13,6 +13,7 @@
   python3 tools/ci.py kitten --ref feat/x  # the Kitten builds against onnxruntime
   python3 tools/ci.py ipa --ref feat/x     # our other languages against espeak
   python3 tools/ci.py hanzi --ref feat/x   # our Chinese reader against misaki
+  python3 tools/ci.py system --ref feat/x  # system voices on macOS and Windows
   python3 tools/ci.py installers --ref ci/x # every platform's installers, checked
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
   python3 tools/ci.py cache restore        # unpack the newest one here
@@ -241,7 +242,7 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int,
         # A Remote run is named by its title: "task sha id".
         task = run.name.split()[0]
         if task in ("shots", "web", "memory", "cache", "kokoro", "piper", "kitten", "ipa",
-                    "hanzi"):
+                    "hanzi", "system"):
             run.name = f"Remote {task}"
         running = [j.name for j in run.jobs if j.status != "completed"]
         state = f"{run.status} {', '.join(running)}"
@@ -484,10 +485,11 @@ def remote_task(args, task: str, name: str, **inputs: str) -> tuple[int, str]:
     token = token_from(args)
     sha = pushed_sha(args.repo, token, args.rev)
     run = dispatch(args.repo, token, task, sha, getattr(args, "ref", "main"), **inputs)
-    run = follow(args.repo, token, run, args.timeout, args.poll)
+    # A failed platform still leaves the report job to wait for.
+    run = follow(args.repo, token, run, args.timeout, args.poll, whole=task == "system")
     # A broken budget still leaves its tables to read.
     if run.conclusion != "success" and task not in ("memory", "kokoro", "piper", "kitten",
-                                                    "ipa", "hanzi"):
+                                                    "ipa", "hanzi", "system"):
         return 1, ""
     item = artifact(args.repo, token, run.id, name)
     raw = api(token, item["archive_download_url"], raw=True)
@@ -806,6 +808,9 @@ def main() -> int:
     hz = sub.add_parser("hanzi", help="check our Chinese reader against misaki in CI")
     hz.add_argument("--ref", default="main",
                     help="branch whose workflow runs (one with the hanzi task)")
+    sy = sub.add_parser("system", help="open system voices on macOS and Windows in CI")
+    sy.add_argument("--ref", default="main",
+                    help="branch whose workflow runs (one with the system task)")
     ins = sub.add_parser("installers", help="build and check every platform's installers")
     ins.add_argument("--ref", default="main",
                      help="branch whose workflow runs (one with installers.yml)")
@@ -818,12 +823,12 @@ def main() -> int:
                    help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
     c.add_argument("--force", action="store_true", help="replace an existing cache")
-    for p in (w, s, wb, me, ko, pi, ki, ip, hz, ins, c):
+    for p in (w, s, wb, me, ko, pi, ki, ip, hz, sy, ins, c):
         p.add_argument("--timeout", type=int, default=3600, help="seconds to wait")
         p.add_argument("--poll", type=int, default=15, help="seconds between polls")
-    for p in (s, wb, me, ko, pi, ki, ip, hz, ins, c):
+    for p in (s, wb, me, ko, pi, ki, ip, hz, sy, ins, c):
         p.add_argument("--rev", default="HEAD", help="commit to use (must be pushed)")
-    for p in (s, wb, me, ko, pi, ki, ip, hz, ins):
+    for p in (s, wb, me, ko, pi, ki, ip, hz, sy, ins):
         p.add_argument("--out", help="where to unpack (default target/remote/<task>)")
 
     args = ap.parse_args()
@@ -851,6 +856,8 @@ def main() -> int:
         return kokoro(args, "ipa")
     if args.cmd == "hanzi":
         return kokoro(args, "hanzi")
+    if args.cmd == "system":
+        return kokoro(args, "system")
     if args.cmd == "installers":
         return installers(args)
     if args.action == "seed":

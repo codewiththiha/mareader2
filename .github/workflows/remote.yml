@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory, cache, kokoro, piper, kitten, ipa or hanzi
+        description: shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi or system
         required: true
         type: choice
-        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi]
+        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi, system]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -606,3 +606,71 @@ jobs:
           path: /home/user/out/
           compression-level: 0
           retention-days: 30
+
+  # The system's own voices, where they run: opened again, and side by side.
+  system:
+    name: Remote / system ${{ matrix.os }}
+    if: inputs.task == 'system'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: system
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p out
+          cargo test -q -p mareader-speech --lib system:: -- --nocapture 2>&1 \
+            | tee "out/${{ matrix.os }}.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: system-${{ matrix.os }}
+          path: out/
+          retention-days: 7
+
+  system-report:
+    name: Remote / system report
+    if: always() && inputs.task == 'system'
+    needs: system
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: system-*
+          merge-multiple: true
+          path: out
+      - name: Summary
+        run: |
+          mkdir -p report
+          {
+            echo '# System voices'
+            for os in macos-latest windows-latest; do
+              log="out/$os.txt"
+              verdict=FAIL
+              grep -q 'test result: ok' "$log" 2>/dev/null && verdict=pass
+              echo; echo "## $os: $verdict"; echo; echo '```'
+              grep -E 'system voices|panicked|Operation|test result|^error' "$log" 2>/dev/null | head -20
+              echo '```'
+            done
+            passed=$(grep -l 'test result: ok' out/*.txt 2>/dev/null | wc -l)
+            [ "$passed" -eq 2 ] && { echo; echo '**All checks pass.**'; }
+            true
+          } > report/summary.md
+          cat report/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: system
+          path: report/summary.md
+          retention-days: 7

@@ -17,6 +17,7 @@ chooses per session, and the user can override the choice at any time.
 | Kitten parity | none (needs four builds and onnxruntime) | `python3 tools/ci.py kitten --ref BRANCH` |
 | Other languages' phonemes | none (needs espeak-ng) | `python3 tools/ci.py ipa --ref BRANCH` |
 | Chinese phonemes | none (needs misaki) | `python3 tools/ci.py hanzi --ref BRANCH` |
+| System voices | none (Linux CI has no speech) | `python3 tools/ci.py system --ref BRANCH` |
 | Installers | `cargo packager --release`, then `tools/check-installers.sh target/release` | `python3 tools/ci.py installers` |
 | Polls CI | no | yes, until the verdict |
 
@@ -302,6 +303,19 @@ scripts, our phonemes against misaki's `ZHG2P()`, the reader Kokoro-82M runs.
   own, so it should agree word for word, spaces included.
 - **Where it lands.** `target/remote/hanzi/summary.md`. misaki and its
   Chinese tools are installed in this job only.
+
+## System voices from CI
+
+`python3 tools/ci.py system --ref BRANCH --rev SHA` runs `mareader-speech`'s
+system-voice tests on a macOS and a Windows runner, where the system's own
+speech works; the Linux test job has none.
+
+- **Opened again.** Read aloud stopped and started, or the settings tab
+  reopened, opens the system's voices anew. macOS lets its speech open only
+  once a run, so every system voicer shares that one.
+- **Side by side.** The settings tab can sample a voice while a book is read:
+  each keeps its own voice and tone, and stopping one never stops the other.
+- **Where it lands.** `target/remote/system/summary.md`, a verdict per system.
 
 ## The sandbox cache
 
