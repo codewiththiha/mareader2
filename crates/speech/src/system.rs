@@ -178,7 +178,10 @@ impl System {
             // Apple's speech can't open again: its usual voice stands in.
             let voices = &self.speech.voices;
             let pairs = voices.iter().map(|v| (v.id(), v.language().to_string()));
-            let usual = locale().and_then(|l| usual(pairs, &l));
+            let pairs: Vec<_> = pairs.collect();
+            let mine = locale().and_then(|l| usual(pairs.iter().cloned(), &l));
+            // Else the last voicer's voice would stay on.
+            let usual = mine.or_else(|| usual(pairs.into_iter(), "en-US"));
             if let Some(v) = usual.and_then(|i| voices.get(i)) {
                 let _ = self.tts.set_voice(v);
             }
