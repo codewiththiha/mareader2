@@ -171,6 +171,31 @@ impl Model {
     }
 }
 
+/// Files of voices no longer offered, as model and path, to clean up.
+pub const RETIRED: &[(&str, &str)] = &[
+    ("piper", "en/en_US/kathleen/low/en_US-kathleen-low.onnx"),
+    (
+        "piper",
+        "en/en_US/kathleen/low/en_US-kathleen-low.onnx.json",
+    ),
+    ("piper", "en/en_US/joe/medium/en_US-joe-medium.onnx"),
+    ("piper", "en/en_US/joe/medium/en_US-joe-medium.onnx.json"),
+    ("piper", "en/en_US/mike/medium/en_US-mike-medium.onnx"),
+    ("piper", "en/en_US/mike/medium/en_US-mike-medium.onnx.json"),
+    (
+        "piper",
+        "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx",
+    ),
+    (
+        "piper",
+        "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx.json",
+    ),
+    ("piper", "en/en_US/sam/medium/en_US-sam-medium.onnx"),
+    ("piper", "en/en_US/sam/medium/en_US-sam-medium.onnx.json"),
+    ("piper", "en/en_GB/alba/medium/en_GB-alba-medium.onnx"),
+    ("piper", "en/en_GB/alba/medium/en_GB-alba-medium.onnx.json"),
+];
+
 /// Every model on offer.
 pub const MODELS: &[Model] = &[KOKORO, PIPER, KITTEN, PHONON];
 
@@ -896,7 +921,7 @@ pub const PIPER: Model = Model {
     id: "piper",
     name: "Piper",
     about: "Quick, clear English voices; each is a small model of its own",
-    license: "MIT; voices public domain, CC0, Apache 2.0 or CC BY 4.0",
+    license: "MIT; voices public domain",
     hosts: PIPER_HOSTS,
     files: &G2P,
     builds: &[],
@@ -949,7 +974,7 @@ const fn listed((path, bytes, sha256): Listed) -> ModelFile {
     }
 }
 
-/// Voices whose recordings are public domain, CC0, Apache 2.0 or CC BY 4.0.
+/// Voices made only from public-domain recordings, base voices included.
 const PIPER_VOICES: &[ModelVoice] = &[
     piper(
         ("en_US-ljspeech-medium", "LJ", "en-US"),
@@ -997,34 +1022,6 @@ const PIPER_VOICES: &[ModelVoice] = &[
         ),
     ),
     piper(
-        ("en_US-kathleen-low", "Kathleen", "en-US"),
-        (Gender::Female, "Quickest to make, a little muffled"),
-        (
-            "en/en_US/kathleen/low/en_US-kathleen-low.onnx",
-            63_104_526,
-            "87adf17f5326bc0782282147a8b9788406236245f0f9b0e68dacb651bc1de8b6",
-        ),
-        (
-            "en/en_US/kathleen/low/en_US-kathleen-low.onnx.json",
-            4_169,
-            "39ebab88416edce0f63781754651788620cb97b9bb73ddf3c01f28e29a648feb",
-        ),
-    ),
-    piper(
-        ("en_US-joe-medium", "Joe", "en-US"),
-        (Gender::Male, ""),
-        (
-            "en/en_US/joe/medium/en_US-joe-medium.onnx",
-            63_201_294,
-            "58afce0321b8d9c46d7cdf9c16500cc55a793b4220212dba6b70fb788b3baf06",
-        ),
-        (
-            "en/en_US/joe/medium/en_US-joe-medium.onnx.json",
-            4_794,
-            "3d6d5410b3795cb1950595247ef8f06190719e6fdbfa3a2356d8ec368e1aad33",
-        ),
-    ),
-    piper(
         ("en_US-john-medium", "John", "en-US"),
         (Gender::Male, ""),
         (
@@ -1067,48 +1064,6 @@ const PIPER_VOICES: &[ModelVoice] = &[
         ),
     ),
     piper(
-        ("en_US-mike-medium", "Mike", "en-US"),
-        (Gender::Male, ""),
-        (
-            "en/en_US/mike/medium/en_US-mike-medium.onnx",
-            63_221_984,
-            "3157e69e2c580cab297483f4b301ee975a4590c17d35a9757e33347d0e90fae2",
-        ),
-        (
-            "en/en_US/mike/medium/en_US-mike-medium.onnx.json",
-            5_439,
-            "0a2538c0b1e06a6cab7c46b97c79abd5e6a34a6c05b74b9376874c7099d81dad",
-        ),
-    ),
-    piper(
-        ("en_US-reza_ibrahim-medium", "Reza", "en-US"),
-        (Gender::Male, ""),
-        (
-            "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx",
-            63_511_038,
-            "99f0c31464a2120831ca87d079e10a9a2b3e426cc1ee662d80ff9042df15cd3c",
-        ),
-        (
-            "en/en_US/reza_ibrahim/medium/en_US-reza_ibrahim-medium.onnx.json",
-            4_976,
-            "465ddf1702917fe617b7d69ed81301d6a2f39f083a754bd1cf6db8955d09a381",
-        ),
-    ),
-    piper(
-        ("en_US-sam-medium", "Sam", "en-US"),
-        (Gender::Neutral, ""),
-        (
-            "en/en_US/sam/medium/en_US-sam-medium.onnx",
-            62_950_044,
-            "56417b3b4afe8ec6bb4cabf06e17d67261fdd5bf334592abcfc80052fba11163",
-        ),
-        (
-            "en/en_US/sam/medium/en_US-sam-medium.onnx.json",
-            5_040,
-            "8c7fb47f19683b0b81037c5564f9a5ad4699a9da685e0e5da0a72fd3c3f5c1c4",
-        ),
-    ),
-    piper(
         ("en_GB-cori-medium", "Cori", "en-GB"),
         (Gender::Female, ""),
         (
@@ -1137,21 +1092,6 @@ const PIPER_VOICES: &[ModelVoice] = &[
             "en/en_GB/cori/high/en_GB-cori-high.onnx.json",
             4_963,
             "9e7fb5b5671612c22f3c81cbe46c1ae87b031a4632bcb509e499dad6f1e2adec",
-        ),
-    ),
-    // The Alba speech corpus, CC BY 4.0; credited in mareader-vits' NOTICE.
-    piper(
-        ("en_GB-alba-medium", "Alba", "en-GB"),
-        (Gender::Female, ""),
-        (
-            "en/en_GB/alba/medium/en_GB-alba-medium.onnx",
-            63_201_294,
-            "401369c4a81d09fdd86c32c5c864440811dbdcc66466cde2d64f7133a66ad03b",
-        ),
-        (
-            "en/en_GB/alba/medium/en_GB-alba-medium.onnx.json",
-            4_888,
-            "aa965a2f02ecced632c2694e1fc72bbff6d65f265fab567ca945918c73dd89f4",
         ),
     ),
 ];
@@ -1652,6 +1592,17 @@ mod tests {
     }
 
     #[test]
+    fn a_retired_file_is_listed_by_no_model() {
+        for (m, path) in RETIRED {
+            let model = MODELS.iter().find(|x| x.id == *m).unwrap();
+            let voices = model.voices.iter().flat_map(|v| v.files());
+            let builds = model.builds.iter().flat_map(|b| b.files());
+            let mut all = model.files.iter().copied().chain(voices).chain(builds);
+            assert!(all.all(|f| f.path != *path), "{path} is still offered");
+        }
+    }
+
+    #[test]
     fn each_piper_voice_brings_its_weights_and_settings() {
         assert!(PIPER.builds.is_empty());
         assert_eq!(PIPER.files, &G2P[..]);
@@ -1662,7 +1613,7 @@ mod tests {
             let [weights, settings] = v.files()[..] else {
                 panic!("{} has two files", v.id);
             };
-            // As `en/en_US/joe/medium/en_US-joe-medium.onnx`.
+            // As `en/en_US/john/medium/en_US-john-medium.onnx`.
             let [locale, speaker, quality] = v.id.splitn(3, '-').collect::<Vec<_>>()[..] else {
                 panic!("{} is locale-speaker-quality", v.id);
             };

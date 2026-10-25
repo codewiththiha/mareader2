@@ -427,6 +427,7 @@ impl Shelf {
         self.queue.clear();
         let desk = desk::Desk::new(dir, waker);
         for model in catalogue {
+            desk.retire(model);
             self.scan(&desk, model);
         }
         self.desk = Some(desk);
@@ -635,6 +636,27 @@ mod desk {
 
         pub fn drop_files(&self, model: &Model, files: &[ModelFile]) -> Result<(), String> {
             drop_files(&self.folder(model), files).map_err(|e| e.to_string())
+        }
+
+        /// Deletes what `model` kept of voices no longer offered.
+        pub fn retire(&self, model: &Model) {
+            let folder = self.folder(model);
+            let retired = crate::models::RETIRED.iter();
+            for (_, path) in retired.filter(|(m, _)| *m == model.id) {
+                let path = folder.join(path);
+                let half = std::fs::remove_file(part(&path)).is_ok();
+                if !(std::fs::remove_file(&path).is_ok() || half) {
+                    continue;
+                }
+                // Folders left empty go too; a full one stays.
+                let mut dir = path.parent();
+                while let Some(d) = dir.filter(|d| *d != folder) {
+                    if std::fs::remove_dir(d).is_err() {
+                        break;
+                    }
+                    dir = d.parent();
+                }
+            }
         }
 
         /// Deletes `model`'s folder; one already gone counts as deleted.
@@ -985,6 +1007,23 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("never settled: {:?}", shelf.stages);
+    }
+
+    #[test]
+    fn files_of_a_retired_voice_go_and_their_empty_folders_with_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let piper = dir.path().join("piper");
+        let joe = piper.join("en/en_US/joe/medium");
+        let john = piper.join("en/en_US/john/medium");
+        for d in [&joe, &john] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(joe.join("en_US-joe-medium.onnx"), b"w").unwrap();
+        std::fs::write(joe.join("en_US-joe-medium.onnx.json.part"), b"s").unwrap();
+        std::fs::write(john.join("en_US-john-medium.onnx"), b"w").unwrap();
+        let _ = shelf(dir.path(), MODELS);
+        assert!(!piper.join("en/en_US/joe").exists());
+        assert!(john.join("en_US-john-medium.onnx").exists());
     }
 
     #[cfg(unix)]
