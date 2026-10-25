@@ -3722,6 +3722,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-phonon"
+version = "0.0.4"
+dependencies = [
+ "candle-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mareader-reflow"
 version = "0.0.4"
 dependencies = [

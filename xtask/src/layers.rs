@@ -19,6 +19,7 @@ pub const TABLE: &[(&str, Layer)] = &[
     ("ipa", Layer::Core(0)),
     ("hanzi", Layer::Core(0)),
     ("vits", Layer::Core(0)),
+    ("phonon", Layer::Core(0)),
     ("speech", Layer::Core(1)),
     ("reflow", Layer::Core(1)),
     ("library", Layer::Core(1)),
