@@ -1,6 +1,6 @@
 # Roadmap
 
-**Stage:** M0 to M8 done; v0.0.3 released. M9 (sync) is optional.
+**Stage:** M0 to M8 done; v0.0.4 released. M9 (sync) is optional.
 **Parity:** 121 of 121 features (100 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -300,3 +300,4 @@ appearance effects to that same pass.
 | 2026-10-25 | Books reload when saved elsewhere. An open file edited in another app, a note, a re-exported PDF or an EPUB, reloads by itself within about two seconds and stays where you were reading; a save still being written is waited out |
 | 2026-10-25 | Notes and reloads, polished. An imported note now also keeps pictures from folders above it or at full paths, so it shows them after the original is gone; pictures written as HTML `<img>` tags show too. A save right after a book opens reloads it, a save during a reload is not lost, and with nothing open the watch sleeps |
 | 2026-10-25 | Mareader's icon on Windows. The program file now carries its icon, so Explorer, the Start menu, desktop shortcuts, pinned taskbar buttons and Installed apps show the book instead of the generic program icon; the setup program shows it too |
+| 2026-10-25 | v0.0.4. The release gathers everything since v0.0.3: read aloud in system and neural voices (Kokoro, Piper, Kitten), pronunciation on word cards, live reload, a book's own design, the two AI tabs, one kind of modal, stacked toasts, lighter memory, a smaller download and Mareader's icon on Windows. Notes in `docs/releases/v0.0.4.md` |

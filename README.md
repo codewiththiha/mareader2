@@ -6,7 +6,7 @@ smaller and cleaner codebase with a fraction of the memory: no webview, no
 JavaScript, pages rendered by [hayro](https://github.com/LaurenzV/hayro) and
 books laid out by [parley](https://github.com/linebender/parley).
 
-**Status:** M8, polish, is done, and v0.0.3 is out for macOS, Windows and
+**Status:** M8, polish, is done, and v0.0.4 is out for macOS, Windows and
 Linux. Every P0 and P1 mareader feature is shipped. Sync between machines
 (M9) is optional and much later.
 See [`ROADMAP.md`](ROADMAP.md).
