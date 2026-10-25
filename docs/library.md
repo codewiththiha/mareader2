@@ -132,26 +132,24 @@ written atomically (temp + rename) on a worker after a short debounce.
   and a drop at once, meet in one lookup by content id inside the
   operation, so they make one book.
 
-## Text files in the library (2026-10-15)
+## Text files in the library (2026-10-15, corrected 2026-10-25)
 
-Markdown and plain text open by converting to an EPUB on the session's
-workers (`docs/epub.md` § Text files as EPUBs). Conversion is cheap and
-byte-for-byte repeatable, so the library keeps the source and treats the
-EPUB as a cache:
+Markdown and plain text open by converting to an EPUB in memory on the
+session's workers (`docs/epub.md` § Text files as EPUBs). Conversion is
+cheap and byte-for-byte repeatable, so the library keeps only the source:
+no EPUB is written, and every open converts afresh, so a better converter
+reaches old books too.
 
-- **What is kept.** A store copy is the source file. Exception: a copied
-  Markdown file with local pictures is kept as its converted EPUB, which
-  packs them, since the copy would lose the pictures beside the original.
-- **The converted cache** lives in the cache directory, keyed by content id
-  and converter version, and is rebuilt on a miss.
-- **Positions survive a newer converter.** A converter that finds more
-  headings regroups blocks, so a block anchor could drift. A converted
-  book also saves its position as a character offset into the book's text,
-  which re-conversion keeps, and uses it when the converter version
-  differs.
-- **Metadata without converting.** The library needs a title and author
-  for a row, not chapters: `describe` reads front matter, header labels
-  and the file name without building the book.
+- **Read in place.** The library holds the file's path; an edit to it is
+  the same book with new content (§ Identity and naming edge cases).
+- **Store copies** are the source file in `files/<content>/<name>`. A
+  Markdown file's local pictures come with it, at the same relative paths
+  (`disk::copy_beside`), so the copy shows them as the original does.
+  Only paths inside the file's folder are copied; `../` and absolute ones
+  still resolve from where they point. Deleting the copy deletes its folder,
+  pictures and all.
+- **Titles and covers** convert the file too: `describe` without its
+  pictures, `cover` with them.
 
 ## Covers in detail (2026-10-15)
 

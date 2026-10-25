@@ -1,6 +1,9 @@
 //! A book's cover art and names for the library, read off the frame.
-use std::path::Path;
+use std::cell::RefCell;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+
+use mareader_epub::Format;
 
 use mareader_pdf::Raster;
 
@@ -50,6 +53,44 @@ pub fn describe(path: &Path) -> (Option<String>, Option<String>) {
     read().unwrap_or_default()
 }
 
+/// The pictures a Markdown file reads from its own folder, relative to it.
+pub fn pictures(path: &Path) -> Vec<PathBuf> {
+    let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
+        return Vec::new();
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let seen = RefCell::new(Vec::new());
+    let read = |p: &str| {
+        let bytes = read_picture(folder, p)?;
+        // Absolute or upward paths still resolve from wherever the copy is.
+        if let Some(inside) = inside(p) {
+            seen.borrow_mut().push(inside);
+        }
+        Some(bytes)
+    };
+    let name = name.to_string_lossy();
+    let _ = mareader_epub::convert(&bytes, Format::Markdown, Some(&name), &read);
+    let mut seen = seen.into_inner();
+    seen.sort();
+    seen.dedup();
+    seen
+}
+
+/// `p` as a path under its folder: `./a.png` and `img/b.png`, not `../c`.
+fn inside(p: &str) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for part in Path::new(p).components() {
+        match part {
+            Component::Normal(n) => out.push(n),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
 fn first_page(bytes: Arc<Vec<u8>>, side: u32) -> Option<Raster> {
     let doc = mareader_pdf::Document::open(bytes).ok()?;
     let size = *doc.page_sizes().first()?;
@@ -89,6 +130,24 @@ mod tests {
             (Some("Notes"), Some("Me"))
         );
         assert_eq!(describe(&dir.join("gone.pdf")), (None, None));
+    }
+
+    #[test]
+    fn a_note_lists_the_pictures_beside_it_by_their_paths() {
+        let dir = tempfile::tempdir().ok();
+        let dir = dir.as_ref().map_or(Path::new("."), |d| d.path());
+        std::fs::create_dir_all(dir.join("notes/img")).ok();
+        write(dir, "notes/img/a.png", b"a");
+        write(dir, "notes/c.png", b"c");
+        write(dir, "up.png", b"up");
+        let note = write(
+            dir,
+            "notes/n.md",
+            b"![a](img/a.png) ![c](./c.png) ![u](../up.png) ![w](https://x.org/w.png) ![g](gone.png) ![again](img/a.png)",
+        );
+        let found = pictures(&note);
+        assert_eq!(found, [PathBuf::from("c.png"), PathBuf::from("img/a.png")]);
+        assert!(pictures(&dir.join("missing.md")).is_empty());
     }
 
     #[test]

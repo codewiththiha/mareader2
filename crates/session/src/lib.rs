@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use cover::{cover, describe};
+pub use cover::{cover, describe, pictures};
 pub use document::Document;
 pub use key::{DocId, PageKey, Part, Scale, Want};
 pub use mareader_epub::{Insert, Inserts};

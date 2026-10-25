@@ -220,6 +220,32 @@ fn copies_land_in_the_store_and_only_store_files_are_deleted() {
 }
 
 #[test]
+fn a_markdown_copy_brings_its_pictures_and_leaves_with_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::new(dir.path().join("lib"));
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(notes.join("img")).unwrap();
+    let file = notes.join("trip.md");
+    std::fs::write(&file, b"![a](img/a.png)").unwrap();
+    std::fs::write(notes.join("img/a.png"), b"png a").unwrap();
+    std::fs::write(dir.path().join("up.png"), b"png up").unwrap();
+    let content = disk::measure(&file, Format::Markdown).unwrap().content;
+    let (copy, _) = disk::copy_in(&folder.store(), &file, content).unwrap();
+    let pictures = ["img/a.png", "../up.png", "gone.png"].map(PathBuf::from);
+    disk::copy_beside(&copy, &file, &pictures);
+    let beside = copy.parent().unwrap();
+    assert_eq!(std::fs::read(beside.join("img/a.png")).unwrap(), b"png a");
+    // Nothing is written outside the copy's own folder.
+    assert!(!beside.parent().unwrap().join("up.png").exists());
+    assert!(!beside.join("gone.png").exists());
+    assert_eq!(
+        disk::delete_copies(&folder.store(), std::slice::from_ref(&copy)),
+        1
+    );
+    assert!(!beside.exists());
+}
+
+#[test]
 fn twins_and_store_copies_come_back_from_disk() {
     let dir = tempfile::tempdir().unwrap();
     let folder = Folder::new(dir.path());

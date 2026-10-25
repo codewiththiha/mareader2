@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
@@ -365,7 +365,34 @@ pub fn copy_in(store: &Path, file: &Path, content: ContentId) -> io::Result<(Pat
     Ok((dest, stamp))
 }
 
-/// Deletes store copies, and their folders once empty; others stay.
+/// Copies a note's `pictures` from beside `from` to beside its `copy`.
+pub fn copy_beside(copy: &Path, from: &Path, pictures: &[PathBuf]) {
+    let (Some(dir), Some(source)) = (copy.parent(), from.parent()) else {
+        return;
+    };
+    let downward = |p: &&PathBuf| p.components().all(|c| matches!(c, Component::Normal(_)));
+    for picture in pictures.iter().filter(downward) {
+        let (src, dest) = (source.join(picture), dir.join(picture));
+        let Ok(size) = fs::metadata(&src).map(|m| m.len()) else {
+            continue;
+        };
+        if fs::metadata(&dest).is_ok_and(|m| m.len() == size) {
+            continue;
+        }
+        let _ = dest.parent().map(fs::create_dir_all);
+        let mut part = dest.clone().into_os_string();
+        part.push(".part");
+        let part = PathBuf::from(part);
+        if fs::copy(&src, &part)
+            .and_then(|_| fs::rename(&part, &dest))
+            .is_err()
+        {
+            let _ = fs::remove_file(&part);
+        }
+    }
+}
+
+/// Deletes store copies with their folders, pictures and all; others stay.
 pub fn delete_copies(store: &Path, paths: &[PathBuf]) -> usize {
     let Ok(store) = fs::canonicalize(store) else {
         return 0;
@@ -380,7 +407,8 @@ pub fn delete_copies(store: &Path, paths: &[PathBuf]) -> usize {
             continue;
         }
         deleted += 1;
-        let _ = fs::remove_dir(&dir);
+        // The folder is this copy's alone: its name is the content's.
+        let _ = fs::remove_dir_all(&dir);
     }
     deleted
 }
