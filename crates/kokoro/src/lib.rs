@@ -123,6 +123,9 @@ pub struct Trace {
     /// The generator's steps by name, when asked for.
     #[doc(hidden)]
     pub probes: Vec<(String, Tensor)>,
+    /// Seconds each step took, in order, when asked for; names repeat.
+    #[doc(hidden)]
+    pub laps: Vec<(String, f64)>,
 }
 
 pub struct Kokoro {
@@ -278,14 +281,17 @@ impl Kokoro {
         if !speed.is_finite() || !SPEEDS.contains(&speed) {
             return Err(Error::Input(format!("speed {speed} is outside 0.1 to 5")));
         }
+        let mut probes = Probes::on(probe);
         let ids_t = Tensor::new(ids, &Device::Cpu)?.unsqueeze(0)?;
         let sd = self.config.style_dim;
         let s_pred = style.narrow(1, sd, sd)?;
         let s_dec = style.narrow(1, 0, sd)?;
         let bert = self.bert.forward(&ids_t)?;
         let projected = self.bert_encoder.forward(&bert)?.transpose(1, 2)?;
+        probes.lap(|| "phoneme encoder".into());
         let encoded = self.predictor.encode(&projected, &s_pred)?;
         let raw_durations = layers::scale(&self.predictor.durations(&encoded)?, 1.0 / speed)?;
+        probes.lap(|| "durations".into());
         let durations = rounded(&raw_durations)?;
         let frames: usize = durations.iter().sum();
         let mut picks = Vec::with_capacity(frames);
@@ -299,10 +305,11 @@ impl Kokoro {
             .contiguous()?
             .index_select(&picks, 2)?;
         let (pitch, energy) = self.predictor.curves(&aligned, &s_pred)?;
+        probes.lap(|| "pitch and energy".into());
         let text = self.text.forward(&ids_t)?;
         let asr = text.contiguous()?.index_select(&picks, 2)?;
+        probes.lap(|| "text encoder".into());
         let mut noise = Noise::new(seed).with_gain(gain);
-        let mut probes = Probes(probe.then(Vec::new));
         let curves = (&pitch, &energy);
         let audio = self
             .decoder
@@ -317,7 +324,8 @@ impl Kokoro {
             energy,
             text,
             audio,
-            probes: probes.0.unwrap_or_default(),
+            probes: probes.kept.unwrap_or_default(),
+            laps: probes.laps.map(|(_, laps)| laps).unwrap_or_default(),
         })
     }
 }

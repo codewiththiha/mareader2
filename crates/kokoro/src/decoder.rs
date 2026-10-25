@@ -1,5 +1,7 @@
 //! Frames to sound: a harmonic source shaped by an inverse-STFT generator.
 
+use std::time::Instant;
+
 use candle_core::{DType, Device, Result, Tensor};
 use candle_nn::VarBuilder;
 
@@ -11,12 +13,33 @@ use crate::prosody::AdainResBlk1d;
 
 /// Named steps kept from a pass, for checking; off unless asked.
 #[derive(Default)]
-pub(crate) struct Probes(pub(crate) Option<Vec<(String, Tensor)>>);
+pub(crate) struct Probes {
+    pub(crate) kept: Option<Vec<(String, Tensor)>>,
+    /// Seconds each step took, timed from the step before.
+    pub(crate) laps: Option<(Instant, Vec<(String, f64)>)>,
+}
 
 impl Probes {
-    fn keep(&mut self, name: impl FnOnce() -> String, t: &Tensor) {
-        if let Some(all) = &mut self.0 {
+    /// Steps kept and timed, or neither.
+    pub(crate) fn on(on: bool) -> Self {
+        Self {
+            kept: on.then(Vec::new),
+            laps: on.then(|| (Instant::now(), Vec::new())),
+        }
+    }
+
+    fn keep(&mut self, name: impl Fn() -> String, t: &Tensor) {
+        if let Some(all) = &mut self.kept {
             all.push((name(), t.clone()));
+        }
+        self.lap(name);
+    }
+
+    /// Times the work since the last lap as `name`.
+    pub(crate) fn lap(&mut self, name: impl FnOnce() -> String) {
+        if let Some((last, laps)) = &mut self.laps {
+            laps.push((name(), last.elapsed().as_secs_f64()));
+            *last = Instant::now();
         }
     }
 }
@@ -461,15 +484,21 @@ impl SnakeBlock {
         Ok(Self { layers })
     }
 
-    fn forward(&self, x: &Tensor, s: &Tensor) -> Result<Tensor> {
+    fn forward(&self, x: &Tensor, s: &Tensor, probes: &mut Probes) -> Result<Tensor> {
         let mut x = x.clone();
         for l in &self.layers {
-            let y = l
-                .conv1
-                .forward(&snake(&l.norm1.forward(&x, s)?, &l.alpha1)?)?;
-            let y = l
-                .conv2
-                .forward(&snake(&l.norm2.forward(&y, s)?, &l.alpha2)?)?;
+            let mut y = x.clone();
+            for (norm, alpha, conv) in [
+                (&l.norm1, &l.alpha1, &l.conv1),
+                (&l.norm2, &l.alpha2, &l.conv2),
+            ] {
+                y = norm.forward(&y, s)?;
+                probes.lap(|| "snake block: norm".into());
+                y = snake(&y, alpha)?;
+                probes.lap(|| "snake block: snake".into());
+                y = conv.forward(&y)?;
+                probes.lap(|| "snake block: conv".into());
+            }
             x = (y + x)?;
         }
         Ok(x)
@@ -582,9 +611,11 @@ impl Generator {
         for (i, stage) in self.stages.iter().enumerate() {
             x = leaky_relu(&x, 0.1)?;
             let src = stage.noise_conv.forward(&har)?;
-            let src = stage.noise_res.forward(&src, s)?;
+            probes.lap(|| format!("stage{i}.noise_conv"));
+            let src = stage.noise_res.forward(&src, s, probes)?;
             probes.keep(|| format!("stage{i}.src"), &src);
             x = stage.up.forward(&x)?;
+            probes.lap(|| format!("stage{i}.up"));
             if i == last {
                 // Reflection-pad one step at the start.
                 x = Tensor::cat(&[&x.narrow(2, 1, 1)?, &x], 2)?;
@@ -594,7 +625,7 @@ impl Generator {
             probes.keep(|| format!("stage{i}.sum"), &x);
             let mut sum: Option<Tensor> = None;
             for block in &stage.blocks {
-                let y = block.forward(&x, s)?;
+                let y = block.forward(&x, s, probes)?;
                 sum = Some(match sum {
                     Some(prev) => (prev + y)?,
                     None => y,
@@ -611,7 +642,9 @@ impl Generator {
         // Speech stays far below the ceiling; bad weights can't reach infinity.
         let spec = x.narrow(1, 0, bins)?.minimum(LOG_CEILING)?.exp()?;
         let phase = x.narrow(1, bins, bins)?.sin()?;
-        self.stft.inverse(&spec, &phase)
+        let audio = self.stft.inverse(&spec, &phase)?;
+        probes.lap(|| "istft".into());
+        Ok(audio)
     }
 }
 
@@ -680,6 +713,7 @@ impl Decoder {
         let n = self.noise_conv.forward(&energy.unsqueeze(1)?)?;
         let mut x = self.encode.forward(&Tensor::cat(&[asr, &f0, &n], 1)?, s)?;
         let res = self.asr_res.forward(asr)?;
+        probes.lap(|| "decoder: encode".into());
         let mut residual = true;
         for block in &self.decode {
             if residual {
@@ -687,6 +721,7 @@ impl Decoder {
             }
             x = block.forward(&x, s)?;
             residual &= !block.upsamples();
+            probes.lap(|| "decoder: blocks".into());
         }
         self.generator.forward(&x, s, f0_curve, noise, probes)
     }

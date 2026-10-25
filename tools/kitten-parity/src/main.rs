@@ -113,6 +113,52 @@ fn builds(dir: &Path) -> R<Vec<String>> {
 
 /// The nano sentence whose generator steps are compared one by one.
 const STAGE_CASE: usize = 1;
+/// The sentence whose steps are timed, the longest.
+const TIME_CASE: usize = 4;
+
+/// Each build's milliseconds per step, steps in the order first met.
+#[derive(Default)]
+struct Laps {
+    builds: Vec<String>,
+    steps: Vec<(String, Vec<f64>)>,
+}
+
+impl Laps {
+    fn add(&mut self, build: &str, laps: &[(String, f64)], audio: f64) {
+        let column = self.builds.len();
+        self.builds.push(format!("{build} ({audio:.1} s)"));
+        let total = laps.iter().map(|(_, s)| s).sum::<f64>();
+        let all = laps.iter().cloned().chain([("total".to_owned(), total)]);
+        for (name, seconds) in all {
+            let at = match self.steps.iter().position(|(n, _)| *n == name) {
+                Some(at) => at,
+                None => {
+                    self.steps.push((name, Vec::new()));
+                    self.steps.len() - 1
+                }
+            };
+            if let Some((_, row)) = self.steps.get_mut(at) {
+                row.resize(column + 1, 0.0);
+                if let Some(ms) = row.get_mut(column) {
+                    *ms += seconds * 1000.0;
+                }
+            }
+        }
+    }
+
+    fn table(&self) -> String {
+        let mut md = format!("| Step (ms) | {} |\n|---|", self.builds.join(" | "));
+        md.push_str(&"---|".repeat(self.builds.len()));
+        md.push('\n');
+        for (name, row) in &self.steps {
+            let cells: Vec<String> = (0..self.builds.len())
+                .map(|i| format!("{:.0}", row.get(i).copied().unwrap_or(0.0)))
+                .collect();
+            let _ = writeln!(md, "| {name} | {} |", cells.join(" | "));
+        }
+        md
+    }
+}
 
 /// Rows comparing our probes with the reference's tensors at each step.
 fn stages(folder: &Path, probes: &[(String, Tensor)]) -> R<String> {
@@ -249,6 +295,7 @@ fn compare(dir: &Path, out: &Path) -> R<bool> {
     let wanted = Kokoro::onnx_names(&dir.join("nano").join("model.onnx"))?;
     let mut held = String::new();
     let mut stage_rows = String::new();
+    let mut laps = Laps::default();
     for build in builds(dir)? {
         let folder = dir.join(&build);
         let names = Kokoro::onnx_names(&folder.join("model.onnx"))?;
@@ -300,6 +347,11 @@ fn compare(dir: &Path, out: &Path) -> R<bool> {
             if full && case.index == STAGE_CASE {
                 let probed = model.trace_noise(&case.ids, &style, 1.0, 0, 1.0, true)?;
                 stage_rows = stages(&out.join("ref").join("stages"), &probed.probes)?;
+            }
+            if case.index == TIME_CASE {
+                let timed = model.trace_noise(&case.ids, &style, 1.0, 0, 1.0, true)?;
+                let audio = timed.audio.len() as f64 / f64::from(SAMPLE_RATE);
+                laps.add(&build, &timed.laps, audio);
             }
             let start = Instant::now();
             let trace = model.trace_noise(&case.ids, &style, 1.0, 0, 1.0, false)?;
@@ -415,11 +467,13 @@ fn compare(dir: &Path, out: &Path) -> R<bool> {
          |---|---|---|---|---|---|---|\n{sizes}\n\
          ## Speed (seconds of compute per second of speech)\n\n\
          | Build | Load | Ours | onnxruntime |\n|---|---|---|---|\n{speed}\n\
+         ## Where the time goes (sentence {TIME_CASE}, steps kept)\n\n{}\n\
          ## Phonemes against espeak\n\n\
          Error {:.1}% (gate {:.0}%).\n\n| Text | Ours | espeak |\n|---|---|---|\n{said}",
         SAME_LENGTH * 100.0,
         LENGTH_DRIFT * 100.0,
         LOUDNESS_DRIFT * 100.0,
+        laps.table(),
         per * 100.0,
         PHONEME_ERROR * 100.0,
     );
