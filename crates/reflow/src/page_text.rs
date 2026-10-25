@@ -13,7 +13,7 @@ use crate::picture::Picture;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PageChar {
     pub ch: char,
-    /// Left, top, width, height: the line's full height.
+    /// Left, top, width, height: its font's ascent to descent.
     pub rect: [f32; 4],
     /// Its block and byte in the book's text; none in a table.
     pub at: Option<(usize, usize)>,
@@ -187,22 +187,30 @@ fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine
             continue;
         };
         let m = line.metrics();
-        let (top, height) = (y + m.block_min_coord, m.block_max_coord - m.block_min_coord);
         // Clusters left to right, as drawn; then back into text order.
         let mut at = x + m.inline_min_coord + m.offset;
         let mut clusters = Vec::new();
         for run in line.runs() {
+            let f = run.font_metrics();
+            // The letters' own height: line spacing is gap, not text.
+            let top = (m.baseline - f.ascent).max(m.block_min_coord);
+            let bottom = (m.baseline + f.descent).min(m.block_max_coord);
+            let (top, height) = if bottom > top {
+                (y + top, bottom - top)
+            } else {
+                (y + m.block_min_coord, m.block_max_coord - m.block_min_coord)
+            };
             for c in run.visual_clusters() {
                 // What draws no glyph takes no room, but a ligature shares.
                 let drawn = c.is_ligature_continuation() || c.glyphs().next().is_some();
                 let w = if drawn { c.advance() } else { 0.0 };
-                clusters.push((c.text_range(), at, w));
+                clusters.push((c.text_range(), at, w, top, height));
                 at += w;
             }
         }
         clusters.sort_by_key(|(r, ..)| r.start);
         let mut chars = Vec::new();
-        for (r, left, w) in clusters {
+        for (r, left, w, top, height) in clusters {
             let start = r.start;
             let s = para.text.get(r).unwrap_or_default();
             let kept: Vec<(usize, char)> = s
@@ -308,6 +316,36 @@ mod tests {
                 .any(|c| (c.rect[0] + c.rect[2] - x - w).abs() < 0.5);
             assert!(starts && ends, "{l:?} {row:?}");
         }
+    }
+
+    #[test]
+    fn letters_are_boxed_as_tall_as_their_font_not_their_line() {
+        let body = "Wide spacing leaves gaps between the lines of text. ".repeat(8);
+        let tall = |line_height| {
+            let typo = Typography {
+                line_height,
+                ..Typography::default()
+            };
+            let f = with(&[Block::text(Role::Paragraph, body.trim_end())], &typo);
+            let lines = f.text(0);
+            let tops: Vec<f32> = lines
+                .iter()
+                .filter_map(|l| l.chars.first())
+                .map(|c| c.rect[1])
+                .collect();
+            let pitch = tops.get(1).zip(tops.first()).map_or(0.0, |(b, a)| b - a);
+            let heights = lines.iter().flat_map(|l| &l.chars).map(|c| c.rect[3]);
+            (pitch, heights.fold(0.0, f32::max), typo.font_size)
+        };
+        let (pitch, height, size) = tall(2.5);
+        assert!(pitch > 2.0 * size, "{pitch} {size}");
+        assert!(
+            height < 0.6 * pitch && height > 0.8 * size,
+            "{height} {pitch}"
+        );
+        // Tight lines never box into their neighbours.
+        let (pitch, height, _) = tall(0.8);
+        assert!(height <= pitch + 0.01, "{height} {pitch}");
     }
 
     #[test]
