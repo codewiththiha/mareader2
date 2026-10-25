@@ -9,7 +9,7 @@ use mareader_kokoro as ours;
 use crate::{R, envelope, pearson, rms, seconds, write_wav};
 
 /// The builds offered, by name, file and the agreement each must reach.
-const BUILDS: [(&str, &str, Gate); 2] = [
+const BUILDS: [(&str, &str, Gate); 3] = [
     (
         "Half",
         "kokoro-82m-f16.gguf",
@@ -22,6 +22,15 @@ const BUILDS: [(&str, &str, Gate); 2] = [
     (
         "Small",
         "kokoro-82m-q8_0.gguf",
+        Gate {
+            envelope: 0.95,
+            length: 0.05,
+            loudness: 0.15,
+        },
+    ),
+    (
+        "Tiny",
+        "kokoro-v1_0-q8.onnx",
         Gate {
             envelope: 0.95,
             length: 0.05,

@@ -203,6 +203,12 @@ const GGUF_HOSTS: &[&str] = &[
     "https://hf-mirror.com/cstr/kokoro-82m-GGUF/resolve/ab19534a3b5cc12bc2741478e9790eadb328654a/",
 ];
 
+/// The same weights exported to ONNX, Apache 2.0 as well; pinned.
+const ONNX_HOSTS: &[&str] = &[
+    "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/1939ad2a8e416c0acfeecc08a694d14ef25f2231/",
+    "https://hf-mirror.com/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/1939ad2a8e416c0acfeecc08a694d14ef25f2231/",
+];
+
 /// Pinned to a commit; the files are loqui-g2p 0.4.0's, byte for byte.
 const G2P_HOSTS: &[&str] = &[
     "https://raw.githubusercontent.com/Awakened-Labs/loqui/717691aadf67408c85d87dc33e5d1d77b2ea4b4d/crates/loqui-g2p/data/",
@@ -318,13 +324,26 @@ pub const KOKORO: Model = Model {
         Build {
             id: "small",
             name: "Small",
-            about: "8-bit weights: the smallest download, a little rougher",
+            about: "8-bit weights: a small download, a little rougher",
             file: ModelFile {
                 path: "kokoro-82m-q8_0.gguf",
                 bytes: 141_322_336,
                 sha256: "3c8b60064b287a10abd35396a59c9981675c618db8bc91bd290db63f55eb492d",
                 hosts: Some(GGUF_HOSTS),
                 from: None,
+            },
+            extra: None,
+        },
+        Build {
+            id: "tiny",
+            name: "Tiny",
+            about: "8-bit weights packed tighter: the smallest download, rougher still",
+            file: ModelFile {
+                path: "kokoro-v1_0-q8.onnx",
+                bytes: 92_361_116,
+                sha256: "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478",
+                hosts: Some(ONNX_HOSTS),
+                from: Some("onnx/model_quantized.onnx"),
             },
             extra: None,
         },
@@ -1346,7 +1365,7 @@ mod tests {
         let g2p = 20_120_816;
         assert_eq!(KOKORO.bytes(), 2_351 + 523_425 + g2p);
         let ids: Vec<&str> = KOKORO.builds.iter().map(|b| b.id).collect();
-        assert_eq!(ids, ["full", "half", "small"]);
+        assert_eq!(ids, ["full", "half", "small", "tiny"]);
         let small = KOKORO.build("small").unwrap();
         assert_eq!(KOKORO.bytes_with(small), KOKORO.bytes() + 141_322_336);
         // Each smaller build is a smaller download.

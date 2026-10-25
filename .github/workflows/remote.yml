@@ -233,11 +233,11 @@ jobs:
         with:
           shared-key: kokoro
           workspaces: tools/kokoro-parity
-      # The pinned published model, its builds and G2P data; 650 MB, so kept.
+      # The pinned published model, its builds and G2P data; 740 MB, so kept.
       - uses: actions/cache@v4
         with:
           path: kokoro
-          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987-g2p-717691a-gguf-ab19534
+          key: kokoro-f3ff3571791e39611d31c381e3a41a3af07b4987-g2p-717691a-gguf-ab19534-onnx-1939ad2
       - name: Model
         run: |
           base=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
@@ -254,6 +254,9 @@ jobs:
           for f in kokoro-82m-f16.gguf kokoro-82m-q8_0.gguf; do
             [ -s "kokoro/$f" ] || curl -sSfL --retry 3 -o "kokoro/$f" "$gguf/$f"
           done
+          onnx=https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/1939ad2a8e416c0acfeecc08a694d14ef25f2231
+          [ -s kokoro/kokoro-v1_0-q8.onnx ] \
+            || curl -sSfL --retry 3 -o kokoro/kokoro-v1_0-q8.onnx "$onnx/onnx/model_quantized.onnx"
           sha256sum -c <<'SUMS'
           5abb01e2403b072bf03d04fde160443e209d7a0dad49a423be15196b9b43c17f  kokoro/config.json
           496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4  kokoro/kokoro-v1_0.pth
@@ -268,6 +271,7 @@ jobs:
           4994f474bb6f4584076a4e98189caaec11aa3f773a0d82d5bc263a03dd07e703  kokoro/g2p-en-gb.safetensors
           341d5e96c2d7f06fc71dbc8d955150a5b6e3a59840f8905cb3fbe9b12120df52  kokoro/kokoro-82m-f16.gguf
           3c8b60064b287a10abd35396a59c9981675c618db8bc91bd290db63f55eb492d  kokoro/kokoro-82m-q8_0.gguf
+          fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478  kokoro/kokoro-v1_0-q8.onnx
           SUMS
       - name: Compare
         run: |

@@ -208,11 +208,11 @@ voice and frame timing.
   the neural model. Every input must give the same phonemes and tokens. The
   G2P files download with the model; `kokoro-parity <dir> <out> g2p` runs
   this part alone.
-- **Builds.** Each smaller build (16-bit and 8-bit GGUF) speaks the same
-  phonemes as the full weights, noise seeded alike. Rounded durations can
-  shift a frame, so the gates are loudness curve, length and RMS: Half above
-  0.98 within 2% and 10%, Small above 0.95 within 5% and 15%. Waveform
-  correlation and matching durations are listed too.
+- **Builds.** Each smaller build (16-bit and 8-bit GGUF, 8-bit ONNX) speaks
+  the same phonemes as the full weights, noise seeded alike. Rounded durations
+  can shift a frame, so the gates are loudness curve, length and RMS: Half
+  above 0.98 within 2% and 10%, Small and Tiny above 0.95 within 5% and 15%.
+  Waveform correlation and matching durations are listed too.
   `kokoro-parity <dir> <out> builds` runs this with the G2P part.
 - **Where it lands.** `target/remote/kokoro/summary.md`, plus each take as
   WAV to listen to. Speed rows give real-time factors on CI's CPU.
