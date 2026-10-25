@@ -7,6 +7,7 @@ use candle_nn::VarBuilder;
 
 use crate::SAMPLE_RATE;
 use crate::config::Istft;
+use crate::fast::Then;
 use crate::layers::{AdaIn1d, Conv, Conv1d, ConvTranspose1d, leaky_relu, scale, upsample};
 use crate::noise::Noise;
 use crate::prosody::AdainResBlk1d;
@@ -430,23 +431,18 @@ impl Stft {
     }
 }
 
-/// Snake: `x + sin²(αx) / α`, a periodic-friendly activation.
-fn snake(x: &Tensor, alpha: &Tensor) -> Result<Tensor> {
-    let wave = x.broadcast_mul(alpha)?.sin()?.sqr()?;
-    x + wave.broadcast_mul(&alpha.recip()?)?
-}
-
 /// Dilated convolutions with snake activations and style-led norms.
 struct SnakeBlock {
     layers: Vec<SnakeLayer>,
 }
 
+/// Each norm is followed by snake, `x + sin²(αx) / α`, with its own `α`s.
 struct SnakeLayer {
     norm1: AdaIn1d,
-    alpha1: Tensor,
+    alpha1: Vec<f32>,
     conv1: Conv1d,
     norm2: AdaIn1d,
-    alpha2: Tensor,
+    alpha2: Vec<f32>,
     conv2: Conv1d,
 }
 
@@ -458,9 +454,11 @@ impl SnakeBlock {
         style: usize,
         vb: &VarBuilder,
     ) -> Result<Self> {
-        let alpha = |name: String| -> Result<Tensor> {
-            vb.get((1, ch, 1), &name)
-                .or_else(|_| Tensor::ones((1, ch, 1), DType::F32, &Device::Cpu))
+        let alpha = |name: String| -> Result<Vec<f32>> {
+            match vb.get((1, ch, 1), &name) {
+                Ok(a) => a.flatten_all()?.to_dtype(DType::F32)?.to_vec1(),
+                Err(_) => Ok(vec![1.0; ch]),
+            }
         };
         let layers = dilations
             .iter()
@@ -492,10 +490,8 @@ impl SnakeBlock {
                 (&l.norm1, &l.alpha1, &l.conv1),
                 (&l.norm2, &l.alpha2, &l.conv2),
             ] {
-                y = norm.forward(&y, s)?;
-                probes.lap(|| "snake block: norm".into());
-                y = snake(&y, alpha)?;
-                probes.lap(|| "snake block: snake".into());
+                y = norm.forward_then(&y, s, Then::Snake(alpha))?;
+                probes.lap(|| "snake block: norm and snake".into());
                 y = conv.forward(&y)?;
                 probes.lap(|| "snake block: conv".into());
             }

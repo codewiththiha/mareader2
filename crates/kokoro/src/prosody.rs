@@ -3,6 +3,7 @@
 use candle_core::{Module, Result, Tensor};
 use candle_nn::{Embedding, VarBuilder};
 
+use crate::fast::Then;
 use crate::layers::{
     AdaIn1d, AdaLayerNorm, BiLstm, ChannelNorm, Conv, Conv1d, ConvTranspose1d, LinearNorm,
     leaky_relu, scale, upsample,
@@ -70,12 +71,12 @@ impl AdainResBlk1d {
         if let Some(conv) = &self.shortcut {
             short = conv.forward(&short)?;
         }
-        let mut out = leaky_relu(&self.norm1.forward(x, s)?, 0.2)?;
+        let mut out = self.norm1.forward_then(x, s, Then::Leaky(0.2))?;
         if let Some(pool) = &self.pool {
             out = pool.forward(&out)?;
         }
         let out = self.conv1.forward(&out)?;
-        let out = leaky_relu(&self.norm2.forward(&out, s)?, 0.2)?;
+        let out = self.norm2.forward_then(&out, s, Then::Leaky(0.2))?;
         let out = self.conv2.forward(&out)?;
         scale(&(out + short)?, std::f32::consts::FRAC_1_SQRT_2)
     }

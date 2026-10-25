@@ -4,6 +4,7 @@ mod albert;
 mod chunks;
 mod config;
 mod decoder;
+mod fast;
 pub mod kitten;
 mod layers;
 mod noise;
