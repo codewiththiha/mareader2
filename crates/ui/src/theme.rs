@@ -125,19 +125,12 @@ const TOKENS_ID: &str = "mareader-tokens";
 
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
-    let faces: [(&str, &'static [u8]); 3] = [
-        (
-            "inter-regular",
-            include_bytes!("../../../assets/fonts/Inter-Regular.ttf"),
-        ),
-        (
-            MEDIUM,
-            include_bytes!("../../../assets/fonts/Inter-Medium.ttf"),
-        ),
-        (
-            SEMIBOLD,
-            include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"),
-        ),
+    // The reader's copy: embedding Inter again here cost 1.25 MB.
+    let [regular, medium, semibold] = mareader_reflow::inter();
+    let faces = [
+        ("inter-regular", regular),
+        (MEDIUM, medium),
+        (SEMIBOLD, semibold),
     ];
     for (name, bytes) in faces {
         fonts.font_data.insert(

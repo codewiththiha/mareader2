@@ -174,7 +174,8 @@ across ("Parchment" was "Parchme…"). Past three it is elided, whole on hover.
 
 ## Type
 
-- Inter (Regular, Medium, SemiBold), embedded from `assets/fonts`.
+- Inter (Regular, Medium, SemiBold), embedded once from `assets/fonts` by
+  `mareader-reflow`; the interface borrows its bytes (`reflow::inter`).
 - Body 14 pt, small 12 pt, title 13 pt Medium.
 - Reading fonts for EPUB arrive with M4 (ADR 0002).
 - egui's named families exist only from the second frame; `MareaderApp::ui`

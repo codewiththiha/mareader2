@@ -25,6 +25,12 @@ pub(crate) static BUNDLED: [&[u8]; 6] = [
     include_bytes!("../../../assets/fonts/JetBrainsMono-Variable.ttf"),
 ];
 
+/// Inter's regular, medium and semibold, for the interface to share.
+pub fn inter() -> [&'static [u8]; 3] {
+    let [_, _, regular, medium, semibold, _] = BUNDLED;
+    [regular, medium, semibold]
+}
+
 /// Which generic family a face stands in for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
