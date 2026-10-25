@@ -9,7 +9,7 @@ use mareader_g2p::{Dialect, G2p};
 use mareader_kokoro::{Kokoro as Model, SAMPLE_RATE, Voice, kitten};
 use mareader_vits::{Style, espeak_like};
 
-use crate::local::{Line, Out, Synth, trim_join};
+use crate::local::{Line, Out, Synth, both, trim_join};
 use crate::piper::pieces;
 use crate::studio::Studio;
 
@@ -62,20 +62,25 @@ impl Kitten {
 
     fn load_fresh(&self, voice: &str) -> Result<Loaded, String> {
         let source = &self.source;
-        let build = (self.studio).model(&source.name, || {
-            let model = Model::from_onnx(&source.weights).map_err(|e| e.to_string())?;
-            let voices = kitten::read_voices(&source.voices).map_err(|e| e.to_string())?;
-            Ok(Build {
-                model,
-                voices: voices.into_iter().collect(),
+        let build = || {
+            (self.studio).model(&source.name, || {
+                let model = Model::from_onnx(&source.weights).map_err(|e| e.to_string())?;
+                let voices = kitten::read_voices(&source.voices).map_err(|e| e.to_string())?;
+                Ok(Build {
+                    model,
+                    voices: voices.into_iter().collect(),
+                })
             })
-        })?;
+        };
+        let g2p = || {
+            (self.studio).g2p(Dialect::American, || {
+                G2p::load(&source.folder, Dialect::American).map_err(|e| e.to_string())
+            })
+        };
+        let (build, g2p) = both(build, g2p)?;
         if !build.voices.contains_key(voice) {
             return Err(format!("{} has no voice {voice}", source.name));
         }
-        let g2p = (self.studio).g2p(Dialect::American, || {
-            G2p::load(&source.folder, Dialect::American).map_err(|e| e.to_string())
-        })?;
         Ok(Loaded {
             build,
             g2p,

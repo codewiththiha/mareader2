@@ -8,7 +8,7 @@ use std::sync::Arc;
 use mareader_g2p::{Dialect, G2p};
 use mareader_vits::{Config, Scales, Style, Vits, espeak_like};
 
-use crate::local::{Line, Out, Synth, trim_join};
+use crate::local::{Line, Out, Synth, both, trim_join};
 use crate::studio::Studio;
 
 /// The speeds offered, as shares of each voice's own pace.
@@ -68,12 +68,17 @@ impl Piper {
             true => Dialect::British,
             false => Dialect::American,
         };
-        let vits = (self.studio).model(&files.name, || {
-            Vits::load(&files.weights).map_err(|e| e.to_string())
-        })?;
-        let g2p = (self.studio).g2p(dialect, || {
-            G2p::load(&self.folder, dialect).map_err(|e| e.to_string())
-        })?;
+        let vits = || {
+            (self.studio).model(&files.name, || {
+                Vits::load(&files.weights).map_err(|e| e.to_string())
+            })
+        };
+        let g2p = || {
+            (self.studio).g2p(dialect, || {
+                G2p::load(&self.folder, dialect).map_err(|e| e.to_string())
+            })
+        };
+        let (vits, g2p) = both(vits, g2p)?;
         Ok(Loaded {
             voice: voice.to_owned(),
             vits,

@@ -685,6 +685,22 @@ impl Crew {
     }
 }
 
+/// Runs `first` beside `second`, so a voice's files load at once.
+pub(crate) fn both<A: Send, B>(
+    first: impl FnOnce() -> Result<A, String> + Send,
+    second: impl FnOnce() -> Result<B, String>,
+) -> Result<(A, B), String> {
+    std::thread::scope(|s| {
+        let named = std::thread::Builder::new().name("voice load".into());
+        let Ok(beside) = named.spawn_scoped(s, first) else {
+            return Err("no thread to load the voice on".to_owned());
+        };
+        let second = second();
+        let first = (beside.join()).map_err(|_| "loading the voice stopped short".to_owned())?;
+        Ok((first?, second?))
+    })
+}
+
 /// Trims a piece's lead-in if `start`, and its tail to `end` seconds.
 pub(crate) fn trim_join(audio: &mut Vec<f32>, rate: u32, start: bool, end: Option<f64>) {
     let rate = f64::from(rate);

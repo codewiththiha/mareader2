@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use candle_core::pickle::{Object, Stack};
+use candle_core::pickle::{Object, Stack, TensorInfo};
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Shape, Tensor};
 use candle_nn::Init;
@@ -34,15 +34,54 @@ pub fn read_model(path: &Path) -> Result<HashMap<String, Tensor>, Error> {
         }
         return Ok(all);
     }
+    // Opened once: candle's reader reopens the archive for every tensor.
+    let file = File::open(path).map_err(|e| bad(path, e))?;
+    let mut zip = zip::ZipArchive::new(BufReader::new(file)).map_err(|e| bad(path, e))?;
     for part in PARTS {
-        let tensors = candle_core::pickle::read_all_with_key(path, Some(part))
+        let infos = candle_core::pickle::read_pth_tensor_info(path, false, Some(part))
             .map_err(|e| Error::Load(format!("{} ({part}): {e}", path.display())))?;
-        for (name, t) in tensors {
-            let name = format!("{part}.{name}").replace(".module.", ".");
+        for info in infos {
+            let name = format!("{part}.{}", info.name).replace(".module.", ".");
+            let t = stored(&mut zip, &info).map_err(|e| bad(path, format!("{name}: {e}")))?;
             all.insert(name, t.to_dtype(DType::F32)?);
         }
     }
     Ok(all)
+}
+
+/// One tensor's data from the open archive, laid out as its info says.
+fn stored<R: Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    info: &TensorInfo,
+) -> std::result::Result<Tensor, String> {
+    let layout = &info.layout;
+    let fortran = layout.is_fortran_contiguous();
+    if !layout.is_contiguous() && !fortran {
+        return Err(format!("a strided tensor {layout:?}"));
+    }
+    let shape = layout.shape();
+    let size = shape.elem_count() * info.dtype.size_in_bytes();
+    // Candle's pickle reader keeps the offset in bytes, not elements.
+    let skip = layout.start_offset();
+    let entry = zip.by_name(&info.path).map_err(|e| e.to_string())?;
+    let mut rest = entry.take((skip + size) as u64);
+    std::io::copy(&mut rest.by_ref().take(skip as u64), &mut std::io::sink())
+        .map_err(|e| e.to_string())?;
+    let mut data = Vec::with_capacity(size);
+    rest.read_to_end(&mut data).map_err(|e| e.to_string())?;
+    if data.len() != size {
+        return Err("the data is cut short".into());
+    }
+    let t = Tensor::from_raw_buffer(&data, info.dtype, shape.dims(), &Device::Cpu);
+    let t = t.map_err(|e| e.to_string())?;
+    if fortran && shape.rank() > 1 {
+        // Stored with the last axis slowest: read reversed, then turned.
+        let reversed: Vec<usize> = shape.dims().iter().rev().copied().collect();
+        let axes: Vec<usize> = (0..shape.rank()).rev().collect();
+        let turned = t.reshape(reversed).and_then(|t| t.permute(axes));
+        return turned.map_err(|e| e.to_string());
+    }
+    Ok(t)
 }
 
 /// A GGUF build's weights, renamed to the `.pth` layout and widened.
@@ -223,22 +262,7 @@ pub(crate) fn read_tensor(path: &Path) -> Result<Tensor, Error> {
         .finalize()?
         .into_tensor_info(Object::Unicode(String::new()), dir)?
         .ok_or_else(|| bad(path, "not a single tensor"))?;
-    if !info.layout.is_contiguous() {
-        return Err(bad(path, "a non-contiguous tensor"));
-    }
-    let shape = info.layout.shape().clone();
-    let size = shape.elem_count() * info.dtype.size_in_bytes();
-    let skip = info.layout.start_offset() * info.dtype.size_in_bytes();
-    let entry = zip.by_name(&info.path).map_err(|e| bad(path, e))?;
-    let mut data = Vec::with_capacity(size);
-    let mut rest = entry.take((skip + size) as u64);
-    std::io::copy(&mut rest.by_ref().take(skip as u64), &mut std::io::sink())
-        .map_err(|e| bad(path, e))?;
-    rest.read_to_end(&mut data).map_err(|e| bad(path, e))?;
-    if data.len() != size {
-        return Err(bad(path, "the tensor's data is cut short"));
-    }
-    let t = Tensor::from_raw_buffer(&data, info.dtype, shape.dims(), &Device::Cpu)?;
+    let t = stored(&mut zip, &info).map_err(|e| bad(path, e))?;
     Ok(t.to_dtype(DType::F32)?)
 }
 

@@ -8,7 +8,7 @@ use mareader_hanzi::Hanzi;
 use mareader_ipa::Language;
 use mareader_kokoro::{Kokoro as Model, SAMPLE_RATE, Voice as Pack};
 
-use crate::local::{Line, Out, Synth, trim_join};
+use crate::local::{Line, Out, Synth, both, trim_join};
 use crate::studio::Studio;
 
 pub(crate) use mareader_kokoro::SPEEDS;
@@ -64,12 +64,29 @@ impl Kokoro {
             weights,
             name,
         } = &self.source;
-        let model = (self.studio).model(name, || {
-            let config = folder.join("config.json");
-            Model::from_files(&config, weights).map_err(|e| e.to_string())
-        })?;
+        let model = || {
+            (self.studio).model(name, || {
+                let config = folder.join("config.json");
+                Model::from_files(&config, weights).map_err(|e| e.to_string())
+            })
+        };
+        let rest = || {
+            let pack = Pack::load(&pack_path(folder, voice)).map_err(|e| e.to_string())?;
+            Ok((self.reader(voice)?, pack))
+        };
+        let (model, (reader, pack)) = both(model, rest)?;
+        Ok(Loaded {
+            model,
+            reader,
+            voice: (voice.to_owned(), pack),
+        })
+    }
+
+    /// What reads `voice`'s language, loaded once for every voice.
+    fn reader(&self, voice: &str) -> Result<Reader, String> {
+        let folder = &self.source.folder;
         let chinese = voice.starts_with('z');
-        let reader = match Language::for_kokoro_voice(voice) {
+        Ok(match Language::for_kokoro_voice(voice) {
             Some(language) => Reader::Rules(language),
             None if chinese => Reader::Chinese(
                 (self.studio)
@@ -81,12 +98,6 @@ impl Kokoro {
                     G2p::load(folder, dialect).map_err(|e| e.to_string())
                 })?)
             }
-        };
-        let pack = Pack::load(&pack_path(folder, voice)).map_err(|e| e.to_string())?;
-        Ok(Loaded {
-            model,
-            reader,
-            voice: (voice.to_owned(), pack),
         })
     }
 }
