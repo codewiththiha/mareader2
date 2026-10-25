@@ -115,6 +115,8 @@ opt-level = 1
 [profile.release]
 lto = "thin"
 codegen-units = 1
+# Symbols only name frames in backtraces, which users never see; ~3 MB.
+strip = true
 
 # Browser previews of work in progress: fast to rebuild, still optimised.
 [profile.web]
@@ -122,3 +124,5 @@ inherits = "release"
 lto = false
 codegen-units = 16
 opt-level = 2
+# wasm-bindgen reads the names stripping removes.
+strip = "none"
