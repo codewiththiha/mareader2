@@ -34,4 +34,11 @@ Both under these terms:
   DEALINGS IN THE SOFTWARE.
 
 The voices are not part of this crate; the app downloads them on request,
-each with its own licence, shown before download.
+each with its own licence. The Alba voice is trained on the Alba speech
+corpus, used under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/):
+
+  Valentini-Botinhao, Cassia; Yamagishi, Junichi. (2019). Alba speech
+  corpus, [dataset]. University of Edinburgh.
+  https://doi.org/10.7488/ds/2506
+
+Piper's voice is a model trained on those recordings, not the recordings.

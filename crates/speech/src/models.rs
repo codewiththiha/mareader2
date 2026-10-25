@@ -896,7 +896,7 @@ pub const PIPER: Model = Model {
     id: "piper",
     name: "Piper",
     about: "Quick, clear English voices; each is a small model of its own",
-    license: "MIT; voices public domain, CC0 or Apache 2.0",
+    license: "MIT; voices public domain, CC0, Apache 2.0 or CC BY 4.0",
     hosts: PIPER_HOSTS,
     files: &G2P,
     builds: &[],
@@ -949,7 +949,7 @@ const fn listed((path, bytes, sha256): Listed) -> ModelFile {
     }
 }
 
-/// Voices whose recordings are public domain, CC0 or Apache 2.0.
+/// Voices whose recordings are public domain, CC0, Apache 2.0 or CC BY 4.0.
 const PIPER_VOICES: &[ModelVoice] = &[
     piper(
         ("en_US-ljspeech-medium", "LJ", "en-US"),
@@ -1137,6 +1137,21 @@ const PIPER_VOICES: &[ModelVoice] = &[
             "en/en_GB/cori/high/en_GB-cori-high.onnx.json",
             4_963,
             "9e7fb5b5671612c22f3c81cbe46c1ae87b031a4632bcb509e499dad6f1e2adec",
+        ),
+    ),
+    // The Alba speech corpus, CC BY 4.0; credited in mareader-vits' NOTICE.
+    piper(
+        ("en_GB-alba-medium", "Alba", "en-GB"),
+        (Gender::Female, ""),
+        (
+            "en/en_GB/alba/medium/en_GB-alba-medium.onnx",
+            63_201_294,
+            "401369c4a81d09fdd86c32c5c864440811dbdcc66466cde2d64f7133a66ad03b",
+        ),
+        (
+            "en/en_GB/alba/medium/en_GB-alba-medium.onnx.json",
+            4_888,
+            "aa965a2f02ecced632c2694e1fc72bbff6d65f265fab567ca945918c73dd89f4",
         ),
     ),
 ];
