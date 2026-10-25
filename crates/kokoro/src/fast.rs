@@ -45,7 +45,7 @@ pub(crate) fn by_rows(out: &mut [f32], len: usize, fill: impl Fn(usize, &mut [f3
     let parts: Vec<Mutex<Option<&mut [f32]>>> = (out.chunks_mut(per * len))
         .map(|part| Mutex::new(Some(part)))
         .collect();
-    // Each worker takes the parts no one has; this thread helps too.
+    // Each worker takes the parts no one has yet.
     let work = || {
         for (at, part) in parts.iter().enumerate() {
             let taken = part.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -58,14 +58,8 @@ pub(crate) fn by_rows(out: &mut [f32], len: usize, fill: impl Fn(usize, &mut [f3
             }
         }
     };
-    std::thread::scope(|s| {
-        for _ in 1..cores {
-            let named = std::thread::Builder::new().name("kokoro maths".into());
-            // A thread that can't start leaves its share to the others.
-            named.spawn_scoped(s, work).ok();
-        }
-        work();
-    });
+    // On candle's pool: its threads stay warm between calls.
+    candle_core::cpu::kernels::par_for_each(cores, |_| work());
 }
 
 /// What follows a norm, value by value.

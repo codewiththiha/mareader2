@@ -548,7 +548,7 @@ pub(crate) fn each_row(data: &mut [f32], width: usize, fill: impl Fn(usize, &mut
     let parts: Vec<Mutex<Option<&mut [f32]>>> = (data.chunks_mut(per * width))
         .map(|part| Mutex::new(Some(part)))
         .collect();
-    // Each worker takes the parts no one has; this thread helps too.
+    // Each worker takes the parts no one has yet.
     let work = || {
         for (at, part) in parts.iter().enumerate() {
             let taken = part.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -561,14 +561,8 @@ pub(crate) fn each_row(data: &mut [f32], width: usize, fill: impl Fn(usize, &mut
             }
         }
     };
-    std::thread::scope(|s| {
-        for _ in 1..cores {
-            let named = std::thread::Builder::new().name("piper maths".into());
-            // A thread that can't start leaves its share to the others.
-            named.spawn_scoped(s, work).ok();
-        }
-        work();
-    });
+    // On candle's pool: its threads stay warm between calls.
+    candle_core::cpu::kernels::par_for_each(cores, |_| work());
 }
 
 #[cfg(test)]
