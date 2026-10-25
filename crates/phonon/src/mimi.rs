@@ -1,9 +1,9 @@
-//! Mimi's decoder, a whole run at once; equal to streaming it.
+//! Mimi's decoder, fed latents a block at a time; any split sounds alike.
 
-use candle_core::{Device, Tensor};
+use candle_core::{DType, Device, Tensor};
 
 use crate::config::Config;
-use crate::layers::{Shape, Stack};
+use crate::layers::{Cache, Shape, Stack};
 use crate::weights::Weights;
 use crate::{Error, Result};
 
@@ -33,15 +33,28 @@ impl Conv {
         })
     }
 
-    /// `x` is `[1, channels, time]`.
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let x = x.pad_with_zeros(2, self.pad, 0)?;
+    /// The inputs owed in front of a stream's first block: zeros.
+    fn start(&self) -> Result<Tensor> {
+        let (_, inp, _) = self.w.dims3()?;
+        Ok(Tensor::zeros((1, inp, self.pad), DType::F32, &Device::Cpu)?)
+    }
+
+    /// `x` is `[1, channels, time]`, after the inputs `held` keeps.
+    fn forward(&self, x: &Tensor, held: &mut Tensor) -> Result<Tensor> {
+        let x = match self.pad {
+            0 => x.clone(),
+            pad => {
+                let x = Tensor::cat(&[&*held, x], 2)?;
+                *held = x.narrow(2, x.dim(2)? - pad, pad)?;
+                x
+            }
+        };
         let y = x.conv1d(&self.w, 0, 1, self.dilation, 1)?;
         Ok(y.broadcast_add(&self.b.reshape((1, (), 1))?)?)
     }
 }
 
-/// A transposed convolution with its tail cut, as the stream drops it.
+/// A transposed convolution; each block's tail overlaps the next block.
 struct ConvTr {
     w: Tensor,
     b: Tensor,
@@ -57,10 +70,27 @@ impl ConvTr {
         })
     }
 
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    /// Nothing overlapping yet.
+    fn start(&self) -> Result<Tensor> {
+        let (_, out, _) = self.w.dims3()?;
+        Ok(Tensor::zeros(
+            (1, out, self.stride),
+            DType::F32,
+            &Device::Cpu,
+        )?)
+    }
+
+    /// `x` is `[1, channels, time]`; `tail` is the last block's overlap.
+    fn forward(&self, x: &Tensor, tail: &mut Tensor) -> Result<Tensor> {
         let (_, _, t) = x.dims3()?;
-        let y = x.conv_transpose1d(&self.w, 0, 0, self.stride, 1, 1)?;
-        let y = y.narrow(2, 0, t * self.stride)?;
+        let s = self.stride;
+        let full = x.conv_transpose1d(&self.w, 0, 0, s, 1, 1)?;
+        let head = (full.narrow(2, 0, s)? + &*tail)?;
+        let y = match t {
+            1 => head,
+            _ => Tensor::cat(&[&head, &full.narrow(2, s, (t - 1) * s)?], 2)?,
+        };
+        *tail = full.narrow(2, t * s, s)?;
         Ok(y.broadcast_add(&self.b.reshape((1, (), 1))?)?)
     }
 }
@@ -72,9 +102,10 @@ struct Residual {
 }
 
 impl Residual {
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let y = self.a.forward(&x.elu(1.0)?)?;
-        let y = self.b.forward(&y.elu(1.0)?)?;
+    fn forward(&self, x: &Tensor, held: &mut [Tensor; 2]) -> Result<Tensor> {
+        let [ha, hb] = held;
+        let y = self.a.forward(&x.elu(1.0)?, ha)?;
+        let y = self.b.forward(&y.elu(1.0)?, hb)?;
         Ok((x + y)?)
     }
 }
@@ -175,49 +206,81 @@ impl Mimi {
         })
     }
 
-    /// Audio for `latents`, `[frames, ldim]` in the codec's own scale.
-    pub(crate) fn decode(&self, latents: &Tensor) -> Result<Vec<f32>> {
-        let (frames, _) = latents.dims2()?;
-        if frames == 0 {
-            return Ok(Vec::new());
-        }
-        let rows: Vec<f32> = latents
-            .matmul(&self.project.t()?)?
-            .flatten_all()?
-            .to_vec1()?;
-        let up = self.upsample(&rows, frames)?;
-        let n = frames * self.stride;
-        let x = Tensor::from_vec(up, (n, self.dim), &Device::Cpu)?;
-        let x = self.stack.forward(&x, &mut self.stack.cache())?;
-        let mut z = self.first.forward(&x.t()?.unsqueeze(0)?.contiguous()?)?;
+    /// A stream at its start, for one run.
+    pub(crate) fn stream(&self) -> Result<Stream<'_>> {
+        let mut stages = Vec::with_capacity(self.stages.len());
         for stage in &self.stages {
-            z = stage.up.forward(&z.elu(1.0)?)?;
+            let mut blocks = Vec::with_capacity(stage.blocks.len());
             for b in &stage.blocks {
-                z = b.forward(&z)?;
+                blocks.push([b.a.start()?, b.b.start()?]);
             }
+            stages.push((stage.up.start()?, blocks));
         }
-        let z = self.last.forward(&z.elu(1.0)?)?;
-        Ok(z.flatten_all()?.to_vec1()?)
+        Ok(Stream {
+            mimi: self,
+            tail: vec![0.0; self.stride * self.dim],
+            cache: self.stack.cache(),
+            first: self.first.start()?,
+            stages,
+            last: self.last.start()?,
+        })
     }
 
-    /// Each channel spread over `stride` steps a frame, tails overlapping.
-    fn upsample(&self, rows: &[f32], frames: usize) -> Result<Vec<f32>> {
+    /// Each channel spread over `stride` steps a frame; `tail` overlaps blocks.
+    fn upsample(&self, rows: &[f32], frames: usize, tail: &mut Vec<f32>) -> Result<Vec<f32>> {
         let (d, s) = (self.dim, self.stride);
         let n = frames * s;
-        let mut out = vec![0.0f32; n * d];
+        let mut out = vec![0.0f32; (n + s) * d];
+        for (o, t) in out.iter_mut().zip(tail.iter()) {
+            *o = *t;
+        }
         for (t, row) in rows.chunks_exact(d).enumerate() {
             for (c, (&x, taps)) in row.iter().zip(self.taps.chunks_exact(2 * s)).enumerate() {
                 for (k, &tap) in taps.iter().enumerate() {
                     let at = t * s + k;
-                    if at < n {
-                        let cell = out
-                            .get_mut(at * d + c)
-                            .ok_or(Error::Compute("upsample".into()))?;
-                        *cell += x * tap;
-                    }
+                    let cell =
+                        (out.get_mut(at * d + c)).ok_or(Error::Compute("upsample".into()))?;
+                    *cell += x * tap;
                 }
             }
         }
+        *tail = out.split_off(n * d);
         Ok(out)
+    }
+}
+
+/// A run being decoded: what each layer carries from block to block.
+pub(crate) struct Stream<'a> {
+    mimi: &'a Mimi,
+    tail: Vec<f32>,
+    cache: Cache,
+    first: Tensor,
+    stages: Vec<(Tensor, Vec<[Tensor; 2]>)>,
+    last: Tensor,
+}
+
+impl Stream<'_> {
+    /// Audio for the next `latents`, `[frames, ldim]` in the codec's scale.
+    pub(crate) fn push(&mut self, latents: &Tensor) -> Result<Vec<f32>> {
+        let m = self.mimi;
+        let (frames, _) = latents.dims2()?;
+        if frames == 0 {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<f32> = latents.matmul(&m.project.t()?)?.flatten_all()?.to_vec1()?;
+        let up = m.upsample(&rows, frames, &mut self.tail)?;
+        let x = Tensor::from_vec(up, (frames * m.stride, m.dim), &Device::Cpu)?;
+        let x = m.stack.forward(&x, &mut self.cache)?;
+        let mut z = m
+            .first
+            .forward(&x.t()?.unsqueeze(0)?.contiguous()?, &mut self.first)?;
+        for (stage, (tail, held)) in m.stages.iter().zip(&mut self.stages) {
+            z = stage.up.forward(&z.elu(1.0)?, tail)?;
+            for (b, h) in stage.blocks.iter().zip(held.iter_mut()) {
+                z = b.forward(&z, h)?;
+            }
+        }
+        let z = m.last.forward(&z.elu(1.0)?, &mut self.last)?;
+        Ok(z.flatten_all()?.to_vec1()?)
     }
 }

@@ -164,17 +164,34 @@ impl Phonon {
 
     /// The latents of one run in `voice`, noise drawn from `noise`.
     pub fn run(&self, voice: &Voice, chunk: &Chunk, noise: &mut Noise) -> Result<Run> {
+        let mut latents = Vec::new();
+        let ended = self.generate(voice, chunk, noise, |latent| {
+            latents.push(latent.to_vec());
+            Ok(true)
+        })?;
+        Ok(Run { latents, ended })
+    }
+
+    /// Hands `each` every latent of a run until it says stop; the end frame.
+    fn generate(
+        &self,
+        voice: &Voice,
+        chunk: &Chunk,
+        noise: &mut Noise,
+        mut each: impl FnMut(&[f32]) -> Result<bool>,
+    ) -> Result<Option<usize>> {
         let mut cache = voice.primed.clone();
         self.lm.prompt(&self.lm.text(&chunk.tokens)?, &mut cache)?;
         let mut latent = self.lm.bos.clone();
-        let mut latents = Vec::new();
         let mut ended = None;
         let mut left: Option<usize> = None;
         let mut fresh = vec![0.0; self.lm.ldim];
         for frame in 0..chunk.frame_budget {
             noise.fill(&mut fresh);
             let (next, eos) = self.lm.step(&latent, &fresh, &mut cache)?;
-            latents.push(next.clone());
+            if !each(&next)? {
+                break;
+            }
             if eos > self.config.eos_threshold && left.is_none() {
                 left = Some(chunk.frames_after_eos);
                 ended = Some(frame);
@@ -186,11 +203,64 @@ impl Phonon {
             }
             latent = next;
         }
-        Ok(Run { latents, ended })
+        Ok(ended)
     }
 
-    /// Audio for latents in the flow head's scale.
+    /// A decoder at the start of a run.
+    pub fn decoder(&self) -> Result<Decoder<'_>> {
+        Ok(Decoder {
+            stream: self.mimi.stream()?,
+            lm: &self.lm,
+        })
+    }
+
+    /// Audio for a whole run's latents.
     pub fn decode(&self, latents: &[Vec<f32>]) -> Result<Vec<f32>> {
+        self.decoder()?.push(latents)
+    }
+
+    /// One run in `voice`, in growing blocks; `out` returns false to stop.
+    pub fn say(
+        &self,
+        voice: &Voice,
+        chunk: &Chunk,
+        noise: &mut Noise,
+        mut out: impl FnMut(Vec<f32>) -> bool,
+    ) -> Result<()> {
+        let mut decoder = self.decoder()?;
+        let mut pending: Vec<Vec<f32>> = Vec::new();
+        let mut block = FIRST_BLOCK;
+        let mut going = true;
+        self.generate(voice, chunk, noise, |latent| {
+            pending.push(latent.to_vec());
+            if pending.len() >= block {
+                going = out(decoder.push(&pending)?);
+                pending.clear();
+                block = (block * 2).min(LAST_BLOCK);
+            }
+            Ok(going)
+        })?;
+        if going && !pending.is_empty() {
+            out(decoder.push(&pending)?);
+        }
+        Ok(())
+    }
+}
+
+/// Frames in the first block [`Phonon::say`] decodes: 240 ms of speech.
+const FIRST_BLOCK: usize = 3;
+/// The most frames a block grows to: two seconds.
+const LAST_BLOCK: usize = 25;
+
+/// Mimi's decoder partway through a run; any split of it sounds alike.
+pub struct Decoder<'a> {
+    stream: mimi::Stream<'a>,
+    lm: &'a FlowLm,
+}
+
+impl Decoder<'_> {
+    /// Audio for the next latents, in the flow head's scale.
+    pub fn push(&mut self, latents: &[Vec<f32>]) -> Result<Vec<f32>> {
         let ldim = self.lm.ldim;
         let mut flat = Vec::with_capacity(latents.len() * ldim);
         for row in latents {
@@ -198,12 +268,7 @@ impl Phonon {
             flat.extend(scaled.map(|((x, s), m)| x * s + m));
         }
         let t = Tensor::from_vec(flat, (latents.len(), ldim), &Device::Cpu)?;
-        self.mimi.decode(&t)
-    }
-
-    /// One run spoken in `voice`.
-    pub fn say(&self, voice: &Voice, chunk: &Chunk, noise: &mut Noise) -> Result<Vec<f32>> {
-        self.decode(&self.run(voice, chunk, noise)?.latents)
+        self.stream.push(&t)
     }
 }
 

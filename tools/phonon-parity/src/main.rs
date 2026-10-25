@@ -66,6 +66,8 @@ const Q8_ENVELOPE: f64 = 0.95;
 const LENGTH_DRIFT: f64 = 0.05;
 /// Largest latent difference from the numpy model.
 const LATENT_DIFF: f32 = 1e-3;
+/// Largest gap between streamed and whole-run audio.
+const STREAM_DIFF: f32 = 1e-4;
 /// Cases whose first run's latents are compared with numpy's.
 const STAGE_CASES: [usize; 2] = [1, 3];
 
@@ -276,6 +278,11 @@ struct Tally {
     ref_samples: usize,
     lm_seconds: f64,
     decode_seconds: f64,
+    stream_seconds: f64,
+    /// Seconds from asking to the first block, per case.
+    first_audio: Vec<f64>,
+    /// Largest gap between streamed and whole-run audio.
+    stream_diff: f32,
 }
 
 fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
@@ -288,6 +295,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
     let mut all_ok = true;
     let (mut rows, mut speed, mut per_case, mut stage_rows) =
         (String::new(), String::new(), String::new(), String::new());
+    let mut stream_rows = String::new();
     let mut token_md = String::new();
     for (build, file, quant) in BUILDS {
         let start = Instant::now();
@@ -342,6 +350,25 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
                     );
                 }
             }
+            // The app's way: blocks decoded as the model writes them.
+            let mut streamed = Vec::new();
+            let start = Instant::now();
+            for planned in phonon.chunks(&case.text) {
+                let mut noise = Noise::new(0.0, 0);
+                phonon.say(voice, &planned, &mut noise, |block| {
+                    if streamed.is_empty() {
+                        t.first_audio.push(start.elapsed().as_secs_f64());
+                    }
+                    streamed.extend(block);
+                    true
+                })?;
+            }
+            t.stream_seconds += start.elapsed().as_secs_f64();
+            let same = streamed.len() == audio.len();
+            t.stream_diff = t.stream_diff.max(match same {
+                true => max_diff(&streamed, &audio),
+                false => f32::INFINITY,
+            });
             t.cases += 1;
             let corr = correlation(&audio, &ref_audio);
             let env = correlation(&envelope(&audio), &envelope(&ref_audio));
@@ -392,7 +419,18 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
                 "f32" => t.same_length == t.cases && worst >= SAME_WAVE,
                 _ => envelope >= Q8_ENVELOPE && (length_ratio - 1.0).abs() <= LENGTH_DRIFT,
             };
-        all_ok &= ok;
+        let audio_s = t.samples as f64 / f64::from(SAMPLE_RATE);
+        let streams = t.stream_diff <= STREAM_DIFF;
+        all_ok &= ok && streams;
+        let _ = writeln!(
+            stream_rows,
+            "| {build} | {:.1e} | {:.3} | {:.3} | {:.3} | {} |",
+            t.stream_diff,
+            middle(&t.first_audio),
+            t.first_audio.iter().copied().fold(0.0, f64::max),
+            t.stream_seconds / audio_s.max(1e-9),
+            if streams { "yes" } else { "**no**" },
+        );
         let _ = writeln!(
             rows,
             "| {build} vs ptts {quant} | {}/{} | {worst:.6} | {median:.6} | {drift} | {:.1e} | {envelope:.4} | {:.4} | {length_ratio:.3} | {} |",
@@ -402,7 +440,6 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
             t.worst_envelope,
             if ok { "yes" } else { "**no**" }
         );
-        let audio_s = t.samples as f64 / f64::from(SAMPLE_RATE);
         let (ref_s, ref_audio) = (reference.timing.get(quant))
             .map(|r| (r.seconds, r.samples as f64 / f64::from(SAMPLE_RATE)))
             .unwrap_or((0.0, 0.0));
@@ -429,6 +466,11 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
          | Case | Frames ours / numpy | Corr | Max diff | Ended at | Pass |\n\
          |---|---|---|---|---|---|\n{stage_rows}\n\
          Gate: same frames, max diff <= {LATENT_DIFF:.0e}.\n\n\
+         ## Streamed as the app plays it\n\n\
+         Blocks of 3 frames, doubling to 25, against one whole-run decode.\n\n\
+         | Build | Max diff | First audio, median s | Worst s | Seconds per second | Pass |\n\
+         |---|---|---|---|---|---|\n{stream_rows}\n\
+         Gate: max diff <= {STREAM_DIFF:.0e}, lengths equal.\n\n\
          ## Tokenizer against `tokenizers`\n\n{token_md}\n\
          ## Speed (seconds of compute per second of speech)\n\n\
          | Build | Load | ptts load | Model | Mimi | Ours | ptts |\n|---|---|---|---|---|---|---|\n{speed}\n\
