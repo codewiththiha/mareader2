@@ -1,7 +1,7 @@
 //! An ONNX export of the network, read as Kokoro's named `f32` weights.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use candle_core::{Device, Tensor};
 
@@ -14,8 +14,12 @@ const INT8: u64 = 3;
 const FLOAT16: u64 = 10;
 const EXTERNAL: u64 = 1;
 
-/// The exporter's prefix on every weight it kept by name.
-const PREFIX: &str = "kmodel.";
+/// Exporters' prefixes on the weights they kept by name, and Kokoro's.
+const ROOTS: [(&str, &str); 3] = [
+    ("kmodel.", ""),
+    ("encoder.", ""),
+    ("decoder.decoder.", "decoder."),
+];
 /// Quantised weights end so; their scale and zero point sit beside.
 const QUANTISED: &str = "_quantized";
 /// Width of one attention head, as the phoneme encoder was trained.
@@ -24,12 +28,22 @@ const HEAD: usize = 64;
 const DILATIONS: [usize; 3] = [1, 3, 5];
 
 /// Export paths that lost their parent, and the parent's path.
-const MOVED: [(&str, &str); 4] = [
+const MOVED: [(&str, &str); 8] = [
     ("text_encoder.lstms", "predictor.text_encoder.lstms"),
     ("lstm", "predictor.lstm"),
     ("shared", "predictor.shared"),
     ("duration_proj", "predictor.duration_proj"),
+    ("F0", "predictor.F0"),
+    ("N", "predictor.N"),
+    ("F0_proj", "predictor.F0_proj"),
+    ("N_proj", "predictor.N_proj"),
 ];
+
+/// A stored name as Kokoro's, if the exporter kept it by name.
+fn own(name: &str) -> Option<String> {
+    let mut roots = ROOTS.iter();
+    roots.find_map(|(from, to)| name.strip_prefix(from).map(|rest| format!("{to}{rest}")))
+}
 
 enum Value<'a> {
     Int(u64),
@@ -223,16 +237,83 @@ fn values(name: &str, s: &Stored<'_>) -> Result<Option<Vec<f32>>> {
     Ok(Some(out))
 }
 
-/// `(q − zero) × scale`, for the whole tensor or per first-axis slice.
-fn dequantise(name: &str, q: &[f32], scale: &[f32], zero: &[f32]) -> Result<Vec<f32>> {
+/// `(q − zero) × scale`: whole, per first-axis slice, or per column.
+fn dequantise(
+    name: &str,
+    q: &[f32],
+    scale: &[f32],
+    zero: &[f32],
+    columns: bool,
+) -> Result<Vec<f32>> {
     let groups = scale.len();
-    if groups == 0 || zero.len() != groups || !q.len().is_multiple_of(groups) {
+    let zeros = zero.len();
+    if groups == 0 || (zeros != groups && zeros != 1) || !q.len().is_multiple_of(groups) {
         return Err(bad(&format!("{name} has a scale that doesn't fit")));
     }
-    let per = (q.len() / groups).max(1);
-    let slices = q.chunks(per).zip(scale.iter().zip(zero));
-    let wide = slices.flat_map(|(slice, (&s, &z))| slice.iter().map(move |&v| (v - z) * s));
+    let per = if columns {
+        1
+    } else {
+        (q.len() / groups).max(1)
+    };
+    let at = |i: usize| -> (f32, f32) {
+        let g = (i / per) % groups;
+        let s = scale.get(g).copied().unwrap_or_default();
+        let z = zero
+            .get(if zeros == 1 { 0 } else { g })
+            .copied()
+            .unwrap_or_default();
+        (s, z)
+    };
+    let wide = q.iter().enumerate().map(|(i, &v)| {
+        let (s, z) = at(i);
+        (v - z) * s
+    });
     Ok(wide.collect())
+}
+
+/// What a quantised weight's readers say about it.
+#[derive(Default)]
+struct Readers {
+    /// The zero point a reader names, when not stored beside the weight.
+    zero: HashMap<String, String>,
+    /// Weights multiplied as `[in, out]`, scaled per column.
+    columns: HashSet<String>,
+}
+
+fn readers(nodes: &[Node]) -> Readers {
+    let mut r = Readers::default();
+    let made: HashMap<&str, &Node> = nodes
+        .iter()
+        .flat_map(|n| n.outputs.iter().map(move |o| (o.as_str(), n)))
+        .collect();
+    let mut pair = |w: Option<&String>, z: Option<&String>| {
+        if let (Some(w), Some(z)) = (w, z) {
+            r.zero.insert(w.clone(), z.clone());
+        }
+    };
+    for n in nodes {
+        let at = |i: usize| n.inputs.get(i);
+        match n.op.as_str() {
+            "MatMulInteger" | "ConvInteger" => pair(at(1), at(3)),
+            "DynamicQuantizeLSTM" => {
+                pair(at(1), at(9));
+                pair(at(2), at(11));
+            }
+            // A quantised table is looked up, then widened.
+            "DequantizeLinear" => {
+                let table = at(0).and_then(|o| made.get(o.as_str()));
+                let table = table.filter(|t| t.op == "Gather");
+                pair(table.and_then(|t| t.inputs.first()), at(2));
+            }
+            _ => {}
+        }
+        if n.op == "MatMulInteger"
+            && let Some(w) = at(1)
+        {
+            r.columns.insert(w.clone());
+        }
+    }
+    r
 }
 
 struct Node {
@@ -280,6 +361,10 @@ fn module_of(node: &str) -> Option<String> {
         parts.push(part);
     }
     let path = parts.join(".");
+    let path = match own(&format!("{path}.")) {
+        Some(rooted) => rooted.trim_end_matches('.').to_owned(),
+        None => path,
+    };
     for (from, to) in MOVED {
         if let Some(rest) = path.strip_prefix(from)
             && (rest.is_empty() || rest.starts_with('.'))
@@ -357,6 +442,11 @@ pub(crate) fn read(bytes: &[u8]) -> Result<(Config, HashMap<String, Tensor>)> {
     Ok((sizes(&named, layers)?, named))
 }
 
+/// Every weight by Kokoro's name, sized by a config of its own.
+pub(crate) fn weights(bytes: &[u8]) -> Result<HashMap<String, Tensor>> {
+    Ok(names(bytes)?.0)
+}
+
 /// Every weight by Kokoro's name, and how many times ALBERT runs.
 fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
     let mut graph = None;
@@ -378,7 +468,7 @@ fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
             _ => {}
         }
     }
-    let mut weights = widen(&stores)?;
+    let mut weights = widen(&stores, &readers(&nodes))?;
     drop(stores);
     // A cast or quantised copy stands for the weight it came from.
     let mut alias: HashMap<String, String> = HashMap::new();
@@ -414,9 +504,9 @@ fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
         for (slot, input) in node.inputs.iter().enumerate() {
             let from = alias.get(input).map_or(input.as_str(), String::as_str);
             let matmul = product && slot == 1;
-            let own = from.strip_prefix(PREFIX);
+            let own = own(from);
             if let (Some(own), Some(module), "InstanceNormalization", 1 | 2) =
-                (own, module.as_deref(), op, slot)
+                (own.as_deref(), module.as_deref(), op, slot)
             {
                 let part = if slot == 1 { "weight" } else { "bias" };
                 shared.push((format!("{module}.{part}"), own.to_owned()));
@@ -428,7 +518,7 @@ fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
             if let Some(own) = own
                 && let Some(w) = weights.remove(from)
             {
-                named.insert(own.to_owned(), tensor(w)?.t()?.contiguous()?);
+                named.insert(own, tensor(w)?.t()?.contiguous()?);
                 continue;
             }
             let Some(module) = module.as_deref() else {
@@ -470,10 +560,10 @@ fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
     }
     // The rest of the named weights, as stored.
     for (name, w) in weights {
-        if let Some(own) = name.strip_prefix(PREFIX)
-            && !named.contains_key(own)
+        if let Some(own) = own(&name)
+            && !named.contains_key(&own)
         {
-            named.insert(own.to_owned(), tensor(w)?);
+            named.insert(own, tensor(w)?);
         }
     }
     for (name, own) in shared {
@@ -487,7 +577,7 @@ fn names(bytes: &[u8]) -> Result<(HashMap<String, Tensor>, usize)> {
 }
 
 /// Every float or quantised weight, widened to `f32` by its stored name.
-fn widen(stores: &HashMap<String, Stored<'_>>) -> Result<HashMap<String, Weight>> {
+fn widen(stores: &HashMap<String, Stored<'_>>, by: &Readers) -> Result<HashMap<String, Weight>> {
     let mut out = HashMap::new();
     for (name, s) in stores {
         let Some(base) = name.strip_suffix(QUANTISED) else {
@@ -506,13 +596,21 @@ fn widen(stores: &HashMap<String, Stored<'_>>) -> Result<HashMap<String, Weight>
             }
             continue;
         };
-        let part = |suffix: &str| -> Result<Vec<f32>> {
-            let key = format!("{base}{suffix}");
+        let part = |key: String| -> Result<Vec<f32>> {
             let s = stores.get(&key).ok_or_else(|| bad(&format!("no {key}")))?;
             values(&key, s)?.ok_or_else(|| bad(&format!("{key} isn't numbers")))
         };
+        // Zero points alike may be stored once, named by the readers.
+        let mut zero = format!("{base}_zero_point");
+        if !stores.contains_key(&zero)
+            && let Some(theirs) = by.zero.get(name)
+        {
+            zero.clone_from(theirs);
+        }
         let q = values(name, s)?.ok_or_else(|| bad(&format!("{name} isn't numbers")))?;
-        let values = dequantise(name, &q, &part("_scale")?, &part("_zero_point")?)?;
+        let scale = part(format!("{base}_scale"))?;
+        let columns = by.columns.contains(name);
+        let values = dequantise(name, &q, &scale, &part(zero)?, columns)?;
         let dims = s.dims.clone();
         out.insert(base.to_owned(), Weight { dims, values });
     }
@@ -601,12 +699,17 @@ mod tests {
     #[test]
     fn quantised_values_come_back_per_tensor_or_per_slice() {
         let q = [0.0, 128.0, 255.0, 10.0];
-        let one = dequantise("w", &q, &[0.5], &[128.0]).unwrap();
+        let one = dequantise("w", &q, &[0.5], &[128.0], false).unwrap();
         assert_eq!(one, [-64.0, 0.0, 63.5, -59.0]);
-        let two = dequantise("w", &q, &[1.0, 2.0], &[0.0, 10.0]).unwrap();
+        let two = dequantise("w", &q, &[1.0, 2.0], &[0.0, 10.0], false).unwrap();
         assert_eq!(two, [0.0, 128.0, 490.0, 0.0]);
-        assert!(dequantise("w", &q, &[1.0; 3], &[0.0; 3]).is_err());
-        assert!(dequantise("w", &q, &[1.0], &[]).is_err());
+        // `[in, out]` products scale each column, here two of them.
+        let cols = dequantise("w", &q, &[1.0, 2.0], &[0.0, 10.0], true).unwrap();
+        assert_eq!(cols, [0.0, 236.0, 255.0, 0.0]);
+        let shared = dequantise("w", &q, &[1.0, 2.0], &[10.0], false).unwrap();
+        assert_eq!(shared, [-10.0, 118.0, 490.0, 0.0]);
+        assert!(dequantise("w", &q, &[1.0; 3], &[0.0; 3], false).is_err());
+        assert!(dequantise("w", &q, &[1.0], &[], false).is_err());
     }
 
     #[test]
@@ -636,11 +739,27 @@ mod tests {
                 "decoder.generator.m_source.l_linear",
             ),
             ("/bert_encoder/MatMul", "bert_encoder"),
+            // Kokoro's own export nests the network in two halves.
+            (
+                "/encoder/text_encoder/cnn.0/cnn.0.0/Conv_quant",
+                "text_encoder.cnn.0.0",
+            ),
+            ("/encoder/F0.1/pool/ConvTranspose", "predictor.F0.1.pool"),
+            ("/encoder/N_proj/Conv_quant", "predictor.N_proj"),
+            (
+                "/encoder/predictor/text_encoder/lstms.0/LSTM_quant",
+                "predictor.text_encoder.lstms.0",
+            ),
+            (
+                "/decoder/decoder/asr_res/asr_res.0/Conv_quant",
+                "decoder.asr_res.0",
+            ),
         ];
         for (node, module) in cases {
             assert_eq!(module_of(node).as_deref(), Some(module), "{node}");
         }
         assert_eq!(module_of("MatMul_3"), None);
+        assert_eq!(module_of("/encoder/Constant"), None);
     }
 
     fn put(n: u64, out: &mut Vec<u8>) {
@@ -770,6 +889,60 @@ mod tests {
         assert_eq!(values(&named["n.1.norm.weight"]), [0.5, 0.25]);
         assert_eq!(named.len(), 5, "{:?}", named.keys().collect::<Vec<_>>());
         assert!(names(&bytes[..bytes.len() - 3]).is_err());
+    }
+
+    #[test]
+    fn kokoro_exports_share_zero_points_and_scale_columns() {
+        let w = "/encoder/text_encoder/cnn.0/Mul_output_0";
+        let fc = "decoder.decoder.encode.norm1.fc.weight";
+        let bytes = model(&[
+            // A conv weight whose zero point another weight stores.
+            (
+                5,
+                init(&format!("{w}_quantized"), &[2, 1, 1], UINT8, &[3, 5]),
+            ),
+            (5, init(&format!("{w}_scale"), &[], FLOAT, &floats(&[2.0]))),
+            (5, init("/other_zero_point", &[], UINT8, &[1])),
+            (
+                1,
+                op(
+                    "/encoder/text_encoder/cnn.0/cnn.0.0/Conv_quant",
+                    "ConvInteger",
+                    &["x", &format!("{w}_quantized"), "xz", "/other_zero_point"],
+                    "y",
+                ),
+            ),
+            // A product scaled per output column.
+            (5, init(&format!("{fc}_quantized"), &[1, 2], INT8, &[2, 2])),
+            (
+                5,
+                init(&format!("{fc}_scale"), &[2], FLOAT, &floats(&[1.0, 3.0])),
+            ),
+            (5, init(&format!("{fc}_zero_point"), &[2], INT8, &[0, 0])),
+            (
+                1,
+                op(
+                    "/decoder/decoder/encode/norm1/fc/Gemm_MatMul_quant",
+                    "MatMulInteger",
+                    &["x", &format!("{fc}_quantized")],
+                    "z",
+                ),
+            ),
+            (
+                5,
+                init("encoder.bert_encoder.bias", &[1], FLOAT, &floats(&[7.0])),
+            ),
+        ]);
+        let named = weights(&bytes).unwrap();
+        let conv = &named["text_encoder.cnn.0.0.weight"];
+        assert_eq!(
+            (conv.dims(), values(conv)),
+            (&[2, 1, 1][..], vec![4.0, 8.0])
+        );
+        let fc = &named["decoder.encode.norm1.fc.weight"];
+        assert_eq!((fc.dims(), values(fc)), (&[2, 1][..], vec![2.0, 6.0]));
+        assert_eq!(values(&named["bert_encoder.bias"]), [7.0]);
+        assert_eq!(named.len(), 3, "{:?}", named.keys().collect::<Vec<_>>());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Reading weight files: PyTorch, safetensors and GGUF builds, and voices.
+//! Reading weight files: PyTorch, safetensors, GGUF and ONNX builds; voices.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -27,6 +27,10 @@ pub fn read_model(path: &Path) -> Result<HashMap<String, Tensor>, Error> {
     let mut all = HashMap::new();
     if path.extension().is_some_and(|e| e == "gguf") {
         return read_gguf(path);
+    }
+    if path.extension().is_some_and(|e| e == "onnx") {
+        let bytes = std::fs::read(path).map_err(|e| bad(path, e))?;
+        return crate::onnx::weights(&bytes);
     }
     if path.extension().is_some_and(|e| e == "safetensors") {
         for (name, t) in candle_core::safetensors::load(path, &Device::Cpu)? {

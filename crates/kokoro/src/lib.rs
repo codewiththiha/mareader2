@@ -145,7 +145,7 @@ impl Kokoro {
         Self::from_files(&dir.join("config.json"), &dir.join(WEIGHTS))
     }
 
-    /// `weights` may be the `.pth`, safetensors or a GGUF build.
+    /// `weights` may be the `.pth`, safetensors, GGUF or ONNX build.
     pub fn from_files(config: &Path, weights: &Path) -> Result<Self> {
         let bytes =
             std::fs::read(config).map_err(|e| Error::Load(format!("{}: {e}", config.display())))?;
