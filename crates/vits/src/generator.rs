@@ -43,21 +43,24 @@ impl ResBlock {
 
     fn forward(&self, x: &Signal) -> Result<Signal> {
         let leaky = Prep::leaky(SLOPE);
-        let mut x = x.clone();
+        // The input is only read, so the first layer needs no copy of it.
+        let mut y: Option<Signal> = None;
         match self {
             Self::Pairs(pairs) => {
                 for (a, b) in pairs {
-                    let t = a.forward_signal(&x, leaky, None)?;
-                    x = b.forward_signal(&t, leaky, Some(&x))?;
+                    let input = y.as_ref().unwrap_or(x);
+                    let t = a.forward_signal(input, leaky, None)?;
+                    y = Some(b.forward_signal(&t, leaky, Some(input))?);
                 }
             }
             Self::Singles(convs) => {
                 for c in convs {
-                    x = c.forward_signal(&x, leaky, Some(&x))?;
+                    let input = y.as_ref().unwrap_or(x);
+                    y = Some(c.forward_signal(input, leaky, Some(input))?);
                 }
             }
         }
-        Ok(x)
+        y.ok_or_else(|| Error::Load("a block has no convolutions".into()))
     }
 }
 
