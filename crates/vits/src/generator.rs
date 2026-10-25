@@ -4,7 +4,7 @@ use candle_core::Tensor;
 
 use crate::dense::{Prep, Signal, each_row};
 use crate::layers::{Conv, Weights};
-use crate::{Error, Result};
+use crate::{Error, Laps, Result};
 
 const SLOPE: f32 = 0.1;
 
@@ -31,6 +31,14 @@ impl ResBlock {
             return Err(Error::Load(format!("{module} has no convolutions")));
         }
         Ok(Self::Singles(singles))
+    }
+
+    /// The first convolution's kernel, which names the block.
+    fn kernel(&self) -> usize {
+        match self {
+            Self::Pairs(pairs) => pairs.first().map_or(0, |(a, _)| a.kernel()),
+            Self::Singles(convs) => convs.first().map_or(0, Conv::kernel),
+        }
     }
 
     fn forward(&self, x: &Signal) -> Result<Signal> {
@@ -90,23 +98,31 @@ impl Generator {
     }
 
     /// Samples in −1..1 from latent frames `[1, C, F]`.
-    pub(crate) fn forward(&self, z: &Tensor, speaker: Option<&Tensor>) -> Result<Vec<f32>> {
+    pub(crate) fn forward(
+        &self,
+        z: &Tensor,
+        speaker: Option<&Tensor>,
+        laps: &mut Laps,
+    ) -> Result<Vec<f32>> {
         let z = Signal::from_tensor(z)?;
         let mut x = self.pre.forward_signal(&z, Prep::NONE, None)?;
         if let (Some(cond), Some(g)) = (&self.cond, speaker) {
             x.add_per_channel(&cond.forward(g)?.flatten_all()?.to_vec1::<f32>()?)?;
         }
         // The blocks' mean is taken inside the next layer's input pass.
+        laps.lap("generator: pre");
         let mut scale = 1.0;
-        for (up, blocks) in &self.stages {
+        for (i, (up, blocks)) in self.stages.iter().enumerate() {
             let prep = Prep {
                 scale,
                 slope: Some(SLOPE),
             };
             x = up.forward_signal(&x, prep, None)?;
+            laps.lap(&format!("stage{i}.up"));
             let mut sum: Option<Signal> = None;
             for block in blocks {
                 let y = block.forward(&x)?;
+                laps.lap(&format!("stage{i}.k{}", block.kernel()));
                 match &mut sum {
                     Some(s) => s.add(&y)?,
                     None => sum = Some(y),
@@ -123,6 +139,7 @@ impl Generator {
         each_row(&mut out, 1 << 14, |_, row| {
             row.iter_mut().for_each(|v| *v = v.tanh());
         });
+        laps.lap("post");
         Ok(out)
     }
 }

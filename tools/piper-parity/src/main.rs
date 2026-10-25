@@ -180,6 +180,62 @@ fn write_wav(path: &Path, samples: &[f32], rate: u32) -> R<()> {
     Ok(())
 }
 
+/// Each voice's milliseconds per step, steps in the order first met.
+#[derive(Default)]
+struct Laps {
+    voices: Vec<String>,
+    steps: Vec<(String, Vec<f64>)>,
+}
+
+impl Laps {
+    fn add(&mut self, voice: &str, steps: &[(String, f64)]) {
+        let col = match self.voices.iter().position(|v| v == voice) {
+            Some(c) => c,
+            None => {
+                self.voices.push(voice.to_owned());
+                self.voices.len() - 1
+            }
+        };
+        for (name, ms) in steps {
+            let at = match self.steps.iter().position(|(n, _)| n == name) {
+                Some(at) => at,
+                None => {
+                    self.steps.push((name.clone(), Vec::new()));
+                    self.steps.len() - 1
+                }
+            };
+            if let Some((_, row)) = self.steps.get_mut(at) {
+                row.resize(row.len().max(col + 1), 0.0);
+                if let Some(cell) = row.get_mut(col) {
+                    *cell += ms;
+                }
+            }
+        }
+    }
+
+    fn table(&self) -> String {
+        let mut t = format!("| Step (ms) | {} |\n|---|", self.voices.join(" | "));
+        t.push_str(&"---|".repeat(self.voices.len()));
+        t.push('\n');
+        let mut totals = vec![0.0; self.voices.len()];
+        for (name, row) in &self.steps {
+            let _ = write!(t, "| {name} |");
+            for (c, total) in totals.iter_mut().enumerate() {
+                let ms = row.get(c).copied().unwrap_or(0.0);
+                *total += ms;
+                let _ = write!(t, " {ms:.0} |");
+            }
+            t.push('\n');
+        }
+        t.push_str("| total |");
+        for ms in totals {
+            let _ = write!(t, " {ms:.0} |");
+        }
+        t.push('\n');
+        t
+    }
+}
+
 #[derive(Default)]
 struct Tally {
     sentences: usize,
@@ -209,6 +265,7 @@ fn compare(voices_dir: &Path, out: &Path) -> R<bool> {
     let mut rows = String::new();
     let mut speed = String::new();
     let mut said = String::new();
+    let mut laps = Laps::default();
     for (voice, config) in voices(voices_dir)? {
         let path = voices_dir.join(format!("{voice}.onnx"));
         let start = Instant::now();
@@ -229,7 +286,8 @@ fn compare(voices_dir: &Path, out: &Path) -> R<bool> {
             let ref_det = read_f32(&out.join("ref").join(format!("{stem}.det.f32")))?;
             let ref_noisy = read_f32(&out.join("ref").join(format!("{stem}.noisy.f32")))?;
             let start = Instant::now();
-            let det = vits.speak(&case.ids, case.speaker, quiet)?;
+            let (det, steps) = vits.speak_timed(&case.ids, case.speaker, quiet)?;
+            laps.add(&voice, &steps.steps);
             let noisy = vits.speak(&case.ids, case.speaker, inf)?;
             t.ours_seconds += start.elapsed().as_secs_f64();
             t.sentences += 1;
@@ -332,12 +390,14 @@ fn compare(voices_dir: &Path, out: &Path) -> R<bool> {
          RMS within {:.0}%, phoneme error <= {:.0}%.\n\n\
          ## Speed (seconds of compute per second of speech)\n\n\
          | Voice | Load | Ours | onnxruntime |\n|---|---|---|---|\n{speed}\n\
+         ## Where the time goes (ms over the noiseless runs)\n\n{}\n\
          ## What was said\n\n\
          | Voice | Text | misaki | Ours | espeak |\n|---|---|---|---|---|\n{said}",
         SAME_LENGTH * 100.0,
         LENGTH_DRIFT * 100.0,
         LOUDNESS_DRIFT * 100.0,
         PHONEME_ERROR * 100.0,
+        laps.table(),
     );
     md.push_str(if all_ok {
         "\n**All checks pass.**\n"

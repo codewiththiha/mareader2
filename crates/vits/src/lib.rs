@@ -24,6 +24,7 @@ mod simd;
 mod tests;
 
 use std::path::Path;
+use std::time::Instant;
 
 use candle_core::{Device, Tensor};
 use serde::Deserialize;
@@ -97,6 +98,32 @@ impl Scales {
     }
 }
 
+/// Milliseconds spent in each step, in the order first met.
+#[derive(Clone, Debug)]
+pub struct Laps {
+    pub steps: Vec<(String, f64)>,
+    since: Instant,
+}
+
+impl Laps {
+    fn new() -> Self {
+        Self {
+            steps: Vec::new(),
+            since: Instant::now(),
+        }
+    }
+
+    /// Books the time since the last lap to `name`, adding to its earlier laps.
+    pub(crate) fn lap(&mut self, name: &str) {
+        let ms = self.since.elapsed().as_secs_f64() * 1000.0;
+        self.since = Instant::now();
+        match self.steps.iter_mut().find(|(n, _)| n == name) {
+            Some((_, total)) => *total += ms,
+            None => self.steps.push((name.to_owned(), ms)),
+        }
+    }
+}
+
 pub struct Vits {
     encoder: TextEncoder,
     duration: DurationPredictor,
@@ -135,6 +162,17 @@ impl Vits {
 
     /// Samples in −1..1 at the config's rate, for ids from [`Config::ids`].
     pub fn speak(&self, ids: &[u32], speaker: usize, scales: Scales) -> Result<Vec<f32>> {
+        Ok(self.speak_timed(ids, speaker, scales)?.0)
+    }
+
+    /// As [`Self::speak`], with the time each step took.
+    pub fn speak_timed(
+        &self,
+        ids: &[u32],
+        speaker: usize,
+        scales: Scales,
+    ) -> Result<(Vec<f32>, Laps)> {
+        let mut laps = Laps::new();
         let scales = scales.check()?;
         if ids.is_empty() || ids.len() > MAX_IDS {
             return Err(Error::Input(format!("{} phoneme ids", ids.len())));
@@ -148,6 +186,7 @@ impl Vits {
         };
         let mut noise = Noise::for_ids(ids);
         let encoded = self.encoder.forward(ids)?;
+        laps.lap("text encoder");
         let len = ids.len();
         let timing = [
             noise.take(len, scales.noise_w),
@@ -156,6 +195,7 @@ impl Vits {
         let log_frames = self
             .duration
             .forward(&encoded.hidden, speaker.as_ref(), timing)?;
+        laps.lap("durations");
         let mut frame_of = Vec::new();
         for (id, log) in (0u32..).zip(log_frames) {
             let frames = (log.exp() * scales.length).ceil();
@@ -167,7 +207,7 @@ impl Vits {
             frame_of.extend(std::iter::repeat_n(id, frames));
         }
         if frame_of.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), laps));
         }
         let frames = frame_of.len();
         let frame_of = Tensor::from_vec(frame_of, frames, &Device::Cpu)?;
@@ -178,6 +218,8 @@ impl Vits {
         let draws = Tensor::from_vec(draws, (1, channels, frames), &Device::Cpu)?;
         let prior = (mean + (draws * spread)?)?;
         let z = self.flow.inverse(&prior, speaker.as_ref())?;
-        self.generator.forward(&z, speaker.as_ref())
+        laps.lap("flow");
+        let audio = self.generator.forward(&z, speaker.as_ref(), &mut laps)?;
+        Ok((audio, laps))
     }
 }
