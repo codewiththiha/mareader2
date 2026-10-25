@@ -72,6 +72,7 @@ pub mod transcript;
 pub mod trigger;
 pub mod view_menu;
 pub mod vocab;
+pub mod watch;
 pub mod widgets;
 pub mod word_list;
 pub mod zoom;

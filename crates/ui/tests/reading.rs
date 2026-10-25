@@ -519,6 +519,43 @@ impl Drop for File {
     }
 }
 
+/// The first page's words in the active pane's book.
+fn first_page(h: &Harness<'static, MareaderApp>) -> String {
+    let pane = h.state().active_pane();
+    let doc = h.state().documents().reading(pane).map(|r| r.document);
+    let layer = doc.and_then(|d| d.text_layer(0).ok());
+    layer.map_or(String::new(), |l| l.text.text(0..l.text.len()))
+}
+
+#[test]
+fn a_note_saved_elsewhere_reloads_where_it_is_read() -> Result<(), String> {
+    let name = format!("mareader-live-{}.md", std::process::id());
+    let file = File(std::env::temp_dir().join(name));
+    std::fs::write(&file.0, "# Trip\n\nThe old words.\n").map_err(|e| e.to_string())?;
+    let mut app = MareaderApp::default();
+    app.queue(Command::Open(OpenRequest::path(file.0.clone())));
+    let mut h = launched(app);
+    assert!(first_page(&h).contains("old words"), "{}", first_page(&h));
+    let pane = h.state().active_pane();
+    let before = h.state().documents().reading(pane).map(|r| r.doc);
+    // The watch takes its first look before the save.
+    std::thread::sleep(mareader_ui::watch::EVERY * 2);
+    let saved = "# Trip\n\nThe new words, saved in another app.\n";
+    std::fs::write(&file.0, saved).map_err(|e| e.to_string())?;
+    for _ in 0..60 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        h.run_steps(2);
+        if first_page(&h).contains("new words") {
+            break;
+        }
+    }
+    assert!(first_page(&h).contains("new words"), "{}", first_page(&h));
+    let after = h.state().documents().reading(pane).map(|r| r.doc);
+    assert_ne!(before, after);
+    assert_eq!(h.state().documents().stats().0, 1, "the old one closed");
+    Ok(())
+}
+
 fn launched(mut app: MareaderApp) -> Harness<'static, MareaderApp> {
     app.set_option("workers", "0").ok();
     let mut h = Harness::builder()

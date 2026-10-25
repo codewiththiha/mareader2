@@ -30,6 +30,7 @@ use crate::texts::TextLayers;
 use crate::theme::{self, Tokens};
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
+use crate::watch::Watch;
 use crate::zoom::{ZoomCommand, ZoomState};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
@@ -212,6 +213,10 @@ pub struct Documents {
     rested: bool,
     /// The pane read aloud, and where the words heard start.
     said: Option<(PaneId, Anchor)>,
+    /// Open files, looked at for saves made elsewhere.
+    watch: Option<Watch>,
+    /// Files changed on disk, opening again: for which document.
+    reloads: Vec<(Ticket, DocId)>,
 }
 
 /// Seconds without input or work before caches shrink to the pages in view.
@@ -268,6 +273,8 @@ impl Default for Documents {
             busy_at: 0.0,
             rested: true,
             said: None,
+            watch: None,
+            reloads: Vec::new(),
         }
     }
 }
@@ -283,6 +290,10 @@ impl Documents {
     /// Created on first use, when there is a context to wake.
     fn session(&mut self, ctx: &Context) -> &mut Session {
         let workers = self.workers;
+        if self.session.is_none() {
+            let ctx = ctx.clone();
+            self.watch = Watch::new(move || ctx.request_repaint());
+        }
         self.session.get_or_insert_with(|| {
             let ctx = ctx.clone();
             Session::new(workers, move || ctx.request_repaint())
@@ -686,6 +697,7 @@ impl Documents {
             return;
         };
         let mut retyped = Vec::new();
+        let mut reloaded = Vec::new();
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
@@ -704,6 +716,16 @@ impl Documents {
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
                 Event::Retypeset { old, new, .. } => retyped.push((old, new)),
+                Event::Opened { ticket, result }
+                    if self.reloads.iter().any(|(t, _)| *t == ticket) =>
+                {
+                    let old = self.reloads.iter().find(|(t, _)| *t == ticket);
+                    // Unreadable mid-save: the next change tries again.
+                    if let (Some(&(_, old)), Ok(new)) = (old, result) {
+                        reloaded.push((old, new));
+                    }
+                    self.reloads.retain(|(t, _)| *t != ticket);
+                }
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
                         Content::Opening {
@@ -746,6 +768,84 @@ impl Documents {
         for (old, new) in retyped {
             self.retyped(old, new);
         }
+        for (old, new) in reloaded {
+            self.reloaded(old, new);
+        }
+        self.follow_files();
+    }
+
+    /// Hands the watch the files shown, and opens again those saved since.
+    fn follow_files(&mut self) {
+        let (Some(session), Some(watch)) = (&self.session, &mut self.watch) else {
+            return;
+        };
+        let files = self.panes.values().filter_map(|c| match c {
+            Content::Pdf(v) => session.get(v.doc)?.path.clone(),
+            Content::Opening { .. } => None,
+        });
+        watch.follow(files.collect());
+        for path in watch.changed() {
+            self.reload(&path);
+        }
+    }
+
+    /// Opens `path`'s documents again; panes keep the old ones meanwhile.
+    pub fn reload(&mut self, path: &std::path::Path) {
+        let Some(session) = &mut self.session else {
+            return;
+        };
+        let mut docs: Vec<DocId> = (self.panes.values())
+            .filter_map(|c| match c {
+                Content::Pdf(v) => Some(v.doc),
+                Content::Opening { .. } => None,
+            })
+            .filter(|d| {
+                session
+                    .get(*d)
+                    .is_some_and(|e| e.path.as_deref() == Some(path))
+            })
+            .collect();
+        docs.sort();
+        docs.dedup();
+        for doc in docs {
+            if self.reloads.iter().any(|(_, d)| *d == doc) {
+                continue;
+            }
+            let Some(entry) = session.get(doc) else {
+                continue;
+            };
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            let typo = Arc::clone(&entry.typo);
+            let ticket = session.open(Source::Path(path.to_path_buf()), name, typo);
+            self.reloads.push((ticket, doc));
+        }
+    }
+
+    /// Moves every pane on `old` onto `new`, its file as saved since.
+    fn reloaded(&mut self, old: DocId, new: DocId) {
+        let panes: Vec<PaneId> = (self.panes.iter())
+            .filter(|(_, c)| matches!(c, Content::Pdf(v) if v.doc == old))
+            .map(|(pane, _)| *pane)
+            .collect();
+        let count = (self.session.as_ref())
+            .and_then(|s| s.get(new))
+            .filter(|e| !e.doc.is_reflowable())
+            .map(|e| e.doc.page_count());
+        for pane in panes {
+            match (count, self.panes.get_mut(&pane)) {
+                // Pages stay pages: the same one, scrolled as it was.
+                (Some(count), Some(Content::Pdf(view))) => {
+                    if !view.respliced(new, count, |p| (p < count).then_some(p)) {
+                        view.retypeset(new, count, count, None);
+                    }
+                }
+                _ => self.retarget(pane, old, new),
+            }
+        }
+        self.release(new);
+        self.release(old);
+        // AI results go back into the pages they were laid in.
+        self.retype();
     }
 
     /// Moves the panes on `old` that want `new`'s look onto it.

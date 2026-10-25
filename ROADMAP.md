@@ -297,3 +297,4 @@ appearance effects to that same pass.
 | 2026-10-25 | The title bar's buttons stay put. With the sidebar floating, a pointer that slips from the bar onto the window's left edge waits half a second before the sidebar slides in; lower down, the edge still opens it at once |
 | 2026-10-25 | A smaller download. Release builds drop their symbol tables, and the interface shares the reader's copy of Inter instead of embedding its own |
 | 2026-10-25 | Imported notes keep their pictures. Copying a Markdown file into the library copies the pictures it shows from its own folder too, and removing the copy removes them; the library docs now say what is kept for text files |
+| 2026-10-25 | Books reload when saved elsewhere. An open file edited in another app, a note, a re-exported PDF or an EPUB, reloads by itself within about two seconds and stays where you were reading; a save still being written is waited out |

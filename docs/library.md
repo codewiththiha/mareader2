@@ -142,6 +142,10 @@ reaches old books too.
 
 - **Read in place.** The library holds the file's path; an edit to it is
   the same book with new content (§ Identity and naming edge cases).
+- **Live reload (2026-10-25).** An open book saved elsewhere, in any
+  format, reloads within about two seconds where it is read
+  (`docs/architecture.md` § Threads and resources). Store copies never
+  change, so only files read in place ever do.
 - **Store copies** are the source file in `files/<content>/<name>`. A
   Markdown file's local pictures come with it, at the same relative paths
   (`disk::copy_beside`), so the copy shows them as the original does.

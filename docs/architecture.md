@@ -195,6 +195,12 @@ has a parley equivalent.
   channels. Each result carries the document id and generation it was made
   for; a result for a closed pane, an old zoom or an old document is dropped
   before it is uploaded.
+- **File watch** (`crates/ui/src/watch.rs`). One thread looks at the open
+  files' size and modified time every second, and wakes the window only once
+  a change has held for two looks; the window stays idle meanwhile. The file
+  opens again on the workers and replaces the old document when it is ready:
+  a book lands on its reading place, a PDF on its page and scroll. A file
+  unreadable mid-save keeps the old one until the next change.
 - **One document, many views** (ADR 0006). A book opens once into an
   `Arc<Document>` held by the documents table; a pane holds only its view
   (document handle, scroll, zoom, selection). Two panes on one book share the
