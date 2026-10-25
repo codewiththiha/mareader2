@@ -77,7 +77,7 @@ fn reads(command: &Command) -> bool {
         C::ShowAppearance | C::SetAppearance(_) => false,
         C::SavePreset { .. } | C::DeletePreset(_) => false,
         C::SetTitlebarPinned(_) | C::Window(_) => false,
-        C::Notify(_) | C::DismissToast => false,
+        C::Notify(_) | C::CloseToast(_) | C::ClearToasts => false,
         // A save dialog finishes wherever the window went.
         C::Export { .. } => false,
         // Settings edits are inert while the window is shut.

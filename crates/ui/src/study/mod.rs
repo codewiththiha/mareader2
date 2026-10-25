@@ -821,7 +821,6 @@ impl Study {
             Action::Restore(ids) => {
                 main.set_marks_alive(&ids, true, wall);
                 self.loose.set_marks_alive(&ids, true, wall);
-                out.push(Command::DismissToast);
             }
             Action::Retry => {
                 if let Some(card) = self.card.clone() {
@@ -883,7 +882,6 @@ impl Study {
                         self.loose.set_style(id, style, wall);
                     }
                 }
-                out.push(Command::DismissToast);
             }
             Action::PickPage | Action::PickAll => {
                 if let Some(p) = &mut self.picking {
@@ -929,7 +927,6 @@ impl Study {
                 if !main.set_note(id, Some(text.clone()), wall) {
                     self.loose.set_note(id, Some(text), wall);
                 }
-                out.push(Command::DismissToast);
             }
         }
     }

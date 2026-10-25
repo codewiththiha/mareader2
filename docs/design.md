@@ -190,7 +190,7 @@ across ("Parchment" was "Parchme…"). Past three it is elided, whole on hover.
 | Spacing | gap 8: items 8 × 6, button padding 10 × 6; toolbar clusters 4 | `Tokens::gap`, `titlebar.rs` |
 | Body, small text | 14 pt, 12 pt | `Tokens::{text, text_small}` |
 | Sidebar (M1) | ~288 pt, slides 300 ms | — |
-| Toast (M1) | 3.5 s | — |
+| Toast | 3.5 s, errors 6 s, with an action 6 s; 360 pt wide | `toast.rs` |
 
 ## Title bar
 
@@ -303,10 +303,33 @@ A new setting picks its `Applies` once; nothing else changes.
 
 - **Tooltips.** `widgets::tip`: a chip on `surface` with a `line` edge,
   radius 6, 12 pt text, the shortcut beside it in `muted`. 350 ms delay.
-- **Toasts.** `crates/ui/src/toast.rs`. One at a time, a new one replaces it;
-  bottom centre of the panes, 24 pt up, at most 480 pt wide. Info shows a
-  check in the accent, error an alert in `danger` with a tinted edge. Up
-  3.5 s; hovering holds it, then 1.5 s more; 200 ms fade and rise.
+- **Toasts.** `crates/ui/src/toast.rs` and `toast/`. They stack in the
+  bottom-right corner of the panes, 16 pt in, above the page bar in the
+  reader; 360 pt wide.
+  - **Card.** On `surface` with the large radius. The tone's mark sits in a
+    soft round of its colour: a check in the accent for info, an alert in
+    `danger` (error) or the accent (warning), with a tinted edge. An action
+    such as Undo is a soft accent button; ✕ closes the card. A thin line
+    along the foot shows the time left.
+  - **Pile.** The newest is in front; up to two older ones peek out above
+    it, 8 pt each, narrower and fainter. When the front goes, the next one
+    grows into its place. The same words again count ("×2") instead of
+    stacking. At most 12 are kept.
+  - **Strip.** With two or more, two pills above the pile: "Show all · N"
+    and "Clear all".
+  - **List.** A click on the pile, or Show all, opens it in place as a list
+    on `card`, newest on top. It has a header (Notifications, the count,
+    Clear all, a chevron to close) and scrolls past 60 % of the room, at
+    most 420 pt. Esc, the chevron or a click elsewhere close it.
+  - **Swipe.** A card dragged right past 96 pt, or flicked, flies off;
+    shorter, it springs back. A pull left barely moves it.
+  - **Out of the way.** The stack takes the pointer only over its cards and
+    strip. While something on the page is carried, or an open menu reaches
+    its corner, it fades to 30 % and lets the pointer through, so drops and
+    menu rows beneath it still work.
+  - **Time.** Up 3.5 s, 6 s for errors and for cards with an action.
+    Hovering, the open list or a drag stops every clock, and at least
+    1.5 s is left after. They come in with a 200 ms rise and fade.
 - **View & tools menu.** The last button in the bar (`view_menu.rs`). It
   holds full screen, the keyboard shortcut list and the version. When the
   bar is narrow, Settings, Search and the splits fold into it, leftmost
@@ -336,8 +359,7 @@ A new setting picks its `Applies` once; nothing else changes.
   a shelf with contents, and "Erase highlights and reading position" when
   there is any. Both start off each time; the erase switch turns its card red
   and the button to "Erase & remove". No counts, sizes or shelf lists. Enter
-  removes, Esc or Cancel keeps; a showing toast is dismissed so nothing covers
-  it, and a short toast follows.
+  removes, Esc or Cancel keeps, and a short toast follows.
 - **Import sheet.** A short form (`library/import_sheet.rs`, 460 px): the
   folder as a field the whole row of which picks another; format checkboxes,
   ticked ones counted; "File size larger than" with its dial on one line;

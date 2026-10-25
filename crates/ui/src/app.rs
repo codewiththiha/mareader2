@@ -522,8 +522,14 @@ impl MareaderApp {
         self.library.covers().shown()
     }
 
+    /// The newest toast still up.
     pub fn toast(&self) -> Option<&Toast> {
         self.toasts.current()
+    }
+
+    /// Every toast still up, newest first, and whether the stack is open.
+    pub fn toasts(&self) -> (Vec<&Toast>, bool) {
+        (self.toasts.shown().collect(), self.toasts.is_open())
     }
 
     /// Applied at the end of the next frame, like a view's commands.
@@ -884,10 +890,8 @@ impl MareaderApp {
             "platform" => {
                 self.platform = Platform::parse(value).ok_or("platform: mac, windows or gnome")?
             }
-            "toast" => self.toasts.push(match value.strip_prefix("error:") {
-                Some(message) => Toast::error(message),
-                None => Toast::info(value),
-            }),
+            "toast" => self.toasts.push(shot_toast(value)),
+            "toasts" => self.toasts.set_open(value == "open"),
             "pinned" => {
                 let on = value == "true";
                 self.settings.chrome.titlebar_pinned = on;
@@ -2204,7 +2208,8 @@ impl MareaderApp {
                 format,
                 contents,
             } => self.files.save(ctx, name, format, contents),
-            Command::DismissToast => self.toasts.dismiss(ctx.input(|i| i.time)),
+            Command::CloseToast(id) => self.toasts.close(id, ctx.input(|i| i.time)),
+            Command::ClearToasts => self.toasts.clear(ctx.input(|i| i.time)),
             Command::Study(action) => {
                 let mut out = Commands::new();
                 let model = self.library.model_mut();
@@ -3518,15 +3523,16 @@ impl eframe::App for MareaderApp {
         }
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
-        self.toasts.show(&ctx, stage, &mut commands);
-        // A run outlives the page that started it, so cards show on both.
+        // Runs and toasts both clear the page bar.
         let lift = match route {
             Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
             Route::Library | Route::Dictionary => 0.0,
         };
+        self.toasts.show(&ctx, stage, lift, &mut commands);
         // A paused run waits on the library page, off the pages read.
         let paused = route == Route::Library;
         let runs = &mut self.library.runs;
+        // A run outlives the page that started it, so cards show on both.
         library::runs::show(&ctx, runs, (stage, lift), paused, &mut commands);
         let window = self.settings_scope();
         self.voices_shown(&ctx);
@@ -3622,4 +3628,16 @@ fn found_in<'a>(search: &'a Search, documents: &Documents, find: &FindBar) -> Op
     let reading = documents.reading(find.pane()?)?;
     let found = search.found(reading.doc, &reading.document)?;
     (found.query == find.query()).then_some(found)
+}
+
+/// A toast from a shot's words: `_` for spaces, a prefix for its tone.
+fn shot_toast(value: &str) -> Toast {
+    let words = value.replace('_', " ");
+    let (kind, message) = words.split_once(':').unwrap_or(("", &words));
+    match kind {
+        "error" => Toast::error(message),
+        "warning" => Toast::warning(message),
+        "undo" => Toast::info(message).undo(Command::ClearToasts),
+        _ => Toast::info(words.as_str()),
+    }
 }

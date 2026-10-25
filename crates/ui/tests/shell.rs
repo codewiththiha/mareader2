@@ -610,7 +610,12 @@ fn reading_a_toast_keeps_it_up() {
     assert!(h.state().toast().is_some(), "hover holds it");
     h.hover_at(egui::pos2(600.0, 300.0));
     wait(&mut h, 2.0);
-    assert!(h.state().toast().is_none(), "gone after the grace");
+    assert!(
+        h.state().toast().is_some(),
+        "its clock picks up where it stopped"
+    );
+    wait(&mut h, 2.0);
+    assert!(h.state().toast().is_none());
 }
 
 #[test]
@@ -619,6 +624,122 @@ fn a_toast_closes_from_its_button() {
     h.get_by_label("Dismiss").click();
     wait(&mut h, 0.5);
     assert!(h.state().toast().is_none());
+}
+
+#[test]
+fn a_toast_sits_in_the_bottom_right_corner() {
+    let h = with(&[("toast", "Copied")]);
+    let card = h.get_by_label("Copied").rect();
+    // The reader is open, so it sits above the page bar.
+    assert!(card.right() > 1150.0 && card.bottom() > 700.0, "{card:?}");
+}
+
+#[test]
+fn a_stack_never_takes_more_than_its_corner() {
+    let h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
+    let layer = h.ctx.memory(|m| m.area_rect(egui::Id::new("toasts")));
+    let corner = egui::Rect::from_min_max(egui::pos2(800.0, 600.0), egui::pos2(1200.0, 800.0));
+    assert!(layer.is_some_and(|r| corner.contains_rect(r)), "{layer:?}");
+}
+
+/// Shown toasts, newest first.
+fn stacked(h: &Harness<'static, MareaderApp>) -> Vec<String> {
+    let (shown, _) = h.state().toasts();
+    shown.iter().map(|t| t.message.clone()).collect()
+}
+
+#[test]
+fn toasts_stack_newest_in_front_and_clear_all_empties_it() {
+    let mut h = with(&[
+        ("toast", "Saved notes"),
+        ("toast", "Copied link"),
+        ("toast", "Exported list"),
+    ]);
+    assert_eq!(stacked(&h), ["Exported list", "Copied link", "Saved notes"]);
+    assert!(h.query_by_label("Exported list").is_some());
+    assert!(
+        h.query_by_label("Saved notes").is_none(),
+        "the ones behind peek"
+    );
+    h.get_by_label("Clear all").click();
+    wait(&mut h, 0.5);
+    assert!(stacked(&h).is_empty());
+}
+
+#[test]
+fn the_same_words_again_count_instead_of_stacking() {
+    let h = with(&[("toast", "Saved"), ("toast", "Saved")]);
+    assert_eq!(stacked(&h), ["Saved"]);
+}
+
+/// Drags the toast saying `words` sideways by `by`, then lets go.
+fn swipe(h: &mut Harness<'static, MareaderApp>, words: &str, by: f32) {
+    let from = h.get_by_label(words).rect().center();
+    h.hover_at(from);
+    h.run_steps(1);
+    h.drag_at(from);
+    h.run_steps(1);
+    for step in 1..=4 {
+        h.hover_at(from + egui::vec2(by * step as f32 / 4.0, 0.0));
+        h.run_steps(1);
+    }
+}
+
+#[test]
+fn a_toast_swiped_away_goes_and_a_short_pull_springs_back() {
+    let mut h = with(&[("toast", "Copied")]);
+    let rest = h.get_by_label("Copied").rect();
+    // Slow enough not to be a flick.
+    swipe(&mut h, "Copied", 32.0);
+    let pulled = h.get_by_label("Copied").rect();
+    assert!(pulled.left() > rest.left() + 12.0, "it follows the pointer");
+    h.drop_at(pulled.center());
+    wait(&mut h, 0.5);
+    assert_eq!(stacked(&h), ["Copied"], "a short pull springs back");
+    let back = h.get_by_label("Copied").rect();
+    assert!((back.left() - rest.left()).abs() < 1.0, "{back:?}");
+    swipe(&mut h, "Copied", 160.0);
+    h.drop_at(rest.center() + egui::vec2(160.0, 0.0));
+    wait(&mut h, 0.5);
+    assert!(stacked(&h).is_empty());
+}
+
+#[test]
+fn clicking_a_stack_opens_a_list_of_every_toast() {
+    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
+    h.get_by_label("Copied link").click();
+    h.run_steps(3);
+    assert!(h.state().toasts().1, "the click opens it");
+    assert!(h.query_by_label("Notifications").is_some());
+    assert!(h.query_by_label("Saved notes").is_some());
+    assert_eq!(h.query_all_by_label("Dismiss").count(), 2);
+    h.get_by_label("Show less").click();
+    h.run_steps(3);
+    assert!(!h.state().toasts().1);
+    h.get_by_label("Show all notifications").click();
+    h.run_steps(3);
+    assert!(h.state().toasts().1, "the strip opens it too");
+    let away = egui::pos2(300.0, 300.0);
+    h.drag_at(away);
+    h.run_steps(1);
+    h.drop_at(away);
+    h.run_steps(3);
+    assert!(!h.state().toasts().1, "a click elsewhere closes it");
+    assert_eq!(stacked(&h).len(), 2, "closing the list keeps the toasts");
+}
+
+#[test]
+fn an_open_stack_holds_its_toasts() {
+    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
+    h.run_steps(2);
+    h.state_mut().set_option("toasts", "open").ok();
+    h.hover_at(egui::pos2(300.0, 300.0));
+    wait(&mut h, 8.0);
+    assert_eq!(stacked(&h).len(), 2);
+    h.get_by_label("Clear all").click();
+    wait(&mut h, 0.5);
+    assert!(stacked(&h).is_empty());
+    assert!(!h.state().toasts().1);
 }
 
 #[test]

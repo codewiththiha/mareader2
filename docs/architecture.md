@@ -107,7 +107,7 @@ egui has nothing close (caption buttons, page views, library cards); it reads
 its colours from `Tokens` or `Visuals` and gives AccessKit a label.
 
 **Repaint is demand-driven.** Every deferred thing schedules its own wake with
-`request_repaint_after` (the title bar's hide grace, a toast's timeout); worker
+`request_repaint_after` (the title bar's hide grace, a toast's time line); worker
 threads call `Context::request_repaint` when a result is ready. Nothing polls,
 and an idle window renders no frames.
 

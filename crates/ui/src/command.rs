@@ -202,9 +202,12 @@ pub enum Command {
         format: crate::export::Format,
         contents: String,
     },
-    /// Shows a toast, replacing the one on screen.
+    /// Shows a toast on top of the stack.
     Notify(Toast),
-    DismissToast,
+    /// Closes one toast, by its stack id.
+    CloseToast(u64),
+    /// Closes every toast.
+    ClearToasts,
     /// Background work for the AI settings: keys, models, a trial.
     #[cfg(not(target_arch = "wasm32"))]
     Ai(crate::ai::Job),
