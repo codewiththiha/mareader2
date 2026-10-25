@@ -1,7 +1,5 @@
 //! Frame-rate steps fused into single passes over plain buffers.
 
-use candle_core::cpu::erf::erf_f32;
-
 use crate::dense::{Signal, each_row};
 use crate::{Error, Result, simd};
 
@@ -30,6 +28,40 @@ pub(crate) fn tanh(x: f32) -> f32 {
         q = q * x2 + c;
     }
     x * p / q
+}
+
+/// The error function as a ratio of polynomials, within 5e-7 everywhere.
+#[inline(always)]
+fn erf(x: f32) -> f32 {
+    const P: [f32; 7] = [
+        -2.726_142_4e-10,
+        2.770_681_5e-8,
+        -2.101_024e-6,
+        -5.692_506_2e-5,
+        -7.349_906_4e-4,
+        -2.954_6e-3,
+        -1.609_603_3e-2,
+    ];
+    const Q: [f32; 5] = [
+        -1.456_607_15e-5,
+        -2.133_740_5e-4,
+        -1.682_827e-3,
+        -7.373_329_3e-3,
+        -1.426_473_9e-2,
+    ];
+    let x = x.clamp(-4.0, 4.0);
+    let x2 = x * x;
+    let p = P.iter().skip(1).fold(P[0], |p, c| p * x2 + c);
+    let q = Q.iter().skip(1).fold(Q[0], |q, c| q * x2 + c);
+    x * p / q
+}
+
+/// One row through exact-form GELU.
+#[inline(always)]
+fn gelu_row((row,): (&mut [f32],)) {
+    for v in row {
+        *v = (erf(*v * std::f32::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * *v;
+    }
 }
 
 /// The logistic curve, through [`tanh`].
@@ -66,14 +98,10 @@ pub(crate) fn gated(x: &Signal, bias: Option<&[f32]>) -> Result<Signal> {
     })
 }
 
-/// GELU with the exact error function, as candle's `gelu_erf` has it.
+/// GELU in its error-function form, as candle's `gelu_erf` has it.
 pub(crate) fn gelu(x: &mut Signal) {
     let len = x.len;
-    each_row(&mut x.data, len, |_, row| {
-        for v in row {
-            *v = (erf_f32(*v * std::f32::consts::FRAC_1_SQRT_2) + 1.0) * 0.5 * *v;
-        }
-    });
+    each_row(&mut x.data, len, |_, row| simd::pick(gelu_row, (row,)));
 }
 
 /// Each step normalised across channels, then scaled and shifted per channel.
@@ -113,6 +141,15 @@ mod tests {
             .fold(0.0f32, f32::max);
         assert!(worst < 1e-6, "{worst}");
         assert_eq!(tanh(f32::INFINITY), tanh(7.905_311));
+    }
+
+    #[test]
+    fn erf_stays_close_to_candle() {
+        let worst = (-60_000..=60_000)
+            .map(|i| i as f32 / 10_000.0)
+            .map(|x| (erf(x) - candle_core::cpu::erf::erf_f32(x)).abs())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-6, "{worst}");
     }
 
     #[test]
