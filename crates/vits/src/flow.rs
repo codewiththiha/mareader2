@@ -1,9 +1,10 @@
 //! The coupling flow, run from the prior's sample back to the decoder's input.
 
 use candle_core::Tensor;
-use candle_nn::ops::sigmoid;
 
-use crate::layers::{Conv, Weights, flip_channels};
+use crate::dense::{Prep, Signal};
+use crate::fused::gated;
+use crate::layers::{Conv, Weights};
 use crate::{Error, Result};
 
 /// WaveNet-style gated convolutions with residual and skip outputs.
@@ -31,28 +32,33 @@ impl WaveNet {
         })
     }
 
-    fn forward(&self, x: &Tensor, speaker: Option<&Tensor>) -> Result<Tensor> {
-        let hidden = x.dim(1)?;
+    fn forward(&self, x: &Signal, speaker: Option<&Tensor>) -> Result<Signal> {
+        let hidden = x.channels;
         let cond = match (&self.cond, speaker) {
-            (Some(c), Some(g)) => Some(c.forward(g)?),
+            (Some(c), Some(g)) => Some(c.forward(g)?.flatten_all()?.to_vec1::<f32>()?),
             _ => None,
         };
         let mut x = x.clone();
-        let mut out = x.zeros_like()?;
+        let mut out = Signal {
+            data: vec![0.0; x.data.len()],
+            ..x
+        };
         let last = self.inputs.len().saturating_sub(1);
         for (i, (input, skip)) in self.inputs.iter().zip(&self.skips).enumerate() {
-            let mut gate = input.forward(&x)?;
-            if let Some(c) = &cond {
-                gate = gate.broadcast_add(&c.narrow(1, i * 2 * hidden, 2 * hidden)?)?;
-            }
-            let acts =
-                (gate.narrow(1, 0, hidden)?.tanh()? * sigmoid(&gate.narrow(1, hidden, hidden)?)?)?;
-            let res_skip = skip.forward(&acts)?;
+            let gate = input.forward_signal(&x, Prep::NONE, None)?;
+            let bias = match &cond {
+                Some(c) => Some(
+                    c.get(i * 2 * hidden..(i + 1) * 2 * hidden)
+                        .ok_or_else(|| Error::Compute("the speaker's input is short".into()))?,
+                ),
+                None => None,
+            };
+            let res_skip = skip.forward_signal(&gated(&gate, bias)?, Prep::NONE, None)?;
             if i < last {
-                x = (x + res_skip.narrow(1, 0, hidden)?)?;
-                out = (out + res_skip.narrow(1, hidden, hidden)?)?;
+                x.add_rows(&res_skip, 0)?;
+                out.add_rows(&res_skip, hidden)?;
             } else {
-                out = (out + res_skip)?;
+                out.add(&res_skip)?;
             }
         }
         Ok(out)
@@ -67,14 +73,33 @@ struct Coupling {
 }
 
 impl Coupling {
-    fn inverse(&self, z: &Tensor, speaker: Option<&Tensor>) -> Result<Tensor> {
-        let half = z.dim(1)? / 2;
-        let x0 = z.narrow(1, 0, half)?;
-        let x1 = z.narrow(1, half, half)?;
-        let h = self.net.forward(&self.pre.forward(&x0)?, speaker)?;
-        let mean = self.post.forward(&h)?;
-        Ok(Tensor::cat(&[&x0, &(x1 - mean)?], 1)?)
+    /// The reverse step, on channels flipped first as `Flip` leaves them.
+    fn inverse(&self, z: &Signal, speaker: Option<&Tensor>) -> Result<Signal> {
+        let z = flipped(z);
+        let half = z.channels / 2;
+        let x0 = z.rows(0, half)?;
+        let h = self
+            .net
+            .forward(&self.pre.forward_signal(&x0, Prep::NONE, None)?, speaker)?;
+        let mean = self.post.forward_signal(&h, Prep::NONE, None)?;
+        let mut out = z;
+        let len = out.len;
+        let second = out.data.get_mut(half * len..).unwrap_or_default();
+        if second.len() != mean.data.len() {
+            return Err(Error::Compute("a coupling's halves differ".into()));
+        }
+        second.iter_mut().zip(&mean.data).for_each(|(v, m)| *v -= m);
+        Ok(out)
     }
+}
+
+/// Channels in reverse order.
+fn flipped(x: &Signal) -> Signal {
+    let mut data = Vec::with_capacity(x.data.len());
+    for row in x.data.chunks(x.len.max(1)).rev() {
+        data.extend_from_slice(row);
+    }
+    Signal { data, ..*x }
 }
 
 pub(crate) struct Flow {
@@ -104,10 +129,25 @@ impl Flow {
     }
 
     pub(crate) fn inverse(&self, z: &Tensor, speaker: Option<&Tensor>) -> Result<Tensor> {
-        let mut z = z.clone();
+        let mut z = Signal::from_tensor(z)?;
         for coupling in &self.couplings {
-            z = coupling.inverse(&flip_channels(&z)?, speaker)?;
+            z = coupling.inverse(&z, speaker)?;
         }
-        Ok(z)
+        z.into_tensor()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flip_reverses_channels() {
+        let x = Signal {
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            channels: 3,
+            len: 2,
+        };
+        assert_eq!(flipped(&x).data, [5.0, 6.0, 3.0, 4.0, 1.0, 2.0]);
     }
 }

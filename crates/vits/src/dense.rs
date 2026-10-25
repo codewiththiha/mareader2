@@ -41,7 +41,7 @@ impl Signal {
         Ok(Tensor::from_vec(self.data, shape, &Device::Cpu)?)
     }
 
-    fn row(&self, channel: usize) -> &[f32] {
+    pub(crate) fn row(&self, channel: usize) -> &[f32] {
         let at = channel * self.len;
         self.data.get(at..at + self.len).unwrap_or(&[])
     }
@@ -69,6 +69,33 @@ impl Signal {
             }
         });
         Ok(())
+    }
+
+    /// Channels `from..from + count`, copied out.
+    pub(crate) fn rows(&self, from: usize, count: usize) -> Result<Self> {
+        let at = from * self.len..(from + count) * self.len;
+        let data = self
+            .data
+            .get(at)
+            .ok_or_else(|| Error::Compute("past the channels".into()))?;
+        Ok(Self {
+            data: data.to_vec(),
+            channels: count,
+            len: self.len,
+        })
+    }
+
+    /// Adds channels `from..` of `other` to this signal's channels.
+    pub(crate) fn add_rows(&mut self, other: &Self, from: usize) -> Result<()> {
+        let at = from * other.len;
+        let src = other.data.get(at..at + self.data.len());
+        match src {
+            Some(src) if other.len == self.len => {
+                self.data.iter_mut().zip(src).for_each(|(d, s)| *d += s);
+                Ok(())
+            }
+            _ => Err(Error::Compute("signals differ in shape".into())),
+        }
     }
 
     /// Adds `per_channel[c]` to every step of channel `c`.

@@ -14,6 +14,7 @@ mod dense;
 mod duration;
 mod encoder;
 mod flow;
+mod fused;
 mod generator;
 mod layers;
 mod noise;

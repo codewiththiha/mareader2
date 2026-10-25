@@ -1,7 +1,9 @@
 //! The stochastic duration predictor, run from noise back to log durations.
 
-use candle_core::{Device, Tensor};
+use candle_core::Tensor;
 
+use crate::dense::{Prep, Signal};
+use crate::fused::gelu;
 use crate::layers::{ChannelNorm, Conv, Weights};
 use crate::{Error, Result};
 
@@ -25,12 +27,14 @@ impl Separable {
         Ok(Self { layers })
     }
 
-    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+    fn forward(&self, x: &Signal) -> Result<Signal> {
         let mut x = x.clone();
         for (sep, norm_1, point, norm_2) in &self.layers {
-            let y = norm_1.forward(&sep.forward(&x)?)?.gelu_erf()?;
-            let y = norm_2.forward(&point.forward(&y)?)?.gelu_erf()?;
-            x = (x + y)?;
+            let mut y = norm_1.forward_signal(sep.forward_signal(&x, Prep::NONE, None)?)?;
+            gelu(&mut y);
+            let mut y = norm_2.forward_signal(point.forward_signal(&y, Prep::NONE, None)?)?;
+            gelu(&mut y);
+            x.add(&y)?;
         }
         Ok(x)
     }
@@ -63,14 +67,19 @@ impl SplineFlow {
     }
 
     /// One inverse step on `[first, second]`, each one value per phoneme.
-    fn inverse(&self, first: &[f32], second: &mut [f32], context: &Tensor) -> Result<()> {
-        let len = first.len();
-        let x0 = Tensor::from_slice(first, (1, 1, len), &Device::Cpu)?;
-        let h = self.pre.forward(&x0)?;
-        let h = self.convs.forward(&(h + context)?)?;
+    fn inverse(&self, first: &[f32], second: &mut [f32], context: &Signal) -> Result<()> {
+        let x0 = Signal {
+            data: first.to_vec(),
+            channels: 1,
+            len: first.len(),
+        };
+        let mut h = self.pre.forward_signal(&x0, Prep::NONE, None)?;
+        h.add(context)?;
+        let h = self.convs.forward(&h)?;
         let params = self
             .proj
-            .forward(&h)?
+            .forward_signal(&h, Prep::NONE, None)?
+            .into_tensor()?
             .squeeze(0)?
             .t()?
             .contiguous()?
@@ -226,7 +235,8 @@ impl DurationPredictor {
         if let (Some(cond), Some(g)) = (&self.cond, speaker) {
             x = x.broadcast_add(&cond.forward(g)?)?;
         }
-        let context = self.proj.forward(&self.convs.forward(&x)?)?;
+        let x = self.convs.forward(&Signal::from_tensor(&x)?)?;
+        let context = self.proj.forward_signal(&x, Prep::NONE, None)?;
         let [mut z0, mut z1] = noise;
         for flow in &self.flows {
             std::mem::swap(&mut z0, &mut z1);

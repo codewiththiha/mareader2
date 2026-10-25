@@ -1,8 +1,9 @@
 //! Convolutions shaped by the model file, channel norms and small helpers.
 
-use candle_core::{D, Tensor};
+use candle_core::Tensor;
 
 use crate::dense::{DenseConv, Depthwise, Prep, Signal, Transposed};
+use crate::fused::channel_norm;
 use crate::onnx::{ConvSpec, Graph};
 use crate::{Error, Result};
 
@@ -79,6 +80,18 @@ pub(crate) struct Strided {
 impl Conv {
     pub(crate) fn load(w: &Weights, module: &str) -> Result<Self> {
         Self::build(w, module, false)
+    }
+
+    /// A plain kernel-1 convolution from its weights, for tests.
+    #[cfg(test)]
+    pub(crate) fn from_parts(weight: Tensor, bias: Option<Tensor>) -> Self {
+        let spec = ConvSpec {
+            pads: (0, 0),
+            stride: 1,
+            dilation: 1,
+            groups: 1,
+        };
+        Self::Dense(DenseConv::new(&weight, bias.as_ref(), spec).unwrap())
     }
 
     pub(crate) fn load_transposed(w: &Weights, module: &str) -> Result<Self> {
@@ -159,6 +172,7 @@ impl Conv {
         match self {
             Self::Dense(d) => d.forward(x, prep, residual),
             Self::Transposed(t) if residual.is_none() => t.forward(x, prep),
+            Self::Depthwise(d) if residual.is_none() && prep == Prep::NONE => d.forward(x),
             _ => {
                 let y = self.forward(&x.prepped(prep).into_tensor()?)?;
                 let mut y = Signal::from_tensor(&y)?;
@@ -196,42 +210,44 @@ impl Strided {
 
 /// Normalises each step across channels: `[1, C, T]` in and out.
 pub(crate) struct ChannelNorm {
-    gamma: Tensor,
-    beta: Tensor,
+    gamma: Vec<f32>,
+    beta: Vec<f32>,
 }
 
 impl ChannelNorm {
-    const EPS: f64 = 1e-5;
+    const EPS: f32 = 1e-5;
 
     pub(crate) fn load(w: &Weights, module: &str) -> Result<Self> {
-        let gamma = w.get(&format!("{module}.gamma"))?.reshape((1, (), 1))?;
-        let beta = w.get(&format!("{module}.beta"))?.reshape((1, (), 1))?;
+        let read = |name: &str| -> Result<Vec<f32>> {
+            Ok(w.get(&format!("{module}.{name}"))?
+                .flatten_all()?
+                .to_vec1::<f32>()?)
+        };
+        let (gamma, beta) = (read("gamma")?, read("beta")?);
+        if gamma.len() != beta.len() {
+            return Err(Error::Load(format!("{module} has an odd shape")));
+        }
         Ok(Self { gamma, beta })
     }
 
     pub(crate) fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let mean = x.mean_keepdim(1)?;
-        let centred = x.broadcast_sub(&mean)?;
-        let var = centred.sqr()?.mean_keepdim(1)?;
-        let normed = centred.broadcast_div(&(var + Self::EPS)?.sqrt()?)?;
-        Ok(normed
-            .broadcast_mul(&self.gamma)?
-            .broadcast_add(&self.beta)?)
+        self.forward_signal(Signal::from_tensor(x)?)?.into_tensor()
+    }
+
+    pub(crate) fn forward_signal(&self, mut x: Signal) -> Result<Signal> {
+        if x.channels != self.gamma.len() {
+            return Err(Error::Compute("a norm got the wrong channels".into()));
+        }
+        channel_norm(&mut x, &self.gamma, &self.beta, Self::EPS);
+        Ok(x)
     }
 }
 
-/// Channels in reverse order, as the flows' `Flip` does.
-pub(crate) fn flip_channels(x: &Tensor) -> Result<Tensor> {
-    let channels = x.dim(1)?;
-    let order: Vec<u32> = (0..channels as u32).rev().collect();
-    let order = Tensor::new(order.as_slice(), x.device())?;
-    Ok(x.index_select(&order, 1)?)
-}
-
 /// The last axis softmaxed.
+#[cfg(test)]
 pub(crate) fn softmax(x: &Tensor) -> Result<Tensor> {
-    let max = x.max_keepdim(D::Minus1)?;
+    let max = x.max_keepdim(candle_core::D::Minus1)?;
     let e = x.broadcast_sub(&max)?.exp()?;
-    let sum = e.sum_keepdim(D::Minus1)?;
+    let sum = e.sum_keepdim(candle_core::D::Minus1)?;
     Ok(e.broadcast_div(&sum)?)
 }
