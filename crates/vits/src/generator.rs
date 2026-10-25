@@ -2,7 +2,7 @@
 
 use candle_core::Tensor;
 
-use crate::dense::{Prep, Signal};
+use crate::dense::{Prep, Signal, each_row};
 use crate::layers::{Conv, Weights};
 use crate::{Error, Result};
 
@@ -120,7 +120,9 @@ impl Generator {
             slope: Some(0.01),
         };
         let mut out = self.post.forward_signal(&x, prep, None)?.data;
-        out.iter_mut().for_each(|v| *v = v.tanh());
+        each_row(&mut out, 1 << 14, |_, row| {
+            row.iter_mut().for_each(|v| *v = v.tanh());
+        });
         Ok(out)
     }
 }

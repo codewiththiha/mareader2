@@ -2,7 +2,7 @@
 
 use candle_core::{D, Tensor};
 
-use crate::dense::{DenseConv, Depthwise, Prep, Signal};
+use crate::dense::{DenseConv, Depthwise, Prep, Signal, Transposed};
 use crate::onnx::{ConvSpec, Graph};
 use crate::{Error, Result};
 
@@ -63,6 +63,8 @@ pub(crate) enum Conv {
     Dense(DenseConv),
     /// Stride 1, one group per channel: a few multiply-adds per step.
     Depthwise(Depthwise),
+    /// Transposed: one wide multiply, then the taps summed into place.
+    Transposed(Transposed),
     /// Strided, grouped or transposed: through candle.
     Candle(Strided),
 }
@@ -90,17 +92,24 @@ impl Conv {
         }
         let bias = w.get(&format!("{module}.bias")).ok();
         let spec = w.spec(module);
-        if !transposed && spec.stride == 1 && spec.groups == 1 {
+        if transposed {
+            return Ok(Self::Transposed(Transposed::new(
+                &weight,
+                bias.as_ref(),
+                spec,
+            )?));
+        }
+        if spec.stride == 1 && spec.groups == 1 {
             return Ok(Self::Dense(DenseConv::new(&weight, bias.as_ref(), spec)?));
         }
-        if !transposed && let Some(d) = Depthwise::new(&weight, bias.as_ref(), spec)? {
+        if let Some(d) = Depthwise::new(&weight, bias.as_ref(), spec)? {
             return Ok(Self::Depthwise(d));
         }
         Ok(Self::Candle(Strided {
             weight,
             bias,
             spec,
-            transposed,
+            transposed: false,
         }))
     }
 
@@ -109,6 +118,7 @@ impl Conv {
         match self {
             Self::Dense(d) => d.outputs(),
             Self::Depthwise(d) => d.channels(),
+            Self::Transposed(t) => t.outputs(),
             Self::Candle(c) => {
                 let at = usize::from(c.transposed);
                 c.weight.dims().get(at).copied().unwrap_or(0)
@@ -120,6 +130,7 @@ impl Conv {
         match self {
             Self::Dense(d) => d.kernel(),
             Self::Depthwise(d) => d.kernel(),
+            Self::Transposed(t) => t.kernel(),
             Self::Candle(c) => c.weight.dims().get(2).copied().unwrap_or(0),
         }
     }
@@ -131,6 +142,9 @@ impl Conv {
                 .forward(&Signal::from_tensor(x)?, Prep::NONE, None)?
                 .into_tensor(),
             Self::Depthwise(d) => d.forward(&Signal::from_tensor(x)?)?.into_tensor(),
+            Self::Transposed(t) => t
+                .forward(&Signal::from_tensor(x)?, Prep::NONE)?
+                .into_tensor(),
             Self::Candle(c) => c.forward(x),
         }
     }
@@ -144,6 +158,7 @@ impl Conv {
     ) -> Result<Signal> {
         match self {
             Self::Dense(d) => d.forward(x, prep, residual),
+            Self::Transposed(t) if residual.is_none() => t.forward(x, prep),
             _ => {
                 let y = self.forward(&x.prepped(prep).into_tensor()?)?;
                 let mut y = Signal::from_tensor(&y)?;

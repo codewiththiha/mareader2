@@ -19,6 +19,7 @@ mod layers;
 mod noise;
 mod onnx;
 mod phonemes;
+mod simd;
 #[cfg(test)]
 mod tests;
 
