@@ -86,6 +86,10 @@ description = "Markdown document"
 mime-type = "text/markdown"
 role = "viewer"
 
+# The setup program's own icon; the app's comes from the exe (build.rs).
+[package.metadata.packager.nsis]
+installer-icon = "icons/icon.ico"
+
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
 # Ad hoc: Gatekeeper asks once. CI swaps in a Developer ID when it has one.

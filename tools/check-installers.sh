@@ -154,6 +154,8 @@ windows() {
     check ".$ext opens with Mareader" \
       bash -c "reg query 'HKCU\\Software\\Classes\\.$ext' /ve | grep -qi 'Document\\|Book'"
   done
+  check "the installed mareader.exe carries its icon" \
+    pwsh -NoProfile -File tools/exe-icons.ps1 "$(cygpath -w "$home/mareader.exe")"
   smoke nsis "$home/mareader.exe"
   check "NSIS uninstalls silently" "$home/uninstall.exe" /S
   # The uninstaller hands off to a copy of itself; wait for it.

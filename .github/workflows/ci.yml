@@ -75,6 +75,10 @@ jobs:
       - if: runner.os == 'macOS'
         run: cargo clippy -p mareader --no-default-features -- -D warnings
       - run: cargo build -p mareader
+      # Explorer and shortcuts read the icon from the exe (build.rs).
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/exe-icons.ps1 target/debug/mareader.exe
 
   commits:
     name: Build / each commit

@@ -24,6 +24,17 @@ whose edges draw an M, one line highlighted. The `.icns` keeps Apple's
 824-on-1024 grid; the PNGs and `.ico` crop to the tile, as Windows and
 Linux draw icons edge to edge. Each size is rendered from the SVG.
 
+**Windows reads the icon from the `.exe`.** Explorer, the Start menu and
+desktop shortcuts, a pinned taskbar button and Installed apps all take it
+from the executable's resources; the window's icon only exists while it
+runs. Up to v0.0.3 the exe carried none, so everything but the running
+window showed Windows' generic icon, and NSIS shortcuts, which point at
+the exe, did too. `apps/mareader/build.rs` now turns `icon.ico` into a
+resource file in plain Rust, every size in it, and the MSVC linker builds
+it in; no resource compiler is involved. The NSIS setup program shows the
+icon too (`installer-icon`). `tools/exe-icons.ps1` fails when an exe has
+no icon, run by CI on each Windows build and on the installed copy.
+
 ## How a file arrives
 
 | Where | How it arrives | Code |
