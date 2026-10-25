@@ -899,6 +899,13 @@ pub(crate) mod tests {
         live_saying(e, what, english);
     }
 
+    /// Times `synth` loading `voice` from nothing, as the first word does.
+    pub(crate) fn time_load(mut synth: impl Synth, voice: &str, what: &str) {
+        let start = std::time::Instant::now();
+        assert_eq!(synth.load(voice), Ok(()));
+        println!("{what}: loaded from nothing in {:?}", start.elapsed());
+    }
+
     /// As `live`, saying `first` then making `next` ahead.
     pub(crate) fn live_saying(mut e: Engine, what: &str, (first, next): (&str, &str)) {
         let start = std::time::Instant::now();

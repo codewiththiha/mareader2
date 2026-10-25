@@ -17,6 +17,7 @@ pub(crate) use mareader_kokoro::SPEEDS;
 const LEAD: usize = 32;
 
 /// Where a Kokoro build is kept, and its name.
+#[derive(Clone)]
 pub(crate) struct Source {
     pub folder: PathBuf,
     pub weights: PathBuf,
@@ -185,29 +186,42 @@ mod tests {
             return;
         };
         let dir = PathBuf::from(dir);
-        let english = engine(&dir, ("af_heart", "Heart", "en-US"));
-        crate::local::tests::live(english, "kokoro engine");
+        let english = ("af_heart", "Heart", "en-US");
+        time_load(&dir, english.0, "kokoro engine");
+        crate::local::tests::live(engine(&dir, english), "kokoro engine");
         // Chinese reads from the dictionaries its voices download.
         if dir.join("hanzi").is_dir() {
+            let what = "kokoro engine in Chinese";
+            time_load(&dir, "zf_xiaobei", what);
             let chinese = engine(&dir, ("zf_xiaobei", "Xiaobei", "zh-CN"));
             let lines = (
                 "我们今天去北京天安门，看看那里的风景。",
                 "然后我们一起回家吃饭。",
             );
-            crate::local::tests::live_saying(chinese, "kokoro engine in Chinese", lines);
+            crate::local::tests::live_saying(chinese, what, lines);
         }
+    }
+
+    /// The full build in `dir`, as the engine tests read it.
+    fn source(dir: &Path) -> Source {
+        Source {
+            weights: dir.join(mareader_kokoro::WEIGHTS),
+            folder: dir.to_owned(),
+            name: "Kokoro (Full)".into(),
+        }
+    }
+
+    /// Times a fresh Kokoro of its own loading `voice`.
+    fn time_load(dir: &Path, voice: &str, what: &str) {
+        let synth = Kokoro::new(source(dir), Studio::default());
+        crate::local::tests::time_load(synth, voice, what);
     }
 
     /// Kokoro's engine over the model in `dir`, with only `voice`.
     fn engine(dir: &Path, (id, voice, language): (&str, &str, &str)) -> Engine {
-        let name: Arc<str> = "Kokoro (Full)".into();
-        let source = Source {
-            weights: dir.join(mareader_kokoro::WEIGHTS),
-            folder: dir.to_owned(),
-            name: Arc::clone(&name),
-        };
+        let source = source(dir);
         let setup = Setup {
-            name,
+            name: Arc::clone(&source.name),
             voices: vec![Voice {
                 id: id.into(),
                 name: voice.into(),

@@ -23,6 +23,7 @@ const CLAUSE: f64 = 0.12;
 const FLOOR: f32 = 0.01;
 
 /// Where a voice's files are, and the name it shows as when loaded.
+#[derive(Clone)]
 pub(crate) struct Files {
     pub weights: PathBuf,
     pub settings: PathBuf,
@@ -306,6 +307,9 @@ mod tests {
             speeds: SPEEDS,
             knobs: model.knobs,
         };
+        let first = (setup.voices.first()).map_or("", |v| v.id.as_str());
+        let alone = Piper::new(dir.clone(), files.clone(), Studio::default());
+        crate::local::tests::time_load(alone, first, &what);
         let studio = Studio::default();
         let synth = Piper::new(dir, files, studio.clone());
         match Engine::open(synth, setup, studio, Arc::new(|| {})) {

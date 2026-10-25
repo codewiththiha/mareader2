@@ -19,6 +19,7 @@ pub(crate) const SPEEDS: RangeInclusive<f32> = 0.5..=3.0;
 const CLAUSE: f64 = 0.12;
 
 /// Where a Kitten build is kept, and how it speaks.
+#[derive(Clone)]
 pub(crate) struct Source {
     /// Where the G2P's files are.
     pub folder: PathBuf,
@@ -212,6 +213,8 @@ mod tests {
             speeds: SPEEDS,
             knobs: &[],
         };
+        let alone = Kitten::new(source.clone(), Studio::default());
+        crate::local::tests::time_load(alone, "expr-voice-2-f", "kitten engine");
         let studio = Studio::default();
         let synth = Kitten::new(source, studio.clone());
         match Engine::open(synth, setup, studio, Arc::new(|| {})) {
