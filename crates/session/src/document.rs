@@ -1,5 +1,5 @@
 //! Either format behind one set of calls, so views never ask which.
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_epub::{Book, Destination, Format, Inserts, MAX_PICTURE_FILE};
@@ -455,10 +455,31 @@ fn draw(book: &Book, page: usize, scale: f32, region: [u32; 4]) -> Result<Raster
     })
 }
 
-/// A picture beside a Markdown file, if it is small enough to read.
+/// A small enough picture a note names, else a copy's stand-in for it.
 pub(crate) fn read_picture(folder: &Path, path: &str) -> Option<Vec<u8>> {
-    let path = folder.join(path);
-    let len = std::fs::metadata(&path).ok()?.len();
-    let fits = usize::try_from(len).is_ok_and(|len| len <= MAX_PICTURE_FILE);
-    fits.then(|| std::fs::read(&path).ok()).flatten()
+    let read = |path: PathBuf| {
+        let len = std::fs::metadata(&path).ok()?.len();
+        let fits = usize::try_from(len).is_ok_and(|len| len <= MAX_PICTURE_FILE);
+        fits.then(|| std::fs::read(&path).ok()).flatten()
+    };
+    read(folder.join(path)).or_else(|| read(folder.join(stand_in(path)?)))
+}
+
+/// Where a copied note keeps `path`: `../a.png` as `^/a.png`.
+pub(crate) fn stand_in(path: &str) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for part in Path::new(path).components() {
+        match part {
+            Component::Normal(n) => out.push(n),
+            Component::CurDir => {}
+            Component::ParentDir => out.push("^"),
+            Component::RootDir => out.push("^root"),
+            Component::Prefix(p) => {
+                let drive = p.as_os_str().to_string_lossy();
+                let safe: String = drive.chars().filter(char::is_ascii_alphanumeric).collect();
+                out.push(format!("^{safe}"));
+            }
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
 }

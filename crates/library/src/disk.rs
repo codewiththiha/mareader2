@@ -365,15 +365,17 @@ pub fn copy_in(store: &Path, file: &Path, content: ContentId) -> io::Result<(Pat
     Ok((dest, stamp))
 }
 
-/// Copies a note's `pictures` from beside `from` to beside its `copy`.
-pub fn copy_beside(copy: &Path, from: &Path, pictures: &[PathBuf]) {
-    let (Some(dir), Some(source)) = (copy.parent(), from.parent()) else {
+/// Copies each picture to where the `copy` keeps it, inside its folder.
+pub fn copy_beside(copy: &Path, pictures: &[(PathBuf, PathBuf)]) {
+    let Some(dir) = copy.parent() else {
         return;
     };
-    let downward = |p: &&PathBuf| p.components().all(|c| matches!(c, Component::Normal(_)));
-    for picture in pictures.iter().filter(downward) {
-        let (src, dest) = (source.join(picture), dir.join(picture));
-        let Ok(size) = fs::metadata(&src).map(|m| m.len()) else {
+    let inside = |(_, kept): &&(PathBuf, PathBuf)| {
+        kept.components().all(|c| matches!(c, Component::Normal(_)))
+    };
+    for (src, kept) in pictures.iter().filter(inside) {
+        let dest = dir.join(kept);
+        let Ok(size) = fs::metadata(src).map(|m| m.len()) else {
             continue;
         };
         if fs::metadata(&dest).is_ok_and(|m| m.len() == size) {
@@ -383,7 +385,7 @@ pub fn copy_beside(copy: &Path, from: &Path, pictures: &[PathBuf]) {
         let mut part = dest.clone().into_os_string();
         part.push(".part");
         let part = PathBuf::from(part);
-        if fs::copy(&src, &part)
+        if fs::copy(src, &part)
             .and_then(|_| fs::rename(&part, &dest))
             .is_err()
         {

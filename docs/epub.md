@@ -363,7 +363,8 @@ packed. Legacy encodings are guessed.
     come from front matter too; YAML or TOML, as mareader read it.
   - **Pictures.** Local pictures (relative or absolute paths, PNG, JPEG,
     GIF or WebP) are read from beside the file and packed: 32 MiB each,
-    256 MiB in all. Web pictures aren't fetched; their alt text shows.
+    256 MiB in all. An `<img src>` in raw HTML, common in READMEs for its
+    width, is packed the same way. Web pictures aren't fetched; their alt text shows.
   - **Shown as text.** Task boxes are drawn as □ and ■, which every
     bundled face has, in place of the bullet, as on GitHub: the XHTML
     reader now honours `list-style: none`, which EPUBs use too. Raw HTML passes through to the hostile-proof XHTML

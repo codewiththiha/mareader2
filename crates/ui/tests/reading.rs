@@ -538,21 +538,56 @@ fn a_note_saved_elsewhere_reloads_where_it_is_read() -> Result<(), String> {
     assert!(first_page(&h).contains("old words"), "{}", first_page(&h));
     let pane = h.state().active_pane();
     let before = h.state().documents().reading(pane).map(|r| r.doc);
-    // The watch takes its first look before the save.
-    std::thread::sleep(mareader_ui::watch::EVERY * 2);
+    // Saved at once: the watch saw the file as it opened, not a second on.
+    std::thread::sleep(std::time::Duration::from_millis(150));
     let saved = "# Trip\n\nThe new words, saved in another app.\n";
     std::fs::write(&file.0, saved).map_err(|e| e.to_string())?;
-    for _ in 0..60 {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        h.run_steps(2);
-        if first_page(&h).contains("new words") {
-            break;
-        }
-    }
+    settle(&mut h, |h| first_page(h).contains("new words"));
     assert!(first_page(&h).contains("new words"), "{}", first_page(&h));
     let after = h.state().documents().reading(pane).map(|r| r.doc);
     assert_ne!(before, after);
     assert_eq!(h.state().documents().stats().0, 1, "the old one closed");
+    Ok(())
+}
+
+/// Runs frames in real time, for the file watch, until `done` or 6 s.
+fn settle(
+    h: &mut Harness<'static, MareaderApp>,
+    done: impl Fn(&Harness<'static, MareaderApp>) -> bool,
+) {
+    for _ in 0..60 {
+        if done(h) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        h.run_steps(2);
+    }
+}
+
+#[test]
+fn a_pdf_saved_elsewhere_reloads_on_its_page_and_waits_out_a_bad_save() -> Result<(), String> {
+    let file = File::sample(6, "live-pdf")?;
+    let mut app = MareaderApp::default();
+    app.queue(Command::Open(OpenRequest::path(file.0.clone())));
+    let mut h = launched(app);
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::GoTo { pane, page: 3 });
+    h.run_steps(30);
+    assert_eq!(h.state().documents().current(pane), Some(3));
+    let doc =
+        |h: &Harness<'static, MareaderApp>| h.state().documents().reading(pane).map(|r| r.doc);
+    let first = doc(&h);
+    // Half written: it can't open, so the old one stays.
+    std::fs::write(&file.0, b"%PDF-1.7 half").map_err(|e| e.to_string())?;
+    settle(&mut h, |_| false);
+    assert_eq!(doc(&h), first, "the old one stays");
+    assert_eq!(h.state().title(), "Read Last Time");
+    let pdf = mareader_pdf::sample::pdf(6, "Saved Again");
+    std::fs::write(&file.0, pdf).map_err(|e| e.to_string())?;
+    settle(&mut h, |h| h.state().title() == "Saved Again");
+    assert_eq!(h.state().title(), "Saved Again");
+    assert_ne!(doc(&h), first);
+    assert_eq!(h.state().documents().current(pane), Some(3), "on its page");
     Ok(())
 }
 

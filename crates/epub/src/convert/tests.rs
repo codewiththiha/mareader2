@@ -440,6 +440,28 @@ fn local_pictures_are_packed_and_remote_ones_keep_their_alt_text() {
 }
 
 #[test]
+fn pictures_in_raw_html_are_packed_too() {
+    let mut png = Vec::new();
+    let img = image::RgbImage::from_pixel(40, 30, image::Rgb([20, 40, 200]));
+    img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+    let asked = std::cell::RefCell::new(Vec::new());
+    let read = |path: &str| {
+        asked.borrow_mut().push(path.to_owned());
+        path.starts_with("img/").then(|| png.clone())
+    };
+    let md = "# Raw\n\n<p align=\"center\"><IMG width=\"200\" SRC='img/logo.png' alt=\"logo\"></p>\n\n\
+              Inline <img data-src=\"no.png\" src=img/b.png /> and <img srcset=\"x.png 2x\">.\n";
+    let d = markdown::draft(md, Name::default(), &read);
+    assert_eq!(d.pictures.len(), 2);
+    assert_eq!(*asked.borrow(), ["img/logo.png", "img/b.png"]);
+    let epub = convert(md.as_bytes(), Format::Markdown, Some("r.md"), &read).unwrap();
+    let book = Book::open(Arc::new(epub), &Typography::default()).unwrap();
+    let pictures: usize = (0..book.page_count()).map(|p| book.pictures(p).len()).sum();
+    assert_eq!(pictures, 2);
+}
+
+#[test]
 fn markdown_keeps_what_epubs_show_tables_code_and_lists() {
     let md = "# T\n\n| Cargo | Boats |\n|---|---|\n| Rice | 12 |\n\n```rust\nlet boats = 12;\n```\n\n\
               1. one\n2. two\n\nTerm\n: its definition\n\n~~gone~~ and *kept* <b>raw</b>\n";

@@ -145,11 +145,11 @@ fn scan(events: &[Event<'_>], d: &mut Draft, pictures: Pictures<'_>) -> Scan {
                 note.chapter = Some(chapter);
             }
             Event::Start(Tag::Image { dest_url, .. }) => {
-                let dest = dest_url.to_string();
-                if !s.pictures.contains_key(&dest)
-                    && let Some(href) = picture(&dest, d, pictures, &mut budget)
-                {
-                    s.pictures.insert(dest, href);
+                pack(dest_url, &mut s, d, pictures, &mut budget);
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                for (_, dest) in img_sources(html) {
+                    pack(dest, &mut s, d, pictures, &mut budget);
                 }
             }
             _ => {}
@@ -161,6 +161,89 @@ fn scan(events: &[Event<'_>], d: &mut Draft, pictures: Pictures<'_>) -> Scan {
         started |= !in_matter && !matter;
     }
     s
+}
+
+fn pack(dest: &str, s: &mut Scan, d: &mut Draft, read: Pictures<'_>, budget: &mut usize) {
+    if !s.pictures.contains_key(dest)
+        && let Some(href) = picture(dest, d, read, budget)
+    {
+        s.pictures.insert(dest.to_owned(), href);
+    }
+}
+
+/// Where each `<img src>` in raw HTML says, and the bytes saying it.
+fn img_sources(html: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+    let lower = html.to_ascii_lowercase();
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = lower.get(from..).and_then(|rest| rest.find("<img")) {
+        let start = from + at + 4;
+        let end = lower
+            .get(start..)
+            .and_then(|t| t.find('>'))
+            .map_or(lower.len(), |e| start + e);
+        from = end;
+        let Some(tag) = lower.get(start..end) else {
+            break;
+        };
+        let mut search = 0;
+        while let Some(i) = tag.get(search..).and_then(|t| t.find("src")) {
+            let name = start + search + i;
+            search += i + 3;
+            // `src` alone, not `srcset` or `data-src`.
+            let before = lower.get(..name).and_then(|b| b.chars().last());
+            if !before.is_some_and(char::is_whitespace) {
+                continue;
+            }
+            let Some(rest) = html.get(name + 3..end) else {
+                break;
+            };
+            let Some(value) = rest.trim_start().strip_prefix('=') else {
+                continue;
+            };
+            let value = value.trim_start();
+            let skip = end - name - 3 - value.len();
+            let (open, quote) = match value.chars().next() {
+                Some(q @ ('"' | '\'')) => (1, Some(q)),
+                _ => (0, None),
+            };
+            let body = value.get(open..).unwrap_or_default();
+            let len = match quote {
+                Some(q) => body.find(q),
+                None => body.find(char::is_whitespace),
+            }
+            .unwrap_or(body.len());
+            let at = name + 3 + skip + open;
+            if let Some(dest) = html.get(at..at + len) {
+                found.push((at..at + len, dest));
+            }
+            break;
+        }
+    }
+    found
+}
+
+/// Raw HTML with each packed `<img src>` pointing into the book.
+fn repoint<'a>(html: CowStr<'a>, s: &Scan) -> CowStr<'a> {
+    let sources = img_sources(&html);
+    if !sources
+        .iter()
+        .any(|(_, dest)| s.pictures.contains_key(*dest))
+    {
+        return html;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut from = 0;
+    for (at, dest) in sources {
+        if let (Some(href), Some(before)) = (s.pictures.get(dest), html.get(from..at.start)) {
+            out.push_str(before);
+            out.push_str("../");
+            out.push_str(href);
+            from = at.end;
+        }
+    }
+    out.push_str(html.get(from..).unwrap_or_default());
+    out.into()
 }
 
 /// Reads a local picture into the book; its path there, or none.
@@ -356,6 +439,8 @@ fn write<'a>(events: Vec<Event<'a>>, s: &Scan) -> Vec<String> {
             Event::End(TagEnd::BlockQuote(Some(_))) => {
                 out.push(Event::Html("</blockquote>\n".into()));
             }
+            Event::Html(html) => out.push(Event::Html(repoint(html, s))),
+            Event::InlineHtml(html) => out.push(Event::InlineHtml(repoint(html, s))),
             e => out.push(e),
         }
         if let Some(current) = chapters.last_mut() {

@@ -30,7 +30,7 @@ use crate::texts::TextLayers;
 use crate::theme::{self, Tokens};
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
-use crate::watch::Watch;
+use crate::watch::{Reloads, Watch};
 use crate::zoom::{ZoomCommand, ZoomState};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
@@ -215,8 +215,10 @@ pub struct Documents {
     said: Option<(PaneId, Anchor)>,
     /// Open files, looked at for saves made elsewhere.
     watch: Option<Watch>,
-    /// Files changed on disk, opening again: for which document.
-    reloads: Vec<(Ticket, DocId)>,
+    /// Files changed on disk, opening again.
+    reloads: Reloads<Ticket, DocId>,
+    /// The documents the watch was last given, in pane order.
+    followed: Vec<DocId>,
 }
 
 /// Seconds without input or work before caches shrink to the pages in view.
@@ -274,7 +276,8 @@ impl Default for Documents {
             rested: true,
             said: None,
             watch: None,
-            reloads: Vec::new(),
+            reloads: Reloads::default(),
+            followed: Vec::new(),
         }
     }
 }
@@ -716,15 +719,11 @@ impl Documents {
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
                 Event::Retypeset { old, new, .. } => retyped.push((old, new)),
-                Event::Opened { ticket, result }
-                    if self.reloads.iter().any(|(t, _)| *t == ticket) =>
-                {
-                    let old = self.reloads.iter().find(|(t, _)| *t == ticket);
-                    // Unreadable mid-save: the next change tries again.
-                    if let (Some(&(_, old)), Ok(new)) = (old, result) {
-                        reloaded.push((old, new));
+                Event::Opened { ticket, result } if self.reloads.has(&ticket) => {
+                    if let Some((old, path, again)) = self.reloads.finish(&ticket) {
+                        // Unreadable mid-save: the old one stays.
+                        reloaded.push((old, result.ok(), path, again));
                     }
-                    self.reloads.retain(|(t, _)| *t != ticket);
                 }
                 Event::Opened { ticket, result } => {
                     let waiting = self.panes.iter().find_map(|(id, c)| match c {
@@ -768,8 +767,14 @@ impl Documents {
         for (old, new) in retyped {
             self.retyped(old, new);
         }
-        for (old, new) in reloaded {
-            self.reloaded(old, new);
+        for (old, new, path, again) in reloaded {
+            if let Some(new) = new {
+                self.reloaded(old, new);
+            }
+            // Saved again while it opened: what it read may be older.
+            if again {
+                self.reload(&path);
+            }
         }
         self.follow_files();
     }
@@ -779,11 +784,22 @@ impl Documents {
         let (Some(session), Some(watch)) = (&self.session, &mut self.watch) else {
             return;
         };
-        let files = self.panes.values().filter_map(|c| match c {
-            Content::Pdf(v) => session.get(v.doc)?.path.clone(),
-            Content::Opening { .. } => None,
-        });
-        watch.follow(files.collect());
+        let shown = || {
+            self.panes.values().filter_map(|c| match c {
+                Content::Pdf(v) => Some(v.doc),
+                Content::Opening { .. } => None,
+            })
+        };
+        // Most frames show what the last did: nothing to hand over.
+        if !shown().eq(self.followed.iter().copied()) {
+            self.followed = shown().collect();
+            let files = self.followed.iter();
+            watch.follow(
+                files
+                    .filter_map(|d| session.get(*d)?.path.clone())
+                    .collect(),
+            );
+        }
         for path in watch.changed() {
             self.reload(&path);
         }
@@ -808,7 +824,7 @@ impl Documents {
         docs.sort();
         docs.dedup();
         for doc in docs {
-            if self.reloads.iter().any(|(_, d)| *d == doc) {
+            if !self.reloads.should_start(doc) {
                 continue;
             }
             let Some(entry) = session.get(doc) else {
@@ -817,7 +833,7 @@ impl Documents {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
             let typo = Arc::clone(&entry.typo);
             let ticket = session.open(Source::Path(path.to_path_buf()), name, typo);
-            self.reloads.push((ticket, doc));
+            self.reloads.started(ticket, doc, path.to_path_buf());
         }
     }
 

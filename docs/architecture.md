@@ -197,7 +197,10 @@ has a parley equivalent.
   before it is uploaded.
 - **File watch** (`crates/ui/src/watch.rs`). One thread looks at the open
   files' size and modified time every second, and wakes the window only once
-  a change has held for two looks; the window stays idle meanwhile. The file
+  a change has held for two looks; the window stays idle meanwhile. A file
+  is first seen the moment it is shown, so a save right after it opens
+  counts; with nothing open the thread sleeps until told. A save while the
+  file is opening again opens it once more after. The file
   opens again on the workers and replaces the old document when it is ready:
   a book lands on its reading place, a PDF on its page and scroll. A file
   unreadable mid-save keeps the old one until the next change.

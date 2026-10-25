@@ -147,10 +147,12 @@ reaches old books too.
   (`docs/architecture.md` § Threads and resources). Store copies never
   change, so only files read in place ever do.
 - **Store copies** are the source file in `files/<content>/<name>`. A
-  Markdown file's local pictures come with it, at the same relative paths
-  (`disk::copy_beside`), so the copy shows them as the original does.
-  Only paths inside the file's folder are copied; `../` and absolute ones
-  still resolve from where they point. Deleting the copy deletes its folder,
+  Markdown file's local pictures come with it (`disk::copy_beside`), so the
+  copy shows them even once the original is gone. Paths inside the file's
+  folder keep their place; the rest are kept inside it under a stand-in
+  (`../a.png` as `^/a.png`, `/x/b.png` as `^root/x/b.png`), which the
+  copy looks for when the real path isn't there. The copied note itself is
+  untouched, so its content id holds. Deleting the copy deletes its folder,
   pictures and all.
 - **Titles and covers** convert the file too: `describe` without its
   pictures, `cover` with them.

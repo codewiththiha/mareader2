@@ -1,13 +1,13 @@
 //! A book's cover art and names for the library, read off the frame.
 use std::cell::RefCell;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_epub::Format;
 
 use mareader_pdf::Raster;
 
-use crate::document::read_picture;
+use crate::document::{read_picture, stand_in};
 
 /// A PDF's first page or a book's picture, at most `side` long.
 pub fn cover(path: &Path, side: u32) -> Option<Raster> {
@@ -53,8 +53,8 @@ pub fn describe(path: &Path) -> (Option<String>, Option<String>) {
     read().unwrap_or_default()
 }
 
-/// The pictures a Markdown file reads from its own folder, relative to it.
-pub fn pictures(path: &Path) -> Vec<PathBuf> {
+/// A Markdown file's pictures, each with where a copy of it keeps them.
+pub fn pictures(path: &Path) -> Vec<(PathBuf, PathBuf)> {
     let (Some(folder), Some(name)) = (path.parent(), path.file_name()) else {
         return Vec::new();
     };
@@ -63,10 +63,12 @@ pub fn pictures(path: &Path) -> Vec<PathBuf> {
     };
     let seen = RefCell::new(Vec::new());
     let read = |p: &str| {
+        let file = folder.join(p);
         let bytes = read_picture(folder, p)?;
-        // Absolute or upward paths still resolve from wherever the copy is.
-        if let Some(inside) = inside(p) {
-            seen.borrow_mut().push(inside);
+        if file.is_file()
+            && let Some(kept) = stand_in(p)
+        {
+            seen.borrow_mut().push((file, kept));
         }
         Some(bytes)
     };
@@ -76,19 +78,6 @@ pub fn pictures(path: &Path) -> Vec<PathBuf> {
     seen.sort();
     seen.dedup();
     seen
-}
-
-/// `p` as a path under its folder: `./a.png` and `img/b.png`, not `../c`.
-fn inside(p: &str) -> Option<PathBuf> {
-    let mut out = PathBuf::new();
-    for part in Path::new(p).components() {
-        match part {
-            Component::Normal(n) => out.push(n),
-            Component::CurDir => {}
-            _ => return None,
-        }
-    }
-    (!out.as_os_str().is_empty()).then_some(out)
 }
 
 fn first_page(bytes: Arc<Vec<u8>>, side: u32) -> Option<Raster> {
@@ -133,21 +122,32 @@ mod tests {
     }
 
     #[test]
-    fn a_note_lists_the_pictures_beside_it_by_their_paths() {
+    fn a_note_lists_its_pictures_and_where_a_copy_keeps_them() {
         let dir = tempfile::tempdir().ok();
         let dir = dir.as_ref().map_or(Path::new("."), |d| d.path());
         std::fs::create_dir_all(dir.join("notes/img")).ok();
         write(dir, "notes/img/a.png", b"a");
         write(dir, "notes/c.png", b"c");
         write(dir, "up.png", b"up");
-        let note = write(
-            dir,
-            "notes/n.md",
-            b"![a](img/a.png) ![c](./c.png) ![u](../up.png) ![w](https://x.org/w.png) ![g](gone.png) ![again](img/a.png)",
+        let far = write(dir, "far.png", b"far");
+        let text = format!(
+            "![a](img/a.png) ![c](./c.png) ![u](../up.png) ![f]({}) \
+             ![w](https://x.org/w.png) ![g](gone.png) ![again](img/a.png) ![d](img)",
+            far.display()
         );
-        let found = pictures(&note);
-        assert_eq!(found, [PathBuf::from("c.png"), PathBuf::from("img/a.png")]);
+        let note = write(dir, "notes/n.md", text.as_bytes());
+        let mut kept: Vec<PathBuf> = pictures(&note).into_iter().map(|(_, k)| k).collect();
+        kept.sort();
+        let roots = kept.iter().filter(|k| k.starts_with("^root")).count();
+        kept.retain(|k| !k.starts_with("^root"));
+        assert_eq!(kept, ["^/up.png", "c.png", "img/a.png"].map(PathBuf::from));
+        assert_eq!(roots, 1, "the absolute one");
         assert!(pictures(&dir.join("missing.md")).is_empty());
+        // A copy finds an upward picture where it keeps it.
+        std::fs::create_dir_all(dir.join("store/^")).ok();
+        write(dir, "store/^/kept.png", b"kept");
+        let found = read_picture(&dir.join("store"), "../kept.png");
+        assert_eq!(found.as_deref(), Some(&b"kept"[..]));
     }
 
     #[test]

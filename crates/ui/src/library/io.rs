@@ -382,7 +382,7 @@ fn copy(job: CopyIn, post: &mut dyn FnMut(News)) -> Copies {
                 // Its pictures come along, or the copy would show alt text.
                 if file.format == Format::Markdown {
                     let pictures = mareader_session::pictures(&file.path);
-                    disk::copy_beside(&path, &file.path, &pictures);
+                    disk::copy_beside(&path, &pictures);
                 }
                 let measure = Measure { stamp, content };
                 out.copies.insert(file.path, Copied { path, measure });

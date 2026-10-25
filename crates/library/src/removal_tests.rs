@@ -231,13 +231,20 @@ fn a_markdown_copy_brings_its_pictures_and_leaves_with_them() {
     std::fs::write(dir.path().join("up.png"), b"png up").unwrap();
     let content = disk::measure(&file, Format::Markdown).unwrap().content;
     let (copy, _) = disk::copy_in(&folder.store(), &file, content).unwrap();
-    let pictures = ["img/a.png", "../up.png", "gone.png"].map(PathBuf::from);
-    disk::copy_beside(&copy, &file, &pictures);
+    let pair = |src: PathBuf, kept: &str| (src, PathBuf::from(kept));
+    let pictures = [
+        pair(notes.join("img/a.png"), "img/a.png"),
+        pair(dir.path().join("up.png"), "^/up.png"),
+        pair(notes.join("gone.png"), "gone.png"),
+        pair(dir.path().join("up.png"), "../escape.png"),
+    ];
+    disk::copy_beside(&copy, &pictures);
     let beside = copy.parent().unwrap();
     assert_eq!(std::fs::read(beside.join("img/a.png")).unwrap(), b"png a");
-    // Nothing is written outside the copy's own folder.
-    assert!(!beside.parent().unwrap().join("up.png").exists());
+    assert_eq!(std::fs::read(beside.join("^/up.png")).unwrap(), b"png up");
     assert!(!beside.join("gone.png").exists());
+    // Nothing is written outside the copy's own folder.
+    assert!(!beside.parent().unwrap().join("escape.png").exists());
     assert_eq!(
         disk::delete_copies(&folder.store(), std::slice::from_ref(&copy)),
         1
