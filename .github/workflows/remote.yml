@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi or system
+        description: shots, web, memory, cache, kokoro, piper, kitten, phonon, ipa, hanzi or system
         required: true
         type: choice
-        options: [shots, web, memory, cache, kokoro, piper, kitten, ipa, hanzi, system]
+        options: [shots, web, memory, cache, kokoro, piper, kitten, phonon, ipa, hanzi, system]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -512,6 +512,80 @@ jobs:
         if: always()
         with:
           name: kitten
+          path: |
+            out/summary.md
+            out/cases.json
+            out/wav/
+          retention-days: 7
+
+  phonon:
+    name: Remote / phonon
+    if: inputs.task == 'phonon'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: phonon
+          workspaces: tools/phonon-parity
+      # Phonon 31M at a pinned revision and four of its English voices.
+      - uses: actions/cache@v4
+        with:
+          path: phonon
+          key: phonon-31m-92741c5-voices-0ee1720
+      - name: Model
+        run: |
+          hf=https://huggingface.co/gradium
+          rev=92741c5b07d085ff840e26fea8ce43110b87852f
+          voices=0ee17205f254b5abc43b266c8a0f215565c352f7
+          get() { [ -s "$2" ] || curl -sSfL --retry 3 -o "$2" "$1"; }
+          mkdir -p phonon/model phonon/voices
+          for f in config.json tokenizer.json default-voice.safetensors model.q8.gguf model.safetensors; do
+            get "$hf/phonon-31m-en/resolve/$rev/$f" "phonon/model/$f"
+          done
+          for v in LMDIYE0Oa377Qh6Z 6PWnV0Nq4wu7RVBT NbpkqMVS3CJeq2j8 X6NceqF285Gr04gb; do
+            get "$hf/phonon-voices/resolve/$voices/voices/$v.safetensors" "phonon/voices/$v.safetensors"
+          done
+          sha256sum -c <<'SUMS'
+          b5d0f88353638370d94035b7d73d7d6577c0554d78f8d7ecfd40490aae39ae85  phonon/model/config.json
+          691a00068fa7b989f2f3e5ae5daa2d1a5bb319f2d5360deafcfb19a8bb6e7936  phonon/model/tokenizer.json
+          dc537478eaadc1a5257fcda2e3501ab81e14c111a5d95a5838f350db2afd0f1a  phonon/model/default-voice.safetensors
+          a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae  phonon/model/model.q8.gguf
+          8a04cf833cfe69b67c2ec968b2d31244655b9accc84ade9c0ebcc176f2074607  phonon/model/model.safetensors
+          45c582673cb20edb04ddcca2b5a8865ddfb0a82599efadb269021e87d20fbdd4  phonon/voices/LMDIYE0Oa377Qh6Z.safetensors
+          56494ee67d533ad227ff0dfd0b1c13ff5aa91f1ad6e596e66c2986ba3005e844  phonon/voices/6PWnV0Nq4wu7RVBT.safetensors
+          97c7f8c253413574406ab80dd23f49c3ebb2517163b00a9bf86b9c4cf43e7e23  phonon/voices/NbpkqMVS3CJeq2j8.safetensors
+          4de75497fff3030168e8aa6dca23ffeb332b1bc8c25d0bf3507ceadac953ae9c  phonon/voices/X6NceqF285Gr04gb.safetensors
+          SUMS
+      - name: Compare
+        run: |
+          set -o pipefail
+          cargo build -q --release --manifest-path tools/phonon-parity/Cargo.toml
+          bin=tools/phonon-parity/target/release/phonon-parity
+          "$bin" prepare phonon/model out
+          # Gradium's runtime and tokenizers run here only, never in the app.
+          python3 -m venv .ref && .ref/bin/pip install -q ptts==0.4.1 tokenizers==0.23.3 numpy
+          .ref/bin/python tools/phonon-parity/reference.py phonon/model phonon/voices out
+          status=0
+          "$bin" compare phonon/model phonon/voices out || status=$?
+          # Speeds only compare on like hardware; runners vary.
+          cpu=$(lscpu | sed -n 's/^Model name: *//p')
+          printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
+          exit "$status"
+      - name: Summary
+        if: always()
+        run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phonon
           path: |
             out/summary.md
             out/cases.json
