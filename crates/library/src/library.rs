@@ -199,8 +199,11 @@ impl Library {
         let content = opened.measure.content;
         let original = |b: &&Book| b.content == content && b.shared();
         let by_content = self.books().find(original).map(|b| b.id);
+        // The book at the file wins while its bytes match: its own copy.
+        let same = |id: &BookId| self.book(*id).is_some_and(|b| b.content == content);
+        let here = self.book_at(&opened.path).filter(same);
         // A file edited in place is the same book with new content.
-        let id = by_content.or_else(|| self.book_at(&opened.path));
+        let id = here.or(by_content).or_else(|| self.book_at(&opened.path));
         let twin_of = |t: &BookId| {
             self.book(*t)
                 .is_some_and(|b| id.is_some() && b.twin_of.value == id)
@@ -221,8 +224,16 @@ impl Library {
             }
             None => self.add(&opened, wall_ms, at, true),
         };
-        let origin = self.origin_of(&opened.path);
-        self.place(id, &opened.path, opened.measure.stamp, origin);
+        // Opening the library's copy leaves it the library's copy.
+        let stored = (self.books.get(&id).map(|b| &b.locations))
+            .and_then(|ls| ls.iter().find(|l| l.path == opened.path))
+            .filter(|l| l.origin == Origin::Store)
+            .map(|l| l.from.clone());
+        let (origin, from) = match stored {
+            Some(from) => (Origin::Store, from),
+            None => (self.origin_of(&opened.path), None),
+        };
+        self.place_from(id, &opened.path, opened.measure.stamp, origin, from);
         self.mirror(id);
         if let Some(book) = reader.and_then(|t| self.books.get_mut(&t)) {
             book.opened = Field::new(wall_ms, at);
@@ -375,6 +386,26 @@ impl Library {
             }
         }
         self.bump();
+    }
+
+    /// Copies in `store` that an open marked as opened, the library's again.
+    pub fn reclaim_store(&mut self, store: &Path) -> usize {
+        // Only `store/<content>/<name>`, the shape copies are made in.
+        let stray = |l: &Location| {
+            l.origin == Origin::Opened && l.path.parent().and_then(Path::parent) == Some(store)
+        };
+        let mut fixed = 0;
+        for book in (self.books).values_mut_where(|b| b.locations.iter().any(stray)) {
+            for location in book.locations.iter_mut().filter(|l| stray(l)) {
+                location.origin = Origin::Store;
+                fixed += 1;
+            }
+        }
+        if fixed > 0 {
+            self.mirror_changed();
+            self.bump();
+        }
+        fixed
     }
 
     /// Store copies freed by removals and replacements, to delete now.

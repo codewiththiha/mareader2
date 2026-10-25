@@ -107,6 +107,8 @@ mod shelves_tests;
 #[cfg(test)]
 mod store_tests;
 #[cfg(test)]
+mod stored_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod words_tests;

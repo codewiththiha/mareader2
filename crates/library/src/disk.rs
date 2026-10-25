@@ -147,6 +147,9 @@ impl Folder {
             !newer
         });
         self.adopt_states(&mut library, store.as_mut(), &mut notes);
+        // Opening a copy once marked it opened by hand; it's ours again.
+        let files = fs::canonicalize(self.store()).unwrap_or_else(|_| self.store());
+        library.reclaim_store(&files);
         library.check_present(Path::is_file);
         Loaded {
             library,

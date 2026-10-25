@@ -597,6 +597,30 @@ mod tests {
     }
 
     #[test]
+    fn an_imported_book_once_opened_can_still_be_organized() {
+        let mut state = library(1);
+        let first = ids(&state).first().copied();
+        let book = first.and_then(|id| state.model.book(id));
+        let opened = book.and_then(|b| {
+            Some(mareader_library::Opened {
+                path: b.path()?.to_path_buf(),
+                measure: mareader_library::Measure {
+                    content: b.content,
+                    stamp: Default::default(),
+                },
+                format: b.format,
+                title: b.title.value.clone(),
+                author: None,
+            })
+        });
+        let opened = opened.unwrap_or_else(|| panic!("a copy with its file"));
+        state.model.record_open(opened, 9);
+        assert_eq!(ids(&state), first.into_iter().collect::<Vec<_>>());
+        let ask = state.ask_organize(None);
+        assert_eq!(ask.map(|a| a.books.len()).ok(), Some(1));
+    }
+
+    #[test]
     fn a_plan_files_books_on_new_and_standing_shelves_then_undoes() {
         let mut state = library(3);
         let all = ids(&state);

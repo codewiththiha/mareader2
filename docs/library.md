@@ -206,11 +206,18 @@ What the first slice built, and where it stops short of the model above.
   third origin, `Opened`: read where it is, never moved or deleted. Sources
   and the store arrive with their slices. Samples and other in-memory
   documents have no file, so they are not recorded.
-- **Recording an open.** The book holding that content takes the path as
-  its newest location (a move). Failing that, the book already at that path
-  takes the new content (an edit in place). Failing both, a new book is
-  made, and a removed book of that content comes back. A path belongs to
-  one book; the book that held it loses it.
+- **Recording an open.** The book already at that path, while its content
+  matches, is the one opened: a kept second copy stays its own book. Next,
+  the book holding that content takes the path as its newest location (a
+  move). Failing that, the book at that path takes the new content (an edit
+  in place). Failing all, a new book is made, and a removed book of that
+  content comes back. A path belongs to one book; the book that held it
+  loses it.
+- **Opening a copy keeps it a copy.** A path the book holds as a store copy
+  stays `Store`, with the file it came from; only other paths are `Opened`.
+  Before 2026-10-25 an open marked the copy `Opened`, so the AI skipped it
+  and removing left its file. Loading turns any `Opened` location shaped
+  like a copy (`files/<content>/<name>`) back into `Store`.
 - **Positions** are the page, the page count then, and a book's block
   anchor, recorded each frame but written only when they change. Opening a
   known file without a page asks the library, so any open resumes. Opens
@@ -552,7 +559,9 @@ Slices, each checkable on its own (`ROADMAP.md`):
 1. **Adding (slice 8).** The header keeps the title and count. A book-sized
    card with a plus ends the grid (an Add row ends the list) and opens one
    menu: import copies, add a folder, a new shelf, and Restore for books
-   removed from the folder shown. Files picked are always copied in. One
+   removed from the folder shown. Files picked are always copied in, even
+   from inside a folder read in place, and come back with their data when
+   that folder had removed them; only a folder reads in place. One
    folder sheet, as in mareader, holds every choice (owner, 2026-10-15):
    formats included or excluded, a size floor, how books are held (copied
    in, read in place, or read in place and watched) and folder structure
