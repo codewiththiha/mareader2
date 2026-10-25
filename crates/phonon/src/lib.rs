@@ -83,6 +83,10 @@ impl Voice {
     }
 }
 
+/// The reference's duration delta: 0 by default, below 0 faster.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Pace(pub f32);
+
 /// What a run made: its latents and the step the model chose to end at.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Run {
@@ -165,10 +169,10 @@ impl Phonon {
         text::chunks(&self.tokenizer, &text, self.config.frame_rate())
     }
 
-    /// The latents of one run in `voice`, noise drawn from `noise`.
-    pub fn run(&self, voice: &Voice, chunk: &Chunk, noise: &mut Noise) -> Result<Run> {
+    /// The latents of one run in `voice` at `pace`, noise drawn from `noise`.
+    pub fn run(&self, voice: &Voice, chunk: &Chunk, pace: Pace, noise: &mut Noise) -> Result<Run> {
         let mut latents = Vec::new();
-        let ended = self.generate(voice, chunk, noise, |latent| {
+        let ended = self.generate(voice, chunk, pace, noise, |latent| {
             latents.push(latent.to_vec());
             Ok(true)
         })?;
@@ -180,9 +184,11 @@ impl Phonon {
         &self,
         voice: &Voice,
         chunk: &Chunk,
+        pace: Pace,
         noise: &mut Noise,
         mut each: impl FnMut(&[f32]) -> Result<bool>,
     ) -> Result<Option<usize>> {
+        let conditions = self.lm.conditions(pace.0)?;
         let mut cache = voice.primed.clone();
         self.lm.prompt(&self.lm.text(&chunk.tokens)?, &mut cache)?;
         let mut latent = self.lm.bos.clone();
@@ -191,7 +197,7 @@ impl Phonon {
         let mut fresh = vec![0.0; self.lm.ldim];
         for frame in 0..chunk.frame_budget {
             noise.fill(&mut fresh);
-            let (next, eos) = self.lm.step(&latent, &fresh, &mut cache)?;
+            let (next, eos) = self.lm.step(&latent, &fresh, &conditions, &mut cache)?;
             if !each(&next)? {
                 break;
             }
@@ -227,6 +233,7 @@ impl Phonon {
         &self,
         voice: &Voice,
         chunk: &Chunk,
+        pace: Pace,
         noise: &mut Noise,
         mut out: impl FnMut(Vec<f32>) -> bool,
     ) -> Result<()> {
@@ -234,7 +241,7 @@ impl Phonon {
         let mut pending: Vec<Vec<f32>> = Vec::new();
         let mut block = FIRST_BLOCK;
         let mut going = true;
-        self.generate(voice, chunk, noise, |latent| {
+        self.generate(voice, chunk, pace, noise, |latent| {
             pending.push(latent.to_vec());
             if pending.len() >= block {
                 going = out(decoder.push(&pending)?);

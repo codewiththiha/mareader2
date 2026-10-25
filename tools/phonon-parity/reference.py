@@ -18,6 +18,8 @@ from numpy_ref import Model, read_safetensors  # noqa: E402
 
 STAGE_CASES = (1, 3)
 QUANTS = ("f32", "q8_0")
+PACES = (-0.4, -0.2, 0.2)
+PACE_CASES = (2, 6)
 
 
 def voice_file(model, voices, name):
@@ -54,6 +56,23 @@ def main():
             samples += len(audio)
             audio.astype("<f4").tofile(ref / f"{build}.{case['index']}.f32")
         timing[quant] = {"seconds": seconds, "samples": samples}
+        del tts
+
+    for pace in PACES:
+        tts = ptts.TTS(
+            model=str(model),
+            quant="f32",
+            temperature=0.0,
+            lang="en",
+            conditions={"duration_delta": pace},
+        )
+        for case in cases["cases"]:
+            if case["index"] not in PACE_CASES:
+                continue
+            if case["voice"] != "default":
+                tts.add_voice(case["voice"], str(voice_file(model, voices, case["voice"])))
+            audio = np.asarray(tts.synth(case["text"], voice=case["voice"]), dtype=np.float32)
+            audio.astype("<f4").tofile(ref / f"pace.{pace}.{case['index']}.f32")
         del tts
 
     numpy_model = Model(model / "model.safetensors", model / "config.json")

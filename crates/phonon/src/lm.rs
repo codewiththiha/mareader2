@@ -2,7 +2,7 @@
 
 use candle_core::{Device, Tensor};
 
-use crate::config::{Conditioner, Config, TimeNorm};
+use crate::config::{Conditioner, Config, Continuous, TimeNorm};
 use crate::layers::{Cache, Linear, Norm, Shape, Stack};
 use crate::weights::Weights;
 use crate::{Error, Result};
@@ -23,8 +23,10 @@ pub(crate) struct FlowLm {
     out_norm: Norm,
     eos: Linear,
     head: Head,
-    /// What every frame's input has added, `[1, d]`.
-    conditions: Tensor,
+    /// The conditions picked from tables, summed, `[1, d]`.
+    fixed: Tensor,
+    /// The conditions read at a value.
+    scalars: Vec<Scalar>,
     pub bos: Vec<f32>,
     pub mean: Vec<f32>,
     pub std: Vec<f32>,
@@ -55,7 +57,8 @@ impl FlowLm {
             out_norm: Norm::load(w, &format!("{LM}.out_norm"), d, 1e-5)?,
             eos: Linear::load(w, &format!("{LM}.out_eos"), (d, 1), true)?,
             head: Head::load(w, config)?,
-            conditions: conditions(w, config)?,
+            fixed: fixed(w, config)?,
+            scalars: scalars(w, config)?,
             bos: w.vec(&format!("{LM}.bos_emb"), &[ldim])?,
             mean: w.vec(&format!("{LM}.emb_mean"), &[ldim])?,
             std: w.vec(&format!("{LM}.emb_std"), &[ldim])?,
@@ -89,15 +92,32 @@ impl FlowLm {
         Ok(self.text.index_select(&ids, 0)?)
     }
 
+    /// What every frame's input has added at `delta`, `[1, d]`.
+    pub(crate) fn conditions(&self, delta: f32) -> Result<Tensor> {
+        let mut sum = self.fixed.clone();
+        for s in &self.scalars {
+            // Others stay at 0, as the reference reads them by default.
+            let value = if s.name == DURATION { delta } else { 0.0 };
+            let row = features(&s.shape, value)?;
+            let row = match &s.proj {
+                Some(proj) => proj.forward(&row)?,
+                None => row,
+            };
+            sum = (sum + row)?;
+        }
+        Ok(sum)
+    }
+
     /// One step: the latent after `latent` from `noise`, and the end logit.
     pub(crate) fn step(
         &self,
         latent: &[f32],
         noise: &[f32],
+        conditions: &Tensor,
         cache: &mut Cache,
     ) -> Result<(Vec<f32>, f32)> {
         let x = Tensor::from_slice(latent, (1, self.ldim), &Device::Cpu)?;
-        let x = self.input.forward(&x)?.broadcast_add(&self.conditions)?;
+        let x = self.input.forward(&x)?.broadcast_add(conditions)?;
         let out = self.out_norm.forward(&self.stack.forward(&x, cache)?)?;
         let eos = self.eos.forward(&out)?.flatten_all()?.to_vec1::<f32>()?;
         let next = self.head.sample(&out, noise)?;
@@ -105,56 +125,82 @@ impl FlowLm {
     }
 }
 
-/// The sum of the checkpoint's conditions at their defaults, `[1, d]`.
-fn conditions(w: &Weights, config: &Config) -> Result<Tensor> {
+/// The condition that sets the pace: below 0 is faster.
+const DURATION: &str = "duration_delta";
+
+/// A condition read at a value, and its projection.
+struct Scalar {
+    name: String,
+    shape: Continuous,
+    proj: Option<Linear>,
+}
+
+/// The table conditions at their defaults, summed, `[1, d]`.
+fn fixed(w: &Weights, config: &Config) -> Result<Tensor> {
     let d = config.flow_lm.d_model;
     let mut sum = Tensor::zeros((1, d), candle_core::DType::F32, &Device::Cpu)?;
     for c in &config.conditioners {
-        let row = match c {
-            Conditioner::Lut { name, lut } => {
-                // One speaker, the default every voice was made with.
-                let id = (lut.possible_values.iter())
-                    .position(|v| v == "1")
-                    .ok_or_else(|| Error::Load(format!("{name} has no default")))?;
-                let table = w.any(&format!("{CONDITIONS}.{name}.embed.weight"))?;
-                let table = match table.dims() {
-                    [_, _] => table,
-                    _ => return Err(Error::Load(format!("{name} is no table"))),
-                };
-                let row = table.get(id)?.unsqueeze(0)?;
-                project(w, name, row, d)?
-            }
-            Conditioner::Continuous { name, continuous } => {
-                // A delta of 0, as the reference reads by default.
-                let delta = 0.0f32;
-                let half = continuous.dim / 2;
-                let phases: Vec<f32> = (0..half)
-                    .map(|i| {
-                        let e = i as f32 / half.saturating_sub(1).max(1) as f32;
-                        continuous.scale_factor * delta / continuous.max_period.powf(e)
-                    })
-                    .collect();
-                let cos = phases.iter().map(|p| p.cos());
-                let sin = phases.iter().map(|p| p.sin());
-                let feats: Vec<f32> = cos.chain(sin).collect();
-                let row = Tensor::from_vec(feats, (1, continuous.dim), &Device::Cpu)?;
-                project(w, name, row, d)?
-            }
+        let Conditioner::Lut { name, lut } = c else {
+            continue;
+        };
+        // One speaker, the default every voice was made with.
+        let id = (lut.possible_values.iter())
+            .position(|v| v == "1")
+            .ok_or_else(|| Error::Load(format!("{name} has no default")))?;
+        let table = w.any(&format!("{CONDITIONS}.{name}.embed.weight"))?;
+        let table = match table.dims() {
+            [_, _] => table,
+            _ => return Err(Error::Load(format!("{name} is no table"))),
+        };
+        let row = table.get(id)?.unsqueeze(0)?;
+        let (_, inp) = row.dims2()?;
+        let row = match projection(w, name, inp, d)? {
+            Some(proj) => proj.forward(&row)?,
+            None => row,
         };
         sum = (sum + row)?;
     }
     Ok(sum)
 }
 
-/// `row` through condition `name`'s projection, when it has one.
-fn project(w: &Weights, name: &str, row: Tensor, d: usize) -> Result<Tensor> {
+/// The conditions read at a value, ready to embed.
+fn scalars(w: &Weights, config: &Config) -> Result<Vec<Scalar>> {
+    let d = config.flow_lm.d_model;
+    let mut out = Vec::new();
+    for c in &config.conditioners {
+        if let Conditioner::Continuous { name, continuous } = c {
+            out.push(Scalar {
+                name: name.clone(),
+                shape: continuous.clone(),
+                proj: projection(w, name, continuous.dim, d)?,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// `value`'s sinusoidal features, `[1, dim]`, as the reference embeds it.
+fn features(shape: &Continuous, value: f32) -> Result<Tensor> {
+    let half = shape.dim / 2;
+    let position = shape.scale_factor * value;
+    let phases: Vec<f32> = (0..half)
+        .map(|i| {
+            let e = i as f32 / half.saturating_sub(1).max(1) as f32;
+            position / shape.max_period.powf(e)
+        })
+        .collect();
+    let cos = phases.iter().map(|p| p.cos());
+    let sin = phases.iter().map(|p| p.sin());
+    let feats: Vec<f32> = cos.chain(sin).collect();
+    Ok(Tensor::from_vec(feats, (1, shape.dim), &Device::Cpu)?)
+}
+
+/// Condition `name`'s projection from `inp` to `d`, when it has one.
+fn projection(w: &Weights, name: &str, inp: usize, d: usize) -> Result<Option<Linear>> {
     let key = format!("{CONDITIONS}.{name}.output_proj.weight");
     match w.has(&key) {
-        true => {
-            let (_, inp) = row.dims2()?;
-            Linear::new(w.get(&key, &[d, inp])?).forward(&row)
-        }
-        false => Ok(row),
+        true => Ok(Some(Linear::new(w.get(&key, &[d, inp])?))),
+        false => Ok(None),
     }
 }
 

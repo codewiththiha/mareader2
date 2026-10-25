@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use mareader_phonon::{Noise, Phonon, SAMPLE_RATE, normalize};
+use mareader_phonon::{Noise, Pace, Phonon, SAMPLE_RATE, normalize};
 use serde::{Deserialize, Serialize};
 
 type R<T> = Result<T, Box<dyn std::error::Error>>;
@@ -74,6 +74,10 @@ const LATENT_DIFF: f32 = 1e-3;
 const STREAM_DIFF: f32 = 1e-4;
 /// Cases whose first run's latents are compared with numpy's.
 const STAGE_CASES: [usize; 2] = [1, 3];
+/// Paces checked against the reference's at full precision.
+const PACES: [f32; 3] = [-0.4, -0.2, 0.2];
+/// Cases said at each of [`PACES`].
+const PACE_CASES: [usize; 2] = [2, 6];
 
 #[derive(Serialize, Deserialize)]
 struct Planned {
@@ -321,6 +325,55 @@ struct Tally {
     stream_diff: f32,
 }
 
+/// Audio for `text` in `voice` at `pace`, run by run.
+fn say_all(phonon: &Phonon, voice: &mareader_phonon::Voice, text: &str, pace: Pace) -> R<Vec<f32>> {
+    let mut audio = Vec::new();
+    for planned in phonon.chunks(text) {
+        let mut noise = Noise::new(0.0, 0);
+        let run = phonon.run(voice, &planned, pace, &mut noise)?;
+        audio.extend(phonon.decode(&run.latents)?);
+    }
+    Ok(audio)
+}
+
+/// Our paces against the reference's, as markdown, and whether all match.
+fn paces(model: &Path, voices: &Path, out: &Path, cases: &Cases) -> R<(String, bool)> {
+    let phonon = Phonon::load(
+        &model.join("config.json"),
+        &model.join("model.safetensors"),
+        &model.join("tokenizer.json"),
+    )?;
+    let mut rows = String::new();
+    let mut all = true;
+    for case in cases.cases.iter().filter(|c| PACE_CASES.contains(&c.index)) {
+        let voice = phonon.voice(&voice_path(model, voices, &case.voice))?;
+        let base = say_all(&phonon, &voice, &case.text, Pace::default())?.len() as f64;
+        for pace in PACES {
+            let name = format!("pace.{pace}.{}.f32", case.index);
+            let theirs = read_f32(&out.join("ref").join(name))?;
+            let ours = say_all(&phonon, &voice, &case.text, Pace(pace))?;
+            let corr = correlation(&ours, &theirs);
+            let ok = ours.len() == theirs.len() && corr >= SAME_WAVE;
+            all &= ok;
+            let _ = writeln!(
+                rows,
+                "| {} | {pace} | {} / {} | {corr:.6} | {:.3} | {} |",
+                case.index,
+                ours.len(),
+                theirs.len(),
+                base / (ours.len().max(1) as f64),
+                if ok { "yes" } else { "**no**" },
+            );
+        }
+    }
+    let md = format!(
+        "| Case | Delta | Samples ours / ptts | Corr | Speed vs 0 | Pass |\n\
+         |---|---|---|---|---|---|\n{rows}\n\
+         Gate: same lengths, corr >= {SAME_WAVE}.\n"
+    );
+    Ok((md, all))
+}
+
 fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
     let cases: Cases = serde_json::from_slice(&std::fs::read(out.join("cases.json"))?)?;
     let reference: Reference =
@@ -335,6 +388,8 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
     let mut token_md = String::new();
     let (normalize_md, normalize_ok) = normalized(&cases, &reference);
     all_ok &= normalize_ok;
+    let (pace_md, pace_ok) = paces(model, voices, out, &cases)?;
+    all_ok &= pace_ok;
     for (build, file, quant) in BUILDS {
         let start = Instant::now();
         let phonon = Phonon::load(
@@ -364,7 +419,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
             for (i, planned) in phonon.chunks(&case.text).iter().enumerate() {
                 let mut noise = Noise::new(0.0, 0);
                 let start = Instant::now();
-                let run = phonon.run(voice, planned, &mut noise)?;
+                let run = phonon.run(voice, planned, Pace::default(), &mut noise)?;
                 t.lm_seconds += start.elapsed().as_secs_f64();
                 let start = Instant::now();
                 audio.extend(phonon.decode(&run.latents)?);
@@ -393,7 +448,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
             let start = Instant::now();
             for planned in phonon.chunks(&case.text) {
                 let mut noise = Noise::new(0.0, 0);
-                phonon.say(voice, &planned, &mut noise, |block| {
+                phonon.say(voice, &planned, Pace::default(), &mut noise, |block| {
                     if streamed.is_empty() {
                         t.first_audio.push(start.elapsed().as_secs_f64());
                     }
@@ -509,6 +564,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
          | Build | Max diff | First audio, median s | Worst s | Seconds per second | Pass |\n\
          |---|---|---|---|---|---|\n{stream_rows}\n\
          Gate: max diff <= {STREAM_DIFF:.0e}, lengths equal.\n\n\
+         ## Paces against ptts's `duration_delta` (f32)\n\n{pace_md}\n\
          ## English normalisation against `ptts.normalize`\n\n{normalize_md}\n\
          ## Tokenizer against `tokenizers`\n\n{token_md}\n\
          ## Speed (seconds of compute per second of speech)\n\n\
