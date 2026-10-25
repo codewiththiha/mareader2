@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 use crate::folder::{Mode, Options};
 use crate::gate::{Answered, Gate};
 use crate::run::{Asked, Copied, Fold, Landed, Plan};
-use crate::run_tests::{DEVICE, found, import, opts, run, shelf_named, titles_on};
+use crate::run_tests::{DEVICE, found, import, opts, rescan, run, shelf_named, titles_on};
 use crate::screen::{Answer, Why};
-use crate::{BookId, Data, Entry, FolderId, Found, Library, Origin, Placement, ShelfKind};
+use crate::{
+    BookId, ContentId, Data, Entry, FolderId, Found, Library, Origin, Placement, ShelfKind,
+};
 
 /// A whole explicit run with these options, copies made in `/store`.
 fn run_opts(lib: &mut Library, root: &str, o: Options, files: &[Found], plan: Plan) -> Landed {
@@ -324,7 +326,7 @@ fn a_loose_file_a_tree_reads_asks_open_or_keep_both() {
     let (id, dune) = in_place_dune(&mut lib);
     let shelf = shelf_named(&lib, "books");
     let file = found("/books/dune.pdf", 1);
-    let screened = lib.screen_files(vec![file.clone()], Some(shelf), 3);
+    let screened = lib.screen_files(vec![file.clone()], Some(shelf));
     assert!(screened.clean.is_empty());
     let ask = &screened.asks[0];
     assert_eq!(ask.why, Why::Covered(id));
@@ -345,28 +347,38 @@ fn a_loose_file_a_tree_reads_asks_open_or_keep_both() {
 }
 
 #[test]
-fn a_loose_file_a_tree_removed_comes_back_in_place() {
+fn a_removed_folder_book_picked_again_lands_as_a_copy() {
     let mut lib = Library::new(DEVICE);
     let (id, dune) = in_place_dune(&mut lib);
-    let shelf = shelf_named(&lib, "books");
     lib.remove_books(&[dune], Data::Keep, 3);
-    let screened = lib.screen_files(vec![found("/books/dune.pdf", 1)], None, 4);
-    assert_eq!(screened.restored.len(), 1);
-    assert!(screened.asks.is_empty() && screened.clean.is_empty());
-    let back = lib.book(screened.restored[0]).unwrap();
-    assert_eq!(back.home().unwrap().origin, Origin::Folder(id));
-    assert_eq!(titles_on(&lib, shelf), ["dune"], "on the shelf it left");
-    assert!(lib.folder(id).unwrap().tombstone(back.content).is_none());
+    let file = found("/books/dune.pdf", 1);
+    let screened = lib.screen_files(vec![file.clone()], None);
+    assert!(screened.asks.is_empty());
+    assert_eq!(
+        screened.clean,
+        std::slice::from_ref(&file),
+        "copied like any pick"
+    );
+    let landed = lib.land_copies(&[(file.clone(), copy_of(&file))], None, 4);
+    assert_eq!(landed, [dune], "the same book, its data with it");
+    let home = lib.book(dune).unwrap().home().unwrap().clone();
+    assert_eq!(home.origin, Origin::Store);
+    assert_eq!(home.from.as_deref(), Some(file.path.as_path()));
+    assert!(lib.folder(id).unwrap().tombstone(ContentId(1)).is_none());
+    // The folder sees its file is the copy's source: no second book.
+    rescan(&mut lib, id, &[file]);
+    let alike = lib.books().filter(|b| b.content == ContentId(1)).count();
+    assert_eq!(alike, 1);
 }
 
 #[test]
 fn held_content_asks_unless_its_book_is_missing() {
     let mut lib = Library::new(DEVICE);
     import(&mut lib, "/a", Mode::Copy, &[found("/a/x.pdf", 1)]);
-    let screened = lib.screen_files(vec![found("/b/x.pdf", 1)], None, 3);
+    let screened = lib.screen_files(vec![found("/b/x.pdf", 1)], None);
     assert_eq!(screened.asks[0].why, Why::AlreadyHave);
     lib.check_present(|_| false);
-    let screened = lib.screen_files(vec![found("/b/x.pdf", 1)], None, 4);
+    let screened = lib.screen_files(vec![found("/b/x.pdf", 1)], None);
     assert!(screened.asks.is_empty());
     assert_eq!(screened.clean.len(), 1, "a missing book is no answer");
 }
@@ -376,7 +388,7 @@ fn a_name_the_level_holds_asks_and_may_link() {
     let mut lib = Library::new(DEVICE);
     import(&mut lib, "/a", Mode::Copy, &[found("/a/dune.pdf", 1)]);
     let shelf = shelf_named(&lib, "a");
-    let screened = lib.screen_files(vec![found("/b/dune.pdf", 2)], Some(shelf), 3);
+    let screened = lib.screen_files(vec![found("/b/dune.pdf", 2)], Some(shelf));
     let ask = &screened.asks[0];
     assert_eq!(ask.why, Why::Name);
     assert_eq!(ask.offers(), Placement::FILE);
@@ -399,7 +411,7 @@ fn a_clean_copy_spends_the_log_and_keeps_its_name() {
     lib.rename_book(dune, "Dune Messiah", 2);
     lib.remove_books(&[dune], Data::Keep, 3);
     let file = found("/elsewhere/dune.pdf", 1);
-    let screened = lib.screen_files(vec![file.clone()], None, 4);
+    let screened = lib.screen_files(vec![file.clone()], None);
     assert_eq!(screened.clean.len(), 1);
     let landed = lib.land_copies(&[(file.clone(), copy_of(&file))], None, 5);
     let book = lib.book(landed[0]).unwrap();

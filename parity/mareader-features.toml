@@ -691,10 +691,10 @@ evidence = [
   "crates/library/src/removal_tests.rs::a_folder_book_removed_stays_out_until_restored_with_its_place",
   "crates/library/src/run_tests.rs::a_restore_lands_on_the_shelf_it_left_else_the_folders_root",
   "crates/library/src/run_tests.rs::a_book_moved_off_the_tree_is_offered_back_with_where_it_went",
-  "crates/library/src/gate_tests.rs::a_loose_file_a_tree_removed_comes_back_in_place",
+  "crates/library/src/gate_tests.rs::a_removed_folder_book_picked_again_lands_as_a_copy",
 ]
 reference = ["crates/library-core/src/ledger.rs"]
-notes = "A folder shelf's Add menu lists its removals (age and size) and books moved off it; a restore returns to the shelf it left with place and marks. Importing the file again also restores it"
+notes = "A folder shelf's Add menu lists its removals (age and size) and books moved off it; a restore returns to the shelf it left with place and marks. Picking the file again brings it back as a library copy, place and marks included"
 
 [[feature]]
 id = "library.import-progress"

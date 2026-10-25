@@ -64,8 +64,7 @@ struct Loose {
     to: Option<ShelfId>,
     run: Option<RunId>,
     files: Vec<Found>,
-    /// Books the screen brought back, and questions it queued.
-    restored: usize,
+    /// Questions the screen queued.
     asked: usize,
 }
 
@@ -543,8 +542,8 @@ impl LibraryState {
         if let Some((path, why)) = done.failed.first() {
             notes.push(format!("Couldn't read “{}”: {why}.", file_name(path)));
         }
-        let screened = self.model.screen_files(done.found, to, wall_ms());
-        let (restored, asked) = (screened.restored.len(), screened.asks.len());
+        let screened = self.model.screen_files(done.found, to);
+        let asked = screened.asks.len();
         let asks = screened.asks.into_iter().map(Question::File);
         self.folders.asks.extend(asks);
         if !notes.is_empty() {
@@ -554,7 +553,6 @@ impl LibraryState {
             to,
             run,
             files: screened.clean,
-            restored,
             asked,
         };
         match (loose.files.is_empty(), self.store()) {
@@ -598,13 +596,6 @@ impl LibraryState {
                 title(id).unwrap_or_default()
             )),
             many => parts.push(format!("Imported {} books{onto}.", many.len())),
-        }
-        match loose.restored {
-            0 => {}
-            1 => parts.push("1 book came back where its folder keeps it.".to_owned()),
-            n => parts.push(format!(
-                "{n} books came back where their folder keeps them."
-            )),
         }
         match loose.asked {
             0 => {}

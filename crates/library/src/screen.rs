@@ -6,7 +6,7 @@ use crate::book::Origin;
 use crate::clock::Field;
 use crate::conflict::{Arrival, Entry, Level, Placement, collide, next_name};
 use crate::folder::Found;
-use crate::id::{BookId, FolderId, ShelfId};
+use crate::id::{BookId, FolderId};
 use crate::library::{Library, Opened};
 use crate::link::LinkTo;
 use crate::removal::Data;
@@ -42,11 +42,9 @@ impl FileAsk {
     }
 }
 
-/// A batch screened: what came back, what asks, what to copy in.
+/// A batch screened: what asks, and what to copy in.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Screened {
-    /// Books a covering folder had removed, back where they were.
-    pub restored: Vec<BookId>,
     pub asks: Vec<FileAsk>,
     /// Files to copy into the store, then land with [`Library::land_copies`].
     pub clean: Vec<Found>,
@@ -63,16 +61,9 @@ pub enum Answer {
     Nothing,
 }
 
-/// A covering tree's verdict on a loose file, before the logs.
-enum Fate {
-    Ordinary,
-    Restore(FolderId),
-    Ask(FolderId, BookId),
-}
-
 impl Library {
-    /// Screens loose files for `level`: covered, held, then named.
-    pub fn screen_files(&mut self, found: Vec<Found>, level: Level, wall_ms: u64) -> Screened {
+    /// Screens picked files for `level`: copied in, never read in place.
+    pub fn screen_files(&self, found: Vec<Found>, level: Level) -> Screened {
         let mut out = Screened::default();
         let registry = self.registry();
         for file in found {
@@ -83,17 +74,9 @@ impl Library {
                 existing,
                 why,
             };
-            match self.covered_fate(&file) {
-                Fate::Ask(folder, book) => {
-                    out.asks.push(ask(Entry::Book(book), Why::Covered(folder)));
-                    continue;
-                }
-                Fate::Restore(folder) => {
-                    out.restored
-                        .extend(self.restore_covered(folder, &file, wall_ms));
-                    continue;
-                }
-                Fate::Ordinary => {}
+            if let Some((folder, book)) = self.covered(&file) {
+                out.asks.push(ask(Entry::Book(book), Why::Covered(folder)));
+                continue;
             }
             // A missing row is no answer: the file lands as its copy.
             let held = registry.get(&file.measure.content).filter(|k| !k.missing);
@@ -111,41 +94,15 @@ impl Library {
         out
     }
 
-    /// A living row at the address asks; a log or a move-out restores.
-    fn covered_fate(&self, file: &Found) -> Fate {
+    /// The tree reading the file in place, and its book there.
+    fn covered(&self, file: &Found) -> Option<(FolderId, BookId)> {
+        let book = self.book_at(&file.path)?;
         let covering: Vec<_> = (self.folders.values())
             .filter(|f| f.mode().in_place() && file.path.starts_with(&f.root))
             .collect();
-        let Some(first) = covering.first().map(|f| f.id) else {
-            return Fate::Ordinary;
-        };
         let content = file.measure.content;
         let placer = covering.iter().find(|f| f.placed.contains(&content));
-        if let Some(book) = self.book_at(&file.path) {
-            return Fate::Ask(placer.map_or(first, |f| f.id), book);
-        }
-        let stoned = covering.iter().find(|f| f.tombstone(content).is_some());
-        match stoned.or(placer) {
-            Some(folder) => Fate::Restore(folder.id),
-            None => Fate::Ordinary,
-        }
-    }
-
-    /// The folder's own book back in place, on the shelf it left.
-    fn restore_covered(&mut self, id: FolderId, file: &Found, wall_ms: u64) -> Option<BookId> {
-        let mut folder = self.folders.get(&id)?.clone();
-        let stone = folder.tombstone(file.measure.content).and_then(|s| s.shelf);
-        let (rung, root) = folder.rungs_for(&file.path);
-        let book = self.mint_found(&mut folder, file, &HashMap::new(), false, wall_ms)?;
-        let standing = |s: &Option<ShelfId>| s.filter(|s| self.shelf(*s).is_some());
-        let target = standing(&stone).or(standing(&rung)).or(standing(&root));
-        self.folders.insert(id, folder);
-        if let Some(shelf) = target {
-            self.file(book, shelf, wall_ms);
-        }
-        self.index();
-        self.bump();
-        Some(book)
+        placer.or(covering.first()).map(|f| (f.id, book))
     }
 
     /// Lands copies made of screened files; a removal's log is spent.
