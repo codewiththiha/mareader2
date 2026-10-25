@@ -4,6 +4,8 @@ use std::sync::{Mutex, PoisonError};
 
 use candle_core::{Device, Result, Storage, Tensor};
 
+use crate::simd;
+
 /// Values below which a job stays on one core: threads cost more there.
 const ALONE: usize = 1 << 15;
 /// Floats in one block of gathered conv inputs, about 8 MB.
@@ -76,6 +78,7 @@ pub(crate) enum Then<'a> {
 }
 
 /// Sums eight lanes at a time, so the loop vectorises.
+#[inline(always)]
 fn lane_sum(values: &[f32], f: impl Fn(f32) -> f32) -> f32 {
     let mut lanes = [0f32; 8];
     let (blocks, rest) = values.as_chunks::<8>();
@@ -100,28 +103,48 @@ pub(crate) fn norm_rows(
         let Some(x) = values.get(c * len..(c + 1) * len) else {
             return;
         };
-        let mean = lane_sum(x, |v| v) / len as f32;
-        let var = lane_sum(x, |v| (v - mean) * (v - mean)) / len as f32;
-        let k = scale.get(c).copied().unwrap_or(1.0) / (var + eps).sqrt();
+        let k = scale.get(c).copied().unwrap_or(1.0);
         let m = shift.get(c).copied().unwrap_or(0.0);
-        let normed = x.iter().map(|v| (v - mean) * k + m);
-        match then {
-            Then::Leaky(slope) => {
-                (row.iter_mut().zip(normed)).for_each(|(o, y)| *o = y.max(y * slope))
-            }
-            Then::Snake(alphas) => {
-                let a = alphas.get(c).copied().unwrap_or(1.0);
-                let inv = a.recip();
-                for (o, y) in row.iter_mut().zip(normed) {
-                    *o = y + sin_squared(y * a) * inv;
-                }
-            }
-        }
+        let after = match then {
+            Then::Leaky(slope) => After::Leaky(slope),
+            Then::Snake(alphas) => After::Snake(alphas.get(c).copied().unwrap_or(1.0)),
+        };
+        simd::pick(norm_row, (x, row, (k, m), eps, after));
     });
     out
 }
 
+/// What follows one row's norm.
+#[derive(Clone, Copy)]
+enum After {
+    Leaky(f32),
+    /// Snake with this row's `α`.
+    Snake(f32),
+}
+
+/// One row normalised, scaled by `k`, shifted by `m`, then `after`.
+#[inline(always)]
+fn norm_row((x, row, (k, m), eps, after): (&[f32], &mut [f32], (f32, f32), f32, After)) {
+    let len = x.len().max(1) as f32;
+    let mean = lane_sum(x, |v| v) / len;
+    let var = lane_sum(x, |v| (v - mean) * (v - mean)) / len;
+    let k = k / (var + eps).sqrt();
+    let normed = x.iter().map(|v| (v - mean) * k + m);
+    match after {
+        After::Leaky(slope) => {
+            (row.iter_mut().zip(normed)).for_each(|(o, y)| *o = y.max(y * slope))
+        }
+        After::Snake(a) => {
+            let inv = a.recip();
+            for (o, y) in row.iter_mut().zip(normed) {
+                *o = y + sin_squared(y * a) * inv;
+            }
+        }
+    }
+}
+
 /// `sin²(x)` without branches, so loops vectorise; within 1e-6 of `sin`'s.
+#[inline(always)]
 fn sin_squared(x: f32) -> f32 {
     use std::f32::consts::{FRAC_1_PI, FRAC_PI_2};
     // Adding 1.5·2²³ rounds to a whole number in plain float maths.
@@ -244,6 +267,12 @@ pub(crate) fn lstm_run(
     hidden: usize,
     reverse: bool,
 ) -> Vec<f32> {
+    simd::pick(lstm_steps, (cell, gates_in, hidden, reverse))
+}
+
+/// `lstm_run`'s loop, built once per CPU kind.
+#[inline(always)]
+fn lstm_steps((cell, gates_in, hidden, reverse): (&CellRows, &[f32], usize, bool)) -> Vec<f32> {
     let width = 4 * hidden;
     let steps = gates_in.len() / width.max(1);
     let mut out = vec![0f32; steps * hidden];

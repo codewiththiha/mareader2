@@ -10,6 +10,7 @@ mod layers;
 mod noise;
 mod onnx;
 mod prosody;
+mod simd;
 mod weights;
 
 use std::collections::HashMap;

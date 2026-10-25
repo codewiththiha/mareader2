@@ -9,6 +9,8 @@ const ALLOWED: &[&str] = &[
     "apps/mareader/src/open_files.rs",
     "crates/speech/src/mac_voices.rs",
     "crates/memory/src/lib.rs",
+    "crates/kokoro/src/simd.rs",
+    "crates/vits/src/simd.rs",
 ];
 
 /// This checker, which names the lifts it looks for.
