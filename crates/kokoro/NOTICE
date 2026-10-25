@@ -28,7 +28,10 @@ port takes it under the MIT terms:
 The model itself, Kokoro-82M by hexgrad
 (https://huggingface.co/hexgrad/Kokoro-82M), is Apache-2.0. Its weights and
 voices are not part of this crate; the app downloads them on request. Kokoro
-builds on StyleTTS 2 and iSTFTNet.
+builds on StyleTTS 2 and iSTFTNet. The Tiny build is the 8-bit ONNX export
+published by onnx-community
+(https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX), Apache-2.0
+as well.
 
 Kitten TTS 0.8 by KittenML (https://github.com/KittenML/KittenTTS), Apache-2.0,
 is a smaller model of the same design. `kitten.rs` follows its runtime: the
