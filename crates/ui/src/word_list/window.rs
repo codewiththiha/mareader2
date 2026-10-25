@@ -1,6 +1,6 @@
 //! The word list window: options, a live preview, then Copy or Save.
 
-use egui::{Color32, Frame, Id, Modal, RichText, ScrollArea, Stroke, Ui, Vec2, vec2};
+use egui::{Frame, RichText, ScrollArea, Ui, Vec2, vec2};
 use mareader_dict::PACKS;
 use mareader_settings::{
     Settings, WORD_LANGUAGES, WordGroup, WordLayout, WordList, WordOutput, WordPreset, WordSort,
@@ -13,6 +13,7 @@ use crate::command::{Command, Commands};
 use crate::dict::Dict;
 use crate::files::Files;
 use crate::icons::Icon;
+use crate::modal::Dialog;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
 use crate::vocab::Vocab;
@@ -118,20 +119,11 @@ impl WordWindow {
                 cut,
             });
         }
-        let t = Tokens::get(ctx);
         let size = (ctx.content_rect().size() * vec2(0.94, 0.88)).min(MAX_SIZE);
-        let frame = Frame::new()
-            .inner_margin(egui::Margin::same(PAD as i8))
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0, t.line))
-            .corner_radius(t.radius_lg)
-            .shadow(ctx.global_style().visuals.window_shadow);
-        let backdrop = Color32::from_black_alpha(if t.dark { 110 } else { 70 });
         let mut draft = settings.clone();
         let mut close = false;
-        let modal = Modal::new(Id::new("word-list-window"))
-            .frame(frame)
-            .backdrop_color(backdrop)
+        let modal = Dialog::new("word-list-window")
+            .margin(PAD as i8)
             .show(ctx, |ui| {
                 ui.set_width(size.x - 2.0 * PAD);
                 ui.set_height(size.y - 2.0 * PAD);

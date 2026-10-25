@@ -5,8 +5,8 @@ use mareader_library::{BookId, Departure, Library, Move, Origin, ShelfId, free_n
 
 use super::books::counted;
 use super::moving::{CopyAnswer, CopyWork};
-use super::sheets::{buttons, primary, title};
 use super::{Action, ShelfAction};
+use crate::modal::{buttons, primary, title};
 use crate::theme::{self, Tokens};
 
 const UNTOUCHED: &str = "The folder on disk is untouched.";

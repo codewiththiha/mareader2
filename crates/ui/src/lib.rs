@@ -34,6 +34,7 @@ pub mod library_panel;
 pub mod lift;
 pub mod loading_mark;
 pub mod machine_fonts;
+pub mod modal;
 pub mod motion;
 pub mod notes_panel;
 pub mod outline_panel;

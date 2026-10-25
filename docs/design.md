@@ -324,7 +324,12 @@ A new setting picks its `Applies` once; nothing else changes.
 - **Selection bar icons.** The bar over selected text shows icons alone at
   every width; each name is its tooltip and accessible label. Words made it
   far too wide.
-- **Remove alert.** Removing asks in a small alert docked at the window's foot
+- **Modals.** Every sheet, alert and window-sized panel is a
+  `modal::Dialog`: centred, on `surface` with a `line` edge, the large radius
+  and the window shadow, over one backdrop (black at 48, 90 in dark). Its
+  parts are shared too: the heading with an optional mark, the switch card,
+  and the filled and quiet buttons. A test refuses `Modal::new` anywhere else.
+- **Remove alert.** Removing asks in a small centred alert
   (`library/remove_alert.rs`), fixed at 440 px so it never jumps. It holds the
   question by name ("Remove “Dune”?"), one line on what happens to the files,
   and switches only where they mean something: "Remove everything inside" for
@@ -422,7 +427,7 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 | Panes and pages | the root `Ui` |
 | Title bar | `Area`, `Order::Foreground` |
 | Popovers, menus | `Popup` |
-| Settings, confirmations | `Modal` |
+| Settings, confirmations | `modal::Dialog` (over egui's `Modal`) |
 | Toasts | `Area`, `Order::Tooltip` |
 
 ## Revision history

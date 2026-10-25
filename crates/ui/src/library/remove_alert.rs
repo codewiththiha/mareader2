@@ -1,24 +1,17 @@
-//! Removal's alert: docked low, one line of meaning, then Remove.
+//! Removal's alert: one line of meaning, then Remove.
 
-use egui::{
-    Align, Align2, Button, Color32, Context, Frame, Id, Key, Label, Layout, Margin, Modal, Rect,
-    RichText, Stroke, Ui, pos2, vec2,
-};
+use egui::{Context, Id, Key};
 use mareader_library::{BookId, Library, LinkId, Receipt, Removing, ShelfId};
 
 use super::moving::listed;
 use super::{Action, BookAction};
 use crate::icons::Icon;
-use crate::theme::{self, Tokens};
-use crate::widgets;
+use crate::modal::{self, Dialog};
+use crate::theme::Tokens;
 
 const KEY: &str = "library-remove";
 /// Fixed, so the box never jumps as its words change.
 const WIDTH: f32 = 440.0;
-/// Clear of the window's foot.
-const LIFT: f32 = 24.0;
-/// Room for the switch beside a toggle's words.
-const SWITCH_ROOM: f32 = 48.0;
 
 /// Both start off on each opening: erasing is never a habit.
 #[derive(Clone, Copy, Default)]
@@ -38,72 +31,56 @@ pub(super) fn show(ctx: &Context, model: &Library, asked: Asked<'_>, t: &Tokens)
     let (books, shelves, links) = asked;
     let going = model.removing(books, shelves, on.cascade);
     let receipt = model.receipt(&going.books);
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius_lg)
-        .inner_margin(Margin::same(16))
-        .shadow(ctx.global_style().visuals.window_shadow);
-    let area =
-        Modal::default_area(key.with("area")).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -LIFT));
-    let backdrop = Color32::from_black_alpha(if t.dark { 60 } else { 28 });
     let mut act = None;
-    let modal = Modal::new(key.with("modal"))
-        .area(area)
-        .frame(frame)
-        .backdrop_color(backdrop)
-        .show(ctx, |ui| {
-            let width = WIDTH.min(ui.ctx().content_rect().width() - 64.0);
-            ui.set_width(width.max(200.0));
-            ui.spacing_mut().item_spacing.y = 12.0;
-            heading(
+    let modal = Dialog::new(key.with("modal")).show(ctx, |ui| {
+        let width = WIDTH.min(ui.ctx().content_rect().width() - 64.0);
+        ui.set_width(width.max(200.0));
+        ui.spacing_mut().item_spacing.y = 12.0;
+        let message = message(asked, &going, &receipt);
+        let mark = Some((Icon::Remove, t.danger));
+        modal::heading(ui, mark, &title(model, asked), message.as_deref(), t);
+        if going.inside_books + going.inside_shelves > 0 {
+            let note = inside(&going, on.cascade);
+            modal::switch_card(
                 ui,
-                &title(model, asked),
-                message(asked, &going, &receipt),
+                &mut on.cascade,
+                "Remove everything inside",
+                &note,
+                None,
                 t,
             );
-            if going.inside_books + going.inside_shelves > 0 {
-                let note = inside(&going, on.cascade);
-                toggle(
-                    ui,
-                    &mut on.cascade,
-                    "Remove everything inside",
-                    &note,
-                    None,
-                    t,
-                );
-            }
-            let data = receipt.has_data();
-            if data {
-                let note = match (on.forget, going.books.len()) {
-                    (true, _) => "Erased for good. This can't be undone.",
-                    (false, 1) => "Kept for when the book comes back.",
-                    (false, _) => "Kept for when the books come back.",
-                };
-                let label = "Erase highlights, AI pages and reading position";
-                toggle(ui, &mut on.forget, label, note, Some(t.danger), t);
-            }
-            let erase = data && on.forget;
-            ui.horizontal(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let label = if erase { "Erase & remove" } else { "Remove" };
-                    let free = ui.ctx().memory(|m| m.focused().is_none());
-                    let enter = free && ui.input(|i| i.key_pressed(Key::Enter));
-                    if confirm(ui, label, t).clicked() || enter {
-                        act = Some(Action::Book(BookAction::Remove {
-                            books: books.to_vec(),
-                            shelves: shelves.to_vec(),
-                            links: links.to_vec(),
-                            cascade: on.cascade,
-                            forget: erase,
-                        }));
-                    }
-                    if plain(ui, "Cancel", t).clicked() {
-                        act = Some(Action::CloseSheet);
-                    }
-                });
+        }
+        let data = receipt.has_data();
+        if data {
+            let note = match (on.forget, going.books.len()) {
+                (true, _) => "Erased for good. This can't be undone.",
+                (false, 1) => "Kept for when the book comes back.",
+                (false, _) => "Kept for when the books come back.",
+            };
+            let label = "Erase highlights, AI pages and reading position";
+            modal::switch_card(ui, &mut on.forget, label, note, Some(t.danger), t);
+        }
+        let erase = data && on.forget;
+        ui.horizontal(|ui| {
+            modal::buttons(ui, |ui| {
+                let label = if erase { "Erase & remove" } else { "Remove" };
+                let free = ui.ctx().memory(|m| m.focused().is_none());
+                let enter = free && ui.input(|i| i.key_pressed(Key::Enter));
+                if modal::primary(ui, label, t.danger, t).clicked() || enter {
+                    act = Some(Action::Book(BookAction::Remove {
+                        books: books.to_vec(),
+                        shelves: shelves.to_vec(),
+                        links: links.to_vec(),
+                        cascade: on.cascade,
+                        forget: erase,
+                    }));
+                }
+                if modal::quiet(ui, "Cancel", t).clicked() {
+                    act = Some(Action::CloseSheet);
+                }
             });
         });
+    });
     if act.is_none() && modal.should_close() {
         act = Some(Action::CloseSheet);
     }
@@ -114,22 +91,6 @@ pub(super) fn show(ctx: &Context, model: &Library, asked: Asked<'_>, t: &Tokens)
         }),
     }
     act
-}
-
-/// The bin, the question, and a quieter line under it.
-fn heading(ui: &mut Ui, title: &str, message: Option<String>, t: &Tokens) {
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        ui.add(Icon::Remove.image(18.0).tint(t.danger));
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            let text = RichText::new(title).font(theme::medium(15.0)).color(t.ink);
-            ui.add(Label::new(text).wrap());
-            if let Some(message) = message {
-                ui.add(Label::new(RichText::new(message).color(t.muted)).wrap());
-            }
-        });
-    });
 }
 
 /// What was asked for, by name when it's one thing.
@@ -192,48 +153,4 @@ fn inside(going: &Removing, cascade: bool) -> String {
         (false, 0, _) => "Off, the shelves inside move up.".to_owned(),
         (false, ..) => "Off, books stay and shelves inside move up.".to_owned(),
     }
-}
-
-/// A switch with its meaning; `warn` tints the card while it's on.
-fn toggle(ui: &mut Ui, on: &mut bool, label: &str, note: &str, warn: Option<Color32>, t: &Tokens) {
-    let hot = warn.filter(|_| *on);
-    let fill = hot.map_or(Color32::TRANSPARENT, |c| c.gamma_multiply(0.1));
-    let line = hot.map_or(t.line, |c| c.gamma_multiply(0.5));
-    Frame::new()
-        .fill(fill)
-        .stroke(Stroke::new(1.0, line))
-        .corner_radius(t.radius)
-        .inner_margin(Margin::symmetric(12, 10))
-        .show(ui, |ui| {
-            // Words in the flow, the switch beside them: a row would centre
-            // the words low.
-            ui.set_width(ui.available_width());
-            let room = (ui.available_width() - SWITCH_ROOM).max(0.0);
-            let layout = Layout::top_down(Align::Min);
-            let words = ui.allocate_ui_with_layout(vec2(room, 0.0), layout, |ui| {
-                ui.set_width(room);
-                ui.spacing_mut().item_spacing.y = 2.0;
-                let ink = hot.unwrap_or(t.ink);
-                ui.add(Label::new(RichText::new(label).color(ink)).wrap());
-                let small = RichText::new(note).size(t.text_small).color(t.muted);
-                ui.add(Label::new(small).wrap());
-            });
-            let mid = pos2(ui.max_rect().right() - 18.0, words.response.rect.center().y);
-            let at = Rect::from_center_size(mid, vec2(36.0, 20.0));
-            ui.put(at, |ui: &mut Ui| widgets::switch(ui, on, label));
-        });
-}
-
-/// The red button that does it.
-fn confirm(ui: &mut Ui, label: &str, t: &Tokens) -> egui::Response {
-    let button = widgets::primary_button(None, label, t.danger, t).min_size(vec2(84.0, 30.0));
-    ui.add(button)
-}
-
-/// A quiet button beside it.
-fn plain(ui: &mut Ui, label: &str, t: &Tokens) -> egui::Response {
-    let button = Button::new(RichText::new(label).color(t.ink))
-        .corner_radius(t.radius)
-        .min_size(vec2(72.0, 30.0));
-    ui.add(button)
 }

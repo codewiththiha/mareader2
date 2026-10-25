@@ -7,8 +7,8 @@ use mareader_library::{BookId, Library};
 
 use super::Action;
 use super::organizing::{Proposal, Spot};
-use super::sheets::{buttons, primary, title};
 use crate::icons::Icon;
+use crate::modal::{buttons, primary, title};
 use crate::theme::{self, Tokens};
 
 /// Titles a row names before "and N more".

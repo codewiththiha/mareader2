@@ -11,7 +11,8 @@ use mareader_library::{
 use super::books::counted;
 use super::{Action, LibraryState, Pick, wall_ms};
 use crate::command::{Command, Commands};
-use crate::theme::{self, Tokens};
+use crate::modal::title;
+use crate::theme::Tokens;
 use crate::toast::Toast;
 
 /// One question, with what answering it needs.
@@ -510,8 +511,4 @@ fn free_on(model: &Library, level: Level, name: &str) -> String {
 fn file_name(ask: &FileAsk) -> String {
     let name = ask.found.path.file_name().map(|n| n.to_string_lossy());
     name.map_or_else(|| ask.arrival.name.clone(), |n| n.into_owned())
-}
-
-fn title(ui: &mut Ui, text: &str, t: &Tokens) {
-    ui.label(RichText::new(text).font(theme::medium(16.0)).color(t.ink));
 }

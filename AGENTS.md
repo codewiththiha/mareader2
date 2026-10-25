@@ -177,6 +177,9 @@ syntax (`docs/architecture.md` § How the app is built in egui).
   `ScrollArea::show_rows`, `Sides`, `Button`, `Slider`, `TextEdit`, drag and
   drop via `dnd_*`. Write a custom widget only where egui has nothing close,
   and give it an AccessKit label.
+- **Every modal is a `modal::Dialog`:** centred, one card, one backdrop, with
+  the shared heading, switch card and buttons. Never call `Modal::new`
+  directly; a test fails if anything else does.
 - **The theme is `Tokens` applied to `Style` and `Visuals`,** once per change
   (`docs/design.md` § How the theme works). Views don't pick colours or sizes;
   custom widgets read `Tokens`. Appearance changes show on the next frame and

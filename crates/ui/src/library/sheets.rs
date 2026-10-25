@@ -1,12 +1,13 @@
 //! Sheets over the library, and the questions waiting behind them.
 
-use egui::{Button, Color32, Context, Frame, Id, Margin, Modal, RichText, Stroke, Ui};
+use egui::{Button, Context, Id, RichText, Ui};
 use mareader_library::{Book, FolderId, Library, Origin, ShelfId};
 
 use super::asks::{self, Question};
 use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
 use crate::command::{Command, Commands};
-use crate::theme::{self, Tokens};
+use crate::modal::{Dialog, buttons, primary, title};
+use crate::theme::Tokens;
 
 const WIDTH: f32 = 420.0;
 
@@ -32,48 +33,38 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
         out.extend(act.map(Command::Library));
         return;
     }
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius_lg)
-        .inner_margin(Margin::same(20))
-        .shadow(ctx.global_style().visuals.window_shadow);
-    let backdrop = Color32::from_black_alpha(if t.dark { 110 } else { 70 });
     let mut act = None;
-    let modal = Modal::new(Id::new("library-sheet"))
-        .frame(frame)
-        .backdrop_color(backdrop)
-        .show(ctx, |ui| {
-            ui.set_width(WIDTH);
-            ui.spacing_mut().item_spacing.y = 8.0;
-            let Some(sheet) = sheet else {
-                act = match review {
-                    Some(plan) => super::review::show(ui, model, plan, &t),
-                    None => asks::show(ui, model, &asks, &t),
-                };
-                return;
+    let modal = Dialog::new("library-sheet").show(ctx, |ui| {
+        ui.set_width(WIDTH);
+        ui.spacing_mut().item_spacing.y = 8.0;
+        let Some(sheet) = sheet else {
+            act = match review {
+                Some(plan) => super::review::show(ui, model, plan, &t),
+                None => asks::show(ui, model, &asks, &t),
             };
-            act = match sheet {
-                Sheet::Find(finding) => match model.book(finding.book) {
-                    Some(book) => find(ui, library, book, finding, &t),
-                    None => Some(Action::CloseSheet),
-                },
-                // Drawn by its own alert, above.
-                Sheet::Removal { .. } => None,
-                Sheet::Rename(named) => rename(ui, library, *named, &t),
-                Sheet::Copy(work) => super::copying::show(ui, model, work, &t),
-                Sheet::Import(root) => super::import_sheet::show(ui, library, root, &t),
-                Sheet::Moved { folder, book } => match model.book(*book) {
-                    Some(book) => moved(ui, model, *folder, book, &t),
-                    None => Some(Action::CloseSheet),
-                },
-                Sheet::Note { shelf, returned } => import_note(ui, model, *shelf, *returned, &t),
-                Sheet::Replace(picked) => match library.organizer().paused() {
-                    Some(paused) => replace(ui, paused, picked, &t),
-                    None => Some(Action::OrganizeAnew(picked.clone())),
-                },
-            };
-        });
+            return;
+        };
+        act = match sheet {
+            Sheet::Find(finding) => match model.book(finding.book) {
+                Some(book) => find(ui, library, book, finding, &t),
+                None => Some(Action::CloseSheet),
+            },
+            // Drawn by its own alert, above.
+            Sheet::Removal { .. } => None,
+            Sheet::Rename(named) => rename(ui, library, *named, &t),
+            Sheet::Copy(work) => super::copying::show(ui, model, work, &t),
+            Sheet::Import(root) => super::import_sheet::show(ui, library, root, &t),
+            Sheet::Moved { folder, book } => match model.book(*book) {
+                Some(book) => moved(ui, model, *folder, book, &t),
+                None => Some(Action::CloseSheet),
+            },
+            Sheet::Note { shelf, returned } => import_note(ui, model, *shelf, *returned, &t),
+            Sheet::Replace(picked) => match library.organizer().paused() {
+                Some(paused) => replace(ui, paused, picked, &t),
+                None => Some(Action::OrganizeAnew(picked.clone())),
+            },
+        };
+    });
     let working = matches!(sheet, Some(Sheet::Find(f)) if matches!(f.step, Step::Working(_)));
     // The plan is only let go by its button, never a stray click.
     if modal.should_close() && !working && review.is_none() {
@@ -357,17 +348,4 @@ fn import_note(
         }
     });
     act
-}
-
-pub(super) fn title(ui: &mut Ui, text: &str, t: &Tokens) {
-    ui.label(RichText::new(text).font(theme::medium(16.0)).color(t.ink));
-}
-
-/// A right-aligned row: the first button added sits rightmost.
-pub(super) fn buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), add);
-}
-
-pub(super) fn primary(ui: &mut Ui, label: &str, fill: Color32, t: &Tokens) -> egui::Response {
-    ui.add(crate::widgets::primary_button(None, label, fill, t))
 }

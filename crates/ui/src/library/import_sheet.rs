@@ -8,9 +8,9 @@ use egui::{
 };
 use mareader_library::{Format, Library, MIN_SIZE_MAX, Options};
 
-use super::sheets::{buttons, primary, title};
 use super::{Action, LibraryState};
 use crate::icons::Icon;
+use crate::modal::{buttons, primary, title};
 use crate::theme::Tokens;
 use crate::widgets;
 

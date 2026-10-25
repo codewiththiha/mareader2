@@ -1,13 +1,14 @@
 //! The keyboard shortcut cheat sheet: a modal in the middle of the window.
 
 use egui::{
-    Align, Color32, Context, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Modal,
-    RichText, ScrollArea, Stroke, TextEdit, Ui, vec2,
+    Align, Color32, Context, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, RichText,
+    ScrollArea, Stroke, TextEdit, Ui, vec2,
 };
 
 use crate::command::Command;
 use crate::icons::Icon;
 use crate::keymap::{self, Entry, Section};
+use crate::modal::Dialog;
 use crate::platform::Platform;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -67,47 +68,37 @@ pub fn show(ctx: &Context, platform: Platform) {
     let screen = ctx.content_rect();
     let width = WIDTH.min(screen.width() - 48.0).max(280.0);
     let body_height = (screen.height() - 2.0 * EDGE - CHROME).max(160.0);
-    let frame = Frame::new()
-        .fill(t.surface)
-        .stroke(Stroke::new(1.0, t.line))
-        .corner_radius(t.radius_lg)
-        .inner_margin(Margin::same(20))
-        .shadow(ctx.global_style().visuals.window_shadow);
-    let backdrop = Color32::from_black_alpha(if t.dark { 110 } else { 70 });
     let id = Id::new(FILTER);
     let mut typed = ctx.data(|d| d.get_temp::<Typed>(id)).unwrap_or_default();
     let mut shut = false;
-    let modal = Modal::new(Id::new(MODAL))
-        .frame(frame)
-        .backdrop_color(backdrop)
-        .show(ctx, |ui| {
-            ui.set_width(width);
-            ui.spacing_mut().item_spacing.y = 12.0;
-            shut = header(ui, platform);
-            let field = TextEdit::singleline(&mut typed.text)
-                .hint_text("Filter shortcuts")
-                .desired_width(f32::INFINITY);
-            let field = ui.add(field);
-            widgets::name(&field, "Filter shortcuts");
-            if std::mem::take(&mut typed.focus) {
-                field.request_focus();
-            }
-            let sections = matching(keymap::sheet(platform), &typed.text);
-            // egui caps a modal's first frame; claiming the height lifts it.
-            let body = ScrollArea::vertical()
-                .max_height(body_height)
-                .min_scrolled_height(body_height)
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    if sections.is_empty() {
-                        let none = format!("No shortcut matches “{}”.", typed.text.trim());
-                        ui.label(RichText::new(none).color(t.muted));
-                    } else {
-                        columns(ui, &sections, width >= TWO_UP);
-                    }
-                });
-            widgets::scroll_fades(ui, &body, t.surface);
-        });
+    let modal = Dialog::new(MODAL).margin(20).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.spacing_mut().item_spacing.y = 12.0;
+        shut = header(ui, platform);
+        let field = TextEdit::singleline(&mut typed.text)
+            .hint_text("Filter shortcuts")
+            .desired_width(f32::INFINITY);
+        let field = ui.add(field);
+        widgets::name(&field, "Filter shortcuts");
+        if std::mem::take(&mut typed.focus) {
+            field.request_focus();
+        }
+        let sections = matching(keymap::sheet(platform), &typed.text);
+        // egui caps a modal's first frame; claiming the height lifts it.
+        let body = ScrollArea::vertical()
+            .max_height(body_height)
+            .min_scrolled_height(body_height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                if sections.is_empty() {
+                    let none = format!("No shortcut matches “{}”.", typed.text.trim());
+                    ui.label(RichText::new(none).color(t.muted));
+                } else {
+                    columns(ui, &sections, width >= TWO_UP);
+                }
+            });
+        widgets::scroll_fades(ui, &body, t.surface);
+    });
     if shut || modal.should_close() {
         close(ctx);
     } else {

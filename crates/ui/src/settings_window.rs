@@ -7,12 +7,13 @@ use mareader_settings::{
 };
 
 use egui::{
-    Align, Button, Color32, CornerRadius, Frame, Id, Layout, Margin, Modal, Rect, RichText,
-    ScrollArea, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
+    Align, Button, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, ScrollArea, Sense,
+    Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
+use crate::modal::Dialog;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
@@ -205,53 +206,44 @@ impl SettingsWindow {
         }
         let t = Tokens::get(ctx);
         let size = window_size(ctx.content_rect().size());
-        let frame = Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0, t.line))
-            .corner_radius(t.radius_lg)
-            .shadow(ctx.global_style().visuals.window_shadow);
-        let backdrop = Color32::from_black_alpha(if t.dark { 110 } else { 70 });
         let mut draft = current.clone();
         let mut close = false;
-        let modal = Modal::new(Id::new("settings-window"))
-            .frame(frame)
-            .backdrop_color(backdrop)
-            .show(ctx, |ui| {
-                ui.set_width(size.x);
-                ui.set_height(size.y);
-                ui.spacing_mut().item_spacing = Vec2::ZERO;
-                ui.horizontal_top(|ui| {
-                    self.nav(ui, size.y, &models);
-                    let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
-                    let edge = Stroke::new(1.0, t.line);
-                    ui.painter().vline(line.center().x, line.y_range(), edge);
-                    ui.vertical(|ui| {
-                        ui.set_width(size.x - NAV_W - 1.0);
-                        let tab = self.tab();
-                        close = header(ui, tab);
-                        // Short of the rounded corner, fade and all.
-                        let room = ui.available_height() - FOOT_H;
-                        let body = ScrollArea::vertical()
-                            .id_salt(("settings-body", tab.label()))
-                            .max_height(room)
-                            .auto_shrink(false)
-                            .show(ui, |ui| {
-                                let margin = Margin {
-                                    left: 24,
-                                    right: 24,
-                                    top: 0,
-                                    bottom: 24,
-                                };
-                                Frame::new().inner_margin(margin).show(ui, |ui| {
-                                    ui.spacing_mut().item_spacing.y = 0.0;
-                                    let live = (cx, ai, dict, vocab, voices);
-                                    tab_body(ui, tab, &mut draft, live, out);
-                                });
+        let modal = Dialog::new("settings-window").margin(0).show(ctx, |ui| {
+            ui.set_width(size.x);
+            ui.set_height(size.y);
+            ui.spacing_mut().item_spacing = Vec2::ZERO;
+            ui.horizontal_top(|ui| {
+                self.nav(ui, size.y, &models);
+                let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
+                let edge = Stroke::new(1.0, t.line);
+                ui.painter().vline(line.center().x, line.y_range(), edge);
+                ui.vertical(|ui| {
+                    ui.set_width(size.x - NAV_W - 1.0);
+                    let tab = self.tab();
+                    close = header(ui, tab);
+                    // Short of the rounded corner, fade and all.
+                    let room = ui.available_height() - FOOT_H;
+                    let body = ScrollArea::vertical()
+                        .id_salt(("settings-body", tab.label()))
+                        .max_height(room)
+                        .auto_shrink(false)
+                        .show(ui, |ui| {
+                            let margin = Margin {
+                                left: 24,
+                                right: 24,
+                                top: 0,
+                                bottom: 24,
+                            };
+                            Frame::new().inner_margin(margin).show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                let live = (cx, ai, dict, vocab, voices);
+                                tab_body(ui, tab, &mut draft, live, out);
                             });
-                        widgets::scroll_fades(ui, &body, t.surface);
-                    });
+                        });
+                    widgets::scroll_fades(ui, &body, t.surface);
                 });
             });
+        });
         if close || modal.should_close() {
             out.push(Command::CloseSettings);
         }
