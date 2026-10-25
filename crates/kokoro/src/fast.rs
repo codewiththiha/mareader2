@@ -113,13 +113,29 @@ pub(crate) fn norm_rows(
                 let a = alphas.get(c).copied().unwrap_or(1.0);
                 let inv = a.recip();
                 for (o, y) in row.iter_mut().zip(normed) {
-                    let wave = (y * a).sin();
-                    *o = y + wave * wave * inv;
+                    *o = y + sin_squared(y * a) * inv;
                 }
             }
         }
     });
     out
+}
+
+/// `sin²(x)` without branches, so loops vectorise; within 1e-6 of `sin`'s.
+fn sin_squared(x: f32) -> f32 {
+    use std::f32::consts::{FRAC_1_PI, FRAC_PI_2};
+    // Adding 1.5·2²³ rounds to a whole number in plain float maths.
+    const ROUND: f32 = 12_582_912.0;
+    // π in two parts, the first exact in few bits, so k·π loses nothing.
+    const PI_HIGH: f32 = 3.140_625;
+    const PI_LOW: f32 = 9.676_536e-4;
+    // Squaring drops the sign, so the period shrinks to π.
+    let k = (x * FRAC_1_PI + ROUND) - ROUND;
+    let r = ((x - k * PI_HIGH) - k * PI_LOW).clamp(-FRAC_PI_2, FRAC_PI_2);
+    let r2 = r * r;
+    let tail = 1.0 / 362_880.0 - r2 / 39_916_800.0;
+    let s = r * (1.0 + r2 * (-1.0 / 6.0 + r2 * (1.0 / 120.0 + r2 * (-1.0 / 5040.0 + r2 * tail))));
+    s * s
 }
 
 /// A stride-1, ungrouped conv's shape.
@@ -152,19 +168,17 @@ pub(crate) fn conv(
     let rows = inputs * kernel;
     let block = (BLOCK / rows.max(1)).max(256).min(out_len.max(1));
     let mut out = vec![0f32; outputs * out_len];
-    let mut col = Vec::new();
     for start in (0..out_len).step_by(block) {
         let width = block.min(out_len - start);
-        col.clear();
-        col.resize(rows * width, 0f32);
-        for (r, slot) in col.chunks_exact_mut(width).enumerate() {
+        let mut col = vec![0f32; rows * width];
+        by_rows(&mut col, width, |r, slot| {
             let (c, k) = (r / kernel, r % kernel);
             // Step t reads x[t + k·dilation − padding], zero outside.
             let shift = (k * dilation) as isize - padding as isize;
             let from = (start as isize + shift).max(0) as usize;
             let to = ((start + width) as isize + shift).clamp(0, len as isize) as usize;
             if from >= to {
-                continue;
+                return;
             }
             let at = (from as isize - start as isize - shift) as usize;
             let src = x.get(c * len + from..c * len + to);
@@ -172,8 +186,8 @@ pub(crate) fn conv(
             if let (Some(src), Some(dst)) = (src, dst) {
                 dst.copy_from_slice(src);
             }
-        }
-        let gathered = Tensor::from_slice(&col, (rows, width), &Device::Cpu)?;
+        });
+        let gathered = Tensor::from_vec(col, (rows, width), &Device::Cpu)?;
         let made = weights.matmul(&gathered)?;
         with_values(&made, |made| {
             for (o, row) in made.chunks_exact(width).enumerate() {
@@ -288,6 +302,15 @@ mod tests {
         let snake = norm_rows(&x, 4, (&[1.0], &[0.0]), 0.0, Then::Snake(&[2.0]));
         let y = want[1];
         assert!((snake[1] - (y + (2.0 * y).sin().powi(2) / 2.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_quick_sine_squared_matches_the_librarys() {
+        for i in -200_000..=200_000 {
+            let x = i as f32 * 0.05;
+            let want = x.sin() * x.sin();
+            assert!((sin_squared(x) - want).abs() < 2e-6, "{x}");
+        }
     }
 
     #[test]

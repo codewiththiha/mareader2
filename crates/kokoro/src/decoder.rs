@@ -7,7 +7,7 @@ use candle_nn::VarBuilder;
 
 use crate::SAMPLE_RATE;
 use crate::config::Istft;
-use crate::fast::Then;
+use crate::fast::{self, Then};
 use crate::layers::{AdaIn1d, Conv, Conv1d, ConvTranspose1d, leaky_relu, scale, upsample};
 use crate::noise::Noise;
 use crate::prosody::AdainResBlk1d;
@@ -107,8 +107,8 @@ impl Source {
         let f0: Vec<f32> = f0.flatten_all()?.to_dtype(DType::F32)?.to_vec1()?;
         let dims = HARMONICS + 1;
         let coarse = (len / self.upsampling).max(1);
-        let mut sines = vec![0f32; len * dims];
-        for h in 0..dims {
+        let mut waves = vec![0f32; len * dims];
+        fast::by_rows(&mut waves, len, |h, row| {
             let times = (h + 1) as f32;
             let mut rad: Vec<f32> = f0
                 .iter()
@@ -125,18 +125,19 @@ impl Source {
                     acc * std::f32::consts::TAU * self.upsampling as f32
                 })
                 .collect();
-            let phase = resample(&phase, len);
-            for (slot, p) in sines.iter_mut().skip(h).step_by(dims).zip(phase) {
+            for (slot, p) in row.iter_mut().zip(resample(&phase, len)) {
                 *slot = p.sin() * SINE_AMP;
             }
-        }
+        });
+        let mut sines = vec![0f32; len * dims];
+        noise.fill_normal(&mut sines);
         // Voiced samples keep sines under faint noise; the rest is noise.
-        for (row, v) in sines.chunks_exact_mut(dims).zip(&f0) {
+        for (i, (row, v)) in sines.chunks_exact_mut(dims).zip(&f0).enumerate() {
             let voiced = *v > VOICED;
             let amp = if voiced { NOISE_STD } else { SINE_AMP / 3.0 };
-            for slot in row {
-                let sine = if voiced { *slot } else { 0.0 };
-                *slot = sine + noise.normal() * amp;
+            for (h, slot) in row.iter_mut().enumerate() {
+                let sine = waves.get(h * len + i).copied().filter(|_| voiced);
+                *slot = sine.unwrap_or(0.0) + *slot * amp;
             }
         }
         let sines = Tensor::from_vec(sines, (1, len, dims), &Device::Cpu)?;

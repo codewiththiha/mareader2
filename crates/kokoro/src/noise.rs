@@ -41,6 +41,36 @@ impl Noise {
         ((self.next() >> 11) as f64 + 1.0) / (1u64 << 53) as f64
     }
 
+    /// `out` filled as calls to `normal` would, the maths across cores.
+    pub(crate) fn fill_normal(&mut self, out: &mut [f32]) {
+        let gain = self.gain;
+        let mut rest = out;
+        if let Some(v) = self.spare.take() {
+            let Some((first, tail)) = rest.split_first_mut() else {
+                self.spare = Some(v);
+                return;
+            };
+            *first = v * gain;
+            rest = tail;
+        }
+        let paired = rest.len() / 2 * 2;
+        let units: Vec<f64> = (0..paired).map(|_| self.unit()).collect();
+        let (pairs, odd) = rest.split_at_mut(paired);
+        crate::fast::by_rows(pairs, 2, |i, pair| {
+            let (Some(u), Some(w), [cos, sin]) = (units.get(2 * i), units.get(2 * i + 1), pair)
+            else {
+                return;
+            };
+            let radius = (-2.0 * u.ln()).sqrt();
+            let angle = std::f64::consts::TAU * w;
+            *cos = (radius * angle.cos()) as f32 * gain;
+            *sin = (radius * angle.sin()) as f32 * gain;
+        });
+        if let Some(last) = odd.first_mut() {
+            *last = self.normal();
+        }
+    }
+
     /// One draw from the standard normal distribution.
     pub(crate) fn normal(&mut self) -> f32 {
         if let Some(v) = self.spare.take() {
@@ -78,5 +108,21 @@ mod tests {
         let var = draws.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / draws.len() as f64;
         assert!(mean.abs() < 0.03, "mean {mean}");
         assert!((var - 1.0).abs() < 0.05, "variance {var}");
+    }
+
+    #[test]
+    fn filling_draws_what_single_draws_would() {
+        for (skip, count) in [(0, 70_001), (1, 70_000), (3, 1), (1, 0)] {
+            let mut one = Noise::new(9).with_gain(0.5);
+            let mut many = Noise::new(9).with_gain(0.5);
+            for _ in 0..skip {
+                assert_eq!(one.normal(), many.normal());
+            }
+            let singles: Vec<f32> = (0..count).map(|_| one.normal()).collect();
+            let mut filled = vec![0f32; count];
+            many.fill_normal(&mut filled);
+            assert_eq!(singles, filled);
+            assert_eq!(one.normal(), many.normal());
+        }
     }
 }
