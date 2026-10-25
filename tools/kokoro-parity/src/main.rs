@@ -20,6 +20,7 @@ use mareader_kokoro as ours;
 
 mod builds;
 mod g2p;
+mod own;
 mod refdecoder;
 
 type R<T> = Result<T, Box<dyn std::error::Error>>;
@@ -53,21 +54,30 @@ struct Reference {
     twin: refdecoder::IstftDecoder,
 }
 
+/// The published `.pth`'s weights, by the names the reference reads.
+fn published(weights: &Path) -> R<HashMap<String, Tensor>> {
+    let mut all = HashMap::new();
+    for part in [
+        "bert",
+        "bert_encoder",
+        "decoder",
+        "predictor",
+        "text_encoder",
+    ] {
+        for (name, t) in candle_core::pickle::read_all_with_key(weights, Some(part))? {
+            let name = format!("{part}.{name}").replace(".module.", ".");
+            all.insert(name, t.to_dtype(DType::F32)?);
+        }
+    }
+    Ok(all)
+}
+
 impl Reference {
     fn load(c: &KokoroConfig, weights: &Path) -> R<Self> {
-        let mut all = HashMap::new();
-        for part in [
-            "bert",
-            "bert_encoder",
-            "decoder",
-            "predictor",
-            "text_encoder",
-        ] {
-            for (name, t) in candle_core::pickle::read_all_with_key(weights, Some(part))? {
-                let name = format!("{part}.{name}").replace(".module.", ".");
-                all.insert(name, t.to_dtype(DType::F32)?);
-            }
-        }
+        Self::from_tensors(c, published(weights)?)
+    }
+
+    fn from_tensors(c: &KokoroConfig, all: HashMap<String, Tensor>) -> R<Self> {
         let cpu = Device::Cpu;
         let vb = VarBuilder::from_tensors(all, DType::F32, &cpu);
         let i = &c.istftnet;
@@ -204,16 +214,105 @@ fn reference(r: &Reference, ids: &[u32], style: &[f32], durations: &[usize]) -> 
     })
 }
 
+/// Each stage of `trace` against the reference's, as table rows.
+fn compare_stages(
+    tag: &str,
+    trace: &ours::Trace,
+    theirs: &Stages,
+    (stage_rows, failed): (&mut String, &mut Vec<String>),
+) -> R<()> {
+    let stages: [(&str, Vec<f32>, &[f32]); 7] = [
+        (
+            "phoneme encoder",
+            trace.bert.flatten_all()?.to_vec1()?,
+            &theirs.bert,
+        ),
+        (
+            "projection",
+            trace.projected.flatten_all()?.to_vec1()?,
+            &theirs.projected,
+        ),
+        (
+            "duration encoder",
+            trace.encoded.flatten_all()?.to_vec1()?,
+            &theirs.encoded,
+        ),
+        (
+            "durations (raw)",
+            trace.raw_durations.flatten_all()?.to_vec1()?,
+            &theirs.raw_durations,
+        ),
+        (
+            "pitch curve",
+            trace.pitch.flatten_all()?.to_vec1()?,
+            &theirs.pitch,
+        ),
+        (
+            "energy curve",
+            trace.energy.flatten_all()?.to_vec1()?,
+            &theirs.energy,
+        ),
+        (
+            "text encoder",
+            trace.text.flatten_all()?.to_vec1()?,
+            &theirs.text,
+        ),
+    ];
+    for (name, mine, theirs) in &stages {
+        let (verdict, worst, rel) = match diff(mine, theirs) {
+            Some((w, r)) if r < EXACT => ("same", w, r),
+            Some((w, r)) if r < CLOSE => ("close", w, r),
+            Some((w, r)) => ("**DIFFERS**", w, r),
+            None => ("**SHAPE**", f32::NAN, f32::NAN),
+        };
+        if verdict.starts_with("**") {
+            failed.push(format!("{tag} {name}: {verdict} (rel {rel:e})"));
+        }
+        writeln!(
+            stage_rows,
+            "| {tag} | {name} | {worst:.2e} | {rel:.2e} | {verdict} |"
+        )?;
+    }
+    let theirs_rounded: Vec<usize> = theirs
+        .raw_durations
+        .iter()
+        .map(|d| (d + 2.5e-4).round().max(1.0) as usize)
+        .collect();
+    let off = trace
+        .durations
+        .iter()
+        .zip(&theirs_rounded)
+        .filter(|(a, b)| a != b)
+        .count();
+    writeln!(
+        stage_rows,
+        "| {tag} | durations (frames) | {off} of {} differ | | {} |",
+        trace.durations.len(),
+        if off == 0 { "same" } else { "**DIFFERS**" }
+    )?;
+    if off > 0 {
+        failed.push(format!("{tag}: {off} rounded durations differ"));
+    }
+    Ok(())
+}
+
 /// Largest absolute difference, and that over the reference's largest value.
 fn diff(a: &[f32], b: &[f32]) -> Option<(f32, f32)> {
     if a.len() != b.len() || a.is_empty() {
         return None;
     }
+    // A NaN anywhere must not pass as no difference.
     let worst = a
         .iter()
         .zip(b)
         .map(|(x, y)| (x - y).abs())
-        .fold(0f32, f32::max);
+        .fold(0f32, |m, d| {
+            if m.is_nan() || d.is_nan() {
+                f32::NAN
+            } else {
+                m.max(d)
+            }
+        });
     let scale = b.iter().map(|v| v.abs()).fold(0f32, f32::max).max(1e-12);
     Some((worst, worst / scale))
 }
@@ -344,6 +443,8 @@ fn main() -> R<()> {
         }
         let pair = (&model, &voice);
         builds::check(&dir, &out, pair, &inputs, (&mut report, &mut failed))?;
+        drop(model);
+        own::check(&dir, &config, &voice, &inputs, (&mut report, &mut failed))?;
         return finish(&out, &report, &failed);
     }
 
@@ -398,78 +499,7 @@ fn main() -> R<()> {
         let our_took = start.elapsed();
         let theirs = reference(&reference_model, &ids, &style_v, &trace.durations)?;
 
-        let stages: [(&str, Vec<f32>, &[f32]); 7] = [
-            (
-                "phoneme encoder",
-                trace.bert.flatten_all()?.to_vec1()?,
-                &theirs.bert,
-            ),
-            (
-                "projection",
-                trace.projected.flatten_all()?.to_vec1()?,
-                &theirs.projected,
-            ),
-            (
-                "duration encoder",
-                trace.encoded.flatten_all()?.to_vec1()?,
-                &theirs.encoded,
-            ),
-            (
-                "durations (raw)",
-                trace.raw_durations.flatten_all()?.to_vec1()?,
-                &theirs.raw_durations,
-            ),
-            (
-                "pitch curve",
-                trace.pitch.flatten_all()?.to_vec1()?,
-                &theirs.pitch,
-            ),
-            (
-                "energy curve",
-                trace.energy.flatten_all()?.to_vec1()?,
-                &theirs.energy,
-            ),
-            (
-                "text encoder",
-                trace.text.flatten_all()?.to_vec1()?,
-                &theirs.text,
-            ),
-        ];
-        for (name, mine, theirs) in &stages {
-            let (verdict, worst, rel) = match diff(mine, theirs) {
-                Some((w, r)) if r < EXACT => ("same", w, r),
-                Some((w, r)) if r < CLOSE => ("close", w, r),
-                Some((w, r)) => ("**DIFFERS**", w, r),
-                None => ("**SHAPE**", f32::NAN, f32::NAN),
-            };
-            if verdict.starts_with("**") {
-                failed.push(format!("{tag} {name}: {verdict} (rel {rel:e})"));
-            }
-            writeln!(
-                stage_rows,
-                "| {tag} | {name} | {worst:.2e} | {rel:.2e} | {verdict} |"
-            )?;
-        }
-        let theirs_rounded: Vec<usize> = theirs
-            .raw_durations
-            .iter()
-            .map(|d| (d + 2.5e-4).round().max(1.0) as usize)
-            .collect();
-        let off = trace
-            .durations
-            .iter()
-            .zip(&theirs_rounded)
-            .filter(|(a, b)| a != b)
-            .count();
-        writeln!(
-            stage_rows,
-            "| {tag} | durations (frames) | {off} of {} differ | | {} |",
-            trace.durations.len(),
-            if off == 0 { "same" } else { "**DIFFERS**" }
-        )?;
-        if off > 0 {
-            failed.push(format!("{tag}: {off} rounded durations differ"));
-        }
+        compare_stages(&tag, &trace, &theirs, (&mut stage_rows, &mut failed))?;
 
         let audio = Audio::of(&trace.audio, &theirs.audio);
         if !audio.passes() {
@@ -499,7 +529,7 @@ fn main() -> R<()> {
             writeln!(twin_rows, "| {tag} | {name} | {row} |")?;
         }
         let twin_corr = pearson(&twin_trace.audio, &theirs.twin_audio);
-        if twin_corr <= TWIN_AGREES {
+        if twin_corr.is_nan() || twin_corr <= TWIN_AGREES {
             failed.push(format!("{tag}: audio differs from the twin on equal noise"));
         }
         writeln!(twin_rows, "| {tag} | audio | | | {twin_corr:.5} |")?;
@@ -605,7 +635,15 @@ fn main() -> R<()> {
     drop(model);
     // The builds are compared as the app runs them.
     let app = ours::Kokoro::load(&dir)?;
-    builds::check(&dir, &out, (&app, &voice), &inputs, (&mut report, &mut failed))?;
+    builds::check(
+        &dir,
+        &out,
+        (&app, &voice),
+        &inputs,
+        (&mut report, &mut failed),
+    )?;
+    drop(app);
+    own::check(&dir, &config, &voice, &inputs, (&mut report, &mut failed))?;
     finish(&out, &report, &failed)
 }
 

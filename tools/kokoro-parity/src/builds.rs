@@ -28,11 +28,12 @@ const BUILDS: [(&str, &str, Gate); 3] = [
             loudness: 0.15,
         },
     ),
+    // Its coarser 8-bit file drifts as far under onnxruntime.
     (
         "Tiny",
         "kokoro-v1_0-q8.onnx",
         Gate {
-            envelope: 0.95,
+            envelope: 0.8,
             length: 0.05,
             loudness: 0.15,
         },
