@@ -113,11 +113,15 @@ impl Lexicon {
             serde_json::from_str::<HashMap<String, Entry>>(json)
                 .map_err(|e| Error::Data(format!("lexicon: {e}")))
         };
-        Ok(Self {
-            british,
-            golds: grow_dictionary(parse(gold)?),
-            silvers: grow_dictionary(parse(silver)?),
-            patterns: Patterns::new()?,
+        std::thread::scope(|s| {
+            let silvers = crate::beside(s, || Ok(grow_dictionary(parse(silver)?)))?;
+            let golds = grow_dictionary(parse(gold)?);
+            Ok(Self {
+                british,
+                golds,
+                silvers: crate::joined(silvers)?,
+                patterns: Patterns::new()?,
+            })
         })
     }
 

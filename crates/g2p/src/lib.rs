@@ -78,6 +78,22 @@ pub enum Error {
     Data(String),
 }
 
+/// Starts `work` on its own thread, joined by [`joined`] or with `scope`.
+pub(crate) fn beside<'s, T: Send + 's>(
+    scope: &'s std::thread::Scope<'s, '_>,
+    work: impl FnOnce() -> Result<T, Error> + Send + 's,
+) -> Result<std::thread::ScopedJoinHandle<'s, Result<T, Error>>, Error> {
+    let named = std::thread::Builder::new().name("g2p load".into());
+    (named.spawn_scoped(scope, work)).map_err(|e| Error::Data(format!("no thread to load on: {e}")))
+}
+
+/// What `beside`'s work made.
+pub(crate) fn joined<T>(
+    work: std::thread::ScopedJoinHandle<'_, Result<T, Error>>,
+) -> Result<T, Error> {
+    (work.join()).map_err(|_| Error::Data("loading stopped short".to_owned()))?
+}
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -150,16 +166,29 @@ impl G2p {
     }
 
     pub fn from_sources(dialect: Dialect, sources: Sources<'_>) -> Result<Self, Error> {
-        Ok(Self {
-            dialect,
-            tokenizer: Tokenizer::from_json(sources.tokenizer)?,
-            tagger: Tagger::from_bytes(sources.tagger)?,
-            lexicon: Lexicon::from_json(dialect == Dialect::British, sources.gold, sources.silver)?,
-            patterns: Patterns::new()?,
-            neural: sources
-                .neural
-                .map(|bytes| NeuralG2p::from_bytes(bytes, dialect))
-                .transpose()?,
+        // The parts share nothing, so each is read on a core of its own.
+        std::thread::scope(|s| {
+            let tagger = beside(s, || Tagger::from_bytes(sources.tagger))?;
+            let neural = beside(s, || {
+                let neural = sources.neural;
+                neural
+                    .map(|b| NeuralG2p::from_bytes(b, dialect))
+                    .transpose()
+            })?;
+            let rest = beside(s, || {
+                Ok((Tokenizer::from_json(sources.tokenizer)?, Patterns::new()?))
+            })?;
+            let british = dialect == Dialect::British;
+            let lexicon = Lexicon::from_json(british, sources.gold, sources.silver)?;
+            let (tokenizer, patterns) = joined(rest)?;
+            Ok(Self {
+                dialect,
+                tokenizer,
+                tagger: joined(tagger)?,
+                lexicon,
+                patterns,
+                neural: joined(neural)?,
+            })
         })
     }
 
