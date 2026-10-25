@@ -3791,6 +3791,7 @@ dependencies = [
  "mareader-ipa",
  "mareader-kokoro",
  "mareader-memory",
+ "mareader-phonon",
  "mareader-vits",
  "objc2 0.6.5",
  "objc2-foundation 0.3.2",

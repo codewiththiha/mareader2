@@ -172,7 +172,7 @@ impl Model {
 }
 
 /// Every model on offer.
-pub const MODELS: &[Model] = &[KOKORO, PIPER, KITTEN];
+pub const MODELS: &[Model] = &[KOKORO, PIPER, KITTEN, PHONON];
 
 /// How English words sound, for word cards: the voices' own data, alone.
 pub const PRONUNCIATION: Model = Model {
@@ -1331,6 +1331,259 @@ const KITTEN_VOICES: &[ModelVoice] = &[
     kitten_voice("expr-voice-5-m", "Leo", Gender::Male),
 ];
 
+/// Phonon's weights and tokenizer, pinned.
+const PHONON_HOSTS: &[&str] = &[
+    "https://huggingface.co/gradium/phonon-31m-en/resolve/92741c5b07d085ff840e26fea8ce43110b87852f/",
+    "https://hf-mirror.com/gradium/phonon-31m-en/resolve/92741c5b07d085ff840e26fea8ce43110b87852f/",
+];
+
+/// Its voice catalogue, Apache 2.0 as well; pinned.
+const PHONON_VOICE_HOSTS: &[&str] = &[
+    "https://huggingface.co/gradium/phonon-voices/resolve/0ee17205f254b5abc43b266c8a0f215565c352f7/",
+    "https://hf-mirror.com/gradium/phonon-voices/resolve/0ee17205f254b5abc43b266c8a0f215565c352f7/",
+];
+
+/// Every voice file weighs the same: one prompt of 125 frames.
+const PHONON_VOICE_BYTES: u64 = 256_136;
+
+const fn phonon_file(path: &'static str, bytes: u64, sha256: &'static str) -> ModelFile {
+    ModelFile {
+        path,
+        bytes,
+        sha256,
+        hosts: None,
+        from: None,
+    }
+}
+
+/// Gradium's English model, run on the computer; voices download one by one.
+pub const PHONON: Model = Model {
+    id: "phonon",
+    name: "Phonon",
+    about: "Natural English voices from a 31 million parameter model",
+    license: "Apache 2.0",
+    hosts: PHONON_HOSTS,
+    files: &[
+        phonon_file(
+            "config.json",
+            4_634,
+            "b5d0f88353638370d94035b7d73d7d6577c0554d78f8d7ecfd40490aae39ae85",
+        ),
+        phonon_file(
+            "tokenizer.json",
+            277_967,
+            "691a00068fa7b989f2f3e5ae5daa2d1a5bb319f2d5360deafcfb19a8bb6e7936",
+        ),
+    ],
+    builds: &[Build {
+        id: "q8",
+        name: "8-bit",
+        about: "The model in 8-bit weights, as its makers ship it",
+        file: phonon_file(
+            "model.q8.gguf",
+            64_512_352,
+            "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae",
+        ),
+        extra: None,
+    }],
+    voices: PHONON_VOICES,
+    first_voice: "default",
+    knobs: &[],
+};
+
+/// A voice from the catalogue; `path` is `voices/<id>.safetensors`.
+const fn phonon_voice(
+    (id, name, language): (&'static str, &'static str, &'static str),
+    gender: Gender,
+    path: &'static str,
+    sha256: &'static str,
+) -> ModelVoice {
+    ModelVoice {
+        id,
+        name,
+        language,
+        gender,
+        file: Some(ModelFile {
+            path,
+            bytes: PHONON_VOICE_BYTES,
+            sha256,
+            hosts: Some(PHONON_VOICE_HOSTS),
+            from: None,
+        }),
+        extra: None,
+        shared: &[],
+        note: "",
+    }
+}
+
+const PHONON_VOICES: &[ModelVoice] = &[
+    // The checkpoint's own voice, which it downloads with.
+    ModelVoice {
+        id: "default",
+        name: "Default",
+        language: "en-US",
+        gender: Gender::Male,
+        file: Some(phonon_file(
+            "default-voice.safetensors",
+            PHONON_VOICE_BYTES,
+            "dc537478eaadc1a5257fcda2e3501ab81e14c111a5d95a5838f350db2afd0f1a",
+        )),
+        extra: None,
+        shared: &[],
+        note: "",
+    },
+    phonon_voice(
+        ("NbpkqMVS3CJeq2j8", "Zoey", "en-US"),
+        Gender::Female,
+        "voices/NbpkqMVS3CJeq2j8.safetensors",
+        "97c7f8c253413574406ab80dd23f49c3ebb2517163b00a9bf86b9c4cf43e7e23",
+    ),
+    phonon_voice(
+        ("NIWIOv5vTi5eRMj8", "Juniper", "en-US"),
+        Gender::Female,
+        "voices/NIWIOv5vTi5eRMj8.safetensors",
+        "444378eb06b7c492b86e8fc7d13e4db1a3c0cf3e68891a960bf6f0a41a13ef35",
+    ),
+    phonon_voice(
+        ("vjFyp2BcCyTlUmYb", "Everly", "en-US"),
+        Gender::Female,
+        "voices/vjFyp2BcCyTlUmYb.safetensors",
+        "958ea94da14f46dd48c7f64adac11ed2ad2aa45f7ccd165dfebab5272664402e",
+    ),
+    phonon_voice(
+        ("4SZHfMpw-p46Ywgs", "Harper", "en-US"),
+        Gender::Female,
+        "voices/4SZHfMpw-p46Ywgs.safetensors",
+        "6b3da6e2d796a20c51af892c482bd6509fb88267a221aff83c870843dee2a123",
+    ),
+    phonon_voice(
+        ("bXwrkHhURL1VFJdG", "Hadley", "en-US"),
+        Gender::Female,
+        "voices/bXwrkHhURL1VFJdG.safetensors",
+        "a879938aa9a2df0a8220bdadef88137929f71e887bd91e7db205bd5fa11661d2",
+    ),
+    phonon_voice(
+        ("nGzMHMPAWGaJFHOo", "Delia", "en-US"),
+        Gender::Female,
+        "voices/nGzMHMPAWGaJFHOo.safetensors",
+        "a0c3dcb91b2247eca56536be9ae8e8becc1c807b1136c5fe101552d6a155b24a",
+    ),
+    phonon_voice(
+        ("LMDIYE0Oa377Qh6Z", "Easton", "en-US"),
+        Gender::Male,
+        "voices/LMDIYE0Oa377Qh6Z.safetensors",
+        "45c582673cb20edb04ddcca2b5a8865ddfb0a82599efadb269021e87d20fbdd4",
+    ),
+    phonon_voice(
+        ("40QrMVgAxFiUnP9f", "Micah", "en-US"),
+        Gender::Male,
+        "voices/40QrMVgAxFiUnP9f.safetensors",
+        "0de1098d1051686a138d068e83ff09deb5053328bc74ec9541a1fdb90bfc24da",
+    ),
+    phonon_voice(
+        ("0zLApsZfVLLNaEGl", "Trevor", "en-US"),
+        Gender::Male,
+        "voices/0zLApsZfVLLNaEGl.safetensors",
+        "dc1341c8937af5534e6bbcc5c0fc5e7c10312229b59061228074f93683fe2261",
+    ),
+    phonon_voice(
+        ("_6Aslh2DxfmnRLmP", "Russell", "en-US"),
+        Gender::Male,
+        "voices/_6Aslh2DxfmnRLmP.safetensors",
+        "beae9e4030efce0a935fcb0f807dc0784d598bcaa87ad4aacb047436b1eaa411",
+    ),
+    phonon_voice(
+        ("qIxlZ7Ei8KvWlyQH", "Preston", "en-US"),
+        Gender::Male,
+        "voices/qIxlZ7Ei8KvWlyQH.safetensors",
+        "6e04b84d3ae8751b22bca0a4f63936f9cb648f4f2182b2d0788071ea1c0b68a1",
+    ),
+    phonon_voice(
+        ("d9XCyhjo4JhkHF1d", "Miles", "en-US"),
+        Gender::Male,
+        "voices/d9XCyhjo4JhkHF1d.safetensors",
+        "eab20e4f159b48cfbc01b1885804e24f681f80e7a64f909182763a4e3361bee8",
+    ),
+    phonon_voice(
+        ("6PWnV0Nq4wu7RVBT", "Maeve", "en-GB"),
+        Gender::Female,
+        "voices/6PWnV0Nq4wu7RVBT.safetensors",
+        "56494ee67d533ad227ff0dfd0b1c13ff5aa91f1ad6e596e66c2986ba3005e844",
+    ),
+    phonon_voice(
+        ("GgfEkEJtxZR7gnpy", "Freya", "en-GB"),
+        Gender::Female,
+        "voices/GgfEkEJtxZR7gnpy.safetensors",
+        "eb3cd47418349e618408c16bea7153988b3ad04b41a6033039dd474a9a4dcd23",
+    ),
+    phonon_voice(
+        ("uem82D50GRv2Dwma", "Pippa", "en-GB"),
+        Gender::Female,
+        "voices/uem82D50GRv2Dwma.safetensors",
+        "d41a8f01d6e33450f1ce062d332914da10beee99e585dab531750706f187c48a",
+    ),
+    phonon_voice(
+        ("y9bQqIDnyxwqK01t", "Elodie-Rose", "en-GB"),
+        Gender::Female,
+        "voices/y9bQqIDnyxwqK01t.safetensors",
+        "21eade9d83b2e66b9364e1b6cd999a3a6704c000a71f27f34e05ace5cdfd58bb",
+    ),
+    phonon_voice(
+        ("gDT1nz7Ie36ZhL-C", "Imogen", "en-GB"),
+        Gender::Female,
+        "voices/gDT1nz7Ie36ZhL-C.safetensors",
+        "1980ab3c35fa98a25b5f3b5e643fd852e14ca8a12a4a26b06aaf1abf2a8c68b1",
+    ),
+    phonon_voice(
+        ("m9MxpY6IUGXtWp76", "Lottie", "en-GB"),
+        Gender::Female,
+        "voices/m9MxpY6IUGXtWp76.safetensors",
+        "a906ebf17e43fded12b3d6bd077abb2df33bc86eff51c1beeb82e5d416527db3",
+    ),
+    phonon_voice(
+        ("gfP44RlHwr2kEwk7", "Bryony", "en-GB"),
+        Gender::Female,
+        "voices/gfP44RlHwr2kEwk7.safetensors",
+        "bcc207a73b7885e45b49ab633d3377a10158292e3a7cef9cd6764ad107f1cb9b",
+    ),
+    phonon_voice(
+        ("X6NceqF285Gr04gb", "Alfie", "en-GB"),
+        Gender::Male,
+        "voices/X6NceqF285Gr04gb.safetensors",
+        "4de75497fff3030168e8aa6dca23ffeb332b1bc8c25d0bf3507ceadac953ae9c",
+    ),
+    phonon_voice(
+        ("YyKcxPG7iIgS3jsK", "Hugh", "en-GB"),
+        Gender::Male,
+        "voices/YyKcxPG7iIgS3jsK.safetensors",
+        "3169d74b47a54d1eb15e4c243f56393abe9fe90c7e1c308ecf96ee67618b152a",
+    ),
+    phonon_voice(
+        ("zUCxzrOrugTSis03", "Edwin", "en-GB"),
+        Gender::Male,
+        "voices/zUCxzrOrugTSis03.safetensors",
+        "ff1d0735b8b45710462b1d1f846da040f970c6eb62c7c2f36dbfb8e5bde74f1e",
+    ),
+    phonon_voice(
+        ("JOW0vchyswkQUMDS", "Spencer", "en-GB"),
+        Gender::Male,
+        "voices/JOW0vchyswkQUMDS.safetensors",
+        "cc9ac1107b0ffce282374a19beb7bfa95847724e6b7afbac991b4ae4277d5e6d",
+    ),
+    phonon_voice(
+        ("dME3IWyZBvmh1n1q", "Toby", "en-GB"),
+        Gender::Male,
+        "voices/dME3IWyZBvmh1n1q.safetensors",
+        "09ab315c7f4b72b4d71e66cb756184cedfb1f14d222d096e115bf95bfe7b29dc",
+    ),
+    phonon_voice(
+        ("Zn7g6NxLqXlJb7Qi", "Teddy", "en-GB"),
+        Gender::Male,
+        "voices/Zn7g6NxLqXlJb7Qi.safetensors",
+        "baea0ea9506f3237a5ebfc61afb7c72dbd189c5603b199ef42fbb00dbda379e0",
+    ),
+];
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -1451,6 +1704,25 @@ mod tests {
         assert_eq!(KITTEN.voices.len(), 8);
         assert!(KITTEN.voices.iter().all(|v| v.files().is_empty()));
         assert!(KITTEN.core().iter().all(|f| KITTEN.files.contains(f)));
+    }
+
+    #[test]
+    fn phonon_downloads_its_own_voice_and_each_other_alone() {
+        let core = PHONON.core();
+        assert_eq!(core.len(), 3);
+        assert!(core.iter().any(|f| f.path == "default-voice.safetensors"));
+        assert_eq!(PHONON.bytes(), 4_634 + 277_967 + 256_136);
+        let q8 = PHONON.build("q8").unwrap();
+        assert_eq!(PHONON.bytes_with(q8), PHONON.bytes() + 64_512_352);
+        assert_eq!(PHONON.voices.len(), 26);
+        for v in &PHONON.voices[1..] {
+            let file = v.file.unwrap();
+            assert_eq!(file.path, format!("voices/{}.safetensors", v.id));
+            assert!(PHONON.urls(&file)[0].contains("phonon-voices"));
+        }
+        let us = PHONON.voices.iter().filter(|v| v.language == "en-US");
+        let gb = PHONON.voices.iter().filter(|v| v.language == "en-GB");
+        assert_eq!((us.count(), gb.count()), (13, 13));
     }
 
     #[test]

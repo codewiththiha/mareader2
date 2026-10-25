@@ -19,6 +19,8 @@ mod local;
 mod mac_voices;
 mod models;
 #[cfg(not(target_arch = "wasm32"))]
+mod phonon;
+#[cfg(not(target_arch = "wasm32"))]
 mod piper;
 mod script;
 mod sentences;
@@ -33,7 +35,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub use models::{
-    AIDS, Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PIPER,
+    AIDS, Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PHONON, PIPER,
     PRONUNCIATION,
 };
 pub use script::{Glyph, Script, Sentence, Spot};
@@ -195,7 +197,7 @@ const SAMPLES: [(&str, &str); 13] = [
 ];
 
 /// The models with an engine, by id.
-const RUNNABLE: [&str; 3] = [KOKORO.id, PIPER.id, KITTEN.id];
+const RUNNABLE: [&str; 4] = [KOKORO.id, PIPER.id, KITTEN.id, PHONON.id];
 
 /// The engines to pick from, by id and name: the system's, then models ready.
 pub fn engines(shelf: &Shelf) -> Vec<(&'static str, &'static str)> {
@@ -244,8 +246,22 @@ pub fn open(
                 knobs: model.knobs,
             };
             let studio = shelf.studio().clone();
-            let engine = match model.id == KITTEN.id {
-                true => {
+            let engine = match model.id {
+                id if id == PHONON.id => {
+                    let voices = (model.voices.iter())
+                        .filter(|v| shelf.has(model, v.id))
+                        .filter_map(|v| Some((v.id.to_owned(), folder.join(v.file?.path))));
+                    let source = phonon::Source {
+                        config: folder.join("config.json"),
+                        weights: folder.join(build.file.path),
+                        tokenizer: folder.join("tokenizer.json"),
+                        voices: voices.collect(),
+                        name: Arc::clone(&name),
+                    };
+                    let synth = phonon::Phonon::new(source, studio.clone());
+                    local::Engine::open(synth, setup(phonon::SPEEDS), studio, wake)?
+                }
+                id if id == KITTEN.id => {
                     let source = kitten::Source {
                         weights: folder.join(build.file.path),
                         voices: folder.join(build.extra.map_or("", |f| f.path)),
@@ -256,7 +272,7 @@ pub fn open(
                     let synth = kitten::Kitten::new(source, studio.clone());
                     local::Engine::open(synth, setup(kitten::SPEEDS), studio, wake)?
                 }
-                false => {
+                _ => {
                     let source = kokoro::Source {
                         weights: folder.join(build.file.path),
                         folder,
@@ -333,6 +349,7 @@ pub fn speech_rate(engine: &str, voice: Option<&str>, shelf: &Shelf) -> Option<u
     let model = shelf.ready().into_iter().find(|m| m.id == engine)?;
     match model.id {
         id if id == KOKORO.id || id == KITTEN.id => Some(mareader_kokoro::SAMPLE_RATE),
+        id if id == PHONON.id => Some(mareader_phonon::SAMPLE_RATE),
         id if id == PIPER.id => {
             // Each Piper voice says its own rate in its settings.
             let picked = voice.filter(|v| shelf.has(model, v));
