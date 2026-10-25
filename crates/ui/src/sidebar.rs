@@ -21,6 +21,8 @@ pub const SLIDE: f32 = 0.3;
 pub const HOVER_GRACE: f64 = 0.25;
 /// The floating rail's reveal strip at the window's left edge.
 pub const EDGE: f32 = 6.0;
+/// How long the edge waits while the pointer is in the title bar.
+pub const EDGE_DELAY: f64 = 0.5;
 const SWITCHER_H: f32 = 54.0;
 
 /// Draws a panel; false shows the placeholder. The flag: reveal the
@@ -93,6 +95,8 @@ pub struct RailContext {
     /// Settings → Animations → Sidebar slide; off shows end frames only.
     pub slide: bool,
     pub platform: Platform,
+    /// The title bar's hover band ends here; the edge waits above it.
+    pub bar_bottom: f32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -103,6 +107,8 @@ pub struct Sidebar {
     /// Floating only: the pointer has reached the rail since it opened.
     armed: bool,
     left_at: Option<f64>,
+    /// When the pointer reached the edge strip inside the title bar.
+    edge_at: Option<f64>,
     /// The panel should bring the reading place into view.
     recentre: bool,
     /// Last frame's rail edge left of its open place; `None` when not drawn.
@@ -134,6 +140,7 @@ impl Sidebar {
             self.open = true;
             self.armed = false;
             self.left_at = None;
+            self.edge_at = None;
         }
     }
 
@@ -213,7 +220,7 @@ impl Sidebar {
     ) -> f32 {
         let screen = ctx.content_rect();
         let home = Rect::from_min_size(screen.min, vec2(WIDTH, screen.height()));
-        self.track_hover(ctx, home, screen, out);
+        self.track_hover(ctx, cx, home, screen, out);
         let width = self.slide(ctx, cx, "sidebar-float-slide");
         self.offset = (width >= 1.0).then_some(width - WIDTH);
         if width < 1.0 {
@@ -247,13 +254,22 @@ impl Sidebar {
     }
 
     /// The edge strip opens a closed rail; leaving an open one closes it.
-    fn track_hover(&mut self, ctx: &Context, rail: Rect, screen: Rect, out: &mut Commands) {
+    fn track_hover(
+        &mut self,
+        ctx: &Context,
+        cx: &RailContext,
+        rail: Rect,
+        screen: Rect,
+        out: &mut Commands,
+    ) {
         let pointer = ctx.pointer_hover_pos();
         let down = ctx.input(|i| i.pointer.any_down());
         if !self.open {
             let edge = Rect::from_min_size(screen.min, vec2(EDGE, screen.height()));
-            if !down && pointer.is_some_and(|p| edge.contains(p)) {
-                out.push(Command::OpenSidebar(None));
+            match pointer.filter(|&p| !down && edge.contains(p)) {
+                Some(p) if p.y < cx.bar_bottom => self.dwell(ctx, out),
+                Some(_) => out.push(Command::OpenSidebar(None)),
+                None => self.edge_at = None,
             }
             return;
         }
@@ -277,6 +293,17 @@ impl Sidebar {
             out.push(Command::CloseSidebar);
         } else {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(HOVER_GRACE - waited));
+        }
+    }
+
+    /// Opens after a rest: aiming at bar buttons often overshoots here.
+    fn dwell(&mut self, ctx: &Context, out: &mut Commands) {
+        let now = ctx.input(|i| i.time);
+        let waited = now - *self.edge_at.get_or_insert(now);
+        if waited >= EDGE_DELAY {
+            out.push(Command::OpenSidebar(None));
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(EDGE_DELAY - waited));
         }
     }
 

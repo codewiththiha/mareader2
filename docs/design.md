@@ -205,6 +205,9 @@ over the panes, so content never moves when it appears.
   title bar shown" (also in Settings) pins it. The pin icon means one thing
   only, docking the sidebar from its header.
 - **Chromeless** mode never shows it.
+- **Sidebar edge.** In overlay mode the window's left 6 pt opens the rail
+  at once, but within the bar's band only after resting there 0.5 s, so
+  overshooting Library onto the edge doesn't move it.
 - **Fading out, it ignores clicks**, so a click meant for the page lands there.
 - **Window moves.** Dragging the empty bar moves the window; double-click
   toggles maximise.

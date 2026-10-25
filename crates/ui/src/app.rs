@@ -3224,6 +3224,7 @@ impl eframe::App for MareaderApp {
             overlay,
             slide: self.settings.motion.sidebar_slide,
             platform: self.platform,
+            bar_bottom: self.titlebar.band_bottom(&ctx),
         };
         let tabs = self.tabs();
         if let Some(made) = self.library.take_made() {

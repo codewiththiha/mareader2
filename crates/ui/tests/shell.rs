@@ -248,6 +248,27 @@ fn a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace() {
 }
 
 #[test]
+fn the_edge_waits_while_the_pointer_is_in_the_title_bar() {
+    let mut h = with(&[("platform", "mac"), ("float", "true")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    assert!(h.state().titlebar().visible());
+    // Overshooting the bar's buttons onto the edge doesn't move them.
+    h.hover_at(egui::pos2(2.0, 20.0));
+    wait(&mut h, 0.2);
+    assert!(!h.state().sidebar().is_open(), "a brush past the edge");
+    wait(&mut h, 0.45);
+    assert!(h.state().sidebar().is_open(), "resting there opens it");
+    // Below the bar the edge opens at once.
+    let mut h = with(&[("platform", "mac"), ("float", "true")]);
+    h.hover_at(egui::pos2(600.0, 20.0));
+    wait(&mut h, 0.5);
+    h.hover_at(egui::pos2(2.0, 400.0));
+    h.run_steps(2);
+    assert!(h.state().sidebar().is_open());
+}
+
+#[test]
 fn docking_a_floating_sidebar_keeps_it_open() {
     let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
     h.hover_at(egui::pos2(150.0, 400.0));
