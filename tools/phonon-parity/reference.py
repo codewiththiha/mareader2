@@ -1,4 +1,4 @@
-"""Reference side of phonon-parity: ptts audio, numpy latents, HF tokens.
+"""Reference side of phonon-parity: ptts audio and text, numpy latents, HF tokens.
 
 Usage: reference.py <model> <voices> <out>. Reads <out>/cases.json and
 writes <out>/ref/.
@@ -40,7 +40,7 @@ def main():
     names = sorted({c["voice"] for c in cases["cases"]})
     for quant in QUANTS:
         start = time.perf_counter()
-        tts = ptts.TTS(model=str(model), quant=quant, temperature=0.0, lang="none")
+        tts = ptts.TTS(model=str(model), quant=quant, temperature=0.0, lang="en")
         for name in names:
             if name != "default":
                 tts.add_voice(name, str(voice_file(model, voices, name)))
@@ -67,7 +67,14 @@ def main():
         )
         latents.astype("<f4").tofile(ref / f"latents.{case['index']}.f32")
 
-    reference = {"timing": timing, "tokens": ids, "decoded": decoded, "load": load}
+    normalized = [ptts.normalize(text, lang="en") for text, _ in cases["normalized"]]
+    reference = {
+        "timing": timing,
+        "tokens": ids,
+        "decoded": decoded,
+        "load": load,
+        "normalized": normalized,
+    }
     (ref / "reference.json").write_text(json.dumps(reference))
     print("reference written:", {k: round(v["seconds"], 2) for k, v in timing.items()})
 

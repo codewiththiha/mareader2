@@ -14,6 +14,7 @@ mod layers;
 mod lm;
 mod mimi;
 mod noise;
+mod normalize;
 mod text;
 mod tokenizer;
 mod weights;
@@ -24,6 +25,7 @@ use candle_core::{Device, Tensor};
 
 pub use config::Config;
 pub use noise::Noise;
+pub use normalize::normalize;
 pub use text::{CHUNK_TOKENS, Chunk, prepare};
 pub use tokenizer::Tokenizer;
 
@@ -157,9 +159,10 @@ impl Phonon {
         }
     }
 
-    /// `text` planned as the model's runs.
+    /// `text` read as English and planned as the model's runs.
     pub fn chunks(&self, text: &str) -> Vec<Chunk> {
-        text::chunks(&self.tokenizer, text, self.config.frame_rate())
+        let text = normalize(text);
+        text::chunks(&self.tokenizer, &text, self.config.frame_rate())
     }
 
     /// The latents of one run in `voice`, noise drawn from `noise`.

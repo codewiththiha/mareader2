@@ -1,0 +1,77 @@
+I paid $4.59 for it.
+It costs $1.00, or $0.05 with the coupon.
+That's 1¢ and 99¢.
+We raised $2 million last year.
+They spent €3.5bn and £20k.
+A loss of -$5 today.
+It costs 250 € in Paris.
+He owes ¥1000 to them.
+There were 1,234,567 people.
+The year 1999 and the year 2024.
+Population: 12500 and 1000000 and 999.
+Pages 12-15 and years 1990-1995 and 2001-05.
+A temperature of -3.5 at night.
+It was 3.14159 exactly.
+Call 0123 456 789 now.
+Dial +44 20 7946 0958 today.
+The code is 4111 1111 1111 1111.
+Card ending in -4242.
+Its id is 007 and the zip 02134.
+The serial 12-34-56-78 and 2024-01-15 and 1_000_000.
+Write to jane.doe+news@example.co.uk today.
+Mail info@my-site.org, please.
+Visit https://www.example.com/docs/v2 now.
+See http://example.org.
+Go to www.Example.COM or example.io/about-us.
+Try docs.rust-lang.org for help.
+The file is notes.txt not a site.
+Read it at example.blog or example.page.
+Lt Col Smith met Sgt. Jones.
+Capt. Kirk and Gen. Grant on Jan. 5.
+Mon. Tue. Wed. and Sept. 3.
+See vol. 2, approx. 40 pages, ed. 3.
+Smith vs. Jones, w/ cream, w/o sugar.
+Mt. Fuji and Ft. Knox.
+That was sooooo good, noooo way!
+Whyyyy hellooo, shhhh.
+AAAH and Hmmmm.
+It is 25 °C or 77°F outside.
+Only 1° of change, 1.5° total.
+The n° 5 and N° 7.
+x² plus y³ equals z⁴.
+H₂O and CO₂ are molecules.
+Footnote¹ and (a+b)² too.
+Rated ★★★☆☆ and ★★★★½ by readers.
+★★★★★ for this one.
+A 3×4 grid, 10÷2, a≤b, c≥d, e≠f.
+About ≈ 5 and √9 and ∞.
+α, β, γ and Ω and π.
+It's ±2 and ~30 minutes.
+I ❤ this and ♥ that.
+Dashes – like this — and this.
+Quotes “like this” and ‘this’ and «that».
+Bullets • one · two → three.
+Use [brackets] and {braces}.
+Time 10:30 and ratio 3:1.
+Note: this matters; really (truly).
+Wait… what?
+and/or, his/her, km/h, mg/kg, c/o.
+Ask @someone or add 1500+20.
+Emoji 🙂 and 🎉 here.
+*5 stars* and *emphasis*.
+He said, "Go."
+She said 'yes.'
+Résumé, café, naïve, Zürich.
+Ŵales and Ṡcotland and Ḃeta.
+The cost was $12.345.
+She is 5-years-old.
+In 2,500 BC and 3,000,000 AD.
+Pay $1,234.56 now.
+Mr. Smith arrived at 5 p.m.
+The 1990s and 80s.
+Room 101 and 1st place.
+Version 2.0.1 is out.
+Scores 3-2 and 10-20 and 5-3.
+I need 50% more and #1 & #2.
+ Leading space and trailing  
+Multiple   spaces	tab.

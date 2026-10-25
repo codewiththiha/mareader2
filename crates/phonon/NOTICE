@@ -1,8 +1,9 @@
 mareader-phonon ports Gradium's Phonon text-to-speech model to Rust and candle.
 
 The port follows xn-ptts (https://github.com/gradium-ai/xn-ptts), Gradium's
-own runtime: its flow language model, flow head, Mimi decoder, text plan and
-end-of-speech rule. xn-ptts is dual-licensed MIT OR Apache-2.0; this port
+own runtime: its flow language model, flow head, Mimi decoder, text plan,
+end-of-speech rule and English text normalisation, whose domain list keeps
+only IANA's country codes and generic names. xn-ptts is dual-licensed MIT OR Apache-2.0; this port
 takes it under the MIT terms:
 
   Copyright (c) the xn-ptts contributors

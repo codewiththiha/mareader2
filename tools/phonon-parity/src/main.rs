@@ -8,12 +8,12 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use mareader_phonon::{Noise, Phonon, SAMPLE_RATE};
+use mareader_phonon::{Noise, Phonon, SAMPLE_RATE, normalize};
 use serde::{Deserialize, Serialize};
 
 type R<T> = Result<T, Box<dyn std::error::Error>>;
 
-const SENTENCES: [&str; 10] = [
+const SENTENCES: [&str; 11] = [
     "Hello world.",
     "The quick brown fox jumps over the lazy dog, then naps in the warm afternoon sun.",
     "Reading aloud should feel natural: steady pacing, clear words, and pauses where \
@@ -29,7 +29,11 @@ const SENTENCES: [&str; 10] = [
     "Our neighbour's colour television was already there when the water heater broke.",
     "Café owners in Zürich serve crème brûlée — naïvely, perhaps.",
     "Yes.",
+    "It cost $4.59 on Jan. 5, about 1,250 more than in 1999; see www.example.com.",
 ];
+
+/// Strings our English normalisation must turn out as `ptts` does, one a line.
+const NORMALIZE_TESTS: &str = include_str!("../normalize.txt");
 
 /// Voices by file stem; `default` is the checkpoint's own.
 const VOICES: [&str; 5] = [
@@ -92,6 +96,8 @@ struct Cases {
     cases: Vec<Case>,
     /// Each string tokenized as is: the planner's inputs and the extras.
     tokens: Vec<(String, Vec<u32>)>,
+    /// Each normalisation test and our reading of it.
+    normalized: Vec<(String, String)>,
 }
 
 #[derive(Deserialize)]
@@ -108,6 +114,8 @@ struct Reference {
     /// Its decode of those ids.
     decoded: Vec<String>,
     load: HashMap<String, f64>,
+    /// `ptts.normalize` of each [`Cases::normalized`] input, in order.
+    normalized: Vec<String>,
 }
 
 fn prepare(model: &Path, out: &Path) -> R<()> {
@@ -143,7 +151,14 @@ fn prepare(model: &Path, out: &Path) -> R<()> {
         tokens.push(((*t).to_owned(), tok.encode(t)));
     }
     std::fs::create_dir_all(out)?;
-    let all = Cases { cases, tokens };
+    let normalized = (NORMALIZE_TESTS.lines())
+        .map(|t| (t.to_owned(), normalize(t)))
+        .collect();
+    let all = Cases {
+        cases,
+        tokens,
+        normalized,
+    };
     std::fs::write(out.join("cases.json"), serde_json::to_vec_pretty(&all)?)?;
     println!(
         "prepared {} sentences, {} token tests",
@@ -264,6 +279,27 @@ fn tokens(cases: &Cases, reference: &Reference, phonon: &Phonon) -> (String, boo
     (md, all)
 }
 
+/// Our normalisation against ptts's, as markdown, and whether all match.
+fn normalized(cases: &Cases, reference: &Reference) -> (String, bool) {
+    let mut rows = String::new();
+    let mut same = 0;
+    for (i, (text, ours)) in cases.normalized.iter().enumerate() {
+        let theirs = reference.normalized.get(i).map_or("", String::as_str);
+        if ours == theirs {
+            same += 1;
+        } else {
+            let _ = writeln!(rows, "| `{text}` | `{ours}` | `{theirs}` |");
+        }
+    }
+    let all = same == cases.normalized.len();
+    let mut md = format!("{same}/{} strings read alike.\n\n", cases.normalized.len());
+    if !all {
+        md.push_str("| Text | Ours | ptts |\n|---|---|---|\n");
+        md.push_str(&rows);
+    }
+    (md, all)
+}
+
 #[derive(Default)]
 struct Tally {
     cases: usize,
@@ -297,6 +333,8 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
         (String::new(), String::new(), String::new(), String::new());
     let mut stream_rows = String::new();
     let mut token_md = String::new();
+    let (normalize_md, normalize_ok) = normalized(&cases, &reference);
+    all_ok &= normalize_ok;
     for (build, file, quant) in BUILDS {
         let start = Instant::now();
         let phonon = Phonon::load(
@@ -455,7 +493,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
     }
     let _ = write!(
         md,
-        "Temperature 0 on both sides, text not normalised (`lang=\"none\"`).\n\n\
+        "Temperature 0 on both sides, text read as English (`lang=\"en\"`).\n\n\
          | Build | Same lengths | Worst corr | Median corr | ptts q8 vs f32 | Max diff | Median envelope | Worst envelope | Length | Pass |\n\
          |---|---|---|---|---|---|---|---|---|---|\n{rows}\n\
          Gates: f32 every length equal and corr >= {SAME_WAVE}; q8 median envelope \
@@ -471,6 +509,7 @@ fn compare(model: &Path, voices: &Path, out: &Path) -> R<bool> {
          | Build | Max diff | First audio, median s | Worst s | Seconds per second | Pass |\n\
          |---|---|---|---|---|---|\n{stream_rows}\n\
          Gate: max diff <= {STREAM_DIFF:.0e}, lengths equal.\n\n\
+         ## English normalisation against `ptts.normalize`\n\n{normalize_md}\n\
          ## Tokenizer against `tokenizers`\n\n{token_md}\n\
          ## Speed (seconds of compute per second of speech)\n\n\
          | Build | Load | ptts load | Model | Mimi | Ours | ptts |\n|---|---|---|---|---|---|---|\n{speed}\n\
