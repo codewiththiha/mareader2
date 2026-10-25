@@ -18,6 +18,8 @@ mod stretch;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+pub use stretch::Stretch;
+
 /// What a segment plays: a file's bytes, or samples already made.
 #[derive(Clone)]
 pub enum Clip {

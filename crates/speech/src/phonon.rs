@@ -5,17 +5,17 @@ use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mareader_audio::Stretch;
 use mareader_phonon::{Noise, Pace, Phonon as Model, SAMPLE_RATE, TEMPERATURE, Voice};
 
 use crate::local::{Line, Out, Synth};
 use crate::studio::Studio;
 
-/// The speeds offered: the pace condition keeps speech steady only near 1.
-pub(crate) const SPEEDS: RangeInclusive<f32> = 0.9..=1.3;
+/// The speeds offered, as other models give.
+pub(crate) const SPEEDS: RangeInclusive<f32> = 0.5..=3.0;
 
-/// Speed against its pace: the reference's medians over 12 lines.
-const PACES: [(f32, f32); 9] = [
-    (0.89, 0.3),
+/// Speed against its steady paces: the reference's medians over 12 lines.
+const PACES: [(f32, f32); 7] = [
     (0.91, 0.2),
     (0.946, 0.1),
     (1.0, 0.0),
@@ -23,8 +23,10 @@ const PACES: [(f32, f32); 9] = [
     (1.126, -0.2),
     (1.183, -0.3),
     (1.244, -0.4),
-    (1.297, -0.5),
 ];
+
+/// Within this of 1, stretching is left out.
+const PLAIN: f32 = 0.01;
 
 /// Where Phonon's build is kept, and its voices.
 #[derive(Clone)]
@@ -102,7 +104,9 @@ impl Synth for Phonon {
 
     fn render(&mut self, line: &Line<'_>, out: &mut Out<'_>) -> Result<(), String> {
         let loaded = self.loaded.as_ref().ok_or("Phonon was let go")?;
-        let pace = pace(line.speed);
+        let (pace, rest) = split(line.speed);
+        // The pace gets near; same-pitch stretching does what is left.
+        let mut stretch = ((rest - 1.0).abs() > PLAIN).then(|| Stretch::new(SAMPLE_RATE, 1, rest));
         let mut going = true;
         for chunk in loaded.model.chunks(line.text) {
             // Seeded, so the same line always sounds the same.
@@ -110,24 +114,43 @@ impl Synth for Phonon {
             let said = loaded
                 .model
                 .say(&loaded.voice, &chunk, pace, &mut noise, |block| {
-                    going = out(&block, SAMPLE_RATE, false);
+                    going = match &mut stretch {
+                        Some(s) => give(out, &s.push(&block)),
+                        None => out(&block, SAMPLE_RATE, false),
+                    };
                     going
                 });
             said.map_err(|e| e.to_string())?;
             if !going {
-                break;
+                return Ok(());
             }
+        }
+        if let Some(s) = &mut stretch {
+            give(out, &s.drain());
         }
         Ok(())
     }
 }
 
-/// The pace for `speed`, read off [`PACES`] between its points.
-fn pace(speed: f32) -> Pace {
+/// Hands `out` a stretched piece; one still empty goes on quietly.
+fn give(out: &mut Out<'_>, piece: &[f32]) -> bool {
+    piece.is_empty() || out(piece, SAMPLE_RATE, false)
+}
+
+/// The pace nearest `speed`, and the stretch that makes up the rest.
+fn split(speed: f32) -> (Pace, f32) {
     let speed = match speed.is_finite() {
         true => speed.clamp(*SPEEDS.start(), *SPEEDS.end()),
         false => 1.0,
     };
+    let first = PACES.first().map_or(1.0, |p| p.0);
+    let last = PACES.last().map_or(1.0, |p| p.0);
+    let natural = speed.clamp(first, last);
+    (pace(natural), speed / natural)
+}
+
+/// The pace for `speed`, read off [`PACES`] between its points.
+fn pace(speed: f32) -> Pace {
     let above = PACES.iter().position(|&(s, _)| s >= speed);
     let delta = match above.map(|i| (i.checked_sub(1).and_then(|j| PACES.get(j)), PACES.get(i))) {
         Some((Some(&(s0, d0)), Some(&(s1, d1)))) => d0 + (d1 - d0) * (speed - s0) / (s1 - s0),
@@ -149,11 +172,16 @@ mod tests {
         assert!(near(pace(1.0).0, 0.0));
         assert!(near(pace(1.126).0, -0.2));
         assert!(near(pace(1.096).0, -0.15));
-        assert!(near(pace(0.9).0, 0.25));
+        assert!(near(pace(0.928).0, 0.15));
+        // Past the steady paces, stretching makes up the rest.
+        let (fast, rest) = split(2.0);
+        assert!(near(fast.0, -0.4) && near(rest, 2.0 / 1.244));
+        let (slow, rest) = split(0.5);
+        assert!(near(slow.0, 0.2) && near(rest, 0.5 / 0.91));
+        assert_eq!(split(1.1).1, 1.0);
         // Held to the speeds offered, and 1 when no number.
-        assert_eq!(pace(3.0), pace(1.3));
-        assert_eq!(pace(0.5), pace(0.9));
-        assert_eq!(pace(f32::NAN), Pace(0.0));
+        assert_eq!(split(9.0), split(3.0));
+        assert_eq!(split(f32::NAN), (Pace(0.0), 1.0));
         assert!(
             PACES
                 .windows(2)
@@ -190,10 +218,35 @@ mod tests {
         let alone = Phonon::new(source.clone(), Studio::default());
         crate::local::tests::time_load(alone, "default", "phonon engine");
         let studio = Studio::default();
-        let synth = Phonon::new(source, studio.clone());
+        let synth = Phonon::new(source.clone(), studio.clone());
         match Engine::open(synth, setup, studio, Arc::new(|| {})) {
             Ok(e) => crate::local::tests::live(e, "phonon engine"),
             Err(e) => panic!("{e}"),
+        }
+        // Speeds past the steady paces still come out near what is asked.
+        let mut synth = Phonon::new(source, Studio::default());
+        synth.load("default").unwrap();
+        let mut length = |speed: f32| {
+            let text = "A quiet morning by the sea, and nobody about.";
+            let line = Line {
+                text,
+                speed,
+                knobs: Vec::new(),
+                lead: false,
+            };
+            let mut n = 0;
+            let mut count = |a: &[f32], _: u32, _: bool| {
+                n += a.len();
+                true
+            };
+            synth.render(&line, &mut count).unwrap();
+            n as f32
+        };
+        let plain = length(1.0);
+        for speed in [0.5, 0.75, 1.5, 2.0, 3.0] {
+            let got = plain / length(speed);
+            println!("phonon engine: asked {speed}x, got {got:.3}x");
+            assert!((0.75..1.33).contains(&(got / speed)), "{speed}: {got}");
         }
     }
 }

@@ -7,7 +7,7 @@ const TOLERANCE: f64 = 0.008;
 
 /// Each step takes a piece near where speed puts it, nudged to fit.
 #[derive(Debug, Clone)]
-pub(crate) struct Stretch {
+pub struct Stretch {
     channels: usize,
     rate: f64,
     /// Frames per piece; output moves on half of it a step.
@@ -30,7 +30,7 @@ pub(crate) struct Stretch {
 
 impl Stretch {
     /// For audio at `sample_rate` in `channels`, played at `rate` speed.
-    pub(crate) fn new(sample_rate: u32, channels: usize, rate: f32) -> Self {
+    pub fn new(sample_rate: u32, channels: usize, rate: f32) -> Self {
         let sr = f64::from(sample_rate.max(1));
         let hop = ((WINDOW * sr) as usize / 2).max(16);
         let window = hop * 2;
@@ -62,7 +62,7 @@ impl Stretch {
     }
 
     /// Takes `input` and returns the output it completes.
-    pub(crate) fn push(&mut self, input: &[f32]) -> Vec<f32> {
+    pub fn push(&mut self, input: &[f32]) -> Vec<f32> {
         self.input.extend_from_slice(input);
         let mut out = Vec::new();
         while let Some(piece) = self.next_piece() {
@@ -73,11 +73,21 @@ impl Stretch {
     }
 
     /// What is left: the last piece's fading half.
-    pub(crate) fn finish(&mut self) -> Vec<f32> {
+    pub fn finish(&mut self) -> Vec<f32> {
         let mut out = std::mem::take(&mut self.tail);
         if self.natural.is_none() {
             out.clear();
         }
+        out
+    }
+
+    /// Plays out all input, silence after it, then the fading half.
+    pub fn drain(&mut self) -> Vec<f32> {
+        // Enough silence that the last piece passes the input's end.
+        let reach = self.rate.max(1.0 / self.rate);
+        let pad = (self.window + 2 * self.tolerance) as f64 * reach;
+        let mut out = self.push(&vec![0.0; pad.ceil() as usize * self.channels]);
+        out.extend(self.finish());
         out
     }
 
@@ -212,6 +222,23 @@ mod tests {
         // Pieces line up: no sample leaps out of the wave.
         let peak = out.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         assert!(peak < 1.1, "{peak}");
+    }
+
+    #[test]
+    fn a_drained_stretch_keeps_the_input_to_its_end() {
+        let input = tone(8000, 0.3, 200.0);
+        for rate in [0.5, 1.6, 2.5] {
+            let mut s = Stretch::new(8000, 1, rate);
+            let mut out = s.push(&input);
+            out.extend(s.drain());
+            let wanted = input.len() as f64 / f64::from(rate);
+            let ratio = out.len() as f64 / wanted;
+            assert!((1.0..1.6).contains(&ratio), "{rate}: {ratio}");
+            // The tone's last stretch is still heard.
+            let near = |part: f64| (wanted * part) as usize;
+            let last = out.get(near(0.9)..near(0.95)).unwrap();
+            assert!(last.iter().any(|s| s.abs() > 0.5), "{rate}");
+        }
     }
 
     #[test]
