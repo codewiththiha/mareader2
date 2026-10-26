@@ -153,6 +153,8 @@ pub struct Toasts {
     /// The pointer was over the stack last frame.
     hovered: bool,
     last: Option<f64>,
+    /// Where the stack showed last frame, while any is up.
+    seen: Option<Rect>,
 }
 
 impl Toasts {
@@ -216,6 +218,11 @@ impl Toasts {
         up.map(|l| &l.toast)
     }
 
+    /// Where the stack showed last frame; what sits there gives way.
+    pub fn covers(&self) -> Option<Rect> {
+        self.seen
+    }
+
     /// Opened into its list.
     pub fn is_open(&self) -> bool {
         self.open
@@ -265,20 +272,22 @@ impl Toasts {
         let opened = ctx.animate_bool_with_time(egui::Id::new("toasts-open"), self.open, FADE);
         if self.live.is_empty() {
             self.hovered = false;
+            self.seen = None;
             return;
         }
         let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
         let corner = pos2(area.right() - INSET, area.bottom() - INSET - lift);
-        // A drag from the page passes over the toasts.
+        // A drag from the page passes over the toasts, once it nears them.
         let ours = self.live.iter().any(|l| l.dragging);
-        let aside = ctx.dragged_id().is_some() && !ours;
+        let page = ctx.dragged_id().is_some() && !ours;
+        let drag = ctx.pointer_latest_pos().filter(|_| page);
         let place = stack::Place {
             corner,
             width,
             room: area.height() - 2.0 * INSET - lift,
             now,
             fade,
-            aside,
+            drag,
             menus: open_menus(ctx),
         };
         self.hovered = match self.open {

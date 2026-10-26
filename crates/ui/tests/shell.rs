@@ -651,8 +651,31 @@ fn a_toast_closes_from_its_button() {
 fn a_toast_sits_in_the_bottom_right_corner() {
     let h = with(&[("toast", "Copied")]);
     let card = h.get_by_label("Copied").rect();
-    // The reader is open, so it sits above the page bar.
-    assert!(card.right() > 1150.0 && card.bottom() > 700.0, "{card:?}");
+    // Over the reader's page counter, which gives way while it is up.
+    assert!(card.right() > 1150.0 && card.bottom() > 770.0, "{card:?}");
+}
+
+#[test]
+fn undo_on_a_toast_is_a_button_not_a_handle() {
+    let mut h = with(&[("toast", "Saved notes"), ("toast", "undo:Moved_a_book")]);
+    let undo = h.get_by_label("Undo").rect().center();
+    h.hover_at(undo);
+    h.run_steps(2);
+    let cursor = h.output().platform_output.cursor_icon;
+    assert_eq!(cursor, egui::CursorIcon::PointingHand);
+    let rest = h.get_by_label("Moved a book").rect();
+    h.drag_at(undo);
+    h.run_steps(1);
+    for step in 1..=4 {
+        h.hover_at(undo + egui::vec2(10.0 * step as f32, 0.0));
+        h.run_steps(1);
+    }
+    let held = h.get_by_label("Moved a book").rect();
+    assert!((held.left() - rest.left()).abs() < 1.0, "it drags nothing");
+    h.drop_at(undo + egui::vec2(40.0, 0.0));
+    h.run_steps(3);
+    assert!(!h.state().toasts().1, "nor opens the list");
+    assert_eq!(stacked(&h).len(), 2);
 }
 
 #[test]

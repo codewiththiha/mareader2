@@ -694,7 +694,7 @@ fn sense_card(ui: &mut Ui, e: &Entry, i: usize, packs: bool, t: &Tokens) -> Resp
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 4.0;
-            entry::rows(ui, e, t);
+            entry::rows(ui, e, t, true);
             if packs {
                 pack_note(ui, e, t);
             }

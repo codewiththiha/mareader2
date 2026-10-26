@@ -21,16 +21,18 @@ pub(super) struct Place {
     pub room: f32,
     pub now: f64,
     pub fade: f64,
-    /// A drag from the page is passing: faint, and let through.
-    pub aside: bool,
+    /// Where a drag from the page is, while one goes on.
+    pub drag: Option<Pos2>,
     /// Open menus; where one covers the stack, it steps aside too.
     pub menus: Vec<Rect>,
 }
 
 impl Place {
+    /// A page drag over the stack, or a menu on it: faint, and let through.
     fn aside(&self, seen: Option<Rect>) -> bool {
         let covered = seen.is_some_and(|s| self.menus.iter().any(|m| m.intersects(s)));
-        self.aside || covered
+        let near = |p: &Pos2| seen.is_none_or(|s| s.expand(NEAR).contains(*p));
+        self.drag.as_ref().is_some_and(near) || covered
     }
 }
 
@@ -55,6 +57,10 @@ const PANEL_PAD: f32 = 8.0;
 const SETTLE: f32 = 0.22;
 /// How much of a stack shows while a drag passes under it.
 const ASIDE: f32 = 0.3;
+/// A page drag this near the stack makes it step aside.
+const NEAR: f32 = 24.0;
+/// How long stepping aside, and back, takes.
+const ASIDE_FOR: f32 = 0.15;
 
 /// Takes the pointer only over the toasts themselves, never during a page drag.
 fn takes_pointer(ctx: &Context, toasts: &Toasts, aside: bool, seen: Option<Rect>) -> bool {
@@ -63,8 +69,11 @@ fn takes_pointer(ctx: &Context, toasts: &Toasts, aside: bool, seen: Option<Rect>
     toasts.live.iter().any(|l| l.dragging) || (!aside && over)
 }
 
-fn faint(aside: bool) -> f32 {
-    if aside { ASIDE } else { 1.0 }
+/// The stack's opacity, easing toward faint while aside.
+fn faint(ctx: &Context, id: Id, aside: bool) -> f32 {
+    let time = crate::motion::secs(ctx, ASIDE_FOR);
+    let p = ctx.animate_bool_with_time(id.with("aside"), aside, time);
+    1.0 - (1.0 - ASIDE) * p
 }
 
 fn progress(now: f64, at: f64, fade: f64) -> f32 {
@@ -96,8 +105,8 @@ fn travel(live: &Live, place: &Place) -> (Vec2, f32) {
 }
 
 /// Follows a drag, springs back when let go short, throws it when let go far.
-fn swipe(ctx: &Context, live: &mut Live, resp: &Response, now: f64) -> f32 {
-    if resp.dragged() {
+fn swipe(ctx: &Context, live: &mut Live, (resp, held): (&Response, bool), now: f64) -> f32 {
+    if resp.dragged() && !held {
         live.drag += resp.drag_delta().x;
         live.dragging = true;
     }
@@ -119,17 +128,34 @@ fn swipe(ctx: &Context, live: &mut Live, resp: &Response, now: f64) -> f32 {
     shown
 }
 
+/// How a grabbed card answered the pointer this frame.
+struct Grabbed {
+    resp: Response,
+    /// How far it shows dragged.
+    shown: f32,
+    /// The pointer is on its buttons, which take it instead.
+    on_controls: bool,
+}
+
 /// A card that takes the pointer: named by its words, swiped by a drag.
-fn grab(ui: &Ui, live: &mut Live, rect: Rect, now: f64) -> (Response, f32) {
-    let at = rect.translate(vec2(live.offset, 0.0));
+fn grab(ui: &Ui, live: &mut Live, (rect, card): (Rect, &Card), now: f64) -> Grabbed {
+    let offset = vec2(live.offset, 0.0);
+    let at = rect.translate(offset);
     let resp = ui.interact(at, Id::new(("toast", live.id)), Sense::click_and_drag());
     let words = live.toast.message.clone();
     resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &words));
-    let shown = swipe(ui.ctx(), live, &resp, now);
+    let controls = card::controls(rect, card).translate(offset);
+    let (hover, origin) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.press_origin()));
+    let held = origin.is_some_and(|p| controls.contains(p)) && !live.dragging;
+    let shown = swipe(ui.ctx(), live, (&resp, held), now);
     if live.dragging {
         ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
     }
-    (resp, shown)
+    Grabbed {
+        resp,
+        shown,
+        on_controls: hover.is_some_and(|p| controls.contains(p)),
+    }
 }
 
 /// Draws `live` at `rect` with `alpha`; `content` fades its insides.
@@ -195,16 +221,20 @@ pub(super) fn closed(
         pos2(place.corner.x - place.width, top - SPACE - STRIP_H),
         pos2(place.corner.x, top - SPACE),
     );
-    let floor = place.corner + vec2(0.0, 20.0);
+    // Room below for a card coming in, within the window's inset.
+    let floor = place.corner + vec2(0.0, super::INSET - 2.0);
     let bounds = Rect::from_two_pos(pos2(place.corner.x - place.width, strip.top()), floor);
     let seen = Rect::from_min_max(pos2(bounds.left(), top.min(strip.top())), place.corner);
+    toasts.seen = Some(seen);
     let aside = place.aside(Some(seen));
+    // Placed exactly: kept on screen, it would creep up and grow.
     let area = Area::new(Id::new("toasts"))
         .order(Order::Tooltip)
+        .constrain(false)
         .interactable(takes_pointer(ctx, toasts, aside, Some(seen)))
         .fixed_pos(bounds.min)
         .show(ctx, |ui| {
-            ui.set_opacity(faint(aside));
+            ui.set_opacity(faint(ctx, Id::new("toasts"), aside));
             let mut hover = ui.allocate_rect(bounds, Sense::hover()).contains_pointer();
             // The deepest is drawn first; a leaving card above its heir.
             let mut drawn: Vec<&(usize, f32, Card)> = laid.iter().collect();
@@ -225,10 +255,11 @@ pub(super) fn closed(
                 let leads = *deep < 0.5 && !live.going();
                 let mut pulled = 0.0;
                 if leads {
-                    let (resp, shown) = grab(ui, live, rect, place.now);
-                    pulled = shown;
+                    let g = grab(ui, live, (rect, card), place.now);
+                    let resp = g.resp;
+                    pulled = g.shown;
                     hover |= resp.contains_pointer() || live.dragging;
-                    if resp.hovered() && !live.dragging {
+                    if resp.hovered() && !live.dragging && !g.on_controls {
                         let icon = if up > 1 {
                             CursorIcon::PointingHand
                         } else {
@@ -236,7 +267,7 @@ pub(super) fn closed(
                         };
                         ctx.set_cursor_icon(icon);
                     }
-                    if resp.clicked() && up > 1 {
+                    if resp.clicked() && up > 1 && !g.on_controls {
                         toasts.open = true;
                         return hover;
                     }
@@ -321,7 +352,7 @@ pub(super) fn open(
         .pivot(Align2::RIGHT_BOTTOM)
         .fixed_pos(place.corner + vec2(0.0, rise))
         .show(ctx, |ui| {
-            ui.set_opacity(shown * faint(aside));
+            ui.set_opacity(shown * faint(ctx, Id::new("toasts-open"), aside));
             Frame::new()
                 .fill(t.surface)
                 .stroke(Stroke::new(1.0, t.line))
@@ -338,6 +369,7 @@ pub(super) fn open(
                         .show(ui, |ui| list(ui, toasts, &cards, place, out));
                 });
         });
+    toasts.seen = Some(area.response.rect);
     let pressed = ctx.input(|i| i.pointer.any_pressed());
     if pressed && !area.response.contains_pointer() {
         toasts.open = false;
@@ -391,7 +423,7 @@ fn list(ui: &mut Ui, toasts: &mut Toasts, cards: &[Card], place: &Place, out: &m
         let (shift, alpha) = travel(live, place);
         let pulled = match live.going() {
             true => 0.0,
-            false => grab(ui, live, rect, place.now).1,
+            false => grab(ui, live, (rect, card), place.now).shown,
         };
         let moved = rect.translate(vec2(shift.x + pulled, 0.0));
         let faded = alpha * (1.0 - (pulled.abs() / place.width).min(0.6));

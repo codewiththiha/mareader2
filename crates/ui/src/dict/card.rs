@@ -5,6 +5,7 @@ use egui::{
     Align, Color32, Context, CornerRadius, Direction, Frame, Id, Label, Layout, Margin, Rect,
     RichText, ScrollArea, Sense, Stroke, TextFormat, Ui, vec2,
 };
+use mareader_cefr::Role;
 use mareader_dict::{Entry, Reply, language};
 
 use super::{Action, entry};
@@ -55,6 +56,8 @@ pub struct View<'a> {
     pub word: &'a str,
     /// None while the packs are asked.
     pub reply: Option<&'a Reply>,
+    /// The tagger's class and level for the word in its sentence.
+    pub role: Option<&'a Role>,
     pub attached: bool,
     pub at: Rect,
     pub room: Rect,
@@ -87,7 +90,8 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
         (Some(from), Some(to)) => Some(format!("{} → {}", language(from), language(to))),
         _ => None,
     });
-    header(ui, view, way.as_deref(), t, out);
+    let class = Class::of(view.role, shown_entry(ui, id, view));
+    header(ui, view, (way.as_deref(), &class), t, out);
     rule(ui, t);
     let Some(reply) = view.reply else {
         section(ui, |ui| muted(ui, t, "Looking up…"));
@@ -114,11 +118,90 @@ fn card(ui: &mut Ui, id: Id, view: &View<'_>, cap: f32, t: &Tokens, out: &mut Co
     ui.data_mut(|d| d.insert_temp(pager_id, p));
 }
 
+/// The entry the pager is on, once there are any.
+fn shown_entry<'a>(ui: &Ui, id: Id, view: &View<'a>) -> Option<&'a Entry> {
+    let reply = view.reply.filter(|_| view.attached)?;
+    let n = reply.entries.len();
+    let p: Pager = ui.data(|d| d.get_temp(id.with(n))).unwrap_or_default();
+    reply.entries.get(p.at.min(n.saturating_sub(1)))
+}
+
+/// The word's class beside it, as the AI card shows it, and its level.
+#[derive(Default)]
+struct Class {
+    name: String,
+    level: Option<&'static str>,
+}
+
+impl Class {
+    /// The tagger's, read in the sentence; else the entry's own tags.
+    fn of(role: Option<&Role>, entry: Option<&Entry>) -> Self {
+        match (role, entry) {
+            (Some(r), _) => Self {
+                name: r.class().to_owned(),
+                level: r.cefr(),
+            },
+            (None, Some(e)) => Self {
+                name: e.tags(),
+                level: None,
+            },
+            (None, None) => Self::default(),
+        }
+    }
+
+    fn name(&self, t: &Tokens) -> RichText {
+        RichText::new(&self.name)
+            .size(t.text)
+            .italics()
+            .color(t.muted)
+    }
+
+    fn level(level: &str, t: &Tokens) -> RichText {
+        let text = RichText::new(level).size(t.text_small).strong();
+        text.color(t.muted)
+    }
+
+    /// Its width on one line, to keep room for it beside the word.
+    fn width(&self, ui: &Ui, t: &Tokens) -> f32 {
+        // Each part's space before it, plus a point to spare.
+        let gap = 7.0;
+        let wide = |text: &str, size: f32| {
+            let font = egui::FontId::proportional(size);
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font, t.muted)
+                .size()
+                .x
+                + gap
+        };
+        let name = (!self.name.is_empty()).then(|| wide(&self.name, t.text));
+        let level = self.level.map(|l| wide(l, t.text_small));
+        name.unwrap_or(0.0) + level.unwrap_or(0.0)
+    }
+
+    fn show(&self, ui: &mut Ui, t: &Tokens) {
+        if !self.name.is_empty() {
+            ui.add_space(6.0);
+            ui.add(Label::new(self.name(t)).selectable(false));
+        }
+        if let Some(level) = self.level {
+            ui.add_space(6.0);
+            let r = ui.add(Label::new(Self::level(level, t)).selectable(false));
+            widgets::tip(&r, "This sense's CEFR level", None);
+        }
+    }
+}
+
 /// The button carrying the card's word into the Dictionary.
 pub const PURSUE: &str = "Open in the Dictionary";
 
 /// The word large and whole, its buttons, and the languages under it.
-fn header(ui: &mut Ui, view: &View<'_>, way: Option<&str>, t: &Tokens, out: &mut Commands) {
+fn header(
+    ui: &mut Ui,
+    view: &View<'_>,
+    (way, class): (Option<&str>, &Class),
+    t: &Tokens,
+    out: &mut Commands,
+) {
     let word = view.word;
     let margin = Margin {
         left: PAD,
@@ -128,7 +211,7 @@ fn header(ui: &mut Ui, view: &View<'_>, way: Option<&str>, t: &Tokens, out: &mut
     };
     Frame::new().inner_margin(margin).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        let room = (ui.available_width() - BUTTONS_W).max(60.0);
+        let room = (ui.available_width() - BUTTONS_W - class.width(ui, t)).max(60.0);
         let headword = Headword::new(ui, word, room, t);
         // One line sits level with the buttons; more hang from the top.
         let align = if headword.rows() > 1 {
@@ -146,7 +229,12 @@ fn header(ui: &mut Ui, view: &View<'_>, way: Option<&str>, t: &Tokens, out: &mut
                     out.push(Command::Dict(Action::Pursue(word.to_owned())));
                 }
                 crate::read_aloud::say_button(ui, word, view.saying, out);
-                ui.with_layout(Layout::left_to_right(align), |ui| headword.show(ui, t));
+                ui.with_layout(Layout::left_to_right(align), |ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    // Its own scope, so a width it sets leaves the class room.
+                    ui.scope(|ui| headword.show(ui, t));
+                    class.show(ui, t);
+                });
             });
         });
         crate::sounds::show(ui, view.sound, t);
@@ -233,7 +321,8 @@ fn body(ui: &mut Ui, asked: &str, e: &Entry, (p, list): (&mut Pager, f32), t: &T
             if let Some(word) = entry::near(e, asked) {
                 entry::heading(ui, word, t);
             }
-            entry::rows(ui, e, t);
+            // The class sits by the word, as on the AI card.
+            entry::rows(ui, e, t, false);
         });
     let room = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
     ui.data_mut(|d| d.insert_temp(scrolls_id, room > 0.5));

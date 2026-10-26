@@ -54,14 +54,14 @@ pub fn entries(
             heading(ui, word, t);
         }
         shown = near;
-        rows(ui, e, t);
+        rows(ui, e, t, true);
         after(ui, e);
     }
 }
 
-/// Tags and source, the answer, then its romanization and sense.
-pub fn rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
-    meta(ui, e, t);
+/// Tags, unless shown elsewhere, and source; the answer, romanization, sense.
+pub fn rows(ui: &mut Ui, e: &Entry, t: &Tokens, tags: bool) {
+    meta(ui, e, t, tags);
     shaped::label(ui, e.answer(), answer_size(e.answer(), t), t.ink);
     if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {
         shaped::label(ui, r, t.text_small, t.muted);
@@ -76,8 +76,8 @@ pub fn rows(ui: &mut Ui, e: &Entry, t: &Tokens) {
 }
 
 /// Tags left, "via perfume" right; the tags give way, never the bridge.
-fn meta(ui: &mut Ui, e: &Entry, t: &Tokens) {
-    let tags = e.tags();
+fn meta(ui: &mut Ui, e: &Entry, t: &Tokens, shown: bool) {
+    let tags = if shown { e.tags() } else { String::new() };
     if tags.is_empty() && e.via.is_none() {
         return;
     }

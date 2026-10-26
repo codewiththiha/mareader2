@@ -746,6 +746,10 @@ impl MareaderApp {
         &self.dict
     }
 
+    pub fn dict_mut(&mut self) -> &mut crate::dict::Dict {
+        &mut self.dict
+    }
+
     /// Whether the active pane's scripts have run and taken every click.
     pub fn scripts_settled(&self) -> bool {
         let pane = self.documents.scripts_idle(self.active);
@@ -1589,7 +1593,7 @@ impl MareaderApp {
                 Gloss::Shaded { page, chars, at } => {
                     self.explain_shaded(ctx, pane, page, chars, at)
                 }
-                Gloss::Rest { word, at } => self.rest(pane, word, at),
+                Gloss::Rest { word, context, at } => self.rest(pane, (word, context), at),
                 Gloss::Menu { mark, at, words } => {
                     self.menu_shot = false;
                     let model = self.library.model();
@@ -1682,8 +1686,9 @@ impl MareaderApp {
         let memory = self.settings.read_aloud.speech_memory_mb as usize;
         self.read_aloud.shelf.set_speech_memory(memory << 20);
         (self.read_aloud.shelf).set_model_idle(self.settings.read_aloud.model_idle());
-        let word = self.study.card_words().map(|(w, _)| w.to_owned());
-        if let (Some(role), Some(word)) = (role, word) {
+        // Whichever card asked takes it; each checks the word is its own.
+        if let Some((word, role)) = role {
+            self.dict.set_role(&word, role.clone());
             self.study.set_role(&word, role);
         }
         let sounds = self.card_sounds(ctx.input(|i| i.time));
@@ -1787,14 +1792,16 @@ impl MareaderApp {
     }
 
     /// Resting on a shaded word looks it up, when a pack can answer.
-    fn rest(&mut self, pane: PaneId, word: String, at: Rect) {
+    fn rest(&mut self, pane: PaneId, (word, context): (String, String), at: Rect) {
         if !self.settings.dictionary.hover || self.dict.ready().is_empty() || self.study.card_open()
         {
             return;
         }
         let offset = self.documents.offset(pane);
         let to = self.settings.dictionary.default_lang.clone();
-        self.dict.rest(pane, word, at, offset, to);
+        if self.dict.rest(pane, word.clone(), at, offset, to) {
+            self.vocab.ask_role(&word, &context);
+        }
     }
 
     /// Look up: the pane's selection, its card beside it.
@@ -1816,12 +1823,16 @@ impl MareaderApp {
             self.dict.feed(&word);
             return;
         }
+        // Its sentence, so the card can name the word's class there.
+        let context = self.documents.asked(pane).map(|(a, _)| a.context);
         self.documents.clear_selection(pane);
         // One card at a time.
         self.study.escape(self.library.model_mut());
         let offset = self.documents.offset(pane);
         let to = self.settings.dictionary.default_lang.clone();
-        self.dict.look_up(pane, word, rect, offset, to);
+        self.dict.look_up(pane, word.clone(), rect, offset, to);
+        self.vocab
+            .ask_role(&word, context.as_deref().unwrap_or(&word));
     }
 
     /// What the page AI's menus asked for.
@@ -2785,6 +2796,7 @@ impl MareaderApp {
             sidebar_open: self.sidebar.offset().is_some(),
         };
         let tokens = theme::Tokens::get(ctx);
+        let toasts = self.toasts.covers();
         let rounded = rects.len() > 1 && self.settings.workspace.look.rounded();
         let corner = if rounded { tokens.radius_lg } else { 0.0 };
         // The title bar's glass takes slot 0.
@@ -2800,6 +2812,7 @@ impl MareaderApp {
                     backdrop,
                     slot: i + 1,
                     corner,
+                    toasts,
                 };
                 let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, *id);
                 let marked = kept.iter().any(|(_, p)| *p == reading.current);
@@ -2808,6 +2821,18 @@ impl MareaderApp {
                 floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
             }
         }
+    }
+
+    /// How far toasts rise: over the page bar in the corner while it shows.
+    fn toast_lift(&self, ctx: &Context, stage: Rect) -> f32 {
+        let corner = stage.max - egui::vec2(24.0, 24.0);
+        let under = |(id, rect): &(PaneId, Rect)| {
+            rect.contains(corner) && self.page_bars.get(id).is_some_and(PageBar::shown)
+        };
+        let up = !self.chromeless && self.pane_rects.iter().any(under);
+        let target = if up { page_bar::BAR_H } else { 0.0 };
+        let time = crate::motion::secs(ctx, crate::toast::FADE);
+        ctx.animate_value_with_time(egui::Id::new("toast-lift"), target, time)
     }
 
     /// What the bars show behind them: pane fills, then this frame's pages.
@@ -3524,9 +3549,9 @@ impl eframe::App for MareaderApp {
         }
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
-        // Runs and toasts both clear the page bar.
+        // Runs and toasts rise over the page bar while it shows.
         let lift = match route {
-            Route::Reader => crate::page_bar::BAR_H + 2.0 * crate::page_bar::EDGE,
+            Route::Reader => self.toast_lift(&ctx, stage),
             Route::Library | Route::Dictionary => 0.0,
         };
         self.toasts.show(&ctx, stage, lift, &mut commands);

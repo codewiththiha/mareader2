@@ -6,6 +6,7 @@ pub mod page;
 pub mod window;
 
 use egui::{Context, Rect, Vec2};
+use mareader_cefr::Role;
 use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket};
 use mareader_settings::DictionarySettings;
 use mareader_workspace::PaneId;
@@ -57,6 +58,8 @@ struct Card {
     reply: Option<Reply>,
     /// Opened by resting on a shaded word; leaving it closes the card.
     rest: bool,
+    /// The word's class and level in its sentence, once the tagger said.
+    role: Option<Role>,
 }
 
 /// Word list asks kept waiting at once.
@@ -130,11 +133,11 @@ impl Dict {
             ticket,
             reply: None,
             rest: false,
+            role: None,
         });
     }
 
-    /// The pointer rested on a shaded word: its card, unless one was
-    /// asked for.
+    /// A rest on a shaded word opens its card, unless one was asked.
     pub fn rest(
         &mut self,
         pane: PaneId,
@@ -142,9 +145,9 @@ impl Dict {
         at: Rect,
         offset: Option<Vec2>,
         to: Option<String>,
-    ) {
+    ) -> bool {
         match &self.card {
-            Some(c) if !c.rest || (c.word == word && c.at == at) => return,
+            Some(c) if !c.rest || (c.word == word && c.at == at) => return false,
             _ => {}
         }
         self.look_up(pane, word, at, offset, to);
@@ -152,6 +155,19 @@ impl Dict {
             card.rest = true;
         }
         self.card_rect = None;
+        true
+    }
+
+    /// The tagger's answer for the open card, if it is still `word`'s.
+    pub fn set_role(&mut self, word: &str, role: Role) {
+        if let Some(card) = self.card.as_mut().filter(|c| c.word == word) {
+            card.role = Some(role);
+        }
+    }
+
+    /// The role the open card shows, for tests.
+    pub fn card_role(&self) -> Option<&Role> {
+        self.card.as_ref()?.role.as_ref()
     }
 
     /// Whether the open card came from resting on a word, for tests.
@@ -287,6 +303,7 @@ impl Dict {
             let view = card::View {
                 word: &c.word,
                 reply: c.reply.as_ref(),
+                role: c.role.as_ref(),
                 attached,
                 at: c.at,
                 room: room(c.pane)?,

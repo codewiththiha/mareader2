@@ -1090,7 +1090,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                     && let Some(layer) = texts.get(doc_id, w.page)
                 {
                     let word = study::words::text_of(&layer, w.chars.clone());
+                    let asked = study::words::asked_at(&layer, w.page, w.chars.clone());
                     gloss.push(Gloss::Rest {
+                        context: asked.map_or_else(|| word.clone(), |a| a.context),
                         word,
                         at: w.bounds(),
                     });

@@ -80,9 +80,10 @@ pub enum Gloss {
         chars: std::ops::Range<usize>,
         at: Rect,
     },
-    /// The pointer rested on a shaded word.
+    /// The pointer rested on a shaded word, in its sentence.
     Rest {
         word: String,
+        context: String,
         at: Rect,
     },
     /// A hold on empty space lifted the pane, to be moved.

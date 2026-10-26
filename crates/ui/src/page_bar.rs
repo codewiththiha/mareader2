@@ -40,6 +40,11 @@ impl PageBar {
         self.shown = true;
     }
 
+    /// Up, or on its way down.
+    pub fn shown(&self) -> bool {
+        self.shown
+    }
+
     fn update_hover(&mut self, ctx: &Context, (pane, own): (Rect, LayerId), held: bool) {
         let now = ctx.input(|i| i.time);
         let reach = if self.shown { BAR_H } else { EDGE };
@@ -78,6 +83,8 @@ pub struct BarLook<'a> {
     pub slot: usize,
     /// The pane's corner radius: the progress line stays between corners.
     pub corner: f32,
+    /// Where toasts are up; the counter gives way to them.
+    pub toasts: Option<Rect>,
 }
 
 /// Draws `pane`'s counter, progress line and bar over its document.
@@ -118,15 +125,21 @@ pub fn show(
         let line = Rect::from_min_size(track.min, vec2(width, 2.0));
         painter.rect_filled(line, CornerRadius::ZERO, t.accent.gamma_multiply(0.8));
     }
-    // The counter gives way to the bar rather than sit under it.
+    // The counter gives way to the bar, and to toasts, rather than sit under.
     if layout.page_indicator && fade < 1.0 {
         // A pill of the bars' glass, so it belongs with them.
         let text = counter(reading, layout.page_indicator_style);
-        let show = 1.0 - fade;
+        let size = painter
+            .layout_no_wrap(text.clone(), theme::medium(11.0), t.ink)
+            .size();
+        let size = size + vec2(18.0, 6.0);
+        let badge = Rect::from_min_size(pane.max - size - vec2(12.0, 12.0), size);
+        let covered = look.toasts.is_some_and(|r| r.expand(8.0).intersects(badge));
+        let time = motion::secs(ctx, FADE);
+        let away = ctx.animate_bool_with_time(id.with("under-toasts"), covered, time);
+        let show = (1.0 - fade) * (1.0 - away);
         let ink = t.ink.gamma_multiply(0.85 * show);
         let galley = painter.layout_no_wrap(text, theme::medium(11.0), ink);
-        let size = galley.size() + vec2(18.0, 6.0);
-        let badge = Rect::from_min_size(pane.max - size - vec2(12.0, 12.0), size);
         let round = CornerRadius::same(255);
         painter.rect_filled(badge, round, t.glass.gamma_multiply(show));
         let edge = egui::Stroke::new(1.0, t.line.gamma_multiply(show));

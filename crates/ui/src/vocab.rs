@@ -99,8 +99,8 @@ pub struct Vocab {
     memo: HashMap<(DocId, usize), Memo>,
     /// Counts memo asks, to know the least recently used.
     asks: u64,
-    /// The role asked for the open card, if any.
-    role: Option<Ticket>,
+    /// The role asked for the open card, and its word, if any.
+    role: Option<(Ticket, String)>,
 }
 
 impl Vocab {
@@ -163,17 +163,20 @@ impl Vocab {
 
     /// Asks for the open card's word's role; a newer card's replaces it.
     pub fn ask_role(&mut self, word: &str, sentence: &str) {
-        self.role = self.service.role(word, sentence);
+        let ticket = self.service.role(word, sentence);
+        self.role = ticket.map(|t| (t, word.to_owned()));
     }
 
-    /// Takes in answers; the open card's role if it came.
-    pub fn poll(&mut self) -> (bool, Option<Role>) {
+    /// Takes in answers; the open card's word and role if it came.
+    pub fn poll(&mut self) -> (bool, Option<(String, Role)>) {
         let polled = self.service.poll();
         let mut role = None;
         for (ticket, answer) in polled.roles {
-            if Some(ticket) == self.role {
-                self.role = None;
-                role = answer;
+            if let Some((asked, word)) = self.role.take() {
+                match asked == ticket {
+                    true => role = answer.map(|r| (word, r)),
+                    false => self.role = Some((asked, word)),
+                }
             }
         }
         (polled.changed, role)

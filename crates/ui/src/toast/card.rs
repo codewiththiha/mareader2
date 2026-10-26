@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Button, Color32, Context, CornerRadius, FontId, Galley, Rect, RichText, Stroke, StrokeKind, Ui,
-    Vec2, pos2, vec2,
+    Button, Color32, Context, CornerRadius, CursorIcon, FontId, Galley, Mesh, Painter, Rect,
+    RichText, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
 
 use super::{Live, Tone};
@@ -21,6 +21,10 @@ const MARK: f32 = 26.0;
 const GAP: f32 = 10.0;
 const CLOSE: f32 = 24.0;
 const ACTION_H: f32 = 26.0;
+/// How soft the countdown's edge is, in points.
+const FEATHER: f32 = 64.0;
+/// The countdown's columns are this far apart, in points.
+const COLUMN: f32 = 3.0;
 
 /// A card laid out for one width.
 pub(super) struct Card {
@@ -95,11 +99,91 @@ pub(super) fn shell(ui: &Ui, rect: Rect, tone: Tone, body: Body, t: &Tokens) {
     painter.rect(rect, radius, fill, stroke, StrokeKind::Inside);
 }
 
-/// The mark, the words, the buttons and, outside the list, the time line.
+/// The close button's place on a card at `rect`.
+fn close_at(rect: Rect) -> Rect {
+    let row = rect.top() + PAD_Y + MARK / 2.0;
+    let x = rect.right() - 8.0 - CLOSE / 2.0;
+    Rect::from_center_size(pos2(x, row), Vec2::splat(CLOSE))
+}
+
+/// The action button's place, left of the close button.
+fn action_at(rect: Rect, card: &Card) -> Rect {
+    let close = close_at(rect);
+    let row = close.center().y;
+    Rect::from_min_max(
+        pos2(close.left() - 4.0 - card.action, row - ACTION_H / 2.0),
+        pos2(close.left() - 4.0, row + ACTION_H / 2.0),
+    )
+}
+
+/// Where a card's buttons sit: presses there never drag the card.
+pub(super) fn controls(rect: Rect, card: &Card) -> Rect {
+    let close = close_at(rect);
+    match card.action > 0.0 {
+        true => close.union(action_at(rect, card)),
+        false => close,
+    }
+}
+
+/// The time left as a wash of the tone, its edge feathered away.
+fn countdown(painter: &Painter, rect: Rect, radius: f32, tint: Color32, left: f32) {
+    let edge = rect.left() - FEATHER / 2.0 + (rect.width() + FEATHER) * left;
+    let end = (edge + FEATHER / 2.0).min(rect.right());
+    if end <= rect.left() {
+        return;
+    }
+    // Eased both ways, so the edge has no visible start or stop.
+    let alpha = |x: f32| {
+        let p = ((edge + FEATHER / 2.0 - x) / FEATHER).clamp(0.0, 1.0);
+        p * p * p * (p * (p * 6.0 - 15.0) + 10.0)
+    };
+    let r = radius.min(rect.height() / 2.0).min(rect.width() / 2.0);
+    // The card's top and bottom at `x`, its corners rounded.
+    let span = |x: f32| {
+        let dx = (rect.left() + r - x).max(x - (rect.right() - r)).max(0.0);
+        let inset = r - (r * r - dx * dx).max(0.0).sqrt();
+        (rect.top() + inset, rect.bottom() - inset)
+    };
+    let mut mesh = Mesh::default();
+    let mut x = rect.left();
+    loop {
+        let (top, bottom) = span(x);
+        let colour = tint.gamma_multiply(alpha(x));
+        let at = mesh.vertices.len() as u32;
+        mesh.colored_vertex(pos2(x, top), colour);
+        mesh.colored_vertex(pos2(x, bottom), colour);
+        if at >= 2 {
+            mesh.add_triangle(at - 2, at - 1, at);
+            mesh.add_triangle(at - 1, at, at + 1);
+        }
+        if x >= end {
+            break;
+        }
+        x = (x + COLUMN).min(end);
+    }
+    painter.add(mesh);
+}
+
+/// The wash's strength for a tone: a hint of colour, never a block.
+fn wash(tone: Tone, tint: Color32) -> Color32 {
+    match tone {
+        Tone::Error => tint.gamma_multiply(0.16),
+        Tone::Info | Tone::Warning => tint.gamma_multiply(0.13),
+    }
+}
+
+/// The time left, the mark, the words and the buttons.
 pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let (icon, tint, _) = look(live.toast.tone, &t);
     let painter = ui.painter().clone();
+    let left = live.remaining();
+    if left > 0.0 && !live.listed {
+        // Inside the edge line, which hides the wash's own edge.
+        let inner = rect.shrink(1.0);
+        let radius = t.radius_lg - 1.0;
+        countdown(&painter, inner, radius, wash(live.toast.tone, tint), left);
+    }
     let mark = Rect::from_min_size(rect.min + vec2(PAD_X, PAD_Y), Vec2::splat(MARK));
     painter.circle_filled(mark.center(), MARK / 2.0, tint.gamma_multiply(0.16));
     icon.paint(
@@ -113,40 +197,28 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         mark.top() + ((MARK - words) / 2.0).max(0.0),
     );
     painter.galley(text, card.galley.clone(), t.ink);
-    let left = live.remaining();
-    if left > 0.0 && !live.listed {
-        // Inside the rounding, so the line never pokes past the corners.
-        let from = rect.left() + t.radius_lg;
-        let y = rect.bottom() - 2.5;
-        let to = from + (rect.width() - 2.0 * t.radius_lg) * left;
-        let stroke = Stroke::new(2.0, tint.gamma_multiply(0.45));
-        painter.line_segment([pos2(from, y), pos2(to, y)], stroke);
-    }
     if live.going() {
         return;
     }
-    let row = mark.center().y;
-    let close = Rect::from_center_size(
-        pos2(rect.right() - 8.0 - CLOSE / 2.0, row),
-        Vec2::splat(CLOSE),
-    );
     let dismiss = |ui: &mut Ui| widgets::small_icon_button(ui, Icon::Close, "Dismiss");
-    if ui.put(close, dismiss).clicked() {
+    let dismissed = ui.put(close_at(rect), dismiss);
+    if dismissed
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .clicked()
+    {
         out.push(Command::CloseToast(live.id));
     }
     let Some(command) = &live.toast.undo else {
         return;
     };
-    let at = Rect::from_min_max(
-        pos2(close.left() - 4.0 - card.action, row - ACTION_H / 2.0),
-        pos2(close.left() - 4.0, row + ACTION_H / 2.0),
-    );
+    let at = action_at(rect, card);
     let label = RichText::new(live.toast.label).size(t.text).strong();
     let button = Button::new(label.color(t.accent))
         .fill(t.accent_soft)
         .stroke(Stroke::NONE)
         .corner_radius(t.radius);
-    if ui.put(at, button).clicked() {
+    let pressed = ui.put(at, button).on_hover_cursor(CursorIcon::PointingHand);
+    if pressed.clicked() {
         out.push((**command).clone());
         out.push(Command::CloseToast(live.id));
     }

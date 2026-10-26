@@ -193,6 +193,34 @@ fn resting_on_a_shaded_word_opens_its_dictionary_card() {
 }
 
 #[test]
+fn a_dictionary_card_names_the_class_beside_its_word_as_the_ai_card_does() {
+    let (words, packs) = shelves();
+    let mut h = reader(words.path(), Some(packs.path()));
+    h.hover_at(spot(&h, "quick"));
+    h.run_steps(20);
+    assert_eq!(h.state().dict().card_word(), Some("quick"));
+    let role = mareader_cefr::Role {
+        pos: "JJ".into(),
+        kind: "adjective",
+        level: Some(3.0),
+    };
+    let level = role.cefr().unwrap();
+    // A role for another word is not this card's.
+    h.state_mut().dict_mut().set_role("brown", role.clone());
+    assert!(h.state().dict().card_role().is_none());
+    h.state_mut().dict_mut().set_role("quick", role);
+    h.run_steps(3);
+    let word = h.get_by_label("quick").rect();
+    let class = h.get_by_label("adjective").rect();
+    assert!(class.left() > word.right(), "after the word: {class:?}");
+    assert!(
+        (class.center().y - word.center().y).abs() < 8.0,
+        "on its line"
+    );
+    assert!(h.query_by_label(level).is_some());
+}
+
+#[test]
 fn the_tab_sets_the_level_and_removes_the_dataset() {
     use egui::accesskit::Role;
     let (words, _) = shelves();
