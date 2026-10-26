@@ -10,6 +10,7 @@ use mareader_settings::{Highlight, ReadAloudSettings};
 use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
+use super::card::Lyrics;
 use super::control::{Act, View};
 use super::words::{self, Clock, Pace};
 use super::{Lit, Span, TICK, follow, place_name};
@@ -577,10 +578,19 @@ impl Spoken {
     fn lit_spots(&self) -> Option<(Spot, Spot)> {
         let said = &self.current.as_ref()?.sentence;
         let whole = Some((said.start, said.end));
-        let heard = self.heard.filter(|_| self.saying);
         if self.highlight.0 == Highlight::Sentence || said.words.is_empty() {
             return whole;
         }
+        let lit = self.lit_words(self.highlight)?;
+        let first = said.words.get(lit.start)?;
+        let last = said.words.get(lit.end.checked_sub(1)?)?;
+        Some((first.start, last.end))
+    }
+
+    /// The words of the sentence said lit as `highlight` asks, by index.
+    fn lit_words(&self, highlight: (Highlight, u8)) -> Option<std::ops::Range<usize>> {
+        let said = &self.current.as_ref()?.sentence;
+        let heard = self.heard.filter(|_| self.saying);
         // The voice's own clock, else ours: either way, pauses left out.
         let seconds = match heard {
             Some(h) => h.seconds,
@@ -589,10 +599,45 @@ impl Spoken {
         };
         let guess = self.pace.bytes(seconds, self.tone.rate);
         let at = words::heard(&said.words, heard.and_then(|h| h.word), guess);
-        let lit = words::group(&said.text, &said.words, at, self.highlight);
-        let first = said.words.get(lit.start)?;
-        let last = said.words.get(lit.end.checked_sub(1)?)?;
-        Some((first.start, last.end))
+        Some(words::group(&said.text, &said.words, at, highlight))
+    }
+
+    /// The sentences round the one said; phrases lit for page sentences.
+    pub fn lyrics(&self) -> Option<Lyrics> {
+        let said = &self.current.as_ref().filter(|_| !self.finished)?.sentence;
+        let highlight = match self.highlight.0 {
+            Highlight::Sentence => (Highlight::Phrases, 1),
+            _ => self.highlight,
+        };
+        let lit = self.lit_words(highlight).unwrap_or_default();
+        let start = said.start;
+        Some(Lyrics {
+            before: self.behind.back().map(|s| s.sentence.text.clone()),
+            now: said.text.clone(),
+            words: said.words.iter().map(|w| w.bytes.clone()).collect(),
+            lit,
+            after: self.ahead.front().map(|s| s.sentence.text.clone()),
+            key: (start.page as u64) << 32 | start.char as u64,
+        })
+    }
+
+    /// The page and chapter read, as the card names them.
+    pub fn whereabouts(&self) -> Option<String> {
+        let (start, _) = self.lit_spots()?;
+        Some(place_name(&self.document, start.page))
+    }
+
+    /// The pane, the page read, and the characters lit on it.
+    pub fn spot(&self) -> Option<(usize, std::ops::Range<usize>)> {
+        let (start, end) = self
+            .lit_spots()
+            .filter(|_| !self.finished && !self.relaid)?;
+        let last = if end.page == start.page {
+            end.char
+        } else {
+            start.char + 1
+        };
+        Some((start.page, start.char..last.max(start.char + 1)))
     }
 
     /// What the player shows: sentences for steps, pages for time.
@@ -688,7 +733,7 @@ impl Spoken {
                 self.read_from(Start::Spot(Spot { page, char: 0 }));
                 self.jump = Some(page);
             }
-            Act::Seek(_) | Act::Escape => {}
+            Act::Seek(_) | Act::Escape | Act::Card(_) | Act::Reveal => {}
             Act::Stop => return true,
         }
         false

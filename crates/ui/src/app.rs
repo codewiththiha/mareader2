@@ -2381,6 +2381,15 @@ impl MareaderApp {
                 Route::Library if self.reading() => self.go(Route::Reader),
                 Route::Library => {}
             },
+            Command::ShowReading => {
+                if let Some((pane, page, _)) = self.read_aloud.spot() {
+                    if self.route() != Route::Reader {
+                        self.go(Route::Reader);
+                    }
+                    self.active = pane;
+                    self.documents.go_to(pane, page);
+                }
+            }
             Command::ShowDictionary => match self.route() {
                 Route::Dictionary => self.go(self.dict_back()),
                 // Over the page, unless Settings ask for the page.
@@ -2816,6 +2825,45 @@ impl MareaderApp {
             self.files.dropped(ctx, &file, under);
         }
         hovering.then_some(under)
+    }
+
+    /// The read-aloud player, on any page: a card when the words are away.
+    fn player(&mut self, ctx: &Context, route: Route, out: &mut Commands) {
+        let reader = route == Route::Reader;
+        let spot = self.read_aloud.spot();
+        let shown = spot
+            .clone()
+            .filter(|_| reader)
+            .and_then(|(pane, page, chars)| {
+                let (_, rect) = self.pane_rects.iter().find(|(p, _)| *p == pane)?;
+                let room = rect.with_max_y(rect.bottom() - crate::page_bar::BAR_H);
+                let on = self.documents.visible(pane)?.contains(&page);
+                match chars.and_then(|c| self.documents.hit_box(pane, page, c)) {
+                    Some(hit) => Some(room.intersects(hit)),
+                    None => Some(on),
+                }
+            });
+        let pane = spot.map(|(pane, ..)| pane);
+        let title = pane
+            .and_then(|p| self.documents.title(p))
+            .unwrap_or("Read aloud");
+        let title = title.to_owned();
+        let book = pane.and_then(|p| self.documents.book(p));
+        let mut content = ctx.content_rect();
+        content.min.y += crate::theme::TITLE_BAR_H;
+        let stage = crate::read_aloud::Stage {
+            reader,
+            panes: &self.pane_rects,
+            content,
+            shown,
+            title: &title,
+        };
+        let library = &mut self.library;
+        let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
+            book.is_some_and(|b| library.paint_cover(ui, rect, b))
+        };
+        let settings = &mut self.settings.read_aloud;
+        (self.read_aloud).bar(ctx, stage, settings, out, &mut cover);
     }
 
     /// Every document pane's counter, progress line and bottom bar.
@@ -3506,10 +3554,7 @@ impl eframe::App for MareaderApp {
         let top = self.titlebar.band_bottom(&ctx);
         let found = found_in(&self.search, &self.documents, &self.find);
         self.find.show(&ctx, &self.pane_rects, top, found);
-        if route == Route::Reader {
-            let settings = &mut self.settings.read_aloud;
-            (self.read_aloud).bar(&ctx, &self.pane_rects, settings, &mut commands);
-        }
+        self.player(&ctx, route, &mut commands);
         self.drive_search(&ctx);
         // Typing, or filtered by what was typed, the field stays in view.
         let searching =

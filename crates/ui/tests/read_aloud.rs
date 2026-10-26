@@ -610,3 +610,55 @@ fn a_pin_off_screen_is_brought_into_view_before_it_reads() {
     step_until(&mut h, |h| lit(h).is_some());
     assert_eq!(lit(&h).map(|(s, _)| s), Some(spot));
 }
+
+fn carded(h: &Harness<'static, MareaderApp>) -> bool {
+    h.state().read_aloud().carded()
+}
+
+#[test]
+fn the_player_opens_into_a_card_when_the_page_stops_following() {
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    h.run_steps(2);
+    assert!(!carded(&h), "the words are in sight");
+    let _ = h.get_by_label("Expand player");
+    // Not followed, the words will drift away: the card shows them.
+    h.state_mut().settings_mut().read_aloud.follow = false;
+    h.run_steps(2);
+    assert!(carded(&h));
+    h.run_steps(30);
+    let _ = h.get_by_label("Show where it's reading");
+    let _ = h.get_by_label("Pause");
+    h.get_by_label("Collapse player").click();
+    h.run_steps(2);
+    assert!(!carded(&h), "asked by hand, the pill stays");
+    // Followed again, it stays a pill; asked, the card comes back.
+    h.state_mut().settings_mut().read_aloud.follow = true;
+    h.run_steps(2);
+    assert!(!carded(&h));
+    h.run_steps(30);
+    h.get_by_label("Expand player").click();
+    h.run_steps(2);
+    assert!(carded(&h));
+}
+
+#[test]
+fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
+    use mareader_ui::route::Route;
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    let first = lit(&h);
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run_steps(2);
+    assert_eq!(h.state().route(), Route::Library);
+    assert!(carded(&h), "the library hides the words");
+    step_until(&mut h, |h| lit(h) != first);
+    assert!(h.state().read_aloud().playing(), "reading goes on");
+    h.run_steps(30);
+    h.get_by_label("Show where it's reading").click();
+    h.run_steps(4);
+    assert_eq!(h.state().route(), Route::Reader);
+    assert!(!carded(&h), "back with the words, it folds away");
+    let (pane, page, _) = h.state().read_aloud().spot().expect("still reading");
+    assert_eq!(h.state().documents().current(pane), Some(page));
+}

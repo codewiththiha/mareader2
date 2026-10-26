@@ -38,6 +38,8 @@ pub enum Command {
     SetSidebarOverlay(bool),
     /// The library page in place of the panes, or back to them.
     ShowLibrary,
+    /// Back to the pane reading aloud, turned to the words read.
+    ShowReading,
     /// The Dictionary page, or back to where it was opened from.
     ShowDictionary,
     /// Opens a library book as Settings › Workspace says, or focuses it.

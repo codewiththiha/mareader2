@@ -67,6 +67,10 @@ pub(super) enum Act {
     /// To this share of the track.
     Seek(f32),
     Stop,
+    /// The card, or the pill.
+    Card(bool),
+    /// Back to the words read, in their pane.
+    Reveal,
 }
 
 /// Which parts fit: the track always, the time and speed when room allows.
@@ -111,28 +115,21 @@ impl Fit {
     }
 
     pub fn width(&self, escape: bool) -> f32 {
-        // Pads, steps, play, more and stop, the rule and spacing.
-        let fixed = 2.0 * PAD + 2.0 * BUTTON + PLAY + 2.0 * BUTTON + 22.0;
+        // Pads, steps, play, card, more and stop, the rule and spacing.
+        let fixed = 2.0 * PAD + 2.0 * BUTTON + PLAY + 3.0 * BUTTON + 22.0;
         fixed + self.track + self.extra() + if escape { BUTTON } else { 0.0 }
     }
 }
 
-/// The player in `rect`; what it was asked, if anything.
+/// The player's row, `card` of the way open; what it was asked.
 pub(super) fn show(
     ui: &mut Ui,
     rect: Rect,
-    (view, fit): (&View<'_>, Fit),
+    (view, fit, card): (&View<'_>, Fit, f32),
     settings: &mut ReadAloudSettings,
     out: &mut Commands,
 ) -> Option<Act> {
     let t = Tokens::get(ui.ctx());
-    let round = CornerRadius::same((HEIGHT / 2.0) as u8);
-    let shadow = ui.ctx().global_style().visuals.window_shadow;
-    ui.painter().add(shadow.as_shape(rect, round));
-    ui.painter().rect_filled(rect, round, t.surface);
-    let edge = Stroke::new(1.0, t.line);
-    ui.painter()
-        .rect_stroke(rect, round, edge, egui::StrokeKind::Inside);
     let mut act = None;
     let mut x = rect.left() + PAD;
     let mut slot = |w: f32| {
@@ -189,6 +186,9 @@ pub(super) fn show(
     if fit.speed {
         speed(ui, slot(SPEED_W), settings);
     }
+    if let Some(to) = card_button(ui, slot(BUTTON), card) {
+        act = Some(Act::Card(to));
+    }
     options(ui, slot(BUTTON), settings, view.narrated, out);
     let rule = slot(8.0);
     let half = vec2(0.0, BUTTON * 0.28);
@@ -229,6 +229,30 @@ fn icon_button(ui: &mut Ui, slot: Rect, icon: Icon, label: &str, enabled: bool) 
     icon.paint(ui, mark, ink);
     widgets::tip(&r, label, None);
     enabled && r.clicked()
+}
+
+/// A chevron that turns as the card opens; the way asked, when clicked.
+fn card_button(ui: &mut Ui, slot: Rect, card: f32) -> Option<bool> {
+    let t = Tokens::get(ui.ctx());
+    let open = card > 0.5;
+    let label = if open {
+        "Collapse player"
+    } else {
+        "Expand player"
+    };
+    let rect = Rect::from_center_size(slot.center(), egui::Vec2::splat(BUTTON));
+    let r = ui.interact(rect, ui.id().with("read-aloud-card"), Sense::click());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let hot = (ui.ctx()).animate_bool_with_time(r.id, r.hovered(), motion::secs(ui.ctx(), 0.12));
+    (ui.painter()).circle_filled(rect.center(), BUTTON / 2.0, t.hover.gamma_multiply(hot));
+    let mark = Rect::from_center_size(rect.center(), egui::Vec2::splat(ICON));
+    let turn = std::f32::consts::PI * card;
+    (Icon::ChevronUp.image(ICON))
+        .tint(t.ink)
+        .rotate(turn, egui::Vec2::splat(0.5))
+        .paint_at(ui, mark);
+    widgets::tip(&r, label, None);
+    r.clicked().then_some(!open)
 }
 
 /// The accent circle whose triangle folds into two bars; true when clicked.
@@ -545,16 +569,6 @@ fn options(ui: &mut Ui, slot: Rect, s: &mut ReadAloudSettings, narrated: bool, o
         });
         widgets::tip(&r, "Read-aloud options", None);
     });
-}
-
-/// Where it pops up: centred over the foot of `pane`, rising as it shows.
-pub(super) fn place(pane: Rect, width: f32, shown: f32) -> Rect {
-    let bottom = pane.bottom() - crate::page_bar::BAR_H - 12.0 + (1.0 - shown) * 10.0;
-    let width = width.min(pane.width() - 16.0).max(0.0);
-    Rect::from_min_size(
-        pos2(pane.center().x - width / 2.0, bottom - HEIGHT),
-        vec2(width, HEIGHT),
-    )
 }
 
 #[cfg(test)]

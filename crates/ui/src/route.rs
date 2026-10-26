@@ -67,6 +67,8 @@ fn reads(command: &Command) -> bool {
         C::Pronunciation(_) => false,
         // The library's own: its page, books and View menu.
         C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
+        // The player's card works from any page.
+        C::ShowReading => false,
         // The dictionary comes up from every page.
         C::ShowDictionary => false,
         // Find searches the page in reading, the library on the shelf.

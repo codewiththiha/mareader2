@@ -137,6 +137,16 @@ impl LibraryState {
         &self.model
     }
 
+    /// Paints `book`'s cover in `rect`; false when it isn't shelved.
+    pub fn paint_cover(&mut self, ui: &egui::Ui, rect: egui::Rect, book: BookId) -> bool {
+        let Some(found) = self.model.book(book) else {
+            return false;
+        };
+        let t = crate::theme::Tokens::get(ui.ctx());
+        view::thumb(ui, rect, found, &mut self.covers, &t);
+        true
+    }
+
     /// For edits outside the library's own: marks, from the study tools.
     pub fn model_mut(&mut self) -> &mut Library {
         &mut self.model

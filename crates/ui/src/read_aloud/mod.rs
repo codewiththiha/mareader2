@@ -20,6 +20,7 @@ use crate::theme::Tokens;
 use crate::widgets;
 
 mod booth;
+mod card;
 mod control;
 pub mod marker;
 mod spoken;
@@ -33,6 +34,12 @@ use spoken::Spoken;
 const TICK: Duration = Duration::from_millis(50);
 /// Seconds the player takes to rise into place.
 const APPEAR: f64 = 0.22;
+/// Seconds the pill takes to open into the card, and back.
+const MORPH: f32 = 0.34;
+/// Seconds the words lit may be out of sight before the card shows.
+const HIDDEN: f64 = 0.8;
+/// The player's place closes this share of its gap each second, roughly.
+const GLIDE: f32 = 14.0;
 /// Seconds after a card's word before its engine is let go.
 const WORD_IDLE: f64 = 60.0;
 /// The speaker on a word's card, and the same button while it speaks.
@@ -259,8 +266,15 @@ impl Narrated {
                 self.step(to);
             }
             Act::Stop => return true,
+            Act::Card(_) | Act::Reveal => {}
         }
         false
+    }
+
+    /// The page the phrase heard is on, and where it is named.
+    fn page(&self) -> Option<usize> {
+        let phrase = self.narration.phrases.get(self.heard?)?;
+        self.document.locate(phrase.start)
     }
 
     fn lit(&self) -> Option<Lit> {
@@ -310,6 +324,71 @@ impl Session {
             Self::Spoken(s) => s.act(act),
         }
     }
+
+    /// The page read, and the characters lit on it when known.
+    fn spot(&self) -> Option<(usize, Option<std::ops::Range<usize>>)> {
+        match self {
+            Self::Narrated(s) => Some((s.page()?, None)),
+            Self::Spoken(s) => s.spot().map(|(page, chars)| (page, Some(chars))),
+        }
+    }
+
+    /// What the card says about the book, named `title`.
+    fn about<'a>(&'a self, title: &'a str) -> card::About<'a> {
+        let (place, narrator, playing) = match self {
+            Self::Narrated(s) => {
+                let place = s.page().map(|p| place_name(&s.document, p));
+                let playing = !s.paused && !s.finished;
+                (place, s.narration.narrator.as_deref(), playing)
+            }
+            Self::Spoken(s) => (s.whereabouts(), None, s.playing()),
+        };
+        card::About {
+            title,
+            place,
+            narrator,
+            playing,
+        }
+    }
+
+    fn lyrics(&self) -> Option<card::Lyrics> {
+        match self {
+            Self::Narrated(_) => None,
+            Self::Spoken(s) => s.lyrics(),
+        }
+    }
+}
+
+/// Where the player may show, and whether the words read are in sight.
+pub struct Stage<'a> {
+    /// The panes are up: the reader is the page shown.
+    pub reader: bool,
+    pub panes: &'a [(PaneId, Rect)],
+    /// The window's room below the title bar.
+    pub content: Rect,
+    /// Whether the words lit are in sight, when they can be told.
+    pub shown: Option<bool>,
+    /// The title of the book read.
+    pub title: &'a str,
+}
+
+/// The player's shape and place, kept between frames.
+#[derive(Default)]
+struct Shape {
+    /// The card or the pill, asked by hand until the need for it changes.
+    chosen: Option<bool>,
+    /// The words read can't be seen, so the card would help.
+    auto: bool,
+    /// Since when the words lit have been out of sight.
+    hidden_since: Option<f64>,
+    /// Whether the card is wanted, this frame.
+    card: bool,
+    /// The foot centre it sits on, gliding where it should.
+    at: Option<egui::Pos2>,
+    time: Option<f64>,
+    scroll: card::Scroll,
+    /// When the player first showed for this reading.
+    appeared: Option<f64>,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -325,8 +404,7 @@ pub struct ReadAloud {
     /// The word being said, and when one was last asked.
     saying: Option<String>,
     said_at: f64,
-    /// When the player first showed for this reading.
-    appeared: Option<f64>,
+    shape: Shape,
 }
 
 impl ReadAloud {
@@ -572,23 +650,54 @@ impl ReadAloud {
         }
     }
 
-    /// The player, at the foot of its pane.
+    /// The pane read in, the page, and the characters lit on it.
+    pub fn spot(&self) -> Option<(PaneId, usize, Option<std::ops::Range<usize>>)> {
+        let s = self.session.as_ref()?;
+        let (page, chars) = s.spot()?;
+        Some((s.pane(), page, chars))
+    }
+
+    /// Whether the player is a card, or on its way to one.
+    pub fn carded(&self) -> bool {
+        self.session.is_some() && self.shape.card
+    }
+
+    /// The player: a pill by its pane, or a card when the words are away.
     pub fn bar(
         &mut self,
         ctx: &Context,
-        panes: &[(PaneId, Rect)],
+        stage: Stage<'_>,
         settings: &mut ReadAloudSettings,
         out: &mut Commands,
+        cover: &mut dyn FnMut(&Ui, Rect) -> bool,
     ) {
         let Some(s) = self.session.as_mut() else {
-            self.appeared = None;
+            self.shape = Shape::default();
             return;
         };
-        let Some(pane) = panes.iter().find(|(p, _)| *p == s.pane()).map(|(_, r)| *r) else {
-            return;
-        };
+        let shape = &mut self.shape;
         let now = ctx.input(|i| i.time);
-        let since = now - *self.appeared.get_or_insert(now);
+        let pane = (stage.panes.iter())
+            .find(|(p, _)| stage.reader && *p == s.pane())
+            .map(|(_, r)| *r);
+        match stage.shown {
+            Some(false) => _ = *shape.hidden_since.get_or_insert(now),
+            _ => shape.hidden_since = None,
+        }
+        // The page shows the words unless they are elsewhere or drift.
+        let drifted = shape.hidden_since.is_some_and(|t| now - t >= HIDDEN);
+        let auto = pane.is_none() || !settings.follow || drifted;
+        if auto != shape.auto {
+            shape.auto = auto;
+            shape.chosen = None;
+        }
+        let room = pane.unwrap_or(stage.content);
+        let fits = room.height() >= card::HEIGHT + 120.0 && room.width() >= 300.0;
+        shape.card = shape.chosen.unwrap_or(auto) && fits;
+        let morph = motion::secs(ctx, MORPH);
+        let k = ctx.animate_bool_with_time(Id::new("read-aloud-card"), shape.card, morph);
+        let k = ease_in_out(k);
+        let since = now - *shape.appeared.get_or_insert(now);
         let shown = match motion::enabled(ctx) {
             true => ease_out((since / APPEAR).clamp(0.0, 1.0)) as f32,
             false => 1.0,
@@ -596,11 +705,38 @@ impl ReadAloud {
         if shown < 1.0 {
             ctx.request_repaint();
         }
+        // It sits over the page bar in a pane, else near the window's foot.
+        let foot = match pane {
+            Some(_) => room.bottom() - crate::page_bar::BAR_H - 12.0,
+            None => room.bottom() - 20.0,
+        };
+        let goal = egui::pos2(room.center().x, foot);
+        let dt = shape.time.map_or(0.0, |t| (now - t) as f32).min(0.1);
+        shape.time = Some(now);
+        let at = match shape.at {
+            Some(at) if motion::enabled(ctx) => at + (goal - at) * (1.0 - (-dt * GLIDE).exp()),
+            _ => goal,
+        };
+        shape.at = Some(at);
+        if (goal - at).length() > 0.5 {
+            ctx.request_repaint();
+        }
         let act = {
             let hint = |share: f32| s.hint(share);
             let view = s.view(&hint);
-            let fit = Fit::new(pane.width() - 24.0, view.escape);
-            let rect = control::place(pane, fit.width(view.escape), shown);
+            let about = s.about(stage.title);
+            let lyrics = s.lyrics();
+            let pill = Fit::new(room.width() - 24.0, view.escape).width(view.escape);
+            let width = card::lerp(pill, card::WIDTH, k)
+                .min(room.width() - 16.0)
+                .max(0.0);
+            let height = card::lerp(control::HEIGHT, card::HEIGHT, k);
+            let bottom = at.y + (1.0 - shown) * 10.0;
+            let rect = Rect::from_min_size(
+                egui::pos2(at.x - width / 2.0, bottom - height),
+                egui::vec2(width, height),
+            );
+            let fit = Fit::new(width, view.escape);
             let mut act = None;
             egui::Area::new(Id::new("read-aloud-bar"))
                 .fade_in(false)
@@ -609,16 +745,45 @@ impl ReadAloud {
                 .constrain(false)
                 .show(ctx, |ui| {
                     ui.set_opacity(shown);
-                    ui.set_clip_rect(pane);
+                    ui.set_clip_rect(room);
                     let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
-                    act = control::show(ui, r, (&view, fit), settings, out);
+                    card::frame(ui, r, k);
+                    let row = r.with_min_y(r.bottom() - control::HEIGHT);
+                    // The words wait until the card has room for them.
+                    let words = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
+                    if words > 0.0 {
+                        let top = r.with_max_y(row.top());
+                        let both = (&about, lyrics.as_ref());
+                        if card::show(
+                            ui,
+                            top,
+                            ease_out(f64::from(words)) as f32,
+                            both,
+                            &mut shape.scroll,
+                            cover,
+                        ) {
+                            act = Some(Act::Reveal);
+                        }
+                    }
+                    if let Some(a) = control::show(ui, row, (&view, fit, k), settings, out) {
+                        act = Some(a);
+                    }
                 });
             act
         };
-        if act.is_some_and(|act| s.act(act)) {
-            self.session = None;
+        match act {
+            Some(Act::Card(to)) => shape.chosen = Some(to),
+            Some(Act::Reveal) => out.push(Command::ShowReading),
+            Some(act) if s.act(act) => self.session = None,
+            _ => {}
         }
     }
+}
+
+/// Slow, quick, then slow: for things changing shape.
+fn ease_in_out(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
 }
 
 /// Fast at first, then settling: for things arriving.
