@@ -217,6 +217,20 @@ struct Menu {
     pages: Vec<usize>,
     /// Where reading aloud would start, if the book can be read.
     aloud: Option<crate::read_aloud::ReadFrom>,
+    /// Where on its page it was opened; none for picked pages.
+    pin: Option<Pin>,
+    /// When it first showed, for its entrance.
+    born: Option<f64>,
+}
+
+/// A right-click's place on its page, so its menu rides along with it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pin {
+    /// The click, in page points.
+    pub point: Pos2,
+    /// The word under it, in page points, and its text.
+    pub word: Option<mareader_pdf::Bounds>,
+    pub text: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1486,6 +1500,18 @@ impl PageAi {
         })
     }
 
+    /// Ties the page's open menu to where it was opened on its page.
+    pub fn pin_menu(&mut self, pin: Pin) {
+        if let Some(m) = &mut self.menu {
+            m.pin = Some(pin);
+        }
+    }
+
+    /// Where the page's menu was drawn last frame; for tests.
+    pub fn menu_rect(&self) -> Option<Rect> {
+        self.menu.as_ref().and(self.menu_rect)
+    }
+
     /// The right-clicked word lit in `pane`, at or in it; for tests.
     pub fn washed_word(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
         self.washed(pane).and(self.washed_word)
@@ -1517,6 +1543,8 @@ impl PageAi {
             step: Step::Tasks,
             pages: Vec::new(),
             aloud,
+            pin: None,
+            born: None,
         });
     }
 
@@ -1536,6 +1564,8 @@ impl PageAi {
             step: Step::Languages,
             pages,
             aloud: None,
+            pin: None,
+            born: None,
         });
     }
 

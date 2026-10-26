@@ -47,6 +47,8 @@ pub struct Marker {
     /// What it was last drawn on, and where its bar went.
     last: Option<(Place, Rect)>,
     leaving: Option<f64>,
+    /// Brought into view once, when placed off screen.
+    pub(crate) revealed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -79,6 +81,7 @@ impl Marker {
             lag: Vec2::ZERO,
             last: None,
             leaving: None,
+            revealed: false,
         }
     }
 
@@ -449,6 +452,14 @@ fn word_at(text: &PageText, i: usize) -> Option<usize> {
     (i..len)
         .find(|&j| starts(text, j))
         .or_else(|| (0..i).rev().find(|&j| starts(text, j)))
+}
+
+/// The warm tone of the word reading would start on.
+pub(crate) fn warm(t: &Tokens) -> Color32 {
+    match t.dark {
+        true => Color32::from_rgb(255, 190, 84),
+        false => Color32::from_rgb(240, 150, 20),
+    }
 }
 
 /// The word at or nearest character `i`: the one a pin would take.

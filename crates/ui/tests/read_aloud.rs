@@ -399,7 +399,7 @@ fn the_page_menu_pins_the_start_and_reads_once_it_rests() {
         h.run_steps(1);
     }
     h.run_steps(3);
-    h.get_by_label("Read aloud from here").click();
+    h.get_by_label("Read aloud from “quick”").click();
     h.run_steps(3);
     assert_eq!(marker(&h), Some(quick), "pinned at the word's start");
     let _ = h.get_by_label("Reading starts here");
@@ -504,7 +504,83 @@ fn the_right_clicked_word_is_lit_where_reading_would_start() {
         (quick.char..quick.char + 5).contains(&lit_word.char),
         "{lit_word:?} is in “quick” at {quick:?}"
     );
-    h.get_by_label("Read aloud from here").click();
+    h.get_by_label("Read aloud from “quick”").click();
     h.run_steps(3);
     assert_eq!(marker(&h), Some(quick), "the pin takes the lit word");
+}
+
+fn right_click(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(12);
+}
+
+#[test]
+fn the_menu_keeps_off_its_word_and_rides_along_with_it() {
+    let mut h = reader(2);
+    let pane = h.state().active_pane();
+    let (_, at) = word(&h, "quick");
+    right_click(&mut h, at.center());
+    let menu = h.state().page_ai().menu_rect().expect("the menu shows");
+    let (_, lit) = word(&h, "quick");
+    let whole = lit.expand2(egui::vec2(lit.width() * 4.0, 0.0));
+    assert!(!menu.intersects(lit), "{menu:?} covers the word at {lit:?}");
+    assert!(menu.top() > whole.bottom() || menu.bottom() < whole.top());
+    // Scrolled a little, the menu moves just as its word does.
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -30.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(20);
+    let (_, moved) = word(&h, "quick");
+    let dy = moved.top() - lit.top();
+    assert!(dy < -5.0, "the page scrolled: {dy}");
+    let now = h.state().page_ai().menu_rect().expect("the menu stays");
+    assert!(
+        (now.top() - menu.top() - dy).abs() < 1.5,
+        "{now:?} after {menu:?}, {dy}"
+    );
+    assert_eq!(h.state().page_ai().washed(pane), Some(&[0][..]));
+}
+
+#[test]
+fn off_the_text_it_reads_from_the_page_s_start() {
+    let mut h = reader(1);
+    let pane = h.state().active_pane();
+    let sheet = *h.state().documents().sheets(pane).first().expect("a page");
+    right_click(&mut h, sheet.shown.min + egui::vec2(14.0, 14.0));
+    h.get_by_label("Read aloud from page start").click();
+    h.run_steps(3);
+    let first = marker(&h).expect("a pin");
+    assert_eq!(first, Spot { page: 0, char: 0 }, "the page's first word");
+}
+
+#[test]
+fn a_pin_off_screen_is_brought_into_view_before_it_reads() {
+    let mut h = reader(3);
+    let pane = h.state().active_pane();
+    let spot = Spot { page: 2, char: 0 };
+    h.state_mut().queue(Command::PlaceReadMarker { pane, spot });
+    h.run_steps(40);
+    assert!(lit(&h).is_none(), "it waits its rest first");
+    let shown = |h: &Harness<'static, MareaderApp>| {
+        let sheets = h.state().documents().sheets(pane);
+        sheets
+            .iter()
+            .any(|s| s.page == 2 && s.shown.height() > 40.0)
+    };
+    assert!(shown(&h), "its page came into view");
+    assert!(h.query_by_label("Reading starts here").is_some());
+    step_until(&mut h, |h| lit(h).is_some());
+    assert_eq!(lit(&h).map(|(s, _)| s), Some(spot));
 }

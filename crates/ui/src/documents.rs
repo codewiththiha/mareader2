@@ -1248,6 +1248,56 @@ impl Documents {
         }
     }
 
+    /// Brings each new pin's word into view, once the page holds still.
+    pub fn reveal_read_markers(&mut self) {
+        let due: Vec<(PaneId, mareader_speech::Spot)> = (self.panes.iter())
+            .filter_map(|(pane, content)| match content {
+                Content::Pdf(v) => (v.marker.as_ref())
+                    .filter(|m| !m.revealed && !m.leaving())
+                    .map(|m| (*pane, m.spot)),
+                Content::Opening { .. } => None,
+            })
+            .collect();
+        for (pane, spot) in due {
+            let Some(view) = self.view(pane) else {
+                continue;
+            };
+            let layer = self.texts.get(view.doc, spot.page);
+            let span = layer.and_then(|l| crate::read_aloud::marker::word_span(&l.text, spot.char));
+            let chars = span.unwrap_or(spot.char..spot.char + 1);
+            if self.reveal_said(pane, spot.page, chars)
+                && let Some(Content::Pdf(v)) = self.panes.get_mut(&pane)
+                && let Some(m) = &mut v.marker
+            {
+                m.revealed = true;
+            }
+        }
+    }
+
+    /// Where a right-click at `at` sat on `page`, and the word it was on.
+    pub fn menu_pin(
+        &self,
+        pane: PaneId,
+        page: usize,
+        at: egui::Pos2,
+        caret: Option<usize>,
+    ) -> Option<crate::page_ai::Pin> {
+        let view = self.view(pane)?;
+        let sheet = view.sheets.iter().find(|s| s.page == page)?;
+        let (x, y) = sheet.to_page(at);
+        let layer = self.texts.get(view.doc, page);
+        let span = (layer.as_ref().zip(caret))
+            .and_then(|(l, c)| crate::read_aloud::marker::word_span(&l.text, c));
+        let word = (layer.as_ref().zip(span.clone()))
+            .and_then(|(l, s)| l.text.line_boxes(s).reduce(Bounds::union));
+        let text = (layer.as_ref().zip(span)).map(|(l, s)| study::words::text_of(l, s));
+        Some(crate::page_ai::Pin {
+            point: egui::pos2(x, y),
+            word,
+            text,
+        })
+    }
+
     /// Where the pane's pin waits to start reading, if it does.
     pub fn read_marker(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
         let m = self.view(pane)?.marker.as_ref()?;

@@ -1648,6 +1648,9 @@ impl MareaderApp {
                         until: None,
                     });
                     self.page_ai.open_menu(pane, page, at, aloud);
+                    if let Some(pin) = self.documents.menu_pin(pane, page, at, caret) {
+                        self.page_ai.pin_menu(pin);
+                    }
                 }
                 Gloss::Bubble { page, index, at } => {
                     let now = ctx.input(|i| i.time);
@@ -1745,8 +1748,13 @@ impl MareaderApp {
             }
         }
         let model = self.library.model();
-        self.page_ai
-            .show(ctx, &self.settings.ai, model, &self.pane_rects, out);
+        self.page_ai.show(
+            ctx,
+            &self.settings.ai,
+            model,
+            (&self.pane_rects, &self.documents),
+            out,
+        );
         if let Some(toast) = self.page_copy.poll(ctx) {
             self.toasts.push(toast);
         }
@@ -3402,6 +3410,7 @@ impl eframe::App for MareaderApp {
         self.clips.tick();
         self.read_aloud
             .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
+        self.documents.reveal_read_markers();
         let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;
         let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);

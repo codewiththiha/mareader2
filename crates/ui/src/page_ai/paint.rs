@@ -439,10 +439,7 @@ fn word(ui: &Ui, pages: &Pages<'_>, spot: mareader_speech::Spot, (k, hot): (f32,
     // It lands a touch large and settles; its menu row swells it.
     let pad = vec2(2.5, 1.5) + Vec2::splat(2.0 * (1.0 - k) + 1.5 * hot);
     let r = r.expand2(pad);
-    let warm = match t.dark {
-        true => Color32::from_rgb(255, 190, 84),
-        false => Color32::from_rgb(240, 150, 20),
-    };
+    let warm = crate::read_aloud::marker::warm(t);
     let painter = ui.painter();
     painter.rect_filled(r, 4.0, warm.gamma_multiply((0.28 + 0.2 * hot) * k));
     let edge = Stroke::new(1.5 + 0.5 * hot, warm.gamma_multiply(0.9 * k));

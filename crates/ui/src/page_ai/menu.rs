@@ -1,14 +1,16 @@
 //! The page's menu and a bubble's: what to ask, and what to do after.
 
+use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Button, Context, Frame, Id, Key, Margin, Modifiers, Order, Rect, RichText, ScrollArea, Sense,
-    Stroke, TextEdit, Ui, vec2,
+    Align2, Button, Context, FontId, Frame, Id, Key, Margin, Modifiers, Order, Pos2, Rect,
+    RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2, WidgetText, pos2, vec2,
 };
 use mareader_library::Library;
 use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
+use crate::documents::Documents;
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::theme::Tokens;
@@ -30,7 +32,7 @@ impl PageAi {
         ctx: &Context,
         ai: &AiSettings,
         main: &Library,
-        panes: &[(PaneId, Rect)],
+        (panes, documents): (&[(PaneId, Rect)], &Documents),
         out: &mut Commands,
     ) {
         let pressed = ctx.input(|i| {
@@ -53,7 +55,27 @@ impl PageAi {
             self.escape();
         }
         let t = Tokens::get(ctx);
-        self.menu_rect = (self.menu.clone()).map(|m| self.page_menu(ctx, m, ai, &t, out));
+        let now = ctx.input(|i| i.time);
+        // The page's menu rides with its page, and goes once that scrolls off.
+        let anchor = self.menu.as_ref().and_then(|m| {
+            let pin = m.pin.as_ref()?;
+            let sheet = documents.sheets(m.pane).iter().find(|s| s.page == m.page);
+            let room = panes.iter().find(|(p, _)| *p == m.pane).map(|(_, r)| *r);
+            let at = sheet.map(|s| s.rect.min + pin.point.to_vec2() * s.scale);
+            let word = sheet.zip(pin.word).map(|(s, w)| s.to_screen(w));
+            Some(
+                at.filter(|at| room.is_some_and(|r| r.contains(*at)))
+                    .map(|at| (at, word)),
+            )
+        });
+        if let Some(None) = anchor {
+            self.menu = None;
+        }
+        if let Some(m) = &mut self.menu {
+            m.born.get_or_insert(now);
+        }
+        let anchor = anchor.flatten();
+        self.menu_rect = (self.menu.clone()).map(|m| self.page_menu(ctx, m, anchor, ai, &t, out));
         self.bubble_rect = self
             .bubble_menu
             .map(|m| self.bubble_menu(ctx, m, main, &t, out));
@@ -63,13 +85,25 @@ impl PageAi {
         &mut self,
         ctx: &Context,
         m: Menu,
+        anchor: Option<(Pos2, Option<Rect>)>,
         ai: &AiSettings,
         t: &Tokens,
         out: &mut Commands,
     ) -> Rect {
         let mut close = false;
         let mut step = m.step.clone();
-        let rect = popup(ctx, Id::new("page-ai-menu"), m.at, t, |ui| {
+        let (at, word) = anchor.unwrap_or((m.at, None));
+        let size = self
+            .menu_rect
+            .map_or(vec2(WIDTH + 10.0, 200.0), |r| r.size());
+        let (pos, below) = place(at, word, size, ctx.content_rect());
+        let now = ctx.input(|i| i.time);
+        let k = ((now - m.born.unwrap_or(now)) / APPEAR).clamp(0.0, 1.0) as f32;
+        if k < 1.0 {
+            ctx.request_repaint();
+        }
+        let look = (pos, k, below);
+        let rect = page_popup(ctx, Id::new("page-ai-menu"), look, t, |ui| {
             close = match step.clone() {
                 Step::Tasks => self.tasks(ui, &m, ai, &mut step, out),
                 Step::Languages => self.languages(ui, &m, ai, &mut step, out),
@@ -143,11 +177,9 @@ impl PageAi {
     ) -> bool {
         let t = Tokens::get(ui.ctx());
         if let Some(from) = m.aloud {
-            let label = match from.here() {
-                true => "Read aloud from here",
-                false => "Read aloud from this page",
-            };
-            let row = widgets::menu_row(ui, Icon::ReadAloud, label, None, false);
+            // On a word it names it; off text, the page's start.
+            let pinned = m.pin.as_ref().and_then(|p| p.text.as_deref());
+            let row = aloud_row(ui, pinned.filter(|_| from.at.is_some()), &t);
             // Hovered, its word lights up more.
             let hot = row.hovered();
             ui.ctx()
@@ -164,6 +196,13 @@ impl PageAi {
             }
             ui.separator();
         }
+        // The page's own heading, its swatch the tint the page wears.
+        let heading = match m.pages.len() {
+            0 => format!("Page {}", m.page + 1),
+            1 => "1 page".to_owned(),
+            n => format!("{n} pages"),
+        };
+        caption(ui, &heading, &t);
         if !PageTask::ALL
             .iter()
             .any(|task| ai.page_preset(*task).is_some())
@@ -542,6 +581,141 @@ fn popup(ctx: &Context, id: Id, at: egui::Pos2, t: &Tokens, add: impl FnOnce(&mu
         })
         .response
         .rect
+}
+
+/// Seconds the page's menu takes to come in.
+const APPEAR: f64 = 0.16;
+/// Room kept between the menu, its word and the window's edges.
+const GAP: f32 = 6.0;
+const EDGE: f32 = 8.0;
+
+/// Below its word, else above, else beside; never on it. True if below.
+fn place(at: Pos2, word: Option<Rect>, size: Vec2, room: Rect) -> (Pos2, bool) {
+    let keep = word.unwrap_or(Rect::from_center_size(at, Vec2::ZERO));
+    let keep = keep.expand(GAP);
+    let x = word.map_or(at.x, |w| w.left() - 4.0);
+    let max = |lo: f32, hi: f32| hi.max(lo);
+    let clamp_x = |x: f32| {
+        x.clamp(
+            room.left() + EDGE,
+            max(room.left() + EDGE, room.right() - size.x - EDGE),
+        )
+    };
+    let fits = |y: f32| y >= room.top() + EDGE && y + size.y <= room.bottom() - EDGE;
+    let (below, above) = (keep.bottom(), keep.top() - size.y);
+    if fits(below) {
+        return (pos2(clamp_x(x), below), true);
+    }
+    if fits(above) {
+        return (pos2(clamp_x(x), above), false);
+    }
+    // No room under or over: beside it, right if it fits, else left.
+    let x = match keep.right() + size.x <= room.right() - EDGE {
+        true => keep.right(),
+        false => keep.left() - size.x,
+    };
+    let lo = room.top() + EDGE;
+    let y = (keep.center().y - size.y * 0.5).clamp(lo, max(lo, room.bottom() - size.y - EDGE));
+    (pos2(x.max(room.left() + EDGE), y), true)
+}
+
+/// The page's menu at `pos`, fading and sliding in as `k` goes to 1.
+fn page_popup(
+    ctx: &Context,
+    id: Id,
+    (pos, k, below): (Pos2, f32, bool),
+    t: &Tokens,
+    add: impl FnOnce(&mut Ui),
+) -> Rect {
+    let ease = 1.0 - (1.0 - k).powi(3);
+    let rise = (1.0 - ease) * 6.0 * if below { -1.0 } else { 1.0 };
+    egui::Area::new(id)
+        .order(Order::Foreground)
+        .fixed_pos(pos + vec2(0.0, rise))
+        // Placed by hand: egui's own keeping-in would fight it.
+        .constrain(false)
+        .show(ctx, |ui| {
+            ui.multiply_opacity(ease);
+            Frame::menu(ui.style())
+                .fill(t.surface)
+                .stroke(Stroke::new(1.0, t.line))
+                .corner_radius(t.radius_lg)
+                .inner_margin(Margin::same(4))
+                .show(ui, |ui| {
+                    ui.set_width(WIDTH);
+                    add(ui);
+                    widgets::close_on_key(ui);
+                });
+        })
+        .response
+        .rect
+}
+
+/// Read aloud's row: its icon and word in the lit word's warm tone.
+fn aloud_row(ui: &mut Ui, word: Option<&str>, t: &Tokens) -> egui::Response {
+    let warm = crate::read_aloud::marker::warm(t);
+    let ink = ui.visuals().text_color();
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let (label, text) = match word {
+        Some(w) => {
+            let w = short(w);
+            let mut job = LayoutJob::default();
+            job.append(
+                "Read aloud from ",
+                0.0,
+                TextFormat::simple(font.clone(), ink),
+            );
+            let quoted = TextFormat {
+                font_id: font,
+                color: ink,
+                underline: Stroke::new(1.5, warm),
+                ..Default::default()
+            };
+            job.append(&format!("“{w}”"), 0.0, quoted);
+            (format!("Read aloud from “{w}”"), WidgetText::from(job))
+        }
+        None => {
+            let label = "Read aloud from page start".to_owned();
+            (label.clone(), WidgetText::from(label))
+        }
+    };
+    let button = Button::image_and_text(Icon::ReadAloud.image(16.0).tint(warm), text)
+        .truncate()
+        .frame_when_inactive(false)
+        .min_size(vec2(ui.available_width(), 32.0));
+    let resp = ui.add(button);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    resp
+}
+
+/// A long word cut short, so the row keeps to one line.
+fn short(word: &str) -> String {
+    const MOST: usize = 16;
+    match word.chars().count() > MOST {
+        true => format!("{}…", word.chars().take(MOST - 1).collect::<String>()),
+        false => word.to_owned(),
+    }
+}
+
+/// A small heading over the page's rows, its swatch the page's wash.
+fn caption(ui: &mut Ui, text: &str, t: &Tokens) {
+    let pad = ui.spacing().button_padding.x;
+    let gap = ui.spacing().icon_spacing;
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
+    let swatch = Rect::from_center_size(pos2(r.left() + pad + 8.0, r.center().y), vec2(10.0, 10.0));
+    let p = ui.painter();
+    p.rect_filled(swatch, 3.0, t.accent.gamma_multiply(0.3));
+    let edge = Stroke::new(1.0, t.accent.gamma_multiply(0.85));
+    p.rect_stroke(swatch, 3.0, edge, StrokeKind::Inside);
+    let x = r.left() + pad + 16.0 + gap;
+    let font = FontId::proportional(t.text_small);
+    p.text(
+        pos2(x, r.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        font,
+        t.muted,
+    );
 }
 
 fn language_row(ui: &mut Ui, name: &str, on: bool) -> egui::Response {
