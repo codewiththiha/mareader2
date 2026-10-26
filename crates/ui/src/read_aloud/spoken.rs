@@ -20,8 +20,12 @@ use crate::theme::Tokens;
 const AHEAD: usize = 8;
 /// Sentences kept behind the voice, for stepping back.
 const BEHIND: usize = 200;
-/// Sentences after the current, handed to the voice to make ahead.
+/// Sentences after the current handed to the voice: at least this many,
 const LOOK: usize = 3;
+/// then on to about twenty seconds of speech, in characters,
+const LOOK_CHARS: usize = 300;
+/// but never more than this many.
+const LOOK_MOST: usize = 8;
 
 /// Where reading starts.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -285,12 +289,16 @@ impl Spoken {
 
     /// Hands the voice the sentences after the current, to make ahead.
     fn look_ahead(&mut self) {
-        while self.ahead.len() < LOOK
+        let texts = |ahead: &VecDeque<Said>| enough(ahead.iter().map(|s| s.sentence.text.as_str()));
+        let mut wanted = texts(&self.ahead);
+        while wanted.is_none()
             && let Some(said) = self.pull()
         {
             self.ahead.push_back(said);
+            wanted = texts(&self.ahead);
         }
-        let texts: Vec<&str> = (self.ahead.iter().take(LOOK))
+        let count = wanted.unwrap_or(self.ahead.len());
+        let texts: Vec<&str> = (self.ahead.iter().take(count))
             .map(|s| s.sentence.text.as_str())
             .collect();
         if let Some(v) = self.voicer.as_mut() {
@@ -586,6 +594,18 @@ struct Reach {
     until: Option<Spot>,
 }
 
+/// How many of `texts` make enough speech to have ready, if they do.
+fn enough<'a>(texts: impl Iterator<Item = &'a str>) -> Option<usize> {
+    let mut chars = 0;
+    for (n, text) in (1..).zip(texts) {
+        chars += text.chars().count();
+        if n >= LOOK_MOST || (n >= LOOK && chars >= LOOK_CHARS) {
+            return Some(n);
+        }
+    }
+    None
+}
+
 /// Reads `document` into sentences over `span` on a thread of its own.
 fn spawn(document: Arc<Document>, span: Reach, skip_folios: bool, wake: Waker) -> Receiver<Said> {
     let (tx, rx) = std::sync::mpsc::sync_channel(AHEAD);
@@ -668,4 +688,21 @@ fn locate(document: &Document, at: Anchor) -> (usize, usize) {
     let count = layer.text.len();
     let char = (0..count).find(|&i| layer.place(i).is_some_and(|p| anchor(p) >= at));
     (page, char.unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn about_twenty_seconds_of_speech_is_made_ahead() {
+        let short = ["Yes."; 9];
+        assert_eq!(enough(short.into_iter()), Some(LOOK_MOST), "never more");
+        let long = "a".repeat(LOOK_CHARS);
+        let texts = [long.as_str(), "Yes.", "Yes.", "Yes."];
+        assert_eq!(enough(texts.into_iter()), Some(LOOK), "never fewer");
+        let some = "a".repeat(LOOK_CHARS / 5);
+        assert_eq!(enough([some.as_str(); 9].into_iter()), Some(5));
+        assert_eq!(enough(["Yes."; 4].into_iter()), None, "wants more");
+    }
 }
