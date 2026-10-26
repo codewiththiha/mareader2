@@ -279,7 +279,7 @@ fn tooltip(response: &Response, target: &LinkTarget) {
 }
 
 /// egui drops the wheel during drags, so a selection scrolls itself.
-fn wheel(ui: &Ui, sideways: bool) {
+pub(crate) fn wheel(ui: &Ui, sideways: bool) {
     let delta = ui.input_mut(|i| std::mem::take(&mut i.smooth_scroll_delta));
     let delta = if sideways {
         Vec2::new(delta.x + delta.y, 0.0)
@@ -294,7 +294,7 @@ fn wheel(ui: &Ui, sideways: bool) {
 }
 
 /// Dragging past an edge scrolls on, faster the further out.
-fn edge_scroll(ui: &Ui, area: Rect, p: Pos2) {
+pub(crate) fn edge_scroll(ui: &Ui, area: Rect, p: Pos2) {
     let past = |v: f32, lo: f32, hi: f32| {
         let d = if v < lo {
             lo - v

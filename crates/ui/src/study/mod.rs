@@ -50,6 +50,8 @@ pub enum Gloss {
     Note,
     /// Read aloud was pressed: the selection alone is read.
     ReadAloud,
+    /// The read-aloud pin rested, or was clicked: read from it.
+    ReadFrom(crate::read_aloud::ReadFrom),
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.

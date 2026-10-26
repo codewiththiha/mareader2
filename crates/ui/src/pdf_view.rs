@@ -17,6 +17,7 @@ use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
 use crate::page_ai;
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::reach::{self, Press, Stop};
+use crate::read_aloud::marker::{self, Marker};
 use crate::selection::{self, Pages, Selection, Sheet};
 use crate::study::{self, BarPress, Gloss};
 use crate::texts::TextLayers;
@@ -145,6 +146,8 @@ pub struct PdfView {
     /// How far through the document, 0 to 1.
     pub progress: f32,
     pub selection: Option<Selection>,
+    /// Where reading aloud will start, until it does.
+    pub marker: Option<Marker>,
     /// Pages on screen last frame, where they sat.
     pub sheets: Vec<Sheet>,
     /// The page looked at last frame, fractional, for the backdrop.
@@ -211,6 +214,7 @@ impl PdfView {
             current: 0,
             progress: 0.0,
             selection: None,
+            marker: None,
             sheets: Vec::new(),
             paper_at: None,
             fresh: true,
@@ -923,6 +927,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let mut double = None;
     let doc_id = view.doc;
     let selection = &mut view.selection;
+    let marker = &mut view.marker;
     let out = area
         .auto_shrink(false)
         // The view runs its own glides, so each delta lands this frame.
@@ -1120,6 +1125,18 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 selection::paint(ui, &text, sel, t.accent.gamma_multiply(0.32));
             }
             let did = selection::interact(ui, ui.clip_rect(), &text, selection);
+            // The read-aloud pin goes over the text, so it takes the press.
+            if let Some(m) = marker.as_mut() {
+                let begun = selection.is_some_and(|s| !s.is_empty());
+                if (did.click.is_some() || begun) && !m.held() {
+                    m.dismiss(ui.input(|i| i.time));
+                }
+                match marker::show(ui, ui.clip_rect(), &text, m, &t) {
+                    marker::Step::Stay => {}
+                    marker::Step::Read(from) => gloss.push(Gloss::ReadFrom(from)),
+                    marker::Step::Gone => *marker = None,
+                }
+            }
             ai_bubbles(ui, &sheets, &cx.ai.overlays, &t, gloss);
             if let Some(pill) = &cx.ai.pill
                 && let Some(press) = page_ai::paint::pill(ui, frame, pill, &t)

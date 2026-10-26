@@ -1599,6 +1599,7 @@ impl MareaderApp {
                         out.push(Command::ReadAloud { pane, from });
                     }
                 }
+                Gloss::ReadFrom(from) => out.push(Command::ReadAloud { pane, from }),
                 Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
                 Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
                 Gloss::Open { mark, at } => {
@@ -2246,7 +2247,14 @@ impl MareaderApp {
                 self.queued.extend(out);
             }
             Command::PageAi(action) => self.page_ai_act(ctx, action),
+            Command::PlaceReadMarker { pane, spot } => {
+                let now = ctx.input(|i| i.time);
+                self.documents.place_read_marker(pane, spot, now);
+                ctx.request_repaint();
+            }
             Command::ReadAloud { pane, from } => {
+                // Reading from elsewhere sends a waiting pin off.
+                self.documents.dismiss_read_markers(ctx.input(|i| i.time));
                 if let Some(reading) = self.documents.reading(pane) {
                     self.clips.stop();
                     let settings = &self.settings.read_aloud;
@@ -2254,6 +2262,7 @@ impl MareaderApp {
                 }
             }
             Command::ToggleReadAloud => {
+                self.documents.dismiss_read_markers(ctx.input(|i| i.time));
                 if !self.read_aloud.toggle()
                     && let Some(reading) = self.documents.reading(self.active)
                 {
@@ -3243,6 +3252,9 @@ impl eframe::App for MareaderApp {
             free = false;
         }
         if free && (self.dict.escape() || self.study.escape(self.library.model_mut())) {
+            free = false;
+        }
+        if free && self.documents.dismiss_read_markers(ctx.input(|i| i.time)) {
             free = false;
         }
         if free && self.documents.stop_drift(self.active) {

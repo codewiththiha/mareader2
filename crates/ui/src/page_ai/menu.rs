@@ -148,7 +148,13 @@ impl PageAi {
                 false => "Read aloud from this page",
             };
             if widgets::menu_row(ui, Icon::ReadAloud, label, None, false).clicked() {
-                out.push(Command::ReadAloud { pane: m.pane, from });
+                // A pin shows where it starts; resting, it reads.
+                let page = mareader_speech::Spot {
+                    page: m.page,
+                    char: 0,
+                };
+                let spot = from.at.unwrap_or(page);
+                out.push(Command::PlaceReadMarker { pane: m.pane, spot });
                 return true;
             }
             ui.separator();

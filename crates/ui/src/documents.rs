@@ -1239,6 +1239,34 @@ impl Documents {
         }
     }
 
+    /// Pins where reading will start in `pane`, in place of any other.
+    pub fn place_read_marker(&mut self, pane: PaneId, spot: mareader_speech::Spot, now: f64) {
+        self.dismiss_read_markers(now);
+        self.clear_selection(pane);
+        if let Some(Content::Pdf(v)) = self.panes.get_mut(&pane) {
+            v.marker = Some(crate::read_aloud::marker::Marker::new(spot));
+        }
+    }
+
+    /// Where the pane's pin waits to start reading, if it does.
+    pub fn read_marker(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
+        let m = self.view(pane)?.marker.as_ref()?;
+        (!m.leaving()).then_some(m.spot)
+    }
+
+    /// Fades every waiting pin out; true if one was waiting.
+    pub fn dismiss_read_markers(&mut self, now: f64) -> bool {
+        let mut any = false;
+        for content in self.panes.values_mut() {
+            if let Content::Pdf(v) = content
+                && let Some(m) = &mut v.marker
+            {
+                any |= m.dismiss(now);
+            }
+        }
+        any
+    }
+
     /// How far the pane's document was scrolled last frame.
     pub fn offset(&self, pane: PaneId) -> Option<egui::Vec2> {
         self.view(pane).map(PdfView::offset)

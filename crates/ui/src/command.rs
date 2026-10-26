@@ -154,6 +154,11 @@ pub enum Command {
         pane: PaneId,
         from: crate::read_aloud::ReadFrom,
     },
+    /// Pins where reading aloud will start, to be moved or let rest.
+    PlaceReadMarker {
+        pane: PaneId,
+        spot: mareader_speech::Spot,
+    },
     /// Plays or pauses the reading; starts the focused book if none.
     ToggleReadAloud,
     StopReadAloud,

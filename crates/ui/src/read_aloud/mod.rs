@@ -20,6 +20,7 @@ use crate::theme::Tokens;
 use crate::widgets;
 
 mod booth;
+pub mod marker;
 mod spoken;
 
 pub use booth::Booth;

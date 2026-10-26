@@ -55,6 +55,7 @@ fn reads(command: &Command) -> bool {
         // The page AI works on a page in reading.
         C::PageAi(_) => true,
         C::ReadAloud { .. } | C::ToggleReadAloud | C::StopReadAloud => true,
+        C::PlaceReadMarker { .. } => true,
         // A voice is tried from settings, which open over any page.
         C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(..) => false,
         // A card's word is said wherever its card shows.

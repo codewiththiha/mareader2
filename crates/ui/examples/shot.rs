@@ -21,6 +21,7 @@ fn main() -> Result<(), String> {
     let mut scroll = 0.0;
     let mut drag = None;
     let mut carry = None;
+    let mut nudge = None;
     let mut words = false;
     let mut searched = false;
     let mut tabs = 0;
@@ -55,6 +56,22 @@ fn main() -> Result<(), String> {
                     return Err("carry=x1,y1,x2,y2".into());
                 };
                 carry = Some((egui::pos2(*x1, *y1), egui::pos2(*x2, *y2)));
+            }
+            // The read-aloud pin, once open: `pin=page:char`.
+            "pin" => {
+                let (page, char) = v.split_once(':').ok_or("pin=page:char")?;
+                let spot = mareader_speech::Spot {
+                    page: page.parse().map_err(|_| "pin page")?,
+                    char: char.parse().map_err(|_| "pin char")?,
+                };
+                let pane = app.active_pane();
+                queued.push(Command::PlaceReadMarker { pane, spot });
+            }
+            // The pin carried by this much, held: `nudge=dx,dy`.
+            "nudge" => {
+                let (x, y) = v.split_once(',').ok_or("nudge=dx,dy")?;
+                let x: f32 = x.parse().map_err(|_| "nudge dx")?;
+                nudge = Some(egui::vec2(x, y.parse().map_err(|_| "nudge dy")?));
             }
             // Applied once the document is open: `zoom=in,in,page`.
             "zoom" => {
@@ -194,6 +211,11 @@ fn main() -> Result<(), String> {
             modifiers: egui::Modifiers::NONE,
         });
         harness.run_steps(40);
+    }
+    if let Some(by) = nudge {
+        let pin = harness.query_by_label(mareader_ui::read_aloud::marker::LABEL);
+        let from = pin.ok_or("no pin to nudge")?.rect().center();
+        carry = Some((from, from + by));
     }
     let held = carry.map(|c| (c, false));
     if let Some(((from, to), release)) = drag.map(|d| (d, true)).or(held) {

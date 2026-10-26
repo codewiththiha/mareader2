@@ -343,3 +343,118 @@ fn a_book_set_in_new_type_reads_on_from_the_same_sentence() {
     step_until(&mut h, |h| lit(h) > now);
     assert!(lit(&h) > now, "playing goes on");
 }
+
+/// The first character of `word` on page 0, and where it sits on screen.
+fn word(h: &Harness<'static, MareaderApp>, word: &str) -> (Spot, egui::Rect) {
+    let pane = h.state().active_pane();
+    let docs = h.state().documents();
+    let layer = docs.reading(pane).map(|r| r.document.text_layer(0));
+    let layer = layer.and_then(Result::ok).expect("page 0's text");
+    let sheet = *docs
+        .sheets(pane)
+        .iter()
+        .find(|s| s.page == 0)
+        .expect("page 0");
+    let letters: Vec<char> = layer.text.chars().iter().map(|c| c.ch).collect();
+    let want: Vec<char> = word.chars().collect();
+    let char = (letters.windows(want.len()))
+        .position(|w| w == want.as_slice())
+        .expect("the word is on the page");
+    let bounds = layer.text.chars().get(char).expect("its letter").bounds;
+    (Spot { page: 0, char }, sheet.to_screen(bounds))
+}
+
+fn pointer(h: &mut Harness<'static, MareaderApp>, pos: egui::Pos2, pressed: Option<bool>) {
+    h.event(egui::Event::PointerMoved(pos));
+    if let Some(pressed) = pressed {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(1);
+}
+
+fn marker(h: &Harness<'static, MareaderApp>) -> Option<Spot> {
+    let pane = h.state().active_pane();
+    h.state().documents().read_marker(pane)
+}
+
+#[test]
+fn the_page_menu_pins_the_start_and_reads_once_it_rests() {
+    let mut h = reader(1);
+    let (quick, at) = word(&h, "quick");
+    // Right-click inside the word; the pin goes to its start.
+    let inside = at.center() + egui::vec2(at.width() * 2.0, 0.0);
+    h.event(egui::Event::PointerMoved(inside));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: inside,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    h.get_by_label("Read aloud from here").click();
+    h.run_steps(3);
+    assert_eq!(marker(&h), Some(quick), "pinned at the word's start");
+    let _ = h.get_by_label("Reading starts here");
+    h.run_steps(40);
+    assert!(lit(&h).is_none(), "nothing reads before it rests");
+    step_until(&mut h, |h| lit(h).is_some());
+    assert_eq!(lit(&h).map(|(s, _)| s), Some(quick));
+    assert_eq!(marker(&h), None, "the pin gives way to the reading");
+    h.run_steps(30);
+    assert!(h.query_by_label("Reading starts here").is_none());
+}
+
+#[test]
+fn the_pin_is_dragged_to_a_word_and_reads_from_there_after_resting() {
+    let mut h = reader(1);
+    let pane = h.state().active_pane();
+    let (quick, from) = word(&h, "quick");
+    let (lazy, to) = word(&h, "lazy");
+    h.state_mut()
+        .queue(Command::PlaceReadMarker { pane, spot: quick });
+    h.run_steps(20);
+    let pin = h.get_by_label("Reading starts here").rect();
+    let grab = egui::pos2(pin.center().x, pin.min.y + 14.0);
+    pointer(&mut h, grab, Some(true));
+    // Carried by the knob: the word it ends beside is the one taken.
+    let left = |r: egui::Rect| egui::pos2(r.left(), r.center().y);
+    let drop = left(to) + (grab - left(from));
+    for k in 1..=12 {
+        let p = grab + (drop - grab) * (k as f32 / 12.0);
+        pointer(&mut h, p, None);
+    }
+    h.run_steps(5);
+    assert_eq!(marker(&h), Some(lazy), "it snaps to the word's start");
+    h.run_steps(100);
+    assert!(lit(&h).is_none(), "nothing reads while it is held");
+    pointer(&mut h, drop, Some(false));
+    h.run_steps(30);
+    assert!(lit(&h).is_none(), "it rests a moment first");
+    step_until(&mut h, |h| lit(h).is_some());
+    assert_eq!(lit(&h).map(|(s, _)| s), Some(lazy));
+}
+
+#[test]
+fn escape_sends_the_pin_away_unread() {
+    let mut h = reader(1);
+    let pane = h.state().active_pane();
+    let (quick, _) = word(&h, "quick");
+    h.state_mut()
+        .queue(Command::PlaceReadMarker { pane, spot: quick });
+    h.run_steps(5);
+    assert_eq!(marker(&h), Some(quick));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(marker(&h), None);
+    h.run_steps(120);
+    assert!(lit(&h).is_none(), "nothing reads");
+    assert!(h.query_by_label("Reading starts here").is_none());
+}
