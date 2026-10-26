@@ -145,7 +145,7 @@ fn scales(own: Scales, line: &Line<'_>) -> Scales {
     }
 }
 
-/// Phonemes split at clauses: a short first if `lead`, none past [`LONGEST`].
+/// Phonemes split at clauses, none past [`LONGEST`]; led, each doubling.
 pub(crate) fn pieces(phonemes: &str, lead: bool) -> Vec<String> {
     let clauses = phonemes.split_inclusive([',', ';', ':']);
     let parts = clauses.flat_map(|clause| {
@@ -167,13 +167,17 @@ pub(crate) fn pieces(phonemes: &str, lead: bool) -> Vec<String> {
     });
     let mut pieces: Vec<String> = Vec::new();
     let mut run = String::new();
+    let mut target = lead.then_some(LEAD);
     for part in parts {
         if !run.trim().is_empty() && length(&run) + length(&part) > LONGEST {
             pieces.push(std::mem::take(&mut run));
         }
         run.push_str(&part);
-        if lead && pieces.is_empty() && length(run.trim()) >= LEAD {
+        if let Some(t) = target
+            && length(run.trim()) >= t
+        {
             pieces.push(std::mem::take(&mut run));
+            target = Some((t * 2).min(LONGEST));
         }
     }
     pieces.push(run);
@@ -222,6 +226,23 @@ mod tests {
         );
         assert_eq!(pieces("ɐ, b", true), ["ɐ, b"], "short enough to lead whole");
         assert!(pieces("  ", true).is_empty());
+    }
+
+    #[test]
+    fn led_pieces_grow_twofold_and_cut_only_at_clauses() {
+        let clause = "wˈɜːd wˈɜːd wˈɜːd,";
+        let said = format!("{} ɛnd.", [clause; 40].join(" "));
+        let led = pieces(&said, true);
+        let sizes: Vec<usize> = led.iter().map(|p| length(p)).collect();
+        assert!(
+            sizes.windows(2).take(3).all(|w| w.first() < w.last()),
+            "{sizes:?}"
+        );
+        assert!(sizes.first().is_some_and(|s| (LEAD..LEAD * 2).contains(s)));
+        assert!(sizes.iter().all(|s| *s <= LONGEST), "{sizes:?}");
+        let cut_at_clauses = led.iter().rev().skip(1).all(|p| p.ends_with(','));
+        assert!(cut_at_clauses, "{led:?}");
+        assert_eq!(led.concat().replace(' ', ""), said.replace(' ', ""));
     }
 
     #[test]

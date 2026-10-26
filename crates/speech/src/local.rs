@@ -20,7 +20,7 @@ pub(crate) struct Line<'a> {
     pub speed: f32,
     /// The model's settings, in the order it lists them.
     pub knobs: Vec<f32>,
-    /// Said now: a short first piece starts the sound sooner.
+    /// Short pieces first, then growing; off only for whole-sentence tests.
     pub lead: bool,
 }
 
@@ -71,6 +71,8 @@ struct Plan {
     speaking: bool,
     /// When playing last stopped, by pause, stop or the end.
     quiet_since: Option<Instant>,
+    /// Pieces made ahead so far, unsent; a say takes them at once.
+    early: Option<(Key, Vec<(Pcm, bool)>)>,
 }
 
 /// The plan, and a bell rung when it changes.
@@ -431,8 +433,22 @@ impl Voicer for Engine {
             None => {
                 self.tickets += 1;
                 let ticket = self.tickets;
-                self.making = Some((ticket, id));
-                self.plan(|p| p.now = Some((ticket, key)));
+                let mut early = Vec::new();
+                self.plan(|p| {
+                    if p.early.as_ref().is_some_and(|(k, _)| *k == key) {
+                        early = p.early.take().map(|e| e.1).unwrap_or_default();
+                    }
+                    // All made already: nothing is left to ask for.
+                    if !early.iter().any(|e| e.1) {
+                        p.now = Some((ticket, key));
+                    }
+                });
+                if !early.iter().any(|e| e.1) {
+                    self.making = Some((ticket, id));
+                }
+                for (pcm, last) in early {
+                    self.push(Owner::Said(id), pcm, last);
+                }
             }
         }
         self.mark();
@@ -522,6 +538,9 @@ impl Drop for Engine {
     }
 }
 
+/// A sentence spoken, `None` if stopped part way, or why it failed.
+type Rendered = Result<Option<Pcm>, String>;
+
 /// What the thread shares with the engine.
 struct Crew {
     studio: Studio,
@@ -594,8 +613,9 @@ impl<S: Synth> Worker<S> {
         let crew = &self.crew;
         let kept = ticket.and_then(|_| crew.studio.takes().get(key));
         let was_kept = kept.is_some();
-        let made = match kept {
-            Some(pcm) => Ok(Some(pcm)),
+        // Made ahead, it may be said part way: `to` is who it went to.
+        let (to, made) = match kept {
+            Some(pcm) => (ticket, Ok(Some(pcm))),
             None => self.render(ticket, key),
         };
         let crew = &self.crew;
@@ -604,50 +624,61 @@ impl<S: Synth> Worker<S> {
             Ok(Some(pcm)) => crew.studio.takes().put(key.clone(), pcm),
             Ok(None) => {}
             Err(why) => {
-                if let Some(ticket) = ticket {
+                if let Some(ticket) = to {
                     let _ = crew.out.send(Made::Failed { ticket, why });
                     (crew.wake)();
                 }
             }
         }
         let mut plan = lock(&crew.desk.plan);
-        match ticket {
-            Some(t) if plan.now.as_ref().is_some_and(|(n, _)| *n == t) => plan.now = None,
-            Some(_) => {}
-            None => plan.ahead.retain(|k| k != key),
+        if to.is_some() && plan.now.as_ref().map(|(n, _)| *n) == to {
+            plan.now = None;
+        }
+        if ticket.is_none() {
+            plan.ahead.retain(|k| k != key);
+            plan.early = None;
         }
     }
 
-    /// `key` spoken; `None` if it stopped being wanted part way.
-    fn render(&mut self, ticket: Option<u64>, key: &Key) -> Result<Option<Pcm>, String> {
-        self.load(&key.voice)?;
+    /// Who it went to, and `key` spoken; `None` if stopped part way.
+    fn render(&mut self, ticket: Option<u64>, key: &Key) -> (Option<u64>, Rendered) {
+        if let Err(why) = self.load(&key.voice) {
+            return (ticket, Err(why));
+        }
         let crew = &self.crew;
         if crew.stale(ticket, key) {
-            return Ok(None);
+            return (ticket, Ok(None));
         }
         let line = Line {
             text: &key.text,
             speed: f32::from_bits(key.speed),
             knobs: key.knobs.iter().map(|b| f32::from_bits(*b)).collect(),
-            lead: ticket.is_some(),
+            lead: true,
         };
-        let (mut all, mut rate) = (Vec::<i16>::new(), 0);
+        let (mut all, mut rate, mut to) = (Vec::<i16>::new(), 0, ticket);
         let (mut ended, mut stopped) = (false, false);
-        self.synth.render(&line, &mut |audio, r, last| {
+        let rendered = self.synth.render(&line, &mut |audio, r, last| {
             let piece: Vec<i16> = audio.iter().map(|&s| sample(s)).collect();
-            crew.send(ticket, Pcm::new(&piece, r), last);
+            let pcm = Pcm::new(&piece, r);
+            match to {
+                Some(_) => crew.send(to, pcm, last),
+                None => to = crew.offer(key, pcm, last),
+            }
             (rate, ended) = (r, ended || last);
             all.extend(piece);
-            stopped = crew.stale(ticket, key);
+            stopped = crew.stale(to, key);
             !stopped
-        })?;
+        });
+        if let Err(why) = rendered {
+            return (to, Err(why));
+        }
         if !ended {
             if stopped {
-                return Ok(None);
+                return (to, Ok(None));
             }
-            crew.send(ticket, Pcm::new(&[], rate), true);
+            crew.send(to, Pcm::new(&[], rate), true);
         }
-        Ok(Some(Pcm::new(&all, rate)))
+        (to, Ok(Some(Pcm::new(&all, rate))))
     }
 
     /// Loads `voice`, telling the window while a model is read from disk.
@@ -673,6 +704,22 @@ impl Crew {
             let _ = self.out.send(Made::Piece { ticket, pcm, last });
             (self.wake)();
         }
+    }
+
+    /// Sends a piece made ahead if `key` is said now, else keeps it.
+    fn offer(&self, key: &Key, pcm: Pcm, last: bool) -> Option<u64> {
+        let mut plan = lock(&self.desk.plan);
+        let wanted = plan.now.as_ref().filter(|(_, k)| k == key);
+        if let Some(&(ticket, _)) = wanted {
+            drop(plan);
+            self.send(Some(ticket), pcm, last);
+            return Some(ticket);
+        }
+        match &mut plan.early {
+            Some((k, pieces)) if k == key => pieces.push((pcm, last)),
+            early => *early = Some((key.clone(), vec![(pcm, last)])),
+        }
+        None
     }
 
     /// True once the work for `key` is no longer wanted.
@@ -741,6 +788,8 @@ pub(crate) mod tests {
     struct Fake {
         fail: bool,
         loaded: bool,
+        /// Each word waits for a go from here, if set.
+        gate: Option<std::sync::mpsc::Receiver<()>>,
     }
 
     impl Synth for Fake {
@@ -768,6 +817,9 @@ pub(crate) mod tests {
             let words = line.text.split_whitespace().count();
             let level = line.knobs.first().copied().unwrap_or(0.5);
             for i in 0..words {
+                if let Some(gate) = &self.gate {
+                    let _ = gate.recv();
+                }
                 if !out(&[level; 2_400], RATE, i + 1 == words) {
                     break;
                 }
@@ -904,6 +956,60 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_sentence_said_while_made_ahead_plays_what_is_made_at_once() {
+        let (go, gate) = std::sync::mpsc::channel();
+        let mut e = engine_with(Fake {
+            gate: Some(gate),
+            ..Fake::default()
+        });
+        let text = "One two three four five six seven eight.";
+        e.prepare(&[text]);
+        for _ in 0..2 {
+            let _ = go.send(());
+        }
+        let early = |e: &Engine| lock(&e.desk.plan).early.as_ref().map_or(0, |p| p.1.len());
+        settle(&mut e, |e| early(e) == 2);
+        assert_eq!(e.say(7, text), Ok(()));
+        assert!(e.making.is_some(), "not made whole yet");
+        let mine = |e: &Engine| e.line.iter().filter(|p| p.owner == Owner::Said(7)).count();
+        let queued = |e: &Engine| {
+            let said = e.line.iter().filter(|p| p.owner == Owner::Said(7));
+            said.map(|p| p.seconds).sum::<f64>()
+        };
+        assert!(
+            (queued(&e) - 0.2).abs() < 1e-6,
+            "what is made plays at once"
+        );
+        let _ = go.send(());
+        settle(&mut e, |e| queued(e) > 0.25);
+        assert!(!e.studio.takes().has(&e.key(text)), "queued before made");
+        drop(go);
+        settle(&mut e, |e| e.making.is_none());
+        assert!((queued(&e) - 0.8).abs() < 1e-6, "each word once");
+        assert_eq!(mine(&e), 8, "two made early, then one by one");
+        let lasts = e
+            .line
+            .iter()
+            .filter(|p| p.last && p.owner == Owner::Said(7));
+        assert_eq!(lasts.count(), 1);
+        settle(&mut e, |e| e.studio.takes().has(&e.key(text)));
+    }
+
+    #[test]
+    fn a_sentence_made_ahead_in_full_but_not_kept_yet_is_queued_whole() {
+        let mut e = engine();
+        let text = "Two words.";
+        let key = e.key(text);
+        let piece = |last| (pcm(2400), last);
+        e.plan(|p| p.early = Some((key, vec![piece(false), piece(true)])));
+        assert_eq!(e.say(8, text), Ok(()));
+        assert!(e.making.is_none(), "nothing left to make");
+        assert!(lock(&e.desk.plan).now.is_none());
+        assert_eq!(e.line.iter().filter(|p| p.last).count(), 1);
+        assert_eq!(e.line.len(), 2);
+    }
+
+    #[test]
     fn nothing_to_say_still_ends_the_sentence() {
         let mut e = engine();
         assert_eq!(e.say(6, "   "), Ok(()));
@@ -917,7 +1023,35 @@ pub(crate) mod tests {
             "Hello there, this is the first sentence, read aloud.",
             "And this is the one after it.",
         );
-        live_saying(e, what, english);
+        let e = live_saying(e, what, english);
+        catch_up(e, what);
+    }
+
+    /// Says a long sentence while it is made ahead, timing its first sound.
+    fn catch_up(mut e: Engine, what: &str) {
+        let long = "When the evening came, the travellers, tired from the long \
+            road, stopped at a small inn beside the river, where the keeper, an \
+            old man with a kind face, gave them bread, cheese and warm soup, and \
+            told them stories of the hills until the fire burned low.";
+        let asked = Instant::now();
+        e.prepare(&[long]);
+        std::thread::sleep(Duration::from_millis(300));
+        let said = Instant::now();
+        assert_eq!(e.say(3, long), Ok(()));
+        let mut heard = None;
+        while e.making.is_some() && said.elapsed() < Duration::from_secs(600) {
+            assert!(e.events().is_empty(), "nothing plays without a device");
+            let queued = e.line.iter().any(|p| p.owner == Owner::Said(3));
+            heard = heard.or(queued.then(|| said.elapsed()));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let (whole, made) = (said.elapsed(), asked.elapsed());
+        assert!(e.fault.is_none(), "{:?}", e.fault);
+        let heard = heard.unwrap_or(whole);
+        println!(
+            "{what}: said 0.3 s into making ahead; first sound ready {heard:?} \
+             after, whole {whole:?} after (made in {made:?})"
+        );
     }
 
     /// Times `synth` loading `voice` from nothing, as the first word does.
@@ -928,7 +1062,7 @@ pub(crate) mod tests {
     }
 
     /// As `live`, saying `first` then making `next` ahead.
-    pub(crate) fn live_saying(mut e: Engine, what: &str, (first, next): (&str, &str)) {
+    pub(crate) fn live_saying(mut e: Engine, what: &str, (first, next): (&str, &str)) -> Engine {
         let start = std::time::Instant::now();
         assert_eq!(e.say(1, first), Ok(()));
         e.prepare(&[next]);
@@ -957,6 +1091,7 @@ pub(crate) mod tests {
         println!(
             "{what}: first sound ready after {heard:?}; {speech:?} s of speech made in {made:?}"
         );
+        e
     }
 
     #[test]

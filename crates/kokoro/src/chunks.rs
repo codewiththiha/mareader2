@@ -26,7 +26,7 @@ pub(crate) fn split(phonemes: &str, vocab: &HashMap<String, u32>, most: usize) -
     split_led(phonemes, vocab, 0, most)
 }
 
-/// As [`split`], but the first chunk ends near `lead` tokens; 0 never does.
+/// As [`split`], first ending near `lead` tokens, then each doubling; 0 never.
 pub(crate) fn split_led(
     phonemes: &str,
     vocab: &HashMap<String, u32>,
@@ -36,14 +36,20 @@ pub(crate) fn split_led(
     let tokens = tokens(phonemes, vocab);
     let mut chunks = Vec::new();
     let mut rest = tokens.as_slice();
+    let mut target = None;
     if let Some((end, boundary)) = lead_end(rest, lead.min(most)) {
         let (head, tail) = rest.split_at(end);
         chunks.push(chunk(head, boundary));
         rest = tail;
+        target = Some(lead.min(most).saturating_mul(2));
     }
     while !rest.is_empty() && most > 0 {
         let window = rest.get(..most.min(rest.len())).unwrap_or(rest);
-        let (end, boundary) = if window.len() == rest.len() {
+        let grown = target.and_then(|t| clause_end(rest, t, most));
+        target = target.map(|t| t.saturating_mul(2).min(most));
+        let (end, boundary) = if let Some(cut) = grown {
+            cut
+        } else if window.len() == rest.len() {
             (rest.len(), 0)
         } else {
             // Never right after the first token: that leaves a lone space.
@@ -78,6 +84,29 @@ fn lead_end(tokens: &[(u32, u8)], lead: usize) -> Option<(usize, u8)> {
     }
     let at = window.iter().rposition(|t| t.1 == 1)?;
     Some((from + at + 1, 0))
+}
+
+/// The clause end nearest under `target`, else the first past it.
+fn clause_end(tokens: &[(u32, u8)], target: usize, most: usize) -> Option<(usize, u8)> {
+    if tokens.len() <= target {
+        return None;
+    }
+    let half = (target / 2).max(1);
+    let near = tokens
+        .get(half..target)
+        .and_then(|w| w.iter().rposition(|t| t.1 >= 2));
+    let far = || {
+        let window = tokens.get(target..most.min(tokens.len()))?;
+        window.iter().position(|t| t.1 >= 2).map(|at| at + target)
+    };
+    let at = near.map(|at| at + half).or_else(far)?;
+    let mut end = at + 1;
+    // The space after a comma goes with it.
+    while tokens.get(end).is_some_and(|t| t.1 >= 2) {
+        end += 1;
+    }
+    let boundary = tokens.get(at).map_or(2, |t| t.1);
+    (end < tokens.len()).then_some((end, boundary))
 }
 
 fn chunk(tokens: &[(u32, u8)], boundary: u8) -> Chunk {
@@ -209,6 +238,22 @@ mod tests {
         assert_eq!(split_led(long, &v, 0, 510), split(long, &v, 510));
         let all: usize = sizes(&split_led(long, &v, 12, 8)).iter().sum();
         assert_eq!(all, long.chars().count(), "every token kept");
+    }
+
+    #[test]
+    fn led_chunks_grow_twofold_and_end_at_clauses() {
+        let v = vocab("a ,.");
+        let text = format!("{}aaa.", "aaaa aaaa, ".repeat(30));
+        let chunks = split_led(&text, &v, 12, 510);
+        let s = sizes(&chunks);
+        assert!(s.windows(2).take(3).all(|w| w.first() < w.last()), "{s:?}");
+        assert!(s.iter().all(|n| *n <= 510));
+        let clauses = chunks.iter().rev().skip(1);
+        assert!(clauses.clone().all(|c| c.pause_ms == 100), "{chunks:?}");
+        assert_eq!(s.iter().sum::<usize>(), text.chars().count());
+        // No clause in reach: the old split, whole up to the limit.
+        let words = "aaaa ".repeat(20);
+        assert_eq!(sizes(&split_led(&words, &v, 12, 510)).len(), 2);
     }
 
     #[test]
