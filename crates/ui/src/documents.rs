@@ -1089,6 +1089,14 @@ impl Documents {
         }
     }
 
+    /// The file `pane` shows, or is opening.
+    pub fn path(&self, pane: PaneId) -> Option<&std::path::Path> {
+        match self.panes.get(&pane)? {
+            Content::Opening { file, .. } => file.as_deref(),
+            Content::Pdf(v) => self.session.as_ref()?.get(v.doc)?.path.as_deref(),
+        }
+    }
+
     /// The library book `pane` reads as, or will once open.
     pub fn book(&self, pane: PaneId) -> Option<BookId> {
         match self.panes.get(&pane)? {

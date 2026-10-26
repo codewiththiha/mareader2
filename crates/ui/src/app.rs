@@ -2388,6 +2388,8 @@ impl MareaderApp {
                     }
                     self.active = pane;
                     self.documents.go_to(pane, page);
+                } else if let Some(origin) = self.read_aloud.away().cloned() {
+                    self.reopen_reading(ctx, origin);
                 }
             }
             Command::ShowDictionary => match self.route() {
@@ -2827,6 +2829,56 @@ impl MareaderApp {
         hovering.then_some(under)
     }
 
+    /// The book read aloud, open again in some pane: it reads on there.
+    fn find_reading(&mut self) {
+        let Some(origin) = self.read_aloud.away() else {
+            return;
+        };
+        let (library, documents) = (&self.library, &self.documents);
+        let shows = |&p: &PaneId| origin.is(library.book_in(documents, p), documents.path(p));
+        if let Some(pane) = self.tree.panes().into_iter().find(shows) {
+            self.read_aloud.rehome(&self.documents, pane);
+        }
+    }
+
+    /// Opens the book read aloud beside what shows, to read on there.
+    fn reopen_reading(&mut self, ctx: &Context, origin: crate::read_aloud::Origin) {
+        let name = &origin.name;
+        // Checked first, so a lost file opens no empty pane.
+        let why = match &origin.path {
+            Some(p) if !p.exists() => Some(format!("“{name}” was moved or deleted")),
+            None => Some(format!("“{name}” didn't come from a file")),
+            Some(_) => None,
+        };
+        if let Some(why) = why {
+            let note = format!("{why}, so it can't open again. Reading goes on.");
+            self.toasts.push(Toast::info(note));
+            return;
+        }
+        let shelved = origin
+            .book
+            .filter(|&b| self.library.model().book(b).is_some());
+        if let Some(book) = shelved {
+            self.go(Route::Reader);
+            return self.open_book(ctx, book, None, Placement::Beside);
+        }
+        let Some(path) = origin.path else {
+            return;
+        };
+        let empty = self.documents.title(self.active).is_none();
+        let placement = if empty {
+            Placement::Into
+        } else {
+            Placement::Beside
+        };
+        let request = OpenRequest {
+            pane: Some(self.active),
+            placement,
+            ..OpenRequest::path(path)
+        };
+        self.apply(ctx, Command::Open(request));
+    }
+
     /// The read-aloud player, on any page: a card when the words are away.
     fn player(&mut self, ctx: &Context, route: Route, out: &mut Commands) {
         let reader = route == Route::Reader;
@@ -2843,12 +2895,9 @@ impl MareaderApp {
                     None => Some(on),
                 }
             });
-        let pane = spot.map(|(pane, ..)| pane);
-        let title = pane
-            .and_then(|p| self.documents.title(p))
-            .unwrap_or("Read aloud");
-        let title = title.to_owned();
-        let book = pane.and_then(|p| self.documents.book(p));
+        let origin = self.read_aloud.origin();
+        let title = origin.map_or("Read aloud", |o| o.name.as_str()).to_owned();
+        let book = origin.and_then(|o| o.book);
         let mut content = ctx.content_rect();
         content.min.y += crate::theme::TITLE_BAR_H;
         let stage = crate::read_aloud::Stage {
@@ -3456,8 +3505,15 @@ impl eframe::App for MareaderApp {
             self.clips.act(&doc, clip, &mut self.read_aloud);
         }
         self.clips.tick();
+        self.find_reading();
         self.read_aloud
             .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
+        let (library, documents) = (&self.library, &self.documents);
+        self.read_aloud.remember(|pane| crate::read_aloud::Origin {
+            book: library.book_in(documents, pane),
+            path: documents.path(pane).map(std::path::Path::to_path_buf),
+            name: documents.title(pane).unwrap_or_default().to_owned(),
+        });
         self.documents.reveal_read_markers();
         let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;

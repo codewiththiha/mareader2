@@ -662,3 +662,101 @@ fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
     let (pane, page, _) = h.state().read_aloud().spot().expect("still reading");
     assert_eq!(h.state().documents().current(pane), Some(page));
 }
+
+/// Another book, opened over the one in the active pane.
+fn replace_book(h: &mut Harness<'static, MareaderApp>) {
+    use mareader_ui::documents::OpenRequest;
+    let pdf = mareader_pdf::sample::pdf(2, "Another Book");
+    let request = OpenRequest {
+        pane: Some(h.state().active_pane()),
+        ..OpenRequest::bytes(pdf, "another.pdf")
+    };
+    h.state_mut().queue(Command::Open(request));
+    h.run_steps(3);
+}
+
+/// A sample read from a file, so it can be opened again.
+fn reader_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, std::path::PathBuf) {
+    use mareader_ui::documents::OpenRequest;
+    let path = dir.join("Kept.pdf");
+    std::fs::write(&path, mareader_pdf::sample::pdf(40, "Kept")).expect("a sample file");
+    let mut h = reader(1);
+    let request = OpenRequest {
+        pane: Some(h.state().active_pane()),
+        ..OpenRequest::path(path.clone())
+    };
+    h.state_mut().queue(Command::Open(request));
+    let pane = h.state().active_pane();
+    step_until(&mut h, |h| {
+        h.state().documents().page_count(pane) == Some(40)
+    });
+    (h, path)
+}
+
+#[test]
+fn a_book_replaced_in_its_pane_reads_on_unseen() {
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    let pane = h.state().active_pane();
+    let before = h.state().read_aloud().reading_spot();
+    replace_book(&mut h);
+    let aloud = h.state().read_aloud();
+    assert!(aloud.away().is_some(), "its pane shows another book");
+    assert!(aloud.lit(pane).is_none(), "nothing is lit in the new book");
+    assert_eq!(
+        aloud.origin().map(|o| o.name.as_str()),
+        Some("A Mareader Sample")
+    );
+    step_until(&mut h, |h| h.state().read_aloud().reading_spot() != before);
+    assert!(h.state().read_aloud().playing(), "it reads on");
+    h.run_steps(2);
+    assert!(carded(&h), "the card shows the words instead");
+}
+
+#[test]
+fn the_card_opens_the_book_again_beside_and_reads_on_there() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let (mut h, _) = reader_from_file(dir.path());
+    let first = h.state().active_pane();
+    start(&mut h, ReadFrom::default());
+    replace_book(&mut h);
+    assert!(h.state().read_aloud().away().is_some());
+    h.run_steps(30);
+    h.get_by_label("Show where it's reading").click();
+    step_until(&mut h, |h| h.state().read_aloud().home().is_some());
+    let home = h.state().read_aloud().home().expect("found again");
+    assert_ne!(home, first, "beside the book now read");
+    assert_eq!(h.state().panes().len(), 2);
+    assert!(h.state().read_aloud().lit(home).is_some(), "lit there");
+    // It turns to the words read, and keeps up with them.
+    let page = |h: &Harness<'static, MareaderApp>| {
+        let spot = h.state().read_aloud().reading_spot();
+        spot.map(|s| s.0)
+    };
+    step_until(&mut h, |h| h.state().documents().current(home) == page(h));
+    assert_eq!(h.state().documents().current(home), page(&h));
+}
+
+#[test]
+fn a_book_gone_from_disk_says_so_and_reading_goes_on() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let (mut h, path) = reader_from_file(dir.path());
+    start(&mut h, ReadFrom::default());
+    replace_book(&mut h);
+    std::fs::remove_file(&path).expect("the file goes");
+    h.run_steps(30);
+    h.get_by_label("Show where it's reading").click();
+    h.run_steps(3);
+    let toast = h.state().toast().map(|t| t.message.clone());
+    assert!(
+        toast
+            .as_ref()
+            .is_some_and(|t| t.contains("moved or deleted")),
+        "{toast:?}"
+    );
+    assert!(
+        h.state().read_aloud().away().is_some(),
+        "still reading unseen"
+    );
+    assert_eq!(h.state().panes().len(), 1);
+}

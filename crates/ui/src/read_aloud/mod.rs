@@ -149,23 +149,17 @@ impl Narrated {
         }
     }
 
-    /// Follows what is heard and turns pages to it; false once it ends.
+    /// Follows what is heard and turns `here`, its pane, if shown.
     fn tick(
         &mut self,
         ctx: &Context,
         documents: &mut Documents,
+        here: Option<&Reading>,
         settings: &ReadAloudSettings,
     ) -> bool {
-        let reading = documents.reading(self.pane);
-        let narration = reading.as_ref().and_then(|r| r.document.narration());
-        // Another book in the pane, or none, ends the reading.
-        let (Some(reading), true) = (
-            reading,
-            narration.is_some_and(|n| Arc::ptr_eq(&n, &self.narration)),
-        ) else {
-            return false;
-        };
-        self.document = Arc::clone(&reading.document);
+        if let Some(reading) = here {
+            self.document = Arc::clone(&reading.document);
+        }
         if (settings.rate - self.rate).abs() > f32::EPSILON {
             self.rate = settings.rate;
             self.player.set_rate(self.rate);
@@ -187,14 +181,17 @@ impl Narrated {
             }
         }
         let shown = self.heard.and_then(|i| self.narration.phrases.get(i));
-        let page = shown.and_then(|p| reading.document.locate(p.start));
-        if std::mem::take(&mut self.jump)
-            && let Some(page) = page
-        {
-            documents.go_to(self.pane, page);
-            self.followed = Some(page);
+        let page = shown.and_then(|p| self.document.locate(p.start));
+        // Away from its pane, the book reads on unseen.
+        if let Some(reading) = here {
+            if std::mem::take(&mut self.jump)
+                && let Some(page) = page
+            {
+                documents.go_to(self.pane, page);
+                self.followed = Some(page);
+            }
+            follow(documents, reading, settings, page, &mut self.followed);
         }
-        follow(documents, &reading, settings, page, &mut self.followed);
         if !self.paused && !self.finished {
             ctx.request_repaint_after(TICK);
         }
@@ -271,6 +268,28 @@ impl Narrated {
         false
     }
 
+    /// Whether `reading` is this narration's book, as it was opened.
+    fn ours(&self, reading: &Reading) -> bool {
+        let narration = reading.document.narration();
+        narration.is_some_and(|n| Arc::ptr_eq(&n, &self.narration))
+    }
+
+    /// Reads on in `reading`, the book opened again; false if it differs.
+    fn rehome(&mut self, reading: &Reading) -> bool {
+        let Some(narration) = reading.document.narration() else {
+            return false;
+        };
+        // Its phrases' places are the book's own, whatever the type.
+        if narration.phrases.len() != self.narration.phrases.len() {
+            return false;
+        }
+        self.narration = narration;
+        self.document = Arc::clone(&reading.document);
+        self.pane = reading.pane;
+        (self.jump, self.followed) = (true, None);
+        true
+    }
+
     /// The page the phrase heard is on, and where it is named.
     fn page(&self) -> Option<usize> {
         let phrase = self.narration.phrases.get(self.heard?)?;
@@ -307,6 +326,22 @@ impl Session {
         match self {
             Self::Narrated(s) => s.hint(share),
             Self::Spoken(s) => s.hint(share),
+        }
+    }
+
+    /// Whether `reading` shows this book as it was when reading began.
+    fn ours(&self, reading: &Reading) -> bool {
+        match self {
+            Self::Narrated(s) => s.ours(reading),
+            Self::Spoken(s) => s.ours(reading),
+        }
+    }
+
+    /// Reads on in `reading`, the book opened again; false if unsuitable.
+    fn rehome(&mut self, reading: &Reading) -> bool {
+        match self {
+            Self::Narrated(s) => s.rehome(reading),
+            Self::Spoken(s) => s.rehome(reading),
         }
     }
 
@@ -405,6 +440,32 @@ pub struct ReadAloud {
     saying: Option<String>,
     said_at: f64,
     shape: Shape,
+    /// The book read, to find it again once its pane shows another.
+    origin: Option<Origin>,
+    origin_at: Option<PaneId>,
+    /// Its pane shows another book, or is gone: it reads on unseen.
+    away: bool,
+}
+
+/// The book being read, as the library and files know it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Origin {
+    pub book: Option<mareader_library::BookId>,
+    pub path: Option<std::path::PathBuf>,
+    pub name: String,
+}
+
+impl Origin {
+    /// Whether a pane showing `book` from `path` shows this book.
+    pub fn is(
+        &self,
+        book: Option<mareader_library::BookId>,
+        path: Option<&std::path::Path>,
+    ) -> bool {
+        let same_book = self.book.is_some() && book == self.book;
+        let same_file = self.path.is_some() && path == self.path.as_deref();
+        same_book || same_file
+    }
 }
 
 impl ReadAloud {
@@ -502,6 +563,11 @@ impl ReadAloud {
         settings: &ReadAloudSettings,
     ) {
         let (from, at, until) = (asked.anchor, asked.at, asked.until);
+        // What reads is in this pane now, whatever read before.
+        self.away = false;
+        if self.home() != Some(reading.pane) {
+            self.origin = None;
+        }
         // A selection is read just as it is, so by the voice.
         if reading.document.narration().is_none() || until.is_some() {
             let start = match (from, at) {
@@ -570,17 +636,71 @@ impl ReadAloud {
         self.session = None;
     }
 
-    /// Each frame: follows what is heard and turns pages to it.
+    /// Each frame: follows what is heard; away from its pane, reads on unseen.
     pub fn tick(&mut self, ctx: &Context, documents: &mut Documents, settings: &ReadAloudSettings) {
         self.tick_word(ctx);
-        let going = match self.session.as_mut() {
-            Some(Session::Narrated(s)) => s.tick(ctx, documents, settings),
-            Some(Session::Spoken(s)) => s.tick(ctx, documents, (settings, &self.shelf)),
-            None => return,
+        let Some(session) = self.session.as_mut() else {
+            self.origin = None;
+            return;
+        };
+        let here = documents.reading(session.pane());
+        let here = here.filter(|r| session.ours(r));
+        self.away = here.is_none();
+        let here = here.as_ref();
+        let going = match session {
+            Session::Narrated(s) => s.tick(ctx, documents, here, settings),
+            Session::Spoken(s) => s.tick(ctx, documents, here, (settings, &self.shelf)),
         };
         if !going {
             self.session = None;
         }
+    }
+
+    /// The book read while its pane shows another, or none.
+    pub fn away(&self) -> Option<&Origin> {
+        self.origin
+            .as_ref()
+            .filter(|_| self.away && self.session.is_some())
+    }
+
+    /// The book read, while it reads.
+    pub fn origin(&self) -> Option<&Origin> {
+        self.origin.as_ref().filter(|_| self.session.is_some())
+    }
+
+    /// Notes what the book read is, once for each pane it shows in.
+    pub fn remember(&mut self, origin: impl FnOnce(PaneId) -> Origin) {
+        let Some(pane) = self.home() else {
+            return;
+        };
+        if self.origin.is_none() || self.origin_at != Some(pane) {
+            self.origin = Some(origin(pane));
+            self.origin_at = Some(pane);
+        }
+    }
+
+    /// Reads on in `pane`, the book read opened again there.
+    pub fn rehome(&mut self, documents: &Documents, pane: PaneId) -> bool {
+        let Some(session) = self.session.as_mut() else {
+            return false;
+        };
+        let Some(reading) = documents.reading(pane) else {
+            return false;
+        };
+        let homed = session.rehome(&reading);
+        self.away &= !homed;
+        homed
+    }
+
+    /// The page read and the characters lit, seen or not.
+    pub fn reading_spot(&self) -> Option<(usize, Option<std::ops::Range<usize>>)> {
+        self.session.as_ref()?.spot()
+    }
+
+    /// The pane reading, while it shows the book read.
+    pub fn home(&self) -> Option<PaneId> {
+        let s = self.session.as_ref().filter(|_| !self.away)?;
+        Some(s.pane())
     }
 
     /// Says `word` in the engine and voice books are read in.
@@ -633,6 +753,7 @@ impl ReadAloud {
 
     /// The pane read in, and where in its book the words heard start.
     pub fn said(&self) -> Option<(PaneId, Anchor)> {
+        self.home()?;
         match self.session.as_ref()? {
             Session::Narrated(s) => {
                 let phrase = s.narration.phrases.get(s.heard?)?;
@@ -644,7 +765,11 @@ impl ReadAloud {
 
     /// The words to light in `pane`, if it is reading.
     pub fn lit(&self, pane: PaneId) -> Option<Lit> {
-        match self.session.as_ref().filter(|s| s.pane() == pane)? {
+        match self
+            .session
+            .as_ref()
+            .filter(|_| self.home() == Some(pane))?
+        {
             Session::Narrated(s) => s.lit(),
             Session::Spoken(s) => s.lit(),
         }
@@ -652,9 +777,9 @@ impl ReadAloud {
 
     /// The pane read in, the page, and the characters lit on it.
     pub fn spot(&self) -> Option<(PaneId, usize, Option<std::ops::Range<usize>>)> {
-        let s = self.session.as_ref()?;
-        let (page, chars) = s.spot()?;
-        Some((s.pane(), page, chars))
+        let pane = self.home()?;
+        let (page, chars) = self.session.as_ref()?.spot()?;
+        Some((pane, page, chars))
     }
 
     /// Whether the player is a card, or on its way to one.
@@ -671,6 +796,7 @@ impl ReadAloud {
         out: &mut Commands,
         cover: &mut dyn FnMut(&Ui, Rect) -> bool,
     ) {
+        let home = self.home();
         let Some(s) = self.session.as_mut() else {
             self.shape = Shape::default();
             return;
@@ -678,7 +804,7 @@ impl ReadAloud {
         let shape = &mut self.shape;
         let now = ctx.input(|i| i.time);
         let pane = (stage.panes.iter())
-            .find(|(p, _)| stage.reader && *p == s.pane())
+            .find(|(p, _)| stage.reader && Some(*p) == home)
             .map(|(_, r)| *r);
         match stage.shown {
             Some(false) => _ = *shape.hidden_since.get_or_insert(now),
@@ -706,9 +832,9 @@ impl ReadAloud {
             ctx.request_repaint();
         }
         // It sits over the page bar in a pane, else near the window's foot.
-        let foot = match pane {
-            Some(_) => room.bottom() - crate::page_bar::BAR_H - 12.0,
-            None => room.bottom() - 20.0,
+        let foot = match pane.is_some() || stage.reader {
+            true => room.bottom() - crate::page_bar::BAR_H - 12.0,
+            false => room.bottom() - 20.0,
         };
         let goal = egui::pos2(room.center().x, foot);
         let dt = shape.time.map_or(0.0, |t| (now - t) as f32).min(0.1);

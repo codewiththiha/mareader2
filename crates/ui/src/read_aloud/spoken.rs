@@ -91,6 +91,8 @@ pub(super) struct Spoken {
     began: Option<Spot>,
     /// Sought: the pane turns to this page, following or not.
     jump: Option<usize>,
+    /// Just found again in a pane, which should turn to the words read.
+    homing: bool,
 }
 
 impl Spoken {
@@ -135,6 +137,7 @@ impl Spoken {
             counts: Counts::default(),
             began: None,
             jump: None,
+            homing: false,
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -420,29 +423,47 @@ impl Spoken {
         self.go_on();
     }
 
-    /// Each frame: hears the voice, says on, turns pages; false on a new book.
+    /// Whether `reading` shows this book, perhaps set in new type.
+    pub fn ours(&self, reading: &Reading) -> bool {
+        let same = reading.doc == self.doc || reading.document.same_book(&self.document);
+        reading.document.narration().is_none() && same
+    }
+
+    /// Reads on in `reading`, the book opened again; false if it differs.
+    pub fn rehome(&mut self, reading: &Reading) -> bool {
+        if reading.document.narration().is_some() {
+            return false;
+        }
+        let fixed = self.document.layout().is_none();
+        if fixed && reading.document.page_count() != self.document.page_count() {
+            return false;
+        }
+        self.pane = reading.pane;
+        (self.followed, self.revealed) = (None, None);
+        self.homing = true;
+        // Fixed pages are the same pages; a laid-out book is found anew.
+        if fixed {
+            self.doc = reading.doc;
+            self.document = Arc::clone(&reading.document);
+        }
+        true
+    }
+
+    /// Each frame: hears the voice, says on, turns `here`; false once done.
     pub fn tick(
         &mut self,
         ctx: &Context,
         documents: &mut Documents,
+        here: Option<&Reading>,
         (settings, shelf): (&ReadAloudSettings, &Shelf),
     ) -> bool {
-        let Some(reading) = documents.reading(self.pane) else {
-            return false;
-        };
-        if reading.document.narration().is_some() {
-            return false;
-        }
-        // Set in new type, the book opens anew; it is still this book.
-        if reading.doc != self.doc {
-            if !reading.document.same_book(&self.document) {
-                return false;
-            }
+        // Set in new type or opened again, the place is found anew.
+        if let Some(reading) = here {
             self.doc = reading.doc;
-        }
-        if !Arc::ptr_eq(&reading.document, &self.document) {
-            self.document = Arc::clone(&reading.document);
-            self.relay(reading.current);
+            if !Arc::ptr_eq(&reading.document, &self.document) {
+                self.document = Arc::clone(&reading.document);
+                self.relay(reading.current);
+            }
         }
         self.apply((settings, shelf));
         let events = self.voicer.as_mut().map(|v| v.events()).unwrap_or_default();
@@ -474,6 +495,18 @@ impl Spoken {
         if self.began.is_none() {
             self.began = self.current.as_ref().map(|s| s.sentence.start);
         }
+        // Away from its pane, the book reads on unseen.
+        let Some(reading) = here else {
+            self.jump = None;
+            if !self.paused && !self.finished {
+                ctx.request_repaint_after(TICK);
+            }
+            return true;
+        };
+        // Back in a pane, it shows the words read at once.
+        if std::mem::take(&mut self.homing) {
+            self.jump = self.lit_spots().map(|(start, _)| start.page);
+        }
         if let Some(page) = self.jump.take() {
             documents.go_to(self.pane, page);
             self.followed = Some(page);
@@ -482,7 +515,7 @@ impl Spoken {
         let page = lit.map(|(start, _)| start.page);
         // Only a real turn shows the new page's first sentence.
         let turned = page.is_some() && page != self.followed && page != Some(reading.current);
-        follow(documents, &reading, settings, page, &mut self.followed);
+        follow(documents, reading, settings, page, &mut self.followed);
         self.reveal(documents, reading.pane, settings, turned);
         if !self.paused && !self.finished {
             ctx.request_repaint_after(TICK);
