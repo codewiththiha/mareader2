@@ -48,6 +48,8 @@ pub enum Gloss {
     LookUp,
     /// Note was pressed on the pane's selection.
     Note,
+    /// Read aloud was pressed: the selection alone is read.
+    ReadAloud,
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.
@@ -184,6 +186,8 @@ struct MarkMenu {
     noted: Option<bool>,
     /// A highlight's look, to change; none for an AI mark.
     style: Option<Style>,
+    /// Its words were drawn this frame: it follows them, else goes.
+    seen: bool,
 }
 
 /// A highlight's note beside it: read, or being written.
@@ -361,10 +365,18 @@ impl Study {
         if let Some(n) = self.note.as_ref().filter(|n| n.pane == pane) {
             return Some(n.mark.id);
         }
-        match self.card.as_ref().filter(|c| c.pane == pane)?.key {
-            Key::Mark(id) => Some(id),
-            Key::Loose(_) => None,
+        if let Some(c) = self.card.as_ref().filter(|c| c.pane == pane) {
+            return match c.key {
+                Key::Mark(id) => Some(id),
+                Key::Loose(_) => None,
+            };
         }
+        self.menu.filter(|m| m.pane == pane).map(|m| m.mark)
+    }
+
+    /// Where the mark menu was drawn, for tests.
+    pub fn menu_rect(&self) -> Option<Rect> {
+        self.menu.and(self.menu_rect)
     }
 
     pub fn card_open(&self) -> bool {
@@ -742,6 +754,7 @@ impl Study {
             rect,
             noted,
             style,
+            seen: true,
         });
     }
 
@@ -788,6 +801,14 @@ impl Study {
             note.at = at.unwrap_or(note.at);
             note.seen = true;
         }
+        // The menu rides with its words, as the card does.
+        if let Some(menu) = self.menu.as_mut().filter(|m| m.pane == pane) {
+            if let Some(at) = at {
+                menu.at += at.min - menu.rect.min;
+                menu.rect = at;
+            }
+            menu.seen = true;
+        }
     }
 
     /// `pane` drew no pages this frame, as while it re-sets: the card stays.
@@ -797,6 +818,9 @@ impl Study {
         }
         if let Some(note) = self.note.as_mut().filter(|n| n.pane == pane) {
             note.seen = true;
+        }
+        if let Some(menu) = self.menu.as_mut().filter(|m| m.pane == pane) {
+            menu.seen = true;
         }
     }
 
@@ -1069,6 +1093,9 @@ impl Study {
         if let Some(note) = &mut self.note {
             note.seen = note.draft.is_some();
         }
+        if let Some(menu) = &mut self.menu {
+            menu.seen = false;
+        }
     }
 
     /// After the panes: the card and the mark menu, over them.
@@ -1088,11 +1115,13 @@ impl Study {
         if self.card.is_some() && outside(self.card_rect) {
             self.card = None;
         }
-        if self.menu.is_some() && outside(self.menu_rect) {
+        let room = |pane| panes.iter().find(|(p, _)| *p == pane).map(|(_, r)| *r);
+        // A press elsewhere, or its words scrolled away, closes the menu.
+        let gone = |m: &MarkMenu| !m.seen || room(m.pane).is_none();
+        if outside(self.menu_rect) || self.menu.as_ref().is_some_and(gone) {
             self.menu = None;
         }
         // A press elsewhere keeps a draft; a note only read just closes.
-        let room = |pane| panes.iter().find(|(p, _)| *p == pane).map(|(_, r)| *r);
         if let Some(n) = &self.note
             && (outside(self.note_rect) || room(n.pane).is_none() || !n.seen)
         {

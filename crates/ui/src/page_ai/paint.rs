@@ -1,7 +1,8 @@
 //! A result drawn over its page, and the bubbles that pick among them.
 
 use egui::{
-    Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2, pos2, vec2,
+    Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, Vec2,
+    pos2, vec2,
 };
 
 use mareader_appearance::PageTone;
@@ -9,6 +10,7 @@ use mareader_appearance::PageTone;
 use crate::gpu::{Anchor, Quad};
 use crate::pages::PageTexture;
 use crate::pdf_view::{blank, keep_pictures};
+use crate::selection::Pages;
 use crate::theme::Tokens;
 
 use super::cards::Card;
@@ -357,4 +359,63 @@ fn ring(ui: &Ui, painter: &egui::Painter, c: Pos2, ring: Ring, t: &Tokens) {
             }
         }
     }
+}
+
+/// The pages a menu would ask about, and how far faded in.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wash {
+    pub pages: Vec<usize>,
+    pub alpha: f32,
+}
+
+/// Washes each page's text, first line to last, with a rule beside it.
+pub fn wash(ui: &Ui, pages: &Pages<'_>, wash: &Wash, t: &Tokens) {
+    let k = ease(wash.alpha.clamp(0.0, 1.0));
+    if k <= 0.0 {
+        return;
+    }
+    let rule = t.accent.gamma_multiply(0.85 * k);
+    let painter = ui.painter();
+    let shown = pages.sheets.iter().filter(|s| s.shown.is_positive());
+    for sheet in shown.filter(|s| wash.pages.contains(&s.page)) {
+        let layer = pages.texts.get(pages.doc, sheet.page);
+        let lines: Vec<Rect> = (layer.iter())
+            .flat_map(|l| {
+                let boxes = l.text.line_boxes(0..l.text.len());
+                let pad = vec2(2.0, 1.5);
+                boxes
+                    .map(|b| sheet.to_screen(b).expand2(pad))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        // A page with no text, a scan say, is washed whole.
+        let Some(whole) = lines.iter().copied().reduce(|a, b| a.union(b)) else {
+            let inner = sheet.rect.shrink(6.0).intersect(sheet.shown);
+            painter.rect_filled(inner, 6.0, t.accent.gamma_multiply(0.08 * k));
+            painter.rect_stroke(inner, 6.0, Stroke::new(1.5, rule), StrokeKind::Inside);
+            continue;
+        };
+        // Lines wash in from the top down, and out from the bottom up.
+        for line in &lines {
+            let down = (line.center().y - whole.top()) / whole.height().max(1.0);
+            let own = ((k - down * 0.4) / 0.6).clamp(0.0, 1.0);
+            let r = line.intersect(sheet.shown);
+            if r.is_positive() && own > 0.0 {
+                painter.rect_filled(r, 3.0, t.accent.gamma_multiply(0.16 * own));
+            }
+        }
+        // The rule grows out from its middle as it fades in.
+        let x = (whole.left() - 7.0).max(sheet.rect.left() + 2.0);
+        let (mid, half) = (whole.center().y, whole.height() * 0.5 * k);
+        let bar = Rect::from_x_y_ranges(x - 1.5..=x + 1.5, mid - half..=mid + half);
+        let bar = bar.intersect(sheet.shown);
+        if bar.is_positive() {
+            painter.rect_filled(bar, 1.5, rule);
+        }
+    }
+}
+
+/// Ease out: quick to come, gentle to settle.
+fn ease(x: f32) -> f32 {
+    1.0 - (1.0 - x).powi(3)
 }

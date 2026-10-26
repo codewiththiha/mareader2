@@ -415,6 +415,11 @@ impl Voicer for Engine {
         if let Some(why) = self.fault.take() {
             return Err(Fault::Failed(why));
         }
+        // Saying is never paused: a step back while paused, then play.
+        if self.paused {
+            self.paused = false;
+            self.player.resume();
+        }
         let key = self.key(text);
         if self.adopt(id, &key) {
             return Ok(());

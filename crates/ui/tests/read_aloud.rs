@@ -106,9 +106,60 @@ fn reading_starts_at_the_character_asked_for() {
     let from = ReadFrom {
         anchor: None,
         at: Some(at),
+        until: None,
     };
     start(&mut h, from);
     assert_eq!(lit(&h).map(|(s, _)| s), Some(at));
+}
+
+#[test]
+fn a_selection_is_read_alone_and_again_from_its_start() {
+    let mut h = reader(2);
+    let (at, until) = (Spot { page: 0, char: 0 }, Spot { page: 0, char: 120 });
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(at),
+        until: Some(until),
+    };
+    start(&mut h, from);
+    let first = lit(&h);
+    assert_eq!(first.map(|(s, _)| s), Some(at));
+    // Each sentence lit ends by the selection's end, then reading stops.
+    for _ in 0..600 {
+        h.run_steps(1);
+        let Some((_, end)) = lit(&h) else {
+            break;
+        };
+        assert!(end <= until, "{end:?} is past {until:?}");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    h.run_steps(1);
+    let _ = h.get_by_label("Selection read");
+    // Play again reads the selection again, not the book.
+    h.get_by_label("Play").click();
+    step_until(&mut h, |h| lit(h).is_some());
+    assert_eq!(lit(&h), first);
+}
+
+#[test]
+fn the_selection_bar_reads_just_the_selection() {
+    let mut h = reader(1);
+    let pane = h.state().active_pane();
+    let text = "The quick brown fox jumps over the lazy dog.".to_owned();
+    h.state_mut().queue(Command::SelectText {
+        pane,
+        page: 0,
+        text,
+    });
+    h.run();
+    h.get_by_label("Read aloud").click();
+    step_until(&mut h, |h| lit(h).is_some());
+    assert!(h.state().documents().selection(pane).is_none());
+    let (start, _) = lit(&h).expect("the selection is lit");
+    assert!(
+        start.char > 100,
+        "{start:?} is the selection's, not the page's"
+    );
 }
 
 #[test]
@@ -257,6 +308,7 @@ fn a_book_set_in_new_type_reads_on_from_the_same_sentence() {
     let from = ReadFrom {
         anchor: None,
         at: Some(Spot { page: 1, char: 0 }),
+        until: None,
     };
     start(&mut h, from);
     let first = lit(&h);

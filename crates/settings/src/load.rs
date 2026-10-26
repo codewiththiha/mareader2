@@ -64,7 +64,32 @@ fn migrate(root: &mut Map<String, Value>, notes: &mut Vec<String>) {
     if stored < 5 {
         v4_to_v5(root);
     }
+    if stored < 6 {
+        v5_to_v6(root);
+    }
     root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+}
+
+/// v6 added Read aloud to the selection menu, after Look up if shown.
+fn v5_to_v6(root: &mut Map<String, Value>) {
+    let bar = root
+        .get_mut("study")
+        .and_then(|s| s.get_mut("highlights"))
+        .and_then(|h| h.get_mut("bar"))
+        .and_then(Value::as_array_mut);
+    let Some(bar) = bar else {
+        return;
+    };
+    let item = json!("read_aloud");
+    if bar.contains(&item) {
+        return;
+    }
+    let near = |name: &str| bar.iter().position(|v| v == name);
+    let at = near("look_up")
+        .or_else(|| near("explain"))
+        .or_else(|| near("copy"))
+        .map_or(0, |i| i + 1);
+    bar.insert(at, item);
 }
 
 /// v5 made the one chosen provider a named model that Explain uses.
@@ -350,6 +375,7 @@ mod tests {
         let want = [
             BarItem::Explain,
             BarItem::LookUp,
+            BarItem::ReadAloud,
             BarItem::Note,
             BarItem::Highlight(Pen::Full),
             BarItem::Copy,
@@ -357,9 +383,27 @@ mod tests {
         assert_eq!(bar, want);
         let bare = r#"{"version":2,"study":{"highlights":{"bar":[]}}}"#;
         let bar = load(bare).settings.study.highlights.bar;
-        assert_eq!(bar, [BarItem::LookUp, BarItem::Note]);
+        assert_eq!(bar, [BarItem::LookUp, BarItem::ReadAloud, BarItem::Note]);
+        // Note came in v4: a v4 menu without it stays so.
         let v4 = r#"{"version":4,"study":{"highlights":{"bar":["copy"]}}}"#;
-        assert_eq!(load(v4).settings.study.highlights.bar, [BarItem::Copy]);
+        let bar = load(v4).settings.study.highlights.bar;
+        assert_eq!(bar, [BarItem::Copy, BarItem::ReadAloud]);
+    }
+
+    #[test]
+    fn v5_menus_gain_read_aloud_after_look_up() {
+        use crate::{BarItem, Pen};
+        let v5 = r#"{"version":5,"study":{"highlights":{"bar":["copy","look_up",{"highlight":"full"}]}}}"#;
+        let bar = load(v5).settings.study.highlights.bar;
+        let want = [
+            BarItem::Copy,
+            BarItem::LookUp,
+            BarItem::ReadAloud,
+            BarItem::Highlight(Pen::Full),
+        ];
+        assert_eq!(bar, want);
+        let v6 = r#"{"version":6,"study":{"highlights":{"bar":["copy"]}}}"#;
+        assert_eq!(load(v6).settings.study.highlights.bar, [BarItem::Copy]);
     }
 
     #[test]
@@ -369,6 +413,7 @@ mod tests {
         let bar = load(v3).settings.study.highlights.bar;
         let want = [
             BarItem::LookUp,
+            BarItem::ReadAloud,
             BarItem::Note,
             BarItem::Highlight(Pen::Full),
         ];

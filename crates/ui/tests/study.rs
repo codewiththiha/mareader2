@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use egui::accesskit::Role;
-use egui::{Event, Modifiers, PointerButton, Pos2};
+use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{Pen, Spot};
@@ -180,6 +180,52 @@ fn a_right_click_removes_a_mark_and_undo_brings_it_back() -> Out {
     h.get_by_label("Undo").click();
     h.run();
     assert_eq!(marks(&h).len(), 1);
+    Ok(())
+}
+
+#[test]
+fn a_mark_s_menu_rides_along_with_its_words_as_the_page_scrolls() -> Out {
+    let mut h = reader(&[
+        ("pdf", "sample:5"),
+        ("selection", "0:quick"),
+        ("gloss", "open"),
+    ]);
+    h.run();
+    let (layer, sheet) = page(&h, 0)?;
+    let i = find(&layer, "quick")?;
+    let at = middle(&layer, sheet, i + 2)?;
+    press(&mut h, at, PointerButton::Secondary);
+    let words = |h: &H| -> Result<Rect, String> {
+        let (layer, sheet) = page(h, 0)?;
+        let first = middle(&layer, sheet, i)?;
+        let last = middle(&layer, sheet, i + 4)?;
+        Ok(Rect::from_two_pos(first, last))
+    };
+    // Snug against its words: just under them, or just over.
+    let snug = |menu: Rect, w: Rect| {
+        let gap = (menu.top() - w.bottom())
+            .abs()
+            .min((menu.bottom() - w.top()).abs());
+        gap < 16.0
+    };
+    let before = words(&h)?;
+    let menu = h.state().study().menu_rect().ok_or("a menu")?;
+    assert!(snug(menu, before), "{menu:?} beside {before:?}");
+    h.hover_at(at);
+    h.event(Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -60.0),
+        modifiers: Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run();
+    let after = words(&h)?;
+    assert!(
+        (before.top() - after.top()).abs() > 10.0,
+        "the page scrolled"
+    );
+    let menu = h.state().study().menu_rect().ok_or("the menu stays")?;
+    assert!(snug(menu, after), "{menu:?} follows {after:?}");
     Ok(())
 }
 
@@ -400,6 +446,7 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
         BarItem::Explain,
         BarItem::Copy,
         BarItem::LookUp,
+        BarItem::ReadAloud,
         BarItem::Note,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),

@@ -450,3 +450,17 @@ fn toggling_a_result_again_and_again_keeps_one_book_open() -> Out {
     assert!(open <= 2, "{open} layouts of the book kept");
     Ok(())
 }
+
+#[test]
+fn the_page_asked_about_is_washed_while_its_menu_is_open() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("provider", "ollama")]);
+    let pane = h.state().active_pane();
+    let (_, sheet) = page(&h, 0)?;
+    press(&mut h, margin(sheet), PointerButton::Secondary);
+    assert_eq!(h.state().page_ai().washed(pane), Some(&[0][..]));
+    // Closing the menu fades the wash away.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().page_ai().washed(pane), None);
+    Ok(())
+}

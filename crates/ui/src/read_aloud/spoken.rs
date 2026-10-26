@@ -69,13 +69,15 @@ pub(super) struct Spoken {
     revealed: Option<Spot>,
     /// Set anew: the sentence said is being found on the new pages.
     relaid: bool,
+    /// A selection read alone: where it began, and where it stops.
+    chosen: Option<(Start, Spot)>,
 }
 
 impl Spoken {
     pub fn new(
         ctx: &Context,
         reading: &Reading,
-        start: Start,
+        (start, until): (Start, Option<Spot>),
         (settings, shelf): (&ReadAloudSettings, &Shelf),
     ) -> Self {
         let ctx = ctx.clone();
@@ -104,6 +106,7 @@ impl Spoken {
             followed: None,
             revealed: None,
             relaid: false,
+            chosen: until.map(|until| (start, until)),
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -116,8 +119,14 @@ impl Spoken {
     }
 
     /// Reads again from `start`, as asked from the page's menu.
-    pub fn restart(&mut self, reading: &Reading, start: Start, on: (&ReadAloudSettings, &Shelf)) {
+    pub fn restart(
+        &mut self,
+        reading: &Reading,
+        (start, until): (Start, Option<Spot>),
+        on: (&ReadAloudSettings, &Shelf),
+    ) {
         self.document = Arc::clone(&reading.document);
+        self.chosen = until.map(|until| (start, until));
         self.apply(on);
         self.paused = false;
         self.read_from(start);
@@ -175,9 +184,11 @@ impl Spoken {
         self.ahead.clear();
         self.current = None;
         // No voice, nothing worth reading for.
+        let until = self.chosen.map(|(_, until)| until);
         self.feed = self.voicer.as_ref().map(|_| {
             let document = Arc::clone(&self.document);
-            spawn(document, start, self.skip_folios, Arc::clone(&self.wake))
+            let span = Reach { start, until };
+            spawn(document, span, self.skip_folios, Arc::clone(&self.wake))
         });
     }
 
@@ -214,7 +225,11 @@ impl Spoken {
             self.knobs = knobs;
             again = true;
         }
-        if again && self.saying {
+        // Paused mid-sentence, it is said anew in the new voice on play.
+        if again && self.saying && self.paused {
+            v.stop();
+            self.saying = false;
+        } else if again && self.saying {
             self.say();
         }
         if settings.skip_page_numbers != self.skip_folios {
@@ -325,8 +340,10 @@ impl Spoken {
 
     pub fn toggle(&mut self) {
         if self.finished {
+            // Again from the selection's start, else the book's.
             self.paused = false;
-            self.read_from(Start::Spot(Spot::default()));
+            let start = self.chosen.map(|(start, _)| start);
+            self.read_from(start.unwrap_or(Start::Spot(Spot::default())));
         } else if self.paused {
             self.paused = false;
             let resumed = self.saying && self.voicer.as_mut().is_some_and(|v| v.resume());
@@ -421,6 +438,16 @@ impl Spoken {
 
     /// New pages: the voice goes on while its place is found on them.
     fn relay(&mut self, page: usize) {
+        // A selection's end was on the old pages: its reading ends here.
+        if self.chosen.is_some() {
+            if let Some(v) = self.voicer.as_mut() {
+                v.stop();
+            }
+            (self.saying, self.finished) = (false, true);
+            (self.feed, self.current) = (None, None);
+            self.ahead.clear();
+            return;
+        }
         let anchor = self.current.as_ref().and_then(|s| s.anchor);
         let (Some(anchor), Some(_)) = (anchor, self.voicer.as_ref()) else {
             self.read_from(Start::Spot(Spot { page, char: 0 }));
@@ -434,8 +461,11 @@ impl Spoken {
         self.relaid = true;
         let document = Arc::clone(&self.document);
         let wake = Arc::clone(&self.wake);
-        let start = Start::Anchor(anchor);
-        self.feed = Some(spawn(document, start, self.skip_folios, wake));
+        let span = Reach {
+            start: Start::Anchor(anchor),
+            until: None,
+        };
+        self.feed = Some(spawn(document, span, self.skip_folios, wake));
     }
 
     /// The new pages' first sentence is the one said: it takes its place.
@@ -523,6 +553,7 @@ impl Spoken {
         let loading = self.voicer.as_ref().is_some_and(|v| v.loading());
         let note = match (&self.fault, self.finished) {
             (Some(fault), _) => Some((fault.clone(), t.danger)),
+            (None, true) if self.chosen.is_some() => Some(("Selection read".to_owned(), t.muted)),
             (None, true) => Some(("The end".to_owned(), t.muted)),
             (None, false) if loading => Some(("Loading voice…".to_owned(), t.muted)),
             (None, false) => None,
@@ -548,29 +579,42 @@ pub(super) fn tone(settings: &ReadAloudSettings) -> Tone {
     }
 }
 
-/// Reads `document` into sentences from `start` on a thread of its own.
-fn spawn(document: Arc<Document>, start: Start, skip_folios: bool, wake: Waker) -> Receiver<Said> {
+/// Where a thread reads from, and where it stops if not at the end.
+#[derive(Clone, Copy, Debug)]
+struct Reach {
+    start: Start,
+    until: Option<Spot>,
+}
+
+/// Reads `document` into sentences over `span` on a thread of its own.
+fn spawn(document: Arc<Document>, span: Reach, skip_folios: bool, wake: Waker) -> Receiver<Said> {
     let (tx, rx) = std::sync::mpsc::sync_channel(AHEAD);
     let thread = std::thread::Builder::new().name("read-aloud".into());
     // A thread that won't start sends nothing: the reading just ends.
-    let _ = thread.spawn(move || read(&document, start, skip_folios, &tx, &wake));
+    let _ = thread.spawn(move || read(&document, span, skip_folios, &tx, &wake));
     rx
 }
 
 /// Sends `document`'s sentences until the end, or until no one listens.
-fn read(document: &Document, start: Start, skip_folios: bool, tx: &SyncSender<Said>, wake: &Waker) {
-    let (first, from) = match start {
+fn read(document: &Document, span: Reach, skip_folios: bool, tx: &SyncSender<Said>, wake: &Waker) {
+    let (first, from) = match span.start {
         Start::Spot(spot) => (spot.page, spot.char),
         Start::Anchor(anchor) => locate(document, anchor),
     };
+    let last = span.until.map_or(usize::MAX, |u| u.page);
     let mut script = Script::new(skip_folios);
     // The page before, for a sentence that started on it.
     let mut before: Option<(usize, TextLayer)> = None;
-    for page in first..document.page_count() {
+    for page in first..document.page_count().min(last.saturating_add(1)) {
         let Ok(layer) = document.text_layer(page) else {
             continue;
         };
-        let chars = layer.text.chars().iter();
+        // A selection's last page is read only up to its end.
+        let upto = match span.until {
+            Some(u) if u.page == page => u.char,
+            _ => usize::MAX,
+        };
+        let chars = layer.text.chars().iter().take(upto);
         let glyphs: Vec<Glyph> = chars
             .map(|c| Glyph {
                 ch: c.ch,

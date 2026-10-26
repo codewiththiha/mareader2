@@ -52,6 +52,8 @@ pub struct Lit {
 pub struct ReadFrom {
     pub anchor: Option<Anchor>,
     pub at: Option<Spot>,
+    /// Where it stops: a selection's end, read alone by the voice.
+    pub until: Option<Spot>,
 }
 
 impl ReadFrom {
@@ -313,10 +315,12 @@ impl ReadAloud {
         &mut self,
         ctx: &Context,
         reading: &Reading,
-        (from, at): (Option<Anchor>, Option<Spot>),
+        asked: ReadFrom,
         settings: &ReadAloudSettings,
     ) {
-        if reading.document.narration().is_none() {
+        let (from, at, until) = (asked.anchor, asked.at, asked.until);
+        // A selection is read just as it is, so by the voice.
+        if reading.document.narration().is_none() || until.is_some() {
             let start = match (from, at) {
                 (Some(anchor), _) => spoken::Start::Anchor(anchor),
                 (None, Some(spot)) => spoken::Start::Spot(spot),
@@ -328,11 +332,11 @@ impl ReadAloud {
             if let Some(Session::Spoken(s)) = self.session.as_mut()
                 && s.reads(reading)
             {
-                s.restart(reading, start, (settings, &self.shelf));
+                s.restart(reading, (start, until), (settings, &self.shelf));
                 return;
             }
             let on = (settings, &self.shelf);
-            let spoken = Spoken::new(ctx, reading, start, on);
+            let spoken = Spoken::new(ctx, reading, (start, until), on);
             self.session = Some(Session::Spoken(Box::new(spoken)));
             return;
         }

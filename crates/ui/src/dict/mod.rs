@@ -7,7 +7,7 @@ pub mod window;
 
 use egui::{Context, Rect, Vec2};
 use mareader_cefr::Role;
-use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket};
+use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket, WordMatch};
 use mareader_settings::DictionarySettings;
 use mareader_workspace::PaneId;
 
@@ -78,6 +78,8 @@ pub struct Dict {
     float_folded: Option<bool>,
     /// Word lists' asks and, once in, their replies; oldest first.
     words: Vec<(Ticket, Option<Reply>)>,
+    /// The card keeps only entries for the word itself.
+    exact_only: bool,
 }
 
 impl Dict {
@@ -248,6 +250,11 @@ impl Dict {
         self.words.remove(at).1
     }
 
+    /// Whether the card leaves out near matches, as settings say.
+    pub fn set_exact_only(&mut self, on: bool) {
+        self.exact_only = on;
+    }
+
     /// Takes in replies and progress; true if a pack's state changed.
     pub fn poll(&mut self) -> bool {
         let (changed, replies) = self.service.poll();
@@ -257,7 +264,13 @@ impl Dict {
                 continue;
             }
             match &mut self.card {
-                Some(card) if card.ticket == reply.ticket => card.reply = Some(reply),
+                Some(card) if card.ticket == reply.ticket => {
+                    let mut reply = reply;
+                    if self.exact_only {
+                        reply.entries.retain(|e| e.fit == WordMatch::Exact);
+                    }
+                    card.reply = Some(reply);
+                }
                 _ => self.page.receive(reply),
             }
         }

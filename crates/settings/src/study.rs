@@ -40,15 +40,18 @@ pub enum BarItem {
     LookUp,
     /// Highlights the text and opens a note on it.
     Note,
+    /// Reads the selected text aloud, and only it.
+    ReadAloud,
     Highlight(Pen),
 }
 
 impl BarItem {
     /// Every button, in the order a new menu lists them.
-    pub const ALL: [BarItem; 7] = [
+    pub const ALL: [BarItem; 8] = [
         BarItem::Copy,
         BarItem::Explain,
         BarItem::LookUp,
+        BarItem::ReadAloud,
         BarItem::Note,
         BarItem::Highlight(Pen::Full),
         BarItem::Highlight(Pen::Underline),
@@ -61,6 +64,7 @@ impl BarItem {
             Self::Explain => "AI Dictionary",
             Self::LookUp => "Look up",
             Self::Note => "Note",
+            Self::ReadAloud => "Read aloud",
             Self::Highlight(pen) => pen.label(),
         }
     }
@@ -189,6 +193,7 @@ impl Default for HighlightSettings {
                 BarItem::Copy,
                 BarItem::Explain,
                 BarItem::LookUp,
+                BarItem::ReadAloud,
                 BarItem::Note,
                 BarItem::Highlight(Pen::Full),
                 BarItem::Highlight(Pen::Underline),
@@ -370,6 +375,8 @@ impl StudySettings {
 pub struct DictionarySettings {
     /// Looks a word up on hover rather than only on click.
     pub hover: bool,
+    /// A word with no entry shows the closest ones on its card.
+    pub near: bool,
     pub default_lang: Option<String>,
     /// The packs the Dictionary panel searches; none means every one.
     pub langs: Vec<String>,
@@ -456,6 +463,7 @@ impl Default for DictionarySettings {
     fn default() -> Self {
         Self {
             hover: true,
+            near: true,
             default_lang: None,
             langs: Vec::new(),
             pair: false,

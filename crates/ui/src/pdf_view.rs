@@ -1107,6 +1107,9 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             if let Some(picked) = &cx.picked {
                 study::marks::ring(ui.painter(), &placed, picked, t.accent);
             }
+            if let Some(wash) = &cx.ai.wash {
+                page_ai::paint::wash(ui, &text, wash, &t);
+            }
             if let Some(lit) = &cx.aloud {
                 crate::read_aloud::paint(ui, &text, lit, &t);
             }
@@ -1317,6 +1320,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             Some(BarPress::Explain) => gloss.push(Gloss::Explain),
             Some(BarPress::LookUp) => gloss.push(Gloss::LookUp),
             Some(BarPress::Note) => gloss.push(Gloss::Note),
+            Some(BarPress::ReadAloud) => gloss.push(Gloss::ReadAloud),
             Some(BarPress::Highlight(pen, color)) => gloss.push(Gloss::Highlight(pen, color)),
             None => {}
         }

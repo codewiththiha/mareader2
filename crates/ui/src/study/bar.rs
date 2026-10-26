@@ -1,4 +1,5 @@
-//! The small bar over a selection: Copy, Explain, Look up, Note, pens.
+//! The small bar over a selection: Copy, Explain, Look up, Read aloud,
+//! Note, pens.
 
 use egui::{Context, CornerRadius, Id, Margin, Rect, Sense, Stroke, Ui, vec2};
 use mareader_appearance::Rgb;
@@ -19,6 +20,7 @@ pub enum BarPress {
     Explain,
     LookUp,
     Note,
+    ReadAloud,
     /// A highlighter; a colour if the reader picked one.
     Highlight(Pen, Option<Rgb>),
 }
@@ -111,6 +113,9 @@ fn button(
         BarItem::Explain => action(ui, Icon::Ai, "AI Dictionary").then_some(BarPress::Explain),
         BarItem::LookUp => action(ui, Icon::LookUp, "Look up").then_some(BarPress::LookUp),
         BarItem::Note => action(ui, Icon::Note, "Note").then_some(BarPress::Note),
+        BarItem::ReadAloud => {
+            action(ui, Icon::ReadAloud, "Read aloud").then_some(BarPress::ReadAloud)
+        }
         BarItem::Highlight(pen) => {
             let resp = widgets::icon_button(ui, pen_icon(pen), pen.label(), *open == Some(pen));
             let strip =

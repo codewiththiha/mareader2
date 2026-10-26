@@ -47,7 +47,7 @@ pub use words::{
 pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};
 
 /// Bumped with every migration step in `load.rs`.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// The whole persisted state of the user's choices.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

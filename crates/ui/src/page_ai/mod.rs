@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use egui::{Context, Pos2, Rect, vec2};
+use egui::{Context, Id, Pos2, Rect, vec2};
 use mareader_library::{AiPage, AiPageId, AiTask, BookId, Library, NewAiPage, PageSpan};
 use mareader_reflow::{PAGE_WIDTH, Typography};
 use mareader_session::{Anchor, Document, Insert, Inserts, Scale};
@@ -31,6 +31,8 @@ pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
 const FADE_IN: f32 = 0.3;
+/// Seconds the menu's page wash takes to come and to go.
+const WASH_FADE: f32 = 0.22;
 /// Seconds between settings of a result while it streams in.
 const RESET: f64 = 0.4;
 /// Results kept laid out for a book's pages before they are made again.
@@ -126,6 +128,8 @@ struct Who<'a> {
 pub struct PaneAi {
     pub overlays: Vec<Overlay>,
     pub pill: Option<Pill>,
+    /// The pages the open menu would ask about, washed to show it.
+    pub wash: Option<paint::Wash>,
 }
 
 /// A run's line to its writer.
@@ -270,6 +274,8 @@ pub struct PageAi {
     drawn: HashMap<PaneId, Drawn>,
     menu: Option<Menu>,
     menu_rect: Option<Rect>,
+    /// The menu's pages, kept while their wash fades after it.
+    washed: Option<(PaneId, Vec<usize>)>,
     filter: String,
     bubble_menu: Option<BubbleMenu>,
     bubble_rect: Option<Rect>,
@@ -816,11 +822,13 @@ impl PageAi {
     ) -> PaneAi {
         let now = ctx.input(|i| i.time);
         let pill = self.pill(pane, now).or_else(|| self.group_pill(pane));
+        let wash = self.wash(ctx, pane);
         let Some(view) = documents.ai_view(pane) else {
             self.drawn.remove(&pane);
             return PaneAi {
                 overlays: Vec::new(),
                 pill,
+                wash,
             };
         };
         self.prune(main);
@@ -876,7 +884,11 @@ impl PageAi {
             drawn.push((page, slots));
         }
         self.drawn.insert(pane, (view.layout, drawn));
-        PaneAi { overlays, pill }
+        PaneAi {
+            overlays,
+            pill,
+            wash,
+        }
     }
 
     /// Groups shown over their pages: first and last own page, and the slot.
@@ -1443,6 +1455,31 @@ impl PageAi {
         }
     }
 
+    /// The menu's pages in `pane`, fading in with it and out after.
+    fn wash(&mut self, ctx: &Context, pane: PaneId) -> Option<paint::Wash> {
+        let open = self.menu.as_ref().is_some_and(|m| m.pane == pane);
+        let id = Id::new(("page-ai-wash", pane));
+        let alpha = ctx.animate_bool_with_time(id, open, WASH_FADE);
+        let (at, pages) = self.washed.as_ref()?;
+        if *at != pane {
+            return None;
+        }
+        if alpha <= 0.0 && !open {
+            self.washed = None;
+            return None;
+        }
+        Some(paint::Wash {
+            pages: pages.clone(),
+            alpha,
+        })
+    }
+
+    /// The pages washed in `pane`, while the menu shows or fades; for tests.
+    pub fn washed(&self, pane: PaneId) -> Option<&[usize]> {
+        let (at, pages) = self.washed.as_ref()?;
+        (*at == pane).then_some(pages.as_slice())
+    }
+
     /// Opens the page's menu at a right-click; `aloud` offers read-aloud.
     pub fn open_menu(
         &mut self,
@@ -1454,6 +1491,7 @@ impl PageAi {
         self.bubble_menu = None;
         self.filter.clear();
         self.remember = false;
+        self.washed = Some((pane, vec![page]));
         self.menu = Some(Menu {
             pane,
             page,
@@ -1471,6 +1509,7 @@ impl PageAi {
         };
         self.bubble_menu = None;
         self.filter.clear();
+        self.washed = Some((pane, pages.clone()));
         self.menu = Some(Menu {
             pane,
             page,

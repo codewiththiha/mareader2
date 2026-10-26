@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
@@ -530,4 +531,33 @@ fn the_card_says_its_word_in_the_reading_voice() {
         Some("quick"),
         "the card stays"
     );
+}
+
+#[test]
+fn near_matches_can_be_left_off_the_card() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    // No entry is "quic"; "quick" is near it.
+    select(&mut h, "quic");
+    h.get_by_label("Look up").click();
+    h.run();
+    let near = h.state().dict().card_answers().unwrap_or_default();
+    assert!(!near.is_empty(), "the card offers the nearest entries");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().queue(Command::OpenSettings(Tab::Dictionary));
+    h.run();
+    let switch = h.get_by_role_and_label(Role::CheckBox, "Show near matches");
+    switch.scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, "Show near matches")
+        .click();
+    h.run();
+    assert!(!h.state().settings().dictionary.near);
+    h.state_mut().queue(Command::CloseSettings);
+    h.run();
+    select(&mut h, "quic");
+    h.get_by_label("Look up").click();
+    h.run();
+    assert_eq!(h.state().dict().card_answers(), Some(Vec::new()));
 }

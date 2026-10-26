@@ -6,7 +6,7 @@ use mareader_dict::{HUB, PACKS, Pack, State, language, languages};
 use mareader_settings::{DictionaryOpens, DictionarySettings};
 
 use super::downloads::{Buttons, muted, progress};
-use super::{choice_row, divider, group, note, row, section};
+use super::{choice_row, divider, group, note, row, section, switch_row};
 use crate::command::{Command, Commands, Download};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
@@ -43,7 +43,12 @@ pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Comma
     });
     note(ui, "The Dictionary button and Cmd/Ctrl+Shift+D open it so.");
     section(ui, "Lookup card");
-    group(ui, |ui| default_language(ui, s, &dict.ready()));
+    group(ui, |ui| {
+        default_language(ui, s, &dict.ready());
+        divider(ui);
+        let hint = "With no entry for a word, the closest ones in its place";
+        switch_row(ui, "Show near matches", hint, &mut s.near);
+    });
     note(
         ui,
         "The card answers in this language. Only a language whose pack is downloaded is offered.",

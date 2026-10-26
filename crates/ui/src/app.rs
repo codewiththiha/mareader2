@@ -1583,6 +1583,22 @@ impl MareaderApp {
                 Gloss::Explain => out.push(Command::Explain(pane)),
                 Gloss::LookUp => out.push(Command::LookUp(pane)),
                 Gloss::Note => out.push(Command::Note(pane)),
+                Gloss::ReadAloud => {
+                    if let Some(sel) = self.documents.selection(pane) {
+                        let (a, b) = sel.ordered();
+                        let spot = |c: crate::selection::Caret| mareader_speech::Spot {
+                            page: c.page,
+                            char: c.index,
+                        };
+                        let from = ReadFrom {
+                            anchor: None,
+                            at: Some(spot(a)),
+                            until: Some(spot(b)),
+                        };
+                        self.documents.clear_selection(pane);
+                        out.push(Command::ReadAloud { pane, from });
+                    }
+                }
                 Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
                 Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
                 Gloss::Open { mark, at } => {
@@ -1628,6 +1644,7 @@ impl MareaderApp {
                     let aloud = self.documents.reading(pane).map(|_| ReadFrom {
                         anchor: place,
                         at: caret.map(|char| mareader_speech::Spot { page, char }),
+                        until: None,
                     });
                     self.page_ai.open_menu(pane, page, at, aloud);
                 }
@@ -1732,6 +1749,7 @@ impl MareaderApp {
         if let Some(toast) = self.page_copy.poll(ctx) {
             self.toasts.push(toast);
         }
+        self.dict.set_exact_only(!self.settings.dictionary.near);
         self.dict.poll();
         self.poll_word_list(ctx);
         let services = (&mut self.vocab, &mut self.dict, &self.files);
@@ -2232,7 +2250,6 @@ impl MareaderApp {
                 if let Some(reading) = self.documents.reading(pane) {
                     self.clips.stop();
                     let settings = &self.settings.read_aloud;
-                    let from = (from.anchor, from.at);
                     self.read_aloud.start(ctx, &reading, from, settings);
                 }
             }
@@ -2242,7 +2259,8 @@ impl MareaderApp {
                 {
                     self.clips.stop();
                     let settings = &self.settings.read_aloud;
-                    self.read_aloud.start(ctx, &reading, (None, None), settings);
+                    let from = ReadFrom::default();
+                    self.read_aloud.start(ctx, &reading, from, settings);
                 }
             }
             Command::StopReadAloud => self.read_aloud.stop(),
@@ -3339,7 +3357,8 @@ impl eframe::App for MareaderApp {
         {
             self.read_aloud_shot = false;
             let settings = &self.settings.read_aloud;
-            (self.read_aloud).start(&ctx, &reading, (None, None), settings);
+            let from = ReadFrom::default();
+            (self.read_aloud).start(&ctx, &reading, from, settings);
         }
         let shot = std::mem::take(&mut self.transcript_shot);
         for (card, track) in shot {
