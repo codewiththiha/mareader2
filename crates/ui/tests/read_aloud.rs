@@ -197,6 +197,32 @@ fn a_sentence_below_the_fold_is_brought_into_view() {
     assert!(shown.contains_rect(at), "{at:?} shows within {shown:?}");
 }
 
+#[test]
+fn the_player_shows_time_left_and_seeks_to_a_page() {
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    h.run_steps(2);
+    let _ = h.get_by_label_contains("left");
+    // The track's middle is the second of three pages.
+    h.get_by_label("Reading position").click();
+    step_until(&mut h, |h| lit(h).is_some_and(|(s, _)| s.page == 1));
+    assert_eq!(lit(&h).map(|(s, _)| (s.page, s.char)), Some((1, 0)));
+    h.run_steps(3);
+    let pane = h.state().active_pane();
+    assert_eq!(
+        h.state().documents().current(pane),
+        Some(1),
+        "the pane turns"
+    );
+    // Seeking while paused stays paused.
+    h.get_by_label("Pause").click();
+    h.run_steps(2);
+    h.get_by_label("Reading position").click();
+    h.run_steps(3);
+    assert!(!h.state().read_aloud().playing());
+    let _ = h.get_by_label("Play");
+}
+
 /// Scrolls the control named `label` into view, then clicks it.
 fn press(h: &mut Harness<'static, MareaderApp>, label: &str) {
     h.get_by_label(label).scroll_to_me();

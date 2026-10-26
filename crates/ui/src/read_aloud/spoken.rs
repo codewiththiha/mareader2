@@ -1,21 +1,19 @@
 //! Unnarrated books, voiced sentence by sentence; a thread reads pages ahead.
 
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use egui::{Context, Ui};
+use egui::Context;
 use mareader_session::{Anchor, DocId, Document, TextLayer};
 use mareader_settings::{Highlight, ReadAloudSettings};
 use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
+use super::control::{Act, View};
 use super::words::{self, Clock, Pace};
-use super::{Lit, Span, TICK, button, ending, follow, options, speed};
-use crate::command::Commands;
+use super::{Lit, Span, TICK, follow, place_name};
 use crate::documents::{Documents, Reading};
-use crate::icons::Icon;
-use crate::theme::Tokens;
 
 /// Sentences read ahead of the voice; the thread waits past this.
 const AHEAD: usize = 8;
@@ -27,6 +25,9 @@ const LOOK: usize = 3;
 const LOOK_CHARS: usize = 300;
 /// but never more than this many.
 const LOOK_MOST: usize = 8;
+
+/// Characters on each page the thread has read, for time left.
+type Counts = Arc<Mutex<BTreeMap<usize, usize>>>;
 
 /// Where reading starts.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,6 +85,11 @@ pub(super) struct Spoken {
     timed: bool,
     clock: Clock,
     pace: Pace,
+    counts: Counts,
+    /// Where the first sentence since reading began starts.
+    began: Option<Spot>,
+    /// Sought: the pane turns to this page, following or not.
+    jump: Option<usize>,
 }
 
 impl Spoken {
@@ -125,6 +131,9 @@ impl Spoken {
             timed: false,
             clock: Clock::default(),
             pace: Pace::default(),
+            counts: Counts::default(),
+            began: None,
+            jump: None,
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -201,12 +210,14 @@ impl Spoken {
         self.behind.clear();
         self.ahead.clear();
         self.current = None;
+        self.began = None;
         // No voice, nothing worth reading for.
         let until = self.chosen.map(|(_, until)| until);
         self.feed = self.voicer.as_ref().map(|_| {
             let document = Arc::clone(&self.document);
             let span = Reach { start, until };
-            spawn(document, span, self.skip_folios, Arc::clone(&self.wake))
+            let to = (Arc::clone(&self.wake), Arc::clone(&self.counts));
+            spawn(document, span, self.skip_folios, to)
         });
     }
 
@@ -459,6 +470,13 @@ impl Spoken {
         if !self.finished {
             self.look_ahead();
         }
+        if self.began.is_none() {
+            self.began = self.current.as_ref().map(|s| s.sentence.start);
+        }
+        if let Some(page) = self.jump.take() {
+            documents.go_to(self.pane, page);
+            self.followed = Some(page);
+        }
         let lit = self.lit_spots();
         let page = lit.map(|(start, _)| start.page);
         // Only a real turn shows the new page's first sentence.
@@ -473,6 +491,9 @@ impl Spoken {
 
     /// New pages: the voice goes on while its place is found on them.
     fn relay(&mut self, page: usize) {
+        // Pages laid anew hold new counts.
+        self.counts = Counts::default();
+        self.began = None;
         // A selection's end was on the old pages: its reading ends here.
         if self.chosen.is_some() {
             if let Some(v) = self.voicer.as_mut() {
@@ -495,12 +516,12 @@ impl Spoken {
         self.revealed = None;
         self.relaid = true;
         let document = Arc::clone(&self.document);
-        let wake = Arc::clone(&self.wake);
+        let to = (Arc::clone(&self.wake), Arc::clone(&self.counts));
         let span = Reach {
             start: Start::Anchor(anchor),
             until: None,
         };
-        self.feed = Some(spawn(document, span, self.skip_folios, wake));
+        self.feed = Some(spawn(document, span, self.skip_folios, to));
     }
 
     /// The new pages' first sentence is the one said: it takes its place.
@@ -574,44 +595,103 @@ impl Spoken {
         Some((first.start, last.end))
     }
 
-    /// The bar's buttons; true when closed.
-    pub fn controls(
-        &mut self,
-        ui: &mut Ui,
-        settings: &mut ReadAloudSettings,
-        (t, out): (&Tokens, &mut Commands),
-    ) -> bool {
+    /// What the player shows: sentences for steps, pages for time.
+    pub fn view<'a>(&self, hint: &'a dyn Fn(f32) -> Option<String>) -> View<'a> {
         let can = self.voicer.is_some();
-        let back = !self.behind.is_empty() && can;
-        if button(ui, Icon::SkipBack, "Previous sentence", back).clicked() {
-            self.back();
-        }
-        let (icon, name) = match self.paused || self.finished {
-            true => (Icon::Resume, "Play"),
-            false => (Icon::Pause, "Pause"),
-        };
-        if button(ui, icon, name, can).clicked() {
-            self.toggle();
-        }
-        let next = !self.finished && can;
-        if button(ui, Icon::SkipForward, "Next sentence", next).clicked() {
-            self.forward();
-        }
-        crate::widgets::vrule(ui, super::SIZE * 0.5);
-        speed(ui, settings, t);
-        options(ui, out, |ui| {
-            ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
-            ui.checkbox(&mut settings.follow, "Turn pages to follow");
-        });
-        let loading = self.voicer.as_ref().is_some_and(|v| v.loading());
+        let progress = self.progress();
         let note = match (&self.fault, self.finished) {
-            (Some(fault), _) => Some((fault.clone(), t.danger)),
-            (None, true) if self.chosen.is_some() => Some(("Selection read".to_owned(), t.muted)),
-            (None, true) => Some(("The end".to_owned(), t.muted)),
-            (None, false) if loading => Some(("Loading voice…".to_owned(), t.muted)),
+            (Some(fault), _) => Some((fault.clone(), true)),
+            (None, true) if self.chosen.is_some() => Some(("Selection read".to_owned(), false)),
+            (None, true) => Some(("The end".to_owned(), false)),
             (None, false) => None,
         };
-        ending(ui, note, t)
+        View {
+            playing: self.playing(),
+            ready: can,
+            loading: self.voicer.as_ref().is_some_and(|v| v.loading()),
+            back: !self.behind.is_empty() && can,
+            next: !self.finished && can,
+            unit: "sentence",
+            escape: false,
+            at: progress.map(|p| p.0),
+            left: progress.map(|p| p.1),
+            total: progress.map(|p| p.2),
+            seek: can && self.chosen.is_none(),
+            ticks: self.ticks(),
+            note,
+            hint,
+            narrated: false,
+        }
+    }
+
+    /// How much is read, and seconds left and in all, from pages' lengths.
+    fn progress(&self) -> Option<(f32, f64, f64)> {
+        let counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let usual = counts.values().sum::<usize>() as f64 / counts.len().max(1) as f64;
+        if counts.is_empty() || usual < 1.0 {
+            return None;
+        }
+        // A spot as pages read: its page, and the share of it before.
+        let pages = |s: Spot| {
+            let on = counts.get(&s.page).map_or(usual, |&n| n as f64).max(1.0);
+            s.page as f64 + (s.char as f64 / on).min(1.0)
+        };
+        let (from, to) = match self.chosen {
+            Some((_, until)) => (pages(self.began?), pages(until)),
+            None => (0.0, self.document.page_count() as f64),
+        };
+        let here = match self.finished {
+            true => to,
+            false => self.lit_spots().map_or(from, |(start, _)| pages(start)),
+        };
+        let here = here.clamp(from, to.max(from));
+        let span = (to - from).max(1e-6);
+        let speed = self.pace.bytes(1.0, self.tone.rate).max(1.0);
+        let seconds = |pages: f64| pages * usual / speed;
+        Some((
+            ((here - from) / span) as f32,
+            seconds(to - here),
+            seconds(span),
+        ))
+    }
+
+    /// Where the book's top chapters start, as shares of it.
+    fn ticks(&self) -> Vec<f32> {
+        let outline = self.document.outline();
+        let count = self.document.page_count().max(1) as f32;
+        let top = outline.iter().map(|e| e.depth).min();
+        (outline.iter())
+            .filter(|e| Some(e.depth) == top && self.chosen.is_none())
+            .map(|e| e.page as f32 / count)
+            .collect()
+    }
+
+    /// The page at `share` of the book.
+    fn page_at(&self, share: f32) -> usize {
+        let count = self.document.page_count();
+        ((share * count as f32) as usize).min(count.saturating_sub(1))
+    }
+
+    pub fn hint(&self, share: f32) -> Option<String> {
+        let none = self.chosen.is_some();
+        (!none).then(|| place_name(&self.document, self.page_at(share)))
+    }
+
+    /// Does what the player asked; true to stop.
+    pub fn act(&mut self, act: Act) -> bool {
+        match act {
+            Act::Back => self.back(),
+            Act::Next => self.forward(),
+            Act::Toggle => self.toggle(),
+            Act::Seek(share) if self.chosen.is_none() && self.voicer.is_some() => {
+                let page = self.page_at(share);
+                self.read_from(Start::Spot(Spot { page, char: 0 }));
+                self.jump = Some(page);
+            }
+            Act::Seek(_) | Act::Escape => {}
+            Act::Stop => return true,
+        }
+        false
     }
 }
 
@@ -652,16 +732,26 @@ fn enough<'a>(texts: impl Iterator<Item = &'a str>) -> Option<usize> {
 }
 
 /// Reads `document` into sentences over `span` on a thread of its own.
-fn spawn(document: Arc<Document>, span: Reach, skip_folios: bool, wake: Waker) -> Receiver<Said> {
+fn spawn(
+    document: Arc<Document>,
+    span: Reach,
+    skip_folios: bool,
+    (wake, counts): (Waker, Counts),
+) -> Receiver<Said> {
     let (tx, rx) = std::sync::mpsc::sync_channel(AHEAD);
     let thread = std::thread::Builder::new().name("read-aloud".into());
     // A thread that won't start sends nothing: the reading just ends.
-    let _ = thread.spawn(move || read(&document, span, skip_folios, &tx, &wake));
+    let _ = thread.spawn(move || read(&document, span, skip_folios, (&tx, &wake, &counts)));
     rx
 }
 
 /// Sends `document`'s sentences until the end, or until no one listens.
-fn read(document: &Document, span: Reach, skip_folios: bool, tx: &SyncSender<Said>, wake: &Waker) {
+fn read(
+    document: &Document,
+    span: Reach,
+    skip_folios: bool,
+    (tx, wake, counts): (&SyncSender<Said>, &Waker, &Counts),
+) {
     let (first, from) = match span.start {
         Start::Spot(spot) => (spot.page, spot.char),
         Start::Anchor(anchor) => locate(document, anchor),
@@ -674,6 +764,9 @@ fn read(document: &Document, span: Reach, skip_folios: bool, tx: &SyncSender<Sai
         let Ok(layer) = document.text_layer(page) else {
             continue;
         };
+        let mut known = counts.lock().unwrap_or_else(PoisonError::into_inner);
+        known.insert(page, layer.text.len());
+        drop(known);
         // A selection's last page is read only up to its end.
         let upto = match span.until {
             Some(u) if u.page == page => u.char,

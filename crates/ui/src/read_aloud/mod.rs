@@ -3,11 +3,10 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use egui::containers::menu::MenuButton;
-use egui::{Align2, Color32, Context, CornerRadius, Frame, Id, Margin, Order, Rect, RichText, Ui};
-use mareader_audio::{Clip, Fault, Fetch, Player, RATES, Segment};
+use egui::{Color32, Context, CornerRadius, Id, Order, Rect, Ui};
+use mareader_audio::{Clip, Fault, Fetch, Player, Segment};
 use mareader_epub::{Files, Narration, Run, Skips};
-use mareader_session::Anchor;
+use mareader_session::{Anchor, Document};
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
@@ -15,26 +14,25 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands, Download};
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
+use crate::motion;
 use crate::selection::Pages;
 use crate::theme::Tokens;
 use crate::widgets;
 
 mod booth;
+mod control;
 pub mod marker;
 mod spoken;
 mod words;
 
 pub use booth::Booth;
+use control::{Act, Fit, View};
 use spoken::Spoken;
 
 /// How often the lit phrase is checked while it plays.
 const TICK: Duration = Duration::from_millis(50);
-/// Space between the bar and the page bar below it.
-const LIFT: f32 = 12.0;
-/// The bar's controls: one height, one icon size, even gaps.
-const SIZE: f32 = 30.0;
-const ICON: f32 = 16.0;
-const GAP: f32 = 2.0;
+/// Seconds the player takes to rise into place.
+const APPEAR: f64 = 0.22;
 /// Seconds after a card's word before its engine is let go.
 const WORD_IDLE: f64 = 60.0;
 /// The speaker on a word's card, and the same button while it speaks.
@@ -75,6 +73,11 @@ pub enum Span {
 struct Narrated {
     pane: PaneId,
     narration: Arc<Narration>,
+    document: Arc<Document>,
+    /// Seconds of sound before each phrase, and in all at the end.
+    lengths: Vec<f64>,
+    /// Sought: the pane turns to the phrase, following or not.
+    jump: bool,
     player: Player,
     /// What was last asked to play, a run per segment tag.
     runs: Vec<Run>,
@@ -155,6 +158,7 @@ impl Narrated {
         ) else {
             return false;
         };
+        self.document = Arc::clone(&reading.document);
         if (settings.rate - self.rate).abs() > f32::EPSILON {
             self.rate = settings.rate;
             self.player.set_rate(self.rate);
@@ -177,11 +181,86 @@ impl Narrated {
         }
         let shown = self.heard.and_then(|i| self.narration.phrases.get(i));
         let page = shown.and_then(|p| reading.document.locate(p.start));
+        if std::mem::take(&mut self.jump)
+            && let Some(page) = page
+        {
+            documents.go_to(self.pane, page);
+            self.followed = Some(page);
+        }
         follow(documents, &reading, settings, page, &mut self.followed);
         if !self.paused && !self.finished {
             ctx.request_repaint_after(TICK);
         }
         true
+    }
+
+    /// What the player shows: phrases for steps, the recordings for time.
+    fn view<'a>(&self, hint: &'a dyn Fn(f32) -> Option<String>) -> View<'a> {
+        let heard = self.heard.unwrap_or(self.started);
+        let count = self.narration.phrases.len().max(1);
+        let total = self.lengths.last().copied().unwrap_or_default();
+        let before = self.lengths.get(heard).copied().unwrap_or(total);
+        let rate = f64::from(self.rate.max(0.1));
+        let note = match (&self.fault, self.finished) {
+            (Some(fault), _) => Some((fault_text(fault), true)),
+            (None, true) => Some(("The end".to_owned(), false)),
+            (None, false) => None,
+        };
+        View {
+            playing: !self.paused && !self.finished,
+            ready: true,
+            loading: false,
+            back: self.narration.previous(heard, self.skip).is_some(),
+            next: self.narration.next(heard, self.skip).is_some(),
+            unit: "phrase",
+            escape: self.narration.escape(heard, self.skip).is_some(),
+            at: Some(if self.finished {
+                1.0
+            } else {
+                heard as f32 / count as f32
+            }),
+            left: Some(if self.finished {
+                0.0
+            } else {
+                (total - before) / rate
+            }),
+            total: Some(total / rate),
+            seek: true,
+            ticks: Vec::new(),
+            note,
+            hint,
+            narrated: true,
+        }
+    }
+
+    /// The phrase at `share` of the book.
+    fn phrase_at(&self, share: f32) -> usize {
+        let count = self.narration.phrases.len();
+        ((share * count as f32) as usize).min(count.saturating_sub(1))
+    }
+
+    fn hint(&self, share: f32) -> Option<String> {
+        let phrase = self.narration.phrases.get(self.phrase_at(share))?;
+        let page = self.document.locate(phrase.start)?;
+        Some(place_name(&self.document, page))
+    }
+
+    /// Does what the player asked; true to stop.
+    fn act(&mut self, act: Act) -> bool {
+        let heard = self.heard.unwrap_or(self.started);
+        match act {
+            Act::Back => self.step(self.narration.previous(heard, self.skip)),
+            Act::Next => self.step(self.narration.next(heard, self.skip)),
+            Act::Escape => self.step(self.narration.escape(heard, self.skip)),
+            Act::Toggle => self.toggle(),
+            Act::Seek(share) => {
+                let to = self.read_from(self.phrase_at(share));
+                self.jump = to.is_some();
+                self.step(to);
+            }
+            Act::Stop => return true,
+        }
+        false
     }
 
     fn lit(&self) -> Option<Lit> {
@@ -209,6 +288,28 @@ impl Session {
             Self::Spoken(s) => s.pane,
         }
     }
+
+    fn hint(&self, share: f32) -> Option<String> {
+        match self {
+            Self::Narrated(s) => s.hint(share),
+            Self::Spoken(s) => s.hint(share),
+        }
+    }
+
+    fn view<'a>(&self, hint: &'a dyn Fn(f32) -> Option<String>) -> View<'a> {
+        match self {
+            Self::Narrated(s) => s.view(hint),
+            Self::Spoken(s) => s.view(hint),
+        }
+    }
+
+    /// Does what the player asked; true to stop.
+    fn act(&mut self, act: Act) -> bool {
+        match self {
+            Self::Narrated(s) => s.act(act),
+            Self::Spoken(s) => s.act(act),
+        }
+    }
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -224,6 +325,8 @@ pub struct ReadAloud {
     /// The word being said, and when one was last asked.
     saying: Option<String>,
     said_at: f64,
+    /// When the player first showed for this reading.
+    appeared: Option<f64>,
 }
 
 impl ReadAloud {
@@ -361,7 +464,10 @@ impl ReadAloud {
             };
             self.session = Some(Session::Narrated(Narrated {
                 pane: reading.pane,
+                lengths: lengths(&narration),
                 narration,
+                document: Arc::clone(&reading.document),
+                jump: false,
                 player: Player::new(fetch(files)),
                 runs: Vec::new(),
                 heard: None,
@@ -475,50 +581,82 @@ impl ReadAloud {
         out: &mut Commands,
     ) {
         let Some(s) = self.session.as_mut() else {
+            self.appeared = None;
             return;
         };
-        let pane = s.pane();
-        let Some(rect) = panes.iter().find(|(p, _)| *p == pane).map(|(_, r)| *r) else {
+        let Some(pane) = panes.iter().find(|(p, _)| *p == s.pane()).map(|(_, r)| *r) else {
             return;
         };
-        let t = Tokens::get(ctx);
-        let at = egui::pos2(
-            rect.center().x,
-            rect.bottom() - crate::page_bar::BAR_H - LIFT,
-        );
-        let frame = Frame::new()
-            .fill(t.surface)
-            .stroke(egui::Stroke::new(1.0, t.line))
-            .corner_radius(t.radius_lg)
-            .shadow(ctx.global_style().visuals.window_shadow)
-            .inner_margin(Margin::same(4));
-        let mut close = false;
-        egui::Area::new(Id::new("read-aloud-bar"))
-            .fade_in(false)
-            .order(Order::Foreground)
-            .pivot(Align2::CENTER_BOTTOM)
-            .fixed_pos(at)
-            .constrain_to(rect)
-            .show(ctx, |ui| {
-                frame.show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(SIZE);
-                        ui.spacing_mut().item_spacing = egui::vec2(GAP, 0.0);
-                        let (slot, _) =
-                            ui.allocate_exact_size(egui::Vec2::splat(SIZE), egui::Sense::hover());
-                        let mark = Rect::from_center_size(slot.center(), egui::Vec2::splat(ICON));
-                        Icon::ReadAloud.paint(ui, mark, t.muted);
-                        widgets::vrule(ui, SIZE * 0.5);
-                        close = match s {
-                            Session::Narrated(s) => controls(ui, s, settings, (&t, out)),
-                            Session::Spoken(s) => s.controls(ui, settings, (&t, out)),
-                        };
-                    });
+        let now = ctx.input(|i| i.time);
+        let since = now - *self.appeared.get_or_insert(now);
+        let shown = match motion::enabled(ctx) {
+            true => ease_out((since / APPEAR).clamp(0.0, 1.0)) as f32,
+            false => 1.0,
+        };
+        if shown < 1.0 {
+            ctx.request_repaint();
+        }
+        let act = {
+            let hint = |share: f32| s.hint(share);
+            let view = s.view(&hint);
+            let fit = Fit::new(pane.width() - 24.0, view.escape);
+            let rect = control::place(pane, fit.width(view.escape), shown);
+            let mut act = None;
+            egui::Area::new(Id::new("read-aloud-bar"))
+                .fade_in(false)
+                .order(Order::Foreground)
+                .fixed_pos(rect.min)
+                .constrain(false)
+                .show(ctx, |ui| {
+                    ui.set_opacity(shown);
+                    ui.set_clip_rect(pane);
+                    let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+                    act = control::show(ui, r, (&view, fit), settings, out);
                 });
-            });
-        if close {
+            act
+        };
+        if act.is_some_and(|act| s.act(act)) {
             self.session = None;
         }
+    }
+}
+
+/// Fast at first, then settling: for things arriving.
+fn ease_out(k: f64) -> f64 {
+    1.0 - (1.0 - k).powi(3)
+}
+
+/// Seconds of sound before each phrase, ending with the whole.
+fn lengths(narration: &Narration) -> Vec<f64> {
+    let known: Vec<f64> = (narration.phrases.iter())
+        .filter_map(|p| Some(p.audio.end? - p.audio.begin))
+        .collect();
+    // A phrase played to its file's end counts as the usual length.
+    let usual = match known.len() {
+        0 => 3.0,
+        n => known.iter().sum::<f64>() / n as f64,
+    };
+    let mut out = Vec::with_capacity(narration.phrases.len() + 1);
+    let mut sum = 0.0;
+    out.push(sum);
+    for p in &narration.phrases {
+        sum += p
+            .audio
+            .end
+            .map_or(usual, |end| end - p.audio.begin)
+            .max(0.0);
+        out.push(sum);
+    }
+    out
+}
+
+/// "Page 12 · Chapter Three": where a page is, for the seek track.
+fn place_name(document: &Document, page: usize) -> String {
+    let outline = document.outline();
+    let chapter = mareader_pdf::active_entry(outline, page).and_then(|i| outline.get(i));
+    match chapter {
+        Some(c) if !c.title.trim().is_empty() => format!("Page {} · {}", page + 1, c.title.trim()),
+        _ => format!("Page {}", page + 1),
     }
 }
 
@@ -536,112 +674,6 @@ fn follow(
             documents.go_to(reading.pane, page);
         }
     }
-}
-
-/// The bar's buttons; true when closed.
-fn controls(
-    ui: &mut Ui,
-    s: &mut Narrated,
-    settings: &mut ReadAloudSettings,
-    (t, out): (&Tokens, &mut Commands),
-) -> bool {
-    let heard = s.heard.unwrap_or(s.started);
-    let back = s.narration.previous(heard, s.skip);
-    if button(ui, Icon::SkipBack, "Previous phrase", back.is_some()).clicked() {
-        s.step(back);
-    }
-    let (icon, name) = match s.paused || s.finished {
-        true => (Icon::Resume, "Play"),
-        false => (Icon::Pause, "Pause"),
-    };
-    if button(ui, icon, name, true).clicked() {
-        s.toggle();
-    }
-    let next = s.narration.next(heard, s.skip);
-    if button(ui, Icon::SkipForward, "Next phrase", next.is_some()).clicked() {
-        s.step(next);
-    }
-    if let Some(out) = s.narration.escape(heard, s.skip) {
-        let leave = button(ui, Icon::LeaveTable, "Skip the rest of this table", true);
-        if leave.clicked() {
-            s.step(Some(out));
-        }
-    }
-    widgets::vrule(ui, SIZE * 0.5);
-    speed(ui, settings, t);
-    options(ui, out, |ui| {
-        ui.checkbox(&mut settings.skip_notes, "Skip notes");
-        ui.checkbox(&mut settings.skip_page_numbers, "Skip page numbers");
-        ui.checkbox(&mut settings.follow, "Turn pages to follow");
-    });
-    let note = match (&s.fault, s.finished) {
-        (Some(fault), _) => Some((fault_text(fault), t.danger)),
-        (None, true) => Some(("The end".to_owned(), t.muted)),
-        (None, false) => None,
-    };
-    ending(ui, note, t)
-}
-
-/// The speed picker: the rates offered, the one in use shown.
-fn speed(ui: &mut Ui, settings: &mut ReadAloudSettings, t: &Tokens) {
-    let speed = RichText::new(rate_label(settings.rate)).size(t.text_small);
-    let speed = egui::Button::new(speed).frame_when_inactive(false);
-    let speed = speed.min_size(egui::vec2(SIZE + 12.0, SIZE));
-    let (resp, _) = MenuButton::from_button(speed).ui(ui, |ui| {
-        for rate in RATES {
-            let on = (settings.rate - rate).abs() < 0.01;
-            if ui.selectable_label(on, rate_label(rate)).clicked() {
-                settings.rate = rate;
-                ui.close();
-            }
-        }
-    });
-    widgets::tip(&resp, "Speed", None);
-}
-
-/// The options menu behind the bar's More button, ending in settings.
-fn options(ui: &mut Ui, out: &mut Commands, menu: impl FnOnce(&mut Ui)) {
-    let more = egui::Button::image(Icon::More.image(ICON))
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .min_size(egui::Vec2::splat(SIZE));
-    let (resp, _) = MenuButton::from_button(more).ui(ui, |ui| {
-        // Menu rows fill what they're given, so the menu sets its width.
-        ui.set_width(210.0);
-        menu(ui);
-        ui.separator();
-        let row = widgets::menu_row(ui, Icon::Settings, "Voice settings…", None, false);
-        if row.clicked() {
-            out.push(Command::OpenSettings(
-                crate::settings_window::Tab::ReadAloud,
-            ));
-            ui.close();
-        }
-    });
-    widgets::tip(&resp, "Read-aloud options", None);
-}
-
-/// A short note if any, then the close button; true when closed.
-fn ending(ui: &mut Ui, note: Option<(String, Color32)>, t: &Tokens) -> bool {
-    if let Some((text, colour)) = note {
-        ui.add_space(4.0);
-        ui.label(RichText::new(text).size(t.text_small).color(colour));
-        ui.add_space(4.0);
-    }
-    widgets::vrule(ui, SIZE * 0.5);
-    button(ui, Icon::Close, "Stop reading aloud", true).clicked()
-}
-
-/// One of the bar's square buttons, all one size.
-fn button(ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> egui::Response {
-    let b = egui::Button::image(icon.image(ICON))
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .min_size(egui::Vec2::splat(SIZE));
-    let resp = ui.add_enabled(enabled, b);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    widgets::tip(&resp, label, None);
-    resp
 }
 
 /// The speaker on a word's card: says it, or stops it; accented meanwhile.
