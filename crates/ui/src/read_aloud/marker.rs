@@ -451,6 +451,12 @@ fn word_at(text: &PageText, i: usize) -> Option<usize> {
         .or_else(|| (0..i).rev().find(|&j| starts(text, j)))
 }
 
+/// The word at or nearest character `i`: the one a pin would take.
+pub(crate) fn word_span(text: &PageText, i: usize) -> Option<std::ops::Range<usize>> {
+    let start = word_at(text, i)?;
+    Some(start..word_end(text, start))
+}
+
 /// Where the word starting at `start` ends.
 fn word_end(text: &PageText, start: usize) -> usize {
     let len = text.len();

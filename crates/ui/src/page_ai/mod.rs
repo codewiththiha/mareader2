@@ -31,6 +31,11 @@ pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
 const FADE_IN: f32 = 0.3;
+/// Where the menu's Read aloud row says it is hovered, for its word.
+fn aloud_hot(pane: PaneId) -> Id {
+    Id::new(("page-ai-aloud-hot", pane))
+}
+
 /// Seconds the menu's page wash takes to come and to go.
 const WASH_FADE: f32 = 0.22;
 /// Seconds between settings of a result while it streams in.
@@ -276,6 +281,8 @@ pub struct PageAi {
     menu_rect: Option<Rect>,
     /// The menu's pages, kept while their wash fades after it.
     washed: Option<(PaneId, Vec<usize>)>,
+    /// The right-clicked word in the washed page, lit beside it.
+    washed_word: Option<mareader_speech::Spot>,
     filter: String,
     bubble_menu: Option<BubbleMenu>,
     bubble_rect: Option<Rect>,
@@ -1468,10 +1475,20 @@ impl PageAi {
             self.washed = None;
             return None;
         }
+        let hovered = ctx.data(|d| d.get_temp::<bool>(aloud_hot(pane)));
+        let id = aloud_hot(pane).with("lit");
+        let hot = ctx.animate_bool_with_time(id, open && hovered == Some(true), 0.15);
         Some(paint::Wash {
             pages: pages.clone(),
             alpha,
+            word: self.washed_word,
+            hot,
         })
+    }
+
+    /// The right-clicked word lit in `pane`, at or in it; for tests.
+    pub fn washed_word(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
+        self.washed(pane).and(self.washed_word)
     }
 
     /// The pages washed in `pane`, while the menu shows or fades; for tests.
@@ -1492,6 +1509,7 @@ impl PageAi {
         self.filter.clear();
         self.remember = false;
         self.washed = Some((pane, vec![page]));
+        self.washed_word = aloud.and_then(|a| a.at);
         self.menu = Some(Menu {
             pane,
             page,
@@ -1510,6 +1528,7 @@ impl PageAi {
         self.bubble_menu = None;
         self.filter.clear();
         self.washed = Some((pane, pages.clone()));
+        self.washed_word = None;
         self.menu = Some(Menu {
             pane,
             page,

@@ -458,3 +458,53 @@ fn escape_sends_the_pin_away_unread() {
     assert!(lit(&h).is_none(), "nothing reads");
     assert!(h.query_by_label("Reading starts here").is_none());
 }
+
+#[test]
+fn the_right_clicked_word_is_lit_where_reading_would_start() {
+    let mut h = reader(1);
+    let pane = h.state().active_pane();
+    let (quick, _) = word(&h, "quick");
+    // The right edge of its last letter is still the word, not the next.
+    let k = {
+        let docs = h.state().documents();
+        let layer = docs.reading(pane).map(|r| r.document.text_layer(0));
+        let layer = layer.and_then(Result::ok).expect("page 0's text");
+        let sheet = *docs
+            .sheets(pane)
+            .iter()
+            .find(|s| s.page == 0)
+            .expect("page 0");
+        let bounds = layer
+            .text
+            .chars()
+            .get(quick.char + 4)
+            .expect("its k")
+            .bounds;
+        sheet.to_screen(bounds)
+    };
+    let at = egui::pos2(k.right() - 1.0, k.center().y);
+    h.event(egui::Event::PointerMoved(at));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    let lit_word = h
+        .state()
+        .page_ai()
+        .washed_word(pane)
+        .expect("a word is lit");
+    assert_eq!(lit_word.page, 0);
+    assert!(
+        (quick.char..quick.char + 5).contains(&lit_word.char),
+        "{lit_word:?} is in “quick” at {quick:?}"
+    );
+    h.get_by_label("Read aloud from here").click();
+    h.run_steps(3);
+    assert_eq!(marker(&h), Some(quick), "the pin takes the lit word");
+}

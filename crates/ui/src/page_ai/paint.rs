@@ -366,6 +366,10 @@ fn ring(ui: &Ui, painter: &egui::Painter, c: Pos2, ring: Ring, t: &Tokens) {
 pub struct Wash {
     pub pages: Vec<usize>,
     pub alpha: f32,
+    /// The right-clicked word, where reading aloud would start.
+    pub word: Option<mareader_speech::Spot>,
+    /// How far its menu row's hover has lit it, 0 to 1.
+    pub hot: f32,
 }
 
 /// Washes each page's text, first line to last, with a rule beside it.
@@ -413,6 +417,36 @@ pub fn wash(ui: &Ui, pages: &Pages<'_>, wash: &Wash, t: &Tokens) {
             painter.rect_filled(bar, 1.5, rule);
         }
     }
+    if let Some(spot) = wash.word {
+        word(ui, pages, spot, (k, wash.hot), t);
+    }
+}
+
+/// Reading aloud would start here: the word, lit warm over the wash.
+fn word(ui: &Ui, pages: &Pages<'_>, spot: mareader_speech::Spot, (k, hot): (f32, f32), t: &Tokens) {
+    let on = |s: &&crate::selection::Sheet| s.page == spot.page && s.shown.is_positive();
+    let Some(sheet) = pages.sheets.iter().find(on) else {
+        return;
+    };
+    let Some(layer) = pages.texts.get(pages.doc, spot.page) else {
+        return;
+    };
+    let span = crate::read_aloud::marker::word_span(&layer.text, spot.char);
+    let boxes = span.into_iter().flat_map(|s| layer.text.line_boxes(s));
+    let Some(r) = boxes.map(|b| sheet.to_screen(b)).reduce(|a, b| a.union(b)) else {
+        return;
+    };
+    // It lands a touch large and settles; its menu row swells it.
+    let pad = vec2(2.5, 1.5) + Vec2::splat(2.0 * (1.0 - k) + 1.5 * hot);
+    let r = r.expand2(pad);
+    let warm = match t.dark {
+        true => Color32::from_rgb(255, 190, 84),
+        false => Color32::from_rgb(240, 150, 20),
+    };
+    let painter = ui.painter();
+    painter.rect_filled(r, 4.0, warm.gamma_multiply((0.28 + 0.2 * hot) * k));
+    let edge = Stroke::new(1.5 + 0.5 * hot, warm.gamma_multiply(0.9 * k));
+    painter.rect_stroke(r, 4.0, edge, StrokeKind::Outside);
 }
 
 /// Ease out: quick to come, gentle to settle.

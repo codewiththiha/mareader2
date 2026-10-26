@@ -147,7 +147,12 @@ impl PageAi {
                 true => "Read aloud from here",
                 false => "Read aloud from this page",
             };
-            if widgets::menu_row(ui, Icon::ReadAloud, label, None, false).clicked() {
+            let row = widgets::menu_row(ui, Icon::ReadAloud, label, None, false);
+            // Hovered, its word lights up more.
+            let hot = row.hovered();
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(super::aloud_hot(m.pane), hot));
+            if row.clicked() {
                 // A pin shows where it starts; resting, it reads.
                 let page = mareader_speech::Spot {
                     page: m.page,

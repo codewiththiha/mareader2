@@ -1189,9 +1189,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
             {
                 let layer = text.texts.get(text.doc, s.page);
                 let (x, y) = s.to_page(at);
-                let caret = (layer.as_ref())
-                    .filter(|l| l.text.on_line(x, y))
-                    .map(|l| l.text.caret_at(x, y));
+                let caret = (layer.as_ref()).filter(|l| l.text.on_line(x, y)).map(|l| {
+                    l.text
+                        .char_at(x, y)
+                        .unwrap_or_else(|| l.text.caret_at(x, y))
+                });
                 let place = layer.and_then(|layer| {
                     let i = layer.text.caret_at(x, y);
                     let before = i.checked_sub(1).and_then(|i| layer.place(i));
