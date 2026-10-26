@@ -3,13 +3,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mareader_g2p::{Dialect, G2p};
+use mareader_g2p::{Dialect, G2p, PhonemeToken};
 use mareader_hanzi::Hanzi;
 use mareader_ipa::Language;
 use mareader_kokoro::{Kokoro as Model, SAMPLE_RATE, Voice as Pack};
 
 use crate::local::{Line, Out, Synth, both, trim_join};
 use crate::studio::Studio;
+use crate::timing::{Words, place, shift, spell};
 
 pub(crate) use mareader_kokoro::SPEEDS;
 
@@ -130,32 +131,43 @@ impl Synth for Kokoro {
             reader,
             voice,
         } = loaded.ok_or("Kokoro was let go")?;
-        let phonemes = match reader {
+        let (phonemes, spelt) = match reader {
             Reader::English(g2p) => {
-                let mut phonemes = String::new();
-                for token in g2p.tokens(line.text) {
-                    phonemes.push_str(&token.phonemes);
-                    if token.whitespace {
-                        phonemes.push(' ');
-                    }
-                }
-                phonemes
+                let tokens = g2p.tokens(line.text);
+                let space = |t: &PhonemeToken| if t.whitespace { " " } else { "" };
+                let spelt = spell(
+                    line.text,
+                    tokens.iter().map(|t| (&*t.text, &*t.phonemes, space(t))),
+                );
+                (spelt.phonemes.clone(), Some(spelt))
             }
-            Reader::Rules(language) => mareader_ipa::kokoro(*language, line.text),
-            Reader::Chinese(hanzi) => hanzi.phonemize(line.text),
+            Reader::Rules(language) => (mareader_ipa::kokoro(*language, line.text), None),
+            Reader::Chinese(hanzi) => (hanzi.phonemize(line.text), None),
         };
         let phonemes = model.normalise(&phonemes);
+        // Only English knows its words; other readers light whole sentences.
+        let words = spelt.map(|s| Words::new(&phonemes, &s));
         let chunks = match line.lead {
             true => model.chunks_led(&phonemes, LEAD),
             false => model.chunks(&phonemes),
         };
+        let mut from = 0;
         for (i, chunk) in chunks.iter().enumerate() {
-            let mut audio =
-                (model.render(chunk, &voice.1, line.speed)).map_err(|e| e.to_string())?;
+            let timed =
+                (model.render_timed(chunk, &voice.1, line.speed)).map_err(|e| e.to_string())?;
+            let count = chunk.ids.len();
+            // Ids follow the characters one to one, after a leading pad.
+            let id_at: Vec<usize> = (1..=count).collect();
+            let here = words.as_ref().map(|w| w.within(from, from + count));
+            let here = here.unwrap_or_default();
+            let mut marks = place(&here, &id_at, &timed.frames, timed.voiced);
+            from += count;
+            let mut audio = timed.audio;
             let owed = f64::from(chunk.pause_ms) / 1000.0 / f64::from(line.speed);
             let last = i + 1 == chunks.len();
-            trim_join(&mut audio, SAMPLE_RATE, i > 0, (!last).then_some(owed));
-            if !out(&audio, SAMPLE_RATE, last) {
+            let cut = trim_join(&mut audio, SAMPLE_RATE, i > 0, (!last).then_some(owed));
+            shift(&mut marks, cut, audio.len());
+            if !out(&audio, SAMPLE_RATE, last, &marks) {
                 break;
             }
         }

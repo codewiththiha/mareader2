@@ -105,6 +105,14 @@ impl Voice {
     }
 }
 
+/// A chunk said: its samples, and each id's frames.
+pub struct Timed {
+    pub audio: Vec<f32>,
+    pub frames: Vec<usize>,
+    /// Samples before the pause after it.
+    pub voiced: usize,
+}
+
 /// Every step of one forward pass, kept for checking against references.
 pub struct Trace {
     /// Phoneme encoder output `[1, n, 768]`.
@@ -234,14 +242,25 @@ impl Kokoro {
 
     /// One chunk spoken, with its pause after; equal input sounds equal.
     pub fn render(&self, chunk: &Chunk, voice: &Voice, speed: f32) -> Result<Vec<f32>> {
+        Ok(self.render_timed(chunk, voice, speed)?.audio)
+    }
+
+    /// As [`Self::render`], with the frames each id took, pads included.
+    pub fn render_timed(&self, chunk: &Chunk, voice: &Voice, speed: f32) -> Result<Timed> {
         let mut ids = Vec::with_capacity(chunk.ids.len() + 2);
         ids.push(0);
         ids.extend_from_slice(&chunk.ids);
         ids.push(0);
         let style = voice.style(ids.len())?;
-        let mut audio = self.trace(&ids, &style, speed)?.audio;
+        let trace = self.trace(&ids, &style, speed)?;
+        let (mut audio, frames) = (trace.audio, trace.durations);
+        let voiced = audio.len();
         chunks::pause(&mut audio, SAMPLE_RATE, chunk.pause_ms, speed);
-        Ok(audio)
+        Ok(Timed {
+            audio,
+            frames,
+            voiced,
+        })
     }
 
     /// Speaks all of `phonemes`; `sink` returns false to stop early.

@@ -52,6 +52,30 @@ pub fn spaced(phonemes: &str) -> String {
     out
 }
 
+/// For each character of `phonemes`, the index in [`ids`] it is read at.
+pub fn ids_at(phonemes: &str) -> Vec<usize> {
+    let table = table();
+    let space = table.contains_key(&' ');
+    let (mut next, mut started, mut in_word) = (1, false, false);
+    let mut at = Vec::with_capacity(phonemes.len());
+    // As `spaced` writes them: a space, if any, comes before.
+    for c in phonemes.chars() {
+        if c.is_whitespace() {
+            at.push(next);
+            in_word = false;
+            continue;
+        }
+        let word = c.is_alphanumeric() || c == '_';
+        if started && !(word && in_word) && space {
+            next += 1;
+        }
+        at.push(next);
+        next += usize::from(table.contains_key(&c));
+        (started, in_word) = (true, word);
+    }
+    at
+}
+
 /// Ids for espeak-style phonemes, padded as Kitten expects;
 /// symbols it doesn't know are left out.
 pub fn ids(phonemes: &str) -> Vec<u32> {
@@ -168,6 +192,18 @@ mod tests {
         assert_eq!(ids("a."), [0, 43, 16, 4, TAIL, 0]);
         // As upstream: the unknown mark is spaced apart, then dropped.
         assert_eq!(ids("a\u{1F600}"), [0, 43, 16, TAIL, 0]);
+    }
+
+    #[test]
+    fn each_character_is_found_at_its_id() {
+        let phonemes = "həlˈoʊ,  wˈɜːld-wˈɜːd!";
+        let (ids, at) = (ids(phonemes), ids_at(phonemes));
+        assert_eq!(at.len(), phonemes.chars().count());
+        for (c, i) in phonemes.chars().zip(at) {
+            if let Some(&id) = table().get(&c).filter(|_| !c.is_whitespace()) {
+                assert_eq!(ids.get(i), Some(&id), "{c}");
+            }
+        }
     }
 
     fn npy_bytes(header: &str, values: &[f32]) -> Vec<u8> {

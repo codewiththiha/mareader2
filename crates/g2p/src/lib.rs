@@ -131,6 +131,14 @@ pub struct PhonemeToken {
     pub whitespace: bool,
 }
 
+/// One token as [`G2p::phonemize`] says it, with the space after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Spelt {
+    pub text: String,
+    pub phonemes: String,
+    pub whitespace: String,
+}
+
 /// A phonemizer for one dialect: `Send + Sync`, and slow to build.
 pub struct G2p {
     dialect: Dialect,
@@ -199,9 +207,19 @@ impl G2p {
     /// Phonemes for `text`, punctuation kept, [`UNKNOWN`] where none were
     /// found. misaki's markup works: `[word](/phonemes/)`, `[word](+2)`.
     pub fn phonemize(&self, text: &str) -> String {
+        let spelt = self.spelt(text).into_iter();
+        spelt.map(|tk| tk.phonemes + &tk.whitespace).collect()
+    }
+
+    /// As [`Self::phonemize`], token by token, so words can be found again.
+    pub fn spelt(&self, text: &str) -> Vec<Spelt> {
         self.run(text, UNKNOWN)
             .into_iter()
-            .map(|tk| tk.phonemes.unwrap_or_else(|| UNKNOWN.to_owned()) + &tk.whitespace)
+            .map(|tk| Spelt {
+                phonemes: tk.phonemes.unwrap_or_else(|| UNKNOWN.to_owned()),
+                whitespace: tk.whitespace,
+                text: tk.text,
+            })
             .collect()
     }
 

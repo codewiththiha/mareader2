@@ -116,7 +116,7 @@ impl Synth for Phonon {
                 .say(&loaded.voice, &chunk, pace, &mut noise, |block| {
                     going = match &mut stretch {
                         Some(s) => give(out, &s.push(&block)),
-                        None => out(&block, SAMPLE_RATE, false),
+                        None => out(&block, SAMPLE_RATE, false, &[]),
                     };
                     going
                 });
@@ -134,7 +134,7 @@ impl Synth for Phonon {
 
 /// Hands `out` a stretched piece; one still empty goes on quietly.
 fn give(out: &mut Out<'_>, piece: &[f32]) -> bool {
-    piece.is_empty() || out(piece, SAMPLE_RATE, false)
+    piece.is_empty() || out(piece, SAMPLE_RATE, false, &[])
 }
 
 /// The pace nearest `speed`, and the stretch that makes up the rest.
@@ -235,7 +235,7 @@ mod tests {
                 lead: false,
             };
             let mut n = 0;
-            let mut count = |a: &[f32], _: u32, _: bool| {
+            let mut count = |a: &[f32], _: u32, _: bool, _: &[crate::timing::Mark]| {
                 n += a.len();
                 true
             };

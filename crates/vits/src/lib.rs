@@ -163,7 +163,7 @@ impl Vits {
 
     /// Samples in −1..1 at the config's rate, for ids from [`Config::ids`].
     pub fn speak(&self, ids: &[u32], speaker: usize, scales: Scales) -> Result<Vec<f32>> {
-        Ok(self.speak_timed(ids, speaker, scales)?.0)
+        Ok(self.spoken(ids, speaker, scales)?.audio)
     }
 
     /// As [`Self::speak`], with the time each step took.
@@ -173,6 +173,12 @@ impl Vits {
         speaker: usize,
         scales: Scales,
     ) -> Result<(Vec<f32>, Laps)> {
+        let spoken = self.spoken(ids, speaker, scales)?;
+        Ok((spoken.audio, spoken.laps))
+    }
+
+    /// As [`Self::speak`], with the frames each id is heard for.
+    pub fn spoken(&self, ids: &[u32], speaker: usize, scales: Scales) -> Result<Spoken> {
         let mut laps = Laps::new();
         let scales = scales.check()?;
         if ids.is_empty() || ids.len() > MAX_IDS {
@@ -198,6 +204,7 @@ impl Vits {
             .forward(&encoded.hidden, speaker.as_ref(), timing)?;
         laps.lap("durations");
         let mut frame_of = Vec::new();
+        let mut lengths = Vec::with_capacity(len);
         for (id, log) in (0u32..).zip(log_frames) {
             let frames = (log.exp() * scales.length).ceil();
             let frames = if frames.is_finite() && frames > 0.0 {
@@ -206,9 +213,14 @@ impl Vits {
                 0
             };
             frame_of.extend(std::iter::repeat_n(id, frames));
+            lengths.push(frames);
         }
         if frame_of.is_empty() {
-            return Ok((Vec::new(), laps));
+            return Ok(Spoken {
+                audio: Vec::new(),
+                frames: lengths,
+                laps,
+            });
         }
         let frames = frame_of.len();
         let frame_of = Tensor::from_vec(frame_of, frames, &Device::Cpu)?;
@@ -221,6 +233,17 @@ impl Vits {
         let z = self.flow.inverse(&prior, speaker.as_ref())?;
         laps.lap("flow");
         let audio = self.generator.forward(&z, speaker.as_ref(), &mut laps)?;
-        Ok((audio, laps))
+        Ok(Spoken {
+            audio,
+            frames: lengths,
+            laps,
+        })
     }
+}
+
+/// Samples said, and how many frames of them each id took.
+pub struct Spoken {
+    pub audio: Vec<f32>,
+    pub frames: Vec<usize>,
+    pub laps: Laps,
 }

@@ -30,6 +30,8 @@ mod silent;
 mod studio;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
+#[cfg(not(target_arch = "wasm32"))]
+mod timing;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -38,7 +40,7 @@ pub use models::{
     AIDS, Build, Gender, KITTEN, KOKORO, Knob, MODELS, Model, ModelFile, ModelVoice, PHONON, PIPER,
     PRONUNCIATION,
 };
-pub use script::{Glyph, Script, Sentence, Spot};
+pub use script::{Glyph, Script, Sentence, Spot, Word};
 pub use sentences::{LONGEST, split};
 #[cfg(not(target_arch = "wasm32"))]
 pub use shelf::Lexicons;
@@ -110,6 +112,16 @@ pub enum Event {
     Finished(u64),
 }
 
+/// Where an engine is in the sentence it says.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Heard {
+    pub id: u64,
+    /// Seconds of it heard.
+    pub seconds: f64,
+    /// The byte of the word heard in its text, when the model knows.
+    pub word: Option<usize>,
+}
+
 /// Why an engine can't speak.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fault {
@@ -159,6 +171,10 @@ pub trait Voicer {
     fn set_knobs(&mut self, _values: &BTreeMap<String, f32>) {}
     /// What happened since the last call, oldest first.
     fn events(&mut self) -> Vec<Event>;
+    /// Where it is in the sentence said, as of the last [`Self::events`].
+    fn heard(&self) -> Option<Heard> {
+        None
+    }
 }
 
 /// A line for trying a voice, in its language where we have one.

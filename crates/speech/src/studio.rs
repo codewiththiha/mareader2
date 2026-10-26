@@ -9,6 +9,7 @@ use mareader_g2p::{Dialect, G2p};
 use mareader_hanzi::Hanzi;
 
 use crate::Usage;
+use crate::timing::Mark;
 
 /// Speech kept by default, in bytes.
 const MEMORY: usize = 64 << 20;
@@ -55,13 +56,20 @@ pub(crate) struct Key {
 pub(crate) struct Pcm {
     pub samples: Arc<[i16]>,
     pub rate: u32,
+    /// Where its words start, in order.
+    pub marks: Arc<[Mark]>,
 }
 
 impl Pcm {
     pub fn new(samples: &[i16], rate: u32) -> Self {
+        Self::marked(samples, rate, &[])
+    }
+
+    pub fn marked(samples: &[i16], rate: u32, marks: &[Mark]) -> Self {
         Self {
             samples: Arc::from(samples),
             rate,
+            marks: Arc::from(marks),
         }
     }
 

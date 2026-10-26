@@ -52,18 +52,25 @@ impl Config {
 
     /// Ids for one sentence: `^`, then each known phoneme and a pad, then `$`.
     pub fn ids(&self, phonemes: &str) -> Result<Vec<u32>> {
+        Ok(self.ids_at(phonemes)?.0)
+    }
+
+    /// As [`Self::ids`], with the index each character's ids start at.
+    pub fn ids_at(&self, phonemes: &str) -> Result<(Vec<u32>, Vec<usize>)> {
         let pad = self.id(PAD)?;
         let mut ids = self.id(BOS)?.to_vec();
         ids.extend_from_slice(pad);
+        let mut at = Vec::with_capacity(phonemes.len());
         let mut buf = [0u8; 4];
         for c in phonemes.chars() {
+            at.push(ids.len());
             if let Some(found) = self.phoneme_id_map.get(&*c.encode_utf8(&mut buf)) {
                 ids.extend_from_slice(found);
                 ids.extend_from_slice(pad);
             }
         }
         ids.extend_from_slice(self.id(EOS)?);
-        Ok(ids)
+        Ok((ids, at))
     }
 }
 
@@ -90,5 +97,8 @@ mod tests {
             c.ids("hə ❓h").unwrap(),
             [1, 0, 20, 0, 59, 0, 3, 0, 20, 0, 2]
         );
+        // Each character's ids start here; the unknown at the next.
+        let (_, at) = c.ids_at("hə ❓h").unwrap();
+        assert_eq!(at, [2, 4, 6, 8, 8]);
     }
 }

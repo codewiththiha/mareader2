@@ -15,6 +15,18 @@ pub struct Sentence {
     pub text: String,
     pub start: Spot,
     pub end: Spot,
+    /// Its words in order, each where it is drawn.
+    pub words: Vec<Word>,
+}
+
+/// A word: its bytes in the text, and where it is drawn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Word {
+    /// A lone mark, as a dash, joins the word before.
+    pub bytes: std::ops::Range<usize>,
+    pub start: Spot,
+    /// Just past its last character.
+    pub end: Spot,
 }
 
 /// One character of a page's text, as a page's text layer holds it.
@@ -127,14 +139,49 @@ impl Script {
         let last = self.spots.partition_point(|(b, _)| *b < range.end);
         let start = self.spots.get(first)?.1;
         let end = self.spots.get(last.checked_sub(1)?)?.1;
+        let text = self.text.get(range.clone())?;
         Some(Sentence {
-            text: self.text.get(range)?.to_owned(),
+            words: self.words(range.start, text),
+            text: text.to_owned(),
             start,
             end: Spot {
                 page: end.page,
                 char: end.char + 1,
             },
         })
+    }
+
+    /// The words of `text`, which starts at byte `base` of the script's.
+    fn words(&self, base: usize, text: &str) -> Vec<Word> {
+        let mut words: Vec<Word> = Vec::new();
+        for (at, run) in runs(text) {
+            let (from, until) = (base + at, base + at + run.len());
+            let first = self.spots.partition_point(|(b, _)| *b < from);
+            let last = self.spots.partition_point(|(b, _)| *b < until);
+            let ends = (
+                self.spots.get(first),
+                last.checked_sub(1).and_then(|l| self.spots.get(l)),
+            );
+            let ((Some(a), Some(z)), true) = (ends, first < last) else {
+                continue;
+            };
+            let end = Spot {
+                page: z.1.page,
+                char: z.1.char + 1,
+            };
+            let bytes = at..at + run.len();
+            match words.last_mut() {
+                Some(word) if !run.chars().any(char::is_alphanumeric) => {
+                    (word.bytes.end, word.end) = (bytes.end, end);
+                }
+                _ => words.push(Word {
+                    bytes,
+                    start: a.1,
+                    end,
+                }),
+            }
+        }
+        words
     }
 
     fn keep_from(&mut self, byte: usize) {
@@ -144,6 +191,23 @@ impl Script {
             *b -= byte;
         }
     }
+}
+
+/// Each run of `text` between spaces, with the byte it starts at.
+fn runs(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, c) in text.char_indices().chain([(text.len(), ' ')]) {
+        match (c.is_whitespace(), start) {
+            (true, Some(s)) => {
+                out.extend(text.get(s..i).map(|run| (s, run)));
+                start = None;
+            }
+            (false, None) => start = Some(i),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The page's lines from character `from`, as runs of indices.
@@ -237,6 +301,17 @@ mod tests {
         let two = second.first().map(|s| (s.start, s.end));
         let spots = (Spot { page: 3, char: 4 }, Spot { page: 4, char: 3 });
         assert_eq!(two, Some(spots));
+        // Each word knows its page, across the turn too.
+        let at = |page, char| Spot { page, char };
+        let words: Vec<(std::ops::Range<usize>, Spot, Spot)> = (second.iter())
+            .flat_map(|s| s.words.iter().map(|w| (w.bytes.clone(), w.start, w.end)))
+            .collect();
+        let want = [
+            (0..3, at(3, 4), at(3, 7)),
+            (4..8, at(3, 7), at(3, 11)),
+            (9..12, at(4, 0), at(4, 3)),
+        ];
+        assert_eq!(words, want);
         assert_eq!(texts(&s.finish()), ["Three."]);
     }
 
@@ -249,6 +324,20 @@ mod tests {
         out.extend(s.finish());
         assert_eq!(texts(&out), ["Chapter Two", "It began."]);
         assert_eq!(out.first().map(|s| s.start.char), Some(from));
+    }
+
+    #[test]
+    fn a_dash_alone_goes_with_the_word_before() {
+        let mut s = Script::default();
+        let mut out = s.page(0, &page(&["Wait — now."]), 0);
+        out.extend(s.finish());
+        let bytes: Vec<std::ops::Range<usize>> = (out.iter())
+            .flat_map(|s| s.words.iter().map(|w| w.bytes.clone()))
+            .collect();
+        assert_eq!(
+            bytes,
+            [0.."Wait —".len(), "Wait — ".len().."Wait — now.".len()]
+        );
     }
 
     #[test]

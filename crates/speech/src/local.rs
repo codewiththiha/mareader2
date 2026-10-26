@@ -11,7 +11,8 @@ use mareader_audio::{Clip, Fetch, Player, Segment};
 
 use crate::models::Knob;
 use crate::studio::{Key, Pcm, Studio};
-use crate::{Caps, Event, Fault, Tone, Voice, Voicer, Waker};
+use crate::timing::Mark;
+use crate::{Caps, Event, Fault, Heard, Tone, Voice, Voicer, Waker};
 
 /// What a model is asked to say.
 pub(crate) struct Line<'a> {
@@ -24,8 +25,8 @@ pub(crate) struct Line<'a> {
     pub lead: bool,
 }
 
-/// Takes each piece, its rate, and whether it is last; false stops.
-pub(crate) type Out<'a> = dyn FnMut(&[f32], u32, bool) -> bool + 'a;
+/// Takes a piece, its rate, if last, and its words' marks; false stops.
+pub(crate) type Out<'a> = dyn FnMut(&[f32], u32, bool, &[Mark]) -> bool + 'a;
 
 /// A model run on the engine's thread: it loads voices and says lines.
 pub(crate) trait Synth: Send + 'static {
@@ -120,6 +121,10 @@ struct Part {
     owner: Owner,
     last: bool,
     seconds: f64,
+    /// Seconds of its sentence before it.
+    from: f64,
+    /// Its words: the second each starts in it, and its byte.
+    words: Vec<(f64, usize)>,
 }
 
 /// A local model, ready to speak in its downloaded voices.
@@ -151,6 +156,9 @@ pub(crate) struct Engine {
     paused: bool,
     fault: Option<String>,
     events: Vec<Event>,
+    /// Seconds queued of the sentence queued last.
+    queued: Option<(Owner, f64)>,
+    heard: Option<Heard>,
 }
 
 impl Engine {
@@ -213,6 +221,8 @@ impl Engine {
             paused: false,
             fault: None,
             events: Vec::new(),
+            queued: None,
+            heard: None,
         })
     }
 
@@ -254,6 +264,7 @@ impl Engine {
         lock(&self.clips).clear();
         self.making = None;
         self.started = None;
+        (self.queued, self.heard) = (None, None);
         self.plan(|p| p.now = None);
     }
 
@@ -265,6 +276,9 @@ impl Engine {
         }
         for part in self.line.iter_mut().filter(|p| p.owner == next) {
             part.owner = Owner::Said(id);
+        }
+        if let Some((owner, _)) = self.queued.as_mut().filter(|(o, _)| *o == next) {
+            *owner = Owner::Said(id);
         }
         if self.ahead.first() == Some(&key.text) {
             self.ahead.remove(0);
@@ -288,6 +302,16 @@ impl Engine {
         self.tags += 1;
         let tag = self.tags;
         let seconds = pcm.seconds();
+        let from = match self.queued.as_mut() {
+            Some((o, total)) if *o == owner => std::mem::replace(total, *total + seconds),
+            _ => {
+                self.queued = Some((owner.clone(), seconds));
+                0.0
+            }
+        };
+        let rate = f64::from(pcm.rate.max(1));
+        let words = pcm.marks.iter().map(|m| (m.at as f64 / rate, m.byte));
+        let words = words.collect();
         let clip = Clip::Pcm {
             samples: pcm.samples,
             rate: pcm.rate,
@@ -312,6 +336,8 @@ impl Engine {
             owner,
             last,
             seconds,
+            from,
+            words,
         });
     }
 
@@ -340,6 +366,7 @@ impl Engine {
         let Some(part) = self.line.front() else {
             return;
         };
+        self.heard = hear(part, time, self.heard);
         if let Owner::Said(id) = part.owner
             && self.started != Some(id)
         {
@@ -501,6 +528,10 @@ impl Voicer for Engine {
         self.plan_ahead();
     }
 
+    fn heard(&self) -> Option<Heard> {
+        self.heard
+    }
+
     fn events(&mut self) -> Vec<Event> {
         while let Ok(made) = self.made.try_recv() {
             let id = match (self.making, &made) {
@@ -656,10 +687,16 @@ impl<S: Synth> Worker<S> {
             lead: true,
         };
         let (mut all, mut rate, mut to) = (Vec::<i16>::new(), 0, ticket);
+        let mut words = Vec::new();
         let (mut ended, mut stopped) = (false, false);
-        let rendered = self.synth.render(&line, &mut |audio, r, last| {
+        let rendered = self.synth.render(&line, &mut |audio, r, last, marks| {
             let piece: Vec<i16> = audio.iter().map(|&s| sample(s)).collect();
-            let pcm = Pcm::new(&piece, r);
+            let pcm = Pcm::marked(&piece, r, marks);
+            let moved = marks.iter().map(|m| Mark {
+                at: m.at + all.len(),
+                byte: m.byte,
+            });
+            words.extend(moved);
             match to {
                 Some(_) => crew.send(to, pcm, last),
                 None => to = crew.offer(key, pcm, last),
@@ -678,7 +715,7 @@ impl<S: Synth> Worker<S> {
             }
             crew.send(to, Pcm::new(&[], rate), true);
         }
-        (to, Ok(Some(Pcm::new(&all, rate))))
+        (to, Ok(Some(Pcm::marked(&all, rate, &words))))
     }
 
     /// Loads `voice`, telling the window while a model is read from disk.
@@ -753,8 +790,8 @@ pub(crate) fn both<A: Send, B>(
     })
 }
 
-/// Trims a piece's lead-in if `start`, and its tail to `end` seconds.
-pub(crate) fn trim_join(audio: &mut Vec<f32>, rate: u32, start: bool, end: Option<f64>) {
+/// Trims the lead-in if `start`, the tail to `end` s; returns those cut first.
+pub(crate) fn trim_join(audio: &mut Vec<f32>, rate: u32, start: bool, end: Option<f64>) -> usize {
     let rate = f64::from(rate);
     let keep = (rate * JOIN) as usize;
     if let Some(pause) = end {
@@ -762,10 +799,27 @@ pub(crate) fn trim_join(audio: &mut Vec<f32>, rate: u32, start: bool, end: Optio
         let quiet = audio.iter().rev().take_while(|s| s.abs() < QUIET).count();
         audio.truncate(audio.len().saturating_sub(quiet.saturating_sub(owed)));
     }
-    if start {
-        let quiet = audio.iter().take_while(|s| s.abs() < QUIET).count();
-        audio.drain(..quiet.saturating_sub(keep));
+    if !start {
+        return 0;
     }
+    let quiet = audio.iter().take_while(|s| s.abs() < QUIET).count();
+    let cut = quiet.saturating_sub(keep).min(audio.len());
+    audio.drain(..cut);
+    cut
+}
+
+/// Where `part` is heard `time` into it; a word begun before is kept.
+fn hear(part: &Part, time: f64, before: Option<Heard>) -> Option<Heard> {
+    let Owner::Said(id) = part.owner else {
+        return None;
+    };
+    let begun = part.words.iter().rev().find(|(s, _)| *s <= time);
+    let kept = before.filter(|h| h.id == id).and_then(|h| h.word);
+    Some(Heard {
+        id,
+        seconds: part.from + time,
+        word: begun.map(|w| w.1).or(kept),
+    })
 }
 
 /// A model sample as 16 bits.
@@ -814,13 +868,22 @@ pub(crate) mod tests {
         }
 
         fn render(&mut self, line: &Line<'_>, out: &mut Out<'_>) -> Result<(), String> {
-            let words = line.text.split_whitespace().count();
+            let text = line.text;
+            let begins = |&(i, c): &(usize, char)| {
+                let after = text
+                    .get(..i)
+                    .is_none_or(|b| b.is_empty() || b.ends_with(' '));
+                !c.is_whitespace() && after
+            };
+            let starts: Vec<usize> = text.char_indices().filter(begins).map(|(i, _)| i).collect();
+            let words = starts.len();
             let level = line.knobs.first().copied().unwrap_or(0.5);
-            for i in 0..words {
+            for (i, &byte) in starts.iter().enumerate() {
                 if let Some(gate) = &self.gate {
                     let _ = gate.recv();
                 }
-                if !out(&[level; 2_400], RATE, i + 1 == words) {
+                let mark = [Mark { at: 0, byte }];
+                if !out(&[level; 2_400], RATE, i + 1 == words, &mark) {
                     break;
                 }
             }
@@ -1007,6 +1070,59 @@ pub(crate) mod tests {
         assert!(lock(&e.desk.plan).now.is_none());
         assert_eq!(e.line.iter().filter(|p| p.last).count(), 1);
         assert_eq!(e.line.len(), 2);
+    }
+
+    #[test]
+    fn each_word_is_heard_where_its_piece_says() {
+        let mut e = engine();
+        assert_eq!(e.say(9, "One two three."), Ok(()));
+        settle(&mut e, |e| e.making.is_none());
+        let words: Vec<(f64, Vec<(f64, usize)>)> =
+            e.line.iter().map(|p| (p.from, p.words.clone())).collect();
+        let tenths: Vec<i64> = words.iter().map(|w| (w.0 * 10.0).round() as i64).collect();
+        assert_eq!(tenths, [0, 1, 2], "each a tenth on");
+        let bytes: Vec<Vec<(f64, usize)>> = words.into_iter().map(|w| w.1).collect();
+        assert_eq!(bytes, [vec![(0.0, 0)], vec![(0.0, 4)], vec![(0.0, 8)]]);
+        let key = e.key("One two three.");
+        let kept = e.studio.takes().get(&key).map(|p| p.marks.to_vec());
+        let at: Option<Vec<(usize, usize)>> =
+            kept.map(|m| m.iter().map(|m| (m.at, m.byte)).collect());
+        assert_eq!(
+            at,
+            Some(vec![(0, 0), (2400, 4), (4800, 8)]),
+            "kept whole too"
+        );
+    }
+
+    #[test]
+    fn the_word_heard_is_the_last_begun_or_the_one_before() {
+        let part = |owner, words| Part {
+            tag: 1,
+            owner,
+            last: false,
+            seconds: 1.0,
+            from: 2.0,
+            words,
+        };
+        let said = part(Owner::Said(3), vec![(0.2, 10), (0.6, 15)]);
+        let at = |time, before| hear(&said, time, before).and_then(|h| h.word);
+        assert_eq!(at(0.7, None), Some(15));
+        assert_eq!(at(0.3, None), Some(10));
+        assert_eq!(at(0.1, None), None, "nothing begun here yet");
+        let before = Heard {
+            id: 3,
+            seconds: 1.9,
+            word: Some(4),
+        };
+        assert_eq!(at(0.1, Some(before)), Some(4), "begun in the piece before");
+        let other = Heard { id: 2, ..before };
+        assert_eq!(at(0.1, Some(other)), None, "another sentence's");
+        assert_eq!(hear(&said, 0.5, None).map(|h| h.seconds), Some(2.5));
+        assert!(hear(&part(Owner::Next(e_key()), vec![]), 0.1, None).is_none());
+    }
+
+    fn e_key() -> Key {
+        engine().key("Next.")
     }
 
     #[test]

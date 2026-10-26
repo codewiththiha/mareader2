@@ -10,6 +10,7 @@ use mareader_vits::{Config, Scales, Style, Vits, espeak_like};
 
 use crate::local::{Line, Out, Synth, both, trim_join};
 use crate::studio::Studio;
+use crate::timing::{Words, offsets, place, shift, spell};
 
 /// The speeds offered, as shares of each voice's own pace.
 pub(crate) const SPEEDS: RangeInclusive<f32> = 0.5..=3.0;
@@ -117,16 +118,29 @@ impl Synth for Piper {
         let loaded = self.loaded.as_ref().ok_or("Piper was let go")?;
         let rate = loaded.config.audio.sample_rate;
         let scales = scales(loaded.config.inference, line);
-        let phonemes = espeak_like(&loaded.g2p.phonemize(line.text), loaded.style);
+        let tokens = loaded.g2p.spelt(line.text);
+        let spelt = spell(
+            line.text,
+            tokens
+                .iter()
+                .map(|t| (&*t.text, &*t.phonemes, &*t.whitespace)),
+        );
+        let phonemes = espeak_like(&spelt.phonemes, loaded.style);
+        let words = Words::new(&phonemes, &spelt);
         let pieces = pieces(&phonemes, line.lead);
-        for (i, piece) in pieces.iter().enumerate() {
-            let ids = loaded.config.ids(piece).map_err(|e| e.to_string())?;
-            let mut audio = (loaded.vits.speak(&ids, 0, scales)).map_err(|e| e.to_string())?;
+        let starts = offsets(&phonemes, &pieces);
+        for ((i, piece), from) in pieces.iter().enumerate().zip(starts) {
+            let (ids, id_at) = loaded.config.ids_at(piece).map_err(|e| e.to_string())?;
+            let spoken = (loaded.vits.spoken(&ids, 0, scales)).map_err(|e| e.to_string())?;
+            let mut audio = spoken.audio;
+            let here = words.within(from, from + piece.chars().count());
+            let mut marks = place(&here, &id_at, &spoken.frames, audio.len());
             normalise(&mut audio);
             let last = i + 1 == pieces.len();
             let owed = CLAUSE / f64::from(line.speed);
-            trim_join(&mut audio, rate, i > 0, (!last).then_some(owed));
-            if !out(&audio, rate, last) {
+            let cut = trim_join(&mut audio, rate, i > 0, (!last).then_some(owed));
+            shift(&mut marks, cut, audio.len());
+            if !out(&audio, rate, last, &marks) {
                 break;
             }
         }
