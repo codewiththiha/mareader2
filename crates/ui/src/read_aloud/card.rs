@@ -1,31 +1,38 @@
 //! The player as a card: cover, place, and words streaming like lyrics.
 
 use std::ops::Range;
+use std::sync::Arc;
 
+use egui::epaint::TextShape;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Mesh, Pos2, Rect, Sense, Shadow, Stroke, Ui, pos2,
-    vec2,
+    Color32, CornerRadius, CursorIcon, FontId, Galley, Mesh, Pos2, Rect, Sense, Shadow, Stroke, Ui,
+    pos2, vec2,
 };
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
-/// The card's size at most; it narrows with its pane.
-pub(super) const WIDTH: f32 = 480.0;
-pub(super) const HEIGHT: f32 = 236.0;
+/// The full card's least width; it keeps the bar's if wider.
+pub(super) const WIDTH: f32 = 460.0;
+pub(super) const HEIGHT: f32 = 224.0;
+/// The compact card: the bar, with one streaming line above it.
+pub(super) const COMPACT_HEIGHT: f32 = 94.0;
 const PAD: f32 = 14.0;
-const COVER: egui::Vec2 = vec2(84.0, 126.0);
+const COVER: egui::Vec2 = vec2(70.0, 105.0);
 /// Narrower than this, the cover gives the words its room.
 const COVERLESS: f32 = 340.0;
 /// The lit words sit this far down the lines shown.
 const EYE: f32 = 0.4;
 /// The words' scroll closes this share of its gap each second, roughly.
 const GLIDE: f32 = 10.0;
-pub(super) const NOW_SIZE: f32 = 17.0;
+pub(super) const NOW_SIZE: f32 = 16.0;
 const NEAR_SIZE: f32 = 13.0;
 pub(super) const LABEL: &str = "Show where it's reading";
+/// The compact line's type size, and seconds a new sentence takes to rise.
+const COMPACT_SIZE: f32 = 15.0;
+const ENTER: f64 = 0.3;
 
 /// The sentences round the one said, and which of its words are lit.
 #[derive(Clone, Debug, PartialEq)]
@@ -77,11 +84,10 @@ pub(super) fn frame(ui: &Ui, rect: Rect, k: f32) {
     (ui.painter()).rect_stroke(rect, round, edge, egui::StrokeKind::Inside);
 }
 
-/// The card above its controls, faded in by `show`; true when clicked.
+/// The full card, faded in by `show`; true when a `live` one is clicked.
 pub(super) fn show(
     ui: &mut Ui,
-    rect: Rect,
-    show: f32,
+    (rect, show, live): (Rect, f32, bool),
     (about, lyrics): (&About<'_>, Option<&Lyrics>),
     scroll: &mut Scroll,
     cover: &mut dyn FnMut(&Ui, Rect) -> bool,
@@ -104,9 +110,10 @@ pub(super) fn show(
     let column = Rect::from_min_max(pos2(text_left, inner.top() + lift), inner.max);
     let mut clicked = false;
     if with_cover {
-        let r = ui.interact(art, ui.id().with("read-aloud-cover"), Sense::click());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, LABEL));
-        let hot = ui.ctx().animate_bool_with_time(r.id, r.hovered(), 0.12);
+        let r = live.then(|| reveal(ui, art, "read-aloud-cover"));
+        let hot = (r.as_ref()).map_or(0.0, |r| {
+            ui.ctx().animate_bool_with_time(r.id, r.hovered(), 0.12)
+        });
         let art = art.expand(2.0 * hot);
         ui.scope(|ui| {
             ui.set_opacity(show);
@@ -114,11 +121,7 @@ pub(super) fn show(
                 drawn_cover(ui, art, about.title);
             }
         });
-        if r.hovered() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-        }
-        widgets::tip(&r, LABEL, None);
-        clicked |= r.clicked();
+        clicked |= r.is_some_and(|r| r.clicked());
     }
     // The title, with bars that dance while it plays.
     let bars_w = 18.0;
@@ -129,11 +132,13 @@ pub(super) fn show(
     let title_h = galley.size().y.max(18.0);
     let title_rect = Rect::from_min_size(column.min, vec2(galley.size().x, title_h));
     ui.painter().galley(title_rect.min, galley, faded(t.ink));
-    let r = ui.interact(title_rect, ui.id().with("read-aloud-title"), Sense::click());
-    if r.hovered() {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    if live {
+        let r = ui.interact(title_rect, ui.id().with("read-aloud-title"), Sense::click());
+        if r.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        clicked |= r.clicked();
     }
-    clicked |= r.clicked();
     let bars = Rect::from_min_size(
         pos2(column.right() - bars_w, column.top() + 2.0),
         vec2(bars_w, title_h - 4.0),
@@ -165,6 +170,204 @@ pub(super) fn show(
         None => quiet(ui, words, show, about),
     }
     clicked
+}
+
+/// Where a click goes back to the words, named for screen readers.
+fn reveal(ui: &Ui, rect: Rect, id: &str) -> egui::Response {
+    let r = ui.interact(rect, ui.id().with(id), Sense::click());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, LABEL));
+    if r.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    widgets::tip(&r, LABEL, None);
+    r
+}
+
+/// The compact card: where it is, then one gliding line; true when clicked.
+pub(super) fn compact(
+    ui: &mut Ui,
+    (rect, show, live): (Rect, f32, bool),
+    (about, lyrics): (&About<'_>, Option<&Lyrics>),
+    ticker: &mut Ticker,
+) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let inner = rect.shrink2(vec2(16.0, 0.0)).with_min_y(rect.top() + 9.0);
+    if inner.width() < 40.0 || inner.height() < 30.0 {
+        return false;
+    }
+    let lift = (1.0 - show) * 6.0;
+    let faded = |c: Color32| c.gamma_multiply(show);
+    // "Georgia · Page 22 · History", with bars that dance while it plays.
+    let bars_w = 14.0;
+    let small = FontId::proportional(t.text_small);
+    let line = match &about.place {
+        Some(place) => format!("{} · {place}", about.title),
+        None => about.title.to_owned(),
+    };
+    let text = truncated(ui, &line, small.clone(), inner.width() - bars_w - 10.0);
+    let g = ui.painter().layout_no_wrap(text, small, faded(t.muted));
+    let top = inner.top() + lift;
+    let head_h = g.size().y;
+    ui.painter()
+        .galley(pos2(inner.left(), top), g, faded(t.muted));
+    let bars = Rect::from_min_size(
+        pos2(inner.right() - bars_w, top + 2.0),
+        vec2(bars_w, head_h - 4.0),
+    );
+    dance(ui, bars, about.playing, faded(t.accent));
+    let words = Rect::from_min_max(
+        pos2(inner.left(), top + head_h + 2.0),
+        pos2(inner.right(), rect.bottom() - 2.0),
+    );
+    match lyrics {
+        Some(lyrics) => ticker.show(ui, words, show, lyrics),
+        None => {
+            let said = match (about.playing, about.narrator) {
+                (true, Some(who)) => format!("Read by {who}"),
+                (true, None) => "Listening to the narrator".to_owned(),
+                (false, _) => "Paused".to_owned(),
+            };
+            let font = theme::medium(COMPACT_SIZE);
+            let g = ui.painter().layout_no_wrap(said, font, faded(t.ink));
+            let at = pos2(words.left(), words.center().y - g.size().y / 2.0);
+            ui.painter().galley(at, g, faded(t.ink));
+        }
+    }
+    live && reveal(ui, rect, "read-aloud-line").clicked()
+}
+
+/// The sentence said on one line, kept moving with the words lit.
+#[derive(Default)]
+pub(super) struct Ticker {
+    /// How far along the line is scrolled, gliding to its goal.
+    x: f32,
+    key: Option<u64>,
+    time: Option<f64>,
+    /// When the sentence said arrived, rising into place.
+    since: f64,
+    /// The last sentence, lifting away, and its scroll.
+    gone: Option<(Arc<Galley>, f32, f64)>,
+    last: Option<Arc<Galley>>,
+}
+
+impl Ticker {
+    fn show(&mut self, ui: &Ui, area: Rect, show: f32, lyrics: &Lyrics) {
+        let t = Tokens::get(ui.ctx());
+        let (job, lit) = line(lyrics, &t);
+        let galley = ui.painter().layout_job(job);
+        let x_of = |c: usize| galley.pos_from_cursor(egui::text::CCursor::new(c)).left();
+        let (a, b) = (x_of(lit.start), x_of(lit.end));
+        let room = area.width();
+        let most = (galley.size().x - room).max(0.0);
+        // The lit words sit a little left of the middle, as eyes lead.
+        let goal = ((a + b) / 2.0 - room * 0.42).clamp(0.0, most);
+        let now = ui.input(|i| i.time);
+        let dt = self.time.map_or(0.0, |was| (now - was).clamp(0.0, 0.1)) as f32;
+        self.time = Some(now);
+        if self.key != Some(lyrics.key) {
+            if let (Some(_), Some(old)) = (self.key, self.last.take()) {
+                self.gone = Some((old, self.x, now));
+            }
+            (self.key, self.x, self.since) = (Some(lyrics.key), goal, now);
+        }
+        let calm = !crate::motion::enabled(ui.ctx());
+        self.x += (goal - self.x) * (1.0 - (-dt * 8.0).exp());
+        if calm {
+            self.x = goal;
+        }
+        let rise = |since: f64| match calm {
+            true => 1.0,
+            false => ((now - since) / ENTER).clamp(0.0, 1.0) as f32,
+        };
+        let painter = ui.painter().with_clip_rect(area.expand2(vec2(0.0, 2.0)));
+        let y = area.center().y - galley.size().y / 2.0;
+        if let Some((old, x, since)) = &self.gone {
+            let k = ease(rise(*since));
+            let at = pos2(area.left() - x, y - 10.0 * k);
+            let fade = show * (1.0 - k);
+            painter.add(TextShape::new(at, old.clone(), t.ink).with_opacity_factor(fade));
+            if k >= 1.0 {
+                self.gone = None;
+            }
+        }
+        let k = ease(rise(self.since));
+        let at = pos2(area.left() - self.x, y + 10.0 * (1.0 - k));
+        painter.add(TextShape::new(at, galley.clone(), t.ink).with_opacity_factor(show * k));
+        // Words beyond the edges melt into the card.
+        let edge = 22.0;
+        if self.x > 0.5 {
+            side_fade(ui, area.with_max_x(area.left() + edge), t.surface, true);
+        }
+        if galley.size().x - self.x > room + 0.5 {
+            side_fade(ui, area.with_min_x(area.right() - edge), t.surface, false);
+        }
+        if (goal - self.x).abs() > 0.5 || k < 1.0 || self.gone.is_some() {
+            ui.ctx().request_repaint();
+        }
+        self.last = Some(galley);
+    }
+}
+
+/// The sentence said as one coloured line, and its lit words' characters.
+fn line(lyrics: &Lyrics, t: &Tokens) -> (LayoutJob, Range<usize>) {
+    let mut job = LayoutJob::default();
+    job.wrap.max_width = f32::INFINITY;
+    let format = |c: Color32| TextFormat {
+        font_id: theme::medium(COMPACT_SIZE),
+        color: c,
+        ..Default::default()
+    };
+    let chars = |byte: usize| lyrics.now.get(..byte).map_or(0, |s| s.chars().count());
+    let mut lit = 0..0;
+    let mut from = 0;
+    for (i, word) in lyrics.words.iter().enumerate() {
+        let colour = match i {
+            _ if i < lyrics.lit.start => t.ink,
+            _ if lyrics.lit.contains(&i) => t.accent,
+            _ => t.muted,
+        };
+        if i == lyrics.lit.start {
+            lit.start = chars(word.start);
+        }
+        if i + 1 == lyrics.lit.end {
+            lit.end = chars(word.end);
+        }
+        let end = (lyrics.words.get(i + 1)).map_or(lyrics.now.len(), |next| next.start);
+        if let Some(text) = lyrics.now.get(from..end) {
+            job.append(text, 0.0, format(colour));
+        }
+        from = end;
+    }
+    if lyrics.words.is_empty() {
+        job.append(&lyrics.now, 0.0, format(t.ink));
+    }
+    lit.end = lit.end.max(lit.start);
+    (job, lit)
+}
+
+/// From the card's fill to clear across `rect`; `left` fades rightward.
+fn side_fade(ui: &Ui, rect: Rect, fill: Color32, left: bool) {
+    let clear = Color32::TRANSPARENT;
+    let (near, far) = if left { (fill, clear) } else { (clear, fill) };
+    let mut mesh = Mesh::default();
+    let corners: [(Pos2, Color32); 4] = [
+        (rect.left_top(), near),
+        (rect.right_top(), far),
+        (rect.right_bottom(), far),
+        (rect.left_bottom(), near),
+    ];
+    for (pos, colour) in corners {
+        mesh.colored_vertex(pos, colour);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(mesh);
+}
+
+/// Slow, quick, then slow.
+fn ease(k: f32) -> f32 {
+    let k = k.clamp(0.0, 1.0);
+    k * k * (3.0 - 2.0 * k)
 }
 
 /// A cover drawn for a book with none: the look's wash and headphones.
@@ -229,7 +432,7 @@ fn stream(ui: &mut Ui, area: Rect, show: f32, lyrics: &Lyrics, scroll: &mut Scro
     scroll.time = Some(now);
     let target = lit_y - area.height() * EYE;
     // Racing or sought sentences never leave the words out of sight.
-    let reach = (area.height() * 0.5).max(0.0);
+    let reach = (area.height() * 0.25).max(0.0);
     scroll.at = scroll.at.clamp(target - reach, target + reach);
     scroll.at += (target - scroll.at) * (1.0 - (-dt * GLIDE).exp());
     if (target - scroll.at).abs() > 0.5 {
@@ -239,7 +442,7 @@ fn stream(ui: &mut Ui, area: Rect, show: f32, lyrics: &Lyrics, scroll: &mut Scro
     painter.galley(area.min - vec2(0.0, scroll.at), galley, t.ink);
     let fill = t.surface;
     fade_edge(ui, area.with_max_y(area.top() + 14.0), fill, true);
-    fade_edge(ui, area.with_min_y(area.bottom() - 14.0), fill, false);
+    fade_edge(ui, area.with_min_y(area.bottom() - 22.0), fill, false);
     // Read out by screen readers as the sentence said.
     let r = ui.interact(area, ui.id().with("read-aloud-words"), Sense::hover());
     let said = lyrics.now.clone();

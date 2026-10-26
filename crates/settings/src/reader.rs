@@ -189,6 +189,19 @@ pub enum Highlight {
     Words,
 }
 
+/// What the player opens into when the words read are out of sight.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Player {
+    /// Just the bar; it opens only when asked, and then compact.
+    Bar,
+    /// The bar with one line of words streaming above it.
+    #[default]
+    Compact,
+    /// A card with the cover and the sentences round the one read.
+    Full,
+}
+
 /// How a book with narration is read aloud.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -202,6 +215,7 @@ pub struct ReadAloudSettings {
     pub highlight: Highlight,
     /// Words lit at a time when [`Highlight::Words`], 1 to 10.
     pub highlight_words: u8,
+    pub player: Player,
     /// The engine that reads a book with no narration of its own.
     pub engine: String,
     /// The voice picked for each engine, by engine; none is its default.
@@ -305,6 +319,7 @@ impl Default for ReadAloudSettings {
             follow: true,
             highlight: Highlight::Sentence,
             highlight_words: 1,
+            player: Player::Compact,
             engine: Self::SYSTEM.to_owned(),
             voices: std::collections::BTreeMap::new(),
             builds: std::collections::BTreeMap::new(),

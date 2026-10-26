@@ -7,6 +7,7 @@ use egui::{Color32, Context, CornerRadius, Id, Order, Rect, Ui};
 use mareader_audio::{Clip, Fault, Fetch, Player, Segment};
 use mareader_epub::{Files, Narration, Run, Skips};
 use mareader_session::{Anchor, Document};
+use mareader_settings::Player as Look;
 use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
@@ -230,7 +231,6 @@ impl Narrated {
             }),
             total: Some(total / rate),
             seek: true,
-            ticks: Vec::new(),
             note,
             hint,
             narrated: true,
@@ -422,6 +422,7 @@ struct Shape {
     at: Option<egui::Pos2>,
     time: Option<f64>,
     scroll: card::Scroll,
+    ticker: card::Ticker,
     /// When the player first showed for this reading.
     appeared: Option<f64>,
 }
@@ -818,11 +819,18 @@ impl ReadAloud {
             shape.chosen = None;
         }
         let room = pane.unwrap_or(stage.content);
-        let fits = room.height() >= card::HEIGHT + 120.0 && room.width() >= 300.0;
-        shape.card = shape.chosen.unwrap_or(auto) && fits;
+        // Bar only opens when asked, and then compact; small rooms shrink it.
+        let style = settings.player;
+        let fits = room.height() >= card::COMPACT_HEIGHT + 80.0 && room.width() >= 300.0;
+        let roomy = room.height() >= card::HEIGHT + 120.0 && room.width() >= 360.0;
+        let wanted = shape.chosen.unwrap_or(auto && style != Look::Bar);
+        shape.card = wanted && fits;
         let morph = motion::secs(ctx, MORPH);
         let k = ctx.animate_bool_with_time(Id::new("read-aloud-card"), shape.card, morph);
         let k = ease_in_out(k);
+        let full = style == Look::Full && roomy;
+        let f = ctx.animate_bool_with_time(Id::new("read-aloud-full"), full, morph);
+        let f = ease_in_out(f);
         let since = now - *shape.appeared.get_or_insert(now);
         let shown = match motion::enabled(ctx) {
             true => ease_out((since / APPEAR).clamp(0.0, 1.0)) as f32,
@@ -852,11 +860,12 @@ impl ReadAloud {
             let view = s.view(&hint);
             let about = s.about(stage.title);
             let lyrics = s.lyrics();
+            // Compact grows up from the bar; full widens into a card.
             let pill = Fit::new(room.width() - 24.0, view.escape).width(view.escape);
-            let width = card::lerp(pill, card::WIDTH, k)
-                .min(room.width() - 16.0)
-                .max(0.0);
-            let height = card::lerp(control::HEIGHT, card::HEIGHT, k);
+            let open = card::lerp(pill, card::WIDTH.max(pill), f);
+            let width = card::lerp(pill, open, k).min(room.width() - 16.0).max(0.0);
+            let tall = card::lerp(card::COMPACT_HEIGHT, card::HEIGHT, f);
+            let height = card::lerp(control::HEIGHT, tall, k);
             let bottom = at.y + (1.0 - shown) * 10.0;
             let rect = Rect::from_min_size(
                 egui::pos2(at.x - width / 2.0, bottom - height),
@@ -875,19 +884,22 @@ impl ReadAloud {
                     let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
                     card::frame(ui, r, k);
                     let row = r.with_min_y(r.bottom() - control::HEIGHT);
-                    // The words wait until the card has room for them.
+                    // Words wait for room; compact and full cross-fade.
                     let words = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
-                    if words > 0.0 {
-                        let top = r.with_max_y(row.top());
-                        let both = (&about, lyrics.as_ref());
-                        if card::show(
-                            ui,
-                            top,
-                            ease_out(f64::from(words)) as f32,
-                            both,
-                            &mut shape.scroll,
-                            cover,
-                        ) {
+                    let top = r.with_max_y(row.top());
+                    let both = (&about, lyrics.as_ref());
+                    let light = |w: f32| ease_out(f64::from(w)) as f32;
+                    let small = words * (1.0 - f).powi(2);
+                    if small > 0.01 {
+                        let at = (top, light(small), f < 0.5);
+                        if card::compact(ui, at, both, &mut shape.ticker) {
+                            act = Some(Act::Reveal);
+                        }
+                    }
+                    let large = words * f * f;
+                    if large > 0.01 {
+                        let at = (top, light(large), f >= 0.5);
+                        if card::show(ui, at, both, &mut shape.scroll, cover) {
                             act = Some(Act::Reveal);
                         }
                     }

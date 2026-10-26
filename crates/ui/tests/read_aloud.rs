@@ -760,3 +760,23 @@ fn a_book_gone_from_disk_says_so_and_reading_goes_on() {
     );
     assert_eq!(h.state().panes().len(), 1);
 }
+
+#[test]
+fn bar_only_stays_a_bar_until_asked_and_full_keeps_it_open() {
+    use mareader_settings::Player;
+    let mut h = reader(3);
+    h.state_mut().settings_mut().read_aloud.player = Player::Bar;
+    start(&mut h, ReadFrom::default());
+    h.state_mut().settings_mut().read_aloud.follow = false;
+    h.run_steps(2);
+    assert!(!carded(&h), "bar only waits to be asked");
+    h.get_by_label("Expand player").click();
+    h.run_steps(30);
+    assert!(carded(&h));
+    let _ = h.get_by_label("Show where it's reading");
+    // Switched to full, it stays open while it changes shape.
+    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    h.run_steps(30);
+    assert!(carded(&h));
+    let _ = h.get_by_label("Show where it's reading");
+}

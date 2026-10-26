@@ -1,7 +1,7 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
 use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
-use mareader_settings::{Highlight, LANGUAGES, ReadAloudSettings};
+use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::downloads::muted;
@@ -526,6 +526,14 @@ fn reading(ui: &mut Ui, s: &mut ReadAloudSettings) {
         switch_row(ui, "Turn pages to follow", hint, &mut s.follow);
         divider(ui);
         highlight(ui, s);
+        divider(ui);
+        let hint = "What the player becomes when the words read are out of view";
+        row(ui, "Player", hint, |ui| {
+            // Added right to left, so they read left to right.
+            ui.selectable_value(&mut s.player, Player::Full, "Full");
+            ui.selectable_value(&mut s.player, Player::Compact, "Compact");
+            ui.selectable_value(&mut s.player, Player::Bar, "Bar only");
+        });
         divider(ui);
         let hint = "Numbers at the top or foot of a page are passed over";
         switch_row(ui, "Skip page numbers", hint, &mut s.skip_page_numbers);

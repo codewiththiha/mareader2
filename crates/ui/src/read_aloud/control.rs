@@ -6,7 +6,7 @@ use egui::{
     UiBuilder, pos2, vec2,
 };
 use mareader_audio::RATES;
-use mareader_settings::{Highlight, ReadAloudSettings};
+use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
 use super::rate_label;
 use crate::command::{Command, Commands};
@@ -25,10 +25,8 @@ const TRACK_MOST: f32 = 168.0;
 const TRACK_LEAST: f32 = 56.0;
 /// The track shrinks to this before speed goes.
 const TRACK_EASY: f32 = 110.0;
-/// Chapter gaps closer than this would make a comb.
-const TICK_ROOM: f32 = 12.0;
 const TIME_W: f32 = 78.0;
-const SPEED_W: f32 = 44.0;
+const SPEED_W: f32 = 54.0;
 
 /// What the player shows this frame.
 pub(super) struct View<'a> {
@@ -47,8 +45,6 @@ pub(super) struct View<'a> {
     pub left: Option<f64>,
     pub total: Option<f64>,
     pub seek: bool,
-    /// Where chapters start, as shares of the track.
-    pub ticks: Vec<f32>,
     /// A fault, or the end; shown in place of the track.
     pub note: Option<(String, bool)>,
     /// Where a share of the track lands, as a page and chapter.
@@ -404,14 +400,6 @@ fn seek_track(ui: &mut Ui, rect: Rect, view: &View<'_>) -> Option<f32> {
     }
     let filled = bar.with_max_x(bar.left() + bar.width() * shown);
     ui.painter().rect_filled(filled, round, t.accent);
-    // Chapters part the track, as gaps in it, while they stand apart.
-    let roomy = bar.width() / (view.ticks.len() + 1) as f32 >= TICK_ROOM;
-    let gap = Stroke::new(1.5, t.surface);
-    for tick in (view.ticks.iter()).filter(|k| roomy && **k > 0.01 && **k < 0.99) {
-        let x = bar.left() + bar.width() * tick;
-        ui.painter()
-            .line_segment([pos2(x, bar.top()), pos2(x, bar.bottom())], gap);
-    }
     let knob = pos2(bar.left() + bar.width() * shown, bar.center().y);
     let size = 2.5 + 3.5 * hot;
     ui.painter()
@@ -516,6 +504,8 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings) {
         .min_size(vec2(SPEED_W - 4.0, 26.0));
     let place = UiBuilder::new().max_rect(slot.shrink2(vec2(2.0, (HEIGHT - 26.0) / 2.0)));
     ui.scope_builder(place, |ui| {
+        // "1.25×" stays on one line, whatever the room.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let (r, _) = MenuButton::from_button(button).ui(ui, |ui| {
             for rate in RATES {
                 let on = (settings.rate - rate).abs() < 0.01;
@@ -558,6 +548,13 @@ fn options(ui: &mut Ui, slot: Rect, s: &mut ReadAloudSettings, narrated: bool, o
                     ui.selectable_value(&mut s.highlight, Highlight::Words, "Words");
                 });
             }
+            ui.separator();
+            ui.label(RichText::new("Player").size(Tokens::get(ui.ctx()).text_small));
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut s.player, Player::Bar, "Bar only");
+                ui.selectable_value(&mut s.player, Player::Compact, "Compact");
+                ui.selectable_value(&mut s.player, Player::Full, "Full");
+            });
             ui.separator();
             let row = widgets::menu_row(ui, Icon::Settings, "Voice settings…", None, false);
             if row.clicked() {

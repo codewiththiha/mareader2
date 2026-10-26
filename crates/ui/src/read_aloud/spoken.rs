@@ -695,7 +695,6 @@ impl Spoken {
             left: progress.map(|p| p.1),
             total: progress.map(|p| p.2),
             seek: can && self.chosen.is_none(),
-            ticks: self.ticks(),
             note,
             hint,
             narrated: false,
@@ -731,17 +730,6 @@ impl Spoken {
             seconds(to - here),
             seconds(span),
         ))
-    }
-
-    /// Where the book's top chapters start, as shares of it.
-    fn ticks(&self) -> Vec<f32> {
-        let outline = self.document.outline();
-        let count = self.document.page_count().max(1) as f32;
-        let top = outline.iter().map(|e| e.depth).min();
-        (outline.iter())
-            .filter(|e| Some(e.depth) == top && self.chosen.is_none())
-            .map(|e| e.page as f32 / count)
-            .collect()
     }
 
     /// The page at `share` of the book.
