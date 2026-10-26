@@ -177,6 +177,18 @@ impl Default for MotionSettings {
     }
 }
 
+/// How much of what is read aloud is lit at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Highlight {
+    #[default]
+    Sentence,
+    /// The phrases a voice pauses between, as at commas.
+    Phrases,
+    /// [`ReadAloudSettings::highlight_words`] words at a time.
+    Words,
+}
+
 /// How a book with narration is read aloud.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -187,6 +199,9 @@ pub struct ReadAloudSettings {
     pub skip_page_numbers: bool,
     /// Pages turn to keep the phrase read in view.
     pub follow: bool,
+    pub highlight: Highlight,
+    /// Words lit at a time when [`Highlight::Words`], 1 to 10.
+    pub highlight_words: u8,
     /// The engine that reads a book with no narration of its own.
     pub engine: String,
     /// The voice picked for each engine, by engine; none is its default.
@@ -218,6 +233,8 @@ impl ReadAloudSettings {
     pub const IDLE_MIN: [u32; 5] = [1, 2, 5, 15, 0];
     /// A model's setting at most, as a share of its normal.
     pub const KNOB_MOST: f32 = 4.0;
+    /// Words lit at a time at most.
+    pub const WORDS_MOST: u8 = 10;
 
     pub fn sanitize(&mut self) {
         let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
@@ -227,6 +244,7 @@ impl ReadAloudSettings {
         self.rate = keep(self.rate, Self::SLOWEST, Self::FASTEST);
         self.pitch = keep(self.pitch, Self::LOWEST, Self::HIGHEST);
         self.volume = keep(self.volume, 0.0, 1.0);
+        self.highlight_words = self.highlight_words.clamp(1, Self::WORDS_MOST);
         if self.engine.trim().is_empty() {
             self.engine = Self::SYSTEM.to_owned();
         }
@@ -285,6 +303,8 @@ impl Default for ReadAloudSettings {
             skip_notes: false,
             skip_page_numbers: true,
             follow: true,
+            highlight: Highlight::Sentence,
+            highlight_words: 1,
             engine: Self::SYSTEM.to_owned(),
             voices: std::collections::BTreeMap::new(),
             builds: std::collections::BTreeMap::new(),

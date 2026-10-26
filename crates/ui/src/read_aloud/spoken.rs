@@ -6,10 +6,11 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
 
 use egui::{Context, Ui};
 use mareader_session::{Anchor, DocId, Document, TextLayer};
-use mareader_settings::ReadAloudSettings;
-use mareader_speech::{Event, Glyph, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
+use mareader_settings::{Highlight, ReadAloudSettings};
+use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
+use super::words::{self, Clock, Pace};
 use super::{Lit, Span, TICK, button, ending, follow, options, speed};
 use crate::command::Commands;
 use crate::documents::{Documents, Reading};
@@ -75,6 +76,14 @@ pub(super) struct Spoken {
     relaid: bool,
     /// A selection read alone: where it began, and where it stops.
     chosen: Option<(Start, Spot)>,
+    /// How much is lit, and words at a time.
+    highlight: (Highlight, u8),
+    /// Where the voice says it is in the sentence said.
+    heard: Option<Heard>,
+    /// The voice has said where it is: till it does again, it is starting.
+    timed: bool,
+    clock: Clock,
+    pace: Pace,
 }
 
 impl Spoken {
@@ -111,6 +120,11 @@ impl Spoken {
             revealed: None,
             relaid: false,
             chosen: until.map(|until| (start, until)),
+            highlight: (settings.highlight, settings.highlight_words),
+            heard: None,
+            timed: false,
+            clock: Clock::default(),
+            pace: Pace::default(),
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -198,6 +212,7 @@ impl Spoken {
 
     /// Takes up changed settings; a changed voice says the sentence again.
     fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
+        self.highlight = (settings.highlight, settings.highlight_words);
         let build = mareader_speech::build_of(&settings.engine, settings.build(), shelf);
         if settings.engine != self.engine || build != self.build {
             let at = self.place();
@@ -260,8 +275,12 @@ impl Spoken {
             return;
         };
         self.id = self.id.wrapping_add(1);
+        self.heard = None;
         match v.say(self.id, &said.sentence.text) {
-            Ok(()) => self.saying = true,
+            Ok(()) => {
+                self.saying = true;
+                self.clock.start();
+            }
             Err(fault) => {
                 self.fault = Some(fault.to_string());
                 self.saying = false;
@@ -344,6 +363,7 @@ impl Spoken {
             self.saying = false;
         }
         self.paused = true;
+        self.clock.stop();
     }
 
     pub fn toggle(&mut self) {
@@ -355,8 +375,9 @@ impl Spoken {
         } else if self.paused {
             self.paused = false;
             let resumed = self.saying && self.voicer.as_mut().is_some_and(|v| v.resume());
-            if !resumed {
-                self.go_on();
+            match resumed {
+                true => self.clock.go(),
+                false => self.go_on(),
             }
         } else {
             self.pause();
@@ -416,9 +437,14 @@ impl Spoken {
         for event in events {
             if event == Event::Finished(self.id) && self.saying {
                 self.saying = false;
+                let bytes = self.current.as_ref().map_or(0, |s| s.sentence.text.len());
+                self.pace.learn(bytes, self.clock.seconds(), self.tone.rate);
                 self.pass();
             }
         }
+        let heard = self.voicer.as_ref().and_then(|v| v.heard());
+        self.heard = heard.filter(|h| h.id == self.id && self.saying);
+        self.timed |= heard.is_some();
         if self.relaid {
             self.relocate();
         }
@@ -433,7 +459,8 @@ impl Spoken {
         if !self.finished {
             self.look_ahead();
         }
-        let page = self.current.as_ref().map(|s| s.sentence.start.page);
+        let lit = self.lit_spots();
+        let page = lit.map(|(start, _)| start.page);
         // Only a real turn shows the new page's first sentence.
         let turned = page.is_some() && page != self.followed && page != Some(reading.current);
         follow(documents, &reading, settings, page, &mut self.followed);
@@ -490,15 +517,15 @@ impl Spoken {
         };
         said.sentence.start = found.sentence.start;
         said.sentence.end = found.sentence.end;
+        said.sentence.words = found.sentence.words;
         said.anchor = found.anchor;
     }
 
     /// Keeps the sentence said in view; a turned page shows its first.
     fn reveal(&mut self, docs: &mut Documents, pane: PaneId, s: &ReadAloudSettings, turned: bool) {
-        let Some(said) = self.current.as_ref().map(|c| &c.sentence) else {
+        let Some((start, end)) = self.lit_spots() else {
             return;
         };
-        let (start, end) = (said.start, said.end);
         if turned {
             self.revealed = Some(start);
         }
@@ -516,17 +543,35 @@ impl Spoken {
     }
 
     pub fn lit(&self) -> Option<Lit> {
-        let said = self
-            .current
-            .as_ref()
+        let (start, end) = self
+            .lit_spots()
             .filter(|_| !self.finished && !self.relaid)?;
         Some(Lit {
-            span: Span::Chars {
-                start: said.sentence.start,
-                end: said.sentence.end,
-            },
+            span: Span::Chars { start, end },
             fill: None,
         })
+    }
+
+    /// Where the words lit start and end: the whole sentence until heard.
+    fn lit_spots(&self) -> Option<(Spot, Spot)> {
+        let said = &self.current.as_ref()?.sentence;
+        let whole = Some((said.start, said.end));
+        let heard = self.heard.filter(|_| self.saying);
+        if self.highlight.0 == Highlight::Sentence || said.words.is_empty() {
+            return whole;
+        }
+        // The voice's own clock, else ours: either way, pauses left out.
+        let seconds = match heard {
+            Some(h) => h.seconds,
+            None if self.timed => 0.0,
+            None => self.clock.seconds(),
+        };
+        let guess = self.pace.bytes(seconds, self.tone.rate);
+        let at = words::heard(&said.words, heard.and_then(|h| h.word), guess);
+        let lit = words::group(&said.text, &said.words, at, self.highlight);
+        let first = said.words.get(lit.start)?;
+        let last = said.words.get(lit.end.checked_sub(1)?)?;
+        Some((first.start, last.end))
     }
 
     /// The bar's buttons; true when closed.

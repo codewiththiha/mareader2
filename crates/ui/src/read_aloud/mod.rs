@@ -22,6 +22,7 @@ use crate::widgets;
 mod booth;
 pub mod marker;
 mod spoken;
+mod words;
 
 pub use booth::Booth;
 use spoken::Spoken;

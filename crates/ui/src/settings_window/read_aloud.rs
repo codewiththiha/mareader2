@@ -1,7 +1,7 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
 use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
-use mareader_settings::{LANGUAGES, ReadAloudSettings};
+use mareader_settings::{Highlight, LANGUAGES, ReadAloudSettings};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::downloads::muted;
@@ -525,11 +525,36 @@ fn reading(ui: &mut Ui, s: &mut ReadAloudSettings) {
         let hint = "The page and scroll keep up with the words read";
         switch_row(ui, "Turn pages to follow", hint, &mut s.follow);
         divider(ui);
+        highlight(ui, s);
+        divider(ui);
         let hint = "Numbers at the top or foot of a page are passed over";
         switch_row(ui, "Skip page numbers", hint, &mut s.skip_page_numbers);
         divider(ui);
         let hint = "Narrated books pass over their footnotes and asides";
         switch_row(ui, "Skip notes", hint, &mut s.skip_notes);
+    });
+}
+
+/// How much of what is read is lit, and words at a time.
+fn highlight(ui: &mut Ui, s: &mut ReadAloudSettings) {
+    let hint = "Light the whole sentence, the phrase between pauses, or a few words";
+    row(ui, "Highlight", hint, |ui| {
+        // Added right to left, so they read left to right.
+        ui.selectable_value(&mut s.highlight, Highlight::Words, "Words");
+        ui.selectable_value(&mut s.highlight, Highlight::Phrases, "Phrases");
+        ui.selectable_value(&mut s.highlight, Highlight::Sentence, "Sentence");
+    });
+    if s.highlight != Highlight::Words {
+        return;
+    }
+    divider(ui);
+    let hint = "Most voices keep exact time; the system's voice is estimated";
+    row(ui, "Words at a time", hint, |ui| {
+        let mut n = f32::from(s.highlight_words);
+        let most = f32::from(ReadAloudSettings::WORDS_MOST);
+        let show = |n: f32| format!("{n:.0}");
+        widgets::stepper(ui, &mut n, 1.0..=most, 1.0, show, "words at a time");
+        s.highlight_words = n as u8;
     });
 }
 
