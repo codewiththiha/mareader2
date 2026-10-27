@@ -117,7 +117,8 @@ What CI covers, against the local gates:
 **Hybrid.** In CI mode on a machine whose cache is warm, one targeted local
 command is fine for a tight loop (for example
 `cargo test -p mareader-ui some_test`, under the memory cap). The gates
-still come from CI.
+still come from CI. A restored sandbox cache holds lint builds only, so a
+local test first needs `cache build --full`.
 
 **Superseded runs.** A newer push to the same branch cancels the older run.
 `watch` reports that run as superseded, not red; watch the branch head
@@ -396,9 +397,11 @@ speech works; the Linux test job has none.
 ## The sandbox cache
 
 After a sandbox reset, local mode would start with a 30-minute cold build.
-`python3 tools/ci.py cache restore` instead downloads a build that CI made of
-everything the local gates build, toolchain included, and unpacks it here.
-`python3 tools/ci.py cache build` refreshes that build.
+`python3 tools/ci.py cache restore` instead downloads a build that CI made
+and unpacks it here. The build covers what the sandbox runs locally:
+clippy on the workspace and on wasm, plus the xtask gates. It ships the
+toolchain too. `python3 tools/ci.py cache build` refreshes it, and
+`--full` adds the test binaries and the `shot` example for local mode.
 
 **Use it only when it is needed.** Each step costs minutes:
 
@@ -416,22 +419,25 @@ everything the local gates build, toolchain included, and unpacks it here.
   first built with until then.
 
 - **What is inside.** The `rustup` toolchain (with the wasm and macOS
-  targets, clippy and rustfmt), the cargo registry and the full
-  `target-mr` directory, packed with zstd. That is about 1.7 GB to
-  download and 7 GB unpacked; the artifact is kept for 30 days.
+  targets, clippy and rustfmt), the cargo registry and the `target-mr`
+  directory, packed with zstd. The artifact is kept for 30 days. With
+  `--full`, `target-mr` holds every test binary: 23 GB unpacked and
+  5.6 GB to download (2026-10-27), against 7 GB and 1.7 GB on 2026-10-14.
+  That is why the sandbox's default cache builds lint only.
 - **Why a build takes minutes, not 13.** Normal CI jobs start from
   GitHub's saved build and only compile our crates. That saved build sits
   at other paths with other settings, so cargo cannot reuse it here. A
   cold cache build therefore compiles all ~300 crates on one machine. A
   normal cache build instead downloads the previous cache inside GitHub
   (100 MB/s, about 30 s), compiles only what changed, and repacks.
-- **Why a `Cargo.lock` change starts `target-mr` afresh.** Cargo names a
-  dependency's files by its version, so after a lock change the old files
-  stay behind. One seed across 612 commits grew the cache from 1.7 GB to
-  6.7 GB. So the seed step keeps the toolchain and the registry, but drops
-  `target-mr` when the lock differs from the cached one. That build takes
-  12–17 min on a runner, and nobody waits for it. A workspace crate keeps
-  its file names across edits, so other refreshes do not grow the cache.
+- **Why `target-mr` sometimes starts afresh.** Cargo never deletes a stale
+  artifact. It names a dependency's files by version, so a lock change
+  leaves the old files behind: one seed across 612 commits carried 1.1 GB
+  of them. The seed step therefore keeps the toolchain and the registry,
+  but drops `target-mr` when `Cargo.lock` or the build set (lint or full)
+  differs from the cached one. That build takes 12–17 min on a runner,
+  and nobody waits for it. A workspace crate keeps its file names across
+  edits, so the other refreshes do not grow the cache.
 - **Why it can be reused.** Cargo keys its cache on absolute paths, the
   compiler version and the build profile. So the CI job clones the repo to
   `/home/user/mareader2` and uses `/home/user/.cache/{rustup,cargo,target-mr}`

@@ -24,6 +24,10 @@ on:
         description: Cache from nothing, not from the last cache
         type: boolean
         default: false
+      full:
+        description: Cache test binaries and the shot example too, not just lint
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -731,6 +735,8 @@ jobs:
       # The runner turns it off; cargo's default, on, is in the hash.
       CARGO_INCREMENTAL: "1"
       REPO_DIR: /home/user/mareader2
+      # The sandbox only lints; test binaries took 23 GB of 25.
+      CACHE_BUILDS: ${{ inputs.full && 'full' || 'lint' }}
     steps:
       - name: Clone at the sandbox's path
         run: |
@@ -765,9 +771,11 @@ jobs:
           # The browser preview is best-effort: warn only.
           cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings ||
             echo "::warning::the wasm build has lint errors (best-effort)"
-          cargo test -q --workspace --no-run
-          cargo build -q -p mareader-ui --example shot
           cargo xtask layers && cargo xtask assets && cargo xtask unsafe
+          if [ "$CACHE_BUILDS" = full ]; then
+            cargo test -q --workspace --no-run
+            cargo build -q -p mareader-ui --example shot
+          fi
       - name: Pack
         working-directory: /home/user/mareader2
         run: |
@@ -780,6 +788,7 @@ jobs:
               "time": int(git("log", "-1", "--format=%ct")),
               "rustc": subprocess.check_output(["rustc", "-V"], text=True).strip(),
               "lock": hashlib.sha256(open("Cargo.lock", "rb").read()).hexdigest(),
+              "builds": os.environ["CACHE_BUILDS"],
               "root": "/home/user/.cache",
               "repo_dir": os.environ["REPO_DIR"],
               "dirs": ["rustup", "cargo", "target-mr"],

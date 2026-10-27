@@ -547,7 +547,9 @@ def cache_build(args) -> int:
     token = token_from(args)
     sha = pushed_sha(args.repo, token, args.rev)
     cold = "true" if args.cold else "false"
-    run = follow(args.repo, token, dispatch(args.repo, token, "cache", sha, cold=cold),
+    full = "true" if args.full else "false"
+    run = follow(args.repo, token,
+                 dispatch(args.repo, token, "cache", sha, cold=cold, full=full),
                  args.timeout, args.poll)
     return 0 if run.conclusion == "success" else 1
 
@@ -644,12 +646,13 @@ def cache_seed(args) -> int:
             log("no live sandbox cache: building cold")
             return 0
         meta = fetch_cache(token, art, "/home/user/.cache", force=True)
-        # Cargo names a dependency's files by version: after a lock change
-        # the old ones stay, and one 612-commit seed grew 1.7 GB to 6.7.
+        # Nothing deletes a stale artifact: a lock or build-set change
+        # would carry the old files along, so target-mr starts afresh.
         lock = hashlib.sha256(open("Cargo.lock", "rb").read()).hexdigest()
-        if meta.get("lock") != lock:
-            log("Cargo.lock changed since that cache: target-mr builds from "
-                "nothing; the toolchain and registry stay")
+        builds = os.environ.get("CACHE_BUILDS", "lint")
+        if meta.get("lock") != lock or meta.get("builds") != builds:
+            log(f"Cargo.lock or the build set ({builds}) changed since that "
+                "cache: target-mr builds from nothing; toolchain and registry stay")
             shutil.rmtree("/home/user/.cache/target-mr", ignore_errors=True)
     except (SystemExit, OSError, zipfile.BadZipFile) as exc:
         log(f"seeding failed ({exc}): building cold")
@@ -861,6 +864,8 @@ def main() -> int:
     c = sub.add_parser("cache", help="a sandbox build cache made by CI")
     c.add_argument("action", choices=["build", "restore", "seed"],
                    help="seed is the cache job's own first step")
+    c.add_argument("--full", action="store_true",
+                   help="also test binaries and the shot example (local mode)")
     c.add_argument("--cold", action="store_true",
                    help="build from nothing, e.g. for a new toolchain")
     c.add_argument("--run", type=int, help="restore this run's cache, not the newest")
