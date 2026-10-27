@@ -1059,3 +1059,34 @@ fn a_table_read_aloud_can_be_skipped_and_stepped_back_into() {
     assert!(lit(&h) > was, "on a later cell");
     assert!(h.query_by_label(skip).is_some(), "it can be skipped again");
 }
+
+#[test]
+fn the_options_menu_sets_the_player_and_stays_over_it() {
+    use mareader_settings::{Highlight, Player};
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(2);
+    h.get_by_label("Read-aloud options").click();
+    h.run_steps(4);
+    h.get_by_label("Full").click();
+    h.run_steps(2);
+    h.get_by_label("Words").click();
+    h.run_steps(2);
+    let follow = h.state().settings().read_aloud.follow;
+    h.get_by_label("Turn pages to follow").click();
+    h.run_steps(2);
+    let s = &h.state().settings().read_aloud;
+    assert_eq!((s.player, s.highlight), (Player::Full, Highlight::Words));
+    assert_ne!(s.follow, follow, "the switch flips it");
+    // Choosing keeps the menu open; pressing the player keeps it on top.
+    let row = h.get_by_label("Voice settings…").rect();
+    let menu = h.ctx.layer_id_at(row.center()).expect("the menu's layer");
+    let play = h.get_by_label("Play").rect();
+    pointer(&mut h, play.center(), Some(true));
+    h.run_steps(1);
+    let bar = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("read-aloud-bar"));
+    let order: Vec<_> = h.ctx.memory(|m| m.layer_ids().collect());
+    let at = |l: egui::LayerId| order.iter().position(|o| *o == l);
+    assert!(at(menu) > at(bar), "{order:?}");
+}

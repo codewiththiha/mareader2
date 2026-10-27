@@ -24,8 +24,7 @@ pub const WIDTH: f32 = 300.0;
 /// A slider row's name and value boxes: fixed, so no value widens it.
 const NAME_W: f32 = 64.0;
 const VALUE_W: f32 = 52.0;
-/// A segmented row, and a group's fold header.
-const ROW: f32 = 24.0;
+/// A group's fold header.
 const HEADER: f32 = 24.0;
 /// A sub-group's header sits in from its parent's.
 const SUB_INDENT: f32 = 12.0;
@@ -255,7 +254,7 @@ fn colour_group(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut
     ) {
         return;
     }
-    segments(ui, &mut a.base, &BaseMode::ALL, 4, |b| {
+    widgets::segments(ui, &mut a.base, &BaseMode::ALL, 4, |b| {
         (Some(mode_icon(b)), b.label())
     });
     hue(ui, a);
@@ -274,7 +273,7 @@ fn texture_group(ui: &mut Ui, a: &mut Appearance) {
     if !fold(ui, "texture", "Page texture", &summary, 0.0, |_| {}) {
         return;
     }
-    segments(ui, &mut a.texture, &TextureMode::ALL, 3, |m| {
+    widgets::segments(ui, &mut a.texture, &TextureMode::ALL, 3, |m| {
         (None, m.label())
     });
     if a.texture != TextureMode::None {
@@ -294,7 +293,7 @@ fn grain_group(ui: &mut Ui, a: &mut Appearance) {
     }
     let before = a.noise;
     let grain = [NoiseMode::Off, NoiseMode::Static, NoiseMode::Animated];
-    segments(ui, &mut a.noise, &grain, 3, |n| (None, noise_label(n)));
+    widgets::segments(ui, &mut a.noise, &grain, 3, |n| (None, noise_label(n)));
     if a.noise != before && a.noise != NoiseMode::Off && a.noise_intensity == 0 {
         a.noise_intensity = INTENSITY_ON;
     }
@@ -410,59 +409,6 @@ fn elided(ui: &Ui, text: &str, font: FontId, colour: Color32, width: f32) -> Arc
         overflow_character: Some('…'),
     };
     ui.painter().layout_job(job)
-}
-
-/// Choices as one segmented track, `cols` cells to a row.
-fn segments<T: Copy + PartialEq>(
-    ui: &mut Ui,
-    value: &mut T,
-    all: &[T],
-    cols: usize,
-    face: impl Fn(T) -> (Option<Icon>, &'static str),
-) {
-    let t = Tokens::get(ui.ctx());
-    let cols = cols.max(1);
-    let rows = all.len().div_ceil(cols);
-    let size = vec2(ui.available_width(), ROW * rows as f32);
-    let (track, _) = ui.allocate_exact_size(size, Sense::hover());
-    let line = Stroke::new(1.0, t.line);
-    ui.painter()
-        .rect_stroke(track, CornerRadius::same(6), line, StrokeKind::Inside);
-    let w = track.width() / cols as f32;
-    for (i, &v) in all.iter().enumerate() {
-        let (icon, label) = face(v);
-        let min = track.min + vec2((i % cols) as f32 * w, (i / cols) as f32 * ROW);
-        let cell = Rect::from_min_size(min, vec2(w, ROW)).shrink(2.0);
-        let resp = ui.interact(cell, ui.id().with(("segment", label)), Sense::click());
-        if resp.clicked() {
-            *value = v;
-        }
-        let on = *value == v;
-        let fill = match (on, resp.hovered()) {
-            (true, _) => t.selected,
-            (false, true) => t.hover,
-            (false, false) => Color32::TRANSPARENT,
-        };
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-        }
-        ui.painter().rect_filled(cell, CornerRadius::same(4), fill);
-        // Accent ink marks the pick where the soft fill barely shows (Dim).
-        let ink = if on { t.accent } else { t.ink };
-        let font = FontId::proportional(t.text);
-        let galley = ui.painter().layout_no_wrap(label.to_owned(), font, ink);
-        let icon_w = if icon.is_some() { 18.0 } else { 0.0 };
-        let mut x = cell.center().x - (icon_w + galley.size().x) / 2.0;
-        let y = cell.center().y;
-        if let Some(icon) = icon {
-            let at = Rect::from_min_size(pos2(x, y - 7.0), Vec2::splat(14.0));
-            icon.image(14.0).tint(ink).paint_at(ui, at);
-            x += icon_w;
-        }
-        let top = y - galley.size().y / 2.0;
-        ui.painter().galley(pos2(x, top), galley, ink);
-        resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, on, label));
-    }
 }
 
 /// Drops a half-typed preset once the popover has closed.

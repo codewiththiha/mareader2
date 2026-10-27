@@ -1,6 +1,5 @@
 //! The compact player: steps, play, a seek track with time left, and stop.
 
-use egui::containers::menu::MenuButton;
 use egui::{
     Color32, CornerRadius, Id, LayerId, Order, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui,
     UiBuilder, pos2, vec2,
@@ -655,7 +654,7 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings) {
     ui.scope_builder(place, |ui| {
         // "1.25×" stays on one line, whatever the room.
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        let (r, _) = MenuButton::from_button(button).ui(ui, |ui| {
+        let r = menu(ui, button, SPEED_MENU, |ui| {
             for rate in RATES {
                 let on = (settings.rate - rate).abs() < 0.01;
                 if ui.selectable_label(on, rate_label(rate)).clicked() {
@@ -680,41 +679,94 @@ fn options(ui: &mut Ui, slot: Rect, s: &mut ReadAloudSettings, narrated: bool, o
         egui::Vec2::splat(BUTTON),
     ));
     ui.scope_builder(place, |ui| {
-        let (r, _) = MenuButton::from_button(more).ui(ui, |ui| {
-            // Menu rows fill what they're given, so the menu sets its width.
-            ui.set_width(220.0);
-            if narrated {
-                ui.checkbox(&mut s.skip_notes, "Skip notes");
-            }
-            ui.checkbox(&mut s.skip_page_numbers, "Skip page numbers");
-            ui.checkbox(&mut s.follow, "Turn pages to follow");
-            if !narrated {
-                ui.separator();
-                ui.label(RichText::new("Highlight").size(Tokens::get(ui.ctx()).text_small));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut s.highlight, Highlight::Sentence, "Sentence");
-                    ui.selectable_value(&mut s.highlight, Highlight::Phrases, "Phrases");
-                    ui.selectable_value(&mut s.highlight, Highlight::Words, "Words");
-                });
-            }
-            ui.separator();
-            ui.label(RichText::new("Player").size(Tokens::get(ui.ctx()).text_small));
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut s.player, Player::Bar, "Bar only");
-                ui.selectable_value(&mut s.player, Player::Compact, "Compact");
-                ui.selectable_value(&mut s.player, Player::Full, "Full");
-            });
-            ui.separator();
-            let row = widgets::menu_row(ui, Icon::Settings, "Voice settings…", None, false);
-            if row.clicked() {
-                out.push(Command::OpenSettings(
-                    crate::settings_window::Tab::ReadAloud,
-                ));
-                ui.close();
-            }
-        });
-        widgets::tip(&r, "Read-aloud options", None);
+        let r = menu(ui, more, OPTIONS_MENU, |ui| choices(ui, s, narrated, out));
+        let name = "Read-aloud options";
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+        widgets::tip(&r, name, None);
     });
+}
+
+/// The speed and options menus' widths.
+const SPEED_MENU: f32 = 96.0;
+const OPTIONS_MENU: f32 = 264.0;
+
+/// A button's menu, kept above the player it opens from.
+fn menu(
+    ui: &mut Ui,
+    button: egui::Button<'_>,
+    width: f32,
+    add: impl FnOnce(&mut Ui),
+) -> egui::Response {
+    let r = ui.add(button);
+    let popup = egui::Popup::menu(&r)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .gap(6.0)
+        .width(width);
+    let layer = LayerId::new(Order::Foreground, popup.get_id());
+    popup.show(|ui| {
+        ui.set_width(width);
+        add(ui);
+    });
+    // A press raises the player over it until the release closes it.
+    if egui::Popup::is_id_open(ui.ctx(), layer.id) {
+        ui.ctx().move_to_top(layer);
+    }
+    r
+}
+
+/// What is skipped, how it's lit, the player's size, then voice settings.
+fn choices(ui: &mut Ui, s: &mut ReadAloudSettings, narrated: bool, out: &mut Commands) {
+    ui.spacing_mut().item_spacing.y = 2.0;
+    if narrated {
+        widgets::menu_switch(ui, Icon::Note, "Skip notes", &mut s.skip_notes);
+    }
+    let skip = &mut s.skip_page_numbers;
+    widgets::menu_switch(ui, Icon::PageNumber, "Skip page numbers", skip);
+    widgets::menu_switch(ui, Icon::Follow, "Turn pages to follow", &mut s.follow);
+    if !narrated {
+        heading(ui, "Highlight");
+        let all = [Highlight::Sentence, Highlight::Phrases, Highlight::Words];
+        widgets::segments(ui, &mut s.highlight, &all, 3, |h| {
+            let label = match h {
+                Highlight::Sentence => "Sentence",
+                Highlight::Phrases => "Phrases",
+                Highlight::Words => "Words",
+            };
+            (None, label)
+        });
+    }
+    heading(ui, "Player");
+    let all = [Player::Bar, Player::Compact, Player::Full];
+    widgets::segments(ui, &mut s.player, &all, 3, |p| {
+        let label = match p {
+            Player::Bar => "Bar",
+            Player::Compact => "Compact",
+            Player::Full => "Full",
+        };
+        (None, label)
+    });
+    ui.add_space(6.0);
+    ui.separator();
+    let row = widgets::menu_row(ui, Icon::Settings, "Voice settings…", None, false);
+    let t = Tokens::get(ui.ctx());
+    let at = Rect::from_center_size(row.rect.right_center() - vec2(18.0, 0.0), vec2(14.0, 14.0));
+    Icon::ChevronRight
+        .image(14.0)
+        .tint(t.muted)
+        .paint_at(ui, at);
+    if row.clicked() {
+        out.push(Command::OpenSettings(
+            crate::settings_window::Tab::ReadAloud,
+        ));
+        ui.close();
+    }
+}
+
+/// A group's small name, a breath above it.
+fn heading(ui: &mut Ui, text: &str) {
+    ui.add_space(6.0);
+    widgets::menu_note(ui, text);
+    ui.add_space(2.0);
 }
 
 #[cfg(test)]

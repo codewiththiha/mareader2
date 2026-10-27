@@ -138,6 +138,9 @@ pub enum Icon {
     VoiceModel,
     SkipBack,
     SkipForward,
+    /// Read-aloud's options: page numbers skipped, pages turned.
+    PageNumber,
+    Follow,
     LeaveTable,
 }
 
@@ -227,6 +230,8 @@ impl Icon {
             Self::SkipBack => Lucide::SkipBack,
             Self::SkipForward => Lucide::SkipForward,
             Self::LeaveTable => Lucide::ArrowRightFromLine,
+            Self::PageNumber => Lucide::Hash,
+            Self::Follow => Lucide::BookOpenText,
             Self::Check => Lucide::Check,
             Self::Import => Lucide::BookPlus,
             Self::Link => Lucide::Link,
