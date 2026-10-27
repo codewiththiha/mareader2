@@ -37,7 +37,7 @@ jobs:
   shots:
     name: Remote / shots
     if: inputs.task == 'shots'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The same env as CI's test job, so its cache restores here.
     env:
       RUSTFLAGS: -D warnings
@@ -77,7 +77,7 @@ jobs:
   memory:
     name: Remote / memory
     if: inputs.task == 'memory'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       RUSTFLAGS: -D warnings
@@ -201,7 +201,7 @@ jobs:
     name: Remote / memory report
     if: always() && inputs.task == 'memory'
     needs: [memory, memory-macos]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -222,7 +222,7 @@ jobs:
   kokoro:
     name: Remote / kokoro
     if: inputs.task == 'kokoro'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -316,7 +316,7 @@ jobs:
   piper:
     name: Remote / piper
     if: inputs.task == 'piper'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -421,7 +421,7 @@ jobs:
   kitten:
     name: Remote / kitten
     if: inputs.task == 'kitten'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -521,7 +521,7 @@ jobs:
   phonon:
     name: Remote / phonon
     if: inputs.task == 'phonon'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -606,7 +606,7 @@ jobs:
   ipa:
     name: Remote / ipa
     if: inputs.task == 'ipa'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -637,7 +637,7 @@ jobs:
   hanzi:
     name: Remote / hanzi
     if: inputs.task == 'hanzi'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -668,7 +668,7 @@ jobs:
   web:
     name: Remote / web
     if: inputs.task == 'web'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -701,7 +701,7 @@ jobs:
   cache:
     name: Remote / sandbox cache
     if: inputs.task == 'cache'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The sandbox's paths and profile: cargo's cache is keyed on both.
     env:
       RUSTUP_HOME: /home/user/.cache/rustup
@@ -811,7 +811,7 @@ jobs:
     name: Remote / system report
     if: always() && inputs.task == 'system'
     needs: system
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:

@@ -12,6 +12,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Linux jobs stay on 24.04: 26.04's Mesa crashes the GPU tests at random.
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -19,7 +20,7 @@ env:
 jobs:
   format:
     name: Rust / format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,7 +30,7 @@ jobs:
 
   lint:
     name: Rust / lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -42,7 +43,7 @@ jobs:
 
   test:
     name: Rust / test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -82,7 +83,7 @@ jobs:
 
   commits:
     name: Build / each commit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Every commit builds alone, so `git bisect` never stops on a broken one.
     # Warnings are the lint job's: a split commit may briefly leave dead code.
     env:
