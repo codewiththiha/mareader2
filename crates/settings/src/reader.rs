@@ -216,6 +216,8 @@ pub struct ReadAloudSettings {
     /// Words lit at a time when [`Highlight::Words`], 1 to 10.
     pub highlight_words: u8,
     pub player: Player,
+    /// The player's width set by hand, in points; none fits its parts.
+    pub player_width: Option<f32>,
     /// The engine that reads a book with no narration of its own.
     pub engine: String,
     /// The voice picked for each engine, by engine; none is its default.
@@ -249,6 +251,8 @@ impl ReadAloudSettings {
     pub const KNOB_MOST: f32 = 4.0;
     /// Words lit at a time at most.
     pub const WORDS_MOST: u8 = 10;
+    /// The player's width set by hand, least and most, in points.
+    pub const PLAYER_WIDTH: (f32, f32) = (300.0, 960.0);
 
     pub fn sanitize(&mut self) {
         let keep = |v: f32, lo: f32, hi: f32| match v.is_finite() {
@@ -259,6 +263,9 @@ impl ReadAloudSettings {
         self.pitch = keep(self.pitch, Self::LOWEST, Self::HIGHEST);
         self.volume = keep(self.volume, 0.0, 1.0);
         self.highlight_words = self.highlight_words.clamp(1, Self::WORDS_MOST);
+        let (narrowest, widest) = Self::PLAYER_WIDTH;
+        let width = self.player_width.filter(|w| w.is_finite());
+        self.player_width = width.map(|w| w.clamp(narrowest, widest));
         if self.engine.trim().is_empty() {
             self.engine = Self::SYSTEM.to_owned();
         }
@@ -320,6 +327,7 @@ impl Default for ReadAloudSettings {
             highlight: Highlight::Sentence,
             highlight_words: 1,
             player: Player::Compact,
+            player_width: None,
             engine: Self::SYSTEM.to_owned(),
             voices: std::collections::BTreeMap::new(),
             builds: std::collections::BTreeMap::new(),

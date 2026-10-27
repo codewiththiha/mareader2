@@ -105,6 +105,12 @@ impl Fit {
         fit
     }
 
+    /// Gives the track what `room` has beyond the parts, when set wider.
+    pub fn fill(mut self, room: f32, escape: bool) -> Self {
+        self.track += (room - self.width(escape)).max(0.0);
+        self
+    }
+
     fn extra(&self) -> f32 {
         let time = if self.time { TIME_W + 8.0 } else { 0.0 };
         time + if self.speed { SPEED_W } else { 0.0 }

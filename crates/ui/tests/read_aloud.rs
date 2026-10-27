@@ -841,3 +841,42 @@ fn a_reflowed_book_opened_again_is_lit_and_followed_there() {
     assert_eq!(h.state().documents().current(home), page(&h));
     assert!(page(&h).is_some_and(|p| p > 0), "turned to the words read");
 }
+
+#[test]
+fn dragging_a_side_sets_the_player_width_for_good() {
+    let mut h = reader(3);
+    start(&mut h, ReadFrom::default());
+    h.run_steps(30);
+    let side = |h: &Harness<'static, MareaderApp>, name: &str| {
+        let label = format!("Resize player at its {name}");
+        h.get_by_label(&label).rect().center()
+    };
+    let before = side(&h, "end").x - side(&h, "start").x;
+    let from = side(&h, "end");
+    let to = from + egui::vec2(40.0, 0.0);
+    h.hover_at(from);
+    h.run();
+    h.drag_at(from);
+    h.run();
+    for step in 1..=8 {
+        h.hover_at(from.lerp(to, step as f32 / 8.0));
+        h.run();
+    }
+    h.event(egui::Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(3);
+    let set = h.state().settings().read_aloud.player_width;
+    let wider = set.expect("a width set by hand");
+    // Centred, it grows on both sides; the drag's first points are slack.
+    assert!(
+        wider > before + 50.0 && wider <= before + 82.0,
+        "{before} → {wider}"
+    );
+    h.run_steps(20);
+    let now = side(&h, "end").x - side(&h, "start").x;
+    assert!((now - wider).abs() < 1.0, "it keeps that width: {now}");
+}

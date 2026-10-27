@@ -23,12 +23,14 @@ use crate::widgets;
 mod booth;
 mod card;
 mod control;
+mod edges;
 pub mod marker;
 mod spoken;
 mod words;
 
 pub use booth::Booth;
 use control::{Act, Fit, View};
+use edges::Resize;
 use spoken::Spoken;
 
 /// How often the lit phrase is checked while it plays.
@@ -425,6 +427,8 @@ struct Shape {
     ticker: card::Ticker,
     /// When the player first showed for this reading.
     appeared: Option<f64>,
+    /// Its width while a side is dragged.
+    dragged: Option<f32>,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -861,9 +865,19 @@ impl ReadAloud {
             let about = s.about(stage.title);
             let lyrics = s.lyrics();
             // Compact grows up from the bar; full widens into a card.
-            let pill = Fit::new(room.width() - 24.0, view.escape).width(view.escape);
-            let open = card::lerp(pill, card::WIDTH.max(pill), f);
-            let width = card::lerp(pill, open, k).min(room.width() - 16.0).max(0.0);
+            let parts = Fit::new(room.width() - 24.0, view.escape).width(view.escape);
+            // A width set by hand holds in every shape, if the room has it.
+            let (narrowest, widest) = ReadAloudSettings::PLAYER_WIDTH;
+            let set = shape.dragged.or(settings.player_width);
+            let pill = set.map_or(parts, |w| w.clamp(narrowest, widest));
+            let least_full = if set.is_some() {
+                card::FULL_LEAST
+            } else {
+                card::WIDTH
+            };
+            let open = card::lerp(pill, least_full.max(pill), f);
+            let most = (room.width() - 16.0).max(0.0);
+            let width = card::lerp(pill, open, k).min(most);
             let tall = card::lerp(card::COMPACT_HEIGHT, card::HEIGHT, f);
             let height = card::lerp(control::HEIGHT, tall, k);
             let bottom = at.y + (1.0 - shown) * 10.0;
@@ -871,7 +885,14 @@ impl ReadAloud {
                 egui::pos2(at.x - width / 2.0, bottom - height),
                 egui::vec2(width, height),
             );
-            let fit = Fit::new(width, view.escape);
+            let fit = Fit::new(width, view.escape).fill(width, view.escape);
+            let least = if f >= 0.5 {
+                card::FULL_LEAST
+            } else {
+                narrowest
+            };
+            let span = (width, least.min(most), widest.min(most));
+            let mut resize = None;
             let mut act = None;
             egui::Area::new(Id::new("read-aloud-bar"))
                 .fade_in(false)
@@ -906,7 +927,14 @@ impl ReadAloud {
                     if let Some(a) = control::show(ui, row, (&view, fit, k), settings, out) {
                         act = Some(a);
                     }
+                    resize = edges::show(ui, r, span);
                 });
+            match resize {
+                Some(Resize::To(w)) => shape.dragged = Some(w),
+                Some(Resize::Set(w)) => (shape.dragged, settings.player_width) = (None, Some(w)),
+                Some(Resize::Reset) => (shape.dragged, settings.player_width) = (None, None),
+                None => {}
+            }
             act
         };
         match act {
