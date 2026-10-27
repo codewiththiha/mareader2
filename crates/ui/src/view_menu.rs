@@ -5,7 +5,6 @@ use egui::{
 };
 
 use crate::command::{Command, Commands, WindowCommand};
-use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::keymap;
 use crate::layout::ViewMode;
@@ -58,14 +57,6 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     ui.set_width(WIDTH);
     ui.spacing_mut().item_spacing.y = 2.0;
-    // Splitting is a drag from the Library panel, so Open… is the only row.
-    let command = Command::ShowOpenDialog(Placement::Into);
-    let keys = keymap::hint(cx.platform, &command);
-    if widgets::menu_row(ui, Icon::Open, "Open…", keys.as_deref(), false).clicked() {
-        out.push(command);
-        ui.close();
-    }
-    ui.separator();
     // Layout, zoom and reading each under a name of their own.
     if let Some(mode) = cx.mode {
         heading(ui, "Layout");

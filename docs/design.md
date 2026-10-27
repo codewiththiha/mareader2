@@ -335,7 +335,8 @@ A new setting picks its `Applies` once; nothing else changes.
     Hovering, the open list or a drag stops every clock, and at least
     1.5 s is left after. They come in with a 200 ms rise and fade.
 - **View & tools menu.** The last button in the bar (`view_menu.rs`). It
-  holds full screen, the keyboard shortcut list and the version. When the
+  holds full screen, the keyboard shortcut list and the version; Open…
+  is left to Ctrl+O (⌘O) and the empty pane. When the
   bar is narrow, Settings, Search and the splits fold into it, leftmost
   first, so the title keeps 160 pt.
 - **Shortcuts.** `keymap.rs` is the only table: the handler, tooltips and
