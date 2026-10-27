@@ -960,3 +960,35 @@ fn a_voice_not_downloaded_links_to_its_settings() {
         "on the Read aloud tab"
     );
 }
+
+#[test]
+fn the_line_read_stays_clear_of_the_player() {
+    // Short enough that a page's lines run on under the player.
+    let mut h = reader_sized(3, egui::vec2(900.0, 420.0));
+    start(&mut h, ReadFrom::default());
+    let pane = h.state().active_pane();
+    let mut lines = Vec::new();
+    for _ in 0..12 {
+        h.get_by_label("Pause").click();
+        h.run_steps(60);
+        let (from, to) = lit(&h).expect("a line is lit");
+        let end = if to.page == from.page {
+            to.char
+        } else {
+            from.char + 1
+        };
+        let docs = h.state().documents();
+        let line = docs.hit_box(pane, from.page, from.char..end);
+        let line = line.expect("the line read is on screen");
+        let player = h.get_by_label("Play").rect();
+        assert!(
+            line.bottom() <= player.top(),
+            "{line:?} under the player at {player:?}"
+        );
+        lines.push(from);
+        h.get_by_label("Play").click();
+        step_until(&mut h, |h| lit(h).is_some_and(|l| l.0 != from));
+    }
+    lines.dedup();
+    assert!(lines.len() >= 6, "{lines:?}");
+}

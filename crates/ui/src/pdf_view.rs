@@ -453,8 +453,15 @@ impl PdfView {
         self.jump.is_some() || self.reveal.is_some() || self.aim.is_some()
     }
 
-    /// Shows `spot` on `page`, offset by its stream `band`; false if unknown.
-    pub fn seek(&mut self, page: usize, spot: Option<Bounds>, band: Vec2, count: usize) -> bool {
+    /// Shows `spot` on `page`, `clear` above the foot; false if unknown.
+    pub fn seek(
+        &mut self,
+        page: usize,
+        spot: Option<Bounds>,
+        band: Vec2,
+        count: usize,
+        clear: f32,
+    ) -> bool {
         // Already heading there: going again would restart the glide.
         let heading = self.jump.is_some() || self.reveal.is_some();
         let shows = self.visible.contains(&page);
@@ -485,7 +492,7 @@ impl PdfView {
         let top = layout.inputs.inset + FIND_CLEARANCE;
         let y = reveal(
             hit.top()..hit.bottom(),
-            o.y + top..o.y + v.y - SEEK_MARGIN,
+            o.y + top..o.y + v.y - SEEK_MARGIN - clear,
             o.y,
         );
         let x = reveal(

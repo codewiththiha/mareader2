@@ -1153,6 +1153,11 @@ impl Documents {
 
     /// Brings a hit into `pane`'s view; false while its page's text is due.
     pub fn reveal_hit(&mut self, pane: PaneId, page: usize, chars: Range<usize>) -> bool {
+        self.bring(pane, page, chars, 0.0)
+    }
+
+    /// Brings `chars` into view, `clear` above the pane's foot.
+    fn bring(&mut self, pane: PaneId, page: usize, chars: Range<usize>, clear: f32) -> bool {
         let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) else {
             return true;
         };
@@ -1163,16 +1168,22 @@ impl Documents {
         let spot = layer.and_then(|l| l.text.line_boxes(chars).reduce(Bounds::union));
         let band = entry.doc.bands().and_then(|b| b.get(page));
         let band = band.map_or(Vec2::ZERO, |b| egui::vec2(b.x, b.y));
-        view.seek(page, spot, band, entry.doc.page_count())
+        view.seek(page, spot, band, entry.doc.page_count(), clear)
     }
 
-    /// Brings read-aloud's line into view once still; false until done.
-    pub fn reveal_said(&mut self, pane: PaneId, page: usize, chars: Range<usize>) -> bool {
+    /// Brings read-aloud's line up, `clear` above the foot; false until done.
+    pub fn reveal_said(
+        &mut self,
+        pane: PaneId,
+        page: usize,
+        chars: Range<usize>,
+        clear: f32,
+    ) -> bool {
         let gliding = match self.panes.get(&pane) {
             Some(Content::Pdf(view)) => view.gliding(),
             _ => return true,
         };
-        !gliding && self.reveal_hit(pane, page, chars)
+        !gliding && self.bring(pane, page, chars, clear)
     }
 
     /// The word at `chars` of `page`, as Explain asks for it.
@@ -1278,7 +1289,7 @@ impl Documents {
             let layer = self.texts.get(view.doc, spot.page);
             let span = layer.and_then(|l| crate::read_aloud::marker::word_span(&l.text, spot.char));
             let chars = span.unwrap_or(spot.char..spot.char + 1);
-            if self.reveal_said(pane, spot.page, chars)
+            if self.reveal_said(pane, spot.page, chars, 0.0)
                 && let Some(Content::Pdf(v)) = self.panes.get_mut(&pane)
                 && let Some(m) = &mut v.marker
             {

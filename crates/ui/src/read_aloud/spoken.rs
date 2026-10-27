@@ -458,7 +458,7 @@ impl Spoken {
         ctx: &Context,
         documents: &mut Documents,
         here: Option<&Reading>,
-        (settings, shelf): (&ReadAloudSettings, &Shelf),
+        (settings, shelf, clear): (&ReadAloudSettings, &Shelf, f32),
     ) -> bool {
         // Set in new type or opened again, the place is found anew.
         if let Some(reading) = here {
@@ -519,7 +519,7 @@ impl Spoken {
         // Only a real turn shows the new page's first sentence.
         let turned = page.is_some() && page != self.followed && page != Some(reading.current);
         follow(documents, reading, settings, page, &mut self.followed);
-        self.reveal(documents, reading.pane, settings, turned);
+        self.reveal(documents, (reading.pane, clear), settings, turned);
         if !self.paused && !self.finished {
             ctx.request_repaint_after(TICK);
         }
@@ -579,15 +579,19 @@ impl Spoken {
         said.anchor = found.anchor;
     }
 
-    /// Keeps the sentence said in view; a turned page shows its first.
-    fn reveal(&mut self, docs: &mut Documents, pane: PaneId, s: &ReadAloudSettings, turned: bool) {
+    /// Keeps the sentence said in view, above the player `clear` high.
+    fn reveal(
+        &mut self,
+        docs: &mut Documents,
+        (pane, clear): (PaneId, f32),
+        s: &ReadAloudSettings,
+        turned: bool,
+    ) {
         let Some((start, end)) = self.lit_spots() else {
             return;
         };
-        if turned {
-            self.revealed = Some(start);
-        }
-        if !s.follow || self.revealed == Some(start) {
+        // A turn lands first; the line is brought up once it has.
+        if turned || !s.follow || self.revealed == Some(start) {
             return;
         }
         let last = if end.page == start.page {
@@ -595,7 +599,7 @@ impl Spoken {
         } else {
             start.char + 1
         };
-        if docs.reveal_said(pane, start.page, start.char..last) {
+        if docs.reveal_said(pane, start.page, start.char..last, clear) {
             self.revealed = Some(start);
         }
     }

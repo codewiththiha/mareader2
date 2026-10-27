@@ -451,6 +451,8 @@ struct Shape {
     /// Its width while a side is dragged.
     dragged: Option<f32>,
     tint: Option<Tint>,
+    /// How far it stands above its book's pane foot; 0 elsewhere.
+    rise: f32,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -676,7 +678,10 @@ impl ReadAloud {
         let here = here.as_ref();
         let going = match session {
             Session::Narrated(s) => s.tick(ctx, documents, here, settings),
-            Session::Spoken(s) => s.tick(ctx, documents, here, (settings, &self.shelf)),
+            Session::Spoken(s) => {
+                let rise = self.shape.rise;
+                s.tick(ctx, documents, here, (settings, &self.shelf, rise))
+            }
         };
         if !going {
             self.session = None;
@@ -931,6 +936,8 @@ impl ReadAloud {
                 egui::pos2(at.x - width / 2.0, bottom - height),
                 egui::vec2(width, height),
             );
+            // The lines read are kept above it, in its book's pane.
+            shape.rise = pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0));
             let fit = Fit::new(width, view.escape).fill(width, view.escape);
             let least = if f >= 0.5 {
                 card::FULL_LEAST
