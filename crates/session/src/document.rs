@@ -368,6 +368,7 @@ impl Document {
             .iter()
             .flat_map(|l| l.chars.iter().map(|c| c.at.and_then(narrow)))
             .collect();
+        let tables = table_runs(&lines);
         let lines = lines.into_iter().map(|l| {
             let chars = l.chars.into_iter().map(|c| (c.ch, bounds(c.rect)));
             (l.wraps, chars.collect())
@@ -382,6 +383,7 @@ impl Document {
             links: links.collect(),
             places,
             figures: Vec::new(),
+            tables,
         })
     }
 
@@ -482,4 +484,21 @@ pub(crate) fn stand_in(path: &str) -> Option<PathBuf> {
         }
     }
     (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// Runs of characters in table cells, by table block, in text order.
+fn table_runs(lines: &[mareader_reflow::PageLine]) -> Vec<(std::ops::Range<usize>, u32)> {
+    let mut runs: Vec<(std::ops::Range<usize>, u32)> = Vec::new();
+    let mut at = 0;
+    for line in lines {
+        let end = at + line.chars.len();
+        let block = line.table.and_then(|b| u32::try_from(b).ok());
+        match (block, runs.last_mut()) {
+            (Some(b), Some((run, last))) if *last == b && run.end == at => run.end = end,
+            (Some(b), _) => runs.push((at..end, b)),
+            (None, _) => {}
+        }
+        at = end;
+    }
+    runs
 }

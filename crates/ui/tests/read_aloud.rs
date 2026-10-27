@@ -992,3 +992,70 @@ fn the_line_read_stays_clear_of_the_player() {
     lines.dedup();
     assert!(lines.len() >= 6, "{lines:?}");
 }
+
+/// The page and first character of the first table in the sample book.
+fn first_table(h: &Harness<'static, MareaderApp>) -> Option<Spot> {
+    let pane = h.state().active_pane();
+    let document = &h.state().documents().reading(pane)?.document;
+    (0..document.page_count()).find_map(|page| {
+        let layer = document.text_layer(page).ok()?;
+        let (run, _) = layer.tables.first()?;
+        Some(Spot {
+            page,
+            char: run.start,
+        })
+    })
+}
+
+/// Whether the sentence lit now starts in a table cell.
+fn lit_in_table(h: &Harness<'static, MareaderApp>) -> bool {
+    let pane = h.state().active_pane();
+    let Some(((start, _), reading)) = lit(h).zip(h.state().documents().reading(pane)) else {
+        return false;
+    };
+    let layer = reading.document.text_layer(start.page).ok();
+    layer.is_some_and(|l| l.table(start.char).is_some())
+}
+
+#[test]
+fn a_table_read_aloud_can_be_skipped_and_stepped_back_into() {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("epub", "sample:3").ok();
+    app.set_option("set", "read_aloud.engine:\"silent\"").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let skip = "Skip the rest of this table";
+    assert!(h.query_by_label(skip).is_none(), "no table, no skip");
+    let at = first_table(&h).expect("the sample has a table");
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(at),
+        until: None,
+    };
+    start(&mut h, from);
+    h.get_by_label("Pause").click();
+    h.run_steps(2);
+    assert!(lit_in_table(&h), "a cell is read first");
+    // Skipped, every cell left is passed; the words after it are lit.
+    let was = lit(&h);
+    h.get_by_label(skip).click();
+    step_until(&mut h, |h| lit(h) != was && !lit_in_table(h));
+    // The player draws before reading moves on: a frame more to show it.
+    h.run_steps(2);
+    assert!(!lit_in_table(&h), "past the table: {:?}", lit(&h));
+    assert!(lit(&h).is_some_and(|(s, _)| s > at), "it went on");
+    assert!(h.query_by_label(skip).is_none(), "no skip outside it");
+    let _ = h.get_by_label("Play");
+    // A step back lands on the table's last cell.
+    h.get_by_label("Previous sentence").click();
+    h.run_steps(2);
+    assert!(lit_in_table(&h), "back in the table");
+    assert!(lit(&h) > was, "on a later cell");
+    assert!(h.query_by_label(skip).is_some(), "it can be skipped again");
+}

@@ -91,12 +91,15 @@ pub struct TextLayer {
     pub places: Vec<Option<(u32, u32)>>,
     /// A PDF's images, where they're drawn; a book has none.
     pub figures: Vec<Bounds>,
+    /// A book's table cells: runs of characters, and each table's block.
+    pub tables: Vec<(std::ops::Range<usize>, u32)>,
 }
 
 impl TextLayer {
     pub fn bytes(&self) -> usize {
         let places = self.places.len() * size_of::<Option<(u32, u32)>>();
         let figures = self.figures.len() * size_of::<Bounds>();
+        let figures = figures + self.tables.len() * size_of::<(std::ops::Range<usize>, u32)>();
         self.text.bytes() + self.links.len() * size_of::<Link>() + places + figures
     }
 
@@ -104,6 +107,12 @@ impl TextLayer {
     pub fn place(&self, i: usize) -> Option<(usize, usize)> {
         let (block, byte) = self.places.get(i).copied().flatten()?;
         Some((block as usize, byte as usize))
+    }
+
+    /// The table block character `i` is a cell of, in a book.
+    pub fn table(&self, i: usize) -> Option<usize> {
+        let (_, block) = self.tables.iter().find(|(run, _)| run.contains(&i))?;
+        Some(*block as usize)
     }
 
     /// The last link listed under a point: later ones are drawn on top.

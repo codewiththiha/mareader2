@@ -245,8 +245,11 @@ impl Region {
     /// Page `page`'s lines, placed in the book where they came from.
     pub(crate) fn text(&self, page: usize) -> Vec<PageLine> {
         let mut lines = self.flow.text(page);
-        for c in lines.iter_mut().flat_map(|l| l.chars.iter_mut()) {
-            c.at = c.at.and_then(|at| self.place(at));
+        for line in &mut lines {
+            line.table = line.table.and_then(|b| Some(self.place((b, 0))?.0));
+            for c in &mut line.chars {
+                c.at = c.at.and_then(|at| self.place(at));
+            }
         }
         lines
     }

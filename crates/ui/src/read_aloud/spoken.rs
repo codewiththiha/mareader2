@@ -42,6 +42,8 @@ pub enum Start {
 struct Said {
     sentence: Sentence,
     anchor: Option<Anchor>,
+    /// The table block it starts in, if it is a table cell's.
+    table: Option<usize>,
 }
 
 /// One book being said in one pane.
@@ -93,6 +95,8 @@ pub(super) struct Spoken {
     jump: Option<usize>,
     /// Just found again in a pane, which should turn to the words read.
     homing: bool,
+    /// The table being skipped: its sentences are passed unsaid.
+    leaving: Option<usize>,
 }
 
 impl Spoken {
@@ -138,6 +142,7 @@ impl Spoken {
             began: None,
             jump: None,
             homing: false,
+            leaving: None,
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -215,6 +220,7 @@ impl Spoken {
         self.ahead.clear();
         self.current = None;
         self.began = None;
+        self.leaving = None;
         // No voice, nothing worth reading for.
         let until = self.chosen.map(|(_, until)| until);
         self.feed = self.voicer.as_ref().map(|_| {
@@ -306,7 +312,16 @@ impl Spoken {
 
     /// The next sentence; none while the thread reads, the end once done.
     fn next(&mut self) -> Option<Said> {
-        self.ahead.pop_front().or_else(|| self.pull())
+        while let Some(said) = self.ahead.pop_front().or_else(|| self.pull()) {
+            match self.leaving {
+                Some(table) if said.table == Some(table) => self.keep(said),
+                _ => {
+                    self.leaving = None;
+                    return Some(said);
+                }
+            }
+        }
+        None
     }
 
     /// A new sentence off the pages, if the thread has one.
@@ -343,10 +358,15 @@ impl Spoken {
     /// Moves past the current sentence, keeping it to step back to.
     fn pass(&mut self) {
         if let Some(said) = self.current.take() {
-            self.behind.push_back(said);
-            if self.behind.len() > BEHIND {
-                self.behind.pop_front();
-            }
+            self.keep(said);
+        }
+    }
+
+    /// Keeps `said` to step back to, forgetting the oldest.
+    fn keep(&mut self, said: Said) {
+        self.behind.push_back(said);
+        if self.behind.len() > BEHIND {
+            self.behind.pop_front();
         }
     }
 
@@ -408,9 +428,24 @@ impl Spoken {
         }
         self.saying = false;
         self.finished = false;
+        self.leaving = None;
         if let Some(current) = self.current.replace(said) {
             self.ahead.push_front(current);
         }
+        self.go_on();
+    }
+
+    /// Skips the rest of the table read, to the first sentence after it.
+    fn escape(&mut self) {
+        let Some(table) = self.current.as_ref().and_then(|s| s.table) else {
+            return;
+        };
+        if let Some(v) = self.voicer.as_mut() {
+            v.stop();
+        }
+        self.saying = false;
+        self.leaving = Some(table);
+        self.pass();
         self.go_on();
     }
 
@@ -489,7 +524,9 @@ impl Spoken {
             ctx.request_repaint_after(TICK);
             return true;
         }
-        if !self.paused && !self.saying && !self.finished {
+        // Paused, a step still fetches the sentence it lands on.
+        let fetch = self.current.is_none() && self.feed.is_some();
+        if (!self.paused || fetch) && !self.saying && !self.finished {
             self.go_on();
         }
         if !self.finished {
@@ -697,7 +734,9 @@ impl Spoken {
             back: !self.behind.is_empty() && can,
             next: !self.finished && can,
             unit: "sentence",
-            escape: false,
+            escape: can
+                && !self.finished
+                && self.current.as_ref().is_some_and(|s| s.table.is_some()),
             at: progress.map(|p| p.0),
             left: progress.map(|p| p.1),
             total: progress.map(|p| p.2),
@@ -761,7 +800,8 @@ impl Spoken {
                 self.read_from(Start::Spot(Spot { page, char: 0 }));
                 self.jump = Some(page);
             }
-            Act::Seek(_) | Act::Escape | Act::Card(_) | Act::Reveal => {}
+            Act::Escape => self.escape(),
+            Act::Seek(_) | Act::Card(_) | Act::Reveal => {}
             Act::Stop => return true,
         }
         false
@@ -865,7 +905,13 @@ fn read(
                     .map(|(_, l)| l),
             };
             let anchor = on.and_then(|l| l.place(start.char)).map(anchor);
-            if tx.send(Said { sentence, anchor }).is_err() {
+            let table = on.and_then(|l| l.table(start.char));
+            let said = Said {
+                sentence,
+                anchor,
+                table,
+            };
+            if tx.send(said).is_err() {
                 return;
             }
             wake();
@@ -877,6 +923,7 @@ fn read(
             .send(Said {
                 sentence,
                 anchor: None,
+                table: None,
             })
             .is_err()
         {

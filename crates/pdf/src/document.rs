@@ -255,6 +255,7 @@ impl Document {
             links,
             places: Vec::new(),
             figures: collector.figures,
+            tables: Vec::new(),
         })
     }
 

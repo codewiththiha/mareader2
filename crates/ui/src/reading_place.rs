@@ -109,7 +109,7 @@ mod tests {
             text,
             links: Vec::new(),
             places,
-            figures: Vec::new(),
+            ..TextLayer::default()
         }
     }
 

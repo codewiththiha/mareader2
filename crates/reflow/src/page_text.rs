@@ -25,6 +25,8 @@ pub struct PageLine {
     pub chars: Vec<PageChar>,
     /// It goes on from the line before, which wrapped rather than ended.
     pub wraps: bool,
+    /// The table block it is a cell line of, if any.
+    pub table: Option<usize>,
 }
 
 impl Flow {
@@ -64,7 +66,7 @@ impl Flow {
             match (&set.draw, &*self.laid(piece.block)) {
                 (Draw::Text { pad, .. }, Laid::Text { para, .. }) => {
                     let at = (x + pad, y);
-                    visit(para, piece.units.clone(), (at, Some(set.source)));
+                    visit(para, piece.units.clone(), (at, Source::Text(set.source)));
                 }
                 (Draw::Table(grid), Laid::Table(rows)) => {
                     let [pad_x, pad_y] = grid.pad;
@@ -74,7 +76,7 @@ impl Flow {
                         };
                         for (c, cell) in cells.iter().enumerate() {
                             let at = (x + c as f32 * grid.column + pad_x, y + top + pad_y);
-                            visit(cell, 0..cell.layout.len(), (at, None));
+                            visit(cell, 0..cell.layout.len(), (at, Source::Table(set.source)));
                         }
                     }
                 }
@@ -145,8 +147,15 @@ impl Flow {
     }
 }
 
-/// Where lines are drawn, and the block they come from if it's text.
-type Origin = ((f32, f32), Option<usize>);
+/// Where lines are drawn, and the block they come from.
+type Origin = ((f32, f32), Source);
+
+/// A block lines come from: a text's keep places, a table's cells don't.
+#[derive(Clone, Copy)]
+enum Source {
+    Text(usize),
+    Table(usize),
+}
 
 /// The runs of lines `range` drawn from colour fonts, boxed line-tall.
 fn colour_runs(para: &Para, range: Range<usize>, (x, y): (f32, f32), out: &mut Vec<[f32; 4]>) {
@@ -177,7 +186,11 @@ fn is_colour(data: &[u8], index: u32) -> bool {
 
 /// Lines `range` of `para`, its origin at `x, y`, each char boxed.
 fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine>) {
-    let ((x, y), block) = place;
+    let ((x, y), source_block) = place;
+    let (block, table) = match source_block {
+        Source::Text(b) => (Some(b), None),
+        Source::Table(b) => (None, Some(b)),
+    };
     let layout = &para.layout;
     // Soft hyphens were put into the text; offsets skip them.
     let marks = &para.marks;
@@ -227,7 +240,11 @@ fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine
         let wrapped = |b| matches!(b, BreakReason::Regular | BreakReason::Emergency);
         let before = n.checked_sub(1).and_then(|p| layout.get(p));
         let wraps = before.is_some_and(|l| wrapped(l.break_reason()));
-        out.push(PageLine { chars, wraps });
+        out.push(PageLine {
+            chars,
+            wraps,
+            table,
+        });
     }
 }
 
