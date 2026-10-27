@@ -148,6 +148,8 @@ struct Line {
     bounds: Bounds,
     /// It goes on from the line before: a copy joins them unbroken.
     wraps: bool,
+    /// Wrapped where the page drew no space, though words part there.
+    spaced: bool,
 }
 
 /// A page's characters in content order, grouped into lines.
@@ -341,8 +343,12 @@ impl PageText {
         for c in self.chars.get(range).unwrap_or_default() {
             match prev {
                 Some(p) if p.line != c.line => {
-                    if !self.wraps(c.line) {
-                        out.push('\n');
+                    let line = self.lines.get(c.line as usize);
+                    let hyphen = matches!(p.ch, '-' | '\u{ad}' | '‐');
+                    match line.map_or((false, false), |l| (l.wraps, l.spaced)) {
+                        (false, _) => out.push('\n'),
+                        (true, true) if !hyphen => out.push(' '),
+                        (true, _) => {}
                     }
                 }
                 Some(_) if c.space_before => out.push(' '),
@@ -407,6 +413,7 @@ impl PageText {
                 chars: start..out.chars.len(),
                 bounds,
                 wraps,
+                spaced: false,
             });
         }
         out
@@ -417,6 +424,8 @@ impl PageText {
         let mut chars: Vec<TextChar> = Vec::with_capacity(glyphs.len());
         let mut lines: Vec<Line> = Vec::new();
         let mut prev: Option<Placed> = None;
+        // Each line's text size and baseline, to tell wraps from breaks.
+        let mut sets: Vec<(f32, f32)> = Vec::new();
         for g in glyphs {
             let (new_line, gap) = match &prev {
                 None => (true, false),
@@ -427,7 +436,11 @@ impl PageText {
                     chars: chars.len()..chars.len(),
                     bounds: g.bounds,
                     wraps: false,
+                    spaced: false,
                 });
+                sets.push((g.size, g.origin.1));
+            } else if let Some(set) = sets.last_mut() {
+                set.0 = set.0.max(g.size);
             }
             let line = lines.len().saturating_sub(1);
             if let Some(l) = lines.last_mut() {
@@ -442,12 +455,108 @@ impl PageText {
             });
             prev = Some(g);
         }
+        let wraps = wrapping(&chars, &lines, &sets);
+        for (n, wraps) in wraps.into_iter().enumerate() {
+            let before = n.checked_sub(1).and_then(|p| lines.get(p));
+            let last = before.and_then(|l| chars.get(l.chars.end.checked_sub(1)?));
+            let spaced = last.is_some_and(|c| !spaceless(c.ch) && !c.ch.is_whitespace());
+            if let Some(line) = lines.get_mut(n) {
+                let first = chars.get(line.chars.start);
+                line.wraps = wraps;
+                line.spaced = wraps && spaced && first.is_some_and(|c| !spaceless(c.ch));
+            }
+        }
         Self {
             chars,
             lines,
             vertical: false,
         }
     }
+}
+
+/// A line's first word, as written.
+fn first_text(text: &[TextChar]) -> String {
+    let word = text
+        .iter()
+        .enumerate()
+        .take_while(|(i, c)| !c.ch.is_whitespace() && (*i == 0 || !c.space_before));
+    word.map(|(_, c)| c.ch).collect()
+}
+
+/// A list mark: a bullet, or a number or letter before `.` or `)`.
+fn marker(word: &str) -> bool {
+    let bullet = matches!(
+        word,
+        "•" | "◦" | "▪" | "‣" | "–" | "—" | "-" | "*" | "·" | "●" | "○" | "■"
+    );
+    let body = word.strip_suffix(['.', ')']).unwrap_or_default();
+    let numbered = !body.is_empty() && body.len() <= 3 && body.chars().all(|c| c.is_ascii_digit());
+    let lettered = body.chars().count() == 1 && body.chars().all(|c| c.is_ascii_alphabetic());
+    bullet || numbered || lettered
+}
+
+/// Scripts written without spaces between words.
+fn spaceless(c: char) -> bool {
+    matches!(c,
+        '\u{0E00}'..='\u{0EFF}' // Thai, Lao
+        | '\u{1000}'..='\u{109F}' // Myanmar
+        | '\u{1780}'..='\u{17FF}' // Khmer
+        | '\u{2E80}'..='\u{9FFF}' // CJK, kana
+        | '\u{AA60}'..='\u{AA7F}'
+        | '\u{F900}'..='\u{FAFF}'
+        | '\u{FF00}'..='\u{FFEF}')
+}
+
+/// Lines going on from the last: set alike, close, flush, its word not fitting.
+fn wrapping(chars: &[TextChar], lines: &[Line], sets: &[(f32, f32)]) -> Vec<bool> {
+    let alike = |a: f32, b: f32| (a - b).abs() <= 0.15 * a.max(b);
+    let get = |n: usize| Some((lines.get(n)?, *sets.get(n)?));
+    let text = |l: &Line| chars.get(l.chars.clone()).unwrap_or_default();
+    // A wide gap inside a line sets cells apart, as tables do.
+    let gapped = |l: &Line, size: f32| {
+        text(l)
+            .windows(2)
+            .any(|w| matches!(w, [a, b] if b.bounds.x0 - a.bounds.x1 > 1.5 * size))
+    };
+    // The column's right edge: the furthest a running line set alike goes.
+    let right = |line: &Line, size: f32| {
+        let column = lines.iter().zip(sets).filter(|(l, (s, _))| {
+            let near = (l.bounds.x0 - line.bounds.x0).abs() <= 4.0 * size;
+            alike(*s, size) && near && !gapped(l, *s)
+        });
+        column
+            .map(|(l, _)| l.bounds.x1)
+            .fold(line.bounds.x1, f32::max)
+    };
+    let first_word = |l: &Line| {
+        let text = text(l);
+        let first = text.first().map_or(0.0, |c| c.bounds.x0);
+        let word = text
+            .iter()
+            .enumerate()
+            .take_while(|(i, c)| !c.ch.is_whitespace() && (*i == 0 || !c.space_before));
+        word.last().map_or(0.0, |(_, c)| c.bounds.x1 - first)
+    };
+    let wraps = |n: usize| -> Option<bool> {
+        let ((last, (was, base)), (line, (size, below))) = (get(n.checked_sub(1)?)?, get(n)?);
+        let em = was.max(size).max(0.1);
+        let step = (below - base).abs();
+        let close = alike(was, size) && (0.6 * em..=2.0 * em).contains(&step);
+        let flush = (line.bounds.x0 - last.bounds.x0) <= 0.6 * em
+            && (last.bounds.x0 - line.bounds.x0) <= 4.0 * em;
+        let item = marker(&first_text(text(line)));
+        if !close || !flush || item || gapped(last, was) || gapped(line, size) {
+            return Some(false);
+        }
+        let hyphen = text(last)
+            .last()
+            .is_some_and(|c| matches!(c.ch, '-' | '\u{ad}' | '‐'));
+        let room = right(last, was) - last.bounds.x1;
+        Some(hyphen || first_word(line) + 0.25 * em > room)
+    };
+    (0..lines.len())
+        .map(|n| wraps(n).unwrap_or(false))
+        .collect()
 }
 
 /// Characters a double click keeps together.
@@ -622,6 +731,107 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// Lines from `x`, a size-12 baseline every 15 points from `y`.
+    fn glyph_page(lines: &[(&str, f32)], y: f32) -> PageText {
+        let rows = lines.iter().enumerate();
+        let glyphs = rows.flat_map(|(n, (text, x))| row(text, *x, y + 15.0 * n as f32));
+        PageText::from_glyphs(glyphs.collect())
+    }
+
+    fn wrapped(text: &PageText) -> Vec<bool> {
+        text.lines.iter().map(|l| l.wraps).collect()
+    }
+
+    #[test]
+    fn a_pdf_paragraph_wraps_where_the_next_word_would_not_fit() {
+        let text = glyph_page(
+            &[
+                ("5.Question", 0.0),
+                (
+                    "What is Crockford's view on the evolution of technologies",
+                    0.0,
+                ),
+                ("like JavaScript and the importance of simplicity in", 0.0),
+                ("design?", 0.0),
+                ("Answer: Crockford advocates simplicity.", 0.0),
+            ],
+            0.0,
+        );
+        assert_eq!(wrapped(&text), [false, false, true, true, false]);
+        // Links set far apart below don't stretch the column.
+        let mut linked = row("Every line of this paragraph runs to here", 0.0, 0.0);
+        linked.extend(row("and goes on below.", 0.0, 15.0));
+        linked.extend(row("Next chapter", 0.0, 30.0));
+        linked.extend(row("github.com/codewiththiha/mareader2", 300.0, 30.0));
+        assert_eq!(
+            wrapped(&PageText::from_glyphs(linked)),
+            [false, true, false]
+        );
+        assert_eq!(
+            text.text(0..text.len()),
+            "5.Question\nWhat is Crockford's view on the evolution of technologies \
+             like JavaScript and the importance of simplicity in design?\n\
+             Answer: Crockford advocates simplicity."
+        );
+    }
+
+    #[test]
+    fn short_lines_indents_gaps_and_headings_stay_apart() {
+        let long = "A full line of running text reaches the right edge.";
+        // A list under a paragraph: each item would have fit on the last.
+        let list = glyph_page(
+            &[
+                (long, 0.0),
+                ("1. Open the book", 0.0),
+                ("2. Turn the page", 0.0),
+            ],
+            0.0,
+        );
+        assert_eq!(wrapped(&list), [false, false, false]);
+        // An indented line starts a paragraph.
+        let indented = glyph_page(&[(long, 0.0), ("Indented, a new one begins.", 30.0)], 0.0);
+        assert_eq!(wrapped(&indented), [false, false]);
+        // Cells set wide apart are a table's rows.
+        let mut cells = row("Rice", 0.0, 0.0);
+        cells.extend(row("12", 400.0, 0.0));
+        cells.extend(row("Timber", 0.0, 15.0));
+        cells.extend(row("5", 400.0, 15.0));
+        assert_eq!(wrapped(&PageText::from_glyphs(cells)), [false, false]);
+        // A bigger heading never runs into its text.
+        let mut heading: Vec<Placed> = row("Heading", 0.0, 0.0)
+            .into_iter()
+            .map(|g| Placed { size: 20.0, ..g })
+            .collect();
+        heading.extend(row(long, 0.0, 18.0));
+        assert_eq!(wrapped(&PageText::from_glyphs(heading)), [false, false]);
+        // Far below, a gap between paragraphs.
+        let mut apart = row(long, 0.0, 0.0);
+        apart.extend(row("Far below.", 0.0, 60.0));
+        assert_eq!(wrapped(&PageText::from_glyphs(apart)), [false, false]);
+    }
+
+    #[test]
+    fn a_hyphen_or_a_spaceless_script_joins_without_a_space() {
+        let hyphen = glyph_page(
+            &[
+                ("The words of this line run out at exam-", 0.0),
+                ("ple.", 0.0),
+            ],
+            0.0,
+        );
+        assert_eq!(wrapped(&hyphen), [false, true]);
+        assert_eq!(
+            hyphen.text(0..hyphen.len()),
+            "The words of this line run out at exam-ple."
+        );
+        let chinese = glyph_page(&[("一二三四五六七八九十", 0.0), ("十一十二", 0.0)], 0.0);
+        assert_eq!(wrapped(&chinese), [false, true]);
+        assert_eq!(
+            chinese.text(0..chinese.len()),
+            "一二三四五六七八九十十一十二"
+        );
     }
 
     /// `(wraps, text)` lines 20 points apart, as a book sets them.

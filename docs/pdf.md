@@ -51,3 +51,12 @@ Titles, authors and outline entries go through `strings::decode_text`:
 Not done: a loose UTF-8 step that accepts one replacement character and
 strips it (a lone Latin-1 `é` would vanish), and a GB18030 fallback, which
 would need large tables.
+
+## Paragraphs
+
+A PDF stores lines, not paragraphs. A line goes on from the one above when
+it is set in the same size, close below it, flush with its left edge, with
+no table-wide gaps, and its first word would not have fit at the end of the
+line above (a line ending in a hyphen always goes on). Copied text and read
+aloud join such lines with a space, none in scripts written without spaces;
+other line ends stay line breaks, and a voice stops at them.
