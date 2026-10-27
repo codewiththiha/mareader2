@@ -301,7 +301,7 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   `python3 tools/ci.py cache restore` unpacks a build that CI made, so the
   cold build is skipped. Every green push refreshes that cache on its own.
   If `restore` calls the cache stale, lint in CI, not locally.
-- **CI time.** A healthy run is about 8 min, and `Rust / test` is the
+- **CI time.** A healthy run takes 5.5–7 min, and `Rust / test` is the
   critical path. Install apt packages only through `.github/actions/apt`:
   it installs cached `.deb` files, because the mirror once stalled jobs for
   up to 29 min. Start `shots` alongside `watch`, not after it. Numbers and

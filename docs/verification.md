@@ -31,7 +31,7 @@ on 2026-10-14:
 | | Time |
 |---|---|
 | Cold build of the gates, after a reset (one compiler at a time) | 30–35 min |
-| CI, push to a green verdict (warm GitHub cache; 2026-10-27, see "CI time") | 7.5–8 min |
+| CI, push to a green verdict (warm GitHub cache; 2026-10-27, see "CI time") | 5.5–7 min |
 | CI, push to a red format job, digest included | 28 s |
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
@@ -125,9 +125,11 @@ instead.
 
 ## CI time
 
-Measured over 16 runs on 2026-10-27. A healthy run takes **7.5–8 min**
-from push to verdict. `Rust / test` is the critical path; every other job
-runs beside it and finishes first.
+Measured over 16 runs on 2026-10-27, before the fixes below. A healthy run
+took **7.5–8 min** from push to verdict. `Rust / test` is the critical
+path; every other job runs beside it and finishes first. After the fixes,
+a run takes **5.5 min** when no crate changed, and **6.7 min** after
+editing `mareader-audio`, which most of the workspace depends on.
 
 | Job | Time | Note |
 |---|---|---|
@@ -159,7 +161,8 @@ What made a change take an hour or more, and the fix for each:
   preview is best-effort, and it once failed every refresh unnoticed.
 - **Full debug info.** Every test binary linked full DWARF for the
   workspace crates. CI now builds with
-  `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. A panic's backtrace still
+  `CARGO_PROFILE_DEV_DEBUG=line-tables-only`, and `cargo test` fell from
+  6.6 min to 4.3–5.5 min. A panic's backtrace still
   names files and lines. The shots and memory jobs set the same, so they
   still reuse the test job's build cache.
 - **Prose-only pushes.** Changes to `docs/` and the top-level `*.md` files
@@ -188,7 +191,10 @@ The fastest loop, per change:
 3. **A red job ends the watch at once,** with its digest. Fix it, push, and
    watch again.
 
-Expect about 8–10 min per cycle, from push to a green verdict and shots.
+Expect about 7–9 min per cycle, from push to a green verdict and shots.
+Changing the cache key (the toolchain, `Cargo.lock`, or a `CARGO_*`
+variable in a workflow) makes the next run rebuild every dependency once,
+taking about 20 min.
 
 ## Screenshots from CI
 
