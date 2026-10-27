@@ -5,7 +5,8 @@ on:
     # Work branches too (AGENTS.md): CI mode proves them before main.
     branches: [main, "feat/**", "fix/**", "perf/**", "refactor/**", "docs/**",
                "test/**", "build/**", "ci/**", "chore/**"]
-    paths-ignore: ["docs/**"]
+    # Prose only: docs/ and the top-level notes (AGENTS.md, README.md).
+    paths-ignore: ["docs/**", "*.md"]
   pull_request:
 
 concurrency:
@@ -16,6 +17,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  # Full DWARF slowed linking the test binaries; lines still name frames.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   format:
@@ -38,7 +41,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       # ALSA's headers, for the narration's sound output.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libspeechd-dev libclang-dev
+      - uses: ./.github/actions/apt
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
@@ -49,7 +52,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # lavapipe gives wgpu a software Vulkan device for kittest renders.
-      - run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
+      - uses: ./.github/actions/apt
+        with:
+          packages: mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
       - run: cargo test --workspace
       - run: cargo xtask layers
       - run: cargo xtask parity
@@ -94,7 +99,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libspeechd-dev libclang-dev
+      - uses: ./.github/actions/apt
       - name: cargo check each new commit
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -111,3 +116,18 @@ jobs:
             cargo check --workspace --all-targets --locked
             echo "::endgroup::"
           done
+
+  # A green push refreshes the sandbox cache; tools/ci.py's verdict skips it.
+  refresh:
+    name: Cache / sandbox
+    needs: [format, lint, test, platforms, commits]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh workflow run remote.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+          -f task=cache -f sha="$GITHUB_SHA" -f id=after-ci

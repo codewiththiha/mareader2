@@ -1,0 +1,71 @@
+name: apt packages
+description: >-
+  Installs Ubuntu packages from cached .debs. The Ubuntu mirror stalled CI
+  for 4-29 minutes in a third of runs (docs/verification.md, "CI time"), so
+  it is asked only when the runner image or the package list changes.
+
+inputs:
+  packages:
+    description: Space-separated package names
+    default: libasound2-dev libspeechd-dev libclang-dev
+
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        list=$(tr ' ' '\n' <<< "$PACKAGES" | sed '/^$/d' | sort -u | paste -sd- -)
+        echo "key=apt-$ImageOS-$ImageVersion-$list" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.key.outputs.key }}
+    # A miss asks the mirror, bounded; saved at once, before any failing step.
+    - id: fetch
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        opts=(-q -o Acquire::Retries=5 -o Acquire::http::Timeout=20
+              -o Acquire::https::Timeout=20)
+        for try in 1 2 3; do
+          sudo timeout 240 apt-get "${opts[@]}" update && break
+          echo "::warning::apt-get update stalled (try $try)"
+        done
+        mkdir -p ~/apt-debs/partial
+        for try in 1 2 3; do
+          if sudo timeout 480 apt-get "${opts[@]}" install -y --download-only \
+              -o Dir::Cache::archives="$HOME/apt-debs" $PACKAGES; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            break
+          fi
+          echo "::warning::the download stalled (try $try)"
+        done
+        sudo rm -rf ~/apt-debs/partial ~/apt-debs/lock
+        sudo chown -R "$USER" ~/apt-debs
+        touch ~/apt-debs/.complete
+        echo "$(ls ~/apt-debs | grep -c deb) debs"
+    # Only a whole download is kept; the install below still runs.
+    - if: steps.fetch.outputs.ok == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.key.outputs.key }}
+    - shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        shopt -s nullglob
+        debs=(~/apt-debs/*.deb)
+        [ ${#debs[@]} -eq 0 ] && exit 0
+        if ! sudo DEBIAN_FRONTEND=noninteractive dpkg -i "${debs[@]}" > /tmp/dpkg.log 2>&1; then
+          tail -30 /tmp/dpkg.log
+          echo "::warning::the cached debs did not install; asking the mirror"
+          sudo apt-get -q update
+          sudo apt-get -q install -y $PACKAGES
+        fi

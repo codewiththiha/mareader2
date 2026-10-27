@@ -41,6 +41,7 @@ jobs:
     # The same env as CI's test job, so its cache restores here.
     env:
       RUSTFLAGS: -D warnings
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +51,9 @@ jobs:
         with:
           shared-key: test
           save-if: false
-      - run: sudo apt-get update -q && sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-core libasound2-dev libspeechd-dev libclang-dev
+      - uses: ./.github/actions/apt
+        with:
+          packages: mesa-vulkan-drivers fonts-noto-core libasound2-dev libspeechd-dev libclang-dev
       - name: Render
         env:
           SHOTS: ${{ inputs.shots }}
@@ -81,6 +84,7 @@ jobs:
     timeout-minutes: 90
     env:
       RUSTFLAGS: -D warnings
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,9 +95,9 @@ jobs:
           shared-key: test
           save-if: false
       # A colour emoji font, so README books draw emoji as a Mac does.
-      - run: >-
-          sudo apt-get update -q &&
-          sudo apt-get install -y -q mesa-vulkan-drivers fonts-noto-color-emoji libasound2-dev libspeechd-dev libclang-dev
+      - uses: ./.github/actions/apt
+        with:
+          packages: mesa-vulkan-drivers fonts-noto-color-emoji libasound2-dev libspeechd-dev libclang-dev
       # The M2 audit's two papers, and a long novel; a fetch may fail.
       - name: Books
         run: |
@@ -277,12 +281,13 @@ jobs:
         run: |
           set -o pipefail
           cargo run -q --release --manifest-path tools/kokoro-parity/Cargo.toml -- kokoro out
+      - if: always()
+        uses: ./.github/actions/apt
       # The app's own engine over the model folder, laid out as downloads leave it.
       - name: Engine
         if: always()
         run: |
           set -o pipefail
-          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
           # A Chinese voice and the dictionaries, where downloads leave them.
           hf=https://huggingface.co/hexgrad/Kokoro-82M/resolve/f3ff3571791e39611d31c381e3a41a3af07b4987
           py=https://raw.githubusercontent.com/mozillazg/python-pinyin/df101577145af2eb1abe5656e592e34e3bb56d23/pypinyin
@@ -390,12 +395,13 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name: *//p')
           printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
           exit "$status"
+      - if: always()
+        uses: ./.github/actions/apt
       # The app's own engine over voices laid out as downloads leave them.
       - name: Engine
         if: always()
         run: |
           set -o pipefail
-          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
           for v in en_US/ljspeech/medium en_GB/cori/medium; do
             name=$(echo "$v" | awk -F/ '{print $1"-"$2"-"$3}')
             mkdir -p "model/en/$v"
@@ -472,6 +478,9 @@ jobs:
           de8f67be911bb6c659187b4a65fd966b6a30e56350e0f790d763210b053ac475  kitten/g2p/misaki-us_silver.json
           dc4a02e62d4fcb4bb4097ecf00db89b8e1a12a549a52ab6adfbba220b80a55c5  kitten/g2p/g2p-en-us.safetensors
           SUMS
+      - uses: ./.github/actions/apt
+        with:
+          packages: espeak-ng
       - name: Compare
         run: |
           set -o pipefail
@@ -481,7 +490,6 @@ jobs:
           for b in nano nano8 micro mini; do ln -sfn "$PWD/kitten/$b" builds/$b; done
           "$bin" prepare kitten/g2p out
           # espeak and onnxruntime run here only, never in the app.
-          sudo apt-get update -q && sudo apt-get install -yq espeak-ng
           python3 -m venv .ref && .ref/bin/pip install -q onnx onnxruntime numpy phonemizer
           .ref/bin/python tools/kitten-parity/reference.py builds out
           status=0
@@ -490,12 +498,13 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name: *//p')
           printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
           exit "$status"
+      - if: always()
+        uses: ./.github/actions/apt
       # The app's own engine over builds laid out as downloads leave them.
       - name: Engine
         if: always()
         run: |
           set -o pipefail
-          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
           mkdir -p model
           for b in nano micro; do
             ln -sf "$PWD/kitten/$b/model.onnx" "model/$b.onnx"
@@ -581,12 +590,13 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name: *//p')
           printf '\nRunner: %s, %s cores.\n' "$cpu" "$(nproc)" >> out/summary.md
           exit "$status"
+      - if: always()
+        uses: ./.github/actions/apt
       # The app's own engine over the model laid out as downloads leave it.
       - name: Engine
         if: always()
         run: |
           set -o pipefail
-          sudo apt-get update -q && sudo apt-get install -yq libasound2-dev libspeechd-dev libclang-dev
           MAREADER_PHONON="$PWD/phonon/model" cargo test -q --release -p mareader-speech phonon -- --nocapture \
             | tee out/engine.txt
           { echo; echo '## Engine'; echo; grep 'engine' out/engine.txt || true; } >> out/summary.md
@@ -616,11 +626,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: ./.github/actions/apt
+        with:
+          packages: espeak-ng
       - name: Compare
         run: |
           set -o pipefail
           # espeak-ng is the reference here only, never in the app.
-          sudo apt-get update -q && sudo apt-get install -yq espeak-ng
           python3 -m venv .ref && .ref/bin/pip install -q phonemizer==3.4.0
           cargo build -q --release -p mareader-ipa --example ipa
           .ref/bin/python tools/ipa-parity/check.py target/release/examples/ipa out
@@ -702,6 +714,13 @@ jobs:
     name: Remote / sandbox cache
     if: inputs.task == 'cache'
     runs-on: ubuntu-24.04
+    # CI starts one per green push; only the newest commit's matters.
+    concurrency:
+      group: sandbox-cache
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      actions: write
     # The sandbox's paths and profile: cargo's cache is keyed on both.
     env:
       RUSTUP_HOME: /home/user/.cache/rustup
@@ -733,12 +752,19 @@ jobs:
               -t wasm32-unknown-unknown
           fi
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+      # Only the apt action: the build uses the clone at the sandbox's path.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/apt
       - name: Build what the gates build
         working-directory: /home/user/mareader2
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q libasound2-dev libspeechd-dev libclang-dev
           cargo clippy -q --workspace --all-targets -- -D warnings
-          cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings
+          # The browser preview is best-effort: warn only.
+          cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings ||
+            echo "::warning::the wasm build has lint errors (best-effort)"
           cargo test -q --workspace --no-run
           cargo build -q -p mareader-ui --example shot
           cargo xtask layers && cargo xtask assets && cargo xtask unsafe
@@ -774,6 +800,16 @@ jobs:
           path: /home/user/out/
           compression-level: 0
           retention-days: 30
+      # 1.7 GB each: the newest, and one spare.
+      - name: Drop older caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=sandbox-cache&per_page=100" \
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[2:] | .[].id' |
+          while read -r id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" && echo "dropped $id"
+          done
 
   # The system's own voices, where they run: opened again, and side by side.
   system:

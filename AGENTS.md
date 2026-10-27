@@ -299,7 +299,13 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   Say which mode you chose, and why, in the first report of a session.
 - **After a sandbox reset,** and only if local work is wanted,
   `python3 tools/ci.py cache restore` unpacks a build that CI made, so the
-  cold build is skipped. Run `cache build` only when restore finds none.
+  cold build is skipped. Every green push refreshes that cache on its own.
+  If `restore` calls the cache stale, lint in CI, not locally.
+- **CI time.** A healthy run is about 8 min, and `Rust / test` is the
+  critical path. Install apt packages only through `.github/actions/apt`:
+  it installs cached `.deb` files, because the mirror once stalled jobs for
+  up to 29 min. Start `shots` alongside `watch`, not after it. Numbers and
+  reasons are in docs/verification.md, "CI time".
 
 ## Commits and pull requests
 

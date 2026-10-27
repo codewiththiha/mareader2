@@ -17,6 +17,7 @@
   python3 tools/ci.py system --ref feat/x  # system voices on macOS and Windows
   python3 tools/ci.py installers --ref ci/x # every platform's installers, checked
   python3 tools/ci.py cache build          # refresh the sandbox cache for HEAD
+                                           # (CI does this after every green push)
   python3 tools/ci.py cache restore        # unpack the newest one here
 
 Exit code: 0 green, 1 red, 2 not finished yet.
@@ -133,6 +134,10 @@ class Job:
     id: int
 
 
+# CI's jobs that run after the verdict: the sandbox cache refresh.
+AFTER = "Cache /"
+
+
 @dataclass
 class Run:
     name: str
@@ -146,8 +151,15 @@ class Run:
     jobs: list[Job] = field(default_factory=list)
 
     @property
+    def gating(self) -> list[Job]:
+        return [j for j in self.jobs if not j.name.startswith(AFTER)]
+
+    @property
     def finished(self) -> bool:
-        return self.status == "completed"
+        """Done, or every job the verdict reads is."""
+        gate = self.gating
+        return self.status == "completed" or (
+            bool(gate) and all(j.status == "completed" for j in gate))
 
     @staticmethod
     def of(item: dict) -> "Run":
@@ -212,7 +224,7 @@ def digest(text: str) -> str:
 def failure_digest(repo: str, token: str, run: Run) -> str:
     """The failed jobs' logs, which a job serves even mid-run."""
     parts = []
-    for job in run.jobs:
+    for job in run.gating:
         if not is_red(job.conclusion):
             continue
         try:
@@ -225,8 +237,8 @@ def failure_digest(repo: str, token: str, run: Run) -> str:
 
 
 def summarize(run: Run) -> str:
-    bad = [f"{j.name} ({j.conclusion})" for j in run.jobs if is_red(j.conclusion)]
-    state = run.conclusion or run.status
+    bad = [f"{j.name} ({j.conclusion})" for j in run.gating if is_red(j.conclusion)]
+    state = run.conclusion or ("done" if run.finished else run.status)
     return f"{run.name}: {state}" + (" — failed: " + ", ".join(bad) if bad else "")
 
 
@@ -250,10 +262,10 @@ def follow(repo: str, token: str, run: Run, timeout: int, poll: int,
         if state != noted:
             noted = state
             log(f"  {run.name} {run.status}" + (f": {', '.join(running)}" if running else ""))
-        red = any(is_red(j.conclusion) for j in run.jobs)
+        red = any(is_red(j.conclusion) for j in run.gating)
         if (red and not whole) or run.finished:
             log("  " + summarize(run))
-            if any(is_red(j.conclusion) for j in run.jobs):
+            if any(is_red(j.conclusion) for j in run.gating):
                 log(f"\n########## failure digest ({run.url}) ##########")
                 log(failure_digest(repo, token, run))
                 log("########## end digest ##########\n")
@@ -268,17 +280,22 @@ def verdict(sha: str, run: Run | None) -> int:
     if run is None:
         log(f"IN PROGRESS for {sha[:9]} — no {GATE} run has appeared yet")
         return 2
-    if any(is_red(j.conclusion) for j in run.jobs) or is_red(run.conclusion):
+    # A run with no jobs failed to start, e.g. an invalid workflow file.
+    if any(is_red(j.conclusion) for j in run.gating) or (
+            is_red(run.conclusion) and not run.gating):
         log(f"VERDICT RED for {sha[:9]} — {run.url}")
         return 1
     if not run.finished:
         log(f"IN PROGRESS for {sha[:9]} — {run.url}")
         return 2
-    if run.conclusion in SUPERSEDED:
+    if run.conclusion in SUPERSEDED or any(j.conclusion in SUPERSEDED
+                                           for j in run.gating):
         log(f"VERDICT SUPERSEDED for {sha[:9]} — a newer push cancelled it; "
             "watch the branch head instead")
         return 2
     log(f"VERDICT GREEN for {sha[:9]}")
+    if any(j.name.startswith(AFTER) for j in run.jobs) or run.status != "completed":
+        log("  the sandbox cache now refreshes for this commit (Remote cache)")
     return 0
 
 
@@ -315,7 +332,7 @@ def watch(args) -> int:
         if run:
             run.jobs = jobs_for(args.repo, token, run.id)
             log("  " + summarize(run))
-            if any(is_red(j.conclusion) for j in run.jobs):
+            if any(is_red(j.conclusion) for j in run.gating):
                 log(failure_digest(args.repo, token, run))
         code = verdict(sha, run)
     else:
@@ -331,7 +348,7 @@ def watch(args) -> int:
     if args.json:
         print(json.dumps({"sha": sha, "code": code,
                           "url": run.url if run else None,
-                          "failed": [j.name for j in run.jobs if is_red(j.conclusion)]
+                          "failed": [j.name for j in run.gating if is_red(j.conclusion)]
                           if run else []}))
     return code
 
@@ -552,6 +569,10 @@ def ensure_zstd() -> None:
     raise SystemExit("zstd is missing and could not be installed; install it and retry")
 
 
+# Commits past which a restored cache recompiles most workspace crates.
+STALE = 30
+
+
 def cache_restore(args) -> int:
     token = token_from(args)
     if not token:
@@ -568,6 +589,14 @@ def cache_restore(args) -> int:
         log(f"  warning: the cache was built at {meta['repo_dir']}; cargo will rebuild")
     log(f"restored in {time.time() - started:.0f}s; workspace crates edited since "
         f"{meta['sha'][:9]} recompile, dependencies do not")
+    try:
+        behind = int(git("rev-list", "--count", f"{meta['sha']}..HEAD"))
+    except (subprocess.CalledProcessError, ValueError):
+        behind = -1
+    # Past this, most crates recompile: a 12-minute first lint here.
+    if behind > STALE or behind < 0:
+        log(f"  stale: {behind if behind >= 0 else '?'} commits behind HEAD. Lint in "
+            "CI (about 1 min) rather than here; a green push refreshes the cache")
     return 0
 
 

@@ -31,7 +31,7 @@ on 2026-10-14:
 | | Time |
 |---|---|
 | Cold build of the gates, after a reset (one compiler at a time) | 30–35 min |
-| CI, push to a green verdict (six jobs, warm GitHub cache) | 2 min |
+| CI, push to a green verdict (warm GitHub cache; 2026-10-27, see "CI time") | 7.5–8 min |
 | CI, push to a red format job, digest included | 28 s |
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
@@ -122,6 +122,73 @@ still come from CI.
 **Superseded runs.** A newer push to the same branch cancels the older run.
 `watch` reports that run as superseded, not red; watch the branch head
 instead.
+
+## CI time
+
+Measured over 16 runs on 2026-10-27. A healthy run takes **7.5–8 min**
+from push to verdict. `Rust / test` is the critical path; every other job
+runs beside it and finishes first.
+
+| Job | Time | Note |
+|---|---|---|
+| Rust / test | 7–8 min | compile and link 5.8 min, the tests themselves 0.7 min |
+| Build / windows-latest | 4–6 min | in parallel |
+| Build / macos-latest | 3–5 min | in parallel; its queue sometimes adds 5–10 min |
+| Build / each commit | 1–2 min | in parallel |
+| Rust / lint | about 1 min | |
+| Rust / format | 20 s | |
+
+What made a change take an hour or more, and the fix for each:
+
+- **The Ubuntu mirror stalled.** In 7 of the 16 runs, `apt-get update &&
+  install` hung for 4–29 min in one job, and that job set the verdict
+  (15–36 min). Shots stalled the same way. **Fix:** `.github/actions/apt`
+  installs cached `.deb` files, keyed on the runner image and the package
+  list. It asks the mirror only on a miss: once per new image, with
+  timeouts and retries. Every apt install in `ci.yml` and `remote.yml`
+  goes through it. Add a package through its `packages` input, never with
+  a bare `apt-get`.
+- **The sandbox cache was stale.** It was refreshed only by hand, and had
+  fallen 612 commits behind. After each reset, the first local clippy took
+  12–14 min instead of under one. **Fix:** CI's last job,
+  `Cache / sandbox`, starts a cache build after every green push. That
+  takes 2–5 min on a runner, and nobody waits for it: `watch` gives its
+  verdict without that job. The cache job then deletes all but the newest
+  two caches. `cache restore` warns when the cache it unpacked is more than
+  30 commits behind. The cache job's wasm lint only warns: the browser
+  preview is best-effort, and it once failed every refresh unnoticed.
+- **Full debug info.** Every test binary linked full DWARF for the
+  workspace crates. CI now builds with
+  `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. A panic's backtrace still
+  names files and lines. The shots and memory jobs set the same, so they
+  still reuse the test job's build cache.
+- **Prose-only pushes.** Changes to `docs/` and the top-level `*.md` files
+  (AGENTS.md, README.md) skip CI.
+
+Checked, and left alone:
+
+- **Other workflows.** `Remote` and `Installers` run only when dispatched.
+  They never queue ahead of CI, and a newer push cancels an older CI run.
+- **The macOS and Windows builds.** They run in parallel and finish before
+  the test job, so they add no time.
+- **Testing only the crates that changed.** Almost every change touches
+  `mareader-ui`, the top crate, which nearly every test builds.
+- **More sharing of the GitHub cache.** Workspace crates still compile in
+  each job, because a fresh checkout gives every source file a new time.
+  Only the dependencies come from the cache, and they restore in under a
+  minute.
+
+The fastest loop, per change:
+
+1. **Lint locally only with a warm cache.** After a restore that is not
+   stale, `cargo clippy` takes under a minute. With a stale cache, or none,
+   skip it: CI's lint job answers in about 2 min.
+2. **Push, then start `watch` and the change's `shots` together.** Shots
+   build from the same commit and do not wait for CI.
+3. **A red job ends the watch at once,** with its digest. Fix it, push, and
+   watch again.
+
+Expect about 8–10 min per cycle, from push to a green verdict and shots.
 
 ## Screenshots from CI
 
@@ -332,11 +399,12 @@ everything the local gates build, toolchain included, and unpacks it here.
 - **Restore** only on a cold machine (after a reset) when local work is
   wanted: local mode, or CI mode's hybrid loop. In plain CI mode nothing
   compiles locally, so skip it. A warm machine never needs it.
-- **Build** only when `restore` reports no live cache, or `Cargo.lock`
-  changed a lot since the cache was made. An older cache is still worth
-  restoring: dependencies are reused, and only crates edited since then
-  recompile (seconds to a couple of minutes). Never build "just to be
-  fresh".
+- **Build** rarely by hand. CI's `Cache / sandbox` job already starts a
+  cache build after every green push, and keeps the newest two caches
+  ("CI time"). Build by hand only when `restore` finds no live cache, or
+  when a commit that never went green must be cached. An older cache is
+  still worth restoring: dependencies are reused, and only crates edited
+  since then recompile.
 - **`--cold`** only to move to a new toolchain or to drop accumulated
   leftovers. The cache ships its own compiler, so it keeps the one it was
   first built with until then.
@@ -365,9 +433,9 @@ everything the local gates build, toolchain included, and unpacks it here.
   seed step, give each file that is unchanged since the cached commit its
   recorded time back. So only crates edited since then recompile.
 - **When to use it.** A fresh sandbox where the user wants local mode, or
-  CI mode with a warm cache for the hybrid loop. Rebuild the cache after
-  `Cargo.lock` or the toolchain changes. A stale cache still works: only
-  what changed recompiles.
+  CI mode with a warm cache for the hybrid loop. A stale cache still works:
+  only what changed recompiles. Past about 30 commits, though, that is
+  most of the workspace, and `restore` says so. Lint in CI then.
 - **Limits.**
   - It fits only a machine with this exact layout (x86_64 Linux, the paths
     above); anywhere else, cargo would rebuild from scratch.
