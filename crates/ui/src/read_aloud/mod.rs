@@ -23,6 +23,7 @@ use crate::widgets;
 mod booth;
 mod card;
 mod control;
+mod countdown;
 mod edges;
 pub mod marker;
 mod spoken;
@@ -453,6 +454,8 @@ struct Shape {
     tint: Option<Tint>,
     /// How far it stands above its book's pane foot; 0 elsewhere.
     rise: f32,
+    /// The time left it shows, running down evenly.
+    countdown: countdown::Countdown,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -913,6 +916,14 @@ impl ReadAloud {
         let act = colours.lend(ctx, || {
             let hint = |share: f32| s.hint(share);
             let view = s.view(&hint);
+            let estimate = countdown::Estimate {
+                left: view.left,
+                at: view.at,
+                playing: view.playing,
+                rate: settings.rate,
+            };
+            let left = shape.countdown.show(estimate, now);
+            let view = control::View { left, ..view };
             let about = s.about(stage.title);
             let lyrics = s.lyrics();
             // Compact grows up from the bar; full widens into a card.

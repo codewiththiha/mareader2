@@ -12,7 +12,7 @@ use mareader_workspace::PaneId;
 
 use super::card::Lyrics;
 use super::control::{Act, View};
-use super::words::{self, Clock, Pace};
+use super::words::{self, Clock, Pace, Steady};
 use super::{Lit, Span, TICK, follow, place_name};
 use crate::documents::{Documents, Reading};
 
@@ -88,6 +88,8 @@ pub(super) struct Spoken {
     timed: bool,
     clock: Clock,
     pace: Pace,
+    /// The pace over the whole reading, for the time left.
+    steady: Steady,
     counts: Counts,
     /// Where the first sentence since reading began starts.
     began: Option<Spot>,
@@ -138,6 +140,7 @@ impl Spoken {
             timed: false,
             clock: Clock::default(),
             pace: Pace::default(),
+            steady: Steady::default(),
             counts: Counts::default(),
             began: None,
             jump: None,
@@ -250,6 +253,8 @@ impl Spoken {
         };
         let mut again = false;
         if voice != self.voice {
+            // Another voice keeps its own pace.
+            self.steady = Steady::default();
             v.set_voice(voice.as_deref());
             self.voice = voice;
             again = true;
@@ -510,6 +515,8 @@ impl Spoken {
                 self.saying = false;
                 let bytes = self.current.as_ref().map_or(0, |s| s.sentence.text.len());
                 self.pace.learn(bytes, self.clock.seconds(), self.tone.rate);
+                self.steady
+                    .learn(bytes, self.clock.seconds(), self.tone.rate);
                 self.pass();
             }
         }
@@ -769,7 +776,7 @@ impl Spoken {
         };
         let here = here.clamp(from, to.max(from));
         let span = (to - from).max(1e-6);
-        let speed = self.pace.bytes(1.0, self.tone.rate).max(1.0);
+        let speed = self.steady.bytes(1.0, self.tone.rate).max(1.0);
         let seconds = |pages: f64| pages * usual / speed;
         Some((
             ((here - from) / span) as f32,

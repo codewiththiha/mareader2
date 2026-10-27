@@ -207,6 +207,33 @@ impl Pace {
     }
 }
 
+/// Seconds of the usual pace a time-left guess starts out trusting.
+const PRIOR: f64 = 20.0;
+
+/// The whole reading's pace, for time left; one odd sentence barely moves it.
+#[derive(Debug, Default)]
+pub(super) struct Steady {
+    bytes: f64,
+    seconds: f64,
+}
+
+impl Steady {
+    /// `bytes` heard whole in `seconds` at `rate`.
+    pub fn learn(&mut self, bytes: usize, seconds: f64, rate: f32) {
+        if seconds < 0.5 || bytes < 8 {
+            return;
+        }
+        self.bytes += bytes as f64;
+        self.seconds += seconds * f64::from(rate.max(0.1));
+    }
+
+    /// Bytes likely heard in `seconds` at `rate`.
+    pub fn bytes(&self, seconds: f64, rate: f32) -> f64 {
+        let pace = (PACE * PRIOR + self.bytes) / (PRIOR + self.seconds);
+        seconds * pace.clamp(4.0, 60.0) * f64::from(rate.max(0.1))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +359,19 @@ mod tests {
         pace.learn(90, 0.1, 1.0);
         assert!((pace.0 - 15.8).abs() < 1e-9, "too short to trust");
         assert!((pace.bytes(1.0, 2.0) - 31.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_steady_pace_shrugs_off_one_odd_sentence() {
+        let mut steady = Steady::default();
+        for _ in 0..40 {
+            steady.learn(80, 5.0, 1.0);
+        }
+        let before = steady.bytes(1.0, 1.0);
+        steady.learn(80, 12.0, 1.0);
+        let after = steady.bytes(1.0, 1.0);
+        assert!((before - 16.0).abs() < 0.2, "{before}");
+        assert!((before - after) / before < 0.05, "{before} → {after}");
+        assert!((steady.bytes(1.0, 2.0) - 2.0 * after).abs() < 1e-9);
     }
 }
