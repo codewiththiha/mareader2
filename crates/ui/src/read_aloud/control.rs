@@ -538,21 +538,58 @@ fn ring(ui: &Ui, rect: Rect, share: f32, ink: Color32, track: Color32) {
 /// A fault or the end, where the track was; true when asked to fix it.
 fn note(ui: &mut Ui, rect: Rect, text: &str, bad: bool, fixable: bool) -> bool {
     let t = Tokens::get(ui.ctx());
+    let rect = rect.shrink2(vec2(4.0, 0.0));
     let colour = if bad { t.danger } else { t.muted };
     let font = egui::FontId::proportional(t.text_small);
-    let mut job = egui::text::LayoutJob::default();
-    let style = |color| egui::TextFormat::simple(font.clone(), color);
-    job.append(text, 0.0, style(colour));
-    if fixable {
-        job.append(" · Voice settings", 0.0, style(t.accent));
-    }
+    let shown = headline(text);
+    let link = "Voice settings";
+    let name = match fixable {
+        true => format!("{shown} · {link}"),
+        false => shown.clone(),
+    };
     let sense = if fixable {
         Sense::click()
     } else {
         Sense::hover()
     };
-    let label = egui::Label::new(job).sense(sense).truncate();
-    let r = ui.put(rect.shrink2(vec2(4.0, 0.0)), label);
+    let r = ui.interact(rect, ui.id().with("read-aloud-note"), sense);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, fixable, &name));
+    let painter = ui.painter().with_clip_rect(rect);
+    // The way to fix it stays whole; the fault gives way.
+    let link = fixable.then(|| painter.layout_no_wrap(link.to_owned(), font.clone(), t.accent));
+    let dot = painter.layout_no_wrap(" · ".to_owned(), font.clone(), t.muted);
+    let tail = link.as_ref().map_or(0.0, |l| l.size().x + dot.size().x);
+    let room = rect.width() - tail;
+    let words = (link.is_none() || room >= 48.0).then(|| {
+        let mut job = egui::text::LayoutJob::single_section(
+            shown.clone(),
+            egui::TextFormat::simple(font.clone(), colour),
+        );
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room.max(0.0));
+        painter.layout_job(job)
+    });
+    let lead = words.as_ref().map_or(0.0, |w| w.size().x);
+    let gap = if words.is_some() { dot.size().x } else { 0.0 };
+    let width = lead + link.as_ref().map_or(0.0, |l| l.size().x + gap);
+    let mut x = rect.center().x - width.min(rect.width()) / 2.0;
+    let y = |h: f32| rect.center().y - h / 2.0;
+    if let Some(w) = words {
+        painter.galley(pos2(x, y(w.size().y)), w, colour);
+        x += lead;
+    }
+    if let Some(l) = link {
+        if gap > 0.0 {
+            painter.galley(pos2(x, y(dot.size().y)), dot, t.muted);
+            x += gap;
+        }
+        let under = Rect::from_min_size(pos2(x, y(l.size().y)), l.size());
+        if r.hovered() {
+            let base = under.bottom() - 1.0;
+            let line = [pos2(under.left(), base), pos2(under.right(), base)];
+            painter.line_segment(line, Stroke::new(1.0, t.accent));
+        }
+        painter.galley(under.min, l, t.accent);
+    }
     let r = if fixable {
         r.on_hover_cursor(egui::CursorIcon::PointingHand)
     } else {
@@ -560,6 +597,15 @@ fn note(ui: &mut Ui, rect: Rect, text: &str, bad: bool, fixable: bool) -> bool {
     };
     widgets::tip(&r, text, fixable.then_some("Click to fix it"));
     fixable && r.clicked()
+}
+
+/// A fault's gist: before any detail, and starting with a capital.
+fn headline(text: &str) -> String {
+    let gist = text.split(": ").next().unwrap_or(text).trim();
+    let mut chars = gist.chars();
+    chars
+        .next()
+        .map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// "29m", "1h 44m" or "<1m": the time left, as short as it reads.
@@ -688,6 +734,17 @@ mod tests {
         assert_eq!(left_short(104.0 * 60.0), "1h 44m");
         assert_eq!(left_short(7200.0), "2h");
         assert_eq!(left_short(36_000.0 + 1800.0), "10h");
+    }
+
+    #[test]
+    fn a_fault_shows_its_gist_and_keeps_details_for_the_tip() {
+        let model = "couldn't load the voice model: /tmp/m/kokoro.safetensors";
+        assert_eq!(headline(model), "Couldn't load the voice model");
+        assert_eq!(
+            headline("Kokoro isn't downloaded"),
+            "Kokoro isn't downloaded"
+        );
+        assert_eq!(headline(""), "");
     }
 
     #[test]
