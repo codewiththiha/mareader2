@@ -780,3 +780,64 @@ fn bar_only_stays_a_bar_until_asked_and_full_keeps_it_open() {
     assert!(carded(&h));
     let _ = h.get_by_label("Show where it's reading");
 }
+
+/// A sample EPUB read from a file, so it can be opened again.
+fn epub_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, std::path::PathBuf) {
+    use mareader_ui::documents::OpenRequest;
+    let path = dir.join("Kept.epub");
+    let bytes = mareader_epub::sample::epub(8, "Kept");
+    std::fs::write(&path, bytes).expect("a sample file");
+    let mut h = reader(1);
+    let request = OpenRequest {
+        pane: Some(h.state().active_pane()),
+        ..OpenRequest::path(path.clone())
+    };
+    h.state_mut().queue(Command::Open(request));
+    let pane = h.state().active_pane();
+    step_until(&mut h, |h| {
+        let docs = h.state().documents();
+        docs.path(pane).is_some_and(|p| p.ends_with("Kept.epub"))
+            && docs.page_count(pane).is_some_and(|n| n > 4)
+    });
+    (h, path)
+}
+
+#[test]
+fn a_reflowed_book_opened_again_is_lit_and_followed_there() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let (mut h, _) = epub_from_file(dir.path());
+    let first = h.state().active_pane();
+    let pages = h.state().documents().page_count(first).unwrap_or(0);
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(Spot {
+            page: pages / 2,
+            char: 0,
+        }),
+        until: None,
+    };
+    start(&mut h, from);
+    replace_book(&mut h);
+    assert!(h.state().read_aloud().away().is_some());
+    h.run_steps(30);
+    h.get_by_label("Show where it's reading").click();
+    step_until(&mut h, |h| {
+        let aloud = h.state().read_aloud();
+        aloud.home().is_some_and(|p| aloud.lit(p).is_some())
+    });
+    let home = h.state().read_aloud().home().expect("found again");
+    assert_ne!(home, first, "beside the book now read");
+    // It stays home, not away again the next frame.
+    h.run_steps(20);
+    let aloud = h.state().read_aloud();
+    assert!(aloud.away().is_none(), "home, not away");
+    assert_eq!(aloud.home(), Some(home));
+    assert!(aloud.lit(home).is_some(), "lit there");
+    let page = |h: &Harness<'static, MareaderApp>| {
+        let spot = h.state().read_aloud().reading_spot();
+        spot.map(|s| s.0)
+    };
+    step_until(&mut h, |h| h.state().documents().current(home) == page(h));
+    assert_eq!(h.state().documents().current(home), page(&h));
+    assert!(page(&h).is_some_and(|p| p > 0), "turned to the words read");
+}

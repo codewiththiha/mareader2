@@ -435,15 +435,18 @@ impl Spoken {
             return false;
         }
         let fixed = self.document.layout().is_none();
-        if fixed && reading.document.page_count() != self.document.page_count() {
+        let same = reading.document.layout() == self.document.layout()
+            && reading.document.page_count() == self.document.page_count();
+        if fixed && !same {
             return false;
         }
         self.pane = reading.pane;
         (self.followed, self.revealed) = (None, None);
         self.homing = true;
-        // Fixed pages are the same pages; a laid-out book is found anew.
-        if fixed {
-            self.doc = reading.doc;
+        // Known by its new doc from now on, else it seems away again.
+        self.doc = reading.doc;
+        // Pages laid alike are the same; others are found anew in `tick`.
+        if same {
             self.document = Arc::clone(&reading.document);
         }
         true
