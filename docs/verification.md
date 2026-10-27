@@ -35,7 +35,8 @@ on 2026-10-14:
 | CI, push to a red format job, digest included | 28 s |
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
-| `tools/ci.py cache restore` (1.7 GB at 8–17 MB/s, then unpack) | 3.5 min |
+| `tools/ci.py cache restore` (lint builds, 1.2 GB at 7–17 MB/s, then unpack; 2026-10-27) | 2–3.5 min |
+| The first local clippy after that restore (`-p mareader-ui --all-targets`) | 28 s |
 | The full local gates right after a restore (nothing compiles) | 11 s |
 | `tools/ci.py cache build`, seeded from the previous cache | 2.5 min, plus changed crates |
 | `tools/ci.py cache build --cold`, from nothing | 13.5 min |
@@ -154,17 +155,18 @@ What made a change take an hour or more, and the fix for each:
 - **The sandbox cache was stale.** It was refreshed only by hand, and had
   fallen 612 commits behind. After each reset, the first local clippy took
   12–14 min instead of under one. **Fix:** CI's last job,
-  `Cache / sandbox`, starts a cache build after every green push. That
-  takes 2–5 min on a runner, and nobody waits for it: `watch` gives its
-  verdict without that job. The cache job then deletes all but the newest
+  `Cache / sandbox`, starts a cache build after every green push. It takes
+  2–8 min on a runner, and nobody waits for it: `watch` gives its verdict
+  without that job. The cache holds lint builds only (1.2 GB, not 5.6), so
+  a reset now costs a 2–3.5 min restore and a 28 s first clippy. The cache job then deletes all but the newest
   two caches. `cache restore` warns when the cache it unpacked is more than
   30 commits behind. The cache job's wasm lint only warns: the browser
   preview is best-effort, and it once failed every refresh unnoticed.
 - **Full debug info.** Every test binary linked full DWARF for the
   workspace crates. CI now builds with
   `CARGO_PROFILE_DEV_DEBUG=line-tables-only`, and `cargo test` fell from
-  6.6 min to 4.3–5.5 min. A panic's backtrace still
-  names files and lines. The shots and memory jobs set the same, so they
+  6.6 min to 4.3–5.5 min. A panic's backtrace still names files and
+  lines. The shots and memory jobs set the same, so they
   still reuse the test job's build cache.
 - **Prose-only pushes.** Changes to `docs/` and the top-level `*.md` files
   (AGENTS.md, README.md) skip CI.
@@ -185,7 +187,7 @@ Checked, and left alone:
 The fastest loop, per change:
 
 1. **Lint locally only with a warm cache.** After a restore that is not
-   stale, `cargo clippy` takes under a minute. With a stale cache, or none,
+   stale, `cargo clippy` takes about 30 s. With a stale cache, or none,
    skip it: CI's lint job answers in about 2 min.
 2. **Push, then start `watch` and the change's `shots` together.** Shots
    build from the same commit and do not wait for CI.
@@ -485,6 +487,10 @@ cache travels as a workflow artifact.
   which CI ignores, or the branch name may not match a `<type>/` prefix.
 - **HTTP 403 when dispatching.** The token lacks Actions write, or it has
   expired.
+- **`--offline` says "failed to download" after a restore.** The cache
+  leaves out the `.crate` archives, and cargo wants them even with the
+  sources unpacked. Run `cargo fetch` once, which takes about 3 s. A
+  private git dependency needs the token for that fetch.
 - **Restore says files "already exist."** The machine is already warm. Pass
   `--force` only if the cache there is broken.
 - **Crates recompile after a restore.** Run `cargo build -v`. A "Dirty"
