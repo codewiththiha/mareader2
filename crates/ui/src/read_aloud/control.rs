@@ -25,7 +25,7 @@ const TRACK_MOST: f32 = 168.0;
 const TRACK_LEAST: f32 = 56.0;
 /// The track shrinks to this before speed goes.
 const TRACK_EASY: f32 = 110.0;
-const TIME_W: f32 = 78.0;
+const TIME_W: f32 = 66.0;
 const SPEED_W: f32 = 54.0;
 
 /// What the player shows this frame.
@@ -173,7 +173,13 @@ pub(super) fn show(
     let time_w = if fit.time { TIME_W + 8.0 } else { 0.0 };
     let middle = slot(fit.track + time_w);
     match &view.note {
-        Some((text, bad)) => note(ui, middle, text, *bad),
+        Some((text, bad)) => {
+            // A voice that won't speak is fixed in its settings.
+            if note(ui, middle, text, *bad, *bad && !view.narrated) {
+                let tab = crate::settings_window::Tab::ReadAloud;
+                out.push(Command::OpenSettings(tab));
+            }
+        }
         None => {
             let (track, time) = middle.split_left_right_at_x(middle.left() + fit.track);
             if let Some(share) = seek_track(ui, track, view) {
@@ -452,40 +458,120 @@ fn bubble(ui: &Ui, track: Rect, share: f32, view: &View<'_>) {
     painter.galley(at.center() - galley.size() / 2.0, galley, t.ink);
 }
 
-/// The time left, or the share read; a click swaps them.
+/// The time left, or the share read, on one short line; a click swaps.
 fn time_label(ui: &mut Ui, rect: Rect, view: &View<'_>) {
     let t = Tokens::get(ui.ctx());
     let id = Id::new("read-aloud-time-shows-share");
     let share = ui
         .data_mut(|d| d.get_persisted::<bool>(id))
         .unwrap_or(false);
-    let text = match (share, view.at, view.left) {
-        _ if view.loading => "Loading voice…".to_owned(),
-        (true, Some(at), _) => format!("{:.0}% read", at * 100.0),
-        (false, _, Some(left)) => left_text(left),
-        _ => "—".to_owned(),
+    let (text, said) = match (share, view.at, view.left) {
+        (true, Some(at), _) => (
+            format!("{:.0}%", at * 100.0),
+            format!("{:.0}% read", at * 100.0),
+        ),
+        (false, _, Some(left)) => (left_short(left), left_text(left)),
+        _ => ("–".to_owned(), "Not timed yet".to_owned()),
     };
-    let label = egui::Label::new(RichText::new(text).size(t.text_small).color(t.muted))
-        .sense(Sense::click())
-        .selectable(false);
-    let r = ui.put(rect, label);
-    let tip = match share {
-        true => "Show the time left",
-        false => "Show how much is read",
+    let said = if view.loading {
+        format!("{said} · loading voice")
+    } else {
+        said
     };
-    widgets::tip(&r, tip, None);
+    let r = ui.interact(rect, ui.id().with("read-aloud-time"), Sense::click());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said));
+    let quick = motion::secs(ui.ctx(), 0.12);
+    let hot = (ui.ctx()).animate_bool_with_time(r.id, r.hovered(), quick);
+    let ink = t.muted.lerp_to_gamma(t.ink, hot);
+    let font = egui::FontId::proportional(t.text_small);
+    let galley = ui.painter().layout_no_wrap(text, font, ink);
+    // The mark says what the number is; it goes first when room is short.
+    let mark = 11.0;
+    let gap = 4.0;
+    let full = mark + gap + galley.size().x;
+    let marked = full <= rect.width() - 4.0;
+    let width = if marked { full } else { galley.size().x };
+    // Pinned to the track's end, so it stays put as the digits change.
+    let left = rect.left() + 2.0;
+    let pill = Rect::from_min_size(
+        pos2(left - 6.0, rect.center().y - 11.0),
+        vec2(width + 12.0, 22.0),
+    );
+    (ui.painter()).rect_filled(pill, CornerRadius::same(255), t.hover.gamma_multiply(hot));
+    let mut x = left;
+    if marked {
+        let at = Rect::from_center_size(pos2(x + mark / 2.0, rect.center().y), vec2(mark, mark));
+        match (share, view.at) {
+            (true, Some(at_share)) => ring(ui, at, at_share, ink, t.track),
+            _ => Icon::Clock.paint(ui, at, ink),
+        }
+        x += mark + gap;
+    }
+    let top = rect.center().y - galley.size().y / 2.0;
+    (ui.painter().with_clip_rect(rect)).galley(pos2(x, top), galley, ink);
+    let (tip, swap) = match share {
+        true => (said, "Click for the time left"),
+        false => (said, "Click for how much is read"),
+    };
+    widgets::tip(&r, &tip, Some(swap));
     if r.clicked() {
         ui.data_mut(|d| d.insert_persisted(id, !share));
     }
 }
 
-/// A fault or the end, where the track was.
-fn note(ui: &mut Ui, rect: Rect, text: &str, bad: bool) {
+/// A small ring filled round to `share`, for how much is read.
+fn ring(ui: &Ui, rect: Rect, share: f32, ink: Color32, track: Color32) {
+    let c = rect.center();
+    let radius = rect.width() / 2.0 - 1.0;
+    ui.painter()
+        .circle_stroke(c, radius, Stroke::new(1.5, track));
+    let turn = std::f32::consts::TAU * share.clamp(0.0, 1.0);
+    let steps = (share * 32.0).ceil().max(1.0) as usize;
+    let start = -std::f32::consts::FRAC_PI_2;
+    let points: Vec<Pos2> = (0..=steps)
+        .map(|i| start + turn * i as f32 / steps as f32)
+        .map(|a| c + radius * vec2(a.cos(), a.sin()))
+        .collect();
+    ui.painter().add(Shape::line(points, Stroke::new(1.5, ink)));
+}
+
+/// A fault or the end, where the track was; true when asked to fix it.
+fn note(ui: &mut Ui, rect: Rect, text: &str, bad: bool, fixable: bool) -> bool {
     let t = Tokens::get(ui.ctx());
     let colour = if bad { t.danger } else { t.muted };
-    let label = egui::Label::new(RichText::new(text).size(t.text_small).color(colour)).truncate();
+    let font = egui::FontId::proportional(t.text_small);
+    let mut job = egui::text::LayoutJob::default();
+    let style = |color| egui::TextFormat::simple(font.clone(), color);
+    job.append(text, 0.0, style(colour));
+    if fixable {
+        job.append(" · Voice settings", 0.0, style(t.accent));
+    }
+    let sense = if fixable {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let label = egui::Label::new(job).sense(sense).truncate();
     let r = ui.put(rect.shrink2(vec2(4.0, 0.0)), label);
-    widgets::tip(&r, text, None);
+    let r = if fixable {
+        r.on_hover_cursor(egui::CursorIcon::PointingHand)
+    } else {
+        r
+    };
+    widgets::tip(&r, text, fixable.then_some("Click to fix it"));
+    fixable && r.clicked()
+}
+
+/// "29m", "1h 44m" or "<1m": the time left, as short as it reads.
+pub(super) fn left_short(seconds: f64) -> String {
+    let minutes = (seconds / 60.0).round() as u64;
+    match minutes {
+        0 if seconds < 1.0 => "0m".to_owned(),
+        0 => "<1m".to_owned(),
+        1..=59 => format!("{minutes}m"),
+        _ if minutes.is_multiple_of(60) || minutes >= 600 => format!("{}h", minutes / 60),
+        _ => format!("{}h {}m", minutes / 60, minutes % 60),
+    }
 }
 
 /// "12 min left", rounded so it doesn't flicker.
@@ -508,7 +594,18 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings) {
         .frame_when_inactive(false)
         .corner_radius(CornerRadius::same(255))
         .min_size(vec2(SPEED_W - 4.0, 26.0));
-    let place = UiBuilder::new().max_rect(slot.shrink2(vec2(2.0, (HEIGHT - 26.0) / 2.0)));
+    let chip = slot.shrink2(vec2(2.0, (HEIGHT - 26.0) / 2.0));
+    // A faint ring says the speed is a control, not a label.
+    let ring = Stroke::new(1.0, t.line);
+    (ui.painter()).rect_stroke(
+        chip,
+        CornerRadius::same(255),
+        ring,
+        egui::StrokeKind::Inside,
+    );
+    // Centred and filling the ring, so the rate sits in its middle.
+    let middle = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
+    let place = UiBuilder::new().max_rect(chip).layout(middle);
     ui.scope_builder(place, |ui| {
         // "1.25×" stays on one line, whatever the room.
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -585,6 +682,28 @@ mod tests {
         assert_eq!(left_text(100.0), "2 min left");
         assert_eq!(left_text(3600.0), "1 h left");
         assert_eq!(left_text(3600.0 + 65.0 * 60.0), "2 h 5 min left");
+        assert_eq!(left_short(0.2), "0m");
+        assert_eq!(left_short(20.0), "<1m");
+        assert_eq!(left_short(29.0 * 60.0), "29m");
+        assert_eq!(left_short(104.0 * 60.0), "1h 44m");
+        assert_eq!(left_short(7200.0), "2h");
+        assert_eq!(left_short(36_000.0 + 1800.0), "10h");
+    }
+
+    #[test]
+    fn the_longest_short_time_fits_its_slot() {
+        let ctx = egui::Context::default();
+        let mut width = 0.0;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let font = egui::FontId::proportional(12.0);
+            let text = left_short(9.0 * 3600.0 + 59.0 * 60.0);
+            let galley = ui.painter().layout_no_wrap(text, font, Color32::WHITE);
+            width = galley.size().x;
+        });
+        // No painter takes the font atlas here, so it's let go.
+        out.textures_delta.clear();
+        // The clock, its gap and the inset come before the text.
+        assert!(width > 0.0 && 2.0 + 11.0 + 4.0 + width <= TIME_W, "{width}");
     }
 
     #[test]

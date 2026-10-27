@@ -926,3 +926,37 @@ fn the_player_wears_its_own_panes_look_and_the_windows_when_away() {
         "the window's"
     );
 }
+
+#[test]
+fn a_voice_not_downloaded_links_to_its_settings() {
+    let shelf = tempfile::tempdir().expect("an empty models folder");
+    let mut app = MareaderApp::default();
+    let shelf_path = shelf.path().to_string_lossy().into_owned();
+    let options = [
+        ("workers", "0"),
+        ("pdf", "sample:2"),
+        ("voice_models", shelf_path.as_str()),
+        ("set", "read_aloud.engine:\"kokoro\""),
+    ];
+    for (k, v) in options {
+        app.set_option(k, v).expect("a known option");
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    let pane = h.state().active_pane();
+    let from = ReadFrom::default();
+    h.state_mut().queue(Command::ReadAloud { pane, from });
+    let link = "Kokoro isn't downloaded · Voice settings";
+    step_until(&mut h, |h| h.query_by_label(link).is_some());
+    assert!(!h.state().read_aloud().booth.is_open());
+    h.get_by_label(link).click();
+    h.run_steps(4);
+    assert!(
+        h.state().read_aloud().booth.is_open(),
+        "on the Read aloud tab"
+    );
+}
