@@ -486,7 +486,7 @@ fn knob(ui: &mut Ui, t: &Tokens, icon: Icon, label: &str, on: bool) -> Response 
     let (rect, r) = ui.allocate_exact_size(vec2(KNOB, KNOB), Sense::click());
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
     let fill = match (on, r.is_pointer_button_down_on(), r.hovered()) {
-        (true, ..) => Some(t.accent_soft),
+        (true, ..) => Some(t.selected),
         (false, true, _) => Some(t.pressed),
         (false, false, true) => Some(t.hover),
         _ => None,
@@ -630,7 +630,7 @@ fn result_row(ui: &mut Ui, t: &Tokens, (hit, needle): (&Hit, &str), on: bool) ->
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &label));
     let painter = ui.painter_at(rect);
     if on || r.hovered() {
-        let fill = if on { t.accent_soft } else { t.hover };
+        let fill = if on { t.selected } else { t.hover };
         painter.rect_filled(rect, t.radius, fill);
     }
     if on {

@@ -78,6 +78,28 @@ impl Rgb {
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
+    /// `k` of the way to `to`, byte by byte, as egui's gamma lerp.
+    pub fn mix(self, to: Rgb, k: f64) -> Rgb {
+        let k = k.clamp(0.0, 1.0);
+        let step = |a: u8, b: u8| (f64::from(a) + (f64::from(b) - f64::from(a)) * k).round() as u8;
+        Rgb(step(self.0, to.0), step(self.1, to.1), step(self.2, to.2))
+    }
+
+    /// How far apart two colours look: OKLab's straight-line distance.
+    pub fn distance(self, other: Rgb) -> f64 {
+        let lab = |c: Rgb| {
+            let Oklch { l, c, h } = c.to_oklch();
+            let (sin, cos) = h.to_radians().sin_cos();
+            [l, c * cos, c * sin]
+        };
+        let (a, b) = (lab(self), lab(other));
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    }
+
     /// WCAG contrast ratio with `other`, from 1 to 21.
     pub fn contrast(self, other: Rgb) -> f64 {
         let (a, b) = (self.luminance(), other.luminance());

@@ -150,9 +150,29 @@ impl Appearance {
 
     /// The UI palette for this look; untinted bases come back unchanged.
     pub fn ui_tokens(&self) -> UiTokens {
+        let (raw, dark) = (self.raw_tokens(), self.base.is_dark());
+        // Light picks are a ground for small text; dark ones hold none.
+        let picked = marks(&raw, dark).selected;
+        readable(
+            raw,
+            if dark {
+                &[]
+            } else {
+                std::slice::from_ref(&picked)
+            },
+        )
+    }
+
+    /// The fills that mark rows in this look: card, hover and pick.
+    pub fn ui_marks(&self) -> Marks {
+        marks(&self.raw_tokens(), self.base.is_dark())
+    }
+
+    /// The palette before small text is floored to read.
+    fn raw_tokens(&self) -> UiTokens {
         let base = base_tokens(self.base);
         if !self.has_tint() {
-            return readable(base);
+            return base;
         }
         let t = self.tint_amount();
         let h = ui_hue_oklch(f64::from(self.tint_hue));
@@ -171,8 +191,13 @@ impl Appearance {
                 SURFACE_GAP,
             ),
         };
-        let line = apart(tinted(base.line, h, t, 0.090), surface, LINE_GAP);
-        readable(UiTokens {
+        let line = tinted(base.line, h, t, 0.090);
+        // Light lines sit under the chrome, even where a tint darkens it.
+        let line = match self.base.is_dark() {
+            true => apart(line, surface, LINE_GAP),
+            false => below(line, surface, LINE_GAP),
+        };
+        UiTokens {
             paper: ground(base.paper, 0.055),
             ink: tinted(base.ink, h, t, 0.020),
             muted: tinted(base.muted, h, t, 0.045),
@@ -180,7 +205,74 @@ impl Appearance {
             line,
             accent: tinted(base.accent, h, t, 0.150),
             accent_soft: tinted(base.accent_soft, h, t, 0.110),
-        })
+        }
+    }
+}
+
+/// `token` at least `gap` of lightness under `from`.
+fn below(token: Rgb, from: Rgb, gap: f64) -> Rgb {
+    let mut lch = token.to_oklch();
+    let target = from.to_oklch().l - gap;
+    if lch.l <= target {
+        return token;
+    }
+    lch.l = target.max(0.0);
+    lch.to_rgb_in_gamut()
+}
+
+/// Fills that mark rows: a card's wash, a hovered row, a picked one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Marks {
+    pub card: Rgb,
+    pub hover: Rgb,
+    pub selected: Rgb,
+}
+
+/// How far, in OKLab, a pick stands from the grounds it sits on.
+pub const PICK_GAP: f64 = 0.075;
+/// And from a hovered row beside it.
+pub const PICK_HOVER_GAP: f64 = 0.045;
+
+/// A light look's pick in its accent's hue, deepened until it stands out.
+fn marks(t: &UiTokens, dark: bool) -> Marks {
+    if dark {
+        let card = t.surface.mix(t.line, 0.5).mix(t.accent_soft, 0.25);
+        let selected = t.accent_soft.mix(t.accent, 0.3);
+        return Marks {
+            card,
+            hover: t.line,
+            selected,
+        };
+    }
+    let card = t.paper.mix(t.accent_soft, 0.18);
+    // Hover stays a quiet step, so it never outshines the pick.
+    let hover = t.surface.mix(t.line, 0.55);
+    let soft = t.accent_soft.to_oklch();
+    let h = if soft.c < 0.01 {
+        t.accent.to_oklch().h
+    } else {
+        soft.h
+    };
+    let grounds = [t.surface, card, t.paper];
+    let clear = |c: Rgb| {
+        let ground = grounds.iter().map(|g| c.distance(*g)).fold(1.0, f64::min);
+        ground >= PICK_GAP && c.distance(hover) >= PICK_HOVER_GAP
+    };
+    // Warm and violet hues hold little chroma this pale, so it also darkens.
+    let mut selected = t.accent_soft;
+    for i in 0..80 {
+        let l = soft.l - 0.004 * f64::from(i);
+        let full = Oklch { l, c: 0.0, h }.max_chroma();
+        let c = (full * 0.92).min(0.13).max(soft.c);
+        selected = Oklch { l, c, h }.to_rgb_in_gamut();
+        if clear(selected) {
+            break;
+        }
+    }
+    Marks {
+        card,
+        hover,
+        selected,
     }
 }
 
@@ -206,8 +298,9 @@ fn apart(token: Rgb, from: Rgb, gap: f64) -> Rgb {
 pub const MIN_CONTRAST: f64 = 4.5;
 
 /// Muted and accent ink moved just far enough to read on every ground.
-fn readable(t: UiTokens) -> UiTokens {
-    let grounds = [t.paper, t.surface, t.accent_soft];
+fn readable(t: UiTokens, picks: &[Rgb]) -> UiTokens {
+    let mut grounds = vec![t.paper, t.surface, t.accent_soft];
+    grounds.extend_from_slice(picks);
     UiTokens {
         muted: legible(t.muted, &grounds),
         accent: legible(t.accent, &grounds),
@@ -216,7 +309,7 @@ fn readable(t: UiTokens) -> UiTokens {
 }
 
 /// `ink` darkened on light grounds, lightened on dark, until it reads.
-fn legible(ink: Rgb, grounds: &[Rgb]) -> Rgb {
+pub fn legible(ink: Rgb, grounds: &[Rgb]) -> Rgb {
     let worst = |c: Rgb| grounds.iter().map(|g| c.contrast(*g)).fold(21.0, f64::min);
     let light = grounds.iter().map(|g| g.luminance()).sum::<f64>() / grounds.len().max(1) as f64;
     let step = if light > 0.18 { -0.005 } else { 0.005 };
@@ -264,7 +357,11 @@ mod tests {
     #[test]
     fn readable_ink_stays_put() {
         let dark = base_tokens(BaseMode::Dark);
-        assert_eq!(readable(dark).muted, dark.muted, "dark muted already reads");
+        assert_eq!(
+            readable(dark, &[]).muted,
+            dark.muted,
+            "dark muted already reads"
+        );
     }
 
     #[test]
@@ -290,7 +387,7 @@ mod tests {
         let a = Appearance::default();
         let base = base_tokens(BaseMode::Light);
         // All but the floored small-text inks, which only darken.
-        assert_eq!(a.ui_tokens(), readable(base));
+        assert_eq!(a.ui_tokens(), readable(base, &[a.ui_marks().selected]));
         assert_eq!(
             (a.ui_tokens().paper, a.ui_tokens().line),
             (base.paper, base.line)
@@ -396,6 +493,37 @@ mod tests {
                 assert!(page >= SURFACE_GAP - 0.006, "{at}: surface {page:.3}");
                 let line = (l(ui.line) - l(ui.surface)).abs();
                 assert!(line >= LINE_GAP - 0.006, "{at}: line {line:.3}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_pick_stands_out_and_hover_stays_quieter() {
+        for hue in (0..360).step_by(6) {
+            for strength in [0, 5, 10, 18, 25, 35, 50, 100] {
+                let a = Appearance {
+                    tint_hue: hue,
+                    tint_strength: strength,
+                    ..Appearance::default()
+                };
+                let (t, m) = (a.ui_tokens(), a.ui_marks());
+                let at = format!("{hue}/{strength}");
+                for g in [t.surface, m.card, t.paper] {
+                    let d = m.selected.distance(g);
+                    assert!(d >= PICK_GAP - 0.002, "{at}: pick {d:.3} off a ground");
+                }
+                let d = m.selected.distance(m.hover);
+                assert!(d >= PICK_HOVER_GAP - 0.002, "{at}: pick {d:.3} off hover");
+                let l = |c: Rgb| c.to_oklch().l;
+                assert!(l(t.line) < l(t.surface), "{at}: line over the chrome");
+                assert!(l(m.hover) < l(t.surface), "{at}: hover over the chrome");
+                let (soft, pick) = (t.accent_soft.to_oklch(), m.selected.to_oklch());
+                let off = (pick.h - soft.h + 180.0).rem_euclid(360.0) - 180.0;
+                assert!(soft.c < 0.01 || off.abs() < 15.0, "{at}: pick left its hue");
+                for ink in [t.ink, t.accent] {
+                    let c = ink.contrast(m.selected);
+                    assert!(c >= MIN_CONTRAST, "{at}: {c:.2} on the pick");
+                }
             }
         }
     }

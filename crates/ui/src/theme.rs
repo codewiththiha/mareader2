@@ -69,13 +69,7 @@ impl Tokens {
         let (surface, line, ink) = (color(t.surface), color(t.line), color(t.ink));
         let dark = a.base.is_dark();
         let (paper, accent_soft) = (color(t.paper), color(t.accent_soft));
-        // Light looks lift cards toward the paper; dark ones toward the line.
-        let card = match dark {
-            false => paper.lerp_to_gamma(accent_soft, 0.18),
-            true => surface
-                .lerp_to_gamma(line, 0.5)
-                .lerp_to_gamma(accent_soft, 0.25),
-        };
+        let marks = a.ui_marks();
         Self {
             paper,
             page: a.page_tone(),
@@ -84,20 +78,20 @@ impl Tokens {
             muted: color(t.muted),
             surface,
             line,
-            hover: line,
+            hover: color(marks.hover),
             pressed: line.lerp_to_gamma(ink, 0.12),
             accent: color(t.accent),
             accent_soft,
-            selected: match dark {
-                false => accent_soft,
-                true => accent_soft.lerp_to_gamma(color(t.accent), 0.3),
-            },
-            card,
+            selected: color(marks.selected),
+            card: color(marks.card),
             track: line.lerp_to_gamma(ink, if dark { 0.18 } else { 0.22 }),
-            danger: if dark {
-                Color32::from_rgb(0xf8, 0x71, 0x71)
-            } else {
-                Color32::from_rgb(0xdc, 0x26, 0x26)
+            // Light error text reads on every ground a tint colours.
+            danger: match dark {
+                true => Color32::from_rgb(0xf8, 0x71, 0x71),
+                false => color(mareader_appearance::legible(
+                    Rgb(0xdc, 0x26, 0x26),
+                    &[t.paper, t.surface, marks.card, marks.selected],
+                )),
             },
             glass: Color32::from_rgba_unmultiplied(surface.r(), surface.g(), surface.b(), 245),
             // Thin enough that pages under a bar read as soft shapes.
@@ -400,6 +394,23 @@ mod tests {
             for fill in [t.accent, t.danger] {
                 let ratio = contrast(ink_on(fill), fill);
                 assert!(ratio >= 4.5, "{}: {ratio:.2} on {fill:?}", p.name);
+            }
+        }
+    }
+
+    #[test]
+    fn error_text_reads_on_every_light_tint() {
+        let rgb = |c: Color32| Rgb(c.r(), c.g(), c.b());
+        for hue in (0..360).step_by(10) {
+            let a = Appearance {
+                tint_hue: hue,
+                tint_strength: 50,
+                ..Appearance::default()
+            };
+            let t = Tokens::new(&a);
+            for ground in [t.paper, t.surface, t.card, t.selected] {
+                let ratio = rgb(t.danger).contrast(rgb(ground));
+                assert!(ratio >= 4.5, "{hue}: {ratio:.2} on {ground:?}");
             }
         }
     }
