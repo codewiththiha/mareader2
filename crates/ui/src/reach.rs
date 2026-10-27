@@ -47,7 +47,8 @@ struct Entry {
 
 /// Lays the stops out and returns the key pressed at the focused one.
 pub fn show(ui: &Ui, on: &On<'_>) -> Option<Press> {
-    let mut stops = gather(on);
+    // One book can show in two panes: the pane's id keeps their stops apart.
+    let mut stops = gather(on, ui.id());
     let room = room(ui);
     // Only what shows whole: Tab never scrolls the page under the reader.
     stops.retain(|s| room.contains_rect(s.rect));
@@ -92,7 +93,7 @@ fn room(ui: &Ui) -> Rect {
 }
 
 /// Every stop on the shown pages, in no order yet.
-fn gather(on: &On<'_>) -> Vec<Entry> {
+fn gather(on: &On<'_>, pane: Id) -> Vec<Entry> {
     let pages = on.pages;
     let sheet_of = |r: Rect| {
         let at = r.center();
@@ -108,7 +109,7 @@ fn gather(on: &On<'_>) -> Vec<Entry> {
             out.push(Entry {
                 sheet: n,
                 rect: sheet.to_screen(link.bounds),
-                id: Id::new(("stop-link", pages.doc, sheet.page, i)),
+                id: pane.with(("stop-link", pages.doc, sheet.page, i)),
                 stop: Stop::Link(link.target.clone()),
             });
         }
@@ -122,7 +123,7 @@ fn gather(on: &On<'_>) -> Vec<Entry> {
         out.push(Entry {
             sheet: sheet_of(rect),
             rect,
-            id: Id::new(("stop-mark", m.id, again)),
+            id: pane.with(("stop-mark", m.id, again)),
             stop: Stop::Mark(i),
         });
     }
@@ -131,7 +132,7 @@ fn gather(on: &On<'_>) -> Vec<Entry> {
         out.push(Entry {
             sheet: sheet_of(rect),
             rect,
-            id: Id::new(("stop-word", pages.doc, w.page, w.chars.start)),
+            id: pane.with(("stop-word", pages.doc, w.page, w.chars.start)),
             stop: Stop::Word(i),
         });
     }

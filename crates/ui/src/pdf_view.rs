@@ -1089,7 +1089,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 };
                 let lit = on_word.filter(|i| !under_mark(*i));
                 vocab::add(&shaded, look, lit, &mut under);
-                let id = egui::Id::new(("shade-rest", doc_id));
+                let id = ui.id().with(("shade-rest", doc_id));
                 if let Some(i) = vocab::dwell(ui, id, &shaded, lit, look)
                     && let Some(w) = shaded.get(i)
                     && let Some(layer) = texts.get(doc_id, w.page)

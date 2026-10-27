@@ -15,6 +15,7 @@ use mareader_dict::{PACKS, build as build_pack, db_file};
 use mareader_settings::CefrLevel;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::documents::OpenRequest;
 use mareader_ui::settings_window::Tab;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::data_type::{ByteArray, ByteArrayType, FloatType};
@@ -400,4 +401,73 @@ fn the_window_copies_its_list() {
     h.run();
     h.get_by_label("Copy").click();
     assert_eq!(copied(&mut h, 4).as_deref(), Some(md.as_str()));
+}
+
+/// Every clash egui warned of in the last frame.
+fn clashes(h: &H) -> Vec<String> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Vec(all) => all.iter().for_each(|s| walk(s, out)),
+            egui::Shape::Text(t) if t.galley.job.text.contains(" ID ") => {
+                out.push(t.galley.job.text.clone());
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    h.output()
+        .shapes
+        .iter()
+        .for_each(|c| walk(&c.shape, &mut out));
+    out
+}
+
+#[test]
+fn one_book_in_two_panes_keeps_its_words_apart() {
+    let (words, _packs) = shelves();
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("Twice.pdf");
+    std::fs::write(&path, mareader_pdf::sample::pdf(3, "Twice")).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    let words = words.path().to_string_lossy().into_owned();
+    let mut app = MareaderApp::default();
+    let options = [
+        ("workers", "0"),
+        ("animations", "false"),
+        ("cefr", words.as_str()),
+        ("panes", "2"),
+        ("focus", "1"),
+        ("pdf", path.as_str()),
+    ];
+    for (k, v) in options {
+        app.set_option(k, v).expect("a known option");
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    // Opened again once shown, as the player's reopen does, it's shared.
+    let panes = h.state().panes();
+    let second = *panes.get(1).unwrap();
+    let request = OpenRequest {
+        pane: Some(second),
+        ..OpenRequest::path(path.into())
+    };
+    h.state_mut().queue(Command::Open(request));
+    h.run_steps(3);
+    h.run();
+    let docs = h.state().documents();
+    let shown: Vec<_> = panes.iter().filter_map(|p| docs.reading(*p)).collect();
+    assert_eq!(shown.len(), 2);
+    assert_eq!(shown.first().map(|r| r.doc), shown.get(1).map(|r| r.doc));
+    assert_eq!(h.state().vocab().state(Part::Dataset), &State::Ready);
+    // Its shaded words, links and marks take Tab in each pane apart.
+    for _ in 0..10 {
+        h.step();
+        let found = clashes(&h);
+        assert!(found.is_empty(), "{found:#?}");
+    }
 }
