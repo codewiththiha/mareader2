@@ -815,10 +815,12 @@ fn hear(part: &Part, time: f64, before: Option<Heard>) -> Option<Heard> {
     };
     let begun = part.words.iter().rev().find(|(s, _)| *s <= time);
     let kept = before.filter(|h| h.id == id).and_then(|h| h.word);
+    // Before its first word, that word is next: a guess would run ahead.
+    let first = part.words.first().map(|w| w.1);
     Some(Heard {
         id,
         seconds: part.from + time,
-        word: begun.map(|w| w.1).or(kept),
+        word: begun.map(|w| w.1).or(kept).or(first),
     })
 }
 
@@ -1108,7 +1110,11 @@ pub(crate) mod tests {
         let at = |time, before| hear(&said, time, before).and_then(|h| h.word);
         assert_eq!(at(0.7, None), Some(15));
         assert_eq!(at(0.3, None), Some(10));
-        assert_eq!(at(0.1, None), None, "nothing begun here yet");
+        assert_eq!(
+            at(0.1, None),
+            Some(10),
+            "nothing begun yet: the first is next"
+        );
         let before = Heard {
             id: 3,
             seconds: 1.9,
@@ -1116,7 +1122,14 @@ pub(crate) mod tests {
         };
         assert_eq!(at(0.1, Some(before)), Some(4), "begun in the piece before");
         let other = Heard { id: 2, ..before };
-        assert_eq!(at(0.1, Some(other)), None, "another sentence's");
+        assert_eq!(
+            at(0.1, Some(other)),
+            Some(10),
+            "another sentence's isn't kept"
+        );
+        let bare = part(Owner::Said(3), vec![]);
+        let unmarked = hear(&bare, 0.1, None).map(|h| h.word);
+        assert_eq!(unmarked, Some(None), "no marks: the reader guesses");
         assert_eq!(hear(&said, 0.5, None).map(|h| h.seconds), Some(2.5));
         assert!(hear(&part(Owner::Next(e_key()), vec![]), 0.1, None).is_none());
     }
