@@ -880,3 +880,49 @@ fn dragging_a_side_sets_the_player_width_for_good() {
     let now = side(&h, "end").x - side(&h, "start").x;
     assert!((now - wider).abs() < 1.0, "it keeps that width: {now}");
 }
+
+#[test]
+fn the_player_wears_its_own_panes_look_and_the_windows_when_away() {
+    use mareader_ui::theme::Tokens;
+    let mut app = MareaderApp::default();
+    for (key, value) in [
+        ("workers", "0"),
+        ("pdf", "sample:3"),
+        ("panes", "2"),
+        ("independent", "true"),
+        ("set", "read_aloud.engine:\"silent\""),
+    ] {
+        app.set_option(key, value).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    let window = Tokens::new(&h.state().settings().appearance);
+    let panes = h.state().panes();
+    let own = |h: &Harness<'static, MareaderApp>, p| Tokens::new(&h.state().look(p));
+    let pane = (panes.iter().copied())
+        .find(|&p| own(&h, p) != window)
+        .expect("a pane in a look of its own");
+    h.state_mut().queue(Command::FocusPane(pane));
+    h.run_steps(2);
+    // The book opened there, so it reads in that look.
+    replace_book(&mut h);
+    step_until(&mut h, |h| h.state().documents().page_count(pane).is_some());
+    start(&mut h, ReadFrom::default());
+    h.run_steps(30);
+    let aloud = h.state().read_aloud();
+    assert_eq!(aloud.home(), Some(pane));
+    assert_ne!(own(&h, pane), window, "focus leaves the window's look be");
+    assert_eq!(aloud.colours(), Some(own(&h, pane)), "its book's look");
+    // Away from its book, it is the window's again.
+    replace_book(&mut h);
+    h.run_steps(30);
+    let away = h.state().read_aloud().colours();
+    assert!(
+        away.is_some() && away != Some(own(&h, pane)),
+        "the window's"
+    );
+}

@@ -407,6 +407,27 @@ pub struct Stage<'a> {
     pub shown: Option<bool>,
     /// The title of the book read.
     pub title: &'a str,
+    /// Its pane's own look, while it has one; else the window's.
+    pub tint: Option<Tokens>,
+}
+
+/// The player's colours, easing from one look to the next.
+#[derive(Clone, Copy)]
+struct Tint {
+    from: Tokens,
+    to: Tokens,
+    since: f64,
+}
+
+impl Tint {
+    /// The colours at `now`, eased over `time` seconds.
+    fn at(&self, now: f64, time: f64) -> Tokens {
+        let k = match time > 0.0 {
+            true => ((now - self.since) / time).clamp(0.0, 1.0) as f32,
+            false => 1.0,
+        };
+        self.from.toward(&self.to, ease_in_out(k))
+    }
 }
 
 /// The player's shape and place, kept between frames.
@@ -429,6 +450,7 @@ struct Shape {
     appeared: Option<f64>,
     /// Its width while a side is dragged.
     dragged: Option<f32>,
+    tint: Option<Tint>,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -787,6 +809,11 @@ impl ReadAloud {
         Some((pane, page, chars))
     }
 
+    /// The look the player wears, or eases to, once it has shown.
+    pub fn colours(&self) -> Option<Tokens> {
+        self.shape.tint.map(|t| t.to)
+    }
+
     /// Whether the player is a card, or on its way to one.
     pub fn carded(&self) -> bool {
         self.session.is_some() && self.shape.card
@@ -859,7 +886,26 @@ impl ReadAloud {
         if (goal - at).length() > 0.5 {
             ctx.request_repaint();
         }
-        let act = {
+        // It wears its book's look, easing there as it moves between panes.
+        let goal = stage.tint.unwrap_or_else(|| Tokens::get(ctx));
+        let tint = shape.tint.get_or_insert(Tint {
+            from: goal,
+            to: goal,
+            since: now,
+        });
+        if tint.to != goal {
+            let from = tint.at(now, f64::from(morph));
+            *tint = Tint {
+                from,
+                to: goal,
+                since: now,
+            };
+        }
+        let colours = tint.at(now, f64::from(morph));
+        if colours != goal {
+            ctx.request_repaint();
+        }
+        let act = colours.lend(ctx, || {
             let hint = |share: f32| s.hint(share);
             let view = s.view(&hint);
             let about = s.about(stage.title);
@@ -936,7 +982,7 @@ impl ReadAloud {
                 None => {}
             }
             act
-        };
+        });
         match act {
             Some(Act::Card(to)) => shape.chosen = Some(to),
             Some(Act::Reveal) => out.push(Command::ShowReading),

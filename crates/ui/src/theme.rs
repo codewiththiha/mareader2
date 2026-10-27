@@ -119,6 +119,45 @@ impl Tokens {
         ctx.data(|d| d.get_temp::<Tokens>(egui::Id::new(TOKENS_ID)))
             .unwrap_or_else(|| Self::new(&Appearance::default()))
     }
+
+    /// Runs `f` in this look, menus too; then the window's comes back.
+    pub fn lend<R>(self, ctx: &egui::Context, f: impl FnOnce() -> R) -> R {
+        let window = Self::get(ctx);
+        if window == self {
+            return f();
+        }
+        let kept = ctx.global_style().visuals.clone();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_ID), self));
+        ctx.set_visuals(visuals(&self));
+        let out = f();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(TOKENS_ID), window));
+        ctx.set_visuals(kept);
+        out
+    }
+
+    /// Colours `k` of the way from these to `to`'s; the rest are `to`'s.
+    pub fn toward(&self, to: &Self, k: f32) -> Self {
+        let mix = |a: Color32, b: Color32| a.lerp_to_gamma(b, k.clamp(0.0, 1.0));
+        Self {
+            paper: mix(self.paper, to.paper),
+            ink: mix(self.ink, to.ink),
+            muted: mix(self.muted, to.muted),
+            surface: mix(self.surface, to.surface),
+            line: mix(self.line, to.line),
+            hover: mix(self.hover, to.hover),
+            pressed: mix(self.pressed, to.pressed),
+            accent: mix(self.accent, to.accent),
+            accent_soft: mix(self.accent_soft, to.accent_soft),
+            selected: mix(self.selected, to.selected),
+            card: mix(self.card, to.card),
+            track: mix(self.track, to.track),
+            danger: mix(self.danger, to.danger),
+            glass: mix(self.glass, to.glass),
+            frost: mix(self.frost, to.frost),
+            shadow: mix(self.shadow, to.shadow),
+            ..*to
+        }
+    }
 }
 
 const TOKENS_ID: &str = "mareader-tokens";

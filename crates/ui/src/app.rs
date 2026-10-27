@@ -2900,12 +2900,19 @@ impl MareaderApp {
         let book = origin.and_then(|o| o.book);
         let mut content = ctx.content_rect();
         content.min.y += crate::theme::TITLE_BAR_H;
+        // Panes with looks of their own: it wears its book's, unlike the rest.
+        let home = self.read_aloud.home();
+        let shows = |pane: &PaneId| self.pane_rects.iter().any(|(p, _)| p == pane);
+        let tint = (home.filter(shows))
+            .filter(|_| reader && self.routing().any())
+            .map(|pane| theme::Tokens::new(&self.look(pane)));
         let stage = crate::read_aloud::Stage {
             reader,
             panes: &self.pane_rects,
             content,
             shown,
             title: &title,
+            tint,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
