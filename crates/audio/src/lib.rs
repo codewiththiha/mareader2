@@ -8,6 +8,8 @@
     clippy::unreachable,
     clippy::indexing_slicing
 )]
+// The browser has no output device, so playback's parts go unused there.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 mod decode;
 #[cfg(not(target_arch = "wasm32"))]
