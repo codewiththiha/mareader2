@@ -6,8 +6,30 @@ use std::time::{Duration, Instant};
 use mareader_settings::Highlight;
 use mareader_speech::Word;
 
-/// Words in a phrase at most; a longer one is cut in even parts.
+/// Words in a phrase left whole; a longer run is cut where speech parts.
 const PHRASE_MOST: usize = 6;
+/// Words a cut phrase may run to, when that keeps words together.
+const PHRASE_LONGEST: usize = 8;
+/// Words that open a clause: a phrase starts well on one.
+const CLAUSES: &[&str] = &[
+    "and", "or", "but", "nor", "so", "yet", "because", "while", "when", "where", "whereas",
+    "which", "who", "whom", "whose", "that", "if", "unless", "until", "since", "although",
+    "though",
+];
+/// Words that open a phrase, prepositions mostly.
+const OPENERS: &[&str] = &[
+    "in", "on", "at", "to", "for", "from", "with", "by", "into", "about", "like", "than", "after",
+    "before", "without", "through", "during", "as", "past", "toward", "towards", "across",
+    "around", "between", "among", "against", "beyond", "within", "along", "behind", "despite",
+    "except", "via",
+];
+/// Words that lean on the next: a phrase ends badly on one.
+const LEANERS: &[&str] = &[
+    "a", "an", "the", "of", "upon", "onto", "over", "under", "is", "are", "was", "were", "be",
+    "been", "am", "has", "have", "had", "do", "does", "did", "will", "would", "can", "could",
+    "shall", "should", "may", "might", "must", "my", "your", "his", "her", "its", "our", "their",
+    "this", "these", "those", "not", "very",
+];
 /// Bytes said a second at normal speed, before a sentence is timed.
 const PACE: f64 = 14.0;
 /// Marks a voice pauses after, ending a phrase.
@@ -37,26 +59,86 @@ pub(super) fn group(
     }
 }
 
-/// `words` cut where the voice pauses, none longer than [`PHRASE_MOST`].
+/// `words` cut where the voice pauses, long runs where speech parts.
 fn phrases(text: &str, words: &[Word]) -> Vec<Range<usize>> {
+    let said = |w: &Word| text.get(w.bytes.clone()).unwrap_or_default();
     let mut out = Vec::new();
     let mut from = 0;
     for (i, word) in words.iter().enumerate() {
-        let said = text.get(word.bytes.clone()).unwrap_or_default();
-        if said.ends_with(PAUSES) || i + 1 == words.len() {
-            out.extend(even(from..i + 1));
+        if said(word).ends_with(PAUSES) || i + 1 == words.len() {
+            let run: Vec<&str> = words
+                .get(from..=i)
+                .unwrap_or_default()
+                .iter()
+                .map(said)
+                .collect();
+            out.extend(
+                natural(&run)
+                    .into_iter()
+                    .map(|r| r.start + from..r.end + from),
+            );
             from = i + 1;
         }
     }
     out
 }
 
-/// `run` in the fewest even parts no longer than [`PHRASE_MOST`].
-fn even(run: Range<usize>) -> Vec<Range<usize>> {
+/// A run of words cut into phrases as speech parts them.
+fn natural(run: &[&str]) -> Vec<Range<usize>> {
     let len = run.len();
-    let parts = len.div_ceil(PHRASE_MOST).max(1);
-    let edge = |k: usize| run.start + len * k / parts;
-    (0..parts).map(|k| edge(k)..edge(k + 1)).collect()
+    if len <= PHRASE_MOST {
+        return std::iter::once(0..len).collect();
+    }
+    let bare = |i: usize| {
+        let word = run.get(i).copied().unwrap_or_default();
+        word.trim_matches(|c: char| !c.is_alphanumeric())
+    };
+    let is = |list: &[&str], i: usize| list.iter().any(|w| w.eq_ignore_ascii_case(bare(i)));
+    // Three to five words cost least.
+    let size = |n: usize| match n {
+        1 => 6,
+        2 => 2,
+        3..=5 => 0,
+        6 => 1,
+        7 => 4,
+        _ => 9,
+    };
+    // A cut before word `j`: dearest after "the" or "in".
+    let cut = |j: usize| {
+        let leans = is(LEANERS, j - 1) || is(OPENERS, j - 1) || is(CLAUSES, j - 1);
+        let opens = match (is(CLAUSES, j), is(OPENERS, j)) {
+            (true, _) => -3,
+            (_, true) => -1,
+            _ => 0,
+        };
+        opens + if leans { 8 } else { 0 }
+    };
+    // The least cost to cut the first `j` words, and where its last starts.
+    let mut best: Vec<(i32, usize)> = vec![(i32::MAX, 0); len + 1];
+    if let Some(first) = best.first_mut() {
+        *first = (0, 0);
+    }
+    for j in 1..=len {
+        let edge = if j < len { cut(j) } else { 0 };
+        for i in j.saturating_sub(PHRASE_LONGEST)..j {
+            let Some(&(before, _)) = best.get(i).filter(|b| b.0 < i32::MAX) else {
+                continue;
+            };
+            let cost = before + size(j - i) + 2 + edge;
+            if let Some(slot) = best.get_mut(j).filter(|s| cost < s.0) {
+                *slot = (cost, i);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut j = len;
+    while j > 0 {
+        let i = best.get(j).map_or(0, |b| b.1);
+        out.push(i..j);
+        j = i;
+    }
+    out.reverse();
+    out
 }
 
 /// The word heard: at `byte` when the voice knows it, else at `guess`.
@@ -173,6 +255,60 @@ mod tests {
         assert_eq!(ask(4), 4..8);
         assert_eq!(ask(9), 8..13);
         assert_eq!(ask(17), 13..18);
+    }
+
+    /// The phrases of `text` as words.
+    fn cut(text: &str) -> Vec<String> {
+        let w = words(text);
+        let pick = |r: Range<usize>| {
+            let (Some(a), Some(b)) = (w.get(r.start), w.get(r.end - 1)) else {
+                return String::new();
+            };
+            text.get(a.bytes.start..b.bytes.end)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        phrases(text, &w).into_iter().map(pick).collect()
+    }
+
+    #[test]
+    fn long_runs_part_as_speech_does_never_after_a_leaning_word() {
+        assert_eq!(
+            cut(
+                "What is Crockford's view on the evolution of technologies like \
+                 JavaScript and the importance of simplicity in design?"
+            ),
+            [
+                "What is Crockford's view",
+                "on the evolution of technologies",
+                "like JavaScript and the importance",
+                "of simplicity in design?",
+            ]
+        );
+        assert_eq!(
+            cut(
+                "The river ran slow and brown past the old customs house where the \
+                 boats unloaded rice and timber at dawn."
+            ),
+            [
+                "The river ran slow and brown",
+                "past the old customs house",
+                "where the boats unloaded rice",
+                "and timber at dawn.",
+            ]
+        );
+        assert_eq!(
+            cut("Nobody remembered who had built the jetty and nobody asked."),
+            [
+                "Nobody remembered",
+                "who had built the jetty",
+                "and nobody asked."
+            ]
+        );
+        assert_eq!(
+            cut("Six words stay together as one."),
+            ["Six words stay together as one."]
+        );
     }
 
     #[test]
