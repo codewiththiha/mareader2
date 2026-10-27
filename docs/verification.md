@@ -425,6 +425,13 @@ everything the local gates build, toolchain included, and unpacks it here.
   cold cache build therefore compiles all ~300 crates on one machine. A
   normal cache build instead downloads the previous cache inside GitHub
   (100 MB/s, about 30 s), compiles only what changed, and repacks.
+- **Why a `Cargo.lock` change starts `target-mr` afresh.** Cargo names a
+  dependency's files by its version, so after a lock change the old files
+  stay behind. One seed across 612 commits grew the cache from 1.7 GB to
+  6.7 GB. So the seed step keeps the toolchain and the registry, but drops
+  `target-mr` when the lock differs from the cached one. That build takes
+  12–17 min on a runner, and nobody waits for it. A workspace crate keeps
+  its file names across edits, so other refreshes do not grow the cache.
 - **Why it can be reused.** Cargo keys its cache on absolute paths, the
   compiler version and the build profile. So the CI job clones the repo to
   `/home/user/mareader2` and uses `/home/user/.cache/{rustup,cargo,target-mr}`

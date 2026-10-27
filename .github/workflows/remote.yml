@@ -714,10 +714,10 @@ jobs:
     name: Remote / sandbox cache
     if: inputs.task == 'cache'
     runs-on: ubuntu-24.04
-    # CI starts one per green push; only the newest commit's matters.
+    # One at a time; a newer push's run replaces any still waiting.
     concurrency:
       group: sandbox-cache
-      cancel-in-progress: true
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: write

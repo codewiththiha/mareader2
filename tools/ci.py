@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import io
 import json
 import os
@@ -642,7 +643,14 @@ def cache_seed(args) -> int:
         if art is None:
             log("no live sandbox cache: building cold")
             return 0
-        fetch_cache(token, art, "/home/user/.cache", force=True)
+        meta = fetch_cache(token, art, "/home/user/.cache", force=True)
+        # Cargo names a dependency's files by version: after a lock change
+        # the old ones stay, and one 612-commit seed grew 1.7 GB to 6.7.
+        lock = hashlib.sha256(open("Cargo.lock", "rb").read()).hexdigest()
+        if meta.get("lock") != lock:
+            log("Cargo.lock changed since that cache: target-mr builds from "
+                "nothing; the toolchain and registry stay")
+            shutil.rmtree("/home/user/.cache/target-mr", ignore_errors=True)
     except (SystemExit, OSError, zipfile.BadZipFile) as exc:
         log(f"seeding failed ({exc}): building cold")
         for d in ("rustup", "cargo", "target-mr"):
