@@ -190,6 +190,7 @@ fn main() -> Result<(), String> {
         harness.state_mut().queue(Command::Vocab(Download::Start));
         wait_for_words(&mut harness)?;
     }
+    wait_for_books(&mut harness);
     for c in queued {
         harness.state_mut().queue(c);
         harness.run_steps(8);
@@ -332,6 +333,15 @@ fn wait_for_scripts(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String
         std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
+}
+
+/// Frames in real time until every book asked for is open, or 30 s.
+fn wait_for_books(harness: &mut Harness<'_, MareaderApp>) {
+    let start = Instant::now();
+    while harness.state().documents().opening() && start.elapsed() < Duration::from_secs(30) {
+        harness.run_steps(1);
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// Steps until the word levels are in, for two minutes at most.

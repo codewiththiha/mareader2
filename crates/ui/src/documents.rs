@@ -639,6 +639,11 @@ impl Documents {
         None
     }
 
+    /// A book is still on its way into some pane.
+    pub fn opening(&self) -> bool {
+        (self.panes.values()).any(|c| matches!(c, Content::Opening { .. }))
+    }
+
     pub fn close_pane(&mut self, pane: PaneId) {
         self.set(pane, None);
         self.sheets.remove(&pane);
