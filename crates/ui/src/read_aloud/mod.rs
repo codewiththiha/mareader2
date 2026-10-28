@@ -760,6 +760,28 @@ impl ReadAloud {
         Ok(())
     }
 
+    /// The languages a card's word can be said in: the picked voice's.
+    pub fn speaks(&self, settings: &ReadAloudSettings) -> Vec<String> {
+        let engine = settings.engine.as_str();
+        let picked = settings.voice_for(engine);
+        let model = mareader_speech::MODELS.iter().find(|m| m.id == engine);
+        let language = match model {
+            Some(m) => picked.and_then(|id| m.voice(id)).or(m.first()),
+            None => None,
+        };
+        let language = language.map(|v| v.language.to_owned()).or_else(|| {
+            // The system's voices are known once one of its booths listed them.
+            let booths = [&self.word, &self.booth].into_iter();
+            let mut listed = booths
+                .filter(|b| b.engine() == engine)
+                .flat_map(|b| b.voices());
+            let id = picked?;
+            listed.find(|v| v.id == id).map(|v| v.language.clone())
+        });
+        let language = language.unwrap_or_else(mareader_speech::home_language);
+        vec![mareader_speech::primary(&language)]
+    }
+
     pub fn stop_word(&mut self) {
         self.word.stop_trying();
         self.saying = None;

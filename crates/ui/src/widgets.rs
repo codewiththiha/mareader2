@@ -470,18 +470,31 @@ pub fn segments<T: Copy + PartialEq>(
     cols: usize,
     face: impl Fn(T) -> (Option<Icon>, &'static str),
 ) {
+    segments_of(ui, SEGMENT, value, all, cols, face);
+}
+
+/// Segments with rows `row` tall, to line up with taller controls.
+pub fn segments_of<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    row: f32,
+    value: &mut T,
+    all: &[T],
+    cols: usize,
+    face: impl Fn(T) -> (Option<Icon>, &'static str),
+) {
     let t = Tokens::get(ui.ctx());
     let cols = cols.max(1);
     let rows = all.len().div_ceil(cols);
-    let size = vec2(ui.available_width(), SEGMENT * rows as f32);
+    let size = vec2(ui.available_width(), row * rows as f32);
     let (track, _) = ui.allocate_exact_size(size, Sense::hover());
     let line = Stroke::new(1.0, t.line);
     ui.painter()
         .rect_stroke(track, CornerRadius::same(6), line, egui::StrokeKind::Inside);
     let w = track.width() / cols as f32;
+    let row_h = row;
     let cell = |i: f32, row: f32| {
-        let min = track.min + vec2(i * w, row * SEGMENT);
-        Rect::from_min_size(min, vec2(w, SEGMENT)).shrink(2.0)
+        let min = track.min + vec2(i * w, row * row_h);
+        Rect::from_min_size(min, vec2(w, row_h)).shrink(2.0)
     };
     // The pick's fill slides to a new pick instead of jumping.
     let first = all.first().map_or("", |&v| face(v).1);

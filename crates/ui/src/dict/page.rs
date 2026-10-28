@@ -1,16 +1,16 @@
 //! The Dictionary page: a search, its results and one entry in full.
 
 use egui::{
-    Align, Button, FontId, Frame, Key, Layout, Margin, Modifiers, Rect, Response, RichText,
-    ScrollArea, Sense, Shape, Stroke, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
+    Align, Button, CornerRadius, Frame, Key, Layout, Margin, Modifiers, Rect, Response, RichText,
+    ScrollArea, Sense, Shape, Stroke, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 use mareader_dict::{
-    Dictionaries, Entry, HUB, PACKS, Pack, Pair, Query, Reply, Ticket, WordMatch, fold, language,
+    Dictionaries, Entry, HUB, Pack, Pair, Query, Reply, Ticket, WordMatch, fold, language,
     languages,
 };
 use mareader_settings::DictionarySettings;
 
-use super::entry;
+use super::{Voice, entry, look};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
@@ -124,17 +124,29 @@ impl Page {
         self.typing = false;
     }
 
+    /// The words the page shows the sound of: the word and the one chosen.
+    pub fn sound_words(&self) -> Vec<String> {
+        let Some(reply) = self.reply.as_ref() else {
+            return Vec::new();
+        };
+        let asked = self.text.trim();
+        let mut words: Vec<String> = headword(reply, asked).into_iter().collect();
+        let chosen = reply.entries.get(self.chosen).map(|e| e.asked().to_owned());
+        words.extend(chosen.filter(|w| !words.contains(w)));
+        words
+    }
+
     /// The page in whatever room `ui` has, as the floating window shows it.
     pub fn compact(
         &mut self,
         ui: &mut Ui,
         service: &mut Dictionaries,
-        s: &DictionarySettings,
+        (s, voice): (&DictionarySettings, &Voice),
         out: &mut Commands,
     ) {
         let t = Tokens::get(ui.ctx());
         self.small = true;
-        self.contents(ui, service, s, &t, out);
+        self.contents(ui, service, (s, voice), &t, out);
     }
 
     /// Asks again once typing settles and the ask has changed.
@@ -170,7 +182,7 @@ impl Page {
         &mut self,
         ui: &mut Ui,
         service: &mut Dictionaries,
-        s: &DictionarySettings,
+        settings: (&DictionarySettings, &Voice),
         top: f32,
         out: &mut Commands,
     ) {
@@ -181,11 +193,11 @@ impl Page {
         let width = (full.width() - 2.0 * MARGIN).clamp(0.0, MAX_W);
         let left = full.center().x - width / 2.0;
         let bottom = (full.bottom() - MARGIN).max(top + 12.0);
-        let col = Rect::from_min_max(pos2(left, top + 12.0), pos2(left + width, bottom));
+        let col = Rect::from_min_max(pos2(left, top + 16.0), pos2(left + width, bottom));
         let builder = UiBuilder::new()
             .max_rect(col)
             .layout(Layout::top_down(Align::Min));
-        ui.scope_builder(builder, |ui| self.contents(ui, service, s, &t, out));
+        ui.scope_builder(builder, |ui| self.contents(ui, service, settings, &t, out));
     }
 
     /// Field, choices and results, in whatever room `ui` has.
@@ -193,7 +205,7 @@ impl Page {
         &mut self,
         ui: &mut Ui,
         service: &mut Dictionaries,
-        s: &DictionarySettings,
+        (s, voice): (&DictionarySettings, &Voice),
         t: &Tokens,
         out: &mut Commands,
     ) {
@@ -232,7 +244,8 @@ impl Page {
         } else {
             match self.reply.take() {
                 Some(reply) => {
-                    let act = self.results(ui, t, &reply, &asked, &mut draft, &ready, out);
+                    let room = (&mut draft, &ready[..], voice);
+                    let act = self.results(ui, t, &reply, &asked, room, out);
                     self.reply = Some(reply);
                     act
                 }
@@ -255,7 +268,7 @@ impl Page {
         }
     }
 
-    /// The big search field; arrows pick a result, Enter keeps the search.
+    /// The search field; arrows pick a result, Enter keeps the search.
     fn field(&mut self, ui: &mut Ui, t: &Tokens, now: f64, s: &mut DictionarySettings) {
         let id = ui.make_persistent_id("dict-search");
         let had = ui.memory(|m| m.has_focus(id));
@@ -275,60 +288,46 @@ impl Page {
                 self.reveal = true;
             }
         }
-        let frame = Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0, t.line))
-            .corner_radius(t.radius_lg)
-            .inner_margin(if self.small {
-                Margin::symmetric(10, 5)
-            } else {
-                Margin::symmetric(12, 8)
-            });
-        let size = if self.small { 16.0 } else { 20.0 };
-        frame.show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(Icon::Search.image(size - 2.0).tint(t.muted));
-                let room = if self.text.is_empty() { 0.0 } else { 40.0 };
-                let edit = TextEdit::singleline(&mut self.text)
-                    .id(id)
-                    .hint_text("Search any word…")
-                    .font(FontId::proportional(size))
-                    .frame(Frame::NONE)
-                    .return_key(None)
-                    .desired_width((ui.available_width() - room).max(40.0));
-                let field = ui.add(edit);
-                let name = |b: &mut egui::accesskit::Node| b.set_label(LABEL);
-                ui.ctx().accesskit_node_builder(field.id, name);
-                if field.changed() {
-                    self.typed_at = now;
-                }
-                if field.has_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                    s.remember(&self.text);
-                }
-                if !self.text.is_empty()
-                    && widgets::small_icon_button(ui, Icon::Close, "Clear search").clicked()
-                {
-                    self.text.clear();
-                    self.focus = true;
-                }
-                if std::mem::take(&mut self.focus) {
-                    field.request_focus();
-                }
-                self.typing = field.has_focus();
-            });
-        });
+        let (height, size) = if self.small {
+            (40.0, 15.0)
+        } else {
+            (50.0, 18.0)
+        };
+        let look = look::Field {
+            text: &mut self.text,
+            id,
+            hint: "Search any word…",
+            height,
+            size,
+        };
+        let typed = look::field(ui, look, t);
+        let field = typed.field;
+        let name = |b: &mut egui::accesskit::Node| b.set_label(LABEL);
+        ui.ctx().accesskit_node_builder(field.id, name);
+        if field.changed() {
+            self.typed_at = now;
+        }
+        if field.has_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            s.remember(&self.text);
+        }
+        if typed.cleared {
+            self.text.clear();
+            self.focus = true;
+        }
+        if std::mem::take(&mut self.focus) {
+            field.request_focus();
+        }
+        self.typing = field.has_focus();
     }
 
     /// The reply: a list and the chosen entry, or one column when narrow.
-    #[allow(clippy::too_many_arguments)]
     fn results(
         &mut self,
         ui: &mut Ui,
         t: &Tokens,
         reply: &Reply,
         asked: &str,
-        draft: &mut DictionarySettings,
-        ready: &[&'static Pack],
+        (draft, ready, voice): (&mut DictionarySettings, &[&'static Pack], &Voice),
         out: &mut Commands,
     ) -> Option<Act> {
         if reply.entries.is_empty() {
@@ -339,22 +338,24 @@ impl Page {
         let reveal = std::mem::take(&mut self.reveal);
         let packs = !draft.pair && draft.langs.is_empty() && ready.len() > 1;
         let rest = ui.available_rect_before_wrap();
+        let heard = Answers {
+            voice,
+            reply,
+            packs,
+        };
         if rest.width() < WIDE {
-            // Compact: the entries as the card lists them.
-            ScrollArea::vertical()
+            // Compact: the word, then each sense as a card.
+            let body = ScrollArea::vertical()
                 .id_salt("dict-column")
                 .auto_shrink(false)
                 .show(ui, |ui| {
                     clear_of_bar(ui);
-                    entry::entries(ui, &reply.entries, asked, t, |ui, e| {
-                        if packs {
-                            pack_note(ui, e, t);
-                        }
-                    });
+                    column(ui, t, &heard, asked, out);
                 });
+            widgets::scroll_fades(ui, &body, t.paper);
             return None;
         }
-        let gap = 20.0;
+        let gap = 24.0;
         let list = Rect::from_min_size(rest.min, vec2(LIST_W, rest.height()));
         let detail = Rect::from_min_max(pos2(list.right() + gap, rest.top()), rest.max);
         let x = list.right() + gap / 2.0;
@@ -365,13 +366,139 @@ impl Page {
             act = results_list(ui, t, &reply.entries, asked, chosen, reveal);
         });
         ui.scope_builder(UiBuilder::new().max_rect(detail), |ui| {
-            let more = full_entry(ui, t, &reply.entries, chosen, asked, packs, out);
+            let more = full_entry(ui, t, &heard, chosen, asked, out);
             act = act.take().or(more);
         });
         ui.allocate_rect(rest, Sense::hover());
         act
     }
 }
+
+/// A reply with what drawing it needs: the voice, and whether to name packs.
+struct Answers<'a> {
+    voice: &'a Voice,
+    reply: &'a Reply,
+    /// Several packs were asked: each sense names its own.
+    packs: bool,
+}
+
+impl Answers<'_> {
+    /// The language an entry's answer is in.
+    fn answer_in(&self, e: &Entry) -> String {
+        entry::sides(e, self.reply.to.as_deref()).1
+    }
+
+    /// The language the word was asked in.
+    fn asked_in(&self, e: Option<&Entry>) -> String {
+        let from = self.reply.from.as_deref().map(mareader_speech::primary);
+        let side = || e.map(|e| entry::sides(e, None).0);
+        from.or_else(side).unwrap_or_else(|| HUB.to_owned())
+    }
+}
+
+/// The word as its dictionary writes it; none for near matches only.
+fn headword(reply: &Reply, asked: &str) -> Option<String> {
+    let exact = reply
+        .entries
+        .iter()
+        .find(|e| entry::near(e, asked).is_none());
+    let bridged = reply.entries.iter().any(|e| e.via.is_some());
+    match (exact, bridged) {
+        (_, true) => Some(asked.to_owned()),
+        (Some(e), false) => Some(e.asked().to_owned()),
+        (None, false) => None,
+    }
+}
+
+/// The word large, then its voice and how it sounds.
+fn hero(ui: &mut Ui, word: &str, (voice, said_in): (&Voice, &str), size: f32, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let speaks = voice.can_say(said_in);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        let button = size + 8.0;
+        let room = ui.available_width() - if speaks { button + 10.0 } else { 0.0 };
+        let lead = Layout::left_to_right(Align::Center);
+        let row = vec2(room.max(40.0), button.min(34.0));
+        ui.allocate_ui_with_layout(row, lead, |ui| {
+            if shaped::needs_shaping(word) {
+                shaped::label(ui, word, size, t.ink);
+            } else {
+                let head = RichText::new(word).font(theme::medium(size)).color(t.ink);
+                ui.add(egui::Label::new(head).truncate());
+            }
+        });
+        if speaks {
+            look::say(ui, word, voice, button.min(34.0), out);
+        }
+    });
+    crate::sounds::show(ui, voice.lines(word), &t);
+}
+
+/// The narrow column: the word, its senses as cards, near matches after.
+fn column(ui: &mut Ui, t: &Tokens, h: &Answers<'_>, asked: &str, out: &mut Commands) {
+    ui.spacing_mut().item_spacing.y = 8.0;
+    let list = &h.reply.entries;
+    match headword(h.reply, asked) {
+        Some(word) => {
+            let first = list.iter().find(|e| entry::near(e, asked).is_none());
+            hero(ui, &word, (h.voice, &h.asked_in(first)), 24.0, out);
+        }
+        None => {
+            let line = format!("No entry for “{asked}”. The nearest:");
+            ui.label(RichText::new(line).size(t.text_small).color(t.muted));
+        }
+    }
+    let mut shown: Option<&str> = None;
+    for (at, e) in list.iter().enumerate() {
+        let near = entry::near(e, asked);
+        if near.is_some()
+            && near != shown
+            && let Some(word) = near
+        {
+            ui.add_space(4.0);
+            near_heading(ui, word, (h.voice, &entry::sides(e, None).0), out);
+        }
+        shown = near;
+        let said = look::Said {
+            voice: h.voice,
+            said_in: &h.answer_in(e),
+            way: h.packs,
+            click: false,
+            at,
+        };
+        look::sense(ui, e, &said, t, out);
+    }
+}
+
+/// "≈ light": a nearest word heading its senses, with its voice.
+fn near_heading(ui: &mut Ui, word: &str, (voice, said_in): (&Voice, &str), out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(RichText::new("≈").size(t.text).color(t.muted))
+            .on_hover_text("The nearest entry");
+        let head = RichText::new(word).font(theme::medium(16.0));
+        shaped::line(ui, head, 16.0, t.ink);
+        if voice.can_say(said_in) {
+            look::say(ui, word, voice, 24.0, out);
+        }
+    });
+}
+
+/// The mode as a sliding switch, `height` tall.
+fn mode(ui: &mut Ui, s: &mut DictionarySettings, height: f32) {
+    let face = |pair| match pair {
+        false => (Some(Icon::Dictionary), "Dictionaries"),
+        true => (Some(Icon::Translate), "Languages"),
+    };
+    widgets::segments_of(ui, height, &mut s.pair, &[false, true], 2, face);
+}
+
+/// How tall the choices' controls stand.
+const CONTROL: f32 = 30.0;
+/// The swap button's slot between the language pickers.
+const SWAP_W: f32 = 28.0;
 
 /// Mode, packs or languages, how the reply was reached, and settings.
 fn choices(
@@ -382,20 +509,18 @@ fn choices(
     t: &Tokens,
     out: &mut Commands,
 ) {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        ui.selectable_value(&mut s.pair, false, "Dictionaries");
-        ui.selectable_value(&mut s.pair, true, "Languages");
-        ui.add_space(6.0);
-        if s.pair {
-            languages_row(ui, s, ready, 150.0);
-        } else {
-            pack_box(ui, s, ready, 220.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.allocate_ui(vec2(260.0, CONTROL), |ui| mode(ui, s, CONTROL));
+        ui.add_space(4.0);
+        match s.pair {
+            true => languages_row(ui, s, ready, 170.0, t),
+            false => pack_box(ui, s, ready, 260.0, t),
         }
         if let Some((text, why)) = reply.and_then(|r| route_note(r, s)) {
-            chip(ui, &text, t).on_hover_text(why);
+            look::chip(ui, &text, t).on_hover_text(why);
         }
-        manage(ui, out);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| manage(ui, out));
     });
 }
 
@@ -408,92 +533,106 @@ fn narrow_choices(
     t: &Tokens,
     out: &mut Commands,
 ) {
+    let gap = 6.0;
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut s.pair, false, "Dictionaries");
-        ui.selectable_value(&mut s.pair, true, "Languages");
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| manage(ui, out));
+        ui.spacing_mut().item_spacing.x = gap;
+        let room = (ui.available_width() - GEAR_W - gap).max(120.0);
+        ui.allocate_ui(vec2(room, CONTROL), |ui| mode(ui, s, CONTROL));
+        manage(ui, out);
     });
     let width = ui.available_width();
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = gap;
         match s.pair {
-            true => languages_row(ui, s, ready, ((width - 36.0) / 2.0).max(60.0)),
-            false => pack_box(ui, s, ready, width),
+            // Two equal pickers and the swap between fill the row exactly.
+            true => {
+                let each = ((width - SWAP_W - 2.0 * gap) / 2.0).floor().max(60.0);
+                languages_row(ui, s, ready, each, t);
+            }
+            false => pack_box(ui, s, ready, width, t),
         }
     });
     if let Some((text, why)) = reply.and_then(|r| route_note(r, s)) {
-        chip(ui, &text, t).on_hover_text(why);
+        look::chip(ui, &text, t).on_hover_text(why);
     }
 }
 
+/// The settings button's slot, beside the mode.
+const GEAR_W: f32 = 30.0;
+
 fn manage(ui: &mut Ui, out: &mut Commands) {
-    let manage = widgets::small_icon_button(ui, Icon::Settings, "Manage dictionaries…");
+    let size = vec2(GEAR_W, CONTROL);
+    let manage = look::icon(ui, Icon::Settings, "Manage dictionaries…", size);
     if manage.clicked() {
         out.push(Command::OpenSettings(Tab::Dictionary));
     }
 }
 
-fn pack_box(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack], width: f32) {
+fn pack_box(
+    ui: &mut Ui,
+    s: &mut DictionarySettings,
+    ready: &[&'static Pack],
+    width: f32,
+    t: &Tokens,
+) {
     let chosen = s
         .langs
         .first()
         .and_then(|id| ready.iter().find(|p| p.id == id));
     let shown = chosen.map_or("Every dictionary".to_owned(), |p| p.label());
-    let pick = widgets::combo("dict-pack")
-        .width(width)
-        .selected_text(shown)
-        .show_ui(ui, |ui| {
-            if ui
-                .selectable_label(chosen.is_none(), "Every dictionary")
-                .clicked()
-            {
-                s.langs.clear();
+    let id = (ui.make_persistent_id("dict-pack"), "Dictionary to search");
+    look::picker(ui, id, vec2(width, CONTROL), &shown, t, |ui| {
+        if look::option(ui, chosen.is_none(), "Every dictionary", t) {
+            s.langs.clear();
+        }
+        for p in ready {
+            let on = chosen.is_some_and(|c| c.id == p.id);
+            if look::option(ui, on, &p.label(), t) {
+                s.langs = vec![p.id.to_owned()];
             }
-            for p in ready {
-                let on = chosen.is_some_and(|c| c.id == p.id);
-                if ui.selectable_label(on, p.label()).clicked() {
-                    s.langs = vec![p.id.to_owned()];
-                }
-            }
-        });
-    widgets::name(&pick.response, "Dictionary to search");
+        }
+    });
 }
 
-fn languages_row(ui: &mut Ui, s: &mut DictionarySettings, ready: &[&'static Pack], width: f32) {
+fn languages_row(
+    ui: &mut Ui,
+    s: &mut DictionarySettings,
+    ready: &[&'static Pack],
+    width: f32,
+    t: &Tokens,
+) {
     let langs = languages(ready);
     let names = ("dict-from", "Translate from");
-    language_box(ui, names, width, &mut s.from, &langs);
-    let swap = widgets::small_icon_button(ui, Icon::Swap, "Swap languages");
+    language_box(ui, names, width, (&mut s.from, &langs), t);
+    let swap = look::icon(ui, Icon::Swap, "Swap languages", vec2(SWAP_W, CONTROL));
     if swap.clicked() {
         std::mem::swap(&mut s.from, &mut s.to);
     }
-    language_box(ui, ("dict-to", "Translate to"), width, &mut s.to, &langs);
+    let names = ("dict-to", "Translate to");
+    language_box(ui, names, width, (&mut s.to, &langs), t);
 }
 
 /// A language picker; `id` is its salt and its spoken name.
 fn language_box(
     ui: &mut Ui,
-    id: (&str, &str),
+    (salt, name): (&str, &str),
     width: f32,
-    value: &mut Option<String>,
-    langs: &[&str],
+    (value, langs): (&mut Option<String>, &[&str]),
+    t: &Tokens,
 ) {
     let shown = value.as_deref().map_or("Automatic".to_owned(), language);
-    let pick = widgets::combo(id.0)
-        .width(width)
-        .selected_text(shown)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(value.is_none(), "Automatic").clicked() {
-                *value = None;
+    let id = (ui.make_persistent_id(salt), name);
+    look::picker(ui, id, vec2(width, CONTROL), &shown, t, |ui| {
+        if look::option(ui, value.is_none(), "Automatic", t) {
+            *value = None;
+        }
+        for l in langs {
+            let on = value.as_deref() == Some(*l);
+            if look::option(ui, on, &language(l), t) {
+                *value = Some((*l).to_owned());
             }
-            for l in langs {
-                let on = value.as_deref() == Some(*l);
-                if ui.selectable_label(on, language(l)).clicked() {
-                    *value = Some((*l).to_owned());
-                }
-            }
-        });
-    widgets::name(&pick.response, id.1);
+        }
+    });
 }
 
 /// "via English" when a bridge answered, or the language detected.
@@ -522,7 +661,7 @@ fn results_list(
     reveal: bool,
 ) -> Option<Act> {
     let mut act = None;
-    ScrollArea::vertical()
+    let body = ScrollArea::vertical()
         .id_salt("dict-results")
         .auto_shrink(false)
         .show(ui, |ui| {
@@ -535,7 +674,7 @@ fn results_list(
                     && near != shown
                     && let Some(word) = near
                 {
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                     entry::heading(ui, word, t);
                 }
                 shown = near;
@@ -548,25 +687,33 @@ fn results_list(
                 }
             }
         });
+    widgets::scroll_fades(ui, &body, Tokens::get(ui.ctx()).paper);
     act
 }
 
-/// One result: a lit background when chosen, the whole row a button.
+/// One result: lit with an accent edge when chosen, the whole row a button.
 fn row(ui: &mut Ui, e: &Entry, i: usize, on: bool, t: &Tokens) -> Response {
     let bg = ui.painter().add(Shape::Noop);
     let inner = Frame::new()
-        .inner_margin(Margin::symmetric(10, 6))
+        .inner_margin(Margin {
+            left: 14,
+            right: 10,
+            top: 7,
+            bottom: 7,
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 2.0;
             // The headword leads; its part of speech sits at the end.
             ui.horizontal(|ui| {
-                let pos = e.pos.as_deref().filter(|p| !p.is_empty());
-                let tag = pos.map(|p| RichText::new(p).italics().size(t.text_small));
-                let room = ui.available_width() - if tag.is_some() { 48.0 } else { 0.0 };
+                let tags = e.tags();
+                let first = tags.split(" · ").next().filter(|p| !p.is_empty());
+                let tag = first.map(|p| RichText::new(p).italics().size(t.text_small));
+                let room = ui.available_width() - if tag.is_some() { 72.0 } else { 0.0 };
                 let lead = Layout::left_to_right(Align::Center);
                 ui.allocate_ui_with_layout(vec2(room.max(0.0), 0.0), lead, |ui| {
-                    shaped::line(ui, RichText::new(e.asked()).strong(), t.text, t.ink);
+                    let head = RichText::new(e.asked()).font(theme::medium(t.text));
+                    shaped::line(ui, head, t.text, t.ink);
                 });
                 if let Some(tag) = tag {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -579,15 +726,23 @@ fn row(ui: &mut Ui, e: &Entry, i: usize, on: bool, t: &Tokens) -> Response {
         });
     let rect = inner.response.rect;
     let resp = ui.interact(rect, ui.id().with(("dict-row", i)), Sense::click());
-    let fill = if on {
-        t.selected
-    } else if resp.hovered() {
-        t.hover
-    } else {
-        egui::Color32::TRANSPARENT
+    let lift = ui
+        .ctx()
+        .animate_bool_with_time(resp.id, resp.hovered(), 0.1);
+    let fill = match on {
+        true => t.selected,
+        false => t.hover.gamma_multiply(lift),
     };
-    ui.painter()
-        .set(bg, Shape::rect_filled(rect, t.radius, fill));
+    let mut shapes = vec![Shape::rect_filled(rect, t.radius, fill)];
+    if on {
+        // An accent edge marks the pick where its fill barely shows.
+        let edge = Rect::from_min_size(rect.min + vec2(4.0, 8.0), vec2(3.0, rect.height() - 16.0));
+        shapes.push(Shape::rect_filled(edge, 2.0, t.accent));
+    }
+    ui.painter().set(bg, Shape::Vec(shapes));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     let label = format!("{} — {}", e.asked(), e.answer());
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, on, &label));
     resp
@@ -597,64 +752,45 @@ fn row(ui: &mut Ui, e: &Entry, i: usize, on: bool, t: &Tokens) -> Response {
 fn full_entry(
     ui: &mut Ui,
     t: &Tokens,
-    list: &[Entry],
+    h: &Answers<'_>,
     chosen: usize,
     asked: &str,
-    packs: bool,
     out: &mut Commands,
 ) -> Option<Act> {
+    let list = &h.reply.entries;
     let e = list.get(chosen)?;
     let mut act = None;
-    ScrollArea::vertical()
+    let body = ScrollArea::vertical()
         .id_salt("dict-entry")
         .auto_shrink(false)
         .show(ui, |ui| {
             clear_of_bar(ui);
-            ui.spacing_mut().item_spacing.y = 6.0;
-            if shaped::needs_shaping(e.asked()) {
-                shaped::label(ui, e.asked(), 26.0, t.ink);
-            } else {
-                let head = RichText::new(e.asked()).font(theme::medium(28.0));
-                ui.add(egui::Label::new(head.color(t.ink)).wrap());
-            }
+            ui.spacing_mut().item_spacing.y = 8.0;
+            let word = if e.via.is_some() { asked } else { e.asked() };
+            hero(ui, word, (h.voice, &h.asked_in(Some(e))), 30.0, out);
             if e.fit != WordMatch::Exact {
                 let note = format!("The nearest entry to “{asked}”");
                 ui.label(RichText::new(note).size(t.text_small).color(t.muted));
             }
             ui.horizontal_wrapped(|ui| {
-                let tags = e.tags();
-                if !tags.is_empty() {
-                    let tags = RichText::new(tags).italics().size(t.text_small);
-                    ui.label(tags.color(t.muted));
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for tag in e.tags().split(" · ").filter(|s| !s.is_empty()) {
+                    look::chip(ui, tag, t);
                 }
-                if let Some(p) = PACKS.iter().find(|p| p.id == e.pack) {
-                    chip(ui, &p.label(), t);
+                if let Some(way) = look::way(e) {
+                    look::tag(ui, &way, t);
                 }
                 if let Some(via) = &e.via {
-                    chip(ui, &format!("via {via}"), t);
+                    look::tag(ui, &format!("via {via}"), t);
                 }
             });
-            ui.add_space(6.0);
-            shaped::label(
-                ui,
-                e.answer(),
-                entry::answer_size(e.answer(), t) * 1.5,
-                t.ink,
-            );
-            if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {
-                shaped::label(ui, r, t.text, t.muted);
-            }
-            if let Some(s) = e.sense.as_deref().filter(|s| !s.is_empty()) {
-                if shaped::needs_shaping(s) {
-                    shaped::label(ui, s, t.text, t.muted);
-                } else {
-                    ui.label(RichText::new(s).italics().color(t.muted));
-                }
-            }
-            ui.add_space(8.0);
+            ui.add_space(2.0);
+            answer_panel(ui, t, e, h, out);
+            ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
                 let copy = Button::image_and_text(Icon::Copy.image(14.0), "Copy")
-                    .image_tint_follows_text_color(true);
+                    .image_tint_follows_text_color(true)
+                    .corner_radius(t.radius);
                 if ui.add(copy).clicked() {
                     ui.ctx().copy_text(e.answer().to_owned());
                     out.push(Command::Notify(Toast::info("Copied")));
@@ -670,42 +806,60 @@ fn full_entry(
             if others.is_empty() {
                 return;
             }
-            ui.add_space(14.0);
+            ui.add_space(12.0);
             let title = format!("More for “{}”", e.asked());
-            ui.label(
-                RichText::new(title)
-                    .font(theme::medium(t.text_small))
-                    .color(t.muted),
-            );
+            let title = RichText::new(title).font(theme::medium(t.text_small));
+            ui.label(title.color(t.muted));
             for (i, o) in others {
-                if sense_card(ui, o, i, packs, t).clicked() {
+                let said = look::Said {
+                    voice: h.voice,
+                    said_in: "",
+                    way: h.packs,
+                    click: true,
+                    at: i,
+                };
+                if look::sense(ui, o, &said, t, out).clicked() {
                     act = Some(Act::Choose(i));
                 }
             }
         });
+    widgets::scroll_fades(ui, &body, Tokens::get(ui.ctx()).paper);
     act
 }
 
-/// Another sense of the word, compact; a click shows it in full.
-fn sense_card(ui: &mut Ui, e: &Entry, i: usize, packs: bool, t: &Tokens) -> Response {
-    let bg = ui.painter().add(Shape::Noop);
-    let inner = Frame::new()
-        .inner_margin(Margin::symmetric(10, 8))
+/// The answer on a soft panel, with its voice, romanization and gloss.
+fn answer_panel(ui: &mut Ui, t: &Tokens, e: &Entry, h: &Answers<'_>, out: &mut Commands) {
+    Frame::new()
+        .fill(t.ink.gamma_multiply(0.035))
+        .corner_radius(t.radius_lg)
+        .inner_margin(Margin::symmetric(16, 14))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 4.0;
-            entry::rows(ui, e, t, true);
-            if packs {
-                pack_note(ui, e, t);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.horizontal(|ui| {
+                let speaks = h.voice.can_say(&h.answer_in(e)) && !e.answer().trim().is_empty();
+                let room = ui.available_width() - if speaks { 44.0 } else { 0.0 };
+                let lead = Layout::left_to_right(Align::Center).with_main_wrap(true);
+                ui.allocate_ui_with_layout(vec2(room.max(40.0), 0.0), lead, |ui| {
+                    let size = entry::answer_size(e.answer(), t) * 1.5;
+                    shaped::label(ui, e.answer(), size, t.ink);
+                });
+                if speaks {
+                    let right = Layout::right_to_left(Align::Center);
+                    ui.with_layout(right, |ui| look::say(ui, e.answer(), h.voice, 32.0, out));
+                }
+            });
+            if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {
+                shaped::label(ui, r, t.text, t.muted);
+            }
+            if let Some(s) = e.sense.as_deref().filter(|s| !s.is_empty()) {
+                if shaped::needs_shaping(s) {
+                    shaped::label(ui, s, t.text, t.muted);
+                } else {
+                    ui.label(RichText::new(s).italics().color(t.muted));
+                }
             }
         });
-    let rect = inner.response.rect;
-    let resp = ui.interact(rect, ui.id().with(("dict-sense", i)), Sense::click());
-    let fill = if resp.hovered() { t.hover } else { t.surface };
-    ui.painter()
-        .set(bg, Shape::rect_filled(rect, t.radius, fill));
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, e.answer()));
-    resp
 }
 
 /// "Look up ⟨answer⟩", offered when the answer is a word or two.
@@ -715,20 +869,14 @@ fn look_again(ui: &mut Ui, e: &Entry, t: &Tokens) -> Option<Act> {
     if !short || answer.is_empty() {
         return None;
     }
-    let text = RichText::new(format!("Look up “{answer}”")).size(t.text_small);
+    let text = RichText::new(format!("Look up “{answer}”"));
     let button = Button::image_and_text(Icon::Search.image(14.0), text)
         .image_tint_follows_text_color(true)
+        .corner_radius(t.radius)
         .frame_when_inactive(false);
     ui.add(button)
         .clicked()
         .then(|| Act::Search(answer.to_owned()))
-}
-
-/// Which pack answered, when several were asked.
-fn pack_note(ui: &mut Ui, e: &Entry, t: &Tokens) {
-    if let Some(p) = PACKS.iter().find(|p| p.id == e.pack) {
-        ui.label(RichText::new(p.label()).size(t.text_small).color(t.muted));
-    }
 }
 
 /// Keeps scrolled content off the floating bar, which paints over it.
@@ -736,17 +884,6 @@ pub fn clear_of_bar(ui: &mut Ui) {
     let bar = ui.spacing().scroll;
     let room = bar.bar_width + bar.bar_outer_margin + 2.0;
     ui.set_max_width((ui.available_width() - room).max(0.0));
-}
-
-/// A small rounded tag.
-fn chip(ui: &mut Ui, text: &str, t: &Tokens) -> Response {
-    let text = RichText::new(text).size(t.text_small).color(t.ink);
-    Frame::new()
-        .fill(t.accent_soft)
-        .corner_radius(t.radius_lg)
-        .inner_margin(Margin::symmetric(8, 2))
-        .show(ui, |ui| ui.label(text))
-        .response
 }
 
 /// Nothing typed: what is searched, how, and the recent searches.
@@ -758,35 +895,64 @@ fn home(
 ) -> Option<Act> {
     let mut act = None;
     ui.vertical_centered(|ui| {
-        ui.add_space((ui.available_height() * 0.12).max(12.0));
-        ui.add(Icon::Dictionary.image(36.0).tint(t.accent));
-        let title = RichText::new("Look up any word").font(theme::medium(20.0));
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.add_space((ui.available_height() * 0.08).max(8.0));
+        look::disc(ui, Icon::Dictionary, 56.0, t);
+        ui.add_space(4.0);
+        let title = RichText::new("Look up any word").font(theme::medium(19.0));
         ui.label(title.color(t.ink));
         ui.label(RichText::new(scope(ready, s)).color(t.muted));
-        let keys = "↑ ↓ pick a result · Enter keeps the search · Esc clears";
-        ui.label(RichText::new(keys).size(t.text_small).color(t.muted));
+        ui.add_space(4.0);
+        let keys: [(&[&str], &str); 3] = [
+            (&["↑", "↓"], "choose"),
+            (&["Enter"], "keep"),
+            (&["Esc"], "clear"),
+        ];
+        look::keys(ui, &keys, t);
         if s.recent.is_empty() {
             return;
         }
-        ui.add_space(18.0);
-        ui.horizontal(|ui| {
-            ui.add(Icon::Clock.image(14.0).tint(t.muted));
-            ui.label(RichText::new("Recent").size(t.text_small).color(t.muted));
-            if ui.small_button("Clear").clicked() {
+        ui.add_space(20.0);
+        let width = ui.available_width().min(440.0);
+        ui.allocate_ui_with_layout(vec2(width, 0.0), Layout::top_down(Align::Min), |ui| {
+            act = recent(ui, t, s);
+        });
+    });
+    act
+}
+
+/// The recent searches as chips, under a heading that clears them.
+fn recent(ui: &mut Ui, t: &Tokens, s: &mut DictionarySettings) -> Option<Act> {
+    let mut act = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.add(Icon::Clock.image(14.0).tint(t.muted));
+        let head = RichText::new("Recent").font(theme::medium(t.text_small));
+        ui.label(head.color(t.muted));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let clear = RichText::new("Clear").size(t.text_small).color(t.muted);
+            let button = Button::new(clear).frame_when_inactive(false);
+            if ui.add(button).clicked() {
                 s.recent.clear();
             }
         });
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-            for word in &s.recent {
-                let chip = Button::new(RichText::new(word).size(t.text_small))
-                    .corner_radius(t.radius_lg)
-                    .fill(t.surface);
-                if ui.add(chip).clicked() {
-                    act = Some(Act::Search(word.clone()));
-                }
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+        for word in &s.recent {
+            let chip = Button::new(RichText::new(word).color(t.ink))
+                .corner_radius(CornerRadius::same(255))
+                .stroke(Stroke::new(1.0, t.line))
+                .fill(t.surface)
+                .min_size(vec2(0.0, 28.0));
+            let r = ui.add(chip);
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-        });
+            if r.clicked() {
+                act = Some(Act::Search(word.clone()));
+            }
+        }
     });
     act
 }
@@ -821,20 +987,28 @@ fn nothing(
     ready: &[&'static Pack],
     reply: &Reply,
 ) {
-    let line = format!("Nothing found for “{asked}”.");
-    ui.label(RichText::new(line).color(t.muted));
-    if !draft.pair && !draft.langs.is_empty() && ui.link("Search every dictionary").clicked() {
-        draft.langs.clear();
-    }
-    if !draft.pair {
-        return;
-    }
-    let from = reply.from.as_deref().unwrap_or(HUB);
-    let others: Vec<&str> = languages(ready)
-        .into_iter()
-        .filter(|l| *l != from)
-        .collect();
-    ui.with_layout(Layout::top_down(Align::Min), |ui| {
+    ui.vertical_centered(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.add_space((ui.available_height() * 0.08).max(8.0));
+        look::disc(ui, Icon::Search, 48.0, t);
+        let line = format!("Nothing found for “{asked}”.");
+        shaped::label(ui, &line, t.text, t.ink);
+        let hint = "Check the spelling, or search somewhere else:";
+        let others = draft.pair || !draft.langs.is_empty();
+        if others {
+            ui.label(RichText::new(hint).size(t.text_small).color(t.muted));
+        }
+        if !draft.pair && !draft.langs.is_empty() && ui.link("Search every dictionary").clicked() {
+            draft.langs.clear();
+        }
+        if !draft.pair {
+            return;
+        }
+        let from = reply.from.as_deref().unwrap_or(HUB);
+        let others: Vec<&str> = languages(ready)
+            .into_iter()
+            .filter(|l| *l != from)
+            .collect();
         for l in others {
             if ui.link(format!("Search as {}", language(l))).clicked() {
                 draft.from = Some(l.to_owned());
@@ -850,15 +1024,17 @@ fn nothing(
 fn empty(ui: &mut Ui, t: &Tokens, title: &str, line: &str, action: Option<&str>) -> bool {
     let mut clicked = false;
     ui.vertical_centered(|ui| {
-        ui.add_space((ui.available_height() * 0.3).max(24.0));
-        ui.add(Icon::Dictionary.image(28.0).tint(t.muted));
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.add_space((ui.available_height() * 0.25).max(24.0));
+        look::disc(ui, Icon::Dictionary, 56.0, t);
         ui.add_space(4.0);
-        let title = RichText::new(title).font(theme::medium(16.0));
+        let title = RichText::new(title).font(theme::medium(17.0));
         ui.label(title.color(t.ink));
         ui.label(RichText::new(line).color(t.muted));
         if let Some(action) = action {
             ui.add_space(6.0);
-            clicked = ui.button(action).clicked();
+            let button = widgets::primary_button(Some(Icon::Download), action, t.accent, t);
+            clicked = ui.add(button.min_size(vec2(0.0, 32.0))).clicked();
         }
     });
     clicked

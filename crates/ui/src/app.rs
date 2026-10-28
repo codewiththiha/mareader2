@@ -1711,6 +1711,11 @@ impl MareaderApp {
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
         let saying = self.read_aloud.saying();
+        self.dict.set_voice(crate::dict::Voice {
+            saying: saying.map(str::to_owned),
+            sounds: sounds.clone(),
+            speaks: self.read_aloud.speaks(&self.settings.read_aloud),
+        });
         let heard = crate::sounds::Heard {
             saying,
             sounds: &sounds,
@@ -1771,7 +1776,8 @@ impl MareaderApp {
     /// How the open cards' words sound, as the settings write them.
     fn card_sounds(&mut self, now: f64) -> Vec<(String, Vec<crate::sounds::Line>)> {
         let words = [self.study.card_word(), self.dict.card_word()];
-        let words: Vec<String> = words.into_iter().flatten().map(str::to_owned).collect();
+        let mut words: Vec<String> = words.into_iter().flatten().map(str::to_owned).collect();
+        words.extend(self.dict.sound_words());
         let shown = &self.settings.study.pronunciation;
         let sounds = &mut self.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));

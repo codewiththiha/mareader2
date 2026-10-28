@@ -278,12 +278,12 @@ impl System {
 
 /// The user's language tag, as `en-US`.
 #[cfg(target_vendor = "apple")]
-fn locale() -> Option<String> {
+pub(crate) fn locale() -> Option<String> {
     sys_locale::get_locale()
 }
 
 #[cfg(not(target_vendor = "apple"))]
-fn locale() -> Option<String> {
+pub(crate) fn locale() -> Option<String> {
     None
 }
 

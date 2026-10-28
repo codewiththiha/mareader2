@@ -395,16 +395,31 @@ rail panel. The reader's and library's bars carry a Dictionary button, and
 Cmd/Ctrl+Shift+D toggles it from anywhere. On the page the button is pressed
 and returns where it came from; Library sits beside it.
 
-- **Layout.** A centred column up to 1080 px: a 20 pt search field with ✕,
-  then one wrapping row of choices (Dictionaries or Languages, the pack or
-  From ⇄ To, a "via English" or "Detected …" chip, Manage). From 640 px the
-  results list (300 px) sits beside the chosen entry; narrower, one column.
-- **Entry.** Headword large, tags and the pack as chips, the answer at 1.5×
-  its card size, romanization and sense, Copy, "Look up ⟨answer⟩" when the
-  answer is a word or two, and the word's other senses as small cards.
+- **Layout.** A centred column up to 1080 px: a pill search field (50 px on
+  the page, 40 in the window) whose accent ring glows in while it has the
+  keys, the text and hint centred in its full height so tall scripts never
+  clip, and a ✕ that fades in. Then the choices: a sliding Dictionaries |
+  Languages switch, the pack or From ⇄ To as pickers that cut their label
+  short instead of overflowing (in the window the two pickers and ⇄ fill
+  the row exactly), a "via English" or "Detected …" chip, and Manage. From
+  640 px the results list (300 px; the pick lit with an accent edge) sits
+  beside the chosen entry; narrower, one column of cards.
+- **Entry.** The headword large with its speak button and IPA, tags and the
+  pack as chips, the answer at 1.5× on a soft panel with its own speak
+  button, romanization and sense, Copy, "Look up ⟨answer⟩" when the answer
+  is a word or two, and the word's other senses as cards. The window's
+  column leads with the same headword, then each sense as a card (tags, the
+  answer and its speak button, gloss); near matches follow under "≈ word"
+  headings that carry their own speak button.
+- **Speaking.** A word or answer gets a speak button only when the voice in
+  use speaks its language: a model's picked voice, the system voice's
+  picked language, else the system's locale. The dictionary knows each
+  entry's language from its pack (flipped for reverse lookups; a bridge's
+  answer is in the language asked for). The hover card follows the same rule.
 - **Keys.** The field has focus on arrival; ↑ ↓ pick a result, Enter keeps
   the search in Recent, Esc clears and then goes back. Cmd+F refocuses.
-- **Empty.** What is searched, the keys, and recent searches as chips.
+- **Empty.** An accent disc, what is searched, the keys drawn as keycaps,
+  and recent searches as chips under a Recent heading with Clear.
 - **Floating window.** In the reader the button and shortcut float the same
   search over the page instead (`dict/window.rs`); Settings › Dictionary ›
   In the reader can ask for the page. 380 × 520 at the stage's top right at
@@ -412,7 +427,11 @@ and returns where it came from; Library sits beside it.
   resizes down to 300 × 240, and it never leaves the stage. − folds it to a
   pill naming the last word (a click or a double-click on the head toggles),
   ⤢ opens the page with the search kept, ✕ closes. Esc in its field clears,
-  then closes. Open, folded and its rect are saved with the settings.
+  then closes. Open, folded and its rect are saved with the settings. It
+  comes in growing from 96 % and rising 8 px as it fades in, and leaves the
+  same way (input off meanwhile); folding morphs the window into the pill,
+  its body fading out over the first half and the pill's title in over the
+  second. Motion settings turn it all off.
 - **Feeding the window.** While it is open, Look up fills its search
   instead of a card (a folded window comes back) and the selection stays.
   A card's book button carries its word into the window, or the page. The

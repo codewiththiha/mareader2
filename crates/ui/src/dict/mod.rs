@@ -2,6 +2,7 @@
 
 pub mod card;
 mod entry;
+mod look;
 pub mod page;
 pub mod window;
 
@@ -62,6 +63,27 @@ struct Card {
     role: Option<Role>,
 }
 
+/// How the Dictionary's words sound and which the voice can say.
+#[derive(Clone, Debug, Default)]
+pub struct Voice {
+    /// The word being said aloud.
+    pub saying: Option<String>,
+    pub sounds: Vec<(String, Vec<crate::sounds::Line>)>,
+    /// The languages the voice in use speaks, as `fr`.
+    pub speaks: Vec<String>,
+}
+
+impl Voice {
+    pub fn can_say(&self, language: &str) -> bool {
+        self.speaks.iter().any(|l| l == language)
+    }
+
+    pub fn lines(&self, word: &str) -> &[crate::sounds::Line] {
+        let found = self.sounds.iter().find(|(w, _)| w == word);
+        found.map_or(&[], |(_, lines)| lines.as_slice())
+    }
+}
+
 /// Word list asks kept waiting at once.
 const WORD_ASKS: usize = 4;
 
@@ -80,6 +102,8 @@ pub struct Dict {
     words: Vec<(Ticket, Option<Reply>)>,
     /// The card keeps only entries for the word itself.
     exact_only: bool,
+    /// What the voice can say, as of this frame.
+    voice: Voice,
 }
 
 impl Dict {
@@ -250,6 +274,27 @@ impl Dict {
         self.words.remove(at).1
     }
 
+    /// How words sound and what the voice speaks, before drawing.
+    pub fn set_voice(&mut self, voice: Voice) {
+        self.voice = voice;
+    }
+
+    /// Words the page and window would show the sound of.
+    pub fn sound_words(&self) -> Vec<String> {
+        self.page.sound_words()
+    }
+
+    /// Whether the voice in use speaks the card's word's language.
+    fn card_speaks(&self, c: &Card) -> bool {
+        let reply = c.reply.as_ref();
+        let first = reply.and_then(|r| r.entries.first());
+        let from = reply.and_then(|r| r.from.clone());
+        let side = || first.map(|e| entry::sides(e, None).0);
+        let language = from.map(|l| mareader_speech::primary(&l)).or_else(side);
+        self.voice
+            .can_say(&language.unwrap_or_else(|| mareader_dict::HUB.to_owned()))
+    }
+
     /// Whether the card leaves out near matches, as settings say.
     pub fn set_exact_only(&mut self, on: bool) {
         self.exact_only = on;
@@ -313,6 +358,7 @@ impl Dict {
         let t = Tokens::get(ctx);
         let attached = self.attached();
         self.card_rect = self.card.as_ref().and_then(|c| {
+            let speaks = self.card_speaks(c);
             let view = card::View {
                 word: &c.word,
                 reply: c.reply.as_ref(),
@@ -322,6 +368,7 @@ impl Dict {
                 room: room(c.pane)?,
                 saying: heard.saying(&c.word),
                 sound: heard.lines(&c.word),
+                speaks,
             };
             Some(card::show(ctx, &view, &t, out))
         });
@@ -335,8 +382,13 @@ impl Dict {
         top: f32,
         out: &mut Commands,
     ) {
-        let Self { service, page, .. } = self;
-        page.show(ui, service, settings, top, out);
+        let Self {
+            service,
+            page,
+            voice,
+            ..
+        } = self;
+        page.show(ui, service, (settings, voice), top, out);
     }
 
     /// The page came up: its field takes the keys.
@@ -357,19 +409,25 @@ impl Dict {
         if !settings.window.open || settings.window.minimized {
             self.page.hide();
         }
+        // Asked every frame, so even the first opening comes in softly.
+        let appear = window::appearing(ctx, settings.window.open);
         if !settings.window.open {
             self.float = None;
+        }
+        if appear <= 0.0 {
             return;
         }
         let frame = window::Frame {
             service: &mut self.service,
             page: &mut self.page,
+            voice: &self.voice,
             live: &mut self.float,
             was_folded: &mut self.float_folded,
             settings,
             stage,
         };
-        self.float_rect = Some(window::show(ctx, frame, out));
+        let drawn = window::show(ctx, frame, appear, out);
+        self.float_rect = settings.window.open.then_some(drawn);
     }
 
     /// Where the floating window was drawn, for tests.

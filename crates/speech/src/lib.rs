@@ -177,6 +177,21 @@ pub trait Voicer {
     }
 }
 
+/// The language the system voice speaks unasked: the user's, else English.
+pub fn home_language() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(locale) = system::locale() {
+        return locale.replace('_', "-");
+    }
+    "en-US".to_owned()
+}
+
+/// A tag's language alone, lowercase: `fr` for `fr-FR`.
+pub fn primary(tag: &str) -> String {
+    let first = tag.split(['-', '_']).next().unwrap_or_default();
+    first.to_ascii_lowercase()
+}
+
 /// A line for trying a voice, in its language where we have one.
 pub fn sample(language: &str) -> &'static str {
     let primary = language.split(['-', '_']).next().unwrap_or_default();

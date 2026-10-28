@@ -2,7 +2,8 @@
 
 use egui::text::LayoutJob;
 use egui::{Align, FontId, Label, Layout, RichText, TextFormat, Ui, vec2};
-use mareader_dict::{Entry, WordMatch, fold};
+use mareader_dict::{Entry, HUB, WordMatch, fold};
+use mareader_speech::primary;
 
 use crate::shaped;
 use crate::theme::Tokens;
@@ -22,6 +23,18 @@ pub fn answer_size(text: &str, t: &Tokens) -> f32 {
         }
 }
 
+/// The languages of an entry's two sides, as `en`; a bridge answers in `to`.
+pub fn sides(e: &Entry, to: Option<&str>) -> (String, String) {
+    let pack = mareader_dict::PACKS.iter().find(|p| p.id == e.pack);
+    let (source, target) = pack.map_or((HUB, HUB), |p| (p.source, p.target));
+    let (asked, answer) = match e.flipped {
+        true => (target, source),
+        false => (source, target),
+    };
+    let answer = to.filter(|_| e.via.is_some()).unwrap_or(answer);
+    (primary(asked), primary(answer))
+}
+
 /// The headword an entry stands for when it isn't the word asked.
 pub fn near<'a>(e: &'a Entry, asked: &str) -> Option<&'a str> {
     // A bridge's asked side is the English between, not the ask.
@@ -33,30 +46,6 @@ pub fn near<'a>(e: &'a Entry, asked: &str) -> Option<&'a str> {
 pub fn heading(ui: &mut Ui, word: &str, t: &Tokens) {
     let text = format!("≈ {word}");
     shaped::label(ui, &text, t.text_small, t.muted).on_hover_text("The nearest entry");
-}
-
-/// Entries under one heading per nearest word; `after` adds to each.
-pub fn entries(
-    ui: &mut Ui,
-    list: &[Entry],
-    asked: &str,
-    t: &Tokens,
-    mut after: impl FnMut(&mut Ui, &Entry),
-) {
-    let mut shown: Option<&str> = None;
-    for (i, e) in list.iter().enumerate() {
-        let near = near(e, asked);
-        let new_group = near.is_some() && near != shown;
-        if i > 0 {
-            ui.separator();
-        }
-        if new_group && let Some(word) = near {
-            heading(ui, word, t);
-        }
-        shown = near;
-        rows(ui, e, t, true);
-        after(ui, e);
-    }
 }
 
 /// Tags, unless shown elsewhere, and source; the answer, romanization, sense.

@@ -8,7 +8,7 @@ use mareader_dict::Dictionaries;
 use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 use super::page::Page;
-use super::{Action, Window};
+use super::{Action, Voice, Window};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -33,6 +33,7 @@ const INSET: f32 = 12.0;
 pub struct Frame<'a> {
     pub service: &'a mut Dictionaries,
     pub page: &'a mut Page,
+    pub voice: &'a Voice,
     /// Its rect while dragged or resized, saved on release.
     pub live: &'a mut Option<Rect>,
     /// Folded when last drawn; a change moves the rect to suit.
@@ -42,10 +43,21 @@ pub struct Frame<'a> {
     pub stage: Rect,
 }
 
-/// Draws the window; returns where it was drawn.
-pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
+/// How long it takes to appear or leave, and to fold.
+const APPEAR: f32 = 0.18;
+const FOLD: f32 = 0.24;
+
+/// How far it has come in: 0 closed, 1 open; it keeps drawing until 0.
+pub fn appearing(ctx: &Context, open: bool) -> f32 {
+    let secs = crate::motion::secs(ctx, APPEAR);
+    ctx.animate_bool_with_time(Id::new("dict-window-appear"), open, secs)
+}
+
+/// Draws the window and returns where; closing, it fades without input.
+pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rect {
     let t = Tokens::get(ctx);
     let w = &f.settings.window;
+    let closing = !w.open;
     let saved = w
         .rect
         .map(|[x, y, wd, h]| Rect::from_min_size(pos2(x, y), vec2(wd, h)));
@@ -65,62 +77,96 @@ pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
         false => fit(r, f.stage),
     };
     rect = keep(rect);
-    let shown = match folded {
-        true => Rect::from_min_size(rect.min, PILL),
-        false => rect,
-    };
+    let morph = Morph::new(ctx, rect, folded, f.stage);
+    let shown = morph.shown();
+    let pillish = morph.fold > 0.5;
     let mut released = false;
-    egui::Area::new(Id::new("dict-window"))
+    let area = egui::Area::new(Id::new("dict-window"))
         .order(Order::Middle)
         .fixed_pos(shown.min)
         .constrain(false)
         .movable(false)
-        .show(ctx, |ui| {
-            ui.set_min_size(shown.size());
-            ui.set_max_size(shown.size());
-            paint(ui, shown, folded, &t);
-            let head = Rect::from_min_size(shown.min, vec2(shown.width(), HEAD));
-            let grab = ui.interact(head, Id::new("dict-window-head"), Sense::click_and_drag());
-            if grab.dragged() {
-                rect = rect.translate(grab.drag_delta());
-                ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-            }
-            released |= grab.drag_stopped();
-            // The pill restores on a click; the head folds on a double.
-            if folded && grab.clicked() {
-                out.push(Command::Dict(Action::Window(Window::Minimize(false))));
-            } else if !folded && grab.double_clicked() {
-                out.push(Command::Dict(Action::Window(Window::Minimize(true))));
-            }
-            let named = Named {
-                word: f.page.text().trim(),
-                glance: f.page.glance().filter(|_| folded),
-            };
-            if folded {
-                grab.clone().on_hover_text("Click to restore");
-            }
-            header(ui, head, folded, &named, &t, out);
-            if folded {
-                // Still asked, so the pill has its glance.
-                f.page.ask(ui.ctx(), f.service, f.settings);
-                return;
-            }
-            let line = Stroke::new(1.0, t.line);
-            ui.painter().hline(shown.x_range(), head.bottom(), line);
-            let body = Rect::from_min_max(
-                pos2(shown.left() + 12.0, head.bottom() + 10.0),
-                pos2(shown.right() - 12.0, shown.bottom() - 10.0),
-            );
-            let builder = UiBuilder::new()
-                .max_rect(body)
-                .layout(Layout::top_down(Align::Min));
-            ui.scope_builder(builder, |ui| {
-                ui.set_clip_rect(body.expand(2.0));
-                f.page.compact(ui, f.service, f.settings, out);
-            });
-            // Last, so the edges win over what lies under them.
-            released |= edges(ui, shown, &mut rect);
+        .interactable(!closing);
+    let layer = egui::LayerId::new(Order::Middle, area.layer().id);
+    // Coming in it grows a little and rises; leaving, the reverse.
+    let grow = 0.96 + 0.04 * appear;
+    let anchor = pos2(shown.center().x, shown.top());
+    let lift = vec2(0.0, 8.0 * (1.0 - appear));
+    let scale = egui::emath::TSTransform::from_translation(anchor.to_vec2() + lift)
+        * egui::emath::TSTransform::from_scaling(grow)
+        * egui::emath::TSTransform::from_translation(-anchor.to_vec2());
+    ctx.set_transform_layer(layer, scale);
+    area.show(ctx, |ui| {
+        ui.multiply_opacity(appear);
+        if closing {
+            ui.disable();
+        }
+        ui.set_min_size(shown.size());
+        ui.set_max_size(shown.size());
+        paint(ui, shown, morph.fold, &t);
+        let head = Rect::from_min_size(shown.min, vec2(shown.width(), HEAD));
+        let grab = ui.interact(head, Id::new("dict-window-head"), Sense::click_and_drag());
+        if grab.dragged() {
+            rect = rect.translate(grab.drag_delta());
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+        }
+        released |= grab.drag_stopped();
+        // The pill restores on a click; the head folds on a double.
+        if folded && grab.clicked() {
+            out.push(Command::Dict(Action::Window(Window::Minimize(false))));
+        } else if !folded && grab.double_clicked() {
+            out.push(Command::Dict(Action::Window(Window::Minimize(true))));
+        }
+        let named = Named {
+            word: f.page.text().trim(),
+            glance: f.page.glance().filter(|_| pillish),
+        };
+        if folded {
+            grab.clone().on_hover_text("Click to restore");
+        }
+        // The head fades through its middle as it turns into the pill.
+        let head_shown = (2.0 * morph.fold - 1.0).abs();
+        ui.scope(|ui| {
+            ui.multiply_opacity(head_shown);
+            header(ui, head, pillish, &named, &t, out);
         });
+        if folded {
+            // Still asked, so the pill has its glance.
+            f.page.ask(ui.ctx(), f.service, f.settings);
+        }
+        let body_shown = (1.0 - 2.0 * morph.fold).max(0.0);
+        if body_shown <= 0.0 {
+            return;
+        }
+        ui.multiply_opacity(body_shown);
+        let line = Stroke::new(1.0, t.line);
+        ui.painter().hline(shown.x_range(), head.bottom(), line);
+        // Laid out at the open size and cut to what shows, so it never reflows.
+        let open = morph.open;
+        let body = Rect::from_min_max(
+            pos2(shown.left() + 12.0, head.bottom() + 10.0),
+            pos2(
+                shown.left() + open.width() - 12.0,
+                shown.top() + open.height() - 10.0,
+            ),
+        );
+        let cut = Rect::from_min_max(head.left_bottom(), shown.max).shrink(1.0);
+        let builder = UiBuilder::new()
+            .max_rect(body)
+            .layout(Layout::top_down(Align::Min));
+        ui.scope_builder(builder, |ui| {
+            ui.set_clip_rect(body.expand(2.0).intersect(cut));
+            f.page.compact(ui, f.service, (f.settings, f.voice), out);
+        });
+        // Last, so the edges win over what lies under them.
+        if morph.fold <= 0.0 && !closing {
+            released |= edges(ui, shown, &mut rect);
+        }
+    });
+    if closing {
+        f.page.hide();
+        return shown;
+    }
     let rect = keep(rect);
     if released || turned {
         *f.live = None;
@@ -131,9 +177,61 @@ pub fn show(ctx: &Context, f: Frame<'_>, out: &mut Commands) -> Rect {
     shown
 }
 
-/// The card behind it: a soft shadow, the paper and a hairline.
-fn paint(ui: &Ui, r: Rect, folded: bool, t: &Tokens) {
-    let radius = if folded { HEAD / 2.0 } else { t.radius_lg };
+/// The window turning into its pill: both ends, and `fold` from 0 to 1.
+struct Morph {
+    open: Rect,
+    pill: Rect,
+    fold: f32,
+}
+
+impl Morph {
+    fn new(ctx: &Context, rect: Rect, folded: bool, stage: Rect) -> Self {
+        let secs = crate::motion::secs(ctx, FOLD);
+        let id = Id::new("dict-window-fold");
+        let fold = ctx.animate_bool_with_time(id, folded, secs);
+        // Each end is kept as last seen, so the turn starts where it was.
+        let kept = |which: &str| ctx.data(|d| d.get_temp::<Rect>(id.with(which)));
+        let (open, pill) = match folded {
+            true => {
+                let pill = Rect::from_min_size(rect.min, PILL);
+                (kept("open").unwrap_or_else(|| from_pill(rect, stage)), pill)
+            }
+            false => {
+                let pill = Rect::from_min_size(to_pill(rect, stage).min, PILL);
+                (rect, kept("pill").unwrap_or(pill))
+            }
+        };
+        let open_size = rect.size().max(Vec2::from(WINDOW_MIN));
+        let open = Rect::from_min_size(open.min, open_size);
+        ctx.data_mut(|d| {
+            if fold <= 0.0 {
+                d.insert_temp(id.with("open"), open);
+            }
+            if fold >= 1.0 {
+                d.insert_temp(id.with("pill"), pill);
+            }
+        });
+        Self { open, pill, fold }
+    }
+
+    fn shown(&self) -> Rect {
+        let e = ease(self.fold);
+        Rect::from_min_max(
+            self.open.min.lerp(self.pill.min, e),
+            self.open.max.lerp(self.pill.max, e),
+        )
+    }
+}
+
+/// Fast out, soft landing.
+fn ease(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    1.0 - (1.0 - x).powi(3)
+}
+
+/// Shadow, paper and hairline, rounding as it folds into the pill.
+fn paint(ui: &Ui, r: Rect, fold: f32, t: &Tokens) {
+    let radius = egui::emath::lerp(t.radius_lg..=HEAD / 2.0, ease(fold));
     let shadow = egui::Shadow {
         offset: [0, 6],
         blur: 24,

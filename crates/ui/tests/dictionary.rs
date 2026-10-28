@@ -561,3 +561,32 @@ fn near_matches_can_be_left_off_the_card() {
     h.run();
     assert_eq!(h.state().dict().card_answers(), Some(Vec::new()));
 }
+
+/// The window, pair mode English → French, searching "light" in `voice`.
+fn says_in(engine: &str, voice: Option<&str>) -> usize {
+    use mareader_ui::read_aloud::SAY;
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    let mut s = h.state().settings().clone();
+    s.read_aloud.engine = engine.into();
+    if let Some(voice) = voice {
+        s.read_aloud.voices.insert(engine.into(), voice.into());
+    }
+    (s.dictionary.pair, s.dictionary.to) = (true, Some("fr".into()));
+    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.run();
+    h.state_mut()
+        .set_option("dict_window", "light")
+        .expect("a known option");
+    h.run_steps(30);
+    assert!(h.query_all_by_label_contains("lumière").count() >= 1);
+    h.query_all_by_label(SAY).count()
+}
+
+#[test]
+fn only_words_the_voice_speaks_can_be_said() {
+    // The silent voice speaks English: the headword alone.
+    assert_eq!(says_in("silent", None), 1);
+    // A French voice: the two French answers, not the English headword.
+    assert_eq!(says_in("kokoro", Some("ff_siwis")), 2);
+}
