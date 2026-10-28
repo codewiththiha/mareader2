@@ -900,10 +900,10 @@ milestone = "M2"
 status = "shipped"
 reference = ["crates/reader-core/src/settings/layout.rs"]
 evidence = [
-    "crates/ui/tests/pages.rs::auto_resize_refits_to_a_page_of_another_size",
+    "crates/ui/tests/pages.rs::a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom",
     "crates/ui/tests/pages.rs::documents_open_at_the_default_fit",
 ]
-notes = "One zoom per pane; a fit measures the page read and, with Auto Resize, follows a page of another size once it settles; the default fit opens documents"
+notes = "One zoom per pane; a fit measures the page read and follows a page of another size once it settles; Auto Resize makes a zoom set by hand keep its scale too; the default fit opens documents"
 
 [[feature]]
 id = "pdf.text-selection"

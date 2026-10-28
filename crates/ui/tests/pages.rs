@@ -87,20 +87,34 @@ fn documents_open_at_the_default_fit() {
 }
 
 #[test]
-fn auto_resize_refits_to_a_page_of_another_size() {
+fn a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom() {
     // Every seventh sample page lies on its side, 792 wide.
     let mut h = reader(&[("pdf", "sample:20")]);
+    let near = |h: &H, want: f32| (zoom(h).0 - want).abs() < 0.01;
     let (letter, fit) = zoom(&h);
     assert_eq!(fit, Some(Fit::Width));
-    go(&mut h, 6);
-    let (wide, _) = zoom(&h);
-    let want = letter * 612.0 / 792.0;
-    assert!((wide - want).abs() < 0.01, "{wide} want {want}");
-    go(&mut h, 7);
-    assert!((zoom(&h).0 - letter).abs() < 0.01);
+    // A fit refits with Auto Resize off too.
     h.state_mut().settings_mut().layout.auto_resize = false;
     go(&mut h, 6);
-    assert!((zoom(&h).0 - letter).abs() < 0.01, "off, the fit holds");
+    let want = letter * 612.0 / 792.0;
+    assert!(near(&h, want), "{:?} want {want}", zoom(&h));
+    go(&mut h, 7);
+    assert!(near(&h, letter));
+    // Off, a zoom set by hand holds.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Minus);
+    h.run();
+    let (set, fit) = zoom(&h);
+    assert_eq!(fit, None);
+    go(&mut h, 13);
+    assert!(near(&h, set), "off, the set zoom holds");
+    go(&mut h, 14);
+    // On, it keeps its scale: a wide page shows as wide as the last.
+    h.state_mut().settings_mut().layout.auto_resize = true;
+    go(&mut h, 13);
+    let want = set * 612.0 / 792.0;
+    assert!(near(&h, want), "{:?} want {want}", zoom(&h));
+    go(&mut h, 14);
+    assert!(near(&h, set));
 }
 
 #[test]

@@ -605,13 +605,9 @@ fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
             });
         });
     });
-    r.always(|ui| {
-        let hint = "Fit the page width when switching to Single page";
-        switch_row(ui, "Auto scale", hint, &mut l.auto_scale);
-    });
     // A book's pages are all one size.
     r.add(Applies::NotBook, |ui| {
-        let hint = "Keep a fitted zoom fitted on pages of another size";
+        let hint = "A zoom set by hand keeps its scale on pages of another size";
         switch_row(ui, "Auto resize", hint, &mut l.auto_resize);
     });
     r.add(Applies::Pages, |ui| {

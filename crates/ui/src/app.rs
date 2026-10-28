@@ -2119,8 +2119,7 @@ impl MareaderApp {
             }
             Command::View(mode) => {
                 let now = ctx.input(|i| i.time);
-                let fit = self.settings.layout.auto_scale;
-                self.documents.set_mode(self.active, mode, fit, now);
+                self.documents.set_mode(self.active, mode, now);
             }
             Command::Arrow(arrow) => {
                 let now = ctx.input(|i| i.time);

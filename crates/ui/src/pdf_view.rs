@@ -165,7 +165,7 @@ pub struct PdfView {
     ease: bool,
     /// Until first drawn: the default fit is still to apply.
     fresh: bool,
-    /// A page of another size Auto Resize waits on, and since when.
+    /// A page of another size the zoom waits to follow, and since when.
     resize: Option<(usize, f64)>,
     /// A strip's spot to keep once the pages are laid out anew.
     keep: Option<(usize, Vec2)>,
@@ -359,14 +359,14 @@ impl PdfView {
     }
 
     /// Switches mode on the page being read; `fit` fits the paged modes.
-    pub fn set_mode(&mut self, mode: ViewMode, fit: bool, now: f64) {
+    pub fn set_mode(&mut self, mode: ViewMode, now: f64) {
         if mode == self.mode {
             return;
         }
         self.mode = mode;
         self.hold = None;
-        // As in mareader: a spread always fits its width, the strip never.
-        if mode == ViewMode::Spread || (fit && mode.paged()) {
+        // Single pages and spreads fit their width; the strip never.
+        if mode.paged() {
             self.zoom
                 .command(ZoomCommand::Fit(Fit::Width), None, self.current, now);
         } else if mode == ViewMode::Horizontal {
@@ -509,21 +509,37 @@ impl PdfView {
         true
     }
 
-    /// Auto Resize: refits to the page read; returns any wait left.
-    fn follow_size(&mut self, sizes: &[PageSize], on: bool, now: f64) -> Option<f64> {
+    /// A page of another size: a fit refits; `keep` scales a set zoom too.
+    fn follow_size(&mut self, sizes: &[PageSize], keep: bool, now: f64) -> Option<f64> {
         let page = self.current;
         let fit_box = |p| layout::fit_box(self.mode, sizes, (p, self.lead));
-        // A refit mid-glide would move the glide's end; it waits.
-        let gliding = self.jump.is_some() || self.aim.is_some();
-        if !on || gliding || self.zoom.fit.is_none() || fit_box(page) == fit_box(self.zoom.fit_page)
-        {
+        let (was, here) = (fit_box(self.zoom.fit_page), fit_box(page));
+        if was == here {
             self.resize = None;
             return None;
         }
-        // A turn lands at once, so it refits at once: no wrong size shows.
-        if self.mode.paged() {
+        let fitted = self.zoom.fit.is_some();
+        // A set zoom not kept holds, measured from the page read.
+        if !fitted && !keep {
             self.zoom.fit_page = page;
             self.resize = None;
+            return None;
+        }
+        // A refit mid-glide would move the glide's end; it waits.
+        if self.jump.is_some() || self.aim.is_some() {
+            self.resize = None;
+            return None;
+        }
+        let land = |view: &mut Self| {
+            if let (false, Some(was), Some(here)) = (fitted, was, here) {
+                view.zoom.rescale(was.width / here.width, now);
+            }
+            view.zoom.fit_page = page;
+            view.resize = None;
+        };
+        // A turn lands at once, so it refits at once: no wrong size shows.
+        if self.mode.paged() {
+            land(self);
             return None;
         }
         match self.resize {
@@ -532,8 +548,7 @@ impl PdfView {
                 if left > 0.0 {
                     return Some(left);
                 }
-                self.zoom.fit_page = page;
-                self.resize = None;
+                land(self);
                 None
             }
             _ => {
@@ -726,6 +741,8 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
         if let (Some(p), true) = (pointer, factor != 1.0) {
             let at = p - frame.min - vec2(0.0, cx.top_inset);
             view.zoom.pinch(factor, at, now);
+            // A zoom set by hand is measured from the page read.
+            view.zoom.fit_page = view.current;
         }
     }
     if std::mem::take(&mut view.fresh) && view.zoom.fit.is_some() {
@@ -2034,12 +2051,12 @@ mod tests {
     fn a_mode_switch_keeps_the_page_and_a_turn_moves_it() -> Result<(), &'static str> {
         let mut view = PdfView::new(crate::testing::doc()?);
         view.current = 7;
-        view.set_mode(ViewMode::Spread, false, 0.0);
+        view.set_mode(ViewMode::Spread, 0.0);
         assert_eq!((view.focus, view.current, view.reveal), (6, 7, Some(6)));
         assert_eq!(view.zoom.fit, Some(Fit::Width));
         view.arrow(Arrow::Right, 20, 0.0);
         assert_eq!((view.focus, view.current), (8, 8));
-        view.set_mode(ViewMode::Horizontal, true, 0.0);
+        view.set_mode(ViewMode::Horizontal, 0.0);
         assert_eq!((view.zoom.fit, view.reveal), (None, Some(8)));
         // Along the strip, the arrow is the scroll's, not a turn.
         view.arrow(Arrow::Right, 20, 0.0);
@@ -2047,7 +2064,7 @@ mod tests {
         view.arrow(Arrow::Up, 20, 0.0);
         assert_eq!(view.current, 8);
         // Across the column, left and right still turn.
-        view.set_mode(ViewMode::Vertical, true, 0.0);
+        view.set_mode(ViewMode::Vertical, 0.0);
         view.arrow(Arrow::Left, 20, 0.0);
         assert_eq!((view.current, view.reveal), (7, Some(7)));
         Ok(())

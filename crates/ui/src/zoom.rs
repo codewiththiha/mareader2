@@ -149,6 +149,7 @@ impl PaneZoom {
                 };
                 self.target = zoom;
                 self.fit = None;
+                self.fit_page = page;
             }
             ZoomCommand::Fit(fit) => {
                 self.fit = Some(fit);
@@ -172,6 +173,17 @@ impl PaneZoom {
         self.glide = None;
         self.pivot = Some(at);
         self.settle_at = now + SETTLE;
+    }
+
+    /// A set zoom scaled by `factor`, to keep its scale on another page.
+    pub fn rescale(&mut self, factor: f32, now: f64) {
+        if !factor.is_finite() || factor <= 0.0 {
+            return;
+        }
+        self.target = clamp(self.target * factor);
+        self.glide = None;
+        self.pivot = None;
+        self.settle_at = self.settle_at.max(now + SETTLE);
     }
 
     /// A fit follows the pane; without `follow`, returns the wait for rest.

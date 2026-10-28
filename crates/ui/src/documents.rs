@@ -1362,10 +1362,9 @@ impl Documents {
         }
     }
 
-    /// `fit` fits the paged modes' width: the auto-scale setting.
-    pub fn set_mode(&mut self, pane: PaneId, mode: ViewMode, fit: bool, now: f64) {
+    pub fn set_mode(&mut self, pane: PaneId, mode: ViewMode, now: f64) {
         if let Some(Content::Pdf(view)) = self.panes.get_mut(&pane) {
-            view.set_mode(mode, fit, now);
+            view.set_mode(mode, now);
         }
     }
 

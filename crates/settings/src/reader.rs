@@ -68,9 +68,7 @@ pub struct LayoutSettings {
     /// Zoom used when `startup_fit` can't decide, e.g. no page yet.
     pub default_zoom: f32,
     pub no_gap: bool,
-    /// Fits the width on switching to single pages; spreads always fit.
-    pub auto_scale: bool,
-    /// Refits a fitted zoom to each page's own size as it is read.
+    /// A zoom set by hand keeps its scale on pages of another size.
     pub auto_resize: bool,
     pub page_shadow: bool,
     /// Extra margin around pages, in points.
@@ -112,7 +110,6 @@ impl Default for LayoutSettings {
             startup_fit: StartupFit::Width,
             default_zoom: 1.0,
             no_gap: false,
-            auto_scale: true,
             auto_resize: true,
             page_shadow: true,
             page_margin: 0.0,
