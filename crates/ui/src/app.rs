@@ -3891,6 +3891,7 @@ fn shot_toast(value: &str) -> Toast {
         "error" => Toast::error(message),
         "warning" => Toast::warning(message),
         "undo" => Toast::info(message).undo(Command::ClearToasts),
+        "action" => Toast::info(message).action("Resume", Command::ClearToasts),
         _ => Toast::info(words.as_str()),
     }
 }

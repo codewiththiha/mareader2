@@ -5,7 +5,7 @@ use std::sync::Arc;
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
     Button, Color32, Context, CornerRadius, CursorIcon, FontId, Galley, Mesh, Painter, Rect,
-    RichText, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    RichText, Stroke, StrokeKind, Ui, Vec2, pos2,
 };
 
 use super::{Live, Tone};
@@ -67,7 +67,10 @@ fn look(tone: Tone, t: &Tokens) -> (Icon, Color32, Color32) {
     match tone {
         Tone::Info => (Icon::Done, t.accent, t.line),
         Tone::Error => (Icon::Alert, t.danger, t.danger.gamma_multiply(0.5)),
-        Tone::Warning => (Icon::Alert, t.accent, t.accent.gamma_multiply(0.5)),
+        Tone::Warning => {
+            let amber = crate::theme::caution(t);
+            (Icon::Alert, amber, amber.gamma_multiply(0.5))
+        }
     }
 }
 
@@ -99,9 +102,9 @@ pub(super) fn shell(ui: &Ui, rect: Rect, tone: Tone, body: Body, t: &Tokens) {
     painter.rect(rect, radius, fill, stroke, StrokeKind::Inside);
 }
 
-/// The close button's place on a card at `rect`.
+/// The close button's place on a card at `rect`, centred like the mark.
 fn close_at(rect: Rect) -> Rect {
-    let row = rect.top() + PAD_Y + MARK / 2.0;
+    let row = rect.center().y;
     let x = rect.right() - 8.0 - CLOSE / 2.0;
     Rect::from_center_size(pos2(x, row), Vec2::splat(CLOSE))
 }
@@ -184,7 +187,12 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         let radius = t.radius_lg - 1.0;
         countdown(&painter, inner, radius, wash(live.toast.tone, tint), left);
     }
-    let mark = Rect::from_min_size(rect.min + vec2(PAD_X, PAD_Y), Vec2::splat(MARK));
+    // Mark, words and buttons share the card's middle, however many lines.
+    let middle = rect.center().y;
+    let mark = Rect::from_center_size(
+        pos2(rect.left() + PAD_X + MARK / 2.0, middle),
+        Vec2::splat(MARK),
+    );
     painter.circle_filled(mark.center(), MARK / 2.0, tint.gamma_multiply(0.16));
     icon.paint(
         ui,
@@ -192,10 +200,7 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         tint,
     );
     let words = card.galley.size().y;
-    let text = pos2(
-        mark.right() + GAP,
-        mark.top() + ((MARK - words) / 2.0).max(0.0),
-    );
+    let text = pos2(mark.right() + GAP, (middle - words / 2.0).round());
     painter.galley(text, card.galley.clone(), t.ink);
     if live.going() {
         return;

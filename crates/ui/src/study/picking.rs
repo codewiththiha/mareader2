@@ -62,7 +62,7 @@ pub fn bar(
     out: &mut Commands,
 ) {
     let n = picking.ids.len();
-    egui::Area::new(Id::new("study-picking"))
+    let shown = egui::Area::new(Id::new("study-picking"))
         .order(Order::Foreground)
         .pivot(Align2::CENTER_TOP)
         .fixed_pos(room.center_top() + vec2(0.0, DOWN))
@@ -96,6 +96,7 @@ pub fn bar(
                     });
                 });
         });
+    crate::toast::keep_clear(ctx, shown.response.rect);
 }
 
 /// Style: the picked highlights' pens and colours, in a popover.

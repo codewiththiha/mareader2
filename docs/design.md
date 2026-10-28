@@ -319,9 +319,11 @@ A new setting picks its `Applies` once; nothing else changes.
   reader; 360 pt wide.
   - **Card.** On `surface` with the large radius. The tone's mark sits in a
     soft round of its colour: a check in the accent for info, an alert in
-    `danger` (error) or the accent (warning), with a tinted edge. An action
-    such as Undo is a soft accent button; ✕ closes the card. A thin line
-    along the foot shows the time left.
+    `danger` (error) or amber (warning, `theme::caution`), with a tinted
+    edge. An action
+    such as Undo is a soft accent button; ✕ closes the card. The mark, the
+    words and the buttons share the card's middle line, however many lines
+    the words take. A wash draining right to left shows the time left.
   - **Pile.** The newest is in front; up to two older ones peek out above
     it, 8 pt each, narrower and fainter. When the front goes, the next one
     grows into its place. The same words again count ("×2") instead of
@@ -334,10 +336,18 @@ A new setting picks its `Applies` once; nothing else changes.
     most 420 pt. Esc, the chevron or a click elsewhere close it.
   - **Swipe.** A card dragged right past 96 pt, or flicked, flies off;
     shorter, it springs back. A pull left barely moves it.
+  - **Never over what was summoned.** When an open menu, a word or
+    dictionary card, a note, the highlight bar, the selection bar, the
+    page's right-click menu or the "Table ahead" prompt would sit under the
+    stack, the toasts leave at once with their usual fade, their time cut
+    short (`toast::keep_clear`). Toasts that come meanwhile wait and come in
+    once the corner is clear, with their full time; one kept waiting longer
+    than it would have shown is dropped.
+  - **Above lasting chrome.** The page bar and the read-aloud player stay
+    up, so the stack rises above them instead (`toast::stand_on`).
   - **Out of the way.** The stack takes the pointer only over its cards and
-    strip. While something on the page is carried, or an open menu reaches
-    its corner, it fades to 30 % and lets the pointer through, so drops and
-    menu rows beneath it still work.
+    strip. While something on the page is carried near it, it fades to 30 %
+    and lets the pointer through, so drops beneath it still work.
   - **Time.** Up 3.5 s, 6 s for errors and for cards with an action.
     Hovering, the open list or a drag stops every clock, and at least
     1.5 s is left after. They come in with a 200 ms rise and fade.

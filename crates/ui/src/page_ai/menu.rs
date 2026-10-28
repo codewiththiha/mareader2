@@ -563,7 +563,7 @@ impl PageAi {
 
 /// A menu's frame at `at`, kept on screen.
 fn popup(ctx: &Context, id: Id, at: egui::Pos2, t: &Tokens, add: impl FnOnce(&mut Ui)) -> Rect {
-    egui::Area::new(id)
+    let rect = egui::Area::new(id)
         .order(Order::Foreground)
         .fixed_pos(at)
         .constrain(true)
@@ -580,7 +580,10 @@ fn popup(ctx: &Context, id: Id, at: egui::Pos2, t: &Tokens, add: impl FnOnce(&mu
                 });
         })
         .response
-        .rect
+        .rect;
+    // A menu summoned here: toasts give it the room.
+    crate::toast::keep_clear(ctx, rect);
+    rect
 }
 
 /// Seconds the page's menu takes to come in.
@@ -629,7 +632,7 @@ fn page_popup(
 ) -> Rect {
     let ease = 1.0 - (1.0 - k).powi(3);
     let rise = (1.0 - ease) * 6.0 * if below { -1.0 } else { 1.0 };
-    egui::Area::new(id)
+    let rect = egui::Area::new(id)
         .order(Order::Foreground)
         .fixed_pos(pos + vec2(0.0, rise))
         // Placed by hand: egui's own keeping-in would fight it.
@@ -648,7 +651,10 @@ fn page_popup(
                 });
         })
         .response
-        .rect
+        .rect;
+    // A menu summoned here: toasts give it the room.
+    crate::toast::keep_clear(ctx, rect);
+    rect
 }
 
 /// Read aloud's row: its icon and word in the lit word's warm tone.

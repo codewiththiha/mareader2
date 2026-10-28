@@ -1082,6 +1082,8 @@ impl ReadAloud {
             );
             // The lines read are kept above it, in its book's pane.
             shape.rise = pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0));
+            // It stays up a while: toasts rise above it, not over it.
+            crate::toast::stand_on(ctx, rect);
             let fit = Fit::new(width, view.escape).fill(width, view.escape);
             let least = if f >= 0.5 {
                 card::FULL_LEAST

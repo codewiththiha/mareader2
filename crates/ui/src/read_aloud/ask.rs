@@ -36,12 +36,13 @@ pub(super) fn show(
         .fixed_pos(foot)
         .constrain(false)
         .interactable(shown > 0.9);
-    area.show(ctx, |ui| {
+    let asked = area.show(ctx, |ui| {
         ui.set_opacity(shown);
         ui.set_clip_rect(room);
         pill(ui, part)
-    })
-    .inner
+    });
+    crate::toast::keep_clear(ctx, asked.response.rect);
+    asked.inner
 }
 
 /// The pill: the part's icon and name, then Read and Skip.

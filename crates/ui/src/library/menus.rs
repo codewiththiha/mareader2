@@ -355,6 +355,8 @@ pub fn selection_bar(ui: &mut Ui, page: Rect, bar: &Bar<'_>, t: &Tokens, out: &m
         pos2(page.center().x, page.bottom() - BAR_H / 2.0 - 16.0),
         vec2(width, BAR_H),
     );
+    // Summoned by a hold: toasts give it the room.
+    crate::toast::keep_clear(ui.ctx(), rect);
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
     // Clicks on the bar's own background stay off the page.
     ui.interact(rect, Id::new("library-selection-bar"), Sense::CLICK);

@@ -23,16 +23,13 @@ pub(super) struct Place {
     pub fade: f64,
     /// Where a drag from the page is, while one goes on.
     pub drag: Option<Pos2>,
-    /// Open menus; where one covers the stack, it steps aside too.
-    pub menus: Vec<Rect>,
 }
 
 impl Place {
-    /// A page drag over the stack, or a menu on it: faint, and let through.
+    /// A page drag over the stack: faint, and let through.
     fn aside(&self, seen: Option<Rect>) -> bool {
-        let covered = seen.is_some_and(|s| self.menus.iter().any(|m| m.intersects(s)));
         let near = |p: &Pos2| seen.is_none_or(|s| s.expand(NEAR).contains(*p));
-        self.drag.as_ref().is_some_and(near) || covered
+        self.drag.as_ref().is_some_and(near)
     }
 }
 

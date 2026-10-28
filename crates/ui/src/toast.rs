@@ -3,7 +3,7 @@
 mod card;
 mod stack;
 
-use egui::{Context, Rect, pos2};
+use egui::{Context, Id, Rect, pos2};
 
 use crate::command::{Command, Commands};
 use crate::motion;
@@ -22,6 +22,8 @@ const KEEP: usize = 12;
 /// Clear of the window's edges.
 const INSET: f32 = 16.0;
 const WIDTH: f32 = 360.0;
+/// A lone one-line toast's height, to know where one would show.
+const SPOT_H: f32 = 48.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -29,7 +31,7 @@ pub enum Tone {
     Info,
     /// Something failed: an alert in the danger colour.
     Error,
-    /// It worked, but not wholly: an alert in the accent colour.
+    /// It worked, but not wholly: an alert in amber.
     Warning,
 }
 
@@ -128,19 +130,70 @@ impl Live {
     }
 }
 
-/// Where open menus sit; modals are not menus.
+/// Where the open menu sits, if one is open.
 fn open_menus(ctx: &Context) -> Vec<Rect> {
     if !egui::Popup::is_any_open(ctx) {
         return Vec::new();
     }
-    ctx.memory(|m| {
-        let modal = m.top_modal_layer();
-        let shown = |l: &egui::LayerId| {
-            l.order == egui::Order::Foreground && Some(*l) != modal && m.areas().is_visible(l)
-        };
-        let layers = m.layer_ids().filter(shown);
-        layers.filter_map(|l| m.area_rect(l.id)).collect()
+    let shown: Vec<(Id, Rect)> = ctx.memory(|m| {
+        let up = |l: &egui::LayerId| l.order == egui::Order::Foreground && m.areas().is_visible(l);
+        let layers = m.layer_ids().filter(up);
+        layers
+            .filter_map(|l| Some((l.id, m.area_rect(l.id)?)))
+            .collect()
+    });
+    // Asked outside the memory's lock, which the check takes too.
+    let open = |(id, _): &(Id, Rect)| egui::Popup::is_id_open(ctx, *id);
+    shown.into_iter().filter(open).map(|(_, r)| r).collect()
+}
+
+/// What the toasts must leave uncovered or stand on, by pass.
+#[derive(Clone, Default)]
+struct Keep {
+    clear: Vec<(u64, Rect)>,
+    floors: Vec<(u64, Rect)>,
+}
+
+fn keep_id() -> Id {
+    Id::new("toast-keep")
+}
+
+/// A summoned menu or card at `rect`: toasts there leave, newcomers wait.
+pub fn keep_clear(ctx: &Context, rect: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| (d.get_temp_mut_or_default::<Keep>(keep_id()).clear).push((pass, rect)));
+}
+
+/// Lasting chrome, as the read-aloud player, shows at `rect`:
+/// toasts rise above it instead.
+pub fn stand_on(ctx: &Context, rect: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| (d.get_temp_mut_or_default::<Keep>(keep_id()).floors).push((pass, rect)));
+}
+
+/// This pass's and the last's, either side of where the toasts draw.
+fn kept(ctx: &Context) -> Keep {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let keep = d.get_temp_mut_or_default::<Keep>(keep_id());
+        let recent = |(at, _): &(u64, Rect)| *at + 1 >= pass;
+        keep.clear.retain(recent);
+        keep.floors.retain(recent);
+        let found = keep.clone();
+        let now = |(at, _): &(u64, Rect)| *at == pass;
+        keep.clear.retain(now);
+        keep.floors.retain(now);
+        found
     })
+}
+
+/// How far toasts in `column` rise to stand above every floor in it.
+fn rise(floors: &[Rect], column: Rect) -> f32 {
+    let over = floors
+        .iter()
+        .filter(|f| f.x_range().intersects(column.x_range()));
+    let up = over.map(|f| column.bottom() - f.top() + 8.0);
+    up.fold(0.0, f32::max)
 }
 
 /// The stack, oldest first.
@@ -155,11 +208,23 @@ pub struct Toasts {
     last: Option<f64>,
     /// Where the stack showed last frame, while any is up.
     seen: Option<Rect>,
+    /// Something summoned sat where the stack goes, last frame.
+    blocked: bool,
+    /// Toasts that came while blocked, and since when they wait.
+    waiting: Vec<(Toast, Option<f64>)>,
 }
 
 impl Toasts {
-    /// Puts `toast` in front; the same words again count instead of stacking.
+    /// Puts `toast` in front, or holds it while something is in the way.
     pub fn push(&mut self, toast: Toast) {
+        match self.blocked {
+            true => self.waiting.push((toast, None)),
+            false => self.put(toast),
+        }
+    }
+
+    /// Puts `toast` in front; the same words again count instead of stacking.
+    fn put(&mut self, toast: Toast) {
         let same = |l: &Live| {
             !l.going()
                 && l.toast.undo.is_none()
@@ -204,18 +269,47 @@ impl Toasts {
         for live in self.live.iter_mut().filter(|l| !l.going()) {
             live.gone = Some((now, Exit::Fade));
         }
+        self.waiting.clear();
         self.open = false;
     }
 
-    /// The newest toast still up.
+    /// Something summoned covers the stack: it leaves, newcomers wait.
+    fn give_way(&mut self, now: f64) {
+        for live in self.live.iter_mut().filter(|l| !l.going()) {
+            live.gone = Some((now, Exit::Fade));
+            live.dragging = false;
+        }
+        self.open = false;
+    }
+
+    /// Waiting toasts come in once clear; one that waited its time is let go.
+    fn admit(&mut self, now: f64) {
+        let waiting = std::mem::take(&mut self.waiting);
+        for (toast, since) in waiting {
+            let since = since.unwrap_or(now);
+            match (self.blocked, now - since < toast.lasts()) {
+                (_, false) => {}
+                (true, true) => self.waiting.push((toast, Some(since))),
+                (false, true) => self.put(toast),
+            }
+        }
+    }
+
+    /// The newest toast still up, or waiting to come in.
     pub fn current(&self) -> Option<&Toast> {
-        self.shown().next()
+        let waiting = self.waiting.last().map(|(t, _)| t);
+        waiting.or_else(|| self.shown().next())
     }
 
     /// The toasts still up, newest first.
     pub fn shown(&self) -> impl Iterator<Item = &Toast> {
         let up = self.live.iter().rev().filter(|l| !l.going());
         up.map(|l| &l.toast)
+    }
+
+    /// Toasts held back until what is in the way goes.
+    pub fn waiting(&self) -> usize {
+        self.waiting.len()
     }
 
     /// Where the stack showed last frame; what sits there gives way.
@@ -268,6 +362,31 @@ impl Toasts {
     pub fn show(&mut self, ctx: &Context, area: Rect, lift: f32, out: &mut Commands) {
         let now = ctx.input(|i| i.time);
         let fade = f64::from(motion::secs(ctx, FADE));
+        let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
+        let keep = kept(ctx);
+        let floors: Vec<Rect> = keep.floors.iter().map(|(_, r)| *r).collect();
+        // Where a lone toast would show, standing on the page bar.
+        let foot = area.bottom() - INSET - lift;
+        let column = Rect::from_min_max(
+            pos2(area.right() - INSET - width, foot - SPOT_H),
+            pos2(area.right() - INSET, foot),
+        );
+        let target = rise(&floors, column);
+        let time = motion::secs(ctx, FADE);
+        let lift = lift + ctx.animate_value_with_time(Id::new("toast-rise"), target, time);
+        let spot = self
+            .seen
+            .unwrap_or(column.translate(egui::vec2(0.0, -target)));
+        let mut blockers = open_menus(ctx);
+        blockers.extend(keep.clear.iter().map(|(_, r)| *r));
+        self.blocked = blockers.iter().any(|b| b.intersects(spot));
+        if self.blocked {
+            self.give_way(now);
+        }
+        self.admit(now);
+        if !self.waiting.is_empty() {
+            ctx.request_repaint_after_secs(0.25);
+        }
         self.tick(now, fade);
         let opened = ctx.animate_bool_with_time(egui::Id::new("toasts-open"), self.open, FADE);
         if self.live.is_empty() {
@@ -275,7 +394,6 @@ impl Toasts {
             self.seen = None;
             return;
         }
-        let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
         let corner = pos2(area.right() - INSET, area.bottom() - INSET - lift);
         // A drag from the page passes over the toasts, once it nears them.
         let ours = self.live.iter().any(|l| l.dragging);
@@ -288,7 +406,6 @@ impl Toasts {
             now,
             fade,
             drag,
-            menus: open_menus(ctx),
         };
         self.hovered = match self.open {
             true => stack::open(ctx, self, &place, opened, out),
@@ -310,5 +427,85 @@ impl Toasts {
         if !self.held() && self.live.iter().any(|l| l.left.is_some()) {
             ctx.request_repaint_after_secs(LINE_STEP);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 800.0));
+
+    /// One frame at `time`, `block` summoned over the page first.
+    fn frame(ctx: &Context, toasts: &mut Toasts, block: Option<Rect>, time: f64) {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            if let Some(rect) = block {
+                keep_clear(ui.ctx(), rect);
+            }
+            toasts.show(ui.ctx(), SCREEN, 0.0, &mut Commands::default());
+        });
+        out.textures_delta.clear();
+    }
+
+    fn up(toasts: &Toasts) -> usize {
+        toasts.shown().count()
+    }
+
+    #[test]
+    fn something_summoned_under_a_toast_sends_it_away_early() {
+        let (ctx, mut toasts) = (Context::default(), Toasts::default());
+        toasts.push(Toast::info("Took “Poetry” apart."));
+        frame(&ctx, &mut toasts, None, 0.0);
+        frame(&ctx, &mut toasts, None, 0.1);
+        assert_eq!(up(&toasts), 1);
+        // A bar along the foot, reaching under the corner.
+        let bar = Rect::from_min_max(pos2(500.0, 730.0), pos2(1000.0, 776.0));
+        frame(&ctx, &mut toasts, Some(bar), 0.2);
+        assert_eq!(up(&toasts), 0, "it leaves long before its time");
+        // Words that come meanwhile wait for the bar to go.
+        toasts.push(Toast::info("Added to “Poetry”."));
+        frame(&ctx, &mut toasts, Some(bar), 0.3);
+        assert_eq!((up(&toasts), toasts.waiting()), (0, 1));
+        let said = toasts.current().map(|t| t.message.as_str());
+        assert_eq!(said, Some("Added to “Poetry”."));
+        frame(&ctx, &mut toasts, None, 0.4);
+        frame(&ctx, &mut toasts, None, 0.5);
+        assert_eq!((up(&toasts), toasts.waiting()), (1, 0));
+    }
+
+    #[test]
+    fn a_toast_kept_waiting_past_its_time_never_shows() {
+        let (ctx, mut toasts) = (Context::default(), Toasts::default());
+        let bar = Rect::from_min_max(pos2(500.0, 730.0), pos2(1200.0, 800.0));
+        frame(&ctx, &mut toasts, Some(bar), 0.0);
+        toasts.push(Toast::info("Copied"));
+        frame(&ctx, &mut toasts, Some(bar), 0.1);
+        frame(&ctx, &mut toasts, Some(bar), SHOW_FOR + 0.5);
+        frame(&ctx, &mut toasts, None, SHOW_FOR + 0.6);
+        assert_eq!((up(&toasts), toasts.waiting()), (0, 0));
+    }
+
+    #[test]
+    fn far_from_the_corner_nothing_changes() {
+        let (ctx, mut toasts) = (Context::default(), Toasts::default());
+        toasts.push(Toast::info("Copied"));
+        let menu = Rect::from_min_size(pos2(100.0, 100.0), egui::vec2(200.0, 300.0));
+        frame(&ctx, &mut toasts, Some(menu), 0.0);
+        frame(&ctx, &mut toasts, Some(menu), 0.1);
+        assert_eq!(up(&toasts), 1);
+    }
+
+    #[test]
+    fn toasts_rise_to_stand_above_lasting_chrome() {
+        let column = Rect::from_min_max(pos2(824.0, 736.0), pos2(1184.0, 784.0));
+        let player = Rect::from_min_max(pos2(400.0, 700.0), pos2(900.0, 790.0));
+        assert!((rise(&[player], column) - 92.0).abs() < 0.01);
+        let aside = Rect::from_min_max(pos2(100.0, 700.0), pos2(500.0, 790.0));
+        assert_eq!(rise(&[aside], column), 0.0);
     }
 }

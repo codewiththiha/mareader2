@@ -262,7 +262,7 @@ pub fn menu(
 ) -> Rect {
     let id = Id::new("study-mark-menu");
     let (pos, pivot) = menu_place(ctx, id, at, words);
-    egui::Area::new(id)
+    let rect = egui::Area::new(id)
         .order(Order::Foreground)
         .pivot(pivot)
         .fixed_pos(pos)
@@ -305,5 +305,8 @@ pub fn menu(
                 });
         })
         .response
-        .rect
+        .rect;
+    // A menu summoned here: toasts give it the room.
+    crate::toast::keep_clear(ctx, rect);
+    rect
 }

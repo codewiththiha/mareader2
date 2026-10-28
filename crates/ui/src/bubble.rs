@@ -139,6 +139,8 @@ impl Bubble {
                 caret(ui, frame.response.rect, at.center().x, side, t);
                 frame.inner
             });
+        // Summoned over the page: toasts give it the room.
+        crate::toast::keep_clear(ctx, shown.response.rect);
         memo.height = shown.response.rect.height();
         memo.width = shown.response.rect.width();
         // A side picked unmeasured is a guess, not one to keep.
