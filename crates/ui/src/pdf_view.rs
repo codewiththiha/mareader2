@@ -371,6 +371,9 @@ impl PdfView {
                 .command(ZoomCommand::Fit(Fit::Width), None, self.current, now);
         } else if mode == ViewMode::Horizontal {
             self.zoom.unfit();
+            self.zoom.set_basis(Fit::Page);
+        } else if self.zoom.fit.is_none() {
+            self.zoom.set_basis(Fit::Width);
         }
         self.go(self.current);
     }
@@ -509,7 +512,7 @@ impl PdfView {
         true
     }
 
-    /// A page of another size: a fit refits; `keep` scales a set zoom too.
+    /// A page of another size: a fit refits; `keep` lets a set zoom too.
     fn follow_size(&mut self, sizes: &[PageSize], keep: bool, now: f64) -> Option<f64> {
         let page = self.current;
         let fit_box = |p| layout::fit_box(self.mode, sizes, (p, self.lead));
@@ -530,10 +533,8 @@ impl PdfView {
             self.resize = None;
             return None;
         }
+        // The zoom then measures the new page, a kept one as a fit does.
         let land = |view: &mut Self| {
-            if let (false, Some(was), Some(here)) = (fitted, was, here) {
-                view.zoom.rescale(was.width / here.width, now);
-            }
             view.zoom.fit_page = page;
             view.resize = None;
         };
@@ -748,7 +749,12 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     if std::mem::take(&mut view.fresh) && view.zoom.fit.is_some() {
         view.zoom.fit = Some(cx.page.fit);
     }
-    if let Some(wait) = view.follow_size(sizes, cx.page.auto_resize, now) {
+    // A book's set zoom is its type size: the pane reflows it instead.
+    let keep = cx.page.auto_resize && !doc.is_reflowable();
+    // Remembered on the page it was set on, before a turn moves it.
+    let set_on = layout::fit_box(view.mode, sizes, (view.zoom.fit_page, view.lead));
+    view.zoom.hold(keep, set_on);
+    if let Some(wait) = view.follow_size(sizes, keep, now) {
         ctx.request_repaint_after_secs(wait as f32);
     }
     let margin = if view.mode == ViewMode::Horizontal {
@@ -761,7 +767,7 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     };
     let mut room = frame.size() - vec2(2.0 * margin, 2.0 * MARGIN + cx.top_inset);
     // The strip fits a page's height alone: it scrolls sideways.
-    if view.mode == ViewMode::Horizontal && view.zoom.fit == Some(Fit::Page) {
+    if view.mode == ViewMode::Horizontal && view.zoom.measure() == Fit::Page {
         room.x = f32::INFINITY;
     }
     if let Some(wait) = view.settle_sheet(sheet_for(view, doc, room), now) {

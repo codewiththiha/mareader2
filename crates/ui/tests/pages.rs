@@ -118,6 +118,37 @@ fn a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom() {
 }
 
 #[test]
+fn a_set_zoom_shrinks_with_the_pane_and_grows_back_only_to_itself() {
+    let mut h = reader(&[("pdf", "sample:5")]);
+    let resize = |h: &mut H, width: f32| {
+        h.set_size(egui::vec2(width, 700.0));
+        h.run();
+        h.run_steps(30);
+        h.run();
+        zoom(h).0
+    };
+    // What fit width does from a wide pane to a narrow one.
+    let narrow = resize(&mut h, 600.0);
+    let wide = resize(&mut h, 900.0);
+    assert!(narrow < wide, "{narrow} < {wide}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Minus);
+    h.run();
+    let (set, fit) = zoom(&h);
+    assert_eq!(fit, None);
+    // Narrower, it shrinks by the fit's ratio.
+    let want = set * narrow / wide;
+    let shrunk = resize(&mut h, 600.0);
+    assert!((shrunk - want).abs() < 0.01, "{shrunk} want {want}");
+    assert_eq!(zoom(&h).1, None, "still set by hand");
+    // Back, and wider still, it returns to what was set and no more.
+    assert!((resize(&mut h, 900.0) - set).abs() < 0.001);
+    assert!((resize(&mut h, 1400.0) - set).abs() < 0.001);
+    // Off, a set zoom holds whatever the pane does.
+    h.state_mut().settings_mut().layout.auto_resize = false;
+    assert!((resize(&mut h, 600.0) - set).abs() < 0.001);
+}
+
+#[test]
 fn the_floating_label_shows_while_the_bar_hides_and_room_allows() {
     let mut h = reader(&[("pdf", "sample:5"), ("label", "chapter")]);
     let chapter = "Chapter 1: Opening";

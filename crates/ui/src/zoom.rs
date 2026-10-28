@@ -71,12 +71,41 @@ pub fn next(zoom: f32, step: Step) -> Option<f32> {
 
 /// The zoom that fits `page` into `room`, edge to edge.
 pub fn fit(fit: Fit, room: Vec2, page: PageSize) -> f32 {
+    clamp(span(fit, room, page))
+}
+
+/// A fit's zoom before the clamp, so ratios between two stay true.
+fn span(fit: Fit, room: Vec2, page: PageSize) -> f32 {
     let width = room.x.max(1.0) / page.width.max(1.0);
     let height = room.y.max(1.0) / page.height.max(1.0);
-    clamp(match fit {
+    match fit {
         Fit::Width => width,
         Fit::Page => width.min(height),
-    })
+    }
+}
+
+/// Smaller rooms are a pane mid-collapse: no zoom is measured there.
+const MIN_ROOM: f32 = 64.0;
+
+/// A zoom set by hand, kept: it scales as its fit would, up to itself.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Kept {
+    /// The zoom set: the most it ever shows.
+    zoom: f32,
+    /// The basis fit's zoom when it was set.
+    span: f32,
+}
+
+impl Kept {
+    /// The zoom for a fit of `span` now: shrunk by the same ratio.
+    fn at(self, span: f32) -> f32 {
+        let scaled = self.zoom * span / self.span;
+        if scaled.is_finite() {
+            clamp(scaled.min(self.zoom))
+        } else {
+            clamp(self.zoom)
+        }
+    }
 }
 
 /// Whether two zooms differ enough to lay out again.
@@ -111,9 +140,13 @@ pub struct PaneZoom {
     settle_at: f64,
     /// Where a pinch pivots, in the viewport; else its centre.
     pub pivot: Option<Vec2>,
-    /// The room a fit last measured, and when it last changed.
+    /// The room last measured, and when it last changed.
     room: Vec2,
     room_at: f64,
+    /// The fit a zoom set by hand scales by: the last one used.
+    basis: Fit,
+    /// A zoom set by hand while kept zooms scale; none until measured.
+    kept: Option<Kept>,
 }
 
 impl Default for PaneZoom {
@@ -128,6 +161,8 @@ impl Default for PaneZoom {
             pivot: None,
             room: Vec2::ZERO,
             room_at: 0.0,
+            basis: Fit::Width,
+            kept: None,
         }
     }
 }
@@ -156,6 +191,7 @@ impl PaneZoom {
                 self.fit_page = page;
             }
         }
+        self.kept = None;
         self.glide = shown.map(|from| Glide { from, start: now });
         self.pivot = None;
         self.settle_at = now;
@@ -164,29 +200,50 @@ impl PaneZoom {
     /// Keeps the zoom a fit reached, no longer following the pane.
     pub fn unfit(&mut self) {
         self.fit = None;
+        self.kept = None;
+    }
+
+    /// The fit a set zoom scales by: the strip sideways scales by height.
+    pub fn set_basis(&mut self, basis: Fit) {
+        self.basis = basis;
+        self.kept = None;
+    }
+
+    /// What the room is measured for: the fit, or a set zoom's basis.
+    pub fn measure(&self) -> Fit {
+        self.fit.unwrap_or(self.basis)
+    }
+
+    /// Remembers a set zoom for `keep`, measured on `page` in the last room.
+    pub fn hold(&mut self, keep: bool, page: Option<PageSize>) {
+        if self.fit.is_some() || !keep {
+            self.kept = None;
+            return;
+        }
+        let room = self.room;
+        let (None, Some(page), true) = (self.kept, page, room.min_elem() >= MIN_ROOM) else {
+            return;
+        };
+        let span = span(self.basis, room, page);
+        if span.is_finite() && span > 0.0 {
+            self.kept = Some(Kept {
+                zoom: self.target,
+                span,
+            });
+        }
     }
 
     /// A pinch or Ctrl+wheel: follows the fingers, pivots on the pointer.
     pub fn pinch(&mut self, factor: f32, at: Vec2, now: f64) {
         self.target = clamp(self.target * factor);
         self.fit = None;
+        self.kept = None;
         self.glide = None;
         self.pivot = Some(at);
         self.settle_at = now + SETTLE;
     }
 
-    /// A set zoom scaled by `factor`, to keep its scale on another page.
-    pub fn rescale(&mut self, factor: f32, now: f64) {
-        if !factor.is_finite() || factor <= 0.0 {
-            return;
-        }
-        self.target = clamp(self.target * factor);
-        self.glide = None;
-        self.pivot = None;
-        self.settle_at = self.settle_at.max(now + SETTLE);
-    }
-
-    /// A fit follows the pane; without `follow`, returns the wait for rest.
+    /// A fit, or a kept zoom, follows the pane; else returns the wait.
     pub fn refit(
         &mut self,
         page: Option<PageSize>,
@@ -195,18 +252,29 @@ impl PaneZoom {
         follow: bool,
         now: f64,
     ) -> Option<f32> {
-        let (Some(mode), Some(page)) = (self.fit, page) else {
-            return None;
-        };
         if self.room != room {
             self.room = room;
             self.room_at = now;
+        }
+        let page = page?;
+        if self.fit.is_none() && self.kept.is_none() {
+            return None;
         }
         let quiet = now - self.room_at;
         if !follow && shown && quiet < SETTLE {
             return Some((SETTLE - quiet) as f32);
         }
-        let fitted = fit(mode, room, page);
+        let fitted = match (self.fit, self.kept) {
+            (Some(mode), _) => {
+                self.basis = mode;
+                fit(mode, room, page)
+            }
+            (None, Some(kept)) if room.min_elem() >= MIN_ROOM => {
+                kept.at(span(self.basis, room, page))
+            }
+            // Mid-collapse the zoom holds; it comes back with the room.
+            _ => return None,
+        };
         if differs(fitted, self.target) && self.glide.is_none() && shown {
             self.settle_at = self.settle_at.max(now + SETTLE);
         }
@@ -354,6 +422,111 @@ mod tests {
         z.refit(Some(LETTER), Vec2::new(1224.0, 900.0), true, true, 1.0);
         assert!((z.state().zoom - 2.0).abs() < 1e-6);
         assert!(z.sharpen(1.0).is_some());
+    }
+
+    fn near(z: &PaneZoom, want: f32) -> bool {
+        (z.state().zoom - want).abs() < 1e-4
+    }
+
+    /// A pane fitted to LETTER's width in `room`, then stepped out to 90 %.
+    fn set_at_90(room: Vec2) -> PaneZoom {
+        let mut z = PaneZoom::default();
+        z.refit(Some(LETTER), room, false, true, 0.0);
+        z.command(ZoomCommand::Step(Step::Out), None, 0, 1.0);
+        z.hold(true, Some(LETTER));
+        assert!(near(&z, 0.9));
+        z
+    }
+
+    #[test]
+    fn a_kept_zoom_shrinks_like_a_fit_and_grows_back_only_to_itself() {
+        let room = Vec2::new(612.0, 900.0);
+        let mut z = set_at_90(room);
+        let at = |z: &mut PaneZoom, x: f32| {
+            z.refit(Some(LETTER), Vec2::new(x, 900.0), true, true, 2.0);
+            z.state().zoom
+        };
+        // Half the pane, half the zoom: as fit width halves.
+        assert!((at(&mut z, 306.0) - 0.45).abs() < 1e-4);
+        assert_eq!(z.state().fit, None, "still set by hand");
+        // Wider than it was set in, it stops at what was set.
+        assert!((at(&mut z, 1224.0) - 0.9).abs() < 1e-4);
+        assert!((at(&mut z, 612.0) - 0.9).abs() < 1e-4);
+        // A pane mid-collapse is no measure; the zoom waits for the room.
+        assert!((at(&mut z, 20.0) - 0.9).abs() < 1e-4);
+        assert!((at(&mut z, 459.0) - 0.675).abs() < 1e-4);
+        assert!((at(&mut z, 612.0) - 0.9).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_new_zoom_replaces_the_kept_one() {
+        let mut z = set_at_90(Vec2::new(612.0, 900.0));
+        let half = Vec2::new(306.0, 900.0);
+        z.refit(Some(LETTER), half, true, true, 2.0);
+        assert!(near(&z, 0.45));
+        // Stepping steps from what shows, and that is kept now.
+        z.command(ZoomCommand::Step(Step::In), None, 0, 3.0);
+        assert!(near(&z, 0.5));
+        z.hold(true, Some(LETTER));
+        z.refit(Some(LETTER), Vec2::new(612.0, 900.0), true, true, 4.0);
+        assert!(near(&z, 0.5), "never past the new one");
+        z.refit(Some(LETTER), Vec2::new(153.0, 900.0), true, true, 5.0);
+        assert!(near(&z, 0.25));
+        // A pinch replaces it too, from what shows.
+        z.pinch(2.0, Vec2::ZERO, 6.0);
+        z.hold(true, Some(LETTER));
+        z.refit(Some(LETTER), Vec2::new(612.0, 900.0), true, true, 7.0);
+        assert!(near(&z, 0.5));
+    }
+
+    #[test]
+    fn a_kept_zoom_scales_down_on_wider_pages_never_up() {
+        let mut z = set_at_90(Vec2::new(612.0, 900.0));
+        let wide = PageSize {
+            width: 792.0,
+            height: 612.0,
+        };
+        let narrow = PageSize {
+            width: 400.0,
+            height: 600.0,
+        };
+        let room = Vec2::new(612.0, 900.0);
+        z.refit(Some(wide), room, true, true, 2.0);
+        assert!(near(&z, 0.9 * 612.0 / 792.0));
+        z.refit(Some(narrow), room, true, true, 3.0);
+        assert!(near(&z, 0.9));
+    }
+
+    #[test]
+    fn unkept_a_set_zoom_holds_where_it_shows() {
+        let mut z = set_at_90(Vec2::new(612.0, 900.0));
+        z.refit(Some(LETTER), Vec2::new(306.0, 900.0), true, true, 2.0);
+        // Turned off: no jump back, and no scaling after.
+        z.hold(false, Some(LETTER));
+        z.refit(Some(LETTER), Vec2::new(1224.0, 900.0), true, true, 3.0);
+        assert!(near(&z, 0.45));
+        // On again, what shows is kept, measured in this room.
+        z.hold(true, Some(LETTER));
+        z.refit(Some(LETTER), Vec2::new(1224.0, 1800.0), true, true, 4.0);
+        assert!(near(&z, 0.45), "fit width ignores the height");
+        z.refit(Some(LETTER), Vec2::new(816.0, 900.0), true, true, 5.0);
+        assert!(near(&z, 0.3));
+    }
+
+    #[test]
+    fn a_set_zoom_scales_by_its_basis_fit() {
+        let mut z = PaneZoom::default();
+        z.command(ZoomCommand::Fit(Fit::Page), None, 0, 0.0);
+        // Fit page in a short pane: the height decides.
+        z.refit(Some(LETTER), Vec2::new(1224.0, 792.0), false, true, 0.0);
+        assert!(near(&z, 1.0));
+        z.command(ZoomCommand::Step(Step::Out), None, 0, 1.0);
+        z.hold(true, Some(LETTER));
+        // Narrower but still wide enough: fit page would not move.
+        z.refit(Some(LETTER), Vec2::new(900.0, 792.0), true, true, 2.0);
+        assert!(near(&z, 0.9));
+        z.refit(Some(LETTER), Vec2::new(1224.0, 396.0), true, true, 3.0);
+        assert!(near(&z, 0.45));
     }
 
     #[test]

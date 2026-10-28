@@ -901,9 +901,11 @@ status = "shipped"
 reference = ["crates/reader-core/src/settings/layout.rs"]
 evidence = [
     "crates/ui/tests/pages.rs::a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom",
+    "crates/ui/tests/pages.rs::a_set_zoom_shrinks_with_the_pane_and_grows_back_only_to_itself",
+    "crates/ui/src/zoom.rs::a_kept_zoom_shrinks_like_a_fit_and_grows_back_only_to_itself",
     "crates/ui/tests/pages.rs::documents_open_at_the_default_fit",
 ]
-notes = "One zoom per pane; a fit measures the page read and follows a page of another size once it settles; Keep zoom on other page sizes makes a zoom set by hand keep its scale too; the default fit opens documents"
+notes = "One zoom per pane; a fit measures the page read and follows a page of another size once it settles; Keep zoom on other page sizes makes a zoom set by hand scale as its fit would, with the pane and with wider pages, but never past the zoom set, which is remembered until a new one; the default fit opens documents"
 
 [[feature]]
 id = "pdf.text-selection"

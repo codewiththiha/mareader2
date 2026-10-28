@@ -607,7 +607,7 @@ fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
     });
     // A book's pages are all one size.
     r.add(Applies::NotBook, |ui| {
-        let hint = "A zoom set by hand keeps its scale on pages of another size";
+        let hint = "A zoom set by hand shrinks with the pane, like a fit, never past itself";
         switch_row(
             ui,
             "Keep zoom on other page sizes",
