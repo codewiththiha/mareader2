@@ -893,7 +893,7 @@ evidence = ["crates/ui/src/pdf_view.rs::zooming_holds_the_spot_under_the_pivot",
 
 [[feature]]
 id = "pdf.mixed-sizes"
-title = "Mixed page sizes fit by the page on screen; Auto Resize"
+title = "Mixed page sizes fit by the page on screen; Keep zoom on other page sizes"
 area = "D"
 tier = "P1"
 milestone = "M2"
@@ -903,7 +903,7 @@ evidence = [
     "crates/ui/tests/pages.rs::a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom",
     "crates/ui/tests/pages.rs::documents_open_at_the_default_fit",
 ]
-notes = "One zoom per pane; a fit measures the page read and follows a page of another size once it settles; Auto Resize makes a zoom set by hand keep its scale too; the default fit opens documents"
+notes = "One zoom per pane; a fit measures the page read and follows a page of another size once it settles; Keep zoom on other page sizes makes a zoom set by hand keep its scale too; the default fit opens documents"
 
 [[feature]]
 id = "pdf.text-selection"
