@@ -338,6 +338,8 @@ impl Notation {
 #[serde(default)]
 pub struct PronunciationSettings {
     pub shown: bool,
+    /// The reading voice's English decides, over `accent`.
+    pub follow_voice: bool,
     pub accent: Accent,
     pub notation: Notation,
 }
@@ -346,6 +348,7 @@ impl Default for PronunciationSettings {
     fn default() -> Self {
         Self {
             shown: true,
+            follow_voice: true,
             accent: Accent::Both,
             notation: Notation::Ipa,
         }

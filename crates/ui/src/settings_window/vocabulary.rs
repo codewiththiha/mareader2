@@ -9,18 +9,18 @@ use mareader_speech::Stage;
 
 use super::downloads::{Buttons, muted, progress};
 use super::highlights::{palette, preview};
-use super::{choices, divider, group, note, row, section, switch_row};
+use super::{choices, divider, flagged_row, group, note, row, section, switch_row};
 use crate::command::{Command, Commands, Download};
 use crate::dict::{count, megabytes};
 use crate::icons::Icon;
-use crate::sounds::Sounds;
+use crate::sounds::{EnglishVoice, Sounds, Spoken};
 use crate::theme::Tokens;
 use crate::vocab::Vocab;
 
 pub fn tab(
     ui: &mut Ui,
     (study, dictionary): (&mut StudySettings, &mut DictionarySettings),
-    (vocab, sounds): (&Vocab, &Sounds),
+    (vocab, sounds, english): (&Vocab, &Sounds, Option<&EnglishVoice>),
     out: &mut Commands,
 ) {
     section(ui, "Word data");
@@ -45,7 +45,9 @@ pub fn tab(
     }
     if sounds.ready() {
         section(ui, "Pronunciation");
-        group(ui, |ui| pronunciation(ui, &mut study.pronunciation));
+        group(ui, |ui| {
+            pronunciation(ui, &mut study.pronunciation, english)
+        });
     }
 }
 
@@ -84,17 +86,74 @@ fn shading(ui: &mut Ui, study: &mut StudySettings, dictionary: &mut DictionarySe
 }
 
 /// Whether the cards show how words sound, which accent, written how.
-fn pronunciation(ui: &mut Ui, p: &mut PronunciationSettings) {
+fn pronunciation(ui: &mut Ui, p: &mut PronunciationSettings, english: Option<&EnglishVoice>) {
     let hint = "Under the word on dictionary and AI cards";
     switch_row(ui, "Show on word cards", hint, &mut p.shown);
     divider(ui);
-    row(ui, "Accent", "Which English the cards say", |ui| {
-        choices(ui, &mut p.accent, &Accent::ALL, Accent::label);
+    let voice = crate::sounds::spoken(english.map(|v| v.tag.as_str()));
+    let (detail, tip, warn) = following(p.follow_voice, voice, english);
+    let t = Tokens::get(ui.ctx());
+    let flag = warn.then(|| (Icon::Alert, crate::theme::caution(&t)));
+    let title = "Match the reading voice";
+    flagged_row(ui, (title, &detail), &tip, flag, |ui| {
+        crate::widgets::switch(ui, &mut p.follow_voice, title);
     });
+    divider(ui);
+    // While the voice decides, the picker shows its choice, greyed.
+    let mut accent = crate::sounds::accent(p, voice);
+    let hint = match p.follow_voice {
+        true => "The reading voice picks it; turn off Match the reading voice to choose",
+        false => "Which English the cards say",
+    };
+    row(ui, "Accent", hint, |ui| {
+        ui.add_enabled_ui(!p.follow_voice, |ui| {
+            choices(ui, &mut accent, &Accent::ALL, Accent::label);
+        });
+    });
+    if !p.follow_voice {
+        p.accent = accent;
+    }
     divider(ui);
     row(ui, "Written as", p.notation.detail(), |ui| {
         choices(ui, &mut p.notation, &Notation::ALL, Notation::label);
     });
+}
+
+/// The match row's detail and hover tip, and whether it warns.
+fn following(on: bool, voice: Spoken, english: Option<&EnglishVoice>) -> (String, String, bool) {
+    let name = english.map_or("Your voice", |v| v.name.as_str());
+    let tag = english.map_or("", |v| v.tag.as_str());
+    let named = crate::sounds::named;
+    match (on, voice) {
+        (false, _) => (
+            "Cards use the accent you pick below".into(),
+            "Turn on to show the English the reading voice speaks".into(),
+            false,
+        ),
+        (true, Spoken::Exactly(d)) => (
+            format!("{name} speaks {} English, so cards do too", named(d)),
+            format!("Cards follow the voice picked in Read aloud ({tag})"),
+            false,
+        ),
+        (true, Spoken::Nearest { dialect, english }) => (
+            format!(
+                "{name} speaks {english} English · showing {}, the nearest",
+                named(dialect)
+            ),
+            crate::sounds::stand_in(english, dialect),
+            true,
+        ),
+        (true, Spoken::Unsure) if english.is_some() => (
+            format!("{name} doesn't say which English, so cards show both"),
+            format!("Its voice is tagged {tag}, with no region"),
+            true,
+        ),
+        (true, Spoken::Unsure) => (
+            "The reading voice doesn't speak English, so cards show both".into(),
+            "Pick an English voice in Read aloud to match it".into(),
+            false,
+        ),
+    }
 }
 
 /// Both files as the one download the reader sees.

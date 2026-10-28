@@ -23,6 +23,7 @@ fn main() -> Result<(), String> {
     let mut carry = None;
     let mut nudge = None;
     let mut words = false;
+    let mut sounds = false;
     let mut searched = false;
     let mut tabs = 0;
     let mut right = None;
@@ -137,6 +138,12 @@ fn main() -> Result<(), String> {
                 app.set_option(k, &dir.to_string_lossy())?;
                 words = true;
             }
+            // The real pronunciation pack, fetched: `pronunciation=download`.
+            "pronunciation" if v == "download" => {
+                let dir = voice_models(false)?;
+                app.set_option("voice_models", &dir.to_string_lossy())?;
+                sounds = true;
+            }
             // Voice models none or downloaded: `voice_models=ready`.
             "voice_models" if v == "absent" || v == "ready" => {
                 let dir = voice_models(v == "ready")?;
@@ -189,6 +196,12 @@ fn main() -> Result<(), String> {
     if words {
         harness.state_mut().queue(Command::Vocab(Download::Start));
         wait_for_words(&mut harness)?;
+    }
+    if sounds {
+        harness
+            .state_mut()
+            .queue(Command::Pronunciation(Download::Start));
+        wait_for_sounds(&mut harness)?;
     }
     wait_for_books(&mut harness);
     for c in queued {
@@ -342,6 +355,23 @@ fn wait_for_books(harness: &mut Harness<'_, MareaderApp>) {
         harness.run_steps(1);
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// Steps until the pronunciation pack is in, for two minutes at most.
+fn wait_for_sounds(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(120);
+    while !harness.state().sounds().ready() {
+        if let mareader_speech::Stage::Failed(why) = harness.state().sounds().stage() {
+            return Err(format!("pronunciation: {why}"));
+        }
+        if Instant::now() > until {
+            return Err("pronunciation: timed out".into());
+        }
+        harness.run_steps(1);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    harness.run_steps(4);
+    Ok(())
 }
 
 /// Steps until the word levels are in, for two minutes at most.

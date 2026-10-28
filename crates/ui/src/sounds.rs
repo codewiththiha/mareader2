@@ -33,14 +33,127 @@ fn tag(dialect: Dialect) -> &'static str {
     }
 }
 
+/// The tag a stand-in accent wears, as `≈ UK`.
+fn near_tag(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::American => "≈ US",
+        Dialect::British => "≈ UK",
+    }
+}
+
+/// The accent's name, as people say it.
+pub fn named(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::American => "American",
+        Dialect::British => "British",
+    }
+}
+
 /// One accent on a card: its tag, then each word's beats.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
-    /// "US" or "UK"; empty when only one accent shows.
+    /// "US", "UK" or "≈ UK"; empty when the voice's own accent shows.
     pub tag: &'static str,
     pub words: Vec<Vec<Beat>>,
     /// IPA sits between slashes.
     pub slashed: bool,
+    /// Why a stand-in accent shows, told on hover.
+    pub why: Option<String>,
+}
+
+/// The voice that says English words on cards, as `Emma`, `en-GB`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnglishVoice {
+    pub name: String,
+    pub tag: String,
+}
+
+/// Which English cards write, from the voice's language tag.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Spoken {
+    /// American or British: cards write just that.
+    Exactly(Dialect),
+    /// Another English, as `Australian`: the nearer of the two.
+    Nearest {
+        dialect: Dialect,
+        english: &'static str,
+    },
+    /// No English voice, or one not saying which: both show.
+    Unsure,
+}
+
+/// Englishes without a lexicon of their own, and their nearer accent.
+const ENGLISHES: [(&str, &str, Dialect); 15] = [
+    ("AU", "Australian", Dialect::British),
+    ("NZ", "New Zealand", Dialect::British),
+    ("IE", "Irish", Dialect::British),
+    ("ZA", "South African", Dialect::British),
+    ("IN", "Indian", Dialect::British),
+    ("SG", "Singaporean", Dialect::British),
+    ("HK", "Hong Kong", Dialect::British),
+    ("MY", "Malaysian", Dialect::British),
+    ("NG", "Nigerian", Dialect::British),
+    ("KE", "Kenyan", Dialect::British),
+    ("TZ", "Tanzanian", Dialect::British),
+    ("PK", "Pakistani", Dialect::British),
+    ("JM", "Jamaican", Dialect::British),
+    ("CA", "Canadian", Dialect::American),
+    ("PH", "Philippine", Dialect::American),
+];
+
+/// What a voice tagged `tag`, as `en-AU`, means for the cards.
+pub fn spoken(tag: Option<&str>) -> Spoken {
+    let Some(tag) = tag else {
+        return Spoken::Unsure;
+    };
+    let mut parts = tag.split(['-', '_']);
+    if !parts.next().is_some_and(|p| p.eq_ignore_ascii_case("en")) {
+        return Spoken::Unsure;
+    }
+    // Past a script, as `Latn`, to the region: two letters.
+    let region = parts.find(|p| p.len() != 4).filter(|p| p.len() == 2);
+    let Some(region) = region.map(str::to_ascii_uppercase) else {
+        return Spoken::Unsure;
+    };
+    match region.as_str() {
+        "US" => Spoken::Exactly(Dialect::American),
+        "GB" | "UK" => Spoken::Exactly(Dialect::British),
+        _ => match ENGLISHES.iter().find(|(r, ..)| *r == region) {
+            Some(&(_, english, dialect)) => Spoken::Nearest { dialect, english },
+            None => Spoken::Unsure,
+        },
+    }
+}
+
+/// The accents a card writes, as `settings` and the voice ask.
+pub fn shown(settings: &PronunciationSettings, spoken: Spoken) -> &'static [Dialect] {
+    const BOTH: &[Dialect] = &[Dialect::American, Dialect::British];
+    let one = |d: Dialect| -> &'static [Dialect] {
+        match d {
+            Dialect::American => &[Dialect::American],
+            Dialect::British => &[Dialect::British],
+        }
+    };
+    if !settings.follow_voice {
+        return match settings.accent {
+            Accent::Both => BOTH,
+            Accent::American => one(Dialect::American),
+            Accent::British => one(Dialect::British),
+        };
+    }
+    match spoken {
+        Spoken::Exactly(d) | Spoken::Nearest { dialect: d, .. } => one(d),
+        Spoken::Unsure => BOTH,
+    }
+}
+
+/// The accent picker's value while the voice decides.
+pub fn accent(settings: &PronunciationSettings, spoken: Spoken) -> Accent {
+    match shown(settings, spoken) {
+        [Dialect::American] => Accent::American,
+        [Dialect::British] => Accent::British,
+        _ => Accent::Both,
+    }
 }
 
 /// What a card hears: the word read aloud, and how card words sound.
@@ -194,17 +307,17 @@ impl Sounds {
     pub fn lines(
         &mut self,
         word: &str,
-        settings: &PronunciationSettings,
+        (settings, voice): (&PronunciationSettings, Spoken),
         now: f64,
     ) -> Option<Vec<Line>> {
         let word = word.trim();
         if !settings.shown || !self.ready() || !speakable(word) {
             return None;
         }
-        let dialects: &[Dialect] = match settings.accent {
-            Accent::Both => &[Dialect::American, Dialect::British],
-            Accent::American => &[Dialect::American],
-            Accent::British => &[Dialect::British],
+        let dialects = shown(settings, voice);
+        let near = match voice {
+            Spoken::Nearest { english, .. } if settings.follow_voice => Some(english),
+            _ => None,
         };
         let mut lines = Vec::new();
         for &dialect in dialects {
@@ -212,7 +325,12 @@ impl Sounds {
             match self.found.get(&key) {
                 Some(Some(phonemes)) => {
                     let mut line = format(phonemes, dialect, settings.notation);
-                    line.tag = if dialects.len() > 1 { tag(dialect) } else { "" };
+                    line.tag = match near {
+                        _ if dialects.len() > 1 => tag(dialect),
+                        Some(_) => near_tag(dialect),
+                        None => "",
+                    };
+                    line.why = near.map(|english| stand_in(english, dialect));
                     lines.push(line);
                 }
                 Some(None) => {}
@@ -304,6 +422,15 @@ impl Sounds {
     }
 }
 
+/// Why `dialect` stands in for the voice's `english`.
+pub fn stand_in(english: &str, dialect: Dialect) -> String {
+    let dialect = named(dialect);
+    format!(
+        "Your voice speaks {english} English. Cards know only American \
+         and British, so this is {dialect}, the nearer."
+    )
+}
+
 /// Whether `word` is English short enough to sound out.
 fn speakable(word: &str) -> bool {
     let fits = |c: char| c.is_ascii_alphabetic() || matches!(c, '\'' | '-' | ' ');
@@ -344,6 +471,7 @@ pub fn format(phonemes: &str, dialect: Dialect, notation: Notation) -> Line {
         tag: "",
         words: words.collect(),
         slashed: notation != Notation::Easy,
+        why: None,
     }
 }
 
@@ -355,7 +483,10 @@ pub fn show(ui: &mut Ui, lines: &[Line], t: &Tokens) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         for line in lines {
-            ui.label(layout(line, t));
+            let label = ui.label(layout(line, t));
+            if let Some(why) = &line.why {
+                crate::widgets::tip(&label, why, None);
+            }
         }
     });
 }
@@ -365,7 +496,13 @@ fn layout(line: &Line, t: &Tokens) -> LayoutJob {
     let plain = TextFormat::simple(FontId::proportional(size), t.ink);
     let strong = TextFormat::simple(theme::medium(size), t.ink);
     let quiet = TextFormat::simple(FontId::proportional(size), t.muted);
-    let tag = TextFormat::simple(theme::medium(t.text_small - 1.0), t.muted);
+    // A stand-in accent's tag is amber, as its settings row warns.
+    let tone = if line.why.is_some() {
+        theme::caution(t)
+    } else {
+        t.muted
+    };
+    let tag = TextFormat::simple(theme::medium(t.text_small - 1.0), tone);
     let mut job = LayoutJob::default();
     if !line.tag.is_empty() {
         job.append(line.tag, 0.0, tag);
@@ -445,10 +582,51 @@ mod tests {
     }
 
     #[test]
+    fn a_voice_s_tag_picks_its_english_or_the_nearest() {
+        use Dialect::{American, British};
+        let tag = |t| spoken(Some(t));
+        assert_eq!(tag("en-US"), Spoken::Exactly(American));
+        assert_eq!(tag("en_GB"), Spoken::Exactly(British));
+        assert_eq!(tag("en-Latn-GB"), Spoken::Exactly(British));
+        assert_eq!(tag("en-GB-scotland"), Spoken::Exactly(British));
+        let au = Spoken::Nearest {
+            dialect: British,
+            english: "Australian",
+        };
+        assert_eq!(tag("en-au"), au);
+        let ca = Spoken::Nearest {
+            dialect: American,
+            english: "Canadian",
+        };
+        assert_eq!(tag("en-CA"), ca);
+        for unsure in ["en", "en-001", "en-XX", "fr-FR", "es"] {
+            assert_eq!(tag(unsure), Spoken::Unsure, "{unsure}");
+        }
+        assert_eq!(spoken(None), Spoken::Unsure);
+    }
+
+    #[test]
+    fn the_voice_decides_unless_told_not_to() {
+        use Dialect::{American, British};
+        let mut s = PronunciationSettings::default();
+        assert_eq!(shown(&s, Spoken::Exactly(British)), [British]);
+        let au = spoken(Some("en-AU"));
+        assert_eq!(shown(&s, au), [British]);
+        assert_eq!(shown(&s, Spoken::Unsure), [American, British]);
+        assert_eq!(accent(&s, Spoken::Exactly(American)), Accent::American);
+        s.follow_voice = false;
+        s.accent = Accent::American;
+        assert_eq!(shown(&s, Spoken::Exactly(British)), [American]);
+        let why = stand_in("Australian", British);
+        assert!(why.contains("Australian English") && why.contains("British"));
+    }
+
+    #[test]
     fn nothing_shows_before_the_pack_is_in() {
         let mut sounds = Sounds::default();
         let shown = PronunciationSettings::default();
-        assert_eq!(sounds.lines("yacht", &shown, 0.0), None);
+        let unsure = (&shown, Spoken::Unsure);
+        assert_eq!(sounds.lines("yacht", unsure, 0.0), None);
         assert!(sounds.wanted.is_empty());
     }
 }

@@ -470,7 +470,8 @@ fn tab_body(
         }
         Tab::Vocabulary => {
             let (study, dictionary) = (&mut s.study, &mut s.dictionary);
-            vocabulary::tab(ui, (study, dictionary), (vocab, voices.sounds), out);
+            let heard = (vocab, voices.sounds, voices.english.as_ref());
+            vocabulary::tab(ui, (study, dictionary), heard, out);
         }
         Tab::Dictionary => dictionary::tab(ui, &mut s.dictionary, dict, out),
         #[cfg(not(target_arch = "wasm32"))]
@@ -1177,6 +1178,17 @@ fn detail_row_tip(
     tip: &str,
     control: impl FnOnce(&mut Ui),
 ) {
+    flagged_row(ui, (title, detail), tip, None, control);
+}
+
+/// A [`detail_row_tip`] whose detail can wear an icon in its colour.
+fn flagged_row(
+    ui: &mut Ui,
+    (title, detail): (&str, &str),
+    tip: &str,
+    flag: Option<(Icon, Color32)>,
+    control: impl FnOnce(&mut Ui),
+) {
     let t = Tokens::get(ui.ctx());
     let size = vec2(ui.available_width(), 52.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -1188,21 +1200,31 @@ fn detail_row_tip(
     let mut right = ui.new_child(builder);
     widgets::labelled(&mut right, name, control);
     let room = (rect.width() - right.min_rect().width() - 16.0).max(40.0);
-    let fit = |text: RichText| {
+    let fit = |text: RichText, room: f32| {
         let wrap = Some(egui::TextWrapMode::Truncate);
         egui::WidgetText::from(text).into_galley(ui, wrap, room, egui::TextStyle::Body)
     };
-    let top = fit(RichText::new(title).size(t.text).color(t.ink));
-    let low = fit(RichText::new(detail).size(t.text_small).color(t.muted));
+    // A flag's icon leads the detail, the text after it.
+    const MARK: f32 = 13.0;
+    let indent = if flag.is_some() { MARK + 5.0 } else { 0.0 };
+    let tone = flag.map_or(t.muted, |(_, c)| c);
+    let top = fit(RichText::new(title).size(t.text).color(t.ink), room);
+    let low = RichText::new(detail).size(t.text_small).color(tone);
+    let low = fit(low, room - indent);
     let gap = 2.0;
     let y = rect.center().y - (top.size().y + gap + low.size().y) / 2.0;
     let at = pos2(rect.left(), y);
     let top_rect = Rect::from_min_size(at, top.size());
-    let low_at = pos2(rect.left(), top_rect.bottom() + gap);
+    let low_at = pos2(rect.left() + indent, top_rect.bottom() + gap);
     let cut = top.elided || low.elided;
+    if let Some((icon, color)) = flag {
+        let mid = pos2(rect.left() + MARK / 2.0, low_at.y + low.size().y / 2.0);
+        let mark = Rect::from_center_size(mid, Vec2::splat(MARK));
+        icon.image(MARK).tint(color).paint_at(ui, mark);
+    }
     let painter = ui.painter();
     painter.galley(at, top, t.ink);
-    painter.galley(low_at, low, t.muted);
+    painter.galley(low_at, low, tone);
     let named = ui.interact(top_rect, name, Sense::hover());
     named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
     let told = match (cut, tip.is_empty()) {

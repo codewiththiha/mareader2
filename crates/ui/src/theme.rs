@@ -60,6 +60,14 @@ pub struct Tokens {
 }
 
 /// An appearance colour as egui's type.
+/// Amber for a heads-up, not an error.
+pub fn caution(t: &Tokens) -> Color32 {
+    match t.dark {
+        true => Color32::from_rgb(0xfb, 0xbf, 0x24),
+        false => Color32::from_rgb(0xb4, 0x53, 0x09),
+    }
+}
+
 pub fn color(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }

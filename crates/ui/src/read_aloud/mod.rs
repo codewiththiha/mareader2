@@ -17,6 +17,7 @@ use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::motion;
 use crate::selection::Pages;
+use crate::sounds::EnglishVoice;
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -777,20 +778,55 @@ impl ReadAloud {
 
     /// The picked voice's language, as `fr`.
     fn own_language(&self, settings: &ReadAloudSettings) -> String {
+        mareader_speech::primary(&self.own_voice(settings).tag)
+    }
+
+    /// The picked voice, its tag in full, as `fr-FR`.
+    fn own_voice(&self, settings: &ReadAloudSettings) -> EnglishVoice {
         let engine = settings.engine.as_str();
         let picked = settings.voice_for(engine);
         let model = mareader_speech::MODELS.iter().find(|m| m.id == engine);
-        let language = match model {
+        let voice = match model {
             Some(m) => picked.and_then(|id| m.voice(id)).or(m.first()),
             None => None,
         };
-        let language = language.map(|v| v.language.to_owned()).or_else(|| {
+        let voice = voice.map(|v| (v.name.to_owned(), v.language.to_owned()));
+        let voice = voice.or_else(|| {
             let id = picked?;
-            let voice = self.listed(engine).find(|v| v.id == id);
-            voice.map(|v| v.language.clone())
+            let v = self.listed(engine).find(|v| v.id == id)?;
+            Some((v.name.clone(), v.language.clone()))
         });
-        let language = language.unwrap_or_else(mareader_speech::home_language);
-        mareader_speech::primary(&language)
+        let (name, tag) = voice.unwrap_or_else(|| {
+            let home = mareader_speech::home_language();
+            ("Your system voice".to_owned(), home)
+        });
+        EnglishVoice { name, tag }
+    }
+
+    /// Who says English words on cards, as [`Self::speakers`] picks.
+    pub fn english_voice(
+        &self,
+        settings: &ReadAloudSettings,
+        others: bool,
+    ) -> Option<EnglishVoice> {
+        let english = |tag: &str| mareader_speech::primary(tag) == "en";
+        let own = self.own_voice(settings);
+        if english(&own.tag) {
+            return Some(own);
+        }
+        if !others {
+            return None;
+        }
+        let engine = settings.engine.as_str();
+        let found = match mareader_speech::MODELS.iter().find(|m| m.id == engine) {
+            Some(m) => (m.voices.iter())
+                .find(|v| english(v.language) && self.shelf.has(m, v.id))
+                .map(|v| (v.name.to_owned(), v.language.to_owned())),
+            None => (self.listed(engine))
+                .find(|v| english(&v.language))
+                .map(|v| (v.name.clone(), v.language.clone())),
+        };
+        found.map(|(name, tag)| EnglishVoice { name, tag })
     }
 
     /// The system's voices, known once one of its booths listed them.

@@ -455,7 +455,18 @@ word sounds under the word.
   "Shared with Kokoro" and has no Remove button, because removing it would
   free nothing. A model downloaded later links the pack's files the same
   way. Removing one side leaves the other's links working.
-- **Accent.** Both (tagged US and UK), American or British.
+- **Match the reading voice** (on by default). Cards write the English
+  of the voice that says English words: the voice picked in Read aloud,
+  or the engine's English voice that stands in for it. An `en-US` voice
+  gives American, `en-GB` British, each untagged. Other Englishes have no
+  lexicon, so the nearer one shows tagged ≈ US or ≈ UK, with a tip saying
+  why: Canadian and Philippine take American; Australian, New Zealand,
+  Irish, South African, Indian and the rest take British. No English
+  voice, or one without a region (plain `en`), shows both. The row's
+  second line names the voice and its English, amber with an alert when
+  the cards show a stand-in.
+- **Accent.** Both (tagged US and UK), American or British; greyed while
+  the voice decides, showing the accent it picked.
 - **Written as.** IPA as dictionaries write it (/jɒt/, /jɑːt/), Easy to
   read (yot, yaat: syllables split with dots, the stressed one in bold),
   or Raw, the phonemes exactly as the voices read them.

@@ -24,6 +24,11 @@ fn kokoro_holds_them(dir: &Path) {
 
 /// The app over `dir`, the Vocabulary tab open.
 fn settings(dir: &Path) -> H {
+    reading_with(dir, "Your_system_voice:en-US")
+}
+
+/// [`settings`], English said by `voice`, as `Karen:en-AU`.
+fn reading_with(dir: &Path, voice: &'static str) -> H {
     let dir = dir.to_owned();
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 1200.0))
@@ -32,6 +37,7 @@ fn settings(dir: &Path) -> H {
         .build_eframe(move |cc| {
             let mut app = MareaderApp::default();
             app.set_option("animations", "false").ok();
+            app.set_option("english_voice", voice).ok();
             app.attach_voice_models_from(&cc.egui_ctx, dir, MODELS);
             app
         });
@@ -59,6 +65,15 @@ fn press(h: &mut H, label: &str) {
     h.run_steps(2);
 }
 
+/// Flips the switch named `label`.
+fn flip(h: &mut H, label: &str) {
+    let switch = egui::accesskit::Role::CheckBox;
+    h.get_by_role_and_label(switch, label).scroll_to_me();
+    h.run_steps(10);
+    h.get_by_role_and_label(switch, label).click();
+    h.run_steps(2);
+}
+
 #[test]
 fn a_voice_model_holding_the_files_makes_the_pack_downloaded() {
     let dir = tempfile::tempdir().unwrap();
@@ -80,11 +95,30 @@ fn a_voice_model_holding_the_files_makes_the_pack_downloaded() {
     }
     let switch = egui::accesskit::Role::CheckBox;
     let _ = h.get_by_role_and_label(switch, "Show on word cards");
+    flip(&mut h, "Match the reading voice");
     press(&mut h, "British");
     press(&mut h, "Easy to read");
     let p = h.state().settings().study.pronunciation;
     assert_eq!((p.accent, p.notation), (Accent::British, Notation::Easy));
     assert!(p.shown);
+}
+
+#[test]
+fn the_reading_voice_picks_the_accent_until_told_not_to() {
+    let dir = tempfile::tempdir().unwrap();
+    kokoro_holds_them(dir.path());
+    let mut h = reading_with(dir.path(), "Karen:en-AU");
+    until(&mut h, "Shared with Kokoro");
+    // Greyed while the voice decides: a press changes nothing.
+    press(&mut h, "Both");
+    let p = h.state().settings().study.pronunciation;
+    assert!(p.follow_voice);
+    assert_eq!(p.accent, Accent::Both);
+    flip(&mut h, "Match the reading voice");
+    press(&mut h, "American");
+    let p = h.state().settings().study.pronunciation;
+    assert!(!p.follow_voice);
+    assert_eq!(p.accent, Accent::American);
 }
 
 #[test]

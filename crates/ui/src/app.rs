@@ -114,6 +114,8 @@ pub struct MareaderApp {
     vocab: crate::vocab::Vocab,
     /// How card words sound; shares files with the voice models.
     sounds: crate::sounds::Sounds,
+    /// A stand-in English voice, for shots and tests.
+    english: Option<crate::sounds::EnglishVoice>,
     /// A selection the options asked for, made once its page is laid out.
     staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
@@ -227,6 +229,7 @@ impl MareaderApp {
             dict: crate::dict::Dict::default(),
             vocab: crate::vocab::Vocab::default(),
             sounds: crate::sounds::Sounds::default(),
+            english: None,
             staged: Default::default(),
             lights: NativeLights::default(),
             light_spots: None,
@@ -765,6 +768,11 @@ impl MareaderApp {
         format!("{}; {pane}", self.scripts.describe())
     }
 
+    /// The pronunciation pack, for tests and shots.
+    pub fn sounds(&self) -> &crate::sounds::Sounds {
+        &self.sounds
+    }
+
     /// The word levels: the dataset and the shaded words.
     pub fn vocab(&self) -> &crate::vocab::Vocab {
         &self.vocab
@@ -899,6 +907,12 @@ impl MareaderApp {
             }
             "toast" => self.toasts.push(shot_toast(value)),
             "toasts" => self.toasts.set_open(value == "open"),
+            // The English voice, as if picked: `english_voice=Karen:en-AU`.
+            "english_voice" => {
+                let (name, tag) = value.split_once(':').ok_or("english_voice=name:tag")?;
+                let (name, tag) = (name.replace('_', " "), tag.to_owned());
+                self.english = Some(crate::sounds::EnglishVoice { name, tag });
+            }
             "pinned" => {
                 let on = value == "true";
                 self.settings.chrome.titlebar_pinned = on;
@@ -1784,12 +1798,21 @@ impl MareaderApp {
         self.dict.show(ctx, (&self.pane_rects, heard), offset, out);
     }
 
+    /// Who says English words on cards, which picks the accent they show.
+    fn english_voice(&self) -> Option<crate::sounds::EnglishVoice> {
+        let others = self.settings.dictionary.other_voices;
+        let picked = || (self.read_aloud).english_voice(&self.settings.read_aloud, others);
+        self.english.clone().or_else(picked)
+    }
+
     /// How the open cards' words sound, as the settings write them.
     fn card_sounds(&mut self, now: f64) -> Vec<(String, Vec<crate::sounds::Line>)> {
         let words = [self.study.card_word(), self.dict.card_word()];
         let mut words: Vec<String> = words.into_iter().flatten().map(str::to_owned).collect();
         words.extend(self.dict.sound_words());
-        let shown = &self.settings.study.pronunciation;
+        let english = self.english_voice();
+        let voice = crate::sounds::spoken(english.as_ref().map(|v| v.tag.as_str()));
+        let shown = (&self.settings.study.pronunciation, voice);
         let sounds = &mut self.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));
         words.into_iter().filter_map(lines).collect()
@@ -3770,6 +3793,7 @@ impl eframe::App for MareaderApp {
             shelf: &self.read_aloud.shelf,
             platform: self.platform,
             sounds: &self.sounds,
+            english: self.english_voice(),
         };
         self.settings_window.show(
             &ctx,

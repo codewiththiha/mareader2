@@ -23,6 +23,8 @@ pub struct Voices<'a> {
     pub platform: Platform,
     /// The pronunciation pack, which shares the models' files.
     pub sounds: &'a crate::sounds::Sounds,
+    /// Who says English words on cards, picking their accent.
+    pub english: Option<crate::sounds::EnglishVoice>,
 }
 
 const VOICE_H: f32 = 34.0;
