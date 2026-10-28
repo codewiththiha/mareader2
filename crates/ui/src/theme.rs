@@ -11,6 +11,8 @@ pub const TITLE_BAR_H: f32 = 48.0;
 /// Named families; only usable from the frame after [`install_fonts`].
 pub const MEDIUM: &str = "inter-medium";
 pub const SEMIBOLD: &str = "inter-semibold";
+/// Literata, the reading face: drawn covers set their initial in it.
+pub const SERIF: &str = "literata";
 
 /// The glass wash's alpha; more hid the blurred pages under the bars.
 const FROST: u8 = 150;
@@ -164,6 +166,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         ("inter-regular", regular),
         (MEDIUM, medium),
         (SEMIBOLD, semibold),
+        (SERIF, mareader_reflow::literata()),
     ];
     for (name, bytes) in faces {
         fonts.font_data.insert(
@@ -181,7 +184,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         .entry(FontFamily::Proportional)
         .or_default()
         .insert(0, "inter-regular".into());
-    for name in [MEDIUM, SEMIBOLD] {
+    for name in [MEDIUM, SEMIBOLD, SERIF] {
         let mut chain = vec![name.to_owned()];
         chain.extend(fallback.iter().cloned());
         fonts.families.insert(FontFamily::Name(name.into()), chain);
@@ -201,6 +204,10 @@ pub fn ink_on(fill: Color32) -> Color32 {
 
 pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(MEDIUM.into()))
+}
+
+pub fn serif(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(SERIF.into()))
 }
 
 fn radius(r: f32) -> CornerRadius {

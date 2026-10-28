@@ -3,9 +3,8 @@
 use egui::epaint::Shadow;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
-    Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, Id, Key, KeyboardShortcut,
-    LayerId, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui,
-    pos2, vec2,
+    Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, Id, Key, KeyboardShortcut, LayerId,
+    Modifiers, Order, Painter, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, pos2, vec2,
 };
 use std::collections::BTreeSet;
 
@@ -15,7 +14,7 @@ use mareader_library::{
 };
 
 use super::add::{self, Here};
-use super::covers::{self, Cover, Covers};
+use super::covers::Covers;
 use super::folders;
 use super::living::{Grab, Motion};
 use super::menus;
@@ -27,9 +26,15 @@ use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 
+mod face;
 mod grid;
+mod held;
 pub(super) mod links;
 mod tree;
+
+use face::paper;
+use held::Held;
+pub(crate) use held::{DOTS_W, dots};
 const ROW_H: f32 = 60.0;
 /// How far a list row's content sits in from its edges.
 const ROW_INSET: f32 = 12.0;
@@ -48,8 +53,8 @@ const A4: f32 = 297.0 / 210.0;
 const SHAPES: std::ops::RangeInclusive<f32> = 0.55..=1.8;
 /// How long a still press takes to pick a card, as on a phone.
 const LONG_PRESS: f64 = 0.45;
-/// Title, detail and progress under a card's cover.
-const CARD_TEXT: f32 = 54.0;
+/// Title and detail under a card's cover; progress sits on the cover.
+const CARD_TEXT: f32 = 44.0;
 /// How many shelves deep a plate nests before it shows a mark.
 const PLATE_DEPTH: usize = 2;
 
@@ -90,7 +95,13 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let offline = library.offline().clone();
     // Books the AI is organizing open as usual but don't move.
     let held = library.organizer().held().clone();
+    let plan = library.organizer().review().cloned();
     let busy = library.organizer().busy();
+    // One last pass of light over the held covers as the plan lands.
+    let landed = Id::new("library-plan-landed");
+    let settle = ui
+        .ctx()
+        .animate_bool_with_time(landed, plan.is_some(), 0.55);
     let paused = library
         .organizer()
         .paused()
@@ -192,7 +203,11 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         model,
         covers,
         offline: &offline,
-        held: &held,
+        held: Held {
+            books: &held,
+            plan: plan.as_ref(),
+            settle,
+        },
         fit: view.cover,
         at,
         level: at,
@@ -212,6 +227,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         t: &t,
         out,
     };
+    if cx.held.working() && motion::enabled(ui.ctx()) {
+        ui.ctx().request_repaint();
+    }
     // Rows are spaced by their own height; egui's gap would add to it.
     ui.spacing_mut().item_spacing.y = 0.0;
     match view.layout {
@@ -266,7 +284,7 @@ struct Cx<'a> {
     /// Folders whose drive wasn't there at the last look.
     offline: &'a BTreeSet<FolderId>,
     /// Books the AI is organizing: they open, but never lift.
-    held: &'a BTreeSet<BookId>,
+    held: Held<'a>,
     fit: CoverFit,
     /// The shelf open on the page; dragged books leave it.
     at: Option<ShelfId>,
@@ -575,17 +593,6 @@ fn shelf_hit(
     (resp, target)
 }
 
-/// A book the AI is organizing: a sparkle on its cover, and why.
-fn held_badge(ui: &Ui, resp: &egui::Response, centre: Pos2, r: f32, t: &Tokens) {
-    let p = ui.painter();
-    p.circle(centre, r, t.accent, Stroke::new(1.5, t.surface));
-    let glyph = Rect::from_center_size(centre, vec2(r * 1.2, r * 1.2));
-    Icon::Ai.paint(ui, glyph, Color32::WHITE);
-    let why = "The AI is organizing this book. It opens as usual, \
-               and moves once you've seen the plan.";
-    resp.clone().on_hover_text(why);
-}
-
 /// The focus ring follows a card's padded backing, not its cover.
 fn card_ring(resp: &egui::Response, t: &Tokens) {
     let ring = crate::focus::Ring {
@@ -737,7 +744,9 @@ fn plate(ui: &Ui, bounds: Rect, id: ShelfId, depth: usize, cx: &mut Cx<'_>) {
         let min = bounds.min + vec2(pad + col * (cell.x + pad), pad + row * (cell.y + pad));
         let at = Rect::from_min_size(min, cell);
         match items.get(n) {
-            Some(Item::Book(book)) => cover(ui, at, book, cx, 1.0, true),
+            Some(Item::Book(book)) => {
+                cover(ui, at, book, cx, 1.0, true);
+            }
             Some(Item::Link(link)) => links::face(ui, at, link, t),
             Some(Item::Shelf(inner)) if depth < PLATE_DEPTH => {
                 plate(ui, at, inner.id, depth + 1, cx)
@@ -777,24 +786,34 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
     let fade = if missing { 0.5 } else { 1.0 };
     let picked = cx.picks.contains(Pick::Book(book.id));
     let pad = rect.expand2(vec2(8.0, 8.0));
-    backing(ui, pad, t.radius_lg, (resp.hovered(), picked, false), t);
+    // Hovered, the cover itself lifts; picks and targets keep a ground.
+    backing(ui, pad, t.radius_lg, (false, picked, false), t);
     lit_ring(ui, pad, t.radius_lg, Pick::Book(book.id), cx);
     card_ring(&resp, t);
     let bounds = Rect::from_min_size(rect.min, vec2(rect.width(), rect.width() * A4));
     let stack = stacked(ui, bounds, book.id, cx);
-    cover(
-        ui,
-        bounds.shrink(bounds.width() * 0.12 * stack),
-        book,
-        cx,
+    let hovered = resp.hovered() && !resp.dragged();
+    let lift = ui
+        .ctx()
+        .animate_bool_with_time(ui.id().with(("lift", book.id)), hovered, 0.12);
+    let look = face::Look {
+        fit: Some(cx.fit),
         fade,
-        false,
-    );
+        lift,
+    };
+    let shown = bounds
+        .shrink(bounds.width() * 0.12 * stack)
+        .translate(vec2(0.0, -3.0 * lift));
+    let face_at = face::paint(ui, shown, book, (cx.covers, t), look);
+    let done = cx.model.position(book.id).and_then(|p| p.fraction());
+    // An unopened book shows no bar; its caption says so.
+    if let Some(done) = done.filter(|d| *d > 0.0) {
+        face::progress(ui.painter(), face_at, done, t, fade);
+    }
+    held::cover(ui, face_at, face::corners(false, t), book.id, cx);
+    held::tip(&resp, book.id, cx);
     if cx.picks.active() {
         menus::mark(ui, bounds.min + vec2(16.0, 16.0), picked, t);
-    }
-    if cx.held.contains(&book.id) {
-        held_badge(ui, &resp, bounds.right_bottom() - vec2(16.0, 16.0), 11.0, t);
     }
     let p = ui.painter();
     if missing {
@@ -824,23 +843,18 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         (rect.left(), y),
         width,
     );
-    let detail = card_detail(cx.model, book);
-    let small = FontId::proportional(12.0);
-    y += line(
-        p,
-        &detail,
-        small,
-        faded(t.muted, fade),
-        (rect.left(), y + 1.0),
-        width,
-    );
-    let done = cx.model.position(book.id).and_then(|p| p.fraction());
-    // An unopened book shows no empty track; its caption says so.
-    if let Some(done) = done.filter(|d| *d > 0.0) {
-        let track = Rect::from_min_size(pos2(rect.left(), y + 7.0), vec2(width, 3.0));
-        p.rect_filled(track, 1.5, faded(t.line, fade));
-        let read = Rect::from_min_size(track.min, vec2(width * done, 3.0));
-        p.rect_filled(read, 1.5, faded(t.accent, fade));
+    let below = pos2(rect.left(), y + 1.0);
+    if held::caption(ui, book.id, below, width, cx).is_none() {
+        let detail = card_detail(cx.model, book);
+        let small = FontId::proportional(12.0);
+        line(
+            p,
+            &detail,
+            small,
+            faded(t.muted, fade),
+            (below.x, below.y),
+            width,
+        );
     }
 }
 
@@ -885,12 +899,11 @@ fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
         pos2(rect.left() + ROW_INSET + indent + 17.0, rect.center().y),
         vec2(34.0, 34.0 * A4),
     );
-    cover(ui, thumb, book, cx, fade, true);
+    let thumb = cover(ui, thumb, book, cx, fade, true);
+    held::thumb(ui, thumb, book.id, cx);
+    held::tip(&resp, book.id, cx);
     if cx.picks.active() {
         menus::mark(ui, thumb.center(), picked, t);
-    }
-    if cx.held.contains(&book.id) {
-        held_badge(ui, &resp, thumb.right_bottom() + vec2(-2.0, -2.0), 8.0, t);
     }
     let p = ui.painter();
     // Books found in a folder may never have been opened.
@@ -925,12 +938,11 @@ fn list_row(ui: &mut Ui, book: &Book, indent: f32, cx: &mut Cx<'_>) {
         }
     }
     let offline = folders::offline(book, cx.offline);
-    let detail = format!(
-        "{} · {}",
-        book.format.label(),
-        detail(cx.model, book, offline)
-    );
-    let muted = faded(t.muted, fade);
+    let (said, muted) = match held::said(book.id, cx) {
+        Some((said, color)) => (said, faded(color, fade)),
+        None => (detail(cx.model, book, offline), faded(t.muted, fade)),
+    };
+    let detail = format!("{} · {said}", book.format.label());
     let g = job(&detail, FontId::proportional(12.0), muted);
     p.galley(
         pos2(x, center(rect.center().y + 10.0, g.size().y)),
@@ -962,126 +974,24 @@ fn faded(c: Color32, fade: f32) -> Color32 {
     c.gamma_multiply(fade)
 }
 
-fn cover(ui: &Ui, bounds: Rect, book: &Book, cx: &mut Cx<'_>, fade: f32, small: bool) {
-    let fit = (!small).then_some(cx.fit);
-    paint_cover(ui, bounds, book, (cx.covers, cx.t), fit, fade);
+/// A cover in `bounds`; returns where its face lies.
+fn cover(ui: &Ui, bounds: Rect, book: &Book, cx: &mut Cx<'_>, fade: f32, small: bool) -> Rect {
+    let look = face::Look {
+        fit: (!small).then_some(cx.fit),
+        fade,
+        lift: 0.0,
+    };
+    face::paint(ui, bounds, book, (cx.covers, cx.t), look)
 }
 
 /// A small cover, as a suggestion shows it.
 pub(super) fn thumb(ui: &Ui, bounds: Rect, book: &Book, covers: &mut Covers, t: &Tokens) {
-    paint_cover(ui, bounds, book, (covers, t), None, 1.0);
-}
-
-/// Art if read, else a placeholder or a drawn cover; no fit is a thumb.
-fn paint_cover(
-    ui: &Ui,
-    bounds: Rect,
-    book: &Book,
-    (covers, t): (&mut Covers, &Tokens),
-    fit: Option<CoverFit>,
-    fade: f32,
-) {
-    let small = fit.is_none();
-    let radius = if small { 3.0 } else { t.radius.min(6.0) };
-    let p = ui.painter();
-    match covers.get(ui.ctx(), book, motion::enabled(ui.ctx())) {
-        Cover::Art { texture, alpha } => {
-            let shape = texture.size.y / texture.size.x;
-            let size = vec2(1.0, shape.clamp(*SHAPES.start(), *SHAPES.end()));
-            let rect = match fit {
-                Some(CoverFit::Fit) => covers::fit(bounds, size),
-                _ => bounds,
-            };
-            if alpha < 1.0 {
-                p.rect_filled(rect, radius, faded(t.hover, fade));
-            }
-            let shadow = Shadow {
-                offset: [0, 2],
-                blur: if small { 3 } else { 10 },
-                spread: 0,
-                color: faded(t.shadow, fade * alpha),
-            };
-            p.add(shadow.as_shape(rect, CornerRadius::from(radius)));
-            egui::Image::from_texture(texture)
-                .uv(covers::crop(rect, texture.size))
-                .corner_radius(radius)
-                .tint(Color32::WHITE.gamma_multiply(fade * alpha))
-                .paint_at(ui, rect);
-            let edge = Stroke::new(1.0, faded(t.line, 0.6 * fade * alpha));
-            p.rect_stroke(rect, radius, edge, StrokeKind::Inside);
-        }
-        Cover::Waiting => {
-            p.rect_filled(bounds, radius, faded(t.hover, fade));
-        }
-        Cover::Drawn => drawn(p, bounds, book, t, fade, small),
-    }
-}
-
-/// A steady hue per book, softened toward the theme's surface.
-fn paper(book: &Book, t: &Tokens) -> Color32 {
-    let mixed = book
-        .content
-        .0
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15_F39C_C060_5CED_C835);
-    let hue = ((mixed >> 96) % 360) as f32 / 360.0;
-    let (s, v) = if t.dark { (0.35, 0.36) } else { (0.24, 0.9) };
-    let tone = Color32::from(egui::ecolor::Hsva::new(hue, s, v, 1.0));
-    tone.lerp_to_gamma(t.surface, 0.3)
-}
-
-/// A cover for a book without art: a tinted card with its initial.
-fn drawn(p: &Painter, rect: Rect, book: &Book, t: &Tokens, fade: f32, small: bool) {
-    let radius = if small { 3.0 } else { t.radius.min(6.0) };
-    let paper = paper(book, t);
-    p.rect_filled(rect, radius, faded(paper, fade));
-    let spine = Rect::from_min_size(rect.min, vec2(rect.width() * 0.06, rect.height()));
-    let corners = CornerRadius {
-        nw: radius as u8,
-        sw: radius as u8,
-        ne: 0,
-        se: 0,
+    let look = face::Look {
+        fit: None,
+        fade: 1.0,
+        lift: 0.0,
     };
-    p.rect_filled(spine, corners, faded(t.ink, 0.08 * fade));
-    p.rect_stroke(
-        rect,
-        radius,
-        Stroke::new(1.0, faded(t.line, fade)),
-        StrokeKind::Inside,
-    );
-    // The caption under the card names the book, so the cover doesn't.
-    let initial = book
-        .title
-        .value
-        .chars()
-        .find(|c| c.is_alphanumeric())
-        .map(|c| c.to_uppercase().collect::<String>())
-        .unwrap_or_default();
-    // Over every hue in every look: 3:1 for the initial, 4.5:1 for the label.
-    let ink = faded(t.ink, 0.8 * fade);
-    let middle = pos2(spine.right() + (rect.right() - spine.right()) / 2.0, 0.0);
-    if small {
-        let size = rect.width() * 0.5;
-        let at = pos2(middle.x, rect.center().y);
-        p.text(at, Align2::CENTER_CENTER, initial, theme::medium(size), ink);
-        return;
-    }
-    let size = (rect.width() * 0.42).clamp(16.0, 96.0);
-    let at = pos2(middle.x, rect.top() + rect.height() * 0.42);
-    let glyph = p.text(at, Align2::CENTER_CENTER, initial, theme::medium(size), ink);
-    let rule_w = (rect.width() * 0.16).max(12.0);
-    let rule = Rect::from_center_size(
-        pos2(middle.x, glyph.bottom() + size * 0.22),
-        vec2(rule_w, 2.0),
-    );
-    p.rect_filled(rule, 1.0, faded(t.accent, fade));
-    let pad = rect.width() * 0.1;
-    p.text(
-        pos2(middle.x, rect.bottom() - pad),
-        Align2::CENTER_BOTTOM,
-        book.format.label(),
-        theme::medium((rect.width() / 16.0).clamp(9.0, 13.0)),
-        faded(t.ink, 0.9 * fade),
-    );
+    face::paint(ui, bounds, book, (covers, t), look);
 }
 
 /// Under a card's title: the author, else how far through.

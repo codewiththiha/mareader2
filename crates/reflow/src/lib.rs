@@ -33,7 +33,7 @@ pub use flow::{
 };
 pub use fonts::{
     BOOK_FACE, BookFace, FACES, Face, Faces, Family, Fonts, Kind, MONO, SANS, SERIF, has_family,
-    inter,
+    inter, literata,
 };
 pub use label::{Fallback, Lines, fallbacks, label, label_lines, measure_lines};
 pub use meter::{Held, held};

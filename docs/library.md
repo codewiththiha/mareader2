@@ -278,8 +278,8 @@ What the first slice built, and where it stops short of the model above.
   `$XDG_CACHE_HOME` or `~/.cache`, `%LOCALAPPDATA%`), and tests have none.
   Four textures upload per frame within a 64 MiB budget, least recently
   shown dropped first; each fades in unless Animations are off. A book
-  without art gets a drawn cover: a steady per-book tint, title, author
-  and format.
+  without art gets a drawn cover: a cloth binding in a steady per-book
+  tone, its initial and format (`docs/design.md`, Book covers).
 - **Title bar.** The library keeps its own pin (on by default), set from
   the bar's Pin alone, as mareader's.
 - **Not yet.** Manual order arrives with shelves. A cover that failed is
@@ -895,8 +895,10 @@ The AI can shelve loose books. How it plans is in `docs/assist.md`,
 - **Which shelves.** Every shelf goes to the model, folder shelves too, so
   the plan may file onto any of them. Shelves are never locked.
 - **While it runs.** A corner card shows a ring, "Planning shelves…" or
-  "Filing books…", the count and the model, with ✕ to stop. The books get
-  a sparkle badge; they open as usual, but they don't move. A drag won't
+  "Filing books…", the count and the model, with ✕ to stop. A pass of
+  light crosses the books' covers and their captions read "Finding a
+  shelf" (`docs/design.md`, Book covers); they open as usual, but they
+  don't move. A drag won't
   lift them, a selection carries the others, and a menu move leaves them
   with a toast. One run at a time.
 - **The plan.** A sheet shows the tree: existing shelves by their path,
@@ -990,8 +992,8 @@ there's no need to leave the book.
   here". Resting on a closed shelf opens it after 0.6 seconds, and
   holding near the tree's top or bottom edge scrolls it. A shelf never
   goes inside itself or its own shelves. Missing books aren't carried.
-- **Books the AI is organizing** show a small sparkle. They open as
-  usual but stay put, so moving one says why.
+- **Books the AI is organizing** show breathing dots, as their cards'
+  captions do. They open as usual but stay put, so moving one says why.
 - **The AI mark (2026-10-22)** replaces that sparkle, and the one on the
   selection bar's Organize button (`docs/design.md`, Icons).
 - **At the pane limit.** With 4 panes open the tree is still grabbable

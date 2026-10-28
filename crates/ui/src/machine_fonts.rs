@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
 use egui::{Context, FontData, FontFamily, FontId, LayerId, Shape};
 
-use crate::theme::{MEDIUM, SEMIBOLD};
+use crate::theme::{MEDIUM, SEMIBOLD, SERIF};
 
 /// Texts remembered as checked before the memory starts over.
 const SEEN: usize = 20_000;
@@ -144,6 +144,7 @@ fn families() -> Vec<InsertFontFamily> {
         FontFamily::Monospace,
         FontFamily::Name(MEDIUM.into()),
         FontFamily::Name(SEMIBOLD.into()),
+        FontFamily::Name(SERIF.into()),
     ]
     .into_iter()
     .map(|family| InsertFontFamily {

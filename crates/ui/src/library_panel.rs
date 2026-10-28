@@ -973,11 +973,12 @@ fn book_row(
     let badge = badge_rect(ui, row, format.label(), t, fade);
     let dot = look.open && !look.active;
     let mut room = badge.left() - x - if dot { 14.0 } else { 6.0 };
+    // The AI is finding it a shelf: the cards' breathing dots.
     if look.held {
-        let at =
-            Rect::from_center_size(pos2(badge.left() - 10.0, row.center().y), vec2(12.0, 12.0));
-        Icon::Ai.paint(ui, at, t.accent);
-        room -= 16.0;
+        let w = crate::library::view::DOTS_W;
+        let at = pos2(badge.left() - w - 4.0, row.center().y);
+        crate::library::view::dots(ui, at, t.accent);
+        room -= w + 8.0;
     }
     let (font, colour) = match (look.active, look.open || resp.hovered()) {
         (true, _) => (theme::medium(13.0), t.ink),

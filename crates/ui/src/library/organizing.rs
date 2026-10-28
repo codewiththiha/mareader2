@@ -80,6 +80,30 @@ pub struct Proposal {
 }
 
 /// What applying a plan did, for its Undo.
+/// Where a plan puts one book.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Bound {
+    /// Filed on the shelf of this name, new or standing.
+    Shelf(String),
+    /// Left where it is.
+    Stays,
+}
+
+impl Proposal {
+    /// Where this plan puts `book`, if the plan names it.
+    pub fn bound(&self, model: &Library, book: BookId) -> Option<Bound> {
+        if self.left.contains(&book) {
+            return Some(Bound::Stays);
+        }
+        let (_, spot) = self.placed.iter().find(|(b, _)| *b == book)?;
+        let name = match *spot {
+            Spot::Shelf(id) => model.shelf(id)?.name.value.clone(),
+            Spot::New(i) => self.shelves.get(i)?.0.clone(),
+        };
+        Some(Bound::Shelf(name))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Applied {
     pub filed: Vec<(BookId, ShelfId)>,
@@ -657,6 +681,30 @@ mod tests {
         assert!(state.model.shelves_of(b).is_empty());
         // Only the standing shelf is left.
         assert_eq!(state.model.shelves().count(), 1);
+    }
+
+    #[test]
+    fn a_plan_names_each_book_s_shelf_for_its_card() {
+        let mut state = library(3);
+        let all = ids(&state);
+        let [a, b, c] = all.as_slice() else {
+            panic!("three books")
+        };
+        let Ok(old) = state.model.create_shelf("Fiction", None, 1) else {
+            panic!("shelf")
+        };
+        let plan = Proposal {
+            shelves: vec![("Poems".into(), None)],
+            placed: vec![(*a, Spot::New(0)), (*b, Spot::Shelf(old))],
+            left: vec![*c],
+        };
+        let shelf = |name: &str| Some(Bound::Shelf(name.into()));
+        assert_eq!(plan.bound(&state.model, *a), shelf("Poems"));
+        assert_eq!(plan.bound(&state.model, *b), shelf("Fiction"));
+        assert_eq!(plan.bound(&state.model, *c), Some(Bound::Stays));
+        let other = state.model.books().map(|x| x.id).find(|x| !all.contains(x));
+        let other = other.unwrap_or_else(|| panic!("the book read in place"));
+        assert_eq!(plan.bound(&state.model, other), None);
     }
 
     #[test]

@@ -461,6 +461,36 @@ and returns where it came from; Library sits beside it.
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.
 
+## Book covers (2026-10-28)
+
+A cover should look like a well-made book: quiet, still, never a sticker.
+
+- **Finish.** Every cover gets a tight contact shadow under a soft one,
+  a hairline edge (dark on light looks, light on dark), and a hinge: a
+  groove pressed in near the spine, lit on its far side. Corners are
+  tight at the spine and softer at the fore-edge.
+- **Cloth covers.** A book without art is bound in one of ten deep
+  tones (navy, forest, oxblood, ochre, slate, plum, teal, olive, rust,
+  indigo), lit from above. Its initial is set in Literata in a gilt
+  frame, with a short rule and its format spaced at the foot. Gilt type
+  reads at 4.5:1 or better on every tone (a unit test checks it). Dark
+  looks deepen the tones.
+- **Hover.** The cover lifts 3 points and its shadow lengthens; there's
+  no grey box. Picks and drop targets keep their ground and ring.
+- **Progress.** A slim bar, 3 points high (4 on wide cards), set into
+  the cover's foot on a dark track, so it reads on any art. An unopened
+  book has none. The card loses its progress row: 44 points of text.
+- **Organizing.** No badge. While a run works, a soft band of accent-
+  tinted light crosses each held cover every 2.6 seconds, card after
+  card in reading order, and the caption reads "Finding a shelf" with
+  three dots that breathe in turn. The rail's tree shows the same dots.
+  When the plan lands, one last pass crosses every held cover at once,
+  and each caption names the shelf the plan files it on, or "Stays
+  where it is". With Animations off, nothing moves and the words stay.
+
+Code: `crates/ui/src/library/view/face.rs` (the finish, cloth, the bar
+and the band) and `view/held.rs` (the pass, captions and tips).
+
 ## Icons
 
 Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
@@ -506,3 +536,4 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 | 2026-10-13 | How the theme works: shape tokens, one apply, instant restyle, live token file |
 | 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |
 | 2026-10-18 | Lifting a pane to move or swap it |
+| 2026-10-28 | Book covers: bound finish, cloth covers, progress on the cover, organizing without a badge |

@@ -31,6 +31,12 @@ pub fn inter() -> [&'static [u8]; 3] {
     [regular, medium, semibold]
 }
 
+/// Literata upright, for book-like type in the interface.
+pub fn literata() -> &'static [u8] {
+    let [upright, ..] = BUNDLED;
+    upright
+}
+
 /// Which generic family a face stands in for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
