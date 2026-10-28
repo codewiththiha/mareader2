@@ -477,9 +477,13 @@ A cover should look like a well-made book: quiet, still, never a sticker.
   looks deepen the tones.
 - **Hover.** The cover lifts 3 points and its shadow lengthens; there's
   no grey box. Picks and drop targets keep their ground and ring.
-- **Progress.** A slim bar, 3 points high (4 on wide cards), set into
-  the cover's foot on a dark track, so it reads on any art. An unopened
-  book has none. The card loses its progress row: 44 points of text.
+- **Progress.** A silk bookmark in the accent, tucked under the cover's
+  top edge near its fore-edge, says how far as "89%" (at least 1%). It
+  has a swallowtail end, a sheen down its middle, a soft shadow, and
+  grows to fit "100%". An unopened book has none, and a missing one
+  wears its Missing pill there instead. The card loses its progress
+  row: 44 points of text. (A bar in the cover's foot came first, and
+  looked like a scrubber, not a book.)
 - **Organizing.** No badge. While a run works, a soft band of accent-
   tinted light crosses each held cover every 2.6 seconds, card after
   card in reading order, and the caption reads "Finding a shelf" with
@@ -488,7 +492,7 @@ A cover should look like a well-made book: quiet, still, never a sticker.
   and each caption names the shelf the plan files it on, or "Stays
   where it is". With Animations off, nothing moves and the words stay.
 
-Code: `crates/ui/src/library/view/face.rs` (the finish, cloth, the bar
+Code: `crates/ui/src/library/view/face.rs` (the finish, cloth, the ribbon
 and the band) and `view/held.rs` (the pass, captions and tips).
 
 ## Icons

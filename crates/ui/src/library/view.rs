@@ -53,7 +53,7 @@ const A4: f32 = 297.0 / 210.0;
 const SHAPES: std::ops::RangeInclusive<f32> = 0.55..=1.8;
 /// How long a still press takes to pick a card, as on a phone.
 const LONG_PRESS: f64 = 0.45;
-/// Title and detail under a card's cover; progress sits on the cover.
+/// Title and detail under a card's cover; progress is its bookmark.
 const CARD_TEXT: f32 = 44.0;
 /// How many shelves deep a plate nests before it shows a mark.
 const PLATE_DEPTH: usize = 2;
@@ -806,9 +806,9 @@ fn grid_card(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) {
         .translate(vec2(0.0, -3.0 * lift));
     let face_at = face::paint(ui, shown, book, (cx.covers, t), look);
     let done = cx.model.position(book.id).and_then(|p| p.fraction());
-    // An unopened book shows no bar; its caption says so.
-    if let Some(done) = done.filter(|d| *d > 0.0) {
-        face::progress(ui.painter(), face_at, done, t, fade);
+    // An unopened book has no bookmark; a missing one wears its pill there.
+    if let Some(done) = done.filter(|d| *d > 0.0 && !missing) {
+        face::ribbon(ui.painter(), face_at, done, t, fade);
     }
     held::cover(ui, face_at, face::corners(false, t), book.id, cx);
     held::tip(&resp, book.id, cx);
