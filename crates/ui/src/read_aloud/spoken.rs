@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::Context;
 use mareader_session::{Anchor, DocId, Document, TextLayer};
-use mareader_settings::{Highlight, ReadAloudSettings};
+use mareader_settings::{Highlight, Pass, ReadAloudSettings};
 use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
@@ -99,6 +99,14 @@ pub(super) struct Spoken {
     homing: bool,
     /// The table being skipped: its sentences are passed unsaid.
     leaving: Option<usize>,
+    /// What reading does on reaching a table.
+    tables: Pass,
+    /// The table chosen to be read: it is not asked about again.
+    cleared: Option<usize>,
+    /// The table asked about, held at its start for an answer.
+    asking: Option<usize>,
+    /// Read afresh: a table it starts in is read unasked.
+    entered: bool,
 }
 
 impl Spoken {
@@ -146,6 +154,10 @@ impl Spoken {
             jump: None,
             homing: false,
             leaving: None,
+            tables: settings.skips.tables.pass(),
+            cleared: None,
+            asking: None,
+            entered: true,
         };
         spoken.open(settings, shelf);
         spoken.read_from(start);
@@ -224,6 +236,11 @@ impl Spoken {
         self.current = None;
         self.began = None;
         self.leaving = None;
+        self.cleared = None;
+        self.entered = true;
+        if self.asking.take().is_some() {
+            self.paused = false;
+        }
         // No voice, nothing worth reading for.
         let until = self.chosen.map(|(_, until)| until);
         self.feed = self.voicer.as_ref().map(|_| {
@@ -237,6 +254,13 @@ impl Spoken {
     /// Takes up changed settings; a changed voice says the sentence again.
     fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
         self.highlight = (settings.highlight, settings.highlight_words);
+        self.tables = settings.skips.tables.pass();
+        // Asked no more, the question answers itself.
+        match self.tables {
+            Pass::Read if self.asking.is_some() => self.answer(true),
+            Pass::Skip if self.asking.is_some() => self.answer(false),
+            _ => {}
+        }
         let build = mareader_speech::build_of(&settings.engine, settings.build(), shelf);
         if settings.engine != self.engine || build != self.build {
             let at = self.place();
@@ -318,15 +342,54 @@ impl Spoken {
     /// The next sentence; none while the thread reads, the end once done.
     fn next(&mut self) -> Option<Said> {
         while let Some(said) = self.ahead.pop_front().or_else(|| self.pull()) {
-            match self.leaving {
-                Some(table) if said.table == Some(table) => self.keep(said),
-                _ => {
-                    self.leaving = None;
-                    return Some(said);
+            if self.leaving.is_some() && said.table == self.leaving {
+                self.keep(said);
+                continue;
+            }
+            self.leaving = None;
+            let entered = std::mem::take(&mut self.entered);
+            let Some(table) = said.table else {
+                self.cleared = None;
+                return Some(said);
+            };
+            if entered || self.cleared == Some(table) {
+                self.cleared = Some(table);
+                return Some(said);
+            }
+            match self.tables {
+                Pass::Read => self.cleared = Some(table),
+                Pass::Ask => self.ask(table),
+                Pass::Skip => {
+                    self.leaving = Some(table);
+                    self.keep(said);
+                    continue;
                 }
             }
+            return Some(said);
         }
         None
+    }
+
+    /// Holds at a table's start, asking whether to read it.
+    fn ask(&mut self, table: usize) {
+        self.asking = Some(table);
+        self.paused = true;
+        self.clock.stop();
+    }
+
+    /// The answer to the table asked about: read it, or pass it over.
+    fn answer(&mut self, read: bool) {
+        let Some(table) = self.asking.take() else {
+            return;
+        };
+        self.paused = false;
+        if read {
+            self.cleared = Some(table);
+        } else {
+            self.leaving = Some(table);
+            self.pass();
+        }
+        self.go_on();
     }
 
     /// A new sentence off the pages, if the thread has one.
@@ -407,7 +470,10 @@ impl Spoken {
     }
 
     pub fn toggle(&mut self) {
-        if self.finished {
+        // Play, asked about a table, reads it.
+        if self.asking.is_some() {
+            self.answer(true);
+        } else if self.finished {
             // Again from the selection's start, else the book's.
             self.paused = false;
             let start = self.chosen.map(|(start, _)| start);
@@ -434,6 +500,11 @@ impl Spoken {
         self.saying = false;
         self.finished = false;
         self.leaving = None;
+        if self.asking.take().is_some() {
+            self.paused = false;
+        }
+        // Stepped back into, a table is read unasked.
+        self.cleared = said.table;
         if let Some(current) = self.current.replace(said) {
             self.ahead.push_front(current);
         }
@@ -442,6 +513,10 @@ impl Spoken {
 
     /// Skips the rest of the table read, to the first sentence after it.
     fn escape(&mut self) {
+        if self.asking.is_some() {
+            self.answer(false);
+            return;
+        }
         let Some(table) = self.current.as_ref().and_then(|s| s.table) else {
             return;
         };
@@ -455,6 +530,11 @@ impl Spoken {
     }
 
     fn forward(&mut self) {
+        // Stepped on by hand, the table asked about is read.
+        if let Some(table) = self.asking.take() {
+            self.cleared = Some(table);
+            self.paused = false;
+        }
         if let Some(v) = self.voicer.as_mut() {
             v.stop();
         }
@@ -743,7 +823,9 @@ impl Spoken {
             unit: "sentence",
             escape: can
                 && !self.finished
+                && self.asking.is_none()
                 && self.current.as_ref().is_some_and(|s| s.table.is_some()),
+            ask: self.asking.and(can.then_some("Table")),
             at: progress.map(|p| p.0),
             left: progress.map(|p| p.1),
             total: progress.map(|p| p.2),
@@ -808,6 +890,7 @@ impl Spoken {
                 self.jump = Some(page);
             }
             Act::Escape => self.escape(),
+            Act::Answer(read) => self.answer(read),
             Act::Seek(_) | Act::Card(_) | Act::Reveal => {}
             Act::Stop => return true,
         }

@@ -30,7 +30,8 @@ pub use ai::{
 pub use load::{Loaded, load, to_json};
 pub use reader::{
     ChromeSettings, FloatingLabelStyle, Highlight, LayoutSettings, MotionSettings,
-    PageIndicatorStyle, PaperArea, PaperSettings, Player, ReadAloudSettings, StartupFit,
+    PageIndicatorStyle, PaperArea, PaperSettings, Pass, Player, ReadAloudSettings, Skip, Skips,
+    StartupFit,
 };
 pub use study::StudySettings;
 pub use study::{

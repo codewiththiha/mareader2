@@ -1061,6 +1061,67 @@ fn a_table_read_aloud_can_be_skipped_and_stepped_back_into() {
 }
 
 #[test]
+fn a_table_can_be_asked_about_or_passed_over() {
+    use mareader_settings::Skip;
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("epub", "sample:3").ok();
+    app.set_option("set", "read_aloud.engine:\"silent\"").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let ask = Skip {
+        on: true,
+        ask: true,
+    };
+    h.state_mut().settings_mut().read_aloud.skips.tables = ask;
+    let at = first_table(&h).expect("the sample has a table");
+    let before = Spot {
+        page: at.page.saturating_sub(1),
+        char: 0,
+    };
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(before),
+        until: None,
+    };
+    let past =
+        |h: &Harness<'static, MareaderApp>| !lit_in_table(h) && lit(h).is_some_and(|(s, _)| s > at);
+    // Asked, reading holds at the table's start for the answer.
+    start(&mut h, from);
+    step_until(&mut h, |h| h.query_by_label("Read the table").is_some());
+    h.run_steps(20);
+    assert!(lit_in_table(&h), "held at the table: {:?}", lit(&h));
+    let _ = h.get_by_label("Play");
+    h.get_by_label("Skip the table").click();
+    step_until(&mut h, past);
+    h.run_steps(30);
+    assert!(h.query_by_label("Read the table").is_none(), "answered");
+    // Read, its cells are read on unasked.
+    start(&mut h, from);
+    step_until(&mut h, |h| h.query_by_label("Read the table").is_some());
+    h.run_steps(20);
+    h.get_by_label("Read the table").click();
+    h.run_steps(2);
+    let _ = h.get_by_label("Pause");
+    assert!(lit_in_table(&h), "reading the table");
+    // Set to skip, it is passed over without a word or a question.
+    h.state_mut().settings_mut().read_aloud.skips.tables.ask = false;
+    start(&mut h, from);
+    let seen = std::cell::Cell::new(false);
+    step_until(&mut h, |h| {
+        seen.set(seen.get() || lit_in_table(h));
+        past(h)
+    });
+    assert!(!seen.get(), "no cell was read");
+    assert!(h.query_by_label("Read the table").is_none());
+}
+
+#[test]
 fn the_options_menu_sets_the_player_and_stays_over_it() {
     use mareader_settings::{Highlight, Player};
     let mut h = reader(3);

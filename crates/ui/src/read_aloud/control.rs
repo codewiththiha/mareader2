@@ -39,6 +39,8 @@ pub(super) struct View<'a> {
     pub unit: &'static str,
     /// Inside a table a narrator can leave.
     pub escape: bool,
+    /// The part reading holds at to ask about, as "Table".
+    pub ask: Option<&'static str>,
     /// How much is read, 0 to 1, and seconds likely left and in all.
     pub at: Option<f32>,
     pub left: Option<f64>,
@@ -59,6 +61,8 @@ pub(super) enum Act {
     Toggle,
     Next,
     Escape,
+    /// The part asked about: read it, or pass it over.
+    Answer(bool),
     /// To this share of the track.
     Seek(f32),
     Stop,

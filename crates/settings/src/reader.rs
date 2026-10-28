@@ -200,6 +200,51 @@ pub enum Player {
     Full,
 }
 
+/// What reading does on reaching a part such as a table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Skip {
+    /// Off, the part is read like the rest.
+    pub on: bool,
+    /// On: asks each time, else passes over it unasked.
+    pub ask: bool,
+}
+
+impl Default for Skip {
+    fn default() -> Self {
+        Self {
+            on: false,
+            ask: true,
+        }
+    }
+}
+
+impl Skip {
+    pub fn pass(self) -> Pass {
+        match (self.on, self.ask) {
+            (false, _) => Pass::Read,
+            (true, true) => Pass::Ask,
+            (true, false) => Pass::Skip,
+        }
+    }
+}
+
+/// What reading does at a part, as a [`Skip`] decides.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Pass {
+    #[default]
+    Read,
+    Ask,
+    Skip,
+}
+
+/// The parts reading may pass over, each with its own rule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Skips {
+    pub tables: Skip,
+}
+
 /// How a book with narration is read aloud.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -208,6 +253,8 @@ pub struct ReadAloudSettings {
     pub rate: f32,
     pub skip_notes: bool,
     pub skip_page_numbers: bool,
+    /// Tables and the like: read, asked about, or passed over.
+    pub skips: Skips,
     /// Pages turn to keep the phrase read in view.
     pub follow: bool,
     pub highlight: Highlight,
@@ -321,6 +368,7 @@ impl Default for ReadAloudSettings {
             rate: 1.0,
             skip_notes: false,
             skip_page_numbers: true,
+            skips: Skips::default(),
             follow: true,
             highlight: Highlight::Sentence,
             highlight_words: 1,

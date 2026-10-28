@@ -608,7 +608,12 @@ fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
     // A book's pages are all one size.
     r.add(Applies::NotBook, |ui| {
         let hint = "A zoom set by hand keeps its scale on pages of another size";
-        switch_row(ui, "Auto resize", hint, &mut l.auto_resize);
+        switch_row(
+            ui,
+            "Keep zoom on other page sizes",
+            hint,
+            &mut l.auto_resize,
+        );
     });
     r.add(Applies::Pages, |ui| {
         switch_row(ui, "Page shadow", "", &mut l.page_shadow);

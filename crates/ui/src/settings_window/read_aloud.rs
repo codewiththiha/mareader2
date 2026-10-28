@@ -1,12 +1,12 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
 use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
-use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings};
+use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings, Skip};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::downloads::muted;
 use super::voice_model::buttons;
-use super::{Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
+use super::{ROW_H, Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::keymap;
@@ -540,7 +540,48 @@ fn reading(ui: &mut Ui, s: &mut ReadAloudSettings) {
         divider(ui);
         let hint = "Narrated books pass over their footnotes and asides";
         switch_row(ui, "Skip notes", hint, &mut s.skip_notes);
+        divider(ui);
+        let hint = "Pass over tables, or ask at each one";
+        skip_row(ui, "Skip tables", hint, &mut s.skips.tables);
     });
+}
+
+/// A part's skip switch; on, how it skips slides open beneath.
+fn skip_row(ui: &mut Ui, label: &str, hint: &str, skip: &mut Skip) {
+    switch_row(ui, label, hint, &mut skip.on);
+    let id = ui.id().with(("skip how", label));
+    let open = ui.ctx().animate_bool_responsive(id, skip.on);
+    if open <= 0.0 {
+        return;
+    }
+    // Clipped to its share of the row, it fades in as it grows.
+    let height = (ROW_H * open).round();
+    let size = vec2(ui.available_width(), height);
+    let (slot, _) = ui.allocate_exact_size(size, Sense::hover());
+    let whole = Rect::from_min_size(slot.min, vec2(slot.width(), ROW_H));
+    let mut child = ui.new_child(UiBuilder::new().max_rect(whole));
+    child.set_clip_rect(slot.intersect(ui.clip_rect()));
+    child.multiply_opacity(open);
+    if open < 1.0 {
+        child.disable();
+    }
+    let t = Tokens::get(ui.ctx());
+    child.allocate_ui_with_layout(
+        vec2(whole.width(), ROW_H),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.set_min_height(ROW_H);
+            ui.add_space(14.0);
+            let r = ui.label(RichText::new("Each time").color(t.muted));
+            let hint = "Ask first, holding until you answer, or always pass over";
+            widgets::tip(&r, hint, None);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                // Added right to left, so they read left to right.
+                ui.selectable_value(&mut skip.ask, false, "Skip");
+                ui.selectable_value(&mut skip.ask, true, "Ask me");
+            });
+        },
+    );
 }
 
 /// How much of what is read is lit, and words at a time.

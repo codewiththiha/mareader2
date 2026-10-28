@@ -142,6 +142,7 @@ pub enum Icon {
     PageNumber,
     Follow,
     LeaveTable,
+    Table,
 }
 
 impl Icon {
@@ -230,6 +231,7 @@ impl Icon {
             Self::SkipBack => Lucide::SkipBack,
             Self::SkipForward => Lucide::SkipForward,
             Self::LeaveTable => Lucide::ArrowRightFromLine,
+            Self::Table => Lucide::Table,
             Self::PageNumber => Lucide::Hash,
             Self::Follow => Lucide::BookOpenText,
             Self::Check => Lucide::Check,

@@ -20,6 +20,7 @@ use crate::selection::Pages;
 use crate::theme::Tokens;
 use crate::widgets;
 
+mod ask;
 mod booth;
 mod card;
 mod control;
@@ -222,6 +223,7 @@ impl Narrated {
             next: self.narration.next(heard, self.skip).is_some(),
             unit: "phrase",
             escape: self.narration.escape(heard, self.skip).is_some(),
+            ask: None,
             at: Some(if self.finished {
                 1.0
             } else {
@@ -266,7 +268,7 @@ impl Narrated {
                 self.step(to);
             }
             Act::Stop => return true,
-            Act::Card(_) | Act::Reveal => {}
+            Act::Card(_) | Act::Reveal | Act::Answer(_) => {}
         }
         false
     }
@@ -456,6 +458,8 @@ struct Shape {
     rise: f32,
     /// The time left it shows, running down evenly.
     countdown: countdown::Countdown,
+    /// The part last asked about, kept while its question fades.
+    asked: Option<&'static str>,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -993,6 +997,20 @@ impl ReadAloud {
                     }
                     resize = edges::show(ui, r, span);
                 });
+            // Asked about a part, the question rises over the player.
+            if view.ask.is_some() {
+                shape.asked = view.ask;
+            }
+            let ease = motion::secs(ctx, 0.18);
+            let asking =
+                ctx.animate_bool_with_time(Id::new("read-aloud-asking"), view.ask.is_some(), ease);
+            if let (Some(part), true) = (shape.asked, asking > 0.0) {
+                let k = ease_out(f64::from(asking)) as f32 * shown;
+                let answer = ask::show(ctx, (rect, room), part, k);
+                if let (Some(read), true) = (answer, view.ask.is_some()) {
+                    act = Some(Act::Answer(read));
+                }
+            }
             match resize {
                 Some(Resize::To(w)) => shape.dragged = Some(w),
                 Some(Resize::Set(w)) => (shape.dragged, settings.player_width) = (None, Some(w)),

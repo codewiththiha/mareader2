@@ -832,13 +832,18 @@ fn shows(h: &Harness<'static, MareaderApp>, label: &str) -> bool {
 fn layout_rows_follow_the_focused_document() {
     let mut h = reader(&[("pdf", "sample:3"), ("settings", "layout")]);
     h.run_steps(3);
-    for label in ["No gap", "Auto resize", "Page shadow", "Page margin"] {
+    for label in [
+        "No gap",
+        "Keep zoom on other page sizes",
+        "Page shadow",
+        "Page margin",
+    ] {
         assert!(shows(&h, label), "a PDF has {label}");
     }
     // A book's vertical stream: no gaps, shadows or odd page sizes.
     let mut h = reader(&[("epub", "sample:2"), ("settings", "layout")]);
     h.run_steps(3);
-    for label in ["No gap", "Auto resize", "Page shadow"] {
+    for label in ["No gap", "Keep zoom on other page sizes", "Page shadow"] {
         assert!(!shows(&h, label), "a book's stream has no {label}");
     }
     assert!(shows(&h, "Page margin"));
@@ -847,7 +852,7 @@ fn layout_rows_follow_the_focused_document() {
     h.state_mut().queue(Command::View(single));
     h.run();
     assert!(shows(&h, "No gap") && shows(&h, "Page shadow"));
-    assert!(!shows(&h, "Auto resize"));
+    assert!(!shows(&h, "Keep zoom on other page sizes"));
 }
 
 #[test]
