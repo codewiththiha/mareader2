@@ -251,7 +251,7 @@ impl Document {
             .map(|t| links::read(page, index, &t))
             .unwrap_or_default();
         Ok(TextLayer {
-            text: PageText::from_glyphs(collector.glyphs),
+            text: PageText::beside(collector.glyphs, &collector.figures),
             links,
             places: Vec::new(),
             figures: collector.figures,

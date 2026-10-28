@@ -420,7 +420,13 @@ impl PageText {
     }
 
     /// Groups glyphs into lines and marks the gaps between words.
+    #[cfg(test)]
     pub(crate) fn from_glyphs(glyphs: Vec<Placed>) -> Self {
+        Self::beside(glyphs, &[])
+    }
+
+    /// Lines and word gaps, with the figures text may flow around.
+    pub(crate) fn beside(glyphs: Vec<Placed>, figures: &[Bounds]) -> Self {
         let mut chars: Vec<TextChar> = Vec::with_capacity(glyphs.len());
         let mut lines: Vec<Line> = Vec::new();
         let mut prev: Option<Placed> = None;
@@ -455,7 +461,7 @@ impl PageText {
             });
             prev = Some(g);
         }
-        let wraps = wrapping(&chars, &lines, &sets);
+        let wraps = wrapping(&chars, &lines, &sets, figures);
         for (n, wraps) in wraps.into_iter().enumerate() {
             let before = n.checked_sub(1).and_then(|p| lines.get(p));
             let last = before.and_then(|l| chars.get(l.chars.end.checked_sub(1)?));
@@ -508,7 +514,12 @@ fn spaceless(c: char) -> bool {
 }
 
 /// Lines going on from the last: set alike, close, flush, its word not fitting.
-fn wrapping(chars: &[TextChar], lines: &[Line], sets: &[(f32, f32)]) -> Vec<bool> {
+fn wrapping(
+    chars: &[TextChar],
+    lines: &[Line],
+    sets: &[(f32, f32)],
+    figures: &[Bounds],
+) -> Vec<bool> {
     let alike = |a: f32, b: f32| (a - b).abs() <= 0.15 * a.max(b);
     let get = |n: usize| Some((lines.get(n)?, *sets.get(n)?));
     let text = |l: &Line| chars.get(l.chars.clone()).unwrap_or_default();
@@ -524,9 +535,15 @@ fn wrapping(chars: &[TextChar], lines: &[Line], sets: &[(f32, f32)]) -> Vec<bool
             let near = (l.bounds.x0 - line.bounds.x0).abs() <= 4.0 * size;
             alike(*s, size) && near && !gapped(l, *s)
         });
-        column
+        let edge = column
             .map(|(l, _)| l.bounds.x1)
-            .fold(line.bounds.x1, f32::max)
+            .fold(line.bounds.x1, f32::max);
+        // A figure beside the line ends it sooner, less a margin's em.
+        let beside = figures.iter().filter(|f| {
+            let level = f.y0 < line.bounds.y1 + size && f.y1 > line.bounds.y0 - size;
+            level && f.x0 > line.bounds.x0 && f.x0 >= line.bounds.x1 - size
+        });
+        beside.map(|f| f.x0 - size).fold(edge, f32::min)
     };
     let first_word = |l: &Line| {
         let text = text(l);
@@ -549,7 +566,8 @@ fn wrapping(chars: &[TextChar], lines: &[Line], sets: &[(f32, f32)]) -> Vec<bool
             return Some(false);
         }
         let hyphen = text(last)
-            .last()
+            .iter()
+            .rfind(|c| !c.ch.is_whitespace())
             .is_some_and(|c| matches!(c.ch, '-' | '\u{ad}' | '‐'));
         let room = right(last, was) - last.bounds.x1;
         Some(hyphen || first_word(line) + 0.25 * em > room)
@@ -775,6 +793,33 @@ mod tests {
              like JavaScript and the importance of simplicity in design?\n\
              Answer: Crockford advocates simplicity."
         );
+    }
+
+    #[test]
+    fn lines_beside_a_figure_wrap_at_its_edge() {
+        // Short beside a cover, full width below it, as a web page prints.
+        let lines = [
+            "My mistake was to answer a ",
+            "thumbnail sketch of how to ",
+            "implement a Merge Sort on ",
+            "disk, than furthering his education, in a popular book ",
+        ];
+        let glyphs = || {
+            let rows = lines.iter().enumerate();
+            rows.flat_map(|(n, t)| row(t, 0.0, 15.0 * n as f32))
+                .collect()
+        };
+        let cover = Bounds {
+            x0: 300.0,
+            y0: -20.0,
+            x1: 500.0,
+            y1: 40.0,
+        };
+        let text = PageText::beside(glyphs(), &[cover]);
+        assert_eq!(wrapped(&text), [false, true, true, true]);
+        // Without it, the wide line below makes each look like an end.
+        let bare = PageText::from_glyphs(glyphs());
+        assert_eq!(wrapped(&bare), [false, false, false, false]);
     }
 
     #[test]
