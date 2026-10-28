@@ -309,6 +309,29 @@ fn a_second_build_is_picked_for_its_model_then_removed_alone() {
 }
 
 #[test]
+fn downloaded_engines_fold_to_the_one_in_use() {
+    use egui::accesskit::Role;
+    let dir = tempfile::tempdir().unwrap();
+    downloaded(dir.path());
+    let mut h = settings(dir.path());
+    let rows = |h: &Harness<'static, MareaderApp>| {
+        h.query_all_by_role_and_label(Role::Button, "Tiny").count()
+    };
+    // Shut at first: an engine not in use stays out of the sidebar.
+    let shut = rows(&h);
+    h.get_by_label("Voice engines").click();
+    h.run_steps(30);
+    assert_eq!(rows(&h), shut + 1, "open, every engine shows");
+    h.get_by_label("Voice engines").click();
+    h.run_steps(30);
+    assert_eq!(rows(&h), shut);
+    // The engine in use keeps its row while shut.
+    h.state_mut().settings_mut().read_aloud.engine = "tiny".to_owned();
+    h.run_steps(4);
+    assert_eq!(rows(&h), shut + 1);
+}
+
+#[test]
 fn a_model_not_yet_downloaded_offers_a_build_to_start_with() {
     let dir = tempfile::tempdir().unwrap();
     let h = settings(dir.path());

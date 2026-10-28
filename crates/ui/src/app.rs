@@ -680,13 +680,8 @@ impl MareaderApp {
             },
             Some(_) => Shown::Pdf,
         };
-        // A PDF's AI pages are set in the pane's type, like a book.
-        let ai = |pane: PaneId| {
-            let book = self.library.book_in(docs, pane);
-            let name = docs.title(pane).unwrap_or_default();
-            let lib = self.library.model();
-            self.page_ai.any(lib, pane, docs, (book, name))
-        };
+        // An AI page on screen is set in the pane's type, like a book.
+        let ai = |pane: PaneId| self.page_ai.on_screen(pane);
         let text = |p: PaneId| docs.reflowable(p) || ai(p);
         let book_design = match focused {
             Shown::Book { .. } => self.library.book_in(docs, self.active).and_then(|id| {

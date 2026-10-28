@@ -17,9 +17,9 @@ pub enum Shown {
 pub struct Scope {
     pub focused: Shown,
     pub split: bool,
-    /// Some pane takes text settings: a book, or a PDF's AI pages.
+    /// Some pane takes text settings: a book, or a PDF's AI page shown.
     pub any_text: bool,
-    /// The focused PDF has AI pages, which are set in its type.
+    /// The focused PDF shows an AI page, which is set in its type.
     pub ai_pages: bool,
     /// The focused pane scrolls sideways, where pages have no margin.
     pub sideways: bool,

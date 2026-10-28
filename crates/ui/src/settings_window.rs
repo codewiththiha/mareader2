@@ -45,6 +45,11 @@ const ROW_H: f32 = 44.0;
 /// The sidebar of tabs, and each tab's row in it.
 const NAV_W: f32 = 184.0;
 const NAV_ROW_H: f32 = 32.0;
+/// The voice engines' fold title, and its row's height.
+const ENGINES: &str = "Voice engines";
+const FOLD_H: f32 = 26.0;
+/// How far the engines sit in from the tabs.
+const ENGINE_INDENT: f32 = 10.0;
 /// The shown tab's name and the close button.
 const HEADER_H: f32 = 56.0;
 /// Clear space under the page, below the scroll's fade.
@@ -152,6 +157,8 @@ impl Tab {
 pub struct SettingsWindow {
     open: bool,
     tab: Tab,
+    /// The voice engines' fold is open, showing every engine.
+    engines_open: bool,
 }
 
 impl SettingsWindow {
@@ -213,7 +220,7 @@ impl SettingsWindow {
             ui.set_height(size.y);
             ui.spacing_mut().item_spacing = Vec2::ZERO;
             ui.horizontal_top(|ui| {
-                self.nav(ui, size.y, &models);
+                self.nav(ui, size.y, &models, &current.read_aloud.engine);
                 let (line, _) = ui.allocate_exact_size(vec2(1.0, size.y), Sense::hover());
                 let edge = Stroke::new(1.0, t.line);
                 ui.painter().vline(line.center().x, line.y_range(), edge);
@@ -253,7 +260,13 @@ impl SettingsWindow {
     }
 
     /// The sidebar: every tab named, under its group's heading.
-    fn nav(&mut self, ui: &mut Ui, height: f32, models: &[&'static mareader_speech::Model]) {
+    fn nav(
+        &mut self,
+        ui: &mut Ui,
+        height: f32,
+        models: &[&'static mareader_speech::Model],
+        engine: &str,
+    ) {
         let t = Tokens::get(ui.ctx());
         let (rect, _) = ui.allocate_exact_size(vec2(NAV_W, height), Sense::hover());
         let r = t.radius_lg as u8;
@@ -280,17 +293,92 @@ impl SettingsWindow {
             if nav_row(&mut ui, tab, tab == shown).clicked() {
                 self.tab = tab;
             }
-            // Each downloaded model's tab follows Read aloud.
-            if tab == Tab::ReadAloud {
-                for m in models {
-                    let tab = Tab::Model(m);
-                    if nav_row(&mut ui, tab, tab == shown).clicked() {
-                        self.tab = tab;
-                    }
-                }
+            // The downloaded models fold under Read aloud.
+            if tab == Tab::ReadAloud && !models.is_empty() {
+                self.engines(&mut ui, models, engine, shown);
             }
         }
     }
+
+    /// The engines' fold; shut, it keeps the engine in use and the one shown.
+    fn engines(
+        &mut self,
+        ui: &mut Ui,
+        models: &[&'static mareader_speech::Model],
+        engine: &str,
+        shown: Tab,
+    ) {
+        ui.add_space(4.0);
+        let r = engines_fold(ui, self.engines_open, models.len());
+        if r.clicked() {
+            self.engines_open = !self.engines_open;
+        }
+        let how = ui.ctx().animate_bool_responsive(r.id, self.engines_open);
+        let gap = ui.spacing().item_spacing.y;
+        let room = ui.available_rect_before_wrap();
+        let inner = room.with_min_x(room.left() + ENGINE_INDENT);
+        let layout = Layout::top_down(Align::Min);
+        ui.scope_builder(UiBuilder::new().max_rect(inner).layout(layout), |ui| {
+            for m in models {
+                let tab = Tab::Model(m);
+                let kept = m.id == engine || tab == shown;
+                let f = if kept { 1.0 } else { how };
+                if f >= 1.0 {
+                    if nav_row(ui, tab, tab == shown).clicked() {
+                        self.tab = tab;
+                    }
+                    continue;
+                }
+                // Partway, a row grows in, clipped and fading.
+                let height = ((NAV_ROW_H + gap) * f - gap).max(0.0);
+                if height <= 0.0 {
+                    continue;
+                }
+                let size = vec2(ui.available_width(), height);
+                let (slot, _) = ui.allocate_exact_size(size, Sense::hover());
+                let whole = Rect::from_min_size(slot.min, vec2(slot.width(), NAV_ROW_H));
+                let mut row = ui.new_child(UiBuilder::new().max_rect(whole).layout(layout));
+                row.set_clip_rect(slot.intersect(ui.clip_rect()));
+                row.multiply_opacity(f);
+                nav_row(&mut row, tab, false);
+            }
+        });
+    }
+}
+
+/// The engines' fold title: its name, how many, and a turning chevron.
+fn engines_fold(ui: &mut Ui, open: bool, count: usize) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(ui.available_width(), FOLD_H);
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    let kind = egui::WidgetType::CollapsingHeader;
+    r.widget_info(|| egui::WidgetInfo::selected(kind, true, open, ENGINES));
+    let hot = r.hovered();
+    let painter = ui.painter();
+    if hot {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        painter.rect_filled(rect, t.radius, t.hover);
+    }
+    let y = rect.center().y;
+    let ink = if hot { t.ink } else { t.muted };
+    let font = theme::medium(t.text_small);
+    let left = egui::Align2::LEFT_CENTER;
+    painter.text(pos2(rect.left() + 10.0, y), left, ENGINES, font, ink);
+    let how = ui.ctx().animate_bool_responsive(r.id, open);
+    let turn = how * std::f32::consts::FRAC_PI_2;
+    let chevron = Rect::from_center_size(pos2(rect.right() - 14.0, y), Vec2::splat(12.0));
+    let icon = Icon::ChevronRight.image(12.0).tint(ink);
+    icon.rotate(turn, Vec2::splat(0.5)).paint_at(ui, chevron);
+    // A small count pill, so a shut fold still says what it holds.
+    let count = count.to_string();
+    let small = egui::FontId::proportional(t.text_small - 1.0);
+    let galley = painter.layout_no_wrap(count, small, t.muted);
+    let pill = vec2(galley.size().x + 10.0, galley.size().y + 2.0);
+    let pill = Rect::from_center_size(pos2(chevron.left() - 6.0 - pill.x / 2.0, y), pill);
+    painter.rect_filled(pill, CornerRadius::same(255), t.line.gamma_multiply(0.7));
+    let at = pill.center() - galley.size() / 2.0;
+    painter.galley(at, galley, t.muted);
+    r
 }
 
 /// A small muted heading over a group of tabs.
@@ -518,12 +606,12 @@ fn page_rows(r: &mut Rows<'_>, l: &mut LayoutSettings) {
         });
     });
     r.always(|ui| {
-        let hint = "Fit the width on switching to single or two pages";
+        let hint = "Fit the page width when switching to Single page";
         switch_row(ui, "Auto scale", hint, &mut l.auto_scale);
     });
     // A book's pages are all one size.
     r.add(Applies::NotBook, |ui| {
-        let hint = "Refit when a page of another size is read";
+        let hint = "Keep a fitted zoom fitted on pages of another size";
         switch_row(ui, "Auto resize", hint, &mut l.auto_resize);
     });
     r.add(Applies::Pages, |ui| {
@@ -593,7 +681,7 @@ fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     } else {
         section(ui, "Text");
         let text = "Open an EPUB, Markdown or text file to set its type. \
-            A PDF takes type once it has an AI page.";
+            A PDF takes type while one of its AI pages shows.";
         note(ui, text);
     }
     let title = "Split pane appearance";

@@ -1618,19 +1618,13 @@ impl PageAi {
         true
     }
 
-    /// Whether `pane`'s document has a kept result or one being written.
-    pub fn any(
-        &self,
-        main: &Library,
-        pane: PaneId,
-        documents: &Documents,
-        who: (Option<BookId>, &str),
-    ) -> bool {
-        let Some(view) = documents.ai_view(pane) else {
+    /// Whether `pane` shows a result over a page on screen now.
+    pub fn on_screen(&self, pane: PaneId) -> bool {
+        let Some((layout, pages)) = self.drawn.get(&pane) else {
             return false;
         };
-        let (lib, book) = self.lib(main, who.0, who.1);
-        lib.has_ai_pages(book) || self.runs.iter().any(|r| r.layout == view.layout)
+        let mut slots = pages.iter().flat_map(|(_, slots)| slots);
+        slots.any(|(_, own)| self.showing.contains_key(&(pane, *layout, *own)))
     }
 
     /// Tests: the kept results' tasks and spans, oldest first.

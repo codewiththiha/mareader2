@@ -315,7 +315,7 @@ fn staying_on_a_done_page_asks_the_next_pages() -> Out {
 }
 
 #[test]
-fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
+fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
     use mareader_ui::settings_window::Tab;
     let open = |h: &mut H| {
         h.set_size(egui::vec2(1000.0, 1200.0));
@@ -343,6 +343,14 @@ fn a_pdf_takes_type_settings_once_it_has_an_ai_page() {
     );
     // A book's own layout stays a book's.
     assert!(h.query_all_by_label("Book layout").next().is_none());
+    // Turned to a page of its own, the PDF has no type to set.
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::CloseSettings);
+    h.state_mut().queue(Command::GoTo { pane, page: 4 });
+    h.run_steps(4);
+    open(&mut h);
+    assert!(!h.state().settings_scope().ai_pages);
+    assert!(h.query_by_label("More text size").is_none());
 }
 
 /// The book in front: its pages, its own pages, and what is laid in.
