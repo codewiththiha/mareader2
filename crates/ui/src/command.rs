@@ -171,7 +171,14 @@ pub enum Command {
     StopVoiceTry,
     /// Says a card's word in the reading voice; stops it.
     SayWord(String),
+    /// A word in a voice other than the one picked, for its language.
+    SayWordWith {
+        word: String,
+        voice: String,
+    },
     StopSaying,
+    /// Settings at a model's voices in `language`, opened and lit.
+    RevealVoice(&'static mareader_speech::Model, &'static str),
     /// A voice model or voice to download, pause, cancel or remove.
     VoiceModel(mareader_speech::Item, Download),
     /// Explains the word selected in the pane, marking it.

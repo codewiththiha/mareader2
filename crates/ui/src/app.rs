@@ -1711,10 +1711,13 @@ impl MareaderApp {
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
         let saying = self.read_aloud.saying();
+        let others = self.settings.dictionary.other_voices;
+        let (speakers, offers) = self.read_aloud.speakers(&self.settings.read_aloud, others);
         self.dict.set_voice(crate::dict::Voice {
             saying: saying.map(str::to_owned),
             sounds: sounds.clone(),
-            speaks: self.read_aloud.speaks(&self.settings.read_aloud),
+            speakers,
+            offers,
         });
         let heard = crate::sounds::Heard {
             saying,
@@ -2295,9 +2298,22 @@ impl MareaderApp {
             Command::SayWord(word) => {
                 self.hush();
                 let settings = &self.settings.read_aloud;
-                if let Err(why) = self.read_aloud.say_word(ctx, settings, &word) {
+                if let Err(why) = self.read_aloud.say_word(ctx, settings, (&word, None)) {
                     self.toasts.push(Toast::error(why));
                 }
+            }
+            Command::SayWordWith { word, voice } => {
+                self.hush();
+                let settings = &self.settings.read_aloud;
+                let said = (word.as_str(), Some(voice.as_str()));
+                if let Err(why) = self.read_aloud.say_word(ctx, settings, said) {
+                    self.toasts.push(Toast::error(why));
+                }
+            }
+            Command::RevealVoice(model, language) => {
+                self.settings_window.open(Some(Tab::Model(model)));
+                let fold = crate::settings_window::voice_fold(model, language);
+                crate::settings_window::reveal(ctx, fold);
             }
             Command::StopSaying => self.read_aloud.stop_word(),
             Command::VoiceModel(item, action) => {

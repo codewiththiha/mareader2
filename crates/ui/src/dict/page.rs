@@ -429,7 +429,7 @@ fn hero(ui: &mut Ui, word: &str, (voice, said_in): (&Voice, &str), size: f32, ou
             }
         });
         if speaks {
-            look::say(ui, word, voice, button.min(34.0), out);
+            look::say(ui, (word, said_in), voice, button.min(34.0), out);
         }
     });
     crate::sounds::show(ui, voice.lines(word), &t);
@@ -443,6 +443,13 @@ fn column(ui: &mut Ui, t: &Tokens, h: &Answers<'_>, asked: &str, out: &mut Comma
         Some(word) => {
             let first = list.iter().find(|e| entry::near(e, asked).is_none());
             hero(ui, &word, (h.voice, &h.asked_in(first)), 24.0, out);
+            let answers = list.iter().map(|e| h.answer_in(e));
+            offers(
+                ui,
+                h.voice,
+                std::iter::once(h.asked_in(first)).chain(answers),
+                out,
+            );
         }
         None => {
             let line = format!("No entry for “{asked}”. The nearest:");
@@ -471,6 +478,17 @@ fn column(ui: &mut Ui, t: &Tokens, h: &Answers<'_>, asked: &str, out: &mut Comma
     }
 }
 
+/// Downloads that would give these words a voice, two at most.
+fn offers(ui: &mut Ui, voice: &Voice, languages: impl Iterator<Item = String>, out: &mut Commands) {
+    let mut shown: Vec<super::Offer> = Vec::new();
+    for offer in languages.filter_map(|l| voice.offer(&l)) {
+        if shown.len() < 2 && !shown.contains(&offer) {
+            look::offer(ui, offer, out);
+            shown.push(offer);
+        }
+    }
+}
+
 /// "≈ light": a nearest word heading its senses, with its voice.
 fn near_heading(ui: &mut Ui, word: &str, (voice, said_in): (&Voice, &str), out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
@@ -481,7 +499,7 @@ fn near_heading(ui: &mut Ui, word: &str, (voice, said_in): (&Voice, &str), out: 
         let head = RichText::new(word).font(theme::medium(16.0));
         shaped::line(ui, head, 16.0, t.ink);
         if voice.can_say(said_in) {
-            look::say(ui, word, voice, 24.0, out);
+            look::say(ui, (word, said_in), voice, 24.0, out);
         }
     });
 }
@@ -786,6 +804,8 @@ fn full_entry(
             });
             ui.add_space(2.0);
             answer_panel(ui, t, e, h, out);
+            let languages = [h.asked_in(Some(e)), h.answer_in(e)];
+            offers(ui, h.voice, languages.into_iter(), out);
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
                 let copy = Button::image_and_text(Icon::Copy.image(14.0), "Copy")
@@ -837,7 +857,8 @@ fn answer_panel(ui: &mut Ui, t: &Tokens, e: &Entry, h: &Answers<'_>, out: &mut C
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.horizontal(|ui| {
-                let speaks = h.voice.can_say(&h.answer_in(e)) && !e.answer().trim().is_empty();
+                let answer_in = h.answer_in(e);
+                let speaks = h.voice.can_say(&answer_in) && !e.answer().trim().is_empty();
                 let room = ui.available_width() - if speaks { 44.0 } else { 0.0 };
                 let lead = Layout::left_to_right(Align::Center).with_main_wrap(true);
                 ui.allocate_ui_with_layout(vec2(room.max(40.0), 0.0), lead, |ui| {
@@ -846,7 +867,8 @@ fn answer_panel(ui: &mut Ui, t: &Tokens, e: &Entry, h: &Answers<'_>, out: &mut C
                 });
                 if speaks {
                     let right = Layout::right_to_left(Align::Center);
-                    ui.with_layout(right, |ui| look::say(ui, e.answer(), h.voice, 32.0, out));
+                    let said = (e.answer(), answer_in.as_str());
+                    ui.with_layout(right, |ui| look::say(ui, said, h.voice, 32.0, out));
                 }
             });
             if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {

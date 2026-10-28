@@ -562,17 +562,17 @@ fn near_matches_can_be_left_off_the_card() {
     assert_eq!(h.state().dict().card_answers(), Some(Vec::new()));
 }
 
-/// The window, pair mode English → French, searching "light" in `voice`.
-fn says_in(engine: &str, voice: Option<&str>) -> usize {
-    use mareader_ui::read_aloud::SAY;
-    let dir = shelf();
-    let mut h = reader(dir.path());
+/// The window, English → French, searching "light" in `voice`; `others`
+/// lends other languages' voices.
+fn light_in(dir: &Path, (engine, voice): (&str, Option<&str>), others: bool) -> H {
+    let mut h = reader(dir);
     let mut s = h.state().settings().clone();
     s.read_aloud.engine = engine.into();
     if let Some(voice) = voice {
         s.read_aloud.voices.insert(engine.into(), voice.into());
     }
     (s.dictionary.pair, s.dictionary.to) = (true, Some("fr".into()));
+    s.dictionary.other_voices = others;
     h.state_mut().queue(Command::SetSettings(Box::new(s)));
     h.run();
     h.state_mut()
@@ -580,7 +580,13 @@ fn says_in(engine: &str, voice: Option<&str>) -> usize {
         .expect("a known option");
     h.run_steps(30);
     assert!(h.query_all_by_label_contains("lumière").count() >= 1);
-    h.query_all_by_label(SAY).count()
+    h
+}
+
+fn says_in(engine: &str, voice: Option<&str>) -> usize {
+    let dir = shelf();
+    let h = light_in(dir.path(), (engine, voice), true);
+    h.query_all_by_label(mareader_ui::read_aloud::SAY).count()
 }
 
 #[test]
@@ -589,4 +595,71 @@ fn only_words_the_voice_speaks_can_be_said() {
     assert_eq!(says_in("silent", None), 1);
     // A French voice: the two French answers, not the English headword.
     assert_eq!(says_in("kokoro", Some("ff_siwis")), 2);
+}
+
+/// A voice models folder with Kokoro's English voice, its files stand-ins.
+fn kokoro_here() -> tempfile::TempDir {
+    use mareader_speech::KOKORO;
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let build = KOKORO.builds.first().map(|b| b.files()).unwrap_or_default();
+    let voice = KOKORO
+        .voice("af_heart")
+        .map(|v| v.files())
+        .unwrap_or_default();
+    for f in KOKORO.core().into_iter().chain(build).chain(voice) {
+        let path = dir.path().join(KOKORO.id).join(f.path);
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("made");
+        let file = std::fs::File::create(&path).expect("a stand-in file");
+        file.set_len(f.bytes).expect("its size");
+    }
+    dir
+}
+
+/// Says "light", then counts who can be said once the voices are known.
+fn sayable_after_a_word(others: bool) -> usize {
+    use mareader_ui::read_aloud::SAY;
+    let dir = shelf();
+    let mut h = light_in(dir.path(), ("silent", None), others);
+    // Before a voice spoke, only the picked one is known.
+    assert_eq!(h.query_all_by_label(SAY).count(), 1);
+    h.get_by_label(SAY).click();
+    h.run();
+    h.run_steps(5);
+    h.query_all_by_label(SAY).count()
+}
+
+#[test]
+fn another_languages_voice_says_its_words() {
+    // The silent engine's French voice says both French answers.
+    assert_eq!(sayable_after_a_word(true), 3);
+    assert_eq!(sayable_after_a_word(false), 1);
+}
+
+#[test]
+fn a_missing_voice_offers_its_download_and_reveals_it() {
+    use mareader_speech::KOKORO;
+    use mareader_ui::settings_window::{fold_open, voice_fold};
+    const OFFER: &str = "Get a French voice to hear these";
+    let dir = shelf();
+    let models = kokoro_here();
+    let path = models.path().to_string_lossy().into_owned();
+    let mut h = light_in(dir.path(), ("kokoro", Some("af_heart")), true);
+    assert_eq!(h.query_all_by_label(OFFER).count(), 0, "not without Kokoro");
+    h.state_mut()
+        .set_option("voice_models", &path)
+        .expect("a known option");
+    h.run_steps(5);
+    // The English headword is said; French waits for its download.
+    assert_eq!(
+        h.query_all_by_label(mareader_ui::read_aloud::SAY).count(),
+        1
+    );
+    assert_eq!(h.query_all_by_label(OFFER).count(), 1);
+    let fold = voice_fold(&KOKORO, "fr-FR");
+    assert!(!fold_open(&h.ctx, fold));
+    h.get_by_label(OFFER).click();
+    h.run();
+    h.run_steps(5);
+    assert_eq!(h.state().settings_window().tab(), Tab::Model(&KOKORO));
+    assert!(fold_open(&h.ctx, fold), "the French voices unfold");
 }

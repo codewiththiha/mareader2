@@ -13,6 +13,7 @@ use mareader_settings::DictionarySettings;
 use mareader_workspace::PaneId;
 
 use crate::command::Commands;
+pub use crate::read_aloud::{Offer, Speaker};
 use crate::theme::Tokens;
 
 /// Room around a rested card's word and itself the pointer may cross.
@@ -69,13 +70,26 @@ pub struct Voice {
     /// The word being said aloud.
     pub saying: Option<String>,
     pub sounds: Vec<(String, Vec<crate::sounds::Line>)>,
-    /// The languages the voice in use speaks, as `fr`.
-    pub speaks: Vec<String>,
+    /// Who says words in which language, the picked voice first.
+    pub speakers: Vec<Speaker>,
+    /// Languages the engine has voices for, waiting to be downloaded.
+    pub offers: Vec<Offer>,
 }
 
 impl Voice {
+    /// Who says words in `language`, as `fr`.
+    pub fn speaker(&self, language: &str) -> Option<&Speaker> {
+        self.speakers.iter().find(|s| s.language == language)
+    }
+
     pub fn can_say(&self, language: &str) -> bool {
-        self.speaks.iter().any(|l| l == language)
+        self.speaker(language).is_some()
+    }
+
+    /// The download that would give `language` a voice.
+    pub fn offer(&self, language: &str) -> Option<Offer> {
+        let wanted = |o: &&Offer| mareader_speech::primary(o.tag) == language;
+        self.offers.iter().find(wanted).copied()
     }
 
     pub fn lines(&self, word: &str) -> &[crate::sounds::Line] {
@@ -284,15 +298,15 @@ impl Dict {
         self.page.sound_words()
     }
 
-    /// Whether the voice in use speaks the card's word's language.
-    fn card_speaks(&self, c: &Card) -> bool {
+    /// Who says the card's word, if any voice here speaks its language.
+    fn card_speaker(&self, c: &Card) -> Option<&Speaker> {
         let reply = c.reply.as_ref();
         let first = reply.and_then(|r| r.entries.first());
         let from = reply.and_then(|r| r.from.clone());
         let side = || first.map(|e| entry::sides(e, None).0);
         let language = from.map(|l| mareader_speech::primary(&l)).or_else(side);
         self.voice
-            .can_say(&language.unwrap_or_else(|| mareader_dict::HUB.to_owned()))
+            .speaker(&language.unwrap_or_else(|| mareader_dict::HUB.to_owned()))
     }
 
     /// Whether the card leaves out near matches, as settings say.
@@ -358,7 +372,7 @@ impl Dict {
         let t = Tokens::get(ctx);
         let attached = self.attached();
         self.card_rect = self.card.as_ref().and_then(|c| {
-            let speaks = self.card_speaks(c);
+            let speaker = self.card_speaker(c);
             let view = card::View {
                 word: &c.word,
                 reply: c.reply.as_ref(),
@@ -368,7 +382,7 @@ impl Dict {
                 room: room(c.pane)?,
                 saying: heard.saying(&c.word),
                 sound: heard.lines(&c.word),
-                speaks,
+                speaker,
             };
             Some(card::show(ctx, &view, &t, out))
         });

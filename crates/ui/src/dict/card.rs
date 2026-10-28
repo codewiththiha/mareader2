@@ -65,8 +65,8 @@ pub struct View<'a> {
     pub saying: bool,
     /// How it sounds, once looked up.
     pub sound: &'a [crate::sounds::Line],
-    /// The voice in use speaks the word's language.
-    pub speaks: bool,
+    /// Who says the word, when a voice here speaks its language.
+    pub speaker: Option<&'a crate::read_aloud::Speaker>,
 }
 
 pub fn show(ctx: &Context, view: &View<'_>, t: &Tokens, out: &mut Commands) -> Rect {
@@ -230,8 +230,9 @@ fn header(
                 if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
                     out.push(Command::Dict(Action::Pursue(word.to_owned())));
                 }
-                if view.speaks {
-                    crate::read_aloud::say_button(ui, word, view.saying, out);
+                if let Some(s) = view.speaker {
+                    let voice = s.voice.as_deref();
+                    crate::read_aloud::say_button(ui, word, (view.saying, voice), out);
                 }
                 ui.with_layout(Layout::left_to_right(align), |ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;

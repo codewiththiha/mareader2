@@ -416,6 +416,15 @@ and returns where it came from; Library sits beside it.
   picked language, else the system's locale. The dictionary knows each
   entry's language from its pack (flipped for reverse lookups; a bridge's
   answer is in the language asked for). The hover card follows the same rule.
+- **Other voices.** Settings › Dictionary › Saying words › "Use other
+  languages' voices" (on by default) lends a word the first downloaded voice
+  of the engine in use for its language; the system engine's voices count
+  once a booth has listed them. A language the engine's model has but none
+  downloaded shows a soft "Get a French voice to hear these" row (two at
+  most) under the window's headword and the page's answer panel; it opens
+  the model's Settings tab, where `settings_window::reveal` asks the one
+  fold primitive (`fold_row`) to open, scroll into view only if needed, and
+  glow in the accent twice as it fades over 1.6 s.
 - **Keys.** The field has focus on arrival; ↑ ↓ pick a result, Enter keeps
   the search in Recent, Esc clears and then goes back. Cmd+F refocuses.
 - **Empty.** An accent disc, what is searched, the keys drawn as keycaps,

@@ -53,6 +53,15 @@ pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Comma
         ui,
         "The card answers in this language. Only a language whose pack is downloaded is offered.",
     );
+    section(ui, "Saying words");
+    group(ui, |ui| {
+        let hint = "A word in another language is said by a voice downloaded for it";
+        switch_row(ui, "Use other languages' voices", hint, &mut s.other_voices);
+    });
+    note(
+        ui,
+        "Only voices of the engine in use. Each may sound unlike yours.",
+    );
 }
 
 fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {

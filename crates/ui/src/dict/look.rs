@@ -8,7 +8,7 @@ use egui::{
 };
 use mareader_dict::Entry;
 
-use super::{Voice, entry};
+use super::{Offer, Voice, entry};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::read_aloud::{SAY, STOP_SAYING};
@@ -262,8 +262,15 @@ pub fn keys(ui: &mut Ui, all: &[(&[&str], &str)], t: &Tokens) {
     r.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &label));
 }
 
-/// A round button that says `word` aloud: soft, or lit while it speaks.
-pub fn say(ui: &mut Ui, word: &str, voice: &Voice, size: f32, out: &mut Commands) {
+/// A round button that says `word`, in `language`, aloud: soft, or lit
+/// while it speaks.
+pub fn say(
+    ui: &mut Ui,
+    (word, language): (&str, &str),
+    voice: &Voice,
+    size: f32,
+    out: &mut Commands,
+) {
     let t = Tokens::get(ui.ctx());
     let saying = voice.saying.as_deref() == Some(word);
     let (rect, r) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
@@ -288,11 +295,62 @@ pub fn say(ui: &mut Ui, word: &str, voice: &Voice, size: f32, out: &mut Commands
     let label = if saying { STOP_SAYING } else { SAY };
     r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, label));
     let r = r.on_hover_text(if saying { "Stop" } else { "Say it aloud" });
-    if r.clicked() {
-        out.push(match saying {
-            true => Command::StopSaying,
-            false => Command::SayWord(word.to_owned()),
-        });
+    if !r.clicked() {
+        return;
+    }
+    let speaker = voice.speaker(language).and_then(|s| s.voice.as_deref());
+    out.push(match saying {
+        true => Command::StopSaying,
+        false => crate::read_aloud::say(word, speaker),
+    });
+}
+
+/// "Get a French voice to hear these": a soft row opening the voice in
+/// Settings.
+pub fn offer(ui: &mut Ui, offer: Offer, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    let name = crate::settings_window::accent(offer.tag);
+    let a = if name.starts_with(['A', 'E', 'I', 'O', 'U']) {
+        "an"
+    } else {
+        "a"
+    };
+    let text = format!("Get {a} {name} voice to hear these");
+    let size = vec2(ui.available_width(), 34.0);
+    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+    let hover = ui.ctx().animate_bool_with_time(r.id, r.hovered(), 0.12);
+    let fill = t.accent_soft.lerp_to_gamma(t.accent, 0.10 * hover);
+    let painter = ui.painter();
+    painter.rect_filled(rect, t.radius_lg, fill.gamma_multiply(0.7));
+    let glyph = Rect::from_center_size(rect.left_center() + vec2(18.0, 0.0), Vec2::splat(15.0));
+    Icon::Download
+        .image(15.0)
+        .tint(t.accent)
+        .paint_at(ui, glyph);
+    let font = egui::FontId::proportional(t.text_small);
+    let room = rect.width() - 64.0;
+    let mut job = LayoutJob::simple_singleline(text.clone(), font, t.accent);
+    job.wrap = TextWrapping::truncate_at_width(room.max(10.0));
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    let at = egui::pos2(rect.left() + 34.0, rect.center().y - galley.size().y / 2.0);
+    painter.galley(at, galley, t.accent);
+    let nudge = 2.0 * hover;
+    let chevron = rect.right_center() + vec2(-16.0 + nudge, 0.0);
+    let chevron = Rect::from_center_size(chevron, Vec2::splat(14.0));
+    Icon::ChevronRight
+        .image(14.0)
+        .tint(t.accent)
+        .paint_at(ui, chevron);
+    if r.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &text));
+    let tip = format!(
+        "{} has {name} voices. Opens Settings at them.",
+        offer.model.name
+    );
+    if r.on_hover_text(tip).clicked() {
+        out.push(Command::RevealVoice(offer.model, offer.tag));
     }
 }
 
@@ -380,7 +438,9 @@ pub fn sense(ui: &mut Ui, e: &Entry, s: &Said<'_>, t: &Tokens, out: &mut Command
                 });
                 if speaks {
                     let right = egui::Layout::right_to_left(Align::Center);
-                    ui.with_layout(right, |ui| say(ui, e.answer(), s.voice, 26.0, out));
+                    ui.with_layout(right, |ui| {
+                        say(ui, (e.answer(), s.said_in), s.voice, 26.0, out);
+                    });
                 }
             });
             if let Some(r) = e.romanization.as_deref().filter(|r| !r.is_empty()) {

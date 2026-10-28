@@ -51,6 +51,23 @@ const WORD_IDLE: f64 = 60.0;
 pub const SAY: &str = "Say aloud";
 pub const STOP_SAYING: &str = "Stop saying";
 
+/// Who says a word in one language: the picked voice, or another one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Speaker {
+    /// As `fr`.
+    pub language: String,
+    /// None for the voice picked for the engine.
+    pub voice: Option<String>,
+}
+
+/// A language the engine's model has voices for, none downloaded yet.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Offer {
+    pub model: &'static mareader_speech::Model,
+    /// Its full tag, as the model's voices name it: `fr-FR`.
+    pub tag: &'static str,
+}
+
 /// The words being read, to paint in their pane.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lit {
@@ -742,15 +759,16 @@ impl ReadAloud {
         Some(s.pane())
     }
 
-    /// Says `word` in the engine and voice books are read in.
+    /// Says `word` in the engine books are read in, in `voice` or the
+    /// one picked.
     pub fn say_word(
         &mut self,
         ctx: &Context,
         settings: &ReadAloudSettings,
-        word: &str,
+        (word, voice): (&str, Option<&str>),
     ) -> Result<(), String> {
         self.word.open(ctx, &settings.engine, settings, &self.shelf);
-        self.word.say(settings, word);
+        self.word.say_as(settings, voice, word);
         self.said_at = ctx.input(|i| i.time);
         if let Some(why) = self.word.fault() {
             self.saying = None;
@@ -760,8 +778,8 @@ impl ReadAloud {
         Ok(())
     }
 
-    /// The languages a card's word can be said in: the picked voice's.
-    pub fn speaks(&self, settings: &ReadAloudSettings) -> Vec<String> {
+    /// The picked voice's language, as `fr`.
+    fn own_language(&self, settings: &ReadAloudSettings) -> String {
         let engine = settings.engine.as_str();
         let picked = settings.voice_for(engine);
         let model = mareader_speech::MODELS.iter().find(|m| m.id == engine);
@@ -770,16 +788,72 @@ impl ReadAloud {
             None => None,
         };
         let language = language.map(|v| v.language.to_owned()).or_else(|| {
-            // The system's voices are known once one of its booths listed them.
-            let booths = [&self.word, &self.booth].into_iter();
-            let mut listed = booths
-                .filter(|b| b.engine() == engine)
-                .flat_map(|b| b.voices());
             let id = picked?;
-            listed.find(|v| v.id == id).map(|v| v.language.clone())
+            let voice = self.listed(engine).find(|v| v.id == id);
+            voice.map(|v| v.language.clone())
         });
         let language = language.unwrap_or_else(mareader_speech::home_language);
-        vec![mareader_speech::primary(&language)]
+        mareader_speech::primary(&language)
+    }
+
+    /// The system's voices, known once one of its booths listed them.
+    fn listed<'a>(&'a self, engine: &'a str) -> impl Iterator<Item = &'a mareader_speech::Voice> {
+        let booths = [&self.word, &self.booth].into_iter();
+        booths
+            .filter(move |b| b.engine() == engine)
+            .flat_map(|b| b.voices())
+    }
+
+    /// Who says each language's words; `others` lends the engine's other
+    /// voices, offering missing ones.
+    pub fn speakers(
+        &self,
+        settings: &ReadAloudSettings,
+        others: bool,
+    ) -> (Vec<Speaker>, Vec<Offer>) {
+        let own = Speaker {
+            language: self.own_language(settings),
+            voice: None,
+        };
+        let mut speakers = vec![own];
+        let mut offers: Vec<Offer> = Vec::new();
+        if !others {
+            return (speakers, offers);
+        }
+        let engine = settings.engine.as_str();
+        let primary = mareader_speech::primary;
+        let known = |all: &[Speaker], language: &str| all.iter().any(|s| s.language == language);
+        let Some(model) = mareader_speech::MODELS.iter().find(|m| m.id == engine) else {
+            for v in self.listed(engine) {
+                let language = primary(&v.language);
+                if !known(&speakers, &language) {
+                    let voice = Some(v.id.clone());
+                    speakers.push(Speaker { language, voice });
+                }
+            }
+            return (speakers, offers);
+        };
+        // Each language's first voice here speaks for it.
+        for v in model.voices.iter().filter(|v| self.shelf.has(model, v.id)) {
+            let language = primary(v.language);
+            if !known(&speakers, &language) {
+                let voice = Some(v.id.to_owned());
+                speakers.push(Speaker { language, voice });
+            }
+        }
+        // Only a model here can fetch more voices in Settings.
+        let here = self.shelf.has(model, model.first_voice);
+        for v in model.voices.iter().filter(|_| here) {
+            let language = primary(v.language);
+            let offered = offers.iter().any(|o| primary(o.tag) == language);
+            if !known(&speakers, &language) && !offered {
+                offers.push(Offer {
+                    model,
+                    tag: v.language,
+                });
+            }
+        }
+        (speakers, offers)
     }
 
     pub fn stop_word(&mut self) {
@@ -1112,14 +1186,19 @@ fn follow(
 }
 
 /// The speaker on a word's card: says it, or stops it; accented meanwhile.
-pub fn say_button(ui: &mut Ui, word: &str, saying: bool, out: &mut Commands) {
+pub fn say_button(
+    ui: &mut Ui,
+    word: &str,
+    (saying, voice): (bool, Option<&str>),
+    out: &mut Commands,
+) {
     // No voice here speaks Burmese and its kin.
     if crate::shaped::needs_shaping(word) {
         return;
     }
     let (label, command) = match saying {
         true => (STOP_SAYING, Command::StopSaying),
-        false => (SAY, Command::SayWord(word.to_owned())),
+        false => (SAY, say(word, voice)),
     };
     let accent = Tokens::get(ui.ctx()).accent;
     let r = ui.scope(|ui| {
@@ -1130,6 +1209,18 @@ pub fn say_button(ui: &mut Ui, word: &str, saying: bool, out: &mut Commands) {
     });
     if r.inner.clicked() {
         out.push(command);
+    }
+}
+
+/// Says `word`, in `voice` when it isn't the one picked.
+pub fn say(word: &str, voice: Option<&str>) -> Command {
+    let word = word.to_owned();
+    match voice {
+        Some(voice) => Command::SayWordWith {
+            word,
+            voice: voice.to_owned(),
+        },
+        None => Command::SayWord(word),
     }
 }
 

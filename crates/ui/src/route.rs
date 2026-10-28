@@ -59,7 +59,7 @@ fn reads(command: &Command) -> bool {
         // A voice is tried from settings, which open over any page.
         C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(..) => false,
         // A card's word is said wherever its card shows.
-        C::SayWord(_) | C::StopSaying => false,
+        C::SayWord(_) | C::SayWordWith { .. } | C::StopSaying | C::RevealVoice(..) => false,
         // Undo of a removal is offered by a toast, which shows anywhere.
         C::Study(_) => false,
         // Downloads go on behind the library; the card closes anywhere.

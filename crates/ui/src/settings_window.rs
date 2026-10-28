@@ -29,6 +29,7 @@ mod read_aloud;
 mod scope;
 mod vocabulary;
 mod voice_model;
+pub use voice_model::accent;
 
 pub use read_aloud::Voices;
 pub use scope::{Applies, Scope, Shown};
@@ -990,8 +991,28 @@ fn disclosure(ui: &mut Ui, label: &str, hint: &str) -> bool {
     open
 }
 
+/// The fold asked to show itself next time it is drawn.
+const REVEAL: &str = "settings-fold-reveal";
+/// How long a revealed fold glows.
+const GLOW: f64 = 1.6;
+
+/// Asks the [`fold_row`] `id` to open, come into view and glow once.
+pub fn reveal(ctx: &egui::Context, id: egui::Id) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(REVEAL), id));
+}
+
+/// The fold of a model's voices in `language`, as `fr-FR`, on its tab.
+pub fn voice_fold(model: &mareader_speech::Model, language: &str) -> egui::Id {
+    voice_model::fold_id(model, language)
+}
+
+/// Whether the [`fold_row`] `id` is open.
+pub fn fold_open(ctx: &egui::Context, id: egui::Id) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(id)) == Some(true)
+}
+
 /// Two lines folding the rows below; true while open.
-/// Starts folded, then stays as left.
+/// Folded until opened, or [`reveal`]ed.
 fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str)) -> bool {
     let t = Tokens::get(ui.ctx());
     let kept = ui.data(|d| d.get_temp::<bool>(id));
@@ -999,12 +1020,23 @@ fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str)) -> bool {
     let size = vec2(ui.available_width(), 52.0);
     let (rect, r) = ui.allocate_exact_size(size, Sense::click());
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, title));
+    let now = ui.input(|i| i.time);
+    let asked = egui::Id::new(REVEAL);
+    if ui.data(|d| d.get_temp::<egui::Id>(asked)) == Some(id) {
+        open = true;
+        ui.data_mut(|d| {
+            d.remove::<egui::Id>(asked);
+            d.insert_temp(id.with("glow"), now);
+        });
+        r.scroll_to_me(None);
+    }
     if r.clicked() {
         open = !open;
     }
-    if r.clicked() || kept.is_none() {
+    if r.clicked() || kept != Some(open) {
         ui.data_mut(|d| d.insert_temp(id, open));
     }
+    glow(ui, id, rect, now);
     let mid = rect.center().y;
     let ink = if r.hovered() { t.accent } else { t.ink };
     let text = Rect::from_min_max(rect.min, pos2(rect.right() - 26.0, rect.bottom()));
@@ -1023,6 +1055,26 @@ fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str)) -> bool {
     let mark = Rect::from_center_size(pos2(rect.right() - 9.0, mid), Vec2::splat(16.0));
     chevron.image(16.0).tint(t.muted).paint_at(ui, mark);
     open
+}
+
+/// A revealed fold's glow: the accent's tint, pulsing twice as it fades.
+fn glow(ui: &Ui, id: egui::Id, rect: Rect, now: f64) {
+    let Some(from) = ui.data(|d| d.get_temp::<f64>(id.with("glow"))) else {
+        return;
+    };
+    let age = now - from;
+    if !(0.0..GLOW).contains(&age) {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let fade = 1.0 - (age / GLOW) as f32;
+    let pulse = 0.6 + 0.4 * (age * std::f64::consts::TAU * 1.25).cos() as f32;
+    let strength = (fade * pulse).clamp(0.0, 1.0);
+    let spot = rect.expand2(vec2(6.0, 0.0));
+    let fill = t.accent_soft.gamma_multiply(strength);
+    let edge = Stroke::new(1.5, t.accent.gamma_multiply(strength));
+    (ui.painter()).rect(spot, t.radius, fill, edge, egui::StrokeKind::Inside);
+    ui.ctx().request_repaint();
 }
 
 /// The rows under an open [`fold_row`], set in a step.

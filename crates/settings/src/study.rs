@@ -389,6 +389,8 @@ pub struct DictionarySettings {
     /// How the reader's Dictionary button opens it.
     pub opens: DictionaryOpens,
     pub window: DictionaryWindow,
+    /// Words in other languages are said by the engine's voices for them.
+    pub other_voices: bool,
 }
 
 /// The reader's Dictionary: floating over the page, or the full page.
@@ -472,6 +474,7 @@ impl Default for DictionarySettings {
             recent: Vec::new(),
             opens: DictionaryOpens::Window,
             window: DictionaryWindow::default(),
+            other_voices: true,
         }
     }
 }

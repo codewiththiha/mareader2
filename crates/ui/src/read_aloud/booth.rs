@@ -110,7 +110,12 @@ impl Booth {
 
     /// Says `text` in the voice and tone `settings` pick.
     pub fn say(&mut self, settings: &ReadAloudSettings, text: &str) {
-        let picked = settings.voice_for(&self.engine);
+        self.say_as(settings, None, text);
+    }
+
+    /// Says `text` in `voice`, or the one picked for the engine.
+    pub fn say_as(&mut self, settings: &ReadAloudSettings, voice: Option<&str>, text: &str) {
+        let picked = voice.or(settings.voice_for(&self.engine));
         self.speak(settings, picked, text);
         self.tried = None;
     }

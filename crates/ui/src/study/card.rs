@@ -99,7 +99,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
             if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
                 out.push(Command::Study(Action::Close));
             }
-            crate::read_aloud::say_button(ui, view.word, view.saying, out);
+            crate::read_aloud::say_button(ui, view.word, (view.saying, None), out);
         });
     });
     crate::sounds::show(ui, view.sound, t);

@@ -216,13 +216,17 @@ fn languages(
             (n, true) => format!("{n} voices"),
             (n, false) => format!("{n} voices · {here} downloaded"),
         };
-        let id = egui::Id::new(("voice language", model.id, language));
-        if fold_row(ui, id, (accent(language), &detail)) {
+        if fold_row(ui, fold_id(model, language), (accent(language), &detail)) {
             divider(ui);
             folded(ui, |ui| rows(ui, &voices));
         }
     }
     pick
+}
+
+/// The fold of a model's voices in `language`, as `fr-FR`.
+pub fn fold_id(model: &Model, language: &str) -> egui::Id {
+    egui::Id::new(("voice language", model.id, language))
 }
 
 /// Downloads every voice shown still missing at once.
@@ -323,7 +327,7 @@ pub(super) fn buttons(item: Item, name: &str) -> Buttons<'_, impl Fn(Download) -
 }
 
 /// A voice's language as a listener names it: `en-GB` is British English.
-fn accent(tag: &str) -> &str {
+pub fn accent(tag: &str) -> &str {
     match tag {
         "en-US" => "American English",
         "en-GB" => "British English",
