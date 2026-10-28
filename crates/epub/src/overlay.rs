@@ -3,11 +3,8 @@
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 
-use std::sync::Arc;
-
 use mareader_reflow::Anchor;
 
-use crate::css::{self, Ctx, Decl, El, Rgb, Stylesheet};
 use crate::href;
 use crate::xhtml::Refs;
 
@@ -95,12 +92,10 @@ pub struct Phrase {
     pub escape: Option<u32>,
 }
 
-/// A book's narration: its phrases in order, and how it shows them.
+/// A book's narration: its phrases in order, and who reads them.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Narration {
     pub phrases: Vec<Phrase>,
-    /// The fill the book gives the phrase being read, if any.
-    pub highlight: Option<Rgb>,
     pub narrator: Option<String>,
     /// The whole book's length in seconds, as its metadata says.
     pub duration: Option<f64>,
@@ -230,28 +225,6 @@ pub(crate) fn phrases(pars: Vec<Par>, refs: &Refs, blocks: usize) -> Vec<Phrase>
             })
         })
         .collect()
-}
-
-/// The background `sheets` give an element of class `class`.
-pub(crate) fn highlight(sheets: &[Arc<Stylesheet>], class: &str) -> Option<Rgb> {
-    let class = class.trim();
-    if class.is_empty() {
-        return None;
-    }
-    let el = El {
-        tag: "span".to_owned(),
-        id: None,
-        classes: vec![class.to_owned()],
-        attrs: vec![("class".to_owned(), class.to_owned())],
-        index: 1,
-        type_index: 1,
-    };
-    let path = [Ctx {
-        el: &el,
-        before: &[],
-    }];
-    let decl = css::declared(sheets, &path, &Decl::default(), (None, ""), &Arc::from([]));
-    decl.fill.flatten()
 }
 
 /// A `seq` being read: what it marks and its escape number, if any.

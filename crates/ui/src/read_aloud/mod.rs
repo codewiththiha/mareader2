@@ -72,8 +72,6 @@ pub struct Offer {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lit {
     pub span: Span,
-    /// The book's own highlight, if it names one.
-    pub fill: Option<[u8; 3]>,
 }
 
 /// Where reading starts: the place or character under the pointer, or the page.
@@ -325,7 +323,6 @@ impl Narrated {
                 start: phrase.start,
                 end: phrase.end,
             },
-            fill: self.narration.highlight,
         })
     }
 }
@@ -1263,9 +1260,9 @@ pub(crate) fn fetch(files: Files) -> Fetch {
     })
 }
 
-/// The words read on the pages shown, in the book's colour.
+/// The words read on the pages shown, in the accent's tint.
 pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
-    let fill = fill(lit.fill, t);
+    let fill = fill(t);
     let painter = ui.painter();
     for sheet in pages.sheets.iter().filter(|s| s.shown.is_positive()) {
         let Some(layer) = pages.texts.get(pages.doc, sheet.page) else {
@@ -1321,18 +1318,17 @@ pub fn paint(ui: &Ui, pages: &Pages<'_>, lit: &Lit, t: &Tokens) {
     }
 }
 
-/// The book's highlight, else the accent, toned to the page's paper.
-fn fill(book: Option<[u8; 3]>, t: &Tokens) -> Color32 {
+/// The accent toned to the paper; a narrated book's own colour could hide
+/// the ink.
+fn fill(t: &Tokens) -> Color32 {
     let paper = t.book.paper.map(|c| c.clamp(0.0, 1.0) * 255.0);
+    tint(paper, [t.accent.r(), t.accent.g(), t.accent.b()])
+}
+
+/// A faint share of `colour` over `paper`, fainter on a dark page.
+fn tint(paper: [f32; 3], colour: [u8; 3]) -> Color32 {
     let light = paper.iter().sum::<f32>() > 3.0 * 128.0;
-    let accent = [t.accent.r(), t.accent.g(), t.accent.b()];
-    // A light page takes the book's colour as is; a dark one a tint.
-    let (colour, share) = match (book, light) {
-        (Some(c), true) => (c, 1.0),
-        (Some(c), false) => (c, 0.22),
-        (None, true) => (accent, 0.30),
-        (None, false) => (accent, 0.26),
-    };
+    let share = if light { 0.30 } else { 0.26 };
     let target = std::array::from_fn(|i| {
         let p = paper.get(i).copied().unwrap_or(255.0);
         p + (f32::from(colour.get(i).copied().unwrap_or(255)) - p) * share
@@ -1381,7 +1377,17 @@ mod tests {
     }
 
     #[test]
-    fn the_fill_turns_paper_to_the_book_colour_and_keeps_ink_dark() {
+    fn the_tint_on_a_tinted_page_leaves_the_ink_readable() {
+        // A pink page: a book's pure yellow once covered the words here.
+        let pink = [255.0, 214.0, 232.0];
+        let fill = tint(pink, [0x25, 0x63, 0xeb]);
+        assert!(fill.a() <= 80, "{fill:?}");
+        let ink = shown(fill, 31.0);
+        assert!(ink.iter().all(|c| *c < 110.0), "{ink:?}");
+    }
+
+    #[test]
+    fn the_fill_turns_paper_to_its_target_and_keeps_ink_dark() {
         let fill = over([250.0; 3], [255.0, 255.0, 187.0]);
         let paper = shown(fill, 250.0);
         assert!(

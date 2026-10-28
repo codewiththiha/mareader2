@@ -734,7 +734,6 @@ impl Spoken {
             .filter(|_| !self.finished && !self.relaid)?;
         Some(Lit {
             span: Span::Chars { start, end },
-            fill: None,
         })
     }
 

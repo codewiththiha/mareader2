@@ -91,10 +91,9 @@ fn a_phrase_without_a_fragment_reads_its_whole_chapter() {
 }
 
 #[test]
-fn the_book_names_its_highlight_narrator_and_length() {
+fn the_book_names_its_narrator_and_length() {
     let book = open(NARRATED);
     let narration = book.narration();
-    assert_eq!(narration.highlight, Some([0xff, 0xff, 0xbb]));
     assert_eq!(narration.narrator.as_deref(), Some("A Tester"));
     assert_eq!(narration.duration, Some(3.0));
 }
@@ -103,5 +102,4 @@ fn the_book_names_its_highlight_narrator_and_length() {
 fn a_book_without_overlays_has_no_narration() {
     let book = open(MEDIA);
     assert!(book.narration().phrases.is_empty());
-    assert_eq!(book.narration().highlight, None);
 }

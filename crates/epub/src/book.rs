@@ -435,7 +435,7 @@ impl Book {
         let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
         let toc = contents(&epub, &refs, &blocks);
         let notes = crate::notes::find(&blocks, &refs);
-        let narration = narration(&epub, &mut shelf, pars, (&refs, blocks.len()));
+        let narration = narration(&epub, pars, (&refs, blocks.len()));
         let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
         let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
         let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
@@ -1219,26 +1219,15 @@ fn right_to_left(epub: &Epub, language: Option<&str>, blocks: &[Block]) -> bool 
 /// `rendition:layout` for pages laid out by the book.
 const PRE_PAGINATED: &str = "pre-paginated";
 
-/// The book's narration from `pars`, styled as it asks.
-fn narration(
-    epub: &Epub,
-    shelf: &mut Shelf,
-    pars: Vec<overlay::Par>,
-    (refs, blocks): (&Refs, usize),
-) -> Narration {
+/// The book's narration from `pars`.
+fn narration(epub: &Epub, pars: Vec<overlay::Par>, (refs, blocks): (&Refs, usize)) -> Narration {
     let phrases = overlay::phrases(pars, refs, blocks);
     if phrases.is_empty() {
         return Narration::default();
     }
-    let class = meta(epub, "media:active-class");
-    let sheets: Vec<Arc<Stylesheet>> = (epub.manifest().styles())
-        .filter(|_| class.is_some())
-        .filter_map(|e| shelf.stylesheet(&e.href().decode()))
-        .collect();
     let duration = meta(epub, "media:duration").and_then(|d| overlay::clock(&d));
     Narration {
         phrases,
-        highlight: class.and_then(|c| overlay::highlight(&sheets, &c)),
         narrator: meta(epub, "media:narrator").filter(|n| !n.is_empty()),
         duration,
     }

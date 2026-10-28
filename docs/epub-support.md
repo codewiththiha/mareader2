@@ -419,7 +419,7 @@ the reader; clips in the text still open in the system's player.
 | `seq` | Nesting is followed; its `epub:type` applies to the pars inside |
 | Skippable | Notes (`footnote`, `endnote`, `rearnote`, `note`, `noteref`) and page numbers (`pagebreak`) can each be left out |
 | Escapable | In a `table`, `list`, `figure`, `aside` or `sidebar` (and their rows, cells and items), a button leaves the whole structure |
-| `media:active-class` | The background the book's stylesheets give that class colours the phrase read; without one the theme's accent does |
+| `media:active-class` | Not applied: the phrase read is lit in the theme's accent, as voices are, so a book's colour can't hide the text on a tinted page |
 | `media:narrator`, `media:duration` | Read; the whole book's length is kept |
 
 The phrase read is lit on the page and pages turn to keep it in view.
