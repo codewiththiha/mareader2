@@ -18,7 +18,13 @@ egui = { workspace = true }
 default = ["traffic-lights", "open-files"]
 # macOS: centre the traffic lights in the bar and fade them with it. This is
 # one of two `unsafe` modules (AppKit calls); off keeps AppKit's position.
-traffic-lights = ["dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:raw-window-handle"]
+traffic-lights = [
+    "dep:objc2",
+    "dep:objc2-app-kit",
+    "dep:objc2-foundation",
+    "objc2-foundation/NSProcessInfo",
+    "dep:raw-window-handle",
+]
 
 # macOS: files opened from Finder or the Dock (an AppKit Apple event
 # handler, so `unsafe`); off, only the command line opens files.

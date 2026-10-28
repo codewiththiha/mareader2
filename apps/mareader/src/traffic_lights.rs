@@ -33,7 +33,8 @@ pub fn layout(window_h: f64, bar_h: f64, button_h: f64, spacing: f64, shift: f64
         container_y: finite(window_h, 0.0) - bar_h,
         container_h: bar_h,
         xs: [0.0, 1.0, 2.0].map(|i| INSET_X + shift + i * spacing),
-        y: ((bar_h - button_h) / 2.0).round(),
+        // Half points: whole Retina pixels, even in a zoomed bar.
+        y: (bar_h - button_h).round() / 2.0,
     }
 }
 
@@ -43,30 +44,63 @@ pub use mac::place;
 #[cfg(all(target_os = "macos", feature = "traffic-lights"))]
 #[allow(unsafe_code)]
 mod mac {
-    use mareader_ui::platform::NativeLights;
+    use mareader_ui::platform::{LightSpots, NativeLights};
     use objc2::MainThreadMarker;
     use objc2::rc::Retained;
     use objc2_app_kit::{NSButton, NSView, NSWindow, NSWindowButton};
-    use objc2_foundation::NSPoint;
+    use objc2_foundation::{NSPoint, NSProcessInfo};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    /// Positions and fades the lights; full screen is left to AppKit.
-    pub fn place(frame: &eframe::Frame, lights: NativeLights, fullscreen: bool) {
+    /// Places and fades the lights in a bar `zoom` times taller; returns
+    /// where they landed.
+    pub fn place(
+        frame: &eframe::Frame,
+        lights: NativeLights,
+        fullscreen: bool,
+        zoom: f32,
+    ) -> Option<LightSpots> {
         // AppKit objects may only be touched on the main thread.
-        if MainThreadMarker::new().is_none() {
-            return;
-        }
-        let Some(window) = ns_window(frame) else {
-            return;
-        };
-        let Some(buttons) = buttons(&window) else {
-            return;
-        };
+        let _main = MainThreadMarker::new()?;
+        let window = ns_window(frame)?;
+        let buttons = buttons(&window)?;
         let opacity = if fullscreen { 1.0 } else { lights.opacity };
         fade(&buttons, f64::from(opacity.clamp(0.0, 1.0)));
-        if !fullscreen && opacity > 0.0 {
-            arrange(&window, &buttons, f64::from(lights.shift));
+        if fullscreen || opacity <= 0.0 {
+            return None;
         }
+        let zoom = f64::from(zoom).max(0.1);
+        let shift = f64::from(lights.shift) * zoom;
+        arrange(&window, &buttons, shift, zoom);
+        spots(&window, &buttons, shift, zoom)
+    }
+
+    /// The buttons' centres at rest and their size, measured from AppKit.
+    fn spots(
+        window: &NSWindow,
+        buttons: &[Retained<NSButton>; 3],
+        shift: f64,
+        zoom: f64,
+    ) -> Option<LightSpots> {
+        let height = window.frame().size.height;
+        let centre = |b: &NSButton| {
+            // SAFETY: a main-thread getter.
+            let parent = unsafe { b.superview() }?;
+            let r = parent.convertRect_toView(b.frame(), None);
+            let x = r.origin.x + r.size.width / 2.0;
+            Some((x, height - r.origin.y - r.size.height / 2.0, r.size.width))
+        };
+        let (x, y, size) = centre(&buttons[0])?;
+        let (last, ..) = centre(&buttons[2])?;
+        let points = |v: f64| (v / zoom) as f32;
+        Some(LightSpots {
+            first: egui::pos2(points(x - shift), points(y)),
+            pitch: points((last - x) / 2.0),
+            size: points(size),
+            glass: NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion
+                >= 26,
+        })
     }
 
     fn ns_window(frame: &eframe::Frame) -> Option<Retained<NSWindow>> {
@@ -99,7 +133,8 @@ mod mac {
         }
     }
 
-    fn arrange(window: &NSWindow, buttons: &[Retained<NSButton>; 3], shift: f64) {
+    /// Centres them in the bar as egui draws it, `zoom` times its height.
+    fn arrange(window: &NSWindow, buttons: &[Retained<NSButton>; 3], shift: f64, zoom: f64) {
         // SAFETY: main-thread getters; the grandparent is the container.
         let container = unsafe { buttons[0].superview().and_then(|v| v.superview()) };
         let Some(container) = container else {
@@ -109,7 +144,7 @@ mod mac {
         let spacing = buttons[1].frame().origin.x - close.origin.x;
         let want = super::layout(
             window.frame().size.height,
-            f64::from(mareader_ui::theme::TITLE_BAR_H),
+            f64::from(mareader_ui::theme::TITLE_BAR_H) * zoom,
             close.size.height,
             spacing,
             shift,
@@ -143,6 +178,15 @@ mod tests {
         assert_eq!(l.container_h, 48.0);
         assert_eq!(l.y, 16.0);
         assert_eq!(l.xs, [20.0, 40.0, 60.0]);
+    }
+
+    #[test]
+    fn a_zoomed_bar_keeps_them_centred() {
+        // egui at 110% draws the 48-point bar 52.8 points tall.
+        let l = layout(800.0, 48.0 * 1.1, 14.0, 23.0, 0.0);
+        let centre = l.container_h - l.y - 7.0;
+        assert!((centre - 26.4).abs() <= 0.25, "{centre}");
+        assert_eq!(l.y * 2.0, (l.y * 2.0).round(), "on a half point");
     }
 
     #[test]

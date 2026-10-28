@@ -39,7 +39,7 @@ use crate::page_bar::{self, BarLook, PageBar};
 use crate::pane_texts::PaneTexts;
 use crate::panes::{self, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
-use crate::platform::{NativeLights, Platform};
+use crate::platform::{LightSpots, NativeLights, Platform};
 use crate::read_aloud::ReadFrom;
 use crate::route::Route;
 use crate::search::{Found, Lit, Search};
@@ -117,6 +117,8 @@ pub struct MareaderApp {
     /// A selection the options asked for, made once its page is laid out.
     staged: std::collections::VecDeque<Staged>,
     lights: NativeLights,
+    /// Where AppKit last drew the lights, once the binary measured them.
+    light_spots: Option<LightSpots>,
     documents: Documents,
     files: Files,
     library: LibraryState,
@@ -227,6 +229,7 @@ impl MareaderApp {
             sounds: crate::sounds::Sounds::default(),
             staged: Default::default(),
             lights: NativeLights::default(),
+            light_spots: None,
             documents: Documents::default(),
             files: Files::default(),
             library: LibraryState::default(),
@@ -708,6 +711,11 @@ impl MareaderApp {
     /// Where the macOS traffic lights go; the desktop binary moves them.
     pub fn native_lights(&self) -> NativeLights {
         self.lights
+    }
+
+    /// Where the binary found the lights after moving them; none when hidden.
+    pub fn set_light_spots(&mut self, spots: Option<LightSpots>) {
+        self.light_spots = spots;
     }
 
     pub fn titlebar(&self) -> &TitleBar {
@@ -3230,19 +3238,41 @@ fn baked(t: &theme::Tokens, raw: Rgb) -> egui::Color32 {
     theme::color(Rgb::from_unit(t.page.apply(raw.to_unit())))
 }
 
+/// The lights' layer: backings, then the stand-ins drawn off a Mac.
+fn lights_layer(ctx: &Context) -> egui::Painter {
+    ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("lights"),
+    ))
+}
+
+/// A dark disc just inside each glass light on light themes, edging its
+/// sheen.
+fn back_lights(ctx: &Context, lights: NativeLights, spots: LightSpots, t: &theme::Tokens) {
+    if t.dark || !spots.glass || lights.opacity <= 0.0 {
+        return;
+    }
+    let painter = lights_layer(ctx);
+    let top = ctx.content_rect().left_top().to_vec2();
+    let fill = t.ink.gamma_multiply(0.9 * lights.opacity);
+    let radius = (spots.size / 2.0 - 0.5).max(0.0);
+    for at in spots.centres(lights.shift) {
+        painter.circle_filled(at + top, radius, fill);
+    }
+}
+
 /// Three dots where AppKit would put its buttons, for checking off a Mac.
 fn stand_in_lights(ctx: &Context, lights: NativeLights) {
     if lights.opacity <= 0.0 {
         return;
     }
-    let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("stand-in-lights"));
-    let painter = ctx.layer_painter(layer);
-    let top = ctx.content_rect().left_top();
+    let painter = lights_layer(ctx);
+    let top = ctx.content_rect().left_top().to_vec2();
     let colours = [(255, 95, 87), (254, 188, 46), (40, 200, 64)];
-    for (i, (r, g, b)) in colours.into_iter().enumerate() {
-        let x = 27.0 + lights.shift + 20.0 * i as f32;
+    let spots = LightSpots::STAND_IN;
+    for ((r, g, b), at) in colours.into_iter().zip(spots.centres(lights.shift)) {
         let fill = egui::Color32::from_rgb(r, g, b).gamma_multiply(lights.opacity);
-        painter.circle_filled(top + egui::vec2(x, theme::TITLE_BAR_H / 2.0), 6.0, fill);
+        painter.circle_filled(at + top, spots.size / 2.0, fill);
     }
 }
 
@@ -3708,7 +3738,16 @@ impl eframe::App for MareaderApp {
         }
         self.lights = self.place_lights(&ctx, overlay, route);
         // Shots and the preview simulate macOS; draw where the lights go.
-        if self.platform == Platform::Mac && !cfg!(target_os = "macos") {
+        let simulated = self.platform == Platform::Mac && !cfg!(target_os = "macos");
+        let spots = if simulated {
+            Some(LightSpots::STAND_IN)
+        } else {
+            self.light_spots
+        };
+        if let Some(spots) = spots.filter(|_| self.platform == Platform::Mac) {
+            back_lights(&ctx, self.lights, spots, &theme::Tokens::get(&ctx));
+        }
+        if simulated {
             stand_in_lights(&ctx, self.lights);
         }
         let mut stage = ctx.content_rect();
