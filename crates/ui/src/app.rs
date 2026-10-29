@@ -2979,7 +2979,6 @@ impl MareaderApp {
                 .titlebar
                 .visible()
                 .then(|| self.titlebar.band_bottom(ctx)),
-            sidebar_open: self.sidebar.offset().is_some(),
         };
         let tokens = theme::Tokens::get(ctx);
         let toasts = self.toasts.covers();

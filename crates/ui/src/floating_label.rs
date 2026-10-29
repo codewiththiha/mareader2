@@ -12,12 +12,11 @@ use crate::titlebar::FADE;
 /// Inset from the pane's corner.
 const INSET: f32 = 12.0;
 
-/// The chrome that hides the label.
+/// The chrome the label makes way for. A floating sidebar just covers it.
 #[derive(Debug, Clone, Copy)]
 pub struct LabelChrome {
     /// The title bar's bottom while shown; the label stays below it.
     pub bar: Option<f32>,
-    pub sidebar_open: bool,
 }
 
 /// The file's name, or the chapter read and else the name.
@@ -62,14 +61,13 @@ pub fn show(
     let width = painter.layout_no_wrap(text.clone(), font, t.muted).size().x;
     let limit = budget(pane, reading.page) * layout.floating_label_max_pct / 100.0;
     let persist = layout.floating_label_persist;
-    let wanted = layout.floating_label
-        && !chrome.sidebar_open
-        && (persist || (chrome.bar.is_none() && width <= limit));
+    let wanted = layout.floating_label && (persist || (chrome.bar.is_none() && width <= limit));
     let fade = ctx.animate_bool_with_time(id, wanted, motion::secs(ctx, FADE));
     if fade <= 0.0 {
         return;
     }
     let top = chrome.bar.map_or(pane.top(), |b| b.max(pane.top()));
+    // Under the floating sidebar's Foreground, so it slides over the label.
     egui::Area::new(id)
         .fade_in(false)
         .order(Order::Middle)

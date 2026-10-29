@@ -158,10 +158,12 @@ fn the_floating_label_shows_while_the_bar_hides_and_room_allows() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Minus);
     h.run();
     let _ = h.get_by_label(chapter);
+    // A floating sidebar slides over the label instead of hiding it.
+    h.state_mut().set_option("float", "true").ok();
     h.state_mut().set_option("sidebar", "outline").ok();
     h.run();
     let shown = h.query_all_by_label(chapter).count();
-    assert_eq!(shown, 1, "only the outline's entry, not the label");
+    assert_eq!(shown, 2, "the outline's entry and the label");
 }
 
 #[test]
