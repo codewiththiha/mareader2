@@ -3,10 +3,10 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_epub::{Book, Destination, Format, Inserts, MAX_PICTURE_FILE};
-use mareader_pdf::TextLayer;
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError};
-use mareader_reflow::{Anchor, Picture, Typography};
+use mareader_pdf::{Passage, PassageRun, TextLayer};
+use mareader_reflow::{Anchor, PassageKind, Picture, Typography};
 
 use crate::OpenError;
 
@@ -369,6 +369,7 @@ impl Document {
             .flat_map(|l| l.chars.iter().map(|c| c.at.and_then(narrow)))
             .collect();
         let tables = table_runs(&lines);
+        let passages = passage_runs(&lines);
         let lines = lines.into_iter().map(|l| {
             let chars = l.chars.into_iter().map(|c| (c.ch, bounds(c.rect)));
             (l.wraps, chars.collect())
@@ -384,6 +385,7 @@ impl Document {
             places,
             figures: Vec::new(),
             tables,
+            passages,
         })
     }
 
@@ -484,6 +486,29 @@ pub(crate) fn stand_in(path: &str) -> Option<PathBuf> {
         }
     }
     (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// The runs of `lines` in lists, figures and asides, alike ones joined.
+fn passage_runs(lines: &[mareader_reflow::PageLine]) -> Vec<PassageRun> {
+    let mut runs: Vec<PassageRun> = Vec::new();
+    let mut at = 0;
+    for line in lines {
+        let end = at + line.chars.len();
+        let kind = |k| match k {
+            PassageKind::List => Passage::List,
+            PassageKind::Figure => Passage::Figure,
+            PassageKind::Aside => Passage::Aside,
+        };
+        let these: Vec<(Passage, usize)> =
+            line.passages.iter().map(|&(k, n)| (kind(k), n)).collect();
+        match runs.last_mut() {
+            _ if these.is_empty() => {}
+            Some((run, last)) if *last == these && run.end == at => run.end = end,
+            _ => runs.push((at..end, these)),
+        }
+        at = end;
+    }
+    runs
 }
 
 /// Runs of characters in table cells, by table block, in text order.

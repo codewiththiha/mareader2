@@ -28,6 +28,7 @@ mod control;
 mod countdown;
 mod edges;
 pub mod marker;
+mod parts;
 mod spoken;
 mod words;
 
@@ -238,7 +239,7 @@ impl Narrated {
             back: self.narration.previous(heard, self.skip).is_some(),
             next: self.narration.next(heard, self.skip).is_some(),
             unit: "phrase",
-            escape: self.narration.escape(heard, self.skip).is_some(),
+            escape: (self.narration.escape(heard, self.skip)).map(|_| parts::Kind::Table),
             ask: None,
             at: Some(if self.finished {
                 1.0
@@ -474,7 +475,7 @@ struct Shape {
     /// The time left it shows, running down evenly.
     countdown: countdown::Countdown,
     /// The part last asked about, kept while its question fades.
-    asked: Option<&'static str>,
+    asked: Option<parts::Kind>,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -1060,7 +1061,8 @@ impl ReadAloud {
             let about = s.about(stage.title);
             let lyrics = s.lyrics();
             // Compact grows up from the bar; full widens into a card.
-            let parts = Fit::new(room.width() - 24.0, view.escape).width(view.escape);
+            let escape = view.escape.is_some();
+            let parts = Fit::new(room.width() - 24.0, escape).width(escape);
             // A width set by hand holds in every shape, if the room has it.
             let (narrowest, widest) = ReadAloudSettings::PLAYER_WIDTH;
             let set = shape.dragged.or(settings.player_width);
@@ -1084,7 +1086,8 @@ impl ReadAloud {
             shape.rise = pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0));
             // It stays up a while: toasts rise above it, not over it.
             crate::toast::stand_on(ctx, rect);
-            let fit = Fit::new(width, view.escape).fill(width, view.escape);
+            let escape = view.escape.is_some();
+            let fit = Fit::new(width, escape).fill(width, escape);
             let least = if f >= 0.5 {
                 card::FULL_LEAST
             } else {

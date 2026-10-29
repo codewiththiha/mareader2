@@ -12,8 +12,8 @@ use html5ever::tokenizer::{
 use mareader_reflow::{
     Align, Anchor, Annotation, Area, Backdrop, BackdropSize, Block, Boxed, Case, Cell, Columns,
     Content, Dir, Edge, Emphasis, Features, Finish, Flex, Floated, Frame, Frame9, GradientShape,
-    GridRow, Inline, Justify, Keep, Length, Links, Look, Outline, Picture, Rise, Role, Row, Script,
-    Sheet, Spot, Table, Text, TextShadow, ThinVec, VAlign,
+    GridRow, Inline, Justify, Keep, Length, Links, Look, Outline, Passage, PassageKind, Picture,
+    Rise, Role, Row, Script, Sheet, Spot, Table, Text, TextShadow, ThinVec, VAlign,
 };
 
 use crate::calc::Vars;
@@ -247,6 +247,8 @@ struct Open {
     signals: bool,
     /// Its `::after` box, shown as it closes.
     after: Option<Box<Decl>>,
+    /// The list, figure or aside it starts, if none of its kind is open.
+    passage: Option<Arc<Passage>>,
 }
 
 /// The generated boxes rules give an element.
@@ -461,6 +463,22 @@ fn attr<'t>(tag: &'t Tag, name: &str) -> Option<&'t str> {
 fn typed(tag: &Tag, name: &str, words: &[&str]) -> bool {
     let listed = |w: &str| words.iter().any(|x| w.eq_ignore_ascii_case(x));
     attr(tag, name).is_some_and(|v| v.split_whitespace().any(listed))
+}
+
+/// The passage an element starts, by its name or semantics.
+fn passage_kind(name: &str, tag: &Tag) -> Option<PassageKind> {
+    match name {
+        "ul" | "ol" | "dl" => Some(PassageKind::List),
+        "figure" => Some(PassageKind::Figure),
+        "aside" => Some(PassageKind::Aside),
+        _ if typed(tag, "epub:type", &["sidebar"]) => Some(PassageKind::Aside),
+        _ => match attr(tag, "role")?.trim() {
+            "list" => Some(PassageKind::List),
+            "figure" => Some(PassageKind::Figure),
+            "complementary" => Some(PassageKind::Aside),
+            _ => None,
+        },
+    }
 }
 
 /// An element holding a note, by EPUB or ARIA semantics.
@@ -759,6 +777,11 @@ impl State<'_> {
             f.dir = c.dir;
             f.orient = c.orient;
         }
+        f.passages = self
+            .stack
+            .iter()
+            .filter_map(|o| o.passage.clone())
+            .collect();
         f.turned = self.turned;
         f.sheet = self.sheet.clone();
         f.spot = self.places.last().and_then(|p| p.spot.clone());
@@ -1681,7 +1704,7 @@ impl State<'_> {
         }
         if self.current.is_none() {
             let mut frame = self.frame();
-            frame.marker = self.marker.take();
+            frame.marker = self.marker.take().map(String::into_boxed_str);
             frame.marker_colour = self.marker_colour.take();
             frame.marker_picture = self.marker_picture.take();
             let role = self.role();
@@ -3522,6 +3545,15 @@ impl State<'_> {
             style.link = Some(link);
         }
         self.pre_opened = name == "pre";
+        let passage = passage_kind(name, tag)
+            .filter(|&kind| {
+                !self
+                    .stack
+                    .iter()
+                    .flat_map(|o| &o.passage)
+                    .any(|p| p.kind == kind)
+            })
+            .map(|kind| Arc::new(Passage { kind }));
         self.stack.push(Open {
             name: name.to_owned(),
             style,
@@ -3537,6 +3569,7 @@ impl State<'_> {
             floated,
             signals,
             after: after.map(Box::new),
+            passage,
         });
         if name == "style" {
             self.style_text.clear();
@@ -4938,6 +4971,37 @@ mod tests {
                 (0.0, None, false),
             ]
         );
+    }
+
+    #[test]
+    fn blocks_of_one_list_figure_or_aside_share_it() {
+        let b = read(
+            "<ul><li>a<ul><li>nested</li></ul></li><li><figure><p>pic</p></figure></li></ul>\
+             <p>plain</p><ol><li>b</li></ol><div epub:type='sidebar'><p>side</p></div>",
+        );
+        let kinds =
+            |b: &Block| -> Vec<PassageKind> { b.frame.passages.iter().map(|p| p.kind).collect() };
+        let (list, figure) = (PassageKind::List, PassageKind::Figure);
+        let all: Vec<Vec<PassageKind>> = b.iter().map(kinds).collect();
+        assert_eq!(
+            all,
+            [
+                vec![list],
+                vec![list],
+                vec![list, figure],
+                vec![],
+                vec![list],
+                vec![PassageKind::Aside],
+            ]
+        );
+        let first = |i: usize| b.get(i).and_then(|b| b.frame.passages.first().cloned());
+        let same = |i, j| {
+            first(i)
+                .zip(first(j))
+                .is_some_and(|(x, y)| Arc::ptr_eq(&x, &y))
+        };
+        assert!(same(0, 1) && same(0, 2), "one list, nested one in it");
+        assert!(!same(0, 4), "the next list is its own");
     }
 
     #[test]

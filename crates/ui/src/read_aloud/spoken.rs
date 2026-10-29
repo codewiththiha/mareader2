@@ -6,12 +6,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::Context;
 use mareader_session::{Anchor, DocId, Document, TextLayer};
-use mareader_settings::{Highlight, Pass, ReadAloudSettings};
+use mareader_settings::{Highlight, Pass, ReadAloudSettings, Skips};
 use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
 use super::card::Lyrics;
 use super::control::{Act, View};
+use super::parts::{self, Part};
 use super::words::{self, Clock, Pace, Steady};
 use super::{Lit, Span, TICK, follow, place_name};
 use crate::documents::{Documents, Reading};
@@ -42,8 +43,8 @@ pub enum Start {
 struct Said {
     sentence: Sentence,
     anchor: Option<Anchor>,
-    /// The table block it starts in, if it is a table cell's.
-    table: Option<usize>,
+    /// The tables, lists, figures and asides it starts in, outermost first.
+    parts: Vec<Part>,
 }
 
 /// One book being said in one pane.
@@ -97,15 +98,15 @@ pub(super) struct Spoken {
     jump: Option<usize>,
     /// Just found again in a pane, which should turn to the words read.
     homing: bool,
-    /// The table being skipped: its sentences are passed unsaid.
-    leaving: Option<usize>,
-    /// What reading does on reaching a table.
-    tables: Pass,
-    /// The table chosen to be read: it is not asked about again.
-    cleared: Option<usize>,
-    /// The table asked about, held at its start for an answer.
-    asking: Option<usize>,
-    /// Read afresh: a table it starts in is read unasked.
+    /// The part being skipped: its sentences are passed unsaid.
+    leaving: Option<Part>,
+    /// What reading does on reaching each kind of part.
+    skips: Skips,
+    /// The parts read on into: they are not asked about again.
+    cleared: Vec<Part>,
+    /// The part asked about, held at its start for an answer.
+    asking: Option<Part>,
+    /// Read afresh: the parts it starts in are read unasked.
     entered: bool,
 }
 
@@ -154,8 +155,8 @@ impl Spoken {
             jump: None,
             homing: false,
             leaving: None,
-            tables: settings.skips.tables.pass(),
-            cleared: None,
+            skips: settings.skips,
+            cleared: Vec::new(),
             asking: None,
             entered: true,
         };
@@ -236,7 +237,7 @@ impl Spoken {
         self.current = None;
         self.began = None;
         self.leaving = None;
-        self.cleared = None;
+        self.cleared.clear();
         self.entered = true;
         if self.asking.take().is_some() {
             self.paused = false;
@@ -254,11 +255,11 @@ impl Spoken {
     /// Takes up changed settings; a changed voice says the sentence again.
     fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
         self.highlight = (settings.highlight, settings.highlight_words);
-        self.tables = settings.skips.tables.pass();
+        self.skips = settings.skips;
         // Asked no more, the question answers itself.
-        match self.tables {
-            Pass::Read if self.asking.is_some() => self.answer(true),
-            Pass::Skip if self.asking.is_some() => self.answer(false),
+        match self.asking.map(|p| p.kind.pass(&self.skips)) {
+            Some(Pass::Read) => self.answer(true),
+            Some(Pass::Skip) => self.answer(false),
             _ => {}
         }
         let build = mareader_speech::build_of(&settings.engine, settings.build(), shelf);
@@ -342,51 +343,62 @@ impl Spoken {
     /// The next sentence; none while the thread reads, the end once done.
     fn next(&mut self) -> Option<Said> {
         while let Some(said) = self.ahead.pop_front().or_else(|| self.pull()) {
-            if self.leaving.is_some() && said.table == self.leaving {
+            if self.leaving.is_some_and(|p| said.parts.contains(&p)) {
                 self.keep(said);
                 continue;
             }
             self.leaving = None;
-            let entered = std::mem::take(&mut self.entered);
-            let Some(table) = said.table else {
-                self.cleared = None;
-                return Some(said);
-            };
-            if entered || self.cleared == Some(table) {
-                self.cleared = Some(table);
+            self.cleared.retain(|p| said.parts.contains(p));
+            if std::mem::take(&mut self.entered) {
+                self.cleared.clone_from(&said.parts);
                 return Some(said);
             }
-            match self.tables {
-                Pass::Read => self.cleared = Some(table),
-                Pass::Ask => self.ask(table),
-                Pass::Skip => {
-                    self.leaving = Some(table);
-                    self.keep(said);
+            // Outermost first: a skipped list passes the tables in it.
+            let mut held = None;
+            for &part in &said.parts {
+                if self.cleared.contains(&part) {
                     continue;
                 }
+                match part.kind.pass(&self.skips) {
+                    Pass::Read => self.cleared.push(part),
+                    pass => {
+                        held = Some((part, pass));
+                        break;
+                    }
+                }
             }
-            return Some(said);
+            match held {
+                Some((part, Pass::Skip)) => {
+                    self.leaving = Some(part);
+                    self.keep(said);
+                }
+                Some((part, _)) => {
+                    self.ask(part);
+                    return Some(said);
+                }
+                None => return Some(said),
+            }
         }
         None
     }
 
-    /// Holds at a table's start, asking whether to read it.
-    fn ask(&mut self, table: usize) {
-        self.asking = Some(table);
+    /// Holds at a part's start, asking whether to read it.
+    fn ask(&mut self, part: Part) {
+        self.asking = Some(part);
         self.paused = true;
         self.clock.stop();
     }
 
-    /// The answer to the table asked about: read it, or pass it over.
+    /// The answer to the part asked about: read it, or pass it over.
     fn answer(&mut self, read: bool) {
-        let Some(table) = self.asking.take() else {
+        let Some(part) = self.asking.take() else {
             return;
         };
         self.paused = false;
         if read {
-            self.cleared = Some(table);
+            self.cleared.push(part);
         } else {
-            self.leaving = Some(table);
+            self.leaving = Some(part);
             self.pass();
         }
         self.go_on();
@@ -470,7 +482,7 @@ impl Spoken {
     }
 
     pub fn toggle(&mut self) {
-        // Play, asked about a table, reads it.
+        // Play, asked about a part, reads it.
         if self.asking.is_some() {
             self.answer(true);
         } else if self.finished {
@@ -503,36 +515,36 @@ impl Spoken {
         if self.asking.take().is_some() {
             self.paused = false;
         }
-        // Stepped back into, a table is read unasked.
-        self.cleared = said.table;
+        // Stepped back into, its parts are read unasked.
+        self.cleared.clone_from(&said.parts);
         if let Some(current) = self.current.replace(said) {
             self.ahead.push_front(current);
         }
         self.go_on();
     }
 
-    /// Skips the rest of the table read, to the first sentence after it.
+    /// Skips the rest of the innermost part read, to the sentence after it.
     fn escape(&mut self) {
         if self.asking.is_some() {
             self.answer(false);
             return;
         }
-        let Some(table) = self.current.as_ref().and_then(|s| s.table) else {
+        let Some(&part) = self.current.as_ref().and_then(|s| s.parts.last()) else {
             return;
         };
         if let Some(v) = self.voicer.as_mut() {
             v.stop();
         }
         self.saying = false;
-        self.leaving = Some(table);
+        self.leaving = Some(part);
         self.pass();
         self.go_on();
     }
 
     fn forward(&mut self) {
-        // Stepped on by hand, the table asked about is read.
-        if let Some(table) = self.asking.take() {
-            self.cleared = Some(table);
+        // Stepped on by hand, the part asked about is read.
+        if let Some(part) = self.asking.take() {
+            self.cleared.push(part);
             self.paused = false;
         }
         if let Some(v) = self.voicer.as_mut() {
@@ -820,11 +832,11 @@ impl Spoken {
             back: !self.behind.is_empty() && can,
             next: !self.finished && can,
             unit: "sentence",
-            escape: can
-                && !self.finished
-                && self.asking.is_none()
-                && self.current.as_ref().is_some_and(|s| s.table.is_some()),
-            ask: self.asking.and(can.then_some("Table")),
+            escape: (self.current.as_ref())
+                .and_then(|s| s.parts.last())
+                .map(|p| p.kind)
+                .filter(|_| can && !self.finished && self.asking.is_none()),
+            ask: self.asking.filter(|_| can).map(|p| p.kind),
             at: progress.map(|p| p.0),
             left: progress.map(|p| p.1),
             total: progress.map(|p| p.2),
@@ -994,11 +1006,11 @@ fn read(
                     .map(|(_, l)| l),
             };
             let anchor = on.and_then(|l| l.place(start.char)).map(anchor);
-            let table = on.and_then(|l| l.table(start.char));
+            let parts = on.map_or_else(Vec::new, |l| parts::at(l, start.char));
             let said = Said {
                 sentence,
                 anchor,
-                table,
+                parts,
             };
             if tx.send(said).is_err() {
                 return;
@@ -1012,7 +1024,7 @@ fn read(
             .send(Said {
                 sentence,
                 anchor: None,
-                table: None,
+                parts: Vec::new(),
             })
             .is_err()
         {

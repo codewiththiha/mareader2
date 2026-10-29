@@ -7,6 +7,7 @@ use egui::{
 use mareader_audio::RATES;
 use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
+use super::parts::Kind;
 use super::rate_label;
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
@@ -37,10 +38,10 @@ pub(super) struct View<'a> {
     pub next: bool,
     /// What a step moves by: "sentence" or "phrase".
     pub unit: &'static str,
-    /// Inside a table a narrator can leave.
-    pub escape: bool,
-    /// The part reading holds at to ask about, as "Table".
-    pub ask: Option<&'static str>,
+    /// The part read in that can be left: a table, list, figure or aside.
+    pub escape: Option<Kind>,
+    /// The part reading holds at to ask about.
+    pub ask: Option<Kind>,
     /// How much is read, 0 to 1, and seconds likely left and in all.
     pub at: Option<f32>,
     pub left: Option<f64>,
@@ -166,9 +167,10 @@ pub(super) fn show(
     ) {
         act = Some(Act::Next);
     }
-    if view.escape {
+    if let Some(kind) = view.escape {
         let r = slot(BUTTON);
-        if icon_button(ui, r, Icon::LeaveTable, "Skip the rest of this table", true) {
+        let label = format!("Skip the rest of this {}", kind.name().to_lowercase());
+        if icon_button(ui, r, Icon::LeaveTable, &label, true) {
             act = Some(Act::Escape);
         }
     }

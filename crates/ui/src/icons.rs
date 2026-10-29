@@ -143,6 +143,9 @@ pub enum Icon {
     Follow,
     LeaveTable,
     Table,
+    Figure,
+    /// A sidebar or boxed aside beside the main text.
+    Aside,
 }
 
 impl Icon {
@@ -232,6 +235,8 @@ impl Icon {
             Self::SkipForward => Lucide::SkipForward,
             Self::LeaveTable => Lucide::ArrowRightFromLine,
             Self::Table => Lucide::Table,
+            Self::Figure => Lucide::Image,
+            Self::Aside => Lucide::PanelRight,
             Self::PageNumber => Lucide::Hash,
             Self::Follow => Lucide::BookOpenText,
             Self::Check => Lucide::Check,

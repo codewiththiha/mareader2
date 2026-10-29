@@ -82,6 +82,17 @@ impl Bounds {
     }
 }
 
+/// A stretch of a book read aloud may pass over whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Passage {
+    List,
+    Figure,
+    Aside,
+}
+
+/// A run of a book's characters, and the passages it is in, outer first.
+pub type PassageRun = (std::ops::Range<usize>, Vec<(Passage, usize)>);
+
 /// What a page offers besides its pixels: its text and its links.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TextLayer {
@@ -93,6 +104,8 @@ pub struct TextLayer {
     pub figures: Vec<Bounds>,
     /// A book's table cells: runs of characters, and each table's block.
     pub tables: Vec<(std::ops::Range<usize>, u32)>,
+    /// A book's lists, figures and asides, each with which one it is.
+    pub passages: Vec<PassageRun>,
 }
 
 impl TextLayer {
@@ -100,6 +113,8 @@ impl TextLayer {
         let places = self.places.len() * size_of::<Option<(u32, u32)>>();
         let figures = self.figures.len() * size_of::<Bounds>();
         let figures = figures + self.tables.len() * size_of::<(std::ops::Range<usize>, u32)>();
+        let each = |(_, p): &PassageRun| size_of::<PassageRun>() + size_of_val(p.as_slice());
+        let figures = figures + self.passages.iter().map(each).sum::<usize>();
         self.text.bytes() + self.links.len() * size_of::<Link>() + places + figures
     }
 
@@ -113,6 +128,12 @@ impl TextLayer {
     pub fn table(&self, i: usize) -> Option<usize> {
         let (_, block) = self.tables.iter().find(|(run, _)| run.contains(&i))?;
         Some(*block as usize)
+    }
+
+    /// The lists, figures and asides character `i` is in, outer first.
+    pub fn passages(&self, i: usize) -> &[(Passage, usize)] {
+        let run = self.passages.iter().find(|(run, _)| run.contains(&i));
+        run.map_or(&[], |(_, p)| p.as_slice())
     }
 
     /// The last link listed under a point: later ones are drawn on top.

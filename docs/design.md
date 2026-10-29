@@ -351,11 +351,13 @@ A new setting picks its `Applies` once; nothing else changes.
   - **Time.** Up 3.5 s, 6 s for errors and for cards with an action.
     Hovering, the open list or a drag stops every clock, and at least
     1.5 s is left after. They come in with a 200 ms rise and fade.
-- **Read-aloud question.** `read_aloud/ask.rs`. When Skip tables is set
-  to Ask me, reading pauses at a table and a 44 pt pill rises 8 pt into
-  place 10 pt above the player: the table mark in a soft accent round,
-  "Table ahead", a quiet Read and a filled accent Skip. Play or Next mean
-  Read, Esc means Skip, and a changed setting answers it.
+- **Read-aloud question.** `read_aloud/ask.rs`. When Skip tables, lists,
+  figures or asides is set to Ask me, reading pauses at one and a 44 pt
+  pill rises 8 pt into place 10 pt above the player: the part's mark in a
+  soft accent round, "List ahead" (or Table, Figure, Aside), a quiet Read
+  and a filled accent Skip. Play or Next mean Read, Esc means Skip, and a
+  changed setting answers it. Inside both a list and a figure, the outer
+  one is asked about first.
 - **View & tools menu.** The last button in the bar (`view_menu.rs`). It
   holds full screen, the keyboard shortcut list and the version; Open…
   is left to Ctrl+O (⌘O) and the empty pane. When the

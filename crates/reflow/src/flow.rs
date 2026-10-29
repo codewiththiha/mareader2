@@ -4493,7 +4493,7 @@ mod tests {
     #[test]
     fn marker_pictures_and_first_lines_lay_out() {
         let mut item = para(3);
-        item.frame.marker = Some(String::new());
+        item.frame.marker = Some("".into());
         item.frame.marker_picture = Picture::probe(png(32, 32)).ok().map(Arc::new);
         let f = flow(&[item]);
         let pictures = match &*f.laid(0) {

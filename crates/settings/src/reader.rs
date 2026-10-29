@@ -243,6 +243,10 @@ pub enum Pass {
 #[serde(default)]
 pub struct Skips {
     pub tables: Skip,
+    pub lists: Skip,
+    pub figures: Skip,
+    /// Sidebars and boxed asides beside the main text.
+    pub asides: Skip,
 }
 
 /// How a book with narration is read aloud.

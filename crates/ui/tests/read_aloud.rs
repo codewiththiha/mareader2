@@ -1121,6 +1121,96 @@ fn a_table_can_be_asked_about_or_passed_over() {
     assert!(h.query_by_label("Read the table").is_none());
 }
 
+/// The lists the sentence lit now starts in, by which one.
+fn lit_lists(h: &Harness<'static, MareaderApp>) -> Vec<usize> {
+    let pane = h.state().active_pane();
+    let Some(((start, _), reading)) = lit(h).zip(h.state().documents().reading(pane)) else {
+        return Vec::new();
+    };
+    let Ok(layer) = reading.document.text_layer(start.page) else {
+        return Vec::new();
+    };
+    let lists = layer.passages(start.char).iter();
+    let lists = lists.filter(|(kind, _)| *kind == mareader_session::Passage::List);
+    lists.map(|&(_, id)| id).collect()
+}
+
+/// The page and first character of the first list in the sample book.
+fn first_list(h: &Harness<'static, MareaderApp>) -> Option<Spot> {
+    let pane = h.state().active_pane();
+    let document = &h.state().documents().reading(pane)?.document;
+    (0..document.page_count()).find_map(|page| {
+        let layer = document.text_layer(page).ok()?;
+        let (run, _) = layer.passages.first()?;
+        Some(Spot {
+            page,
+            char: run.start,
+        })
+    })
+}
+
+#[test]
+fn a_list_can_be_asked_about_or_passed_over() {
+    use mareader_settings::Skip;
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("epub", "sample:3").ok();
+    app.set_option("set", "read_aloud.engine:\"silent\"").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    let ask = Skip {
+        on: true,
+        ask: true,
+    };
+    h.state_mut().settings_mut().read_aloud.skips.lists = ask;
+    let at = first_list(&h).expect("the sample has a list");
+    let before = Spot {
+        page: at.page.saturating_sub(1),
+        char: 0,
+    };
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(before),
+        until: None,
+    };
+    // Asked, reading holds at the list's start for the answer.
+    start(&mut h, from);
+    step_until(&mut h, |h| h.query_by_label("Read the list").is_some());
+    h.run_steps(20);
+    let first = lit_lists(&h);
+    assert_eq!(first.len(), 1, "held at the list: {:?}", lit(&h));
+    let _ = h.get_by_label("Play");
+    // Skipped, its nested list goes too; the next list is asked about.
+    h.get_by_label("Skip the list").click();
+    let left = |h: &Harness<'static, MareaderApp>| lit_lists(h) != first;
+    step_until(&mut h, left);
+    step_until(&mut h, |h| h.query_by_label("Read the list").is_some());
+    h.run_steps(20);
+    let second = lit_lists(&h);
+    assert!(!second.is_empty() && second != first, "the next list");
+    // Read, it is read on unasked, with a way out of it.
+    h.get_by_label("Read the list").click();
+    h.run_steps(2);
+    let _ = h.get_by_label("Pause");
+    assert!(h.query_by_label("Skip the rest of this list").is_some());
+    // Set to skip, no list is read and nothing is asked.
+    h.state_mut().settings_mut().read_aloud.skips.lists.ask = false;
+    start(&mut h, from);
+    let seen = std::cell::Cell::new(false);
+    let past = |h: &Harness<'static, MareaderApp>| lit(h).is_some_and(|(s, _)| s.page > at.page);
+    step_until(&mut h, |h| {
+        seen.set(seen.get() || !lit_lists(h).is_empty());
+        past(h)
+    });
+    assert!(!seen.get(), "no list was read");
+    assert!(h.query_by_label("Read the list").is_none());
+}
+
 #[test]
 fn the_options_menu_sets_the_player_and_stays_over_it() {
     use mareader_settings::{Highlight, Player};

@@ -545,6 +545,15 @@ fn reading(ui: &mut Ui, s: &mut ReadAloudSettings) {
         divider(ui);
         let hint = "Pass over tables, or ask at each one";
         skip_row(ui, "Skip tables", hint, &mut s.skips.tables);
+        divider(ui);
+        let hint = "Pass over bulleted and numbered lists, or ask at each one";
+        skip_row(ui, "Skip lists", hint, &mut s.skips.lists);
+        divider(ui);
+        let hint = "Pass over figures and their captions, or ask at each one";
+        skip_row(ui, "Skip figures", hint, &mut s.skips.figures);
+        divider(ui);
+        let hint = "Pass over sidebars and boxed asides, or ask at each one";
+        skip_row(ui, "Skip asides", hint, &mut s.skips.asides);
     });
 }
 

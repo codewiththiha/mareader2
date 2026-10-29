@@ -629,6 +629,20 @@ pub struct Floated {
     pub depth: u8,
 }
 
+/// What a passage read aloud may pass over whole is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PassageKind {
+    List,
+    Figure,
+    Aside,
+}
+
+/// One list, figure or aside; blocks of one share it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Passage {
+    pub kind: PassageKind,
+}
+
 /// Where a cell's content sits in a taller row.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum VAlign {
@@ -705,7 +719,7 @@ pub struct Frame {
     /// Quote bars, each at this many body ems from the column's left.
     pub bars: ThinVec<f32>,
     /// A list marker hung left of the first line, like "•" or "3.".
-    pub marker: Option<String>,
+    pub marker: Option<Box<str>>,
     /// The marker's colour, as [`Emphasis::colour`].
     pub marker_colour: Option<[u8; 3]>,
     /// A picture shown as the marker, after its text.
@@ -745,6 +759,8 @@ pub struct Frame {
     pub spot: Option<Arc<Spot>>,
     /// Takes its room but draws nothing, as `visibility: hidden`.
     pub hidden: bool,
+    /// The outermost list, figure and aside it is in, outer first.
+    pub passages: ThinVec<Arc<Passage>>,
 }
 
 /// A fixed-layout page: its blocks laid at the book's own viewport.

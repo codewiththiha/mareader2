@@ -24,8 +24,8 @@ pub use block::{
     Align, Annotation, Area, Backdrop, BackdropSize, Block, Boxed, CHAR_BYTES, Case, Cell, Columns,
     Content, Dir, Edge, Emphasis, FEATURES, Features, Finish, Flex, Floated, Frame, Frame9,
     Gradient, GradientShape, GridRow, Inline, Justify, Keep, LAYOUT_BYTES, LastLine, Layer, Length,
-    Link, Look, Orient, Outline, Rise, Role, Row, Script, Shadow, Sheet, Span, Spot, Table, Text,
-    TextShadow, Tile, VAlign, clip,
+    Link, Look, Orient, Outline, Passage, PassageKind, Rise, Role, Row, Script, Shadow, Sheet,
+    Span, Spot, Table, Text, TextShadow, Tile, VAlign, clip,
 };
 pub use flow::{
     Anchor, Band, COLUMN_SCALE, Design, Flow, MAX_LAID, MAX_PAGES, PAD, PAGE_HEIGHT, PAGE_WIDTH,

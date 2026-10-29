@@ -7,7 +7,7 @@ use egui::{
     WidgetInfo, WidgetType, pos2, vec2,
 };
 
-use crate::icons::Icon;
+use super::parts::Kind;
 use crate::motion;
 use crate::theme::{self, Tokens};
 
@@ -25,7 +25,7 @@ const RISE: f32 = 8.0;
 pub(super) fn show(
     ctx: &Context,
     (player, room): (Rect, Rect),
-    part: &str,
+    part: Kind,
     shown: f32,
 ) -> Option<bool> {
     let foot = pos2(player.center().x, player.top() - GAP + (1.0 - shown) * RISE);
@@ -46,10 +46,11 @@ pub(super) fn show(
 }
 
 /// The pill: the part's icon and name, then Read and Skip.
-fn pill(ui: &mut Ui, part: &str) -> Option<bool> {
+fn pill(ui: &mut Ui, part: Kind) -> Option<bool> {
     let t = Tokens::get(ui.ctx());
     let painter = ui.painter().clone();
-    let title = painter.layout_no_wrap(format!("{part} ahead"), theme::medium(t.text), t.ink);
+    let name = part.name();
+    let title = painter.layout_no_wrap(format!("{name} ahead"), theme::medium(t.text), t.ink);
     let small = theme::medium(t.text_small);
     let read = painter.layout_no_wrap("Read".to_owned(), small.clone(), t.ink);
     let skip = painter.layout_no_wrap("Skip".to_owned(), small, theme::ink_on(t.accent));
@@ -66,10 +67,10 @@ fn pill(ui: &mut Ui, part: &str) -> Option<bool> {
     let disc = pos2(rect.left() + PAD + DISC / 2.0, y);
     painter.circle_filled(disc, DISC / 2.0, t.accent_soft);
     let icon = Rect::from_center_size(disc, egui::Vec2::splat(16.0));
-    Icon::Table.image(16.0).tint(t.accent).paint_at(ui, icon);
+    part.icon().image(16.0).tint(t.accent).paint_at(ui, icon);
     let at = pos2(disc.x + DISC / 2.0 + 10.0, y - title.size().y / 2.0);
     painter.galley(at, title, t.ink);
-    let lower = part.to_lowercase();
+    let lower = name.to_lowercase();
     let mut right = rect.right() - PAD;
     let mut slot = |g: &Galley| {
         let r = Rect::from_min_max(

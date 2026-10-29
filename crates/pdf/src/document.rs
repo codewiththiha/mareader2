@@ -256,6 +256,7 @@ impl Document {
             places: Vec::new(),
             figures: collector.figures,
             tables: Vec::new(),
+            passages: Vec::new(),
         })
     }
 

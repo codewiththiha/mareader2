@@ -425,7 +425,11 @@ the reader; clips in the text still open in the system's player.
 The phrase read is lit on the page and pages turn to keep it in view.
 
 A book with no overlay is read by a voice, a sentence at a time. In a
-`table`, the same button skips the cells left, to the words after it.
+`table`, the same button skips the cells left, to the words after it;
+in a list (`ul`, `ol`, `dl`, `role="list"`), a `figure` or an aside
+(`aside`, `epub:type="sidebar"`, `role="complementary"`) it skips the
+rest of that. Each kind can be read, asked about or always passed over;
+a nested list goes with the list it is in.
 Reading goes on across chapters to the book's end. Text inside a table
 isn't lit, but the page still turns to it. The lit colour lies lightly
 over the page, more faintly on dark themes, so the text stays readable.

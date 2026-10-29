@@ -5,6 +5,7 @@ use std::sync::Arc;
 use parley::{BreakReason, PositionedLayoutItem};
 use skrifa::{FontRef, Tag};
 
+use crate::block::PassageKind;
 use crate::flow::{Draw, Flow, Laid, Para};
 use crate::hyphen::SHY;
 use crate::picture::Picture;
@@ -27,6 +28,8 @@ pub struct PageLine {
     pub wraps: bool,
     /// The table block it is a cell line of, if any.
     pub table: Option<usize>,
+    /// The lists, figures and asides it is in, outer first: kind and which.
+    pub passages: Vec<(PassageKind, usize)>,
 }
 
 impl Flow {
@@ -34,7 +37,8 @@ impl Flow {
     pub fn text(&self, page: usize) -> Vec<PageLine> {
         let mut out: Vec<PageLine> = Vec::new();
         self.each_para(page, |para, range, place| {
-            lines(para, range, place, &mut out)
+            let passages = self.passages(place.1);
+            lines(para, range, (place, &passages), &mut out)
         });
         // Turned or fitted pages show their letters elsewhere than laid.
         if self.turned(page) || self.is_fixed(page) {
@@ -52,6 +56,16 @@ impl Flow {
             colour_runs(para, range, (x, y), &mut out);
         });
         out.into_iter().map(|r| self.shown_rect(page, r)).collect()
+    }
+
+    /// The passages block `source` is in: each kind, and which one.
+    fn passages(&self, source: Source) -> Vec<(PassageKind, usize)> {
+        let (Source::Text(b) | Source::Table(b)) = source;
+        let Some(block) = self.source().get(b) else {
+            return Vec::new();
+        };
+        let passages = block.frame.passages.iter();
+        passages.map(|p| (p.kind, Arc::as_ptr(p).addr())).collect()
     }
 
     /// Each paragraph's lines on page `page`, with where they are drawn.
@@ -185,7 +199,12 @@ fn is_colour(data: &[u8], index: u32) -> bool {
 }
 
 /// Lines `range` of `para`, its origin at `x, y`, each char boxed.
-fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine>) {
+fn lines(
+    para: &Para,
+    range: Range<usize>,
+    (place, passages): (Origin, &[(PassageKind, usize)]),
+    out: &mut Vec<PageLine>,
+) {
     let ((x, y), source_block) = place;
     let (block, table) = match source_block {
         Source::Text(b) => (Some(b), None),
@@ -244,6 +263,7 @@ fn lines(para: &Para, range: Range<usize>, place: Origin, out: &mut Vec<PageLine
             chars,
             wraps,
             table,
+            passages: passages.to_vec(),
         });
     }
 }

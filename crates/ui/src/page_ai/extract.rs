@@ -274,7 +274,7 @@ fn text_block(role: Role, text: &str, code: &[Range<usize>], from: Option<&Block
     if from.is_none() {
         match role {
             Role::Item => {
-                frame.marker = Some("•".to_owned());
+                frame.marker = Some("•".into());
                 frame.inset = 1.5;
                 frame.tight = true;
             }
