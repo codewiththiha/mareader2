@@ -124,7 +124,7 @@ platform, then installs it, launches it with a book, and removes it:
 | Runner | Installers | Checked |
 | --- | --- | --- |
 | `ubuntu-22.04` | `.deb`, AppImage, pacman (`.tar.gz` and `PKGBUILD`) | the desktop entry's four types and `%F`; `apt` installs it with its dependencies; every linked library resolves; both the `.deb` and the AppImage launch; `apt` removes it |
-| `macos-26` (Apple Silicon) | `.app` in a `.dmg` | `Info.plist` lists the four types and macOS 11; the signature verifies; the binary is arm64 and links only system libraries; the Apple Intelligence helper is inside; the `.dmg` mounts with the app and an Applications link; it launches |
+| `macos-26` (Apple Silicon) | `.app` in a `.dmg` | `Info.plist` lists the four types and macOS 11; the signature verifies; the binary is arm64 and links only system libraries; the Apple Intelligence helper is inside; the `.dmg`'s checksums hold, an ad hoc build's `.dmg` is unsigned, and it mounts with the signed app and an Applications link; it launches |
 | `macos-26-intel` | `.app` in a `.dmg` | the same, x86_64, without the helper |
 | `windows-latest` | NSIS `-setup.exe`, MSI | each installs silently, registers `.pdf`, `.epub`, `.txt` and `.md`, launches and uninstalls silently |
 
@@ -161,7 +161,10 @@ Signing:
 
 - **macOS** is signed ad hoc (`signing-identity = "-"`). A downloaded
   copy asks once: open it, then choose Open Anyway in System Settings ›
-  Privacy & Security. Unsigned, Apple Silicon would call it damaged. With
+  Privacy & Security. Unsigned, Apple Silicon would call it damaged. The
+  `.dmg` around it is left unsigned (`tools/unsign-dmg.py` strips the ad
+  hoc signature cargo-packager adds): macOS checks a signed disk image as
+  it opens, and refuses an ad hoc one before the app is reached. With
   the repository secrets `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`
   (base64 `.p12`) and `APPLE_CERTIFICATE_PASSWORD`, CI signs with that
   Developer ID instead, and `APPLE_ID`, `APPLE_PASSWORD` (an app-specific

@@ -105,7 +105,7 @@ linux() {
 }
 
 macos() {
-  local app dmg bin plist want mnt
+  local app dmg bin plist want mnt sig
   app=$(one "$out"/*.app) || { bad "one .app"; return; }
   dmg=$(one "$out"/*.dmg) || { bad "one .dmg"; return; }
   bin="$app/Contents/MacOS/mareader"
@@ -130,9 +130,17 @@ macos() {
   if [ "${HELPER:-}" = expected ]; then
     check "the Apple Intelligence helper is inside" test -x "$app/Contents/Resources/FMBridge"
   fi
+  check "the .dmg's checksums hold" hdiutil verify "$dmg"
+  # macOS refuses an ad hoc signed .dmg outright (tools/unsign-dmg.py).
+  sig=$(codesign -dv "$app" 2>&1 || true)
+  if [[ $sig == *Signature=adhoc* ]]; then
+    check "an ad hoc build's .dmg is unsigned" bash -c "! codesign -d '$dmg'"
+  fi
   mnt=$(mktemp -d)
   if hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >>"$report/log.txt"; then
     check "the .dmg holds the app" test -d "$mnt/$(basename "$app")"
+    check "the app in the .dmg is signed" \
+      codesign --verify --deep --strict "$mnt/$(basename "$app")"
     check "the .dmg links to Applications" test -L "$mnt/Applications"
     hdiutil detach "$mnt" >>"$report/log.txt" || true
   else

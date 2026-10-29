@@ -109,6 +109,14 @@ jobs:
           cd apps/mareader
           cargo packager --release --target "$CARGO_BUILD_TARGET" \
             --formats "${{ matrix.formats }}"
+      # An ad hoc signed .dmg is refused before it opens; see the tool.
+      - name: Unsign the .dmg
+        if: runner.os == 'macOS'
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          [ -n "$IDENTITY" ] && exit 0
+          python3 tools/unsign-dmg.py target/"$CARGO_BUILD_TARGET"/release/*.dmg
       - name: Linux check tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb mesa-vulkan-drivers imagemagick
