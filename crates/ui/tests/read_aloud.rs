@@ -306,7 +306,6 @@ fn a_preview_says_a_line_and_the_book_waits() {
 
 #[test]
 fn the_shortcut_starts_reading_then_pauses_it() {
-    // Long enough that a slow runner can't reach the end before the pause.
     let mut h = reader(3);
     let keys = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
     h.key_press_modifiers(keys, egui::Key::U);
@@ -315,7 +314,10 @@ fn the_shortcut_starts_reading_then_pauses_it() {
     h.key_press_modifiers(keys, egui::Key::U);
     h.run_steps(1);
     assert!(!h.state().read_aloud().playing(), "the same keys pause");
+    // A pause between silent sentences lights the next one, unsaid.
+    step_until(&mut h, |h| lit(h).is_some());
     assert!(lit(&h).is_some(), "paused, it stays lit");
+    assert!(!h.state().read_aloud().playing(), "and stays paused");
 }
 
 #[test]
