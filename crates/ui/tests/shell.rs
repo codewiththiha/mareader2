@@ -405,15 +405,16 @@ fn a_dependent_setting_shows_once_its_parent_is_on() {
     let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
     let shared = "Light, Dark and Dim change every pane";
     assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_none());
-    h.get_by_role_and_label(Role::CheckBox, "Independent theme for each pane")
-        .click();
+    independent_themes(&mut h);
     h.run_steps(2);
     assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_some());
 }
 
 #[test]
-fn split_pane_outline_colour_comes_from_the_theme_tab() {
-    let mut h = with(&[("panes", "2"), ("settings", "theme")]);
+fn split_pane_outline_colour_comes_from_the_workspace_tab() {
+    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    h.get_by_label("Red").scroll_to_me();
+    h.run();
     h.get_by_label("Red").click();
     h.run_steps(2);
     let look = h.state().settings().workspace.look;
@@ -1046,8 +1047,7 @@ fn a_preset_section_folds_on_its_own() {
 #[test]
 fn independent_themes_from_settings_colour_the_other_pane() {
     let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
-    h.get_by_role_and_label(Role::CheckBox, "Independent theme for each pane")
-        .click();
+    independent_themes(&mut h);
     h.run_steps(3);
     let app = h.state();
     assert!(app.settings().workspace.independent_themes);
@@ -1126,4 +1126,13 @@ fn closing_to_one_pane_keeps_the_survivor_s_own_look() {
         own,
         "the window took it over"
     );
+}
+
+/// Split, the Workspace tab opens on the pane looks; the switch is below.
+fn independent_themes(h: &mut Harness<'static, MareaderApp>) {
+    let switch = "Independent theme for each pane";
+    h.get_by_role_and_label(Role::CheckBox, switch)
+        .scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, switch).click();
 }

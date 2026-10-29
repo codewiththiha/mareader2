@@ -2,8 +2,8 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle, PaperArea,
-    Settings, StartupFit, Swatch,
+    Corners, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle, PaneLook,
+    PaperArea, Settings, StartupFit, Swatch,
 };
 
 use egui::{
@@ -682,8 +682,6 @@ fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
             A PDF takes type while one of its AI pages shows.";
         note(ui, text);
     }
-    let title = "Split pane appearance";
-    rows(ui, cx, Applies::Split, title, |r| pane_look(r, s));
     // Read from page rasters, so only PDFs have it.
     rows(ui, cx, Applies::NotBook, "Paper", |r| paper(r, s));
 }
@@ -713,8 +711,7 @@ fn paper(r: &mut Rows<'_>, s: &mut Settings) {
 /// Touching panes hide corners and shadows, so picking one opens a gap.
 const EDGE_HINT: &str = "Shows between panes; picking it opens a gap if they touch";
 
-fn pane_look(r: &mut Rows<'_>, s: &mut Settings) {
-    let w = &mut s.workspace.look;
+fn pane_look(r: &mut Rows<'_>, w: &mut PaneLook) {
     r.always(|ui| {
         row(ui, "Outline thickness", "Zero hides the outline", |ui| {
             ui.spacing_mut().slider_width = 140.0;
@@ -831,6 +828,8 @@ fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     });
     let page = "The Library page follows this too; with Do nothing it opens in the focused pane.";
     note(ui, page);
+    let title = "Split pane appearance";
+    rows(ui, cx, Applies::Split, title, |r| pane_look(r, &mut w.look));
     rows(ui, cx, Applies::Always, "Pane themes", |r| {
         r.always(|ui| {
             let hint = "While split, each pane keeps its own colour; grain stays shared";

@@ -1,6 +1,6 @@
 //! A pane's document name or chapter, in its top-left corner.
 
-use egui::{Context, Id, Label, LayerId, Order, Rect, RichText, pos2};
+use egui::{Context, Id, Label, LayerId, Order, Rect, RichText, WidgetInfo, WidgetType, pos2};
 use mareader_pdf::{OutlineEntry, active_entry};
 use mareader_settings::{FloatingLabelStyle, LayoutSettings};
 
@@ -78,8 +78,13 @@ pub fn show(
             ui.set_opacity(fade);
             ui.set_clip_rect(pane);
             ui.set_max_width((pane.width() - 2.0 * INSET).max(0.0));
-            let text = RichText::new(text).size(t.text_small).color(t.muted);
-            ui.add(Label::new(text).truncate());
+            let rich = RichText::new(text.as_str())
+                .size(t.text_small)
+                .color(t.muted);
+            let shown = ui.add(Label::new(rich).truncate());
+            // Named apart from the outline entry that reads the same.
+            let name = format!("Pane label: {text}");
+            shown.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &name));
         });
 }
 

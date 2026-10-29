@@ -354,7 +354,7 @@ tier = "P1"
 milestone = "M1"
 status = "shipped"
 evidence = [
-  "crates/ui/tests/shell.rs::split_pane_outline_colour_comes_from_the_theme_tab",
+  "crates/ui/tests/shell.rs::split_pane_outline_colour_comes_from_the_workspace_tab",
   "crates/ui/tests/gpu.rs::pages_keep_inside_a_split_pane_s_round_corners",
 ]
 reference = ["crates/reader-core/src/settings/workspace.rs", "crates/reader-runtime/src/host/mod.rs"]

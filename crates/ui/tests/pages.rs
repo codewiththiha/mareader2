@@ -151,19 +151,27 @@ fn a_set_zoom_shrinks_with_the_pane_and_grows_back_only_to_itself() {
 #[test]
 fn the_floating_label_shows_while_the_bar_hides_and_room_allows() {
     let mut h = reader(&[("pdf", "sample:5"), ("label", "chapter")]);
-    let chapter = "Chapter 1: Opening";
+    let label = "Pane label: Chapter 1: Opening";
     // Fitted edge to edge, there is no room beside the page.
-    assert!(h.query_by_label(chapter).is_none());
+    assert!(h.query_by_label(label).is_none());
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Minus);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Minus);
     h.run();
-    let _ = h.get_by_label(chapter);
+    let _ = h.get_by_label(label);
     // A floating sidebar slides over the label instead of hiding it.
     h.state_mut().set_option("float", "true").ok();
     h.state_mut().set_option("sidebar", "outline").ok();
     h.run();
-    let shown = h.query_all_by_label(chapter).count();
-    assert_eq!(shown, 2, "the outline's entry and the label");
+    let _ = h.get_by_label(label);
+    let _ = h.get_by_label("Chapter 1: Opening");
+}
+
+#[test]
+fn by_default_the_label_always_shows_the_chapter() {
+    let h = reader(&[("pdf", "sample:5")]);
+    let _ = h.get_by_label("Pane label: Chapter 1: Opening");
+    let l = &h.state().settings().layout;
+    assert!(l.floating_label_persist && !l.progress_bar && !l.page_shadow);
 }
 
 #[test]
@@ -173,10 +181,11 @@ fn always_show_keeps_the_label_under_a_pinned_bar() {
         ("label", "chapter"),
         ("pinned", "true"),
     ]);
-    assert!(h.query_by_label("Chapter 1: Opening").is_none());
+    let label = "Pane label: Chapter 1: Opening";
+    assert!(h.query_by_label(label).is_none());
     h.state_mut().settings_mut().layout.floating_label_persist = true;
     h.run();
-    let _ = h.get_by_label("Chapter 1: Opening");
+    let _ = h.get_by_label(label);
 }
 
 #[test]

@@ -190,7 +190,7 @@ fn the_page_bar_is_glass_and_both_bars_turn_solid_without_it() -> Out {
 #[test]
 fn page_shadow_darkens_the_paper_under_a_page_until_switched_off() -> Out {
     // A margin leaves paper beside the page for its shadow.
-    let on = [("pdf", "sample:3"), ("margin", "32")];
+    let on = [("pdf", "sample:3"), ("margin", "32"), ("shadow", "true")];
     let off = [("pdf", "sample:3"), ("margin", "32"), ("shadow", "false")];
     let mut shades = Vec::new();
     for options in [&on[..], &off[..]] {
@@ -601,6 +601,10 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
     h.state_mut().queue(Command::OpenSettings(Tab::Workspace));
     h.run();
     let switch = "Independent page texture for each pane";
+    // Split, the tab opens on the pane looks; the switch sits below.
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
+        .scroll_to_me();
+    h.run();
     h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
         .click();
     h.run();
