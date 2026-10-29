@@ -834,7 +834,7 @@ fn layout_rows_follow_the_focused_document() {
     h.run_steps(3);
     for label in [
         "No gap",
-        "Keep zoom on other page sizes",
+        "Scale my zoom with the pane",
         "Page shadow",
         "Page margin",
     ] {
@@ -843,7 +843,7 @@ fn layout_rows_follow_the_focused_document() {
     // A book's vertical stream: no gaps, shadows or odd page sizes.
     let mut h = reader(&[("epub", "sample:2"), ("settings", "layout")]);
     h.run_steps(3);
-    for label in ["No gap", "Keep zoom on other page sizes", "Page shadow"] {
+    for label in ["No gap", "Scale my zoom with the pane", "Page shadow"] {
         assert!(!shows(&h, label), "a book's stream has no {label}");
     }
     assert!(shows(&h, "Page margin"));
@@ -852,7 +852,7 @@ fn layout_rows_follow_the_focused_document() {
     h.state_mut().queue(Command::View(single));
     h.run();
     assert!(shows(&h, "No gap") && shows(&h, "Page shadow"));
-    assert!(!shows(&h, "Keep zoom on other page sizes"));
+    assert!(!shows(&h, "Scale my zoom with the pane"));
 }
 
 #[test]

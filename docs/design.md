@@ -303,7 +303,7 @@ between rows it drew, so hiding a row never leaves a double line.
 |---|---|---|
 | `Always` | always | most rows |
 | `Book` | a book is focused | the Fonts tab, Column width included |
-| `NotBook` | a PDF or nothing is focused | Keep zoom on other page sizes, the Paper section |
+| `NotBook` | a PDF or nothing is focused | Scale my zoom with the pane, the Paper section |
 | `Pages` | not a book's vertical stream | No gap, Page shadow |
 | `Split` | the window is split | Split pane appearance |
 | `SplitWithBook` | split, with a book in any pane | Pane text |

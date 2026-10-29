@@ -93,7 +93,7 @@ fn a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom() {
     let near = |h: &H, want: f32| (zoom(h).0 - want).abs() < 0.01;
     let (letter, fit) = zoom(&h);
     assert_eq!(fit, Some(Fit::Width));
-    // A fit refits with Keep zoom off too.
+    // A fit refits with Scale my zoom off too.
     h.state_mut().settings_mut().layout.auto_resize = false;
     go(&mut h, 6);
     let want = letter * 612.0 / 792.0;
