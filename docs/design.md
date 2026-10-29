@@ -237,9 +237,9 @@ says where, each frame:
   at full opacity and slide with it, leaving past the window's left edge.
 - **Otherwise the bar does**, fading with it (and in after a rail's exit).
 - **Overlay mode, no rail:** hidden, and the bar keeps no gutter (mareader).
-- **Zoomed interface:** egui's zoom (a saved 110% survives from before the
-  zoom keys turned to the document) makes the row taller; the binary centres
-  the lights in it as drawn, and scales the slide.
+- **Zoomed interface:** nothing zooms the interface now, and a zoom egui
+  saved from older builds is put back to 100% at launch. Were it zoomed, the
+  binary still centres the lights in the taller row and scales the slide.
 - **Glass backing:** macOS 26 draws the lights as glass whose white sheen
   fades into a light bar. On light themes the app paints a dark disc half a
   point inside each, where the binary measured it (`LightSpots`), fading and

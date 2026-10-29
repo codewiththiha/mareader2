@@ -341,3 +341,24 @@ fn distraction_free_leaves_the_library_its_bar() {
     h.run_steps(4);
     assert_eq!(bars(&mut h), (false, false));
 }
+
+#[test]
+fn an_interface_zoom_saved_before_is_put_back_to_full_size() {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 600.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|cc| {
+            // As egui restores a 110 % left from older builds.
+            cc.egui_ctx.set_zoom_factor(1.1);
+            app
+        });
+    h.run_steps(4);
+    assert!(
+        (h.ctx.zoom_factor() - 1.0).abs() < 1e-6,
+        "{}",
+        h.ctx.zoom_factor()
+    );
+}

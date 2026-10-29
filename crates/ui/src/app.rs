@@ -3312,6 +3312,8 @@ impl eframe::App for MareaderApp {
             egui_extras::install_image_loaders(ctx);
             // Zoom keys zoom the document, not the interface.
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
+            // Nothing zooms the interface now: a size saved before goes.
+            ctx.set_zoom_factor(1.0);
             self.fonts = FontState::Installed;
         }
         self.restyle(ctx);
