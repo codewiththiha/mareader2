@@ -9,7 +9,7 @@ use crate::widgets;
 /// Points either side of an edge that take the pointer.
 const GRAB: f32 = 5.0;
 /// What hovering an edge says.
-const TIP: &str = "Drag to resize · double-click to fit";
+const TIP: &str = "Drag to resize · double-click to reset";
 
 /// What the sides were asked this frame.
 pub(super) enum Resize {

@@ -200,6 +200,8 @@ fn a_sentence_below_the_fold_is_brought_into_view() {
 #[test]
 fn the_player_shows_time_left_and_seeks_to_a_page() {
     let mut h = reader(3);
+    // Wide enough for the time, which the narrowest leaves out.
+    h.state_mut().settings_mut().read_aloud.player_width = Some(560.0);
     start(&mut h, ReadFrom::default());
     h.run_steps(2);
     let _ = h.get_by_label_contains("left");

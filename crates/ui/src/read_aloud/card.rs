@@ -14,10 +14,8 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
-/// The full card's least width; it keeps the bar's if wider.
-pub(super) const WIDTH: f32 = 460.0;
 pub(super) const HEIGHT: f32 = 224.0;
-/// The full card's least width when its width is set by hand.
+/// The full card's least width; it keeps the bar's if wider.
 pub(super) const FULL_LEAST: f32 = 380.0;
 /// The compact card: the bar, with one streaming line above it.
 pub(super) const COMPACT_HEIGHT: f32 = 94.0;

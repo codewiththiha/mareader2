@@ -1062,17 +1062,13 @@ impl ReadAloud {
             let lyrics = s.lyrics();
             // Compact grows up from the bar; full widens into a card.
             let escape = view.escape.is_some();
-            let parts = Fit::new(room.width() - 24.0, escape).width(escape);
-            // A width set by hand holds in every shape, if the room has it.
+            // Unset, it starts as narrow as it goes, its least parts kept.
             let (narrowest, widest) = ReadAloudSettings::PLAYER_WIDTH;
+            let parts = narrowest.max(Fit::new(0.0, escape).width(escape));
+            // A width set by hand holds in every shape, if the room has it.
             let set = shape.dragged.or(settings.player_width);
             let pill = set.map_or(parts, |w| w.clamp(narrowest, widest));
-            let least_full = if set.is_some() {
-                card::FULL_LEAST
-            } else {
-                card::WIDTH
-            };
-            let open = card::lerp(pill, least_full.max(pill), f);
+            let open = card::lerp(pill, card::FULL_LEAST.max(pill), f);
             let most = (room.width() - 16.0).max(0.0);
             let width = card::lerp(pill, open, k).min(most);
             let tall = card::lerp(card::COMPACT_HEIGHT, card::HEIGHT, f);

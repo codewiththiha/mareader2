@@ -265,7 +265,7 @@ pub struct ReadAloudSettings {
     /// Words lit at a time when [`Highlight::Words`], 1 to 10.
     pub highlight_words: u8,
     pub player: Player,
-    /// The player's width set by hand, in points; none fits its parts.
+    /// The player's width set by hand, in points; none is the narrowest.
     pub player_width: Option<f32>,
     /// The engine that reads a book with no narration of its own.
     pub engine: String,

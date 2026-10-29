@@ -358,6 +358,11 @@ A new setting picks its `Applies` once; nothing else changes.
   and a filled accent Skip. Play or Next mean Read, Esc means Skip, and a
   changed setting answers it. Inside both a list and a figure, the outer
   one is asked about first.
+- **Read-aloud player width.** It starts as narrow as it goes: 300 pt, or
+  the steps, play, a short track and stop if wider; the full card opens to
+  380 pt. Dragging a side sets a width (300–960 pt) that every shape keeps,
+  and the time left and speed come back as room allows. A double-click on
+  a side resets it to the narrowest.
 - **View & tools menu.** The last button in the bar (`view_menu.rs`). It
   holds full screen, the keyboard shortcut list and the version; Open…
   is left to Ctrl+O (⌘O) and the empty pane. When the
