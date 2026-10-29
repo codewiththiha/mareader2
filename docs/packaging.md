@@ -19,10 +19,13 @@ and MSI on Windows, `.deb`, AppImage and pacman on Linux. Each one
 registers `.pdf` (`application/pdf`) with Mareader as a viewer, as in
 mareader's `tauri.conf.json`. EPUB joins the list when it can be read (M6).
 
-The icons in `apps/mareader/icons` come from `logo.svg`: an open book
-whose edges draw an M, one line highlighted. The `.icns` keeps Apple's
-824-on-1024 grid; the PNGs and `.ico` crop to the tile, as Windows and
-Linux draw icons edge to edge. Each size is rendered from the SVG.
+The icons in `apps/mareader/icons` come from `logo.svg`: an onyx
+squircle lit warmly from above, holding an ivory open book whose page
+tops draw an M, with gilt edges and a gold ribbon. The `.icns` keeps
+Apple's 824-on-1024 grid with a soft shadow under the tile; the PNGs and
+`.ico` crop to the tile, as Windows and Linux draw icons edge to edge.
+`python3 tools/icons.py` renders every size from the SVG, each drawn on
+its own so the small ones stay sharp (it needs `cairosvg` and Pillow).
 
 **Windows reads the icon from the `.exe`.** Explorer, the Start menu and
 desktop shortcuts, a pinned taskbar button and Installed apps all take it
