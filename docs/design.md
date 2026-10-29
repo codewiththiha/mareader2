@@ -345,6 +345,10 @@ A new setting picks its `Applies` once; nothing else changes.
     than it would have shown is dropped.
   - **Above lasting chrome.** The page bar and the read-aloud player stay
     up, so the stack rises above them instead (`toast::stand_on`).
+  - **Beside lasting windows.** When the floating dictionary window sits
+    where the stack goes, the stack slides left of it; with no room there it
+    rises above it, and covers it only when neither fits
+    (`toast::stand_beside`).
   - **Out of the way.** The stack takes the pointer only over its cards and
     strip. While something on the page is carried near it, it fades to 30 %
     and lets the pointer through, so drops beneath it still work.

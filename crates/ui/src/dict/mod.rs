@@ -442,6 +442,9 @@ impl Dict {
         };
         let drawn = window::show(ctx, frame, appear, out);
         self.float_rect = settings.window.open.then_some(drawn);
+        if settings.window.open {
+            crate::toast::stand_beside(ctx, drawn);
+        }
     }
 
     /// Where the floating window was drawn, for tests.

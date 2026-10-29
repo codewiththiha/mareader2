@@ -152,6 +152,7 @@ fn open_menus(ctx: &Context) -> Vec<Rect> {
 struct Keep {
     clear: Vec<(u64, Rect)>,
     floors: Vec<(u64, Rect)>,
+    windows: Vec<(u64, Rect)>,
 }
 
 fn keep_id() -> Id {
@@ -171,6 +172,12 @@ pub fn stand_on(ctx: &Context, rect: Rect) {
     ctx.data_mut(|d| (d.get_temp_mut_or_default::<Keep>(keep_id()).floors).push((pass, rect)));
 }
 
+/// A lasting window at `rect`: toasts move beside it, else above.
+pub fn stand_beside(ctx: &Context, rect: Rect) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| (d.get_temp_mut_or_default::<Keep>(keep_id()).windows).push((pass, rect)));
+}
+
 /// This pass's and the last's, either side of where the toasts draw.
 fn kept(ctx: &Context) -> Keep {
     let pass = ctx.cumulative_pass_nr();
@@ -179,10 +186,12 @@ fn kept(ctx: &Context) -> Keep {
         let recent = |(at, _): &(u64, Rect)| *at + 1 >= pass;
         keep.clear.retain(recent);
         keep.floors.retain(recent);
+        keep.windows.retain(recent);
         let found = keep.clone();
         let now = |(at, _): &(u64, Rect)| *at == pass;
         keep.clear.retain(now);
         keep.floors.retain(now);
+        keep.windows.retain(now);
         found
     })
 }
@@ -194,6 +203,20 @@ fn rise(floors: &[Rect], column: Rect) -> f32 {
         .filter(|f| f.x_range().intersects(column.x_range()));
     let up = over.map(|f| column.bottom() - f.top() + 8.0);
     up.fold(0.0, f32::max)
+}
+
+/// How far `column` moves left to clear `windows`, staying in `area`.
+fn beside(windows: &[Rect], column: Rect, area: Rect) -> Option<f32> {
+    let mut moved = column;
+    // Stepping past one window can land on another.
+    for _ in 0..=windows.len() {
+        let Some(w) = windows.iter().find(|w| w.intersects(moved)) else {
+            let fits = moved.left() >= area.left() + INSET;
+            return fits.then_some(column.right() - moved.right());
+        };
+        moved = moved.translate(egui::vec2(w.left() - 8.0 - moved.right(), 0.0));
+    }
+    None
 }
 
 /// The stack, oldest first.
@@ -364,19 +387,35 @@ impl Toasts {
         let fade = f64::from(motion::secs(ctx, FADE));
         let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
         let keep = kept(ctx);
-        let floors: Vec<Rect> = keep.floors.iter().map(|(_, r)| *r).collect();
-        // Where a lone toast would show, standing on the page bar.
+        let mut floors: Vec<Rect> = keep.floors.iter().map(|(_, r)| *r).collect();
+        let windows: Vec<Rect> = keep.windows.iter().map(|(_, r)| *r).collect();
+        // The stack, standing on the page bar; a lone toast at least.
         let foot = area.bottom() - INSET - lift;
+        let tall = self.seen.map_or(SPOT_H, |r| r.height().max(SPOT_H));
         let column = Rect::from_min_max(
-            pos2(area.right() - INSET - width, foot - SPOT_H),
+            pos2(area.right() - INSET - width, foot - tall),
             pos2(area.right() - INSET, foot),
         );
-        let target = rise(&floors, column);
+        let mut target = rise(&floors, column);
+        let raised = column.translate(egui::vec2(0.0, -target));
+        let shift = match beside(&windows, raised, area) {
+            Some(dx) => dx,
+            None => {
+                floors.extend(&windows);
+                let over = rise(&floors, column);
+                // Too tall to stand on: it stays, covering part of it.
+                if column.top() - over >= area.top() + INSET {
+                    target = over;
+                }
+                0.0
+            }
+        };
         let time = motion::secs(ctx, FADE);
         let lift = lift + ctx.animate_value_with_time(Id::new("toast-rise"), target, time);
+        let shift = ctx.animate_value_with_time(Id::new("toast-beside"), shift, time);
         let spot = self
             .seen
-            .unwrap_or(column.translate(egui::vec2(0.0, -target)));
+            .unwrap_or(column.translate(egui::vec2(-shift, -target)));
         let mut blockers = open_menus(ctx);
         blockers.extend(keep.clear.iter().map(|(_, r)| *r));
         self.blocked = blockers.iter().any(|b| b.intersects(spot));
@@ -394,7 +433,7 @@ impl Toasts {
             self.seen = None;
             return;
         }
-        let corner = pos2(area.right() - INSET, area.bottom() - INSET - lift);
+        let corner = pos2(area.right() - INSET - shift, area.bottom() - INSET - lift);
         // A drag from the page passes over the toasts, once it nears them.
         let ours = self.live.iter().any(|l| l.dragging);
         let page = ctx.dragged_id().is_some() && !ours;
@@ -452,6 +491,20 @@ mod tests {
         out.textures_delta.clear();
     }
 
+    /// One frame at `time` with a lasting window open at `window`.
+    fn beside_window(ctx: &Context, toasts: &mut Toasts, window: Rect, time: f64) {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            stand_beside(ui.ctx(), window);
+            toasts.show(ui.ctx(), SCREEN, 0.0, &mut Commands::default());
+        });
+        out.textures_delta.clear();
+    }
+
     fn up(toasts: &Toasts) -> usize {
         toasts.shown().count()
     }
@@ -488,6 +541,34 @@ mod tests {
         frame(&ctx, &mut toasts, Some(bar), SHOW_FOR + 0.5);
         frame(&ctx, &mut toasts, None, SHOW_FOR + 0.6);
         assert_eq!((up(&toasts), toasts.waiting()), (0, 0));
+    }
+
+    #[test]
+    fn toasts_move_beside_a_window_open_in_their_corner() {
+        let (ctx, mut toasts) = (Context::default(), Toasts::default());
+        toasts.push(Toast::info("Copied"));
+        let window = Rect::from_min_max(pos2(760.0, 300.0), pos2(1180.0, 790.0));
+        for step in 0..30 {
+            beside_window(&ctx, &mut toasts, window, f64::from(step) * 0.05);
+        }
+        assert_eq!(up(&toasts), 1, "it stays up, out of the way");
+        let shown = toasts.covers().unwrap_or(Rect::NOTHING);
+        assert!(
+            shown.right() <= window.left(),
+            "{shown:?} beside {window:?}"
+        );
+    }
+
+    #[test]
+    fn with_no_room_beside_a_window_toasts_rise_above_it() {
+        let (ctx, mut toasts) = (Context::default(), Toasts::default());
+        toasts.push(Toast::info("Copied"));
+        let window = Rect::from_min_max(pos2(40.0, 500.0), pos2(1180.0, 790.0));
+        for step in 0..30 {
+            beside_window(&ctx, &mut toasts, window, f64::from(step) * 0.05);
+        }
+        let shown = toasts.covers().unwrap_or(Rect::NOTHING);
+        assert!(shown.bottom() <= window.top(), "{shown:?} above {window:?}");
     }
 
     #[test]
