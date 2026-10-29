@@ -111,7 +111,7 @@ Intelligence on a Mac or, on every desktop, from an OpenAI-compatible
 server, with no `ai` feature to turn on. How tasks, prompts and providers
 fit together is in `docs/assist.md`.
 
-- **Settings › AI** (between Dictionary and Workspace) picks who explains:
+- **Settings › AI** (between Dictionary and AI models) picks who explains:
   Automatic, Apple Intelligence (Macs only), OpenAI, Gemini, OpenRouter,
   Ollama, LM Studio or a custom address. Off a Mac, Automatic reads None
   and Explain says to choose one. Apple Intelligence's line says whether
@@ -234,9 +234,11 @@ slice 5.
 
 ## Slice 4 behaviour
 
-- **Packs.** Three, as in mareader: English to Burmese (mcfnlp), Japanese
-  (JMdict) and French (Wiktionary). Each comes from GitHub, then two
-  jsDelivr mirrors, two tries each. A download resumes from its part file
+- **Packs.** Eight, English to Burmese, Chinese, French, German,
+  Japanese, Korean, Spanish and Thai, built in
+  [wikidict](https://github.com/codewiththiha/wikidict) (its docs name each
+  source and licence). Each comes from GitHub, then two jsDelivr mirrors,
+  all pinned to one wikidict commit, two tries each. A download resumes from its part file
   when the server honours the range and its start matches; anything that
   isn't a parquet at both ends is dropped and the next mirror tried.
   Pause keeps the part, Cancel and Remove delete it.
@@ -250,8 +252,9 @@ slice 5.
   (settings v3). It takes the selection, one line, edge punctuation
   trimmed, up to 60 characters, and opens a card beside it; nothing is
   marked. The card answers in Default language, else the first other
-  language a pack holds. The word's script names its language (Burmese,
-  Japanese); Latin is read as English.
+  language a pack holds. The word's scripts name its language: Burmese,
+  Korean, Thai, kana for Japanese, Han alone for Chinese (Japanese when
+  only it is downloaded); Latin is read as English.
 - **Routes.** One pack either way round, else two packs meeting at
   English, so Burmese reaches French; such answers say "via" the English
   word. A card takes exact entries, then prefixes, then near misses (two
@@ -262,7 +265,9 @@ slice 5.
   key): every pack or one, both sides, with substrings; or between two
   languages, each Automatic or chosen, with a swap. When nothing is found
   between languages it offers "Search as" each other language.
-- **Settings › Dictionary** lists the packs with Download, progress with
+- **Settings › Dictionary** lists packs on this device, downloading ones
+  included, by language name; the rest wait in a More languages fold,
+  open while nothing is downloaded. Rows offer Download, progress with
   Pause and Cancel, Resume, Remove and Try again, then Default language,
   offered only for downloaded packs.
 - **Picking several marks**, left from slice 3. A long press on a mark

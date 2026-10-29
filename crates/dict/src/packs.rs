@@ -1,8 +1,9 @@
 //! The packs on offer: which parquet joins which two languages.
 
-const REPO: &str = "https://raw.githubusercontent.com/codewiththiha/wikidict/main/output/curated";
-const CDN: &str = "https://cdn.jsdelivr.net/gh/codewiththiha/wikidict@main/output/curated";
-const FASTLY: &str = "https://fastly.jsdelivr.net/gh/codewiththiha/wikidict@main/output/curated";
+// Pinned to a wikidict commit, so a pack's bytes never change under it.
+const REPO: &str = "https://raw.githubusercontent.com/codewiththiha/wikidict/e9276c9df7d55f7223d440dd7228d6102e96e2c1/packs";
+const CDN: &str = "https://cdn.jsdelivr.net/gh/codewiththiha/wikidict@e9276c9df7d55f7223d440dd7228d6102e96e2c1/packs";
+const FASTLY: &str = "https://fastly.jsdelivr.net/gh/codewiththiha/wikidict@e9276c9df7d55f7223d440dd7228d6102e96e2c1/packs";
 
 /// One downloadable dictionary, as mareader offers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,27 +20,62 @@ pub struct Pack {
 }
 
 /// Every pack the app offers. A language is one more row.
-pub const PACKS: [Pack; 3] = [
+pub const PACKS: [Pack; 8] = [
     Pack {
         id: "mcfnlp-en-my",
         source: "en",
         target: "my",
-        entries: 110_640,
-        bytes: 2_875_539,
+        entries: 107_861,
+        bytes: 1_532_419,
     },
     Pack {
         id: "jmdict-en-jp",
         source: "en",
         target: "jp",
-        entries: 441_348,
-        bytes: 7_026_188,
+        entries: 421_385,
+        bytes: 6_915_158,
+    },
+    Pack {
+        id: "cedict-en-zh",
+        source: "en",
+        target: "zh",
+        entries: 178_950,
+        bytes: 3_834_540,
+    },
+    Pack {
+        id: "krdict-en-ko",
+        source: "en",
+        target: "ko",
+        entries: 106_822,
+        bytes: 2_503_216,
+    },
+    Pack {
+        id: "volubilis-en-th",
+        source: "en",
+        target: "th",
+        entries: 191_708,
+        bytes: 3_135_314,
     },
     Pack {
         id: "wiktionary-en-fr",
         source: "en",
         target: "fr",
-        entries: 128_263,
-        bytes: 3_218_737,
+        entries: 128_246,
+        bytes: 2_671_738,
+    },
+    Pack {
+        id: "wiktionary-en-es",
+        source: "en",
+        target: "es",
+        entries: 146_587,
+        bytes: 2_724_098,
+    },
+    Pack {
+        id: "wiktionary-en-de",
+        source: "en",
+        target: "de",
+        entries: 161_737,
+        bytes: 3_087_656,
     },
 ];
 

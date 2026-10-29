@@ -110,7 +110,7 @@ mod tests {
             hops.get(1)
                 .is_some_and(|h| !h.reverse && h.pack.target == "jp")
         );
-        assert!(plans("my", "de", &packs).is_empty());
+        assert!(plans("my", "it", &packs).is_empty());
     }
 
     #[test]
