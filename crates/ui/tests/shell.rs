@@ -384,13 +384,14 @@ fn every_settings_tab_is_named_in_its_sidebar() {
         let named = h.query_all_by_role_and_label(Role::Button, label);
         assert!(named.count() >= 1, "{label}");
     }
-    h.get_by_role_and_label(Role::Button, "Workspace").click();
+    h.get_by_role_and_label(Role::Button, "Panes").click();
     h.run_steps(2);
-    assert_eq!(h.state().settings_window().tab(), Tab::Workspace);
+    assert_eq!(h.state().settings_window().tab(), Tab::Panes);
     // The old names land on their new homes.
     assert_eq!(Tab::parse("fonts"), Some(Tab::Appearance));
     assert_eq!(Tab::parse("Theme"), Some(Tab::Appearance));
     assert_eq!(Tab::parse("animations"), Some(Tab::Motion));
+    assert_eq!(Tab::parse("workspace"), Some(Tab::Panes));
 }
 
 #[test]
@@ -402,7 +403,7 @@ fn a_dependent_setting_shows_once_its_parent_is_on() {
         .click();
     h.run_steps(2);
     assert_eq!(h.query_by_label("Label shows").is_some(), !on);
-    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
     let shared = "Light, Dark and Dim change every pane";
     assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_none());
     independent_themes(&mut h);
@@ -412,7 +413,7 @@ fn a_dependent_setting_shows_once_its_parent_is_on() {
 
 #[test]
 fn split_pane_outline_colour_comes_from_the_workspace_tab() {
-    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
     h.get_by_label("Red").scroll_to_me();
     h.run();
     h.get_by_label("Red").click();
@@ -1046,7 +1047,7 @@ fn a_preset_section_folds_on_its_own() {
 
 #[test]
 fn independent_themes_from_settings_colour_the_other_pane() {
-    let mut h = with(&[("panes", "2"), ("settings", "workspace")]);
+    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
     independent_themes(&mut h);
     h.run_steps(3);
     let app = h.state();
@@ -1128,7 +1129,7 @@ fn closing_to_one_pane_keeps_the_survivor_s_own_look() {
     );
 }
 
-/// Split, the Workspace tab opens on the pane looks; the switch is below.
+/// Split, the Panes tab opens on the pane looks; the switch is below.
 fn independent_themes(h: &mut Harness<'static, MareaderApp>) {
     let switch = "Independent theme for each pane";
     h.get_by_role_and_label(Role::CheckBox, switch)

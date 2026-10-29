@@ -514,7 +514,7 @@ What the first slice built, and where it stops short of the model above.
 - **Tabs.** While the window is split, the panes are listed above the tree
   as tabs, named by the library (so twins differ) or the document. A
   click focuses a pane, × closes it.
-- **A click** follows Settings › Workspace › Library panel:
+- **A click** follows Settings › Panes › Library panel:
   Open in focused pane (default), Open as a new split, or Do
   nothing. A book already shown only focuses its pane. Beside splits to
   the right, or below when there is no room, and an empty focused pane

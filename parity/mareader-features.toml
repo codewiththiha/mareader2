@@ -392,7 +392,7 @@ evidence = [
   "crates/ui/tests/reading.rs::pane_text_shows_only_while_split_with_a_book",
 ]
 reference = ["crates/reader-core/src/settings/workspace.rs"]
-notes = "Owner's extension: mareader shares text across panes. While split, Settings › Workspace's switch gives each pane its own Fonts settings; the tab edits the focused pane, and panes on one file share a parse while their type matches"
+notes = "Owner's extension: mareader shares text across panes. While split, Settings › Panes' switch gives each pane its own Fonts settings; the tab edits the focused pane, and panes on one file share a parse while their type matches"
 
 [[feature]]
 id = "workspace.independent-textures"
@@ -1488,7 +1488,7 @@ evidence = ["crates/ui/tests/shell.rs::settings_survive_a_save_and_relaunch", "c
 
 [[feature]]
 id = "settings.modal"
-title = "Settings window with Theme, Layout, Paper, Fonts, Workspace, Animations, Dictionary and CEFR tabs"
+title = "Settings window with Theme, Layout, Paper, Fonts, Panes, Animations, Dictionary and CEFR tabs"
 area = "J"
 tier = "P0"
 milestone = "M1"
@@ -1504,7 +1504,7 @@ evidence = [
     "crates/ui/tests/reading.rs::layout_rows_follow_the_focused_document",
     "crates/ui/tests/a11y.rs::every_control_has_a_name",
 ]
-notes = "Tabs: Layout, Theme (paper detection and blend), Animations, Fonts, Highlights, Vocabulary (CEFR), Dictionary, AI, Workspace. 92 % by 86 % of the window up to 760 by 960 points; rows follow the focused pane (docs/design.md)"
+notes = "Tabs: Layout, Theme (paper detection and blend), Animations, Fonts, Highlights, Vocabulary (CEFR), Dictionary, AI, Panes. 92 % by 86 % of the window up to 760 by 960 points; rows follow the focused pane (docs/design.md)"
 
 [[feature]]
 id = "settings.migrate"

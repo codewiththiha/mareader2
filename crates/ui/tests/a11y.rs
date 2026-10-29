@@ -76,7 +76,7 @@ fn every_control_has_a_name() {
         "dictionary",
         "ai",
         "models",
-        "workspace",
+        "panes",
         "motion",
     ];
     for tab in tabs {

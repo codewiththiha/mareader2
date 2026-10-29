@@ -72,7 +72,7 @@ pub enum Tab {
     Ai,
     /// The models tasks ask, and their providers' keys.
     Models,
-    Workspace,
+    Panes,
     /// The master switch, then each motion.
     Motion,
     /// A downloaded voice model's voices; shown once it is ready.
@@ -89,7 +89,7 @@ impl Tab {
         Tab::Dictionary,
         Tab::Ai,
         Tab::Models,
-        Tab::Workspace,
+        Tab::Panes,
         Tab::Motion,
     ];
 
@@ -103,18 +103,19 @@ impl Tab {
             Tab::Dictionary => "Dictionary",
             Tab::Ai => "AI",
             Tab::Models => "AI models",
-            Tab::Workspace => "Workspace",
+            Tab::Panes => "Panes",
             Tab::Motion => "Motion",
             Tab::Model(m) => m.name,
         }
     }
 
-    /// A tab by its name; the old Theme, Fonts and Animations still work.
+    /// A tab by its name; old names, as Workspace, still work.
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.to_ascii_lowercase();
         match s.as_str() {
             "theme" | "fonts" => Some(Tab::Appearance),
             "animations" => Some(Tab::Motion),
+            "workspace" => Some(Tab::Panes),
             "models" => Some(Tab::Models),
             "voices" | "read_aloud" | "speech" => Some(Tab::ReadAloud),
             _ => Self::ALL
@@ -133,7 +134,7 @@ impl Tab {
             Tab::Dictionary => Icon::Dictionary,
             Tab::Ai => Icon::Ai,
             Tab::Models => Icon::Chip,
-            Tab::Workspace => Icon::SplitRight,
+            Tab::Panes => Icon::SplitRight,
             Tab::Motion => Icon::Motion,
             Tab::Model(_) => Icon::VoiceModel,
         }
@@ -144,7 +145,7 @@ impl Tab {
         match self {
             Tab::Appearance | Tab::Layout | Tab::ReadAloud | Tab::Model(_) => "Reading",
             Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
-            Tab::Models | Tab::Workspace | Tab::Motion => "App",
+            Tab::Models | Tab::Panes | Tab::Motion => "App",
         }
     }
 
@@ -491,7 +492,7 @@ fn tab_body(
         }
         #[cfg(target_arch = "wasm32")]
         Tab::Ai | Tab::Models => pending(ui, "AI answers need the desktop app."),
-        Tab::Workspace => workspace(ui, s, cx),
+        Tab::Panes => panes(ui, s, cx),
     }
     let _ = ai;
 }
@@ -813,7 +814,7 @@ const LIBRARY_CLICKS: [(LibraryClick, &str, &str); 3] = [
     ),
 ];
 
-fn workspace(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
+fn panes(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     let w = &mut s.workspace;
     section(ui, "Library panel");
     group(ui, |ui| {

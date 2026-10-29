@@ -860,7 +860,7 @@ fn pane_text_shows_only_while_split_with_a_book() {
     let label = "Independent text for each pane";
     let options = [("panes", "2"), ("focus", "2"), ("pdf", "sample:3")];
     let mut h = reader(&options);
-    h.state_mut().set_option("settings", "workspace").ok();
+    h.state_mut().set_option("settings", "panes").ok();
     h.run_steps(3);
     assert!(!shows(&h, label), "PDFs alone have no text settings");
     // A book in the other pane brings it back; opens land where focus is.
@@ -871,7 +871,7 @@ fn pane_text_shows_only_while_split_with_a_book() {
     h.run();
     assert!(!h.state().settings_scope().book());
     assert!(shows(&h, label));
-    let mut h = reader(&[("epub", "sample:2"), ("settings", "workspace")]);
+    let mut h = reader(&[("epub", "sample:2"), ("settings", "panes")]);
     h.run_steps(3);
     assert!(!shows(&h, label), "one pane has nothing to keep apart");
 }

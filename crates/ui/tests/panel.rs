@@ -249,7 +249,7 @@ fn the_library_page_opens_beside_when_set_to_split() {
 
 #[test]
 fn the_workspace_tab_picks_what_a_click_does() {
-    let mut h = reader(&[("settings", "workspace")]);
+    let mut h = reader(&[("settings", "panes")]);
     let click = |h: &Harness<'static, MareaderApp>| h.state().settings().workspace.library_click;
     assert_eq!(click(&h), LibraryClick::Replace);
     h.get_by_label("Open as a new split").click();

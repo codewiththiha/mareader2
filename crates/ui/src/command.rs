@@ -42,7 +42,7 @@ pub enum Command {
     ShowReading,
     /// The Dictionary page, or back to where it was opened from.
     ShowDictionary,
-    /// Opens a library book as Settings › Workspace says, or focuses it.
+    /// Opens a library book as Settings › Panes says, or focuses it.
     OpenBook(BookId),
     /// A library book placed from the rail: clicked, or dropped on a pane.
     PlaceBook {

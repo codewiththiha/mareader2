@@ -598,7 +598,7 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
     for (lo, hi) in page_spread(&mut h)? {
         assert!(hi - lo < 6, "plain pages first: {lo}..{hi}");
     }
-    h.state_mut().queue(Command::OpenSettings(Tab::Workspace));
+    h.state_mut().queue(Command::OpenSettings(Tab::Panes));
     h.run();
     let switch = "Independent page texture for each pane";
     // Split, the tab opens on the pane looks; the switch sits below.
