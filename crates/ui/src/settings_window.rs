@@ -20,6 +20,7 @@ use crate::widgets;
 #[cfg(not(target_arch = "wasm32"))]
 mod ai;
 mod dictionary;
+pub use dictionary::{ALL_LANGUAGES, MORE_LANGUAGES};
 mod downloads;
 mod fonts;
 mod highlights;

@@ -6,21 +6,64 @@ use mareader_dict::{HUB, PACKS, Pack, State, language, languages};
 use mareader_settings::{DictionaryOpens, DictionarySettings};
 
 use super::downloads::{Buttons, muted, progress};
-use super::{choice_row, divider, group, note, row, section, switch_row};
+use super::{
+    choice_row, divider, fold_open, fold_row, folded, group, note, row, section, switch_row,
+};
 use crate::command::{Command, Commands, Download};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
 use crate::widgets;
 
+/// The fold of packs not on this device, beside some that are.
+pub const MORE_LANGUAGES: &str = "More languages";
+/// The same fold while no pack is on this device.
+pub const ALL_LANGUAGES: &str = "Available languages";
+
 pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Commands) {
     section(ui, "Language packs");
+    let mut packs: Vec<&'static Pack> = PACKS.iter().collect();
+    packs.sort_by_key(|p| language(p.target));
+    // Downloading counts as here, so its progress never hides in the fold.
+    let (here, more): (Vec<_>, Vec<_>) =
+        (packs.into_iter()).partition(|p| dict.attached() && *dict.state(p) != State::Absent);
     group(ui, |ui| {
-        for (i, pack) in PACKS.iter().enumerate() {
+        for (i, &pack) in here.iter().enumerate() {
             if i > 0 {
                 divider(ui);
             }
             pack_row(ui, pack, dict, out);
         }
+        if more.is_empty() {
+            return;
+        }
+        if !here.is_empty() {
+            divider(ui);
+        }
+        let id = egui::Id::new("dict-more-languages");
+        // With nothing here yet, the choice is the point of the tab.
+        if here.is_empty() && ui.data(|d| d.get_temp::<bool>(id)).is_none() {
+            ui.data_mut(|d| d.insert_temp(id, true));
+        }
+        let title = match here.is_empty() {
+            true => ALL_LANGUAGES,
+            false => MORE_LANGUAGES,
+        };
+        // Open, the rows name them; folded, the line below does.
+        let detail = match fold_open(ui.ctx(), id) {
+            true => format!("{} ready to download", more.len()),
+            false => (more.iter().map(|p| language(p.target)))
+                .collect::<Vec<_>>()
+                .join(", "),
+        };
+        if !fold_row(ui, id, (title, &detail)) {
+            return;
+        }
+        folded(ui, |ui| {
+            for &pack in &more {
+                divider(ui);
+                pack_row(ui, pack, dict, out);
+            }
+        });
     });
     if dict.attached() {
         note(
@@ -64,8 +107,10 @@ pub fn tab(ui: &mut Ui, s: &mut DictionarySettings, dict: &Dict, out: &mut Comma
     );
 }
 
+/// A pack named by its language; buttons keep the full "English → X".
 fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
-    let hint = format!("{} words", count(pack.entries));
+    let from = language(pack.source);
+    let hint = format!("From {from} · {} words", count(pack.entries));
     let label = pack.label();
     let id = pack.id;
     let buttons = Buttons {
@@ -79,7 +124,7 @@ fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
             })
         },
     };
-    row(ui, &label, &hint, |ui| {
+    row(ui, &language(pack.target), &hint, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !dict.attached() {
             muted(ui, &megabytes(pack.bytes));

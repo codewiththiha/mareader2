@@ -15,6 +15,7 @@ use mareader_ui::dict::page::LABEL;
 use mareader_ui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
 use mareader_ui::route::Route;
 use mareader_ui::settings_window::Tab;
+use mareader_ui::settings_window::{ALL_LANGUAGES, MORE_LANGUAGES};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -109,6 +110,7 @@ fn without_packs_the_card_leads_to_settings() {
     h.get_by_label("Get dictionaries…").click();
     h.run();
     h.get_by_label("Language packs");
+    h.get_by_label(ALL_LANGUAGES);
     h.get_by_label("Download English → Burmese");
 }
 
@@ -118,7 +120,12 @@ fn the_tab_lists_packs_and_removes_one() {
     let mut h = reader(dir.path());
     h.state_mut().queue(Command::OpenSettings(Tab::Dictionary));
     h.run();
+    // Packs on this device show; the rest wait in a fold.
+    assert!(h.query_by_label("Download English → Japanese").is_none());
+    h.get_by_label(MORE_LANGUAGES).click();
+    h.run();
     h.get_by_label("Download English → Japanese");
+    h.get_by_label("Download English → Korean");
     h.get_by_label("Remove English → French").click();
     h.run();
     let fr = PACKS
