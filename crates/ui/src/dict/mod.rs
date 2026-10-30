@@ -111,9 +111,14 @@ pub struct Dict {
     page: page::Page,
     /// The floating window's rect mid-drag, and where it was drawn.
     float: Option<Rect>,
+    /// Whether a pointer is moving or resizing the window.
+    dragging: bool,
     float_rect: Option<Rect>,
-    /// Home and aside rects while stepped out of a toast's bed.
+    float_cover: Option<Rect>,
+    /// Home and aside rects while stepped away from an obstacle.
     evacuated: Option<(Rect, Rect)>,
+    /// The window's original shape at its edge, restoring on click.
+    parked: Option<crate::park::Tuck>,
     /// Whether it was folded when last drawn, to catch it folding.
     float_folded: Option<bool>,
     /// Word lists' asks and, once in, their replies; oldest first.
@@ -422,9 +427,11 @@ impl Dict {
         settings: &DictionarySettings,
         stage: Rect,
         toasts: Option<Rect>,
+        player: Option<Rect>,
         out: &mut Commands,
     ) {
         self.float_rect = None;
+        self.float_cover = None;
         if !settings.window.open || settings.window.minimized {
             self.page.hide();
         }
@@ -432,7 +439,9 @@ impl Dict {
         let appear = window::appearing(ctx, settings.window.open);
         if !settings.window.open {
             self.float = None;
+            self.dragging = false;
             self.evacuated = None;
+            self.parked = None;
         }
         if appear <= 0.0 {
             return;
@@ -442,19 +451,28 @@ impl Dict {
             page: &mut self.page,
             voice: &self.voice,
             live: &mut self.float,
+            dragging: &mut self.dragging,
             was_folded: &mut self.float_folded,
             evacuated: &mut self.evacuated,
+            parked: &mut self.parked,
             settings,
             stage,
             toasts,
+            player,
         };
         let drawn = window::show(ctx, frame, appear, out);
         self.float_rect = settings.window.open.then_some(drawn);
+        self.float_cover = settings.window.open.then_some(drawn.intersect(stage));
     }
 
     /// Where the floating window was drawn, for tests.
     pub fn window_rect(&self) -> Option<Rect> {
         self.float_rect
+    }
+
+    /// The part of the floating window visible to collision checks.
+    pub fn window_cover(&self) -> Option<Rect> {
+        self.float_cover
     }
 
     /// Whether the page's or window's field had the keys last frame.

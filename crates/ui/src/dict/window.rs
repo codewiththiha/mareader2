@@ -36,15 +36,21 @@ pub struct Frame<'a> {
     pub voice: &'a Voice,
     /// Its rect while dragged or resized, saved on release.
     pub live: &'a mut Option<Rect>,
+    /// Whether the pointer is moving or resizing it.
+    pub dragging: &'a mut bool,
     /// Folded when last drawn; a change moves the rect to suit.
     pub was_folded: &'a mut Option<bool>,
-    /// Home and aside rects while stepped out of a toast's bed.
+    /// Home and aside rects while stepped away from an obstacle.
     pub evacuated: &'a mut Option<(Rect, Rect)>,
+    /// The original window sliding partly beyond an edge.
+    pub parked: &'a mut Option<crate::park::Tuck>,
     pub settings: &'a DictionarySettings,
     /// Where it may sit: below the bar, beside any rail.
     pub stage: Rect,
     /// Active toasts occupying the corner, if any.
     pub toasts: Option<Rect>,
+    /// The player's intended resting rect, if it is shown or returning.
+    pub player: Option<Rect>,
 }
 
 /// How long it takes to appear or leave, and to fold.
@@ -73,57 +79,86 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         true => keep_pill(r, f.stage),
         false => fit(r, f.stage),
     };
-    // Idling across an active toast bed: it eases aside, easing back later.
-    let toasts_in_way = f.toasts.filter(|t| f.live.is_none() && rect.intersects(*t));
-    if let Some(toasts) = toasts_in_way {
-        let (home, _) = *f.evacuated.get_or_insert((rect, rect));
-        let shift_left = (home.right() - (toasts.left() - 8.0)).max(0.0);
-        let mut aside = home.translate(vec2(-shift_left, 0.0));
-        if aside.left() < f.stage.left() + INSET {
-            let shift_up = (home.bottom() - (toasts.top() - 8.0)).max(0.0);
-            aside = home.translate(vec2(0.0, -shift_up));
-        }
-        *f.evacuated = Some((home, keep(aside)));
+    let mut parked = *f.parked;
+    let mut returned = false;
+    let pointer_down = ctx.input(|i| i.pointer.any_down());
+    let interacting = *f.dragging || pointer_down;
+    if closing || parked.is_some() || !pointer_down {
+        *f.dragging = false;
     }
-    let dodging = f.evacuated.is_some() && f.toasts.is_some();
-    let secs = crate::motion::secs(ctx, DODGE);
-    let k = ctx.animate_bool_with_time(Id::new("dict-window-dodge"), dodging, secs);
-    match (*f.evacuated, k) {
-        (Some((home, aside)), k) if k > 0.0 => {
-            let e = k * k * (3.0 - 2.0 * k);
-            rect = Rect::from_min_size(home.min.lerp(aside.min, e), home.size());
-        }
-        (Some((home, _)), _) if f.toasts.is_none() => {
-            // Fully returned: settle back where it came from.
-            rect = home;
-            *f.evacuated = None;
-            *f.live = None;
-            out.push(Command::Dict(Action::Window(Window::Place(home))));
-        }
-        _ => {}
+    if closing {
+        parked = None;
     }
-    // Folding puts the pill where the button was; unfolding grows from it.
     let turned = f.was_folded.is_some_and(|was| was != folded);
     if turned {
+        if let Some(tuck) = parked.take() {
+            rect = tuck.resume;
+            *f.live = None;
+        }
         rect = match folded {
             true => to_pill(rect, f.stage),
             false => from_pill(rect, f.stage),
         };
     }
     *f.was_folded = Some(folded);
-    rect = keep(rect);
+    if let Some(tuck) = parked {
+        rect = tuck.resume;
+    } else {
+        rect = match f.live.is_some() {
+            true => hang(rect, f.stage, folded),
+            false => keep(rect),
+        };
+    }
+
+    let obstacles = [f.toasts, f.player];
+    if !closing
+        && !interacting
+        && parked.is_none()
+        && let Some(block) = covering(rect, obstacles)
+    {
+        let home = (*f.evacuated).map_or(rect, |(home, _)| home);
+        let prefer_up = f.player.is_some_and(|player| player.intersects(home));
+        *f.evacuated = Some((home, aside(home, block, f.stage, prefer_up)));
+    }
+    let dodging = (*f.evacuated).is_some_and(|(home, _)| covering(home, obstacles).is_some());
+    let secs = crate::motion::secs(ctx, DODGE);
+    let k = ctx.animate_bool_with_time(Id::new("dict-window-dodge"), dodging, secs);
+    if let Some((home, aside)) = *f.evacuated {
+        if k > 0.0 {
+            let e = k * k * (3.0 - 2.0 * k);
+            rect = Rect::from_min_size(home.min.lerp(aside.min, e), home.size());
+        } else if !dodging {
+            rect = home;
+            *f.evacuated = None;
+            *f.live = None;
+            out.push(Command::Dict(Action::Window(Window::Place(home))));
+            returned = true;
+        }
+    }
+
+    let mut tucked = 0.0;
+    if let Some(tuck) = parked {
+        tucked = crate::park::factor(ctx, Id::new("dict-window-park"), !tuck.revealing);
+        if tuck.revealing && tucked <= 0.0 {
+            rect = tuck.resume;
+            parked = None;
+            *f.evacuated = None;
+            *f.live = None;
+            out.push(Command::Dict(Action::Window(Window::Place(rect))));
+            returned = true;
+        }
+    }
     let morph = Morph::new(ctx, rect, folded, f.stage);
-    let shown = morph.shown();
-    let pillish = morph.fold > 0.5;
+    let shown = parked.map_or_else(|| morph.shown(), |tuck| tuck.rect(tucked));
+    let tucked_rest = parked.is_some_and(|tuck| !tuck.revealing && tucked >= 1.0);
     let mut released = false;
     let area = egui::Area::new(Id::new("dict-window"))
         .order(Order::Middle)
         .fixed_pos(shown.min)
         .constrain(false)
         .movable(false)
-        .interactable(!closing);
+        .interactable(!closing && parked.is_none());
     let layer = egui::LayerId::new(Order::Middle, area.layer().id);
-    // Coming in it grows a little and rises; leaving, the reverse.
     let grow = 0.96 + 0.04 * appear;
     let anchor = pos2(shown.center().x, shown.top());
     let lift = vec2(0.0, 8.0 * (1.0 - appear));
@@ -133,12 +168,20 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
     ctx.set_transform_layer(layer, scale);
     area.show(ctx, |ui| {
         ui.multiply_opacity(appear);
+        ui.set_clip_rect(f.stage);
         if closing {
             ui.disable();
         }
         ui.set_min_size(shown.size());
         ui.set_max_size(shown.size());
         paint(ui, shown, morph.fold, &t);
+        if tucked_rest {
+            let _ = ui.allocate_exact_size(shown.size(), Sense::hover());
+            return;
+        }
+        if parked.is_some() {
+            ui.disable();
+        }
         let head = Rect::from_min_size(shown.min, vec2(shown.width(), HEAD));
         let grab = ui.interact(head, Id::new("dict-window-head"), Sense::click_and_drag());
         if grab.dragged() {
@@ -146,7 +189,6 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         }
         released |= grab.drag_stopped();
-        // The pill restores on a click; the head folds on a double.
         if folded && grab.clicked() {
             out.push(Command::Dict(Action::Window(Window::Minimize(false))));
         } else if !folded && grab.double_clicked() {
@@ -154,19 +196,17 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         }
         let named = Named {
             word: f.page.text().trim(),
-            glance: f.page.glance().filter(|_| pillish),
+            glance: f.page.glance().filter(|_| morph.fold > 0.5),
         };
         if folded {
             grab.clone().on_hover_text("Click to restore");
         }
-        // The head fades through its middle as it turns into the pill.
         let head_shown = (2.0 * morph.fold - 1.0).abs();
         ui.scope(|ui| {
             ui.multiply_opacity(head_shown);
-            header(ui, head, pillish, &named, &t, out);
+            header(ui, head, morph.fold > 0.5, &named, &t, out);
         });
         if folded {
-            // Still asked, so the pill has its glance.
             f.page.ask(ui.ctx(), f.service, f.settings);
         }
         let body_shown = (1.0 - 2.0 * morph.fold).max(0.0);
@@ -176,7 +216,6 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         ui.multiply_opacity(body_shown);
         let line = Stroke::new(1.0, t.line);
         ui.painter().hline(shown.x_range(), head.bottom(), line);
-        // Laid out at the open size and cut to what shows, so it never reflows.
         let open = morph.open;
         let body = Rect::from_min_max(
             pos2(shown.left() + 12.0, head.bottom() + 10.0),
@@ -193,33 +232,99 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
             ui.set_clip_rect(body.expand(2.0).intersect(cut));
             f.page.compact(ui, f.service, (f.settings, f.voice), out);
         });
-        // Last, so the edges win over what lies under them.
-        let (edges_released, edges_dragging) = if morph.fold <= 0.0 && !closing {
+        let (edges_released, edges_dragging) = if morph.fold <= 0.0 && !closing && parked.is_none()
+        {
             edges(ui, shown, &mut rect)
         } else {
             (false, false)
         };
         released |= edges_released;
         if grab.dragged() || edges_dragging {
+            *f.dragging = true;
             *f.evacuated = None;
             if f.toasts
-                .is_some_and(|t| shown.intersects(t) || rect.intersects(t))
+                .is_some_and(|toast| shown.intersects(toast) || rect.intersects(toast))
             {
                 out.push(Command::ClearToasts);
             }
         }
     });
+    if released {
+        *f.dragging = false;
+    }
     if closing {
         f.page.hide();
+        *f.parked = None;
         return shown;
     }
-    let rect = keep(rect);
-    if released || turned {
+
+    if tucked_rest
+        && crate::park::reveal(
+            ctx,
+            Id::new("dict-window-edge-reveal"),
+            shown,
+            f.stage,
+            "Show the dictionary",
+        )
+        && let Some(mut tuck) = parked
+    {
+        tuck.revealing = true;
+        parked = Some(tuck);
+        *f.live = None;
+        *f.evacuated = None;
+    }
+
+    if released && parked.is_none() {
+        let shape = if folded && morph.fold >= 1.0 {
+            Rect::from_min_size(rect.min, PILL)
+        } else {
+            rect
+        };
+        let left = crate::park::Edge::Left.over(shape, f.stage);
+        let right = crate::park::Edge::Right.over(shape, f.stage);
+        let edge = if left.max(right) > shape.width() * 0.5 {
+            Some(if left >= right {
+                crate::park::Edge::Left
+            } else {
+                crate::park::Edge::Right
+            })
+        } else {
+            None
+        };
+        if let Some(edge) = edge {
+            let home = if folded {
+                keep_pill(shape, f.stage)
+            } else {
+                fit(shape, f.stage)
+            };
+            let resume = if folded {
+                Rect::from_min_size(home.min, rect.size())
+            } else {
+                home
+            };
+            parked = Some(crate::park::Tuck::new(edge, shape, home, f.stage).with_resume(resume));
+            *f.live = None;
+            *f.evacuated = None;
+        } else {
+            rect = keep(rect);
+            *f.live = None;
+            *f.evacuated = None;
+            out.push(Command::Dict(Action::Window(Window::Place(rect))));
+        }
+    } else if !returned && turned {
+        rect = keep(rect);
         *f.live = None;
         out.push(Command::Dict(Action::Window(Window::Place(rect))));
-    } else if f.evacuated.is_none() && Some(rect) != saved {
-        *f.live = Some(rect);
+    } else if parked.is_some() {
+        *f.live = None;
+    } else if !returned && f.evacuated.is_none() && Some(rect) != saved {
+        *f.live = Some(if released {
+            keep(rect)
+        } else {
+            hang(rect, f.stage, folded)
+        });
     }
+    *f.parked = parked;
     shown
 }
 
@@ -463,6 +568,55 @@ pub fn fit(r: Rect, stage: Rect) -> Rect {
     let x = r.min.x.clamp(room.min.x, far_x);
     let y = r.min.y.clamp(room.min.y, far_y);
     Rect::from_min_size(pos2(x, y), size)
+}
+
+/// Like `fit`, but a dragged window may hang beyond either side.
+fn hang(r: Rect, stage: Rect, folded: bool) -> Rect {
+    let room = stage.shrink(INSET);
+    let height = if folded { PILL.y } else { r.height() };
+    let far_y = (room.bottom() - height).max(room.top());
+    Rect::from_min_size(pos2(r.left(), r.top().clamp(room.top(), far_y)), r.size())
+}
+
+/// The blocks in `obstacles` touching `r`, united into one area.
+fn covering(r: Rect, obstacles: [Option<Rect>; 2]) -> Option<Rect> {
+    let mut mass = None;
+    for block in obstacles.into_iter().flatten() {
+        if block.intersects(r) {
+            mass = Some(mass.map_or(block, |m: Rect| m.union(block)));
+        }
+    }
+    mass
+}
+
+/// Steps beside a toast or above the player, shrinking only as a last resort.
+fn aside(home: Rect, block: Rect, stage: Rect, prefer_up: bool) -> Rect {
+    let room = stage.shrink(INSET);
+    let clear = |r: &Rect| room.contains_rect(*r) && !r.intersects(block);
+    let dy = (home.bottom() - (block.top() - 8.0)).max(0.0);
+    let up = fit(home.translate(vec2(0.0, -dy)), stage);
+    let dx = (home.right() - (block.left() - 8.0)).max(0.0);
+    let left = fit(home.translate(vec2(-dx, 0.0)), stage);
+    let first = if prefer_up { up } else { left };
+    let second = if prefer_up { left } else { up };
+    if clear(&first) {
+        return first;
+    }
+    if clear(&second) {
+        return second;
+    }
+    let [min_w, min_h] = WINDOW_MIN;
+    let narrow = (block.left() - 8.0 - home.left() >= min_w)
+        .then(|| Rect::from_min_max(home.min, pos2(block.left() - 8.0, home.bottom())));
+    let short = (block.top() - 8.0 - home.top() >= min_h)
+        .then(|| Rect::from_min_max(home.min, pos2(home.right(), block.top() - 8.0)));
+    [narrow, short]
+        .into_iter()
+        .flatten()
+        .filter(|r| !r.intersects(block))
+        .max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
+        .map(|r| fit(r, stage))
+        .unwrap_or(up)
 }
 
 #[cfg(test)]

@@ -430,6 +430,8 @@ pub struct Stage<'a> {
     pub tint: Option<Tokens>,
     /// Active toasts occupying the corner, if any.
     pub toasts: Option<Rect>,
+    /// The Dictionary's floating window, if it is up.
+    pub dict: Option<Rect>,
 }
 
 /// The player's colours, easing from one look to the next.
@@ -464,6 +466,12 @@ struct Shape {
     card: bool,
     /// The foot centre it sits on, gliding where it should.
     at: Option<egui::Pos2>,
+    /// The panel's current rect, shared with dictionary avoidance.
+    rect: Option<Rect>,
+    /// The player sliding partly beyond the reader's bottom edge.
+    parked: Option<crate::park::Tuck>,
+    /// A short grace period while the player is summoned or restored.
+    unparked_until: Option<f64>,
     time: Option<f64>,
     scroll: card::Scroll,
     ticker: card::Ticker,
@@ -622,6 +630,9 @@ impl ReadAloud {
         asked: ReadFrom,
         settings: &ReadAloudSettings,
     ) {
+        if self.session.is_none() {
+            self.shape = Shape::default();
+        }
         let (from, at, until) = (asked.anchor, asked.at, asked.until);
         // What reads is in this pane now, whatever read before.
         self.away = false;
@@ -998,6 +1009,18 @@ impl ReadAloud {
         self.session.is_some() && self.shape.card
     }
 
+    /// The player's intended rect while it is summoned or restoring.
+    pub fn clearance_rect(&self, now: f64) -> Option<Rect> {
+        self.session.as_ref()?;
+        let grace = self.shape.unparked_until.is_some_and(|until| now < until);
+        match self.shape.parked {
+            Some(tuck) if tuck.revealing || grace => Some(tuck.home),
+            Some(_) => None,
+            None if grace => self.shape.rect,
+            None => None,
+        }
+    }
+
     /// The player: a pill by its pane, or a card when the words are away.
     pub fn bar(
         &mut self,
@@ -1041,7 +1064,11 @@ impl ReadAloud {
         let full = style == Look::Full && roomy;
         let f = ctx.animate_bool_with_time(Id::new("read-aloud-full"), full, morph);
         let f = ease_in_out(f);
+        let just_appeared = shape.appeared.is_none();
         let since = now - *shape.appeared.get_or_insert(now);
+        if just_appeared {
+            shape.unparked_until = Some(now + 4.0);
+        }
         let shown = match motion::enabled(ctx) {
             true => ease_out((since / APPEAR).clamp(0.0, 1.0)) as f32,
             false => 1.0,
@@ -1147,8 +1174,45 @@ impl ReadAloud {
             let risen =
                 ctx.animate_value_with_time(Id::new("read-aloud-keeper-rise"), under, morph);
             rect = rect.translate(egui::vec2(0.0, -risen));
-            // The lines read are kept above it, in its book's pane.
-            shape.rise = pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0));
+            let asked_up = shape.unparked_until.is_some_and(|until| now < until);
+            if stage.dict.is_some()
+                && let Some(until) = shape.unparked_until.filter(|until| now < *until)
+            {
+                ctx.request_repaint_after(Duration::from_secs_f64(until - now));
+            }
+            let covered = stage.dict.is_some_and(|dict| rect.intersects(dict));
+            let parking = covered && !asked_up && under <= 0.0;
+            let park_stage = room.with_max_y(foot.max(room.top()).min(room.bottom()));
+            if shape.parked.is_none() && parking {
+                shape.parked = Some(crate::park::Tuck::new(
+                    crate::park::Edge::Bottom,
+                    rect,
+                    rect,
+                    park_stage,
+                ));
+            }
+            let mut tucked = 0.0;
+            if let Some(mut tuck) = shape.parked {
+                if parking {
+                    tuck.revealing = false;
+                }
+                tucked = crate::park::factor(ctx, Id::new("read-aloud-park"), parking);
+                rect = tuck.rect(tucked);
+                if !parking && tucked <= 0.0 {
+                    rect = tuck.resume;
+                    shape.parked = None;
+                } else {
+                    shape.parked = Some(tuck);
+                }
+            }
+            shape.rect = Some(rect);
+            let parked = shape.parked.is_some();
+            let tucked_rest = parked && parking && tucked >= 1.0;
+            shape.rise = if parked {
+                0.0
+            } else {
+                pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0))
+            };
             let escape = view.escape.is_some();
             let fit = Fit::new(width, escape).fill(width, escape);
             let least = if f >= 0.5 {
@@ -1164,11 +1228,18 @@ impl ReadAloud {
                 .order(Order::Foreground)
                 .fixed_pos(rect.min)
                 .constrain(false)
+                .interactable(!parked)
                 .show(ctx, |ui| {
                     ui.set_opacity(shown);
-                    ui.set_clip_rect(room);
+                    ui.set_clip_rect(if parked { park_stage } else { room });
                     let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
                     card::frame(ui, r, k);
+                    if tucked_rest {
+                        return;
+                    }
+                    if parked {
+                        ui.disable();
+                    }
                     let row = r.with_min_y(r.bottom() - control::HEIGHT);
                     // Words wait for room; compact and full cross-fade.
                     let words = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
@@ -1194,6 +1265,20 @@ impl ReadAloud {
                     }
                     resize = edges::show(ui, r, span);
                 });
+            if tucked_rest
+                && crate::park::reveal(
+                    ctx,
+                    Id::new("read-aloud-edge-reveal"),
+                    rect,
+                    park_stage,
+                    "Show the read-aloud player",
+                )
+                && let Some(mut tuck) = shape.parked
+            {
+                tuck.revealing = true;
+                shape.parked = Some(tuck);
+                shape.unparked_until = Some(now + 4.0);
+            }
             // Asked about a part, the question rises over the player.
             if view.ask.is_some() {
                 shape.asked = view.ask;
@@ -1201,7 +1286,7 @@ impl ReadAloud {
             let ease = motion::secs(ctx, 0.18);
             let asking =
                 ctx.animate_bool_with_time(Id::new("read-aloud-asking"), view.ask.is_some(), ease);
-            if let (Some(part), true) = (shape.asked, asking > 0.0) {
+            if !parked && let (Some(part), true) = (shape.asked, asking > 0.0) {
                 let k = ease_out(f64::from(asking)) as f32 * shown;
                 let answer = ask::show(ctx, (rect, room), part, k);
                 if let (Some(read), true) = (answer, view.ask.is_some()) {

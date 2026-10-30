@@ -13,6 +13,7 @@ use mareader_ui::command::Command;
 use mareader_ui::dict::card::PURSUE;
 use mareader_ui::dict::page::LABEL;
 use mareader_ui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
+use mareader_ui::park::PEEK;
 use mareader_ui::route::Route;
 use mareader_ui::settings_window::Tab;
 use mareader_ui::settings_window::{ALL_LANGUAGES, MORE_LANGUAGES};
@@ -362,6 +363,22 @@ fn drag(h: &mut H, from: egui::Pos2, by: egui::Vec2) {
     h.run_steps(3);
 }
 
+/// Clicks a visible point without relying on an accessibility label.
+fn click_at(h: &mut H, at: egui::Pos2) {
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(button(true));
+    h.run_steps(1);
+    h.event(button(false));
+    h.run_steps(2);
+}
+
 #[test]
 fn the_window_moves_and_resizes_and_remembers_where() {
     let dir = shelf();
@@ -399,6 +416,39 @@ fn the_window_moves_and_resizes_and_remembers_where() {
         "{sized:?}"
     );
     assert_eq!(sized.left_top(), moved.left_top(), "the far corner held");
+}
+
+#[test]
+fn dragging_past_a_side_peeks_the_dictionary_itself() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("a known option");
+    h.run_steps(30);
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    let size = at.size();
+    let by = egui::vec2(-at.left() - at.width() * 0.5 - 8.0, 0.0);
+    drag(&mut h, at.left_top() + egui::vec2(60.0, 18.0), by);
+    h.run_steps(30);
+
+    let tucked = h.state().dict().window_rect().expect("still drawn");
+    let exposed = h.state().dict().window_cover().expect("visible edge");
+    assert_eq!(tucked.size(), size, "the original shape stays whole");
+    assert!(
+        tucked.left() < 0.0,
+        "it rests beyond the left edge: {tucked:?}"
+    );
+    assert!((exposed.width() - PEEK).abs() < 1.0, "{exposed:?}");
+    assert!(h.query_by_label("Show the dictionary").is_some());
+    assert!(h.query_by_label(CLOSE).is_none(), "no controls at the edge");
+
+    click_at(&mut h, exposed.center());
+    h.run_steps(30);
+    let restored = h.state().dict().window_rect().expect("restored window");
+    assert_eq!(restored.size(), size);
+    assert!(restored.left() >= 0.0, "{restored:?}");
+    assert!(h.query_by_label(MINIMIZE).is_some(), "controls return");
 }
 
 #[test]
@@ -531,7 +581,7 @@ fn the_pill_goes_anywhere_and_unfolds_onto_the_stage() {
     drag(
         &mut h,
         pill.center(),
-        egui::pos2(995.0, 795.0) - pill.center(),
+        egui::pos2(960.0, 795.0) - pill.center(),
     );
     let pill = h.state().dict().window_rect().expect("a pill");
     assert!(pill.right() > 975.0 && pill.bottom() > 735.0, "{pill:?}");

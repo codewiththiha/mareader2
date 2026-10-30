@@ -486,25 +486,30 @@ and returns where it came from; Library sits beside it.
   and recent searches as chips under a Recent heading with Clear.
 - **Floating window.** In the reader the button and shortcut float the same
   search over the page instead (`dict/window.rs`); Settings › Dictionary ›
-  In the reader can ask for the page. 380 × 520 at the stage's top right at
-  first, then where it was left: the head drags, every edge and corner
-  resizes down to 300 × 240, and it never leaves the stage. − folds it to a
-  pill naming the last word (a click or a double-click on the head toggles),
-  ⤢ opens the page with the search kept, ✕ closes. Esc in its field clears,
-  then closes. Open, folded and its rect are saved with the settings. It
-  comes in growing from 96 % and rising 8 px as it fades in, and leaves the
-  same way (input off meanwhile); folding morphs the window into the pill,
-  its body fading out over the first half and the pill's title in over the
-  second. Motion settings turn it all off.
+  In the reader can ask for the page. It starts at 380 × 520, top right;
+  the head drags, each edge and corner resizes down to 300 × 240. − folds
+  it into a pill naming the last word; ⤢ opens the page with search kept,
+  and ✕ closes. Esc clears its field, then closes. Open, folded and the
+  restored rect are saved. It grows from 96 % and rises 8 px as it fades
+  in, and leaves the same way. Folding morphs the window into its pill;
+  motion settings turn the animations off.
 - **Feeding the window.** While it is open, Look up fills its search
   instead of a card (a folded window comes back) and the selection stays.
   A card's book button carries its word into the window, or the page. The
   shortcut gives an idle window the keys; pressed while typing, it closes.
-- **The pill.** Folding leaves the pill where − was (the window's top right
-  on the stage's right half); it names the word and its top answer, and is
-  kept on the stage by its own size, so it reaches every edge. Unfolding
-  grows the window from it away from the nearer edges, wholly on the stage,
-  which lies between the title bar and the page bar.
+- **The pill.** Folding leaves the pill where − was, names the word and its
+  top answer, and unfolds from that spot. A dragged window may go past its
+  left or right edge; its full original shape slides out, leaving a 20 pt
+  piece clipped in place. That piece is the only reveal target: no new tab,
+  capsule or controls. Clicking it restores the same window and its controls.
+- **Self-peeking floats.** `park.rs` shares the same edge geometry. The
+  dictionary tucks left or right; the read-aloud player tucks below when
+  covered by the dictionary. Only each panel's original shell remains
+  visible while parked, with no player controls or play/pause dot. A click
+  on that exposed shell reveals it; a returning player asks the dictionary
+  to step clear, preferring above. On Library, the player stays above the
+  selection bar. Player toast avoidance narrows in place; manual conflicts
+  clear the toast, and the dictionary keeps its own animated dodge.
 - **Bridges.** The route chip names the language between ("via English");
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.

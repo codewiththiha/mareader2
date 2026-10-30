@@ -2962,6 +2962,7 @@ impl MareaderApp {
             Route::Library | Route::Dictionary => 0.0,
         };
         let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
+        let dict = (reader).then(|| self.dict.window_cover()).flatten();
         let stage = crate::read_aloud::Stage {
             reader,
             panes: &self.pane_rects,
@@ -2970,6 +2971,7 @@ impl MareaderApp {
             title: &title,
             tint,
             toasts,
+            dict,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
@@ -3691,8 +3693,10 @@ impl eframe::App for MareaderApp {
             let dictionary = &self.settings.dictionary;
             let lift = self.toast_lift(&ctx, ctx.content_rect());
             let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
+            let now = ctx.input(|i| i.time);
+            let player = self.read_aloud.clearance_rect(now);
             self.dict
-                .window(&ctx, dictionary, stage, toasts, &mut commands);
+                .window(&ctx, dictionary, stage, toasts, player, &mut commands);
         }
         self.lifted(&ctx);
         self.drops_from_rail(ui, &mut commands);

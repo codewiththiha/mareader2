@@ -5,6 +5,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_speech::Spot;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
+use mareader_ui::park::PEEK;
 use mareader_ui::read_aloud::{ReadFrom, Span};
 
 /// A sample PDF, read by the engine that says nothing.
@@ -1332,4 +1333,57 @@ fn player_rises_above_the_selection_bar_and_comes_back_down() {
         (back.bottom() - low.bottom()).abs() < 2.0,
         "{back:?} should return to {low:?}"
     );
+}
+
+#[test]
+fn the_player_peeks_as_its_shell_and_restores_on_click() {
+    let mut h = reader(1);
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.run_steps(30);
+    let dict_home = h.state().dict().window_rect().expect("dictionary window");
+
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(60);
+    let id = egui::Id::new("read-aloud-bar");
+    let home = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
+    let aside = h.state().dict().window_rect().expect("dictionary steps up");
+    assert!(aside.top() < dict_home.top() - 20.0, "{aside:?}");
+    assert!(
+        h.query_by_label("Play").is_some(),
+        "the summoned player stays up"
+    );
+
+    h.run_steps(240);
+    h.run_steps(60);
+    let tucked = h.ctx.memory(|m| m.area_rect(id)).expect("the player peek");
+    assert_eq!(tucked.size(), home.size());
+    assert!(
+        (tucked.top() - (home.bottom() - PEEK)).abs() < 2.0,
+        "only its upper shell remains: {tucked:?} from {home:?}"
+    );
+    assert!(h.query_by_label("Pause").is_none());
+    assert!(h.query_by_label("Play").is_none());
+    assert!(h.query_by_label("Show the read-aloud player").is_some());
+
+    let edge = egui::pos2(tucked.center().x, tucked.top() + PEEK * 0.5);
+    pointer(&mut h, edge, None);
+    pointer(&mut h, edge, Some(true));
+    pointer(&mut h, edge, Some(false));
+    h.run_steps(60);
+
+    let restored = h.ctx.memory(|m| m.area_rect(id)).expect("restored player");
+    assert!(
+        (restored.bottom() - home.bottom()).abs() < 2.0,
+        "{restored:?}"
+    );
+    assert!(
+        h.query_by_label("Play").is_some(),
+        "controls return after reveal"
+    );
+    let dict = h.state().dict().window_rect().expect("dictionary window");
+    assert!(dict.top() < 380.0, "the dictionary moves up: {dict:?}");
 }

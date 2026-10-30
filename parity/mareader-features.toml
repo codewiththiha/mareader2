@@ -1458,11 +1458,12 @@ evidence = [
     "crates/ui/tests/dictionary.rs::the_card_carries_its_word_into_the_window_or_the_page",
     "crates/ui/tests/dictionary.rs::the_shortcut_gives_an_idle_window_the_keys_then_closes_it",
     "crates/ui/tests/dictionary.rs::the_pill_goes_anywhere_and_unfolds_onto_the_stage",
+    "crates/ui/tests/dictionary.rs::dragging_past_a_side_peeks_the_dictionary_itself",
     "crates/ui/tests/dictionary.rs::a_bridge_names_english_and_each_answer_its_word",
     "crates/ui/src/dict/window.rs::the_window_stays_on_the_stage_and_never_below_its_minimum",
     "crates/settings/src/study.rs::a_window_rect_is_finite_and_never_below_the_minimum",
 ]
-notes = "Its own page, not a rail panel: from the reader's and library's bars or Cmd/Ctrl+Shift+D. Results beside the chosen entry, its other senses, Copy and Look up in turn, recent searches, arrows and Enter. In the reader it floats over the page by default: dragged, resized, folded to a pill, opened as the page or closed, its place saved; Settings can ask for the page instead"
+notes = "Its own page, not a rail panel: from the reader's and library's bars or Cmd/Ctrl+Shift+D. Results beside the chosen entry, its other senses, Copy and Look up in turn, recent searches, arrows and Enter. In the reader it floats, drags, resizes and folds; dragged past a side, its own shell peeks and clicks restore it without a tab. Settings can ask for the page instead"
 
 [[feature]]
 id = "study.selection-menu"

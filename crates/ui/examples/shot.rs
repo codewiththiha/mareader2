@@ -170,6 +170,7 @@ fn main() -> Result<(), String> {
             "click" => clicks.push(v.replace('_', " ")),
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
+            "read_aloud" if v == "true" => queued.push(Command::ToggleReadAloud),
             // Clicks on its scripted pages: `script=#answer,li.right`.
             "script" => {
                 app.set_option(k, v)?;
