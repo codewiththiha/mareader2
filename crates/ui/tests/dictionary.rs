@@ -592,7 +592,7 @@ fn light_in(dir: &Path, (engine, voice): (&str, Option<&str>), others: bool) -> 
 
 fn says_in(engine: &str, voice: Option<&str>) -> usize {
     let dir = shelf();
-    let h = light_in(dir.path(), (engine, voice), true);
+    let h = light_in(dir.path(), (engine, voice), false);
     h.query_all_by_label(mareader_ui::read_aloud::SAY).count()
 }
 
@@ -622,24 +622,23 @@ fn kokoro_here() -> tempfile::TempDir {
     dir
 }
 
-/// Says "light", then counts who can be said once the voices are known.
-fn sayable_after_a_word(others: bool) -> usize {
+/// Counts who can be said in a system-like engine, before any voice spoke.
+fn sayable(others: bool) -> usize {
     use mareader_ui::read_aloud::SAY;
     let dir = shelf();
     let mut h = light_in(dir.path(), ("silent", None), others);
-    // Before a voice spoke, only the picked one is known.
-    assert_eq!(h.query_all_by_label(SAY).count(), 1);
-    h.get_by_label(SAY).click();
-    h.run();
+    let before = h.query_all_by_label(SAY).count();
+    // Listed once, the voices stay known frames later.
     h.run_steps(5);
-    h.query_all_by_label(SAY).count()
+    assert_eq!(h.query_all_by_label(SAY).count(), before);
+    before
 }
 
 #[test]
 fn another_languages_voice_says_its_words() {
     // The silent engine's French voice says both French answers.
-    assert_eq!(sayable_after_a_word(true), 3);
-    assert_eq!(sayable_after_a_word(false), 1);
+    assert_eq!(sayable(true), 3);
+    assert_eq!(sayable(false), 1);
 }
 
 #[test]

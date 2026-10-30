@@ -1732,8 +1732,13 @@ impl MareaderApp {
         let sounds = self.card_sounds(ctx.input(|i| i.time));
         let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
         let model = self.library.model();
-        let saying = self.read_aloud.saying();
         let others = self.settings.dictionary.other_voices;
+        let dict = &self.settings.dictionary;
+        let looking = self.dict.card_word().is_some() || dict.window.open;
+        if others && (looking || self.route() == Route::Dictionary) {
+            self.read_aloud.list_voices(ctx, &self.settings.read_aloud);
+        }
+        let saying = self.read_aloud.saying();
         let (speakers, offers) = self.read_aloud.speakers(&self.settings.read_aloud, others);
         self.dict.set_voice(crate::dict::Voice {
             saying: saying.map(str::to_owned),

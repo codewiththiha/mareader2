@@ -488,6 +488,10 @@ pub struct ReadAloud {
     pub shelf: mareader_speech::Shelf,
     /// Says a card's word in the voice books are read in.
     word: Booth,
+    /// An engine's voices as last listed, kept once its booths close.
+    known: (String, Vec<mareader_speech::Voice>),
+    /// Engines opened once only to list their voices.
+    listed_once: Vec<String>,
     /// The word being said, and when one was last asked.
     saying: Option<String>,
     said_at: f64,
@@ -794,7 +798,7 @@ impl ReadAloud {
         let voice = voice.map(|v| (v.name.to_owned(), v.language.to_owned()));
         let voice = voice.or_else(|| {
             let id = picked?;
-            let v = self.listed(engine).find(|v| v.id == id)?;
+            let v = self.listed(engine).iter().find(|v| v.id == id)?;
             Some((v.name.clone(), v.language.clone()))
         });
         let (name, tag) = voice.unwrap_or_else(|| {
@@ -823,7 +827,7 @@ impl ReadAloud {
             Some(m) => (m.voices.iter())
                 .find(|v| english(v.language) && self.shelf.has(m, v.id))
                 .map(|v| (v.name.to_owned(), v.language.to_owned())),
-            None => (self.listed(engine))
+            None => (self.listed(engine).iter())
                 .find(|v| english(&v.language))
                 .map(|v| (v.name.clone(), v.language.clone())),
         };
@@ -831,11 +835,39 @@ impl ReadAloud {
     }
 
     /// The system's voices, known once one of its booths listed them.
-    fn listed<'a>(&'a self, engine: &'a str) -> impl Iterator<Item = &'a mareader_speech::Voice> {
-        let booths = [&self.word, &self.booth].into_iter();
-        booths
-            .filter(move |b| b.engine() == engine)
-            .flat_map(|b| b.voices())
+    fn listed(&self, engine: &str) -> &[mareader_speech::Voice] {
+        let open = [&self.word, &self.booth]
+            .into_iter()
+            .find(|b| b.engine() == engine && !b.voices().is_empty());
+        match open {
+            Some(b) => b.voices(),
+            None if self.known.0 == engine => &self.known.1,
+            None => &[],
+        }
+    }
+
+    /// Keeps a booth's listing for when every booth is closed.
+    fn keep_listing(&mut self) {
+        for b in [&self.word, &self.booth] {
+            let (engine, voices) = (b.engine(), b.voices());
+            let changed = self.known.0 != engine || self.known.1.len() != voices.len();
+            if !voices.is_empty() && changed {
+                self.known = (engine.to_owned(), voices.to_vec());
+            }
+        }
+    }
+
+    /// Opens a system engine once to list its voices, while none are known.
+    pub fn list_voices(&mut self, ctx: &Context, settings: &ReadAloudSettings) {
+        let engine = settings.engine.as_str();
+        let model = mareader_speech::MODELS.iter().any(|m| m.id == engine);
+        let tried = self.listed_once.iter().any(|e| e == engine);
+        if model || tried || !self.listed(engine).is_empty() {
+            return;
+        }
+        self.listed_once.push(engine.to_owned());
+        self.word.open(ctx, engine, settings, &self.shelf);
+        self.keep_listing();
     }
 
     /// Who says each language's words; `others` lends the engine's other
@@ -907,6 +939,7 @@ impl ReadAloud {
 
     /// Hears the word end; lets the engine go a while after.
     fn tick_word(&mut self, ctx: &Context) {
+        self.keep_listing();
         if !self.word.is_open() {
             return;
         }
