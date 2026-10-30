@@ -12,6 +12,11 @@ fn reader(pages: usize) -> Harness<'static, MareaderApp> {
     reader_sized(pages, egui::vec2(900.0, 700.0))
 }
 
+/// What the app holds in its library, for picking books.
+fn library<'a>(h: &'a Harness<'static, MareaderApp>) -> &'a mareader_library::Library {
+    h.state().library()
+}
+
 fn reader_sized(pages: usize, size: egui::Vec2) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
@@ -1245,4 +1250,86 @@ fn the_options_menu_sets_the_player_and_stays_over_it() {
     let order: Vec<_> = h.ctx.memory(|m| m.layer_ids().collect());
     let at = |l: egui::LayerId| order.iter().position(|o| *o == l);
     assert!(at(menu) > at(bar), "{order:?}");
+}
+
+#[test]
+fn player_at_wide_width_minimizes_for_toast_and_restores() {
+    let mut h = reader(3);
+    h.state_mut().settings_mut().read_aloud.player_width = Some(720.0);
+    start(&mut h, ReadFrom::default());
+    h.run_steps(10);
+    let bar = h
+        .ctx
+        .memory(|m| m.area_rect(egui::Id::new("read-aloud-bar")))
+        .unwrap();
+    assert!(bar.width() > 500.0, "wide player: {bar:?}");
+    // Toast arrives while wide player is idling.
+    h.state_mut().set_option("toast", "Saved").unwrap();
+    h.run_steps(20);
+    let shrunk = h
+        .ctx
+        .memory(|m| m.area_rect(egui::Id::new("read-aloud-bar")))
+        .unwrap();
+    assert!(
+        shrunk.width() < 400.0,
+        "minimized for toast: {shrunk:?} vs {bar:?}"
+    );
+    // Toast cleared: the player eases back to its set width.
+    h.state_mut().queue(Command::ClearToasts);
+    h.run_steps(30);
+    let back = h
+        .ctx
+        .memory(|m| m.area_rect(egui::Id::new("read-aloud-bar")))
+        .unwrap();
+    assert!(
+        (back.width() - bar.width()).abs() < 2.0,
+        "restored after toast: {back:?} vs {bar:?}"
+    );
+}
+
+#[test]
+fn player_rises_above_the_selection_bar_and_comes_back_down() {
+    use egui_kittest::kittest::Queryable as _;
+    use mareader_ui::library::{Action, Pick, PickAction};
+
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    app.set_option("books", "1").ok();
+    app.set_option("pdf", "sample:3").ok();
+    app.set_option("set", "read_aloud.engine:\"silent\"").ok();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(400)
+        .build_eframe(|_| app);
+    h.run_steps(3);
+    h.run();
+    start(&mut h, ReadFrom::default());
+    let book = library(&h).books().next().unwrap().id;
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run_steps(40);
+    let bar_rect = |h: &Harness<MareaderApp>| {
+        h.ctx
+            .memory(|m| m.area_rect(egui::Id::new("read-aloud-bar")))
+    };
+    let low = bar_rect(&h).expect("the player's bar");
+    // A pick summons the selection bar along the foot, under the player.
+    h.state_mut()
+        .queue(Command::Library(Action::Pick(PickAction::Only(vec![
+            Pick::Book(book),
+        ]))));
+    h.run_steps(20);
+    let risen = bar_rect(&h).expect("the player's bar");
+    assert!(
+        risen.bottom() < low.bottom() - 20.0,
+        "{risen:?} should rise well above {low:?}"
+    );
+    // Selection done: it glides back to where it sat.
+    h.get_by_label("Done").click();
+    h.run_steps(30);
+    let back = bar_rect(&h).expect("the player's bar");
+    assert!(
+        (back.bottom() - low.bottom()).abs() < 2.0,
+        "{back:?} should return to {low:?}"
+    );
 }

@@ -366,12 +366,15 @@ use it. Settings' two-line folds stay on `fold_row`, which can be revealed.
     short (`toast::keep_clear`). Toasts that come meanwhile wait and come in
     once the corner is clear, with their full time; one kept waiting longer
     than it would have shown is dropped.
-  - **Above lasting chrome.** The page bar and the read-aloud player stay
-    up, so the stack rises above them instead (`toast::stand_on`).
-  - **Beside lasting windows.** When the floating dictionary window sits
-    where the stack goes, the stack slides left of it; with no room there it
-    rises above it, and covers it only when neither fits
-    (`toast::stand_beside`).
+  - **Corner bed and conflicts.** Toasts sit at their usual spot in the
+    corner (`toast::bed`). When chrome is idling in the toast bed, it eases
+    aside or narrows automatically (the player shrinks; the dictionary
+    window shifts left), easing back to its place once toasts leave. When a
+    user manually widens the player or drags the dictionary into the toast,
+    the toast plays its outro and disappears immediately.
+  - **Above what was summoned.** Whatever asks to stay clear of toasts
+    (`toast::keep_clear`) also lifts the player: over the selection bar on
+    the library page it glides up and glides back down once it's gone.
   - **Out of the way.** The stack takes the pointer only over its cards and
     strip. While something on the page is carried near it, it fades to 30 %
     and lets the pointer through, so drops beneath it still work.

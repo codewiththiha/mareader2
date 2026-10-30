@@ -428,6 +428,8 @@ pub struct Stage<'a> {
     pub title: &'a str,
     /// Its pane's own look, while it has one; else the window's.
     pub tint: Option<Tokens>,
+    /// Active toasts occupying the corner, if any.
+    pub toasts: Option<Rect>,
 }
 
 /// The player's colours, easing from one look to the next.
@@ -469,6 +471,8 @@ struct Shape {
     appeared: Option<f64>,
     /// Its width while a side is dragged.
     dragged: Option<f32>,
+    /// The width it eases to while toasts hold the corner.
+    dodge_toast: Option<f32>,
     tint: Option<Tint>,
     /// How far it stands above its book's pane foot; 0 elsewhere.
     rise: f32,
@@ -1103,18 +1107,48 @@ impl ReadAloud {
             let pill = set.map_or(parts, |w| w.clamp(narrowest, widest));
             let open = card::lerp(pill, card::FULL_LEAST.max(pill), f);
             let most = (room.width() - 16.0).max(0.0);
-            let width = card::lerp(pill, open, k).min(most);
+            let mut width = card::lerp(pill, open, k).min(most);
             let tall = card::lerp(card::COMPACT_HEIGHT, card::HEIGHT, f);
             let height = card::lerp(control::HEIGHT, tall, k);
             let bottom = at.y + (1.0 - shown) * 10.0;
-            let rect = Rect::from_min_size(
+            let mut rect = Rect::from_min_size(
                 egui::pos2(at.x - width / 2.0, bottom - height),
                 egui::vec2(width, height),
             );
+            // Idling across an active toast bed: it narrows, easing both ways.
+            let toasts_in_way = stage
+                .toasts
+                .filter(|t| shape.dragged.is_none() && rect.intersects(*t));
+            if let Some(toasts) = toasts_in_way {
+                let open_parts = card::lerp(parts, card::FULL_LEAST.max(parts), f);
+                let min_width = card::lerp(parts, open_parts, k).min(most);
+                let clear = ((toasts.left() - 8.0 - at.x) * 2.0).max(narrowest);
+                shape.dodge_toast = Some(min_width.min(clear));
+            }
+            let dodging = toasts_in_way.is_some();
+            let dodge_k =
+                ctx.animate_bool_with_time(Id::new("read-aloud-toast-dodge"), dodging, morph);
+            if let Some(dodged) = shape.dodge_toast {
+                width = card::lerp(width, dodged, ease_in_out(dodge_k));
+                rect = Rect::from_min_size(
+                    egui::pos2(at.x - width / 2.0, bottom - height),
+                    egui::vec2(width, height),
+                );
+            }
+            if !dodging && dodge_k <= 0.0 {
+                shape.dodge_toast = None;
+            }
+            // Something summoned sits beneath it: it glides above, and back.
+            let under = crate::toast::kept_clear(ctx)
+                .into_iter()
+                .filter(|foe| foe.intersects(rect))
+                .map(|foe| rect.bottom() - foe.top() + 8.0)
+                .fold(0.0_f32, f32::max);
+            let risen =
+                ctx.animate_value_with_time(Id::new("read-aloud-keeper-rise"), under, morph);
+            rect = rect.translate(egui::vec2(0.0, -risen));
             // The lines read are kept above it, in its book's pane.
             shape.rise = pane.map_or(0.0, |p| (p.bottom() - rect.top()).max(0.0));
-            // It stays up a while: toasts rise above it, not over it.
-            crate::toast::stand_on(ctx, rect);
             let escape = view.escape.is_some();
             let fit = Fit::new(width, escape).fill(width, escape);
             let least = if f >= 0.5 {
@@ -1175,9 +1209,21 @@ impl ReadAloud {
                 }
             }
             match resize {
-                Some(Resize::To(w)) => shape.dragged = Some(w),
-                Some(Resize::Set(w)) => (shape.dragged, settings.player_width) = (None, Some(w)),
-                Some(Resize::Reset) => (shape.dragged, settings.player_width) = (None, None),
+                Some(Resize::To(w)) => {
+                    shape.dragged = Some(w);
+                    if stage.toasts.is_some_and(|t| rect.intersects(t)) {
+                        out.push(Command::ClearToasts);
+                    }
+                }
+                Some(Resize::Set(w)) => {
+                    (shape.dragged, settings.player_width) = (None, Some(w));
+                    if stage.toasts.is_some_and(|t| rect.intersects(t)) {
+                        out.push(Command::ClearToasts);
+                    }
+                }
+                Some(Resize::Reset) => {
+                    (shape.dragged, settings.player_width) = (None, None);
+                }
                 None => {}
             }
             act

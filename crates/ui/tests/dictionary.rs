@@ -725,3 +725,55 @@ fn a_missing_voice_offers_its_download_and_reveals_it() {
     assert_eq!(h.state().settings_window().tab(), Tab::Model(&KOKORO));
     assert!(fold_open(&h.ctx, fold), "the French voices unfold");
 }
+
+#[test]
+fn dictionary_window_idling_in_corner_moves_aside_for_toast_and_restores() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut().set_option("dict_window", "show").unwrap();
+    h.run();
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    // Drag down to the bottom right where toasts sit.
+    drag(
+        &mut h,
+        at.left_top() + egui::vec2(60.0, 18.0),
+        egui::vec2(200.0, 200.0),
+    );
+    let corner = h.state().dict().window_rect().expect("moved to corner");
+    // A toast arrives while the dictionary is idling.
+    h.state_mut().set_option("toast", "Saved").unwrap();
+    h.run_steps(20);
+    let aside = h.state().dict().window_rect().expect("stepped aside");
+    assert!(aside.left() < corner.left(), "moved aside for toast");
+    // Clearing the toast eases the window back to its place.
+    h.state_mut().queue(Command::ClearToasts);
+    h.run_steps(30);
+    let back = h.state().dict().window_rect().expect("restored");
+    assert!(
+        (back.left() - corner.left()).abs() < 2.0,
+        "restored to corner"
+    );
+}
+
+#[test]
+fn user_dragging_dictionary_window_into_toast_clears_it() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut().set_option("toast", "Exported").unwrap();
+    h.state_mut().set_option("dict_window", "show").unwrap();
+    h.run_steps(4);
+    assert_eq!(h.state().toasts().0.len(), 1, "toast is up");
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    // User manually drags the window into the toast corner.
+    drag(
+        &mut h,
+        at.left_top() + egui::vec2(60.0, 18.0),
+        egui::vec2(250.0, 250.0),
+    );
+    h.run_steps(4);
+    assert_eq!(
+        h.state().toasts().0.len(),
+        0,
+        "manual conflict sends toast away"
+    );
+}

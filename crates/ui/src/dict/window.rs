@@ -38,14 +38,20 @@ pub struct Frame<'a> {
     pub live: &'a mut Option<Rect>,
     /// Folded when last drawn; a change moves the rect to suit.
     pub was_folded: &'a mut Option<bool>,
+    /// Home and aside rects while stepped out of a toast's bed.
+    pub evacuated: &'a mut Option<(Rect, Rect)>,
     pub settings: &'a DictionarySettings,
     /// Where it may sit: below the bar, beside any rail.
     pub stage: Rect,
+    /// Active toasts occupying the corner, if any.
+    pub toasts: Option<Rect>,
 }
 
 /// How long it takes to appear or leave, and to fold.
 const APPEAR: f32 = 0.18;
 const FOLD: f32 = 0.24;
+/// How long it takes to step aside for a toast, or come back.
+const DODGE: f32 = 0.24;
 
 /// How far it has come in: 0 closed, 1 open; it keeps drawing until 0.
 pub fn appearing(ctx: &Context, open: bool) -> f32 {
@@ -63,6 +69,39 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         .map(|[x, y, wd, h]| Rect::from_min_size(pos2(x, y), vec2(wd, h)));
     let folded = w.minimized;
     let mut rect = f.live.or(saved).unwrap_or_else(|| start(f.stage));
+    let keep = |r: Rect| match folded {
+        true => keep_pill(r, f.stage),
+        false => fit(r, f.stage),
+    };
+    // Idling across an active toast bed: it eases aside, easing back later.
+    let toasts_in_way = f.toasts.filter(|t| f.live.is_none() && rect.intersects(*t));
+    if let Some(toasts) = toasts_in_way {
+        let (home, _) = *f.evacuated.get_or_insert((rect, rect));
+        let shift_left = (home.right() - (toasts.left() - 8.0)).max(0.0);
+        let mut aside = home.translate(vec2(-shift_left, 0.0));
+        if aside.left() < f.stage.left() + INSET {
+            let shift_up = (home.bottom() - (toasts.top() - 8.0)).max(0.0);
+            aside = home.translate(vec2(0.0, -shift_up));
+        }
+        *f.evacuated = Some((home, keep(aside)));
+    }
+    let dodging = f.evacuated.is_some() && f.toasts.is_some();
+    let secs = crate::motion::secs(ctx, DODGE);
+    let k = ctx.animate_bool_with_time(Id::new("dict-window-dodge"), dodging, secs);
+    match (*f.evacuated, k) {
+        (Some((home, aside)), k) if k > 0.0 => {
+            let e = k * k * (3.0 - 2.0 * k);
+            rect = Rect::from_min_size(home.min.lerp(aside.min, e), home.size());
+        }
+        (Some((home, _)), _) if f.toasts.is_none() => {
+            // Fully returned: settle back where it came from.
+            rect = home;
+            *f.evacuated = None;
+            *f.live = None;
+            out.push(Command::Dict(Action::Window(Window::Place(home))));
+        }
+        _ => {}
+    }
     // Folding puts the pill where the button was; unfolding grows from it.
     let turned = f.was_folded.is_some_and(|was| was != folded);
     if turned {
@@ -72,10 +111,6 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         };
     }
     *f.was_folded = Some(folded);
-    let keep = |r: Rect| match folded {
-        true => keep_pill(r, f.stage),
-        false => fit(r, f.stage),
-    };
     rect = keep(rect);
     let morph = Morph::new(ctx, rect, folded, f.stage);
     let shown = morph.shown();
@@ -159,8 +194,19 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
             f.page.compact(ui, f.service, (f.settings, f.voice), out);
         });
         // Last, so the edges win over what lies under them.
-        if morph.fold <= 0.0 && !closing {
-            released |= edges(ui, shown, &mut rect);
+        let (edges_released, edges_dragging) = if morph.fold <= 0.0 && !closing {
+            edges(ui, shown, &mut rect)
+        } else {
+            (false, false)
+        };
+        released |= edges_released;
+        if grab.dragged() || edges_dragging {
+            *f.evacuated = None;
+            if f.toasts
+                .is_some_and(|t| shown.intersects(t) || rect.intersects(t))
+            {
+                out.push(Command::ClearToasts);
+            }
         }
     });
     if closing {
@@ -171,7 +217,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
     if released || turned {
         *f.live = None;
         out.push(Command::Dict(Action::Window(Window::Place(rect))));
-    } else if Some(rect) != saved {
+    } else if f.evacuated.is_none() && Some(rect) != saved {
         *f.live = Some(rect);
     }
     shown
@@ -306,9 +352,10 @@ fn header(ui: &mut Ui, head: Rect, folded: bool, n: &Named<'_>, t: &Tokens, out:
     });
 }
 
-/// The eight resize bands; true when one was let go.
-fn edges(ui: &Ui, r: Rect, rect: &mut Rect) -> bool {
+/// The eight resize bands; returns (any_released, any_dragging).
+fn edges(ui: &Ui, r: Rect, rect: &mut Rect) -> (bool, bool) {
     let mut released = false;
+    let mut dragging = false;
     let sides = [
         (-1, 0),
         (1, 0),
@@ -327,10 +374,11 @@ fn edges(ui: &Ui, r: Rect, rect: &mut Rect) -> bool {
         }
         if resp.dragged() {
             *rect = stretch(*rect, dx, dy, resp.drag_delta());
+            dragging = true;
         }
         released |= resp.drag_stopped();
     }
-    released
+    (released, dragging)
 }
 
 /// `r` with the named sides moved by `d`, kept at least the minimum.

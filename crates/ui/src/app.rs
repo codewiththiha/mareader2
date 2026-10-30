@@ -2957,6 +2957,11 @@ impl MareaderApp {
         let tint = (home.filter(shows))
             .filter(|_| reader && self.routing().any())
             .map(|pane| theme::Tokens::new(&self.look(pane)));
+        let lift = match route {
+            Route::Reader => self.toast_lift(ctx, ctx.content_rect()),
+            Route::Library | Route::Dictionary => 0.0,
+        };
+        let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
         let stage = crate::read_aloud::Stage {
             reader,
             panes: &self.pane_rects,
@@ -2964,6 +2969,7 @@ impl MareaderApp {
             shown,
             title: &title,
             tint,
+            toasts,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
@@ -3683,7 +3689,10 @@ impl eframe::App for MareaderApp {
             // Above the page bar too, which would cover it.
             stage.max.y -= crate::page_bar::BAR_H;
             let dictionary = &self.settings.dictionary;
-            self.dict.window(&ctx, dictionary, stage, &mut commands);
+            let lift = self.toast_lift(&ctx, ctx.content_rect());
+            let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
+            self.dict
+                .window(&ctx, dictionary, stage, toasts, &mut commands);
         }
         self.lifted(&ctx);
         self.drops_from_rail(ui, &mut commands);

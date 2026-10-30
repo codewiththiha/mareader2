@@ -112,6 +112,8 @@ pub struct Dict {
     /// The floating window's rect mid-drag, and where it was drawn.
     float: Option<Rect>,
     float_rect: Option<Rect>,
+    /// Home and aside rects while stepped out of a toast's bed.
+    evacuated: Option<(Rect, Rect)>,
     /// Whether it was folded when last drawn, to catch it folding.
     float_folded: Option<bool>,
     /// Word lists' asks and, once in, their replies; oldest first.
@@ -419,6 +421,7 @@ impl Dict {
         ctx: &Context,
         settings: &DictionarySettings,
         stage: Rect,
+        toasts: Option<Rect>,
         out: &mut Commands,
     ) {
         self.float_rect = None;
@@ -429,6 +432,7 @@ impl Dict {
         let appear = window::appearing(ctx, settings.window.open);
         if !settings.window.open {
             self.float = None;
+            self.evacuated = None;
         }
         if appear <= 0.0 {
             return;
@@ -439,14 +443,13 @@ impl Dict {
             voice: &self.voice,
             live: &mut self.float,
             was_folded: &mut self.float_folded,
+            evacuated: &mut self.evacuated,
             settings,
             stage,
+            toasts,
         };
         let drawn = window::show(ctx, frame, appear, out);
         self.float_rect = settings.window.open.then_some(drawn);
-        if settings.window.open {
-            crate::toast::stand_beside(ctx, drawn);
-        }
     }
 
     /// Where the floating window was drawn, for tests.
