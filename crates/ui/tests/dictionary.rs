@@ -212,6 +212,25 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     h.run();
     assert!(!h.state().titlebar().pinned);
     assert!(!h.state().settings().chrome.library_titlebar_pinned);
+    // A press on the page shuts the menu; the pointer gone, the bar hides.
+    let away = egui::pos2(500.0, 600.0);
+    h.hover_at(away);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: away,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(60);
+    assert!(!h.state().titlebar().visible(), "unpinned, it hides");
+    h.hover_at(egui::pos2(500.0, 10.0));
+    h.run_steps(8);
+    assert!(
+        h.state().titlebar().visible(),
+        "the top edge brings it back"
+    );
 }
 
 #[test]

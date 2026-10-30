@@ -3710,9 +3710,7 @@ impl eframe::App for MareaderApp {
             .content_rect()
             .with_max_y(self.titlebar.band_bottom(&ctx));
         let tabbing = crate::focus::within(&ctx, band);
-        // The dictionary's bar is its only way out, so it stays.
-        let page = route == Route::Dictionary;
-        self.titlebar.hold = self.find.is_open() || searching || tabbing || page;
+        self.titlebar.hold = self.find.is_open() || searching || tabbing;
         self.follow_focus(&ctx, &mut commands);
         self.documents.end_frame(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
