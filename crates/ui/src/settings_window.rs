@@ -47,9 +47,8 @@ const ROW_H: f32 = 44.0;
 /// The sidebar of tabs, and each tab's row in it.
 const NAV_W: f32 = 184.0;
 const NAV_ROW_H: f32 = 32.0;
-/// The voice engines' fold title, and its row's height.
+/// The voice engines' fold title.
 const ENGINES: &str = "Voice engines";
-const FOLD_H: f32 = 26.0;
 /// How far the engines sit in from the tabs.
 const ENGINE_INDENT: f32 = 10.0;
 /// The shown tab's name and the close button.
@@ -170,8 +169,6 @@ pub struct SettingsWindow {
     tab: Tab,
     /// Opened away from the books: only the tabs that matter there.
     limited: bool,
-    /// The voice engines' fold is open, showing every engine.
-    engines_open: bool,
 }
 
 impl SettingsWindow {
@@ -331,76 +328,25 @@ impl SettingsWindow {
         shown: Tab,
     ) {
         ui.add_space(4.0);
-        let r = engines_fold(ui, self.engines_open, models.len());
-        if r.clicked() {
-            self.engines_open = !self.engines_open;
-        }
-        let how = ui.ctx().animate_bool_responsive(r.id, self.engines_open);
-        let gap = ui.spacing().item_spacing.y;
-        let room = ui.available_rect_before_wrap();
-        let inner = room.with_min_x(room.left() + ENGINE_INDENT);
-        let layout = Layout::top_down(Align::Min);
-        ui.scope_builder(UiBuilder::new().max_rect(inner).layout(layout), |ui| {
-            for m in models {
-                let tab = Tab::Model(m);
-                let kept = m.id == engine || tab == shown;
-                let f = if kept { 1.0 } else { how };
-                if f >= 1.0 {
-                    if nav_row(ui, tab, tab == shown).clicked() {
-                        self.tab = tab;
-                    }
-                    continue;
-                }
-                // Partway, a row grows in, clipped and fading.
-                let height = ((NAV_ROW_H + gap) * f - gap).max(0.0);
-                if height <= 0.0 {
-                    continue;
-                }
-                let size = vec2(ui.available_width(), height);
-                let (slot, _) = ui.allocate_exact_size(size, Sense::hover());
-                let whole = Rect::from_min_size(slot.min, vec2(slot.width(), NAV_ROW_H));
-                let mut row = ui.new_child(UiBuilder::new().max_rect(whole).layout(layout));
-                row.set_clip_rect(slot.intersect(ui.clip_rect()));
-                row.multiply_opacity(f);
-                nav_row(&mut row, tab, false);
-            }
+        let id = egui::Id::new(ENGINES);
+        let fold = crate::fold::title(ui, id, ENGINES, Some(models.len()));
+        let rows = models.iter().map(|m| {
+            let tab = Tab::Model(m);
+            (tab, m.id == engine || tab == shown)
         });
+        crate::fold::rows(
+            ui,
+            fold,
+            (NAV_ROW_H, ENGINE_INDENT),
+            rows,
+            |ui, tab, live| {
+                let r = nav_row(ui, tab, live && tab == shown);
+                if live && r.clicked() {
+                    self.tab = tab;
+                }
+            },
+        );
     }
-}
-
-/// The engines' fold title: its name, how many, and a turning chevron.
-fn engines_fold(ui: &mut Ui, open: bool, count: usize) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    let size = vec2(ui.available_width(), FOLD_H);
-    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
-    let kind = egui::WidgetType::CollapsingHeader;
-    r.widget_info(|| egui::WidgetInfo::selected(kind, true, open, ENGINES));
-    let hot = r.hovered();
-    let painter = ui.painter();
-    if hot {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        painter.rect_filled(rect, t.radius, t.hover);
-    }
-    let y = rect.center().y;
-    let ink = if hot { t.ink } else { t.muted };
-    let font = theme::medium(t.text_small);
-    let left = egui::Align2::LEFT_CENTER;
-    painter.text(pos2(rect.left() + 10.0, y), left, ENGINES, font, ink);
-    let how = ui.ctx().animate_bool_responsive(r.id, open);
-    let turn = how * std::f32::consts::FRAC_PI_2;
-    let chevron = Rect::from_center_size(pos2(rect.right() - 14.0, y), Vec2::splat(12.0));
-    let icon = Icon::ChevronRight.image(12.0).tint(ink);
-    icon.rotate(turn, Vec2::splat(0.5)).paint_at(ui, chevron);
-    // A small count pill, so a shut fold still says what it holds.
-    let count = count.to_string();
-    let small = egui::FontId::proportional(t.text_small - 1.0);
-    let galley = painter.layout_no_wrap(count, small, t.muted);
-    let pill = vec2(galley.size().x + 10.0, galley.size().y + 2.0);
-    let pill = Rect::from_center_size(pos2(chevron.left() - 6.0 - pill.x / 2.0, y), pill);
-    painter.rect_filled(pill, CornerRadius::same(255), t.line.gamma_multiply(0.7));
-    let at = pill.center() - galley.size() / 2.0;
-    painter.galley(at, galley, t.muted);
-    r
 }
 
 /// A small muted heading over a group of tabs.

@@ -11,7 +11,11 @@ use crate::titlebar::LibraryBar;
 use crate::widgets;
 
 pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
+/// The sort orders' fold, and its name.
+pub const SORT_FOLD: &str = "Sort by";
 const WIDTH: f32 = 248.0;
+/// A menu row's height, as `widgets::menu_row` draws it.
+const ROW_H: f32 = 32.0;
 
 /// The menu's button; `auto` is the grid's automatic column count.
 pub fn button(
@@ -80,12 +84,19 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
         }
     });
     ui.separator();
-    heading(ui, "Sort by");
-    for key in SortKey::ALL {
+    // Shut, it keeps the order in use and its direction.
+    let fold = crate::fold::title(ui, egui::Id::new(SORT_FOLD), SORT_FOLD, None);
+    let rows = SortKey::ALL.map(|key| (key, view.sort == key));
+    let mut picked = None;
+    crate::fold::rows(ui, fold, (ROW_H, 0.0), rows, |ui, key, live| {
         let on = view.sort == key;
-        if widgets::menu_row(ui, Icon::Sort, key.label(), None, on).clicked() && !on {
-            view.set_sort(key);
+        let r = widgets::menu_row(ui, Icon::Sort, key.label(), None, on);
+        if live && r.clicked() && !on {
+            picked = Some(key);
         }
+    });
+    if let Some(key) = picked {
+        view.set_sort(key);
     }
     // The reader's own order has no other way round.
     if let Some([up, down]) = view.sort.directions() {

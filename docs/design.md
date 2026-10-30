@@ -322,6 +322,17 @@ pages use: Read aloud with its voice models, Highlights, Vocabulary,
 Dictionary, AI and AI models (`Tab::beyond_books`). The dictionary's page
 opens it on Dictionary. A link to any other tab opens the full list.
 
+## Folds
+
+`fold` is the fold that keeps its chosen rows while shut: `fold::title`
+draws the name, an optional count pill and a chevron that turns as it
+opens; `fold::rows` lays the rows, kept ones always, the rest growing in,
+clipped and fading, and taking clicks only once wholly shown. A fold
+starts shut and remembers itself for the session under its id. Settings'
+Voice engines (keeping the engine in use and the tab shown) and the
+library menu's Sort by (keeping the order in use, its direction below)
+use it. Settings' two-line folds stay on `fold_row`, which can be revealed.
+
 ## Tooltips, toasts and the menu
 
 - **Tooltips.** `widgets::tip`: a chip on `surface` with a `line` edge,

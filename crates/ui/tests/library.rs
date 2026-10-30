@@ -250,12 +250,24 @@ fn the_view_menu_sets_layout_columns_covers_and_order() {
     h.get_by_label("Crop").click();
     h.run();
     assert_eq!(view(&h).cover, CoverFit::Crop);
+    // Sort by starts shut, keeping only the order in use.
+    let shown = |h: &Harness<'static, MareaderApp>, label| h.query_by_label(label).is_some();
+    assert!(shown(&h, "Arranged") && !shown(&h, "Title"));
+    h.get_by_label("Sort by").click();
+    h.run_steps(30);
     h.get_by_label("Title").click();
     h.run();
     assert_eq!((view(&h).sort, view(&h).ascending), (SortKey::Title, true));
     h.get_by_label("Z–A").click();
     h.run();
     assert!(!view(&h).ascending);
+    h.get_by_label("Sort by").click();
+    h.run_steps(30);
+    assert!(
+        shown(&h, "Title") && !shown(&h, "Arranged"),
+        "shut, it keeps Title"
+    );
+    assert!(shown(&h, "Z–A"), "and its direction");
 }
 
 #[test]

@@ -23,6 +23,7 @@ pub mod files;
 pub mod find_bar;
 pub mod floating_label;
 pub mod focus;
+pub mod fold;
 pub mod footnote;
 pub mod gpu;
 pub mod icons;
