@@ -79,6 +79,7 @@ pub struct Voice {
 impl Voice {
     /// Who says words in `language`, as `fr`.
     pub fn speaker(&self, language: &str) -> Option<&Speaker> {
+        let language = mareader_speech::primary(language);
         self.speakers.iter().find(|s| s.language == language)
     }
 
@@ -88,6 +89,7 @@ impl Voice {
 
     /// The download that would give `language` a voice.
     pub fn offer(&self, language: &str) -> Option<Offer> {
+        let language = mareader_speech::primary(language);
         let wanted = |o: &&Offer| mareader_speech::primary(o.tag) == language;
         self.offers.iter().find(wanted).copied()
     }
@@ -516,6 +518,20 @@ mod tests {
         assert_eq!(lookup_text("it’s", 40), Some("it’s".into()));
         assert_eq!(lookup_text("…", 40), None);
         assert_eq!(lookup_text("a long, long phrase", 6), None);
+    }
+
+    #[test]
+    fn a_japanese_voice_says_the_dictionarys_japanese() {
+        let speaker = |language: &str| Speaker {
+            language: language.into(),
+            voice: None,
+        };
+        let voice = Voice {
+            speakers: vec![speaker("en"), speaker("ja")],
+            ..Voice::default()
+        };
+        assert!(voice.can_say("jp"));
+        assert!(!voice.can_say("zh"));
     }
 
     #[test]

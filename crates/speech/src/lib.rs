@@ -186,10 +186,13 @@ pub fn home_language() -> String {
     "en-US".to_owned()
 }
 
-/// A tag's language alone, lowercase: `fr` for `fr-FR`.
+/// A tag's language alone, lowercase: `fr` for `fr-FR`, `ja` for `jp`.
 pub fn primary(tag: &str) -> String {
     let first = tag.split(['-', '_']).next().unwrap_or_default();
-    first.to_ascii_lowercase()
+    match first.to_ascii_lowercase().as_str() {
+        "jp" => "ja".to_owned(),
+        other => other.to_owned(),
+    }
 }
 
 /// A line for trying a voice, in its language where we have one.
@@ -419,6 +422,14 @@ pub fn scaled(share: f32, (min, normal, max): (f32, f32, f32), (bottom, top): (f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tag_reads_as_its_language() {
+        assert_eq!(primary("fr-FR"), "fr");
+        assert_eq!(primary("zh_CN"), "zh");
+        // The dictionary's Japanese meets the voices' own code.
+        assert_eq!(primary("jp"), primary("ja-JP"));
+    }
 
     #[test]
     fn shares_map_onto_each_engine_range() {
