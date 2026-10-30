@@ -188,6 +188,33 @@ fn the_shortcut_opens_the_page_and_escape_steps_back() {
 }
 
 #[test]
+fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    // The reader's button opens the floating window; this is the page.
+    h.state_mut()
+        .set_option("dict_page", "show")
+        .expect("a known option");
+    h.run();
+    assert_eq!(h.state().route(), Route::Dictionary);
+    h.get_by_label("Settings").click();
+    h.run();
+    let window = h.state().settings_window();
+    assert!(window.is_open());
+    assert_eq!(window.tab(), Tab::Dictionary);
+    assert_eq!(h.query_all_by_label("Layout").count(), 0, "a reading tab");
+    h.state_mut().queue(Command::CloseSettings);
+    h.run();
+    assert!(h.state().titlebar().pinned, "pinned, as the library is");
+    h.get_by_label("Dictionary options").click();
+    h.run();
+    h.get_by_label("Keep title bar shown").click();
+    h.run();
+    assert!(!h.state().titlebar().pinned);
+    assert!(!h.state().settings().chrome.library_titlebar_pinned);
+}
+
+#[test]
 fn from_the_library_the_page_returns_to_the_library() {
     let dir = shelf();
     let mut h = reader(dir.path());

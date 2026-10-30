@@ -15,9 +15,7 @@ pub enum Route {
 impl Route {
     /// Whether `command` means anything here; the rest are dropped.
     pub fn allows(self, command: &Command) -> bool {
-        // The dictionary's settings are a click away from its page.
-        let settings = matches!(command, Command::ShowSettings | Command::OpenSettings(_));
-        self == Route::Reader || !reads(command) || (self == Route::Dictionary && settings)
+        self == Route::Reader || !reads(command)
     }
 
     /// The rail serves reading; the library has none.
@@ -34,8 +32,6 @@ fn reads(command: &Command) -> bool {
         // The rail and the bar's folding tools act on panes.
         C::ToggleSidebar | C::OpenSidebar(_) | C::CloseSidebar => true,
         C::ShowSearch | C::Split(_) => true,
-        // Settings are about reading; their gear lives on the reader's bar.
-        C::ShowSettings | C::OpenSettings(_) => true,
         // The focused pane's view and place.
         C::Zoom(_) | C::View(_) | C::Arrow(_) => true,
         C::Page { .. } | C::FirstPage | C::LastPage => true,
@@ -56,6 +52,8 @@ fn reads(command: &Command) -> bool {
         C::PageAi(_) => true,
         C::ReadAloud { .. } | C::ToggleReadAloud | C::StopReadAloud => true,
         C::PlaceReadMarker { .. } => true,
+        // Settings open over any page, keeping to the tabs it uses.
+        C::ShowSettings | C::OpenSettings(_) => false,
         // A voice is tried from settings, which open over any page.
         C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(..) => false,
         // A card's word is said wherever its card shows.
@@ -101,7 +99,7 @@ mod tests {
     fn the_library_drops_what_acts_on_panes() {
         let lib = Route::Library;
         assert!(!lib.allows(&Command::ToggleSidebar));
-        assert!(!lib.allows(&Command::ShowSettings));
+        assert!(lib.allows(&Command::ShowSettings));
         assert!(!lib.allows(&Command::View(ViewMode::Single)));
         assert!(!lib.allows(&Command::FirstPage));
         assert!(lib.allows(&Command::ShowLibrary));

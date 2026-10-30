@@ -202,6 +202,7 @@ over the panes, so content never moves when it appears.
 - **Hide.** 400 ms after the pointer leaves, then a 200 ms fade.
 - **Held** while any popup is open, or while a press that began on it is down.
 - **Pinned** by the pin button; persisted. The library's bar starts pinned (M5).
+  The dictionary's page shares the library's pin, in its own ⋯ menu.
 - **Pin, since the UX audit.** The bar has no pin button now: View ▸ "Keep
   title bar shown" (also in Settings) pins it. The pin icon means one thing
   only, docking the sidebar from its header.
@@ -309,6 +310,12 @@ between rows it drew, so hiding a row never leaves a double line.
 | `SplitWithBook` | split, with a book in any pane | Pane text |
 
 A new setting picks its `Applies` once; nothing else changes.
+
+Away from the books, the library's and the dictionary's bars carry a
+Settings button (and Cmd/Ctrl+, works there). It lists only the tabs those
+pages use: Read aloud with its voice models, Highlights, Vocabulary,
+Dictionary, AI and AI models (`Tab::beyond_books`). The dictionary's page
+opens it on Dictionary. A link to any other tab opens the full list.
 
 ## Tooltips, toasts and the menu
 

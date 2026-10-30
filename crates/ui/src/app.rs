@@ -1443,7 +1443,7 @@ impl MareaderApp {
                     .find(|m| m.id == value);
                 let tab = Tab::parse(value).or(model.map(Tab::Model));
                 let tab = tab.ok_or("settings: a tab name, e.g. theme")?;
-                self.settings_window.open(Some(tab));
+                self.open_settings(Some(tab));
             }
             "independent" => self.settings.workspace.independent_themes = value == "true",
             "independent_text" => self.settings.workspace.independent_text = value == "true",
@@ -2347,7 +2347,7 @@ impl MareaderApp {
                 }
             }
             Command::RevealVoice(model, language) => {
-                self.settings_window.open(Some(Tab::Model(model)));
+                self.open_settings(Some(Tab::Model(model)));
                 let fold = crate::settings_window::voice_fold(model, language);
                 crate::settings_window::reveal(ctx, fold);
             }
@@ -2386,15 +2386,13 @@ impl MareaderApp {
             Command::ShowViewMenu => {
                 self.titlebar.reveal();
                 let menu = match self.route() {
-                    Route::Reader => Some(crate::view_menu::VIEW_MENU),
-                    Route::Library => Some(crate::library::menu::LIBRARY_VIEW_MENU),
-                    Route::Dictionary => None,
+                    Route::Reader => crate::view_menu::VIEW_MENU,
+                    Route::Library => crate::library::menu::LIBRARY_VIEW_MENU,
+                    Route::Dictionary => crate::titlebar::DICTIONARY_MENU,
                 };
-                if let Some(menu) = menu {
-                    egui::Popup::open_id(ctx, egui::Id::new(menu));
-                }
+                egui::Popup::open_id(ctx, egui::Id::new(menu));
             }
-            Command::ShowSettings => self.settings_window.open(None),
+            Command::ShowSettings => self.open_settings(None),
             Command::ShowShortcuts => crate::shortcuts::toggle(ctx),
             // With nothing to search in, find searches the library.
             Command::FindStep { forward } if self.find.is_open() => {
@@ -2415,7 +2413,7 @@ impl MareaderApp {
                     self.apply(ctx, Command::Library(library::Action::Search(focus)));
                 }
             },
-            Command::OpenSettings(tab) => self.settings_window.open(Some(tab)),
+            Command::OpenSettings(tab) => self.open_settings(Some(tab)),
             Command::CloseSettings => self.settings_window.close(),
             #[cfg(not(target_arch = "wasm32"))]
             Command::Ai(job) => self.ai.send(job),
@@ -3086,6 +3084,17 @@ impl MareaderApp {
             .filter(|p| !self.recent.contains(p))
             .collect();
         self.recent.extend(unseen);
+    }
+
+    /// Opens settings on `tab`; away from the books, only their tabs.
+    fn open_settings(&mut self, tab: Option<Tab>) {
+        let route = self.route();
+        let limited = route != Route::Reader && tab.is_none_or(Tab::beyond_books);
+        let tab = match (route, tab) {
+            (Route::Dictionary, None) => Some(Tab::Dictionary),
+            _ => tab,
+        };
+        self.settings_window.open(tab, limited);
     }
 
     /// The library keeps its own pin; the reader's is the other.

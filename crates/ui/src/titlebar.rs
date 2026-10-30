@@ -24,6 +24,8 @@ use crate::zoom::ZoomState;
 pub const HIDE_GRACE: f64 = 0.4;
 pub const FADE: f32 = 0.2;
 pub const APPEARANCE_POPOVER: &str = "appearance-popover";
+pub const DICTIONARY_MENU: &str = "dictionary-page-menu";
+const MENU_W: f32 = 248.0;
 /// A toolbar button and the gap after it.
 const TOOL_W: f32 = 40.0;
 /// Width the title keeps before tools fold into the menu.
@@ -412,11 +414,15 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
         BarPage::Library(library) => {
             library_menu::button(ui, library, pinned, bar.platform, &mut out);
         }
-        // The page's own choices sit on it; the bar keeps the look.
-        BarPage::Dictionary(_) => {}
+        // The page's own choices sit on it; the menu keeps the pin.
+        BarPage::Dictionary(_) => dictionary_menu(ui, pinned, bar.platform, &mut out),
     }
     appearance_button(ui, bar, &mut out);
     if !matches!(bar.page, BarPage::Reader(_)) {
+        // The reader's sits in its menu; these pages have no other way.
+        let keys = keymap::hint(bar.platform, &Command::ShowSettings);
+        let r = widgets::icon_button_keyed(ui, Icon::Settings, "Settings", false, keys.as_deref());
+        out.extend(clicked(r, Command::ShowSettings));
         return (ui.min_rect().left(), out);
     }
     for tool in shown {
@@ -425,6 +431,26 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
         out.extend(clicked(r, tool.command.clone()));
     }
     (ui.min_rect().left(), out)
+}
+
+/// The dictionary page's menu: the pin and the shortcuts.
+fn dictionary_menu(ui: &mut egui::Ui, pinned: bool, platform: Platform, out: &mut Commands) {
+    let id = Id::new(DICTIONARY_MENU);
+    let open = egui::Popup::is_id_open(ui.ctx(), id);
+    let r = widgets::icon_button(ui, Icon::Menu, "Dictionary options", open);
+    egui::Popup::from_toggle_button_response(&r)
+        .id(id)
+        .sense(crate::widgets::POPUP_SENSE)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .align(egui::RectAlign::BOTTOM_END)
+        .gap(6.0)
+        .width(MENU_W)
+        .show(|ui| {
+            ui.set_width(MENU_W);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            view_menu::pin_row(ui, pinned, out);
+            view_menu::shortcuts_row(ui, platform, out);
+        });
 }
 
 /// Toggles the Appearance popover, which edits the look live.

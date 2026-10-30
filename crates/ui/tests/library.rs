@@ -302,17 +302,11 @@ fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
     h.state_mut().queue(Command::ShowLibrary);
     h.run();
     // The library's bar starts pinned, so all of it is on show.
-    let reader_only = [
-        "Close sidebar",
-        "Toggle sidebar",
-        "Settings",
-        "Search",
-        "View & tools",
-    ];
+    let reader_only = ["Close sidebar", "Toggle sidebar", "Search", "View & tools"];
     for gone in reader_only {
         assert!(h.query_by_label(gone).is_none(), "{gone} in the library");
     }
-    for kept in ["Back to reading", "View options", "Appearance"] {
+    for kept in ["Back to reading", "View options", "Appearance", "Settings"] {
         assert!(h.query_by_label(kept).is_some(), "{kept} missing");
     }
     assert!(h.state().sidebar().is_open(), "kept for the way back");
@@ -320,6 +314,35 @@ fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
     h.run();
     assert!(!h.state().library_showing());
     assert!(h.query_by_label("Close sidebar").is_some());
+}
+
+#[test]
+fn the_library_settings_list_only_what_it_uses() {
+    use mareader_ui::settings_window::Tab;
+    let listed =
+        |h: &Harness<'static, MareaderApp>, tab: &str| h.query_all_by_label(tab).count() > 0;
+    let mut h = reader(&[("pdf", "sample:5")]);
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    h.get_by_label("Settings").click();
+    h.run();
+    assert!(h.state().settings_window().is_open());
+    assert_eq!(h.state().settings_window().tab(), Tab::ReadAloud);
+    for kept in ["Read aloud", "Highlights", "Vocabulary", "AI models"] {
+        assert!(listed(&h, kept), "{kept} missing");
+    }
+    for gone in ["Layout", "Panes", "Motion"] {
+        assert!(!listed(&h, gone), "{gone} in the library");
+    }
+    // Back with the books, every tab.
+    h.state_mut().queue(Command::CloseSettings);
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+    h.state_mut().queue(Command::ShowSettings);
+    h.run();
+    for tab in ["Layout", "Panes", "Motion"] {
+        assert!(listed(&h, tab), "{tab} missing in the reader");
+    }
 }
 
 #[test]
@@ -343,7 +366,6 @@ fn reader_commands_and_keys_do_nothing_in_the_library() {
     );
     for c in [
         Command::Split(mareader_workspace::SplitAxis::Horizontal),
-        Command::ShowSettings,
         Command::ToggleSidebar,
         Command::LastPage,
     ] {
@@ -353,7 +375,6 @@ fn reader_commands_and_keys_do_nothing_in_the_library() {
     h.run();
     assert!(h.state().library_showing());
     assert_eq!(h.state().panes().len(), 1);
-    assert!(!h.state().settings_window().is_open());
     assert!(!h.state().sidebar().is_open());
     h.state_mut().queue(Command::ShowLibrary);
     h.run();

@@ -22,9 +22,9 @@ area = "A"
 tier = "P0"
 milestone = "M0"
 status = "shipped"
-evidence = ["crates/ui/tests/shell.rs::keep_title_bar_shown_holds_it_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin"]
+evidence = ["crates/ui/tests/shell.rs::keep_title_bar_shown_holds_it_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin", "crates/ui/tests/dictionary.rs::the_page_bar_opens_its_settings_and_keeps_a_pin"]
 reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/reader-core/src/settings/mod.rs"]
-notes = "The library keeps its own pin, starting pinned (M5 slice 2). The pin is Keep title bar shown in each route's menu, off the bar itself"
+notes = "The library keeps its own pin, starting pinned (M5 slice 2). The pin is Keep title bar shown in each route's menu, off the bar itself; the dictionary page shares the library's"
 
 [[feature]]
 id = "chrome.titlebar-hold"
@@ -1503,8 +1503,10 @@ evidence = [
     "crates/ui/src/settings_window/scope.rs::the_focused_document_decides_what_applies",
     "crates/ui/tests/reading.rs::layout_rows_follow_the_focused_document",
     "crates/ui/tests/a11y.rs::every_control_has_a_name",
+    "crates/ui/tests/library.rs::the_library_settings_list_only_what_it_uses",
+    "crates/ui/tests/dictionary.rs::the_page_bar_opens_its_settings_and_keeps_a_pin",
 ]
-notes = "Tabs: Layout, Theme (paper detection and blend), Animations, Fonts, Highlights, Vocabulary (CEFR), Dictionary, AI, Panes. 92 % by 86 % of the window up to 760 by 960 points; rows follow the focused pane (docs/design.md)"
+notes = "Tabs: Layout, Theme (paper detection and blend), Animations, Fonts, Highlights, Vocabulary (CEFR), Dictionary, AI, Panes. 92 % by 86 % of the window up to 760 by 960 points; rows follow the focused pane (docs/design.md). The library's and dictionary's bars open it with only the tabs they use"
 
 [[feature]]
 id = "settings.migrate"

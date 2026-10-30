@@ -112,7 +112,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     widgets::menu_note(ui, &version);
 }
 
-/// Keeps the title bar shown; both routes' menus offer it.
+/// Keeps the title bar shown; every route's menu offers it.
 pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
     let label = "Keep title bar shown";
     if widgets::menu_row(ui, Icon::Pin, label, None, pinned).clicked() {

@@ -150,6 +150,14 @@ impl Tab {
         }
     }
 
+    /// Shown away from the books too, in the library and the dictionary.
+    pub fn beyond_books(self) -> bool {
+        use Tab as T;
+        let study = matches!(self, T::Highlights | T::Vocabulary | T::Dictionary);
+        let voices = matches!(self, T::ReadAloud | T::Model(_));
+        study || voices || matches!(self, T::Ai | T::Models)
+    }
+
     /// Every tab always shows, so the list never shifts under the pointer.
     fn available(self) -> bool {
         !matches!(self, Tab::Ai | Tab::Models) || cfg!(not(target_arch = "wasm32"))
@@ -160,6 +168,8 @@ impl Tab {
 pub struct SettingsWindow {
     open: bool,
     tab: Tab,
+    /// Opened away from the books: only the tabs that matter there.
+    limited: bool,
     /// The voice engines' fold is open, showing every engine.
     engines_open: bool,
 }
@@ -169,9 +179,10 @@ impl SettingsWindow {
         self.open
     }
 
-    /// Opens on `tab`, or where it was left.
-    pub fn open(&mut self, tab: Option<Tab>) {
+    /// Opens on `tab`, or where it was left; `limited` lists fewer tabs.
+    pub fn open(&mut self, tab: Option<Tab>, limited: bool) {
         self.open = true;
+        self.limited = limited;
         if let Some(t) = tab {
             self.tab = t;
         }
@@ -181,13 +192,20 @@ impl SettingsWindow {
         self.open = false;
     }
 
-    /// The tab on screen: one this build lacks falls back to the first.
+    /// The tab on screen: one not listed falls back to the first listed.
     pub fn tab(&self) -> Tab {
-        if self.tab.available() {
+        if self.lists(self.tab) {
             self.tab
+        } else if self.limited {
+            Tab::ReadAloud
         } else {
             Tab::Appearance
         }
+    }
+
+    /// Whether the sidebar names `tab` this time.
+    fn lists(&self, tab: Tab) -> bool {
+        tab.available() && (!self.limited || tab.beyond_books())
     }
 
     /// Edits a copy of `current`; any change goes out as one command.
@@ -287,7 +305,8 @@ impl SettingsWindow {
         ui.spacing_mut().item_spacing.y = 2.0;
         let shown = self.tab();
         let mut group = None;
-        for tab in Tab::ALL.into_iter().filter(|tab| tab.available()) {
+        let tabs: Vec<Tab> = Tab::ALL.into_iter().filter(|&t| self.lists(t)).collect();
+        for tab in tabs {
             if group != Some(tab.group()) {
                 ui.add_space(if group.is_some() { 14.0 } else { 6.0 });
                 nav_heading(&mut ui, tab.group());
