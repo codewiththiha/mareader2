@@ -478,6 +478,11 @@ impl Dict {
     pub fn page_text(&self) -> &str {
         self.page.text()
     }
+
+    /// Where the page's field was drawn last, if it was.
+    pub fn page_field(&self) -> Option<Rect> {
+        self.page.field_at()
+    }
 }
 
 /// Bytes as megabytes, one decimal.

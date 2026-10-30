@@ -7,7 +7,7 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
-use mareader_settings::DictionaryOpens;
+use mareader_settings::{Bar, DictionaryOpens};
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::dict::card::PURSUE;
@@ -205,13 +205,17 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     assert_eq!(h.query_all_by_label("Layout").count(), 0, "a reading tab");
     h.state_mut().queue(Command::CloseSettings);
     h.run();
-    assert!(h.state().titlebar().pinned, "pinned, as the library is");
+    assert!(h.state().titlebar().pinned, "the page starts pinned");
+    let field_top = |h: &H| h.state().dict().page_field().map(|r| r.top());
+    let below_bar = field_top(&h).expect("the field shows");
+    assert!(below_bar > 48.0, "pinned, the page starts under the bar");
     h.get_by_label("Dictionary options").click();
     h.run();
     h.get_by_label("Keep title bar shown").click();
     h.run();
     assert!(!h.state().titlebar().pinned);
-    assert!(!h.state().settings().chrome.library_titlebar_pinned);
+    let pins = &h.state().settings().chrome;
+    assert!(!pins.pinned(Bar::Dictionary) && pins.pinned(Bar::Library));
     // A press on the page shuts the menu; the pointer gone, the bar hides.
     let away = egui::pos2(500.0, 600.0);
     h.hover_at(away);
@@ -225,7 +229,13 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     }
     h.run_steps(60);
     assert!(!h.state().titlebar().visible(), "unpinned, it hides");
-    h.hover_at(egui::pos2(500.0, 10.0));
+    let risen = field_top(&h).expect("the field shows");
+    assert!(risen < below_bar - 40.0, "the page takes the bar's room");
+    // Over the field, the bar stays away; above it, the bar comes.
+    h.hover_at(egui::pos2(500.0, risen + 10.0));
+    h.run_steps(8);
+    assert!(!h.state().titlebar().visible(), "the field keeps it away");
+    h.hover_at(egui::pos2(500.0, 5.0));
     h.run_steps(8);
     assert!(
         h.state().titlebar().visible(),

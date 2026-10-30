@@ -50,6 +50,8 @@ pub struct Page {
     small: bool,
     /// Whether the field had the keys when last drawn.
     typing: bool,
+    /// Where the field was drawn last; the title bar keeps off it.
+    field_at: Option<Rect>,
 }
 
 /// What a click on the page asks of it.
@@ -112,6 +114,10 @@ impl Page {
 
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    pub fn field_at(&self) -> Option<Rect> {
+        self.field_at
     }
 
     /// Whether the field had the keys last frame; Escape drops them first.
@@ -188,6 +194,7 @@ impl Page {
     ) {
         let t = Tokens::get(ui.ctx());
         self.small = false;
+        self.field_at = None;
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, t.paper);
         let width = (full.width() - 2.0 * MARGIN).clamp(0.0, MAX_W);
@@ -302,6 +309,7 @@ impl Page {
         };
         let typed = look::field(ui, look, t);
         let field = typed.field;
+        self.field_at = Some(field.rect);
         let name = |b: &mut egui::accesskit::Node| b.set_label(LABEL);
         ui.ctx().accesskit_node_builder(field.id, name);
         if field.changed() {

@@ -17,14 +17,14 @@ reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/app-chrome/src/ho
 
 [[feature]]
 id = "chrome.titlebar-pin"
-title = "Pin keeps the title bar open; remembered separately for reader and library"
+title = "Pin keeps the title bar open; remembered separately for reader, library and dictionary"
 area = "A"
 tier = "P0"
 milestone = "M0"
 status = "shipped"
 evidence = ["crates/ui/tests/shell.rs::keep_title_bar_shown_holds_it_after_the_pointer_leaves", "crates/ui/tests/shell.rs::a_pinned_bar_stays_after_the_pointer_leaves", "crates/ui/tests/library.rs::the_library_keeps_its_own_title_bar_pin", "crates/ui/tests/dictionary.rs::the_page_bar_opens_its_settings_and_keeps_a_pin"]
 reference = ["crates/app-chrome/src/titlebar/root.rs", "crates/reader-core/src/settings/mod.rs"]
-notes = "The library keeps its own pin, starting pinned (M5 slice 2). The pin is Keep title bar shown in each route's menu, off the bar itself; the dictionary page shares the library's"
+notes = "The library keeps its own pin, starting pinned (M5 slice 2). The pin is Keep title bar shown in each route's menu, off the bar itself; the dictionary page has its own, and unpinned pages rise into the bar's room"
 
 [[feature]]
 id = "chrome.titlebar-hold"

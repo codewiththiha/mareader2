@@ -9,6 +9,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{
     BookId, CoverFit, Format, Home, Layout, Library, LinkId, LinkTo, Move, Origin, ShelfId, SortKey,
 };
+use mareader_settings::Bar;
 use mareader_ui::MareaderApp;
 use mareader_ui::command::Command;
 use mareader_ui::library::{
@@ -277,7 +278,7 @@ fn the_library_keeps_its_own_title_bar_pin() {
     let mut h = reader(&[("pdf", "sample:5")]);
     let chrome = |h: &Harness<'static, MareaderApp>| {
         let c = &h.state().settings().chrome;
-        (c.titlebar_pinned, c.library_titlebar_pinned)
+        (c.pinned(Bar::Reader), c.pinned(Bar::Library))
     };
     assert!(!h.state().titlebar().pinned);
     h.state_mut().queue(Command::ShowLibrary);

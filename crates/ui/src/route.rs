@@ -1,5 +1,7 @@
 //! Which page fills the window, and which commands each one takes.
 
+use mareader_settings::Bar;
+
 use crate::command::Command;
 
 /// The page in the window: the panes being read, the library, or the
@@ -16,6 +18,15 @@ impl Route {
     /// Whether `command` means anything here; the rest are dropped.
     pub fn allows(self, command: &Command) -> bool {
         self == Route::Reader || !reads(command)
+    }
+
+    /// The title bar it shows, each with its own pin.
+    pub fn bar(self) -> Bar {
+        match self {
+            Route::Reader => Bar::Reader,
+            Route::Library => Bar::Library,
+            Route::Dictionary => Bar::Dictionary,
+        }
     }
 
     /// The rail serves reading; the library has none.

@@ -159,6 +159,8 @@ pub struct TitleBar {
     pub chromeless: bool,
     /// Kept shown while set, as the find bar does, once shown.
     pub hold: bool,
+    /// A page's own control in the band, which never calls the bar.
+    pub quiet: Option<Rect>,
     shown: bool,
     left_at: Option<f64>,
     opacity: f32,
@@ -186,6 +188,14 @@ impl TitleBar {
         !self.chromeless && (self.pinned || self.shown)
     }
 
+    /// Where a page under the bar starts: below it only while pinned.
+    pub fn page_top(&self, ctx: &Context, page: mareader_settings::Bar) -> f32 {
+        let top = ctx.content_rect().top();
+        let under = self.pinned && !self.chromeless;
+        let id = Id::new(("titlebar-page-top", page));
+        top + ctx.animate_bool_with_time(id, under, motion::secs(ctx, FADE)) * TITLE_BAR_H
+    }
+
     /// Where the hover band ends; nothing interactive should sit above it.
     pub fn band_bottom(&self, ctx: &Context) -> f32 {
         let top = ctx.content_rect().top();
@@ -199,12 +209,18 @@ impl TitleBar {
     fn update_hover(&mut self, ctx: &Context, band: Rect) {
         let now = ctx.input(|i| i.time);
         let own = egui::LayerId::new(Order::Foreground, Id::new("titlebar"));
-        let inside = crate::widgets::bare_pointer(ctx, own).is_some_and(|p| band.contains(p));
+        let at = crate::widgets::bare_pointer(ctx, own);
+        let calm = at.is_some_and(|p| self.quiet.is_some_and(|q| q.contains(p)));
+        let inside = !calm && at.is_some_and(|p| band.contains(p));
         let held = self.hold
             || egui::Popup::is_any_open(ctx)
             || (self.shown && ctx.input(|i| i.pointer.any_down()));
         if inside {
             self.shown = true;
+            self.left_at = None;
+        } else if calm && !held {
+            // On the page's own control the bar steps aside at once.
+            self.shown = false;
             self.left_at = None;
         } else if self.shown && !held {
             let waited = now - *self.left_at.get_or_insert(now);

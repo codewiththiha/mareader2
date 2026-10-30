@@ -201,8 +201,13 @@ over the panes, so content never moves when it appears.
 - **Reveal.** The top 48 pt (after a docked sidebar) shows it at once.
 - **Hide.** 400 ms after the pointer leaves, then a 200 ms fade.
 - **Held** while any popup is open, or while a press that began on it is down.
-- **Pinned** by the pin button; persisted. The library's bar starts pinned (M5).
-  The dictionary's page shares the library's pin, in its own ⋯ menu.
+- **Pinned** by the pin button; persisted. Each page keeps its own pin through
+  `ChromeSettings::pinned`/`pin` and `Bar` (`Route::bar` maps a page to it):
+  the reader starts unpinned, the library and the dictionary pinned.
+- **Page room.** `TitleBar::page_top` is where the library and the dictionary
+  start: under the bar while pinned, at the window's top once unpinned, with
+  a short slide. The dictionary's field sits in the band then, so it is the
+  bar's `quiet` rect: the pointer on it never calls the bar.
 - **Pin, since the UX audit.** The bar has no pin button now: View ▸ "Keep
   title bar shown" (also in Settings) pins it. The pin icon means one thing
   only, docking the sidebar from its header.

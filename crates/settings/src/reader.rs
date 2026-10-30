@@ -7,9 +7,10 @@ use crate::clamp;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChromeSettings {
-    /// Keeps the reader's title bar visible instead of revealing on hover.
+    /// Each page's own title bar pin; read and set through `Bar`.
     pub titlebar_pinned: bool,
     pub library_titlebar_pinned: bool,
+    pub dictionary_titlebar_pinned: bool,
     /// The sidebar floats over the page rather than pushing it aside.
     pub sidebar_overlay: bool,
     /// The bars blur the page behind them; off, they are solid.
@@ -21,9 +22,43 @@ impl Default for ChromeSettings {
         Self {
             titlebar_pinned: false,
             library_titlebar_pinned: true,
+            dictionary_titlebar_pinned: true,
             sidebar_overlay: false,
             glass: true,
         }
+    }
+}
+
+/// A page with a title bar of its own; each keeps its own pin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Bar {
+    Reader,
+    Library,
+    Dictionary,
+}
+
+impl Bar {
+    pub const ALL: [Bar; 3] = [Bar::Reader, Bar::Library, Bar::Dictionary];
+}
+
+impl ChromeSettings {
+    /// Whether `bar` stays shown rather than hiding until hovered.
+    pub fn pinned(&self, bar: Bar) -> bool {
+        match bar {
+            Bar::Reader => self.titlebar_pinned,
+            Bar::Library => self.library_titlebar_pinned,
+            Bar::Dictionary => self.dictionary_titlebar_pinned,
+        }
+    }
+
+    /// Pins or frees `bar` alone; the others keep theirs.
+    pub fn pin(&mut self, bar: Bar, on: bool) {
+        let slot = match bar {
+            Bar::Reader => &mut self.titlebar_pinned,
+            Bar::Library => &mut self.library_titlebar_pinned,
+            Bar::Dictionary => &mut self.dictionary_titlebar_pinned,
+        };
+        *slot = on;
     }
 }
 
@@ -387,5 +422,29 @@ impl Default for ReadAloudSettings {
             speech_memory_mb: Self::MEMORY_MB.1,
             model_idle_min: 2,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_bar_keeps_its_own_pin() {
+        let mut c = ChromeSettings::default();
+        let pins = |c: &ChromeSettings| Bar::ALL.map(|b| c.pinned(b));
+        assert_eq!(pins(&c), [false, true, true], "the defaults");
+        c.pin(Bar::Dictionary, false);
+        assert_eq!(pins(&c), [false, true, false]);
+        c.pin(Bar::Reader, true);
+        assert_eq!(pins(&c), [true, true, false]);
+    }
+
+    #[test]
+    fn a_pin_saved_before_the_dictionarys_keeps_its_value() {
+        let old = r#"{"titlebar_pinned":true,"library_titlebar_pinned":false}"#;
+        let c: ChromeSettings = serde_json::from_str(old).expect("old settings read");
+        let pins = Bar::ALL.map(|b| c.pinned(b));
+        assert_eq!(pins, [true, false, true], "the new pin takes its default");
     }
 }

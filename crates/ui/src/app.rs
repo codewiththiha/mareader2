@@ -13,8 +13,8 @@ use mareader_appearance::{
 };
 use mareader_session::Anchor;
 use mareader_settings::{
-    BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings, PaperArea,
-    Settings, TextSettings,
+    Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings,
+    PaperArea, Settings, TextSettings,
 };
 use mareader_workspace::{
     Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
@@ -201,7 +201,7 @@ impl MareaderApp {
     pub fn with_settings(mut settings: Settings) -> Self {
         settings.sanitize();
         Self {
-            titlebar: TitleBar::new(settings.chrome.titlebar_pinned),
+            titlebar: TitleBar::new(settings.chrome.pinned(Bar::Reader)),
             settings,
             platform: Platform::current(),
             chromeless: false,
@@ -915,8 +915,9 @@ impl MareaderApp {
             }
             "pinned" => {
                 let on = value == "true";
-                self.settings.chrome.titlebar_pinned = on;
-                self.settings.chrome.library_titlebar_pinned = on;
+                for bar in Bar::ALL {
+                    self.settings.chrome.pin(bar, on);
+                }
                 self.titlebar.pinned = on;
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -2264,7 +2265,7 @@ impl MareaderApp {
             Command::DeletePreset(id) => self.settings.delete_preset(&id),
             Command::SetTitlebarPinned(p) => {
                 self.titlebar.pinned = p;
-                *self.pin_setting() = p;
+                self.settings.chrome.pin(self.route().bar(), p);
             }
             Command::Window(w) => ctx.send_viewport_cmd(match w {
                 WindowCommand::Minimize => ViewportCommand::Minimized(true),
@@ -2420,7 +2421,7 @@ impl MareaderApp {
             Command::SetSettings(s) => {
                 let mut s = *s;
                 s.sanitize();
-                self.titlebar.pinned = s.chrome.titlebar_pinned;
+                self.titlebar.pinned = s.chrome.pinned(self.route().bar());
                 self.settings = s;
             }
             Command::ShowSearch if self.find.is_open() => self.find.close(),
@@ -3097,16 +3098,6 @@ impl MareaderApp {
         self.settings_window.open(tab, limited);
     }
 
-    /// The library keeps its own pin; the reader's is the other.
-    fn pin_setting(&mut self) -> &mut bool {
-        let route = self.route();
-        let chrome = &mut self.settings.chrome;
-        match route {
-            Route::Library | Route::Dictionary => &mut chrome.library_titlebar_pinned,
-            Route::Reader => &mut chrome.titlebar_pinned,
-        }
-    }
-
     /// Which families split panes own right now.
     fn routing(&self) -> Routing {
         routing(&self.settings, self.tree.len() > 1)
@@ -3121,7 +3112,7 @@ impl MareaderApp {
     }
 
     fn restore(&mut self, held: Held) {
-        self.titlebar.pinned = held.settings.chrome.titlebar_pinned;
+        self.titlebar.pinned = held.settings.chrome.pinned(self.route().bar());
         self.settings = held.settings;
         self.looks = held.looks;
         self.routed = held.routed;
@@ -3356,7 +3347,7 @@ impl eframe::App for MareaderApp {
         }
         self.reconcile_looks(&ctx);
         self.reconcile_texts();
-        self.titlebar.pinned = *self.pin_setting();
+        self.titlebar.pinned = self.settings.chrome.pinned(self.route().bar());
         resize::edges(&ctx, self.platform.frameless());
         // Tests, shots and the system change looks without a fade.
         let outside = !self.queued.is_empty();
@@ -3628,17 +3619,18 @@ impl eframe::App for MareaderApp {
         let lift = self.tree.len() > 1;
         let dictionary_page = (route == Route::Dictionary).then_some(&mut self.dict);
         let dictionary = &self.settings.dictionary;
+        // Unpinned, the library and the dictionary rise into the bar's room.
+        let page_top = self.titlebar.page_top(&ctx, route.bar());
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if let Some(dict) = dictionary_page {
                 self.pane_rects.clear();
-                let top = ui.max_rect().top() + crate::theme::TITLE_BAR_H;
-                dict.page(ui, dictionary, top, &mut commands);
+                dict.page(ui, dictionary, page_top, &mut commands);
                 return;
             }
             if library.showing {
                 self.pane_rects.clear();
                 self.library_rect = Some(ui.max_rect());
-                library::view::show(ui, library, library_view, view.chrome_bottom, &mut commands);
+                library::view::show(ui, library, library_view, page_top, &mut commands);
                 return;
             }
             let lifted = self.lifting.map(|l| l.pane);
@@ -3711,6 +3703,11 @@ impl eframe::App for MareaderApp {
             .with_max_y(self.titlebar.band_bottom(&ctx));
         let tabbing = crate::focus::within(&ctx, band);
         self.titlebar.hold = self.find.is_open() || searching || tabbing;
+        let field = self
+            .dict
+            .page_field()
+            .filter(|_| route == Route::Dictionary);
+        self.titlebar.quiet = field;
         self.follow_focus(&ctx, &mut commands);
         self.documents.end_frame(&ctx);
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
