@@ -1390,8 +1390,15 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let dict = h.state().dict().window_rect().expect("dictionary window");
     assert!(dict.top() < 380.0, "the dictionary moves up: {dict:?}");
     h.run_steps(240);
-    assert!(h.query_by_label("Play").is_some(), "manual reveal stays open");
-    let dict = h.state().dict().window_rect().expect("dictionary stays aside");
+    assert!(
+        h.query_by_label("Play").is_some(),
+        "manual reveal stays open"
+    );
+    let dict = h
+        .state()
+        .dict()
+        .window_rect()
+        .expect("dictionary stays aside");
     assert!(
         dict.top() < dict_home.top() - 20.0,
         "it stays clear past the grace period: {dict:?}"

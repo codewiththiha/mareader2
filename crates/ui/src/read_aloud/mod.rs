@@ -1014,8 +1014,8 @@ impl ReadAloud {
     /// The player's intended rect while summoned, restoring or kept open.
     pub fn clearance_rect(&self, now: f64) -> Option<Rect> {
         self.session.as_ref()?;
-        let clear = self.shape.manual_reveal
-            || self.shape.unparked_until.is_some_and(|until| now < until);
+        let clear =
+            self.shape.manual_reveal || self.shape.unparked_until.is_some_and(|until| now < until);
         match self.shape.parked {
             Some(tuck) if tuck.revealing || clear => Some(tuck.home),
             Some(_) => None,
@@ -1177,8 +1177,8 @@ impl ReadAloud {
             let risen =
                 ctx.animate_value_with_time(Id::new("read-aloud-keeper-rise"), under, morph);
             rect = rect.translate(egui::vec2(0.0, -risen));
-            let asked_up = shape.manual_reveal
-                || shape.unparked_until.is_some_and(|until| now < until);
+            let asked_up =
+                shape.manual_reveal || shape.unparked_until.is_some_and(|until| now < until);
             if stage.dict.is_some()
                 && let Some(until) = shape.unparked_until.filter(|until| now < *until)
             {
