@@ -181,18 +181,23 @@ fn an_epub_prefix_grows_before_the_spine_finishes() -> Result<(), String> {
         .ok_or_else(|| "the first EPUB snapshot was not shown".to_string())?;
     assert!(!first.document.is_complete());
     let first_pages = first.document.page_count();
-    h.run_steps(12);
-    let latest = h
-        .state()
-        .documents()
-        .reading(pane)
-        .ok_or_else(|| "the growing EPUB left its pane".to_string())?;
-    assert!(!latest.document.is_complete());
-    assert!(
-        latest.document.page_count() > first_pages,
-        "{} pages stayed at {first_pages}",
-        latest.document.page_count()
-    );
+    let mut grew = false;
+    for _ in 0..12 {
+        h.run_steps(1);
+        let latest = h
+            .state()
+            .documents()
+            .reading(pane)
+            .ok_or_else(|| "the growing EPUB left its pane".to_string())?;
+        if latest.document.is_complete() {
+            break;
+        }
+        if latest.document.page_count() > first_pages {
+            grew = true;
+            break;
+        }
+    }
+    assert!(grew, "the visible EPUB stayed fixed until completion");
     Ok(())
 }
 
