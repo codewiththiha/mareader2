@@ -1,5 +1,6 @@
 /target
 /.cache
+/.env
 /shots
 /plan
 *.png.tmp
