@@ -165,8 +165,8 @@ appearance effects to that same pass.
 12. **Closing M8** (§ M8 slices, row 5): the owner checked the Mac rows
     of `docs/verification.md` (2026-10-17), so the traffic lights are
     shipped, and v0.0.1 is published for macOS, Windows and Linux. M8
-    is done. Sync (M9) is optional and much later (owner, 2026-10-17);
-    small fixes come as the owner finds them.
+    is done. Sync (M9) is optional and much later; no planned work remains
+    beyond owner-directed small fixes.
 5. **M5 lays sync's ground:** ids, stamps, tombstones and sort keys from
    the first release (`docs/sync.md` § What M5 must lay down). Slice 1 laid
    ids, stamps and tombstones; slice 4 laid sort keys. Slice 14 added the receiving
@@ -311,7 +311,8 @@ appearance effects to that same pass.
 | 2026-10-29 | v0.0.5. The release gathers everything since v0.0.4: reading along word by word, a new player, where reading starts and what it skips, Phonon and Kokoro Tiny, quicker voices, Piper on public-domain voices only, a redesigned dictionary, zoom that follows the pane, a calmer library and a new icon. Notes in `docs/releases/v0.0.5.md` |
 | 2026-10-31 | Player/dictionary overlap follows the latest layout intent: revealing or expanding the player, including when its highlight scrolls out of sight, moves the dictionary, shortening it when needed; using the dictionary lets it reclaim space and tucks the player. Initial-summon clearance remains temporary. First edge tucks animate; tuck and reveal ease out, and hovering pulls peeks 8 pt inward |
 | 2026-10-31 | Opening panes show only a larger loading mark, centered in the pane; the filename label is removed |
-| 2026-10-31 | EPUBs expose the saved anchor and nearby pages before the remaining spine is parsed, then replace the partial layout without losing the reading place; page totals stay unknown until completion. Missing PDF rasters show the centered three-dot loading mark, and visible page work stays ahead of parsing and prefetch. PDF page-tree indexing itself remains eager |
+| 2026-10-31 | EPUBs expose the saved anchor and nearby pages before the remaining spine is parsed, then replace the partial layout without losing the reading place; page totals stay unknown until completion. Visible page work stays ahead of parsing and prefetch. PDF page-tree indexing itself remains eager |
 | 2026-10-31 | Fix: EPUB partial snapshots grow as the spine advances, replacing the prior document at its reading anchor. PDFs expose the full indexed page tree before raster work; regression tests cover growth and deep scrolling |
 | 2026-10-31 | Polish: EPUB growth publishes in wider batches, unchanged pages keep their cached rendering, and the page counter shows the available total with `+` until completion |
 | 2026-10-31 | Quick EPUBs keep one complete layout; larger books use progressive previews when they benefit from them |
+| 2026-10-31 | PDF and EPUB pages now stay blank while each raster is pending; the centered loading mark remains for opening panes only |

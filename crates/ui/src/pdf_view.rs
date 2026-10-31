@@ -14,7 +14,6 @@ use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupF
 
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
 use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
-use crate::loading_mark;
 use crate::page_ai;
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::reach::{self, Press, Stop};
@@ -949,7 +948,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let wanted = |page: usize| landing.as_ref().is_none_or(|r| r.contains(&page));
     let mut shown_pages = 0..0;
     let mut sheets = Vec::new();
-    let mut loading = Vec::new();
     // Pages under an AI result.
     let mut covered = Vec::new();
     let mut paper_at = None;
@@ -1020,9 +1018,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 let clip = clip.intersect(ui.clip_rect());
                 let plan = plan(page);
                 let look = pages.lookup(plan.base());
-                if matches!(look, Lookup::Missing) {
-                    loading.push((rect, clip));
-                }
                 if wanted(page) && !matches!(look, Lookup::Sharp(_) | Lookup::Failed) {
                     demand.push((urgency, plan.base().into()));
                 }
@@ -1095,14 +1090,6 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
                 let shape = PagesCallback::shape(pass.clone(), ui.clip_rect(), quads.clone());
                 ui.painter().add(shape);
                 drawn.extend(quads.iter().cloned());
-            }
-            for (page, clip) in loading {
-                let visible = page.intersect(clip);
-                let side = visible.width().min(visible.height()).min(48.0);
-                if side > 0.0 {
-                    let mark = Rect::from_center_size(visible.center(), Vec2::splat(side));
-                    loading_mark::paint(ui, mark, t.muted);
-                }
             }
             // A result covers its page's text: nothing there selects or marks.
             let open: Vec<Sheet> = sheets
