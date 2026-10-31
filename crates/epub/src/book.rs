@@ -1542,7 +1542,7 @@ mod tests {
             match opening.step() {
                 Ok(OpenStep::Continue) => {}
                 Ok(OpenStep::Preview(book)) => break Some(book),
-                Ok(OpenStep::Complete(_)) | Err(_) => break None,
+                Ok(OpenStep::Update(_)) | Ok(OpenStep::Complete(_)) | Err(_) => break None,
             }
         };
         assert!(
