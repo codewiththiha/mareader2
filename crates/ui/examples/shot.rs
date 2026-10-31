@@ -28,6 +28,7 @@ fn main() -> Result<(), String> {
     let mut tabs = 0;
     let mut right = None;
     let mut wait = 0;
+    let mut pause_read_aloud = false;
     let mut scripted = false;
     let mut clicks = Vec::new();
     for kv in args {
@@ -166,6 +167,7 @@ fn main() -> Result<(), String> {
             }
             // Frames to run before the shot, at 60 a second: `wait=90`.
             "wait" => wait = v.parse().map_err(|_| "wait=frames")?,
+            "pause_read_aloud" => pause_read_aloud = v == "true",
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
             // A scripted book's scripts run first: `scripted=true`.
@@ -207,6 +209,13 @@ fn main() -> Result<(), String> {
     wait_for_books(&mut harness);
     for c in queued {
         harness.state_mut().queue(c);
+        harness.run_steps(8);
+    }
+    if pause_read_aloud {
+        let pause = harness
+            .query_by_label("Pause")
+            .ok_or("no read-aloud player to pause")?;
+        pause.click();
         harness.run_steps(8);
     }
     // The hit is revealed, gliding there when it's pages away.

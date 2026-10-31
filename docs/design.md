@@ -506,10 +506,10 @@ and returns where it came from; Library sits beside it.
   dictionary tucks left or right; the read-aloud player tucks below when
   covered by the dictionary. Only each panel's original shell remains
   visible while parked, with no player controls or play/pause dot. A click
-  on that exposed shell reveals it; a returning player asks the dictionary
-  to step clear, preferring above. On Library, the player stays above the
-  selection bar. Player toast avoidance narrows in place; manual conflicts
-  clear the toast, and the dictionary keeps its own animated dodge.
+  on that exposed shell reveals it; the dictionary steps clear, preferring
+  above, and stays aside until the player stops. On Library, the player stays
+  above the selection bar. Player toast avoidance narrows in place; manual
+  conflicts clear the toast, and the dictionary keeps its own animated dodge.
 - **Bridges.** The route chip names the language between ("via English");
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.

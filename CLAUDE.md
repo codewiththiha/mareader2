@@ -98,6 +98,9 @@ cargo run -p mareader-ui --example shot -- /tmp/a.png \
 | `sidebar` | `thumbnails`, `outline`, `library`, `closed` |
 | `float` | `true`: the sidebar floats over the panes |
 | `hover` | `x,y` in points: where the pointer rests |
+| `wait` | frames before the shot, at 60 per second |
+| `click` | accessible label to press after the wait; `_` for a space |
+| `pause_read_aloud` | `true`: pause the player before the wait |
 | `size` | `WxH` in points; output is at 2× |
 
 To tune colours or sizes without recompiling, run a debug build with

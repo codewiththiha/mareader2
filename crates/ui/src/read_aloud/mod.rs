@@ -472,6 +472,8 @@ struct Shape {
     parked: Option<crate::park::Tuck>,
     /// A short grace period while the player is summoned or restored.
     unparked_until: Option<f64>,
+    /// A manual reveal keeps dictionary clearance until the player is stopped.
+    manual_reveal: bool,
     time: Option<f64>,
     scroll: card::Scroll,
     ticker: card::Ticker,
@@ -1009,14 +1011,15 @@ impl ReadAloud {
         self.session.is_some() && self.shape.card
     }
 
-    /// The player's intended rect while it is summoned or restoring.
+    /// The player's intended rect while summoned, restoring or kept open.
     pub fn clearance_rect(&self, now: f64) -> Option<Rect> {
         self.session.as_ref()?;
-        let grace = self.shape.unparked_until.is_some_and(|until| now < until);
+        let clear = self.shape.manual_reveal
+            || self.shape.unparked_until.is_some_and(|until| now < until);
         match self.shape.parked {
-            Some(tuck) if tuck.revealing || grace => Some(tuck.home),
+            Some(tuck) if tuck.revealing || clear => Some(tuck.home),
             Some(_) => None,
-            None if grace => self.shape.rect,
+            None if clear => self.shape.rect,
             None => None,
         }
     }
@@ -1174,7 +1177,8 @@ impl ReadAloud {
             let risen =
                 ctx.animate_value_with_time(Id::new("read-aloud-keeper-rise"), under, morph);
             rect = rect.translate(egui::vec2(0.0, -risen));
-            let asked_up = shape.unparked_until.is_some_and(|until| now < until);
+            let asked_up = shape.manual_reveal
+                || shape.unparked_until.is_some_and(|until| now < until);
             if stage.dict.is_some()
                 && let Some(until) = shape.unparked_until.filter(|until| now < *until)
             {
@@ -1278,6 +1282,7 @@ impl ReadAloud {
                 tuck.revealing = true;
                 shape.parked = Some(tuck);
                 shape.unparked_until = Some(now + 4.0);
+                shape.manual_reveal = true;
             }
             // Asked about a part, the question rises over the player.
             if view.ask.is_some() {
