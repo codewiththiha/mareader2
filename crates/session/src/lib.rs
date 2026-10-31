@@ -113,6 +113,11 @@ pub enum Event {
         ticket: Ticket,
         doc: DocId,
     },
+    Updated {
+        ticket: Ticket,
+        old: DocId,
+        new: DocId,
+    },
     Completed {
         ticket: Ticket,
         old: DocId,
@@ -424,6 +429,46 @@ impl Session {
                 Some(Event::Preview {
                     ticket: Ticket(ticket),
                     doc: id,
+                })
+            }
+            Output::OpenUpdate { ticket, doc, state } => {
+                let opening = self.opening.get(&ticket)?;
+                let old = opening.doc?;
+                let name = mareader_pdf::display_name(doc.raw_title(), opening.name.as_deref())
+                    .unwrap_or_else(|| "Untitled".to_string());
+                let path = opening.path.clone();
+                let typo = Arc::clone(&opening.typo);
+                let target_page = opening.target.map_or(opening.target_page, |target| {
+                    let page = target
+                        .place
+                        .and_then(|place| doc.locate(place))
+                        .unwrap_or(target.page);
+                    doc.to_base(page)
+                });
+                let ready = opening.ready && opening.target_page == target_page;
+                let new = DocId(self.bump());
+                self.docs.insert(
+                    new,
+                    Entry {
+                        doc: Arc::new(doc),
+                        name,
+                        path,
+                        typo,
+                    },
+                );
+                let opening = self.opening.get_mut(&ticket)?;
+                opening.doc = Some(new);
+                opening.target_page = target_page;
+                opening.resume = Some(state);
+                opening.ready = ready;
+                opening.continuing = false;
+                if ready {
+                    self.resume_opening(ticket);
+                }
+                Some(Event::Updated {
+                    ticket: Ticket(ticket),
+                    old,
+                    new,
                 })
             }
             Output::OpenProgress { ticket, state } => {

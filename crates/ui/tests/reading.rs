@@ -25,6 +25,21 @@ fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     h
 }
 
+fn stepping_reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    for (key, value) in options {
+        app.set_option(key, value).ok();
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .build_eframe(|_| app);
+    h.run_steps(4);
+    h
+}
+
 fn textures(h: &Harness<'static, MareaderApp>) -> usize {
     h.ctx.tex_manager().read().num_allocated()
 }
@@ -49,6 +64,8 @@ fn the_sample_opens_titled_with_its_first_page_drawn() {
 #[test]
 fn the_wheel_scrolls_and_only_nearby_pages_are_kept_drawn() {
     let mut h = reader(&[("pdf", "sample:10000")]);
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().documents().page_count(pane), Some(10_000));
     h.hover_at(egui::pos2(450.0, 400.0));
     for _ in 0..20 {
         h.event(egui::Event::MouseWheel {
@@ -151,6 +168,32 @@ fn an_epub_opens_titled_with_its_pages_drawn() {
     assert!(h.state().settings_scope().book());
     let (docs, drawn) = h.state().documents().stats();
     assert_eq!((docs, drawn), (1, visible(&h).len() + 1));
+}
+
+#[test]
+fn an_epub_prefix_grows_before_the_spine_finishes() -> Result<(), String> {
+    let mut h = stepping_reader(&[("epub", "sample:120")]);
+    let pane = h.state().active_pane();
+    let first = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or_else(|| "the first EPUB snapshot was not shown".to_string())?;
+    assert!(!first.document.is_complete());
+    let first_pages = first.document.page_count();
+    h.run_steps(12);
+    let latest = h
+        .state()
+        .documents()
+        .reading(pane)
+        .ok_or_else(|| "the growing EPUB left its pane".to_string())?;
+    assert!(!latest.document.is_complete());
+    assert!(
+        latest.document.page_count() > first_pages,
+        "{} pages stayed at {first_pages}",
+        latest.document.page_count()
+    );
+    Ok(())
 }
 
 #[test]

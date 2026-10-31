@@ -710,7 +710,7 @@ impl Documents {
         };
         let mut retyped = Vec::new();
         let mut reloaded = Vec::new();
-        let mut completed = Vec::new();
+        let mut changed = Vec::new();
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
@@ -758,7 +758,9 @@ impl Documents {
                         session.close(doc);
                     }
                 }
-                Event::Completed { old, new, .. } => completed.push((old, new)),
+                Event::Updated { old, new, .. } | Event::Completed { old, new, .. } => {
+                    changed.push((old, new));
+                }
                 Event::Incomplete { doc, error, .. } => {
                     let name = session
                         .get(doc)
@@ -821,7 +823,7 @@ impl Documents {
                 self.reload(&path);
             }
         }
-        for (old, new) in completed {
+        for (old, new) in changed {
             self.reloaded(old, new);
         }
         self.follow_files();

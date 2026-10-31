@@ -993,10 +993,11 @@ status = "shipped"
 evidence = [
     "crates/epub/src/book.rs::opening_previews_near_its_saved_anchor_then_finishes",
     "crates/session/src/tests.rs::an_epub_previews_the_requested_page_then_completes_in_the_background",
+    "crates/ui/tests/reading.rs::an_epub_prefix_grows_before_the_spine_finishes",
     "crates/ui/src/page_bar.rs::a_partial_book_does_not_present_its_prefix_as_the_total",
 ]
 reference = ["crates/epub/src/book.rs", "crates/session/src/lib.rs"]
-notes = "The saved anchor wins over its numeric page; the reader exposes that page with nearby pages, continues the spine behind visible raster work, and shows an unknown total until completion"
+notes = "The saved anchor wins over its numeric page; the reader exposes nearby pages, publishes larger snapshots as the spine advances, and resumes behind visible raster work. The total stays unknown until completion"
 
 [[feature]]
 id = "epub.text-files"

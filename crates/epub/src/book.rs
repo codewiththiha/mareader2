@@ -276,6 +276,8 @@ pub struct Book {
 const OPEN_PAGE_AHEAD: usize = 2;
 const OPEN_CHECK_ITEMS: usize = 4;
 const OPEN_CHECK_PAGES: usize = 16;
+const OPEN_UPDATE_ITEMS: usize = 4;
+const OPEN_UPDATE_BLOCKS: usize = 128;
 
 /// A saved page or anchor to reach before continuing the spine.
 #[derive(Debug, Clone, Copy, Default)]
@@ -293,6 +295,8 @@ pub enum OpenStep {
     Continue,
     /// A partial book can show the requested page and nearby pages.
     Preview(Book),
+    /// A larger partial snapshot is ready to replace the previous one.
+    Update(Book),
     /// The complete book is ready.
     Complete(Book),
 }
@@ -317,6 +321,8 @@ pub struct OpenBook {
     next: usize,
     last_check: usize,
     last_pages: usize,
+    published_blocks: usize,
+    published_items: usize,
     previewed: bool,
     finished: bool,
 }
@@ -359,6 +365,8 @@ impl OpenBook {
                 next: 0,
                 last_check: 0,
                 last_pages: 0,
+                published_blocks: 0,
+                published_items: 0,
                 previewed: false,
                 finished: false,
             })
@@ -444,7 +452,20 @@ impl OpenBook {
             self.finished = true;
             return self.snapshot(true).map(OpenStep::Complete);
         }
-        if self.previewed || !self.should_check() {
+        if self.previewed {
+            let added = self.blocks.len().saturating_sub(self.published_blocks);
+            let items = self.next.saturating_sub(self.published_items);
+            let remaining = self.epub.spine().iter().len().saturating_sub(self.next);
+            let block_step = (self.published_blocks / 8).max(OPEN_UPDATE_BLOCKS);
+            if added == 0 || (items < OPEN_UPDATE_ITEMS && added < block_step && remaining > 1) {
+                return Ok(OpenStep::Continue);
+            }
+            let book = self.snapshot(false)?;
+            self.published_blocks = self.blocks.len();
+            self.published_items = self.next;
+            return Ok(OpenStep::Update(book));
+        }
+        if !self.should_check() {
             return Ok(OpenStep::Continue);
         }
         self.last_check = self.next;
@@ -465,6 +486,8 @@ impl OpenBook {
             return Ok(OpenStep::Continue);
         }
         self.previewed = true;
+        self.published_blocks = self.blocks.len();
+        self.published_items = self.next;
         Ok(OpenStep::Preview(book))
     }
 
@@ -1532,13 +1555,23 @@ mod tests {
         assert!(!preview.is_complete());
         assert!(preview.page_count() < full.page_count());
         assert_eq!(preview.locate(anchor), target.page);
+        let mut grown = preview.page_count();
+        let mut saw_growth = false;
         let complete = loop {
             match opening.step() {
                 Ok(OpenStep::Continue | OpenStep::Preview(_)) => {}
+                Ok(OpenStep::Update(book)) => {
+                    assert!(!book.is_complete());
+                    assert_eq!(book.locate(anchor), target.page);
+                    assert!(book.page_count() >= grown);
+                    saw_growth |= book.page_count() > preview.page_count();
+                    grown = book.page_count();
+                }
                 Ok(OpenStep::Complete(book)) => break Some(book),
                 Err(_) => break None,
             }
         };
+        assert!(saw_growth, "partial snapshots grow as the spine is read");
         assert!(complete.is_some(), "the remaining spine completes");
         let Some(complete) = complete else {
             return;

@@ -188,12 +188,13 @@ ADR 0002 the decision: rbook reads the container, a small XHTML+CSS subset
 becomes styled blocks, parley lays out and paginates them, and vello_cpu (the
 rasteriser hayro uses) draws page textures. Normal EPUB opens stop at the saved
 anchor plus two following pages, expose that partial layout, then resume one
-spine item per worker turn behind visible raster work. The completed layout
-replaces it at the reading anchor; the UI marks the total as unknown until
-then. PDFs still enumerate their page tree before showing a view, but rasterise
-the requested visible page on demand and show the centered loading mark while
-its raster is missing. Every mareader typography setting has a parley
-equivalent.
+spine item per worker turn behind visible raster work. As the spine advances,
+larger snapshots are published periodically; the UI swaps them at the same
+reading anchor until the completed layout replaces the last one. The UI marks
+the total as unknown until then. PDFs enumerate their full page tree before showing a view,
+then rasterise visible pages on demand; scrolling can request any indexed page,
+and the centered loading mark only covers pages whose raster is missing. Every
+mareader typography setting has a parley equivalent.
 
 ## Threads and resources
 

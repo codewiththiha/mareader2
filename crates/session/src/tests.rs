@@ -418,6 +418,27 @@ fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out
     assert_eq!(rendered(&second), [target + 1]);
 
     let events = until(&mut s, |e| matches!(e, Event::Completed { .. }));
+    let mut latest = doc;
+    let mut pages = s.get(doc).map_or(0, |e| e.doc.page_count());
+    let mut grew = false;
+    for event in &events {
+        if let Event::Updated {
+            ticket: got,
+            old,
+            new,
+        } = event
+            && *got == ticket
+        {
+            assert_eq!(*old, latest);
+            let before = s.get(*old).ok_or("no previous partial")?.doc.page_count();
+            let after = s.get(*new).ok_or("no updated partial")?;
+            assert!(!after.doc.is_complete());
+            assert!(after.doc.page_count() >= before);
+            grew |= after.doc.page_count() > pages;
+            pages = after.doc.page_count();
+            latest = *new;
+        }
+    }
     let completed = events.iter().find_map(|e| match e {
         Event::Completed {
             ticket: t,
@@ -428,7 +449,8 @@ fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out
         _ => None,
     });
     let (old, new) = completed.ok_or("the spine did not complete")?;
-    assert_eq!(old, doc);
+    assert!(grew, "partial documents gain pages before completion");
+    assert_eq!(old, latest);
     assert!(s.get(old).is_some());
     assert!(s.get(new).is_some_and(|e| e.doc.is_complete()));
     assert!(s.get(new).is_some_and(|e| e.doc.page_count() > target + 2));

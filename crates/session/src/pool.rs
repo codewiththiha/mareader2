@@ -62,6 +62,11 @@ pub(crate) enum Output {
         doc: Document,
         state: Box<OpenBook>,
     },
+    OpenUpdate {
+        ticket: u64,
+        doc: Document,
+        state: Box<OpenBook>,
+    },
     OpenProgress {
         ticket: u64,
         state: Box<OpenBook>,
@@ -119,6 +124,7 @@ impl Output {
             }),
             Self::Opened { .. }
             | Self::OpenPreview { .. }
+            | Self::OpenUpdate { .. }
             | Self::OpenProgress { .. }
             | Self::OpenComplete { .. }
             | Self::OpenFailed { .. }
@@ -396,6 +402,11 @@ fn finish(shared: &Shared, job: Job) {
                 doc: Document::from_book(book),
                 state,
             },
+            Ok(OpenStep::Update(book)) => Output::OpenUpdate {
+                ticket,
+                doc: Document::from_book(book),
+                state,
+            },
             Ok(OpenStep::Complete(book)) => Output::OpenComplete {
                 ticket,
                 doc: Document::from_book(book),
@@ -484,7 +495,9 @@ fn open_document(
     let mut state = OpenBook::new(bytes, typo, target)?;
     match state.step()? {
         OpenStep::Continue => Ok(Opened::Progress(Box::new(state))),
-        OpenStep::Preview(book) => Ok(Opened::Preview(Document::from_book(book), Box::new(state))),
+        OpenStep::Preview(book) | OpenStep::Update(book) => {
+            Ok(Opened::Preview(Document::from_book(book), Box::new(state)))
+        }
         OpenStep::Complete(book) => Ok(Opened::Complete(Document::from_book(book))),
     }
 }
