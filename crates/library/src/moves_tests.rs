@@ -48,6 +48,7 @@ fn page(page: usize) -> Position {
         page,
         pages: 50,
         place: None,
+        spine: None,
     }
 }
 

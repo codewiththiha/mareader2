@@ -63,6 +63,10 @@ pub struct LastDocument {
     /// A book's block and offset, which outlast a change of type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<(usize, usize)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spine: Option<mareader_library::SpinePosition>,
+    #[serde(default)]
+    pub pages: usize,
     /// The library book it was read as, so a twin reopens as itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub book: Option<mareader_library::BookId>,
@@ -312,9 +316,17 @@ impl MareaderApp {
             return false;
         };
         let place = last.place.map(|(block, offset)| Anchor { block, offset });
+        let spine = last.spine.map(|place| mareader_session::SpinePlace {
+            href: place.href,
+            item: place.item,
+            block: place.block,
+            offset: place.offset,
+        });
         let request = OpenRequest {
             page: last.page,
             place,
+            spine,
+            pages: last.pages,
             book: last.book,
             ..OpenRequest::path(last.path)
         };
@@ -325,14 +337,22 @@ impl MareaderApp {
     /// The file being read: the active pane's, else the first with one.
     pub fn last_document(&self) -> Option<LastDocument> {
         let panes = std::iter::once(self.active).chain(self.tree.panes());
-        let (pane, (path, page, place)) =
+        let (pane, (path, page, place, spine, pages)) =
             (panes.into_iter()).find_map(|p| Some((p, self.documents.place(p)?)))?;
         let place = place.map(|a| (a.block, a.offset));
+        let spine = spine.map(|place| mareader_library::SpinePosition {
+            href: place.href,
+            item: place.item,
+            block: place.block,
+            offset: place.offset,
+        });
         let book = self.documents.book(pane);
         Some(LastDocument {
             path,
             page,
             place,
+            spine,
+            pages,
             book,
         })
     }

@@ -62,11 +62,6 @@ pub(crate) enum Output {
         doc: Document,
         state: Box<OpenBook>,
     },
-    OpenUpdate {
-        ticket: u64,
-        doc: Document,
-        state: Box<OpenBook>,
-    },
     OpenProgress {
         ticket: u64,
         state: Box<OpenBook>,
@@ -124,7 +119,6 @@ impl Output {
             }),
             Self::Opened { .. }
             | Self::OpenPreview { .. }
-            | Self::OpenUpdate { .. }
             | Self::OpenProgress { .. }
             | Self::OpenComplete { .. }
             | Self::OpenFailed { .. }
@@ -395,26 +389,24 @@ fn finish(shared: &Shared, job: Job) {
                 result: Err(error),
             },
         },
-        Job::ContinueOpen { ticket, mut state } => match state.step() {
-            Ok(OpenStep::Continue) => Output::OpenProgress { ticket, state },
-            Ok(OpenStep::Preview(book)) => Output::OpenPreview {
-                ticket,
-                doc: Document::from_book(book),
-                state,
-            },
-            Ok(OpenStep::Update(book)) => Output::OpenUpdate {
-                ticket,
-                doc: Document::from_book(book),
-                state,
-            },
-            Ok(OpenStep::Complete(book)) => Output::OpenComplete {
-                ticket,
-                doc: Document::from_book(book),
-            },
-            Err(error) => Output::OpenFailed {
-                ticket,
-                error: OpenError::Epub(error),
-            },
+        Job::ContinueOpen { ticket, mut state } => {
+            let target = state.target().cloned();
+            match state.step() {
+                Ok(OpenStep::Continue) => Output::OpenProgress { ticket, state },
+                Ok(OpenStep::Preview(book)) => Output::OpenPreview {
+                    ticket,
+                    doc: Document::from_preview(book, target.as_ref()),
+                    state,
+                },
+                Ok(OpenStep::Complete(book)) => Output::OpenComplete {
+                    ticket,
+                    doc: Document::from_book(book),
+                },
+                Err(error) => Output::OpenFailed {
+                    ticket,
+                    error: OpenError::Epub(error),
+                },
+            }
         },
         Job::Retypeset {
             ticket,
@@ -499,15 +491,17 @@ fn open_document(
                 OpenStep::Complete(book) => {
                     return Ok(Opened::Complete(Document::from_book(book)));
                 }
-                OpenStep::Continue | OpenStep::Preview(_) | OpenStep::Update(_) => {}
+                OpenStep::Continue | OpenStep::Preview(_) => {}
             }
         }
     }
+    let target = state.target().cloned();
     match state.step()? {
         OpenStep::Continue => Ok(Opened::Progress(Box::new(state))),
-        OpenStep::Preview(book) | OpenStep::Update(book) => {
-            Ok(Opened::Preview(Document::from_book(book), Box::new(state)))
-        }
+        OpenStep::Preview(book) => Ok(Opened::Preview(
+            Document::from_preview(book, target.as_ref()),
+            Box::new(state),
+        )),
         OpenStep::Complete(book) => Ok(Opened::Complete(Document::from_book(book))),
     }
 }

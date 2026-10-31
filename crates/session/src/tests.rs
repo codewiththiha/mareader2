@@ -386,7 +386,7 @@ fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
 }
 
 #[test]
-fn a_small_epub_opens_as_one_complete_load() -> Out {
+fn a_small_epub_previews_once_then_completes() -> Out {
     let mut s = inline();
     let ticket = s.open_at(
         Source::Bytes(Arc::new(mareader_epub::sample::epub(4, "Quick"))),
@@ -394,48 +394,150 @@ fn a_small_epub_opens_as_one_complete_load() -> Out {
         Arc::default(),
         OpenTarget::default(),
     );
-    let events = until(&mut s, |event| {
-        matches!(
-            event,
-            Event::Opened { ticket: got, .. }
-                | Event::Preview { ticket: got, .. }
-                | Event::Updated { ticket: got, .. }
-                | Event::Completed { ticket: got, .. }
-                if *got == ticket
-        )
+    let events = until(&mut s, |event| matches!(event, Event::Preview { .. }));
+    let doc = events.iter().find_map(|event| match event {
+        Event::Preview { ticket: got, doc } if *got == ticket => Some(*doc),
+        _ => None,
     });
-    let first = events.iter().find(|event| {
-        matches!(
-            event,
-            Event::Opened { ticket: got, .. }
-                | Event::Preview { ticket: got, .. }
-                | Event::Updated { ticket: got, .. }
-                | Event::Completed { ticket: got, .. }
-                if *got == ticket
-        )
-    });
-    let doc = match first {
-        Some(Event::Opened {
-            result: Ok(doc), ..
-        }) => *doc,
-        _ => return Err(format!("small EPUB did not open in one result: {events:?}").into()),
-    };
-    assert!(s.get(doc).is_some_and(|entry| entry.doc.is_complete()));
+    let doc = doc.ok_or("the first page was not previewed")?;
+    assert!(s.get(doc).is_some_and(|entry| !entry.doc.is_complete()));
+    assert_eq!(s.pending(), 0, "continuation waits for the first raster");
+    s.want([key(doc, 0)]);
+    assert_eq!(rendered(&s.poll(ALL)), [0]);
+    let events = until(&mut s, |event| matches!(event, Event::Completed { .. }));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Completed { ticket: got, old, new }
+            if *got == ticket
+                && *old == doc
+                && s.get(*new).is_some_and(|entry| entry.doc.is_complete())
+    )));
     Ok(())
 }
 
 #[test]
-fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out {
-    let mut s = inline();
+fn open_progress_uses_the_latest_typography() -> Out {
     let bytes = Arc::new(mareader_epub::sample::epub(40, "Progress"));
-    let target = 8;
+    let current = Arc::new(Typography {
+        font_size: 32.0,
+        ..Typography::default()
+    });
+    let mut state = OpenBook::new(
+        Arc::clone(&bytes),
+        &Typography::default(),
+        Some(OpenTarget::default()),
+    )?;
+    assert!(matches!(
+        state.step(),
+        Ok(mareader_epub::OpenStep::Preview(_))
+    ));
+    assert!(matches!(
+        state.step(),
+        Ok(mareader_epub::OpenStep::Continue)
+    ));
+
+    let ticket = 1;
+    let mut session = inline();
+    session.opening.insert(
+        ticket,
+        Opening {
+            name: None,
+            path: None,
+            typo: Arc::clone(&current),
+            target: Some(OpenTarget::default()),
+            target_page: 0,
+            doc: Some(DocId(1)),
+            resume: None,
+            ready: false,
+            continuing: false,
+        },
+    );
+    assert!(session
+        .accept(Output::OpenProgress {
+            ticket,
+            state: Box::new(state),
+        })
+        .is_none());
+    let Some(mut state) = session
+        .opening
+        .get_mut(&ticket)
+        .and_then(|opening| opening.resume.take())
+    else {
+        return Err("the parser state was not resumed".into());
+    };
+    let complete = loop {
+        match state.step()? {
+            mareader_epub::OpenStep::Continue => {}
+            mareader_epub::OpenStep::Complete(book) => break book,
+            mareader_epub::OpenStep::Preview(_) => {
+                return Err("the parser published a second preview".into());
+            }
+        }
+    };
+    let expected = mareader_epub::Book::open(Arc::clone(&bytes), current.as_ref())?;
+    let original = mareader_epub::Book::open(bytes, &Typography::default())?;
+    assert_ne!(expected.page_count(), original.page_count());
+    assert_eq!(complete.page_count(), expected.page_count());
+    Ok(())
+}
+
+#[test]
+fn a_legacy_global_anchor_still_resumes_in_one_complete_load() -> Out {
+    let mut s = inline();
+    let bytes = Arc::new(mareader_epub::sample::epub(40, "Legacy"));
+    let typo = Typography::default();
+    let full = mareader_epub::Book::open(Arc::clone(&bytes), &typo)?;
+    let page = full.page_count() / 2;
+    let anchor = full.anchor(page).ok_or("no legacy anchor")?;
     let ticket = s.open_at(
         Source::Bytes(bytes),
         None,
-        Arc::default(),
+        Arc::new(typo),
         OpenTarget {
-            page: target,
-            place: None,
+            page,
+            place: Some(anchor),
+            spine: None,
+            pages: full.page_count(),
+        },
+    );
+    let events = until(&mut s, |event| matches!(
+        event,
+        Event::Opened { ticket: got, .. } if *got == ticket
+    ));
+    let doc = events.iter().find_map(|event| match event {
+        Event::Opened {
+            ticket: got,
+            result: Ok(doc),
+        } if *got == ticket => Some(*doc),
+        _ => None,
+    });
+    let doc = doc.ok_or("the legacy anchor did not open")?;
+    let document = s.get(doc).ok_or("no opened document")?;
+    assert!(document.doc.is_complete());
+    assert_eq!(document.doc.locate(anchor), Some(page));
+    assert!(!events.iter().any(|event| matches!(event, Event::Preview { .. })));
+    Ok(())
+}
+
+#[test]
+fn an_epub_previews_a_stable_location_then_completes_once() -> Out {
+    let mut s = inline();
+    let bytes = Arc::new(mareader_epub::sample::epub(40, "Progress"));
+    let typo = Typography::default();
+    let full = mareader_epub::Book::open(Arc::clone(&bytes), &typo)?;
+    let target_page = full.page_count() / 2;
+    let anchor = full.anchor(target_page).ok_or("no target anchor")?;
+    let spine = full.spine_place(anchor).ok_or("no stable target location")?;
+    let pages = full.page_count();
+    let ticket = s.open_at(
+        Source::Bytes(bytes),
+        None,
+        Arc::new(typo),
+        OpenTarget {
+            page: target_page,
+            place: Some(anchor),
+            spine: Some(spine.clone()),
+            pages,
         },
     );
     let events = until(&mut s, |e| matches!(e, Event::Preview { .. }));
@@ -443,56 +545,52 @@ fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out
         Event::Preview { ticket: t, doc } if *t == ticket => Some(*doc),
         _ => None,
     });
-    let doc = doc.ok_or("the requested page was not previewed")?;
-    let partial = s.get(doc).ok_or("no preview entry")?;
-    assert!(!partial.doc.is_complete());
-    assert!(partial.doc.page_count() > target + 2);
+    let doc = doc.ok_or("the saved place was not previewed")?;
+    let preview = s
+        .get(doc)
+        .map(|entry| Arc::clone(&entry.doc))
+        .ok_or("no preview entry")?;
+    assert!(!preview.is_complete());
+    assert!(preview.page_count() < pages);
+    let local = preview
+        .locate_spine(&spine)
+        .ok_or("the preview lost the saved place")?;
+    assert_eq!(preview.global_page(local), target_page);
+    assert_eq!(preview.global_page_count(), pages);
+    let early = full
+        .anchor(1)
+        .and_then(|anchor| full.spine_place(anchor))
+        .ok_or("no early stable location")?;
+    let elsewhere = OpenTarget {
+        page: target_page,
+        place: None,
+        spine: Some(early),
+        pages,
+    };
+    assert_eq!(preview.target_page(&elsewhere), None);
     assert_eq!(s.pending(), 0, "continuation waits for the target raster");
     assert!(s.poll(ALL).is_empty());
 
-    s.want([key(doc, target), key(doc, target + 1)]);
-    let first = s.poll(ALL);
-    assert_eq!(rendered(&first), [target]);
-    let second = s.poll(ALL);
-    assert_eq!(rendered(&second), [target + 1]);
+    s.want([key(doc, local), key(doc, local + 1)]);
+    assert_eq!(rendered(&s.poll(ALL)), [local]);
+    assert_eq!(rendered(&s.poll(ALL)), [local + 1]);
 
     let events = until(&mut s, |e| matches!(e, Event::Completed { .. }));
-    let mut latest = doc;
-    let mut pages = s.get(doc).map_or(0, |e| e.doc.page_count());
-    let mut grew = false;
-    for event in &events {
-        if let Event::Updated {
+    let completed = events.iter().find_map(|event| match event {
+        Event::Completed {
             ticket: got,
             old,
             new,
-        } = event
-            && *got == ticket
-        {
-            assert_eq!(*old, latest);
-            let before = s.get(*old).ok_or("no previous partial")?.doc.page_count();
-            let after = s.get(*new).ok_or("no updated partial")?;
-            assert!(!after.doc.is_complete());
-            assert!(after.doc.page_count() >= before);
-            grew |= after.doc.page_count() > pages;
-            pages = after.doc.page_count();
-            latest = *new;
-        }
-    }
-    let completed = events.iter().find_map(|e| match e {
-        Event::Completed {
-            ticket: t,
-            old,
-            new,
-            ..
-        } if *t == ticket => Some((*old, *new)),
+        } if *got == ticket => Some((*old, *new)),
         _ => None,
     });
     let (old, new) = completed.ok_or("the spine did not complete")?;
-    assert!(grew, "partial documents gain pages before completion");
-    assert_eq!(old, latest);
+    assert_eq!(old, doc);
     assert!(s.get(old).is_some());
-    assert!(s.get(new).is_some_and(|e| e.doc.is_complete()));
-    assert!(s.get(new).is_some_and(|e| e.doc.page_count() > target + 2));
+    let complete = s.get(new).ok_or("no completed document")?;
+    assert!(complete.doc.is_complete());
+    assert_eq!(complete.doc.locate_spine(&spine), Some(target_page));
+    assert_eq!(preview.same_page(local, &complete.doc), Some(target_page));
     Ok(())
 }
 

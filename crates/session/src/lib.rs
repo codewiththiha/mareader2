@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use mareader_epub::OpenBook;
-pub use mareader_epub::OpenTarget;
+pub use mareader_epub::{OpenTarget, SpinePlace};
 
 pub use cover::{cover, describe, pictures};
 pub use document::Document;
@@ -112,11 +112,6 @@ pub enum Event {
     Preview {
         ticket: Ticket,
         doc: DocId,
-    },
-    Updated {
-        ticket: Ticket,
-        old: DocId,
-        new: DocId,
     },
     Completed {
         ticket: Ticket,
@@ -267,14 +262,15 @@ impl Session {
                     .and_then(|p| p.parent().map(Path::to_path_buf)),
             })
         });
+        let target_page = target.as_ref().map_or(0, |target| target.page);
         self.opening.insert(
             ticket,
             Opening {
                 name,
                 path,
                 typo: Arc::clone(&typo),
-                target,
-                target_page: target.map_or(0, |t| t.page),
+                target: target.clone(),
+                target_page,
                 doc: None,
                 resume: None,
                 ready: false,
@@ -322,6 +318,11 @@ impl Session {
             doc: id,
             typo: Arc::clone(&typo),
         };
+        for opening in self.opening.values_mut() {
+            if opening.doc == Some(id) {
+                opening.typo = Arc::clone(&typo);
+            }
+        }
         let stale = self.typesetting.insert(slot, set).map(|t| t.ticket);
         self.pool.retypeset(ticket, (id, doc), typo, inserts, stale);
     }
@@ -403,13 +404,11 @@ impl Session {
                     .unwrap_or_else(|| "Untitled".to_string());
                 let path = opening.path.clone();
                 let typo = Arc::clone(&opening.typo);
-                let target_page = opening.target.map_or(opening.target_page, |target| {
-                    let page = target
-                        .place
-                        .and_then(|place| doc.locate(place))
-                        .unwrap_or(target.page);
-                    doc.to_base(page)
-                });
+                let target_page = opening
+                    .target
+                    .as_ref()
+                    .and_then(|target| doc.target_page(target))
+                    .unwrap_or(opening.target_page);
                 let id = DocId(self.bump());
                 self.docs.insert(
                     id,
@@ -431,48 +430,9 @@ impl Session {
                     doc: id,
                 })
             }
-            Output::OpenUpdate { ticket, doc, state } => {
-                let opening = self.opening.get(&ticket)?;
-                let old = opening.doc?;
-                let name = mareader_pdf::display_name(doc.raw_title(), opening.name.as_deref())
-                    .unwrap_or_else(|| "Untitled".to_string());
-                let path = opening.path.clone();
-                let typo = Arc::clone(&opening.typo);
-                let target_page = opening.target.map_or(opening.target_page, |target| {
-                    let page = target
-                        .place
-                        .and_then(|place| doc.locate(place))
-                        .unwrap_or(target.page);
-                    doc.to_base(page)
-                });
-                let ready = opening.ready && opening.target_page == target_page;
-                let new = DocId(self.bump());
-                self.docs.insert(
-                    new,
-                    Entry {
-                        doc: Arc::new(doc),
-                        name,
-                        path,
-                        typo,
-                    },
-                );
+            Output::OpenProgress { ticket, mut state } => {
                 let opening = self.opening.get_mut(&ticket)?;
-                opening.doc = Some(new);
-                opening.target_page = target_page;
-                opening.resume = Some(state);
-                opening.ready = ready;
-                opening.continuing = false;
-                if ready {
-                    self.resume_opening(ticket);
-                }
-                Some(Event::Updated {
-                    ticket: Ticket(ticket),
-                    old,
-                    new,
-                })
-            }
-            Output::OpenProgress { ticket, state } => {
-                let opening = self.opening.get_mut(&ticket)?;
+                state.set_typography(opening.typo.as_ref());
                 opening.resume = Some(state);
                 opening.continuing = false;
                 let ready = opening.doc.is_none() || opening.ready;
@@ -483,6 +443,11 @@ impl Session {
             }
             Output::OpenComplete { ticket, doc } => {
                 let opening = self.opening.remove(&ticket)?;
+                let doc = if doc.has_typography(opening.typo.as_ref()) {
+                    doc
+                } else {
+                    doc.reset(opening.typo.as_ref(), None).unwrap_or(doc)
+                };
                 let name = mareader_pdf::display_name(doc.raw_title(), opening.name.as_deref())
                     .unwrap_or_else(|| "Untitled".to_string());
                 let path = opening.path.clone();
@@ -529,7 +494,14 @@ impl Session {
                     .iter()
                     .find_map(|(slot, t)| (t.ticket == ticket).then_some(*slot))?;
                 let set = self.typesetting.remove(&slot)?;
-                let doc = result?;
+                let mut doc = result?;
+                for opening in self.opening.values() {
+                    if opening.doc == Some(id)
+                        && let Some(target) = opening.target.as_ref()
+                    {
+                        doc.set_preview_target(target);
+                    }
+                }
                 let old = self.docs.get(&id)?;
                 let entry = Entry {
                     doc: Arc::new(doc),
@@ -541,19 +513,22 @@ impl Session {
                 let new = DocId(self.bump());
                 self.docs.insert(new, entry);
                 let target_doc = self.docs.get(&new).map(|entry| &*entry.doc);
-                for opening in self.opening.values_mut() {
+                let mut resumes = Vec::new();
+                for (ticket, opening) in &mut self.opening {
                     if opening.doc == Some(id) {
                         opening.doc = Some(new);
-                        opening.target_page =
-                            opening.target.map_or(opening.target_page, |target| {
-                                let page = target
-                                    .place
-                                    .and_then(|place| target_doc.and_then(|doc| doc.locate(place)))
-                                    .unwrap_or(target.page);
-                                target_doc.map_or(page, |doc| doc.to_base(page))
-                            });
-                        opening.ready = false;
+                        opening.target_page = opening
+                            .target
+                            .as_ref()
+                            .and_then(|target| target_doc.and_then(|doc| doc.target_page(target)))
+                            .unwrap_or(opening.target_page);
+                        if opening.ready {
+                            resumes.push(*ticket);
+                        }
                     }
+                }
+                for ticket in resumes {
+                    self.resume_opening(ticket);
                 }
                 Some(Event::Retypeset {
                     old: id,

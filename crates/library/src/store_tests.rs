@@ -7,7 +7,10 @@ use rusqlite::Connection;
 use crate::disk::Folder;
 use crate::store::Store;
 use crate::tests::save;
-use crate::{ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, Opened, Position};
+use crate::{
+    ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, Opened, Position,
+    SpinePosition,
+};
 
 const DEVICE: DeviceId = DeviceId(7);
 
@@ -48,6 +51,7 @@ fn a_save_writes_only_the_rows_that_changed() {
         page: 3,
         pages: 9,
         place: None,
+        spine: None,
     };
     lib.record_position(a, position, 2_100);
     let dirty = lib.take_dirty();
@@ -183,8 +187,14 @@ fn state_files_move_into_the_store_once() {
         page: 12,
         pages: 40,
         place: None,
+        spine: Some(SpinePosition {
+            href: "Text/chapter.xhtml".into(),
+            item: 4,
+            block: 8,
+            offset: 17,
+        }),
     };
-    lib.record_position(a, position, 1_500);
+    lib.record_position(a, position.clone(), 1_500);
     let state = lib.states.get(&a).unwrap();
     let file = serde_json::json!({ "schema": 4, "book": a, "state": state });
     let states = dir.path().join("state");
@@ -193,7 +203,7 @@ fn state_files_move_into_the_store_once() {
 
     let loaded = folder.load(DEVICE);
     assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
-    assert_eq!(loaded.library.position(a), Some(position));
+    assert_eq!(loaded.library.position(a), Some(position.clone()));
     assert!(!states.exists() && dir.path().join("state.migrated").is_dir());
     drop(loaded);
     assert_eq!(folder.load(DEVICE).library.position(a), Some(position));

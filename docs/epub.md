@@ -21,16 +21,18 @@ formats can do, an EPUB page must do too. The choice of stack is in
      page RGBA → texture → page pass (texture + grain; no filter)
 ```
 
-- **Progressive opening.** Small EPUBs use one complete layout. Larger books
-  parse and lay out spine items until the saved anchor (preferred to a page
-  number) and two following pages are ready. That partial book is shown
-  immediately; parsing resumes after the requested page's raster arrives, one
-  spine item at a time behind visible page work. Larger partial snapshots arrive
-  at widening intervals; unchanged pages keep their cached rendering and the
-  reading place stays put. The page counter shows the available prefix as
-  `page / pages+`, with the total rising as pages are published and `+`
-  disappearing at completion. The slider and progress line stay hidden until
-  the full book is ready.
+- **Progressive opening.** A saved EPUB place stores its spine href and a
+  block-relative offset, so a deep resume can parse a bounded window around
+  the target without laying out the prefix. A fresh book previews its first
+  spine item. The preview is capped by markup and block budgets, then one
+  complete parse and layout continues in bounded batches after the target
+  raster arrives. Preview pages use local indices plus the saved global page
+  offset and count. At completion, stable spine places map the view and reusable
+  rasters into the full layout; there are no widening prefix snapshots. Older
+  saves with only a global block anchor still load in one complete pass and
+  retain their place. The counter shows `page / pages+`; its saved total is
+  retained until the full count replaces it. The slider and progress line stay
+  hidden until the full book is ready. PDF opening is unchanged.
 - **Zoom never re-paginates.** Pages scale uniformly, as in mareader. A
   typography change re-paginates and keeps the anchor block in view.
 - **Untrusted input.** Paths in the container resolve only inside it. XML depth,
@@ -175,10 +177,12 @@ What the epub crate reads, and what each element becomes:
 
 ## Navigation as built (M4 slice 5)
 
-- **Places.** A place is a block and a byte offset, never a page, so it
-  outlives any re-pagination. Every element `id` (and old `<a name>`)
-  marks one: mid-paragraph at its offset, otherwise at the next block.
-  Each chapter file marks its first block.
+- **Places.** A live anchor is a block and byte offset, never a page, so
+  it outlives re-pagination. Every element `id` (and old `<a name>`) marks
+  one: mid-paragraph at its offset, otherwise at the next block. Each chapter
+  file marks its first block. Durable resume adds the spine href and a
+  block-relative offset, so a later open can find the chapter without parsing
+  every earlier one.
 - **Contents.** The EPUB 3 nav, else the EPUB 2 NCX, flattened with
   depth (capped at 20 000 entries and 5 levels deep). An entry whose
   target never resolves is dropped. A book that lists nothing gets its
@@ -192,8 +196,9 @@ What the epub crate reads, and what each element becomes:
   the PDF path's scheme check, so `javascript:` and `file:` do nothing.
 - **Streams.** A sheet is hit-tested only where its band shows, so a link
   near a band edge isn't taken by the neighbouring page's hidden part.
-- **Resume.** A book read at exit saves its place with its page; the next
-  launch opens on the page holding that place, even in other type.
+- **Resume.** A book read at exit saves its stable spine place, global page
+  and page count; the next launch opens at that place, even in another type.
+  Older saves with only a global block anchor remain supported.
 
 ## Selection and ink as built (M4 slice 6)
 

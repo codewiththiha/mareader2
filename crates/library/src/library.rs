@@ -175,7 +175,7 @@ impl Library {
     }
 
     pub fn position(&self, id: BookId) -> Option<Position> {
-        self.states.get(&id).map(|s| s.position.value)
+        self.states.get(&id).map(|s| s.position.value.clone())
     }
 
     /// The books, last opened first; ties by title.
@@ -364,7 +364,7 @@ impl Library {
 
     /// Writes down where the reader is; false if nothing changed.
     pub fn record_position(&mut self, id: BookId, position: Position, wall_ms: u64) -> bool {
-        if self.book(id).is_none() || self.position(id) == Some(position) {
+        if self.book(id).is_none() || self.position(id).as_ref() == Some(&position) {
             return false;
         }
         let at = self.clock.tick(wall_ms);

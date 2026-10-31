@@ -186,14 +186,16 @@ crate. The rules:
 EPUB replaces mareader's txt and md formats. `docs/epub.md` has the plan and
 ADR 0002 the decision: rbook reads the container, a small XHTML+CSS subset
 becomes styled blocks, parley lays out and paginates them, and vello_cpu (the
-rasteriser hayro uses) draws page textures. Normal EPUB opens stop at the saved
-anchor plus two following pages, expose that partial layout, then resume one
-spine item per worker turn behind visible raster work. As the spine advances,
-larger snapshots are published periodically; the UI swaps them at the same
-reading anchor until the completed layout replaces the last one. The UI marks
-the total as unknown until then. PDFs enumerate their full page tree before showing a view,
-then rasterise visible pages on demand; scrolling can request any indexed page,
-and the centered loading mark only covers pages whose raster is missing. Every
+rasteriser hayro uses) draws page textures. EPUB resume stores a stable spine
+href and block-relative offset, so a bounded target-centered preview can open a
+deep place without laying out its prefix. The preview uses local page indices
+with a saved global offset/count; after its target raster arrives, one complete
+parse and layout continues in worker batches. Stable spine mapping moves the
+view and reusable rasters into the completed layout without intermediate
+prefix snapshots. Legacy global-block saves still open in one complete pass.
+PDFs enumerate their full page tree before showing a view, then rasterise
+visible pages on demand; scrolling can request any indexed page, and the
+centered loading mark only covers pages whose raster is missing. Every
 mareader typography setting has a parley equivalent.
 
 ## Threads and resources

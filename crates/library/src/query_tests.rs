@@ -242,6 +242,7 @@ fn a_revision_moves_with_books_and_shelves_but_not_with_pages() {
         page: 3,
         pages: 9,
         place: None,
+        spine: None,
     };
     lib.record_position(id, page, 2);
     assert_eq!(lib.revision(), added, "a page turn leaves the listing be");

@@ -65,15 +65,26 @@ pub enum Design {
     Off,
 }
 
+/// A durable position within one EPUB spine item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpinePosition {
+    pub href: String,
+    pub item: usize,
+    pub block: usize,
+    pub offset: usize,
+}
+
 /// Where a reader was: the page shown, and a book's place in its text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Position {
     pub page: usize,
     /// The page count then, for "page 12 of 300" and the progress.
     pub pages: usize,
-    /// A book's block and byte offset, which outlast a change of type.
+    /// A global block anchor for positions saved by older readers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<(usize, usize)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spine: Option<SpinePosition>,
 }
 
 impl Position {
@@ -300,12 +311,20 @@ mod tests {
     }
 
     #[test]
+    fn old_saved_positions_load_without_a_spine_locator() {
+        let old = r#"{"page":7,"pages":30,"place":[12,4]}"#;
+        let position = serde_json::from_str::<Position>(old).ok();
+        assert_eq!(position.map(|p| p.spine), Some(None));
+    }
+
+    #[test]
     fn progress_counts_the_page_shown_as_read() {
         let at = |page, pages| {
             Position {
                 page,
                 pages,
                 place: None,
+                spine: None,
             }
             .fraction()
         };

@@ -208,7 +208,7 @@ impl Library {
         let from = book.home().map(|l| l.path.clone());
         self.place_from(id, &copy.path, copy.measure.stamp, Origin::Store, from);
         if let Some(state) = self.states.get(&book.id) {
-            let position = Field::new(state.position.value, at);
+            let position = Field::new(state.position.value.clone(), at);
             self.states.insert(id, State::new(position));
             self.states_dirty.insert(id);
         }

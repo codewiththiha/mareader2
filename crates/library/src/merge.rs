@@ -361,6 +361,7 @@ mod tests {
             page,
             pages: 10,
             place: None,
+            spine: None,
         };
         State {
             position: Field::new(position, at),

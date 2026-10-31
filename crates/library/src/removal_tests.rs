@@ -36,6 +36,7 @@ fn page(page: usize) -> Position {
         page,
         pages: 10,
         place: None,
+        spine: None,
     }
 }
 

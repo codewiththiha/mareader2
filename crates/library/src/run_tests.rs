@@ -297,6 +297,7 @@ fn kept_data_comes_back_with_the_file_and_deleted_data_does_not() {
             page: 9,
             pages: 20,
             place: None,
+            spine: None,
         },
         2_100,
     );

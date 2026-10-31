@@ -2,7 +2,7 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use mareader_epub::{Book, Destination, Format, Inserts, MAX_PICTURE_FILE};
+use mareader_epub::{Book, Destination, Format, Inserts, MAX_PICTURE_FILE, OpenTarget, SpinePlace};
 use mareader_pdf::{Bounds, Link, LinkTarget, MAX_DEPTH, Tiling, web_address};
 use mareader_pdf::{OutlineEntry, PageSize, PageText, Paper, Raster, RenderError};
 use mareader_pdf::{Passage, PassageRun, TextLayer};
@@ -28,6 +28,10 @@ pub enum Document {
         sizes: Vec<PageSize>,
         /// The contents on this setting's pages.
         outline: Vec<OutlineEntry>,
+        /// The preview's first page in the saved book's page numbering.
+        page_offset: usize,
+        /// The last known full-book page count, or the preview extent.
+        page_total: usize,
     },
 }
 
@@ -62,6 +66,18 @@ impl Document {
     }
 
     pub(crate) fn from_book(book: Book) -> Self {
+        Self::from_book_at(book, 0, 0)
+    }
+
+    pub(crate) fn from_preview(book: Book, target: Option<&OpenTarget>) -> Self {
+        let mut document = Self::from_book(book);
+        if let Some(target) = target {
+            document.set_preview_target(target);
+        }
+        document
+    }
+
+    fn from_book_at(book: Book, page_offset: usize, page_total: usize) -> Self {
         // Fixed pages keep their own shape; reflowed ones share one.
         let size = |page| {
             let (width, height) = book.size(page);
@@ -81,7 +97,42 @@ impl Document {
             book,
             sizes,
             outline,
+            page_offset,
+            page_total,
         }
+    }
+
+    pub(crate) fn set_preview_target(&mut self, target: &OpenTarget) {
+        let Self::Epub {
+            book,
+            page_offset,
+            page_total,
+            ..
+        } = self
+        else {
+            return;
+        };
+        if book.is_complete() {
+            return;
+        }
+        let local = target
+            .spine
+            .as_ref()
+            .and_then(|place| book.locate_spine(place))
+            .or_else(|| {
+                target
+                    .spine
+                    .is_none()
+                    .then_some(target.place)
+                    .flatten()
+                    .map(|place| book.locate(place))
+            })
+            .map(|page| book.to_base(page))
+            .unwrap_or(0);
+        *page_offset = target.page.saturating_sub(local);
+        *page_total = target
+            .pages
+            .max((*page_offset).saturating_add(book.base_count()));
     }
 
     /// A book's sound or video at `path`, read to hand to a player.
@@ -151,7 +202,26 @@ impl Document {
     pub fn reset(&self, typo: &Typography, inserts: Option<&Arc<Inserts>>) -> Option<Self> {
         match self {
             Self::Pdf(_) => None,
-            Self::Epub { book, .. } => book.reset(typo, inserts).map(Self::from_book),
+            Self::Epub {
+                book,
+                page_offset,
+                page_total,
+                ..
+            } => {
+                let mut reset = Self::from_book(book.reset(typo, inserts)?);
+                if !reset.is_complete() {
+                    if let Self::Epub {
+                        page_offset: offset,
+                        page_total: total,
+                        ..
+                    } = &mut reset
+                    {
+                        *offset = *page_offset;
+                        *total = *page_total;
+                    }
+                }
+                Some(reset)
+            }
         }
     }
 
@@ -208,6 +278,55 @@ impl Document {
         }
     }
 
+    /// The saved-book page represented by a shown page.
+    pub fn global_page(&self, page: usize) -> usize {
+        self.page_offset().saturating_add(self.to_base(page))
+    }
+
+    /// The saved or estimated full-book page count, excluding inserts.
+    pub fn global_page_count(&self) -> usize {
+        match self {
+            Self::Pdf(doc) => doc.page_count(),
+            Self::Epub {
+                book,
+                page_offset,
+                page_total,
+                ..
+            } => (*page_total).max((*page_offset).saturating_add(book.base_count())),
+        }
+    }
+
+    /// The page number shown to readers while a bounded preview is open.
+    pub fn display_page(&self, page: usize) -> usize {
+        if self.is_complete() {
+            page
+        } else {
+            self.global_page(page)
+        }
+    }
+
+    /// The page total shown while a preview has not found the spine's end.
+    pub fn display_page_count(&self) -> usize {
+        if self.is_complete() {
+            self.page_count()
+        } else {
+            self.global_page_count()
+        }
+    }
+
+    /// The shown page for a saved global page, if it is in this window.
+    pub fn local_page(&self, page: usize) -> Option<usize> {
+        let base = page.checked_sub(self.page_offset())?;
+        (base < self.base_count()).then(|| self.from_base(base))
+    }
+
+    pub fn page_offset(&self) -> usize {
+        match self {
+            Self::Pdf(_) => 0,
+            Self::Epub { page_offset, .. } => *page_offset,
+        }
+    }
+
     /// The same book, perhaps set in other type; a PDF only as itself.
     pub fn same_book(&self, other: &Self) -> bool {
         match (self, other) {
@@ -238,6 +357,59 @@ impl Document {
             Self::Pdf(_) => None,
             Self::Epub { book, .. } => Some(book.locate(anchor)),
         }
+    }
+
+    /// A stable spine location for an EPUB anchor; none for PDFs.
+    pub fn spine_place(&self, anchor: Anchor) -> Option<SpinePlace> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.spine_place(anchor),
+        }
+    }
+
+    /// The anchor at a stable spine location, when it is in this book.
+    pub fn anchor_spine(&self, place: &SpinePlace) -> Option<Anchor> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.anchor_spine(place),
+        }
+    }
+
+    /// The local page showing a stable spine location, if available.
+    pub fn locate_spine(&self, place: &SpinePlace) -> Option<usize> {
+        match self {
+            Self::Pdf(_) => None,
+            Self::Epub { book, .. } => book.locate_spine(place),
+        }
+    }
+
+    /// The shown page for an open target in this document.
+    pub fn target_page(&self, target: &OpenTarget) -> Option<usize> {
+        if let Some(place) = target.spine.as_ref() {
+            return self.locate_spine(place).or_else(|| {
+                self.is_complete()
+                    .then_some(target.page)
+                    .and_then(|page| self.local_page(page))
+            });
+        }
+        target
+            .place
+            .and_then(|place| self.locate(place))
+            .or_else(|| {
+                self.is_complete()
+                    .then_some(target.page)
+                    .and_then(|page| self.local_page(page))
+            })
+            .or_else(|| self.local_page(target.page))
+    }
+
+    /// The anchor from an open target, preferring its stable locator.
+    pub fn target_anchor(&self, target: &OpenTarget) -> Option<Anchor> {
+        target
+            .spine
+            .as_ref()
+            .and_then(|place| self.anchor_spine(place))
+            .or_else(|| target.spine.is_none().then_some(target.place).flatten())
     }
 
     /// What of each page a continuous stream shows; a PDF streams whole
@@ -277,6 +449,13 @@ impl Document {
         match self {
             Self::Pdf(_) => true,
             Self::Epub { book, .. } => book.is_complete(),
+        }
+    }
+
+    pub(crate) fn has_typography(&self, typo: &Typography) -> bool {
+        match self {
+            Self::Pdf(_) => true,
+            Self::Epub { book, .. } => book.has_typography(typo),
         }
     }
 

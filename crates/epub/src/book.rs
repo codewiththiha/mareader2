@@ -239,73 +239,97 @@ impl Files {
     }
 }
 
+/// A stable EPUB location, relative to one spine item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpinePlace {
+    pub href: String,
+    pub item: usize,
+    pub block: usize,
+    pub offset: usize,
+}
+
 /// An open book. `Send + Sync`: workers share one through an `Arc`.
 pub struct Book {
-    /// Page reuse is safe only among snapshots from this open.
     identity: Arc<()>,
-    /// What the chapters say, kept to set again in other type.
     blocks: Arc<Vec<Block>>,
-    /// Its own pages, shared by every set of results laid in.
     flow: Arc<Flow>,
-    /// The type it was asked in, and that layout's name.
     typo: Typography,
     layout: u64,
-    /// The results asked for, and those laid in its pages.
     inserts: Arc<Inserts>,
     spliced: Option<Arc<Spliced>>,
     refs: Arc<Refs>,
-    /// The fonts it ships that its designed chapters use.
+    spine: Arc<Vec<SpineRange>>,
     faces: Arc<Vec<BookFace>>,
-    /// What each note link shows, by its target.
     notes: Arc<HashMap<u32, String>>,
     toc: Arc<Vec<TocEntry>>,
     title: Option<String>,
     author: Option<String>,
-    /// The `dc:language` tag, for hyphenation.
     language: Option<String>,
-    /// Its pages turn right to left.
     rtl: bool,
-    /// The pages before spreads start pairing; `usize::MAX` pairs none.
     lead: usize,
-    /// The file itself, kept only when it holds sound or video to play.
     archive: Option<Arc<Vec<u8>>>,
     narration: Arc<Narration>,
-    /// What its chapters read, kept when triggers show and hide things.
     read: Option<Arc<Read>>,
     complete: bool,
 }
 
-const OPEN_DIRECT_ITEMS: usize = 32;
-const OPEN_DIRECT_BYTES: usize = 1 << 20;
-const OPEN_PAGE_AHEAD: usize = 2;
-const OPEN_CHECK_ITEMS: usize = 4;
-const OPEN_CHECK_PAGES: usize = 16;
-const OPEN_UPDATE_ITEMS: usize = 8;
-const OPEN_UPDATE_BLOCKS: usize = 512;
-
-/// A saved page or anchor to reach before continuing the spine.
-#[derive(Debug, Clone, Copy, Default)]
+const MAX_SPINE_HREF: usize = 4096;
+const MAX_SPINE_ITEMS: usize = 1 << 16;
+const MAX_PREVIEW_MARKUP: usize = 8 << 20;
+const MAX_PREVIEW_BLOCKS: usize = 1 << 16;
+const PREVIEW_NEIGHBORS: usize = 2;
+const OPEN_BATCH_ITEMS: usize = 16;
+/// A saved page or stable location to reach before opening the whole spine.
+#[derive(Debug, Clone, Default)]
 pub struct OpenTarget {
-    /// The zero-based page when no stable anchor is available.
     pub page: usize,
-    /// A stable place in the book, preferred to the page number.
     pub place: Option<Anchor>,
+    pub spine: Option<SpinePlace>,
+    pub pages: usize,
 }
 
-/// The outcome of one incremental EPUB parsing step.
+/// The result of one bounded parsing pass.
 #[derive(Debug)]
 pub enum OpenStep {
-    /// More spine items remain before a useful page is ready.
     Continue,
-    /// A partial book can show the requested page and nearby pages.
     Preview(Book),
-    /// A larger partial snapshot is ready to replace the previous one.
-    Update(Book),
-    /// The complete book is ready.
     Complete(Book),
 }
 
-/// A resumable EPUB parser and layout builder.
+#[derive(Debug, Clone)]
+struct SpineRecord {
+    item: usize,
+    href: Option<String>,
+    overlay: Option<String>,
+    fixed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SpineRange {
+    item: usize,
+    href: String,
+    blocks: Range<usize>,
+}
+
+struct ParsedItem {
+    markup: usize,
+    opening: Option<Range<usize>>,
+    spine: Option<SpineRange>,
+    pars: Vec<overlay::Par>,
+}
+
+impl ParsedItem {
+    fn empty() -> Self {
+        Self {
+            markup: 0,
+            opening: None,
+            spine: None,
+            pars: Vec::new(),
+        }
+    }
+}
+
+/// A bounded preview followed by one complete parse and layout.
 pub struct OpenBook {
     bytes: Arc<Vec<u8>>,
     identity: Arc<()>,
@@ -318,23 +342,19 @@ pub struct OpenBook {
     read: Read,
     blocks: Vec<Block>,
     refs: Refs,
+    spine: Vec<SpineRange>,
+    records: Vec<SpineRecord>,
     markup: usize,
     opening: Option<Range<usize>>,
-    book_fixed: bool,
     pars: Vec<overlay::Par>,
     escapes: u32,
     next: usize,
-    spine_items: usize,
-    last_check: usize,
-    last_pages: usize,
-    published_blocks: usize,
-    published_items: usize,
-    previewed: bool,
+    preview: Option<Book>,
     finished: bool,
 }
 
 impl OpenBook {
-    /// Starts opening an EPUB; `target` requests an early reading position.
+    /// Starts opening an EPUB and prepares a small saved-place window.
     pub fn new(
         bytes: Arc<Vec<u8>>,
         typo: &Typography,
@@ -342,9 +362,6 @@ impl OpenBook {
     ) -> Result<Self, OpenError> {
         let open = || {
             let epub = guard::open(&bytes)?;
-            let spine_items = epub.spine().iter().len();
-            let target = target
-                .filter(|_| spine_items > OPEN_DIRECT_ITEMS || bytes.len() > OPEN_DIRECT_BYTES);
             let (title, author) = names(&epub);
             let language = epub
                 .metadata()
@@ -352,7 +369,11 @@ impl OpenBook {
                 .map(|l| l.value().trim().to_owned())
                 .filter(|l| !l.is_empty());
             let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
-            Ok(Self {
+            if epub.spine().iter().len() > MAX_SPINE_ITEMS {
+                return Err(OpenError::TooLarge);
+            }
+            let records = spine_records(&epub, book_fixed);
+            let mut state = Self {
                 bytes,
                 identity: Arc::new(()),
                 epub,
@@ -367,257 +388,412 @@ impl OpenBook {
                 },
                 blocks: Vec::new(),
                 refs: Refs::default(),
+                spine: Vec::new(),
+                records,
                 markup: 0,
                 opening: None,
-                book_fixed,
                 pars: Vec::new(),
                 escapes: 0,
                 next: 0,
-                spine_items,
-                last_check: 0,
-                last_pages: 0,
-                published_blocks: 0,
-                published_items: 0,
-                previewed: false,
+                preview: None,
                 finished: false,
-            })
+            };
+            if let Some(target) = state.target.clone() {
+                state.preview = state.preview(&target)?;
+            }
+            Ok(state)
         };
         catch_unwind(AssertUnwindSafe(open)).unwrap_or(Err(OpenError::Invalid))
     }
 
-    /// Whether opening may publish a partial book.
+    /// Whether the first step can show a bounded preview.
     pub fn is_progressive(&self) -> bool {
-        self.target.is_some()
+        self.preview.is_some()
     }
 
-    /// Reads one spine item, returning a preview as soon as it is useful.
+    /// Uses the latest typography for the remaining full-book layout.
+    pub fn set_typography(&mut self, typo: &Typography) {
+        self.typo = typo.clone();
+    }
+
+    /// The target, retained for the document wrapper's page offset.
+    pub fn target(&self) -> Option<&OpenTarget> {
+        self.target.as_ref()
+    }
+
+    /// Publishes the preview, then batches the remaining spine.
     pub fn step(&mut self) -> Result<OpenStep, OpenError> {
-        let advance = || self.advance();
-        catch_unwind(AssertUnwindSafe(advance)).unwrap_or(Err(OpenError::Invalid))
+        let step = || {
+            if let Some(book) = self.preview.take() {
+                return Ok(OpenStep::Preview(book));
+            }
+            if self.finished {
+                return Err(OpenError::Invalid);
+            }
+            for _ in 0..OPEN_BATCH_ITEMS {
+                if self.next >= self.records.len() {
+                    return self.complete();
+                }
+                self.advance()?;
+            }
+            if self.next >= self.records.len() {
+                self.complete()
+            } else {
+                Ok(OpenStep::Continue)
+            }
+        };
+        catch_unwind(AssertUnwindSafe(step)).unwrap_or(Err(OpenError::Invalid))
     }
 
-    fn advance(&mut self) -> Result<OpenStep, OpenError> {
-        if self.finished {
-            return Err(OpenError::Invalid);
-        }
-        let item = self.epub.spine().iter().nth(self.next);
-        let Some(item) = item else {
-            self.finished = true;
-            return self.snapshot(true).map(OpenStep::Complete);
+    fn complete(&mut self) -> Result<OpenStep, OpenError> {
+        self.finished = true;
+        let book = self.snapshot(true)?;
+        Ok(OpenStep::Complete(book))
+    }
+
+    fn advance(&mut self) -> Result<(), OpenError> {
+        let Some(record) = self.records.get(self.next).cloned() else {
+            return Ok(());
         };
         self.next = self.next.saturating_add(1);
-        let Some(listed) = item.manifest_entry() else {
-            return Ok(OpenStep::Continue);
-        };
-        let entry = readable(listed);
-        let fixed = fixed_item(item.properties(), self.book_fixed);
         let mut shelf = Shelf::again(&self.epub, &self.read);
-        if is_picture(&entry) {
-            let (path, start) = (entry.href().decode(), self.blocks.len());
-            let out = (&mut self.blocks, &mut self.refs);
-            xhtml::read_svg_page(&path, &mut shelf, out, fixed);
-            if self.opening.is_none() && self.blocks.len() > start {
-                self.opening = Some(start..self.blocks.len());
-            }
-            self.read = shelf.kept();
-            return self.maybe_preview();
-        }
-        let Some(content) = chapter_text(&entry) else {
-            self.read = shelf.kept();
-            return Ok(OpenStep::Continue);
-        };
-        self.markup = self.markup.saturating_add(content.len());
-        if self.markup > MAX_MARKUP {
+        let parsed = read_item(
+            &self.epub,
+            &record,
+            &mut shelf,
+            (&mut self.blocks, &mut self.refs),
+            self.markup,
+            MAX_MARKUP,
+            self.pars.len(),
+            &mut self.escapes,
+        )?;
+        self.markup = self.markup.saturating_add(parsed.markup);
+        if self.markup > MAX_MARKUP || self.blocks.len() > MAX_BLOCKS {
             return Err(OpenError::TooLarge);
         }
-        let path = entry.href().decode();
-        let start = self.blocks.len();
-        let out = (&mut self.blocks, &mut self.refs);
-        match fixed {
-            true => xhtml::read_fixed_chapter(&content, &path, &mut shelf, out),
-            false => xhtml::read_chapter(&content, &path, &mut shelf, out),
+        if self.opening.is_none() {
+            self.opening = parsed.opening;
+        }
+        if let Some(spine) = parsed.spine {
+            self.spine.push(spine);
+        }
+        self.pars.extend(parsed.pars);
+        self.read = shelf.kept();
+        Ok(())
+    }
+
+    fn preview(&mut self, target: &OpenTarget) -> Result<Option<Book>, OpenError> {
+        let item = match target.spine.as_ref() {
+            Some(place) if place.href.len() <= MAX_SPINE_HREF => self
+                .records
+                .get(place.item)
+                .filter(|record| record.href.as_deref() == Some(place.href.as_str()))
+                .map(|record| record.item)
+                .or_else(|| {
+                    self.records
+                        .iter()
+                        .find(|record| record.href.as_deref() == Some(place.href.as_str()))
+                        .map(|record| record.item)
+                }),
+            Some(_) => None,
+            None if target.page == 0 && target.place.is_none() => Some(0),
+            None => None,
+        };
+        let Some(item) = item else {
+            return Ok(None);
+        };
+        let first = item.saturating_sub(PREVIEW_NEIGHBORS);
+        let end = item
+            .saturating_add(PREVIEW_NEIGHBORS)
+            .saturating_add(1)
+            .min(self.records.len());
+        let mut blocks = Vec::new();
+        let mut refs = Refs::default();
+        let mut spine = Vec::new();
+        let mut markup = 0usize;
+        let mut opening = None;
+        let mut pars = Vec::new();
+        let mut escapes = 0u32;
+        let mut shelf = Shelf::again(&self.epub, &self.read);
+        for record in self.records.get(first..end).unwrap_or_default() {
+            let parsed = match read_item(
+                &self.epub,
+                record,
+                &mut shelf,
+                (&mut blocks, &mut refs),
+                markup,
+                MAX_PREVIEW_MARKUP,
+                pars.len(),
+                &mut escapes,
+            ) {
+                Ok(parsed) => parsed,
+                Err(OpenError::TooLarge) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            markup = markup.saturating_add(parsed.markup);
+            if markup > MAX_PREVIEW_MARKUP || blocks.len() > MAX_PREVIEW_BLOCKS {
+                return Ok(None);
+            }
+            if opening.is_none() {
+                opening = parsed.opening;
+            }
+            if let Some(range) = parsed.spine {
+                spine.push(range);
+            }
+            pars.extend(parsed.pars);
+        }
+        if blocks.is_empty() {
+            return Ok(None);
+        }
+        self.read = shelf.kept();
+        let book = assemble_book(
+            &self.epub,
+            &self.bytes,
+            &self.identity,
+            &self.typo,
+            self.title.clone(),
+            self.author.clone(),
+            self.language.clone(),
+            &mut self.read,
+            blocks,
+            refs,
+            spine,
+            opening,
+            pars,
+            false,
+            first == 0,
+        )?;
+        if target
+            .spine
+            .as_ref()
+            .is_some_and(|place| book.anchor_spine(place).is_none())
+        {
+            return Ok(None);
+        }
+        Ok(Some(book))
+    }
+
+    fn snapshot(&mut self, complete: bool) -> Result<Book, OpenError> {
+        let blocks = std::mem::take(&mut self.blocks);
+        let refs = std::mem::take(&mut self.refs);
+        let spine = std::mem::take(&mut self.spine);
+        let opening = self.opening.take();
+        let pars = std::mem::take(&mut self.pars);
+        assemble_book(
+            &self.epub,
+            &self.bytes,
+            &self.identity,
+            &self.typo,
+            self.title.clone(),
+            self.author.clone(),
+            self.language.clone(),
+            &mut self.read,
+            blocks,
+            refs,
+            spine,
+            opening,
+            pars,
+            complete,
+            true,
+        )
+    }
+}
+
+fn spine_records(epub: &Epub, book_fixed: bool) -> Vec<SpineRecord> {
+    epub.spine()
+        .iter()
+        .enumerate()
+        .map(|(item, spine)| {
+            let listed = spine.manifest_entry();
+            let href = listed
+                .as_ref()
+                .map(|entry| entry.href().decode().into_owned());
+            let overlay = listed
+                .as_ref()
+                .and_then(|entry| entry.media_overlay())
+                .map(|entry| entry.href().decode().into_owned());
+            SpineRecord {
+                item,
+                href,
+                overlay,
+                fixed: fixed_item(spine.properties(), book_fixed),
+            }
+        })
+        .collect()
+}
+
+fn read_item(
+    epub: &Epub,
+    record: &SpineRecord,
+    shelf: &mut Shelf<'_>,
+    (blocks, refs): (&mut Vec<Block>, &mut Refs),
+    markup_before: usize,
+    markup_limit: usize,
+    phrase_count: usize,
+    escapes: &mut u32,
+) -> Result<ParsedItem, OpenError> {
+    let Some(href) = record.href.as_deref() else {
+        return Ok(ParsedItem::empty());
+    };
+    let Some(listed) = epub.manifest().by_href(href) else {
+        return Ok(ParsedItem::empty());
+    };
+    let entry = readable(listed);
+    let path = entry.href().decode();
+    let start = blocks.len();
+    let mut markup = 0usize;
+    let mut pars = Vec::new();
+    if is_picture(&entry) {
+        xhtml::read_svg_page(path.as_ref(), shelf, (blocks, refs), record.fixed);
+    } else if let Some(content) = chapter_text(&entry) {
+        markup = content.len();
+        if markup_before.saturating_add(markup) > markup_limit {
+            return Err(OpenError::TooLarge);
+        }
+        match record.fixed {
+            true => xhtml::read_fixed_chapter(&content, path.as_ref(), shelf, (blocks, refs)),
+            false => xhtml::read_chapter(&content, path.as_ref(), shelf, (blocks, refs)),
         }
         let anchor = Anchor {
             block: start,
             offset: 0,
         };
-        let smil = listed.media_overlay().or_else(|| entry.media_overlay());
-        if let Some(smil) = smil.filter(|_| self.pars.len() < overlay::MAX_PHRASES) {
+        refs.places.entry(href.to_owned()).or_insert(anchor);
+        let overlay = record
+            .overlay
+            .as_deref()
+            .and_then(|path| epub.manifest().by_href(path))
+            .or_else(|| entry.media_overlay());
+        if let Some(smil) = overlay.filter(|_| phrase_count < overlay::MAX_PHRASES) {
             let xml = smil.read_bytes().unwrap_or_default();
             let xml = xml.get(..xml.len().min(MAX_OVERLAY)).unwrap_or_default();
-            self.pars
-                .extend(overlay::read(xml, &smil.href().decode(), &mut self.escapes));
-        }
-        let listed = listed.href().decode().into_owned();
-        self.refs.places.entry(listed).or_insert(anchor);
-        if self.blocks.len() > MAX_BLOCKS {
-            return Err(OpenError::TooLarge);
-        }
-        if self.opening.is_none() && self.blocks.len() > start {
-            self.opening = Some(start..self.blocks.len());
-        }
-        self.read = shelf.kept();
-        self.maybe_preview()
-    }
-
-    fn maybe_preview(&mut self) -> Result<OpenStep, OpenError> {
-        if self.blocks.len() > MAX_BLOCKS {
-            return Err(OpenError::TooLarge);
-        }
-        if self.next >= self.epub.spine().iter().len() {
-            self.finished = true;
-            return self.snapshot(true).map(OpenStep::Complete);
-        }
-        if self.previewed {
-            let added = self.blocks.len().saturating_sub(self.published_blocks);
-            let items = self.next.saturating_sub(self.published_items);
-            let item_step = (self.spine_items / 8).max(OPEN_UPDATE_ITEMS);
-            let block_step = (self.published_blocks / 2).max(OPEN_UPDATE_BLOCKS);
-            let block_interval = (item_step / 2).max(OPEN_UPDATE_ITEMS / 2);
-            if added == 0 || (items < item_step && (items < block_interval || added < block_step)) {
-                return Ok(OpenStep::Continue);
-            }
-            let book = self.snapshot(false)?;
-            self.published_blocks = self.blocks.len();
-            self.published_items = self.next;
-            return Ok(OpenStep::Update(book));
-        }
-        if !self.should_check() {
-            return Ok(OpenStep::Continue);
-        }
-        self.last_check = self.next;
-        if self.blocks.is_empty() {
-            return Ok(OpenStep::Continue);
-        }
-        let book = self.snapshot(false)?;
-        self.last_pages = book.page_count();
-        let Some(target) = self.target else {
-            return Ok(OpenStep::Continue);
-        };
-        let page = match target.place {
-            Some(place) if place.block < book.blocks.len() => book.locate(place),
-            Some(_) => return Ok(OpenStep::Continue),
-            None => target.page,
-        };
-        if book.page_count() <= page.saturating_add(OPEN_PAGE_AHEAD) {
-            return Ok(OpenStep::Continue);
-        }
-        self.previewed = true;
-        self.published_blocks = self.blocks.len();
-        self.published_items = self.next;
-        Ok(OpenStep::Preview(book))
-    }
-
-    fn should_check(&self) -> bool {
-        let Some(target) = self.target else {
-            return false;
-        };
-        match target.place {
-            Some(place) => {
-                self.blocks.len() >= place.block.saturating_sub(1) && self.next > self.last_check
-            }
-            None => {
-                let near_target = self.last_check > 0
-                    && self.last_pages.saturating_add(OPEN_CHECK_PAGES) >= target.page;
-                !self.blocks.is_empty()
-                    && (target.page <= OPEN_PAGE_AHEAD + 1
-                        || near_target
-                        || self.next.saturating_sub(self.last_check) >= OPEN_CHECK_ITEMS)
-            }
+            pars.extend(overlay::read(xml, &smil.href().decode(), escapes));
         }
     }
+    let end = blocks.len();
+    let range = (end > start).then(|| SpineRange {
+        item: record.item,
+        href: href.to_owned(),
+        blocks: start..end,
+    });
+    let opening = (end > start).then_some(start..end);
+    if end > start {
+        refs.places.entry(href.to_owned()).or_insert(Anchor {
+            block: start,
+            offset: 0,
+        });
+    }
+    Ok(ParsedItem {
+        markup,
+        opening,
+        spine: range,
+        pars,
+    })
+}
 
-    fn snapshot(&mut self, complete: bool) -> Result<Book, OpenError> {
-        let mut blocks = if complete {
-            std::mem::take(&mut self.blocks)
-        } else {
-            self.blocks.clone()
-        };
-        let mut refs = if complete {
-            std::mem::take(&mut self.refs)
-        } else {
-            self.refs.clone()
-        };
-        let mut shelf = Shelf::again(&self.epub, &self.read);
-        let cover = self
-            .epub
+fn assemble_book(
+    epub: &Epub,
+    bytes: &Arc<Vec<u8>>,
+    identity: &Arc<()>,
+    typo: &Typography,
+    title: Option<String>,
+    author: Option<String>,
+    language: Option<String>,
+    read: &mut Read,
+    mut blocks: Vec<Block>,
+    mut refs: Refs,
+    mut spine: Vec<SpineRange>,
+    opening: Option<Range<usize>>,
+    pars: Vec<overlay::Par>,
+    complete: bool,
+    include_cover: bool,
+) -> Result<Book, OpenError> {
+    let mut shelf = Shelf::again(epub, read);
+    if include_cover {
+        let cover = epub
             .manifest()
             .cover_image()
-            .map(|e| e.href().decode());
+            .map(|entry| entry.href().decode());
         let cover = cover.and_then(|path| shelf.picture(&path));
-        let drawn = blocks.first().is_some_and(|b| b.frame.sheet.is_some());
+        let drawn = blocks.first().is_some_and(|block| block.frame.sheet.is_some());
         if let Some(cover) = cover.filter(|_| !drawn)
-            && place_cover(&mut blocks, self.opening.clone().unwrap_or(0..0), cover)
+            && place_cover(&mut blocks, opening.unwrap_or(0..0), cover)
         {
             for at in refs.places.values_mut().chain(refs.ends.values_mut()) {
-                at.block += 1;
+                at.block = at.block.saturating_add(1);
             }
             for extent in refs.extents.values_mut() {
-                extent.blocks = extent.blocks.start + 1..extent.blocks.end + 1;
+                extent.blocks = extent.blocks.start.saturating_add(1)
+                    ..extent.blocks.end.saturating_add(1);
             }
             for card in &mut refs.cards {
-                card.caption = card.caption.map(|block| block + 1);
+                card.caption = card.caption.map(|block| block.saturating_add(1));
             }
             for chapter in &mut refs.chapters {
-                chapter.blocks = chapter.blocks.start + 1..chapter.blocks.end + 1;
+                chapter.blocks = chapter.blocks.start.saturating_add(1)
+                    ..chapter.blocks.end.saturating_add(1);
+            }
+            for item in &mut spine {
+                item.blocks = item.blocks.start.saturating_add(1)
+                    ..item.blocks.end.saturating_add(1);
             }
         }
-        if blocks.is_empty() {
-            return Err(OpenError::Empty);
-        }
-        let rtl = right_to_left(&self.epub, self.language.as_deref(), &blocks);
-        let lead = spread_lead(&self.epub, rtl, &blocks);
-        blocks.shrink_to_fit();
-        let blocks = Arc::new(blocks);
-        let faces = load_faces(&self.epub, &refs.faces);
-        let flow = Arc::new(set(&blocks, &self.typo, self.language.as_deref(), &faces));
-        let toc = contents(&self.epub, &refs, &blocks);
-        let notes = crate::notes::find(&blocks, &refs);
-        let pars = if complete {
-            std::mem::take(&mut self.pars)
-        } else {
-            self.pars.clone()
-        };
-        let narration = narration(&self.epub, pars, (&refs, blocks.len()));
-        let plays = refs.hrefs.iter().any(|h| matches!(h, Href::Media { .. }));
-        let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
-        let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
-        let scripted = refs
-            .chapters
-            .iter()
-            .any(|chapter| !chapter.scripts.code.is_empty());
-        let shows = !refs.targets.is_empty() || scripted;
-        let archive = (!complete || plays || shows).then(|| Arc::clone(&self.bytes));
-        let kept = shelf.kept();
-        let read = if complete {
-            shows.then(|| Arc::new(kept))
-        } else {
-            self.read = kept.clone();
-            Some(Arc::new(kept))
-        };
-        Ok(Book {
-            identity: Arc::clone(&self.identity),
-            blocks,
-            flow,
-            typo: self.typo.clone(),
-            layout: next_layout(),
-            inserts: Arc::default(),
-            spliced: None,
-            refs: Arc::new(refs),
-            faces: Arc::new(faces),
-            notes: Arc::new(notes),
-            toc: Arc::new(toc),
-            title: self.title.clone(),
-            author: self.author.clone(),
-            language: self.language.clone(),
-            rtl,
-            lead,
-            archive,
-            narration: Arc::new(narration),
-            read,
-            complete,
-        })
     }
+    if blocks.is_empty() {
+        return Err(OpenError::Empty);
+    }
+    let rtl = right_to_left(epub, language.as_deref(), &blocks);
+    let lead = if include_cover {
+        spread_lead(epub, rtl, &blocks)
+    } else {
+        0
+    };
+    blocks.shrink_to_fit();
+    let blocks = Arc::new(blocks);
+    let faces = load_faces(epub, &refs.faces);
+    let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
+    let toc = contents(epub, &refs, &blocks);
+    let notes = crate::notes::find(&blocks, &refs);
+    let narration = narration(epub, pars, (&refs, blocks.len()));
+    let plays = refs.hrefs.iter().any(|href| matches!(href, Href::Media { .. }));
+    let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
+    let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
+    let scripted = refs
+        .chapters
+        .iter()
+        .any(|chapter| !chapter.scripts.code.is_empty());
+    let shows = !refs.targets.is_empty() || scripted;
+    let archive = (!complete || plays || shows).then(|| Arc::clone(bytes));
+    let kept = shelf.kept();
+    let book_read = if complete {
+        shows.then(|| Arc::new(kept))
+    } else {
+        *read = kept.clone();
+        Some(Arc::new(kept))
+    };
+    Ok(Book {
+        identity: Arc::clone(identity),
+        blocks,
+        flow,
+        typo: typo.clone(),
+        layout: next_layout(),
+        inserts: Arc::default(),
+        spliced: None,
+        refs: Arc::new(refs),
+        spine: Arc::new(spine),
+        faces: Arc::new(faces),
+        notes: Arc::new(notes),
+        toc: Arc::new(toc),
+        title,
+        author,
+        language,
+        rtl,
+        lead,
+        archive,
+        narration: Arc::new(narration),
+        read: book_read,
+        complete,
+    })
 }
 
 impl std::fmt::Debug for Book {
@@ -643,6 +819,11 @@ impl Book {
     /// Whether every spine item has been parsed and laid out.
     pub fn is_complete(&self) -> bool {
         self.complete
+    }
+
+    /// Whether the book already has this typography.
+    pub fn has_typography(&self, typo: &Typography) -> bool {
+        self.typo == *typo
     }
 
     /// The same book set in `typo`; its pictures stay decoded.
@@ -677,6 +858,7 @@ impl Book {
                 inserts,
                 spliced,
                 refs: Arc::clone(&self.refs),
+                spine: Arc::clone(&self.spine),
                 faces: Arc::clone(&self.faces),
                 notes: Arc::clone(&self.notes),
                 toc: Arc::clone(&self.toc),
@@ -975,6 +1157,47 @@ impl Book {
         self.from_base(self.flow.locate(anchor))
     }
 
+    /// The stable spine item and block offset for `anchor`.
+    pub fn spine_place(&self, anchor: Anchor) -> Option<SpinePlace> {
+        let item = self.spine.iter().find(|item| {
+            (item.blocks.start..item.blocks.end).contains(&anchor.block)
+        })?;
+        if item.href.len() > MAX_SPINE_HREF {
+            return None;
+        }
+        Some(SpinePlace {
+            href: item.href.clone(),
+            item: item.item,
+            block: anchor.block.saturating_sub(item.blocks.start),
+            offset: anchor.offset,
+        })
+    }
+
+    /// The block at a stable location, if its spine item is present.
+    pub fn anchor_spine(&self, place: &SpinePlace) -> Option<Anchor> {
+        if place.href.len() > MAX_SPINE_HREF {
+            return None;
+        }
+        let fits = |item: &&SpineRange| {
+            item.href == place.href
+                && place.block < item.blocks.end.saturating_sub(item.blocks.start)
+        };
+        let item = self
+            .spine
+            .iter()
+            .find(|item| item.item == place.item && fits(item))
+            .or_else(|| self.spine.iter().find(fits))?;
+        Some(Anchor {
+            block: item.blocks.start.saturating_add(place.block),
+            offset: place.offset,
+        })
+    }
+
+    /// The page showing a stable location, if its spine item is present.
+    pub fn locate_spine(&self, place: &SpinePlace) -> Option<usize> {
+        self.anchor_spine(place).map(|anchor| self.locate(anchor))
+    }
+
     /// The book's table of contents, in reading order.
     pub fn toc(&self) -> &[TocEntry] {
         &self.toc
@@ -1170,9 +1393,9 @@ impl Book {
         }
     }
 
-    /// The same book in any type: set again from the same content.
+    /// The same open EPUB in any type or parsing snapshot.
     pub fn same_book(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.blocks, &other.blocks)
+        Arc::ptr_eq(&self.identity, &other.identity)
     }
 
     /// The page of `other` that looks just like page `page`, if any.
@@ -1193,14 +1416,24 @@ impl Book {
                 || !same_faces
                 || self.spliced.is_some()
                 || other.spliced.is_some()
-                || (self.blocks.len() < other.blocks.len()
-                    && page.saturating_add(1) == self.page_count())
+                || (!self.complete && page.saturating_add(1) == self.page_count())
             {
                 return None;
             }
-            let place = self.anchor(page)?;
-            let mapped = other.locate(place);
-            let same = self.excerpts(page) == other.excerpts(mapped)
+            let place = self.spine_place(self.anchor(page)?)?;
+            let mapped = other.locate_spine(&place)?;
+            let normal = |book: &Self, page| {
+                book.excerpts(page)
+                    .into_iter()
+                    .map(|(block, range)| {
+                        let place = book.spine_place(Anchor { block, offset: 0 })?;
+                        Some((place.href, place.item, place.block, range))
+                    })
+                    .collect::<Option<Vec<_>>>()
+            };
+            let same = normal(self, page)
+                .zip(normal(other, mapped))
+                .is_some_and(|(a, b)| a == b)
                 && self.size(page) == other.size(mapped)
                 && self.fixed(page) == other.fixed(mapped)
                 && self.turned(page) == other.turned(mapped);
@@ -1560,7 +1793,7 @@ mod tests {
     }
 
     #[test]
-    fn opening_previews_near_its_saved_anchor_then_finishes() {
+    fn opening_previews_a_stable_spine_place_then_finishes_once() {
         let bytes = Arc::new(sample::epub(40, "Progress"));
         let typo = Typography::default();
         let full = Book::open(Arc::clone(&bytes), &typo).ok();
@@ -1574,9 +1807,16 @@ mod tests {
         let Some(anchor) = anchor else {
             return;
         };
+        let place = full.spine_place(anchor);
+        assert!(place.is_some(), "middle page has a stable spine place");
+        let Some(place) = place else {
+            return;
+        };
         let target = OpenTarget {
             page: target_page,
             place: Some(anchor),
+            spine: Some(place.clone()),
+            pages: full.page_count(),
         };
         let opening = OpenBook::new(Arc::clone(&bytes), &typo, Some(target));
         assert!(opening.is_ok(), "incremental opening starts");
@@ -1587,45 +1827,37 @@ mod tests {
             match opening.step() {
                 Ok(OpenStep::Continue) => {}
                 Ok(OpenStep::Preview(book)) => break Some(book),
-                Ok(OpenStep::Update(_)) | Ok(OpenStep::Complete(_)) | Err(_) => break None,
+                Ok(OpenStep::Complete(_)) | Err(_) => break None,
             }
         };
-        assert!(
-            preview.is_some(),
-            "saved page is previewed before completion"
-        );
+        assert!(preview.is_some(), "saved place is previewed before completion");
         let Some(preview) = preview else {
             return;
         };
         assert!(!preview.is_complete());
         assert!(preview.page_count() < full.page_count());
-        assert_eq!(preview.locate(anchor), target.page);
-        assert_eq!(preview.same_page(0, &full), None);
-        let mut grown = preview.page_count();
-        let mut saw_growth = false;
+        let target_local = preview.locate_spine(&place);
+        assert!(target_local.is_some(), "preview contains the saved place");
+        let Some(target_local) = target_local else {
+            return;
+        };
+
         let complete = loop {
             match opening.step() {
-                Ok(OpenStep::Continue | OpenStep::Preview(_)) => {}
-                Ok(OpenStep::Update(book)) => {
-                    assert!(!book.is_complete());
-                    assert_eq!(book.locate(anchor), target.page);
-                    assert_eq!(preview.same_page(0, &book), Some(0));
-                    assert!(book.page_count() >= grown);
-                    saw_growth |= book.page_count() > preview.page_count();
-                    grown = book.page_count();
-                }
+                Ok(OpenStep::Continue) => {}
+                Ok(OpenStep::Preview(_)) => {}
                 Ok(OpenStep::Complete(book)) => break Some(book),
                 Err(_) => break None,
             }
         };
-        assert!(saw_growth, "partial snapshots grow as the spine is read");
         assert!(complete.is_some(), "the remaining spine completes");
         let Some(complete) = complete else {
             return;
         };
         assert!(complete.is_complete());
-        assert_eq!(complete.locate(anchor), target.page);
-        assert_eq!(preview.same_page(0, &complete), Some(0));
+        assert_eq!(complete.locate_spine(&place), Some(target_page));
+        assert!(target_local < preview.page_count());
+        assert_eq!(preview.same_page(target_local, &complete), Some(target_page));
     }
 
     #[test]

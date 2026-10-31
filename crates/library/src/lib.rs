@@ -48,7 +48,10 @@ mod words;
 pub use absorb::Absorbed;
 pub use ai_pages::{AiPage, AiTask, NewAiPage, PageSpan};
 pub use arrange::Item;
-pub use book::{Book, Design, FileStamp, Format, Location, Origin, Position, State, display_title};
+pub use book::{
+    Book, Design, FileStamp, Format, Location, Origin, Position, SpinePosition, State,
+    display_title,
+};
 pub use clock::{Clock, Field, Stamp};
 pub use conflict::{Arrival, Entry, Level, Placement};
 pub use extra::Extra;

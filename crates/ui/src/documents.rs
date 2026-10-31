@@ -10,8 +10,8 @@ use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::Bounds;
 use mareader_session::{
-    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source, Ticket,
-    Typography, Want, typography,
+    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source, SpinePlace,
+    Ticket, Typography, Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::{Edge, PaneId};
@@ -74,6 +74,10 @@ pub struct OpenRequest {
     pub page: usize,
     /// A book's place to show instead, found again in today's type.
     pub place: Option<Anchor>,
+    /// A stable EPUB location that avoids parsing the whole prefix.
+    pub spine: Option<SpinePlace>,
+    /// The last known count, for a preview's global page display.
+    pub pages: usize,
     /// Read as this library book, a twin perhaps; none: the file's own.
     pub book: Option<BookId>,
 }
@@ -87,6 +91,8 @@ impl OpenRequest {
             placement: Placement::Into,
             page: 0,
             place: None,
+            spine: None,
+            pages: 0,
             book: None,
         }
     }
@@ -99,6 +105,8 @@ impl OpenRequest {
             placement: Placement::Into,
             page: 0,
             place: None,
+            spine: None,
+            pages: 0,
             book: None,
         }
     }
@@ -133,6 +141,8 @@ enum Content {
         file: Option<PathBuf>,
         page: usize,
         place: Option<Anchor>,
+        spine: Option<SpinePlace>,
+        pages: usize,
         book: Option<BookId>,
     },
     Pdf(Box<PdfView>),
@@ -169,7 +179,11 @@ pub struct Reading {
 
 impl Reading {
     pub fn count(&self) -> usize {
-        self.document.page_count()
+        self.document.display_page_count()
+    }
+
+    pub fn global_current(&self) -> usize {
+        self.document.display_page(self.current)
     }
 }
 
@@ -585,11 +599,24 @@ impl Documents {
                 .and_then(|d| d.locate(*a))
                 .is_some_and(|p| view.visible.contains(&p))
         });
-        let place = heard.or_else(|| reading_place(view, previous, &self.texts, old));
-        let page = place.and_then(|a| doc?.locate(a));
-        view.retypeset(new, page.unwrap_or(view.current), count, place);
+        let old_place = heard.or_else(|| reading_place(view, previous, &self.texts, old));
+        let stable = old_place.and_then(|at| previous.and_then(|d| d.spine_place(at)));
+        let mapped_place = stable
+            .as_ref()
+            .and_then(|at| doc.and_then(|d| d.anchor_spine(at)))
+            .or_else(|| {
+                previous
+                    .is_some_and(Document::is_complete)
+                    .then_some(old_place)
+                    .flatten()
+            });
+        let page = stable
+            .as_ref()
+            .and_then(|at| doc.and_then(|d| d.locate_spine(at)))
+            .or_else(|| mapped_place.and_then(|at| doc?.locate(at)));
+        view.retypeset(new, page.unwrap_or(view.current), count, mapped_place);
         // A strip shows the place's line on top in the new pages' first frame.
-        if let (Some(doc), Some(at), Some(page)) = (doc, place, page)
+        if let (Some(doc), Some(at), Some(page)) = (doc, mapped_place, page)
             && let Ok(layer) = doc.text_layer(page)
             && let Some(y) = reading_place::top_of(&layer, at)
         {
@@ -626,22 +653,38 @@ impl Documents {
         {
             request.source = Source::Path(real);
         }
-        let (file, page, place) = (request.file(), request.page, request.place);
+        let name = request.label();
+        let (file, page, place, spine, pages) = (
+            request.file(),
+            request.page,
+            request.place,
+            request.spine,
+            request.pages,
+        );
         let book = request.book;
         let typo = self.want(pane);
+        let target = OpenTarget {
+            page,
+            place,
+            spine: spine.clone(),
+            pages,
+        };
         if let Some(doc) = file.as_ref().and_then(|f| self.shown(f, &typo)) {
             let entry = self.session.as_ref().and_then(|s| s.get(doc));
-            let count = entry.map_or(0, |e| e.doc.page_count());
-            let page = landing(entry.map(|e| &*e.doc), page, place);
-            let mut view = PdfView::new(doc);
-            view.book = book;
-            view.go_to(page, count);
-            view.hold_place(place);
-            self.set(pane, Some(Content::Pdf(Box::new(view))));
-            return None;
+            let page = entry.and_then(|entry| entry.doc.target_page(&target));
+            let complete = entry.is_some_and(|entry| entry.doc.is_complete());
+            if complete || page.is_some() {
+                let count = entry.map_or(0, |entry| entry.doc.page_count());
+                let page = page.unwrap_or_else(|| landing(entry.map(|e| &*e.doc), &target));
+                let place = entry.and_then(|entry| entry.doc.target_anchor(&target));
+                let mut view = PdfView::new(doc);
+                view.book = book;
+                view.go_to(page, count);
+                view.hold_place(place);
+                self.set(pane, Some(Content::Pdf(Box::new(view))));
+                return None;
+            }
         }
-        let name = request.label();
-        let target = OpenTarget { page, place };
         let ticket = self
             .session(ctx)
             .open_at(request.source, request.name, typo, target);
@@ -651,6 +694,8 @@ impl Documents {
             file,
             page,
             place,
+            spine,
+            pages,
             book,
         };
         self.set(pane, Some(opening));
@@ -723,9 +768,8 @@ impl Documents {
         let Some(session) = &mut self.session else {
             return;
         };
-        let mut retyped = Vec::new();
+        let mut transitions = Vec::new();
         let mut reloaded = Vec::new();
-        let mut changed = Vec::new();
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
@@ -743,7 +787,7 @@ impl Documents {
                 },
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
-                Event::Retypeset { old, new, .. } => retyped.push((old, new)),
+                Event::Retypeset { old, new, .. } => transitions.push((true, old, new)),
                 Event::Preview { ticket, doc } => {
                     let waiting = self.panes.iter().find_map(|(id, content)| match content {
                         Content::Opening {
@@ -751,19 +795,30 @@ impl Documents {
                             name,
                             page,
                             place,
+                            spine,
+                            pages,
                             book,
                             ..
-                        } if *pending == ticket => {
-                            Some((*id, name.clone(), (*page, *place, *book)))
-                        }
+                        } if *pending == ticket => Some((
+                            *id,
+                            name.clone(),
+                            OpenTarget {
+                                page: *page,
+                                place: *place,
+                                spine: spine.clone(),
+                                pages: *pages,
+                            },
+                            *book,
+                        )),
                         _ => None,
                     });
-                    if let Some((pane, _, (page, place, book))) = waiting {
-                        let mut view = PdfView::new(doc);
-                        view.book = book;
+                    if let Some((pane, _, target, book)) = waiting {
                         let entry = session.get(doc);
                         let count = entry.map_or(0, |e| e.doc.page_count());
-                        let page = landing(entry.map(|e| &*e.doc), page, place);
+                        let page = landing(entry.map(|e| &*e.doc), &target);
+                        let place = entry.and_then(|e| e.doc.target_anchor(&target));
+                        let mut view = PdfView::new(doc);
+                        view.book = book;
                         if page > 0 {
                             view.go_to(page, count);
                         }
@@ -773,9 +828,7 @@ impl Documents {
                         session.close(doc);
                     }
                 }
-                Event::Updated { old, new, .. } | Event::Completed { old, new, .. } => {
-                    changed.push((old, new));
-                }
+                Event::Completed { old, new, .. } => transitions.push((false, old, new)),
                 Event::Incomplete { doc, error, .. } => {
                     let name = session
                         .get(doc)
@@ -789,34 +842,47 @@ impl Documents {
                     }
                 }
                 Event::Opened { ticket, result } => {
-                    let waiting = self.panes.iter().find_map(|(id, c)| match c {
+                    let waiting = self.panes.iter().find_map(|(id, content)| match content {
                         Content::Opening {
-                            ticket: t,
+                            ticket: pending,
                             name,
                             page,
                             place,
+                            spine,
+                            pages,
                             book,
                             ..
-                        } if *t == ticket => Some((*id, name.clone(), (*page, *place, *book))),
+                        } if *pending == ticket => Some((
+                            *id,
+                            name.clone(),
+                            OpenTarget {
+                                page: *page,
+                                place: *place,
+                                spine: spine.clone(),
+                                pages: *pages,
+                            },
+                            *book,
+                        )),
                         _ => None,
                     });
                     match (waiting, result) {
-                        (Some((pane, name, (page, place, book))), Ok(doc)) => {
-                            let mut view = PdfView::new(doc);
-                            view.book = book;
+                        (Some((pane, name, target, book)), Ok(doc)) => {
                             let entry = session.get(doc);
                             if entry.is_some_and(|e| e.doc.cut_short()) {
                                 out.push(Command::Notify(cut_short(&name)));
                             }
                             let count = entry.map_or(0, |e| e.doc.page_count());
-                            let page = landing(entry.map(|e| &*e.doc), page, place);
+                            let page = landing(entry.map(|e| &*e.doc), &target);
+                            let place = entry.and_then(|e| e.doc.target_anchor(&target));
+                            let mut view = PdfView::new(doc);
+                            view.book = book;
                             if page > 0 {
                                 view.go_to(page, count);
                             }
                             view.hold_place(place);
                             self.panes.insert(pane, Content::Pdf(Box::new(view)));
                         }
-                        (Some((pane, name, _)), Err(e)) => {
+                        (Some((pane, name, _, _)), Err(e)) => {
                             self.panes.remove(&pane);
                             out.push(Command::Notify(open_failed(&name, &e)));
                         }
@@ -827,9 +893,6 @@ impl Documents {
                 }
             }
         }
-        for (old, new) in retyped {
-            self.retyped(old, new);
-        }
         for (old, new, path, again) in reloaded {
             if let Some(new) = new {
                 self.reloaded(old, new);
@@ -838,9 +901,13 @@ impl Documents {
                 self.reload(&path);
             }
         }
-        for (old, new) in changed {
-            self.adopt_page_rasters(old, new);
-            self.reloaded(old, new);
+        for (is_retype, old, new) in transitions {
+            if is_retype {
+                self.retyped(old, new);
+            } else {
+                self.adopt_page_rasters(old, new);
+                self.reloaded(old, new);
+            }
         }
         self.follow_files();
     }
@@ -1533,19 +1600,30 @@ impl Documents {
         }
     }
 
-    /// The file `pane` reads, its page and a book's place in it.
-    pub fn place(&self, pane: PaneId) -> Option<(PathBuf, usize, Option<Anchor>)> {
+    /// The file, global page, old anchor and stable spine location.
+    pub fn place(
+        &self,
+        pane: PaneId,
+    ) -> Option<(PathBuf, usize, Option<Anchor>, Option<SpinePlace>, usize)> {
         match self.panes.get(&pane)? {
             Content::Opening {
-                file, page, place, ..
-            } => Some((file.clone()?, *page, *place)),
-            Content::Pdf(v) => {
-                let entry = self.session.as_ref()?.get(v.doc)?;
-                // Unmoved since a re-set: the place read before it.
-                let place = v.place().or_else(|| entry.doc.anchor(v.current));
-                // A book's own page: results laid in don't count.
-                let page = entry.doc.to_base(v.current);
-                Some((entry.path.clone()?, page, place))
+                file,
+                page,
+                place,
+                spine,
+                pages,
+                ..
+            } => Some((file.clone()?, *page, *place, spine.clone(), *pages)),
+            Content::Pdf(view) => {
+                let entry = self.session.as_ref()?.get(view.doc)?;
+                let anchor = view
+                    .place()
+                    .or_else(|| entry.doc.anchor(view.current));
+                let spine = anchor.and_then(|at| entry.doc.spine_place(at));
+                let legacy = entry.doc.is_complete().then_some(anchor).flatten();
+                let page = entry.doc.global_page(view.current);
+                let pages = entry.doc.global_page_count();
+                Some((entry.path.clone()?, page, legacy, spine, pages))
             }
         }
     }
@@ -1600,10 +1678,10 @@ mod opening_mark_tests {
     }
 }
 
-/// Where an opened document starts: `place` in a book, else `page`.
-fn landing(doc: Option<&Document>, page: usize, place: Option<Anchor>) -> usize {
-    let found = place.and_then(|a| doc?.locate(a));
-    found.unwrap_or(page)
+/// Where an opened document starts: its stable place, else its page.
+fn landing(doc: Option<&Document>, target: &OpenTarget) -> usize {
+    doc.and_then(|document| document.target_page(target))
+        .unwrap_or(target.page)
 }
 /// Why `name` didn't open, and what to try, as one toast.
 fn open_failed(name: &str, e: &mareader_session::OpenError) -> Toast {

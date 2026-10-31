@@ -33,10 +33,10 @@ use std::path::{Path, PathBuf};
 use egui::Context;
 use mareader_library::disk::Folder;
 use mareader_library::{
-    BookId, DeviceId, Format, Library, Opened, Position, ShelfId, display_title,
+    BookId, DeviceId, Format, Library, Opened, Position, ShelfId, SpinePosition, display_title,
 };
 use mareader_library::{Copied, Found};
-use mareader_session::{Anchor, Document, Source};
+use mareader_session::{Anchor, Document, Source, SpinePlace};
 use mareader_workspace::PaneId;
 
 use crate::command::{Command, Commands};
@@ -269,7 +269,12 @@ impl LibraryState {
             return Some(request);
         };
         // Opened as a book, or with a place already: nothing to fill in.
-        if request.page != 0 || request.place.is_some() || request.book.is_some() {
+        if request.page != 0
+            || request.place.is_some()
+            || request.spine.is_some()
+            || request.pages > 0
+            || request.book.is_some()
+        {
             return Some(request);
         }
         if self.status == Status::Loading {
@@ -282,6 +287,13 @@ impl LibraryState {
         if let Some(p) = at.and_then(|id| self.model.position(id)) {
             request.page = p.page;
             request.place = p.place.map(|(block, offset)| Anchor { block, offset });
+            request.spine = p.spine.map(|place| SpinePlace {
+                href: place.href,
+                item: place.item,
+                block: place.block,
+                offset: place.offset,
+            });
+            request.pages = p.pages;
         }
         Some(request)
     }
@@ -294,7 +306,7 @@ impl LibraryState {
         }
         let now = wall_ms();
         for &pane in panes {
-            let (Some(reading), Some((path, page, place))) =
+            let (Some(reading), Some((path, page, place, spine, pages))) =
                 (documents.reading(pane), documents.place(pane))
             else {
                 self.seen.remove(&pane);
@@ -327,8 +339,16 @@ impl LibraryState {
             };
             let position = Position {
                 page,
-                pages: reading.document.base_count(),
-                place: place.map(|a| (a.block, a.offset)),
+                pages,
+                place: place
+                    .filter(|_| reading.document.is_complete())
+                    .map(|a| (a.block, a.offset)),
+                spine: spine.map(|place| SpinePosition {
+                    href: place.href,
+                    item: place.item,
+                    block: place.block,
+                    offset: place.offset,
+                }),
             };
             self.model.record_position(id, position, now);
         }
@@ -378,13 +398,29 @@ impl LibraryState {
             return Err(Toast::error(format!("“{title}” isn't where it was.")));
         };
         let position = self.model.position(id);
+        let (page, place, spine, pages) = match position {
+            Some(position) => (
+                position.page,
+                position
+                    .place
+                    .map(|(block, offset)| Anchor { block, offset }),
+                position.spine.map(|place| SpinePlace {
+                    href: place.href,
+                    item: place.item,
+                    block: place.block,
+                    offset: place.offset,
+                }),
+                position.pages,
+            ),
+            None => (0, None, None, 0),
+        };
         // Read as this book: a twin keeps its own place.
         Ok(OpenRequest {
             book: Some(id),
-            page: position.map_or(0, |p| p.page),
-            place: position
-                .and_then(|p| p.place)
-                .map(|(block, offset)| Anchor { block, offset }),
+            page,
+            place,
+            spine,
+            pages,
             ..OpenRequest::path(path.to_path_buf())
         })
     }
@@ -448,6 +484,7 @@ impl LibraryState {
                     page: pages * (i - from + 1) / (count + 2),
                     pages,
                     place: None,
+                    spine: None,
                 };
                 self.model.record_position(id, position, at);
             }

@@ -133,7 +133,7 @@ impl Library {
         let mut receipt = Receipt::default();
         let started = |id: BookId| {
             self.position(id)
-                .filter(|p| p.page > 0 || p.place.is_some())
+                .filter(|p| p.page > 0 || p.place.is_some() || p.spine.is_some())
         };
         for (id, fate) in self.fates(&removing) {
             receipt.books += 1;
@@ -309,6 +309,7 @@ impl Library {
                     page: 0,
                     pages: state.position.value.pages,
                     place: None,
+                    spine: None,
                 },
                 at,
             );

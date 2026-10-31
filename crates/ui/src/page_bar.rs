@@ -67,7 +67,7 @@ impl PageBar {
 
 /// The counter's text: "3 / 20", "3 / 12+" while loading, or "15%".
 pub fn counter(reading: &Reading, style: PageIndicatorStyle) -> String {
-    let (page, count) = (reading.current + 1, reading.count().max(1));
+    let (page, count) = (reading.global_current() + 1, reading.count().max(1));
     if !reading.document.is_complete() {
         return format!("{page} / {count}+");
     }
@@ -207,7 +207,7 @@ fn contents(
     let mut text = bar
         .typing
         .clone()
-        .unwrap_or_else(|| (reading.current + 1).to_string());
+        .unwrap_or_else(|| (reading.global_current() + 1).to_string());
     let entry = TextEdit::singleline(&mut text)
         .id(entry_id)
         .desired_width(44.0)
@@ -231,7 +231,15 @@ fn contents(
         // A number jumps; anything else snaps back to the page shown.
         let entered = ui.input(|i| i.key_pressed(Key::Enter));
         if let (true, Ok(n @ 1..)) = (entered, text.trim().parse::<usize>()) {
-            out.push(Command::GoTo { pane, page: n - 1 });
+            let target = n - 1;
+            let page = if reading.document.is_complete() {
+                Some(target)
+            } else {
+                reading.document.local_page(target)
+            };
+            if let Some(page) = page {
+                out.push(Command::GoTo { pane, page });
+            }
         }
         bar.typing = None;
     }
@@ -290,16 +298,27 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_book_shows_its_available_page_total() -> Result<(), String> {
-        let mut session = mareader_session::Session::new(0, || {});
+    fn a_preview_keeps_the_saved_global_page_number() -> Result<(), String> {
         let bytes = std::sync::Arc::new(mareader_epub::sample::epub(40, "Progress"));
+        let typo = mareader_session::Typography::default();
+        let full = mareader_epub::Book::open(std::sync::Arc::clone(&bytes), &typo)
+            .map_err(|error| error.to_string())?;
+        let target_page = full.page_count() / 2;
+        let anchor = full.anchor(target_page).ok_or("no middle-page anchor")?;
+        let spine = full
+            .spine_place(anchor)
+            .ok_or("no stable middle-page location")?;
+        let pages = full.page_count();
+        let mut session = mareader_session::Session::new(0, || {});
         let ticket = session.open_at(
             mareader_session::Source::Bytes(bytes),
             None,
-            std::sync::Arc::default(),
+            std::sync::Arc::new(typo),
             mareader_session::OpenTarget {
-                page: 8,
-                place: None,
+                page: target_page,
+                place: Some(anchor),
+                spine: Some(spine.clone()),
+                pages,
             },
         );
         let mut doc = None;
@@ -320,22 +339,27 @@ mod tests {
                 break;
             }
         }
-        let doc = doc.ok_or_else(|| "the saved page was not previewed".to_string())?;
+        let doc = doc.ok_or_else(|| "the saved place was not previewed".to_string())?;
         let entry = session
             .get(doc)
             .ok_or_else(|| "no preview entry".to_string())?;
+        let current = entry
+            .doc
+            .locate_spine(&spine)
+            .ok_or("the preview lost the saved place")?;
         let reading = Reading {
             pane: PaneId(1),
             doc,
             document: std::sync::Arc::clone(&entry.doc),
-            current: 8,
+            current,
             mode: crate::layout::ViewMode::Vertical,
             progress: 0.0,
             name: "Progress".into(),
             page: None,
         };
         let available = reading.count().max(1);
-        let expected = format!("9 / {available}+");
+        let expected = format!("{} / {available}+", target_page + 1);
+        assert_eq!(reading.global_current(), target_page);
         assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), expected);
         assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), expected);
         Ok(())

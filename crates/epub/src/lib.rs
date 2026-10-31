@@ -33,7 +33,7 @@ mod xhtml;
 
 pub use book::{
     Book, Destination, Files, Link, MAX_BLOCKS, MAX_MARKUP, MAX_PICTURE_BYTES, MAX_TOC, OpenBook,
-    OpenStep, OpenTarget, TocEntry, cover, describe,
+    OpenStep, OpenTarget, SpinePlace, TocEntry, cover, describe,
 };
 pub use convert::{Format, MAX_PICTURE_FILE, MAX_TEXT, Pictures, convert};
 pub use css::MAX_SHEET;
