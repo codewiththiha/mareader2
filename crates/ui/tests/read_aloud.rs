@@ -1350,6 +1350,7 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
     h.run_steps(60);
     let id = egui::Id::new("read-aloud-bar");
     let home = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
+    let bottom = h.ctx.content_rect().bottom();
     let aside = h.state().dict().window_rect().expect("dictionary steps up");
     assert!(aside.top() < dict_home.top() - 20.0, "{aside:?}");
     assert!(
@@ -1362,8 +1363,8 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let tucked = h.ctx.memory(|m| m.area_rect(id)).expect("the player peek");
     assert_eq!(tucked.size(), home.size());
     assert!(
-        (tucked.top() - (home.bottom() - PEEK)).abs() < 2.0,
-        "only its upper shell remains: {tucked:?} from {home:?}"
+        (tucked.bottom() - bottom).abs() < 2.0,
+        "the shell reaches the bottom edge: {tucked:?} vs {bottom}"
     );
     assert!(h.query_by_label("Pause").is_none());
     assert!(h.query_by_label("Play").is_none());

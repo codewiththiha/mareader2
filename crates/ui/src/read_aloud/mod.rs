@@ -1182,7 +1182,7 @@ impl ReadAloud {
             }
             let covered = stage.dict.is_some_and(|dict| rect.intersects(dict));
             let parking = covered && !asked_up && under <= 0.0;
-            let park_stage = room.with_max_y(foot.max(room.top()).min(room.bottom()));
+            let park_stage = room;
             if shape.parked.is_none() && parking {
                 shape.parked = Some(crate::park::Tuck::new(
                     crate::park::Edge::Bottom,
