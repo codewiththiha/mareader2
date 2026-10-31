@@ -337,10 +337,10 @@ impl MareaderApp {
     /// The file being read: the active pane's, else the first with one.
     pub fn last_document(&self) -> Option<LastDocument> {
         let panes = std::iter::once(self.active).chain(self.tree.panes());
-        let (pane, (path, page, place, spine, pages)) =
-            (panes.into_iter()).find_map(|p| Some((p, self.documents.place(p)?)))?;
-        let place = place.map(|a| (a.block, a.offset));
-        let spine = spine.map(|place| mareader_library::SpinePosition {
+        let (pane, at) =
+            (panes.into_iter()).find_map(|pane| Some((pane, self.documents.place(pane)?)))?;
+        let place = at.anchor.map(|anchor| (anchor.block, anchor.offset));
+        let spine = at.spine.map(|place| mareader_library::SpinePosition {
             href: place.href,
             item: place.item,
             block: place.block,
@@ -348,11 +348,11 @@ impl MareaderApp {
         });
         let book = self.documents.book(pane);
         Some(LastDocument {
-            path,
-            page,
+            path: at.path,
+            page: at.page,
             place,
             spine,
-            pages,
+            pages: at.pages,
             book,
         })
     }

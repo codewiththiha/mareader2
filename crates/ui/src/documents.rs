@@ -82,6 +82,20 @@ pub struct OpenRequest {
     pub book: Option<BookId>,
 }
 
+/// A document's current global position and resume data.
+pub struct DocumentPlace {
+    /// The source file.
+    pub path: PathBuf,
+    /// The global page currently shown.
+    pub page: usize,
+    /// A legacy block anchor, when the document is complete.
+    pub anchor: Option<Anchor>,
+    /// A stable EPUB location, when available.
+    pub spine: Option<SpinePlace>,
+    /// The known or estimated full page count.
+    pub pages: usize,
+}
+
 impl OpenRequest {
     pub fn path(path: PathBuf) -> Self {
         Self {
@@ -1600,11 +1614,8 @@ impl Documents {
         }
     }
 
-    /// The file, global page, old anchor and stable spine location.
-    pub fn place(
-        &self,
-        pane: PaneId,
-    ) -> Option<(PathBuf, usize, Option<Anchor>, Option<SpinePlace>, usize)> {
+    /// Resume data for the open file in `pane`.
+    pub fn place(&self, pane: PaneId) -> Option<DocumentPlace> {
         match self.panes.get(&pane)? {
             Content::Opening {
                 file,
@@ -1613,15 +1624,25 @@ impl Documents {
                 spine,
                 pages,
                 ..
-            } => Some((file.clone()?, *page, *place, spine.clone(), *pages)),
+            } => Some(DocumentPlace {
+                path: file.clone()?,
+                page: *page,
+                anchor: *place,
+                spine: spine.clone(),
+                pages: *pages,
+            }),
             Content::Pdf(view) => {
                 let entry = self.session.as_ref()?.get(view.doc)?;
                 let anchor = view.place().or_else(|| entry.doc.anchor(view.current));
                 let spine = anchor.and_then(|at| entry.doc.spine_place(at));
                 let legacy = entry.doc.is_complete().then_some(anchor).flatten();
-                let page = entry.doc.global_page(view.current);
-                let pages = entry.doc.global_page_count();
-                Some((entry.path.clone()?, page, legacy, spine, pages))
+                Some(DocumentPlace {
+                    path: entry.path.clone()?,
+                    page: entry.doc.global_page(view.current),
+                    anchor: legacy,
+                    spine,
+                    pages: entry.doc.global_page_count(),
+                })
             }
         }
     }

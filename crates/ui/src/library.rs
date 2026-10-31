@@ -306,7 +306,7 @@ impl LibraryState {
         }
         let now = wall_ms();
         for &pane in panes {
-            let (Some(reading), Some((path, page, place, spine, pages))) =
+            let (Some(reading), Some(place)) =
                 (documents.reading(pane), documents.place(pane))
             else {
                 self.seen.remove(&pane);
@@ -314,7 +314,7 @@ impl LibraryState {
             };
             // The view carries its book: a failed open leaves nothing.
             let reader = documents.book(pane);
-            let shown = (path, reader);
+            let shown = (place.path, reader);
             if self.seen.get(&pane) != Some(&shown) {
                 let (path, book) = shown.clone();
                 self.seen.insert(pane, shown);
@@ -338,16 +338,17 @@ impl LibraryState {
                 continue;
             };
             let position = Position {
-                page,
-                pages,
+                page: place.page,
+                pages: place.pages,
                 place: place
+                    .anchor
                     .filter(|_| reading.document.is_complete())
-                    .map(|a| (a.block, a.offset)),
-                spine: spine.map(|place| SpinePosition {
-                    href: place.href,
-                    item: place.item,
-                    block: place.block,
-                    offset: place.offset,
+                    .map(|anchor| (anchor.block, anchor.offset)),
+                spine: place.spine.map(|spine| SpinePosition {
+                    href: spine.href,
+                    item: spine.item,
+                    block: spine.block,
+                    offset: spine.offset,
                 }),
             };
             self.model.record_position(id, position, now);
@@ -359,7 +360,7 @@ impl LibraryState {
     /// The book `pane` reads as: its own, else its file's.
     pub fn book_in(&self, documents: &Documents, pane: PaneId) -> Option<BookId> {
         let own = documents.book(pane);
-        own.or_else(|| self.model.book_at(&documents.place(pane)?.0))
+        own.or_else(|| self.model.book_at(&documents.place(pane)?.path))
     }
 
     /// Writes changes at most every [`SAVE_DELAY`]; else the wait left.
