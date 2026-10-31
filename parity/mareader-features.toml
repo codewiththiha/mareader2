@@ -991,12 +991,12 @@ tier = "P0"
 milestone = "M4"
 status = "shipped"
 evidence = [
-    "crates/epub/src/book.rs::opening_previews_near_its_saved_anchor_then_finishes",
-    "crates/session/src/tests.rs::an_epub_previews_the_requested_page_then_completes_in_the_background",
-    "crates/ui/src/page_bar.rs::a_partial_book_shows_its_available_page_total",
+    "crates/epub/src/book.rs::opening_previews_a_stable_spine_place_then_finishes_once",
+    "crates/session/src/tests.rs::an_epub_previews_a_stable_location_then_completes_once",
+    "crates/ui/src/page_bar.rs::a_preview_keeps_the_saved_global_page_number",
 ]
 reference = ["crates/epub/src/book.rs", "crates/session/src/lib.rs"]
-notes = "The saved anchor wins over its numeric page; nearby pages appear before the remaining spine is parsed, and wider update intervals keep growth efficient. Unchanged pages retain their cached rendering; the counter shows the available total with + until completion"
+notes = "Stable spine positions open a bounded target-centered preview without laying out the prefix, followed by one full completion pass. The page bar keeps the saved global page and shows the available count with + until complete"
 
 [[feature]]
 id = "epub.text-files"
