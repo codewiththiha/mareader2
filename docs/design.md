@@ -507,8 +507,10 @@ and returns where it came from; Library sits beside it.
   covered by the dictionary. Only each panel's original shell remains
   visible while parked, with no player controls or play/pause dot. A click
   on that shell, a shape change, or scrolling the highlight out of sight gives
-  the player priority; the dictionary moves or shortens to clear it. Using the
-  dictionary returns priority, tucking the player if they overlap. Clearance
+  the player priority; the dictionary moves or shortens to clear it. The first
+  tuck animates too; tuck and reveal ease out, and hovering pulls the peek 8 pt
+  into the stage. Using the dictionary returns priority, tucking the player if
+  they overlap. Clearance
   on initial summon remains temporary. On Library, the player stays above the
   selection bar. Player toast avoidance narrows in place; manual conflicts
   clear the toast, and the dictionary keeps its own animated dodge.

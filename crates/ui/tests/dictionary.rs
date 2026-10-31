@@ -443,7 +443,16 @@ fn dragging_past_a_side_peeks_the_dictionary_itself() {
     assert!(h.query_by_label("Show the dictionary").is_some());
     assert!(h.query_by_label(CLOSE).is_none(), "no controls at the edge");
 
-    click_at(&mut h, exposed.center());
+    h.hover_at(exposed.center());
+    h.run_steps(20);
+    let lifted = h.state().dict().window_cover().expect("the lifted edge");
+    assert!(lifted.width() > exposed.width() + 5.0, "{lifted:?}");
+    h.hover_at(egui::pos2(450.0, 50.0));
+    h.run_steps(20);
+    let settled = h.state().dict().window_cover().expect("the settled edge");
+    assert!((settled.width() - PEEK).abs() < 1.0, "{settled:?}");
+
+    click_at(&mut h, settled.center());
     h.run_steps(30);
     let restored = h.state().dict().window_rect().expect("restored window");
     assert_eq!(restored.size(), size);

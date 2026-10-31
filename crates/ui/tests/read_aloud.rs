@@ -1405,6 +1405,35 @@ fn player_rises_above_the_selection_bar_and_comes_back_down() {
 }
 
 #[test]
+fn the_players_first_conflict_uses_an_animated_tuck() {
+    let mut h = reader(1);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(300);
+    let id = egui::Id::new("read-aloud-bar");
+    let home = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([home.left() - 100.0, home.top() - 120.0, 500.0, 240.0]);
+    let mut moving = None;
+    for _ in 0..20 {
+        h.run_steps(1);
+        let rect = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
+        let visible = rect.intersect(h.ctx.content_rect());
+        if visible.height() < home.height() - 1.0 {
+            moving = Some(visible);
+            break;
+        }
+    }
+    let visible = moving.expect("the first tuck starts moving");
+    assert!(
+        visible.height() > PEEK + 2.0,
+        "first tuck snapped: {visible:?}"
+    );
+}
+
+#[test]
 fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let mut h = reader(1);
     let window = &mut h.state_mut().settings_mut().dictionary.window;
@@ -1442,6 +1471,27 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
     assert!(h.query_by_label("Show the read-aloud player").is_some());
 
     let edge = egui::pos2(tucked.center().x, tucked.top() + PEEK * 0.5);
+    pointer(&mut h, edge, None);
+    h.run_steps(20);
+    let lifted = h
+        .ctx
+        .memory(|m| m.area_rect(id))
+        .expect("the lifted player");
+    let lifted_peek = lifted.intersect(h.ctx.content_rect());
+    assert!(lifted_peek.height() > PEEK + 5.0, "{lifted_peek:?}");
+    pointer(&mut h, egui::pos2(30.0, 30.0), None);
+    h.run_steps(20);
+    let settled = h
+        .ctx
+        .memory(|m| m.area_rect(id))
+        .expect("the settled player");
+    let settled_peek = settled.intersect(h.ctx.content_rect());
+    assert!(
+        (settled_peek.height() - PEEK).abs() < 1.0,
+        "{settled_peek:?}"
+    );
+
+    let edge = egui::pos2(settled.center().x, settled.top() + PEEK * 0.5);
     pointer(&mut h, edge, None);
     pointer(&mut h, edge, Some(true));
     pointer(&mut h, edge, Some(false));

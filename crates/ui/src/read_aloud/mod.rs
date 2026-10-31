@@ -1221,12 +1221,16 @@ impl ReadAloud {
                     park_stage,
                 ));
             }
-            let mut tucked = 0.0;
+            let tucked = crate::park::factor(
+                ctx,
+                Id::new("read-aloud-park"),
+                parking,
+                shape.parked.is_some(),
+            );
             if let Some(mut tuck) = shape.parked {
                 if parking {
                     tuck.revealing = false;
                 }
-                tucked = crate::park::factor(ctx, Id::new("read-aloud-park"), parking);
                 rect = tuck.rect(tucked);
                 if !parking && tucked <= 0.0 {
                     rect = tuck.resume;
@@ -1235,6 +1239,17 @@ impl ReadAloud {
                     shape.parked = Some(tuck);
                 }
             }
+            let active =
+                parking && tucked >= 1.0 && shape.parked.is_some_and(|tuck| !tuck.revealing);
+            let lift = crate::park::magnetic_offset(
+                ctx,
+                Id::new("read-aloud-park-magnet"),
+                shape.parked,
+                rect,
+                park_stage,
+                active,
+            );
+            rect = rect.translate(lift);
             shape.rect = Some(rect);
             let parked = shape.parked.is_some();
             let tucked_rest = parked && parking && tucked >= 1.0;

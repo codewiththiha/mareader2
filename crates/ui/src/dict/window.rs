@@ -138,23 +138,38 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         }
     }
 
-    let mut tucked = 0.0;
-    if let Some(tuck) = parked {
-        tucked = crate::park::factor(ctx, Id::new("dict-window-park"), !tuck.revealing);
-        if tuck.revealing && tucked <= 0.0 {
-            rect = tuck.resume;
-            parked = None;
-            *f.evacuated = None;
-            *f.live = None;
-            out.push(Command::Dict(Action::Window(Window::Place(rect))));
-            returned = true;
-        }
+    let tucked = crate::park::factor(
+        ctx,
+        Id::new("dict-window-park"),
+        parked.is_some_and(|tuck| !tuck.revealing),
+        parked.is_some(),
+    );
+    if let Some(tuck) = parked
+        && tuck.revealing
+        && tucked <= 0.0
+    {
+        rect = tuck.resume;
+        parked = None;
+        *f.evacuated = None;
+        *f.live = None;
+        out.push(Command::Dict(Action::Window(Window::Place(rect))));
+        returned = true;
     }
     let short = f
         .evacuated
         .is_some_and(|(home, aside)| aside.height() < home.height());
     let morph = Morph::new(ctx, rect, folded, f.stage, short);
-    let shown = parked.map_or_else(|| morph.shown(), |tuck| tuck.rect(tucked));
+    let mut shown = parked.map_or_else(|| morph.shown(), |tuck| tuck.rect(tucked));
+    let active = !closing && tucked >= 1.0 && parked.is_some_and(|tuck| !tuck.revealing);
+    let pull = crate::park::magnetic_offset(
+        ctx,
+        Id::new("dict-window-park-magnet"),
+        parked,
+        shown,
+        f.stage,
+        active,
+    );
+    shown = shown.translate(pull);
     let tucked_rest = parked.is_some_and(|tuck| !tuck.revealing && tucked >= 1.0);
     let mut released = false;
     let area = egui::Area::new(Id::new("dict-window"))
