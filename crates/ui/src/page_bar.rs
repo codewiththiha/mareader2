@@ -65,11 +65,11 @@ impl PageBar {
     }
 }
 
-/// The counter's text: "3 / 20", or "15%" through the pages.
+/// The counter's text: "3 / 20", "3 / 12+" while loading, or "15%".
 pub fn counter(reading: &Reading, style: PageIndicatorStyle) -> String {
     let (page, count) = (reading.current + 1, reading.count().max(1));
     if !reading.document.is_complete() {
-        return format!("{page} / …");
+        return format!("{page} / {count}+");
     }
     match style {
         PageIndicatorStyle::PageNumber => format!("{page} / {count}"),
@@ -238,7 +238,7 @@ fn contents(
     let total = if reading.document.is_complete() {
         format!("/ {count}")
     } else {
-        "/ …".to_string()
+        format!("/ {count}+")
     };
     ui.label(RichText::new(total).color(t.muted));
     if widgets::icon_button(ui, Icon::ChevronRight, "Next page", false).clicked() {
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_book_does_not_present_its_prefix_as_the_total() -> Result<(), String> {
+    fn a_partial_book_shows_its_available_page_total() -> Result<(), String> {
         let mut session = mareader_session::Session::new(0, || {});
         let bytes = std::sync::Arc::new(mareader_epub::sample::epub(8, "Progress"));
         let ticket = session.open_at(
@@ -334,8 +334,10 @@ mod tests {
             name: "Progress".into(),
             page: None,
         };
-        assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), "9 / …");
-        assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), "9 / …");
+        let available = reading.count().max(1);
+        let expected = format!("9 / {available}+");
+        assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), expected);
+        assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), expected);
         Ok(())
     }
 }

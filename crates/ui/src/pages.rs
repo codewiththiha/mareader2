@@ -465,6 +465,49 @@ mod tests {
     }
 
     #[test]
+    fn growing_a_document_keeps_unchanged_page_textures() -> Out {
+        let ctx = Context::default();
+        let mut c = PageCache::default();
+        let mut session = mareader_session::Session::new(0, || {});
+        let bytes = || std::sync::Arc::new(mareader_pdf::sample::pdf(1, "Cache"));
+        let one = session.open(
+            mareader_session::Source::Bytes(bytes()),
+            None,
+            Default::default(),
+        );
+        let two = session.open(
+            mareader_session::Source::Bytes(bytes()),
+            None,
+            Default::default(),
+        );
+        let budget = mareader_session::Budget {
+            items: 1,
+            bytes: usize::MAX,
+        };
+        let events = session.poll(budget).into_iter().chain(session.poll(budget));
+        let ids: Vec<DocId> = events
+            .filter_map(|event| match event {
+                mareader_session::Event::Opened {
+                    ticket,
+                    result: Ok(id),
+                } if ticket == one || ticket == two => Some(id),
+                _ => None,
+            })
+            .collect();
+        let (Some(old), Some(new)) = (ids.first().copied(), ids.get(1).copied()) else {
+            return Err("the samples didn't open");
+        };
+        for page in 0..3 {
+            put(&mut c, &ctx, key(old, page, 1.0), 8);
+        }
+        c.adopt(old, new, |page| (page < 2).then_some(page));
+        assert!(c.touch(new, 0) && c.touch(new, 1));
+        assert!(!c.touch(old, 0) && !c.touch(new, 2));
+        assert_eq!(c.len(), 2);
+        Ok(())
+    }
+
+    #[test]
     fn tiles_share_the_byte_cap_and_go_cold_first() -> Out {
         let ctx = Context::default();
         let one = 8 * 8 * 4;

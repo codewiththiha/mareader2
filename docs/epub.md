@@ -25,12 +25,11 @@ formats can do, an EPUB page must do too. The choice of stack is in
   until the saved anchor (preferred to a page number) and two following pages
   are ready. That partial book is shown immediately; parsing resumes after
   the requested page's raster arrives, one spine item at a time behind visible
-  page work. As the spine advances, larger partial snapshots are published
-  periodically; the reader replaces the old one at the same reading anchor
-  while the rest loads in the background. Completion replaces the last
-  partial layout. Until then, the page total is unknown, and the slider and
-  progress line stay hidden. Later pagination can move page numbers, but not
-  the saved reading place.
+  page work. Larger partial snapshots arrive at widening intervals; unchanged
+  pages keep their cached rendering and the reading place stays put. The page
+  counter shows the available prefix as `page / pages+`, with the total rising
+  as pages are published and `+` disappearing at completion. The slider and
+  progress line stay hidden until the full book is ready.
 - **Zoom never re-paginates.** Pages scale uniformly, as in mareader. A
   typography change re-paginates and keeps the anchor block in view.
 - **Untrusted input.** Paths in the container resolve only inside it. XML depth,

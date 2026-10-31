@@ -241,6 +241,8 @@ impl Files {
 
 /// An open book. `Send + Sync`: workers share one through an `Arc`.
 pub struct Book {
+    /// Page reuse is safe only among snapshots from this open.
+    identity: Arc<()>,
     /// What the chapters say, kept to set again in other type.
     blocks: Arc<Vec<Block>>,
     /// Its own pages, shared by every set of results laid in.
@@ -277,7 +279,7 @@ const OPEN_PAGE_AHEAD: usize = 2;
 const OPEN_CHECK_ITEMS: usize = 4;
 const OPEN_CHECK_PAGES: usize = 16;
 const OPEN_UPDATE_ITEMS: usize = 8;
-const OPEN_UPDATE_BLOCKS: usize = 256;
+const OPEN_UPDATE_BLOCKS: usize = 512;
 
 /// A saved page or anchor to reach before continuing the spine.
 #[derive(Debug, Clone, Copy, Default)]
@@ -304,6 +306,7 @@ pub enum OpenStep {
 /// A resumable EPUB parser and layout builder.
 pub struct OpenBook {
     bytes: Arc<Vec<u8>>,
+    identity: Arc<()>,
     epub: Epub,
     typo: Typography,
     target: Option<OpenTarget>,
@@ -319,6 +322,7 @@ pub struct OpenBook {
     pars: Vec<overlay::Par>,
     escapes: u32,
     next: usize,
+    spine_items: usize,
     last_check: usize,
     last_pages: usize,
     published_blocks: usize,
@@ -336,6 +340,7 @@ impl OpenBook {
     ) -> Result<Self, OpenError> {
         let open = || {
             let epub = guard::open(&bytes)?;
+            let spine_items = epub.spine().iter().len();
             let (title, author) = names(&epub);
             let language = epub
                 .metadata()
@@ -345,6 +350,7 @@ impl OpenBook {
             let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
             Ok(Self {
                 bytes,
+                identity: Arc::new(()),
                 epub,
                 typo: typo.clone(),
                 target,
@@ -363,6 +369,7 @@ impl OpenBook {
                 pars: Vec::new(),
                 escapes: 0,
                 next: 0,
+                spine_items,
                 last_check: 0,
                 last_pages: 0,
                 published_blocks: 0,
@@ -455,8 +462,12 @@ impl OpenBook {
         if self.previewed {
             let added = self.blocks.len().saturating_sub(self.published_blocks);
             let items = self.next.saturating_sub(self.published_items);
-            let block_step = (self.published_blocks / 8).max(OPEN_UPDATE_BLOCKS);
-            if added == 0 || (items < OPEN_UPDATE_ITEMS && added < block_step) {
+            let item_step = (self.spine_items / 8).max(OPEN_UPDATE_ITEMS);
+            let block_step = (self.published_blocks / 2).max(OPEN_UPDATE_BLOCKS);
+            let block_interval = (item_step / 2).max(OPEN_UPDATE_ITEMS / 2);
+            if added == 0
+                || (items < item_step && (items < block_interval || added < block_step))
+            {
                 return Ok(OpenStep::Continue);
             }
             let book = self.snapshot(false)?;
@@ -578,6 +589,7 @@ impl OpenBook {
             Some(Arc::new(kept))
         };
         Ok(Book {
+            identity: Arc::clone(&self.identity),
             blocks,
             flow,
             typo: self.typo.clone(),
@@ -650,6 +662,7 @@ impl Book {
                 .flatten()
                 .map(Arc::new);
             Self {
+                identity: Arc::clone(&self.identity),
                 blocks: Arc::clone(&self.blocks),
                 flow,
                 typo: typo.clone(),
@@ -1158,7 +1171,33 @@ impl Book {
     /// The page of `other` that looks just like page `page`, if any.
     pub fn same_page(&self, page: usize, other: &Self) -> Option<usize> {
         if !Arc::ptr_eq(&self.flow, &other.flow) {
-            return None;
+            let same_faces = self.faces.len() == other.faces.len()
+                && self.faces.iter().zip(other.faces.iter()).all(|(a, b)| {
+                    a.family == b.family
+                        && a.weight == b.weight
+                        && a.italic == b.italic
+                        && a.len() == b.len()
+                });
+            if !Arc::ptr_eq(&self.identity, &other.identity)
+                || self.typo != other.typo
+                || self.language != other.language
+                || self.rtl != other.rtl
+                || self.lead != other.lead
+                || !same_faces
+                || self.spliced.is_some()
+                || other.spliced.is_some()
+                || (self.blocks.len() < other.blocks.len()
+                    && page.saturating_add(1) == self.page_count())
+            {
+                return None;
+            }
+            let place = self.anchor(page)?;
+            let mapped = other.locate(place);
+            let same = self.excerpts(page) == other.excerpts(mapped)
+                && self.size(page) == other.size(mapped)
+                && self.fixed(page) == other.fixed(mapped)
+                && self.turned(page) == other.turned(mapped);
+            return same.then_some(mapped);
         }
         let at = match &self.spliced {
             Some(s) => s.at(page)?,
@@ -1554,6 +1593,7 @@ mod tests {
         assert!(!preview.is_complete());
         assert!(preview.page_count() < full.page_count());
         assert_eq!(preview.locate(anchor), target.page);
+        assert_eq!(preview.same_page(0, &full), None);
         let mut grown = preview.page_count();
         let mut saw_growth = false;
         let complete = loop {
@@ -1562,6 +1602,7 @@ mod tests {
                 Ok(OpenStep::Update(book)) => {
                     assert!(!book.is_complete());
                     assert_eq!(book.locate(anchor), target.page);
+                    assert_eq!(preview.same_page(0, &book), Some(0));
                     assert!(book.page_count() >= grown);
                     saw_growth |= book.page_count() > preview.page_count();
                     grown = book.page_count();
@@ -1577,6 +1618,7 @@ mod tests {
         };
         assert!(complete.is_complete());
         assert_eq!(complete.locate(anchor), target.page);
+        assert_eq!(preview.same_page(0, &complete), Some(0));
     }
 
     #[test]

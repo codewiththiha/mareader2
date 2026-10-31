@@ -478,16 +478,33 @@ impl Documents {
     /// Hands what `old` drew to `new` once no pane shows `old`.
     fn hand_over(&mut self, old: DocId, new: DocId) {
         let shown = (self.panes.values()).any(|c| matches!(c, Content::Pdf(v) if v.doc == old));
-        let Some(session) = self.session.as_ref().filter(|_| !shown) else {
+        if !shown {
+            self.adopt_page_rasters(old, new);
+            self.adopt_text_layers(old, new);
+        }
+    }
+
+    /// Partial links may resolve later, so only page rasters are reused.
+    fn adopt_page_rasters(&mut self, old: DocId, new: DocId) {
+        let Some((was, is)) = self.adoption_docs(old, new) else {
             return;
         };
-        let (Some(was), Some(is)) = (session.get(old), session.get(new)) else {
+        self.pages
+            .adopt(old, new, |page| was.same_page(page, &is));
+    }
+
+    fn adopt_text_layers(&mut self, old: DocId, new: DocId) {
+        let Some((was, is)) = self.adoption_docs(old, new) else {
             return;
         };
-        let (was, is) = (Arc::clone(&was.doc), Arc::clone(&is.doc));
-        let map = |page: usize| was.same_page(page, &is);
-        self.pages.adopt(old, new, map);
-        self.texts.adopt(old, new, map);
+        self.texts
+            .adopt(old, new, |page| was.same_page(page, &is));
+    }
+
+    fn adoption_docs(&self, old: DocId, new: DocId) -> Option<(Arc<Document>, Arc<Document>)> {
+        let session = self.session.as_ref()?;
+        let (was, is) = (session.get(old)?, session.get(new)?);
+        Some((Arc::clone(&was.doc), Arc::clone(&is.doc)))
     }
 
     /// Moves each book whose type is stale onto a twin in its type, or asks.
@@ -824,6 +841,7 @@ impl Documents {
             }
         }
         for (old, new) in changed {
+            self.adopt_page_rasters(old, new);
             self.reloaded(old, new);
         }
         self.follow_files();
