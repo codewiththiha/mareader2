@@ -182,8 +182,8 @@ fn an_epub_prefix_grows_before_the_spine_finishes() -> Result<(), String> {
             break;
         }
     }
-    let first_pages = first_pages
-        .ok_or_else(|| "the first EPUB snapshot was not shown".to_string())?;
+    let first_pages =
+        first_pages.ok_or_else(|| "the first EPUB snapshot was not shown".to_string())?;
     let mut grew = false;
     for _ in 0..32 {
         h.step();
