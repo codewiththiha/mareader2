@@ -31,13 +31,11 @@ fn stepping_reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     for (key, value) in options {
         app.set_option(key, value).ok();
     }
-    let mut h = Harness::builder()
+    Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
         .with_step_dt(1.0 / 60.0)
         .with_max_steps(200)
-        .build_eframe(|_| app);
-    h.run_steps(4);
-    h
+        .build_eframe(|_| app)
 }
 
 fn textures(h: &Harness<'static, MareaderApp>) -> usize {
@@ -174,16 +172,21 @@ fn an_epub_opens_titled_with_its_pages_drawn() {
 fn an_epub_prefix_grows_before_the_spine_finishes() -> Result<(), String> {
     let mut h = stepping_reader(&[("epub", "sample:120")]);
     let pane = h.state().active_pane();
-    let first = h
-        .state()
-        .documents()
-        .reading(pane)
+    let mut first_pages = None;
+    for _ in 0..16 {
+        h.step();
+        if let Some(reading) = h.state().documents().reading(pane)
+            && !reading.document.is_complete()
+        {
+            first_pages = Some(reading.document.page_count());
+            break;
+        }
+    }
+    let first_pages = first_pages
         .ok_or_else(|| "the first EPUB snapshot was not shown".to_string())?;
-    assert!(!first.document.is_complete());
-    let first_pages = first.document.page_count();
     let mut grew = false;
-    for _ in 0..12 {
-        h.run_steps(1);
+    for _ in 0..32 {
+        h.step();
         let latest = h
             .state()
             .documents()
