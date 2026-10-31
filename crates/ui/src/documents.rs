@@ -27,7 +27,7 @@ use crate::reading_place;
 use crate::selection::{Selection, Sheet};
 use crate::study::{self, Asked, Gloss};
 use crate::texts::TextLayers;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
 use crate::watch::{Reloads, Watch};
@@ -904,8 +904,8 @@ impl Documents {
     ) -> bool {
         let entry = match (self.panes.get(&pane), &self.session) {
             (Some(Content::Pdf(v)), Some(s)) => s.get(v.doc).cloned(),
-            (Some(Content::Opening { name, .. }), _) => {
-                opening(ui, name, &cx.tokens);
+            (Some(Content::Opening { .. }), _) => {
+                opening(ui, &cx.tokens);
                 return true;
             }
             _ => None,
@@ -1515,17 +1515,28 @@ impl Documents {
     }
 }
 
-fn opening(ui: &mut Ui, name: &str, t: &Tokens) {
-    let c = ui.max_rect().center();
-    let mark = egui::Rect::from_center_size(c - egui::vec2(0.0, 16.0), egui::vec2(22.0, 22.0));
+const OPENING_MARK: f32 = 48.0;
+
+fn opening_mark_rect(rect: Rect) -> Rect {
+    Rect::from_center_size(rect.center(), Vec2::splat(OPENING_MARK))
+}
+
+fn opening(ui: &mut Ui, t: &Tokens) {
+    let mark = opening_mark_rect(ui.max_rect());
     loading_mark::paint(ui, mark, t.muted);
-    ui.painter().text(
-        c + egui::vec2(0.0, 18.0),
-        egui::Align2::CENTER_CENTER,
-        format!("Opening {name}…"),
-        theme::medium(13.0),
-        t.muted,
-    );
+}
+
+#[cfg(test)]
+mod opening_mark_tests {
+    use super::*;
+
+    #[test]
+    fn the_opening_mark_is_large_and_centered() {
+        let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), Vec2::new(400.0, 300.0));
+        let mark = opening_mark_rect(pane);
+        assert_eq!(mark.center(), pane.center());
+        assert_eq!(mark.size(), Vec2::splat(OPENING_MARK));
+    }
 }
 
 /// Where an opened document starts: `place` in a book, else `page`.
