@@ -499,12 +499,16 @@ Findings:
   memory from the system again each time. Others report 4 to 8% slower
   allocation-heavy work; not yet measured here.
 
-## 2026-10-31: Progressive EPUB opening (unmeasured)
+## 2026-10-31: Progressive EPUB opening
 
-Each published EPUB prefix is an immutable snapshot while the resumable builder
-keeps its source blocks to finish the spine. As the spine advances, the UI
-periodically replaces the prior snapshot at the same reading anchor and
-releases it; the completed layout replaces the last partial one. No RSS or
-peak-memory measurements have been run for progressive opening; this change is
-not claimed as a memory improvement. PDF page-tree enumeration remains eager, with rasters
-requested on demand as pages become visible.
+A saved-place open publishes one bounded, target-centered preview. Once its
+target page raster is ready, one continuation parses the remaining spine and
+publishes the completed layout; no widening prefix snapshots are published.
+Missing scroll rasters remain blank, without a per-page loading animation.
+
+The remote memory task also runs a generated 800-chapter EPUB with one worker,
+a saved location at chapter 400, and one adjacent-page raster request during
+continuation. Its table records preview, target-raster, scroll-raster and full-
+completion latency, plus process RSS above the generated-input baseline. These
+are scheduler and whole-book measurements, not device-wall-time guarantees.
+PDF page-tree enumeration remains eager, with rasters requested on demand.

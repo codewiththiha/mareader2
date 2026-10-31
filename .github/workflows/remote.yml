@@ -132,6 +132,20 @@ jobs:
           run "Markdown README of emoji, scrolled" --markdown 6
           run "Library, 3,000 PDFs read in place" --library 3000
           run "Library, 20,000 books without files" --seeded 20000
+          if cargo build -q -p mareader-ui --example epub_perf; then
+            {
+              echo "## EPUB saved-place opening and scroll (800 chapters)"
+              echo
+              echo "| Run | Preview ms | Target raster ms | Open to target raster ms | Scroll raster ms | Completion s | Completion after target s | Preview pages | Full pages | RSS preview Δ MiB | RSS complete Δ MiB | Peak RSS Δ MiB |"
+              echo "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+              for run in 1 2 3 4 5; do
+                target/debug/examples/epub_perf "$run" || status=1
+              done
+            } | tee out/epub-open.md
+            cat out/epub-open.md >> out/memory.md
+          else
+            status=1
+          fi
           cat out/memory.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
       - name: EPUB layout
