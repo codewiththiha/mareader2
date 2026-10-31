@@ -343,9 +343,8 @@ impl OpenBook {
         let open = || {
             let epub = guard::open(&bytes)?;
             let spine_items = epub.spine().iter().len();
-            let target = target.filter(|_| {
-                spine_items > OPEN_DIRECT_ITEMS || bytes.len() > OPEN_DIRECT_BYTES
-            });
+            let target = target
+                .filter(|_| spine_items > OPEN_DIRECT_ITEMS || bytes.len() > OPEN_DIRECT_BYTES);
             let (title, author) = names(&epub);
             let language = epub
                 .metadata()
