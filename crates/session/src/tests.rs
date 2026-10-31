@@ -388,7 +388,7 @@ fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
 #[test]
 fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out {
     let mut s = inline();
-    let bytes = Arc::new(mareader_epub::sample::epub(8, "Progress"));
+    let bytes = Arc::new(mareader_epub::sample::epub(16, "Progress"));
     let target = 8;
     let ticket = s.open_at(
         Source::Bytes(bytes),

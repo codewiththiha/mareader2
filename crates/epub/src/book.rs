@@ -276,8 +276,8 @@ pub struct Book {
 const OPEN_PAGE_AHEAD: usize = 2;
 const OPEN_CHECK_ITEMS: usize = 4;
 const OPEN_CHECK_PAGES: usize = 16;
-const OPEN_UPDATE_ITEMS: usize = 4;
-const OPEN_UPDATE_BLOCKS: usize = 128;
+const OPEN_UPDATE_ITEMS: usize = 8;
+const OPEN_UPDATE_BLOCKS: usize = 256;
 
 /// A saved page or anchor to reach before continuing the spine.
 #[derive(Debug, Clone, Copy, Default)]
@@ -455,9 +455,8 @@ impl OpenBook {
         if self.previewed {
             let added = self.blocks.len().saturating_sub(self.published_blocks);
             let items = self.next.saturating_sub(self.published_items);
-            let remaining = self.epub.spine().iter().len().saturating_sub(self.next);
             let block_step = (self.published_blocks / 8).max(OPEN_UPDATE_BLOCKS);
-            if added == 0 || (items < OPEN_UPDATE_ITEMS && added < block_step && remaining > 1) {
+            if added == 0 || (items < OPEN_UPDATE_ITEMS && added < block_step) {
                 return Ok(OpenStep::Continue);
             }
             let book = self.snapshot(false)?;
@@ -1516,7 +1515,7 @@ mod tests {
 
     #[test]
     fn opening_previews_near_its_saved_anchor_then_finishes() {
-        let bytes = Arc::new(sample::epub(8, "Progress"));
+        let bytes = Arc::new(sample::epub(32, "Progress"));
         let typo = Typography::default();
         let full = Book::open(Arc::clone(&bytes), &typo).ok();
         assert!(full.is_some(), "sample opens");
