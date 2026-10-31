@@ -493,6 +493,16 @@ fn open_document(
         return Document::open(bytes, typo).map(Opened::Complete);
     }
     let mut state = OpenBook::new(bytes, typo, target)?;
+    if !state.is_progressive() {
+        loop {
+            match state.step()? {
+                OpenStep::Complete(book) => {
+                    return Ok(Opened::Complete(Document::from_book(book)));
+                }
+                OpenStep::Continue | OpenStep::Preview(_) | OpenStep::Update(_) => {}
+            }
+        }
+    }
     match state.step()? {
         OpenStep::Continue => Ok(Opened::Progress(Box::new(state))),
         OpenStep::Preview(book) | OpenStep::Update(book) => {

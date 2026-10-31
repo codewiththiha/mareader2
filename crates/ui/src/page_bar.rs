@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn a_partial_book_shows_its_available_page_total() -> Result<(), String> {
         let mut session = mareader_session::Session::new(0, || {});
-        let bytes = std::sync::Arc::new(mareader_epub::sample::epub(8, "Progress"));
+        let bytes = std::sync::Arc::new(mareader_epub::sample::epub(40, "Progress"));
         let ticket = session.open_at(
             mareader_session::Source::Bytes(bytes),
             None,

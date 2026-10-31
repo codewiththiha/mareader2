@@ -275,6 +275,8 @@ pub struct Book {
     complete: bool,
 }
 
+const OPEN_DIRECT_ITEMS: usize = 32;
+const OPEN_DIRECT_BYTES: usize = 1 << 20;
 const OPEN_PAGE_AHEAD: usize = 2;
 const OPEN_CHECK_ITEMS: usize = 4;
 const OPEN_CHECK_PAGES: usize = 16;
@@ -341,6 +343,9 @@ impl OpenBook {
         let open = || {
             let epub = guard::open(&bytes)?;
             let spine_items = epub.spine().iter().len();
+            let target = target.filter(|_| {
+                spine_items > OPEN_DIRECT_ITEMS || bytes.len() > OPEN_DIRECT_BYTES
+            });
             let (title, author) = names(&epub);
             let language = epub
                 .metadata()
@@ -379,6 +384,11 @@ impl OpenBook {
             })
         };
         catch_unwind(AssertUnwindSafe(open)).unwrap_or(Err(OpenError::Invalid))
+    }
+
+    /// Whether opening may publish a partial book.
+    pub fn is_progressive(&self) -> bool {
+        self.target.is_some()
     }
 
     /// Reads one spine item, returning a preview as soon as it is useful.
@@ -1552,7 +1562,7 @@ mod tests {
 
     #[test]
     fn opening_previews_near_its_saved_anchor_then_finishes() {
-        let bytes = Arc::new(sample::epub(32, "Progress"));
+        let bytes = Arc::new(sample::epub(40, "Progress"));
         let typo = Typography::default();
         let full = Book::open(Arc::clone(&bytes), &typo).ok();
         assert!(full.is_some(), "sample opens");

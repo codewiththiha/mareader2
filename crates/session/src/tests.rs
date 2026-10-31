@@ -386,9 +386,48 @@ fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
 }
 
 #[test]
+fn a_small_epub_opens_as_one_complete_load() -> Out {
+    let mut s = inline();
+    let ticket = s.open_at(
+        Source::Bytes(Arc::new(mareader_epub::sample::epub(4, "Quick"))),
+        None,
+        Arc::default(),
+        OpenTarget::default(),
+    );
+    let events = until(&mut s, |event| {
+        matches!(
+            event,
+            Event::Opened { ticket: got, .. }
+                | Event::Preview { ticket: got, .. }
+                | Event::Updated { ticket: got, .. }
+                | Event::Completed { ticket: got, .. }
+                if *got == ticket
+        )
+    });
+    let first = events.iter().find(|event| {
+        matches!(
+            event,
+            Event::Opened { ticket: got, .. }
+                | Event::Preview { ticket: got, .. }
+                | Event::Updated { ticket: got, .. }
+                | Event::Completed { ticket: got, .. }
+                if *got == ticket
+        )
+    });
+    let doc = match first {
+        Some(Event::Opened {
+            result: Ok(doc), ..
+        }) => *doc,
+        _ => return Err(format!("small EPUB did not open in one result: {events:?}").into()),
+    };
+    assert!(s.get(doc).is_some_and(|entry| entry.doc.is_complete()));
+    Ok(())
+}
+
+#[test]
 fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out {
     let mut s = inline();
-    let bytes = Arc::new(mareader_epub::sample::epub(16, "Progress"));
+    let bytes = Arc::new(mareader_epub::sample::epub(40, "Progress"));
     let target = 8;
     let ticket = s.open_at(
         Source::Bytes(bytes),

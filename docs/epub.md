@@ -21,15 +21,16 @@ formats can do, an EPUB page must do too. The choice of stack is in
      page RGBA → texture → page pass (texture + grain; no filter)
 ```
 
-- **Progressive opening.** Normal reader opens parse and lay out spine items
-  until the saved anchor (preferred to a page number) and two following pages
-  are ready. That partial book is shown immediately; parsing resumes after
-  the requested page's raster arrives, one spine item at a time behind visible
-  page work. Larger partial snapshots arrive at widening intervals; unchanged
-  pages keep their cached rendering and the reading place stays put. The page
-  counter shows the available prefix as `page / pages+`, with the total rising
-  as pages are published and `+` disappearing at completion. The slider and
-  progress line stay hidden until the full book is ready.
+- **Progressive opening.** Small EPUBs use one complete layout. Larger books
+  parse and lay out spine items until the saved anchor (preferred to a page
+  number) and two following pages are ready. That partial book is shown
+  immediately; parsing resumes after the requested page's raster arrives, one
+  spine item at a time behind visible page work. Larger partial snapshots arrive
+  at widening intervals; unchanged pages keep their cached rendering and the
+  reading place stays put. The page counter shows the available prefix as
+  `page / pages+`, with the total rising as pages are published and `+`
+  disappearing at completion. The slider and progress line stay hidden until
+  the full book is ready.
 - **Zoom never re-paginates.** Pages scale uniformly, as in mareader. A
   typography change re-paginates and keeps the anchor block in view.
 - **Untrusted input.** Paths in the container resolve only inside it. XML depth,

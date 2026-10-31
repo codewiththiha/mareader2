@@ -314,3 +314,4 @@ appearance effects to that same pass.
 | 2026-10-31 | EPUBs expose the saved anchor and nearby pages before the remaining spine is parsed, then replace the partial layout without losing the reading place; page totals stay unknown until completion. Missing PDF rasters show the centered three-dot loading mark, and visible page work stays ahead of parsing and prefetch. PDF page-tree indexing itself remains eager |
 | 2026-10-31 | Fix: EPUB partial snapshots grow as the spine advances, replacing the prior document at its reading anchor. PDFs expose the full indexed page tree before raster work; regression tests cover growth and deep scrolling |
 | 2026-10-31 | Polish: EPUB growth publishes in wider batches, unchanged pages keep their cached rendering, and the page counter shows the available total with `+` until completion |
+| 2026-10-31 | Quick EPUBs keep one complete layout; larger books use progressive previews when they benefit from them |
