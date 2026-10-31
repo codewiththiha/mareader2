@@ -1361,10 +1361,12 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
     h.run_steps(240);
     h.run_steps(60);
     let tucked = h.ctx.memory(|m| m.area_rect(id)).expect("the player peek");
+    let visible = tucked.intersect(h.ctx.content_rect());
     assert_eq!(tucked.size(), home.size());
+    assert!((visible.height() - PEEK).abs() < 1.0, "{visible:?}");
     assert!(
-        (tucked.bottom() - bottom).abs() < 2.0,
-        "the shell reaches the bottom edge: {tucked:?} vs {bottom}"
+        (visible.bottom() - bottom).abs() < 2.0,
+        "the shell reaches the bottom edge: {visible:?} vs {bottom}"
     );
     assert!(h.query_by_label("Pause").is_none());
     assert!(h.query_by_label("Play").is_none());
