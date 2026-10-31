@@ -26,6 +26,7 @@ const HEAD: f32 = 38.0;
 /// The band along each edge that resizes.
 const GRIP: f32 = 6.0;
 const PILL: Vec2 = vec2(240.0, HEAD);
+const SHORT_MIN: f32 = HEAD + 24.0;
 /// Room kept between the window and the stage's edges.
 const INSET: f32 = 12.0;
 
@@ -65,8 +66,9 @@ pub fn appearing(ctx: &Context, open: bool) -> f32 {
     ctx.animate_bool_with_time(Id::new("dict-window-appear"), open, secs)
 }
 
-/// Draws the window and returns where; closing, it fades without input.
-pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rect {
+/// Draws the window; returns its rect and whether the user interacted.
+pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Rect, bool) {
+    let command_count = out.len();
     let t = Tokens::get(ctx);
     let w = &f.settings.window;
     let closing = !w.open;
@@ -126,7 +128,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
     if let Some((home, aside)) = *f.evacuated {
         if k > 0.0 {
             let e = k * k * (3.0 - 2.0 * k);
-            rect = Rect::from_min_size(home.min.lerp(aside.min, e), home.size());
+            rect = Rect::from_min_max(home.min.lerp(aside.min, e), home.max.lerp(aside.max, e));
         } else if !dodging {
             rect = home;
             *f.evacuated = None;
@@ -148,7 +150,10 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
             returned = true;
         }
     }
-    let morph = Morph::new(ctx, rect, folded, f.stage);
+    let short = f
+        .evacuated
+        .is_some_and(|(home, aside)| aside.height() < home.height());
+    let morph = Morph::new(ctx, rect, folded, f.stage, short);
     let shown = parked.map_or_else(|| morph.shown(), |tuck| tuck.rect(tucked));
     let tucked_rest = parked.is_some_and(|tuck| !tuck.revealing && tucked >= 1.0);
     let mut released = false;
@@ -255,9 +260,10 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
     if closing {
         f.page.hide();
         *f.parked = None;
-        return shown;
+        return (shown, false);
     }
 
+    let mut revealed = false;
     if tucked_rest
         && crate::park::reveal(
             ctx,
@@ -268,6 +274,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         )
         && let Some(mut tuck) = parked
     {
+        revealed = true;
         tuck.revealing = true;
         parked = Some(tuck);
         *f.live = None;
@@ -325,7 +332,33 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> Rec
         });
     }
     *f.parked = parked;
-    shown
+    let pointer_action = ctx.input(|i| {
+        i.pointer.any_pressed() || i.pointer.any_released() || i.smooth_scroll_delta != Vec2::ZERO
+    });
+    let pointer_on_window = ctx
+        .pointer_latest_pos()
+        .is_some_and(|pos| shown.contains(pos) && ctx.layer_id_at(pos) == Some(layer));
+    let keyboard_action = f.page.typing()
+        && ctx.input(|i| {
+            i.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Text(_) | egui::Event::Paste(_) | egui::Event::Key { .. }
+                )
+            })
+        });
+    let command_interaction = out.iter().skip(command_count).any(|command| match command {
+        Command::Dict(Action::Window(Window::Place(_))) => false,
+        Command::Dict(_) => true,
+        _ => false,
+    });
+    let interacted = revealed
+        || released
+        || *f.dragging
+        || command_interaction
+        || (pointer_action && pointer_on_window)
+        || keyboard_action;
+    (shown, interacted)
 }
 
 /// The window turning into its pill: both ends, and `fold` from 0 to 1.
@@ -336,7 +369,7 @@ struct Morph {
 }
 
 impl Morph {
-    fn new(ctx: &Context, rect: Rect, folded: bool, stage: Rect) -> Self {
+    fn new(ctx: &Context, rect: Rect, folded: bool, stage: Rect, short: bool) -> Self {
         let secs = crate::motion::secs(ctx, FOLD);
         let id = Id::new("dict-window-fold");
         let fold = ctx.animate_bool_with_time(id, folded, secs);
@@ -352,7 +385,11 @@ impl Morph {
                 (rect, kept("pill").unwrap_or(pill))
             }
         };
-        let open_size = rect.size().max(Vec2::from(WINDOW_MIN));
+        let open_size = if short {
+            rect.size()
+        } else {
+            rect.size().max(Vec2::from(WINDOW_MIN))
+        };
         let open = Rect::from_min_size(open.min, open_size);
         ctx.data_mut(|d| {
             if fold <= 0.0 {
@@ -560,9 +597,14 @@ pub fn keep_pill(r: Rect, stage: Rect) -> Rect {
 
 /// `r` no larger than the stage and wholly on it.
 pub fn fit(r: Rect, stage: Rect) -> Rect {
+    fit_min(r, stage, Vec2::from(WINDOW_MIN))
+}
+
+fn fit_min(r: Rect, stage: Rect, minimum: Vec2) -> Rect {
     let room = stage.shrink(INSET);
-    let floor = Vec2::from(WINDOW_MIN).min(room.size().max(Vec2::ZERO));
-    let size = r.size().max(floor).min(room.size().max(floor));
+    let room_size = room.size().max(Vec2::ZERO);
+    let floor = minimum.min(room_size);
+    let size = r.size().max(floor).min(room_size.max(floor));
     let far_x = (room.max.x - size.x).max(room.min.x);
     let far_y = (room.max.y - size.y).max(room.min.y);
     let x = r.min.x.clamp(room.min.x, far_x);
@@ -605,17 +647,26 @@ fn aside(home: Rect, block: Rect, stage: Rect, prefer_up: bool) -> Rect {
     if clear(&second) {
         return second;
     }
-    let [min_w, min_h] = WINDOW_MIN;
-    let narrow = (block.left() - 8.0 - home.left() >= min_w)
-        .then(|| Rect::from_min_max(home.min, pos2(block.left() - 8.0, home.bottom())));
-    let short = (block.top() - 8.0 - home.top() >= min_h)
-        .then(|| Rect::from_min_max(home.min, pos2(home.right(), block.top() - 8.0)));
+    let min_w = WINDOW_MIN[0];
+    let narrow = (block.left() - 8.0 - home.left() >= min_w).then(|| {
+        fit(
+            Rect::from_min_max(home.min, pos2(block.left() - 8.0, home.bottom())),
+            stage,
+        )
+    });
+    let height = (block.top() - 8.0 - home.top()).min(home.height());
+    let short = (height >= SHORT_MIN).then(|| {
+        fit_min(
+            Rect::from_min_size(home.min, vec2(home.width(), height)),
+            stage,
+            vec2(min_w, SHORT_MIN),
+        )
+    });
     [narrow, short]
         .into_iter()
         .flatten()
         .filter(|r| !r.intersects(block))
         .max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
-        .map(|r| fit(r, stage))
         .unwrap_or(up)
 }
 
@@ -633,6 +684,17 @@ mod tests {
         let shrunk = stretch(r, -1, 1, vec2(400.0, -400.0));
         assert_eq!(shrunk.size(), Vec2::from(WINDOW_MIN));
         assert_eq!(shrunk.max.x, r.max.x, "the right edge held");
+    }
+
+    #[test]
+    fn the_dictionary_shortens_when_the_player_leaves_no_full_height() {
+        let stage = Rect::from_min_size(pos2(0.0, 40.0), vec2(900.0, 700.0));
+        let home = Rect::from_min_size(pos2(150.0, 200.0), vec2(600.0, 400.0));
+        let player = Rect::from_min_size(pos2(260.0, 416.0), vec2(380.0, 224.0));
+        let short = aside(home, player, stage, true);
+        assert!(short.height() < WINDOW_MIN[1], "{short:?}");
+        assert_eq!(short.bottom(), player.top() - 8.0);
+        assert!(!short.intersects(player));
     }
 
     #[test]

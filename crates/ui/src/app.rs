@@ -475,6 +475,9 @@ impl MareaderApp {
     /// The floating Dictionary: its state lives in the settings.
     fn dict_window(&mut self, w: crate::dict::Window) {
         use crate::dict::Window as W;
+        if !matches!(w, W::Place(_)) {
+            self.read_aloud.yield_to_dictionary();
+        }
         let win = &mut self.settings.dictionary.window;
         match w {
             W::Toggle => {
@@ -3695,8 +3698,12 @@ impl eframe::App for MareaderApp {
             let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
             let now = ctx.input(|i| i.time);
             let player = self.read_aloud.clearance_rect(now);
-            self.dict
-                .window(&ctx, dictionary, stage, toasts, player, &mut commands);
+            if self
+                .dict
+                .window(&ctx, dictionary, stage, toasts, player, &mut commands)
+            {
+                self.read_aloud.yield_to_dictionary();
+            }
         }
         self.lifted(&ctx);
         self.drops_from_rail(ui, &mut commands);

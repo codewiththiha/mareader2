@@ -420,7 +420,7 @@ impl Dict {
         self.page.arrive();
     }
 
-    /// The reader's floating window, when its settings say it's open.
+    /// Draws the floating window and reports a user's interaction with it.
     pub fn window(
         &mut self,
         ctx: &Context,
@@ -429,7 +429,7 @@ impl Dict {
         toasts: Option<Rect>,
         player: Option<Rect>,
         out: &mut Commands,
-    ) {
+    ) -> bool {
         self.float_rect = None;
         self.float_cover = None;
         if !settings.window.open || settings.window.minimized {
@@ -444,7 +444,7 @@ impl Dict {
             self.parked = None;
         }
         if appear <= 0.0 {
-            return;
+            return false;
         }
         let frame = window::Frame {
             service: &mut self.service,
@@ -460,9 +460,10 @@ impl Dict {
             toasts,
             player,
         };
-        let drawn = window::show(ctx, frame, appear, out);
+        let (drawn, interacted) = window::show(ctx, frame, appear, out);
         self.float_rect = settings.window.open.then_some(drawn);
         self.float_cover = settings.window.open.then_some(drawn.intersect(stage));
+        interacted
     }
 
     /// Where the floating window was drawn, for tests.

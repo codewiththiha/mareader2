@@ -472,8 +472,10 @@ struct Shape {
     parked: Option<crate::park::Tuck>,
     /// A short grace period while the player is summoned or restored.
     unparked_until: Option<f64>,
-    /// A manual reveal keeps dictionary clearance until the player is stopped.
-    manual_reveal: bool,
+    /// A reveal or shape change keeps the dictionary from covering the player.
+    player_priority: bool,
+    /// The mode last shown, to detect a user change.
+    last_look: Option<Look>,
     time: Option<f64>,
     scroll: card::Scroll,
     ticker: card::Ticker,
@@ -1011,11 +1013,17 @@ impl ReadAloud {
         self.session.is_some() && self.shape.card
     }
 
+    /// Lets a dictionary interaction reclaim its space.
+    pub fn yield_to_dictionary(&mut self) {
+        self.shape.player_priority = false;
+        self.shape.unparked_until = None;
+    }
+
     /// The player's intended rect while summoned, restoring or kept open.
     pub fn clearance_rect(&self, now: f64) -> Option<Rect> {
         self.session.as_ref()?;
-        let clear =
-            self.shape.manual_reveal || self.shape.unparked_until.is_some_and(|until| now < until);
+        let clear = self.shape.player_priority
+            || self.shape.unparked_until.is_some_and(|until| now < until);
         match self.shape.parked {
             Some(tuck) if tuck.revealing || clear => Some(tuck.home),
             Some(_) => None,
@@ -1057,6 +1065,12 @@ impl ReadAloud {
         let room = pane.unwrap_or(stage.content);
         // Bar only opens when asked, and then compact; small rooms shrink it.
         let style = settings.player;
+        let style_changed = shape.last_look.is_some_and(|last| last != style);
+        shape.last_look = Some(style);
+        if style_changed {
+            shape.player_priority = true;
+            shape.unparked_until = None;
+        }
         let fits = room.height() >= card::COMPACT_HEIGHT + 80.0 && room.width() >= 300.0;
         let roomy = room.height() >= card::HEIGHT + 120.0 && room.width() >= 360.0;
         let wanted = shape.chosen.unwrap_or(auto && style != Look::Bar);
@@ -1178,7 +1192,7 @@ impl ReadAloud {
                 ctx.animate_value_with_time(Id::new("read-aloud-keeper-rise"), under, morph);
             rect = rect.translate(egui::vec2(0.0, -risen));
             let asked_up =
-                shape.manual_reveal || shape.unparked_until.is_some_and(|until| now < until);
+                shape.player_priority || shape.unparked_until.is_some_and(|until| now < until);
             if stage.dict.is_some()
                 && let Some(until) = shape.unparked_until.filter(|until| now < *until)
             {
@@ -1281,8 +1295,8 @@ impl ReadAloud {
             {
                 tuck.revealing = true;
                 shape.parked = Some(tuck);
-                shape.unparked_until = Some(now + 4.0);
-                shape.manual_reveal = true;
+                shape.unparked_until = None;
+                shape.player_priority = true;
             }
             // Asked about a part, the question rises over the player.
             if view.ask.is_some() {
@@ -1297,6 +1311,10 @@ impl ReadAloud {
                 if let (Some(read), true) = (answer, view.ask.is_some()) {
                     act = Some(Act::Answer(read));
                 }
+            }
+            if matches!(act, Some(Act::Card(_))) || resize.is_some() {
+                shape.player_priority = true;
+                shape.unparked_until = None;
             }
             match resize {
                 Some(Resize::To(w)) => {

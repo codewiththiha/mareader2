@@ -1403,4 +1403,68 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
         dict.top() < dict_home.top() - 20.0,
         "it stays clear past the grace period: {dict:?}"
     );
+    let at = egui::pos2(dict.left() + 100.0, dict.top() + 20.0);
+    pointer(&mut h, at, None);
+    pointer(&mut h, at, Some(true));
+    pointer(&mut h, at, Some(false));
+    h.run_steps(60);
+    assert!(
+        h.query_by_label("Show the read-aloud player").is_some(),
+        "using the dictionary returns priority to it"
+    );
+}
+
+#[test]
+fn the_last_used_float_keeps_priority_and_shrinks_the_dictionary() {
+    use mareader_settings::Player;
+
+    let mut h = reader(1);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(300);
+    assert!(h.query_by_label("Expand player").is_some());
+    let id = egui::Id::new("read-aloud-bar");
+    let compact = h.ctx.memory(|m| m.area_rect(id)).expect("compact player");
+    let room_top = h.ctx.content_rect().top() + mareader_ui::theme::TITLE_BAR_H + 12.0;
+    let height = 420.0_f32.min(compact.top() - room_top - 16.0);
+    assert!(height > 240.0, "not enough room for the test: {height}");
+    let top = compact.top() - height - 4.0;
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([150.0, top, 600.0, height]);
+    h.run_steps(30);
+    let home = h.state().dict().window_rect().expect("dictionary home");
+    assert!(!home.intersects(compact), "compact player fits: {home:?}");
+
+    h.get_by_label("Expand player").click();
+    h.run_steps(30);
+    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    h.run_steps(60);
+    assert!(h.query_by_label("Collapse player").is_some());
+    let full = h.ctx.memory(|m| m.area_rect(id)).expect("full player");
+    assert!(
+        home.intersects(full),
+        "full player needs room: {home:?} vs {full:?}"
+    );
+    let aside = h
+        .state()
+        .dict()
+        .window_rect()
+        .expect("dictionary steps clear");
+    assert!(aside.height() < 240.0, "it shortens to fit: {aside:?}");
+    assert!(!aside.intersects(full), "{aside:?} vs {full:?}");
+
+    let at = egui::pos2(aside.left() + 100.0, aside.top() + 20.0);
+    pointer(&mut h, at, None);
+    pointer(&mut h, at, Some(true));
+    pointer(&mut h, at, Some(false));
+    h.run_steps(60);
+    assert!(
+        h.query_by_label("Show the read-aloud player").is_some(),
+        "using the dictionary returns priority to it"
+    );
+    let tucked = h.ctx.memory(|m| m.area_rect(id)).expect("parked player");
+    let visible = tucked.intersect(h.ctx.content_rect());
+    assert!((visible.height() - PEEK).abs() < 1.0, "{visible:?}");
 }
