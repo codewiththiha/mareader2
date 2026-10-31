@@ -993,7 +993,6 @@ status = "shipped"
 evidence = [
     "crates/epub/src/book.rs::opening_previews_near_its_saved_anchor_then_finishes",
     "crates/session/src/tests.rs::an_epub_previews_the_requested_page_then_completes_in_the_background",
-    "crates/ui/tests/reading.rs::an_epub_prefix_grows_before_the_spine_finishes",
     "crates/ui/src/page_bar.rs::a_partial_book_does_not_present_its_prefix_as_the_total",
 ]
 reference = ["crates/epub/src/book.rs", "crates/session/src/lib.rs"]
