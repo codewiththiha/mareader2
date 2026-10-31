@@ -90,9 +90,9 @@ fn completed(events: &[Event], ticket: Ticket) -> Option<(DocId, DocId)> {
 }
 
 fn raster_arrived(events: &[Event], want: PageKey) -> bool {
-    events.iter().any(|event| {
-        matches!(event, Event::Rendered { key, result: Ok(_) } if *key == want)
-    })
+    events
+        .iter()
+        .any(|event| matches!(event, Event::Rendered { key, result: Ok(_) } if *key == want))
 }
 
 fn run(run: &str) -> Result<(), String> {
@@ -118,9 +118,10 @@ fn run(run: &str) -> Result<(), String> {
         Arc::new(Typography::default()),
         target.clone(),
     );
-    let (events, preview_elapsed) = wait_until(&mut session, |event| {
-        matches!(event, Event::Preview { ticket: opened, .. } if *opened == ticket)
-    })?;
+    let (events, preview_elapsed) = wait_until(
+        &mut session,
+        |event| matches!(event, Event::Preview { ticket: opened, .. } if *opened == ticket),
+    )?;
     let doc = preview(&events, ticket).ok_or("preview event had no document")?;
     let preview_doc = session
         .get(doc)
@@ -137,9 +138,10 @@ fn run(run: &str) -> Result<(), String> {
 
     let first_want = page_key(doc, local);
     session.want([first_want]);
-    let (events, target_raster_elapsed) = wait_until(&mut session, |event| {
-        matches!(event, Event::Rendered { key, result: Ok(_) } if *key == first_want)
-    })?;
+    let (events, target_raster_elapsed) = wait_until(
+        &mut session,
+        |event| matches!(event, Event::Rendered { key, result: Ok(_) } if *key == first_want),
+    )?;
     if !raster_arrived(&events, first_want) {
         return Err("saved-place raster was not rendered".to_owned());
     }
@@ -162,9 +164,10 @@ fn run(run: &str) -> Result<(), String> {
         .map(|_| started.elapsed())
         .or(early_completed_at);
     if !raster_arrived(&scroll_events, scroll_want) {
-        let (events, _) = wait_until(&mut session, |event| {
-            matches!(event, Event::Rendered { key, result: Ok(_) } if *key == scroll_want)
-        })?;
+        let (events, _) = wait_until(
+            &mut session,
+            |event| matches!(event, Event::Rendered { key, result: Ok(_) } if *key == scroll_want),
+        )?;
         if done.is_none() {
             done = completed(&events, ticket);
             completed_at = done.map(|_| started.elapsed());
@@ -175,9 +178,10 @@ fn run(run: &str) -> Result<(), String> {
         return Err("scroll page raster was not rendered".to_owned());
     }
     if done.is_none() {
-        let (events, _) = wait_until(&mut session, |event| {
-            matches!(event, Event::Completed { ticket: opened, .. } if *opened == ticket)
-        })?;
+        let (events, _) = wait_until(
+            &mut session,
+            |event| matches!(event, Event::Completed { ticket: opened, .. } if *opened == ticket),
+        )?;
         done = completed(&events, ticket);
         completed_at = done.map(|_| started.elapsed());
     }
