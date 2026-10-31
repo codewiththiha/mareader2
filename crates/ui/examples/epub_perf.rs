@@ -11,7 +11,7 @@ use mareader_session::{
 
 const CHAPTERS: usize = 800;
 const TARGET_CHAPTER: usize = CHAPTERS / 2;
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_secs(60);
 const POLL: Budget = Budget {
     items: 32,
     bytes: 32 << 20,
@@ -59,6 +59,26 @@ fn wait_until(
     }
 }
 
+fn saved_spine_place() -> Result<SpinePlace, String> {
+    let bytes = Arc::new(mareader_epub::sample::epub(1, "Locator"));
+    let book = mareader_epub::Book::open(bytes, &Typography::default())
+        .map_err(|error| error.to_string())?;
+    let place = (0..book.page_count())
+        .find_map(|page| book.anchor(page).and_then(|anchor| book.spine_place(anchor)))
+        .ok_or("sample has no stable spine location")?;
+    let chapter = format!("chapter-{TARGET_CHAPTER}.xhtml");
+    let href = place.href.replacen("chapter-1.xhtml", &chapter, 1);
+    if href == place.href {
+        return Err("sample spine href did not identify chapter 1".to_owned());
+    }
+    Ok(SpinePlace {
+        href,
+        item: TARGET_CHAPTER.saturating_sub(1),
+        block: 0,
+        offset: 0,
+    })
+}
+
 fn page_key(doc: DocId, page: usize) -> PageKey {
     PageKey {
         doc,
@@ -96,18 +116,14 @@ fn raster_arrived(events: &[Event], want: PageKey) -> bool {
 }
 
 fn run(run: &str) -> Result<(), String> {
+    let spine = saved_spine_place()?;
     let bytes = Arc::new(mareader_epub::sample::epub(CHAPTERS, "EPUB performance"));
     let resident_before = resident("VmRSS:");
     reset_peak();
 
     let target = OpenTarget {
         page: TARGET_CHAPTER,
-        spine: Some(SpinePlace {
-            href: format!("text/chapter-{TARGET_CHAPTER}.xhtml"),
-            item: TARGET_CHAPTER.saturating_sub(1),
-            block: 0,
-            offset: 0,
-        }),
+        spine: Some(spine),
         ..OpenTarget::default()
     };
     let mut session = Session::new(1, || {});
