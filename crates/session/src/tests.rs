@@ -385,6 +385,56 @@ fn open_epub(s: &mut Session, chapters: usize) -> Result<DocId, String> {
         .map_err(|e| e.to_string())
 }
 
+#[test]
+fn an_epub_previews_the_requested_page_then_completes_in_the_background() -> Out {
+    let mut s = inline();
+    let bytes = Arc::new(mareader_epub::sample::epub(8, "Progress"));
+    let target = 8;
+    let ticket = s.open_at(
+        Source::Bytes(bytes),
+        None,
+        Arc::default(),
+        OpenTarget {
+            page: target,
+            place: None,
+        },
+    );
+    let events = until(&mut s, |e| matches!(e, Event::Preview { .. }));
+    let doc = events.iter().find_map(|e| match e {
+        Event::Preview { ticket: t, doc } if *t == ticket => Some(*doc),
+        _ => None,
+    });
+    let doc = doc.ok_or("the requested page was not previewed")?;
+    let partial = s.get(doc).ok_or("no preview entry")?;
+    assert!(!partial.doc.is_complete());
+    assert!(partial.doc.page_count() > target + 2);
+    assert_eq!(s.pending(), 0, "continuation waits for the target raster");
+    assert!(s.poll(ALL).is_empty());
+
+    s.want([key(doc, target), key(doc, target + 1)]);
+    let first = s.poll(ALL);
+    assert_eq!(rendered(&first), [target]);
+    let second = s.poll(ALL);
+    assert_eq!(rendered(&second), [target + 1]);
+
+    let events = until(&mut s, |e| matches!(e, Event::Completed { .. }));
+    let completed = events.iter().find_map(|e| match e {
+        Event::Completed {
+            ticket: t,
+            old,
+            new,
+            ..
+        } if *t == ticket => Some((*old, *new)),
+        _ => None,
+    });
+    let (old, new) = completed.ok_or("the spine did not complete")?;
+    assert_eq!(old, doc);
+    assert!(s.get(old).is_some());
+    assert!(s.get(new).is_some_and(|e| e.doc.is_complete()));
+    assert!(s.get(new).is_some_and(|e| e.doc.page_count() > target + 2));
+    Ok(())
+}
+
 fn swaps(events: &[Event]) -> Vec<(DocId, DocId, usize)> {
     events
         .iter()

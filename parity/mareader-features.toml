@@ -811,7 +811,7 @@ evidence = [
     "crates/pdf/src/tiles.rs::tiles_cover_the_page_once_and_stay_within_the_side",
     "crates/ui/tests/pages.rs::a_deep_zoom_draws_tiles_once_the_view_rests",
 ]
-notes = "Whole pages on worker threads at the device scale; past the GPU texture side or hayro's caps, a 2048 px backdrop under tiles of up to 2048 px, asked for once the view rests"
+notes = "Whole pages on worker threads at the device scale; the visible page is demanded before nearby prefetch, and a centered three-dot mark shows while its raster is missing. Past the GPU texture side or hayro's caps, a 2048 px backdrop sits under tiles of up to 2048 px, asked for once the view rests. PDF page-tree indexing is still complete before the view opens"
 
 [[feature]]
 id = "pdf.view-single"
@@ -982,6 +982,21 @@ milestone = "M4"
 status = "shipped"
 evidence = ["crates/epub/src/book.rs::the_sample_opens_with_its_title_and_chapters", "crates/epub/src/book.rs::the_cover_comes_first_and_draws_in_colour", "crates/session/src/tests.rs::an_epub_opens_by_its_bytes_and_draws_its_pages", "crates/ui/tests/reading.rs::an_epub_opens_titled_with_its_pages_drawn", "crates/epub/tests/hostile.rs::a_real_epub_2_book_opens_with_its_ncx_and_cover", "crates/epub/tests/hostile.rs::an_epub_2_book_reads_its_ncx_cover_and_entities", "crates/session/src/cover.rs::a_books_author_is_its_first_creator"]
 notes = "Replaces mareader's txt/md formats; docs/epub.md. Container, spine, title, language and the OPF cover (M4 slices 1-2); EPUB 2 with an NCX and a meta cover, proved on Project Gutenberg's The Raven (slice 7). The first dc:creator names the book's author in the library (M5 slice 2)"
+
+[[feature]]
+id = "epub.progressive-open"
+title = "Open an EPUB at its saved place before finishing the spine"
+area = "E"
+tier = "P0"
+milestone = "M4"
+status = "shipped"
+evidence = [
+    "crates/epub/src/book.rs::opening_previews_near_its_saved_anchor_then_finishes",
+    "crates/session/src/tests.rs::an_epub_previews_the_requested_page_then_completes_in_the_background",
+    "crates/ui/src/page_bar.rs::a_partial_book_does_not_present_its_prefix_as_the_total",
+]
+reference = ["crates/epub/src/book.rs", "crates/session/src/lib.rs"]
+notes = "The saved anchor wins over its numeric page; the reader exposes that page with nearby pages, continues the spine behind visible raster work, and shows an unknown total until completion"
 
 [[feature]]
 id = "epub.text-files"

@@ -68,6 +68,9 @@ impl PageBar {
 /// The counter's text: "3 / 20", or "15%" through the pages.
 pub fn counter(reading: &Reading, style: PageIndicatorStyle) -> String {
     let (page, count) = (reading.current + 1, reading.count().max(1));
+    if !reading.document.is_complete() {
+        return format!("{page} / …");
+    }
     match style {
         PageIndicatorStyle::PageNumber => format!("{page} / {count}"),
         PageIndicatorStyle::Percentage => {
@@ -113,7 +116,7 @@ pub fn show(
     let t = Tokens::get(ctx);
     let layer = LayerId::new(Order::Middle, id.with("marks"));
     let painter = ctx.layer_painter(layer).with_clip_rect(pane);
-    if layout.progress_bar {
+    if layout.progress_bar && reading.document.is_complete() {
         // A faint track first, so the bar shows even on the first page.
         let x = look.corner.min(pane.width() * 0.5);
         let track = Rect::from_min_max(
@@ -232,14 +235,19 @@ fn contents(
         }
         bar.typing = None;
     }
-    ui.label(RichText::new(format!("/ {count}")).color(t.muted));
+    let total = if reading.document.is_complete() {
+        format!("/ {count}")
+    } else {
+        "/ …".to_string()
+    };
+    ui.label(RichText::new(total).color(t.muted));
     if widgets::icon_button(ui, Icon::ChevronRight, "Next page", false).clicked() {
         out.push(Command::Turn {
             pane,
             forward: true,
         });
     }
-    if pane_width >= SLIDER_MIN_PANE && count >= 2 {
+    if reading.document.is_complete() && pane_width >= SLIDER_MIN_PANE && count >= 2 {
         let mut page = reading.current + 1;
         // Room is kept at the end for the bookmark.
         let room = ui.available_width() - BOOKMARK_W - 10.0;
@@ -278,6 +286,56 @@ mod tests {
         let reading = crate::testing::reading(20, 2)?;
         assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), "3 / 20");
         assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), "15%");
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_book_does_not_present_its_prefix_as_the_total() -> Result<(), String> {
+        let mut session = mareader_session::Session::new(0, || {});
+        let bytes = std::sync::Arc::new(mareader_epub::sample::epub(8, "Progress"));
+        let ticket = session.open_at(
+            mareader_session::Source::Bytes(bytes),
+            None,
+            std::sync::Arc::default(),
+            mareader_session::OpenTarget {
+                page: 8,
+                place: None,
+            },
+        );
+        let mut doc = None;
+        for _ in 0..32 {
+            doc = session
+                .poll(mareader_session::Budget {
+                    items: 8,
+                    bytes: usize::MAX,
+                })
+                .into_iter()
+                .find_map(|event| match event {
+                    mareader_session::Event::Preview { ticket: got, doc } if got == ticket => {
+                        Some(doc)
+                    }
+                    _ => None,
+                });
+            if doc.is_some() {
+                break;
+            }
+        }
+        let doc = doc.ok_or_else(|| "the saved page was not previewed".to_string())?;
+        let entry = session
+            .get(doc)
+            .ok_or_else(|| "no preview entry".to_string())?;
+        let reading = Reading {
+            pane: PaneId(1),
+            doc,
+            document: std::sync::Arc::clone(&entry.doc),
+            current: 8,
+            mode: crate::layout::ViewMode::Vertical,
+            progress: 0.0,
+            name: "Progress".into(),
+            page: None,
+        };
+        assert_eq!(counter(&reading, PageIndicatorStyle::PageNumber), "9 / …");
+        assert_eq!(counter(&reading, PageIndicatorStyle::Percentage), "9 / …");
         Ok(())
     }
 }

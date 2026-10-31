@@ -606,6 +606,9 @@ impl MareaderApp {
         let Some(reading) = self.documents.reading(pane) else {
             return;
         };
+        if !reading.document.is_complete() {
+            return;
+        }
         let key = Arc::as_ptr(&reading.document).addr();
         if self.find.due(ctx.input(|i| i.time), key) {
             let query = self.find.query();

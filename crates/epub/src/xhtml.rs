@@ -123,7 +123,7 @@ pub(crate) enum Href {
 }
 
 /// The places a book's ids mark and its links' destinations.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Refs {
     /// `path` and `path#id` to where each starts.
     pub(crate) places: HashMap<String, Anchor>,

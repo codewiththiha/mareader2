@@ -1,6 +1,6 @@
 # EPUB: the plan
 
-> **Status:** planned (M4) · **Last updated:** 2026-10-13
+> **Status:** built (M4) · **Last updated:** 2026-10-31
 
 EPUB replaces mareader's `.txt`/`.md` pipeline. Everything mareader's text
 formats can do, an EPUB page must do too. The choice of stack is in
@@ -21,10 +21,14 @@ formats can do, an EPUB page must do too. The choice of stack is in
      page RGBA → texture → page pass (texture + grain; no filter)
 ```
 
-- **Lazy by chapter.** Only the visible spine items and their neighbours are
-  parsed and laid out. Pagination is estimated first and refined as chapters are
-  laid out. This is the same contract as mareader's measured pagination: the
-  reading position anchors to a block, so a re-cut keeps your place.
+- **Progressive opening.** Normal reader opens parse and lay out spine items
+  until the saved anchor (preferred to a page number) and two following pages
+  are ready. That partial book is shown immediately; parsing resumes after
+  the requested page's raster arrives, one spine item at a time behind visible
+  page work. Completion replaces the partial layout at the same reading
+  anchor. Until then, the page total is unknown, and the slider and progress
+  line stay hidden. Later pagination can move page numbers, but not the saved
+  reading place.
 - **Zoom never re-paginates.** Pages scale uniformly, as in mareader. A
   typography change re-paginates and keeps the anchor block in view.
 - **Untrusted input.** Paths in the container resolve only inside it. XML depth,
@@ -65,8 +69,9 @@ the user set always wins over it.
 
 ## Features that ride on the layout
 
-- **Search:** scans the chapter text in-process. Hits are cluster rectangles in
-  page space, with the current hit in amber `#f59e0b`.
+- **Search:** starts once the spine is complete, so a partial prefix is never
+  reported as the whole book. Hits are cluster rectangles in page space, with
+  the current hit in amber `#f59e0b`.
 - **Selection and gloss:** hit-test pointer → cluster → word. The word and its
   sentence go to the study tools (M6).
 - **Links:** internal hrefs map to spine item + anchor → page. External links

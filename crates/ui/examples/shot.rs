@@ -28,6 +28,7 @@ fn main() -> Result<(), String> {
     let mut tabs = 0;
     let mut right = None;
     let mut wait = 0;
+    let mut wait_for_opening = true;
     let mut pause_read_aloud = false;
     let mut scripted = false;
     let mut clicks = Vec::new();
@@ -167,6 +168,11 @@ fn main() -> Result<(), String> {
             }
             // Frames to run before the shot, at 60 a second: `wait=90`.
             "wait" => wait = v.parse().map_err(|_| "wait=frames")?,
+            "wait_for_opening" => match v {
+                "true" => wait_for_opening = true,
+                "false" => wait_for_opening = false,
+                _ => return Err("wait_for_opening=true or false".into()),
+            },
             "pause_read_aloud" => pause_read_aloud = v == "true",
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
@@ -206,7 +212,9 @@ fn main() -> Result<(), String> {
             .queue(Command::Pronunciation(Download::Start));
         wait_for_sounds(&mut harness)?;
     }
-    wait_for_books(&mut harness);
+    if wait_for_opening {
+        wait_for_books(&mut harness);
+    }
     for c in queued {
         harness.state_mut().queue(c);
         harness.run_steps(8);

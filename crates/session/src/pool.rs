@@ -4,7 +4,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
-use mareader_epub::Inserts;
+use mareader_epub::{Inserts, OpenBook, OpenStep, OpenTarget};
 use mareader_pdf::{Paper, Raster, RenderError, TextLayer};
 use mareader_reflow::Typography;
 
@@ -25,6 +25,11 @@ pub(crate) enum Job {
         typo: Arc<Typography>,
         /// Set when the file is text to convert first.
         text: Option<TextFile>,
+        target: Option<OpenTarget>,
+    },
+    ContinueOpen {
+        ticket: u64,
+        state: Box<OpenBook>,
     },
     /// `doc`, open as `id`, set again in `typo`, maybe with `inserts`.
     Retypeset {
@@ -51,6 +56,23 @@ pub(crate) enum Output {
     Opened {
         ticket: u64,
         result: Result<Document, OpenError>,
+    },
+    OpenPreview {
+        ticket: u64,
+        doc: Document,
+        state: Box<OpenBook>,
+    },
+    OpenProgress {
+        ticket: u64,
+        state: Box<OpenBook>,
+    },
+    OpenComplete {
+        ticket: u64,
+        doc: Document,
+    },
+    OpenFailed {
+        ticket: u64,
+        error: OpenError,
     },
     /// None when the book wouldn't set; the old one stays.
     Retypeset {
@@ -95,7 +117,12 @@ impl Output {
                 doc: *doc,
                 page: *page,
             }),
-            Self::Opened { .. } | Self::Retypeset { .. } => None,
+            Self::Opened { .. }
+            | Self::OpenPreview { .. }
+            | Self::OpenProgress { .. }
+            | Self::OpenComplete { .. }
+            | Self::OpenFailed { .. }
+            | Self::Retypeset { .. } => None,
         }
     }
 }
@@ -171,13 +198,33 @@ impl Pool {
         source: Source,
         typo: Arc<Typography>,
         text: Option<TextFile>,
+        target: Option<OpenTarget>,
     ) {
         self.urgent(Job::Open {
             ticket,
             source,
             typo,
             text,
+            target,
         });
+    }
+
+    pub(crate) fn continue_open(&self, ticket: u64, state: Box<OpenBook>) {
+        self.shared
+            .lock()
+            .queue
+            .push_back(Job::ContinueOpen { ticket, state });
+        if self.workers.is_empty() {
+            (self.shared.wake)();
+        } else {
+            self.shared.work.notify_one();
+        }
+    }
+
+    pub(crate) fn cancel_open(&self, ticket: u64) {
+        self.shared.lock().queue.retain(
+            |job| !matches!(job, Job::ContinueOpen { ticket: queued, .. } if *queued == ticket),
+        );
     }
 
     /// Replaces the `stale` re-set if still queued.
@@ -217,7 +264,16 @@ impl Pool {
         let mut s = self.shared.lock();
         let s = &mut *s;
         s.wanted = jobs.iter().map(|(k, _)| *k).collect();
-        s.queue.retain(Job::urgent);
+        let mut priority = VecDeque::new();
+        let mut background = VecDeque::new();
+        for job in s.queue.drain(..) {
+            if job.urgent() {
+                priority.push_back(job);
+            } else if matches!(&job, Job::ContinueOpen { .. }) {
+                background.push_back(job);
+            }
+        }
+        s.queue = priority;
         s.done
             .retain(|o| o.want().is_none_or(|w| s.wanted.contains(&w)));
         s.done_bytes = s.done.iter().map(Output::bytes).sum();
@@ -227,6 +283,7 @@ impl Pool {
             .filter(|(k, _)| !s.running.contains(k) && !ready.contains(k));
         s.queue
             .extend(fresh.map(|(want, doc)| Job::Work { want, doc }));
+        s.queue.extend(background);
         let more = !s.queue.is_empty();
         if more && self.workers.is_empty() {
             // Inline work runs from the next poll: ask for a frame.
@@ -319,12 +376,34 @@ fn finish(shared: &Shared, job: Job) {
             source,
             typo,
             text,
-        } => Output::Opened {
-            ticket,
-            result: source.read().and_then(|b| match &text {
-                Some(file) => Document::convert(&b, file, &typo),
-                None => Document::open(b, &typo),
-            }),
+            target,
+        } => match open_document(source, &typo, text.as_ref(), target) {
+            Ok(Opened::Complete(doc)) => Output::Opened {
+                ticket,
+                result: Ok(doc),
+            },
+            Ok(Opened::Preview(doc, state)) => Output::OpenPreview { ticket, doc, state },
+            Ok(Opened::Progress(state)) => Output::OpenProgress { ticket, state },
+            Err(error) => Output::Opened {
+                ticket,
+                result: Err(error),
+            },
+        },
+        Job::ContinueOpen { ticket, mut state } => match state.step() {
+            Ok(OpenStep::Continue) => Output::OpenProgress { ticket, state },
+            Ok(OpenStep::Preview(book)) => Output::OpenPreview {
+                ticket,
+                doc: Document::from_book(book),
+                state,
+            },
+            Ok(OpenStep::Complete(book)) => Output::OpenComplete {
+                ticket,
+                doc: Document::from_book(book),
+            },
+            Err(error) => Output::OpenFailed {
+                ticket,
+                error: OpenError::Epub(error),
+            },
         },
         Job::Retypeset {
             ticket,
@@ -380,5 +459,32 @@ fn finish(shared: &Shared, job: Job) {
         s.done.push_back(out);
         drop(s);
         (shared.wake)();
+    }
+}
+
+enum Opened {
+    Complete(Document),
+    Preview(Document, Box<OpenBook>),
+    Progress(Box<OpenBook>),
+}
+
+fn open_document(
+    source: Source,
+    typo: &Typography,
+    text: Option<&TextFile>,
+    target: Option<OpenTarget>,
+) -> Result<Opened, OpenError> {
+    let bytes = source.read()?;
+    if let Some(file) = text {
+        return Document::convert(&bytes, file, typo).map(Opened::Complete);
+    }
+    if !mareader_epub::sniff(&bytes) {
+        return Document::open(bytes, typo).map(Opened::Complete);
+    }
+    let mut state = OpenBook::new(bytes, typo, target)?;
+    match state.step()? {
+        OpenStep::Continue => Ok(Opened::Progress(Box::new(state))),
+        OpenStep::Preview(book) => Ok(Opened::Preview(Document::from_book(book), Box::new(state))),
+        OpenStep::Complete(book) => Ok(Opened::Complete(Document::from_book(book))),
     }
 }

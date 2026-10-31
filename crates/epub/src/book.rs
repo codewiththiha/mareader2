@@ -1,5 +1,6 @@
-//! One opened EPUB: its chapters read, set and paginated up front.
+//! One EPUB: its spine parsed and laid out in resumable steps.
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
@@ -97,7 +98,7 @@ struct Shelf<'e> {
 }
 
 /// What a shelf has read, kept to read chapters again as triggers change.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct Read {
     pictures: HashMap<String, Option<Arc<Picture>>>,
     sheets: HashMap<String, Option<Arc<Stylesheet>>>,
@@ -269,6 +270,313 @@ pub struct Book {
     narration: Arc<Narration>,
     /// What its chapters read, kept when triggers show and hide things.
     read: Option<Arc<Read>>,
+    complete: bool,
+}
+
+const OPEN_PAGE_AHEAD: usize = 2;
+const OPEN_CHECK_ITEMS: usize = 4;
+const OPEN_CHECK_PAGES: usize = 16;
+
+/// A saved page or anchor to reach before continuing the spine.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenTarget {
+    /// The zero-based page when no stable anchor is available.
+    pub page: usize,
+    /// A stable place in the book, preferred to the page number.
+    pub place: Option<Anchor>,
+}
+
+/// The outcome of one incremental EPUB parsing step.
+#[derive(Debug)]
+pub enum OpenStep {
+    /// More spine items remain before a useful page is ready.
+    Continue,
+    /// A partial book can show the requested page and nearby pages.
+    Preview(Book),
+    /// The complete book is ready.
+    Complete(Book),
+}
+
+/// A resumable EPUB parser and layout builder.
+pub struct OpenBook {
+    bytes: Arc<Vec<u8>>,
+    epub: Epub,
+    typo: Typography,
+    target: Option<OpenTarget>,
+    title: Option<String>,
+    author: Option<String>,
+    language: Option<String>,
+    read: Read,
+    blocks: Vec<Block>,
+    refs: Refs,
+    markup: usize,
+    opening: Option<Range<usize>>,
+    book_fixed: bool,
+    pars: Vec<overlay::Par>,
+    escapes: u32,
+    next: usize,
+    last_check: usize,
+    last_pages: usize,
+    previewed: bool,
+    finished: bool,
+}
+
+impl OpenBook {
+    /// Starts opening an EPUB; `target` requests an early reading position.
+    pub fn new(
+        bytes: Arc<Vec<u8>>,
+        typo: &Typography,
+        target: Option<OpenTarget>,
+    ) -> Result<Self, OpenError> {
+        let open = || {
+            let epub = guard::open(&bytes)?;
+            let (title, author) = names(&epub);
+            let language = epub
+                .metadata()
+                .language()
+                .map(|l| l.value().trim().to_owned())
+                .filter(|l| !l.is_empty());
+            let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
+            Ok(Self {
+                bytes,
+                epub,
+                typo: typo.clone(),
+                target,
+                title,
+                author,
+                language,
+                read: Read {
+                    budget: MAX_PICTURE_BYTES,
+                    ..Read::default()
+                },
+                blocks: Vec::new(),
+                refs: Refs::default(),
+                markup: 0,
+                opening: None,
+                book_fixed,
+                pars: Vec::new(),
+                escapes: 0,
+                next: 0,
+                last_check: 0,
+                last_pages: 0,
+                previewed: false,
+                finished: false,
+            })
+        };
+        catch_unwind(AssertUnwindSafe(open)).unwrap_or(Err(OpenError::Invalid))
+    }
+
+    /// Reads one spine item, returning a preview as soon as it is useful.
+    pub fn step(&mut self) -> Result<OpenStep, OpenError> {
+        let advance = || self.advance();
+        catch_unwind(AssertUnwindSafe(advance)).unwrap_or(Err(OpenError::Invalid))
+    }
+
+    fn advance(&mut self) -> Result<OpenStep, OpenError> {
+        if self.finished {
+            return Err(OpenError::Invalid);
+        }
+        let item = self.epub.spine().iter().nth(self.next);
+        let Some(item) = item else {
+            self.finished = true;
+            return self.snapshot(true).map(OpenStep::Complete);
+        };
+        self.next = self.next.saturating_add(1);
+        let Some(listed) = item.manifest_entry() else {
+            return Ok(OpenStep::Continue);
+        };
+        let entry = readable(listed);
+        let fixed = fixed_item(item.properties(), self.book_fixed);
+        let mut shelf = Shelf::again(&self.epub, &self.read);
+        if is_picture(&entry) {
+            let (path, start) = (entry.href().decode(), self.blocks.len());
+            let out = (&mut self.blocks, &mut self.refs);
+            xhtml::read_svg_page(&path, &mut shelf, out, fixed);
+            if self.opening.is_none() && self.blocks.len() > start {
+                self.opening = Some(start..self.blocks.len());
+            }
+            self.read = shelf.kept();
+            return self.maybe_preview();
+        }
+        let Some(content) = chapter_text(&entry) else {
+            self.read = shelf.kept();
+            return Ok(OpenStep::Continue);
+        };
+        self.markup = self.markup.saturating_add(content.len());
+        if self.markup > MAX_MARKUP {
+            return Err(OpenError::TooLarge);
+        }
+        let path = entry.href().decode();
+        let start = self.blocks.len();
+        let out = (&mut self.blocks, &mut self.refs);
+        match fixed {
+            true => xhtml::read_fixed_chapter(&content, &path, &mut shelf, out),
+            false => xhtml::read_chapter(&content, &path, &mut shelf, out),
+        }
+        let anchor = Anchor {
+            block: start,
+            offset: 0,
+        };
+        let smil = listed.media_overlay().or_else(|| entry.media_overlay());
+        if let Some(smil) = smil.filter(|_| self.pars.len() < overlay::MAX_PHRASES) {
+            let xml = smil.read_bytes().unwrap_or_default();
+            let xml = xml.get(..xml.len().min(MAX_OVERLAY)).unwrap_or_default();
+            self.pars
+                .extend(overlay::read(xml, &smil.href().decode(), &mut self.escapes));
+        }
+        let listed = listed.href().decode().into_owned();
+        self.refs.places.entry(listed).or_insert(anchor);
+        if self.blocks.len() > MAX_BLOCKS {
+            return Err(OpenError::TooLarge);
+        }
+        if self.opening.is_none() && self.blocks.len() > start {
+            self.opening = Some(start..self.blocks.len());
+        }
+        self.read = shelf.kept();
+        self.maybe_preview()
+    }
+
+    fn maybe_preview(&mut self) -> Result<OpenStep, OpenError> {
+        if self.blocks.len() > MAX_BLOCKS {
+            return Err(OpenError::TooLarge);
+        }
+        if self.next >= self.epub.spine().iter().len() {
+            self.finished = true;
+            return self.snapshot(true).map(OpenStep::Complete);
+        }
+        if self.previewed || !self.should_check() {
+            return Ok(OpenStep::Continue);
+        }
+        self.last_check = self.next;
+        if self.blocks.is_empty() {
+            return Ok(OpenStep::Continue);
+        }
+        let book = self.snapshot(false)?;
+        self.last_pages = book.page_count();
+        let Some(target) = self.target else {
+            return Ok(OpenStep::Continue);
+        };
+        let page = match target.place {
+            Some(place) if place.block < book.blocks.len() => book.locate(place),
+            Some(_) => return Ok(OpenStep::Continue),
+            None => target.page,
+        };
+        if book.page_count() <= page.saturating_add(OPEN_PAGE_AHEAD) {
+            return Ok(OpenStep::Continue);
+        }
+        self.previewed = true;
+        Ok(OpenStep::Preview(book))
+    }
+
+    fn should_check(&self) -> bool {
+        let Some(target) = self.target else {
+            return false;
+        };
+        match target.place {
+            Some(place) => {
+                self.blocks.len() >= place.block.saturating_sub(1) && self.next > self.last_check
+            }
+            None => {
+                let near_target = self.last_check > 0
+                    && self.last_pages.saturating_add(OPEN_CHECK_PAGES) >= target.page;
+                !self.blocks.is_empty()
+                    && (target.page <= OPEN_PAGE_AHEAD + 1
+                        || near_target
+                        || self.next.saturating_sub(self.last_check) >= OPEN_CHECK_ITEMS)
+            }
+        }
+    }
+
+    fn snapshot(&mut self, complete: bool) -> Result<Book, OpenError> {
+        let mut blocks = if complete {
+            std::mem::take(&mut self.blocks)
+        } else {
+            self.blocks.clone()
+        };
+        let mut refs = if complete {
+            std::mem::take(&mut self.refs)
+        } else {
+            self.refs.clone()
+        };
+        let mut shelf = Shelf::again(&self.epub, &self.read);
+        let cover = self
+            .epub
+            .manifest()
+            .cover_image()
+            .map(|e| e.href().decode());
+        let cover = cover.and_then(|path| shelf.picture(&path));
+        let drawn = blocks.first().is_some_and(|b| b.frame.sheet.is_some());
+        if let Some(cover) = cover.filter(|_| !drawn)
+            && place_cover(&mut blocks, self.opening.clone().unwrap_or(0..0), cover)
+        {
+            for at in refs.places.values_mut().chain(refs.ends.values_mut()) {
+                at.block += 1;
+            }
+            for extent in refs.extents.values_mut() {
+                extent.blocks = extent.blocks.start + 1..extent.blocks.end + 1;
+            }
+            for card in &mut refs.cards {
+                card.caption = card.caption.map(|block| block + 1);
+            }
+            for chapter in &mut refs.chapters {
+                chapter.blocks = chapter.blocks.start + 1..chapter.blocks.end + 1;
+            }
+        }
+        if blocks.is_empty() {
+            return Err(OpenError::Empty);
+        }
+        let rtl = right_to_left(&self.epub, self.language.as_deref(), &blocks);
+        let lead = spread_lead(&self.epub, rtl, &blocks);
+        blocks.shrink_to_fit();
+        let blocks = Arc::new(blocks);
+        let faces = load_faces(&self.epub, &refs.faces);
+        let flow = Arc::new(set(&blocks, &self.typo, self.language.as_deref(), &faces));
+        let toc = contents(&self.epub, &refs, &blocks);
+        let notes = crate::notes::find(&blocks, &refs);
+        let pars = if complete {
+            std::mem::take(&mut self.pars)
+        } else {
+            self.pars.clone()
+        };
+        let narration = narration(&self.epub, pars, (&refs, blocks.len()));
+        let plays = refs.hrefs.iter().any(|h| matches!(h, Href::Media { .. }));
+        let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
+        let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
+        let scripted = refs
+            .chapters
+            .iter()
+            .any(|chapter| !chapter.scripts.code.is_empty());
+        let shows = !refs.targets.is_empty() || scripted;
+        let archive = (!complete || plays || shows).then(|| Arc::clone(&self.bytes));
+        let kept = shelf.kept();
+        let read = if complete {
+            shows.then(|| Arc::new(kept))
+        } else {
+            self.read = kept.clone();
+            Some(Arc::new(kept))
+        };
+        Ok(Book {
+            blocks,
+            flow,
+            typo: self.typo.clone(),
+            layout: next_layout(),
+            inserts: Arc::default(),
+            spliced: None,
+            refs: Arc::new(refs),
+            faces: Arc::new(faces),
+            notes: Arc::new(notes),
+            toc: Arc::new(toc),
+            title: self.title.clone(),
+            author: self.author.clone(),
+            language: self.language.clone(),
+            rtl,
+            lead,
+            archive,
+            narration: Arc::new(narration),
+            read,
+            complete,
+        })
+    }
 }
 
 impl std::fmt::Debug for Book {
@@ -280,8 +588,20 @@ impl std::fmt::Debug for Book {
 impl Book {
     /// Reads and lays out every chapter in `typo`; never panics.
     pub fn open(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
-        let parse = || Self::parse(bytes, typo);
+        let parse = || {
+            let mut open = OpenBook::new(bytes, typo, None)?;
+            loop {
+                if let OpenStep::Complete(book) = open.step()? {
+                    return Ok(book);
+                }
+            }
+        };
         catch_unwind(AssertUnwindSafe(parse)).unwrap_or(Err(OpenError::Invalid))
+    }
+
+    /// Whether every spine item has been parsed and laid out.
+    pub fn is_complete(&self) -> bool {
+        self.complete
     }
 
     /// The same book set in `typo`; its pictures stay decoded.
@@ -326,143 +646,10 @@ impl Book {
                 archive: self.archive.clone(),
                 narration: Arc::clone(&self.narration),
                 read: self.read.clone(),
+                complete: self.complete,
             }
         };
         catch_unwind(AssertUnwindSafe(set)).ok()
-    }
-
-    fn parse(bytes: Arc<Vec<u8>>, typo: &Typography) -> Result<Self, OpenError> {
-        let epub = guard::open(&bytes)?;
-        let (title, author) = names(&epub);
-        let language = epub
-            .metadata()
-            .language()
-            .map(|l| l.value().trim().to_owned())
-            .filter(|l| !l.is_empty());
-        let mut shelf = Shelf {
-            epub: &epub,
-            pictures: HashMap::new(),
-            sheets: HashMap::new(),
-            files: HashMap::new(),
-            budget: MAX_PICTURE_BYTES,
-        };
-        let mut blocks = Vec::new();
-        let mut refs = Refs::default();
-        let mut markup = 0;
-        // The first chapter with content, where a cover may already be.
-        let mut opening = None;
-        let book_fixed = meta(&epub, "rendition:layout").as_deref() == Some(PRE_PAGINATED);
-        // Each chapter's narration, and the structures it can leave.
-        let (mut pars, mut escapes) = (Vec::new(), 0);
-        // A chapter that won't read is skipped, as a reader would.
-        for item in epub.spine().iter() {
-            let Some(listed) = item.manifest_entry() else {
-                continue;
-            };
-            let entry = readable(listed);
-            let fixed = fixed_item(item.properties(), book_fixed);
-            if is_picture(&entry) {
-                let (path, start) = (entry.href().decode(), blocks.len());
-                let out = (&mut blocks, &mut refs);
-                xhtml::read_svg_page(&path, &mut shelf, out, fixed);
-                if opening.is_none() && blocks.len() > start {
-                    opening = Some(start..blocks.len());
-                }
-                continue;
-            }
-            let Some(content) = chapter_text(&entry) else {
-                continue;
-            };
-            markup += content.len();
-            if markup > MAX_MARKUP {
-                return Err(OpenError::TooLarge);
-            }
-            let path = entry.href().decode();
-            let start = blocks.len();
-            let out = (&mut blocks, &mut refs);
-            match fixed {
-                true => xhtml::read_fixed_chapter(&content, &path, &mut shelf, out),
-                false => xhtml::read_chapter(&content, &path, &mut shelf, out),
-            }
-            // Links to the item it stands in for land on it.
-            let anchor = Anchor {
-                block: start,
-                offset: 0,
-            };
-            let smil = listed.media_overlay().or_else(|| entry.media_overlay());
-            if let Some(smil) = smil.filter(|_| pars.len() < overlay::MAX_PHRASES) {
-                let xml = smil.read_bytes().unwrap_or_default();
-                let xml = xml.get(..xml.len().min(MAX_OVERLAY)).unwrap_or_default();
-                pars.extend(overlay::read(xml, &smil.href().decode(), &mut escapes));
-            }
-            let listed = listed.href().decode().into_owned();
-            refs.places.entry(listed).or_insert(anchor);
-            if blocks.len() > MAX_BLOCKS {
-                return Err(OpenError::TooLarge);
-            }
-            if opening.is_none() && blocks.len() > start {
-                opening = Some(start..blocks.len());
-            }
-        }
-        let cover = epub.manifest().cover_image().map(|e| e.href().decode());
-        let cover = cover.and_then(|path| shelf.picture(&path));
-        // A fixed book's first page is its cover as the book draws it.
-        let drawn = blocks.first().is_some_and(|b| b.frame.sheet.is_some());
-        if let Some(cover) = cover.filter(|_| !drawn)
-            && place_cover(&mut blocks, opening.unwrap_or(0..0), cover)
-        {
-            for at in refs.places.values_mut().chain(refs.ends.values_mut()) {
-                at.block += 1;
-            }
-            for e in refs.extents.values_mut() {
-                e.blocks = e.blocks.start + 1..e.blocks.end + 1;
-            }
-            for c in refs.cards.iter_mut() {
-                c.caption = c.caption.map(|b| b + 1);
-            }
-            for laid in refs.chapters.iter_mut() {
-                laid.blocks = laid.blocks.start + 1..laid.blocks.end + 1;
-            }
-        }
-        if blocks.is_empty() {
-            return Err(OpenError::Empty);
-        }
-        let rtl = right_to_left(&epub, language.as_deref(), &blocks);
-        let lead = spread_lead(&epub, rtl, &blocks);
-        blocks.shrink_to_fit();
-        let blocks = Arc::new(blocks);
-        let faces = load_faces(&epub, &refs.faces);
-        let flow = Arc::new(set(&blocks, typo, language.as_deref(), &faces));
-        let toc = contents(&epub, &refs, &blocks);
-        let notes = crate::notes::find(&blocks, &refs);
-        let narration = narration(&epub, pars, (&refs, blocks.len()));
-        let plays = (refs.hrefs.iter()).any(|h| matches!(h, Href::Media { .. }));
-        let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
-        let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
-        let scripted = refs.chapters.iter().any(|l| !l.scripts.code.is_empty());
-        let shows = !refs.targets.is_empty() || scripted;
-        let archive = (plays || shows).then(|| Arc::clone(&bytes));
-        let read = shows.then(|| Arc::new(shelf.kept()));
-        Ok(Self {
-            blocks,
-            flow,
-            typo: typo.clone(),
-            layout: next_layout(),
-            inserts: Arc::default(),
-            spliced: None,
-            refs: Arc::new(refs),
-            faces: Arc::new(faces),
-            notes: Arc::new(notes),
-            toc: Arc::new(toc),
-            rtl,
-            lead,
-            title,
-            author,
-            language,
-            archive,
-            narration: Arc::new(narration),
-            read,
-        })
     }
 
     /// Its narration; no phrases if it has none.
@@ -1302,6 +1489,62 @@ mod tests {
         assert_eq!(book.and_then(Book::title), Some("Sample"));
         // A cover, then chapters that each start a page and fill more.
         assert!(book.is_some_and(|b| b.page_count() >= 7), "{book:?}");
+    }
+
+    #[test]
+    fn opening_previews_near_its_saved_anchor_then_finishes() {
+        let bytes = Arc::new(sample::epub(8, "Progress"));
+        let typo = Typography::default();
+        let full = Book::open(Arc::clone(&bytes), &typo).ok();
+        assert!(full.is_some(), "sample opens");
+        let Some(full) = full else {
+            return;
+        };
+        let target_page = full.page_count() / 2;
+        let anchor = full.anchor(target_page);
+        assert!(anchor.is_some(), "middle page has an anchor");
+        let Some(anchor) = anchor else {
+            return;
+        };
+        let target = OpenTarget {
+            page: target_page,
+            place: Some(anchor),
+        };
+        let opening = OpenBook::new(Arc::clone(&bytes), &typo, Some(target));
+        assert!(opening.is_ok(), "incremental opening starts");
+        let Some(mut opening) = opening.ok() else {
+            return;
+        };
+        let preview = loop {
+            match opening.step() {
+                Ok(OpenStep::Continue) => {}
+                Ok(OpenStep::Preview(book)) => break Some(book),
+                Ok(OpenStep::Complete(_)) | Err(_) => break None,
+            }
+        };
+        assert!(
+            preview.is_some(),
+            "saved page is previewed before completion"
+        );
+        let Some(preview) = preview else {
+            return;
+        };
+        assert!(!preview.is_complete());
+        assert!(preview.page_count() < full.page_count());
+        assert_eq!(preview.locate(anchor), target.page);
+        let complete = loop {
+            match opening.step() {
+                Ok(OpenStep::Continue | OpenStep::Preview(_)) => {}
+                Ok(OpenStep::Complete(book)) => break Some(book),
+                Err(_) => break None,
+            }
+        };
+        assert!(complete.is_some(), "the remaining spine completes");
+        let Some(complete) = complete else {
+            return;
+        };
+        assert!(complete.is_complete());
+        assert_eq!(complete.locate(anchor), target.page);
     }
 
     #[test]

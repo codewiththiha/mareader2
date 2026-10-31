@@ -10,8 +10,8 @@ use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::Bounds;
 use mareader_session::{
-    Anchor, Budget, DocId, Document, Entry, Event, Inserts, Session, Source, Ticket, Typography,
-    Want, typography,
+    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source, Ticket,
+    Typography, Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::{Edge, PaneId};
@@ -626,7 +626,10 @@ impl Documents {
             return None;
         }
         let name = request.label();
-        let ticket = self.session(ctx).open(request.source, request.name, typo);
+        let target = OpenTarget { page, place };
+        let ticket = self
+            .session(ctx)
+            .open_at(request.source, request.name, typo, target);
         let opening = Content::Opening {
             ticket,
             name,
@@ -639,9 +642,10 @@ impl Documents {
         None
     }
 
-    /// A book is still on its way into some pane.
+    /// Whether a document is still opening.
     pub fn opening(&self) -> bool {
         (self.panes.values()).any(|c| matches!(c, Content::Opening { .. }))
+            || self.session.as_ref().is_some_and(Session::opening)
     }
 
     pub fn close_pane(&mut self, pane: PaneId) {
@@ -706,6 +710,7 @@ impl Documents {
         };
         let mut retyped = Vec::new();
         let mut reloaded = Vec::new();
+        let mut completed = Vec::new();
         for event in session.poll(UPLOADS) {
             match event {
                 Event::Rendered { key, result } => match result {
@@ -724,6 +729,42 @@ impl Documents {
                 Event::Text { doc, page, result } => self.texts.insert(doc, page, result),
                 Event::Paper { doc, page, result } => self.papers.insert(doc, page, result),
                 Event::Retypeset { old, new, .. } => retyped.push((old, new)),
+                Event::Preview { ticket, doc } => {
+                    let waiting = self.panes.iter().find_map(|(id, content)| match content {
+                        Content::Opening {
+                            ticket: pending,
+                            name,
+                            page,
+                            place,
+                            book,
+                            ..
+                        } if *pending == ticket => {
+                            Some((*id, name.clone(), (*page, *place, *book)))
+                        }
+                        _ => None,
+                    });
+                    if let Some((pane, _, (page, place, book))) = waiting {
+                        let mut view = PdfView::new(doc);
+                        view.book = book;
+                        let entry = session.get(doc);
+                        let count = entry.map_or(0, |e| e.doc.page_count());
+                        let page = landing(entry.map(|e| &*e.doc), page, place);
+                        if page > 0 {
+                            view.go_to(page, count);
+                        }
+                        view.hold_place(place);
+                        self.panes.insert(pane, Content::Pdf(Box::new(view)));
+                    } else {
+                        session.close(doc);
+                    }
+                }
+                Event::Completed { old, new, .. } => completed.push((old, new)),
+                Event::Incomplete { doc, error, .. } => {
+                    let name = session
+                        .get(doc)
+                        .map_or_else(|| "document".to_string(), |e| e.name.clone());
+                    out.push(Command::Notify(open_incomplete(&name, &error)));
+                }
                 Event::Opened { ticket, result } if self.reloads.has(&ticket) => {
                     if let Some((old, path, again)) = self.reloads.finish(&ticket) {
                         // Unreadable mid-save: the old one stays.
@@ -776,10 +817,12 @@ impl Documents {
             if let Some(new) = new {
                 self.reloaded(old, new);
             }
-            // Saved again while it opened: what it read may be older.
             if again {
                 self.reload(&path);
             }
+        }
+        for (old, new) in completed {
+            self.reloaded(old, new);
         }
         self.follow_files();
     }
@@ -1550,6 +1593,12 @@ fn open_failed(name: &str, e: &mareader_session::OpenError) -> Toast {
         Some(hint) => format!("Couldn't open {name}: {e}. {hint}"),
         None => format!("Couldn't open {name}: {e}."),
     })
+}
+
+fn open_incomplete(name: &str, e: &mareader_session::OpenError) -> Toast {
+    Toast::warning(format!(
+        "Couldn't finish loading {name}: {e}. Pages already opened remain available."
+    ))
 }
 
 /// `name` opened, but its end is missing.

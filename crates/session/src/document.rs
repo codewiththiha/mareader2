@@ -46,7 +46,7 @@ impl Document {
         if !mareader_epub::sniff(&bytes) {
             return Ok(Self::Pdf(mareader_pdf::Document::open(bytes)?));
         }
-        Ok(Self::epub(Book::open(bytes, typo)?))
+        Ok(Self::from_book(Book::open(bytes, typo)?))
     }
 
     /// Converts Markdown or plain text to an EPUB, then opens that.
@@ -58,10 +58,10 @@ impl Document {
         let folder = file.folder.as_deref();
         let read = |path: &str| folder.and_then(|f| read_picture(f, path));
         let epub = mareader_epub::convert(bytes, file.format, Some(&file.name), &read)?;
-        Ok(Self::epub(Book::open(Arc::new(epub), typo)?))
+        Ok(Self::from_book(Book::open(Arc::new(epub), typo)?))
     }
 
-    fn epub(book: Book) -> Self {
+    pub(crate) fn from_book(book: Book) -> Self {
         // Fixed pages keep their own shape; reflowed ones share one.
         let size = |page| {
             let (width, height) = book.size(page);
@@ -151,7 +151,7 @@ impl Document {
     pub fn reset(&self, typo: &Typography, inserts: Option<&Arc<Inserts>>) -> Option<Self> {
         match self {
             Self::Pdf(_) => None,
-            Self::Epub { book, .. } => book.reset(typo, inserts).map(Self::epub),
+            Self::Epub { book, .. } => book.reset(typo, inserts).map(Self::from_book),
         }
     }
 
@@ -270,6 +270,14 @@ impl Document {
     /// Whether the text reflows: the typography settings apply.
     pub fn is_reflowable(&self) -> bool {
         matches!(self, Self::Epub { .. })
+    }
+
+    /// Whether all spine items have been parsed and laid out.
+    pub fn is_complete(&self) -> bool {
+        match self {
+            Self::Pdf(_) => true,
+            Self::Epub { book, .. } => book.is_complete(),
+        }
     }
 
     pub fn page_count(&self) -> usize {

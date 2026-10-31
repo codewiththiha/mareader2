@@ -498,3 +498,11 @@ Findings:
 - **Known limit, cost:** without the large-block cache, macOS gets that
   memory from the system again each time. Others report 4 to 8% slower
   allocation-heavy work; not yet measured here.
+
+## 2026-10-31: Progressive EPUB opening (unmeasured)
+
+The preview owns an immutable snapshot of the parsed prefix while the resumable
+builder keeps that prefix to finish the spine. The preview layout can therefore
+coexist with the completed layout until the UI promotes and releases it. No RSS
+or peak-memory measurements have been run for progressive opening; this change
+is not claimed as a memory improvement. PDF page-tree enumeration remains eager.
