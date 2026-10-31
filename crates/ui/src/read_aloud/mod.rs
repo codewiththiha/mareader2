@@ -462,6 +462,8 @@ struct Shape {
     auto: bool,
     /// Since when the words lit have been out of sight.
     hidden_since: Option<f64>,
+    /// Distinguishes a scroll-away from a highlight hidden at first.
+    highlight_seen: bool,
     /// Whether the card is wanted, this frame.
     card: bool,
     /// The foot centre it sits on, gliding where it should.
@@ -636,6 +638,9 @@ impl ReadAloud {
     ) {
         if self.session.is_none() {
             self.shape = Shape::default();
+        } else {
+            self.shape.hidden_since = None;
+            self.shape.highlight_seen = false;
         }
         let (from, at, until) = (asked.anchor, asked.at, asked.until);
         // What reads is in this pane now, whatever read before.
@@ -1051,6 +1056,9 @@ impl ReadAloud {
         let pane = (stage.panes.iter())
             .find(|(p, _)| stage.reader && Some(*p) == home)
             .map(|(_, r)| *r);
+        if stage.shown == Some(true) {
+            shape.highlight_seen = true;
+        }
         match stage.shown {
             Some(false) => _ = *shape.hidden_since.get_or_insert(now),
             _ => shape.hidden_since = None,
@@ -1074,6 +1082,10 @@ impl ReadAloud {
         let fits = room.height() >= card::COMPACT_HEIGHT + 80.0 && room.width() >= 300.0;
         let roomy = room.height() >= card::HEIGHT + 120.0 && room.width() >= 360.0;
         let wanted = shape.chosen.unwrap_or(auto && style != Look::Bar);
+        if !shape.card && wanted && fits && drifted && shape.highlight_seen {
+            shape.player_priority = true;
+            shape.unparked_until = None;
+        }
         shape.card = wanted && fits;
         let morph = motion::secs(ctx, MORPH);
         let k = ctx.animate_bool_with_time(Id::new("read-aloud-card"), shape.card, morph);

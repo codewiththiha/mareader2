@@ -654,6 +654,75 @@ fn the_player_opens_into_a_card_when_the_page_stops_following() {
 }
 
 #[test]
+fn a_scroll_hidden_highlight_makes_the_dictionary_yield_to_the_player() {
+    use mareader_settings::Player;
+
+    let mut h = reader(3);
+    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(300);
+    assert!(!carded(&h), "the highlight starts in view");
+
+    let id = egui::Id::new("read-aloud-bar");
+    let compact = h.ctx.memory(|m| m.area_rect(id)).expect("compact player");
+    let room_top = h.ctx.content_rect().top() + mareader_ui::theme::TITLE_BAR_H + 12.0;
+    let height = 420.0_f32.min(compact.top() - room_top - 16.0);
+    assert!(height > 240.0, "not enough room for the test: {height}");
+    let top = compact.top() - height - 4.0;
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([100.0, top, 300.0, height]);
+    h.run_steps(30);
+    let home = h.state().dict().window_rect().expect("dictionary home");
+    assert!(
+        !home.intersects(compact),
+        "the bar fits beside it: {home:?}"
+    );
+
+    let pane = h.state().active_pane();
+    let pane_rect = h
+        .state()
+        .pane_rects()
+        .iter()
+        .find(|(p, _)| *p == pane)
+        .map(|(_, r)| *r)
+        .expect("reader pane");
+    h.hover_at(egui::pos2(pane_rect.right() - 20.0, pane_rect.center().y));
+    h.run_steps(1);
+    for _ in 0..4 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -500.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(3);
+    }
+    h.run_steps(60);
+
+    assert!(carded(&h), "the hidden highlight opens the full player");
+    let full = h.ctx.memory(|m| m.area_rect(id)).expect("full player");
+    assert!(
+        home.intersects(full),
+        "the full player needs room: {home:?} vs {full:?}"
+    );
+    let aside = h
+        .state()
+        .dict()
+        .window_rect()
+        .expect("dictionary steps clear");
+    assert!(!aside.intersects(full), "{aside:?} vs {full:?}");
+    assert!(
+        aside.height() < home.height() || aside.top() < home.top() - 20.0,
+        "the dictionary moves or shortens: {aside:?} vs {home:?}"
+    );
+    assert!(h.query_by_label("Collapse player").is_some());
+    assert!(h.query_by_label("Show the read-aloud player").is_none());
+}
+
+#[test]
 fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
     use mareader_ui::route::Route;
     let mut h = reader(3);
