@@ -318,6 +318,32 @@ struct ParsedItem {
     pars: Vec<overlay::Par>,
 }
 
+struct ItemPass<'a> {
+    epub: &'a Epub,
+    record: &'a SpineRecord,
+    markup_before: usize,
+    markup_limit: usize,
+    phrase_count: usize,
+}
+
+struct BookAssembly<'a> {
+    epub: &'a Epub,
+    bytes: &'a Arc<Vec<u8>>,
+    identity: &'a Arc<()>,
+    typo: &'a Typography,
+    read: &'a mut Read,
+    title: Option<String>,
+    author: Option<String>,
+    language: Option<String>,
+    blocks: Vec<Block>,
+    refs: Refs,
+    spine: Vec<SpineRange>,
+    opening: Option<Range<usize>>,
+    pars: Vec<overlay::Par>,
+    complete: bool,
+    include_cover: bool,
+}
+
 impl ParsedItem {
     fn empty() -> Self {
         Self {
@@ -458,13 +484,15 @@ impl OpenBook {
         self.next = self.next.saturating_add(1);
         let mut shelf = Shelf::again(&self.epub, &self.read);
         let parsed = read_item(
-            &self.epub,
-            &record,
+            ItemPass {
+                epub: &self.epub,
+                record: &record,
+                markup_before: self.markup,
+                markup_limit: MAX_MARKUP,
+                phrase_count: self.pars.len(),
+            },
             &mut shelf,
             (&mut self.blocks, &mut self.refs),
-            self.markup,
-            MAX_MARKUP,
-            self.pars.len(),
             &mut self.escapes,
         )?;
         self.markup = self.markup.saturating_add(parsed.markup);
@@ -517,13 +545,15 @@ impl OpenBook {
         let mut shelf = Shelf::again(&self.epub, &self.read);
         for record in self.records.get(first..end).unwrap_or_default() {
             let parsed = match read_item(
-                &self.epub,
-                record,
+                ItemPass {
+                    epub: &self.epub,
+                    record,
+                    markup_before: markup,
+                    markup_limit: MAX_PREVIEW_MARKUP,
+                    phrase_count: pars.len(),
+                },
                 &mut shelf,
                 (&mut blocks, &mut refs),
-                markup,
-                MAX_PREVIEW_MARKUP,
-                pars.len(),
                 &mut escapes,
             ) {
                 Ok(parsed) => parsed,
@@ -546,23 +576,23 @@ impl OpenBook {
             return Ok(None);
         }
         self.read = shelf.kept();
-        let book = assemble_book(
-            &self.epub,
-            &self.bytes,
-            &self.identity,
-            &self.typo,
-            self.title.clone(),
-            self.author.clone(),
-            self.language.clone(),
-            &mut self.read,
+        let book = assemble_book(BookAssembly {
+            epub: &self.epub,
+            bytes: &self.bytes,
+            identity: &self.identity,
+            typo: &self.typo,
+            read: &mut self.read,
+            title: self.title.clone(),
+            author: self.author.clone(),
+            language: self.language.clone(),
             blocks,
             refs,
             spine,
             opening,
             pars,
-            false,
-            first == 0,
-        )?;
+            complete: false,
+            include_cover: first == 0,
+        })?;
         if target
             .spine
             .as_ref()
@@ -579,23 +609,23 @@ impl OpenBook {
         let spine = std::mem::take(&mut self.spine);
         let opening = self.opening.take();
         let pars = std::mem::take(&mut self.pars);
-        assemble_book(
-            &self.epub,
-            &self.bytes,
-            &self.identity,
-            &self.typo,
-            self.title.clone(),
-            self.author.clone(),
-            self.language.clone(),
-            &mut self.read,
+        assemble_book(BookAssembly {
+            epub: &self.epub,
+            bytes: &self.bytes,
+            identity: &self.identity,
+            typo: &self.typo,
+            read: &mut self.read,
+            title: self.title.clone(),
+            author: self.author.clone(),
+            language: self.language.clone(),
             blocks,
             refs,
             spine,
             opening,
             pars,
             complete,
-            true,
-        )
+            include_cover: true,
+        })
     }
 }
 
@@ -623,15 +653,18 @@ fn spine_records(epub: &Epub, book_fixed: bool) -> Vec<SpineRecord> {
 }
 
 fn read_item(
-    epub: &Epub,
-    record: &SpineRecord,
+    pass: ItemPass<'_>,
     shelf: &mut Shelf<'_>,
     (blocks, refs): (&mut Vec<Block>, &mut Refs),
-    markup_before: usize,
-    markup_limit: usize,
-    phrase_count: usize,
     escapes: &mut u32,
 ) -> Result<ParsedItem, OpenError> {
+    let ItemPass {
+        epub,
+        record,
+        markup_before,
+        markup_limit,
+        phrase_count,
+    } = pass;
     let Some(href) = record.href.as_deref() else {
         return Ok(ParsedItem::empty());
     };
@@ -691,23 +724,24 @@ fn read_item(
     })
 }
 
-fn assemble_book(
-    epub: &Epub,
-    bytes: &Arc<Vec<u8>>,
-    identity: &Arc<()>,
-    typo: &Typography,
-    title: Option<String>,
-    author: Option<String>,
-    language: Option<String>,
-    read: &mut Read,
-    mut blocks: Vec<Block>,
-    mut refs: Refs,
-    mut spine: Vec<SpineRange>,
-    opening: Option<Range<usize>>,
-    pars: Vec<overlay::Par>,
-    complete: bool,
-    include_cover: bool,
-) -> Result<Book, OpenError> {
+fn assemble_book(assembly: BookAssembly<'_>) -> Result<Book, OpenError> {
+    let BookAssembly {
+        epub,
+        bytes,
+        identity,
+        typo,
+        read,
+        title,
+        author,
+        language,
+        mut blocks,
+        mut refs,
+        mut spine,
+        opening,
+        pars,
+        complete,
+        include_cover,
+    } = assembly;
     let mut shelf = Shelf::again(epub, read);
     if include_cover {
         let cover = epub
