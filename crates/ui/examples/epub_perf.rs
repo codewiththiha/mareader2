@@ -64,7 +64,10 @@ fn saved_spine_place() -> Result<SpinePlace, String> {
     let book = mareader_epub::Book::open(bytes, &Typography::default())
         .map_err(|error| error.to_string())?;
     let place = (0..book.page_count())
-        .find_map(|page| book.anchor(page).and_then(|anchor| book.spine_place(anchor)))
+        .find_map(|page| {
+            book.anchor(page)
+                .and_then(|anchor| book.spine_place(anchor))
+        })
         .ok_or("sample has no stable spine location")?;
     let chapter = format!("chapter-{TARGET_CHAPTER}.xhtml");
     let href = place.href.replacen("chapter-1.xhtml", &chapter, 1);
@@ -179,7 +182,9 @@ fn run(run: &str) -> Result<(), String> {
     let mut completed_at = completed(&scroll_events, ticket)
         .map(|_| started.elapsed())
         .or(early_completed_at);
-    if !raster_arrived(&scroll_events, scroll_want) {
+    let mut scroll_ready_at =
+        raster_arrived(&scroll_events, scroll_want).then(|| scroll_started.elapsed());
+    if scroll_ready_at.is_none() {
         let (events, _) = wait_until(
             &mut session,
             |event| matches!(event, Event::Rendered { key, result: Ok(_) } if *key == scroll_want),
@@ -189,10 +194,11 @@ fn run(run: &str) -> Result<(), String> {
             completed_at = done.map(|_| started.elapsed());
         }
         scroll_events.extend(events);
+        if raster_arrived(&scroll_events, scroll_want) {
+            scroll_ready_at = Some(scroll_started.elapsed());
+        }
     }
-    if !raster_arrived(&scroll_events, scroll_want) {
-        return Err("scroll page raster was not rendered".to_owned());
-    }
+    let scroll_elapsed = scroll_ready_at.ok_or("scroll page raster was not rendered")?;
     if done.is_none() {
         let (events, _) = wait_until(
             &mut session,
@@ -202,7 +208,6 @@ fn run(run: &str) -> Result<(), String> {
         completed_at = done.map(|_| started.elapsed());
     }
     let completed_at = completed_at.ok_or("completion event had no document pair")?;
-    let scroll_elapsed = scroll_started.elapsed();
     let (old, new) = done.ok_or("completion IDs were not retained")?;
     let full_pages = session
         .get(new)
