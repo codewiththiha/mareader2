@@ -278,6 +278,7 @@ const MAX_SPINE_ITEMS: usize = 1 << 16;
 const MAX_PREVIEW_MARKUP: usize = 8 << 20;
 const MAX_PREVIEW_BLOCKS: usize = 1 << 16;
 const PREVIEW_NEIGHBORS: usize = 2;
+const PREVIEW_EXTRA_NEIGHBORS: usize = 1;
 const OPEN_BATCH_ITEMS: usize = 16;
 /// A saved page or stable location to reach before opening the whole spine.
 #[derive(Debug, Clone, Default)]
@@ -530,9 +531,25 @@ impl OpenBook {
         let Some(item) = item else {
             return Ok(None);
         };
-        let first = item.saturating_sub(PREVIEW_NEIGHBORS);
+        let read = self.read.clone();
+        let expanded =
+            self.preview_window(target, item, PREVIEW_NEIGHBORS + PREVIEW_EXTRA_NEIGHBORS)?;
+        if expanded.is_some() {
+            return Ok(expanded);
+        }
+        self.read = read;
+        self.preview_window(target, item, PREVIEW_NEIGHBORS)
+    }
+
+    fn preview_window(
+        &mut self,
+        target: &OpenTarget,
+        item: usize,
+        neighbors: usize,
+    ) -> Result<Option<Book>, OpenError> {
+        let first = item.saturating_sub(neighbors);
         let end = item
-            .saturating_add(PREVIEW_NEIGHBORS)
+            .saturating_add(neighbors)
             .saturating_add(1)
             .min(self.records.len());
         let mut blocks = Vec::new();
@@ -1879,6 +1896,7 @@ mod tests {
         };
         assert!(!preview.is_complete());
         assert!(preview.page_count() < full.page_count());
+        assert!(preview.page_count() > 10, "extra neighbors widen the preview");
         let target_local = preview.locate_spine(&place);
         assert!(target_local.is_some(), "preview contains the saved place");
         let Some(target_local) = target_local else {

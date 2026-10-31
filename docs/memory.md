@@ -501,9 +501,10 @@ Findings:
 
 ## 2026-10-31: Progressive EPUB opening
 
-A saved-place open publishes one bounded, target-centered preview. Once its
-target page raster is ready, one continuation parses the remaining spine and
-publishes the completed layout; no widening prefix snapshots are published.
+A saved-place open publishes one bounded, target-centered preview of up to
+seven spine items, falling back to five when its markup or block budget is hit.
+Once the target raster is ready, one continuation parses the remaining spine
+and publishes the completed layout; no widening prefix snapshots are published.
 Missing scroll rasters remain blank, without a per-page loading animation.
 
 The remote memory task also runs a generated 800-chapter EPUB with one worker,

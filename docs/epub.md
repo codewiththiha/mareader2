@@ -24,10 +24,12 @@ formats can do, an EPUB page must do too. The choice of stack is in
 - **Progressive opening.** A saved EPUB place stores its spine href and a
   block-relative offset, so a deep resume can parse a bounded window around
   the target without laying out the prefix. A fresh book previews its first
-  spine item. The preview is capped by markup and block budgets, then one
-  complete parse and layout continues in bounded batches after the target
-  raster arrives. Preview pages use local indices plus the saved global page
-  offset and count. At completion, stable spine places map the view and reusable
+  spine item. The preview tries up to three spine items either side (seven
+  total); if its markup or block budget is exceeded, it retries the previous
+  two-item radius. One complete parse and layout then continues in bounded
+  batches after the target raster arrives. Preview pages use local indices plus
+  the saved global page offset and count. At completion, stable spine places map
+  the view and reusable
   rasters into the full layout; there are no widening prefix snapshots. Older
   saves with only a global block anchor still load in one complete pass and
   retain their place. The counter shows `page / pages+`; its saved total is
