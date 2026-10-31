@@ -24,7 +24,7 @@ pub(crate) struct TextFile {
 pub enum Document {
     Pdf(mareader_pdf::Document),
     Epub {
-        book: Book,
+        book: Box<Book>,
         sizes: Vec<PageSize>,
         /// The contents on this setting's pages.
         outline: Vec<OutlineEntry>,
@@ -94,7 +94,7 @@ impl Document {
             })
             .collect();
         Self::Epub {
-            book,
+            book: Box::new(book),
             sizes,
             outline,
             page_offset,
@@ -209,16 +209,15 @@ impl Document {
                 ..
             } => {
                 let mut reset = Self::from_book(book.reset(typo, inserts)?);
-                if !reset.is_complete() {
-                    if let Self::Epub {
+                if !reset.is_complete()
+                    && let Self::Epub {
                         page_offset: offset,
                         page_total: total,
                         ..
                     } = &mut reset
-                    {
-                        *offset = *page_offset;
-                        *total = *page_total;
-                    }
+                {
+                    *offset = *page_offset;
+                    *total = *page_total;
                 }
                 Some(reset)
             }
