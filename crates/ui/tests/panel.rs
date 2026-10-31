@@ -108,8 +108,8 @@ fn carry(h: &mut Harness<'static, MareaderApp>, from: egui::Pos2, to: egui::Pos2
 fn reads(h: &Harness<'static, MareaderApp>, pane: PaneId) -> Option<BookId> {
     let app = h.state();
     app.documents().book(pane).or_else(|| {
-        let (path, ..) = app.documents().place(pane)?;
-        app.library().book_at(&path)
+        let place = app.documents().place(pane)?;
+        app.library().book_at(&place.path)
     })
 }
 
