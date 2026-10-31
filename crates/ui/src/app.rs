@@ -2497,18 +2497,17 @@ impl MareaderApp {
             } => self.open_book(ctx, book, pane, placement),
             Command::Library(action) => self.library_action(ctx, action),
             Command::ForgetPositions { books, paths } => {
-                let panes: Vec<PaneId> = self
-                    .tree
-                    .panes()
-                    .into_iter()
-                    .filter(|&pane| match self.documents.book(pane) {
-                        Some(book) => books.contains(&book),
-                        None => self
-                            .documents
-                            .path(pane)
-                            .is_some_and(|open| paths.iter().any(|path| path.as_path() == open)),
-                    })
-                    .collect();
+                let panes: Vec<PaneId> =
+                    self.tree
+                        .panes()
+                        .into_iter()
+                        .filter(|&pane| match self.documents.book(pane) {
+                            Some(book) => books.contains(&book),
+                            None => self.documents.path(pane).is_some_and(|open| {
+                                paths.iter().any(|path| path.as_path() == open)
+                            }),
+                        })
+                        .collect();
                 for note in self.documents.restart_at_start(ctx, &panes) {
                     self.toasts.push(note);
                 }
