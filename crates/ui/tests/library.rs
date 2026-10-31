@@ -1241,8 +1241,8 @@ fn erasing_a_position_restarts_an_open_book_before_it_returns() {
         },
     );
     let erase = "Erase highlights, AI pages and reading position";
-    assert!(h.query_by_label(erase).is_some());
-    h.get_by_label(erase).click();
+    assert!(h.query_by_role_and_label(Role::CheckBox, erase).is_some());
+    h.get_by_role_and_label(Role::CheckBox, erase).click();
     h.run();
     h.get_by_label("Erase & remove").click();
     h.run_steps(5);
