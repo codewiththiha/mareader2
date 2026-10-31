@@ -1896,7 +1896,10 @@ mod tests {
         };
         assert!(!preview.is_complete());
         assert!(preview.page_count() < full.page_count());
-        assert!(preview.page_count() > 10, "extra neighbors widen the preview");
+        assert!(
+            preview.page_count() > 10,
+            "extra neighbors widen the preview"
+        );
         let target_local = preview.locate_spine(&place);
         assert!(target_local.is_some(), "preview contains the saved place");
         let Some(target_local) = target_local else {
