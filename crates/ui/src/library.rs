@@ -306,8 +306,7 @@ impl LibraryState {
         }
         let now = wall_ms();
         for &pane in panes {
-            let (Some(reading), Some(place)) =
-                (documents.reading(pane), documents.place(pane))
+            let (Some(reading), Some(place)) = (documents.reading(pane), documents.place(pane))
             else {
                 self.seen.remove(&pane);
                 continue;
