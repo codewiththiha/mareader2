@@ -715,7 +715,9 @@ fn assemble_book(
             .cover_image()
             .map(|entry| entry.href().decode());
         let cover = cover.and_then(|path| shelf.picture(&path));
-        let drawn = blocks.first().is_some_and(|block| block.frame.sheet.is_some());
+        let drawn = blocks
+            .first()
+            .is_some_and(|block| block.frame.sheet.is_some());
         if let Some(cover) = cover.filter(|_| !drawn)
             && place_cover(&mut blocks, opening.unwrap_or(0..0), cover)
         {
@@ -723,19 +725,19 @@ fn assemble_book(
                 at.block = at.block.saturating_add(1);
             }
             for extent in refs.extents.values_mut() {
-                extent.blocks = extent.blocks.start.saturating_add(1)
-                    ..extent.blocks.end.saturating_add(1);
+                extent.blocks =
+                    extent.blocks.start.saturating_add(1)..extent.blocks.end.saturating_add(1);
             }
             for card in &mut refs.cards {
                 card.caption = card.caption.map(|block| block.saturating_add(1));
             }
             for chapter in &mut refs.chapters {
-                chapter.blocks = chapter.blocks.start.saturating_add(1)
-                    ..chapter.blocks.end.saturating_add(1);
+                chapter.blocks =
+                    chapter.blocks.start.saturating_add(1)..chapter.blocks.end.saturating_add(1);
             }
             for item in &mut spine {
-                item.blocks = item.blocks.start.saturating_add(1)
-                    ..item.blocks.end.saturating_add(1);
+                item.blocks =
+                    item.blocks.start.saturating_add(1)..item.blocks.end.saturating_add(1);
             }
         }
     }
@@ -755,7 +757,10 @@ fn assemble_book(
     let toc = contents(epub, &refs, &blocks);
     let notes = crate::notes::find(&blocks, &refs);
     let narration = narration(epub, pars, (&refs, blocks.len()));
-    let plays = refs.hrefs.iter().any(|href| matches!(href, Href::Media { .. }));
+    let plays = refs
+        .hrefs
+        .iter()
+        .any(|href| matches!(href, Href::Media { .. }));
     let plays = plays || !narration.phrases.is_empty() || !refs.cards.is_empty();
     let plays = plays || refs.clips.values().any(|(path, _)| path.is_some());
     let scripted = refs
@@ -1159,9 +1164,10 @@ impl Book {
 
     /// The stable spine item and block offset for `anchor`.
     pub fn spine_place(&self, anchor: Anchor) -> Option<SpinePlace> {
-        let item = self.spine.iter().find(|item| {
-            (item.blocks.start..item.blocks.end).contains(&anchor.block)
-        })?;
+        let item = self
+            .spine
+            .iter()
+            .find(|item| (item.blocks.start..item.blocks.end).contains(&anchor.block))?;
         if item.href.len() > MAX_SPINE_HREF {
             return None;
         }
@@ -1830,7 +1836,10 @@ mod tests {
                 Ok(OpenStep::Complete(_)) | Err(_) => break None,
             }
         };
-        assert!(preview.is_some(), "saved place is previewed before completion");
+        assert!(
+            preview.is_some(),
+            "saved place is previewed before completion"
+        );
         let Some(preview) = preview else {
             return;
         };
@@ -1857,7 +1866,10 @@ mod tests {
         assert!(complete.is_complete());
         assert_eq!(complete.locate_spine(&place), Some(target_page));
         assert!(target_local < preview.page_count());
-        assert_eq!(preview.same_page(target_local, &complete), Some(target_page));
+        assert_eq!(
+            preview.same_page(target_local, &complete),
+            Some(target_page)
+        );
     }
 
     #[test]

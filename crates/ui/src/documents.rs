@@ -10,8 +10,8 @@ use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::Bounds;
 use mareader_session::{
-    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source, SpinePlace,
-    Ticket, Typography, Want, typography,
+    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source,
+    SpinePlace, Ticket, Typography, Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::{Edge, PaneId};
@@ -1616,9 +1616,7 @@ impl Documents {
             } => Some((file.clone()?, *page, *place, spine.clone(), *pages)),
             Content::Pdf(view) => {
                 let entry = self.session.as_ref()?.get(view.doc)?;
-                let anchor = view
-                    .place()
-                    .or_else(|| entry.doc.anchor(view.current));
+                let anchor = view.place().or_else(|| entry.doc.anchor(view.current));
                 let spine = anchor.and_then(|at| entry.doc.spine_place(at));
                 let legacy = entry.doc.is_complete().then_some(anchor).flatten();
                 let page = entry.doc.global_page(view.current);

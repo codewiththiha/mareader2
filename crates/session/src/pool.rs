@@ -407,7 +407,7 @@ fn finish(shared: &Shared, job: Job) {
                     error: OpenError::Epub(error),
                 },
             }
-        },
+        }
         Job::Retypeset {
             ticket,
             id,

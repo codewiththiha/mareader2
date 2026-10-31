@@ -8,8 +8,7 @@ use crate::disk::Folder;
 use crate::store::Store;
 use crate::tests::save;
 use crate::{
-    ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, Opened, Position,
-    SpinePosition,
+    ContentId, DeviceId, FileStamp, Format, Kind, Library, Measure, Opened, Position, SpinePosition,
 };
 
 const DEVICE: DeviceId = DeviceId(7);

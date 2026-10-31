@@ -452,12 +452,14 @@ fn open_progress_uses_the_latest_typography() -> Out {
             continuing: false,
         },
     );
-    assert!(session
-        .accept(Output::OpenProgress {
-            ticket,
-            state: Box::new(state),
-        })
-        .is_none());
+    assert!(
+        session
+            .accept(Output::OpenProgress {
+                ticket,
+                state: Box::new(state),
+            })
+            .is_none()
+    );
     let Some(mut state) = session
         .opening
         .get_mut(&ticket)
@@ -500,10 +502,12 @@ fn a_legacy_global_anchor_still_resumes_in_one_complete_load() -> Out {
             pages: full.page_count(),
         },
     );
-    let events = until(&mut s, |event| matches!(
-        event,
-        Event::Opened { ticket: got, .. } if *got == ticket
-    ));
+    let events = until(&mut s, |event| {
+        matches!(
+            event,
+            Event::Opened { ticket: got, .. } if *got == ticket
+        )
+    });
     let doc = events.iter().find_map(|event| match event {
         Event::Opened {
             ticket: got,
@@ -515,7 +519,11 @@ fn a_legacy_global_anchor_still_resumes_in_one_complete_load() -> Out {
     let document = s.get(doc).ok_or("no opened document")?;
     assert!(document.doc.is_complete());
     assert_eq!(document.doc.locate(anchor), Some(page));
-    assert!(!events.iter().any(|event| matches!(event, Event::Preview { .. })));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::Preview { .. }))
+    );
     Ok(())
 }
 
@@ -527,7 +535,9 @@ fn an_epub_previews_a_stable_location_then_completes_once() -> Out {
     let full = mareader_epub::Book::open(Arc::clone(&bytes), &typo)?;
     let target_page = full.page_count() / 2;
     let anchor = full.anchor(target_page).ok_or("no target anchor")?;
-    let spine = full.spine_place(anchor).ok_or("no stable target location")?;
+    let spine = full
+        .spine_place(anchor)
+        .ok_or("no stable target location")?;
     let pages = full.page_count();
     let ticket = s.open_at(
         Source::Bytes(bytes),
