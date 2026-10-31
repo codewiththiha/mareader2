@@ -275,11 +275,39 @@ impl LibraryState {
             .map(|s| self.shelf_name(*s))
             .unwrap_or_default();
         let receipt = self.model.receipt(books);
+        let reset_books: Vec<BookId> = if forget {
+            books
+                .iter()
+                .copied()
+                .filter(|id| self.model.book(*id).is_some())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut reset_paths = Vec::new();
+        for id in &reset_books {
+            if let Some(book) = self.model.book(*id) {
+                for location in &book.locations {
+                    reset_paths.push(location.path.clone());
+                    if let Some(from) = &location.from {
+                        reset_paths.push(from.clone());
+                    }
+                }
+            }
+        }
+        reset_paths.sort();
+        reset_paths.dedup();
         let data = match forget {
             true => Data::Delete,
             false => Data::Keep,
         };
         let done = self.model.remove_books(books, data, now);
+        if forget && done > 0 {
+            out.push(Command::ForgetPositions {
+                books: reset_books,
+                paths: reset_paths,
+            });
+        }
         let gone = (shelves.iter())
             .filter(|id| self.model.remove_shelf(**id, now).is_some())
             .count();

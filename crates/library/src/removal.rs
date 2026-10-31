@@ -307,7 +307,7 @@ impl Library {
             state.position = Field::new(
                 Position {
                     page: 0,
-                    pages: state.position.value.pages,
+                    pages: 0,
                     place: None,
                     spine: None,
                 },

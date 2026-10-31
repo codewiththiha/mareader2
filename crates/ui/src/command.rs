@@ -1,5 +1,7 @@
 //! User intents. Views push them; the app applies them after the UI pass.
 
+use std::path::PathBuf;
+
 use mareader_appearance::Appearance;
 use mareader_library::BookId;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
@@ -54,6 +56,11 @@ pub enum Command {
     SetLibraryView(mareader_library::View),
     /// Folders, scopes and finding lost books.
     Library(crate::library::Action),
+    /// Resets live panes so an erased location cannot be saved back.
+    ForgetPositions {
+        books: Vec<BookId>,
+        paths: Vec<PathBuf>,
+    },
     /// The Search buttons: the find bar on, or off if open.
     ShowSearch,
     /// Opens the Appearance popover (the keymap's route to it).

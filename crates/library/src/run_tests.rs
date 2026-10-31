@@ -314,7 +314,11 @@ fn kept_data_comes_back_with_the_file_and_deleted_data_does_not() {
     let (_, fresh) = import(&mut lib, "/books", Mode::InPlace, &files);
     let book = lib.book(fresh.placed[0]).unwrap();
     assert_eq!(book.title.value, "a", "a book never seen");
-    assert_eq!(lib.position(book.id).map(|p| p.page), Some(0));
+    assert_eq!(
+        lib.position(book.id).map(|p| (p.page, p.pages, p.place, p.spine)),
+        Some((0, 0, None, None)),
+        "the position and its old page count are erased"
+    );
     assert_eq!(lib.receipt(&[book.id]).marks, 0);
 }
 

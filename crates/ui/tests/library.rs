@@ -1213,6 +1213,55 @@ fn removing_a_folder_book_hides_it_until_restored_from_its_menu() {
 }
 
 #[test]
+fn erasing_a_position_restarts_an_open_book_before_it_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Shelf");
+    let path = put(&root, "raven.epub", &raven_bytes());
+    let mut h = reader(&[("library", "show")]);
+    act(&mut h, read_in(root.clone()));
+    let id = library(&h).book_at(&path).unwrap();
+    let content = library(&h).book(id).unwrap().content;
+    let folder = library(&h).folder_at(&root, true).unwrap();
+
+    h.state_mut().queue(Command::OpenBook(id));
+    h.run();
+    h.run_steps(3);
+    go_to(&mut h, 4);
+    h.run_steps(3);
+    assert_eq!(library(&h).position(id).map(|p| p.page), Some(4));
+    h.state_mut().queue(Command::ShowLibrary);
+    h.run();
+
+    book(
+        &mut h,
+        BookAction::AskRemove {
+            books: vec![id],
+            shelves: Vec::new(),
+            links: Vec::new(),
+        },
+    );
+    let erase = "Erase highlights, AI pages and reading position";
+    assert!(h.query_by_label(erase).is_some());
+    h.get_by_label(erase).click();
+    h.run();
+    h.get_by_label("Erase & remove").click();
+    h.run_steps(5);
+
+    assert!(library(&h).book(id).is_none());
+    assert_eq!(
+        library(&h).position(id).map(|p| (p.page, p.pages)),
+        Some((0, 0))
+    );
+    let pane = h.state().active_pane();
+    assert_eq!(h.state().documents().current(pane), Some(0));
+
+    act(&mut h, Action::Restore { folder, content });
+    assert_eq!(library(&h).book_at(&path), Some(id));
+    assert_eq!(page(&h), 0, "the old open view cannot restore page 4");
+    assert_ne!(library(&h).position(id).map(|p| p.page), Some(4));
+}
+
+#[test]
 fn read_separately_keeps_a_second_place_in_the_same_file() {
     let path = raven();
     let mut h = reader(&[("epub", path.to_str().unwrap())]);

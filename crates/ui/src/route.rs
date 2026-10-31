@@ -82,7 +82,7 @@ fn reads(command: &Command) -> bool {
         C::ShowDictionary => false,
         // Find searches the page in reading, the library on the shelf.
         C::ShowFind => false,
-        C::Library(_) => false,
+        C::Library(_) | C::ForgetPositions { .. } => false,
         C::Open(_) | C::ShowOpenDialog(_) | C::ShowViewMenu => false,
         C::ShowShortcuts => false,
         // The window's look, chrome and notices.

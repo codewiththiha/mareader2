@@ -727,6 +727,26 @@ impl Documents {
         self.sheets.remove(&pane);
     }
 
+    /// Reopens selected panes at the start after their saved places are erased.
+    pub fn restart_at_start(&mut self, ctx: &Context, panes: &[PaneId]) -> Vec<Toast> {
+        let requests: Vec<(PaneId, OpenRequest)> = panes
+            .iter()
+            .filter_map(|&pane| {
+                let mut request = OpenRequest::path(self.path(pane)?.to_path_buf());
+                request.pane = Some(pane);
+                request.book = self.book(pane);
+                Some((pane, request))
+            })
+            .collect();
+        for (pane, _) in &requests {
+            self.close_pane(*pane);
+        }
+        requests
+            .into_iter()
+            .filter_map(|(pane, request)| self.open(ctx, pane, request))
+            .collect()
+    }
+
     /// Replaces a pane's content, closing a document nobody shows.
     fn set(&mut self, pane: PaneId, content: Option<Content>) {
         let old = match content {
