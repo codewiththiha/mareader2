@@ -489,16 +489,14 @@ impl Documents {
         let Some((was, is)) = self.adoption_docs(old, new) else {
             return;
         };
-        self.pages
-            .adopt(old, new, |page| was.same_page(page, &is));
+        self.pages.adopt(old, new, |page| was.same_page(page, &is));
     }
 
     fn adopt_text_layers(&mut self, old: DocId, new: DocId) {
         let Some((was, is)) = self.adoption_docs(old, new) else {
             return;
         };
-        self.texts
-            .adopt(old, new, |page| was.same_page(page, &is));
+        self.texts.adopt(old, new, |page| was.same_page(page, &is));
     }
 
     fn adoption_docs(&self, old: DocId, new: DocId) -> Option<(Arc<Document>, Arc<Document>)> {

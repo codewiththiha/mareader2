@@ -465,9 +465,7 @@ impl OpenBook {
             let item_step = (self.spine_items / 8).max(OPEN_UPDATE_ITEMS);
             let block_step = (self.published_blocks / 2).max(OPEN_UPDATE_BLOCKS);
             let block_interval = (item_step / 2).max(OPEN_UPDATE_ITEMS / 2);
-            if added == 0
-                || (items < item_step && (items < block_interval || added < block_step))
-            {
+            if added == 0 || (items < item_step && (items < block_interval || added < block_step)) {
                 return Ok(OpenStep::Continue);
             }
             let book = self.snapshot(false)?;

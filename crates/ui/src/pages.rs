@@ -501,8 +501,8 @@ mod tests {
             put(&mut c, &ctx, key(old, page, 1.0), 8);
         }
         c.adopt(old, new, |page| (page < 2).then_some(page));
-        assert!(c.touch(new, 0) && c.touch(new, 1));
-        assert!(!c.touch(old, 0) && !c.touch(new, 2));
+        assert!(c.touch(key(new, 0, 1.0)) && c.touch(key(new, 1, 1.0)));
+        assert!(!c.touch(key(old, 0, 1.0)) && !c.touch(key(new, 2, 1.0)));
         assert_eq!(c.len(), 2);
         Ok(())
     }
