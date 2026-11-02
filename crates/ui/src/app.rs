@@ -75,6 +75,52 @@ pub struct LastDocument {
 /// Settings reach disk this long after a change, at most.
 pub const SAVE_EVERY: Duration = Duration::from_millis(500);
 
+/// A generated sample for lookup screenshots, not a provider response.
+struct AssistantSample;
+
+impl mareader_study::Explainer for AssistantSample {
+    fn by(&self) -> String {
+        "Assistant-generated sample".into()
+    }
+
+    fn explain(
+        &self,
+        word: &str,
+        _context: &str,
+        partial: &(dyn Fn(mareader_study::WordInfo) + Sync),
+    ) -> Result<mareader_study::WordInfo, mareader_study::Failure> {
+        if !word.eq_ignore_ascii_case("acknowledged") {
+            return Err(mareader_study::Why::BadAnswer.into());
+        }
+        let info = mareader_study::WordInfo {
+            pos: "verb".into(),
+            meaning: concat!(
+                "Accepted as true or recognized. Here, Austen frames a belief about ",
+                "wealthy bachelors and marriage as unquestioned, with a wry edge."
+            )
+            .into(),
+            synonyms: vec![
+                "recognized".into(),
+                "accepted".into(),
+                "assumed".into(),
+                "understood".into(),
+                "taken for granted".into(),
+            ],
+            usages: vec![
+                "Her contribution was acknowledged in the report.".into(),
+                "He acknowledged that the first plan had failed.".into(),
+                "The report acknowledges the limits of the evidence.".into(),
+            ],
+        };
+        partial(mareader_study::WordInfo {
+            pos: info.pos.clone(),
+            meaning: info.meaning.clone(),
+            ..Default::default()
+        });
+        Ok(info.clamped())
+    }
+}
+
 pub struct MareaderApp {
     settings: Settings,
     platform: Platform,
@@ -1145,8 +1191,9 @@ impl MareaderApp {
                 self.queue(Command::Open(request));
             }
             "blend" => self.settings.paper.blend = value == "true",
-            // Who explains words: a script for shots, or nobody.
+            // Who explains a word in a shot: a sample, script or nobody.
             "explain" => match value {
+                "assistant" => self.study.set_explainer(Arc::new(AssistantSample)),
                 "canned" => {
                     self.study.set_explainer(Arc::new(mareader_study::Canned));
                     self.page_ai.set_canned(true);
@@ -1154,7 +1201,7 @@ impl MareaderApp {
                 "none" => self
                     .study
                     .set_explainer(Arc::new(mareader_study::Unavailable)),
-                _ => return Err("explain: canned or none".into()),
+                _ => return Err("explain: assistant, canned or none".into()),
             },
             // One saved model on it explains words, e.g. `openai`.
             "provider" => {

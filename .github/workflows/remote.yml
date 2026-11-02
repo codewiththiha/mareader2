@@ -57,10 +57,11 @@ jobs:
           save-if: false
       - uses: ./.github/actions/apt
         with:
-          packages: mesa-vulkan-drivers fonts-noto-core libasound2-dev libspeechd-dev libclang-dev
+          packages: mesa-vulkan-drivers fonts-noto-core fonts-noto-cjk libasound2-dev libspeechd-dev libclang-dev
       - name: Render
         env:
           SHOTS: ${{ inputs.shots }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -f
           mkdir -p shots

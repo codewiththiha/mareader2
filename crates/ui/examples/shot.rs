@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
+use mareader_settings::Provider;
 use mareader_ui::MareaderApp;
+use mareader_ui::ai::Job;
 use mareader_ui::command::{Command, Download};
 use mareader_ui::layout::{Arrow, ViewMode};
 use mareader_ui::zoom::{Fit, Step, ZoomCommand};
@@ -17,6 +19,8 @@ fn main() -> Result<(), String> {
     let mut hover = None;
     let mut size = egui::vec2(1200.0, 800.0);
     let mut zooms = Vec::new();
+    let mut pane_views = Vec::new();
+    let mut deferred = Vec::new();
     let mut queued = Vec::new();
     let mut scroll = 0.0;
     let mut drag = None;
@@ -30,6 +34,13 @@ fn main() -> Result<(), String> {
     let mut wait = 0;
     let mut wait_for_opening = true;
     let mut pause_read_aloud = false;
+    let mut read_at = None;
+    let mut read_target = None;
+    let mut library_after_read_aloud = false;
+    let mut library_route_frames = 8;
+    let mut live_ai = false;
+    let mut assistant_sample = false;
+    let mut ai_key = None;
     let mut scripted = false;
     let mut clicks = Vec::new();
     for kv in args {
@@ -102,6 +113,37 @@ fn main() -> Result<(), String> {
                     ));
                 }
             })),
+            "pane_view" => {
+                let mut fields = v.split(':');
+                let pane: u32 = fields
+                    .next()
+                    .ok_or("pane_view=pane:mode:fit")?
+                    .parse()
+                    .map_err(|_| "pane_view: pane number")?;
+                if pane == 0 {
+                    return Err("pane_view: pane numbers start at 1".into());
+                }
+                let mode = match fields.next().ok_or("pane_view=pane:mode:fit")? {
+                    "single" => ViewMode::Single,
+                    "spread" => ViewMode::Spread,
+                    "vertical" => ViewMode::Vertical,
+                    "horizontal" => ViewMode::Horizontal,
+                    _ => {
+                        return Err(
+                            "pane_view: mode is single, spread, vertical or horizontal".into()
+                        );
+                    }
+                };
+                let fit = match fields.next().ok_or("pane_view=pane:mode:fit")? {
+                    "width" => Fit::Width,
+                    "page" => Fit::Page,
+                    _ => return Err("pane_view: fit is width or page".into()),
+                };
+                if fields.next().is_some() {
+                    return Err("pane_view=pane:mode:fit".into());
+                }
+                pane_views.push((pane, mode, fit));
+            }
             "arrows" => {
                 for a in v.split(',') {
                     queued.push(Command::Arrow(match a {
@@ -156,6 +198,11 @@ fn main() -> Result<(), String> {
                 let dir = fixture_packs()?;
                 app.set_option(k, &dir.to_string_lossy())?;
             }
+            // A real English-to-French pack for lookup shots.
+            "dictionaries" if v == "download" => {
+                let dir = download_dictionary()?;
+                app.set_option(k, &dir.to_string_lossy())?;
+            }
             // Tab presses once open, so the focus ring shows: `tab=3`.
             "tab" => tabs = v.parse().map_err(|_| "tab=count")?,
             // A right-click once open, so its menu shows: `right=x,y`.
@@ -174,11 +221,50 @@ fn main() -> Result<(), String> {
                 _ => return Err("wait_for_opening=true or false".into()),
             },
             "pause_read_aloud" => pause_read_aloud = v == "true",
+            // Starts reading at a phrase on a 1-based page: `read_at=14:phrase`.
+            "read_at" => {
+                let (page, phrase) = v.split_once(':').ok_or("read_at=page:phrase")?;
+                let page: usize = page.parse().map_err(|_| "read_at page")?;
+                if page == 0 || phrase.is_empty() {
+                    return Err("read_at needs a 1-based page and phrase".into());
+                }
+                read_at = Some((page - 1, phrase.replace('_', " ")));
+            }
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
             "read_aloud" if v == "true" => queued.push(Command::ToggleReadAloud),
+            // Live explanations read their key from the Actions environment.
+            "explain" if v == "live" => {
+                let key = std::env::var("OPENAI_API_KEY")
+                    .map_err(|_| "explain=live needs OPENAI_API_KEY")?;
+                if key.trim().is_empty() {
+                    return Err("explain=live needs OPENAI_API_KEY".into());
+                }
+                app.set_option("provider", "openai")?;
+                live_ai = true;
+                ai_key = Some(key);
+            }
+            // The assistant-generated answer for this sample word.
+            "explain" if v == "assistant" => {
+                app.set_option(k, v)?;
+                assistant_sample = true;
+            }
+            // Leaves the reader after playback starts, for the Library route.
+            "library_after_read_aloud" => match v {
+                "true" => library_after_read_aloud = true,
+                _ => return Err("library_after_read_aloud=true".into()),
+            },
+            // Frames after switching routes: `library_after_read_aloud_frames=2`.
+            "library_after_read_aloud_frames" => {
+                library_route_frames = v
+                    .parse()
+                    .map_err(|_| "library_after_read_aloud_frames=frames")?;
+                if library_route_frames == 0 {
+                    return Err("library_after_read_aloud_frames must be positive".into());
+                }
+            }
             // Clicks on its scripted pages: `script=#answer,li.right`.
             "script" => {
                 app.set_option(k, v)?;
@@ -191,17 +277,37 @@ fn main() -> Result<(), String> {
                     h.parse().map_err(|_| "height")?,
                 );
             }
+            "selection" | "gloss" | "lookup" | "note" | "noted" | "highlight" | "bookmark"
+            | "pick" | "page_ai" | "word_window" => {
+                deferred.push((k.to_owned(), v.to_owned()));
+            }
             _ => app.set_option(k, v)?,
         }
     }
+    let ai_root = std::env::temp_dir().join(format!("mareader-shot-ai-{}", std::process::id()));
+    let attach_ai = live_ai;
     let mut harness = Harness::builder()
         .with_size(size)
         .with_pixels_per_point(2.0)
         .with_step_dt(1.0 / 60.0)
         .wgpu()
         .with_max_steps(64)
-        .build_eframe(|_| app);
+        .build_eframe(|cc| {
+            if attach_ai {
+                app.attach_ai(&cc.egui_ctx, ai_root, None);
+            }
+            app
+        });
     harness.run_steps(4);
+    if let Some(key) = ai_key {
+        harness
+            .state_mut()
+            .queue(Command::Ai(Job::AddKey(Provider::OpenAi, key)));
+        for _ in 0..20 {
+            harness.run_steps(1);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     if words {
         harness.state_mut().queue(Command::Vocab(Download::Start));
         wait_for_words(&mut harness)?;
@@ -215,9 +321,72 @@ fn main() -> Result<(), String> {
     if wait_for_opening {
         wait_for_books(&mut harness);
     }
+    let mut library_shown = false;
     for c in queued {
+        let mut from_text = false;
+        let c = match c {
+            Command::ToggleReadAloud => match read_at.take() {
+                Some((page, phrase)) => {
+                    from_text = true;
+                    let from = read_from_text(harness.state(), page, &phrase)?;
+                    read_target = from.at;
+                    let pane = harness.state().active_pane();
+                    Command::ReadAloud { pane, from }
+                }
+                None => Command::ToggleReadAloud,
+            },
+            other => other,
+        };
         harness.state_mut().queue(c);
+        if from_text && library_after_read_aloud {
+            harness.state_mut().queue(Command::ShowLibrary);
+            harness.run_steps(library_route_frames);
+            library_shown = true;
+        } else {
+            harness.run_steps(8);
+        }
+    }
+    if library_after_read_aloud && !library_shown {
+        harness.state_mut().queue(Command::ShowLibrary);
+        harness.run_steps(library_route_frames);
+    }
+    if let Some(target) = read_target {
+        for _ in 0..64 {
+            if read_at_visible(&harness, target) {
+                break;
+            }
+            let after = harness
+                .state()
+                .read_aloud()
+                .reading_spot()
+                .is_some_and(|(page, chars)| {
+                    page > target.page
+                        || (page == target.page
+                            && chars.is_some_and(|range| range.start > target.char))
+                });
+            if after && let Some(previous) = harness.query_by_label("Previous sentence") {
+                previous.click();
+            }
+            harness.run_steps(1);
+        }
+        if !read_at_visible(&harness, target) {
+            return Err(format!(
+                "read_at: target {target:?}, current {:?}",
+                harness.state().read_aloud().reading_spot()
+            ));
+        }
+    }
+    for (pane, mode, fit) in pane_views.iter().copied() {
+        harness.state_mut().set_option("focus", &pane.to_string())?;
+        harness.state_mut().queue(Command::View(mode));
         harness.run_steps(8);
+        harness
+            .state_mut()
+            .queue(Command::Zoom(ZoomCommand::Fit(fit)));
+        harness.run_steps(16);
+    }
+    if !pane_views.is_empty() {
+        harness.state_mut().set_option("focus", "1")?;
     }
     if pause_read_aloud {
         let pause = harness
@@ -243,6 +412,21 @@ fn main() -> Result<(), String> {
             modifiers: egui::Modifiers::NONE,
         });
         harness.run_steps(40);
+    }
+    let lookup = deferred.iter().any(|(key, _)| key == "lookup");
+    let frames = deferred.len().saturating_mul(8);
+    for (key, value) in deferred {
+        harness.state_mut().set_option(&key, &value)?;
+    }
+    harness.run_steps(frames);
+    if live_ai {
+        wait_for_ai_answer(&mut harness)?;
+    }
+    if assistant_sample {
+        wait_for_assistant_answer(&mut harness)?;
+    }
+    if lookup {
+        wait_for_dictionary_answer(&mut harness)?;
     }
     if let Some(by) = nudge {
         let pin = harness.query_by_label(mareader_ui::read_aloud::marker::LABEL);
@@ -308,6 +492,59 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
+/// Finds a phrase on a page and makes it the starting point for reading.
+fn read_from_text(
+    app: &MareaderApp,
+    page: usize,
+    phrase: &str,
+) -> Result<mareader_ui::read_aloud::ReadFrom, String> {
+    let pane = app.active_pane();
+    let reading = app
+        .documents()
+        .reading(pane)
+        .ok_or("read_at needs an open document")?;
+    let layer = reading
+        .document
+        .text_layer(page)
+        .map_err(|_| format!("read_at: no text on page {}", page + 1))?;
+    let chars: Vec<_> = layer
+        .text
+        .chars()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| (!c.ch.is_whitespace()).then_some((c.ch.to_ascii_lowercase(), i)))
+        .collect();
+    let phrase: Vec<_> = phrase
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    if phrase.is_empty() {
+        return Err("read_at needs a phrase with letters".into());
+    }
+    let start = chars
+        .windows(phrase.len())
+        .position(|window| window.iter().map(|(c, _)| *c).eq(phrase.iter().copied()))
+        .ok_or(format!("read_at: phrase not found on page {}", page + 1))?;
+    let char = chars[start].1;
+    Ok(mareader_ui::read_aloud::ReadFrom {
+        anchor: None,
+        at: Some(mareader_speech::Spot { page, char }),
+        until: None,
+    })
+}
+
+/// Whether the player's current phrase covers the requested reading spot.
+fn read_at_visible(harness: &Harness<'_, MareaderApp>, target: mareader_speech::Spot) -> bool {
+    harness
+        .state()
+        .read_aloud()
+        .reading_spot()
+        .is_some_and(|(page, chars)| {
+            page == target.page && chars.is_some_and(|range| range.contains(&target.char))
+        })
+}
+
 /// `url` saved under the temporary folder, by its last part.
 fn download(url: &str) -> Result<std::path::PathBuf, String> {
     let name = url.rsplit('/').next().filter(|n| !n.is_empty());
@@ -327,6 +564,30 @@ fn download(url: &str) -> Result<std::path::PathBuf, String> {
     }
 }
 
+/// Downloads and converts the pinned English-to-French pack.
+fn download_dictionary() -> Result<std::path::PathBuf, String> {
+    let pack = mareader_dict::PACKS
+        .iter()
+        .find(|pack| pack.id == "wiktionary-en-fr")
+        .ok_or("no English-to-French pack")?;
+    let dir = std::env::temp_dir().join(format!("mareader-shot-dict-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let db = mareader_dict::db_file(&dir, pack);
+    let mut failures = Vec::new();
+    for url in pack.urls() {
+        let result = download(&url).and_then(|parquet| {
+            mareader_dict::build(&parquet, &db)
+                .map(|_| ())
+                .map_err(|e| format!("dictionary convert: {e}"))
+        });
+        match result {
+            Ok(()) => return Ok(dir),
+            Err(error) => failures.push(error),
+        }
+    }
+    Err(format!("dictionary pack: {}", failures.join("; ")))
+}
+
 /// The Burmese and French test packs, built into a temporary folder.
 fn fixture_packs() -> Result<std::path::PathBuf, String> {
     let dir = std::env::temp_dir().join("mareader-shot-packs");
@@ -343,6 +604,77 @@ fn fixture_packs() -> Result<std::path::PathBuf, String> {
         mareader_dict::build(&fixtures.join(file), &db).map_err(|e| e.to_string())?;
     }
     Ok(dir)
+}
+
+/// Waits until the open word card has a completed hosted answer.
+fn wait_for_ai_answer(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(60);
+    loop {
+        harness.run_steps(1);
+        let by = {
+            let study = harness.state().study();
+            study
+                .card_answer()
+                .is_some()
+                .then(|| study.card_by().unwrap_or_default().to_owned())
+        };
+        if let Some(by) = by {
+            if !by.starts_with("OpenAI") {
+                return Err("AI explanation: expected an OpenAI answer".into());
+            }
+            harness.run_steps(4);
+            return Ok(());
+        }
+        if Instant::now() > until {
+            return Err("AI explanation: timed out waiting for OpenAI".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Waits until the sample word has its complete assistant-generated answer.
+fn wait_for_assistant_answer(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        harness.run_steps(1);
+        let by = {
+            let study = harness.state().study();
+            study
+                .card_answer()
+                .is_some()
+                .then(|| study.card_by().unwrap_or_default().to_owned())
+        };
+        if let Some(by) = by {
+            if by != "Assistant-generated sample" {
+                return Err("AI sample: unexpected answer source".into());
+            }
+            harness.run_steps(4);
+            return Ok(());
+        }
+        if Instant::now() > until {
+            return Err("AI sample: timed out waiting for its answer".into());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Waits until the open dictionary card has a real entry.
+fn wait_for_dictionary_answer(harness: &mut Harness<'_, MareaderApp>) -> Result<(), String> {
+    let until = Instant::now() + Duration::from_secs(30);
+    loop {
+        harness.run_steps(1);
+        if let Some(answers) = harness.state().dict().card_answers() {
+            if answers.is_empty() {
+                return Err("dictionary lookup: no entry found".into());
+            }
+            harness.run_steps(4);
+            return Ok(());
+        }
+        if Instant::now() > until {
+            return Err("dictionary lookup: timed out".into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Steps until the scripts have answered every click, for a minute at most.
