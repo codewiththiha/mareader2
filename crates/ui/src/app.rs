@@ -3065,8 +3065,14 @@ impl MareaderApp {
             Route::Reader => self.toast_lift(ctx, ctx.content_rect()),
             Route::Library | Route::Dictionary => 0.0,
         };
-        let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
         let dict = (reader).then(|| self.dict.window_cover()).flatten();
+        let toasts = self.toasts.active_bed_for(
+            ctx,
+            ctx.content_rect(),
+            lift,
+            self.read_aloud.island_anchor(),
+            dict,
+        );
         let stage = crate::read_aloud::Stage {
             reader,
             panes: &self.pane_rects,
@@ -3797,7 +3803,13 @@ impl eframe::App for MareaderApp {
             stage.max.y -= crate::page_bar::BAR_H;
             let dictionary = &self.settings.dictionary;
             let lift = self.toast_lift(&ctx, ctx.content_rect());
-            let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
+            let toasts = self.toasts.active_bed_for(
+                &ctx,
+                ctx.content_rect(),
+                lift,
+                self.read_aloud.island_anchor(),
+                self.dict.window_cover(),
+            );
             let now = ctx.input(|i| i.time);
             let player = self.read_aloud.clearance_rect(now);
             if self.dict.window(
@@ -3916,7 +3928,15 @@ impl eframe::App for MareaderApp {
             Route::Reader => self.toast_lift(&ctx, stage),
             Route::Library | Route::Dictionary => 0.0,
         };
-        self.toasts.show(&ctx, stage, lift, &mut commands);
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("toast-platform"), self.platform));
+        self.toasts.show_with_player(
+            &ctx,
+            stage,
+            lift,
+            self.read_aloud.island_anchor(),
+            self.dict.window_cover(),
+            &mut commands,
+        );
         // A paused run waits on the library page, off the pages read.
         let paused = route == Route::Library;
         let runs = &mut self.library.runs;
@@ -4026,6 +4046,7 @@ fn shot_toast(value: &str) -> Toast {
     match kind {
         "error" => Toast::error(message),
         "warning" => Toast::warning(message),
+        "player" => Toast::info(message).player(),
         "undo" => Toast::info(message).undo(Command::ClearToasts),
         "action" => Toast::info(message).action("Resume", Command::ClearToasts),
         _ => Toast::info(words.as_str()),

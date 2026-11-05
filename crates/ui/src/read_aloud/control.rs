@@ -197,7 +197,7 @@ pub(super) fn show(
     }
     slot(4.0);
     if fit.speed {
-        speed(ui, slot(SPEED_W), settings);
+        speed(ui, slot(SPEED_W), settings, out);
     }
     if let Some(to) = card_button(ui, slot(BUTTON), card) {
         act = Some(Act::Card(to));
@@ -638,7 +638,7 @@ pub(super) fn left_text(seconds: f64) -> String {
 }
 
 /// The speed picker: the rates offered, the one in use shown.
-fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings) {
+fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let text = RichText::new(rate_label(settings.rate)).size(t.text_small);
     let button = egui::Button::new(text)
@@ -664,7 +664,13 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings) {
             for rate in RATES {
                 let on = (settings.rate - rate).abs() < 0.01;
                 if ui.selectable_label(on, rate_label(rate)).clicked() {
-                    settings.rate = rate;
+                    if !on {
+                        settings.rate = rate;
+                        out.push(Command::Notify(
+                            crate::toast::Toast::info(format!("Speed {}", rate_label(rate)))
+                                .player(),
+                        ));
+                    }
                     ui.close();
                 }
             }

@@ -219,7 +219,7 @@ milestone = "M1"
 status = "shipped"
 reference = ["crates/app-ui/src/components/primitives/overlay/toast.rs"]
 evidence = ["crates/ui/tests/shell.rs::a_toast_leaves_by_itself", "crates/ui/tests/shell.rs::reading_a_toast_keeps_it_up", "crates/ui/tests/shell.rs::a_refused_split_says_why"]
-notes = "One slot as in mareader: 3.5 s, info or error, hover holds it, a dismiss button. Undo actions join with undo (M5, M6)"
+notes = "A deduplicated stack fans on hover and opens by click; short player confirmations use an island when space permits. Errors, actions and narrow layouts use the corner stack."
 
 [[feature]]
 id = "chrome.status-bar"

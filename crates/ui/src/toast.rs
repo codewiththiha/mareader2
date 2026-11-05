@@ -42,6 +42,7 @@ pub struct Toast {
     /// A button, Undo unless said, and what it sends; it lasts longer.
     pub undo: Option<Box<Command>>,
     pub label: &'static str,
+    player: bool,
 }
 
 impl Toast {
@@ -63,6 +64,14 @@ impl Toast {
             tone,
             undo: None,
             label: "Undo",
+            player: false,
+        }
+    }
+
+    pub fn player(self) -> Self {
+        Self {
+            player: true,
+            ..self
         }
     }
 
@@ -231,6 +240,7 @@ impl Toasts {
                 && l.toast.undo.is_none()
                 && toast.undo.is_none()
                 && l.toast.tone == toast.tone
+                && l.toast.player == toast.player
                 && l.toast.message == toast.message
         };
         if let Some(at) = self.live.iter().position(same) {
@@ -372,8 +382,85 @@ impl Toasts {
         }
     }
 
+    pub fn island_rect(
+        &self,
+        ctx: &Context,
+        area: Rect,
+        player: Option<Rect>,
+        dict: Option<Rect>,
+    ) -> Option<Rect> {
+        let mut active = self.live.iter();
+        let live = active.next()?;
+        if active.next().is_some()
+            || !self.waiting.is_empty()
+            || !live.toast.player
+            || live.toast.tone != Tone::Info
+            || live.toast.undo.is_some()
+        {
+            return None;
+        }
+        let player = player?;
+        let width = player.width() - 48.0;
+        if width < 150.0 {
+            return None;
+        }
+        let t = crate::theme::Tokens::get(ctx);
+        let words = ctx.fonts_mut(|f| {
+            f.layout_no_wrap(
+                live.toast.message.clone(),
+                egui::FontId::proportional(t.text_small),
+                t.ink,
+            )
+        });
+        if words.size().x + 46.0 > width {
+            return None;
+        }
+        let rect = Rect::from_min_size(
+            pos2(player.left() + 24.0, player.top() - 28.0),
+            egui::vec2(width, 32.0),
+        );
+        if !area.contains_rect(rect) || dict.is_some_and(|r| r.intersects(rect)) {
+            return None;
+        }
+        if open_menus(ctx)
+            .iter()
+            .chain(kept_clear(ctx).iter())
+            .any(|r| r.intersects(rect))
+        {
+            return None;
+        }
+        Some(rect)
+    }
+
+    pub fn active_bed_for(
+        &self,
+        ctx: &Context,
+        area: Rect,
+        lift: f32,
+        player: Option<Rect>,
+        dict: Option<Rect>,
+    ) -> Option<Rect> {
+        if self.island_rect(ctx, area, player, dict).is_some() {
+            None
+        } else {
+            self.active_bed(area, lift)
+        }
+    }
+
     /// Draws the stack in `area`'s bottom-right corner, `lift` above its foot.
     pub fn show(&mut self, ctx: &Context, area: Rect, lift: f32, out: &mut Commands) {
+        self.show_with_player(ctx, area, lift, None, None, out);
+    }
+
+    pub fn show_with_player(
+        &mut self,
+        ctx: &Context,
+        area: Rect,
+        lift: f32,
+        player: Option<Rect>,
+        dict: Option<Rect>,
+        out: &mut Commands,
+    ) {
         let now = ctx.input(|i| i.time);
         let fade = f64::from(motion::secs(ctx, FADE));
         let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
@@ -385,7 +472,9 @@ impl Toasts {
             pos2(area.right() - INSET - width, foot - tall),
             pos2(area.right() - INSET, foot),
         );
-        let spot = self.seen.unwrap_or(column);
+        let island = self.island_rect(ctx, area, player, dict);
+        let spot =
+            island.unwrap_or_else(|| self.seen.filter(|r| r.intersects(column)).unwrap_or(column));
         let mut blockers = open_menus(ctx);
         blockers.extend(keep.clear.iter().map(|(_, r)| *r));
         self.blocked = blockers.iter().any(|b| b.intersects(spot));
@@ -397,10 +486,35 @@ impl Toasts {
             ctx.request_repaint_after_secs(0.25);
         }
         self.tick(now, fade);
+        if !ctx.egui_wants_keyboard_input() && !egui::Popup::is_any_open(ctx) {
+            let undo = self
+                .live
+                .iter()
+                .rev()
+                .find(|l| !l.going())
+                .filter(|l| l.toast.label == "Undo")
+                .and_then(|l| {
+                    l.toast
+                        .undo
+                        .as_deref()
+                        .map(|command| (l.id, command.clone()))
+                });
+            if let Some((id, command)) = undo
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
+            {
+                out.push(command);
+                out.push(Command::CloseToast(id));
+            }
+        }
         let opened = ctx.animate_bool_with_time(egui::Id::new("toasts-open"), self.open, FADE);
         if self.live.is_empty() {
             self.hovered = false;
             self.seen = None;
+            return;
+        }
+        if let Some(rect) = self.island_rect(ctx, area, player, dict) {
+            self.show_island(ctx, rect, now, fade);
+            self.repaint(ctx, now, fade);
             return;
         }
         let corner = pos2(area.right() - INSET, area.bottom() - INSET - lift);
@@ -416,11 +530,66 @@ impl Toasts {
             fade,
             drag,
         };
-        self.hovered = match self.open {
-            true => stack::open(ctx, self, &place, opened, out),
-            false => stack::closed(ctx, self, &place, out),
+        self.hovered = if self.open {
+            stack::open(ctx, self, &place, opened, out)
+        } else {
+            stack::closed(ctx, self, &place, out)
         };
         self.repaint(ctx, now, fade);
+    }
+
+    fn show_island(&mut self, ctx: &Context, rect: Rect, now: f64, fade: f64) {
+        let Some(live) = self.live.last() else {
+            return;
+        };
+        let t = crate::theme::Tokens::get(ctx);
+        let progress = if fade <= 0.0 {
+            1.0
+        } else if let Some((at, _)) = live.gone {
+            1.0 - ((now - at) / fade).clamp(0.0, 1.0) as f32
+        } else {
+            ((now - live.born.unwrap_or(now)) / fade).clamp(0.0, 1.0) as f32
+        };
+        let shown = rect.translate(egui::vec2(0.0, (1.0 - progress) * 12.0));
+        let response = egui::Area::new(Id::new("toast-island"))
+            .order(egui::Order::Middle)
+            .fixed_pos(shown.min)
+            .constrain(false)
+            .show(ctx, |ui| {
+                let (r, resp) = ui.allocate_exact_size(shown.size(), egui::Sense::hover());
+                ui.set_opacity(progress);
+                ui.painter().rect(
+                    r,
+                    egui::CornerRadius::same(12),
+                    t.surface,
+                    egui::Stroke::new(1.0, t.line),
+                    egui::StrokeKind::Inside,
+                );
+                crate::icons::Icon::Done.paint(
+                    ui,
+                    Rect::from_center_size(
+                        pos2(r.left() + 17.0, r.center().y),
+                        egui::vec2(14.0, 14.0),
+                    ),
+                    t.accent,
+                );
+                ui.painter().text(
+                    pos2(r.left() + 30.0, r.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &live.toast.message,
+                    egui::FontId::proportional(t.text_small),
+                    t.ink,
+                );
+                resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &live.toast.message)
+                });
+                ui.ctx().accesskit_node_builder(resp.id, |node| {
+                    node.set_live(egui::accesskit::Live::Polite)
+                });
+                resp.contains_pointer()
+            });
+        self.hovered = response.inner;
+        self.seen = Some(rect);
     }
 
     /// Every frame while something moves; often enough for a running line.

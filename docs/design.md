@@ -340,23 +340,17 @@ use it. Settings' two-line folds stay on `fold_row`, which can be revealed.
 - **Toasts.** `crates/ui/src/toast.rs` and `toast/`. They stack in the
   bottom-right corner of the panes, 16 pt in, above the page bar in the
   reader; 360 pt wide.
-  - **Card.** On `surface` with the large radius. The tone's mark sits in a
-    soft round of its colour: a check in the accent for info, an alert in
-    `danger` (error) or amber (warning, `theme::caution`), with a tinted
-    edge. An action
-    such as Undo is a soft accent button; ✕ closes the card. The mark, the
-    words and the buttons share the card's middle line, however many lines
-    the words take. A wash draining right to left shows the time left.
-  - **Pile.** The newest is in front; up to two older ones peek out above
-    it, 8 pt each, narrower and fainter. When the front goes, the next one
-    grows into its place. The same words again count ("×2") instead of
-    stacking. At most 12 are kept.
-  - **Strip.** With two or more, two pills above the pile: "Show all · N"
-    and "Clear all".
-  - **List.** A click on the pile, or Show all, opens it in place as a list
-    on `card`, newest on top. It has a header (Notifications, the count,
-    Clear all, a chevron to close) and scrolls past 60 % of the room, at
-    most 420 pt. Esc, the chevron or a click elsewhere close it.
+  - **Card.** The tone icon and edge mark each card; the original gradient
+    wash drains across its surface to show the time left. An action such as
+    Undo shows its shortcut; a dismiss button remains available.
+  - **Pile and fan.** The newest is in front, with older cards peeking behind
+    and a count badge. Hover fans the pile into a paused list; click the pile
+    or badge to keep it open for keyboard and touch. The header clears all,
+    and the list scrolls past its height cap. Repeats deduplicate and at most
+    12 are kept.
+  - **Player island.** Short player confirmations rise from the player when
+    they fit and their space is clear. Long messages, a compact player, other
+    notifications and conflicts use the regular corner stack instead.
   - **Swipe.** A card dragged right past 96 pt, or flicked, flies off;
     shorter, it springs back. A pull left barely moves it.
   - **Never over what was summoned.** When an open menu, a word or
@@ -376,7 +370,7 @@ use it. Settings' two-line folds stay on `fold_row`, which can be revealed.
     (`toast::keep_clear`) also lifts the player: over the selection bar on
     the library page it glides up and glides back down once it's gone.
   - **Out of the way.** The stack takes the pointer only over its cards and
-    strip. While something on the page is carried near it, it fades to 30 %
+    badge. While something on the page is carried near it, it fades to 30 %
     and lets the pointer through, so drops beneath it still work.
   - **Time.** Up 3.5 s, 6 s for errors and for cards with an action.
     Hovering, the open list or a drag stops every clock, and at least

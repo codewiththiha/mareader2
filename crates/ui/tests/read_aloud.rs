@@ -1323,6 +1323,66 @@ fn the_options_menu_sets_the_player_and_stays_over_it() {
 }
 
 #[test]
+fn player_confirmations_ride_the_player_without_shrinking_it() {
+    let mut h = reader(2);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(30);
+    let id = egui::Id::new("read-aloud-bar");
+    let before = h.ctx.memory(|m| m.area_rect(id)).expect("player");
+    h.state_mut()
+        .set_option("toast", "player:Speed_saved")
+        .unwrap();
+    h.run_steps(10);
+    assert!(h.query_by_label("Speed saved").is_some());
+    assert!(
+        h.ctx
+            .memory(|m| m.area_rect(egui::Id::new("toast-island")))
+            .is_some()
+    );
+    let after = h.ctx.memory(|m| m.area_rect(id)).expect("player");
+    assert!((before.width() - after.width()).abs() < 1.0);
+}
+
+#[test]
+fn a_long_player_confirmation_uses_the_regular_toast() {
+    let mut h = reader(2);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(30);
+    let message = "This confirmation is much too long to fit above a compact player";
+    h.state_mut()
+        .set_option("toast", &format!("player:{message}"))
+        .unwrap();
+    h.run_steps(10);
+    assert!(h.query_by_label(message).is_some());
+    assert!(
+        h.ctx
+            .memory(|m| m.area_rect(egui::Id::new("toasts")))
+            .is_some()
+    );
+}
+
+#[test]
+fn changing_speed_sends_a_player_confirmation() {
+    let mut h = reader(2);
+    h.state_mut().settings_mut().read_aloud.player_width = Some(650.0);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(20);
+    h.get_by_label("1×").click();
+    h.run_steps(3);
+    h.get_by_label("1.25×").click();
+    h.run_steps(10);
+    assert!(h.query_by_label("Speed 1.25×").is_some());
+    assert!(
+        h.ctx
+            .memory(|m| m.area_rect(egui::Id::new("toast-island")))
+            .is_some()
+    );
+}
+
+#[test]
 fn player_at_wide_width_minimizes_for_toast_and_restores() {
     let mut h = reader(3);
     h.state_mut().settings_mut().read_aloud.player_width = Some(720.0);

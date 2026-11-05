@@ -140,7 +140,13 @@ fn grab(ui: &Ui, live: &mut Live, (rect, card): (Rect, &Card), now: f64) -> Grab
     let at = rect.translate(offset);
     let resp = ui.interact(at, Id::new(("toast", live.id)), Sense::click_and_drag());
     let words = live.toast.message.clone();
-    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &words));
+    resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &words));
+    ui.ctx().accesskit_node_builder(resp.id, |node| {
+        node.set_live(match live.toast.tone {
+            super::Tone::Error => egui::accesskit::Live::Assertive,
+            _ => egui::accesskit::Live::Polite,
+        });
+    });
     let controls = card::controls(rect, card).translate(offset);
     let (hover, origin) = ui.input(|i| (i.pointer.hover_pos(), i.pointer.press_origin()));
     let held = origin.is_some_and(|p| controls.contains(p)) && !live.dragging;
@@ -213,15 +219,23 @@ pub(super) fn closed(
         .or(laid.first())
         .map_or(0.0, |(_, _, c)| c.height);
     let behind = (up.saturating_sub(1) as f32).min(BEHIND);
-    let top = place.corner.y - front - PEEK * behind;
+    let badge_top = place.corner.y - front - PEEK * behind - SPACE + 1.0;
+    let badge = Rect::from_min_size(pos2(place.corner.x - 22.0, badge_top), vec2(22.0, 22.0));
+    let over_badge = ctx.pointer_hover_pos().is_some_and(|p| badge.contains(p));
+    let fan = toasts.hovered && up > 1 && !over_badge;
+    let fan_k =
+        ctx.animate_bool_with_time(Id::new("toast-fan"), fan, crate::motion::secs(ctx, SETTLE));
+    let step = egui::lerp(PEEK..=front + SPACE, fan_k);
+    let top = place.corner.y - front - step * behind;
     let strip = Rect::from_min_max(
         pos2(place.corner.x - place.width, top - SPACE - STRIP_H),
         pos2(place.corner.x, top - SPACE),
     );
     // Room below for a card coming in, within the window's inset.
     let floor = place.corner + vec2(0.0, super::INSET - 2.0);
-    let bounds = Rect::from_two_pos(pos2(place.corner.x - place.width, strip.top()), floor);
-    let seen = Rect::from_min_max(pos2(bounds.left(), top.min(strip.top())), place.corner);
+    let head = if fan { strip.top() } else { top - 12.0 };
+    let bounds = Rect::from_two_pos(pos2(place.corner.x - place.width, head), floor);
+    let seen = Rect::from_min_max(bounds.min, place.corner);
     toasts.seen = Some(seen);
     let aside = place.aside(Some(seen));
     // Placed exactly: kept on screen, it would creep up and grow.
@@ -231,8 +245,10 @@ pub(super) fn closed(
         .interactable(takes_pointer(ctx, toasts, aside, Some(seen)))
         .fixed_pos(bounds.min)
         .show(ctx, |ui| {
+            ui.set_clip_rect(ctx.content_rect());
             ui.set_opacity(faint(ctx, Id::new("toasts"), aside));
-            let mut hover = ui.allocate_rect(bounds, Sense::hover()).contains_pointer();
+            let mut hover = ui.allocate_rect(bounds, Sense::hover()).contains_pointer()
+                || ctx.pointer_hover_pos().is_some_and(|p| seen.contains(p));
             // The deepest is drawn first; a leaving card above its heir.
             let mut drawn: Vec<&(usize, f32, Card)> = laid.iter().collect();
             drawn.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
@@ -240,18 +256,19 @@ pub(super) fn closed(
                 let Some(live) = toasts.live.get_mut(*at) else {
                     continue;
                 };
-                let step = deep.min(1.0);
-                let height = card.height + (front - card.height) * step;
-                let foot = place.corner.y - PEEK * deep;
+                let blend = deep.min(1.0);
+                let height = card.height + (front - card.height) * blend;
+                let foot = place.corner.y - step * deep;
+                let inset = NARROW * deep * (1.0 - fan_k);
                 let mut rect = Rect::from_min_max(
-                    pos2(place.corner.x - place.width + NARROW * deep, foot - height),
-                    pos2(place.corner.x - NARROW * deep, foot),
+                    pos2(place.corner.x - place.width + inset, foot - height),
+                    pos2(place.corner.x - inset, foot),
                 );
                 let (shift, mut alpha) = travel(live, place);
-                alpha *= (1.0 - 0.3 * deep).max(0.0);
+                alpha *= (1.0 - 0.3 * deep * (1.0 - fan_k)).max(0.0);
                 let leads = *deep < 0.5 && !live.going();
                 let mut pulled = 0.0;
-                if leads {
+                if leads || (fan && !live.going()) {
                     let g = grab(ui, live, (rect, card), place.now);
                     let resp = g.resp;
                     pulled = g.shown;
@@ -271,45 +288,64 @@ pub(super) fn closed(
                 }
                 rect = rect.translate(shift + vec2(pulled, 0.0));
                 let faded = alpha * (1.0 - (pulled.abs() / place.width).min(0.6));
-                let content = (1.0 - deep).clamp(0.0, 1.0);
+                let content = (1.0 - deep * (1.0 - fan_k)).clamp(0.0, 1.0);
                 if let Some(live) = toasts.live.get(*at) {
                     paint(ui, rect, live, card, (faded, content), out);
                 }
             }
             if up > 1 {
-                strip_row(ui, strip, up, toasts, &t, out);
+                if !fan {
+                    let badge_strip = Rect::from_min_max(
+                        pos2(place.corner.x - place.width, badge_top - STRIP_H - 1.0),
+                        pos2(place.corner.x, badge_top - 1.0),
+                    );
+                    count_badge(ui, badge_strip, up, toasts, &t);
+                }
+                if fan {
+                    let mut row = ui.new_child(
+                        UiBuilder::new()
+                            .max_rect(strip)
+                            .layout(Layout::right_to_left(Align::Center)),
+                    );
+                    if row
+                        .add(
+                            Button::new(
+                                RichText::new("Clear all")
+                                    .size(t.text_small)
+                                    .color(t.accent),
+                            )
+                            .frame_when_inactive(false),
+                        )
+                        .clicked()
+                    {
+                        out.push(Command::ClearToasts);
+                    }
+                    row.label(
+                        RichText::new(format!("{up} notifications · paused"))
+                            .size(t.text_small)
+                            .color(t.muted),
+                    );
+                }
             }
             hover
         });
     area.inner
 }
 
-/// Above a pile: open it into a list, or clear it.
-fn strip_row(
-    ui: &mut Ui,
-    strip: Rect,
-    up: usize,
-    toasts: &mut Toasts,
-    t: &Tokens,
-    out: &mut Commands,
-) {
-    let layout = Layout::right_to_left(Align::Center);
-    let mut row = ui.new_child(UiBuilder::new().max_rect(strip).layout(layout));
-    row.spacing_mut().item_spacing.x = SPACE;
-    if !toasts.hovered {
-        row.multiply_opacity(0.8);
-    }
-    let pill = |text: String| {
-        Button::new(RichText::new(text).size(t.text_small).color(t.ink))
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0, t.line))
-            .corner_radius(CornerRadius::from(STRIP_H / 2.0))
-            .min_size(vec2(0.0, STRIP_H))
-    };
-    if row.add(pill("Clear all".into())).clicked() {
-        out.push(Command::ClearToasts);
-    }
-    let all = row.add(pill(format!("Show all · {up}")));
+fn count_badge(ui: &mut Ui, strip: Rect, up: usize, toasts: &mut Toasts, t: &Tokens) {
+    let rect = Rect::from_min_size(
+        pos2(strip.right() - 22.0, strip.bottom() + 1.0),
+        vec2(22.0, 22.0),
+    );
+    let badge = Button::new(
+        RichText::new(up.to_string())
+            .size(t.text_small)
+            .color(t.surface),
+    )
+    .fill(t.accent)
+    .stroke(Stroke::NONE)
+    .corner_radius(CornerRadius::same(11));
+    let all = ui.put(rect, badge);
     all.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, "Show all notifications"));
     if all.clicked() {
         toasts.open = true;
@@ -371,7 +407,7 @@ pub(super) fn open(
     if pressed && !area.response.contains_pointer() {
         toasts.open = false;
     }
-    true
+    area.response.contains_pointer() || toasts.open
 }
 
 fn header(ui: &mut Ui, up: usize, toasts: &mut Toasts, t: &Tokens, out: &mut Commands) {
@@ -420,7 +456,13 @@ fn list(ui: &mut Ui, toasts: &mut Toasts, cards: &[Card], place: &Place, out: &m
         let (shift, alpha) = travel(live, place);
         let pulled = match live.going() {
             true => 0.0,
-            false => grab(ui, live, (rect, card), place.now).shown,
+            false => {
+                let grabbed = grab(ui, live, (rect, card), place.now);
+                if grabbed.resp.clicked() && !grabbed.on_controls {
+                    toasts.open = true;
+                }
+                grabbed.shown
+            }
         };
         let moved = rect.translate(vec2(shift.x + pulled, 0.0));
         let faded = alpha * (1.0 - (pulled.abs() / place.width).min(0.6));

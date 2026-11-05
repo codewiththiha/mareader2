@@ -195,6 +195,7 @@ appearance effects to that same pass.
 | Date | Change |
 |---|---|
 | 2026-11-05 | Edge player: the text fits the available width and follows the spoken word; uncover it to watch the return |
+| 2026-11-05 | Toasts: hover the pile to fan it; player confirmations ride an island; the gradient stays |
 | 2026-11-05 | Edge parking: Settings › Panes selects off, original sliver or labeled tab; drag a dictionary past a side and cover the player to try it |
 | 2026-10-13 | M0: foundation repository — appearance and workspace crates, egui shell with the mareader title bar on three platforms, xtask gates, parity file (111 features), docs and ADRs |
 | 2026-10-13 | Functional parity (ADR 0005): `docs/design.md` replaces `look.md`; `Command` queue and egui-native widgets in the shell; one-hue tints with gamut mapping; library redesign; pane controls kept clear of the hover band |

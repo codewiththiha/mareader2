@@ -1026,6 +1026,14 @@ impl ReadAloud {
         self.shape.unparked_until = None;
     }
 
+    pub fn island_anchor(&self) -> Option<Rect> {
+        self.session.as_ref()?;
+        if self.shape.parked.is_some() || self.shape.orb_target.is_some() || self.shape.card {
+            return None;
+        }
+        self.shape.rect
+    }
+
     /// The player's intended rect while summoned, restoring or kept open.
     pub fn clearance_rect(&self, now: f64) -> Option<Rect> {
         self.session.as_ref()?;

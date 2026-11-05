@@ -681,6 +681,14 @@ fn undo_on_a_toast_is_a_button_not_a_handle() {
 }
 
 #[test]
+fn the_newest_undo_toast_has_a_working_shortcut() {
+    let mut h = with(&[("toast", "undo:Moved_a_book")]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(4);
+    assert!(stacked(&h).is_empty());
+}
+
+#[test]
 fn a_stack_never_takes_more_than_its_corner() {
     let h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
     let layer = h.ctx.memory(|m| m.area_rect(egui::Id::new("toasts")));
@@ -707,6 +715,8 @@ fn toasts_stack_newest_in_front_and_clear_all_empties_it() {
         h.query_by_label("Saved notes").is_none(),
         "the ones behind peek"
     );
+    h.get_by_label("Exported list").hover();
+    h.run_steps(3);
     h.get_by_label("Clear all").click();
     wait(&mut h, 0.5);
     assert!(stacked(&h).is_empty());
@@ -751,6 +761,21 @@ fn a_toast_swiped_away_goes_and_a_short_pull_springs_back() {
 }
 
 #[test]
+fn hovering_a_stack_fans_out_the_other_notifications() {
+    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
+    assert!(h.query_by_label("Saved notes").is_none());
+    h.get_by_label("Copied link").hover();
+    h.run_steps(20);
+    let back = h.get_by_label("Saved notes").rect();
+    let front = h.get_by_label("Copied link").rect();
+    assert!(
+        back.bottom() <= front.top(),
+        "the cards fan apart: {back:?}, {front:?}"
+    );
+    assert!(h.query_by_label("Clear all").is_some());
+}
+
+#[test]
 fn clicking_a_stack_opens_a_list_of_every_toast() {
     let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
     h.get_by_label("Copied link").click();
@@ -762,6 +787,8 @@ fn clicking_a_stack_opens_a_list_of_every_toast() {
     h.get_by_label("Show less").click();
     h.run_steps(3);
     assert!(!h.state().toasts().1);
+    h.hover_at(egui::pos2(300.0, 300.0));
+    h.run_steps(3);
     h.get_by_label("Show all notifications").click();
     h.run_steps(3);
     assert!(h.state().toasts().1, "the strip opens it too");

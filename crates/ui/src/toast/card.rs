@@ -15,9 +15,9 @@ use crate::theme::Tokens;
 use crate::widgets;
 
 const PAD_X: f32 = 12.0;
-const PAD_Y: f32 = 10.0;
+const PAD_Y: f32 = 8.0;
 /// The tone's round mark at the left.
-const MARK: f32 = 26.0;
+const MARK: f32 = 15.0;
 const GAP: f32 = 10.0;
 const CLOSE: f32 = 24.0;
 const ACTION_H: f32 = 26.0;
@@ -34,11 +34,26 @@ pub(super) struct Card {
     action: f32,
 }
 
+fn action_label(ctx: &Context, live: &Live) -> String {
+    if live.toast.label != "Undo" {
+        return live.toast.label.to_owned();
+    }
+    let platform = ctx
+        .data(|d| d.get_temp::<crate::platform::Platform>(egui::Id::new("toast-platform")))
+        .unwrap_or_else(crate::platform::Platform::current);
+    let key = if platform == crate::platform::Platform::Mac {
+        "⌘Z"
+    } else {
+        "Ctrl+Z"
+    };
+    format!("Undo  {key}")
+}
+
 pub(super) fn measure(ctx: &Context, live: &Live, width: f32, t: &Tokens) -> Card {
     let font = FontId::proportional(t.text);
     let action = match live.toast.undo {
         Some(_) => {
-            let label = live.toast.label.to_owned();
+            let label = action_label(ctx, live);
             let galley = ctx.fonts_mut(|f| f.layout_no_wrap(label, font.clone(), t.ink));
             galley.size().x + 20.0
         }
@@ -100,6 +115,14 @@ pub(super) fn shell(ui: &Ui, rect: Rect, tone: Tone, body: Body, t: &Tokens) {
     }
     let stroke = Stroke::new(1.0, edge);
     painter.rect(rect, radius, fill, stroke, StrokeKind::Inside);
+    if body != Body::Behind {
+        let (_, tint, _) = look(tone, t);
+        let accent = Rect::from_min_size(
+            pos2(rect.left() + 1.0, rect.top() + 8.0),
+            egui::vec2(3.0, (rect.height() - 16.0).max(0.0)),
+        );
+        painter.rect_filled(accent, 1.5, tint);
+    }
 }
 
 /// The close button's place on a card at `rect`, centred like the mark.
@@ -182,7 +205,6 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
     let painter = ui.painter().clone();
     let left = live.remaining();
     if left > 0.0 && !live.listed {
-        // Inside the edge line, which hides the wash's own edge.
         let inner = rect.shrink(1.0);
         let radius = t.radius_lg - 1.0;
         countdown(&painter, inner, radius, wash(live.toast.tone, tint), left);
@@ -193,7 +215,6 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         pos2(rect.left() + PAD_X + MARK / 2.0, middle),
         Vec2::splat(MARK),
     );
-    painter.circle_filled(mark.center(), MARK / 2.0, tint.gamma_multiply(0.16));
     icon.paint(
         ui,
         Rect::from_center_size(mark.center(), Vec2::splat(15.0)),
@@ -217,12 +238,17 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         return;
     };
     let at = action_at(rect, card);
-    let label = RichText::new(live.toast.label).size(t.text).strong();
+    let label = RichText::new(action_label(ui.ctx(), live))
+        .size(t.text_small)
+        .strong();
     let button = Button::new(label.color(t.accent))
         .fill(t.accent_soft)
         .stroke(Stroke::NONE)
         .corner_radius(t.radius);
     let pressed = ui.put(at, button).on_hover_cursor(CursorIcon::PointingHand);
+    pressed.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, live.toast.label)
+    });
     if pressed.clicked() {
         out.push((**command).clone());
         out.push(Command::CloseToast(live.id));
