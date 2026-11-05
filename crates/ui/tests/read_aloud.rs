@@ -1456,6 +1456,40 @@ fn a_covered_player_in_tab_mode_keeps_a_play_button() {
 }
 
 #[test]
+fn the_edge_orb_animates_back_when_the_dictionary_closes() {
+    let mut h = reader(1);
+    h.state_mut().settings_mut().workspace.edge_parking = mareader_settings::EdgeParking::Tab;
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.run_steps(30);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(360);
+    let orb_id = egui::Id::new("read-aloud-orb");
+    let from = h.ctx.memory(|m| m.area_rect(orb_id)).expect("edge orb");
+    h.state_mut().settings_mut().dictionary.window.open = false;
+    h.run_steps(2);
+    let moving = h
+        .ctx
+        .memory(|m| m.area_rect(orb_id))
+        .expect("returning orb");
+    assert!(
+        moving.left() < from.left() - 1.0,
+        "orb should move home: {from:?} to {moving:?}"
+    );
+    assert!(h.query_by_label("Play").is_some());
+    h.run_steps(60);
+    assert!(h.query_by_label("Play").is_some());
+    let bar = h
+        .ctx
+        .memory(|m| m.area_rect(egui::Id::new("read-aloud-bar")))
+        .expect("restored bar");
+    assert!(bar.width() > 160.0);
+}
+
+#[test]
 fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let mut h = reader(1);
     let window = &mut h.state_mut().settings_mut().dictionary.window;

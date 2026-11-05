@@ -43,6 +43,8 @@ pub(super) struct Lyrics {
     pub words: Vec<Range<usize>>,
     /// The words lit, by index.
     pub lit: Range<usize>,
+    pub preferred: Range<usize>,
+    pub heard: usize,
     pub after: Option<String>,
     /// Tells one sentence from the next.
     pub key: u64,
@@ -577,6 +579,8 @@ mod tests {
             now: "The mill stood still".into(),
             words: vec![0..3, 4..8, 9..14, 15..20],
             lit: 1..3,
+            preferred: 1..3,
+            heard: 1,
             after: None,
             key: 7,
         }
