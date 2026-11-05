@@ -428,6 +428,17 @@ fn paint_switch(ui: &Ui, rect: Rect, resp: &Response, on: bool) {
 
 /// A menu row that flips a setting: icon and name, its switch at the end.
 pub fn menu_switch(ui: &mut Ui, icon: Icon, label: &str, on: &mut bool) -> Response {
+    menu_switch_keyed(ui, icon, label, on, None)
+}
+
+/// A switch row with an optional shortcut, kept out of its accessible name.
+pub fn menu_switch_keyed(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    on: &mut bool,
+    keys: Option<&str>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let size = vec2(ui.available_width(), 32.0);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
@@ -454,11 +465,23 @@ pub fn menu_switch(ui: &mut Ui, icon: Icon, label: &str, on: &mut bool) -> Respo
         .painter()
         .layout_no_wrap(label.to_owned(), font, look.text_color());
     let top = y - galley.size().y / 2.0;
+    let label_end = x + galley.size().x;
     ui.painter().galley(pos2(x, top), galley, look.text_color());
     let knob = Rect::from_min_size(
         pos2(rect.right() - pad - SWITCH.x, y - SWITCH.y / 2.0),
         SWITCH,
     );
+    if let Some(keys) = keys {
+        let font = egui::FontId::proportional(10.0);
+        let text = ui.painter().layout_no_wrap(keys.to_owned(), font, t.muted);
+        let size = text.size() + vec2(8.0, 4.0);
+        let cap = Rect::from_center_size(pos2(knob.left() - 5.0 - size.x / 2.0, y), size);
+        if cap.left() >= label_end + 4.0 {
+            ui.painter().rect_filled(cap, 4.0, t.card);
+            ui.painter().galley(cap.min + vec2(4.0, 2.0), text, t.muted);
+        }
+        tip(&resp, label, Some(keys));
+    }
     paint_switch(ui, knob, &resp, value);
     resp
 }

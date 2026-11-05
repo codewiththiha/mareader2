@@ -87,7 +87,16 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     // The bar it sits on hides too, so it only ever turns it on.
     let keys = keymap::hint(cx.platform, &Command::Chromeless);
     let label = "Distraction-free";
-    if widgets::menu_row(ui, Icon::Chromeless, label, keys.as_deref(), false).clicked() {
+    let mut chromeless = false;
+    if widgets::menu_switch_keyed(
+        ui,
+        Icon::Chromeless,
+        label,
+        &mut chromeless,
+        keys.as_deref(),
+    )
+    .changed()
+    {
         out.push(Command::Chromeless);
         ui.close();
     }
@@ -100,12 +109,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
             ui.close();
         }
     }
-    let keys = keymap::hint(cx.platform, &Command::ShowSettings);
-    if widgets::menu_row(ui, Icon::Settings, "Settings", keys.as_deref(), false).clicked() {
-        out.push(Command::ShowSettings);
-        ui.close();
-    }
-    shortcuts_row(ui, cx.platform, out);
+    footer_actions(ui, cx.platform, out);
     ui.separator();
     let version = format!("Mareader {}", env!("CARGO_PKG_VERSION"));
     ui.add_space(2.0);
@@ -115,9 +119,52 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 /// Keeps the title bar shown; every route's menu offers it.
 pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
     let label = "Keep title bar shown";
-    if widgets::menu_row(ui, Icon::Pin, label, None, pinned).clicked() {
-        out.push(Command::SetTitlebarPinned(!pinned));
+    let mut on = pinned;
+    if widgets::menu_switch(ui, Icon::Pin, label, &mut on).changed() {
+        out.push(Command::SetTitlebarPinned(on));
     }
+}
+
+/// Frequent app actions share a compact footer; their shortcut is a hint, not a name.
+fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        let width = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+        for (icon, text, name, command) in [
+            (
+                Icon::Settings,
+                "Settings",
+                "Settings",
+                Command::ShowSettings,
+            ),
+            (
+                Icon::Keyboard,
+                "Shortcuts",
+                "Keyboard shortcuts",
+                Command::ShowShortcuts,
+            ),
+        ] {
+            let keys = keymap::hint(platform, &command);
+            let label = RichText::new(text).size(12.0);
+            let button = egui::Button::image_and_text(icon.image(15.0), label)
+                .right_text(
+                    RichText::new(keys.as_deref().unwrap_or_default())
+                        .size(10.0)
+                        .color(t.muted),
+                )
+                .image_tint_follows_text_color(true)
+                .fill(t.card)
+                .corner_radius(t.radius)
+                .min_size(vec2(width, 36.0));
+            let response = ui.add(button);
+            response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+            if response.clicked() {
+                out.push(command);
+                ui.close();
+            }
+        }
+    });
 }
 
 /// Auto-scroll's switch, dimmed in the paged modes, as in mareader.

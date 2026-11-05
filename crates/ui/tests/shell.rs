@@ -1164,3 +1164,42 @@ fn independent_themes(h: &mut Harness<'static, MareaderApp>) {
     h.run();
     h.get_by_role_and_label(Role::CheckBox, switch).click();
 }
+
+#[test]
+fn view_menu_exposes_switch_state_and_updates_it_without_closing() {
+    use egui::accesskit::Toggled;
+
+    let mut h = with(&[("pinned", "true")]);
+    h.get_by_label("View & tools").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.get_by_label("Keep title bar shown")
+            .accesskit_node()
+            .toggled(),
+        Some(Toggled::True)
+    );
+    assert_eq!(
+        h.get_by_label("Distraction-free")
+            .accesskit_node()
+            .toggled(),
+        Some(Toggled::False)
+    );
+    h.get_by_label("Keep title bar shown").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.get_by_label("Keep title bar shown")
+            .accesskit_node()
+            .toggled(),
+        Some(Toggled::False)
+    );
+    h.get_by_label("Keep title bar shown").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.get_by_label("Keep title bar shown")
+            .accesskit_node()
+            .toggled(),
+        Some(Toggled::True)
+    );
+    assert!(h.query_by_label("Settings").is_some());
+    assert!(h.query_by_label("Keyboard shortcuts").is_some());
+}

@@ -335,6 +335,12 @@ use it. Settings' two-line folds stay on `fold_row`, which can be revealed.
 
 ## Tooltips, toasts and the menu
 
+The reader's View & tools menu presents title-bar pinning and distraction-free
+as switch rows with accessible on/off state. Distraction-free hides the bar and
+its menu when enabled; Escape or its shortcut returns it. Settings and Keyboard
+shortcuts share a two-up footer. The version remains factual: no update status is
+shown without an update check.
+
 - **Tooltips.** `widgets::tip`: a chip on `surface` with a `line` edge,
   radius 6, 12 pt text, the shortcut beside it in `muted`. 350 ms delay.
 - **Toasts.** `crates/ui/src/toast.rs` and `toast/`. They stack in the
