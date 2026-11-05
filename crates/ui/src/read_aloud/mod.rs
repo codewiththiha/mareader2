@@ -473,6 +473,7 @@ struct Shape {
     rect: Option<Rect>,
     /// The player sliding partly beyond the reader's bottom edge.
     parked: Option<crate::park::Tuck>,
+    orb_target: Option<Rect>,
     /// A short grace period while the player is summoned or restored.
     unparked_until: Option<f64>,
     /// A reveal or shape change keeps the dictionary from covering the player.
@@ -1215,8 +1216,12 @@ impl ReadAloud {
             let obstructed = covered && !asked_up && under <= 0.0;
             let orb = obstructed && stage.parking == mareader_settings::EdgeParking::Tab;
             let parking = obstructed && stage.parking == mareader_settings::EdgeParking::Sliver;
-            if !orb {
-                ctx.animate_bool_with_time(Id::new("read-aloud-orb-move"), false, morph);
+            let orb_k = ctx.animate_bool_with_time(Id::new("read-aloud-orb-move"), orb, morph);
+            if orb && let Some(dict) = stage.dict {
+                shape.orb_target = Some(orb_rect(room, dict, stage.toasts));
+            }
+            if !orb && orb_k <= 0.0 {
+                shape.orb_target = None;
             }
             if obstructed
                 && stage.parking == mareader_settings::EdgeParking::Off
@@ -1284,7 +1289,7 @@ impl ReadAloud {
             let span = (width, least.min(most), widest.min(most));
             let mut resize = None;
             let mut act = None;
-            if !orb {
+            if shape.orb_target.is_none() {
                 egui::Area::new(Id::new("read-aloud-bar"))
                     .fade_in(false)
                     .order(Order::Foreground)
@@ -1327,11 +1332,10 @@ impl ReadAloud {
                         }
                         resize = edges::show(ui, r, span);
                     });
-            } else if let Some(dict) = stage.dict {
-                let target = orb_rect(room, dict, stage.toasts);
-                let k = ctx.animate_bool_with_time(Id::new("read-aloud-orb-move"), true, morph);
+            } else if let Some(target) = shape.orb_target {
+                let k = ease_in_out(orb_k);
                 let orb_rect =
-                    Rect::from_min_size(rect.min.lerp(target.min, ease_in_out(k)), target.size());
+                    Rect::from_min_max(rect.min.lerp(target.min, k), rect.max.lerp(target.max, k));
                 shape.rect = Some(orb_rect);
                 if show_orb(ctx, orb_rect, &view, lyrics.as_ref()) {
                     act = Some(Act::Toggle);
@@ -1436,6 +1440,26 @@ fn orb_rect(room: Rect, obstacle: Rect, toast: Option<Rect>) -> Rect {
         .unwrap_or(Rect::from_min_size(room.min, size))
 }
 
+fn fit_orb_text(lyrics: &card::Lyrics, mut fits: impl FnMut(&str) -> bool) -> &str {
+    let get = |range: &std::ops::Range<usize>| {
+        let first = lyrics.words.get(range.start)?;
+        let last = lyrics.words.get(range.end.checked_sub(1)?)?;
+        if range.start >= range.end {
+            return None;
+        }
+        lyrics.now.get(first.start..last.end)
+    };
+    let word = lyrics.heard..lyrics.heard.saturating_add(1);
+    for range in [&lyrics.preferred, &lyrics.lit, &word] {
+        if let Some(text) = get(range)
+            && fits(text)
+        {
+            return text;
+        }
+    }
+    get(&word).unwrap_or(lyrics.now.as_str())
+}
+
 fn show_orb(ctx: &Context, rect: Rect, view: &View<'_>, lyrics: Option<&card::Lyrics>) -> bool {
     egui::Area::new(Id::new("read-aloud-orb"))
         .order(Order::Foreground)
@@ -1465,22 +1489,37 @@ fn show_orb(ctx: &Context, rect: Rect, view: &View<'_>, lyrics: Option<&card::Ly
                         .add(egui::Shape::line(points, egui::Stroke::new(2.0, t.accent)));
                 }
             }
+            let available = (rect.width() - 58.0).max(0.0);
+            let font = egui::FontId::proportional(12.0);
             let text = lyrics
-                .and_then(|l| {
-                    l.words
-                        .get(l.lit.start)
-                        .and_then(|range| l.now.get(range.clone()))
+                .map(|lyrics| {
+                    fit_orb_text(lyrics, |text| {
+                        ui.painter()
+                            .layout_no_wrap(text.to_owned(), font.clone(), t.muted)
+                            .size()
+                            .x
+                            <= available
+                    })
                 })
-                .or_else(|| lyrics.map(|l| l.now.as_str()))
+                .filter(|text| !text.is_empty())
                 .unwrap_or("Read aloud");
-            let shown: String = text.chars().take(18).collect();
-            ui.painter().text(
-                egui::pos2(rect.left() + 50.0, rect.center().y),
+            let text_area = Rect::from_min_max(
+                egui::pos2((rect.left() + 50.0).min(rect.right()), rect.top()),
+                rect.max,
+            );
+            ui.painter().with_clip_rect(text_area.intersect(rect)).text(
+                egui::pos2(text_area.left(), rect.center().y),
                 egui::Align2::LEFT_CENTER,
-                shown,
-                egui::FontId::proportional(12.0),
+                text,
+                font,
                 t.muted,
             );
+            let label = ui.interact(
+                text_area.intersect(rect),
+                Id::new("read-aloud-orb-words"),
+                egui::Sense::hover(),
+            );
+            label.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
             control::play_button(ui, slot, view)
         })
         .inner
@@ -1727,6 +1766,33 @@ fn over(paper: [f32; 3], target: [f32; 3]) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn orb_text_uses_the_largest_fitting_group_and_tracks_the_heard_word() {
+        let mut lyrics = card::Lyrics {
+            before: None,
+            now: "one two three four".to_owned(),
+            words: vec![0..3, 4..7, 8..13, 14..18],
+            lit: 1..4,
+            preferred: 0..4,
+            heard: 2,
+            after: None,
+            key: 1,
+        };
+        assert_eq!(
+            fit_orb_text(&lyrics, |s| s.len() <= 20),
+            "one two three four"
+        );
+        assert_eq!(fit_orb_text(&lyrics, |s| s.len() <= 14), "two three four");
+        assert_eq!(fit_orb_text(&lyrics, |s| s.len() <= 5), "three");
+        lyrics.heard = 3;
+        assert_eq!(fit_orb_text(&lyrics, |s| s.len() <= 5), "four");
+        assert_eq!(fit_orb_text(&lyrics, |_| false), "four");
+        lyrics.heard = usize::MAX;
+        lyrics.preferred = lyrics.words.len()..1;
+        lyrics.lit = 9..10;
+        assert_eq!(fit_orb_text(&lyrics, |_| true), "one two three four");
+    }
 
     #[test]
     fn settings_and_speech_name_the_system_voice_alike() {

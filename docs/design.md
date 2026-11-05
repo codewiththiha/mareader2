@@ -503,8 +503,12 @@ and returns where it came from; Library sits beside it.
   search count and a delayed peek; dragging toward an edge shows the threshold.
   Clicking or keyboard-activating the tab restores the original window.
   A covered read-aloud player uses the old sliver in Window edge mode and a
-  playable progress orb in Edge tab mode. In Off mode it moves above the
-  dictionary when possible. Toast avoidance and the player's priority remain.
+  playable progress orb in Edge tab mode. Its words follow the current speech:
+  the chosen group is shown if it fits, otherwise a fitting phrase or the
+  current word. This does not change page highlights. The orb grows and moves
+  back into the player when uncovered; motion settings turn that off. In Off
+  mode it moves above the dictionary when possible. Toast avoidance and the
+  player's priority remain.
 - **Bridges.** The route chip names the language between ("via English");
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.

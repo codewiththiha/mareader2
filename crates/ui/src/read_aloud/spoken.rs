@@ -785,12 +785,16 @@ impl Spoken {
             _ => self.highlight,
         };
         let lit = self.lit_words(highlight).unwrap_or_default();
+        let preferred = self.lit_words(self.highlight).unwrap_or_default();
+        let heard = self.lit_words((Highlight::Words, 1)).map_or(0, |r| r.start);
         let start = said.start;
         Some(Lyrics {
             before: self.behind.back().map(|s| s.sentence.text.clone()),
             now: said.text.clone(),
             words: said.words.iter().map(|w| w.bytes.clone()).collect(),
             lit,
+            preferred,
+            heard,
             after: self.ahead.front().map(|s| s.sentence.text.clone()),
             key: (start.page as u64) << 32 | start.char as u64,
         })
