@@ -43,6 +43,7 @@ fn main() -> Result<(), String> {
     let mut ai_key = None;
     let mut scripted = false;
     let mut clicks = Vec::new();
+    let mut thumb_menu = None;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -232,6 +233,7 @@ fn main() -> Result<(), String> {
             }
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
+            "thumb_menu" => thumb_menu = Some(v.parse::<usize>().map_err(|_| "thumb_menu=page")?),
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
             "read_aloud" if v == "true" => queued.push(Command::ToggleReadAloud),
@@ -453,6 +455,15 @@ fn main() -> Result<(), String> {
         }
         // A held carry rests, so the grid's rests take, opening included.
         harness.run_steps(if release { 4 } else { 50 });
+    }
+    if let Some(page) = thumb_menu {
+        let label = format!("Page {page}");
+        harness
+            .get_by_label(&label)
+            .click_modifiers(egui::Modifiers::COMMAND);
+        harness.run_steps(4);
+        harness.get_by_label(&label).click_secondary();
+        harness.run_steps(4);
     }
     if let Some(pos) = right {
         harness.hover_at(pos);

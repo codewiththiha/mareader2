@@ -161,3 +161,40 @@ fn an_unpicked_page_copies_or_picks_itself() {
     h.run();
     assert_eq!(picks(&h), vec![3]);
 }
+
+#[test]
+fn picked_menu_offers_quick_tiles_and_clears_or_selects_all() {
+    let mut h = reader();
+    click(&mut h, 2, Modifiers::COMMAND);
+    h.get_by_label("Page 2").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Copy text").is_some());
+    assert!(h.query_by_label("Word list").is_some());
+    h.get_by_label("Select all").click();
+    h.run();
+    assert_eq!(picks(&h).len(), 40);
+    h.get_by_label("Page 2").click_secondary();
+    h.run();
+    h.get_by_label("Clear selection").click();
+    h.run();
+    assert!(picks(&h).is_empty());
+}
+
+#[test]
+fn translation_submenu_offers_recent_and_all_languages() {
+    let mut h = reader();
+    h.state_mut().set_option("provider", "openai").unwrap();
+    h.state_mut().settings_mut().ai.tasks.translate.pick("fr");
+    h.state_mut().settings_mut().ai.tasks.translate.pick("my");
+    h.run();
+    click(&mut h, 2, Modifiers::COMMAND);
+    h.get_by_label("Page 2").click_secondary();
+    h.run();
+    h.get_by_label("Translate").click();
+    h.run();
+    assert!(h.query_by_label("French").is_some());
+    assert!(h.query_by_label("Burmese").is_some());
+    h.get_by_label("More languages…").click();
+    h.run();
+    assert!(h.query_by_label("Find a language").is_some());
+}

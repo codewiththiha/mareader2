@@ -244,34 +244,22 @@ pub fn page_menu(
     organizer: Organizer<'_>,
     out: &mut Commands,
 ) {
-    if ui.button("New shelf").clicked() {
+    if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
         shelf(out, ShelfAction::New);
+        ui.close();
     }
-    if let Some(said) = organizer.paused {
-        let resume = ui.add_enabled(!organizer.busy, Button::new(RESUME).right_text(said));
-        if resume.on_hover_text(RESUME_TIP).clicked() {
-            act(out, Action::ResumeOrganizing);
-        }
-        let anew = ui.add_enabled(!organizer.busy, Button::new(ANEW));
-        if anew.on_hover_text(ANEW_TIP).clicked() {
-            act(out, Action::OrganizeAnew(None));
-        }
-    } else {
-        let organize = ui.add_enabled(!organizer.busy, Button::new(ORGANIZE));
-        let organize = organize.on_hover_text(ORGANIZE_TIP);
-        if organize.on_disabled_hover_text(ORGANIZING).clicked() {
-            act(out, Action::Organize(None));
-        }
-    }
+    organize_rows(ui, organizer, out);
     if sequence.is_empty() {
         return;
     }
     if selecting {
-        if ui.button("Clear selection").clicked() {
+        if widgets::menu_row(ui, Icon::Close, "Clear selection", None, false).clicked() {
             act(out, Action::Pick(PickAction::Clear));
+            ui.close();
         }
-    } else if ui.button("Select all").clicked() {
+    } else if widgets::menu_row(ui, Icon::SelectSeveral, "Select all", None, false).clicked() {
         act(out, Action::Pick(PickAction::Only(sequence.to_vec())));
+        ui.close();
     }
 }
 

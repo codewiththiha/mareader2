@@ -31,7 +31,11 @@ pub fn close_on_key(ui: &Ui) {
     let focused = ctx.memory(|m| m.focused());
     let layer =
         focused.and_then(|id| ctx.viewport(|v| v.this_pass.widgets.get(id).map(|w| w.layer_id)));
-    if pressed && layer == Some(ui.layer_id()) {
+    let submenu = focused.is_some_and(|id| {
+        ctx.data(|d| d.get_temp::<bool>(id.with("submenu-trigger")))
+            .unwrap_or(false)
+    });
+    if pressed && !submenu && layer == Some(ui.layer_id()) {
         ui.close();
     }
 }

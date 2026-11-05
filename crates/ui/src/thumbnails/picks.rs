@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use egui::{Id, Response, RichText, Ui};
+use egui::{Align2, Button, Id, Response, RichText, Sense, Ui, vec2};
 use mareader_session::{DocId, Document};
 use mareader_settings::{PageTask, Settings, WordOutput, language_name};
 use mareader_workspace::PaneId;
@@ -24,6 +24,8 @@ pub struct Offer {
     pub any: bool,
     /// The language Translate goes to, by tag and name.
     pub language: Option<(String, String)>,
+    /// Valid recently used translation languages, most recent first.
+    pub recent: Vec<(String, String)>,
     /// What the quick word list does, and the preset it uses.
     pub quick: (WordOutput, Option<String>),
 }
@@ -39,6 +41,14 @@ impl Offer {
         Self {
             any: PageTask::ALL.iter().any(|t| ai.page_preset(*t).is_some()),
             language,
+            recent: ai
+                .tasks
+                .translate
+                .recent
+                .iter()
+                .filter_map(|tag| language_name(tag).map(|name| (tag.clone(), name.to_owned())))
+                .take(5)
+                .collect(),
             quick: (words.instant().output, words.instant.clone()),
         }
     }
@@ -222,6 +232,7 @@ pub fn picks_menu(
     ui: &mut Ui,
     (pane, offer): (PaneId, &Offer),
     picks: &mut Picks,
+    count: usize,
     t: &Tokens,
     out: &mut Commands,
 ) {
@@ -230,39 +241,115 @@ pub fn picks_menu(
         1 => "1 page".to_owned(),
         n => format!("{n} pages"),
     };
-    ui.label(RichText::new(heading).size(12.0).color(t.muted));
-    if menu_row(ui, Icon::Copy, "Copy text", None, false).clicked() {
-        let pages = picks.pages();
-        out.push(Command::CopyPages { pane, pages });
-        ui.close();
-    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(heading).size(13.0).color(t.ink));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let clear = ui.add(Button::new("Clear").right_text("Esc"));
+            clear.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear selection")
+            });
+            if clear.clicked() {
+                picks.clear();
+                ui.close();
+            }
+        });
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let width = ((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0).max(1.0);
+        if tile(ui, Icon::Copy, "Copy text", width, t).clicked() {
+            out.push(Command::CopyPages {
+                pane,
+                pages: picks.pages(),
+            });
+            ui.close();
+        }
+        if tile(ui, Icon::Levels, "Word list", width, t).clicked() {
+            out.push(Command::WordListWindow {
+                pane,
+                pages: picks.pages(),
+            });
+            ui.close();
+        }
+        if tile(ui, Icon::SelectSeveral, "Select all", width, t).clicked() {
+            picks.all(count);
+            ui.close();
+        }
+    });
+    group(ui, "VOCABULARY", t);
     let quick = match offer.quick.0 {
         WordOutput::Copy => "Copy word list",
         WordOutput::Markdown => "Save word list (.md)",
         WordOutput::Epub => "Save word list (.epub)",
     };
-    let preset = offer.quick.1.as_deref();
-    let words = menu_row(ui, Icon::Levels, quick, preset, false);
+    // The preset is a badge, not a keyboard shortcut or part of the name.
+    let words = menu_row(ui, Icon::Levels, quick, None, false);
+    if let Some(preset) = offer.quick.1.as_deref() {
+        let font = egui::FontId::proportional(10.5);
+        let galley = ui
+            .painter()
+            .layout_no_wrap(preset.to_owned(), font, t.accent);
+        let size = galley.size() + vec2(10.0, 4.0);
+        let rect = egui::Rect::from_center_size(
+            egui::pos2(
+                words.rect.right() - size.x / 2.0 - 6.0,
+                words.rect.center().y,
+            ),
+            size,
+        );
+        ui.painter().rect_filled(rect, 8.0, t.accent_soft);
+        ui.painter()
+            .galley(rect.min + vec2(5.0, 2.0), galley, t.accent);
+    }
     if words
         .on_hover_text("The words above your level, with their dictionary meanings")
         .clicked()
     {
-        let pages = picks.pages();
-        out.push(Command::WordList { pane, pages });
+        out.push(Command::WordList {
+            pane,
+            pages: picks.pages(),
+        });
         ui.close();
     }
     if menu_row(ui, Icon::ViewOptions, "Word list…", None, false).clicked() {
-        let pages = picks.pages();
-        out.push(Command::WordListWindow { pane, pages });
+        out.push(Command::WordListWindow {
+            pane,
+            pages: picks.pages(),
+        });
         ui.close();
     }
-    ui.separator();
+    group(ui, "ASK AI", t);
     ai_rows(ui, (pane, offer), picks, out);
-    ui.separator();
-    if menu_row(ui, Icon::Close, "Clear selection", Some("Esc"), false).clicked() {
-        picks.clear();
-        ui.close();
-    }
+}
+
+/// A frequent action, with a single accessible name and a generous target.
+fn tile(ui: &mut Ui, icon: Icon, label: &str, width: f32, t: &Tokens) -> Response {
+    let (rect, r) = ui.allocate_exact_size(vec2(width, 54.0), Sense::click());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let fill = if r.is_pointer_button_down_on() {
+        t.pressed
+    } else if r.hovered() || r.has_focus() {
+        t.hover
+    } else {
+        t.card
+    };
+    ui.painter().rect_filled(rect, 8.0, fill);
+    let icon_rect =
+        egui::Rect::from_center_size(rect.center_top() + vec2(0.0, 15.0), vec2(16.0, 16.0));
+    icon.paint(ui, icon_rect, t.ink);
+    ui.painter().text(
+        rect.center_bottom() - vec2(0.0, 9.0),
+        Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(10.5),
+        t.ink,
+    );
+    r
+}
+
+fn group(ui: &mut Ui, label: &str, t: &Tokens) {
+    ui.add_space(6.0);
+    ui.label(RichText::new(label).size(10.5).color(t.muted).strong());
 }
 
 /// Summarize, translate and simplify the picked pages, a group at a time.
@@ -287,23 +374,37 @@ fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mu
         out.push(run(PageTask::Summarize, None));
         ui.close();
     }
-    let other = match &offer.language {
-        Some((tag, name)) => {
-            let to = format!("Translate to {name}");
-            if menu_row(ui, Icon::Translate, &to, None, false).clicked() {
-                out.push(run(PageTask::Translate, Some(tag.clone())));
-                ui.close();
+    let button = Button::image_and_text(Icon::Translate.image(16.0), "Translate")
+        .right_text(egui::containers::menu::SubMenuButton::RIGHT_ARROW)
+        .image_tint_follows_text_color(true)
+        .frame_when_inactive(false)
+        .min_size(vec2(ui.available_width(), 32.0));
+    let (response, _) = egui::containers::menu::SubMenuButton::from_button(button).ui(ui, |ui| {
+        ui.set_width(180.0);
+        if !offer.recent.is_empty() {
+            let t = Tokens::get(ui.ctx());
+            group(ui, "RECENT", &t);
+            for (tag, name) in &offer.recent {
+                let on = offer
+                    .language
+                    .as_ref()
+                    .is_some_and(|(selected, _)| selected == tag);
+                if menu_row(ui, Icon::Translate, name, None, on).clicked() {
+                    out.push(run(PageTask::Translate, Some(tag.clone())));
+                    ui.close();
+                }
             }
-            menu_row(ui, Icon::ChevronRight, "Other language…", None, false)
+            ui.separator();
         }
-        None => menu_row(ui, Icon::Translate, "Translate…", None, false),
-    };
-    if other.clicked() {
-        let pages = picks.pages();
-        let at = other.rect.right_top();
-        out.push(Command::PageAi(Action::PagesMenu { pane, pages, at }));
-        ui.close();
-    }
+        if menu_row(ui, Icon::Translate, "More languages…", None, false).clicked() {
+            let pages = picks.pages();
+            let at = ui.max_rect().right_top();
+            out.push(Command::PageAi(Action::PagesMenu { pane, pages, at }));
+            ui.close();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(response.id.with("submenu-trigger"), true));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Translate"));
     let simplify = menu_row(ui, Icon::Simplify, "Simplify", None, false);
     if simplify
         .on_hover_text("Rewrites the text in plain English")

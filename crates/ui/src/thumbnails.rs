@@ -228,7 +228,14 @@ pub fn show(
                 }
                 let pane = reading.pane;
                 crate::widgets::context_menu(&r, |ui| match state.picks.contains(page) {
-                    true => picks::picks_menu(ui, (pane, &state.offer), &mut state.picks, &t, out),
+                    true => picks::picks_menu(
+                        ui,
+                        (pane, &state.offer),
+                        &mut state.picks,
+                        count,
+                        &t,
+                        out,
+                    ),
                     false => picks::page_menu(ui, pane, page, &mut state.picks, out),
                 });
                 let chosen = state.picks.contains(page);
