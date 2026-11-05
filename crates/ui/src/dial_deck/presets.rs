@@ -208,7 +208,16 @@ fn draft_card(
         let (mut save, mut cancel) = (false, false);
         ui.columns(2, |cols| {
             if let [l, r] = cols {
-                let primary = widgets::primary_button(None, "Save", t.accent, t);
+                // Without a name there is nothing to save, and a filled accent
+                // button says there is: hold it back as a quiet outline instead.
+                let primary = if named {
+                    widgets::primary_button(None, "Save", t.accent, t)
+                } else {
+                    Button::new(RichText::new("Save").color(t.ink))
+                        .fill(t.surface)
+                        .stroke(Stroke::new(1.0, t.line))
+                        .corner_radius(t.radius)
+                };
                 save = l
                     .add_enabled_ui(named, |ui| {
                         ui.add_sized([ui.available_width(), 26.0], primary)

@@ -594,16 +594,16 @@ fn paint_dial_face(
 
     let frac = ((value - lo) / (hi - lo).max(f32::EPSILON)).clamp(0.0, 1.0);
     let angle = DIAL_FROM + frac * (DIAL_TO - DIAL_FROM);
-    let active_col = if enabled {
-        t.accent
-    } else {
-        blend(t.paper, t.muted, 0.35)
-    };
-    if frac > 0.005 {
-        paint_arc(painter, c, r_arc, DIAL_FROM, angle, stroke_w, active_col);
-    } else {
-        let start = polar(c, r_arc, DIAL_FROM);
-        painter.circle_filled(start, stroke_w * 0.5, active_col);
+    // A dial that cannot be moved shows a face and a track only: a needle and
+    // a filled sweep would read as a value the reader cannot change, or worse,
+    // as one that is set to zero.
+    if enabled {
+        if frac > 0.005 {
+            paint_arc(painter, c, r_arc, DIAL_FROM, angle, stroke_w, t.accent);
+        } else {
+            let start = polar(c, r_arc, DIAL_FROM);
+            painter.circle_filled(start, stroke_w * 0.5, t.accent);
+        }
     }
 
     let hot = enabled && (resp.hovered() || resp.dragged());
@@ -629,12 +629,14 @@ fn paint_dial_face(
     };
     painter.circle(c, r_cap, cap_fill, cap_border);
 
-    let p0 = polar(c, r_cap * 0.24, angle);
-    let p1 = polar(c, r_cap * 0.80, angle);
-    let needle_w = 2.4;
-    painter.line_segment([p0, p1], Stroke::new(needle_w, active_col));
-    painter.circle_filled(p0, needle_w * 0.5, active_col);
-    painter.circle_filled(p1, needle_w * 0.5, active_col);
+    if enabled {
+        let p0 = polar(c, r_cap * 0.24, angle);
+        let p1 = polar(c, r_cap * 0.80, angle);
+        let needle_w = 2.4;
+        painter.line_segment([p0, p1], Stroke::new(needle_w, t.accent));
+        painter.circle_filled(p0, needle_w * 0.5, t.accent);
+        painter.circle_filled(p1, needle_w * 0.5, t.accent);
+    }
 }
 
 fn paint_arc(
