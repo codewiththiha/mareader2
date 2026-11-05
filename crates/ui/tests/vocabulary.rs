@@ -231,6 +231,18 @@ fn the_tab_sets_the_level_and_removes_the_dataset() {
     h.run();
     h.get_by_label("Reading level");
     h.get_by_label("4 words");
+    assert_eq!(
+        h.state().settings().study.cefr.mark,
+        mareader_settings::CefrMark::Wash
+    );
+    h.get_by_role_and_label(Role::Button, "Underline").click();
+    h.run();
+    assert_eq!(
+        h.state().settings().study.cefr.mark,
+        mareader_settings::CefrMark::Underline
+    );
+    h.get_by_role_and_label(Role::Button, "Custom").click();
+    h.run();
     h.get_by_role_and_label(Role::CheckBox, "Shade words above my level")
         .click();
     // A pen's own colour is kept from shading.
@@ -239,6 +251,7 @@ fn the_tab_sets_the_level_and_removes_the_dataset() {
     let study = &h.state().settings().study;
     assert!(!study.cefr.enabled);
     assert_eq!(study.cefr.level, CefrLevel::default());
+    assert_eq!(study.cefr.mark, mareader_settings::CefrMark::Custom);
     assert_eq!(study.highlights.cefr.color.to_hex(), "#00b2f4");
     h.get_by_label("Remove word data").click();
     h.run();

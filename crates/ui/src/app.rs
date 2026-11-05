@@ -3079,6 +3079,7 @@ impl MareaderApp {
             content,
             shown,
             title: &title,
+            book,
             tint,
             toasts,
             dict,
@@ -3507,6 +3508,22 @@ impl eframe::App for MareaderApp {
             self.titlebar.reveal();
             self.page_bars.entry(self.active).or_default().reveal();
         }
+        // While the question is present, these answers take precedence over
+        // page scrolling and Escape's other reader actions, but never typing.
+        let asking = route == Route::Reader
+            && self.read_aloud.is_asking()
+            && !dialog
+            && !ctx.text_edit_focused()
+            && !egui::Popup::is_any_open(&ctx);
+        if asking {
+            let read = !ctx.egui_wants_keyboard_input()
+                && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
+            let skip = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+            if read || skip {
+                self.read_aloud
+                    .answer_question(read, &mut self.settings.read_aloud);
+            }
+        }
         let read = commands.len();
         keymap::read(&ctx, self.platform, route, &mut commands);
         // The shortcut gives an idle open window the keys before closing it.
@@ -3707,14 +3724,14 @@ impl eframe::App for MareaderApp {
         }
         self.clips.tick();
         self.find_reading();
-        self.read_aloud
-            .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
         let (library, documents) = (&self.library, &self.documents);
         self.read_aloud.remember(|pane| crate::read_aloud::Origin {
             book: library.book_in(documents, pane),
             path: documents.path(pane).map(std::path::Path::to_path_buf),
             name: documents.title(pane).unwrap_or_default().to_owned(),
         });
+        self.read_aloud
+            .tick(&ctx, &mut self.documents, &self.settings.read_aloud);
         self.documents.reveal_read_markers();
         let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;
@@ -3728,6 +3745,7 @@ impl eframe::App for MareaderApp {
         let cefr = &self.settings.study.cefr;
         let shading = cefr.enabled.then_some(crate::vocab::Look {
             level: cefr.level.band(),
+            mark: cefr.mark,
             click: cefr.click_explain,
             hover: self.settings.dictionary.hover,
             ink: highlights.cefr,

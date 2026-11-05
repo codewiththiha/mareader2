@@ -185,9 +185,42 @@ pub fn add(placed: &[Placed], opacity: f32, under: &mut Under) {
 
 /// Noted marks' badges, over the page and its fills.
 pub fn badges(ui: &Ui, placed: &[Placed]) {
+    let page = crate::theme::Tokens::get(ui.ctx()).page;
+    let (paper, ink_tone) = page.paper_and_ink();
+    let brightness = |c: [f32; 3]| c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+    let dark_page = brightness(paper) < brightness(ink_tone);
+    let mut seen: Vec<MarkId> = Vec::new();
     for mark in placed {
-        if let Some(b) = mark.badge {
-            note_badge(ui, b, mark.ink.color);
+        let again = seen.iter().filter(|id| **id == mark.id).count();
+        seen.push(mark.id);
+        if let (Some(b), Some(last)) = (mark.badge, mark.rects.last()) {
+            let fill = crate::theme::color(mark.ink.color);
+            let tab_ink = if dark_page {
+                fill.lerp_to_gamma(Color32::WHITE, 0.2)
+            } else {
+                fill.lerp_to_gamma(Color32::BLACK, 0.38)
+            };
+            for r in &mark.rects {
+                let bar = Rect::from_min_max(pos2(r.left(), r.bottom() - 2.0), r.max);
+                ui.painter().rect_filled(bar, 1.0, tab_ink);
+            }
+            if mark.ink.pen == Pen::Underline {
+                let right = (last.right() + 5.0).min(b.right());
+                let tip = Rect::from_min_max(
+                    pos2(last.right(), last.bottom() - 2.5),
+                    pos2(right, last.bottom() + 0.5),
+                );
+                ui.painter().rect_filled(tip, 1.0, tab_ink);
+            }
+            let stop = ui.id().with(("stop-mark", mark.id, again));
+            let kb = crate::focus::keyboard(ui.ctx());
+            let focused = kb && ui.ctx().memory(|m| m.has_focus(stop));
+            let hovering = ui
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| mark.contains(p));
+            if hovering || focused {
+                note_badge(ui, b, mark.ink.color);
+            }
         }
     }
 }
@@ -218,6 +251,7 @@ pub struct Under {
     /// Boxes on dim pages, redrawn with their text lifted: box, tone, tint.
     lifts: Vec<(Rect, PageTone, Color32)>,
     lines: Vec<(Rect, Color32)>,
+    dots: Vec<(Pos2, f32, Color32)>,
     /// Each colour and strength's fill, worked out once.
     seen: Vec<((Rgb, u32), MarkFill)>,
 }
@@ -230,6 +264,7 @@ impl Under {
             fills: Vec::new(),
             lifts: Vec::new(),
             lines: Vec::new(),
+            dots: Vec::new(),
             seen: Vec::new(),
         }
     }
@@ -261,6 +296,63 @@ impl Under {
         }
     }
 
+    /// A graded vocabulary mark, with a non-colour cue to its level.
+    pub fn level_mark(&mut self, r: Rect, band: u8, style: mareader_settings::CefrMark, lift: f32) {
+        use mareader_settings::CefrMark;
+        let color = match band {
+            1 => Rgb(0x5b, 0x8f, 0x3a),
+            2 => Rgb(0x7c, 0x9a, 0x2e),
+            3 => Rgb(0xc2, 0x8a, 0x12),
+            4 => Rgb(0xd0, 0x6a, 0x1c),
+            5 => Rgb(0xc2, 0x41, 0x2d),
+            _ => Rgb(0x9b, 0x2c, 0x5a),
+        };
+        match style {
+            CefrMark::Wash => {
+                let strength = 0.12 + f32::from(band.min(6)) * 0.025 + lift;
+                self.add(r, Pen::Full, color, strength);
+            }
+            CefrMark::Underline => {
+                let thickness = (r.height() * if band >= 5 { 0.14 } else { 0.08 }).max(1.0);
+                let ink = self.level_ink(color);
+                let line = Rect::from_min_max(pos2(r.left(), r.bottom() - thickness), r.max);
+                if band == 3 {
+                    let mut x = line.left();
+                    while x < line.right() {
+                        let right = (x + thickness).min(line.right());
+                        self.lines.push((
+                            Rect::from_min_max(pos2(x, line.top()), pos2(right, line.bottom())),
+                            ink,
+                        ));
+                        x += thickness * 2.5;
+                    }
+                } else {
+                    self.lines.push((line, ink));
+                }
+            }
+            CefrMark::Dot => {
+                let radius = (r.height() * (0.08 + f32::from(band.min(6)) * 0.012)).clamp(1.5, 3.5);
+                self.dots.push((
+                    pos2(r.center().x, r.top() - radius - 1.0),
+                    radius,
+                    self.level_ink(color),
+                ));
+            }
+            CefrMark::Custom => {}
+        }
+    }
+
+    fn level_ink(&self, color: Rgb) -> Color32 {
+        let (paper, ink) = self.tone.paper_and_ink();
+        let brightness = |c: [f32; 3]| c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+        let color = crate::theme::color(color);
+        if brightness(paper) < brightness(ink) {
+            color.lerp_to_gamma(Color32::WHITE, 0.38)
+        } else {
+            color
+        }
+    }
+
     /// Draws them within `clip` over `pages`, the quads just drawn.
     pub fn show(self, ui: &Ui, pass: Option<&Arc<PagePass>>, clip: Rect, pages: &[Quad]) {
         let blend = self.tone.mark([1.0; 3], 1.0).blend;
@@ -286,6 +378,9 @@ impl Under {
         }
         for (line, colour) in self.lines {
             ui.painter().rect_filled(line, 0.0, colour);
+        }
+        for (centre, radius, colour) in self.dots {
+            ui.painter().circle_filled(centre, radius, colour);
         }
     }
 }

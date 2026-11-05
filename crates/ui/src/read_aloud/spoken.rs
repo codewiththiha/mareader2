@@ -102,6 +102,8 @@ pub(super) struct Spoken {
     leaving: Option<Part>,
     /// What reading does on reaching each kind of part.
     skips: Skips,
+    /// Explicit overrides belonging only to this book.
+    pub book_mask: u8,
     /// The parts read on into: they are not asked about again.
     cleared: Vec<Part>,
     /// The part asked about, held at its start for an answer.
@@ -156,6 +158,7 @@ impl Spoken {
             homing: false,
             leaving: None,
             skips: settings.skips,
+            book_mask: 0,
             cleared: Vec::new(),
             asking: None,
             entered: true,
@@ -256,6 +259,11 @@ impl Spoken {
     fn apply(&mut self, (settings, shelf): (&ReadAloudSettings, &Shelf)) {
         self.highlight = (settings.highlight, settings.highlight_words);
         self.skips = settings.skips;
+        for kind in parts::Kind::ALL {
+            if self.book_mask & kind.bit() != 0 {
+                kind.set_skip(&mut self.skips);
+            }
+        }
         // Asked no more, the question answers itself.
         match self.asking.map(|p| p.kind.pass(&self.skips)) {
             Some(Pass::Read) => self.answer(true),
@@ -387,6 +395,33 @@ impl Spoken {
         self.asking = Some(part);
         self.paused = true;
         self.clock.stop();
+    }
+
+    /// Estimate only when the buffered sentences include the part's end.
+    pub fn ask_cost(&self, rate: f32) -> Option<String> {
+        let part = self.asking?;
+        let first = self.current.as_ref()?;
+        let mut bytes = first.sentence.text.len();
+        let mut ended = false;
+        for said in &self.ahead {
+            if !said.parts.contains(&part) {
+                ended = true;
+                break;
+            }
+            bytes = bytes.saturating_add(said.sentence.text.len());
+        }
+        if !ended && self.ahead.is_empty() {
+            return None;
+        }
+        let seconds = (bytes as f32 / (14.0 * rate.clamp(0.5, 3.0)))
+            .ceil()
+            .max(1.0);
+        let prefix = if ended { "~" } else { "at least ~" };
+        Some(format!("{prefix}{} s", seconds as u32))
+    }
+
+    pub fn is_asking(&self) -> bool {
+        self.asking.is_some()
     }
 
     /// The answer to the part asked about: read it, or pass it over.

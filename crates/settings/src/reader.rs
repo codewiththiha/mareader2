@@ -294,6 +294,8 @@ pub struct ReadAloudSettings {
     pub skip_page_numbers: bool,
     /// Tables and the like: read, asked about, or passed over.
     pub skips: Skips,
+    /// Per-library-book overrides: one bit for each kind of part.
+    pub book_skips: std::collections::BTreeMap<mareader_library::BookId, u8>,
     /// Pages turn to keep the phrase read in view.
     pub follow: bool,
     pub highlight: Highlight,
@@ -343,6 +345,13 @@ impl ReadAloudSettings {
             true => v.clamp(lo, hi),
             false => 1.0,
         };
+        self.book_skips.retain(|_, mask| {
+            *mask &= 0x0f;
+            *mask != 0
+        });
+        while self.book_skips.len() > 1024 {
+            self.book_skips.pop_last();
+        }
         self.rate = keep(self.rate, Self::SLOWEST, Self::FASTEST);
         self.pitch = keep(self.pitch, Self::LOWEST, Self::HIGHEST);
         self.volume = keep(self.volume, 0.0, 1.0);
@@ -408,6 +417,7 @@ impl Default for ReadAloudSettings {
             skip_notes: false,
             skip_page_numbers: true,
             skips: Skips::default(),
+            book_skips: std::collections::BTreeMap::new(),
             follow: true,
             highlight: Highlight::Sentence,
             highlight_words: 1,

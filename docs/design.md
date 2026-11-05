@@ -593,3 +593,15 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 | 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |
 | 2026-10-18 | Lifting a pane to move or swap it |
 | 2026-10-28 | Book covers: bound finish, cloth covers, progress on the cover, organizing without a badge |
+
+### Page marks and reading questions
+
+CEFR shading defaults to a quiet graded wash, with underline and dot styles
+that differ in weight as well as colour; existing custom pens stay available.
+Highlights use the page's contrast-aware multiply or screen blend. A noted
+passage has a small end tab; its margin badge appears on hover.
+
+A read-aloud question shows Space and Escape as answers and estimates duration
+when buffered text permits; a partial buffer is labelled as a lower bound. An
+optional skip rule is kept only for the current library book and can be removed
+from the player's options. Unsaved documents do not offer a persistent rule.

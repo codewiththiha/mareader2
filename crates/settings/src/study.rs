@@ -258,13 +258,45 @@ impl CefrLevel {
     }
 }
 
+/// How above-level words are marked on the page.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CefrMark {
+    #[default]
+    Wash,
+    Underline,
+    Dot,
+    /// The reader's original single-colour pen and shade.
+    Custom,
+}
+
+impl CefrMark {
+    pub const ALL: [Self; 4] = [Self::Wash, Self::Underline, Self::Dot, Self::Custom];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Wash => "Soft wash",
+            Self::Underline => "Underline",
+            Self::Dot => "Dot",
+            Self::Custom => "Custom",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CefrSettings {
     pub enabled: bool,
     pub level: CefrLevel,
+    /// Old settings keep their explicitly configured pen and colour.
+    #[serde(default = "legacy_cefr_mark")]
+    pub mark: CefrMark,
     /// Clicking a highlighted word explains it.
     pub click_explain: bool,
+}
+
+fn legacy_cefr_mark() -> CefrMark {
+    CefrMark::Custom
 }
 
 impl Default for CefrSettings {
@@ -272,6 +304,7 @@ impl Default for CefrSettings {
         Self {
             enabled: false,
             level: CefrLevel::B2,
+            mark: CefrMark::default(),
             click_explain: true,
         }
     }
@@ -486,6 +519,13 @@ impl Default for DictionarySettings {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_vocabulary_settings_keep_the_custom_pen() {
+        let old: CefrSettings = serde_json::from_str("{\"enabled\":true}").unwrap();
+        assert_eq!(old.mark, CefrMark::Custom);
+        assert_eq!(CefrSettings::default().mark, CefrMark::Wash);
+    }
 
     #[test]
     fn a_window_rect_is_finite_and_never_below_the_minimum() {

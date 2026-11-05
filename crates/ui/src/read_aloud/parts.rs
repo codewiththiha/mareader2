@@ -34,6 +34,28 @@ impl Kind {
         }
     }
 
+    pub fn bit(self) -> u8 {
+        match self {
+            Self::Table => 1,
+            Self::List => 2,
+            Self::Figure => 4,
+            Self::Aside => 8,
+        }
+    }
+
+    pub const ALL: [Self; 4] = [Self::Table, Self::List, Self::Figure, Self::Aside];
+
+    pub fn set_skip(self, skips: &mut Skips) {
+        let skip = match self {
+            Self::Table => &mut skips.tables,
+            Self::List => &mut skips.lists,
+            Self::Figure => &mut skips.figures,
+            Self::Aside => &mut skips.asides,
+        };
+        skip.on = true;
+        skip.ask = false;
+    }
+
     /// What reading does on reaching one, as the settings say.
     pub fn pass(self, skips: &Skips) -> Pass {
         let skip = match self {

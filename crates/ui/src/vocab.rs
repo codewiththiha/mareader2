@@ -9,7 +9,7 @@ use egui::{CursorIcon, Id, Pos2, Rect, Ui};
 use mareader_cefr::{Part, Role, State, Ticket, Vocabulary};
 use mareader_pdf::Bounds;
 use mareader_session::{DocId, TextLayer};
-use mareader_settings::Reserved;
+use mareader_settings::{CefrMark, Reserved};
 
 use crate::command::Download;
 use crate::selection::Pages;
@@ -30,6 +30,7 @@ const HOVER_LIFT: f32 = 0.2;
 pub struct Look {
     /// The reader's band; words above it are shaded.
     pub level: u8,
+    pub mark: CefrMark,
     /// A click on a shaded word explains it.
     pub click: bool,
     /// Resting on a shaded word looks it up.
@@ -41,7 +42,7 @@ pub struct Look {
 /// One page's hard words: each one's characters and its run of `boxes`.
 #[derive(Default)]
 struct Words {
-    words: Vec<(Range<usize>, Range<usize>)>,
+    words: Vec<(Range<usize>, Range<usize>, u8)>,
     boxes: Vec<Bounds>,
 }
 
@@ -61,6 +62,8 @@ pub struct Shaded {
     pub page: usize,
     /// Its characters in the page's text layer.
     pub chars: Range<usize>,
+    /// The word's highest known CEFR band.
+    pub band: u8,
     bounds: Rect,
     /// Its line boxes in [`Shading`]'s list.
     rects: Range<usize>,
@@ -194,9 +197,9 @@ impl Vocab {
             return Arc::clone(&m.words);
         }
         let (text, index) = words::read(layer);
-        let spans = self.service.plan_chars(&text, level, PAGE_CAP);
+        let spans = self.service.plan_banded_chars(&text, level, PAGE_CAP);
         let mut words = Words::default();
-        for s in spans {
+        for (s, band) in spans {
             let first = index.get(s.start).copied().flatten();
             let last = s
                 .end
@@ -209,7 +212,7 @@ impl Vocab {
             words.boxes.extend(layer.text.line_boxes(first..last + 1));
             words
                 .words
-                .push((first..last + 1, start..words.boxes.len()));
+                .push((first..last + 1, start..words.boxes.len(), band));
         }
         words.words.shrink_to_fit();
         words.boxes.shrink_to_fit();
@@ -240,7 +243,7 @@ impl Vocab {
                 continue;
             };
             let words = self.page(pages.doc, sheet.page, &layer, look.level);
-            for (chars, boxes) in &words.words {
+            for (chars, boxes, band) in &words.words {
                 let start = out.rects.len();
                 let boxes = words.boxes.get(boxes.clone()).unwrap_or_default();
                 let on_screen = boxes
@@ -252,6 +255,7 @@ impl Vocab {
                     out.words.push(Shaded {
                         page: sheet.page,
                         chars: chars.clone(),
+                        band: *band,
                         bounds,
                         rects: start..out.rects.len(),
                     });
@@ -268,7 +272,12 @@ pub fn add(shaded: &Shading, look: &Look, hovered: Option<usize>, under: &mut Un
     for (i, word) in shaded.iter().enumerate() {
         let lift = if hovered == Some(i) { HOVER_LIFT } else { 0.0 };
         for r in shaded.rects_of(word) {
-            under.add(*r, look.ink.pen, look.ink.color, look.opacity + lift);
+            match look.mark {
+                CefrMark::Custom => {
+                    under.add(*r, look.ink.pen, look.ink.color, look.opacity + lift)
+                }
+                style => under.level_mark(*r, word.band, style, lift),
+            }
         }
     }
 }

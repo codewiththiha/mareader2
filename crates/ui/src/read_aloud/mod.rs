@@ -373,6 +373,13 @@ impl Session {
         }
     }
 
+    fn ask_cost(&self, rate: f32) -> Option<String> {
+        match self {
+            Self::Spoken(s) => s.ask_cost(rate),
+            Self::Narrated(_) => None,
+        }
+    }
+
     /// Does what the player asked; true to stop.
     fn act(&mut self, act: Act) -> bool {
         match self {
@@ -426,6 +433,8 @@ pub struct Stage<'a> {
     pub shown: Option<bool>,
     /// The title of the book read.
     pub title: &'a str,
+    /// Library identity for per-book choices; none for an unsaved document.
+    pub book: Option<mareader_library::BookId>,
     /// Its pane's own look, while it has one; else the window's.
     pub tint: Option<Tokens>,
     /// Active toasts occupying the corner, if any.
@@ -496,6 +505,8 @@ struct Shape {
     countdown: countdown::Countdown,
     /// The part last asked about, kept while its question fades.
     asked: Option<parts::Kind>,
+    /// Opted in for the current unanswered question only.
+    remember_skip: bool,
 }
 
 /// Read-aloud for the window: at most one book reads at a time.
@@ -647,7 +658,9 @@ impl ReadAloud {
         let (from, at, until) = (asked.anchor, asked.at, asked.until);
         // What reads is in this pane now, whatever read before.
         self.away = false;
-        if self.home() != Some(reading.pane) {
+        if self.home() != Some(reading.pane)
+            || self.session.as_ref().is_some_and(|s| !s.ours(reading))
+        {
             self.origin = None;
         }
         // A selection is read just as it is, so by the voice.
@@ -725,6 +738,15 @@ impl ReadAloud {
             self.origin = None;
             return;
         };
+        let mask = self
+            .origin
+            .as_ref()
+            .and_then(|o| o.book)
+            .and_then(|book| settings.book_skips.get(&book).copied())
+            .unwrap_or(0);
+        if let Session::Spoken(s) = &mut *session {
+            s.book_mask = mask;
+        }
         let here = documents.reading(session.pane());
         let here = here.filter(|r| session.ours(r));
         self.away = here.is_none();
@@ -739,6 +761,30 @@ impl ReadAloud {
         if !going {
             self.session = None;
         }
+    }
+
+    /// Answer a pending question from the keyboard, without affecting ordinary playback.
+    pub fn answer_question(&mut self, read: bool, settings: &mut ReadAloudSettings) -> bool {
+        let Some(Session::Spoken(s)) = self.session.as_mut() else {
+            return false;
+        };
+        if !s.is_asking() {
+            return false;
+        }
+        if !read
+            && self.shape.remember_skip
+            && let (Some(book), Some(kind)) =
+                (self.origin.as_ref().and_then(|o| o.book), self.shape.asked)
+        {
+            remember_skip(settings, book, kind);
+        }
+        self.shape.remember_skip = false;
+        s.act(Act::Answer(read));
+        true
+    }
+
+    pub fn is_asking(&self) -> bool {
+        matches!(self.session.as_ref(), Some(Session::Spoken(s)) if s.is_asking())
     }
 
     /// The book read while its pane shows another, or none.
@@ -1152,6 +1198,7 @@ impl ReadAloud {
         }
         let act = colours.lend(ctx, || {
             let hint = |share: f32| s.hint(share);
+            let cost = s.ask_cost(settings.rate);
             let view = s.view(&hint);
             let estimate = countdown::Estimate {
                 left: view.left,
@@ -1335,7 +1382,9 @@ impl ReadAloud {
                                 act = Some(Act::Reveal);
                             }
                         }
-                        if let Some(a) = control::show(ui, row, (&view, fit, k), settings, out) {
+                        if let Some(a) =
+                            control::show(ui, row, (&view, fit, k), settings, stage.book, out)
+                        {
                             act = Some(a);
                         }
                         resize = edges::show(ui, r, span);
@@ -1366,6 +1415,9 @@ impl ReadAloud {
             }
             // Asked about a part, the question rises over the player.
             if view.ask.is_some() {
+                if shape.asked != view.ask {
+                    shape.remember_skip = false;
+                }
                 shape.asked = view.ask;
             }
             let ease = motion::secs(ctx, 0.18);
@@ -1373,8 +1425,25 @@ impl ReadAloud {
                 ctx.animate_bool_with_time(Id::new("read-aloud-asking"), view.ask.is_some(), ease);
             if !parked && let (Some(part), true) = (shape.asked, asking > 0.0) {
                 let k = ease_out(f64::from(asking)) as f32 * shown;
-                let answer = ask::show(ctx, (rect, room), part, k);
+                let can_remember = stage.book.is_some_and(|book| {
+                    settings.book_skips.contains_key(&book) || settings.book_skips.len() < 1024
+                });
+                let answer = ask::show(
+                    ctx,
+                    (rect, room),
+                    part,
+                    cost.as_deref(),
+                    k,
+                    can_remember.then_some(&mut shape.remember_skip),
+                );
                 if let (Some(read), true) = (answer, view.ask.is_some()) {
+                    if !read
+                        && shape.remember_skip
+                        && let Some(book) = stage.book
+                    {
+                        remember_skip(settings, book, part);
+                    }
+                    shape.remember_skip = false;
                     act = Some(Act::Answer(read));
                 }
             }
@@ -1408,6 +1477,34 @@ impl ReadAloud {
             Some(act) if s.act(act) => self.session = None,
             _ => {}
         }
+    }
+}
+
+/// Remembers only an explicit skip, never changing another book's policy.
+fn remember_skip(
+    settings: &mut ReadAloudSettings,
+    book: mareader_library::BookId,
+    kind: parts::Kind,
+) {
+    if settings.book_skips.contains_key(&book) || settings.book_skips.len() < 1024 {
+        *settings.book_skips.entry(book).or_default() |= kind.bit();
+    }
+}
+
+#[cfg(test)]
+mod book_skip_tests {
+    use super::*;
+
+    #[test]
+    fn only_selected_book_and_kinds_are_remembered() {
+        let mut settings = ReadAloudSettings::default();
+        let first = mareader_library::BookId(1);
+        let second = mareader_library::BookId(2);
+        remember_skip(&mut settings, first, parts::Kind::Table);
+        remember_skip(&mut settings, first, parts::Kind::List);
+        assert_eq!(settings.book_skips.get(&first), Some(&3));
+        assert!(!settings.book_skips.contains_key(&second));
+        assert_eq!(settings.skips, mareader_settings::Skips::default());
     }
 }
 

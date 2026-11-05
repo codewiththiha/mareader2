@@ -1177,7 +1177,7 @@ fn a_table_can_be_asked_about_or_passed_over() {
     h.run_steps(20);
     assert!(lit_in_table(&h), "held at the table: {:?}", lit(&h));
     let _ = h.get_by_label("Play");
-    h.get_by_label("Skip the table").click();
+    h.key_press(egui::Key::Escape);
     step_until(&mut h, past);
     h.run_steps(30);
     assert!(h.query_by_label("Read the table").is_none(), "answered");
@@ -1185,7 +1185,7 @@ fn a_table_can_be_asked_about_or_passed_over() {
     start(&mut h, from);
     step_until(&mut h, |h| h.query_by_label("Read the table").is_some());
     h.run_steps(20);
-    h.get_by_label("Read the table").click();
+    h.key_press(egui::Key::Space);
     h.run_steps(2);
     let _ = h.get_by_label("Pause");
     assert!(lit_in_table(&h), "reading the table");
@@ -1702,4 +1702,83 @@ fn the_last_used_float_keeps_priority_and_shrinks_the_dictionary() {
     let tucked = h.ctx.memory(|m| m.area_rect(id)).expect("parked player");
     let visible = tucked.intersect(h.ctx.content_rect());
     assert!((visible.height() - PEEK).abs() < 1.0, "{visible:?}");
+}
+
+#[test]
+fn a_remembered_skip_belongs_to_one_book_and_can_be_undone() {
+    use mareader_ui::documents::OpenRequest;
+    let dir = tempfile::tempdir().expect("temporary library");
+    let (mut h, kept_path) = epub_from_file(dir.path());
+    h.state_mut().settings_mut().read_aloud.skips.tables = mareader_settings::Skip {
+        on: true,
+        ask: true,
+    };
+    let at = first_table(&h).expect("the sample has a table");
+    let from = ReadFrom {
+        anchor: None,
+        at: Some(Spot {
+            page: at.page.saturating_sub(1),
+            char: 0,
+        }),
+        until: None,
+    };
+    start(&mut h, from);
+    step_until(&mut h, |h| h.query_by_label("Read the table").is_some());
+    h.run_steps(20);
+    let remember = "Always skip tables in this book";
+    h.get_by_label(remember).click();
+    h.run_steps(2);
+    h.get_by_label("Skip the table").click();
+    let past =
+        |h: &Harness<'static, MareaderApp>| !lit_in_table(h) && lit(h).is_some_and(|(s, _)| s > at);
+    step_until(&mut h, past);
+    h.run_steps(30);
+    assert_eq!(h.state().settings().read_aloud.book_skips.len(), 1);
+
+    // Another book still asks at its own table.
+    h.get_by_label("Stop reading aloud").click();
+    h.run_steps(5);
+    let other_path = dir.path().join("Other.epub");
+    let other_bytes = mareader_epub::sample::epub(8, "Other");
+    std::fs::write(&other_path, other_bytes).expect("a second sample file");
+    let pane = h.state().active_pane();
+    h.state_mut().queue(Command::Open(OpenRequest {
+        pane: Some(pane),
+        ..OpenRequest::path(other_path)
+    }));
+    step_until(&mut h, |h| {
+        let docs = h.state().documents();
+        docs.path(pane).is_some_and(|p| p.ends_with("Other.epub"))
+            && docs.page_count(pane).is_some_and(|n| n > 4)
+    });
+    start(&mut h, from);
+    step_until(&mut h, |h| h.query_by_label("Read the table").is_some());
+    assert!(
+        h.query_by_label("Read the table").is_some(),
+        "another book is unaffected"
+    );
+    h.get_by_label("Stop reading aloud").click();
+    h.run_steps(5);
+
+    // Reopening the original book skips without asking, and options can undo it.
+    h.state_mut().queue(Command::Open(OpenRequest {
+        pane: Some(pane),
+        ..OpenRequest::path(kept_path)
+    }));
+    step_until(&mut h, |h| {
+        let docs = h.state().documents();
+        docs.path(pane).is_some_and(|p| p.ends_with("Kept.epub"))
+    });
+    start(&mut h, from);
+    let asked = std::cell::Cell::new(false);
+    step_until(&mut h, |h| {
+        asked.set(asked.get() || h.query_by_label("Read the table").is_some());
+        past(h)
+    });
+    assert!(!asked.get(), "remembered book skips without asking");
+    h.get_by_label("Read-aloud options").click();
+    h.run_steps(3);
+    h.get_by_label("Skip tables").click();
+    h.run_steps(3);
+    assert!(h.state().settings().read_aloud.book_skips.is_empty());
 }

@@ -133,6 +133,7 @@ pub(super) fn show(
     rect: Rect,
     (view, fit, card): (&View<'_>, Fit, f32),
     settings: &mut ReadAloudSettings,
+    book: Option<mareader_library::BookId>,
     out: &mut Commands,
 ) -> Option<Act> {
     let t = Tokens::get(ui.ctx());
@@ -202,7 +203,7 @@ pub(super) fn show(
     if let Some(to) = card_button(ui, slot(BUTTON), card) {
         act = Some(Act::Card(to));
     }
-    options(ui, slot(BUTTON), settings, view.narrated, out);
+    options(ui, slot(BUTTON), settings, view.narrated, book, out);
     let rule = slot(8.0);
     let half = vec2(0.0, BUTTON * 0.28);
     let stroke = Stroke::new(1.0, t.line);
@@ -680,7 +681,14 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings, out: &mut Co
 }
 
 /// The options behind More: what is skipped and lit, then voice settings.
-fn options(ui: &mut Ui, slot: Rect, s: &mut ReadAloudSettings, narrated: bool, out: &mut Commands) {
+fn options(
+    ui: &mut Ui,
+    slot: Rect,
+    s: &mut ReadAloudSettings,
+    narrated: bool,
+    book: Option<mareader_library::BookId>,
+    out: &mut Commands,
+) {
     let more = egui::Button::image(Icon::More.image(ICON))
         .image_tint_follows_text_color(true)
         .frame_when_inactive(false)
@@ -691,7 +699,9 @@ fn options(ui: &mut Ui, slot: Rect, s: &mut ReadAloudSettings, narrated: bool, o
         egui::Vec2::splat(BUTTON),
     ));
     ui.scope_builder(place, |ui| {
-        let r = menu(ui, more, OPTIONS_MENU, |ui| choices(ui, s, narrated, out));
+        let r = menu(ui, more, OPTIONS_MENU, |ui| {
+            choices(ui, s, narrated, book, out)
+        });
         let name = "Read-aloud options";
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
         widgets::tip(&r, name, None);
@@ -727,7 +737,13 @@ fn menu(
 }
 
 /// What is skipped, how it's lit, the player's size, then voice settings.
-fn choices(ui: &mut Ui, s: &mut ReadAloudSettings, narrated: bool, out: &mut Commands) {
+fn choices(
+    ui: &mut Ui,
+    s: &mut ReadAloudSettings,
+    narrated: bool,
+    book: Option<mareader_library::BookId>,
+    out: &mut Commands,
+) {
     ui.spacing_mut().item_spacing.y = 2.0;
     if narrated {
         widgets::menu_switch(ui, Icon::Note, "Skip notes", &mut s.skip_notes);
@@ -746,6 +762,26 @@ fn choices(ui: &mut Ui, s: &mut ReadAloudSettings, narrated: bool, out: &mut Com
             };
             (None, label)
         });
+    }
+    if let Some(book) = book
+        && let Some(mut mask) = s.book_skips.get(&book).copied()
+    {
+        heading(ui, "Always skip in this book");
+        for kind in Kind::ALL {
+            if mask & kind.bit() == 0 {
+                continue;
+            }
+            let mut on = true;
+            let label = format!("Skip {}s", kind.name().to_lowercase());
+            if widgets::menu_switch(ui, kind.icon(), &label, &mut on).changed() && !on {
+                mask &= !kind.bit();
+            }
+        }
+        if mask == 0 {
+            s.book_skips.remove(&book);
+        } else {
+            s.book_skips.insert(book, mask);
+        }
     }
     heading(ui, "Player");
     let all = [Player::Bar, Player::Compact, Player::Full];

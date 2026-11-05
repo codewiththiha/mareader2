@@ -46,6 +46,8 @@ impl Levels {
 pub struct Plan {
     /// Words with a key above the level, at most `cap` of them.
     pub hard: Vec<Span>,
+    /// The highest known band for each hard span, in the same order.
+    pub bands: Vec<u8>,
     /// Unanswered keys, each once; the cap doesn't cut them.
     pub misses: Vec<String>,
 }
@@ -65,16 +67,17 @@ pub fn plan_chars(chars: &[char], levels: &Levels, level: u8, cap: usize) -> Pla
         let Some(word) = chars.get(span.start..span.end) else {
             continue;
         };
-        let mut hard = false;
+        let mut highest = 0;
         for key in keys(normalize_chars(word.iter().copied())) {
             match levels.get(&key) {
-                Some(b) => hard |= b > level,
+                Some(b) => highest = highest.max(b),
                 None if !out.misses.contains(&key) => out.misses.push(key),
                 None => {}
             }
         }
-        if hard && out.hard.len() < cap {
+        if highest > level && out.hard.len() < cap {
             out.hard.push(span);
+            out.bands.push(highest);
         }
     }
     out
@@ -98,6 +101,7 @@ mod tests {
         let known = levels(&[("the", 1), ("run", 4), ("ephemeral", 6)]);
         let p = plan("the run ephemeral", &known, 4, 100);
         assert_eq!(p.hard, [Span { start: 8, end: 17 }]);
+        assert_eq!(p.bands, [6]);
         assert!(p.misses.is_empty());
     }
 

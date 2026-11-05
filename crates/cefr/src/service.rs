@@ -106,6 +106,14 @@ impl Vocabulary {
 
     /// As [`Self::plan`], over characters a caller already holds.
     pub fn plan_chars(&mut self, chars: &[char], level: u8, cap: usize) -> Vec<Span> {
+        self.plan_banded_chars(chars, level, cap)
+            .into_iter()
+            .map(|(span, _)| span)
+            .collect()
+    }
+
+    /// Hard words with their highest known CEFR band, in text order.
+    pub fn plan_banded_chars(&mut self, chars: &[char], level: u8, cap: usize) -> Vec<(Span, u8)> {
         let planned = plan_chars(chars, &self.levels, level, cap);
         if self.dataset == State::Ready {
             let fresh: Vec<String> = planned
@@ -120,7 +128,7 @@ impl Vocabulary {
             #[cfg(target_arch = "wasm32")]
             let _ = fresh;
         }
-        planned.hard
+        planned.hard.into_iter().zip(planned.bands).collect()
     }
 
     /// Each key's band where known; unknown keys are asked once.

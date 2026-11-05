@@ -44,6 +44,7 @@ fn main() -> Result<(), String> {
     let mut scripted = false;
     let mut clicks = Vec::new();
     let mut thumb_menu = None;
+    let mut table_question = false;
     for kv in args {
         let (k, v) = kv
             .split_once('=')
@@ -234,6 +235,15 @@ fn main() -> Result<(), String> {
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
             "thumb_menu" => thumb_menu = Some(v.parse::<usize>().map_err(|_| "thumb_menu=page")?),
+            "table_question" => {
+                if v == "book" {
+                    let path = std::env::temp_dir().join("mareader-shot-question.epub");
+                    let bytes = mareader_epub::sample::epub(8, "Sample");
+                    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+                    app.set_option("epub", &path.to_string_lossy())?;
+                }
+                table_question = v == "true" || v == "book";
+            }
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
             "read_aloud" if v == "true" => queued.push(Command::ToggleReadAloud),
@@ -464,6 +474,42 @@ fn main() -> Result<(), String> {
         harness.run_steps(4);
         harness.get_by_label(&label).click_secondary();
         harness.run_steps(4);
+    }
+    if table_question {
+        let pane = harness.state().active_pane();
+        let reading = harness
+            .state()
+            .documents()
+            .reading(pane)
+            .ok_or("table question needs a book")?;
+        let at = (0..reading.document.page_count())
+            .find_map(|page| {
+                let layer = reading.document.text_layer(page).ok()?;
+                layer.tables.first().map(|_| page)
+            })
+            .ok_or("no table in the book")?;
+        harness.state_mut().settings_mut().read_aloud.skips.tables = mareader_settings::Skip {
+            on: true,
+            ask: true,
+        };
+        let from = mareader_ui::read_aloud::ReadFrom {
+            anchor: None,
+            at: Some(mareader_speech::Spot {
+                page: at.saturating_sub(1),
+                char: 0,
+            }),
+            until: None,
+        };
+        harness.state_mut().queue(Command::ReadAloud { pane, from });
+        let until = Instant::now() + Duration::from_secs(30);
+        while harness.query_by_label("Read the table").is_none() && Instant::now() < until {
+            harness.run_steps(3);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if harness.query_by_label("Read the table").is_none() {
+            return Err("table question did not appear".into());
+        }
+        harness.run_steps(30);
     }
     if let Some(pos) = right {
         harness.hover_at(pos);
