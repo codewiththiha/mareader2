@@ -472,3 +472,24 @@ fn the_page_asked_about_is_washed_while_its_menu_is_open() -> Out {
     assert_eq!(h.state().page_ai().washed(pane), None);
     Ok(())
 }
+
+#[test]
+fn remembered_language_uses_translate_submenu_without_extra_row() -> Out {
+    let mut h = reader(&[("pdf", "sample:5"), ("provider", "ollama")]);
+    {
+        let translate = &mut h.state_mut().settings_mut().ai.tasks.translate;
+        translate.language = Some("ja".to_owned());
+        translate.recent = vec!["ja".to_owned(), "my".to_owned()];
+    }
+    let (_, sheet) = page(&h, 0)?;
+    press(&mut h, margin(sheet), PointerButton::Secondary);
+    assert!(h.query_by_label("Translate page").is_some());
+    assert!(h.query_by_label("Other language…").is_none());
+    h.get_by_label("Translate page").click();
+    h.run();
+    assert!(h.query_by_label("Japanese").is_some());
+    h.get_by_label("More languages…").click();
+    h.run();
+    assert!(h.query_by_label(FIND).is_some());
+    Ok(())
+}

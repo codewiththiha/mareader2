@@ -12,8 +12,23 @@ use crate::theme::Tokens;
 /// A popup's own frame: clicks stay in it, but Tab skips it for its rows.
 pub const POPUP_SENSE: Sense = Sense::CLICK;
 
-/// A context menu's width unless it sets its own; never its row's.
+/// Standard context-menu inner width (`212pt` card with `6pt` frame padding).
 pub const MENU_W: f32 = 200.0;
+/// Grouped menu inner width (`252pt` card with `6pt` frame padding).
+pub const GROUPED_MENU_W: f32 = 240.0;
+
+const MENU_ROW_H: f32 = 30.0;
+const MENU_PAD_X: f32 = 8.0;
+const MENU_ICON: f32 = 15.0;
+const MENU_ICON_GAP: f32 = 9.0;
+const MENU_RADIUS: u8 = 8;
+
+/// Applies the shared menu width and tight row spacing inside a popup body.
+pub fn menu_style(ui: &mut Ui, width: f32) {
+    ui.set_width(width);
+    ui.spacing_mut().item_spacing.y = 2.0;
+    ui.spacing_mut().button_padding = vec2(MENU_PAD_X, 4.0);
+}
 
 /// The pointer, unless a modal, card or menu other than `own` lies over it.
 pub fn bare_pointer(ctx: &egui::Context, own: egui::LayerId) -> Option<egui::Pos2> {
@@ -42,6 +57,21 @@ pub fn close_on_key(ui: &Ui) {
 
 /// A right-click menu that Shift+F10 also opens, under the focused widget.
 pub fn context_menu(resp: &Response, add: impl FnOnce(&mut Ui)) {
+    context_menu_inner(resp, MENU_W, egui::PopupCloseBehavior::CloseOnClick, add);
+}
+
+/// A right-click menu with an explicit width (`GROUPED_MENU_W` for grouped menus).
+pub fn context_menu_sized(resp: &Response, width: f32, add: impl FnOnce(&mut Ui)) {
+    let close = egui::PopupCloseBehavior::CloseOnClickOutside;
+    context_menu_inner(resp, width, close, add);
+}
+
+fn context_menu_inner(
+    resp: &Response,
+    width: f32,
+    close: egui::PopupCloseBehavior,
+    add: impl FnOnce(&mut Ui),
+) {
     let ctx = &resp.ctx;
     let id = egui::Popup::default_response_id(resp);
     let keyed = id.with("keyed");
@@ -57,15 +87,16 @@ pub fn context_menu(resp: &Response, add: impl FnOnce(&mut Ui)) {
     if (resp.secondary_clicked() || !open) && by_key {
         ctx.data_mut(|d| d.remove_temp::<bool>(keyed));
     }
-    let popup = egui::Popup::context_menu(resp).sense(POPUP_SENSE);
+    let popup = egui::Popup::context_menu(resp)
+        .sense(POPUP_SENSE)
+        .close_behavior(close);
     // No pointer to open at: it hangs from the widget instead.
     let popup = match by_key && !resp.secondary_clicked() {
         true => popup.anchor(resp.rect),
         false => popup,
     };
     popup.show(|ui| {
-        // Else rows stretch to the clicked widget: a whole sidebar wide.
-        ui.set_width(MENU_W);
+        menu_style(ui, width);
         add(ui);
         close_on_key(ui);
     });
@@ -141,22 +172,440 @@ pub fn labelled<R>(ui: &mut Ui, label: egui::Id, add: impl FnOnce(&mut Ui) -> R)
     out
 }
 
-/// One menu row: icon, label, and its shortcut on the right.
+fn is_shortcut_hint(text: &str) -> bool {
+    text.contains('⌘')
+        || text.contains('⌃')
+        || text.contains('⇧')
+        || text.contains('⌥')
+        || text.contains("Ctrl")
+        || text.contains("Alt")
+        || text.contains("Shift")
+        || text == "Esc"
+        || (text.starts_with('F')
+            && text.len() > 1
+            && text.len() <= 3
+            && text[1..].chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Paints a small bordered keycap ending at `right`, vertically centred on `y`.
+pub fn paint_keycap(ui: &Ui, right: f32, y: f32, keys: &str, t: &Tokens) -> f32 {
+    let font = egui::FontId::proportional(10.5);
+    let text = ui.painter().layout_no_wrap(keys.to_owned(), font, t.muted);
+    let size = text.size() + vec2(10.0, 4.0);
+    let cap = Rect::from_min_size(pos2(right - size.x, y - size.y * 0.5), size);
+    let fill = t
+        .paper
+        .lerp_to_gamma(t.ink, if t.dark { 0.05 } else { 0.025 });
+    ui.painter().rect(
+        cap,
+        CornerRadius::same(4),
+        fill,
+        Stroke::new(1.0, t.line.gamma_multiply(0.85)),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().galley(cap.min + vec2(5.0, 2.0), text, t.muted);
+    cap.left()
+}
+
+fn paint_menu_row_bg(ui: &Ui, rect: Rect, resp: &Response, on: bool, t: &Tokens) {
+    let fill = if resp.is_pointer_button_down_on() {
+        Some(t.pressed)
+    } else if resp.hovered() || resp.has_focus() {
+        Some(t.hover)
+    } else if on {
+        Some(t.selected)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(MENU_RADIUS), fill);
+    }
+    if resp.hovered() && ui.is_enabled() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        let scope_id = egui::Id::new("active-submenu-click");
+        let active = ui
+            .ctx()
+            .data(|d| d.get_temp::<Option<egui::Id>>(scope_id))
+            .flatten();
+        if let Some(id) = active {
+            ui.ctx().data_mut(|d| d.insert_temp(id, true));
+        }
+    }
+}
+
+fn paint_menu_row_lead(
+    ui: &Ui,
+    rect: Rect,
+    icon: Option<Icon>,
+    label: &str,
+    right_limit: f32,
+    icon_tint: Color32,
+    text_color: Color32,
+) {
+    let y = rect.center().y;
+    if let Some(icon) = icon {
+        let at = Rect::from_min_size(
+            pos2(rect.left() + MENU_PAD_X, y - MENU_ICON * 0.5),
+            Vec2::splat(MENU_ICON),
+        );
+        icon.paint(ui, at, icon_tint);
+    }
+    let x = rect.left() + MENU_PAD_X + MENU_ICON + MENU_ICON_GAP;
+    if right_limit <= x + 8.0 {
+        return;
+    }
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(13.5),
+        text_color,
+    );
+    let clip = Rect::from_min_max(pos2(x, rect.top()), pos2(right_limit, rect.bottom()));
+    ui.painter().with_clip_rect(clip).galley(
+        pos2(x, y - galley.size().y * 0.5),
+        galley,
+        text_color,
+    );
+}
+
+fn menu_inks(ui: &Ui, resp: &Response, on: bool, t: &Tokens) -> (Color32, Color32) {
+    if !ui.is_enabled() {
+        let dim = t.muted.gamma_multiply(0.48);
+        return (dim, dim);
+    }
+    if let Some(custom) = ui.visuals().override_text_color {
+        return (custom, custom);
+    }
+    if on {
+        return (t.accent, t.accent);
+    }
+    let icon = if resp.hovered() || resp.has_focus() {
+        t.ink
+    } else {
+        t.muted
+    };
+    (icon, t.ink)
+}
+
+/// One menu row: icon, label, and an optional shortcut or status hint on the right.
 pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let keys = RichText::new(keys.unwrap_or_default())
-        .size(t.text_small)
-        .color(t.muted);
-    let button = Button::image_and_text(icon.image(16.0), label)
-        .right_text(keys)
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .selected(on)
-        .min_size(vec2(ui.available_width(), 32.0));
-    let resp = ui.add(button);
-    // The label alone; the shortcut is not part of its name.
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
+    let enabled = ui.is_enabled();
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), MENU_ROW_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, label));
+    paint_menu_row_bg(ui, rect, &resp, on, &t);
+    let y = rect.center().y;
+    let right_limit = match keys.filter(|k| !k.is_empty()) {
+        Some(k) if is_shortcut_hint(k) => {
+            paint_keycap(ui, rect.right() - MENU_PAD_X, y, k, &t) - 6.0
+        }
+        Some(k) => {
+            let galley = ui.painter().layout_no_wrap(
+                k.to_owned(),
+                egui::FontId::proportional(11.5),
+                t.muted,
+            );
+            let x = rect.right() - MENU_PAD_X - galley.size().x;
+            ui.painter()
+                .galley(pos2(x, y - galley.size().y * 0.5), galley, t.muted);
+            x - 6.0
+        }
+        None => rect.right() - MENU_PAD_X,
+    };
+    let (icon_tint, text_color) = menu_inks(ui, &resp, on, &t);
+    paint_menu_row_lead(
+        ui,
+        rect,
+        Some(icon),
+        label,
+        right_limit,
+        icon_tint,
+        text_color,
+    );
     resp
+}
+
+/// Destructive menu row painted in the danger ink.
+pub fn menu_row_danger(ui: &mut Ui, icon: Icon, label: &str) -> Response {
+    let danger = Tokens::get(ui.ctx()).danger;
+    ui.scope(|ui| {
+        ui.visuals_mut().override_text_color = Some(danger);
+        menu_row(ui, icon, label, None, false)
+    })
+    .inner
+}
+
+/// Menu row with an accent pill badge on the right (such as `B2+` or a preset name).
+pub fn menu_row_tag(ui: &mut Ui, icon: Icon, label: &str, tag: Option<&str>, on: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let enabled = ui.is_enabled();
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), MENU_ROW_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, label));
+    paint_menu_row_bg(ui, rect, &resp, on, &t);
+    let y = rect.center().y;
+    let right_limit = if let Some(tag) = tag.filter(|s| !s.is_empty()) {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(tag.to_owned(), crate::theme::medium(10.5), t.accent);
+        let size = galley.size() + vec2(12.0, 4.0);
+        let pill = Rect::from_min_size(
+            pos2(rect.right() - MENU_PAD_X - size.x, y - size.y * 0.5),
+            size,
+        );
+        ui.painter()
+            .rect_filled(pill, CornerRadius::same(99), t.accent_soft);
+        ui.painter()
+            .galley(pill.min + vec2(6.0, 2.0), galley, t.accent);
+        pill.left() - 6.0
+    } else {
+        rect.right() - MENU_PAD_X
+    };
+    let (icon_tint, text_color) = menu_inks(ui, &resp, on, &t);
+    paint_menu_row_lead(
+        ui,
+        rect,
+        Some(icon),
+        label,
+        right_limit,
+        icon_tint,
+        text_color,
+    );
+    resp
+}
+
+/// Menu row that drills into another step, ending with a stroke right chevron.
+pub fn menu_row_chevron(ui: &mut Ui, icon: Icon, label: &str, hint: Option<&str>) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let enabled = ui.is_enabled();
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), MENU_ROW_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    paint_menu_row_bg(ui, rect, &resp, false, &t);
+    let y = rect.center().y;
+    let chev = Rect::from_min_size(
+        pos2(rect.right() - MENU_PAD_X - 14.0, y - 7.0),
+        Vec2::splat(14.0),
+    );
+    Icon::ChevronRight.paint(ui, chev, t.muted);
+    let mut right_limit = chev.left() - 4.0;
+    if let Some(hint) = hint.filter(|s| !s.is_empty()) {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(hint.to_owned(), egui::FontId::proportional(11.5), t.muted);
+        let x = right_limit - galley.size().x;
+        ui.painter()
+            .galley(pos2(x, y - galley.size().y * 0.5), galley, t.muted);
+        right_limit = x - 6.0;
+    }
+    let (icon_tint, text_color) = menu_inks(ui, &resp, false, &t);
+    paint_menu_row_lead(
+        ui,
+        rect,
+        Some(icon),
+        label,
+        right_limit,
+        icon_tint,
+        text_color,
+    );
+    resp
+}
+
+/// Choice row inside a submenu: checkmark in the leading icon slot when active.
+pub fn menu_check_row(ui: &mut Ui, label: &str, checked: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let enabled = ui.is_enabled();
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), MENU_ROW_H), Sense::click());
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, checked, label)
+    });
+    paint_menu_row_bg(ui, rect, &resp, false, &t);
+    let icon = checked.then_some(Icon::Check);
+    paint_menu_row_lead(
+        ui,
+        rect,
+        icon,
+        label,
+        rect.right() - MENU_PAD_X,
+        t.accent,
+        t.ink,
+    );
+    resp
+}
+
+#[derive(Clone, Copy, Default)]
+struct SubMenu {
+    over: Option<f64>,
+    pinned: bool,
+    pass: u64,
+}
+
+/// Submenu trigger painted on the shared menu grid with a stroke right chevron.
+pub fn submenu_row(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    hint: Option<&str>,
+    sub_width: f32,
+    add: impl FnOnce(&mut Ui),
+) -> Response {
+    const GRACE: f64 = 0.24;
+    let t = Tokens::get(ui.ctx());
+    let (now, pass) = (ui.input(|i| i.time), ui.ctx().cumulative_pass_nr());
+    let (_rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), MENU_ROW_H), Sense::click());
+    ui.data_mut(|d| d.insert_temp(resp.id.with("submenu-trigger"), true));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let sub_id = resp.id.with("submenu-popup");
+    let mut state = ui
+        .data_mut(|d| d.get_temp::<SubMenu>(sub_id))
+        .unwrap_or_default();
+    if state.pass == 0 || state.pass + 1 < pass {
+        state = SubMenu {
+            over: None,
+            pinned: false,
+            pass,
+        };
+    } else {
+        state.pass = pass;
+    }
+    if resp.contains_pointer() {
+        state.over = Some(now);
+    }
+    let open_key = resp.has_focus()
+        && ui.input(|i| {
+            i.key_pressed(egui::Key::ArrowRight)
+                || i.key_pressed(egui::Key::Enter)
+                || i.key_pressed(egui::Key::Space)
+        });
+    if resp.clicked() || open_key {
+        state.pinned = !state.pinned || open_key;
+    }
+    let open = state.pinned || state.over.is_some_and(|t0| now - t0 < GRACE);
+    let shown = egui::Popup::from_response(&resp)
+        .id(sub_id)
+        .open(open)
+        .sense(POPUP_SENSE)
+        .align(egui::RectAlign::RIGHT_START)
+        .gap(4.0)
+        .width(sub_width)
+        .show(|ui| {
+            let click_id = sub_id.with("child-clicked");
+            let scope_id = egui::Id::new("active-submenu-click");
+            ui.data_mut(|d| {
+                d.insert_temp(click_id, false);
+                d.insert_temp(scope_id, Some(click_id));
+            });
+            menu_style(ui, sub_width);
+            add(ui);
+            close_on_key(ui);
+            ui.data_mut(|d| d.insert_temp(scope_id, None::<egui::Id>));
+            ui.data(|d| d.get_temp::<bool>(click_id)).unwrap_or(false)
+        });
+    let pos = ui.input(|i| i.pointer.interact_pos());
+    let inside = shown.as_ref().is_some_and(|s| {
+        s.response.contains_pointer() || pos.is_some_and(|p| s.response.rect.contains(p))
+    });
+    if inside {
+        state.over = Some(now);
+    }
+    let chosen = shown.as_ref().is_some_and(|s| s.inner);
+    let any_pressed = ui.input(|i| i.pointer.any_pressed());
+    let pressed_away = any_pressed && !inside && !resp.contains_pointer();
+    let escape = open && ui.input(|i| i.key_pressed(egui::Key::Escape));
+    if chosen || pressed_away || escape {
+        state = SubMenu {
+            over: None,
+            pinned: false,
+            pass,
+        };
+        if chosen {
+            ui.close();
+        }
+    }
+    if let Some(t0) = state.over {
+        let left = GRACE - (now - t0);
+        if !state.pinned && left > 0.0 {
+            ui.ctx().request_repaint_after_secs(left as f32);
+        }
+    }
+    ui.data_mut(|d| d.insert_temp(sub_id, state));
+    let active = open && shown.is_some();
+    paint_menu_row_bg(ui, resp.rect, &resp, active, &t);
+    let y = resp.rect.center().y;
+    let chev = Rect::from_min_size(
+        pos2(resp.rect.right() - MENU_PAD_X - 14.0, y - 7.0),
+        Vec2::splat(14.0),
+    );
+    Icon::ChevronRight.paint(ui, chev, if active { t.ink } else { t.muted });
+    let mut right_limit = chev.left() - 4.0;
+    if let Some(hint) = hint.filter(|s| !s.is_empty()) {
+        let galley =
+            ui.painter()
+                .layout_no_wrap(hint.to_owned(), egui::FontId::proportional(11.5), t.muted);
+        let x = right_limit - galley.size().x;
+        ui.painter()
+            .galley(pos2(x, y - galley.size().y * 0.5), galley, t.muted);
+        right_limit = x - 6.0;
+    }
+    let icon_tint = if active || resp.hovered() || resp.has_focus() {
+        t.ink
+    } else {
+        t.muted
+    };
+    paint_menu_row_lead(
+        ui,
+        resp.rect,
+        Some(icon),
+        label,
+        right_limit,
+        icon_tint,
+        t.ink,
+    );
+    resp
+}
+
+/// Uppercase muted section caption aligned to `MENU_PAD_X`, with an optional leading icon.
+pub fn menu_section(ui: &mut Ui, icon: Option<Icon>, title: &str) {
+    let t = Tokens::get(ui.ctx());
+    if ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
+        ui.add_space(4.0);
+    }
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    let y = rect.center().y;
+    let mut x = rect.left() + MENU_PAD_X;
+    if let Some(icon) = icon {
+        icon.paint(
+            ui,
+            Rect::from_min_size(pos2(x, y - 5.5), Vec2::splat(11.0)),
+            t.muted,
+        );
+        x += 15.0;
+    }
+    ui.painter().text(
+        pos2(x, y),
+        egui::Align2::LEFT_CENTER,
+        title.to_uppercase(),
+        crate::theme::medium(10.5),
+        t.muted,
+    );
+}
+
+/// Subtle horizontal hairline divider inside a popup menu.
+pub fn menu_rule(ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 7.0), Sense::hover());
+    let y = rect.center().y.round() + 0.5;
+    ui.painter().hline(
+        rect.left() + 4.0..=rect.right() - 4.0,
+        y,
+        Stroke::new(1.0, t.line),
+    );
 }
 
 /// The one filled button, its words in the ink that reads on `fill`.
@@ -440,48 +889,39 @@ pub fn menu_switch_keyed(
     keys: Option<&str>,
 ) -> Response {
     let t = Tokens::get(ui.ctx());
-    let size = vec2(ui.available_width(), 32.0);
+    let enabled = ui.is_enabled();
+    let size = vec2(ui.available_width(), MENU_ROW_H);
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if resp.clicked() {
         *on = !*on;
         resp.mark_changed();
     }
     let value = *on;
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, value, label));
-    // Lit and laid out as a menu row's button, so the rows line up.
-    let look = ui.style().interact(&resp);
-    if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, look.corner_radius, look.weak_bg_fill);
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    let pad = ui.spacing().button_padding.x;
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, value, label)
+    });
+    paint_menu_row_bg(ui, rect, &resp, false, &t);
     let y = rect.center().y;
-    let at = Rect::from_min_size(pos2(rect.left() + pad, y - 8.0), Vec2::splat(16.0));
-    icon.image(16.0).tint(look.text_color()).paint_at(ui, at);
-    let x = at.right() + ui.spacing().icon_spacing;
-    let font = egui::FontId::proportional(t.text);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_owned(), font, look.text_color());
-    let top = y - galley.size().y / 2.0;
-    let label_end = x + galley.size().x;
-    ui.painter().galley(pos2(x, top), galley, look.text_color());
     let knob = Rect::from_min_size(
-        pos2(rect.right() - pad - SWITCH.x, y - SWITCH.y / 2.0),
+        pos2(rect.right() - MENU_PAD_X - SWITCH.x, y - SWITCH.y * 0.5),
         SWITCH,
     );
+    let mut right_limit = knob.left() - 6.0;
     if let Some(keys) = keys {
-        let font = egui::FontId::proportional(10.0);
-        let text = ui.painter().layout_no_wrap(keys.to_owned(), font, t.muted);
-        let size = text.size() + vec2(8.0, 4.0);
-        let cap = Rect::from_center_size(pos2(knob.left() - 5.0 - size.x / 2.0, y), size);
-        if cap.left() >= label_end + 4.0 {
-            ui.painter().rect_filled(cap, 4.0, t.card);
-            ui.painter().galley(cap.min + vec2(4.0, 2.0), text, t.muted);
-        }
+        let cap_left = paint_keycap(ui, knob.left() - 6.0, y, keys, &t);
+        right_limit = cap_left - 6.0;
         tip(&resp, label, Some(keys));
     }
+    let (icon_tint, text_color) = menu_inks(ui, &resp, false, &t);
+    paint_menu_row_lead(
+        ui,
+        rect,
+        Some(icon),
+        label,
+        right_limit,
+        icon_tint,
+        text_color,
+    );
     paint_switch(ui, knob, &resp, value);
     resp
 }

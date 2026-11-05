@@ -55,18 +55,17 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 }
 
 fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
-    ui.set_width(WIDTH);
-    ui.spacing_mut().item_spacing.y = 2.0;
+    widgets::menu_style(ui, WIDTH);
     // Layout, zoom and reading each under a name of their own.
     if let Some(mode) = cx.mode {
-        heading(ui, "Layout");
+        widgets::menu_section(ui, None, "Layout");
         view_row(ui, mode, cx.platform, out);
     }
     if let Some(zoom) = cx.zoom {
-        heading(ui, "Zoom");
+        widgets::menu_section(ui, None, "Zoom");
         zoom_row(ui, zoom, cx.platform, out);
     }
-    heading(ui, "Reading");
+    widgets::menu_section(ui, None, "Reading");
     if let (Some(on), Some(mode)) = (cx.auto_scroll, cx.mode) {
         auto_scroll_row(ui, on, !mode.paged(), cx.platform, out);
     }
@@ -101,7 +100,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         ui.close();
     }
     pin_row(ui, cx.pinned, out);
-    ui.separator();
+    widgets::menu_rule(ui);
     for tool in cx.folded {
         let keys = keymap::hint(cx.platform, &tool.command);
         if widgets::menu_row(ui, tool.icon, tool.label, keys.as_deref(), false).clicked() {
@@ -110,9 +109,8 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         }
     }
     footer_actions(ui, cx.platform, out);
-    ui.separator();
+    widgets::menu_rule(ui);
     let version = format!("Mareader {}", env!("CARGO_PKG_VERSION"));
-    ui.add_space(2.0);
     widgets::menu_note(ui, &version);
 }
 
@@ -128,8 +126,12 @@ pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
 /// Frequent app actions share a compact footer; their shortcut is a hint, not a name.
 fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
+    let rest = t
+        .paper
+        .lerp_to_gamma(t.ink, if t.dark { 0.055 } else { 0.04 });
     ui.horizontal(|ui| {
-        let width = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+        ui.spacing_mut().item_spacing.x = 5.0;
+        let width = (ui.available_width() - 5.0) / 2.0;
         for (icon, text, name, command) in [
             (
                 Icon::Settings,
@@ -153,9 +155,10 @@ fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
                         .color(t.muted),
                 )
                 .image_tint_follows_text_color(true)
-                .fill(t.card)
-                .corner_radius(t.radius)
-                .min_size(vec2(width, 36.0));
+                .fill(rest)
+                .stroke(egui::Stroke::NONE)
+                .corner_radius(10)
+                .min_size(vec2(width, 34.0));
             let response = ui.add(button);
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
@@ -190,12 +193,6 @@ fn read_aloud_row(ui: &mut Ui, on: bool, platform: Platform, out: &mut Commands)
         out.push(command);
         ui.close();
     }
-}
-
-/// A small muted name over a group of rows.
-fn heading(ui: &mut Ui, text: &str) {
-    ui.add_space(4.0);
-    widgets::menu_note(ui, text);
 }
 
 /// The four view modes, each named under its icon; the menu stays open.

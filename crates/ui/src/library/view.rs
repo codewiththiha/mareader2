@@ -157,7 +157,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
         busy,
         paused: paused.as_deref(),
     };
-    back.context_menu(|ui| menus::page_menu(ui, picks.active(), sequence, organizer, out));
+    crate::widgets::context_menu(&back, |ui| {
+        menus::page_menu(ui, picks.active(), sequence, organizer, out)
+    });
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {

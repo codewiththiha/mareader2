@@ -227,7 +227,13 @@ pub fn show(
                     });
                 }
                 let pane = reading.pane;
-                crate::widgets::context_menu(&r, |ui| match state.picks.contains(page) {
+                let picked_here = state.picks.contains(page);
+                let menu_w = if picked_here {
+                    crate::widgets::GROUPED_MENU_W
+                } else {
+                    crate::widgets::MENU_W
+                };
+                crate::widgets::context_menu_sized(&r, menu_w, |ui| match picked_here {
                     true => picks::picks_menu(
                         ui,
                         (pane, &state.offer),

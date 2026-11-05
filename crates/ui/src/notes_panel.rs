@@ -263,7 +263,7 @@ fn heading(ui: &mut Ui, title: &str, n: usize, find: Find<'_>, t: &Tokens) {
 }
 
 /// Export, then Copy all: the list as shown, so a filter narrows both.
-fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], t: &Tokens, out: &mut Commands) {
+fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut Commands) {
     let notes = shown.iter().filter(|r| r.note.is_some()).count();
     let tally = export::tally(shown.len(), notes);
     // Written only when asked for, not each frame.
@@ -284,12 +284,12 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], t: &Tokens, out: &mut C
         .sense(widgets::POPUP_SENSE)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .align(egui::RectAlign::BOTTOM_END)
+        .width(widgets::MENU_W)
         .gap(4.0)
         .show(|ui| {
-            ui.set_width(200.0);
+            widgets::menu_style(ui, widgets::MENU_W);
             let what = format!("Export {tally}");
-            ui.label(RichText::new(what).size(t.text_small).color(t.muted));
-            ui.add_space(2.0);
+            widgets::menu_section(ui, None, &what);
             for format in Format::ALL {
                 let label = format!("{} (.{})", format.label(), format.extension());
                 if widgets::menu_row(ui, Icon::Download, &label, None, false).clicked() {
@@ -422,9 +422,8 @@ fn entry(
             out.push(Command::Study(Action::DeleteNote(row.id)));
             ui.close();
         }
-        ui.visuals_mut().override_text_color = Some(t.danger);
-        let remove = widgets::menu_row(ui, Icon::Remove, "Remove highlight", None, false);
-        if remove.clicked() {
+        widgets::menu_rule(ui);
+        if widgets::menu_row_danger(ui, Icon::Remove, "Remove highlight").clicked() {
             out.push(Command::Study(Action::Remove(vec![row.id])));
             ui.close();
         }
@@ -531,9 +530,8 @@ fn bookmark(
             out.push(Command::Study(Action::DeleteNote(row.id)));
             ui.close();
         }
-        ui.visuals_mut().override_text_color = Some(t.danger);
-        let remove = widgets::menu_row(ui, Icon::Remove, "Remove bookmark", None, false);
-        if remove.clicked() {
+        widgets::menu_rule(ui);
+        if widgets::menu_row_danger(ui, Icon::Remove, "Remove bookmark").clicked() {
             out.push(Command::Study(Action::Remove(vec![row.id])));
             ui.close();
         }

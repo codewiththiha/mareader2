@@ -1854,3 +1854,26 @@ fn a_shelf_row_in_the_list_unfolds_in_place_and_its_button_opens_it() {
     h.run();
     assert_eq!(open_shelf(&h), Some(fiction));
 }
+
+#[test]
+fn empty_space_context_menu_stays_compact() {
+    let mut h = reader(&[("books", "3"), ("library", "show")]);
+    let pos = egui::pos2(450.0, 620.0);
+    h.hover_at(pos);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    let row = h.get_by_label("New shelf").rect();
+    assert!(
+        row.width() <= 240.0,
+        "menu row stretched across the page: {row:?}"
+    );
+}

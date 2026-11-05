@@ -234,7 +234,19 @@ fn main() -> Result<(), String> {
             }
             // Pressed by its name, `_` for a space: `click=All_voices`.
             "click" => clicks.push(v.replace('_', " ")),
-            "thumb_menu" => thumb_menu = Some(v.parse::<usize>().map_err(|_| "thumb_menu=page")?),
+            "thumb_menu" => {
+                let range = match v.split_once('-') {
+                    Some((a, b)) => (
+                        a.parse::<usize>().map_err(|_| "thumb_menu=page")?,
+                        b.parse::<usize>().map_err(|_| "thumb_menu=start-end")?,
+                    ),
+                    None => {
+                        let page = v.parse::<usize>().map_err(|_| "thumb_menu=page")?;
+                        (page, page)
+                    }
+                };
+                thumb_menu = Some(range);
+            }
             "table_question" => {
                 if v == "book" {
                     let path = std::env::temp_dir().join("mareader-shot-question.epub");
@@ -466,13 +478,16 @@ fn main() -> Result<(), String> {
         // A held carry rests, so the grid's rests take, opening included.
         harness.run_steps(if release { 4 } else { 50 });
     }
-    if let Some(page) = thumb_menu {
-        let label = format!("Page {page}");
-        harness
-            .get_by_label(&label)
-            .click_modifiers(egui::Modifiers::COMMAND);
-        harness.run_steps(4);
-        harness.get_by_label(&label).click_secondary();
+    if let Some((start, end)) = thumb_menu {
+        for page in start..=end {
+            let label = format!("Page {page}");
+            harness
+                .get_by_label(&label)
+                .click_modifiers(egui::Modifiers::COMMAND);
+            harness.run_steps(2);
+        }
+        let target = format!("Page {start}");
+        harness.get_by_label(&target).click_secondary();
         harness.run_steps(4);
     }
     if table_question {

@@ -1,8 +1,8 @@
 //! The word card and the mark menu.
 
 use egui::{
-    Align, Align2, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, Sense,
-    Stroke, Ui, vec2,
+    Align, Align2, Context, Frame, Id, Layout, Margin, Order, Rect, RichText, ScrollArea, Stroke,
+    Ui, vec2,
 };
 use mareader_cefr::Role;
 use mareader_library::{MarkId, Style};
@@ -272,18 +272,14 @@ pub fn menu(
                 .fill(t.surface)
                 .stroke(Stroke::new(1.0, t.line))
                 .corner_radius(t.radius_lg)
-                .inner_margin(Margin::same(4))
+                .inner_margin(Margin::same(6))
                 .show(ui, |ui| {
                     // A highlight's look leads: pen, then colour.
                     let wide = style.is_some();
-                    ui.set_width(if wide { 218.0 } else { 190.0 });
+                    widgets::menu_style(ui, if wide { 224.0 } else { 200.0 });
                     if let Some(now) = style {
                         super::restyle::section(ui, mark, now, look, t, out);
-                        let (rule, _) =
-                            ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
-                        let y = rule.center().y;
-                        ui.painter()
-                            .hline(rule.x_range(), y, Stroke::new(1.0, t.line));
+                        widgets::menu_rule(ui);
                     }
                     if let Some(noted) = noted {
                         let label = if noted { "Edit note" } else { "Add note" };
@@ -297,9 +293,8 @@ pub fn menu(
                     if several.clicked() {
                         out.push(Command::Study(Action::SelectSeveral(pane, mark)));
                     }
-                    ui.visuals_mut().override_text_color = Some(t.danger);
-                    let row = widgets::menu_row(ui, Icon::Remove, "Remove highlight", None, false);
-                    if row.clicked() {
+                    widgets::menu_rule(ui);
+                    if widgets::menu_row_danger(ui, Icon::Remove, "Remove highlight").clicked() {
                         out.push(Command::Study(Action::Remove(vec![mark])));
                     }
                 });

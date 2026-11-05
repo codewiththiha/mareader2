@@ -22,8 +22,8 @@ const KEEP: usize = 12;
 /// Clear of the window's edges.
 const INSET: f32 = 16.0;
 const WIDTH: f32 = 360.0;
-/// A lone one-line toast's height, to know where one would show.
-const SPOT_H: f32 = 48.0;
+/// Fixed card height, shared by one-line and two-line toasts alike.
+const SPOT_H: f32 = 52.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -700,5 +700,30 @@ mod tests {
         frame(&ctx, &mut toasts, Some(menu), 0.0);
         frame(&ctx, &mut toasts, Some(menu), 0.1);
         assert_eq!(up(&toasts), 1);
+    }
+
+    #[test]
+    fn one_line_and_two_line_toasts_keep_a_fixed_card_size() {
+        let ctx = Context::default();
+        let t = crate::theme::Tokens::get(&ctx);
+        let mut short = Toasts::default();
+        short.push(Toast::info("Copied"));
+        frame(&ctx, &mut short, None, 0.0);
+        let short_card = card::measure(&ctx, &short.live[0], WIDTH, &t);
+        let short_box = short.covers().expect("short toast");
+
+        let mut long = Toasts::default();
+        long.push(
+            Toast::info("Removed highlight from the second paragraph of chapter four")
+                .undo(Command::ClearToasts),
+        );
+        frame(&ctx, &mut long, None, 0.0);
+        let long_card = card::measure(&ctx, &long.live[0], WIDTH, &t);
+        let long_box = long.covers().expect("long toast");
+
+        assert_eq!(short_card.height, SPOT_H);
+        assert_eq!(long_card.height, SPOT_H);
+        assert_eq!(short_box.size(), long_box.size());
+        assert_eq!(short_box.width(), WIDTH);
     }
 }

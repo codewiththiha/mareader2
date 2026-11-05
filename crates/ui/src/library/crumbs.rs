@@ -305,7 +305,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
         .gap(6.0)
         .width(MENU_WIDTH)
         .show(|ui| {
-            ui.set_width(MENU_WIDTH);
+            widgets::menu_style(ui, MENU_WIDTH);
             if widgets::menu_row(ui, Icon::Rename, "Rename…", None, false).clicked() {
                 out.push(act(ShelfAction::StartRename(id)));
             }
@@ -315,17 +315,14 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
                 let picks = vec![super::Pick::Shelf(id)];
                 out.push(Command::Library(Action::Book(BookAction::Duplicate(picks))));
             }
-            let remove = RichText::new("Remove shelf").color(t.danger);
-            let remove = Button::image_and_text(Icon::Remove.image(16.0).tint(t.danger), remove)
-                .frame_when_inactive(false)
-                .min_size(egui::vec2(ui.available_width(), 32.0));
-            if ui.add(remove).clicked() {
+            widgets::menu_rule(ui);
+            if widgets::menu_row_danger(ui, Icon::Remove, "Remove shelf").clicked() {
                 out.push(act(ShelfAction::Apart(id)));
             }
             if current.watched {
                 let note = "Cut from a watched folder: removing takes it off the list, and it \
                             returns if the folder places a book here again.";
-                ui.add(egui::Label::new(RichText::new(note).size(11.0).color(t.muted)).wrap());
+                widgets::menu_note(ui, note);
             }
             widgets::close_on_key(ui);
         });

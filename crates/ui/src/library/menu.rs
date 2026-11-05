@@ -15,7 +15,7 @@ pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
 pub const SORT_FOLD: &str = "Sort by";
 const WIDTH: f32 = 248.0;
 /// A menu row's height, as `widgets::menu_row` draws it.
-const ROW_H: f32 = 32.0;
+const ROW_H: f32 = 30.0;
 
 /// The menu's button; `auto` is the grid's automatic column count.
 pub fn button(
@@ -37,9 +37,10 @@ pub fn button(
         .gap(6.0)
         .width(WIDTH)
         .show(|ui| {
+            widgets::menu_style(ui, WIDTH);
             // Every change shows at once; the menu stays open to chain them.
             let mut next = *view;
-            if widgets::menu_row(ui, Icon::Plus, "New shelf", None, false).clicked() {
+            if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
                 out.push(Command::Library(Action::Shelf(ShelfAction::New)));
                 ui.close();
             }
@@ -50,18 +51,17 @@ pub fn button(
             super::menus::organize_rows(ui, organizer, out);
             crate::view_menu::pin_row(ui, pinned, out);
             crate::view_menu::shortcuts_row(ui, platform, out);
-            ui.separator();
+            widgets::menu_rule(ui);
             contents(ui, &mut next, auto);
             if next != *view {
                 out.push(Command::SetLibraryView(next));
             }
+            widgets::close_on_key(ui);
         });
 }
 
 fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
-    ui.set_width(WIDTH);
-    ui.spacing_mut().item_spacing.y = 2.0;
-    heading(ui, "Layout");
+    widgets::menu_section(ui, None, "Layout");
     for (layout, icon, label) in [
         (Layout::Grid, Icon::Grid, "Grid"),
         (Layout::List, Icon::List, "List"),
@@ -72,8 +72,8 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
     }
     let grid = view.layout == Layout::Grid;
     ui.add_enabled_ui(grid, |ui| columns(ui, view, auto));
-    ui.separator();
-    heading(ui, "Book covers");
+    widgets::menu_rule(ui);
+    widgets::menu_section(ui, None, "Book covers");
     ui.horizontal(|ui| {
         ui.add_space(4.0);
         for (fit, label) in [(CoverFit::Fit, "Fit"), (CoverFit::Crop, "Crop")] {
@@ -83,7 +83,7 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
             }
         }
     });
-    ui.separator();
+    widgets::menu_rule(ui);
     // Shut, it keeps the order in use and its direction.
     let fold = crate::fold::title(ui, egui::Id::new(SORT_FOLD), SORT_FOLD, None);
     let rows = SortKey::ALL.map(|key| (key, view.sort == key));
@@ -110,9 +110,9 @@ fn contents(ui: &mut Ui, view: &mut View, auto: u8) {
             }
         });
     }
-    ui.separator();
+    widgets::menu_rule(ui);
     // Shelved books can stay on the top level too, or only on shelves.
-    heading(ui, "Library shows");
+    widgets::menu_section(ui, None, "Library shows");
     ui.horizontal(|ui| {
         ui.add_space(4.0);
         for (home, label) in [
@@ -154,9 +154,4 @@ fn columns(ui: &mut Ui, view: &mut View, auto: u8) {
             }
         });
     });
-}
-
-fn heading(ui: &mut Ui, text: &str) {
-    ui.add_space(4.0);
-    widgets::menu_note(ui, text);
 }

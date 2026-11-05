@@ -39,117 +39,158 @@ fn file_manager() -> &'static str {
     }
 }
 
-/// A removal entry, in the theme's warning red.
-fn danger(ui: &mut Ui, label: &str, t: &Tokens) -> bool {
-    ui.button(RichText::new(label).color(t.danger)).clicked()
-}
-
 /// One book's menu.
-pub fn book_menu(ui: &mut Ui, b: &Book, t: &Tokens, out: &mut Commands) {
+pub fn book_menu(ui: &mut Ui, b: &Book, _t: &Tokens, out: &mut Commands) {
     let (id, missing) = (b.id, b.missing());
-    if ui.add_enabled(!missing, Button::new("Open")).clicked() {
+    let open = ui.add_enabled_ui(!missing, |ui| {
+        widgets::menu_row(ui, Icon::Book, "Open", None, false)
+    });
+    if open.inner.clicked() {
         out.push(Command::OpenBook(id));
+        ui.close();
     }
-    if ui.button("Select").clicked() {
+    if widgets::menu_row(ui, Icon::SelectSeveral, "Select", None, false).clicked() {
         act(out, Action::Pick(PickAction::Toggle(Pick::Book(id))));
+        ui.close();
     }
-    let rename = ui.button("Rename…");
-    let rename =
-        rename.on_hover_text("The name the library shows — the file on disk keeps its own");
+    widgets::menu_rule(ui);
+    let rename = widgets::menu_row(ui, Icon::Rename, "Rename…", None, false)
+        .on_hover_text("The name the library shows — the file on disk keeps its own");
     if rename.clicked() {
         act(out, Action::AskRename(Named::Book(id)));
+        ui.close();
     }
-    let copy = ui.add_enabled(!missing, Button::new("Duplicate"));
-    let copy = copy.on_hover_text(
-        "A second copy of this book, the library's own — highlights and all — filed beside it",
-    );
+    let copy = ui
+        .add_enabled_ui(!missing, |ui| {
+            widgets::menu_row(ui, Icon::Copy, "Duplicate", None, false)
+        })
+        .inner
+        .on_hover_text(
+            "A second copy of this book, the library's own — highlights and all — filed beside it",
+        );
     if copy.clicked() {
         book(out, BookAction::Duplicate(vec![Pick::Book(id)]));
+        ui.close();
     }
-    if ui.button("Read separately").clicked() {
+    if widgets::menu_row(ui, Icon::SplitRight, "Read separately", None, false).clicked() {
         book(out, BookAction::Twin(id));
+        ui.close();
     }
-    let reveal = Button::new(file_manager());
-    if b.path().is_some() && ui.add_enabled(!missing, reveal).clicked() {
-        book(out, BookAction::Reveal(id));
+    if b.path().is_some() {
+        let reveal = ui.add_enabled_ui(!missing, |ui| {
+            widgets::menu_row(ui, Icon::Folder, file_manager(), None, false)
+        });
+        if reveal.inner.clicked() {
+            book(out, BookAction::Reveal(id));
+            ui.close();
+        }
     }
-    if missing && ui.button("Find again…").clicked() {
+    if missing && widgets::menu_row(ui, Icon::SearchFolder, "Find again…", None, false).clicked()
+    {
         act(out, Action::FindAgain(id));
+        ui.close();
     }
-    ui.separator();
-    if danger(ui, "Remove from library", t) {
+    widgets::menu_rule(ui);
+    if widgets::menu_row_danger(ui, Icon::Remove, "Remove from library").clicked() {
         ask_remove(&[Pick::Book(id)], out);
+        ui.close();
     }
 }
 
 /// One link's menu: what it points at stays whatever is done here.
-pub fn link_menu(ui: &mut Ui, link: &Link, t: &Tokens, out: &mut Commands) {
+pub fn link_menu(ui: &mut Ui, link: &Link, _t: &Tokens, out: &mut Commands) {
     let pick = Pick::Link(link.id);
-    let open = ui.button("Open");
-    if open.on_hover_text("Show what it points at").clicked() {
+    let open = widgets::menu_row(ui, Icon::Open, "Open", None, false)
+        .on_hover_text("Show what it points at");
+    if open.clicked() {
         act(out, Action::Reveal(super::view::links::target(link)));
+        ui.close();
     }
-    if ui.button("Select").clicked() {
+    if widgets::menu_row(ui, Icon::SelectSeveral, "Select", None, false).clicked() {
         act(out, Action::Pick(PickAction::Toggle(pick)));
+        ui.close();
     }
-    let rename = ui.button("Rename…");
+    widgets::menu_rule(ui);
+    let rename = widgets::menu_row(ui, Icon::Rename, "Rename…", None, false);
     let tip = match link.target {
         LinkTo::Book(_) => "The name the pointer wears — the book it points at keeps its own",
         LinkTo::Shelf(_) => "The name the pointer wears — the shelf it points at keeps its own",
     };
     if rename.on_hover_text(tip).clicked() {
         act(out, Action::AskRename(Named::Link(link.id)));
+        ui.close();
     }
     let tip = match link.target {
         LinkTo::Book(_) => "A second copy of the book it points at, filed where the link is",
         LinkTo::Shelf(_) => "A second pointer at the same shelf",
     };
-    if ui.button("Duplicate").on_hover_text(tip).clicked() {
+    if widgets::menu_row(ui, Icon::Copy, "Duplicate", None, false)
+        .on_hover_text(tip)
+        .clicked()
+    {
         book(out, BookAction::Duplicate(vec![pick]));
+        ui.close();
     }
-    ui.separator();
-    if danger(ui, "Remove this link", t) {
+    widgets::menu_rule(ui);
+    if widgets::menu_row_danger(ui, Icon::Remove, "Remove this link").clicked() {
         ask_remove(&[pick], out);
+        ui.close();
     }
 }
 
 /// One shelf's menu.
-pub fn shelf_menu(ui: &mut Ui, model: &Library, s: &Shelf, t: &Tokens, out: &mut Commands) {
+pub fn shelf_menu(ui: &mut Ui, model: &Library, s: &Shelf, _t: &Tokens, out: &mut Commands) {
     let id = s.id;
-    if ui.button("Open shelf").clicked() {
+    if widgets::menu_row(ui, Icon::Shelf, "Open shelf", None, false).clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
+        ui.close();
     }
-    if ui.button("Select").clicked() {
+    if widgets::menu_row(ui, Icon::SelectSeveral, "Select", None, false).clicked() {
         act(out, Action::Pick(PickAction::Toggle(Pick::Shelf(id))));
+        ui.close();
     }
+    widgets::menu_rule(ui);
     let tip = match s.kind.value.rung() {
         Some(_) => "The name the library shows — a folder on disk keeps its own",
         None => "The name the library shows",
     };
-    if ui.button("Rename…").on_hover_text(tip).clicked() {
+    if widgets::menu_row(ui, Icon::Rename, "Rename…", None, false)
+        .on_hover_text(tip)
+        .clicked()
+    {
         act(out, Action::AskRename(Named::Shelf(id)));
+        ui.close();
     }
     duplicate_shelf(ui, id, out);
-    if model.shelf_dir(id).is_some() && ui.button(file_manager()).clicked() {
+    if model.shelf_dir(id).is_some()
+        && widgets::menu_row(ui, Icon::Folder, file_manager(), None, false).clicked()
+    {
         shelf(out, ShelfAction::Reveal(id));
+        ui.close();
     }
     watch_entry(ui, model, id, out);
     // Made inside this shelf, which opens on it.
-    if ui.button("New shelf").clicked() {
+    if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
         shelf(out, ShelfAction::GoTo(Some(id)));
         shelf(out, ShelfAction::New);
+        ui.close();
     }
-    ui.separator();
-    if danger(ui, "Take shelf apart", t) {
+    widgets::menu_rule(ui);
+    if widgets::menu_row_danger(ui, Icon::Remove, "Take shelf apart").clicked() {
         shelf(out, ShelfAction::Apart(id));
+        ui.close();
     }
 }
 
 /// A shelf's Duplicate entry, in its card menu and its crumb.
 pub fn duplicate_shelf(ui: &mut Ui, id: ShelfId, out: &mut Commands) {
     let tip = "A second shelf of your own, holding fresh copies of its books";
-    if ui.button("Duplicate").on_hover_text(tip).clicked() {
+    if widgets::menu_row(ui, Icon::Copy, "Duplicate", None, false)
+        .on_hover_text(tip)
+        .clicked()
+    {
         book(out, BookAction::Duplicate(vec![Pick::Shelf(id)]));
+        ui.close();
     }
 }
 
@@ -177,34 +218,42 @@ fn watch_entry(ui: &mut Ui, model: &Library, id: ShelfId, out: &mut Commands) {
         Some(rung) => format!("Only “{rung}” and the folders inside it"),
         None => format!("The whole “{}” folder", watch.folder),
     };
-    if ui.button(label).on_hover_text(tip).clicked() {
+    let icon = if watch.on {
+        Icon::Stop
+    } else {
+        Icon::SearchFolder
+    };
+    if widgets::menu_row(ui, icon, label, None, false)
+        .on_hover_text(tip)
+        .clicked()
+    {
         shelf(out, ShelfAction::Watch(id, !watch.on));
+        ui.close();
     }
-    let t = Tokens::get(ui.ctx());
-    ui.label(RichText::new(under).size(11.0).color(t.muted));
+    widgets::menu_note(ui, &under);
 }
 
 /// The selection's menu, on any picked card.
-pub fn picks_menu(ui: &mut Ui, picks: &Picks, t: &Tokens, out: &mut Commands) {
+pub fn picks_menu(ui: &mut Ui, picks: &Picks, _t: &Tokens, out: &mut Commands) {
     let n = picks.len();
-    ui.label(
-        RichText::new(format!("{n} selected"))
-            .size(12.0)
-            .color(t.muted),
-    );
-    if ui.button("New shelf from these").clicked() {
+    widgets::menu_section(ui, None, &format!("{n} selected"));
+    if widgets::menu_row(ui, Icon::FolderPlus, "New shelf from these", None, false).clicked() {
         shelve_together(picks, out);
+        ui.close();
     }
-    if ui.button(format!("Duplicate ({n})")).clicked() {
+    if widgets::menu_row(ui, Icon::Copy, &format!("Duplicate ({n})"), None, false).clicked() {
         book(out, BookAction::Duplicate(picks.items()));
         act(out, Action::Pick(PickAction::Clear));
+        ui.close();
     }
-    ui.separator();
-    if danger(ui, &format!("Remove ({n})"), t) {
-        ask_remove(&picks.items(), out);
-    }
-    if ui.button("Clear selection").clicked() {
+    if widgets::menu_row(ui, Icon::Close, "Clear selection", None, false).clicked() {
         act(out, Action::Pick(PickAction::Clear));
+        ui.close();
+    }
+    widgets::menu_rule(ui);
+    if widgets::menu_row_danger(ui, Icon::Remove, &format!("Remove ({n})")).clicked() {
+        ask_remove(&picks.items(), out);
+        ui.close();
     }
 }
 
@@ -252,12 +301,26 @@ pub fn page_menu(
     if sequence.is_empty() {
         return;
     }
+    widgets::menu_rule(ui);
+    let select_all_keys = if cfg!(target_os = "macos") {
+        "⌘A"
+    } else {
+        "Ctrl+A"
+    };
     if selecting {
-        if widgets::menu_row(ui, Icon::Close, "Clear selection", None, false).clicked() {
+        if widgets::menu_row(ui, Icon::Close, "Clear selection", Some("Esc"), false).clicked() {
             act(out, Action::Pick(PickAction::Clear));
             ui.close();
         }
-    } else if widgets::menu_row(ui, Icon::SelectSeveral, "Select all", None, false).clicked() {
+    } else if widgets::menu_row(
+        ui,
+        Icon::SelectSeveral,
+        "Select all",
+        Some(select_all_keys),
+        false,
+    )
+    .clicked()
+    {
         act(out, Action::Pick(PickAction::Only(sequence.to_vec())));
         ui.close();
     }
@@ -427,10 +490,10 @@ fn add_to_shelf(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
         .close_behavior(PopupCloseBehavior::CloseOnClick)
         .align(RectAlign::TOP_START)
         .gap(6.0)
-        .width(240.0)
+        .width(widgets::MENU_W)
         .show(|ui| {
-            let t = Tokens::get(ui.ctx());
-            ui.label(RichText::new("Add to shelf").size(12.0).color(t.muted));
+            widgets::menu_style(ui, widgets::MENU_W);
+            widgets::menu_section(ui, None, "Add to shelf");
             egui::ScrollArea::vertical()
                 .max_height(260.0)
                 .show(ui, |ui| {
@@ -448,7 +511,7 @@ fn add_to_shelf(ui: &mut Ui, bar: &Bar<'_>, out: &mut Commands) {
                         }
                     }
                 });
-            ui.separator();
+            widgets::menu_rule(ui);
             if widgets::menu_row(ui, Icon::Plus, "New shelf", None, false).clicked() {
                 shelve_together(picks, out);
             }

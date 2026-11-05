@@ -2,8 +2,8 @@
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Align2, Button, Context, FontId, Frame, Id, Key, Margin, Modifiers, Order, Pos2, Rect,
-    RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2, WidgetText, pos2, vec2,
+    Context, CornerRadius, FontId, Frame, Id, Key, Margin, Modifiers, Order, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
 };
 use mareader_library::Library;
 use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
@@ -21,7 +21,8 @@ use super::{Action, BubbleMenu, How, Menu, PageAi, Slot, Step, label};
 /// The language search field, for screen readers and tests.
 pub const FIND: &str = "Find a language";
 
-const WIDTH: f32 = 236.0;
+const WIDTH: f32 = widgets::GROUPED_MENU_W;
+const BUBBLE_WIDTH: f32 = widgets::MENU_W;
 /// The language list's height before it scrolls.
 const LIST_H: f32 = 260.0;
 
@@ -39,7 +40,17 @@ impl PageAi {
             let p = i.pointer.press_origin();
             p.filter(|_| i.pointer.any_pressed())
         });
-        let outside = |r: Option<Rect>| pressed.is_some_and(|p| !r.is_some_and(|r| r.contains(p)));
+        let in_popup = pressed.is_some_and(|p| {
+            ctx.memory(|m| {
+                m.layer_ids()
+                    .filter(|l| l.order >= Order::Foreground && m.areas().is_visible(l))
+                    .filter_map(|l| m.area_rect(l.id))
+                    .any(|r| r.contains(p))
+            })
+        });
+        let outside = |r: Option<Rect>| {
+            pressed.is_some_and(|p| !in_popup && !r.is_some_and(|r| r.contains(p)))
+        };
         let gone = |pane: PaneId| !panes.iter().any(|(p, _)| *p == pane);
         if self.menu.as_ref().is_some_and(|m| gone(m.pane))
             || (self.menu.is_some() && outside(self.menu_rect))
@@ -95,7 +106,7 @@ impl PageAi {
         let (at, word) = anchor.unwrap_or((m.at, None));
         let size = self
             .menu_rect
-            .map_or(vec2(WIDTH + 10.0, 200.0), |r| r.size());
+            .map_or(vec2(WIDTH + 12.0, 200.0), |r| r.size());
         let (pos, below) = place(at, word, size, ctx.content_rect());
         let now = ctx.input(|i| i.time);
         let k = ((now - m.born.unwrap_or(now)) / APPEAR).clamp(0.0, 1.0) as f32;
@@ -194,21 +205,20 @@ impl PageAi {
                 out.push(Command::PlaceReadMarker { pane: m.pane, spot });
                 return true;
             }
-            ui.separator();
+            widgets::menu_rule(ui);
         }
-        // The page's own heading, its swatch the tint the page wears.
         let heading = match m.pages.len() {
-            0 => format!("Page {}", m.page + 1),
-            1 => "1 page".to_owned(),
-            n => format!("{n} pages"),
+            0 => format!("Ask AI · Page {}", m.page + 1),
+            1 => "Ask AI · 1 page".to_owned(),
+            n => format!("Ask AI · {n} pages"),
         };
-        caption(ui, &heading, &t);
+        widgets::menu_section(ui, Some(Icon::Ai), &heading);
         if !PageTask::ALL
             .iter()
             .any(|task| ai.page_preset(*task).is_some())
         {
             let why = "Summarize, translate and simplify pages with an AI model.";
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             widgets::menu_note(ui, why);
             ui.add_space(2.0);
             if widgets::menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
@@ -239,27 +249,53 @@ impl PageAi {
         if widgets::menu_row(ui, Icon::Summarize, &summarize, None, false).clicked() {
             return Self::ask(m, ai, (PageTask::Summarize, None), step, out);
         }
-        let translate = hint(ai.tasks.translate.start);
-        match ai.tasks.translate.language.as_deref() {
-            Some(tag) => {
-                let name = language_name(tag).unwrap_or(tag);
-                let to = format!("Translate to {name}");
-                if widgets::menu_row(ui, Icon::Translate, &to, translate, false).clicked() {
-                    let task = (PageTask::Translate, Some(tag.to_owned()));
-                    return Self::ask(m, ai, task, step, out);
-                }
-                let other =
-                    widgets::menu_row(ui, Icon::ChevronRight, "Other language…", None, false);
-                if other.clicked() {
-                    *step = Step::Languages;
-                }
+        let translate_hint = hint(ai.tasks.translate.start);
+        let mut recent: Vec<(String, String)> = ai
+            .tasks
+            .translate
+            .recent
+            .iter()
+            .filter_map(|tag| language_name(tag).map(|name| (tag.clone(), name.to_owned())))
+            .take(5)
+            .collect();
+        if let Some(tag) = ai.tasks.translate.language.as_deref()
+            && !recent.iter().any(|(r, _)| r == tag)
+            && let Some(name) = language_name(tag)
+        {
+            recent.insert(0, (tag.to_owned(), name.to_owned()));
+        }
+        if recent.is_empty() {
+            let to = format!("Translate {what}…");
+            if widgets::menu_row_chevron(ui, Icon::Translate, &to, translate_hint).clicked() {
+                *step = Step::Languages;
             }
-            None => {
-                let to = format!("Translate {what}…");
-                let pick = widgets::menu_row(ui, Icon::Translate, &to, None, false);
-                if pick.clicked() {
-                    *step = Step::Languages;
+        } else {
+            let current = ai.tasks.translate.language.as_deref();
+            let current_name = current.and_then(language_name).or(translate_hint);
+            let to = format!("Translate {what}");
+            let mut chosen = None;
+            let mut more = false;
+            widgets::submenu_row(ui, Icon::Translate, &to, current_name, 188.0, |ui| {
+                widgets::menu_section(ui, None, "Recent");
+                for (tag, name) in &recent {
+                    if widgets::menu_check_row(ui, name, current == Some(tag.as_str())).clicked() {
+                        chosen = Some(tag.clone());
+                        ui.close();
+                    }
                 }
+                widgets::menu_rule(ui);
+                if widgets::menu_row(ui, Icon::Translate, "More languages…", None, false).clicked()
+                {
+                    more = true;
+                    ui.close();
+                }
+            });
+            if let Some(tag) = chosen {
+                return Self::ask(m, ai, (PageTask::Translate, Some(tag)), step, out);
+            }
+            if more {
+                *step = Step::Languages;
+                return false;
             }
         }
         let simplify = hint(ai.tasks.simplify.start);
@@ -277,7 +313,7 @@ impl PageAi {
         let shown = self.showing_on(pane, page).is_some();
         let following = self.following(pane);
         if shown || following.is_some() {
-            rule(ui, &t);
+            widgets::menu_rule(ui);
         }
         if shown && widgets::menu_row(ui, Icon::Book, "Show original page", None, false).clicked() {
             out.push(Command::PageAi(Action::Show {
@@ -318,7 +354,7 @@ impl PageAi {
             *step = Step::Tasks;
             return false;
         }
-        rule(ui, &t);
+        widgets::menu_rule(ui);
         let remember = self.remember;
         let how = |continuous| How {
             continuous,
@@ -335,7 +371,7 @@ impl PageAi {
             out.push(Command::PageAi(action(m, task, tag, how(true))));
             return true;
         }
-        rule(ui, &t);
+        widgets::menu_rule(ui);
         ui.horizontal(|ui| {
             ui.add_space(ui.spacing().button_padding.x);
             let label = RichText::new("Remember my choice").size(t.text_small);
@@ -355,11 +391,11 @@ impl PageAi {
         step: &mut Step,
         out: &mut Commands,
     ) -> bool {
-        let t = Tokens::get(ui.ctx());
         if widgets::menu_row(ui, Icon::ChevronLeft, "Translate to…", None, false).clicked() {
             *step = Step::Tasks;
             return false;
         }
+        ui.add_space(2.0);
         let edit = TextEdit::singleline(&mut self.filter)
             .hint_text("Find a language")
             .desired_width(f32::INFINITY);
@@ -369,6 +405,7 @@ impl PageAi {
         if !field.has_focus() && self.filter.is_empty() {
             field.request_focus();
         }
+        ui.add_space(2.0);
         let find = self.filter.trim().to_lowercase();
         let matches = |tag: &str, name: &str| {
             find.is_empty()
@@ -400,24 +437,20 @@ impl PageAi {
                 let Some(name) = language_name(tag) else {
                     continue;
                 };
-                if language_row(ui, name, current == Some(*tag)).clicked() {
+                if widgets::menu_check_row(ui, name, current == Some(*tag)).clicked() {
                     picked = Some((*tag).to_owned());
                 }
             }
             if !recent.is_empty() {
-                rule(ui, &t);
+                widgets::menu_rule(ui);
             }
             for (tag, name) in &all {
-                if language_row(ui, name, current == Some(*tag)).clicked() {
+                if widgets::menu_check_row(ui, name, current == Some(*tag)).clicked() {
                     picked = Some((*tag).to_owned());
                 }
             }
             if all.is_empty() {
-                ui.label(
-                    RichText::new("No language matches")
-                        .size(t.text_small)
-                        .color(t.muted),
-                );
+                widgets::menu_note(ui, "No language matches");
             }
         });
         let Some(tag) = picked else {
@@ -533,11 +566,12 @@ impl PageAi {
                 }
                 act(ui, Icon::Rescan, "Redo", Action::Redo { pane, page, slot });
                 act(ui, Icon::Copy, "Copy text", Action::Copy(slot));
-                ui.visuals_mut().override_text_color = Some(t.danger);
-                act(ui, Icon::Remove, "Delete", Action::Delete(slot));
-                ui.visuals_mut().override_text_color = None;
+                if widgets::menu_row_danger(ui, Icon::Remove, "Delete").clicked() {
+                    out.push(Command::PageAi(Action::Delete(slot)));
+                    close = true;
+                }
             }
-            rule(ui, t);
+            widgets::menu_rule(ui);
             let small = |s: String| RichText::new(s).size(t.text_small).color(t.muted);
             ui.add_space(2.0);
             ui.horizontal(|ui| {
@@ -569,12 +603,12 @@ fn popup(ctx: &Context, id: Id, at: egui::Pos2, t: &Tokens, add: impl FnOnce(&mu
         .constrain(true)
         .show(ctx, |ui| {
             Frame::menu(ui.style())
-                .fill(t.surface)
+                .fill(t.paper)
                 .stroke(Stroke::new(1.0, t.line))
                 .corner_radius(t.radius_lg)
-                .inner_margin(Margin::same(4))
+                .inner_margin(Margin::same(6))
                 .show(ui, |ui| {
-                    ui.set_width(WIDTH);
+                    widgets::menu_style(ui, BUBBLE_WIDTH);
                     add(ui);
                     widgets::close_on_key(ui);
                 });
@@ -640,12 +674,12 @@ fn page_popup(
         .show(ctx, |ui| {
             ui.multiply_opacity(ease);
             Frame::menu(ui.style())
-                .fill(t.surface)
+                .fill(t.paper)
                 .stroke(Stroke::new(1.0, t.line))
                 .corner_radius(t.radius_lg)
-                .inner_margin(Margin::same(4))
+                .inner_margin(Margin::same(6))
                 .show(ui, |ui| {
-                    ui.set_width(WIDTH);
+                    widgets::menu_style(ui, WIDTH);
                     add(ui);
                     widgets::close_on_key(ui);
                 });
@@ -657,40 +691,64 @@ fn page_popup(
     rect
 }
 
-/// Read aloud's row: its icon and word in the lit word's warm tone.
+/// Read aloud's row on the shared `30pt` menu grid, icon in the lit word's warm tone.
 fn aloud_row(ui: &mut Ui, word: Option<&str>, t: &Tokens) -> egui::Response {
     let warm = crate::read_aloud::marker::warm(t);
-    let ink = ui.visuals().text_color();
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let (label, text) = match word {
+    let font = FontId::proportional(13.5);
+    let (label, job) = match word {
         Some(w) => {
             let w = short(w);
             let mut job = LayoutJob::default();
             job.append(
                 "Read aloud from ",
                 0.0,
-                TextFormat::simple(font.clone(), ink),
+                TextFormat::simple(font.clone(), t.ink),
             );
-            let quoted = TextFormat {
-                font_id: font,
-                color: ink,
-                underline: Stroke::new(1.5, warm),
-                ..Default::default()
-            };
-            job.append(&format!("“{w}”"), 0.0, quoted);
-            (format!("Read aloud from “{w}”"), WidgetText::from(job))
+            job.append(
+                &format!("“{w}”"),
+                0.0,
+                TextFormat {
+                    font_id: font,
+                    color: t.ink,
+                    underline: Stroke::new(1.5, warm),
+                    ..Default::default()
+                },
+            );
+            (format!("Read aloud from “{w}”"), job)
         }
         None => {
             let label = "Read aloud from page start".to_owned();
-            (label.clone(), WidgetText::from(label))
+            let mut job = LayoutJob::default();
+            job.append(&label, 0.0, TextFormat::simple(font, t.ink));
+            (label, job)
         }
     };
-    let button = Button::image_and_text(Icon::ReadAloud.image(16.0).tint(warm), text)
-        .truncate()
-        .frame_when_inactive(false)
-        .min_size(vec2(ui.available_width(), 32.0));
-    let resp = ui.add(button);
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    if resp.is_pointer_button_down_on() {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(8), t.pressed);
+    } else if resp.hovered() || resp.has_focus() {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(8), t.hover);
+    }
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let y = rect.center().y;
+    let icon_rect = Rect::from_min_size(pos2(rect.left() + 8.0, y - 7.5), Vec2::splat(15.0));
+    Icon::ReadAloud.paint(ui, icon_rect, warm);
+    let text_x = rect.left() + 32.0;
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    let clip = Rect::from_min_max(
+        pos2(text_x, rect.top()),
+        pos2(rect.right() - 8.0, rect.bottom()),
+    );
+    ui.painter().with_clip_rect(clip).galley(
+        pos2(text_x, y - galley.size().y * 0.5),
+        galley,
+        t.ink,
+    );
     resp
 }
 
@@ -701,41 +759,6 @@ fn short(word: &str) -> String {
         true => format!("{}…", word.chars().take(MOST - 1).collect::<String>()),
         false => word.to_owned(),
     }
-}
-
-/// A small heading over the page's rows, its swatch the page's wash.
-fn caption(ui: &mut Ui, text: &str, t: &Tokens) {
-    let pad = ui.spacing().button_padding.x;
-    let gap = ui.spacing().icon_spacing;
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
-    let swatch = Rect::from_center_size(pos2(r.left() + pad + 8.0, r.center().y), vec2(10.0, 10.0));
-    let p = ui.painter();
-    p.rect_filled(swatch, 3.0, t.accent.gamma_multiply(0.3));
-    let edge = Stroke::new(1.0, t.accent.gamma_multiply(0.85));
-    p.rect_stroke(swatch, 3.0, edge, StrokeKind::Inside);
-    let x = r.left() + pad + 16.0 + gap;
-    let font = FontId::proportional(t.text_small);
-    p.text(
-        pos2(x, r.center().y),
-        Align2::LEFT_CENTER,
-        text,
-        font,
-        t.muted,
-    );
-}
-
-fn language_row(ui: &mut Ui, name: &str, on: bool) -> egui::Response {
-    let button = Button::new(name)
-        .frame_when_inactive(false)
-        .selected(on)
-        .min_size(vec2(ui.available_width(), 28.0));
-    ui.add(button)
-}
-
-fn rule(ui: &mut Ui, t: &Tokens) {
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
-    ui.painter()
-        .hline(r.x_range(), r.center().y, Stroke::new(1.0, t.line));
 }
 
 /// The action a menu choice makes.

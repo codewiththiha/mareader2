@@ -377,7 +377,7 @@ pub fn show(
     let area = ui.available_rect_before_wrap();
     // Under the rows: the library's menu, and the top level for drops.
     let back = ui.interact(area, Id::new("library-panel-back"), Sense::click());
-    back.context_menu(|ui| library_menu(ui, cx.organizer, out));
+    widgets::context_menu(&back, |ui| library_menu(ui, cx.organizer, out));
     let mut toggles = Vec::new();
     let mut spots: Vec<Spot> = Vec::new();
     let mut named: Option<(Named, String)> = None;
@@ -577,8 +577,7 @@ fn row_actions(
             out.push(Command::Library(Action::Book(ask_remove(line.named()))));
         }
     }
-    resp.context_menu(|ui| {
-        ui.set_min_width(190.0);
+    widgets::context_menu(resp, |ui| {
         row_menu(ui, line, model, named, out);
     });
 }
@@ -603,6 +602,7 @@ fn row_menu(
         if widgets::menu_row(ui, Icon::Import, "Import books here…", None, false).clicked() {
             act(ui, Action::PickInto(Some(*id)));
         }
+        widgets::menu_rule(ui);
     }
     if widgets::menu_row(ui, Icon::Rename, "Rename", Some("F2"), false).clicked() {
         *named = Some((line.named(), line.name().to_owned()));
@@ -628,14 +628,8 @@ fn row_menu(
         act(ui, Action::Reveal(line.item()));
         show_library = true;
     }
-    ui.separator();
-    let t = Tokens::get(ui.ctx());
-    let remove = egui::Button::image_and_text(
-        Icon::Remove.image(16.0).tint(t.danger),
-        RichText::new("Remove…").color(t.danger),
-    )
-    .frame(false);
-    if ui.add(remove).clicked() {
+    widgets::menu_rule(ui);
+    if widgets::menu_row_danger(ui, Icon::Remove, "Remove…").clicked() {
         act(ui, Action::Book(ask_remove(line.named())));
     }
     if show_library {
@@ -660,7 +654,7 @@ fn ask_remove(named: Named) -> BookAction {
 
 /// The library's menu: new shelf, imports, and the AI organizer.
 fn library_menu(ui: &mut Ui, organizer: Organizer<'_>, out: &mut Commands) {
-    ui.set_min_width(210.0);
+    widgets::menu_style(ui, widgets::MENU_W);
     let mut act = |ui: &mut Ui, action: Action| {
         out.push(Command::Library(action));
         ui.close();
@@ -674,8 +668,9 @@ fn library_menu(ui: &mut Ui, organizer: Organizer<'_>, out: &mut Commands) {
     if widgets::menu_row(ui, Icon::Folder, "Import a folder…", None, false).clicked() {
         act(ui, Action::PickFolder);
     }
-    ui.separator();
+    widgets::menu_rule(ui);
     crate::library::organize_rows(ui, organizer, out);
+    widgets::close_on_key(ui);
 }
 
 /// The Library heading: its count, and a button for the library's menu.
@@ -711,6 +706,7 @@ fn library_heading(ui: &mut Ui, cx: &PanelContext<'_>, t: &Tokens, out: &mut Com
         .id(id)
         .sense(widgets::POPUP_SENSE)
         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+        .width(widgets::MENU_W)
         .gap(4.0)
         .show(|ui| library_menu(ui, cx.organizer, out));
     rect
