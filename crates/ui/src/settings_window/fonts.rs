@@ -4,7 +4,7 @@ use std::sync::Arc;
 use egui::{Button, RichText, Ui};
 use mareader_session::{FACES, Kind, bundled, has_family};
 use mareader_settings::{
-    BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings,
+    AppearanceMenuStyle, BookDesign, ColumnAlign, FontChoice, FontFamily, SystemFont, TextSettings,
 };
 
 use mareader_library::{BookId, Design};
@@ -35,7 +35,13 @@ fn this_book(ui: &mut Ui, (book, own): (BookId, Option<Design>), out: &mut Comma
 }
 
 /// A book's settings, grouped as Book, Font, Paragraph, Page and Colour.
-pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Commands) {
+pub(super) fn tab(
+    ui: &mut Ui,
+    t: &mut TextSettings,
+    menu: &mut AppearanceMenuStyle,
+    cx: &Scope,
+    out: &mut Commands,
+) {
     section(ui, "Book");
     group(ui, |ui| {
         let hint = "Its own boxes, rules, fonts and spacing; off, plain text";
@@ -82,6 +88,8 @@ pub(super) fn tab(ui: &mut Ui, t: &mut TextSettings, cx: &Scope, out: &mut Comma
     section(ui, "Colour");
     group(ui, |ui| {
         super::colours_row(ui, out);
+        divider(ui);
+        super::appearance_menu_row(ui, menu);
         divider(ui);
         let hint = "How dark a book's text stays; its pictures keep their colours";
         let percent = |v: f32| format!("{v:.0} %");

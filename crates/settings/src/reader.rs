@@ -4,6 +4,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::clamp;
 
+/// How the Appearance popover arranges its controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppearanceMenuStyle {
+    /// Folded sections with horizontal sliders.
+    #[default]
+    Classic,
+    /// Compact tabs with a 2D colour wheel and rotary dials.
+    DialDeck,
+}
+
+impl AppearanceMenuStyle {
+    pub const ALL: [Self; 2] = [Self::Classic, Self::DialDeck];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Classic => "Classic",
+            Self::DialDeck => "Dial deck",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ChromeSettings {
@@ -15,6 +37,8 @@ pub struct ChromeSettings {
     pub sidebar_overlay: bool,
     /// The bars blur the page behind them; off, they are solid.
     pub glass: bool,
+    /// Which layout the Appearance popover opens in.
+    pub appearance_menu: AppearanceMenuStyle,
 }
 
 impl Default for ChromeSettings {
@@ -25,6 +49,7 @@ impl Default for ChromeSettings {
             dictionary_titlebar_pinned: true,
             sidebar_overlay: false,
             glass: true,
+            appearance_menu: AppearanceMenuStyle::Classic,
         }
     }
 }
@@ -456,5 +481,13 @@ mod tests {
         let c: ChromeSettings = serde_json::from_str(old).expect("old settings read");
         let pins = Bar::ALL.map(|b| c.pinned(b));
         assert_eq!(pins, [true, false, true], "the new pin takes its default");
+        assert_eq!(c.appearance_menu, AppearanceMenuStyle::Classic);
+    }
+
+    #[test]
+    fn appearance_menu_style_round_trips_from_snake_case() {
+        let raw = r#"{"appearance_menu":"dial_deck"}"#;
+        let c: ChromeSettings = serde_json::from_str(raw).expect("dial deck reads");
+        assert_eq!(c.appearance_menu, AppearanceMenuStyle::DialDeck);
     }
 }

@@ -29,9 +29,9 @@ pub use ai::{
 };
 pub use load::{Loaded, load, to_json};
 pub use reader::{
-    Bar, ChromeSettings, FloatingLabelStyle, Highlight, LayoutSettings, MotionSettings,
-    PageIndicatorStyle, PaperArea, PaperSettings, Pass, Player, ReadAloudSettings, Skip, Skips,
-    StartupFit,
+    AppearanceMenuStyle, Bar, ChromeSettings, FloatingLabelStyle, Highlight, LayoutSettings,
+    MotionSettings, PageIndicatorStyle, PaperArea, PaperSettings, Pass, Player, ReadAloudSettings,
+    Skip, Skips, StartupFit,
 };
 pub use study::StudySettings;
 pub use study::{

@@ -4,6 +4,7 @@ use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::{Appearance, Preset};
 use mareader_library::{ShelfId, View};
+use mareader_settings::AppearanceMenuStyle;
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, Independence, WindowCommand};
@@ -47,6 +48,8 @@ pub struct BarContext<'a> {
     pub gutter: bool,
     /// The look the popover edits: the active pane's, or the window's.
     pub appearance: &'a Appearance,
+    /// Which layout the Appearance popover opens in.
+    pub appearance_menu: AppearanceMenuStyle,
     /// Every preset, built-ins first, and the user's own among them.
     pub presets: &'a [Preset],
     pub user_presets: &'a [Preset],
@@ -496,10 +499,14 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
                 // The shelf has no page to texture.
                 texture: reader.is_some(),
             };
-            crate::appearance_menu::show(ui, &cx, out);
+            match bar.appearance_menu {
+                AppearanceMenuStyle::Classic => crate::appearance_menu::show(ui, &cx, out),
+                AppearanceMenuStyle::DialDeck => crate::dial_deck::show(ui, &cx, out),
+            }
         });
     if !open && !egui::Popup::is_id_open(ui.ctx(), id) {
         crate::appearance_menu::forget_draft(ui.ctx());
+        crate::dial_deck::forget_draft(ui.ctx());
     }
 }
 

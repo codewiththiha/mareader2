@@ -16,6 +16,7 @@ pub mod bookmarks;
 pub mod bubble;
 pub mod command;
 pub mod crossfade;
+pub mod dial_deck;
 pub mod dict;
 pub mod documents;
 pub mod export;
