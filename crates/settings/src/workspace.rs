@@ -15,6 +15,36 @@ pub enum LibraryClick {
     DragOnly,
 }
 
+/// What a floating panel resting at a stage edge shows there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Resting {
+    /// Its own edge, peeking on screen.
+    #[default]
+    Peek,
+    /// A labeled tab standing in for the whole panel.
+    Tab,
+}
+
+/// How the player and the Dictionary may rest past a stage edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Rest {
+    /// They may tuck themselves out of the way at all.
+    pub on: bool,
+    /// What a resting panel shows at the edge.
+    pub face: Resting,
+}
+
+impl Default for Rest {
+    fn default() -> Self {
+        Self {
+            on: true,
+            face: Resting::Peek,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceSettings {
@@ -26,6 +56,8 @@ pub struct WorkspaceSettings {
     pub independent_textures: bool,
     /// While split, each pane keeps its own Fonts settings.
     pub independent_text: bool,
+    /// The player and the Dictionary resting past a stage edge.
+    pub rest: Rest,
     pub look: PaneLook,
 }
 
@@ -37,6 +69,7 @@ impl Default for WorkspaceSettings {
             shared_base_mode: true,
             independent_textures: false,
             independent_text: false,
+            rest: Rest::default(),
             look: PaneLook::default(),
         }
     }
@@ -120,5 +153,17 @@ mod tests {
         look.gap = 3.0;
         look.make_room();
         assert!((look.gap - 3.0).abs() < f32::EPSILON, "a chosen gap stays");
+    }
+
+    #[test]
+    fn resting_defaults_to_the_peek_and_reads_old_files() {
+        let rest = WorkspaceSettings::default().rest;
+        assert_eq!((rest.on, rest.face), (true, Resting::Peek));
+        let old = serde_json::json!({});
+        let read: WorkspaceSettings = serde_json::from_value(old).unwrap();
+        assert_eq!(read.rest, Rest::default());
+        let chosen: WorkspaceSettings =
+            serde_json::from_value(serde_json::json!({ "rest": { "face": "tab" } })).unwrap();
+        assert_eq!(chosen.rest.face, Resting::Tab);
     }
 }

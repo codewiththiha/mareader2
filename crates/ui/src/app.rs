@@ -992,6 +992,26 @@ impl MareaderApp {
                 }
                 self.titlebar.pinned = on;
             }
+            // How floating panels rest: `rest=peek`, `rest=tab` or `rest=off`.
+            "rest" => {
+                let rest = &mut self.settings.workspace.rest;
+                match value {
+                    "peek" => *rest = mareader_settings::Rest::default(),
+                    "tab" => {
+                        *rest = mareader_settings::Rest {
+                            on: true,
+                            face: mareader_settings::Resting::Tab,
+                        }
+                    }
+                    "off" => {
+                        *rest = mareader_settings::Rest {
+                            on: false,
+                            face: rest.face,
+                        }
+                    }
+                    _ => return Err("rest: peek, tab or off".into()),
+                }
+            }
             #[cfg(not(target_arch = "wasm32"))]
             "dictionaries" => {
                 let inline = self.study.inline();
@@ -3061,6 +3081,7 @@ impl MareaderApp {
             tint,
             toasts,
             dict,
+            rest: self.settings.workspace.rest,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
@@ -3780,13 +3801,19 @@ impl eframe::App for MareaderApp {
             // Above the page bar too, which would cover it.
             stage.max.y -= crate::page_bar::BAR_H;
             let dictionary = &self.settings.dictionary;
+            let rest = self.settings.workspace.rest;
             let lift = self.toast_lift(&ctx, ctx.content_rect());
             let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
             let now = ctx.input(|i| i.time);
             let player = self.read_aloud.clearance_rect(now);
+            let venue = crate::dict::Venue {
+                stage,
+                toasts,
+                player,
+            };
             if self
                 .dict
-                .window(&ctx, dictionary, stage, toasts, player, &mut commands)
+                .window(&ctx, dictionary, rest, venue, &mut commands)
             {
                 self.read_aloud.yield_to_dictionary();
             }

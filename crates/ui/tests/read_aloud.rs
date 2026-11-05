@@ -1534,6 +1534,62 @@ fn the_player_peeks_as_its_shell_and_restores_on_click() {
 }
 
 #[test]
+fn the_player_rests_as_a_labeled_tab_and_restores_on_click() {
+    let mut h = reader(1);
+    h.state_mut()
+        .set_option("rest", "tab")
+        .expect("a known option");
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.run_steps(30);
+
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(60);
+    let id = egui::Id::new("read-aloud-bar");
+    let home = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
+
+    h.run_steps(240);
+    h.run_steps(60);
+    let tucked = h
+        .ctx
+        .memory(|m| m.area_rect(id))
+        .expect("the player at rest");
+    let visible = tucked.intersect(h.ctx.content_rect());
+    assert_eq!(tucked.size(), home.size());
+    assert!(visible.height() < 1.0, "it hides fully: {visible:?}");
+    assert!(h.query_by_label("Pause").is_none());
+    assert!(h.query_by_label("Play").is_none());
+    let tab = h
+        .query_by_label("Show the read-aloud player")
+        .expect("the labeled tab");
+    let at = tab.rect();
+    let bottom = h.ctx.content_rect().bottom();
+    assert!(
+        (at.bottom() - bottom).abs() < 2.0,
+        "{at:?} sits on the edge"
+    );
+    assert!(at.width() > 32.0 && at.height() > 20.0, "{at:?}");
+
+    let center = at.center();
+    pointer(&mut h, center, None);
+    pointer(&mut h, center, Some(true));
+    pointer(&mut h, center, Some(false));
+    h.run_steps(60);
+    let restored = h.ctx.memory(|m| m.area_rect(id)).expect("restored player");
+    assert!(
+        (restored.bottom() - home.bottom()).abs() < 2.0,
+        "{restored:?}"
+    );
+    assert!(
+        h.query_by_label("Play").is_some(),
+        "controls return after reveal"
+    );
+}
+
+#[test]
 fn the_last_used_float_keeps_priority_and_shrinks_the_dictionary() {
     use mareader_settings::Player;
 

@@ -103,6 +103,14 @@ impl Voice {
 /// Word list asks kept waiting at once.
 const WORD_ASKS: usize = 4;
 
+/// Where the floating window draws, and what it must stay clear of.
+#[derive(Clone, Copy)]
+pub struct Venue {
+    pub stage: Rect,
+    pub toasts: Option<Rect>,
+    pub player: Option<Rect>,
+}
+
 #[derive(Default)]
 pub struct Dict {
     service: Dictionaries,
@@ -425,9 +433,8 @@ impl Dict {
         &mut self,
         ctx: &Context,
         settings: &DictionarySettings,
-        stage: Rect,
-        toasts: Option<Rect>,
-        player: Option<Rect>,
+        rest: mareader_settings::Rest,
+        venue: Venue,
         out: &mut Commands,
     ) -> bool {
         self.float_rect = None;
@@ -456,13 +463,14 @@ impl Dict {
             evacuated: &mut self.evacuated,
             parked: &mut self.parked,
             settings,
-            stage,
-            toasts,
-            player,
+            rest,
+            stage: venue.stage,
+            toasts: venue.toasts,
+            player: venue.player,
         };
         let (drawn, interacted) = window::show(ctx, frame, appear, out);
         self.float_rect = settings.window.open.then_some(drawn);
-        self.float_cover = settings.window.open.then_some(drawn.intersect(stage));
+        self.float_cover = settings.window.open.then_some(drawn.intersect(venue.stage));
         interacted
     }
 

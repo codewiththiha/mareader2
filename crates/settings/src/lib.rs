@@ -45,7 +45,7 @@ pub use words::{
     WORD_LANGUAGES, WORD_PRESETS, WordFields, WordGroup, WordLayout, WordList, WordListSettings,
     WordOutput, WordPreset, WordSort,
 };
-pub use workspace::{Corners, LibraryClick, PaneLook, WorkspaceSettings};
+pub use workspace::{Corners, LibraryClick, PaneLook, Rest, Resting, WorkspaceSettings};
 
 /// Bumped with every migration step in `load.rs`.
 pub const SCHEMA_VERSION: u32 = 6;

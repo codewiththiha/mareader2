@@ -46,6 +46,8 @@ pub struct Frame<'a> {
     /// The original window sliding partly beyond an edge.
     pub parked: &'a mut Option<crate::park::Tuck>,
     pub settings: &'a DictionarySettings,
+    /// Whether floating panels rest past an edge, and what they show there.
+    pub rest: mareader_settings::Rest,
     /// Where it may sit: below the bar, beside any rail.
     pub stage: Rect,
     /// Active toasts occupying the corner, if any.
@@ -280,6 +282,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
 
     let mut revealed = false;
     if tucked_rest
+        && f.rest.face == mareader_settings::Resting::Peek
         && crate::park::reveal(
             ctx,
             Id::new("dict-window-edge-reveal"),
@@ -296,6 +299,35 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         *f.evacuated = None;
     }
 
+    if parked.is_some() && f.rest.face == mareader_settings::Resting::Tab {
+        let word = f.page.text().trim();
+        let name = if word.is_empty() { "Dictionary" } else { word };
+        let along = parked.map_or(shown.center().y, |tuck| tuck.dock.center().y);
+        let edge = parked.map_or(crate::park::Edge::Right, |tuck| tuck.edge);
+        let notice = crate::park::Tab {
+            icon: Icon::Dictionary,
+            label: name.to_owned(),
+            state: None,
+            name: "the dictionary",
+        };
+        if crate::park::tab(
+            ctx,
+            Id::new("dict-window-edge-tab"),
+            edge,
+            along,
+            f.stage,
+            tucked,
+            notice,
+        ) && let Some(mut tuck) = parked
+        {
+            revealed = true;
+            tuck.revealing = true;
+            parked = Some(tuck);
+            *f.live = None;
+            *f.evacuated = None;
+        }
+    }
+
     if released && parked.is_none() {
         let shape = if folded && morph.fold >= 1.0 {
             Rect::from_min_size(rect.min, PILL)
@@ -304,7 +336,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         };
         let left = crate::park::Edge::Left.over(shape, f.stage);
         let right = crate::park::Edge::Right.over(shape, f.stage);
-        let edge = if left.max(right) > shape.width() * 0.5 {
+        let edge = if f.rest.on && left.max(right) > shape.width() * 0.5 {
             Some(if left >= right {
                 crate::park::Edge::Left
             } else {
@@ -324,7 +356,15 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             } else {
                 home
             };
-            parked = Some(crate::park::Tuck::new(edge, shape, home, f.stage).with_resume(resume));
+            let tuck = match f.rest.face {
+                mareader_settings::Resting::Peek => {
+                    crate::park::Tuck::new(edge, shape, home, f.stage)
+                }
+                mareader_settings::Resting::Tab => {
+                    crate::park::Tuck::beyond(edge, shape, home, f.stage)
+                }
+            };
+            parked = Some(tuck.with_resume(resume));
             *f.live = None;
             *f.evacuated = None;
         } else {

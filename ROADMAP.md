@@ -316,3 +316,4 @@ appearance effects to that same pass.
 | 2026-10-31 | Polish: EPUB growth publishes in wider batches, unchanged pages keep their cached rendering, and the page counter shows the available total with `+` until completion |
 | 2026-10-31 | Quick EPUBs keep one complete layout; larger books use progressive previews when they benefit from them |
 | 2026-10-31 | PDF and EPUB pages now stay blank while each raster is pending; the centered loading mark remains for opening panes only |
+| 2026-11-05 | Resting at an edge is a choice (from the mareader-lab review). Settings › Panes › Floating panels turns resting off — the Dictionary steps aside for the player instead — or rests a panel as a labeled tab: the panel slides fully out and a tab at its edge names it, the player's with a live "playing · 34%" line and the dictionary's with its word. Same magnet pull, timings and click-to-reveal as the peek; `rest=peek|tab|off` in shots |

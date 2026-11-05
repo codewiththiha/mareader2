@@ -3,7 +3,7 @@
 use mareader_appearance::Rgb;
 use mareader_settings::{
     Corners, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle, PaneLook,
-    PaperArea, Settings, StartupFit, Swatch,
+    PaperArea, Resting, Settings, StartupFit, Swatch,
 };
 
 use egui::{
@@ -761,6 +761,20 @@ fn outline_colours(ui: &mut Ui, choice: &mut Swatch, custom: &mut Rgb) {
     }
 }
 
+/// The resting faces a floating panel can show, in the tab's order.
+const RESTING_FACES: [(Resting, &str, &str); 2] = [
+    (
+        Resting::Peek,
+        "Its own edge, peeking on screen",
+        "A narrow strip of the panel stays visible; click it to bring the panel back.",
+    ),
+    (
+        Resting::Tab,
+        "A labeled tab",
+        "The panel hides fully; a small tab with its name and state marks the spot.",
+    ),
+];
+
 /// The Library panel's click choices, in the tab's order.
 const LIBRARY_CLICKS: [(LibraryClick, &str, &str); 3] = [
     (
@@ -782,6 +796,24 @@ const LIBRARY_CLICKS: [(LibraryClick, &str, &str); 3] = [
 
 fn panes(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     let w = &mut s.workspace;
+    section(ui, "Floating panels");
+    group(ui, |ui| {
+        let hint = "The read-aloud player and the Dictionary may tuck themselves out of the way";
+        switch_row(ui, "Rest at the screen edge", hint, &mut w.rest.on);
+        if w.rest.on {
+            divider(ui);
+            for (i, (face, title, detail)) in RESTING_FACES.into_iter().enumerate() {
+                if i > 0 {
+                    divider(ui);
+                }
+                if choice_row(ui, title, detail, w.rest.face == face) {
+                    w.rest.face = face;
+                }
+            }
+        }
+    });
+    let page = "Off, neither leaves the page: the Dictionary steps aside for the player instead.";
+    note(ui, page);
     section(ui, "Library panel");
     group(ui, |ui| {
         for (i, (choice, title, detail)) in LIBRARY_CLICKS.into_iter().enumerate() {

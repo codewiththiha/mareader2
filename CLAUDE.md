@@ -94,6 +94,7 @@ cargo run -p mareader-ui --example shot -- /tmp/a.png \
 | `panes` | 1–4 (splits the newest pane, alternating right and down) |
 | `open` | `appearance` (the popover), `settings`, `menu` (View & tools) |
 | `toast` | a message; `error:` before it for the error tone |
+| `rest` | `peek` (a parked panel's strip), `tab` (a labeled tab instead), `off` (never park) |
 | `settings` | a tab: `layout`, `theme`, `animations`, `vocabulary`, `dictionary`, `workspace` |
 | `sidebar` | `thumbnails`, `outline`, `library`, `closed` |
 | `float` | `true`: the sidebar floats over the panes |

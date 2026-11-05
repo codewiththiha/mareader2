@@ -432,6 +432,8 @@ pub struct Stage<'a> {
     pub toasts: Option<Rect>,
     /// The Dictionary's floating window, if it is up.
     pub dict: Option<Rect>,
+    /// Whether floating panels rest past a stage edge, and how they look there.
+    pub rest: mareader_settings::Rest,
 }
 
 /// The player's colours, easing from one look to the next.
@@ -1211,15 +1213,19 @@ impl ReadAloud {
                 ctx.request_repaint_after(Duration::from_secs_f64(until - now));
             }
             let covered = stage.dict.is_some_and(|dict| rect.intersects(dict));
-            let parking = covered && !asked_up && under <= 0.0;
+            let parking = stage.rest.on && covered && !asked_up && under <= 0.0;
             let park_stage = room;
             if shape.parked.is_none() && parking {
-                shape.parked = Some(crate::park::Tuck::new(
-                    crate::park::Edge::Bottom,
-                    rect,
-                    rect,
-                    park_stage,
-                ));
+                let edge = crate::park::Edge::Bottom;
+                let tuck = match stage.rest.face {
+                    mareader_settings::Resting::Peek => {
+                        crate::park::Tuck::new(edge, rect, rect, park_stage)
+                    }
+                    mareader_settings::Resting::Tab => {
+                        crate::park::Tuck::beyond(edge, rect, rect, park_stage)
+                    }
+                };
+                shape.parked = Some(tuck);
             }
             let tucked = crate::park::factor(
                 ctx,
@@ -1311,6 +1317,7 @@ impl ReadAloud {
                     resize = edges::show(ui, r, span);
                 });
             if tucked_rest
+                && stage.rest.face == mareader_settings::Resting::Peek
                 && crate::park::reveal(
                     ctx,
                     Id::new("read-aloud-edge-reveal"),
@@ -1324,6 +1331,38 @@ impl ReadAloud {
                 shape.parked = Some(tuck);
                 shape.unparked_until = None;
                 shape.player_priority = true;
+            }
+            if shape.parked.is_some() && stage.rest.face == mareader_settings::Resting::Tab {
+                let along = shape.parked.map_or(rect.center().x, |t| t.dock.center().x);
+                let word = if view.playing { "playing" } else { "paused" };
+                let says = match view.at {
+                    Some(share) => {
+                        let percent = (share.clamp(0.0, 1.0) * 100.0).round() as u32;
+                        format!("{word} · {percent}%")
+                    }
+                    None => word.to_owned(),
+                };
+                let notice = crate::park::Tab {
+                    icon: Icon::ReadAloud,
+                    label: "Player".to_owned(),
+                    state: Some(says),
+                    name: "the read-aloud player",
+                };
+                if crate::park::tab(
+                    ctx,
+                    Id::new("read-aloud-edge-tab"),
+                    crate::park::Edge::Bottom,
+                    along,
+                    park_stage,
+                    tucked,
+                    notice,
+                ) && let Some(mut tuck) = shape.parked
+                {
+                    tuck.revealing = true;
+                    shape.parked = Some(tuck);
+                    shape.unparked_until = None;
+                    shape.player_priority = true;
+                }
             }
             // Asked about a part, the question rises over the player.
             if view.ask.is_some() {

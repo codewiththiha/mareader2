@@ -461,6 +461,73 @@ fn dragging_past_a_side_peeks_the_dictionary_itself() {
 }
 
 #[test]
+fn resting_as_a_tab_hides_the_window_and_names_it() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("rest", "tab")
+        .expect("a known option");
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("a known option");
+    h.run_steps(30);
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    let size = at.size();
+    let by = egui::vec2(-at.left() - at.width() * 0.5 - 8.0, 0.0);
+    drag(&mut h, at.left_top() + egui::vec2(60.0, 18.0), by);
+    h.run_steps(30);
+
+    let tucked = h.state().dict().window_rect().expect("still drawn");
+    let exposed = h.state().dict().window_cover().expect("a cover rect");
+    assert_eq!(tucked.size(), size, "the original shape stays whole");
+    assert!(
+        tucked.left() < 0.0,
+        "it rests beyond the left edge: {tucked:?}"
+    );
+    assert!(exposed.width() < 1.0, "nothing of it peeks: {exposed:?}");
+    let tab = h
+        .query_by_label("Show the dictionary")
+        .expect("a labeled tab at the edge");
+    let on_stage = tab.rect();
+    assert!(
+        on_stage.left() >= 0.0 && on_stage.width() > 32.0,
+        "{on_stage:?}"
+    );
+
+    tab.click();
+    h.run_steps(30);
+    let restored = h.state().dict().window_rect().expect("restored window");
+    assert_eq!(restored.size(), size);
+    assert!(restored.left() >= 0.0, "{restored:?}");
+    assert!(h.query_by_label(MINIMIZE).is_some(), "controls return");
+}
+
+#[test]
+fn resting_turned_off_keeps_the_window_on_the_stage() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("rest", "off")
+        .expect("a known option");
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("a known option");
+    h.run_steps(30);
+    let at = h.state().dict().window_rect().expect("a drawn window");
+    let by = egui::vec2(-at.left() - at.width() * 0.5 - 8.0, 0.0);
+    drag(&mut h, at.left_top() + egui::vec2(60.0, 18.0), by);
+    h.run_steps(30);
+
+    let stayed = h.state().dict().window_rect().expect("still drawn");
+    assert!(
+        stayed.left() >= 0.0,
+        "it never leaves the stage: {stayed:?}"
+    );
+    assert!(h.query_by_label("Show the dictionary").is_none());
+    assert!(h.query_by_label(MINIMIZE).is_some(), "controls stay");
+}
+
+#[test]
 fn open_as_a_page_carries_the_search_over() {
     let dir = shelf();
     let mut h = reader(dir.path());

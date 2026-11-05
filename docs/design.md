@@ -500,8 +500,9 @@ and returns where it came from; Library sits beside it.
 - **The pill.** Folding leaves the pill where − was, names the word and its
   top answer, and unfolds from that spot. A dragged window may go past its
   left or right edge; its full original shape slides out, leaving a 20 pt
-  piece clipped in place. That piece is the only reveal target: no new tab,
-  capsule or controls. Clicking it restores the same window and its controls.
+  piece clipped in place — the default resting face; the labeled-tab face
+  below replaces it. Clicking the piece restores the same window and its
+  controls.
 - **Self-peeking floats.** `park.rs` shares the same edge geometry. The
   dictionary tucks left or right; the read-aloud player tucks below when
   covered by the dictionary. Only each panel's original shell remains
@@ -514,6 +515,15 @@ and returns where it came from; Library sits beside it.
   on initial summon remains temporary. On Library, the player stays above the
   selection bar. Player toast avoidance narrows in place; manual conflicts
   clear the toast, and the dictionary keeps its own animated dodge.
+- **Resting, optional and named (2026-11-05).** Settings › Panes turns
+  resting off, or rests a panel as a labeled tab: the panel then slides fully
+  out and a small tab sits flush on its edge where the panel rested — the
+  player's with its icon, name and a live line ("playing · 34%"), the
+  dictionary's with its icon and the word it holds. The tab rides the same
+  tuck factor, so it slides in as the panel hides and out as it returns; its
+  hover pull, timings and click-to-reveal match the peek's, and it keeps the
+  panel's focusable reveal control. Off, neither panel leaves the page: the
+  dictionary steps aside for the player instead.
 - **Bridges.** The route chip names the language between ("via English");
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.
