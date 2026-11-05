@@ -15,10 +15,20 @@ pub enum LibraryClick {
     DragOnly,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeParking {
+    Off,
+    #[default]
+    Sliver,
+    Tab,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WorkspaceSettings {
     pub library_click: LibraryClick,
+    pub edge_parking: EdgeParking,
     /// Each pane keeps its own appearance instead of sharing one.
     pub independent_themes: bool,
     /// With independent themes, still share light, dark or dim.
@@ -33,6 +43,7 @@ impl Default for WorkspaceSettings {
     fn default() -> Self {
         Self {
             library_click: LibraryClick::Replace,
+            edge_parking: EdgeParking::default(),
             independent_themes: false,
             shared_base_mode: true,
             independent_textures: false,

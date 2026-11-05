@@ -497,23 +497,14 @@ and returns where it came from; Library sits beside it.
   instead of a card (a folded window comes back) and the selection stays.
   A card's book button carries its word into the window, or the page. The
   shortcut gives an idle window the keys; pressed while typing, it closes.
-- **The pill.** Folding leaves the pill where − was, names the word and its
-  top answer, and unfolds from that spot. A dragged window may go past its
-  left or right edge; its full original shape slides out, leaving a 20 pt
-  piece clipped in place. That piece is the only reveal target: no new tab,
-  capsule or controls. Clicking it restores the same window and its controls.
-- **Self-peeking floats.** `park.rs` shares the same edge geometry. The
-  dictionary tucks left or right; the read-aloud player tucks below when
-  covered by the dictionary. Only each panel's original shell remains
-  visible while parked, with no player controls or play/pause dot. A click
-  on that shell, a shape change, or scrolling the highlight out of sight gives
-  the player priority; the dictionary moves or shortens to clear it. The first
-  tuck animates too; tuck and reveal ease out, and hovering pulls the peek 8 pt
-  into the stage. Using the dictionary returns priority, tucking the player if
-  they overlap. Clearance
-  on initial summon remains temporary. On Library, the player stays above the
-  selection bar. Player toast avoidance narrows in place; manual conflicts
-  clear the toast, and the dictionary keeps its own animated dodge.
+- **Edge parking.** Settings › Panes offers Off, Window edge, and Edge tab.
+  Off keeps the dictionary on screen; Window edge keeps the original 20 pt
+  sliver and magnetic pull. Edge tab replaces the sliver with a labeled tab,
+  search count and a delayed peek; dragging toward an edge shows the threshold.
+  Clicking or keyboard-activating the tab restores the original window.
+  A covered read-aloud player uses the old sliver in Window edge mode and a
+  playable progress orb in Edge tab mode. In Off mode it moves above the
+  dictionary when possible. Toast avoidance and the player's priority remain.
 - **Bridges.** The route chip names the language between ("via English");
   each answer names its English word ("via light"), which keeps its room
   while the tags give way. Scrolled lists stay clear of the floating bar.

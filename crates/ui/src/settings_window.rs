@@ -2,8 +2,8 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle, PaneLook,
-    PaperArea, Settings, StartupFit, Swatch,
+    Corners, EdgeParking, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle,
+    PaneLook, PaperArea, Settings, StartupFit, Swatch,
 };
 
 use egui::{
@@ -795,6 +795,32 @@ fn panes(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     });
     let page = "The Library page follows this too; with Do nothing it opens in the focused pane.";
     note(ui, page);
+    section(ui, "Floating windows at the edge");
+    group(ui, |ui| {
+        for (i, (choice, title, detail)) in [
+            (EdgeParking::Off, "Off", "Keep floating windows on screen"),
+            (
+                EdgeParking::Sliver,
+                "Window edge",
+                "Leave part of the window visible",
+            ),
+            (
+                EdgeParking::Tab,
+                "Edge tab",
+                "Show a labeled tab at the edge",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if i > 0 {
+                divider(ui);
+            }
+            if choice_row(ui, title, detail, w.edge_parking == choice) {
+                w.edge_parking = choice;
+            }
+        }
+    });
     let title = "Split pane appearance";
     rows(ui, cx, Applies::Split, title, |r| pane_look(r, &mut w.look));
     rows(ui, cx, Applies::Always, "Pane themes", |r| {

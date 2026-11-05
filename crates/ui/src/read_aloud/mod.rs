@@ -432,6 +432,7 @@ pub struct Stage<'a> {
     pub toasts: Option<Rect>,
     /// The Dictionary's floating window, if it is up.
     pub dict: Option<Rect>,
+    pub parking: mareader_settings::EdgeParking,
 }
 
 /// The player's colours, easing from one look to the next.
@@ -1211,7 +1212,22 @@ impl ReadAloud {
                 ctx.request_repaint_after(Duration::from_secs_f64(until - now));
             }
             let covered = stage.dict.is_some_and(|dict| rect.intersects(dict));
-            let parking = covered && !asked_up && under <= 0.0;
+            let obstructed = covered && !asked_up && under <= 0.0;
+            let orb = obstructed && stage.parking == mareader_settings::EdgeParking::Tab;
+            let parking = obstructed && stage.parking == mareader_settings::EdgeParking::Sliver;
+            if !orb {
+                ctx.animate_bool_with_time(Id::new("read-aloud-orb-move"), false, morph);
+            }
+            if obstructed
+                && stage.parking == mareader_settings::EdgeParking::Off
+                && let Some(dict) = stage.dict
+            {
+                let above = dict.top() - 8.0 - rect.height();
+                rect = rect.translate(egui::vec2(
+                    0.0,
+                    (above - rect.top()).max(room.top() - rect.top()),
+                ));
+            }
             let park_stage = room;
             if shape.parked.is_none() && parking {
                 shape.parked = Some(crate::park::Tuck::new(
@@ -1268,48 +1284,59 @@ impl ReadAloud {
             let span = (width, least.min(most), widest.min(most));
             let mut resize = None;
             let mut act = None;
-            egui::Area::new(Id::new("read-aloud-bar"))
-                .fade_in(false)
-                .order(Order::Foreground)
-                .fixed_pos(rect.min)
-                .constrain(false)
-                .interactable(!parked)
-                .show(ctx, |ui| {
-                    ui.set_opacity(shown);
-                    ui.set_clip_rect(if parked { park_stage } else { room });
-                    let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
-                    card::frame(ui, r, k);
-                    if tucked_rest {
-                        return;
-                    }
-                    if parked {
-                        ui.disable();
-                    }
-                    let row = r.with_min_y(r.bottom() - control::HEIGHT);
-                    // Words wait for room; compact and full cross-fade.
-                    let words = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
-                    let top = r.with_max_y(row.top());
-                    let both = (&about, lyrics.as_ref());
-                    let light = |w: f32| ease_out(f64::from(w)) as f32;
-                    let small = words * (1.0 - f).powi(2);
-                    if small > 0.01 {
-                        let at = (top, light(small), f < 0.5);
-                        if card::compact(ui, at, both, &mut shape.ticker) {
-                            act = Some(Act::Reveal);
+            if !orb {
+                egui::Area::new(Id::new("read-aloud-bar"))
+                    .fade_in(false)
+                    .order(Order::Foreground)
+                    .fixed_pos(rect.min)
+                    .constrain(false)
+                    .interactable(!parked)
+                    .show(ctx, |ui| {
+                        ui.set_opacity(shown);
+                        ui.set_clip_rect(if parked { park_stage } else { room });
+                        let (r, _) = ui.allocate_exact_size(rect.size(), egui::Sense::hover());
+                        card::frame(ui, r, k);
+                        if tucked_rest {
+                            return;
                         }
-                    }
-                    let large = words * f * f;
-                    if large > 0.01 {
-                        let at = (top, light(large), f >= 0.5);
-                        if card::show(ui, at, both, &mut shape.scroll, cover) {
-                            act = Some(Act::Reveal);
+                        if parked {
+                            ui.disable();
                         }
-                    }
-                    if let Some(a) = control::show(ui, row, (&view, fit, k), settings, out) {
-                        act = Some(a);
-                    }
-                    resize = edges::show(ui, r, span);
-                });
+                        let row = r.with_min_y(r.bottom() - control::HEIGHT);
+                        // Words wait for room; compact and full cross-fade.
+                        let words = ((k - 0.35) / 0.65).clamp(0.0, 1.0);
+                        let top = r.with_max_y(row.top());
+                        let both = (&about, lyrics.as_ref());
+                        let light = |w: f32| ease_out(f64::from(w)) as f32;
+                        let small = words * (1.0 - f).powi(2);
+                        if small > 0.01 {
+                            let at = (top, light(small), f < 0.5);
+                            if card::compact(ui, at, both, &mut shape.ticker) {
+                                act = Some(Act::Reveal);
+                            }
+                        }
+                        let large = words * f * f;
+                        if large > 0.01 {
+                            let at = (top, light(large), f >= 0.5);
+                            if card::show(ui, at, both, &mut shape.scroll, cover) {
+                                act = Some(Act::Reveal);
+                            }
+                        }
+                        if let Some(a) = control::show(ui, row, (&view, fit, k), settings, out) {
+                            act = Some(a);
+                        }
+                        resize = edges::show(ui, r, span);
+                    });
+            } else if let Some(dict) = stage.dict {
+                let target = orb_rect(room, dict, stage.toasts);
+                let k = ctx.animate_bool_with_time(Id::new("read-aloud-orb-move"), true, morph);
+                let orb_rect =
+                    Rect::from_min_size(rect.min.lerp(target.min, ease_in_out(k)), target.size());
+                shape.rect = Some(orb_rect);
+                if show_orb(ctx, orb_rect, &view, lyrics.as_ref()) {
+                    act = Some(Act::Toggle);
+                }
+            }
             if tucked_rest
                 && crate::park::reveal(
                     ctx,
@@ -1370,6 +1397,93 @@ impl ReadAloud {
             _ => {}
         }
     }
+}
+
+fn orb_rect(room: Rect, obstacle: Rect, toast: Option<Rect>) -> Rect {
+    let size = egui::vec2(
+        room.width().clamp(0.0, 160.0),
+        room.height().clamp(0.0, 44.0),
+    );
+    let left = (room.left() + 12.0).min((room.right() - size.x).max(room.left()));
+    let right = (room.right() - size.x - 12.0).max(room.left());
+    let y = (room.bottom() - size.y - 12.0).max(room.top());
+    let first = if obstacle.center().x > room.center().x {
+        left
+    } else {
+        right
+    };
+    let second = if first == left { right } else { left };
+    let above =
+        (obstacle.top() - size.y - 8.0).clamp(room.top(), (room.bottom() - size.y).max(room.top()));
+    let candidates = [
+        Rect::from_min_size(egui::pos2(first, y), size),
+        Rect::from_min_size(egui::pos2(second, y), size),
+        Rect::from_min_size(egui::pos2(first, above), size),
+        Rect::from_min_size(egui::pos2(second, above), size),
+    ];
+    candidates
+        .into_iter()
+        .min_by(|a, b| {
+            let overlap = |r: Rect| {
+                let area = |other| {
+                    let hit = r.intersect(other);
+                    hit.width().max(0.0) * hit.height().max(0.0)
+                };
+                area(obstacle) + toast.map_or(0.0, area)
+            };
+            overlap(*a).total_cmp(&overlap(*b))
+        })
+        .unwrap_or(Rect::from_min_size(room.min, size))
+}
+
+fn show_orb(ctx: &Context, rect: Rect, view: &View<'_>, lyrics: Option<&card::Lyrics>) -> bool {
+    egui::Area::new(Id::new("read-aloud-orb"))
+        .order(Order::Foreground)
+        .fixed_pos(rect.min)
+        .constrain(false)
+        .movable(false)
+        .show(ctx, |ui| {
+            ui.set_clip_rect(rect.expand(12.0));
+            card::frame(ui, rect, 0.0);
+            ui.set_clip_rect(rect);
+            let slot = Rect::from_min_size(
+                rect.min + egui::vec2(4.0, 0.0),
+                egui::vec2(40.0, rect.height()),
+            );
+            let t = Tokens::get(ctx);
+            if let Some(progress) = view.at.filter(|p| p.is_finite()) {
+                let count = (progress.clamp(0.0, 1.0) * 48.0) as usize;
+                let points: Vec<_> = (0..=count)
+                    .map(|i| {
+                        let a =
+                            (i as f32 / 48.0) * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                        slot.center() + egui::vec2(a.cos(), a.sin()) * 20.0
+                    })
+                    .collect();
+                if points.len() > 1 {
+                    ui.painter()
+                        .add(egui::Shape::line(points, egui::Stroke::new(2.0, t.accent)));
+                }
+            }
+            let text = lyrics
+                .and_then(|l| {
+                    l.words
+                        .get(l.lit.start)
+                        .and_then(|range| l.now.get(range.clone()))
+                })
+                .or_else(|| lyrics.map(|l| l.now.as_str()))
+                .unwrap_or("Read aloud");
+            let shown: String = text.chars().take(18).collect();
+            ui.painter().text(
+                egui::pos2(rect.left() + 50.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                shown,
+                egui::FontId::proportional(12.0),
+                t.muted,
+            );
+            control::play_button(ui, slot, view)
+        })
+        .inner
 }
 
 /// Slow, quick, then slow: for things changing shape.
