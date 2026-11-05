@@ -112,6 +112,18 @@ impl Page {
         (fresh && !asked.is_empty()).then(|| e.answer())
     }
 
+    pub fn entry_count(&self) -> usize {
+        let fresh = self.asked.as_ref().is_some_and(|(_, q)| match q {
+            Query::Search { text, .. } => text == self.text.trim(),
+            _ => false,
+        });
+        if fresh {
+            self.reply.as_ref().map_or(0, |reply| reply.entries.len())
+        } else {
+            0
+        }
+    }
+
     pub fn text(&self) -> &str {
         &self.text
     }

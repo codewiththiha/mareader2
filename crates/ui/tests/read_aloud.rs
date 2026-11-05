@@ -1434,6 +1434,28 @@ fn the_players_first_conflict_uses_an_animated_tuck() {
 }
 
 #[test]
+fn a_covered_player_in_tab_mode_keeps_a_play_button() {
+    let mut h = reader(1);
+    h.state_mut().settings_mut().workspace.edge_parking = mareader_settings::EdgeParking::Tab;
+    let window = &mut h.state_mut().settings_mut().dictionary.window;
+    window.open = true;
+    window.minimized = false;
+    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.run_steps(30);
+    start(&mut h, ReadFrom::default());
+    h.get_by_label("Pause").click();
+    h.run_steps(360);
+    let orb = h
+        .ctx
+        .memory(|m| m.area_rect(egui::Id::new("read-aloud-orb")));
+    assert!(orb.is_some(), "covered player has an orb");
+    assert!(h.query_by_label("Play").is_some());
+    h.get_by_label("Play").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Pause").is_some());
+}
+
+#[test]
 fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let mut h = reader(1);
     let window = &mut h.state_mut().settings_mut().dictionary.window;
