@@ -269,7 +269,7 @@ fn card_button(ui: &mut Ui, slot: Rect, card: f32) -> Option<bool> {
 }
 
 /// The accent circle whose triangle folds into two bars; true when clicked.
-fn play_button(ui: &mut Ui, slot: Rect, view: &View<'_>) -> bool {
+pub(super) fn play_button(ui: &mut Ui, slot: Rect, view: &View<'_>) -> bool {
     let t = Tokens::get(ui.ctx());
     let label = if view.playing { "Pause" } else { "Play" };
     let rect = Rect::from_center_size(slot.center(), egui::Vec2::splat(PLAY));

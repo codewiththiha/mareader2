@@ -2215,12 +2215,27 @@ impl MareaderApp {
                 let panes = self.tree.panes();
                 let at = panes.iter().position(|p| *p == self.active).unwrap_or(0);
                 let n = panes.len().max(1);
-                let next = (if forward { at + 1 } else { at + n - 1 }) % n;
-                if let Some(pane) = panes.get(next) {
-                    self.active = *pane;
+                let tab = egui::Id::new("dict-edge-tab-button");
+                let on_tab = ctx.memory(|m| m.has_focus(tab));
+                let has_tab = self.settings.workspace.edge_parking
+                    == mareader_settings::EdgeParking::Tab
+                    && self.dict.edge_tab_active();
+                let visit_tab =
+                    has_tab && !on_tab && ((forward && at + 1 == n) || (!forward && at == 0));
+                if visit_tab {
+                    ctx.memory_mut(|m| m.request_focus(tab));
+                    crate::focus::by_key(ctx);
+                } else {
+                    let next = if on_tab {
+                        if forward { 0 } else { n - 1 }
+                    } else {
+                        (if forward { at + 1 } else { at + n - 1 }) % n
+                    };
+                    if let Some(pane) = panes.get(next) {
+                        self.active = *pane;
+                    }
+                    ctx.memory_mut(|m| m.focused().map(|id| m.surrender_focus(id)));
                 }
-                // Else focus in the last pane would pull it straight back.
-                ctx.memory_mut(|m| m.focused().map(|id| m.surrender_focus(id)));
             }
             Command::ClosePane(id) => {
                 if self.tree.close(id).is_ok() {
@@ -3061,6 +3076,7 @@ impl MareaderApp {
             tint,
             toasts,
             dict,
+            parking: self.settings.workspace.edge_parking,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
@@ -3784,10 +3800,14 @@ impl eframe::App for MareaderApp {
             let toasts = self.toasts.active_bed(ctx.content_rect(), lift);
             let now = ctx.input(|i| i.time);
             let player = self.read_aloud.clearance_rect(now);
-            if self
-                .dict
-                .window(&ctx, dictionary, stage, toasts, player, &mut commands)
-            {
+            if self.dict.window(
+                &ctx,
+                (dictionary, self.settings.workspace.edge_parking),
+                stage,
+                toasts,
+                player,
+                &mut commands,
+            ) {
                 self.read_aloud.yield_to_dictionary();
             }
         }

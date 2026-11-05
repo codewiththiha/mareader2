@@ -461,6 +461,53 @@ fn dragging_past_a_side_peeks_the_dictionary_itself() {
 }
 
 #[test]
+fn a_dictionary_edge_tab_names_the_word_and_restores_the_window() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("set", "workspace.edge_parking:\"tab\"")
+        .expect("tab parking setting");
+    h.state_mut()
+        .set_option("dict_window", "light")
+        .expect("dictionary window");
+    h.run_steps(30);
+    let at = h.state().dict().window_rect().expect("window");
+    let by = egui::vec2(-at.left() - at.width() * 0.5 - 8.0, 0.0);
+    drag(&mut h, at.left_top() + egui::vec2(60.0, 18.0), by);
+    h.run_steps(30);
+    assert!(h.query_by_label("Restore dictionary: light").is_some());
+    h.key_press(egui::Key::F6);
+    h.run_steps(2);
+    assert!(
+        h.ctx
+            .memory(|m| m.has_focus(egui::Id::new("dict-edge-tab-button")))
+    );
+    h.key_press(egui::Key::Enter);
+    h.run_steps(30);
+    assert!(h.query_by_label(MINIMIZE).is_some());
+}
+
+#[test]
+fn disabling_edge_parking_keeps_the_dictionary_on_screen() {
+    let dir = shelf();
+    let mut h = reader(dir.path());
+    h.state_mut()
+        .set_option("set", "workspace.edge_parking:\"off\"")
+        .expect("disabled parking setting");
+    h.state_mut()
+        .set_option("dict_window", "show")
+        .expect("dictionary window");
+    h.run_steps(30);
+    let at = h.state().dict().window_rect().expect("window");
+    let by = egui::vec2(-at.left() - at.width() * 0.5 - 8.0, 0.0);
+    drag(&mut h, at.left_top() + egui::vec2(60.0, 18.0), by);
+    h.run_steps(30);
+    let rect = h.state().dict().window_rect().expect("window");
+    assert!(rect.left() >= 0.0, "{rect:?}");
+    assert!(h.query_by_label(MINIMIZE).is_some());
+}
+
+#[test]
 fn open_as_a_page_carries_the_search_over() {
     let dir = shelf();
     let mut h = reader(dir.path());

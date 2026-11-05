@@ -424,7 +424,7 @@ impl Dict {
     pub fn window(
         &mut self,
         ctx: &Context,
-        settings: &DictionarySettings,
+        (settings, parking): (&DictionarySettings, mareader_settings::EdgeParking),
         stage: Rect,
         toasts: Option<Rect>,
         player: Option<Rect>,
@@ -456,6 +456,7 @@ impl Dict {
             evacuated: &mut self.evacuated,
             parked: &mut self.parked,
             settings,
+            parking,
             stage,
             toasts,
             player,
@@ -464,6 +465,10 @@ impl Dict {
         self.float_rect = settings.window.open.then_some(drawn);
         self.float_cover = settings.window.open.then_some(drawn.intersect(stage));
         interacted
+    }
+
+    pub fn edge_tab_active(&self) -> bool {
+        self.parked.is_some_and(|tuck| !tuck.revealing)
     }
 
     /// Where the floating window was drawn, for tests.
