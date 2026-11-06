@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** source audit and first cache slice · **Last updated:** 2026-11-06
+> **Status:** source audit, first cache slice and representation study · **Last updated:** 2026-11-06
 
 This document answers two separate questions:
 
@@ -161,6 +161,181 @@ cache with an explicit byte budget and lifecycle is a better fit for icon
 frames because animations should survive gaps between runs and because
 Mareader's resource rules require a hard bound.
 
+## Representation audit: beyond runtime SVG
+
+The current frame cache makes replay cheap, but its source representation is
+still an SVG template with holes. A cold sample constructs XML, asks usvg to
+parse it, asks resvg/tiny-skia to rasterise the whole icon, copies straight RGBA
+pixels and uploads a texture. The useful replacement boundary is therefore the
+whole cold-production path, not just the XML parser.
+
+The comparisons below are architectural expectations, not release-profile
+results. They narrow the prototype to measure; they do not establish the size
+of the current cost.
+
+### What the pack actually requires
+
+A source audit of all generated definitions in `pack.rs` found:
+
+- 98 packs, 265 independently animated parts and 331 primitive elements;
+- 255 paths, 35 rounded rectangles, 27 circles and 14 lines, with no polygon,
+  polyline or ellipse elements;
+- 78 packs whose parts only transform, fade or stay still;
+- 20 packs that use both path length and path offset;
+- one of those 20 (`baseline`) that also changes stroke width;
+- 233 of 265 parts whose pixel coverage does not otherwise change, leaving only
+  32 parts that need path/stroke variants; and
+- 3,394 whole-icon samples if every pack is expanded at 60 Hz, with 26–51
+  samples per pack.
+
+The path source is compact: the 255 `d` attributes contain 839 commands and
+2,709 numeric operands. Emitting typed path commands from the pack generator
+would therefore add only tens of KiB before normal Rust representation and
+linker effects, not a large vector asset bundle.
+
+A geometry-count estimate found 683 actual line/arc/cubic segments after
+expanding repeated command arguments. Flattening in the pack's 24-unit space to
+0.1 and 0.02 unit chord-error targets gives roughly 1,566 and 2,489 centreline
+points respectively. Using epaint's thick antialiased-stroke layout for an
+order-of-magnitude estimate—four 20-byte vertices and about 18 four-byte indices
+per point—puts all 255 path centreline meshes near 0.23–0.37 MiB for one tolerance
+bucket, before circles, rectangles, allocator capacity and any hard-property
+variants. Geometry storage is therefore plausible; stroke fidelity and dynamic
+tessellation are the harder questions.
+
+All current strokes inherit round caps and round joins from the SVG root.
+Independent parts may translate, rotate, scale non-uniformly, flip, skew and
+fade. The largest authored scale key is 2×. Opacity belongs to the whole part,
+so overlapping shapes inside one part must be composited before that opacity is
+applied. These details prevent a single transformed whole-icon image or a
+naive list of translucent painter shapes from matching every frame.
+
+### Candidate comparison
+
+| Representation | Expected warmed CPU | Memory and uploads | Semantic and visual coverage | DPI and renderer fit | Assessment |
+|---|---|---|---|---|---|
+| Generated epaint paths | Timeline evaluation plus curve flattening and tessellation each pass | Very little persistent memory; ordinary mesh upload with the rest of egui | Transforms and tint are natural. Reveal, offset, stroke width, round joins/caps and part-level compositing need new code | Resolution independent and standard egui | Best pure-vector experiment, not a drop-in replacement |
+| Retained epaint meshes | Very low for transform/opacity-only parts; dynamic topology needs variants | Bounded geometry, no icon textures | Good for 233 stable-coverage parts. The other 32 need retessellation or quantised meshes | Standard egui, but antialias feathering is scale-sensitive | Good second prototype if texture memory becomes the limiting cost |
+| Raster part atlas drawn as egui meshes | A few affine transforms, UVs and colours per visible part | One or a few bounded RGBA pages per active size; no warmed-frame upload | Preserves group opacity and round-stroke semantics; hard properties use variants for only 32 parts | Size-bucketed, but uses ordinary egui textures and meshes | **Best practical target** |
+| Whole-frame sprite atlas | Lowest: select one UV rectangle | Highest raster memory; one upload while an atlas is prepared | Every authored effect is baked exactly | Size-bucketed and standard egui | Lowest-risk control and per-pack fallback |
+| Icon or frame font | Low after glyph rasterisation | Competes with egui text in its shared RGBA font atlas | One glyph cannot transform parts independently; full frames require 3,394 glyphs per size | Font rasterisation handles DPI, but arbitrary part rotation/skew is absent | Reject for animated packs |
+| SDF/MSDF plus custom shader | Very low draw cost after preparation | Compact scalable fields and quads | Tint, opacity, transforms and some width changes are natural; path progress needs another parameter field or variants | Excellent scale range, but requires an egui-wgpu callback/pipeline and fallback work | Later specialist option, not the first replacement |
+
+A full-frame set for all packs at only one 62-pixel device size is about
+49.8 MiB of raw RGBA; at the 192-pixel cap it is about 477 MiB. Compression
+helps distribution, not resident GPU texture bytes. This confirms that any
+sprite design must remain lazy and byte-capped rather than becoming one eager
+application atlas.
+
+### Why plain epaint paths are not yet parity-safe
+
+`PathShape`, cubic and quadratic Bézier shapes make generated vector data
+possible without SVG. Epaint can also retain an untextured coloured `Mesh`, and
+mesh vertices can be transformed or recoloured before submission. This avoids
+XML, CPU image rasterisation and icon texture uploads.
+
+Epaint 0.36.2 nevertheless differs from the pack contract in important ways:
+
+- `PathShape` fill supports convex polygons only;
+- its ordinary open stroke has no selectable round cap—the tessellator says a
+  circular end would be future work;
+- joins are mitered or cut at sharp corners, not SVG round joins;
+- adding separate circles to imitate round caps/joins over-blends translucent
+  parts instead of applying opacity to their composited result;
+- path length and offset require flattening each Bézier, retaining cumulative
+  arc lengths and cutting one or more visible intervals; and
+- transforming a retained antialiased mesh also scales its one-pixel feather,
+  so a reusable mesh needs a size/scale bucket or retessellation.
+
+A generated stroker, or a library such as lyon, can close the cap/join and
+triangulation gaps. That is real renderer work and needs all-frame visual tests;
+it should not be hidden inside a claim that `PathShape` is an equivalent SVG
+replacement.
+
+### Why a font is the wrong cache
+
+A conventional icon font works well for static icons. It does not expose the
+parts of a glyph to egui, and egui text does not apply an arbitrary affine
+transform to each outline. Encoding every quantised whole frame as a glyph
+would instead add 3,394 glyphs for one sampling rate before size and DPI
+variants.
+
+Egui's font texture is a context-shared RGBA atlas. It is recreated after its
+fill passes the atlas threshold and is not governed by Mareader's 8 MiB icon
+budget. Animated frame glyphs would therefore move icon memory into the text
+cache, increase atlas pressure and still fail to exploit the 233 parts whose
+coverage is stable.
+
+### Recommended representation: generated parts in a raster atlas mesh
+
+The practical design is a hybrid: typed generated vector data is the source,
+tiny-skia produces neutral-white **part** coverage off the UI thread, and a
+normal egui `Mesh` composites atlas tiles at paint time.
+
+1. Extend the pack generator to emit typed paths, rectangles, circles, lines,
+   paint flags, part/static-layer membership and source paint order. SVG can
+   remain generator input and a temporary parity fallback, but no XML is needed
+   in the active runtime path.
+2. For the 233 stable-coverage parts, rasterise one cropped tile per device-size
+   bucket. Preserve a transparent gutter for linear sampling. Parts that can
+   grow are prepared at a resolution sufficient for their audited maximum
+   scale, or get a coarse scale bucket.
+3. For the 32 path/stroke-changing parts, rasterise deduplicated quantised
+   variants. Tiny-skia already represents immutable Bézier paths and supports
+   round caps, round joins and stroke dashes, so this can preserve the current
+   reveal/offset/width semantics without parsing an SVG document.
+4. Pack ready tiles into one or a few context-local pages. Publish worker pixels
+   to the UI, admit them under the existing byte budget, then use
+   `TextureHandle::set_partial` with a per-pass upload budget.
+5. Build textured mesh runs in source paint order, splitting a run whenever its
+   atlas page changes. Each part contributes four vertices; apply the same
+   pivoted affine order as `moves`, put its opacity and current tint in the
+   vertex colour, and select its tile with UVs.
+6. Keep whole-frame atlas cells for a pack that fails the part-composition
+   visual threshold. Keep the current SVG path only as a migration/debug
+   reference until all 98 packs pass.
+
+For the 78 packs without path/stroke changes, this replaces 2,686 possible
+whole-frame cells with 213 reusable part cells, plus any static layer. Across
+the 20 harder packs, only 32 parts need frame variants; the other 20 parts stay
+reusable. Cropped packing matters more than raw cell counts, and all pages must
+still be lazy: an upper bound that gives every hard part one full-size tile for
+every frame is 1,099 variant cells before trimming.
+
+The compositor retains the strongest properties of both approaches:
+software-rasterised round-stroke coverage and group opacity, ordinary backend-neutral
+egui submission, independent-part animation, paint-time tinting and almost no
+warmed hot-path work. Its trade-off is raster size bucketing. Rotation, skew
+and downsampling can also differ slightly from vector rasterisation, so
+oversampling and visual thresholds must be measured rather than assumed.
+
+### Proof-of-concept plan
+
+Build the experiment behind the existing provider, not as a second public icon
+API:
+
+1. Emit typed geometry for a representative set: `cpu` (13 parts),
+   `folder-open` (skew), `circle-alert` (2× scale), `book-open-text` (four path
+   parts), `baseline` (path and stroke width), and `palette` (filled dots and
+   part compositing).
+2. Produce three comparable paths: current full-frame SVG, whole-frame atlas,
+   and part-atlas mesh. Add a direct epaint mesh version of one simple stroke
+   pack to measure the best non-raster alternative rather than estimating it.
+3. Compare every quantised sample at 1×, 1.25×, 2× and the 192-pixel cap. Record
+   differing-pixel count, maximum channel error and a saved diff image; inspect
+   round corners, group opacity, reveal endpoints and rotated/upscaled parts.
+4. In a release native run, record UI-thread frame time, worker preparation
+   time, raster count, texture-upload calls/bytes, mesh vertices and resident
+   cache bytes. Test one active icon, the maximum expected overlap and replay.
+5. Expand the generator and visual test to all 98 packs only after the six-pack
+   spike meets its quality and memory thresholds.
+
+Success means a warmed transform-only run performs no SVG construction, XML
+parse, full-icon raster or texture upload; one or a few ordered atlas-page mesh
+runs carry the visible parts; cache ownership and bytes remain context-local
+and bounded; and any unsupported or unadmitted case still paints the stock
+glyph.
+
 ## Recommended icon architecture
 
 Keep the current public provider, trigger policy, stable layout, stock fallback
@@ -222,7 +397,7 @@ The cache must:
 This is the smallest low-risk change and preserves pixel output. Its limit is
 that the first run at a new size still pays every miss on the UI thread.
 
-### Phase 2: one lazy atlas per pack and size
+### Phase 2: one lazy whole-frame atlas per pack and size
 
 Once quantisation is stable, pack the frames of one `(pack, side)` into one
 texture and draw the selected frame by UV rectangle. Even the longest current
@@ -248,17 +423,23 @@ cache's byte admission is checked before building; if an unusually large
 192-pixel atlas cannot fit, the provider keeps the stock glyph or uses the
 bounded current-frame path instead of evicting visible atlases back and forth.
 
-### Phase 3: classify transform-only packs only if profiling justifies it
+This remains the lowest-risk next slice and the visual/performance control for
+the representation spike. It should not become an eager all-pack asset: the
+representation audit shows why whole frames waste memory for the 233 parts
+whose coverage does not change.
 
-For a pack whose parts only translate, rotate, scale and fade, each part can be
-rasterised once and transformed as an egui mesh/quad every frame. This is cheaper than changing atlas UVs only in
-memory terms.
+### Phase 3: generated part scenes and atlas-mesh composition
 
-Do not apply it blindly. Path length, path offset and stroke-width animation
-change pixel coverage and cannot be reproduced by transforming one cached
-whole-icon image. Supporting those properties as native epaint paths would
-require generated path geometry, partial-stroke tessellation and visual parity
-tests. That is a larger renderer, not the first optimization.
+Once the worker and atlas lifecycle are proven, replace runtime SVG templates
+with the generated typed geometry and part-atlas compositor described above.
+Reuse one tile for each stable-coverage part; give only the 32 path/stroke parts
+quantised variants. Paint ordered mesh runs grouped by atlas page, applying
+current transforms, opacity and tint to each quad.
+
+Keep full-frame cells as the parity fallback for packs whose rotation, skew or
+part overlap does not meet the visual threshold. Try retained vector meshes in
+the same spike, but promote them only if measured texture savings justify a
+custom round-cap/round-join stroker and scale-aware antialiasing cache.
 
 ### Why not a custom GPU renderer first
 
@@ -354,6 +535,8 @@ Cache and work:
 - the first quantised frame has one miss and its replay is a hit;
 - two widgets asking for the same pack, side and frame share cached pixels;
 - a warmed full run performs zero SVG parses, rasters and uploads;
+- a warmed part-atlas run performs no SVG construction or full-icon raster and
+  emits only ordered mesh runs for its atlas pages;
 - cache bytes never exceed the configured admission bound;
 - current/previous-pass entries are not evicted into repaint thrash;
 - DPI change makes the correct size without retaining unbounded old sizes;
@@ -364,6 +547,8 @@ Visual parity:
 
 - compare current and cached frames at start, end, extrema and segment
   boundaries for every pack;
+- before removing SVG for a pack, compare every quantised part-atlas sample with
+  the current full-frame renderer;
 - inspect 1×, 1.25× and 2× output plus the 192-pixel cap;
 - keep the existing nearest-announcement, footer-slot and unclipped-frame
   regressions; and
@@ -399,17 +584,24 @@ Performance evidence:
   for repaint coalescing, deadlines and repaint causes.
 - [egui cache module](https://docs.rs/egui/0.36.2/egui/cache/index.html) for
   immediate-mode computation caching and generation eviction.
+- [epaint 0.36.2 `PathShape`](https://docs.rs/epaint/0.36.2/epaint/struct.PathShape.html)
+  and [`Mesh`](https://docs.rs/epaint/0.36.2/epaint/struct.Mesh.html) for the
+  native vector/triangle capabilities and convex-fill limit.
+- [tiny-skia 0.11.4 `Stroke`](https://docs.rs/tiny-skia/0.11.4/tiny_skia/struct.Stroke.html)
+  for direct round-cap, round-join and dash rasterisation without an SVG tree.
 
 ## Decision
 
 Mareader remains a reactive native egui application. Ordinary UI motion keeps
 egui interpolation and painter geometry. Animated icons keep their interaction
 and layout contract while the quantised, byte-capped context cache removes
-repeat production. Lazy per-pack frame atlases follow if measurement warrants
-them.
+repeat production. A lazy whole-frame atlas is the low-risk worker/control
+slice; generated geometry plus part-atlas mesh composition is the preferred
+runtime-SVG replacement.
 
-The implementation order is **measure → quantise/cache → worker/atlas → only
-then consider custom vector/GPU paths**. The cache slice is in place; release
-measurement is still required before claiming magnitude or choosing the next
-optimization. This avoids trading redundant CPU work for unbounded memory,
-first-run stalls, or a second icon system.
+The implementation order is **measure → quantise/cache → worker/full-frame
+atlas control → generated part atlas → only then retained vector or custom
+shader work**. The cache slice is in place; release measurement is still
+required before claiming magnitude or starting the representation spike. This
+order avoids trading redundant CPU work for unbounded memory, first-run stalls,
+visual regressions or a second icon system.
