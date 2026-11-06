@@ -140,7 +140,7 @@ fn save_trigger(ui: &mut Ui, open: bool, t: &Tokens) -> Response {
     );
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 11.0, rect.center().y), Vec2::splat(11.0));
-    Icon::Plus.image(11.0).tint(fg).paint_at(ui, icon_rect);
+    Icon::Plus.image(ui, 11.0).tint(fg).paint_at(ui, icon_rect);
     ui.painter().text(
         pos2(rect.left() + 20.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -206,18 +206,18 @@ fn draft_card(
         let enter = left && ui.input(|i| i.key_pressed(Key::Enter));
         let escape = ui.input(|i| i.key_pressed(Key::Escape));
         let (mut save, mut cancel) = (false, false);
+        // Without a name there is nothing to save, and a filled accent
+        // button says there is: hold it back as a quiet outline instead.
+        let primary = if named {
+            widgets::primary_button(ui, None, "Save", t.accent, t)
+        } else {
+            Button::new(RichText::new("Save").color(t.ink))
+                .fill(t.surface)
+                .stroke(Stroke::new(1.0, t.line))
+                .corner_radius(t.radius)
+        };
         ui.columns(2, |cols| {
             if let [l, r] = cols {
-                // Without a name there is nothing to save, and a filled accent
-                // button says there is: hold it back as a quiet outline instead.
-                let primary = if named {
-                    widgets::primary_button(None, "Save", t.accent, t)
-                } else {
-                    Button::new(RichText::new("Save").color(t.ink))
-                        .fill(t.surface)
-                        .stroke(Stroke::new(1.0, t.line))
-                        .corner_radius(t.radius)
-                };
                 save = l
                     .add_enabled_ui(named, |ui| {
                         ui.add_sized([ui.available_width(), 26.0], primary)
@@ -344,7 +344,7 @@ fn delete_badge(ui: &mut Ui, page: Rect, p: &Preset, card_hot: bool, t: &Tokens)
         painter.circle(c, 7.5, t.paper, Stroke::new(1.0, t.line));
         let fg = if resp.hovered() { t.ink } else { t.muted };
         let icon_rect = Rect::from_center_size(c, Vec2::splat(8.5));
-        Icon::Close.image(8.5).tint(fg).paint_at(ui, icon_rect);
+        Icon::Close.image(ui, 8.5).tint(fg).paint_at(ui, icon_rect);
     }
     let label = format!("Delete {}", p.name);
     resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));

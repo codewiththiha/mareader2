@@ -1697,15 +1697,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-lucide"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15d96655d3fef1591606d811528754c3b6477f3e216594af78d3aaeb4bb03ba8"
-dependencies = [
- "egui",
-]
-
-[[package]]
 name = "egui-wgpu"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3823,7 +3814,6 @@ version = "0.0.5"
 dependencies = [
  "eframe",
  "egui",
- "egui-lucide",
  "egui_extras",
  "egui_kittest",
  "image",

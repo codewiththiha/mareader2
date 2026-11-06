@@ -75,8 +75,8 @@ usage = "MathML formulas in EPUB text (crates/epub/src/math)"
 
 [[bundled]]
 name = "Lucide icons 1.34.0"
-via = "egui-lucide 0.1.0 (crates.io), compiled into the binary"
-author = "Lucide Contributors (icons); greekfetacheese (crate)"
-source = "https://github.com/lucide-icons/lucide, https://github.com/greekfetacheese/egui-lucide"
-license = "ISC AND MIT"
-usage = "Every icon in the interface, through crates/ui/src/icons.rs"
+via = "build-only declarations compiled into typed geometry"
+author = "Lucide Contributors"
+source = "https://github.com/lucide-icons/lucide"
+license = "ISC"
+usage = "Generated resting and animated interface glyphs through crates/ui/src/icons"

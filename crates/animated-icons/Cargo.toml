@@ -1,6 +1,6 @@
 [package]
 name = "mareader-animated-icons"
-description = "Generated geometry and part atlases for Mareader's animated Lucide icons"
+description = "Generated resting glyphs and part atlases for Mareader's Lucide icons"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

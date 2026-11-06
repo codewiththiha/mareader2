@@ -432,7 +432,7 @@ fn placeholder(ui: &mut Ui, rect: Rect, panel: Panel) {
         .layout(Layout::top_down(Align::Center));
     ui.scope_builder(builder, |ui| {
         ui.add_space(area.height() * 0.3);
-        ui.add(panel.icon().image(24.0).tint(t.muted));
+        ui.add(panel.icon().image(ui, 24.0).tint(t.muted));
         ui.add_space(6.0);
         ui.label(
             RichText::new(panel.label())

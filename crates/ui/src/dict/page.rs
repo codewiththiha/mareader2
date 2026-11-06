@@ -828,7 +828,7 @@ fn full_entry(
             offers(ui, h.voice, languages.into_iter(), out);
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
-                let copy = Button::image_and_text(Icon::Copy.image(14.0), "Copy")
+                let copy = Button::image_and_text(Icon::Copy.image(ui, 14.0), "Copy")
                     .image_tint_follows_text_color(true)
                     .corner_radius(t.radius);
                 if ui.add(copy).clicked() {
@@ -912,7 +912,7 @@ fn look_again(ui: &mut Ui, e: &Entry, t: &Tokens) -> Option<Act> {
         return None;
     }
     let text = RichText::new(format!("Look up “{answer}”"));
-    let button = Button::image_and_text(Icon::Search.image(14.0), text)
+    let button = Button::image_and_text(Icon::Search.image(ui, 14.0), text)
         .image_tint_follows_text_color(true)
         .corner_radius(t.radius)
         .frame_when_inactive(false);
@@ -968,7 +968,7 @@ fn recent(ui: &mut Ui, t: &Tokens, s: &mut DictionarySettings) -> Option<Act> {
     let mut act = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        ui.add(Icon::Clock.image(14.0).tint(t.muted));
+        ui.add(Icon::Clock.image(ui, 14.0).tint(t.muted));
         let head = RichText::new("Recent").font(theme::medium(t.text_small));
         ui.label(head.color(t.muted));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1075,7 +1075,7 @@ fn empty(ui: &mut Ui, t: &Tokens, title: &str, line: &str, action: Option<&str>)
         ui.label(RichText::new(line).color(t.muted));
         if let Some(action) = action {
             ui.add_space(6.0);
-            let button = widgets::primary_button(Some(Icon::Download), action, t.accent, t);
+            let button = widgets::primary_button(ui, Some(Icon::Download), action, t.accent, t);
             clicked = ui.add(button.min_size(vec2(0.0, 32.0))).clicked();
         }
     });

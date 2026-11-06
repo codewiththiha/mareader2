@@ -273,7 +273,7 @@ fn card_button(ui: &mut Ui, slot: Rect, card: f32) -> Option<bool> {
     (ui.painter()).circle_filled(rect.center(), BUTTON / 2.0, t.hover.gamma_multiply(hot));
     let mark = Rect::from_center_size(rect.center(), egui::Vec2::splat(ICON));
     let turn = std::f32::consts::PI * card;
-    (Icon::ChevronUp.image(ICON))
+    (Icon::ChevronUp.image(ui, ICON))
         .tint(t.ink)
         .rotate(turn, egui::Vec2::splat(0.5))
         .paint_at(ui, mark);
@@ -701,7 +701,7 @@ fn options(
     book: Option<mareader_library::BookId>,
     out: &mut Commands,
 ) {
-    let more = egui::Button::image(Icon::More.image(ICON))
+    let more = egui::Button::image(Icon::More.image(ui, ICON))
         .image_tint_follows_text_color(true)
         .frame_when_inactive(false)
         .corner_radius(CornerRadius::same(255))
@@ -811,7 +811,7 @@ fn choices(
     let t = Tokens::get(ui.ctx());
     let at = Rect::from_center_size(row.rect.right_center() - vec2(18.0, 0.0), vec2(14.0, 14.0));
     Icon::ChevronRight
-        .image(14.0)
+        .image(ui, 14.0)
         .tint(t.muted)
         .paint_at(ui, at);
     if row.clicked() {

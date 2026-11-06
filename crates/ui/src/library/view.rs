@@ -374,7 +374,7 @@ fn header(
 }
 
 fn header_button(ui: &mut Ui, icon: Icon, label: &str, t: &Tokens) -> egui::Response {
-    let button = egui::Button::image_and_text(icon.image(16.0), label)
+    let button = egui::Button::image_and_text(icon.image(ui, 16.0), label)
         .image_tint_follows_text_color(true)
         .fill(t.surface)
         .stroke(Stroke::new(1.0, t.line))
@@ -1055,7 +1055,7 @@ fn empty_state(ui: &mut Ui, rect: Rect, model: &Library, t: &Tokens, out: &mut C
     let at = Rect::from_center_size(rect.center(), vec2(rect.width().min(440.0), 200.0));
     let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(at));
     ui.vertical_centered(|ui| {
-        ui.add(Icon::Library.image(40.0).tint(t.muted));
+        ui.add(Icon::Library.image(ui, 40.0).tint(t.muted));
         ui.add_space(10.0);
         let title = egui::RichText::new("Your library is empty").font(theme::medium(16.0));
         ui.label(title.color(t.ink));

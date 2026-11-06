@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** generated part-atlas implementation; release measurement pending · **Last updated:** 2026-11-06
+> **Status:** generated resting and part-atlas implementation; release measurement pending · **Last updated:** 2026-11-07
 
 This document answers two separate questions:
 
@@ -60,7 +60,7 @@ The runtime-SVG replacement is implemented across
 - native cold generation uses one bounded worker; wasm/threadless generation is
   synchronous; and
 - the context-local byte-accounted LRU remains capped at 8 MiB and 512 entries,
-  with the stock glyph visible while an atlas is pending or unavailable.
+  with the generated resting glyph visible while an atlas is pending or unavailable.
 
 The generated renderer and ordered compositor have exhaustive source-parity
 coverage at the UI's DPI buckets. Release CPU, RSS, upload and driver
@@ -75,7 +75,7 @@ It selects a quantised sample and asks the context-local cache for the pack and
 device-pixel side. A hit selects that frame's ordered atlas cells and paints
 all of their quads through one egui mesh and texture. A miss queues one lazy
 atlas build on native targets (or builds synchronously where threads are not
-available), keeps the stock glyph visible, and requests a repaint when the
+available), keeps the generated resting glyph visible, and requests a repaint when the
 result is published.
 
 `crates/animated-icons/build.rs` converts the build-only declarations into typed
@@ -84,11 +84,14 @@ code rasterises transformed layer states directly with tiny-skia, deduplicates
 identical states, crops transparent margins, and deterministically packs the
 variants. Runtime SVG parsing and string construction are absent.
 
-The stock resting path is already cached independently:
+The resting path is cached independently:
 
-- Lucide goes through `egui-lucide`;
-- Mareader's static SVGs use stable `bytes://` URIs;
-- egui's image and texture loaders cache a stable URI and size hint.
+- generated resting glyphs use `raster_resting` over generated typed geometry and a
+  context-local 4 MiB/512-texture cache keyed by pack and physical side;
+- each miss evaluates only the canonical first sample and uploads one tightly
+  cropped neutral-white texture, never the complete animation atlas;
+- Mareader's custom static SVGs use stable `bytes://` URIs; and
+- `egui-lucide` is no longer a dependency.
 
 The repeated work is confined to active pack frames.
 
@@ -345,13 +348,14 @@ API:
 Success means a warmed transform-only run performs no SVG construction, XML
 parse, full-icon raster or texture upload; one or a few ordered atlas-page mesh
 runs carry the visible parts; cache ownership and bytes remain context-local
-and bounded; and any unsupported or unadmitted case still paints the stock
-glyph.
+and bounded; and any unsupported or unadmitted case still paints the generated
+resting glyph.
 
 ## Recommended icon architecture
 
-Keep the current public provider, trigger policy, stable layout, stock fallback
-and finite run semantics. Change only how an active frame is supplied.
+Keep the current public provider, trigger policy, stable layout, generated
+resting fallback and finite run semantics. Change only how an active frame is
+supplied.
 
 ### Phase 0: measure the current path
 
@@ -432,7 +436,7 @@ scheduled idle pass, but all 98 packs must not be generated eagerly.
 
 A single atlas handle also avoids a large number of tiny texture objects. The
 cache's byte admission is checked before building; if an unusually large
-192-pixel atlas cannot fit, the provider keeps the stock glyph or uses the
+192-pixel atlas cannot fit, the provider keeps the generated resting glyph or uses the
 bounded current-frame path instead of evicting visible atlases back and forth.
 
 This remains the lowest-risk next slice and the visual/performance control for
@@ -535,11 +539,12 @@ be evaluated in visual CI as a low-power mode rather than assumed equivalent.
 
 Behavior and layout:
 
-- one provider still owns stock fallback and animated frames;
-- no-run, unmapped, disabled and reduced-motion states draw the stock glyph;
+- one provider still owns generated resting glyphs and animated frames;
+- no-run, unmapped, disabled and reduced-motion states draw the generated
+  resting glyph;
 - one initiating event produces one finite run;
 - a mid-run event queues at most one replay;
-- the final frame is the stock resting image;
+- the final frame is the generated resting image;
 - fixed glyph geometry does not clip or shift layout;
 - closing a popup stops that widget from scheduling frames.
 
@@ -588,8 +593,8 @@ Performance evidence:
 - Do not replace cheap numeric UI motion with video, GIF or SVG frames.
 - Do not assume a single GPU transform can express stroke drawing and
   independent-part animation.
-- Do not add a second static icon provider; the existing stock fallback remains
-  the one resting path.
+- Do not add a second static icon provider; the generated resting renderer
+  remains the one stock resting path.
 
 ## Primary references
 
@@ -607,9 +612,9 @@ Performance evidence:
 
 Mareader remains a reactive native egui application. Ordinary UI motion keeps
 egui interpolation and painter geometry. Animated icons retain the same
-interaction, timing, layout, headroom, tint and stock-fallback contract, while
-the active path now uses generated geometry plus ordered part-atlas mesh
-composition.
+interaction, timing, layout, headroom, tint and generated-resting fallback
+contract, while the active path uses generated geometry plus ordered part-atlas
+mesh composition.
 
 The ownership boundary is deliberate:
 
@@ -620,15 +625,19 @@ The ownership boundary is deliberate:
   state before tight alpha cropping. Equal states of a layer reuse one atlas
   cell. The deterministic packer admits no texture above 8 MiB.
 - `mareader-ui` owns semantic `Icon` → pack-id mapping, trigger policy, lazy
-  worker publication, the byte-accounted LRU and egui mesh construction. Cells
-  are appended in source paint order and share one texture and one mesh.
+  worker publication, the byte-accounted LRUs and egui mesh construction.
+  `raster_resting` evaluates only time zero and supplies one cropped texture per
+  requested stock pack and physical side under a separate 4 MiB bound.
+  Animation cells are appended in source paint order and share one texture and
+  one mesh.
 - Each authored top-level part is an atomic generated scene. Nested opacity,
   transforms, path coverage and width changes are baked together in that part's
   cropped variants; no whole-frame atlas representation exists.
 - Tests compare every quantised frame of all 98 packs with the original SVG
   renderer at 1×, 1.25×, 2× and the 192 px ceiling, then reconstruct every
   atlas frame from its ordered cells and compare it with the direct generated
-  frame.
+  frame. Every one-frame resting crop is likewise reconstructed on its 24-unit
+  canvas and compared with the canonical first SVG sample.
 
 Release measurement is still required before claiming a CPU or memory
 magnitude. The implementation avoids trading runtime parsing for eager or

@@ -309,7 +309,7 @@ pub fn pill(ui: &Ui, frame: Rect, pill: &Pill, t: &Tokens) -> Option<PillPress> 
         painter.circle_filled(r.center(), 11.0, t.hover);
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
-    let icon = crate::icons::Icon::Close.image(14.0).tint(t.muted);
+    let icon = crate::icons::Icon::Close.image(ui, 14.0).tint(t.muted);
     icon.paint_at(ui, Rect::from_center_size(r.center(), Vec2::splat(14.0)));
     close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Stop"));
     if close.clicked() {

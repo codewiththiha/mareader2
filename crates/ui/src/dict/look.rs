@@ -59,7 +59,7 @@ pub fn field(ui: &mut Ui, f: Field<'_>, t: &Tokens) -> Typed {
         Vec2::splat(glyph),
     );
     let ink = t.muted.lerp_to_gamma(t.accent, lit);
-    Icon::Search.image(glyph).tint(ink).paint_at(ui, mark);
+    Icon::Search.image(ui, glyph).tint(ink).paint_at(ui, mark);
     let typed = !f.text.is_empty();
     let button = f.height - 14.0;
     let end = match typed {
@@ -98,7 +98,7 @@ pub fn field(ui: &mut Ui, f: Field<'_>, t: &Tokens) -> Typed {
             .circle_filled(centre, radius, fill.gamma_multiply(shown));
         let x = Rect::from_center_size(centre, Vec2::splat(12.0));
         let tint = t.muted.gamma_multiply(shown);
-        Icon::Close.image(12.0).tint(tint).paint_at(ui, x);
+        Icon::Close.image(ui, 12.0).tint(tint).paint_at(ui, x);
         if r.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
@@ -131,7 +131,10 @@ pub fn option(ui: &mut Ui, on: bool, text: &str, t: &Tokens) -> bool {
             pos2(rect.right() - 18.0, rect.center().y),
             Vec2::splat(14.0),
         );
-        Icon::Check.image(14.0).tint(t.accent).paint_at(ui, tick);
+        Icon::Check
+            .image(ui, 14.0)
+            .tint(t.accent)
+            .paint_at(ui, tick);
     }
     r.widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, true, on, text));
     r.clicked()
@@ -178,7 +181,7 @@ pub fn picker(
         pos2(rect.right() - 16.0, rect.center().y),
         Vec2::splat(14.0),
     );
-    chevron.image(14.0).tint(t.muted).paint_at(ui, spot);
+    chevron.image(ui, 14.0).tint(t.muted).paint_at(ui, spot);
     if r.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
@@ -288,7 +291,7 @@ pub fn say(
     let ink = t.accent.lerp_to_gamma(theme::ink_on(t.accent), how);
     let glyph = (size * 0.5).round();
     let spot = Rect::from_center_size(rect.center(), Vec2::splat(glyph));
-    Icon::Speak.image(glyph).tint(ink).paint_at(ui, spot);
+    Icon::Speak.image(ui, glyph).tint(ink).paint_at(ui, spot);
     if r.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
@@ -324,7 +327,7 @@ pub fn offer(ui: &mut Ui, offer: Offer, out: &mut Commands) {
     painter.rect_filled(rect, t.radius_lg, fill.gamma_multiply(0.7));
     let glyph = Rect::from_center_size(rect.left_center() + vec2(18.0, 0.0), Vec2::splat(15.0));
     Icon::Download
-        .image(15.0)
+        .image(ui, 15.0)
         .tint(t.accent)
         .paint_at(ui, glyph);
     let font = egui::FontId::proportional(t.text_small);
@@ -338,7 +341,7 @@ pub fn offer(ui: &mut Ui, offer: Offer, out: &mut Commands) {
     let chevron = rect.right_center() + vec2(-16.0 + nudge, 0.0);
     let chevron = Rect::from_center_size(chevron, Vec2::splat(14.0));
     Icon::ChevronRight
-        .image(14.0)
+        .image(ui, 14.0)
         .tint(t.accent)
         .paint_at(ui, chevron);
     if r.hovered() {
@@ -490,7 +493,7 @@ pub fn icon(ui: &mut Ui, icon: Icon, label: &str, size: Vec2) -> Response {
     }
     let ink = t.muted.lerp_to_gamma(t.ink, lit);
     let spot = Rect::from_center_size(rect.center(), Vec2::splat(15.0));
-    icon.image(15.0).tint(ink).paint_at(ui, spot);
+    icon.image(ui, 15.0).tint(ink).paint_at(ui, spot);
     r.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, label));
     r.on_hover_text(label)
 }
@@ -502,5 +505,5 @@ pub fn disc(ui: &mut Ui, icon: Icon, size: f32, t: &Tokens) {
         .circle_filled(rect.center(), size / 2.0, t.accent_soft);
     let glyph = (size * 0.46).round();
     let spot = Rect::from_center_size(rect.center(), Vec2::splat(glyph));
-    icon.image(glyph).tint(t.accent).paint_at(ui, spot);
+    icon.image(ui, glyph).tint(t.accent).paint_at(ui, spot);
 }

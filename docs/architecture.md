@@ -248,7 +248,7 @@ mareader typography setting has a parley equivalent.
 | [0001](adr/0001-egui-wgpu-native.md) | Native egui + wgpu in one process; no webview |
 | [0002](adr/0002-epub-via-parley.md) | EPUB via rbook + our XHTML subset + parley, not a browser engine |
 | [0003](adr/0003-pages-are-textures.md) | Both formats rasterise to textures; one GPU page pass applies the look |
-| [0004](adr/0004-lucide-icons.md) | Lucide via egui-lucide behind an `Icon` facade, tinted, never recoloured |
+| [0004](adr/0004-lucide-icons.md) | Build-generated Lucide geometry behind an `Icon` facade; bounded resting glyphs and active part atlases are tinted at draw time |
 | [0005](adr/0005-functional-parity.md) | Match mareader's features, not its pixels or its structure |
 | [0006](adr/0006-one-document-many-views.md) | A book opens once; panes are views sharing one cache and worker pool |
 

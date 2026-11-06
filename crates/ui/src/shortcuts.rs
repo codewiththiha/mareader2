@@ -110,7 +110,7 @@ pub fn show(ctx: &Context, platform: Platform) {
 fn header(ui: &mut Ui, platform: Platform) -> bool {
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
-        ui.add(Icon::Keyboard.image(18.0).tint(t.ink));
+        ui.add(Icon::Keyboard.image(ui, 18.0).tint(t.ink));
         let title = RichText::new("Keyboard shortcuts").size(t.text + 3.0);
         ui.label(title.color(t.ink).strong());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

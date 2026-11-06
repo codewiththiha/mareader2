@@ -558,72 +558,49 @@ and the band) and `view/held.rs` (the pass, captions and tips).
 
 ## Icons
 
-Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
+Lucide 1.34.0 geometry is compiled from build-only declarations behind
+`crates/ui/src/icons/` (ADR 0004).
 
-- Code asks for an `Icon` by meaning; `Icon::lucide` is the only place that
-  names a glyph. Add a variant when a feature needs one.
-- Icons are rasterised white and tinted: in a `Button` by
-  `image_tint_follows_text_color`, in custom widgets by `Icon::paint`.
-- Stroke 2 throughout.
-- **Our own SVGs (2026-10-22).** `Icon::svg` serves the few that aren't
-  Lucide's, white and tinted like the rest. The **AI mark**, "AI" in
-  strokes in a rounded frame, marks everything the AI does; it replaced
-  the sparkles everywhere. The AI models tab pairs it with Lucide's chip.
-  Providers' logos (`crates/ui/assets/logos`, from Simple Icons under
-  CC0) sit in ink on a quiet tile, so they read in every look; a custom
-  server, having none, shows Lucide's server.
-- **The voices' own marks (2026-11-06).** The engines in Settings → Read aloud
-  were rows of words while the AI providers had logos, so each voice got a mark
-  drawn from what it is: a heart with a spoken pulse across it for Kokoro
-  (心), stopped panpipes for Piper, two dots and a purr for Kitten, a wave
-  crossing five lattice sites for Phonon, a display that speaks for the
-  system's own voices, and one blip then an open stop for the silent engine
-  that tests and screenshots read with. `Icon::engine` maps an engine id to
-  its mark; a model's settings tab wears its engine's instead of the stock
-  waveform, and an engine with no mark of its own keeps the waveform. They are
-  our own SVGs on Lucide's grid at stroke 2, so they tint and sit beside the
-  rest unchanged, and lead a row's detail line rather than its title.
-- **Icons that move (2026-11-06).** The lab's animated pack (`mareader-lab`:
-  `animated_icons1/`) is ported into `crates/ui/src/icons/pack.rs`: 98 glyphs,
-  each holding its resting markup with one hole per part to move, and its
-  timeline resolved into absolute segments. Runs are sampled at 60 frames a
-  second and keyed by pack, device-pixel side and sample. A cold sample evaluates
-  the arithmetic, emits one SVG, parses and CPU-rasterises it through `reflow`'s
-  usvg/resvg path, then uploads a neutral-white texture; later runs draw that
-  texture tinted, without producing its pixels again. Only a glyph the pack drew
-  can move; the rest are exactly as they were. A run plays its timeline forwards
-  and stops there:
-  the frame it lands on is the glyph as the pack draws it, so nothing is left
-  bent. The frame tests hold every glyph to that picture, allowing for the three
-  the lab gave an extra part — a leaf, a bookmark's fill, a second page — whose
-  fade-out the plain glyph shown at rest never carries anyway. A frame is drawn
-  on a canvas `PAD` of grid larger than the glyph's square — resvg clips to the
-  viewport, and the lab's keyframes scale a glyph up and carry parts clear out of
-  the box it was drawn in — and painted into a box grown to match, so the glyph
-  keeps its size and its ink keeps its room. A button lays out a blank while its
-  run plays and the frame goes over it: the headroom costs no layout, and the
-  widget keeps the id it was pressed under. Icon-only buttons place that frame at
-  the response centre; image-and-text buttons pass the exact leading-image box,
-  so a moving Settings or Keyboard mark cannot jump into its label.
+- Code asks for an `Icon` by meaning; `icons::pack` is the only place that names
+  a generated glyph. Add a variant when a feature needs one.
+- **Resting glyphs (2026-11-07).** Every stock glyph is the canonical first
+  sample of the same typed scene that animates. `raster_resting` composites only
+  that sample on the 24-unit grid, tightly crops its neutral-white pixels, and
+  the UI caches the texture by pack and physical side under a 4 MiB/512-entry
+  context-local bound. One image quad uses virtual-canvas UVs to preserve the
+  original margins, then the button or `Icon::paint` applies the current tint.
+  No animation atlas, XML parser or `egui-lucide` dependency is involved.
+- **Our own SVGs (2026-10-22).** `Icon::svg` serves the few marks outside the
+  stock set, white and tinted like the rest. The **AI mark**, "AI" in strokes
+  in a rounded frame, marks everything the AI does. The AI models tab pairs it
+  with the generated chip. Providers' logos (`crates/ui/assets/logos`, from
+  Simple Icons under CC0) sit in ink on a quiet tile; a custom server shows the
+  generated server glyph.
+- **The voices' own marks (2026-11-06).** Each voice engine has a custom static
+  mark under `crates/ui/assets/engines`. `Icon::engine` maps an engine id to its
+  mark; an engine with no mark of its own keeps the generated waveform. These
+  SVGs use the same 24-unit grid and stroke 2, so they tint and align with the
+  generated stock glyphs.
+- **Icons that move (2026-11-06).** `mareader-animated-icons` holds 98 generated
+  typed scenes and finite timelines. On the first interaction for a pack and
+  physical side, one bounded worker rasterises tightly cropped, deduplicated
+  layer-state variants and packs them into one neutral-white texture. The UI
+  selects the current sample's cells and appends their quads in source order to
+  one egui mesh. No runtime SVG string or XML tree exists, no atlas exceeds
+  8 MiB, and the context-local animated cache is also capped at 8 MiB and 512
+  entries. While generation is pending or cannot be admitted, the generated
+  resting glyph remains visible. A run plays forwards and returns to that same
+  resting source.
+- Animated frames use a padded canvas so authored overshoot is not clipped, but
+  the padding costs no layout. Icon-only buttons centre it on their response;
+  image-and-text buttons use their exact leading-image box.
 - **When an icon moves is its surroundings' business, not its own.** A region
-  `announce`s an `Act`, and the shout nearest a glyph is the one it hears: `Hover`
-  for furniture or a menu that may disappear when answered (the whole title bar,
-  its docked sidebar header, the view menu including its footer, and every context
-  menu), `Click` for a control that stays put and answers the pick (`segments`,
-  both Appearance mode pickers, the view menu's four modes and its Zoom out,
-  Zoom in, Fit page and Fit width controls, the settings and sidebar rails,
-  bookmarks, and the read-aloud steps), and `Still` for a mark that
-  only names something (a pen beside its label), which is also the default. A
-  widget may `assume` instead: an answer for the glyph it paints itself, heard
-  only where nothing around it has shouted, which is why a bar's reach wins over
-  a button's press and why no call site has to know where it is used. Interactive
-  glyphs go through this one provider: no run, whether because it is idle,
-  unmapped or motion is off, means the same stock `Icon`/Lucide drawing rather
-  than a second icon path. A run is kept under a stable widget name rather than
-  its words or place in a layout, so a Bookmark becoming Remove bookmark,
-  relayout, and groups folding above cannot orphan a glyph half-played. The
-  player's play/pause keeps its purpose-built morph; only Previous and Next take
-  icon-pack runs.
+  `announce`s an `Act`, and the nearest announcement wins: `Hover` for
+  furniture or a menu that may disappear, `Click` for a control that stays put,
+  and `Still` for a mark that only names something. A widget may `assume` an
+  action only where no enclosing region has spoken. Runs use stable widget
+  names, not labels or layout positions, and a press arriving mid-run queues one
+  replay rather than snapping the glyph.
 
 ## Motion
 
@@ -638,16 +615,17 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
   arrives mid-run is queued rather than cut short, so a glyph is never caught
   bent.
 - An active icon run asks for the next 60 Hz sample boundary; it does not request
-  60-plus FPS, and it stops asking when the 0.42–0.84 s pack timeline lands. The
-  context-local frame cache holds at most 8 MiB of RGBA pixels or 512 textures,
-  keeps entries drawn in the current or previous pass, and draws the stock glyph
-  instead of exceeding the bound. Cold samples still do synchronous SVG parsing,
-  CPU raster and upload; warmed samples only select a texture. Frames use the
+  60-plus FPS, and it stops asking when the 0.42–0.84 s timeline lands. The
+  context-local animated atlas cache holds at most 8 MiB of RGBA pixels or 512
+  textures and uses the generated resting glyph instead of exceeding the bound.
+  A cold run prepares one complete pack-and-side atlas on its bounded worker;
+  warmed samples only select ordered cells from that texture. Frames use the
   moving glyph's padded canvas (normally 26–62 device pixels for the 15–18 pt
   controls at 1–2× scale, hard-capped at 192 px), and a run no longer schedules
   icon repaints once its widget is not built. Ordinary UI fades, slides and
   morphs also keep egui repainting while active, but normally do only
-  interpolation, layout and painter work. The optimization plan lives in `docs/animation-performance.md`.
+  interpolation, layout and painter work. The measured optimization plan and
+  source audit live in `docs/animation-performance.md`.
 
 ## Layers
 
@@ -669,6 +647,7 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
 | 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |
 | 2026-10-18 | Lifting a pane to move or swap it |
 | 2026-10-28 | Book covers: bound finish, cloth covers, progress on the cover, organizing without a badge |
+| 2026-11-07 | Generated resting glyphs replace `egui-lucide` and share typed geometry with icon animation |
 
 ### Page marks and reading questions
 

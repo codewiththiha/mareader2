@@ -323,7 +323,7 @@ impl FindBar {
             ui.ctx().request_repaint();
         } else {
             let tint = if focused { t.accent } else { t.muted };
-            Icon::Search.image(17.0).tint(tint).paint_at(ui, rect);
+            Icon::Search.image(ui, 17.0).tint(tint).paint_at(ui, rect);
         }
     }
 
@@ -505,7 +505,7 @@ fn knob(ui: &mut Ui, t: &Tokens, icon: Icon, label: &str, on: bool) -> Response 
         t.ink.gamma_multiply(0.8)
     };
     let glyph = Rect::from_center_size(rect.center(), vec2(15.0, 15.0));
-    icon.image(15.0).tint(tint).paint_at(ui, glyph);
+    icon.image(ui, 15.0).tint(tint).paint_at(ui, glyph);
     widgets::tip(&r, label, None);
     r
 }

@@ -145,7 +145,7 @@ fn folder_row(ui: &mut Ui, root: &Path, t: &Tokens) -> Response {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.add(Icon::Folder.image(16.0).tint(t.muted));
+                ui.add(Icon::Folder.image(ui, 16.0).tint(t.muted));
                 let path = RichText::new(&full).color(t.ink);
                 ui.add(Label::new(path).truncate().selectable(false));
             });

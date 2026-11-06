@@ -46,7 +46,6 @@ pub const UI_CRATES: &[&str] = &[
     "eframe",
     "egui_extras",
     "egui_kittest",
-    "egui-lucide",
     "winit",
     "rfd",
 ];

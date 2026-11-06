@@ -46,7 +46,7 @@ pub fn title(ui: &mut Ui, id: Id, name: &str, count: Option<usize>) -> Fold {
     let how = ui.ctx().animate_bool_responsive(id, open);
     let turn = how * std::f32::consts::FRAC_PI_2;
     let chevron = Rect::from_center_size(pos2(rect.right() - 14.0, y), Vec2::splat(12.0));
-    let icon = Icon::ChevronRight.image(12.0).tint(ink);
+    let icon = Icon::ChevronRight.image(ui, 12.0).tint(ink);
     icon.rotate(turn, Vec2::splat(0.5)).paint_at(ui, chevron);
     if let Some(count) = count {
         pill(ui, count, chevron.left() - 6.0, y);

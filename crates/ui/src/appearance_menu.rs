@@ -375,7 +375,7 @@ fn fold(
         Icon::ChevronRight
     };
     let at = Rect::from_center_size(pos2(x + 8.0, y), Vec2::splat(12.0));
-    chevron.image(12.0).tint(t.muted).paint_at(ui, at);
+    chevron.image(ui, 12.0).tint(t.muted).paint_at(ui, at);
     let font = FontId::proportional(t.text_small);
     let painter = ui.painter();
     let named = painter.text(
@@ -786,7 +786,7 @@ fn delete_button(ui: &mut Ui, page: Rect, p: &Preset) -> Response {
     painter.circle(rect.center(), 8.0, t.surface, Stroke::new(1.0, t.line));
     let tint = if resp.hovered() { t.ink } else { t.muted };
     Icon::Close
-        .image(9.0)
+        .image(ui, 9.0)
         .tint(tint)
         .paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(9.0)));
     let label = format!("Delete {}", p.name);
@@ -895,9 +895,9 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
         let enter = left && ui.input(|i| i.key_pressed(Key::Enter));
         let escape = ui.input(|i| i.key_pressed(Key::Escape));
         let (mut save, mut cancel) = (false, false);
+        let primary = widgets::primary_button(ui, None, "Save", t.accent, &t);
         ui.columns(2, |cols| {
             if let [l, r] = cols {
-                let primary = widgets::primary_button(None, "Save", t.accent, &t);
                 save = l
                     .add_enabled_ui(named, |ui| {
                         ui.add_sized([ui.available_width(), 24.0], primary)

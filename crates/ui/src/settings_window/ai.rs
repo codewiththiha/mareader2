@@ -64,7 +64,7 @@ fn no_models(ui: &mut Ui, out: &mut Commands) {
     group(ui, |ui| {
         let hint = "Every task below asks a model you save there";
         row(ui, "No AI models yet", hint, |ui| {
-            let button = widgets::primary_button(Some(Icon::Chip), "Add a model", t.accent, &t);
+            let button = widgets::primary_button(ui, Some(Icon::Chip), "Add a model", t.accent, &t);
             if ui.add(button).clicked() {
                 out.push(Command::OpenSettings(Tab::Models));
             }
@@ -162,7 +162,7 @@ fn dictionary_row(
         let at = pos2(rect.left() + text.size().x + 14.0, rect.center().y);
         let mark = egui::Rect::from_center_size(at, vec2(16.0, 16.0));
         let muted = if r.hovered() { t.accent } else { t.muted };
-        chevron.image(16.0).tint(muted).paint_at(ui, mark);
+        chevron.image(ui, 16.0).tint(muted).paint_at(ui, mark);
         // The mark itself, as a page draws it, says what opens.
         let chip = egui::Rect::from_min_size(pos2(rect.right() - 34.0, rect.top()), size);
         ui.scope_builder(egui::UiBuilder::new().max_rect(chip), |ui| {

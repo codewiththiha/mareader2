@@ -90,7 +90,6 @@ egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 eframe = { version = "0.36", default-features = false }
 egui_kittest = "0.36"
-egui-lucide = "0.1"
 rfd = "0.17"
 # Narration: pure-Rust decoders for the core audio types, and the device.
 symphonia = { version = "0.6", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "vorbis", "ogg", "wav", "pcm", "adpcm"] }

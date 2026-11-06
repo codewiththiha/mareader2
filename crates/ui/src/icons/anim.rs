@@ -197,7 +197,7 @@ pub(crate) fn glyph(ui: &Ui, icon: Icon, size: f32, tag: &str) -> Image<'static>
             Vec2::splat(size),
         ))
     } else {
-        icon.image(size)
+        icon.image(ui, size)
     }
 }
 
@@ -222,7 +222,7 @@ fn frame_box(mark: Rect) -> Rect {
     mark.expand(mark.width() * (BOX - 1.0) * 0.5)
 }
 
-/// The foreground tint egui applies to the button's stock glyph.
+/// The foreground tint egui applies to the button's resting glyph.
 fn ink_of(ui: &Ui, resp: &Response) -> Color32 {
     let w = &ui.visuals().widgets;
     if resp.is_pointer_button_down_on() {

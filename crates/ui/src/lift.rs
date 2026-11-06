@@ -108,7 +108,7 @@ fn card(ctx: &Context, lift: &Lift, pointer: Pos2, title: &str, t: &Tokens) {
                 ui.set_clip_rect(rect);
                 ui.vertical_centered(|ui| {
                     ui.add_space((inner.height() / 2.0 - 30.0).max(0.0));
-                    ui.add(Icon::Book.image(28.0).tint(t.accent));
+                    ui.add(Icon::Book.image(ui, 28.0).tint(t.accent));
                     ui.add_space(6.0);
                     let text = format!("Moving {title}");
                     let rich = RichText::new(text).font(theme::medium(13.0)).color(t.ink);

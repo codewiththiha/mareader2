@@ -70,7 +70,7 @@ pub fn row(ui: &mut Ui, rect: Rect, inset: f32, here: Here<'_>, t: &Tokens, out:
 
 /// The empty library's one button.
 pub fn button(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
-    let button = crate::widgets::primary_button(Some(Icon::Plus), "Add books", t.accent, t)
+    let button = crate::widgets::primary_button(ui, Some(Icon::Plus), "Add books", t.accent, t)
         .min_size(vec2(132.0, 34.0));
     let resp = ui.add(button);
     menu(&resp, here, t, out);

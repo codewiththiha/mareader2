@@ -413,8 +413,8 @@ impl Open {
                 let ctx = ui.ctx().clone();
                 let t = Tokens::get(&ctx);
                 // Disabled, it fades like the buttons beside it.
-                let primary =
-                    widgets::primary_button(None, "Copy", t.accent, &t).min_size(vec2(84.0, 30.0));
+                let primary = widgets::primary_button(ui, None, "Copy", t.accent, &t)
+                    .min_size(vec2(84.0, 30.0));
                 let copy = ui.add_enabled(ready, primary);
                 let md = ui.add_enabled(
                     ready,

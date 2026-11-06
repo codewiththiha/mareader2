@@ -77,7 +77,7 @@ fn go(id: Option<ShelfId>) -> Command {
 
 fn chevron(ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.add(Icon::ChevronRight.image(CHEVRON).tint(t.muted));
+    ui.add(Icon::ChevronRight.image(ui, CHEVRON).tint(t.muted));
 }
 
 /// The ellipsis, then each level with its chevron, as the bar draws them.
@@ -214,7 +214,7 @@ fn folded(ui: &mut Ui, elided: &[Crumb], out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let tip = format!("Show the {} levels above", elided.len());
     let open_before = fold.pinned || now - fold.over < GRACE;
-    let button = Button::image(Icon::More.image(CHEVRON).tint(t.muted));
+    let button = Button::image(Icon::More.image(ui, CHEVRON).tint(t.muted));
     let r = ui.add(
         button
             .frame_when_inactive(open_before)
@@ -282,7 +282,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
     let name = RichText::new(&current.name)
         .font(theme::medium(13.0))
         .color(t.ink);
-    let mark = Icon::ChevronDown.image(11.0).tint(t.muted);
+    let mark = Icon::ChevronDown.image(ui, 11.0).tint(t.muted);
     let r = ui
         .scope(|ui| {
             ui.set_max_width(CRUMB_MAX + 16.0);

@@ -77,7 +77,7 @@ fn read(ui: &mut Ui, mark: MarkId, note: &str, cap: f32, t: &Tokens, out: &mut C
             ui.add(egui::Label::new(text).wrap().selectable(true));
         });
     ui.horizontal(|ui| {
-        let edit = egui::Button::image_and_text(Icon::Rename.image(14.0), "Edit")
+        let edit = egui::Button::image_and_text(Icon::Rename.image(ui, 14.0), "Edit")
             .image_tint_follows_text_color(true);
         if ui.add(edit).clicked() {
             out.push(Command::Study(Action::EditNote));
@@ -141,7 +141,7 @@ fn write(
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let save = widgets::primary_button(None, "Save", t.accent, t);
+            let save = widgets::primary_button(ui, None, "Save", t.accent, t);
             let r = ui.add(save);
             widgets::tip(&r, "Save", Some(save_hint()));
             if r.clicked() || save_keys {

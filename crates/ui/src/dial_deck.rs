@@ -443,7 +443,7 @@ fn clear_tint_icon(ui: &mut Ui, rect: Rect, t: &Tokens) -> Response {
     }
     let fg = if hot { t.ink } else { t.muted };
     let icon_rect = Rect::from_center_size(rect.center(), Vec2::splat(10.0));
-    Icon::Close.image(10.0).tint(fg).paint_at(ui, icon_rect);
+    Icon::Close.image(ui, 10.0).tint(fg).paint_at(ui, icon_rect);
     resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, "Reset tint"));
     widgets::tip(&resp, "Reset tint", None);
     resp
@@ -470,7 +470,10 @@ fn reset_tint_pill(ui: &mut Ui, width: f32, t: &Tokens) -> Response {
     let fg = if hot { t.ink } else { t.muted };
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), Vec2::splat(11.0));
-    Icon::Restore.image(11.0).tint(fg).paint_at(ui, icon_rect);
+    Icon::Restore
+        .image(ui, 11.0)
+        .tint(fg)
+        .paint_at(ui, icon_rect);
     ui.painter().text(
         pos2(rect.left() + 22.0, rect.center().y),
         Align2::LEFT_CENTER,

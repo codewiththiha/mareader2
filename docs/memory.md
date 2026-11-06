@@ -1,6 +1,6 @@
 # Memory
 
-> **Status:** M8 audit recorded; generated icon-atlas budget pending release measurement · **Last updated:** 2026-11-06
+> **Status:** M8 audit recorded; generated icon-atlas budget pending release measurement · **Last updated:** 2026-11-07
 
 Every memory claim in this repository needs:
 - what was measured (RSS peak, texture bytes, heap);
@@ -35,12 +35,15 @@ Add a dated section per audit; never overwrite one.
 - **The same book in two panes:** one parse, one tile set; the second pane adds
   only the tiles its own zoom needs.
 - **Thumbnails:** LRU of 16, as in mareader.
+- **Resting icon glyphs:** context-local cache capped at 4 MiB of accounted
+  premultiplied RGBA pixels and 512 textures. One tightly cropped texture holds
+  only the canonical first sample of one pack and one device-pixel size.
 - **Animated icon atlases:** context-local cache capped at 8 MiB of accounted
   premultiplied RGBA pixels and 512 textures. One texture contains tight,
   deduplicated part variants for every 60 Hz sample of one pack and one
   device-pixel size. Atomic part scenes retain nested compositing without
   whole-frame cells. Driver overhead and release-build RSS remain to be
-  measured; a pending or unadmitted atlas uses the stock glyph.
+  measured; a pending or unadmitted atlas uses the generated resting glyph.
 
 ## 2026-10-13: M2 audit, reading and closing (slice 7)
 
@@ -534,8 +537,22 @@ PDF page-tree enumeration remains eager, with rasters requested on demand.
   the bound without whole-frame cells.
 - **In-flight bound:** the native queue has two jobs and one raster worker, while
   a context retains at most one completed pixel atlas awaiting publication. A
-  threadless build generates synchronously. The stock glyph remains visible
-  while work is pending or storage cannot be admitted.
+  threadless build generates synchronously. The generated resting glyph remains
+  visible while work is pending or storage cannot be admitted.
 - **Limits:** these are byte-accounting rules, not RSS or driver measurements.
   Texture-manager overhead, upload staging, temporary generation buffers and
   release-build RSS still need the performance harness and a real GPU run.
+
+## 2026-11-07: generated resting-icon bound
+
+- **What changed:** stock idle icons no longer use `egui-lucide`. The same typed
+  scene used by animation evaluates only its canonical first sample, composites
+  it once, tightly crops transparent margins and uploads one neutral-white
+  texture. A virtual-canvas UV keeps the 24-unit margins while drawing one quad.
+- **Admission bound:** the context-local resting cache is capped at 4 MiB and
+  512 `(pack, device-pixel side)` entries. A single cropped glyph is bounded by
+  the existing 192-pixel side ceiling. Idle display never builds an animation
+  atlas.
+- **Limits:** generation is synchronous on the first use of each pack and size
+  so the glyph is never blank. Release startup time, texture-manager overhead,
+  cache churn across DPI changes, RSS and driver bytes remain to be measured.

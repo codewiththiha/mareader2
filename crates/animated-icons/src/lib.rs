@@ -1,4 +1,4 @@
-//! Generated paths and bounded atlases for animated Lucide icons.
+//! Generated resting glyphs and bounded part atlases for Lucide icons.
 
 use tiny_skia::{
     FillRule as SkFillRule, LineCap as SkLineCap, LineJoin as SkLineJoin, Paint, Path, PathBuilder,
@@ -204,6 +204,51 @@ impl Atlas {
             cell.atlas_y.saturating_add(cell.height) as f32 / self.height.max(1) as f32,
         ]
     }
+}
+
+/// One composited resting glyph cropped from its 24-unit canvas.
+pub struct RestingGlyph {
+    pub side: u32,
+    pub target_x: u32,
+    pub target_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl RestingGlyph {
+    pub fn byte_len(&self) -> usize {
+        self.pixels.len()
+    }
+}
+
+/// Rasterises only the canonical first sample, never the animation atlas.
+pub fn raster_resting(pack: &'static Pack, requested_side: u32) -> Option<RestingGlyph> {
+    let side = requested_side.clamp(8, MAX_SIDE);
+    let vals = values(pack, 0.0);
+    let mut pixmap = Pixmap::new(side, side)?;
+    let scale = side as f32 / GRID;
+    let canvas = Transform::from_row(scale, 0.0, 0.0, scale, 0.0, 0.0);
+    for layer in pack.layers {
+        render_nodes(
+            layer.scene,
+            pack.parts,
+            &vals,
+            None,
+            None,
+            canvas,
+            &mut pixmap,
+        )?;
+    }
+    let (target_x, target_y, width, height, pixels) = crop(&pixmap)?;
+    Some(RestingGlyph {
+        side,
+        target_x,
+        target_y,
+        width,
+        height,
+        pixels,
+    })
 }
 
 pub fn raster_atlas(pack: &'static Pack, requested_side: u32) -> Option<Atlas> {

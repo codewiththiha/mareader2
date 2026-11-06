@@ -693,7 +693,7 @@ fn header(ui: &mut Ui, head: Rect, folded: bool, n: &Named<'_>, t: &Tokens, out:
         }
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.add(Icon::Dictionary.image(16.0).tint(t.accent));
+            ui.add(Icon::Dictionary.image(ui, 16.0).tint(t.accent));
             // Folded, it names the word last searched and its answer.
             let title = match folded && !n.word.is_empty() {
                 true => n.word,

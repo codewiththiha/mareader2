@@ -103,7 +103,10 @@ fn pill(
         t.accent_soft,
     );
     let icon = Rect::from_center_size(disc, egui::Vec2::splat(16.0));
-    part.icon().image(16.0).tint(t.accent).paint_at(ui, icon);
+    part.icon()
+        .image(ui, 16.0)
+        .tint(t.accent)
+        .paint_at(ui, icon);
     let x = disc.x + DISC / 2.0 + 10.0;
     let top = if cost.is_some() {
         y - 15.0

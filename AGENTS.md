@@ -52,9 +52,10 @@ images, fonts, sounds, sample documents and screenshots.
 - **Every asset has an entry in `ATTRIBUTION.toml`:** path or crate, author,
   source with version, SPDX licence and SHA-256 for files. `cargo xtask assets`
   fails on an unlisted file, a wrong hash or a licence off the list.
-- **Icons are Lucide**, through `egui-lucide`, behind `crates/ui/src/icons.rs`
-  (ADR 0004). Code names an `Icon` by meaning; only `Icon::lucide` names a
-  glyph. No other icon set, and no hand-drawn icons that imitate one.
+- **Stock icons are Lucide**, compiled from build-only declarations into typed
+  geometry behind `crates/ui/src/icons/` (ADR 0004). Code names an `Icon` by
+  meaning; only `icons::pack` names a glyph. Custom provider and voice marks
+  remain the documented static-SVG exceptions.
 - **Fonts:** Inter in `assets/fonts`. A new face needs an OFL source and an
   `ATTRIBUTION.toml` entry. Never bundle a system font.
 - If an asset's origin or licence is unclear, do not add it; ask the owner.

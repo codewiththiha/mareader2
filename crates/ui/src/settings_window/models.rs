@@ -258,7 +258,7 @@ fn badge(ui: &Ui, rect: Rect, p: Provider) {
     painter.rect_stroke(rect, 7.0, edge, egui::StrokeKind::Inside);
     let side = (rect.height() * 0.6).round();
     let inner = Rect::from_center_size(rect.center(), Vec2::splat(side));
-    logo(p).image(side).tint(t.ink).paint_at(ui, inner);
+    logo(p).image(ui, side).tint(t.ink).paint_at(ui, inner);
 }
 
 /// One row's look: a badge, two lines, pills and a chevron.
@@ -288,7 +288,7 @@ fn head(ui: &mut Ui, h: &Head<'_>) -> egui::Response {
         Icon::ChevronRight
     };
     let at = Rect::from_center_size(pos2(rect.right() - 9.0, mid), Vec2::splat(16.0));
-    chevron.image(16.0).tint(t.muted).paint_at(ui, at);
+    chevron.image(ui, 16.0).tint(t.muted).paint_at(ui, at);
     let right = pills(ui, h.pills, pos2(rect.right() - 26.0, mid));
     let text = Rect::from_min_max(
         pos2(rect.left() + 42.0, rect.top()),
@@ -304,7 +304,7 @@ fn head(ui: &mut Ui, h: &Head<'_>) -> egui::Response {
     let color = if h.warn { t.danger } else { t.muted };
     if h.warn {
         let at = Rect::from_center_size(pos2(below.x + 6.0, below.y), Vec2::splat(12.0));
-        Icon::Alert.image(12.0).tint(color).paint_at(ui, at);
+        Icon::Alert.image(ui, 12.0).tint(color).paint_at(ui, at);
         below.x += 16.0;
     }
     painter.text(below, egui::Align2::LEFT_CENTER, h.line, small, color);
@@ -379,7 +379,7 @@ fn actions(
         if let Some(board) = board {
             let busy = matches!(board.tried(p.id), Load::Busy);
             let label = if busy { "Asking…" } else { "Try it" };
-            let button = widgets::primary_button(Some(Icon::Try), label, t.accent, &t);
+            let button = widgets::primary_button(ui, Some(Icon::Try), label, t.accent, &t);
             let r = ui.add_enabled(!busy, button);
             widgets::name(&r, "Try it");
             if r.clicked() {
@@ -870,7 +870,7 @@ fn add_key(ui: &mut Ui, p: Provider, out: &mut Commands) {
         Layout::left_to_right(Align::Center),
         |ui| {
             let t = Tokens::get(ui.ctx());
-            ui.add(Icon::Key.image(15.0).tint(t.muted));
+            ui.add(Icon::Key.image(ui, 15.0).tint(t.muted));
             let edit = TextEdit::singleline(&mut text)
                 .password(true)
                 .hint_text("Paste an API key");

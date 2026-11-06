@@ -191,7 +191,7 @@ mod tests {
         assert!(worth_asking('က'));
         assert!(worth_asking('本'));
         assert!(!worth_asking('a'));
-        assert!(!worth_asking('\u{E001}'), "Lucide's icons live here");
+        assert!(!worth_asking('\u{E001}'), "private-use icons stay local");
         assert!(!worth_asking('\u{3000}'), "an ideographic space");
     }
 }

@@ -119,7 +119,7 @@ shows the pattern: `Harness::builder().with_step_dt(1.0 / 60.0)`, `hover_at`,
 - Parallel agents use separate `CARGO_TARGET_DIR`s and git worktrees.
 - Headless wgpu renders need a Vulkan driver; on Linux install
   `mesa-vulkan-drivers` (lavapipe), as CI does.
-- egui-lucide puts colour in the texture key: icons are rasterised white and
-  tinted (`Icon::paint`). Don't pass colours to egui-lucide.
+- Stock icons come from build-generated Lucide geometry. Resting glyph and
+  animation-atlas textures stay neutral white and are tinted by `Icon::paint`.
 - egui's named font families exist only from the second frame;
   `MareaderApp::ui` skips frame one for that reason.

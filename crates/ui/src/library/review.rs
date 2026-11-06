@@ -157,7 +157,7 @@ fn shelf_lines(ui: &mut Ui, row: &Row, t: &Tokens) {
     let indent = row.depth as f32 * 18.0;
     ui.horizontal(|ui| {
         ui.add_space(indent);
-        let icon = Icon::Shelf.image(15.0).tint(t.muted);
+        let icon = Icon::Shelf.image(ui, 15.0).tint(t.muted);
         ui.add(icon);
         let name = RichText::new(&row.name).font(theme::medium(t.text_small + 1.0));
         ui.add(egui::Label::new(name.color(t.ink)).truncate());

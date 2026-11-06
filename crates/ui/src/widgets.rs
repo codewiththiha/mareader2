@@ -660,6 +660,7 @@ pub fn menu_rule(ui: &mut Ui) {
 
 /// The one filled button, its words in the ink that reads on `fill`.
 pub fn primary_button(
+    ui: &Ui,
     icon: Option<Icon>,
     label: &str,
     fill: Color32,
@@ -668,7 +669,7 @@ pub fn primary_button(
     let ink = crate::theme::ink_on(fill);
     let text = RichText::new(label).color(ink);
     let button = match icon {
-        Some(icon) => Button::image_and_text(icon.image(16.0).tint(ink), text),
+        Some(icon) => Button::image_and_text(icon.image(ui, 16.0).tint(ink), text),
         None => Button::new(text),
     };
     button.fill(fill).corner_radius(t.radius)
@@ -1067,7 +1068,7 @@ pub fn combo(salt: impl egui::AsIdSalt) -> egui::ComboBox {
     egui::ComboBox::from_id_salt(salt).icon(combo_chevron)
 }
 
-/// A combo box's Lucide chevron, in place of egui's triangle.
+/// A combo box's generated Lucide chevron, in place of egui's triangle.
 fn combo_chevron(ui: &Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals, open: bool) {
     let icon = if open {
         Icon::ChevronUp
@@ -1075,7 +1076,7 @@ fn combo_chevron(ui: &Ui, rect: egui::Rect, visuals: &egui::style::WidgetVisuals
         Icon::ChevronDown
     };
     let at = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(14.0));
-    icon.image(14.0)
+    icon.image(ui, 14.0)
         .tint(visuals.fg_stroke.color)
         .paint_at(ui, at);
 }

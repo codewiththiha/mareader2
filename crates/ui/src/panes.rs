@@ -239,7 +239,7 @@ fn empty_state(
         egui::FontId::proportional(12.0),
         t.muted,
     );
-    let button = egui::Button::image_and_text(Icon::Open.image(16.0), "Open…")
+    let button = egui::Button::image_and_text(Icon::Open.image(ui, 16.0), "Open…")
         .image_tint_follows_text_color(true)
         .fill(t.surface)
         .stroke(Stroke::new(1.0, t.line))

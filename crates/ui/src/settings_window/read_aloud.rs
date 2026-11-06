@@ -121,7 +121,7 @@ fn model_row(
             return;
         }
         if shelf.ready().iter().any(|m| m.id == model.id) {
-            let open = egui::Button::new(("Manage", Icon::ChevronRight.image(14.0)))
+            let open = egui::Button::new(("Manage", Icon::ChevronRight.image(ui, 14.0)))
                 .image_tint_follows_text_color(true);
             let r = ui.add(open);
             let label = format!("Manage {}", model.name);
@@ -449,7 +449,10 @@ fn voice_row(
     if on {
         let mark =
             Rect::from_center_size(pos2(rect.right() - 17.0, rect.center().y), vec2(16.0, 16.0));
-        Icon::Check.image(16.0).tint(t.accent).paint_at(ui, mark);
+        Icon::Check
+            .image(ui, 16.0)
+            .tint(t.accent)
+            .paint_at(ui, mark);
     }
     r.clicked() && !on
 }
@@ -462,7 +465,7 @@ fn preview_row(ui: &mut Ui, booth: &Booth, open: bool, out: &mut Commands) {
             true => (Icon::Pause, "Stop", Command::StopVoiceTry),
             false => (Icon::Resume, "Preview", Command::TryVoice),
         };
-        let button = egui::Button::image_and_text(icon.image(14.0), text)
+        let button = egui::Button::image_and_text(icon.image(ui, 14.0), text)
             .image_tint_follows_text_color(true);
         if ui.add_enabled(open, button).clicked() {
             out.push(command);

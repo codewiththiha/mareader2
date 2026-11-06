@@ -31,7 +31,6 @@ mareader-animated-icons = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }
-egui-lucide = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

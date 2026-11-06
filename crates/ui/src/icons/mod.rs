@@ -3,11 +3,11 @@
 pub(crate) mod anim;
 /// The UI-owned semantic `Icon` to generated pack-id adapter.
 mod pack;
+/// Generated one-frame resting glyphs.
+mod rest;
 
 use egui::{Color32, Image, Rect, Ui};
-use egui_lucide::Lucide;
 
-pub const STROKE: f32 = 2.0;
 /// Lucide's grid: a glyph is drawn inside this square.
 pub const GRID: f32 = mareader_animated_icons::GRID;
 /// Authored animation headroom beyond each grid edge.
@@ -196,129 +196,7 @@ impl Icon {
         }
     }
 
-    pub fn lucide(self) -> Lucide {
-        match self {
-            Self::Sidebar => Lucide::PanelLeft,
-            Self::SidebarClose => Lucide::PanelLeftClose,
-            Self::Thumbnails => Lucide::LayoutGrid,
-            Self::Outline => Lucide::ListTree,
-            Self::Dictionary => Lucide::BookA,
-            Self::Library => Lucide::LibraryBig,
-            Self::Layout => Lucide::LayoutTemplate,
-            Self::Motion => Lucide::Wind,
-            Self::Type => Lucide::Type,
-            Self::Levels => Lucide::ChartNoAxesColumnIncreasing,
-            Self::Clock => Lucide::Clock,
-            Self::Search => Lucide::Search,
-            Self::Appearance => Lucide::Palette,
-            Self::Settings => Lucide::Settings,
-            Self::Pin => Lucide::Pin,
-            Self::SplitRight => Lucide::Columns2,
-            Self::Close => Lucide::X,
-            Self::WindowMinimize => Lucide::Minus,
-            Self::WindowMaximize => Lucide::Square,
-            Self::WindowRestore => Lucide::Copy,
-            Self::Book => Lucide::BookOpen,
-            Self::Open => Lucide::FolderOpen,
-            Self::Light => Lucide::Sun,
-            Self::Dark => Lucide::Moon,
-            Self::Dim => Lucide::SunMoon,
-            Self::Black => Lucide::Eclipse,
-            Self::Menu => Lucide::Menu,
-            Self::Fullscreen => Lucide::Maximize,
-            Self::Minus => Lucide::Minus,
-            Self::Plus => Lucide::Plus,
-            Self::ZoomIn => Lucide::ZoomIn,
-            Self::ZoomOut => Lucide::ZoomOut,
-            Self::FitWidth => Lucide::MoveHorizontal,
-            Self::FitPage => Lucide::Shrink,
-            Self::SinglePage => Lucide::RectangleVertical,
-            Self::Spread => Lucide::BookOpen,
-            Self::ScrollVertical => Lucide::GalleryVertical,
-            Self::ScrollHorizontal => Lucide::GalleryHorizontal,
-            Self::ExitFullscreen => Lucide::Minimize,
-            Self::Chromeless => Lucide::EyeOff,
-            Self::Keyboard => Lucide::Keyboard,
-            Self::Alert => Lucide::CircleAlert,
-            Self::Done => Lucide::CircleCheck,
-            Self::ChevronDown => Lucide::ChevronDown,
-            Self::ChevronUp => Lucide::ChevronUp,
-            Self::ChevronLeft => Lucide::ChevronLeft,
-            Self::ChevronRight => Lucide::ChevronRight,
-            Self::Grid => Lucide::LayoutGrid,
-            Self::List => Lucide::List,
-            Self::Sort => Lucide::ArrowDownUp,
-            Self::ViewOptions => Lucide::SlidersHorizontal,
-            Self::AutoScroll => Lucide::ArrowDown,
-            Self::Folders => Lucide::Folders,
-            Self::Folder => Lucide::Folder,
-            Self::FolderPlus => Lucide::FolderPlus,
-            Self::Rescan => Lucide::RefreshCw,
-            Self::SearchFolder => Lucide::FolderSearch,
-            Self::ChooseFile => Lucide::FileSearch,
-            Self::Offline => Lucide::HardDrive,
-            Self::Remove => Lucide::Trash2,
-            Self::Shelf => Lucide::SquareLibrary,
-            Self::Key => Lucide::KeyRound,
-            Self::Ban => Lucide::Ban,
-            Self::Swap => Lucide::ArrowRightLeft,
-            Self::Download => Lucide::Download,
-            Self::Pause => Lucide::Pause,
-            Self::Resume => Lucide::Play,
-            Self::LookUp => Lucide::BookSearch,
-            Self::SelectSeveral => Lucide::ListChecks,
-            Self::Rename => Lucide::Pencil,
-            Self::Note => Lucide::StickyNote,
-            Self::Bookmark => Lucide::Bookmark,
-            Self::Summarize => Lucide::ScrollText,
-            Self::Translate => Lucide::Languages,
-            Self::Simplify => Lucide::Feather,
-            Self::Stop => Lucide::CircleStop,
-            Self::Show => Lucide::Eye,
-            Self::Repeat => Lucide::Repeat,
-            Self::ReadAloud => Lucide::Headphones,
-            Self::VoiceModel => Lucide::AudioWaveform,
-            Self::SkipBack => Lucide::SkipBack,
-            Self::SkipForward => Lucide::SkipForward,
-            Self::LeaveTable => Lucide::ArrowRightFromLine,
-            Self::Table => Lucide::Table,
-            Self::Figure => Lucide::Image,
-            Self::Aside => Lucide::PanelRight,
-            Self::PageNumber => Lucide::Hash,
-            Self::Follow => Lucide::BookOpenText,
-            Self::Check => Lucide::Check,
-            Self::Import => Lucide::BookPlus,
-            Self::Link => Lucide::Link,
-            Self::Restore => Lucide::Undo2,
-            Self::More => Lucide::Ellipsis,
-            Self::Copy => Lucide::Copy,
-            // Not drawn from it: see `svg`.
-            Self::Ai
-            | Self::Kokoro
-            | Self::Piper
-            | Self::Kitten
-            | Self::Phonon
-            | Self::SystemVoice
-            | Self::SilentEngine
-            | Self::OpenAi
-            | Self::Gemini
-            | Self::OpenRouter
-            | Self::Ollama
-            | Self::LmStudio
-            | Self::Apple => Lucide::Square,
-            Self::Chip => Lucide::Cpu,
-            Self::Server => Lucide::Server,
-            Self::Try => Lucide::Play,
-            Self::Speak => Lucide::Volume2,
-            Self::Highlight => Lucide::Highlighter,
-            Self::HalfHighlight => Lucide::Baseline,
-            Self::Underline => Lucide::Underline,
-            Self::MoveUp => Lucide::ArrowUp,
-            Self::MoveDown => Lucide::ArrowDown,
-        }
-    }
-
-    /// Ours, not Lucide's: its loader uri and white SVG file.
+    /// A custom mark: its loader URI and white SVG file.
     fn svg(self) -> Option<(&'static str, &'static str)> {
         let logo = |name, file| Some((name, file));
         match self {
@@ -358,7 +236,7 @@ impl Icon {
     }
 
     /// For egui widgets; tint it, or let a `Button` tint it.
-    pub fn image(self, size: f32) -> Image<'static> {
+    pub fn image(self, ui: &Ui, size: f32) -> Image<'static> {
         if let Some((uri, file)) = self.svg() {
             let source = egui::ImageSource::Bytes {
                 uri: uri.into(),
@@ -368,12 +246,15 @@ impl Icon {
                 .fit_to_exact_size(egui::Vec2::splat(size))
                 .show_loading_spinner(false);
         }
-        self.lucide().size(size).stroke_width(STROKE).image()
+        let Some(pack) = pack::of(self) else {
+            return rest::blank(ui.ctx(), size);
+        };
+        rest::image(ui, pack, size)
     }
 
     /// For custom-painted widgets.
     pub fn paint(self, ui: &Ui, rect: Rect, color: Color32) {
-        self.image(rect.width()).tint(color).paint_at(ui, rect);
+        self.image(ui, rect.width()).tint(color).paint_at(ui, rect);
     }
 
     /// Stable glyph identity for transient animation keys.

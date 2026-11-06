@@ -292,7 +292,11 @@ fn num(v: f32) -> String {
 }
 
 fn original_frame(pack: &Pack, frame: u16, side: u32) -> Option<Vec<u8>> {
-    let svg = frame_svg(pack, f32::from(frame) / FRAME_RATE, PAD);
+    original(pack, f32::from(frame) / FRAME_RATE, PAD, side)
+}
+
+fn original(pack: &Pack, time: f32, pad: f32, side: u32) -> Option<Vec<u8>> {
+    let svg = frame_svg(pack, time, pad);
     let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).ok()?;
     let mut pixmap = tiny_skia::Pixmap::new(side, side)?;
     let scale = side as f32 / tree.size().width().max(tree.size().height());
@@ -418,6 +422,63 @@ fn generated_geometry_and_atlases_match_every_original_svg_frame() {
             }
         }
     }
+}
+
+#[test]
+fn every_resting_glyph_matches_its_first_source_sample() {
+    const SIDES: [u32; 4] = [24, 30, 48, 192];
+    const SOURCE_DELTA: u8 = 48;
+
+    assert_eq!(source::ALL.len(), super::PACKS.len());
+    for reference in source::ALL {
+        let Some(pack) = super::find(reference.id) else {
+            panic!("{}: generated pack is missing", reference.id);
+        };
+        for side in SIDES {
+            let glyph = super::raster_resting(pack, side).unwrap_or_else(|| {
+                panic!(
+                    "{}: resting glyph allocation failed at {side}px",
+                    reference.id
+                )
+            });
+            assert!(glyph.target_x + glyph.width <= glyph.side);
+            assert!(glyph.target_y + glyph.height <= glyph.side);
+            assert_eq!(
+                glyph.byte_len(),
+                glyph.width as usize * glyph.height as usize * 4
+            );
+            let generated = compose_resting(&glyph).unwrap_or_else(|| {
+                panic!(
+                    "{}: resting glyph did not compose at {side}px",
+                    reference.id
+                )
+            });
+            let original = original(reference, 0.0, 0.0, side).unwrap_or_else(|| {
+                panic!("{}: resting SVG did not render at {side}px", reference.id)
+            });
+            assert_pixels(
+                &generated,
+                &original,
+                &format!("{}: resting glyph at {side}px", reference.id),
+                SOURCE_DELTA,
+            );
+        }
+    }
+}
+
+fn compose_resting(glyph: &super::RestingGlyph) -> Option<Vec<u8>> {
+    let mut output = tiny_skia::Pixmap::new(glyph.side, glyph.side)?;
+    let size = tiny_skia::IntSize::from_wh(glyph.width, glyph.height)?;
+    let pixmap = tiny_skia::Pixmap::from_vec(glyph.pixels.clone(), size)?;
+    output.draw_pixmap(
+        glyph.target_x as i32,
+        glyph.target_y as i32,
+        pixmap.as_ref(),
+        &tiny_skia::PixmapPaint::default(),
+        tiny_skia::Transform::identity(),
+        None,
+    );
+    Some(output.take())
 }
 
 fn assert_atlas(atlas: &super::Atlas, pack: &super::Pack) {

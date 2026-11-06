@@ -70,7 +70,7 @@ pub fn heading(
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         if let Some((icon, tint)) = mark {
-            ui.add(icon.image(18.0).tint(tint));
+            ui.add(icon.image(ui, 18.0).tint(tint));
         }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
@@ -90,7 +90,7 @@ pub fn buttons(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 
 /// The filled button that does the thing.
 pub fn primary(ui: &mut Ui, label: &str, fill: Color32, t: &Tokens) -> egui::Response {
-    let button = widgets::primary_button(None, label, fill, t).min_size(vec2(84.0, 30.0));
+    let button = widgets::primary_button(ui, None, label, fill, t).min_size(vec2(84.0, 30.0));
     ui.add(button)
 }
 

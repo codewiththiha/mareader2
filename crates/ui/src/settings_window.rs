@@ -1001,7 +1001,7 @@ fn disclosure(ui: &mut Ui, label: &str, hint: &str) -> bool {
         Icon::ChevronRight
     };
     let mark = Rect::from_center_size(pos2(rect.right() - 9.0, rect.center().y), Vec2::splat(16.0));
-    chevron.image(16.0).tint(ink).paint_at(ui, mark);
+    chevron.image(ui, 16.0).tint(ink).paint_at(ui, mark);
     open
 }
 
@@ -1067,7 +1067,7 @@ fn fold_row(ui: &mut Ui, id: egui::Id, (title, detail): (&str, &str)) -> bool {
         Icon::ChevronRight
     };
     let mark = Rect::from_center_size(pos2(rect.right() - 9.0, mid), Vec2::splat(16.0));
-    chevron.image(16.0).tint(t.muted).paint_at(ui, mark);
+    chevron.image(ui, 16.0).tint(t.muted).paint_at(ui, mark);
     open
 }
 
@@ -1234,7 +1234,7 @@ fn flagged_row(
     if let Some((icon, color)) = flag {
         let mid = pos2(rect.left() + MARK / 2.0, low_at.y + low.size().y / 2.0);
         let mark = Rect::from_center_size(mid, Vec2::splat(MARK));
-        icon.image(MARK).tint(color).paint_at(ui, mark);
+        icon.image(ui, MARK).tint(color).paint_at(ui, mark);
     }
     let painter = ui.painter();
     painter.galley(at, top, t.ink);
@@ -1257,7 +1257,7 @@ fn pending(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
-        ui.add(Icon::Clock.image(13.0).tint(t.muted));
+        ui.add(Icon::Clock.image(ui, 13.0).tint(t.muted));
         ui.label(RichText::new(text).size(t.text_small).color(t.muted));
     });
 }
