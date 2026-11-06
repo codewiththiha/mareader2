@@ -643,7 +643,7 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
   at 1–2× scale, hard-capped at 192 px), and a run no longer schedules icon
   repaints once its widget is not built. Ordinary UI fades, slides and morphs
   also keep egui repainting while active, but normally do only interpolation,
-  layout and painter work rather than SVG parsing and texture updates.
+  layout and painter work rather than SVG parsing and texture updates. The optimization plan lives in `docs/animation-performance.md`.
 
 ## Layers
 
