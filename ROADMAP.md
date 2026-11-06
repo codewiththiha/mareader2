@@ -194,6 +194,7 @@ appearance effects to that same pass.
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Animated icon frames are sampled at stable 60 Hz boundaries and reused by pack and device size under an 8 MiB/512-texture context cache. Replay a title-bar or View-menu icon: its trigger, resting frame and fixed slot stay unchanged; a warmed run no longer parses, rasterises or uploads its samples again |
 | 2026-11-05 | Edge player: the text fits the available width and follows the spoken word; uncover it to watch the return |
 | 2026-11-05 | Toasts: hover the pile to fan it; player confirmations ride an island; the gradient stays |
 | 2026-11-05 | Edge parking: Settings › Panes selects off, original sliver or labeled tab; drag a dictionary past a side and cover the player to try it |

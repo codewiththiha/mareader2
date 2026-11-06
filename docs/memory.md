@@ -1,6 +1,6 @@
 # Memory
 
-> **Status:** M8 audit recorded · **Last updated:** 2026-10-16
+> **Status:** M8 audit recorded; icon-frame budget pending measurement · **Last updated:** 2026-11-06
 
 Every memory claim in this repository needs:
 - what was measured (RSS peak, texture bytes, heap);
@@ -35,6 +35,9 @@ Add a dated section per audit; never overwrite one.
 - **The same book in two panes:** one parse, one tile set; the second pane adds
   only the tiles its own zoom needs.
 - **Thumbnails:** LRU of 16, as in mareader.
+- **Animated icon frames:** context-local cache capped at 8 MiB of accounted
+  RGBA pixels and 512 textures. Driver overhead and release-build RSS remain to
+  be measured; a frame that cannot be admitted uses the stock glyph.
 
 ## 2026-10-13: M2 audit, reading and closing (slice 7)
 

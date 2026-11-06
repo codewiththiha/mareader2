@@ -586,11 +586,13 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
 - **Icons that move (2026-11-06).** The lab's animated pack (`mareader-lab`:
   `animated_icons1/`) is ported into `crates/ui/src/icons/pack.rs`: 98 glyphs,
   each holding its resting markup with one hole per part to move, and its
-  timeline resolved into absolute segments. Each active frame evaluates that
-  arithmetic, emits one SVG, parses and CPU-rasterises it through `reflow`'s
-  usvg/resvg path, then updates the run's reused GPU texture handle. Only a glyph
-  the pack drew can move; the rest
-  are exactly as they were. A run plays its timeline forwards and stops there:
+  timeline resolved into absolute segments. Runs are sampled at 60 frames a
+  second and keyed by pack, device-pixel side and sample. A cold sample evaluates
+  the arithmetic, emits one SVG, parses and CPU-rasterises it through `reflow`'s
+  usvg/resvg path, then uploads a neutral-white texture; later runs draw that
+  texture tinted, without producing its pixels again. Only a glyph the pack drew
+  can move; the rest are exactly as they were. A run plays its timeline forwards
+  and stops there:
   the frame it lands on is the glyph as the pack draws it, so nothing is left
   bent. The frame tests hold every glyph to that picture, allowing for the three
   the lab gave an extra part — a leaf, a bookmark's fill, a second page — whose
@@ -635,15 +637,17 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
   its resting drawing and no repaint is asked for on its account. A press that
   arrives mid-run is queued rather than cut short, so a glyph is never caught
   bent.
-- An active icon run asks for its next pass after `1/60 s`; it does not request
+- An active icon run asks for the next 60 Hz sample boundary; it does not request
   60-plus FPS, and it stops asking when the 0.42–0.84 s pack timeline lands. The
-  work is heavier than an ordinary egui interpolation because each pass parses,
-  CPU-rasterises and uploads a fresh SVG frame. It is bounded to the moving
-  glyph's padded canvas (normally 26–62 device pixels for the 15–18 pt controls
-  at 1–2× scale, hard-capped at 192 px), and a run no longer schedules icon
-  repaints once its widget is not built. Ordinary UI fades, slides and morphs
-  also keep egui repainting while active, but normally do only interpolation,
-  layout and painter work rather than SVG parsing and texture updates. The optimization plan lives in `docs/animation-performance.md`.
+  context-local frame cache holds at most 8 MiB of RGBA pixels or 512 textures,
+  keeps entries drawn in the current or previous pass, and draws the stock glyph
+  instead of exceeding the bound. Cold samples still do synchronous SVG parsing,
+  CPU raster and upload; warmed samples only select a texture. Frames use the
+  moving glyph's padded canvas (normally 26–62 device pixels for the 15–18 pt
+  controls at 1–2× scale, hard-capped at 192 px), and a run no longer schedules
+  icon repaints once its widget is not built. Ordinary UI fades, slides and
+  morphs also keep egui repainting while active, but normally do only
+  interpolation, layout and painter work. The optimization plan lives in `docs/animation-performance.md`.
 
 ## Layers
 

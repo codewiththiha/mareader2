@@ -22,6 +22,7 @@
 //! button - keeps showing a blank at the icon's size while its run plays, so the
 //! headroom costs no layout at all, and the frame goes over it.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use egui::{
@@ -37,6 +38,114 @@ const SPAN: f32 = GRID + 2.0 * PAD;
 /// How much bigger a frame's box is than the glyph's own, and so how much bigger
 /// the canvas it is drawn on has to be to keep the glyph at its real size.
 const BOX: f32 = SPAN / GRID;
+/// Animation samples per second. Repaints land on these frame boundaries.
+const FRAME_RATE: f32 = 60.0;
+/// Hard bound for cached RGBA pixels.
+const CACHE_BYTES: usize = 8 * 1024 * 1024;
+/// Tiny frames are byte-cheap but still own texture-manager entries.
+const CACHE_ENTRIES: usize = 512;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FrameKey {
+    pack: &'static str,
+    side: u32,
+    frame: u16,
+}
+
+#[derive(Clone)]
+struct FrameEntry {
+    texture: TextureHandle,
+    bytes: usize,
+    used: u64,
+}
+
+#[derive(Clone, Default)]
+struct FrameCache {
+    frames: HashMap<FrameKey, FrameEntry>,
+    bytes: usize,
+    #[cfg(test)]
+    hits: usize,
+    #[cfg(test)]
+    misses: usize,
+    #[cfg(test)]
+    rasters: usize,
+    #[cfg(test)]
+    uploads: usize,
+    #[cfg(test)]
+    evictions: usize,
+}
+
+impl FrameCache {
+    fn get(&mut self, key: FrameKey, pass: u64) -> Option<TextureHandle> {
+        let entry = self.frames.get_mut(&key);
+        if let Some(entry) = entry {
+            entry.used = pass;
+            #[cfg(test)]
+            {
+                self.hits += 1;
+            }
+            return Some(entry.texture.clone());
+        }
+        #[cfg(test)]
+        {
+            self.misses += 1;
+        }
+        None
+    }
+
+    fn prepare(&mut self, bytes: usize, pass: u64) -> bool {
+        if bytes > CACHE_BYTES {
+            return false;
+        }
+        while self.bytes.saturating_add(bytes) > CACHE_BYTES || self.frames.len() >= CACHE_ENTRIES {
+            let protect_after = pass.saturating_sub(1);
+            let victim = self
+                .frames
+                .iter()
+                .filter(|(_, entry)| entry.used < protect_after)
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(key, _)| *key);
+            let Some(victim) = victim else {
+                return false;
+            };
+            if let Some(entry) = self.frames.remove(&victim) {
+                self.bytes = self.bytes.saturating_sub(entry.bytes);
+                #[cfg(test)]
+                {
+                    self.evictions += 1;
+                }
+            }
+        }
+        true
+    }
+
+    fn insert(&mut self, key: FrameKey, texture: TextureHandle, bytes: usize, pass: u64) {
+        let old = self.frames.insert(
+            key,
+            FrameEntry {
+                texture,
+                bytes,
+                used: pass,
+            },
+        );
+        if let Some(old) = old {
+            self.bytes = self.bytes.saturating_sub(old.bytes);
+        }
+        self.bytes = self.bytes.saturating_add(bytes);
+        #[cfg(test)]
+        {
+            self.rasters += 1;
+            self.uploads += 1;
+        }
+    }
+}
+
+/// What an active run has ready to paint this pass.
+enum CurrentFrame {
+    Animated(TextureHandle),
+    Fallback,
+    Resting,
+}
 
 /// What the icons of one region are asked to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,10 +294,6 @@ struct Run {
     seen: u64,
     /// A press that arrived mid-run asks to be played once the run lands.
     again: bool,
-    /// The texture frames are drawn into, kept for the next run to reuse.
-    tex: Option<TextureHandle>,
-    /// Its edge, in device pixels: what frames are drawn at.
-    side: u32,
 }
 
 impl Default for Run {
@@ -198,8 +303,6 @@ impl Default for Run {
             held: false,
             seen: 0,
             again: false,
-            tex: None,
-            side: 0,
         }
     }
 }
@@ -230,12 +333,13 @@ impl Run {
 /// otherwise. `tag` names the widget it sits in, so that two of one glyph in a
 /// row each answer for themselves.
 pub(crate) fn glyph(ui: &Ui, icon: Icon, size: f32, tag: &str) -> Image<'static> {
-    match held(ui, icon, tag) {
-        Some(_) => Image::from_texture(egui::load::SizedTexture::new(
+    if is_live(ui, icon, tag) {
+        Image::from_texture(egui::load::SizedTexture::new(
             blank(ui.ctx()),
             Vec2::splat(size),
-        )),
-        None => icon.image(size),
+        ))
+    } else {
+        icon.image(size)
     }
 }
 
@@ -251,13 +355,17 @@ pub(crate) fn play(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) {
 
 /// Plays a glyph in its laid-out box instead of the response centre.
 pub(crate) fn play_at(ui: &Ui, resp: &Response, icon: Icon, tag: &str, mark: Rect) {
-    if let Some(tex) = advance(ui, resp, icon, tag, mark.width()) {
-        ui.painter().image(
-            tex.id(),
-            frame_box(mark),
-            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
-            ink_of(ui, resp),
-        );
+    match advance(ui, resp, icon, tag, mark.width()) {
+        CurrentFrame::Animated(texture) => {
+            ui.painter().image(
+                texture.id(),
+                frame_box(mark),
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                ink_of(ui, resp),
+            );
+        }
+        CurrentFrame::Fallback => icon.paint(ui, mark, ink_of(ui, resp)),
+        CurrentFrame::Resting => {}
     }
 }
 
@@ -297,24 +405,25 @@ fn blank(ctx: &Context) -> egui::TextureId {
 /// since the widget's response is already to hand.
 pub(crate) fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32, tag: &str, resp: &Response) {
     match advance(ui, resp, icon, tag, rect.width()) {
-        Some(tex) => {
+        CurrentFrame::Animated(texture) => {
             // The box the icon was asked for, grown by the headroom the frame was
             // drawn with, so the glyph keeps its size and the ink keeps its room.
             ui.painter().image(
-                tex.id(),
+                texture.id(),
                 frame_box(rect),
                 Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
                 color,
             );
         }
-        None => icon.paint(ui, rect, color),
+        CurrentFrame::Fallback | CurrentFrame::Resting => icon.paint(ui, rect, color),
     }
 }
 
-/// The texture holding a glyph's current frame, after this frame has been read:
-/// what a run needs to start, and what starting one costs.
-fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Option<TextureHandle> {
-    let pack = pack::of(icon)?;
+/// The texture holding a glyph's current quantised frame, or its safe fallback.
+fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> CurrentFrame {
+    let Some(pack) = pack::of(icon) else {
+        return CurrentFrame::Resting;
+    };
     let ctx = ui.ctx();
     let act = current(ctx);
     let dur = if act == Act::Still {
@@ -329,17 +438,12 @@ fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Option
         if ctx.data(|d| d.get_temp::<Run>(id)).is_some() {
             ctx.data_mut(|d| d.remove::<Run>(id));
         }
-        return None;
+        return CurrentFrame::Resting;
     }
     let now = ctx.input(|i| i.time);
     let (hovered, pressed) = (resp.hovered(), resp.clicked());
     let seen = pass(ctx);
     let mut run = ctx.data(|d| d.get_temp::<Run>(id)).unwrap_or_default();
-    let side = side(size * BOX, ctx.pixels_per_point());
-    if run.side != side {
-        run.side = side;
-        run.tex = None;
-    }
     let live = run.through(now, dur).is_some();
     let ask = order(
         act,
@@ -360,26 +464,24 @@ fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Option
     let t = match run.through(now, dur) {
         Some(t) => t,
         None => {
-            // Landed. Either the press that came in during the run is next, or
-            // the glyph rests and its texture waits for a later run.
+            // Landed. Either the queued press starts next or the glyph rests.
             if run.again {
                 run.again = false;
                 run.start = now;
-                let out = upload(ctx, &mut run, &frame_svg(pack, 0.0, PAD), pack.id);
+                let out = cached_frame(ctx, pack, side(size * BOX, ctx.pixels_per_point()), 0);
+                schedule(ctx, &run, dur, 0, now);
                 ctx.data_mut(|d| d.insert_temp(id, run));
-                ctx.request_repaint_after(Duration::from_secs_f32(1.0 / 60.0));
                 return out;
             }
             run.start = -1.0;
             ctx.data_mut(|d| d.insert_temp(id, run));
-            return None;
+            return CurrentFrame::Resting;
         }
     };
-    let out = upload(ctx, &mut run, &frame_svg(pack, t, PAD), pack.id);
+    let frame = frame_index(t, dur);
+    let out = cached_frame(ctx, pack, side(size * BOX, ctx.pixels_per_point()), frame);
+    schedule(ctx, &run, dur, frame, now);
     ctx.data_mut(|d| d.insert_temp(id, run));
-    // Only as long as the run itself asks for frames; the last one lands and
-    // the repaints stop with it.
-    ctx.request_repaint_after(Duration::from_secs_f32(1.0 / 60.0));
     out
 }
 
@@ -389,24 +491,45 @@ fn side(size: f32, ppp: f32) -> u32 {
     ((size * ppp).round() as i32).clamp(8, 192) as u32
 }
 
-/// The frame a widget shows when it did not drive the run: the texture the driver
-/// last drew, while the run is still playing. A `Button` paints its image before
-/// its own response exists, so the two halves of a button's frame are read here
-/// and driven by [`play`].
-fn held(ui: &Ui, icon: Icon, tag: &str) -> Option<TextureHandle> {
-    let pack = pack::of(icon)?;
+fn frame_index(t: f32, dur: f32) -> u16 {
+    let last = (dur * FRAME_RATE).ceil().max(1.0) as u32 - 1;
+    ((t.max(0.0) * FRAME_RATE).floor() as u32)
+        .min(last)
+        .min(u16::MAX as u32) as u16
+}
+
+fn frame_time(frame: u16) -> f32 {
+    f32::from(frame) / FRAME_RATE
+}
+
+fn schedule(ctx: &Context, run: &Run, dur: f32, frame: u16, now: f64) {
+    let next = run.start + (f64::from(frame) + 1.0) / f64::from(FRAME_RATE);
+    let end = run.start + f64::from(dur);
+    let wait = next.min(end) - now;
+    if wait.is_finite() && wait > 0.0 {
+        ctx.request_repaint_after(Duration::from_secs_f64(wait));
+    } else {
+        ctx.request_repaint();
+    }
+}
+
+/// A `Button` paints its image before its response exists, so it reserves a
+/// blank whenever the response half will paint an active frame over it.
+fn is_live(ui: &Ui, icon: Icon, tag: &str) -> bool {
+    let Some(pack) = pack::of(icon) else {
+        return false;
+    };
     let ctx = ui.ctx();
     if current(ctx) == Act::Still {
-        return None;
+        return false;
     }
     let dur = motion::secs(ctx, pack.dur);
     if dur <= 0.0 {
-        return None;
+        return false;
     }
     let now = ctx.input(|i| i.time);
-    let run = ctx.data(|d| d.get_temp::<Run>(key(ui, icon, tag)))?;
-    run.through(now, dur)?;
-    run.tex
+    ctx.data(|d| d.get_temp::<Run>(key(ui, icon, tag)))
+        .is_some_and(|run| run.through(now, dur).is_some())
 }
 
 /// One glyph's, in one widget's, run.
@@ -414,22 +537,60 @@ fn key(ui: &Ui, icon: Icon, tag: &str) -> Id {
     ui.id().with(("icon-anim", icon.slot(), tag))
 }
 
-/// Draw one frame into the run's texture, making the texture on the first.
-fn upload(ctx: &Context, run: &mut Run, svg: &str, name: &str) -> Option<TextureHandle> {
-    let img = mareader_reflow::raster_svg(svg.as_bytes(), run.side)?;
-    let (w, h) = (img.width() as usize, img.height() as usize);
-    let image = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
-    match &mut run.tex {
-        Some(tex) => tex.set(image, TextureOptions::LINEAR),
-        None => {
-            run.tex = Some(ctx.load_texture(
-                format!("mareader-icon-{name}"),
-                image,
-                TextureOptions::LINEAR,
-            ));
+fn frame_cache() -> Id {
+    Id::new("mareader-icon-frame-cache")
+}
+
+fn cached_frame(ctx: &Context, pack: &'static Pack, side: u32, frame: u16) -> CurrentFrame {
+    let key = FrameKey {
+        pack: pack.id,
+        side,
+        frame,
+    };
+    let seen = pass(ctx);
+    if let Some(texture) = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<FrameCache>(frame_cache())
+            .get(key, seen)
+    }) {
+        return CurrentFrame::Animated(texture);
+    }
+    let expected = (side as usize)
+        .saturating_mul(side as usize)
+        .saturating_mul(4);
+    let admitted = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<FrameCache>(frame_cache())
+            .prepare(expected, seen)
+    });
+    if !admitted {
+        return CurrentFrame::Fallback;
+    }
+    let Some(img) =
+        mareader_reflow::raster_svg(frame_svg(pack, frame_time(frame), PAD).as_bytes(), side)
+    else {
+        return CurrentFrame::Fallback;
+    };
+    let bytes = img.as_raw().len();
+    if bytes > expected {
+        let admitted = ctx.data_mut(|d| {
+            d.get_temp_mut_or_default::<FrameCache>(frame_cache())
+                .prepare(bytes, seen)
+        });
+        if !admitted {
+            return CurrentFrame::Fallback;
         }
     }
-    run.tex.clone()
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let image = egui::ColorImage::from_rgba_unmultiplied([w, h], img.as_raw());
+    let texture = ctx.load_texture(
+        format!("mareader-icon-{}-{side}-{frame}", pack.id),
+        image,
+        TextureOptions::LINEAR,
+    );
+    ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<FrameCache>(frame_cache())
+            .insert(key, texture.clone(), bytes, seen);
+    });
+    CurrentFrame::Animated(texture)
 }
 
 /// One frame of a run as an SVG: the resting markup, with every part moved,
@@ -692,6 +853,94 @@ mod tests {
         mareader_reflow::raster_svg(frame_svg(pack, t, MEASURE).as_bytes(), side)
     }
 
+    #[test]
+    fn frame_times_are_quantised_and_bounded_by_the_run() {
+        assert_eq!(frame_index(0.0, 0.56), 0);
+        assert_eq!(frame_index(1.0 / FRAME_RATE - 1e-4, 0.56), 0);
+        assert_eq!(frame_index(1.0 / FRAME_RATE + 1e-4, 0.56), 1);
+        assert_eq!(frame_index(0.559, 0.56), 33);
+        assert_eq!(frame_index(8.0, 0.56), 33);
+        assert!((frame_time(33) - 0.55).abs() < 1e-6);
+        assert!(
+            pack::ALL
+                .iter()
+                .all(|pack| frame_index(pack.dur, pack.dur) <= 50),
+            "the pack should fit in 51 samples"
+        );
+    }
+
+    fn texture(frame: CurrentFrame) -> Option<egui::TextureId> {
+        match frame {
+            CurrentFrame::Animated(texture) => Some(texture.id()),
+            CurrentFrame::Fallback | CurrentFrame::Resting => None,
+        }
+    }
+
+    #[test]
+    fn a_warmed_run_reuses_every_texture_without_another_raster() {
+        let ctx = Context::default();
+        let pack = pack::of(Icon::Light).unwrap_or(pack::ALL[0]);
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(100.0))),
+            ..Default::default()
+        };
+        let frames = frame_index(pack.dur - 1e-6, pack.dur) + 1;
+        let mut cold = Vec::new();
+        let mut warm = Vec::new();
+        let mut out = ctx.run_ui(raw, |ui| {
+            for frame in 0..frames {
+                cold.push(texture(cached_frame(ui.ctx(), pack, 32, frame)));
+            }
+            for frame in 0..frames {
+                warm.push(texture(cached_frame(ui.ctx(), pack, 32, frame)));
+            }
+        });
+        out.textures_delta.clear();
+        let cache = ctx
+            .data(|d| d.get_temp::<FrameCache>(frame_cache()))
+            .unwrap_or_default();
+        assert!(cold.iter().all(Option::is_some));
+        assert_eq!(cold, warm);
+        assert_eq!(cache.frames.len(), usize::from(frames));
+        assert_eq!(cache.bytes, usize::from(frames) * 32 * 32 * 4);
+        assert_eq!(
+            (cache.hits, cache.misses),
+            (usize::from(frames), usize::from(frames))
+        );
+        assert_eq!(
+            (cache.rasters, cache.uploads),
+            (usize::from(frames), usize::from(frames))
+        );
+    }
+
+    #[test]
+    fn cache_admission_protects_the_last_two_passes() {
+        let ctx = Context::default();
+        let image = egui::ColorImage::new([1, 1], vec![Color32::WHITE]);
+        let texture = ctx.load_texture("cache-bound", image, TextureOptions::LINEAR);
+        let key = FrameKey {
+            pack: "test",
+            side: 1,
+            frame: 0,
+        };
+        let mut cache = FrameCache::default();
+        cache.frames.insert(
+            key,
+            FrameEntry {
+                texture,
+                bytes: CACHE_BYTES,
+                used: 4,
+            },
+        );
+        cache.bytes = CACHE_BYTES;
+        assert!(!cache.prepare(4, 4), "the current pass stays protected");
+        assert!(!cache.prepare(4, 5), "the previous pass stays protected");
+        assert!(cache.prepare(4, 6), "an older frame may be evicted");
+        assert!(cache.frames.is_empty());
+        assert_eq!(cache.bytes, 0);
+        assert_eq!(cache.evictions, 1);
+    }
+
     /// The box a picture's ink occupies, if it has any.
     fn ink_box(img: &image::RgbaImage) -> Option<(u32, u32, u32, u32)> {
         let (mut lo, mut top, mut hi, mut bottom) = (u32::MAX, u32::MAX, 0u32, 0u32);
@@ -800,8 +1049,7 @@ mod tests {
                 }
                 paint(ui, cell, Icon::Light, Color32::WHITE, "cell", &resp);
             });
-            // Nothing renders here, so the frame's texture work is spent once it
-            // is let go of: what this test reads is the run, not its pixels.
+            // No renderer consumes this test's texture delta.
             out.textures_delta.clear();
             live.push(
                 ctx.data(|d| d.get_temp::<Run>(run_of))

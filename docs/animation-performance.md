@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** source audit and implementation plan · **Last updated:** 2026-11-06
+> **Status:** source audit and first cache slice · **Last updated:** 2026-11-06
 
 This document answers two separate questions:
 
@@ -18,39 +18,58 @@ would require the release-build measurements specified below.
 Mareader's animated icons do **avoidable CPU work**, but the source alone does
 not prove they use “a lot” of CPU on a particular machine.
 
-Each active icon frame currently:
+Each uncached icon sample currently:
 
 1. evaluates the pack's timeline;
 2. builds a new SVG string;
 3. parses it into a new `usvg::Tree`;
 4. CPU-rasterises it through resvg/tiny-skia;
 5. constructs an RGBA `ColorImage`; and
-6. updates a GPU texture.
+6. uploads a GPU texture.
 
 A normal 15–18 point icon uses a small canvas, usually 26–62 device pixels at
-1–2× scale. A run lasts 0.42–0.84 seconds and asks for its next pass after
-`1/60 s`. That is normally about 25–51 parse/raster/upload operations for one
-click or hover. Several live icons multiply the raster work, although their
-repaint requests coalesce into the same egui passes.
+1–2× scale. A run lasts 0.42–0.84 seconds and targets 25–51 stable 60 Hz
+samples. The first run for one pack and device size may therefore do 25–51
+parse/raster/upload operations; a warmed run reuses those textures. Several
+cold live icons multiply the raster work, although their repaint requests
+coalesce into the same egui passes.
 
-This is much heavier than interpolating a number and painting a few egui
-shapes. It is still short-lived, small, and finite. Whether it is noticeable
-must be profiled in a release build. The immediate improvement is not to leave
-egui; it is to stop producing the same animation pixels repeatedly on the UI
+Cold production is much heavier than interpolating a number and painting a few
+egui shapes. It is still short-lived, small, and finite. Whether it is
+noticeable must be profiled in a release build. The cache removes repeated
+production; a later worker/atlas slice can remove cold production from the UI
 thread.
+
+## Implementation status
+
+The first cache slice is implemented in `crates/ui/src/icons/anim.rs`:
+
+- run time is quantised to stable 60 Hz frame indices;
+- repaints target the exact next sample or landing deadline;
+- neutral-white textures are shared by pack, device-pixel side and frame;
+- the context-local cache is capped at 8 MiB of RGBA pixels and 512 entries;
+- entries used in the current or previous pass are protected from eviction; and
+- a frame that cannot be admitted draws the same stock fallback without stopping
+  the finite run.
+
+Cold samples still parse and rasterise SVG synchronously. Release measurements,
+off-thread production and per-pack atlases remain later slices.
 
 ## Mareader's current paths
 
 ### Animated icons
 
 `crates/ui/src/icons/anim.rs::advance` owns one finite run per icon and widget.
-While the run is live it calls `frame_svg`, `mareader_reflow::raster_svg`, and
-`TextureHandle::set`, then schedules another pass after `1/60 s`.
+It selects a quantised sample and asks the context-local cache for the pack,
+device-pixel side and frame index. A hit paints the retained texture. A miss
+calls `frame_svg` and `mareader_reflow::raster_svg`, uploads one neutral-white
+texture, and admits it under the cache's byte/entry bounds. The next pass is
+scheduled for the exact sample or landing deadline.
 
 `crates/reflow/src/svg.rs::raster_svg` calls `usvg::Tree::from_data`, renders a
 fresh tiny-skia pixmap with resvg, demultiplies every pixel, and returns a new
-RGBA image. The texture **handle** is reused; parsed SVGs and raster frames are
-not.
+RGBA image. That work now occurs once per admitted frame rather than once per
+run.
 
 The stock resting path is already cached independently:
 
@@ -185,9 +204,9 @@ index's timestamp is the timestamp passed to `frame_svg`, so cache identity and
 rendered content cannot disagree. Frames stay neutral white and are tinted when
 painted, so theme, hover and disabled colours do not multiply cache entries.
 
-On a miss, the first implementation may use the existing synchronous raster
-path. On a hit, it only selects a cached `TextureHandle`. Replaying a warmed
-icon then performs no SVG parse, CPU raster or texture upload.
+On a miss, the first implementation uses the existing synchronous raster path.
+On a hit, it only selects a cached `TextureHandle`. Replaying a warmed icon then
+performs no SVG parse, CPU raster or texture upload.
 
 The cache must:
 
@@ -383,13 +402,14 @@ Performance evidence:
 
 ## Decision
 
-Mareader should remain a reactive native egui application. Ordinary UI motion
-should continue to use egui interpolation and painter geometry. Animated icons
-should keep their current interaction and layout contract but migrate from
-per-pass SVG production to a byte-capped, context-local cache, then to lazy
-per-pack frame atlases if the measured first phase warrants it.
+Mareader remains a reactive native egui application. Ordinary UI motion keeps
+egui interpolation and painter geometry. Animated icons keep their interaction
+and layout contract while the quantised, byte-capped context cache removes
+repeat production. Lazy per-pack frame atlases follow if measurement warrants
+them.
 
 The implementation order is **measure → quantise/cache → worker/atlas → only
-then consider custom vector/GPU paths**. This removes the known redundant CPU
-work without trading it for unbounded memory, first-run stalls, or a second icon
-system.
+then consider custom vector/GPU paths**. The cache slice is in place; release
+measurement is still required before claiming magnitude or choosing the next
+optimization. This avoids trading redundant CPU work for unbounded memory,
+first-run stalls, or a second icon system.
