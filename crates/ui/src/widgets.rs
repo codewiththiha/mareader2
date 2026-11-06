@@ -1122,7 +1122,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut at = pos2(20.0, 20.0);
         let mut clicked = Vec::new();
-        let mut frames = Vec::new();
+        let mut runs = Vec::new();
         for (n, time) in [0.0, 0.02, 0.04].into_iter().enumerate() {
             let events = match n {
                 1 => vec![
@@ -1157,14 +1157,20 @@ mod tests {
                 let resp = icon_button_tagged(ui, Icon::Bookmark, label, TAG, n > 1, None);
                 at = resp.rect.center();
                 clicked.push(resp.clicked());
+                runs.push(
+                    ui.push_id(("icon-button", TAG), |ui| {
+                        crate::icons::anim::run_started(ui, Icon::Bookmark, TAG)
+                    })
+                    .inner,
+                );
             });
-            frames.push(out.textures_delta.set.len());
             out.textures_delta.clear();
         }
         assert_eq!(clicked, [false, true, false]);
-        assert!(
-            frames[1] > 0 && frames[2] > 0,
-            "the click and the changed-label frame should both draw the same run: {frames:?}"
+        assert_eq!(
+            runs,
+            [false, true, true],
+            "the changed label should keep the click's run"
         );
     }
 }

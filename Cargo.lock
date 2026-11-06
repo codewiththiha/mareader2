@@ -3584,6 +3584,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mareader-animated-icons"
+version = "0.0.5"
+dependencies = [
+ "resvg",
+ "roxmltree 0.20.0",
+ "tiny-skia",
+]
+
+[[package]]
 name = "mareader-appearance"
 version = "0.0.5"
 dependencies = [
@@ -3818,6 +3827,7 @@ dependencies = [
  "egui_extras",
  "egui_kittest",
  "image",
+ "mareader-animated-icons",
  "mareader-appearance",
  "mareader-assist",
  "mareader-audio",

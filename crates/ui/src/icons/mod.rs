@@ -1,17 +1,7 @@
-//! Lucide icons by meaning, drawn white and tinted: egui-lucide caches
-//! per colour - and, for the glyphs `pack` drew, drawn a frame at a time so a
-//! glyph can move: see `anim`.
+//! Semantic Lucide icons with optional generated animation.
 
 pub(crate) mod anim;
-/// The generated table. Its numbers are measurements four decimals deep, and a
-/// measurement that happens to begin `1.4142` is not a claim about the square
-/// root of two: the lint that reads it as one is asked off. So is the one that
-/// counts digits past what an `f32` would keep, since a frame is written to
-/// three decimals and the table keeps one more than that in hand. Re-port the
-/// pack with its numbers rounded this way and the lint asks of it nothing else,
-/// and run the formatter over the file after: it is written once and read
-/// rarely, but it is read.
-#[allow(clippy::approx_constant, clippy::excessive_precision)]
+/// The UI-owned semantic `Icon` to generated pack-id adapter.
 mod pack;
 
 use egui::{Color32, Image, Rect, Ui};
@@ -19,17 +9,9 @@ use egui_lucide::Lucide;
 
 pub const STROKE: f32 = 2.0;
 /// Lucide's grid: a glyph is drawn inside this square.
-pub const GRID: f32 = 24.0;
-/// How far past the grid a moving frame may paint, in grid units. The lab's
-/// keyframes scale a glyph up and slide its parts out of the box it was drawn
-/// in, and a frame is clipped to its own canvas, so the canvas keeps this much
-/// slack on every side rather than losing the ink at the edge.
-pub const PAD: f32 = 8.5;
-
-/// Where a frame writes a part's attributes into a pack's markup.
-pub(crate) const HOLE: char = '\u{1}';
-/// The same, for the stroke width an element carries itself.
-pub(crate) const WIDTH_HOLE: char = '\u{2}';
+pub const GRID: f32 = mareader_animated_icons::GRID;
+/// Authored animation headroom beyond each grid edge.
+pub const PAD: f32 = mareader_animated_icons::PAD;
 
 /// "AI" in strokes inside a rounded frame, on Lucide's 24-unit grid.
 const AI_MARK: &str = concat!(
@@ -42,11 +24,7 @@ const AI_MARK: &str = concat!(
     "</svg>"
 );
 
-// The voices' own marks, one per engine in `crates/speech`, in
-// `assets/engines`. Each is drawn from what the engine is - its name, its size,
-// its physics - so a row of engines reads as six different voices, and each is
-// drawn on Lucide's grid at stroke 2 with round caps so it tints, and sits
-// beside a stock glyph, like one.
+// Voice-engine marks use the Lucide grid and stroke.
 
 /// The engines' files, one per id `Icon::engine` knows.
 const ENGINE_FILES: [(&str, &str); 6] = [
@@ -196,8 +174,7 @@ pub enum Icon {
     Aside,
 }
 
-/// An engine's own file, by the id `Icon::engine` maps from. The two tables
-/// stay in step because `tests` reads every engine id through this.
+/// The embedded mark for an engine id.
 fn engine_file(id: &str) -> &'static str {
     ENGINE_FILES
         .into_iter()
@@ -206,8 +183,7 @@ fn engine_file(id: &str) -> &'static str {
 }
 
 impl Icon {
-    /// The mark an engine owns, by its id in `crates/speech`. None for one with
-    /// no mark of its own, where the stock waveform stands in.
+    /// Resolves an engine id to its mark.
     pub fn engine(id: &str) -> Option<Icon> {
         match id {
             "kokoro" => Some(Self::Kokoro),
@@ -400,103 +376,17 @@ impl Icon {
         self.image(rect.width()).tint(color).paint_at(ui, rect);
     }
 
-    /// A small stable number for this glyph, for keys that must not change when
-    /// the enum is reordered around it: `anim` keeps one run per icon per widget.
+    /// Stable glyph identity for transient animation keys.
     fn slot(self) -> u32 {
         self as u32
     }
-}
-
-/* ------------------------------------------------------------------------- */
-/* What a generated glyph is, and what a frame does to it                    */
-/* ------------------------------------------------------------------------- */
-
-/// One movable piece of a [Pack]'s glyph: what a part of it weighs, where it
-/// hangs from, and how far its ink runs.
-pub(crate) struct Part {
-    /// The lab's name for it, as its markup tagged it. Read by nobody at
-    /// runtime: it is what makes a row of the table and a line of the markup
-    /// the same part, to anyone comparing the two.
-    #[allow(dead_code)]
-    pub name: &'static str,
-    /// The pivot of any turn or stretch: the middle of the part's own ink, in
-    /// the glyph's 24-unit box, which is what a browser pivots a part on.
-    pub ox: f32,
-    pub oy: f32,
-    /// The length of its stroke, so a run that draws it on needs no measuring.
-    pub len: f32,
-    /// The width it is drawn at, which a run may thin and must give back.
-    pub w: f32,
-}
-
-/// One mark in a pack's markup, saying which part is being written to and
-/// whether it is the element's own stroke width rather than the whole part.
-pub(crate) struct Hole {
-    pub part: u8,
-    pub width: bool,
-}
-
-/// What one segment of a timeline animates.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Prop {
-    X,
-    Y,
-    Scale,
-    ScaleX,
-    ScaleY,
-    Rotate,
-    SkewX,
-    /// No glyph the lab has drawn skews the other way yet; the port maps it
-    /// here all the same, so a pack that grows one needs no new plumbing.
-    #[allow(dead_code)]
-    SkewY,
-    Opacity,
-    /// How much of a stroke is drawn, as a share of its length.
-    PathLen,
-    /// Where that share starts, as a share too.
-    PathOff,
-    StrokeW,
-}
-
-/// One property of one part: when it moves, how long it takes, where it goes.
-pub(crate) struct Seg {
-    pub part: u8,
-    pub prop: Prop,
-    /// Seconds from the run's start.
-    pub t0: f32,
-    /// Seconds the move takes. Zero is a snap, and holds either side of it.
-    pub dur: f32,
-    /// The values, one per `times` share. Two is a move from what came before.
-    pub keys: &'static [f32],
-    /// Where each key sits within the segment; empty spaces them evenly.
-    pub times: &'static [f32],
-    /// One easing per gap, into the pack's table; one entry serves them all.
-    pub eases: &'static [u8],
-}
-
-/// A glyph that can move: its drawing at rest, and the timeline that bends it.
-pub(crate) struct Pack {
-    /// The lab's name for it, for the frame's own debugging.
-    pub id: &'static str,
-    /// Seconds the whole run takes. Every run ends where it began, so a glyph
-    /// can be left alone once it has played without it showing the difference.
-    pub dur: f32,
-    pub parts: &'static [Part],
-    pub segs: &'static [Seg],
-    /// One per mark in `svg`, in the order they appear.
-    pub holes: &'static [Hole],
-    /// The glyph at rest, with a [`HOLE`] where each part's attributes go.
-    pub svg: &'static str,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Every engine the app can speak with leads its row with a mark of its own,
-    /// drawn in the same shell as the rest, and no two engines share one.
-    /// The shell `AI_MARK` is drawn in: the whole point is that an engine's file
-    /// opens with it, so a mark tints and weighs like a Lucide glyph.
+    /// Builds a tintable engine mark in the shared icon shell.
     const SHELL: &str = concat!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" "#,
         r#"viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" "#,

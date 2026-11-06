@@ -194,6 +194,7 @@ appearance effects to that same pass.
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Animated icons now use build-generated atomic part scenes and tight, deduplicated variants packed into one texture; active samples paint source-ordered egui mesh quads. Nested opacity stays inside its generated part tile, every pack must fit below 8 MiB without whole-frame cells, native cold work has one worker, and wasm stays synchronous |
 | 2026-11-06 | Animated icon representation study (`docs/animation-performance.md`): 233 of 265 parts keep stable coverage, while 32 parts in 20 packs draw paths or change stroke width. The preferred runtime-SVG replacement is generated typed geometry, direct tiny-skia part tiles and ordered egui atlas meshes; a lazy whole-frame atlas is the lower-risk worker/control slice, and retained vector meshes remain the memory-lean comparison |
 | 2026-11-06 | Animated icon frames are sampled at stable 60 Hz boundaries and reused by pack and device size under an 8 MiB/512-texture context cache. Replay a title-bar or View-menu icon: its trigger, resting frame and fixed slot stay unchanged; a warmed run no longer parses, rasterises or uploads its samples again |
 | 2026-11-05 | Edge player: the text fits the available width and follows the spoken word; uncover it to watch the return |

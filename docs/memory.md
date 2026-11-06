@@ -1,6 +1,6 @@
 # Memory
 
-> **Status:** M8 audit recorded; icon-frame budget pending measurement · **Last updated:** 2026-11-06
+> **Status:** M8 audit recorded; generated icon-atlas budget pending release measurement · **Last updated:** 2026-11-06
 
 Every memory claim in this repository needs:
 - what was measured (RSS peak, texture bytes, heap);
@@ -35,9 +35,12 @@ Add a dated section per audit; never overwrite one.
 - **The same book in two panes:** one parse, one tile set; the second pane adds
   only the tiles its own zoom needs.
 - **Thumbnails:** LRU of 16, as in mareader.
-- **Animated icon frames:** context-local cache capped at 8 MiB of accounted
-  RGBA pixels and 512 textures. Driver overhead and release-build RSS remain to
-  be measured; a frame that cannot be admitted uses the stock glyph.
+- **Animated icon atlases:** context-local cache capped at 8 MiB of accounted
+  premultiplied RGBA pixels and 512 textures. One texture contains tight,
+  deduplicated part variants for every 60 Hz sample of one pack and one
+  device-pixel size. Atomic part scenes retain nested compositing without
+  whole-frame cells. Driver overhead and release-build RSS remain to be
+  measured; a pending or unadmitted atlas uses the stock glyph.
 
 ## 2026-10-13: M2 audit, reading and closing (slice 7)
 
@@ -516,3 +519,23 @@ continuation. Its table records preview, target-raster, scroll-raster and full-
 completion latency, plus process RSS above the generated-input baseline. These
 are scheduler and whole-book measurements, not device-wall-time guarantees.
 PDF page-tree enumeration remains eager, with rasters requested on demand.
+
+## 2026-11-06: generated animated-icon part-atlas bound
+
+- **What changed:** active icon animation no longer retains independently parsed
+  SVG frames. `mareader-animated-icons` generates atomic top-level part scenes,
+  rasterises their tight state variants and packs them into one texture per pack
+  and device-pixel size. `mareader-ui` composes each sample as ordered egui mesh
+  quads.
+- **Admission bound:** both one generated atlas and the context-local sum of
+  retained atlas pixels are capped at 8 MiB. The cache also remains capped at
+  512 entries. Generation is lazy; all 98 packs and DPI sizes are never
+  allocated eagerly. Exhaustive atlas tests require every current pack to fit
+  the bound without whole-frame cells.
+- **In-flight bound:** the native queue has two jobs and one raster worker, while
+  a context retains at most one completed pixel atlas awaiting publication. A
+  threadless build generates synchronously. The stock glyph remains visible
+  while work is pending or storage cannot be admitted.
+- **Limits:** these are byte-accounting rules, not RSS or driver measurements.
+  Texture-manager overhead, upload staging, temporary generation buffers and
+  release-build RSS still need the performance harness and a real GPU run.

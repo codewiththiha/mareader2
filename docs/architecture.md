@@ -22,6 +22,7 @@ the right place.
 | Layer | Crate (`mareader-…`) | State | Owns |
 |---|---|---|---|
 | L0 | `appearance` | **exists** | base mode, tint, texture, grain, presets; colour maths; the page filter chain as matrices |
+| L0 | `animated-icons` | **exists** | build-time-normalised Lucide animation packs as typed paths, ordered layers and timelines; bounded tiny-skia atlas rasterisation, with no UI toolkit dependency |
 | L0 | `workspace` | **exists** | the pane split tree (≤ 4), layout, dividers, drop edges |
 | L0 | `fetch` | **exists** | resumable downloads from mirrors, checked by kind before kept; desktop only, empty in a browser |
 | L0 | `audio` | **exists** | a book's narration: clips decoded (symphonia), brought to the device's rate, sped up at the same pitch, and played on the system output (cpal); also samples a voice made in memory, queued behind what plays; silent in a browser |

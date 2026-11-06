@@ -27,6 +27,7 @@ mareader-speech = { workspace = true }
 # How English words sound, written for the word cards.
 mareader-g2p = { workspace = true }
 mareader-memory = { workspace = true }
+mareader-animated-icons = { workspace = true }
 image = { workspace = true, features = ["jpeg"] }
 egui = { workspace = true }
 egui_extras = { workspace = true }

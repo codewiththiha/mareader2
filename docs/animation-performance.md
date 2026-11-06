@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** source audit, first cache slice and representation study · **Last updated:** 2026-11-06
+> **Status:** generated part-atlas implementation; release measurement pending · **Last updated:** 2026-11-06
 
 This document answers two separate questions:
 
@@ -15,10 +15,10 @@ would require the release-build measurements specified below.
 
 ## Short answer
 
-Mareader's animated icons do **avoidable CPU work**, but the source alone does
-not prove they use “a lot” of CPU on a particular machine.
+Mareader's previous animated-icon path did **avoidable CPU work**, but the
+source alone does not prove it used “a lot” of CPU on a particular machine.
 
-Each uncached icon sample currently:
+Before the generated-atlas replacement, each uncached icon sample:
 
 1. evaluates the pack's timeline;
 2. builds a new SVG string;
@@ -34,42 +34,55 @@ parse/raster/upload operations; a warmed run reuses those textures. Several
 cold live icons multiply the raster work, although their repaint requests
 coalesce into the same egui passes.
 
-Cold production is much heavier than interpolating a number and painting a few
-egui shapes. It is still short-lived, small, and finite. Whether it is
-noticeable must be profiled in a release build. The cache removes repeated
-production; a later worker/atlas slice can remove cold production from the UI
-thread.
+Cold SVG production was much heavier than interpolating a number and painting
+a few egui shapes. The generated part atlas removes parsing from runtime,
+performs bounded cold raster work on one native worker, uploads one texture and
+then paints source-ordered mesh cells. Whether the change is noticeable on a
+particular machine still requires a release profile.
 
 ## Implementation status
 
-The first cache slice is implemented in `crates/ui/src/icons/anim.rs`:
+The runtime-SVG replacement is implemented across
+`crates/animated-icons` and `crates/ui/src/icons/anim.rs`:
 
-- run time is quantised to stable 60 Hz frame indices;
-- repaints target the exact next sample or landing deadline;
-- neutral-white textures are shared by pack, device-pixel side and frame;
-- the context-local cache is capped at 8 MiB of RGBA pixels and 512 entries;
-- entries used in the current or previous pass are protected from eviction; and
-- a frame that cannot be admitted draws the same stock fallback without stopping
-  the finite run.
+- the 98 source SVG/timeline declarations are build-script input only;
+- generated typed paths, ordered layers and animated-part ancestry are the
+  runtime representation;
+- time is quantised to stable 60 Hz samples and repaints target the exact next
+  sample or landing deadline;
+- tight, deduplicated layer-state variants are packed into one neutral-white
+  texture per pack and device-pixel side;
+- the UI emits those cells as source-ordered quads in one egui mesh, tinting at
+  draw time;
+- each authored top-level part is one atomic generated layer, so nested opacity
+  is baked exactly without a whole-frame representation;
+- every pack and DPI bucket must fit its generated part atlas below 8 MiB;
+- native cold generation uses one bounded worker; wasm/threadless generation is
+  synchronous; and
+- the context-local byte-accounted LRU remains capped at 8 MiB and 512 entries,
+  with the stock glyph visible while an atlas is pending or unavailable.
 
-Cold samples still parse and rasterise SVG synchronously. Release measurements,
-off-thread production and per-pack atlases remain later slices.
+The generated renderer and ordered compositor have exhaustive source-parity
+coverage at the UI's DPI buckets. Release CPU, RSS, upload and driver
+measurements are still required before claiming a performance magnitude.
 
 ## Mareader's current paths
 
 ### Animated icons
 
 `crates/ui/src/icons/anim.rs::advance` owns one finite run per icon and widget.
-It selects a quantised sample and asks the context-local cache for the pack,
-device-pixel side and frame index. A hit paints the retained texture. A miss
-calls `frame_svg` and `mareader_reflow::raster_svg`, uploads one neutral-white
-texture, and admits it under the cache's byte/entry bounds. The next pass is
-scheduled for the exact sample or landing deadline.
+It selects a quantised sample and asks the context-local cache for the pack and
+device-pixel side. A hit selects that frame's ordered atlas cells and paints
+all of their quads through one egui mesh and texture. A miss queues one lazy
+atlas build on native targets (or builds synchronously where threads are not
+available), keeps the stock glyph visible, and requests a repaint when the
+result is published.
 
-`crates/reflow/src/svg.rs::raster_svg` calls `usvg::Tree::from_data`, renders a
-fresh tiny-skia pixmap with resvg, demultiplies every pixel, and returns a new
-RGBA image. That work now occurs once per admitted frame rather than once per
-run.
+`crates/animated-icons/build.rs` converts the build-only declarations into typed
+Bézier geometry, exact nested scenes and flat source-ordered layers. Runtime
+code rasterises transformed layer states directly with tiny-skia, deduplicates
+identical states, crops transparent margins, and deterministically packs the
+variants. Runtime SVG parsing and string construction are absent.
 
 The stock resting path is already cached independently:
 
@@ -273,9 +286,8 @@ tiny-skia produces neutral-white **part** coverage off the UI thread, and a
 normal egui `Mesh` composites atlas tiles at paint time.
 
 1. Extend the pack generator to emit typed paths, rectangles, circles, lines,
-   paint flags, part/static-layer membership and source paint order. SVG can
-   remain generator input and a temporary parity fallback, but no XML is needed
-   in the active runtime path.
+   paint flags, part/static-layer membership and source paint order. SVG remains
+   build and parity-test input; no XML enters the runtime library.
 2. For the 233 stable-coverage parts, rasterise one cropped tile per device-size
    bucket. Preserve a transparent gutter for linear sampling. Parts that can
    grow are prepared at a resolution sufficient for their audited maximum
@@ -291,9 +303,9 @@ normal egui `Mesh` composites atlas tiles at paint time.
    atlas page changes. Each part contributes four vertices; apply the same
    pivoted affine order as `moves`, put its opacity and current tint in the
    vertex colour, and select its tile with UVs.
-6. Keep whole-frame atlas cells for a pack that fails the part-composition
-   visual threshold. Keep the current SVG path only as a migration/debug
-   reference until all 98 packs pass.
+6. Keep an authored top-level part atomic when nested opacity or overlap cannot
+   be split safely. Its transformed states remain cropped part cells, not
+   whole-frame cells.
 
 For the 78 packs without path/stroke changes, this replaces 2,686 possible
 whole-frame cells with 213 reusable part cells, plus any static layer. Across
@@ -436,10 +448,11 @@ Reuse one tile for each stable-coverage part; give only the 32 path/stroke parts
 quantised variants. Paint ordered mesh runs grouped by atlas page, applying
 current transforms, opacity and tint to each quad.
 
-Keep full-frame cells as the parity fallback for packs whose rotation, skew or
-part overlap does not meet the visual threshold. Try retained vector meshes in
-the same spike, but promote them only if measured texture savings justify a
-custom round-cap/round-join stroker and scale-aware antialiasing cache.
+Treat each authored top-level part as an atomic generated scene. That keeps
+nested transforms and opacity isolation inside its cropped tile, so rotation,
+skew and overlap do not require full-frame cells. Try retained vector meshes
+only if measured texture savings justify a custom round-cap/round-join stroker
+and scale-aware antialiasing cache.
 
 ### Why not a custom GPU renderer first
 
@@ -590,18 +603,34 @@ Performance evidence:
 - [tiny-skia 0.11.4 `Stroke`](https://docs.rs/tiny-skia/0.11.4/tiny_skia/struct.Stroke.html)
   for direct round-cap, round-join and dash rasterisation without an SVG tree.
 
-## Decision
+## Decision and implementation
 
 Mareader remains a reactive native egui application. Ordinary UI motion keeps
-egui interpolation and painter geometry. Animated icons keep their interaction
-and layout contract while the quantised, byte-capped context cache removes
-repeat production. A lazy whole-frame atlas is the low-risk worker/control
-slice; generated geometry plus part-atlas mesh composition is the preferred
-runtime-SVG replacement.
+egui interpolation and painter geometry. Animated icons retain the same
+interaction, timing, layout, headroom, tint and stock-fallback contract, while
+the active path now uses generated geometry plus ordered part-atlas mesh
+composition.
 
-The implementation order is **measure → quantise/cache → worker/full-frame
-atlas control → generated part atlas → only then retained vector or custom
-shader work**. The cache slice is in place; release measurement is still
-required before claiming magnitude or starting the representation spike. This
-order avoids trading redundant CPU work for unbounded memory, first-run stalls,
-visual regressions or a second icon system.
+The ownership boundary is deliberate:
+
+- `mareader-animated-icons` is a toolkit-free L0 crate. Its build script alone
+  reads the 98 declarative SVG/timeline packs and emits typed geometry, nested
+  scene groups, source-ordered layers and timelines into `OUT_DIR`.
+- Layer variants bake the quantised transform, path coverage, width and opacity
+  state before tight alpha cropping. Equal states of a layer reuse one atlas
+  cell. The deterministic packer admits no texture above 8 MiB.
+- `mareader-ui` owns semantic `Icon` → pack-id mapping, trigger policy, lazy
+  worker publication, the byte-accounted LRU and egui mesh construction. Cells
+  are appended in source paint order and share one texture and one mesh.
+- Each authored top-level part is an atomic generated scene. Nested opacity,
+  transforms, path coverage and width changes are baked together in that part's
+  cropped variants; no whole-frame atlas representation exists.
+- Tests compare every quantised frame of all 98 packs with the original SVG
+  renderer at 1×, 1.25×, 2× and the 192 px ceiling, then reconstruct every
+  atlas frame from its ordered cells and compare it with the direct generated
+  frame.
+
+Release measurement is still required before claiming a CPU or memory
+magnitude. The implementation avoids trading runtime parsing for eager or
+unbounded storage and leaves retained-vector or custom-shader work contingent
+on measured need.

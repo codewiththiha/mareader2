@@ -7,6 +7,7 @@ use serde_json::Value;
 /// Every crate, planned ones included, by name without `mareader-`.
 pub const TABLE: &[(&str, Layer)] = &[
     ("appearance", Layer::Core(0)),
+    ("animated-icons", Layer::Core(0)),
     ("workspace", Layer::Core(0)),
     ("fetch", Layer::Core(0)),
     ("search", Layer::Core(0)),
