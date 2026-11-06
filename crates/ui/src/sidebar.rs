@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
@@ -357,6 +358,9 @@ impl Sidebar {
             .max_rect(row)
             .layout(Layout::left_to_right(Align::Center));
         ui.scope_builder(builder, |ui| {
+            // The docked rail is the title bar's leading end; reaching any of its
+            // furniture is the event, just as it is on the rest of that bar.
+            let _act = anim::announce(ui, Act::Hover);
             ui.spacing_mut().item_spacing.x = 4.0;
             let buttons = [
                 (Icon::SidebarClose, "Close sidebar", Command::CloseSidebar),
@@ -382,6 +386,7 @@ impl Sidebar {
     /// The panels, each named under its icon.
     fn switcher(&mut self, ui: &mut Ui, rect: Rect, out: &mut Commands) {
         let t = Tokens::get(ui.ctx());
+        let _act = anim::announce(ui, Act::Click);
         let slot = rect.width() / Panel::SWITCHER.len() as f32;
         for (i, panel) in Panel::SWITCHER.into_iter().enumerate() {
             let centre = pos2(rect.left() + slot * (i as f32 + 0.5), rect.center().y);
@@ -401,7 +406,7 @@ impl Sidebar {
                 t.muted
             };
             let icon = Rect::from_center_size(at.center() - vec2(0.0, 8.0), Vec2::splat(16.0));
-            panel.icon().paint(ui, icon, ink);
+            anim::paint(ui, icon, panel.icon(), ink, label, &r);
             let font = if on {
                 theme::medium(11.0)
             } else {

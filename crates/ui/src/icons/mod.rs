@@ -1,10 +1,35 @@
 //! Lucide icons by meaning, drawn white and tinted: egui-lucide caches
-//! per colour.
+//! per colour - and, for the glyphs `pack` drew, drawn a frame at a time so a
+//! glyph can move: see `anim`.
+
+pub(crate) mod anim;
+/// The generated table. Its numbers are measurements four decimals deep, and a
+/// measurement that happens to begin `1.4142` is not a claim about the square
+/// root of two: the lint that reads it as one is asked off. So is the one that
+/// counts digits past what an `f32` would keep, since a frame is written to
+/// three decimals and the table keeps one more than that in hand. Re-port the
+/// pack with its numbers rounded this way and the lint asks of it nothing else,
+/// and run the formatter over the file after: it is written once and read
+/// rarely, but it is read.
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
+mod pack;
 
 use egui::{Color32, Image, Rect, Ui};
 use egui_lucide::Lucide;
 
 pub const STROKE: f32 = 2.0;
+/// Lucide's grid: a glyph is drawn inside this square.
+pub const GRID: f32 = 24.0;
+/// How far past the grid a moving frame may paint, in grid units. The lab's
+/// keyframes scale a glyph up and slide its parts out of the box it was drawn
+/// in, and a frame is clipped to its own canvas, so the canvas keeps this much
+/// slack on every side rather than losing the ink at the edge.
+pub const PAD: f32 = 8.5;
+
+/// Where a frame writes a part's attributes into a pack's markup.
+pub(crate) const HOLE: char = '\u{1}';
+/// The same, for the stroke width an element carries itself.
+pub(crate) const WIDTH_HOLE: char = '\u{2}';
 
 /// "AI" in strokes inside a rounded frame, on Lucide's 24-unit grid.
 const AI_MARK: &str = concat!(
@@ -25,12 +50,12 @@ const AI_MARK: &str = concat!(
 
 /// The engines' files, one per id `Icon::engine` knows.
 const ENGINE_FILES: [(&str, &str); 6] = [
-    ("kokoro", include_str!("../assets/engines/kokoro.svg")),
-    ("piper", include_str!("../assets/engines/piper.svg")),
-    ("kitten", include_str!("../assets/engines/kitten.svg")),
-    ("phonon", include_str!("../assets/engines/phonon.svg")),
-    ("system", include_str!("../assets/engines/system.svg")),
-    ("silent", include_str!("../assets/engines/silent.svg")),
+    ("kokoro", include_str!("../../assets/engines/kokoro.svg")),
+    ("piper", include_str!("../../assets/engines/piper.svg")),
+    ("kitten", include_str!("../../assets/engines/kitten.svg")),
+    ("phonon", include_str!("../../assets/engines/phonon.svg")),
+    ("system", include_str!("../../assets/engines/system.svg")),
+    ("silent", include_str!("../../assets/engines/silent.svg")),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,27 +355,27 @@ impl Icon {
             Self::SilentEngine => logo("bytes://mareader/engine-silent.svg", engine_file("silent")),
             Self::OpenAi => logo(
                 "bytes://mareader/logo-openai.svg",
-                include_str!("../assets/logos/openai.svg"),
+                include_str!("../../assets/logos/openai.svg"),
             ),
             Self::Gemini => logo(
                 "bytes://mareader/logo-gemini.svg",
-                include_str!("../assets/logos/gemini.svg"),
+                include_str!("../../assets/logos/gemini.svg"),
             ),
             Self::OpenRouter => logo(
                 "bytes://mareader/logo-openrouter.svg",
-                include_str!("../assets/logos/openrouter.svg"),
+                include_str!("../../assets/logos/openrouter.svg"),
             ),
             Self::Ollama => logo(
                 "bytes://mareader/logo-ollama.svg",
-                include_str!("../assets/logos/ollama.svg"),
+                include_str!("../../assets/logos/ollama.svg"),
             ),
             Self::LmStudio => logo(
                 "bytes://mareader/logo-lm-studio.svg",
-                include_str!("../assets/logos/lm-studio.svg"),
+                include_str!("../../assets/logos/lm-studio.svg"),
             ),
             Self::Apple => logo(
                 "bytes://mareader/logo-apple.svg",
-                include_str!("../assets/logos/apple.svg"),
+                include_str!("../../assets/logos/apple.svg"),
             ),
             _ => None,
         }
@@ -374,6 +399,94 @@ impl Icon {
     pub fn paint(self, ui: &Ui, rect: Rect, color: Color32) {
         self.image(rect.width()).tint(color).paint_at(ui, rect);
     }
+
+    /// A small stable number for this glyph, for keys that must not change when
+    /// the enum is reordered around it: `anim` keeps one run per icon per widget.
+    fn slot(self) -> u32 {
+        self as u32
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* What a generated glyph is, and what a frame does to it                    */
+/* ------------------------------------------------------------------------- */
+
+/// One movable piece of a [Pack]'s glyph: what a part of it weighs, where it
+/// hangs from, and how far its ink runs.
+pub(crate) struct Part {
+    /// The lab's name for it, as its markup tagged it. Read by nobody at
+    /// runtime: it is what makes a row of the table and a line of the markup
+    /// the same part, to anyone comparing the two.
+    #[allow(dead_code)]
+    pub name: &'static str,
+    /// The pivot of any turn or stretch: the middle of the part's own ink, in
+    /// the glyph's 24-unit box, which is what a browser pivots a part on.
+    pub ox: f32,
+    pub oy: f32,
+    /// The length of its stroke, so a run that draws it on needs no measuring.
+    pub len: f32,
+    /// The width it is drawn at, which a run may thin and must give back.
+    pub w: f32,
+}
+
+/// One mark in a pack's markup, saying which part is being written to and
+/// whether it is the element's own stroke width rather than the whole part.
+pub(crate) struct Hole {
+    pub part: u8,
+    pub width: bool,
+}
+
+/// What one segment of a timeline animates.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Prop {
+    X,
+    Y,
+    Scale,
+    ScaleX,
+    ScaleY,
+    Rotate,
+    SkewX,
+    /// No glyph the lab has drawn skews the other way yet; the port maps it
+    /// here all the same, so a pack that grows one needs no new plumbing.
+    #[allow(dead_code)]
+    SkewY,
+    Opacity,
+    /// How much of a stroke is drawn, as a share of its length.
+    PathLen,
+    /// Where that share starts, as a share too.
+    PathOff,
+    StrokeW,
+}
+
+/// One property of one part: when it moves, how long it takes, where it goes.
+pub(crate) struct Seg {
+    pub part: u8,
+    pub prop: Prop,
+    /// Seconds from the run's start.
+    pub t0: f32,
+    /// Seconds the move takes. Zero is a snap, and holds either side of it.
+    pub dur: f32,
+    /// The values, one per `times` share. Two is a move from what came before.
+    pub keys: &'static [f32],
+    /// Where each key sits within the segment; empty spaces them evenly.
+    pub times: &'static [f32],
+    /// One easing per gap, into the pack's table; one entry serves them all.
+    pub eases: &'static [u8],
+}
+
+/// A glyph that can move: its drawing at rest, and the timeline that bends it.
+pub(crate) struct Pack {
+    /// The lab's name for it, for the frame's own debugging.
+    pub id: &'static str,
+    /// Seconds the whole run takes. Every run ends where it began, so a glyph
+    /// can be left alone once it has played without it showing the difference.
+    pub dur: f32,
+    pub parts: &'static [Part],
+    pub segs: &'static [Seg],
+    /// One per mark in `svg`, in the order they appear.
+    pub holes: &'static [Hole],
+    /// The glyph at rest, with a [`HOLE`] where each part's attributes go.
+    pub svg: &'static str,
 }
 
 #[cfg(test)]

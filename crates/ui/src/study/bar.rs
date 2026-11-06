@@ -8,6 +8,7 @@ use mareader_settings::{BarItem, HighlightSettings, PickColor};
 
 use crate::bubble::{Bubble, Side};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::theme::{Tokens, color};
 use crate::widgets;
 
@@ -62,6 +63,9 @@ pub fn show(
         prefer: Side::Above,
     };
     let (_, pressed) = bubble.show(ctx, &t, |ui, _| {
+        // This bar is gone the moment it is answered, so every glyph in it
+        // moves as it is reached rather than on the press nobody will see.
+        let _act = anim::announce(ui, Act::Hover);
         let mut pressed = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;

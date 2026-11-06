@@ -13,6 +13,7 @@ use egui::{
 
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::modal::Dialog;
 use crate::theme::{self, Tokens};
 use crate::widgets;
@@ -376,18 +377,24 @@ fn nav_row(ui: &mut Ui, tab: Tab, on: bool) -> egui::Response {
     } else {
         Color32::TRANSPARENT
     };
-    let painter = ui.painter();
-    painter.rect_filled(rect, t.radius, fill);
+    ui.painter().rect_filled(rect, t.radius, fill);
     let icon = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(16.0));
     let tint = if on { t.accent } else { t.muted };
-    tab.icon().image(16.0).tint(tint).paint_at(ui, icon);
+    // The rail answers the pick, and each row's run is addressed by its own name
+    // rather than by where it happens to fall: groups above it fold and unfold,
+    // which would otherwise orphan a run half-played.
+    let _act = anim::announce(ui, Act::Click);
+    ui.push_id(("settings-nav", label), |ui| {
+        anim::paint(ui, icon, tab.icon(), tint, label, &r);
+    });
     let font = if on {
         theme::medium(t.text)
     } else {
         egui::FontId::proportional(t.text)
     };
     let at = pos2(rect.left() + 38.0, rect.center().y);
-    painter.text(at, egui::Align2::LEFT_CENTER, label, font, t.ink);
+    ui.painter()
+        .text(at, egui::Align2::LEFT_CENTER, label, font, t.ink);
     r
 }
 

@@ -558,7 +558,7 @@ and the band) and `view/held.rs` (the pass, captions and tips).
 
 ## Icons
 
-Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
+Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons/` (ADR 0004).
 
 - Code asks for an `Icon` by meaning; `Icon::lucide` is the only place that
   names a glyph. Add a variant when a feature needs one.
@@ -583,6 +583,45 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
   waveform, and an engine with no mark of its own keeps the waveform. They are
   our own SVGs on Lucide's grid at stroke 2, so they tint and sit beside the
   rest unchanged, and lead a row's detail line rather than its title.
+- **Icons that move (2026-11-06).** The lab's animated pack (`mareader-lab`:
+  `animated_icons1/`) is ported into `crates/ui/src/icons/pack.rs`: 98 glyphs,
+  each holding its resting markup with one hole per part to move, and its
+  timeline resolved into absolute segments. Each active frame evaluates that
+  arithmetic, emits one SVG, parses and CPU-rasterises it through `reflow`'s
+  usvg/resvg path, then updates the run's reused GPU texture handle. Only a glyph
+  the pack drew can move; the rest
+  are exactly as they were. A run plays its timeline forwards and stops there:
+  the frame it lands on is the glyph as the pack draws it, so nothing is left
+  bent. The frame tests hold every glyph to that picture, allowing for the three
+  the lab gave an extra part — a leaf, a bookmark's fill, a second page — whose
+  fade-out the plain glyph shown at rest never carries anyway. A frame is drawn
+  on a canvas `PAD` of grid larger than the glyph's square — resvg clips to the
+  viewport, and the lab's keyframes scale a glyph up and carry parts clear out of
+  the box it was drawn in — and painted into a box grown to match, so the glyph
+  keeps its size and its ink keeps its room. A button lays out a blank while its
+  run plays and the frame goes over it: the headroom costs no layout, and the
+  widget keeps the id it was pressed under. Icon-only buttons place that frame at
+  the response centre; image-and-text buttons pass the exact leading-image box,
+  so a moving Settings or Keyboard mark cannot jump into its label.
+- **When an icon moves is its surroundings' business, not its own.** A region
+  `announce`s an `Act`, and the shout nearest a glyph is the one it hears: `Hover`
+  for furniture or a menu that may disappear when answered (the whole title bar,
+  its docked sidebar header, the view menu including its footer, and every context
+  menu), `Click` for a control that stays put and answers the pick (`segments`,
+  both Appearance mode pickers, the view menu's four modes and its Zoom out,
+  Zoom in, Fit page and Fit width controls, the settings and sidebar rails,
+  bookmarks, and the read-aloud steps), and `Still` for a mark that
+  only names something (a pen beside its label), which is also the default. A
+  widget may `assume` instead: an answer for the glyph it paints itself, heard
+  only where nothing around it has shouted, which is why a bar's reach wins over
+  a button's press and why no call site has to know where it is used. Interactive
+  glyphs go through this one provider: no run, whether because it is idle,
+  unmapped or motion is off, means the same stock `Icon`/Lucide drawing rather
+  than a second icon path. A run is kept under a stable widget name rather than
+  its words or place in a layout, so a Bookmark becoming Remove bookmark,
+  relayout, and groups folding above cannot orphan a glyph half-played. The
+  player's play/pause keeps its purpose-built morph; only Previous and Next take
+  icon-pack runs.
 
 ## Motion
 
@@ -592,6 +631,19 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
 - Per-motion switches (M2): sidebar slide, canvas follows the window, zoom ease,
   scroll to page.
 - A loading indicator fades rather than freezes when animations are off.
+- Icon runs (`icons::anim`) read the switch and nothing else: off, a glyph is
+  its resting drawing and no repaint is asked for on its account. A press that
+  arrives mid-run is queued rather than cut short, so a glyph is never caught
+  bent.
+- An active icon run asks for its next pass after `1/60 s`; it does not request
+  60-plus FPS, and it stops asking when the 0.42–0.84 s pack timeline lands. The
+  work is heavier than an ordinary egui interpolation because each pass parses,
+  CPU-rasterises and uploads a fresh SVG frame. It is bounded to the moving
+  glyph's padded canvas (normally 26–62 device pixels for the 15–18 pt controls
+  at 1–2× scale, hard-capped at 192 px), and a run no longer schedules icon
+  repaints once its widget is not built. Ordinary UI fades, slides and morphs
+  also keep egui repainting while active, but normally do only interpolation,
+  layout and painter work rather than SVG parsing and texture updates.
 
 ## Layers
 

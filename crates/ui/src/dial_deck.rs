@@ -13,6 +13,7 @@ use mareader_settings::TextSettings;
 use crate::appearance_menu::{MenuContext, QuickText};
 use crate::command::{Command, Commands, Independence};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
@@ -218,6 +219,9 @@ fn look_tab(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut Com
 }
 
 fn mode_tiles(ui: &mut Ui, base: &mut BaseMode, t: &Tokens) {
+    // These are the Dial deck's spelling of the classic segmented modes; both
+    // answer the same persistent-control event through the same icon provider.
+    let _act = anim::announce(ui, Act::Click);
     let gap = 6.0;
     let count = BaseMode::ALL.len() as f32;
     let tile_w = (WIDTH - gap * (count - 1.0)) / count;
@@ -267,7 +271,7 @@ fn mode_tiles(ui: &mut Ui, base: &mut BaseMode, t: &Tokens) {
         };
         let icon_rect =
             Rect::from_center_size(pos2(rect.center().x, rect.top() + 16.0), Vec2::splat(15.0));
-        mode_icon(mode).image(15.0).tint(fg).paint_at(ui, icon_rect);
+        anim::paint(ui, icon_rect, mode_icon(mode), fg, mode.label(), &resp);
 
         let font = if selected {
             theme::medium(11.5)

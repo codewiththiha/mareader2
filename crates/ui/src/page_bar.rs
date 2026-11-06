@@ -279,7 +279,14 @@ fn contents(
     };
     let platform = crate::platform::Platform::current();
     let keys = crate::keymap::hint(platform, &Command::Bookmark(None));
-    let r = widgets::icon_button_keyed(ui, Icon::Bookmark, tip, marked, keys.as_deref());
+    let r = widgets::icon_button_tagged(
+        ui,
+        Icon::Bookmark,
+        tip,
+        "Page bookmark",
+        marked,
+        keys.as_deref(),
+    );
     if r.clicked() {
         out.push(Command::Bookmark(Some(pane)));
     }

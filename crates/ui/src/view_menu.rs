@@ -6,6 +6,7 @@ use egui::{
 
 use crate::command::{Command, Commands, WindowCommand};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::keymap;
 use crate::layout::ViewMode;
 use crate::platform::Platform;
@@ -55,6 +56,9 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 }
 
 fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
+    // A menu closes on most answers, so every glyph in it responds while it can
+    // still be seen: on the reach. Rows that stay open may shout Click inside.
+    let _act = anim::announce(ui, Act::Hover);
     widgets::menu_style(ui, WIDTH);
     // Layout, zoom and reading each under a name of their own.
     if let Some(mode) = cx.mode {
@@ -148,18 +152,26 @@ fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
         ] {
             let keys = keymap::hint(platform, &command);
             let label = RichText::new(text).size(12.0);
-            let button = egui::Button::image_and_text(icon.image(15.0), label)
-                .right_text(
-                    RichText::new(keys.as_deref().unwrap_or_default())
-                        .size(10.0)
-                        .color(t.muted),
-                )
-                .image_tint_follows_text_color(true)
-                .fill(rest)
-                .stroke(egui::Stroke::NONE)
-                .corner_radius(10)
-                .min_size(vec2(width, 34.0));
-            let response = ui.add(button);
+            let response = ui
+                .push_id(("view-menu-footer", name), |ui| {
+                    let button =
+                        egui::Button::image_and_text(anim::glyph(ui, icon, 15.0, name), label)
+                            .right_text(
+                                RichText::new(keys.as_deref().unwrap_or_default())
+                                    .size(10.0)
+                                    .color(t.muted),
+                            )
+                            .image_tint_follows_text_color(true)
+                            .fill(rest)
+                            .stroke(egui::Stroke::NONE)
+                            .corner_radius(10)
+                            .min_size(vec2(width, 34.0));
+                    let response = ui.add(button);
+                    let mark = footer_icon_rect(response.rect, ui.spacing().button_padding.x, 15.0);
+                    anim::play_at(ui, &response, icon, name, mark);
+                    response
+                })
+                .inner;
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
             if response.clicked() {
@@ -168,6 +180,14 @@ fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
             }
         }
     });
+}
+
+/// The leading image slot of a text button.
+fn footer_icon_rect(button: Rect, pad: f32, size: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(button.left() + pad, button.center().y - size * 0.5),
+        egui::Vec2::splat(size),
+    )
 }
 
 /// Auto-scroll's switch, dimmed in the paged modes, as in mareader.
@@ -198,6 +218,8 @@ fn read_aloud_row(ui: &mut Ui, on: bool, platform: Platform, out: &mut Commands)
 /// The four view modes, each named under its icon; the menu stays open.
 fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
+    // The menu stays open to chain these, so the pick is the event worth showing.
+    let _act = anim::announce(ui, Act::Click);
     let size = vec2(ui.available_width(), 46.0);
     let (band, _) = ui.allocate_exact_size(size, Sense::hover());
     let band = band.shrink2(vec2(4.0, 0.0));
@@ -217,6 +239,7 @@ fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Comman
         let on = mode == current;
         let label = mode.label();
         let r = ui.interact(cell, ui.id().with(("view-mode", label)), Sense::click());
+        let mark = Rect::from_center_size(cell.center() - vec2(0.0, 8.0), egui::Vec2::splat(16.0));
         r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
         let command = Command::View(mode);
         let keys = keymap::hint(platform, &command);
@@ -230,8 +253,7 @@ fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Comman
         };
         ui.painter().rect_filled(cell, t.radius, fill);
         let ink = if on { t.accent } else { t.ink };
-        let mark = Rect::from_center_size(cell.center() - vec2(0.0, 8.0), egui::Vec2::splat(16.0));
-        icon.paint(ui, mark, ink);
+        anim::paint(ui, mark, icon, ink, label, &r);
         let at = cell.center() + vec2(0.0, 11.0);
         let font = egui::FontId::proportional(11.0);
         ui.painter()
@@ -245,6 +267,8 @@ fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Comman
 /// Zoom steps, then the fits; the menu stays open so presses chain.
 fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
+    // Zoom stays open, so its controls answer clicks rather than menu reaches.
+    let _act = anim::announce(ui, Act::Click);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.add_space(4.0);
@@ -291,5 +315,22 @@ pub fn shortcuts_row(ui: &mut Ui, platform: Platform, out: &mut Commands) {
     if widgets::menu_row(ui, Icon::Keyboard, label, keys.as_deref(), false).clicked() {
         out.push(Command::ShowShortcuts);
         ui.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_footer_animation_stays_in_the_leading_image_slot() {
+        let button = Rect::from_min_size(pos2(70.0, 20.0), vec2(126.0, 34.0));
+        let mark = footer_icon_rect(button, 8.0, 15.0);
+        assert_eq!(mark.min.x, 78.0, "the image starts after button padding");
+        assert_eq!(mark.center().y, button.center().y);
+        assert!(
+            mark.center().x < button.center().x - 30.0,
+            "the moving frame must not jump to the text button's centre"
+        );
     }
 }

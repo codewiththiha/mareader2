@@ -305,6 +305,9 @@ impl TitleBar {
         live: bool,
         out: &mut Commands,
     ) {
+        // Every control in the window's furniture answers the reach. A click may
+        // move, hide or close that furniture before its glyph could finish.
+        let _act = crate::icons::anim::announce(ui, crate::icons::anim::Act::Hover);
         let pinned = self.pinned;
         let width = ui.max_rect().width();
         let ends = Id::new("titlebar-trail-start");

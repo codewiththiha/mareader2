@@ -11,6 +11,7 @@ use super::parts::Kind;
 use super::rate_label;
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act as IconAct};
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::widgets;
@@ -214,6 +215,12 @@ pub(super) fn show(
     act
 }
 
+/// Only the two sentence steps use an icon pack. Play/pause keeps its own morph,
+/// and the other player furniture rests.
+fn step_icon(icon: Icon) -> bool {
+    matches!(icon, Icon::SkipBack | Icon::SkipForward)
+}
+
 /// A round, frameless icon button; true when clicked.
 fn icon_button(ui: &mut Ui, slot: Rect, icon: Icon, label: &str, enabled: bool) -> bool {
     let t = Tokens::get(ui.ctx());
@@ -240,7 +247,12 @@ fn icon_button(ui: &mut Ui, slot: Rect, icon: Icon, label: &str, enabled: bool) 
         false => t.muted.gamma_multiply(0.5),
     };
     let mark = Rect::from_center_size(rect.center(), egui::Vec2::splat(ICON));
-    icon.paint(ui, mark, ink);
+    if step_icon(icon) {
+        let _act = anim::announce(ui, IconAct::Click);
+        anim::paint(ui, mark, icon, ink, label, &r);
+    } else {
+        icon.paint(ui, mark, ink);
+    }
     widgets::tip(&r, label, None);
     enabled && r.clicked()
 }
@@ -820,6 +832,14 @@ fn heading(ui: &mut Ui, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_player_steps_use_icon_runs() {
+        assert!(step_icon(Icon::SkipBack));
+        assert!(step_icon(Icon::SkipForward));
+        assert!(!step_icon(Icon::Pause));
+        assert!(!step_icon(Icon::Close));
+    }
 
     #[test]
     fn time_left_reads_plainly_and_rounds() {

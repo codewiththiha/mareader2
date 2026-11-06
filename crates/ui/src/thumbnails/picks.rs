@@ -12,6 +12,7 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::page_ai::Action;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
@@ -401,6 +402,9 @@ fn header(ui: &mut Ui, picks: &mut Picks, t: &Tokens) {
 
 /// A frequent action, with a single accessible name and a generous target.
 fn tile(ui: &mut Ui, icon: Icon, label: &str, width: f32, t: &Tokens) -> Response {
+    // Usually inherited from the context menu; kept here too so this generous
+    // action tile can never fall back to a press if it is reused elsewhere.
+    let _act = anim::announce(ui, Act::Hover);
     let (rect, r) = ui.allocate_exact_size(vec2(width, 54.0), Sense::click());
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let rest = t
@@ -426,7 +430,7 @@ fn tile(ui: &mut Ui, icon: Icon, label: &str, width: f32, t: &Tokens) -> Respons
         pos2(rect.center().x, rect.center().y - 9.0),
         vec2(16.0, 16.0),
     );
-    icon.paint(ui, icon_rect, icon_tint);
+    anim::paint(ui, icon_rect, icon, icon_tint, label, &r);
     ui.painter().text(
         pos2(rect.center().x, rect.center().y + 11.0),
         Align2::CENTER_CENTER,

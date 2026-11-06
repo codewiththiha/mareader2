@@ -64,6 +64,12 @@ pub fn links(data: &[u8]) -> Vec<String> {
     out
 }
 
+/// A whole SVG of one's own, drawn to fit `side` pixels on its long edge. What
+/// a glyph asks for: nothing linked, nothing to size itself against but its box.
+pub fn raster_svg(data: &[u8], side: u32) -> Option<image::RgbaImage> {
+    render(data, &Links::new(), side)
+}
+
 /// `data` drawn to fit `side` pixels on its long edge, in straight alpha.
 pub(crate) fn render(data: &[u8], links: &Links, side: u32) -> Option<image::RgbaImage> {
     let resolve_string = Box::new(|href: &str, _: &usvg::Options| {

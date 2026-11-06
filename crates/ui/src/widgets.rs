@@ -7,6 +7,7 @@ use egui::{
 
 use crate::command::WindowCommand;
 use crate::icons::Icon;
+use crate::icons::anim::{self, Act};
 use crate::theme::Tokens;
 
 /// A popup's own frame: clicks stay in it, but Tab skips it for its rows.
@@ -97,6 +98,9 @@ fn context_menu_inner(
     };
     popup.show(|ui| {
         menu_style(ui, width);
+        // A menu a pick shuts is answered by the reach, not the pick: its icons
+        // move as they are reached, while they are still on screen.
+        let _act = anim::announce(ui, Act::Hover);
         add(ui);
         close_on_key(ui);
     });
@@ -115,13 +119,37 @@ pub fn icon_button_keyed(
     selected: bool,
     keys: Option<&str>,
 ) -> Response {
+    icon_button_tagged(ui, icon, label, label, selected, keys)
+}
+
+/// [`icon_button_keyed`] with an animation identity that stays put while its
+/// accessible label changes, as a Bookmark button becomes Remove bookmark.
+pub fn icon_button_tagged(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    tag: &str,
+    selected: bool,
+    keys: Option<&str>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
-    let button = Button::image(icon.image(t.icon))
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .selected(selected)
-        .min_size(Vec2::splat(t.control));
-    let resp = ui.add(button);
+    // A press is this control's own answer, offered only where nothing around it
+    // has said otherwise: a bar that answers a reach says so for its buttons.
+    // `icons::anim` keeps the run; `tag` keys it, so a toggle changing its words
+    // does not abandon the run that its press just started.
+    let resp = ui
+        .push_id(("icon-button", tag), |ui| {
+            let _act = anim::assume(ui, Act::Click);
+            let button = Button::image(anim::glyph(ui, icon, t.icon, tag))
+                .image_tint_follows_text_color(true)
+                .frame_when_inactive(false)
+                .selected(selected)
+                .min_size(Vec2::splat(t.control));
+            let resp = ui.add(button);
+            anim::play(ui, &resp, icon, tag, t.icon);
+            resp
+        })
+        .inner;
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
     });
@@ -131,11 +159,18 @@ pub fn icon_button_keyed(
 
 /// A 24 pt icon button for rows and toasts.
 pub fn small_icon_button(ui: &mut Ui, icon: Icon, label: &str) -> Response {
-    let button = Button::image(icon.image(14.0))
-        .image_tint_follows_text_color(true)
-        .frame_when_inactive(false)
-        .min_size(Vec2::splat(24.0));
-    let resp = ui.add(button);
+    let resp = ui
+        .push_id(("small-icon-button", label), |ui| {
+            let _act = anim::assume(ui, Act::Click);
+            let button = Button::image(anim::glyph(ui, icon, 14.0, label))
+                .image_tint_follows_text_color(true)
+                .frame_when_inactive(false)
+                .min_size(Vec2::splat(24.0));
+            let resp = ui.add(button);
+            anim::play(ui, &resp, icon, label, 14.0);
+            resp
+        })
+        .inner;
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     tip(&resp, label, None);
     resp
@@ -236,6 +271,14 @@ fn paint_menu_row_bg(ui: &Ui, rect: Rect, resp: &Response, on: bool, t: &Tokens)
     }
 }
 
+/// A menu row's lead: its glyph and its label. Every menu row paints through
+/// here, which is where a menu answers what its icons do. A menu closes the
+/// moment it is answered, so a row's glyph moves as it is reached rather than
+/// on the press nobody will see.
+///
+/// Eight arguments, in the order a row is painted, because a struct one private
+/// helper carries is a worse read than its width.
+#[allow(clippy::too_many_arguments)]
 fn paint_menu_row_lead(
     ui: &Ui,
     rect: Rect,
@@ -244,14 +287,16 @@ fn paint_menu_row_lead(
     right_limit: f32,
     icon_tint: Color32,
     text_color: Color32,
+    resp: &Response,
 ) {
     let y = rect.center().y;
     if let Some(icon) = icon {
+        let _act = anim::announce(ui, Act::Hover);
         let at = Rect::from_min_size(
             pos2(rect.left() + MENU_PAD_X, y - MENU_ICON * 0.5),
             Vec2::splat(MENU_ICON),
         );
-        icon.paint(ui, at, icon_tint);
+        anim::paint(ui, at, icon, icon_tint, label, resp);
     }
     let x = rect.left() + MENU_PAD_X + MENU_ICON + MENU_ICON_GAP;
     if right_limit <= x + 8.0 {
@@ -324,6 +369,7 @@ pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bo
         right_limit,
         icon_tint,
         text_color,
+        &resp,
     );
     resp
 }
@@ -373,6 +419,7 @@ pub fn menu_row_tag(ui: &mut Ui, icon: Icon, label: &str, tag: Option<&str>, on:
         right_limit,
         icon_tint,
         text_color,
+        &resp,
     );
     resp
 }
@@ -410,6 +457,7 @@ pub fn menu_row_chevron(ui: &mut Ui, icon: Icon, label: &str, hint: Option<&str>
         right_limit,
         icon_tint,
         text_color,
+        &resp,
     );
     resp
 }
@@ -433,6 +481,7 @@ pub fn menu_check_row(ui: &mut Ui, label: &str, checked: bool) -> Response {
         rect.right() - MENU_PAD_X,
         t.accent,
         t.ink,
+        &resp,
     );
     resp
 }
@@ -565,6 +614,7 @@ pub fn submenu_row(
         right_limit,
         icon_tint,
         t.ink,
+        &resp,
     );
     resp
 }
@@ -734,11 +784,8 @@ pub fn captions(ui: &mut Ui, style: CaptionStyle, maximized: bool) -> Option<Win
             CaptionStyle::Windows => 14.0,
             CaptionStyle::Gnome => 12.0,
         };
-        icon.paint(
-            ui,
-            Rect::from_center_size(rect.center(), Vec2::splat(glyph)),
-            ink,
-        );
+        let mark = Rect::from_center_size(rect.center(), Vec2::splat(glyph));
+        anim::paint(ui, mark, icon, ink, label, &resp);
         if resp.clicked() {
             clicked = Some(which);
         }
@@ -921,6 +968,7 @@ pub fn menu_switch_keyed(
         right_limit,
         icon_tint,
         text_color,
+        &resp,
     );
     paint_switch(ui, knob, &resp, value);
     resp
@@ -950,6 +998,9 @@ pub fn segments_of<T: Copy + PartialEq>(
     face: impl Fn(T) -> (Option<Icon>, &'static str),
 ) {
     let t = Tokens::get(ui.ctx());
+    // A segment track answers a pick by moving its own cell, and stays where it
+    // was: the pick's motion is the reward, so it plays on the press.
+    let _act = anim::announce(ui, Act::Click);
     let cols = cols.max(1);
     let rows = all.len().div_ceil(cols);
     let size = vec2(ui.available_width(), row * rows as f32);
@@ -995,7 +1046,12 @@ pub fn segments_of<T: Copy + PartialEq>(
         let y = cell.center().y;
         if let Some(icon) = icon {
             let at = Rect::from_min_size(pos2(x, y - 7.0), Vec2::splat(14.0));
-            icon.image(14.0).tint(ink).paint_at(ui, at);
+            // Named, not numbered: the run a cell plays must not be addressed by
+            // where the cell happens to fall, or a control added above the track
+            // would leave the glyph hanging mid-gesture.
+            ui.push_id(("segment-icon", first, label), |ui| {
+                anim::paint(ui, at, icon, ink, label, &resp);
+            });
             x += icon_w;
         }
         let top = y - galley.size().y / 2.0;
@@ -1052,4 +1108,63 @@ fn fade(painter: &egui::Painter, rect: egui::Rect, top: Color32, bottom: Color32
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(1, 3, 2);
     painter.add(mesh);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tagged_toggle_keeps_the_run_its_old_label_started() {
+        use egui::{Event, Modifiers, PointerButton, pos2};
+
+        const TAG: &str = "Page bookmark";
+        let ctx = egui::Context::default();
+        let mut at = pos2(20.0, 20.0);
+        let mut clicked = Vec::new();
+        let mut frames = Vec::new();
+        for (n, time) in [0.0, 0.02, 0.04].into_iter().enumerate() {
+            let events = match n {
+                1 => vec![
+                    Event::PointerMoved(at),
+                    Event::PointerButton {
+                        pos: at,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::default(),
+                    },
+                    Event::PointerButton {
+                        pos: at,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::default(),
+                    },
+                ],
+                _ => vec![Event::PointerMoved(pos2(190.0, 190.0))],
+            };
+            let raw = egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::splat(200.0))),
+                events,
+                ..Default::default()
+            };
+            let label = if n < 2 {
+                "Bookmark this page"
+            } else {
+                "Remove bookmark"
+            };
+            let mut out = ctx.run_ui(raw, |ui| {
+                let resp = icon_button_tagged(ui, Icon::Bookmark, label, TAG, n > 1, None);
+                at = resp.rect.center();
+                clicked.push(resp.clicked());
+            });
+            frames.push(out.textures_delta.set.len());
+            out.textures_delta.clear();
+        }
+        assert_eq!(clicked, [false, true, false]);
+        assert!(
+            frames[1] > 0 && frames[2] > 0,
+            "the click and the changed-label frame should both draw the same run: {frames:?}"
+        );
+    }
 }

@@ -40,5 +40,5 @@ pub use meter::{Held, held};
 pub use page_text::{PageChar, PageLine};
 pub use picture::{MAX_PICTURE_PIXELS, MAX_PICTURE_SIDE, Picture, PictureError};
 pub use raster::{MAX_SIDE, Pixels, Region};
-pub use svg::Links;
+pub use svg::{Links, raster_svg};
 pub use thin_vec::{ThinVec, thin_vec};
