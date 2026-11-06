@@ -123,6 +123,15 @@ look" as the header's +. Choices are segmented tracks; texture and grain dials
 show only when they act. While split, the per-pane switches sit pinned under
 the scroll, together.
 
+It is anchored as a **menu, not a card** (2026-11-07), which is the one place
+the "popovers point at their trigger" rule above does not apply: it is a modeless
+control panel rather than something explaining its anchor. Its frame touches the
+title bar's underside, with no gap of its own, and stands 8 pt off the window's
+right edge (`titlebar::FLYOUT_MARGIN`): enough to read as a panel, too little to
+be a gap. It carries no shadow, since there is no room above it for one to fall
+into and the theme's 24 pt blur would only smear the bar. Both styles,
+Classic and Dial deck, share the anchor.
+
 **Derived in `theme.rs`:**
 - hover fill = `line`; selected = `accent-soft` with an accent icon;
 - glass (the title bar) = surface at 96 % until the blur pass (M2 slice 3) gives

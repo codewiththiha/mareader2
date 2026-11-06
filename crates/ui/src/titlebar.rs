@@ -4,6 +4,7 @@ use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align, Context, Id, Layout, Order, Rect, Sense, UiBuilder, pos2, vec2};
 use mareader_appearance::{Appearance, Preset};
 use mareader_library::{ShelfId, View};
+use mareader_settings::AppearanceMenuStyle;
 
 use crate::backdrop::Backdrop;
 use crate::command::{Command, Commands, Independence, WindowCommand};
@@ -23,6 +24,9 @@ use crate::zoom::ZoomState;
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
 pub const FADE: f32 = 0.2;
+/// How far the Appearance flyout stands off the window's right edge. Enough to
+/// read as a panel rather than a strip of the chrome, too little to be a gap.
+pub const FLYOUT_MARGIN: f32 = 8.0;
 pub const APPEARANCE_POPOVER: &str = "appearance-popover";
 pub const DICTIONARY_MENU: &str = "dictionary-page-menu";
 const MENU_W: f32 = 248.0;
@@ -47,6 +51,8 @@ pub struct BarContext<'a> {
     pub gutter: bool,
     /// The look the popover edits: the active pane's, or the window's.
     pub appearance: &'a Appearance,
+    /// Which layout the Appearance popover opens in.
+    pub appearance_menu: AppearanceMenuStyle,
     /// Every preset, built-ins first, and the user's own among them.
     pub presets: &'a [Preset],
     pub user_presets: &'a [Preset],
@@ -474,12 +480,23 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
     let id = Id::new(APPEARANCE_POPOVER);
     let open = egui::Popup::is_id_open(ui.ctx(), id);
     let r = widgets::icon_button(ui, Icon::Appearance, "Appearance", open);
+    // How an OS hangs its flyouts: off the underside of the bar with no gap of its
+    // own, and only a hair off the window's edge. No shadow either: there is no room
+    // above for one to fall into, and the theme's 24 pt blur would smear the bar.
+    let screen = ui.ctx().content_rect();
+    let hang = pos2(screen.right() - FLYOUT_MARGIN, screen.top() + TITLE_BAR_H);
+    let mut frame = egui::Frame::popup(ui.style());
+    frame.shadow = egui::Shadow::NONE;
     egui::Popup::from_toggle_button_response(&r)
         .id(id)
         .sense(crate::widgets::POPUP_SENSE)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .at_position(hang)
         .align(egui::RectAlign::BOTTOM_END)
-        .gap(6.0)
+        // No alternative sides: an edge-flyout stays on its edge, or not at all.
+        .align_alternatives(&[])
+        .gap(0.0)
+        .frame(frame)
         .show(|ui| {
             let reader = match &bar.page {
                 BarPage::Reader(reader) => Some(reader),
@@ -496,10 +513,14 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
                 // The shelf has no page to texture.
                 texture: reader.is_some(),
             };
-            crate::appearance_menu::show(ui, &cx, out);
+            match bar.appearance_menu {
+                AppearanceMenuStyle::Classic => crate::appearance_menu::show(ui, &cx, out),
+                AppearanceMenuStyle::DialDeck => crate::dial_deck::show(ui, &cx, out),
+            }
         });
     if !open && !egui::Popup::is_id_open(ui.ctx(), id) {
         crate::appearance_menu::forget_draft(ui.ctx());
+        crate::dial_deck::forget_draft(ui.ctx());
     }
 }
 

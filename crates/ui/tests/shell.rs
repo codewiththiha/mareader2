@@ -144,6 +144,34 @@ fn the_appearance_popover_switches_mode_and_keeps_the_bar() {
     );
 }
 
+/// The popover is a flyout off the bar's underside, not a card under the button.
+#[test]
+fn the_appearance_popover_hangs_off_the_bar_near_the_edge() {
+    let mut h = harness(MareaderApp::default());
+    open_appearance(&mut h);
+    let id = egui::Id::new(mareader_ui::titlebar::APPEARANCE_POPOVER);
+    let area = h
+        .ctx
+        .memory(|m| m.area_rect(id))
+        .expect("the popover is laid out");
+    let screen = h.ctx.content_rect();
+    // A hair off the edge and no more: the card this replaced hung about 60 pt
+    // short of it, beside the caption buttons.
+    let margin = mareader_ui::titlebar::FLYOUT_MARGIN;
+    let off_right = screen.right() - area.right();
+    assert!(
+        (off_right - margin).abs() <= 1.0,
+        "{off_right} points off the right edge, not {margin}"
+    );
+    // Against the bar's underside it keeps no gap of its own, and covers no bar.
+    let bar_bottom = screen.top() + mareader_ui::theme::TITLE_BAR_H;
+    let off_bar = area.top() - bar_bottom;
+    assert!(
+        (-1.0..=1.0).contains(&off_bar),
+        "{off_bar} points off the bar's underside at {bar_bottom}"
+    );
+}
+
 #[test]
 fn a_preset_swatch_applies_its_look() {
     let mut h = harness(MareaderApp::default());

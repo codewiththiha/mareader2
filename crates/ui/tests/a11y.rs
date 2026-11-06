@@ -97,6 +97,25 @@ fn every_control_has_a_name() {
     missing.extend(nameless(&with(&shelves), "library"));
     let list = [shelves[0], shelves[1], shelves[2], ("layout", "list")];
     missing.extend(nameless(&with(&list), "library list"));
+
+    let mut deck = with(&[
+        ("epub", "sample:3"),
+        ("panes", "2"),
+        ("pinned", "true"),
+        ("appearance_menu", "dial_deck"),
+    ]);
+    deck.state_mut().queue(Command::ShowAppearance);
+    deck.run_steps(4);
+    missing.extend(nameless(&deck, "dial deck look"));
+    for tab in ["Text", "Page", "Presets"] {
+        deck.get_by_label(tab).click();
+        deck.run_steps(3);
+        missing.extend(nameless(&deck, tab));
+    }
+    deck.get_by_label("Save current look as preset").click();
+    deck.run_steps(3);
+    missing.extend(nameless(&deck, "dial deck preset draft"));
+
     assert!(
         missing.is_empty(),
         "{} nameless:\n{}",

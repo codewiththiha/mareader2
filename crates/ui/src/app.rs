@@ -13,8 +13,8 @@ use mareader_appearance::{
 };
 use mareader_session::Anchor;
 use mareader_settings::{
-    Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick, MotionSettings,
-    PaperArea, Settings, TextSettings,
+    AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick,
+    MotionSettings, PaperArea, Settings, TextSettings,
 };
 use mareader_workspace::{
     Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
@@ -948,6 +948,15 @@ impl MareaderApp {
             "set" => {
                 let (path, json) = value.split_once(':').ok_or("set: path:json")?;
                 self.settings.set_path(path, json)?;
+            }
+            "appearance_menu" => {
+                let style = match value.to_ascii_lowercase().as_str() {
+                    "classic" => Some(AppearanceMenuStyle::Classic),
+                    "dial_deck" | "dial-deck" => Some(AppearanceMenuStyle::DialDeck),
+                    _ => None,
+                };
+                let hint = "appearance_menu: classic or dial_deck";
+                self.settings.chrome.appearance_menu = style.ok_or(hint)?;
             }
             "theme" => {
                 let base = BaseMode::ALL
@@ -3915,6 +3924,7 @@ impl eframe::App for MareaderApp {
             // With no rail beside it, the bar hosts the lights.
             gutter: (!overlay || !route.has_rail()) && inset <= 0.0 && !fullscreen,
             appearance: &look,
+            appearance_menu: self.settings.chrome.appearance_menu,
             presets: &presets,
             user_presets: &self.settings.user_presets,
             gpu: self.documents.gpu(),

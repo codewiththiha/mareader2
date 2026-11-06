@@ -2,8 +2,8 @@
 
 use mareader_appearance::Rgb;
 use mareader_settings::{
-    Corners, EdgeParking, FloatingLabelStyle, LayoutSettings, LibraryClick, PageIndicatorStyle,
-    PaneLook, PaperArea, Settings, StartupFit, Swatch,
+    AppearanceMenuStyle, Corners, EdgeParking, FloatingLabelStyle, LayoutSettings, LibraryClick,
+    PageIndicatorStyle, PaneLook, PaperArea, Settings, StartupFit, Swatch,
 };
 
 use egui::{
@@ -630,6 +630,24 @@ pub(super) fn colours_row(ui: &mut Ui, out: &mut Commands) {
     });
 }
 
+/// Chooses between the classic Appearance list and the tabbed Dial deck.
+pub(super) fn appearance_menu_row(ui: &mut Ui, style: &mut AppearanceMenuStyle) {
+    let hint = "Compact tabs with a colour wheel and rotary dials, or the classic list";
+    row(ui, "Appearance menu", hint, |ui| {
+        // Right to left: Classic lands on the left, Dial deck on the right.
+        ui.selectable_value(
+            style,
+            AppearanceMenuStyle::DialDeck,
+            AppearanceMenuStyle::DialDeck.label(),
+        );
+        ui.selectable_value(
+            style,
+            AppearanceMenuStyle::Classic,
+            AppearanceMenuStyle::Classic.label(),
+        );
+    });
+}
+
 /// Colours stay in the popover, where the page shows each change.
 fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     // A book's colours close its own groups, beside its ink.
@@ -637,10 +655,11 @@ fn appearance(ui: &mut Ui, s: &mut Settings, cx: &Scope, out: &mut Commands) {
     if !book {
         rows(ui, cx, Applies::Always, "Colours", |r| {
             r.always(|ui| colours_row(ui, out));
+            r.always(|ui| appearance_menu_row(ui, &mut s.chrome.appearance_menu));
         });
     }
     if book {
-        fonts::tab(ui, &mut s.text, cx, out);
+        fonts::tab(ui, &mut s.text, &mut s.chrome.appearance_menu, cx, out);
     } else if cx.applies(Applies::AiPages) {
         fonts::ai_tab(ui, &mut s.text);
     } else {
