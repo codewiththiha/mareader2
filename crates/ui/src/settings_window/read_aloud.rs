@@ -1,6 +1,6 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
-use egui::{Align, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings, Skip};
 use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
@@ -56,9 +56,11 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Comm
         true => format!("Built into your system · {}", count(booth.voices().len())),
         false => "Built into your system".to_owned(),
     };
+    let t = Tokens::get(ui.ctx());
     group(ui, |ui| {
         let on = Some(s.engine == system);
-        if pick_row(ui, ("System voices", &detail), "", on, |_| {}) {
+        let mark = engine_mark(system, t.muted);
+        if pick_row(ui, ("System voices", &detail), "", on, mark, |_| {}) {
             s.engine = system.to_owned();
         }
         for model in shelf.catalogue() {
@@ -78,17 +80,23 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Comm
                 _ => ("Unavailable engine", "Not in this build"),
             };
             divider(ui);
-            pick_row(ui, lines, "", Some(true), |_| {});
+            let mark = engine_mark(&s.engine, t.muted);
+            pick_row(ui, lines, "", Some(true), mark, |_| {});
         }
     });
     if !shelf.attached() {
         note(ui, "Downloads need the desktop app.");
     }
     if let Some(fault) = booth.fault() {
-        let t = Tokens::get(ui.ctx());
         ui.add_space(8.0);
         ui.label(RichText::new(fault).size(t.text_small).color(t.danger));
     }
+}
+
+/// The engine's own mark, to lead its row. A muted one, so the row's words keep
+/// the colour they had before the faces came.
+fn engine_mark(id: &str, ink: Color32) -> Option<(Icon, Color32)> {
+    Icon::engine(id).map(|mark| (mark, ink))
 }
 
 /// A model: picked once it runs here, else its download; true when picked.
@@ -103,7 +111,9 @@ fn model_row(
     let picked = wanted.or(model.builds.first());
     let offer = offer(model);
     let on = (runs || s.engine == model.id).then_some(s.engine == model.id);
-    pick_row(ui, (model.name, &offer), model.about, on, |ui| {
+    let t = Tokens::get(ui.ctx());
+    let mark = engine_mark(model.id, t.muted);
+    pick_row(ui, (model.name, &offer), model.about, on, mark, |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         if !shelf.attached() {
             let bytes = picked.map_or(model.bytes(), |b| model.bytes_with(b));

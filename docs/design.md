@@ -123,7 +123,7 @@ look" as the header's +. Choices are segmented tracks; texture and grain dials
 show only when they act. While split, the per-pane switches sit pinned under
 the scroll, together.
 
-It is anchored as a **menu, not a card** (2026-11-07), which is the one place
+It is anchored as a **menu, not a card** (2026-11-06), which is the one place
 the "popovers point at their trigger" rule above does not apply: it is a modeless
 control panel rather than something explaining its anchor. Its frame touches the
 title bar's underside, with no gap of its own, and stands 8 pt off the window's
@@ -572,6 +572,17 @@ Lucide 1.34.0 through `egui-lucide`, behind `crates/ui/src/icons.rs` (ADR 0004).
   Providers' logos (`crates/ui/assets/logos`, from Simple Icons under
   CC0) sit in ink on a quiet tile, so they read in every look; a custom
   server, having none, shows Lucide's server.
+- **The voices' own marks (2026-11-06).** The engines in Settings → Read aloud
+  were rows of words while the AI providers had logos, so each voice got a mark
+  drawn from what it is: a heart with a spoken pulse across it for Kokoro
+  (心), stopped panpipes for Piper, two dots and a purr for Kitten, a wave
+  crossing five lattice sites for Phonon, a display that speaks for the
+  system's own voices, and one blip then an open stop for the silent engine
+  that tests and screenshots read with. `Icon::engine` maps an engine id to
+  its mark; a model's settings tab wears its engine's instead of the stock
+  waveform, and an engine with no mark of its own keeps the waveform. They are
+  our own SVGs on Lucide's grid at stroke 2, so they tint and sit beside the
+  rest unchanged, and lead a row's detail line rather than its title.
 
 ## Motion
 
