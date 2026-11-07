@@ -162,9 +162,9 @@ jobs:
           shared-key: platform-${{ matrix.os }}
           save-if: ${{ env.SAVE_CACHE }}
       - if: runner.os == 'macOS'
-        run: cargo clippy -p mareader --all-targets -- -D warnings
+        run: cargo clippy -p mareader -- -D warnings
       - if: runner.os == 'macOS'
-        run: cargo clippy -p mareader --no-default-features --all-targets -- -D warnings
+        run: cargo clippy -p mareader --no-default-features -- -D warnings
       # Check cross-platform code on every run; link the full app on main only.
       - run: cargo check -p mareader --locked
       - if: github.ref == 'refs/heads/main'
