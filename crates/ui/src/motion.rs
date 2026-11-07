@@ -12,6 +12,7 @@ const ID: &str = "mareader-motion";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Allowed {
     all: bool,
+    icons: bool,
     zoom: bool,
     jumps: bool,
     follow: bool,
@@ -23,6 +24,7 @@ impl Default for Allowed {
     fn default() -> Self {
         Self {
             all: true,
+            icons: true,
             zoom: true,
             jumps: true,
             follow: true,
@@ -40,6 +42,7 @@ fn allowed(ctx: &Context) -> Allowed {
 pub fn set(ctx: &Context, m: &MotionSettings, reduced: bool) {
     let a = Allowed {
         all: m.enabled && !reduced,
+        icons: m.icon_animations() && !reduced,
         zoom: m.zoom() && !reduced,
         jumps: m.scroll_jumps() && !reduced,
         follow: m.canvas_resize() && !reduced,
@@ -63,6 +66,11 @@ pub fn enabled(ctx: &Context) -> bool {
 /// `secs` while animations are on, zero while they are off.
 pub fn secs(ctx: &Context, secs: f32) -> f32 {
     if enabled(ctx) { secs } else { 0.0 }
+}
+
+/// `secs` while icon animations are on, zero while they are off.
+pub fn icon_secs(ctx: &Context, secs: f32) -> f32 {
+    if allowed(ctx).icons { secs } else { 0.0 }
 }
 
 /// A zoom step eases to its target instead of landing there.

@@ -368,6 +368,7 @@ fn the_system_asking_for_less_motion_stills_it_like_the_master() {
     h.state_mut().set_option("reduced", "true").ok();
     h.run_steps(2);
     assert!(!motion::enabled(&h.ctx) && motion::reduced(&h.ctx));
+    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.0);
     assert_eq!(h.ctx.global_style().animation_time, 0.0);
     assert!(
         h.state().settings().motion.enabled,
@@ -390,7 +391,7 @@ fn the_glass_switch_starts_on_and_turns_it_off() {
 fn the_motion_tab_hides_each_switch_with_the_master() {
     use mareader_ui::settings_window::Tab;
     let mut h = with(&[("settings", "animations")]);
-    let each = "Sidebar animation";
+    let each = "Icon animations";
     assert!(h.query_by_role_and_label(Role::CheckBox, each).is_some());
     h.get_by_role_and_label(Role::CheckBox, "Animations")
         .click();
@@ -400,6 +401,23 @@ fn the_motion_tab_hides_each_switch_with_the_master() {
     // The tab stays put, so the list never shifts.
     let tab = h.state().settings_window().tab();
     assert_eq!(tab, Tab::Motion);
+}
+
+#[test]
+fn the_icon_animation_switch_stills_only_icons() {
+    use mareader_ui::motion;
+    let mut h = with(&[("settings", "animations")]);
+    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.5);
+    h.get_by_role_and_label(Role::CheckBox, "Icon animations")
+        .click();
+    h.run_steps(2);
+    assert!(h.state().settings().motion.enabled);
+    assert!(!h.state().settings().motion.icon_animations);
+    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.0);
+    assert!(
+        h.query_by_role_and_label(Role::CheckBox, "Sidebar animation")
+            .is_some()
+    );
 }
 
 #[test]

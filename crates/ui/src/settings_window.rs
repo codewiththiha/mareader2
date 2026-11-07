@@ -603,6 +603,10 @@ fn motion(ui: &mut Ui, s: &mut Settings, cx: &Scope) {
     }
     rows(ui, cx, Applies::Always, "Each motion", |r| {
         r.always(|ui| {
+            let hint = "Icons move when controls are reached or pressed";
+            switch_row(ui, "Icon animations", hint, &mut m.icon_animations);
+        });
+        r.always(|ui| {
             let hint = "The sidebar slides in and out, docked or floating";
             switch_row(ui, "Sidebar animation", hint, &mut m.sidebar_slide);
         });

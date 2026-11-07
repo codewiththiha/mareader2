@@ -267,7 +267,7 @@ fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Curren
     let dur = if act == Act::Still {
         0.0
     } else {
-        motion::secs(ctx, pack.duration())
+        motion::icon_secs(ctx, pack.duration())
     };
     let id = key(ui, icon, tag);
     if dur <= 0.0 {
@@ -354,7 +354,7 @@ fn is_live(ui: &Ui, icon: Icon, tag: &str) -> bool {
     if current(ctx) == Act::Still {
         return false;
     }
-    let dur = motion::secs(ctx, pack.duration());
+    let dur = motion::icon_secs(ctx, pack.duration());
     if dur <= 0.0 {
         return false;
     }
@@ -802,17 +802,21 @@ mod tests {
         assert_eq!(order(Act::Hover, false, false, true), Order::None);
     }
 
-    #[test]
-    fn a_run_outlives_the_press_that_started_it() {
+    fn click_run_liveness(icon_animations: bool) -> [bool; 4] {
         use egui::{Event, Modifiers, PointerButton, Sense, pos2};
 
         let Some(pack) = mareader_animated_icons::find("sun") else {
             panic!("sun pack is missing");
         };
         let ctx = Context::default();
+        let settings = mareader_settings::MotionSettings {
+            icon_animations,
+            ..Default::default()
+        };
+        motion::set(&ctx, &settings, false);
         let cell = Rect::from_min_size(pos2(4.0, 4.0), Vec2::splat(18.0));
         let mut run_of = Id::new("never");
-        let mut live = Vec::new();
+        let mut live = [false; 4];
         for (index, time) in [
             0.0f64,
             0.02,
@@ -857,11 +861,20 @@ mod tests {
                 paint(ui, cell, Icon::Light, Color32::WHITE, "cell", &response);
             });
             out.textures_delta.clear();
-            live.push(
-                ctx.data(|data| data.get_temp::<Run>(run_of))
-                    .is_some_and(|run| run.start >= 0.0),
-            );
+            live[index] = ctx
+                .data(|data| data.get_temp::<Run>(run_of))
+                .is_some_and(|run| run.start >= 0.0);
         }
-        assert_eq!(live, [false, true, true, false]);
+        live
+    }
+
+    #[test]
+    fn a_run_outlives_the_press_that_started_it() {
+        assert_eq!(click_run_liveness(true), [false, true, true, false]);
+    }
+
+    #[test]
+    fn the_icon_switch_prevents_a_run() {
+        assert_eq!(click_run_liveness(false), [false; 4]);
     }
 }

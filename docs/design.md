@@ -605,15 +605,17 @@ Lucide 1.34.0 geometry is compiled from build-only declarations behind
 ## Motion
 
 - **Animations** is the master switch (`crates/ui/src/motion.rs`). Off zeroes
-  egui's `animation_time` and every `motion::secs`; end states still arrive in
-  the same frame.
-- Per-motion switches (M2): sidebar slide, canvas follows the window, zoom ease,
-  scroll to page.
+  egui's `animation_time` and every motion duration; end states still arrive in
+  the same frame. The system reduced-motion preference has the same authority.
+- Per-motion switches (M2): icon animations, sidebar slide, canvas follows the
+  window, zoom ease and scroll to page. Each preference persists separately;
+  icon animations default on to preserve existing behaviour.
 - A loading indicator fades rather than freezes when animations are off.
-- Icon runs (`icons::anim`) read the switch and nothing else: off, a glyph is
-  its resting drawing and no repaint is asked for on its account. A press that
-  arrives mid-run is queued rather than cut short, so a glyph is never caught
-  bent.
+- Icon runs (`icons::anim`) read `motion::icon_secs`, which combines their own
+  switch with the master and reduced-motion gates. Off, a glyph is its generated
+  resting drawing, no run starts or survives, and no repaint is asked for on its
+  account. A press that arrives mid-run is queued rather than cut short, so a
+  glyph is never caught bent.
 - An active icon run asks for the next 60 Hz sample boundary; it does not request
   60-plus FPS, and it stops asking when the 0.42–0.84 s timeline lands. The
   context-local animated atlas cache holds at most 8 MiB of RGBA pixels or 512
@@ -647,7 +649,7 @@ Lucide 1.34.0 geometry is compiled from build-only declarations behind
 | 2026-10-15 | Settings that follow the focused pane: `Scope`, `Applies` and `Rows` |
 | 2026-10-18 | Lifting a pane to move or swap it |
 | 2026-10-28 | Book covers: bound finish, cloth covers, progress on the cover, organizing without a badge |
-| 2026-11-07 | Generated resting glyphs replace `egui-lucide` and share typed geometry with icon animation |
+| 2026-11-07 | Generated resting glyphs replace `egui-lucide`; icon motion gains its own persisted switch |
 
 ### Page marks and reading questions
 

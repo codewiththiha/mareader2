@@ -67,7 +67,20 @@ fn migrate(root: &mut Map<String, Value>, notes: &mut Vec<String>) {
     if stored < 6 {
         v5_to_v6(root);
     }
+    if stored < 7 {
+        v6_to_v7(root);
+    }
     root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+}
+
+/// v7 added a separate switch for animated icons, on by default.
+fn v6_to_v7(root: &mut Map<String, Value>) {
+    let Some(Value::Object(motion)) = root.get_mut("motion") else {
+        return;
+    };
+    motion
+        .entry("icon_animations".to_owned())
+        .or_insert_with(|| json!(true));
 }
 
 /// v6 added Read aloud to the selection menu, after Look up if shown.
@@ -266,10 +279,12 @@ mod tests {
         let id = saved.ai.add_preset(Provider::Ollama, "llama3.2:latest");
         saved.ai.tasks.explain.preset = Some(id);
         saved.ai.tasks.explain.language = Some("my".to_owned());
+        saved.motion.icon_animations = false;
         let got = load(&to_json(&saved));
         assert!(got.notes.is_empty(), "{:?}", got.notes);
         assert!(got.unknown.is_empty(), "never read: {:?}", got.unknown);
         assert_eq!(got.settings.ai, saved.ai);
+        assert_eq!(got.settings.motion, saved.motion);
     }
 
     #[test]
@@ -404,6 +419,14 @@ mod tests {
         assert_eq!(bar, want);
         let v6 = r#"{"version":6,"study":{"highlights":{"bar":["copy"]}}}"#;
         assert_eq!(load(v6).settings.study.highlights.bar, [BarItem::Copy]);
+    }
+
+    #[test]
+    fn v6_motion_gains_icon_animations_on() {
+        let v6 = r#"{"version":6,"motion":{"enabled":false,"sidebar_slide":false}}"#;
+        let motion = load(v6).settings.motion;
+        assert!(!motion.enabled && !motion.sidebar_slide);
+        assert!(motion.icon_animations, "existing behaviour stays on");
     }
 
     #[test]

@@ -1578,7 +1578,7 @@ notes = "Off, every motion lands on its end state in the first frame; the system
 
 [[feature]]
 id = "motion.per-switch"
-title = "Sidebar slide, canvas follows window, zoom ease and scroll-to-page switches"
+title = "Icon, sidebar, canvas-follow, zoom-ease and scroll-to-page animation switches"
 area = "K"
 tier = "P1"
 milestone = "M2"
@@ -1586,10 +1586,12 @@ status = "shipped"
 reference = ["crates/reader-core/src/settings/animation.rs"]
 evidence = [
     "crates/ui/src/zoom.rs::without_follow_a_fit_waits_for_the_resize_to_rest",
+    "crates/ui/src/icons/anim.rs::the_icon_switch_prevents_a_run",
+    "crates/ui/tests/shell.rs::the_icon_animation_switch_stills_only_icons",
     "crates/ui/tests/keys.rs::with_zoom_ease_off_a_step_lands_on_its_first_frame",
     "crates/ui/tests/keys.rs::with_scroll_to_page_off_a_jump_lands_at_once",
 ]
-notes = "Settings, Animations: sidebar animation, canvas follows window, zoom in and out, scroll to page. Off, each change lands in one frame"
+notes = "Settings, Animations: icon animations, sidebar animation, canvas follows window, zoom in and out, scroll to page. Off, each change lands in one frame; icons use their resting glyph without animation repaints"
 
 [[feature]]
 id = "keys.shortcuts"

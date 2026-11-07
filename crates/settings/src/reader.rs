@@ -199,6 +199,7 @@ pub struct PaperSettings {
 #[serde(default)]
 pub struct MotionSettings {
     pub enabled: bool,
+    pub icon_animations: bool,
     pub sidebar_slide: bool,
     pub canvas_resize: bool,
     pub zoom: bool,
@@ -206,6 +207,9 @@ pub struct MotionSettings {
 }
 
 impl MotionSettings {
+    pub fn icon_animations(&self) -> bool {
+        self.enabled && self.icon_animations
+    }
     pub fn sidebar_slide(&self) -> bool {
         self.enabled && self.sidebar_slide
     }
@@ -227,6 +231,7 @@ impl Default for MotionSettings {
     fn default() -> Self {
         Self {
             enabled: true,
+            icon_animations: true,
             sidebar_slide: true,
             canvas_resize: true,
             zoom: true,
@@ -463,6 +468,15 @@ impl Default for ReadAloudSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn icon_animations_follow_the_master_switch() {
+        let mut m = MotionSettings::default();
+        assert!(m.icon_animations());
+        m.enabled = false;
+        assert!(!m.icon_animations());
+        assert!(m.icon_animations, "the user's per-motion choice is kept");
+    }
 
     #[test]
     fn each_bar_keeps_its_own_pin() {
