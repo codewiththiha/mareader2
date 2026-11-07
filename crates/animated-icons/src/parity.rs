@@ -4,9 +4,7 @@
 
 use resvg::{tiny_skia, usvg};
 
-#[path = "prop.rs"]
-mod prop;
-use prop::Prop;
+use super::prop::Prop;
 
 #[path = "schema.rs"]
 mod schema;
