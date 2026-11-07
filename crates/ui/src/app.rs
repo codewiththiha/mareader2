@@ -3522,8 +3522,9 @@ impl eframe::App for MareaderApp {
             self.titlebar.reveal();
             self.page_bars.entry(self.active).or_default().reveal();
         }
-        // While the question is present, these answers take precedence over
-        // page scrolling and Escape's other reader actions, but never typing.
+        // While the question is present, its answers take precedence.
+
+        // They override page scroll and Escape, but never typing.
         let asking = route == Route::Reader
             && self.read_aloud.is_asking()
             && !dialog
