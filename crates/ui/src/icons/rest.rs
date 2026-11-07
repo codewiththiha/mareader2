@@ -1,9 +1,12 @@
 //! One-frame generated resting glyphs and their bounded texture cache.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use egui::{Context, Id, Image, Rect, TextureHandle, TextureOptions, Ui, Vec2};
 use mareader_animated_icons::{Pack, RestingGlyph};
+
+use super::diagnostics::{self, CacheStats};
 
 const CACHE_BYTES: usize = 4 * 1024 * 1024;
 const CACHE_ENTRIES: usize = 512;
@@ -61,6 +64,8 @@ struct RestingStore {
     entries: HashMap<GlyphKey, (CachedGlyph, usize, u64)>,
     bytes: usize,
     stamp: u64,
+    evictions: u64,
+    evicted_bytes: u64,
 }
 
 impl RestingStore {
@@ -89,6 +94,8 @@ impl RestingStore {
             };
             if let Some((_, old_cost, _)) = self.entries.remove(&oldest) {
                 self.bytes = self.bytes.saturating_sub(old_cost);
+                self.evictions = self.evictions.saturating_add(1);
+                self.evicted_bytes = self.evicted_bytes.saturating_add(old_cost as u64);
             }
         }
         self.stamp = self.stamp.wrapping_add(1);
@@ -106,11 +113,20 @@ pub(super) fn image(ui: &Ui, pack: &'static Pack, size: f32) -> Image<'static> {
         data.get_temp_mut_or_default::<RestingStore>(store_id)
             .get(&key)
     }) {
+        diagnostics::resting_lookup(ctx, true);
         return glyph.image(size);
     }
+    diagnostics::resting_lookup(ctx, false);
+    let raster_started = diagnostics::enabled().then(Instant::now);
     let Some(glyph) = mareader_animated_icons::raster_resting(pack, side) else {
+        if let Some(started) = raster_started {
+            diagnostics::raster(ctx, started.elapsed());
+        }
         return blank(ctx, size);
     };
+    if let Some(started) = raster_started {
+        diagnostics::raster(ctx, started.elapsed());
+    }
     let bytes = glyph.byte_len();
     let cached = upload(ctx, pack.id(), glyph);
     let image = cached.image(size);
@@ -122,6 +138,8 @@ pub(super) fn image(ui: &Ui, pack: &'static Pack, size: f32) -> Image<'static> {
 }
 
 fn upload(ctx: &Context, pack_id: &str, glyph: RestingGlyph) -> CachedGlyph {
+    let started = diagnostics::enabled().then(Instant::now);
+    let bytes = glyph.byte_len();
     let image = egui::ColorImage::from_rgba_premultiplied(
         [glyph.width as usize, glyph.height as usize],
         &glyph.pixels,
@@ -131,6 +149,9 @@ fn upload(ctx: &Context, pack_id: &str, glyph: RestingGlyph) -> CachedGlyph {
         image,
         TextureOptions::LINEAR,
     );
+    if let Some(started) = started {
+        diagnostics::upload(ctx, bytes, started.elapsed());
+    }
     CachedGlyph {
         texture,
         side: glyph.side,
@@ -139,6 +160,17 @@ fn upload(ctx: &Context, pack_id: &str, glyph: RestingGlyph) -> CachedGlyph {
         width: glyph.width,
         height: glyph.height,
     }
+}
+
+pub(super) fn cache_stats(ctx: &Context) -> CacheStats {
+    ctx.data_mut(|data| {
+        let store = data.get_temp_mut_or_default::<RestingStore>(Id::new("resting-icon-glyphs"));
+        CacheStats {
+            bytes: store.bytes,
+            evictions: store.evictions,
+            evicted_bytes: store.evicted_bytes,
+        }
+    })
 }
 
 pub(super) fn blank(ctx: &Context, size: f32) -> Image<'static> {

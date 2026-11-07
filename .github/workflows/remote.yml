@@ -9,10 +9,10 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: shots, web, memory, cache, kokoro, piper, kitten, phonon, ipa, hanzi or system
+        description: shots, web, memory, icon-metrics, cache, kokoro, piper, kitten, phonon, ipa, hanzi or system
         required: true
         type: choice
-        options: [shots, web, memory, cache, kokoro, piper, kitten, phonon, ipa, hanzi, system]
+        options: [shots, web, memory, icon-metrics, cache, kokoro, piper, kitten, phonon, ipa, hanzi, system]
       sha:
         description: Commit to use (default the dispatched ref)
         default: ""
@@ -81,6 +81,60 @@ jobs:
           name: shots
           path: shots/
           retention-days: 3
+          if-no-files-found: error
+
+  icon-metrics:
+    name: Remote / icon metrics
+    if: inputs.task == 'icon-metrics'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
+      - uses: ./.github/actions/apt
+        with:
+          packages: mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
+      - name: Measure release egui harness
+        env:
+          MAREADER_ICON_DIAGNOSTICS: "1"
+        run: |
+          set -o pipefail
+          mkdir -p out
+          status=0
+          cargo test -q -p mareader-ui --release --lib --no-run || status=$?
+          if [ "$status" -eq 0 ]; then
+            /usr/bin/time -f 'test process: wall=%e s user=%U s system=%S s max-rss=%M KiB' \
+              -o out/icon-diagnostics-time.txt \
+              env MAREADER_ICON_DIAGNOSTICS=1 \
+                  cargo test -q -p mareader-ui --release --lib \
+                    icons::anim::tests::remote_release_icon_diagnostics_workloads \
+                    -- --ignored --exact --nocapture 2>&1 | tee out/icon-diagnostics.txt || status=$?
+          else
+            echo 'release test binary failed to compile' | tee out/icon-diagnostics.txt
+          fi
+          {
+            echo '## Animated icons — Remote release egui harness'
+            echo
+            echo 'CPU-only synthetic UI workload; no native window or GPU is used.'
+            echo
+            cat out/icon-diagnostics.txt 2>/dev/null || true
+            cat out/icon-diagnostics-time.txt 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: icon-metrics
+          path: out/
+          retention-days: 7
           if-no-files-found: error
 
   # docs/memory.md: each workload's table and budgets, in the summary too.

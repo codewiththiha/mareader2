@@ -3,13 +3,14 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::{Color32, Context, Id, Image, Rect, Response, TextureHandle, TextureOptions, Ui, Vec2};
 use mareader_animated_icons::{Atlas, AtlasCell, Pack};
 
 use crate::motion;
 
+use super::diagnostics::{self, AtlasLookup, CacheStats};
 use super::{GRID, Icon, pack};
 
 /// Canvas-to-glyph size ratio including authored headroom.
@@ -308,6 +309,7 @@ fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Curren
                 let out = cached_frame(ctx, pack, side(size * BOX, ctx.pixels_per_point()), 0);
                 schedule(ctx, &run, dur, 0, now);
                 ctx.data_mut(|d| d.insert_temp(id, run));
+                diagnostics::active(ctx, id);
                 return out;
             }
             run.start = -1.0;
@@ -315,6 +317,7 @@ fn advance(ui: &Ui, resp: &Response, icon: Icon, tag: &str, size: f32) -> Curren
             return CurrentFrame::Resting;
         }
     };
+    diagnostics::active(ctx, id);
     let frame = frame_index(t, dur);
     let out = cached_frame(ctx, pack, side(size * BOX, ctx.pixels_per_point()), frame);
     schedule(ctx, &run, dur, frame, now);
@@ -410,6 +413,7 @@ fn paint_cached(ui: &Ui, mark: Rect, tint: Color32, frame: &CachedFrame) {
         mesh.add_rect_with_uv(rect, uv, tint);
     }
     if !mesh.indices.is_empty() {
+        diagnostics::mesh(ui.ctx(), mesh.vertices.len());
         ui.painter().add(egui::Shape::mesh(mesh));
     }
 }
@@ -453,6 +457,7 @@ struct Completed {
     key: AtlasKey,
     pack_id: &'static str,
     atlas: Option<Atlas>,
+    raster_time: Option<Duration>,
     retry: bool,
 }
 
@@ -479,9 +484,14 @@ fn upload(ctx: &Context, completed: Completed) -> Published {
         key,
         pack_id,
         atlas,
+        raster_time,
         retry,
     } = completed;
+    if let Some(elapsed) = raster_time {
+        diagnostics::raster(ctx, elapsed);
+    }
     let atlas = atlas.map(|atlas| {
+        let started = diagnostics::enabled().then(Instant::now);
         let bytes = atlas.byte_len();
         let image = egui::ColorImage::from_rgba_premultiplied(
             [atlas.width as usize, atlas.height as usize],
@@ -492,6 +502,9 @@ fn upload(ctx: &Context, completed: Completed) -> Published {
             image,
             TextureOptions::LINEAR,
         );
+        if let Some(started) = started {
+            diagnostics::upload(ctx, bytes, started.elapsed());
+        }
         let cached = CachedAtlas {
             texture,
             width: atlas.width,
@@ -551,20 +564,58 @@ fn atlas(ctx: &Context, pack: &'static Pack, side: u16) -> Option<CachedAtlas> {
         .map(|completed| upload(ctx, completed))
         .collect();
     let key = AtlasKey::new(pack, side);
-    ctx.data_mut(|data| {
+    let (atlas, lookup) = ctx.data_mut(|data| {
         let store = data.get_temp_mut_or_default::<AtlasStore>(store_id);
         store.publish(completed);
         if let Some(atlas) = store.cache.get(&key) {
-            return Some(atlas.clone());
+            return (Some(atlas.clone()), AtlasLookup::Hit);
         }
-        if store.pending.contains(&key) || store.failed.contains(&key) {
-            return None;
+        if store.pending.contains(&key) {
+            return (None, AtlasLookup::Pending);
+        }
+        if store.failed.contains(&key) {
+            return (None, AtlasLookup::Failed);
         }
         if request_atlas(ctx, store.mailbox.clone(), key, pack, side) {
             store.pending.insert(key);
+            (None, AtlasLookup::Miss)
+        } else {
+            (None, AtlasLookup::Rejected)
         }
-        None
-    })
+    });
+    diagnostics::atlas_lookup(ctx, lookup);
+    atlas
+}
+
+pub(crate) fn finish_diagnostic_frame(
+    ctx: &Context,
+    cpu_usage: Option<Duration>,
+    harness_elapsed: Option<Duration>,
+) {
+    if !diagnostics::enabled() {
+        return;
+    }
+    let atlas = ctx.data_mut(|data| {
+        let store = data.get_temp_mut_or_default::<AtlasStore>(Id::new("animated-icon-atlases"));
+        CacheStats {
+            bytes: store.cache.bytes,
+            evictions: store.cache.evictions,
+            evicted_bytes: store.cache.evicted_bytes,
+        }
+    });
+    let resting = super::rest::cache_stats(ctx);
+    diagnostics::finish_frame(
+        ctx,
+        cpu_usage,
+        harness_elapsed,
+        CacheStats {
+            bytes: atlas.bytes.saturating_add(resting.bytes),
+            evictions: atlas.evictions.saturating_add(resting.evictions),
+            evicted_bytes: atlas
+                .evicted_bytes
+                .saturating_add(resting.evicted_bytes),
+        },
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -598,16 +649,25 @@ fn request_atlas(
                     let retry = job.mailbox.0.lock().map_or(true, |mailbox| {
                         mailbox.iter().any(|done| done.atlas.is_some())
                     });
-                    let atlas = if retry {
-                        None
+                    let (atlas, raster_time) = if retry {
+                        (None, None)
+                    } else if diagnostics::enabled() {
+                        let started = Instant::now();
+                        let atlas =
+                            mareader_animated_icons::raster_atlas(job.pack, u32::from(job.side));
+                        (atlas, Some(started.elapsed()))
                     } else {
-                        mareader_animated_icons::raster_atlas(job.pack, u32::from(job.side))
+                        (
+                            mareader_animated_icons::raster_atlas(job.pack, u32::from(job.side)),
+                            None,
+                        )
                     };
                     if let Ok(mut mailbox) = job.mailbox.0.lock() {
                         mailbox.push(Completed {
                             key: job.key,
                             pack_id: job.pack.id(),
                             atlas,
+                            raster_time,
                             retry,
                         });
                     }
@@ -636,12 +696,14 @@ fn request_atlas(
     pack: &'static Pack,
     side: u16,
 ) -> bool {
+    let started = diagnostics::enabled().then(Instant::now);
     let atlas = mareader_animated_icons::raster_atlas(pack, u32::from(side));
     if let Ok(mut mailbox) = mailbox.0.lock() {
         mailbox.push(Completed {
             key,
             pack_id: pack.id(),
             atlas,
+            raster_time: started.map(|started| started.elapsed()),
             retry: false,
         });
         ctx.request_repaint();
@@ -657,6 +719,8 @@ struct ByteLruCache<K, V> {
     bytes: usize,
     max_bytes: usize,
     stamp: u64,
+    evictions: u64,
+    evicted_bytes: u64,
 }
 
 impl<K: Copy + Eq + Hash, V> ByteLruCache<K, V> {
@@ -666,6 +730,8 @@ impl<K: Copy + Eq + Hash, V> ByteLruCache<K, V> {
             bytes: 0,
             max_bytes,
             stamp: 0,
+            evictions: 0,
+            evicted_bytes: 0,
         }
     }
 
@@ -696,6 +762,8 @@ impl<K: Copy + Eq + Hash, V> ByteLruCache<K, V> {
             };
             if let Some((_, old_cost, _)) = self.entries.remove(&oldest) {
                 self.bytes = self.bytes.saturating_sub(old_cost);
+                self.evictions = self.evictions.saturating_add(1);
+                self.evicted_bytes = self.evicted_bytes.saturating_add(old_cost as u64);
             }
         }
         self.stamp = self.stamp.wrapping_add(1);
@@ -876,5 +944,131 @@ mod tests {
     #[test]
     fn the_icon_switch_prevents_a_run() {
         assert_eq!(click_run_liveness(false), [false; 4]);
+    }
+
+    #[derive(Clone, Copy)]
+    enum ClickPattern {
+        Idle,
+        Single,
+        Sweep,
+    }
+
+    fn bench_cell(index: usize) -> Rect {
+        let x = 16.0 + (index % 4) as f32 * 44.0;
+        let y = 16.0 + (index / 4) as f32 * 44.0;
+        Rect::from_min_size(egui::pos2(x, y), Vec2::splat(24.0))
+    }
+
+    fn bench_target(frame: usize, pattern: ClickPattern) -> Option<usize> {
+        match pattern {
+            ClickPattern::Idle => None,
+            ClickPattern::Single if frame == 2 => Some(0),
+            ClickPattern::Sweep if frame < 12 => Some(frame),
+            ClickPattern::Single | ClickPattern::Sweep => None,
+        }
+    }
+
+    fn bench_input(frame: usize, pattern: ClickPattern) -> egui::RawInput {
+        use egui::{Event, Modifiers, PointerButton, pos2};
+
+        let events = if let Some(index) = bench_target(frame, pattern) {
+            let at = bench_cell(index).center();
+            vec![
+                Event::PointerMoved(at),
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::default(),
+                },
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::default(),
+                },
+            ]
+        } else {
+            vec![Event::PointerMoved(pos2(500.0, 300.0))]
+        };
+        egui::RawInput {
+            time: Some(frame as f64 / 60.0),
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(240.0, 160.0),
+            )),
+            events,
+            ..Default::default()
+        }
+    }
+
+    fn bench_ui(ui: &mut Ui) {
+        use egui::Sense;
+
+        const ICONS: [Icon; 12] = [
+            Icon::Sidebar,
+            Icon::Thumbnails,
+            Icon::Outline,
+            Icon::Dictionary,
+            Icon::Settings,
+            Icon::Book,
+            Icon::ZoomIn,
+            Icon::ZoomOut,
+            Icon::FitWidth,
+            Icon::FitPage,
+            Icon::Menu,
+            Icon::Close,
+        ];
+        const TAGS: [&str; 12] = [
+            "bench-0", "bench-1", "bench-2", "bench-3", "bench-4", "bench-5", "bench-6",
+            "bench-7", "bench-8", "bench-9", "bench-10", "bench-11",
+        ];
+        let _act = announce(ui, Act::Click);
+        for (index, (icon, tag)) in ICONS.into_iter().zip(TAGS).enumerate() {
+            let rect = bench_cell(index);
+            let response = ui.interact(
+                rect,
+                ui.id().with(("icon-diagnostic", index)),
+                Sense::click(),
+            );
+            paint(ui, rect, icon, Color32::WHITE, tag, &response);
+        }
+    }
+
+    fn run_diagnostics_pass(ctx: &Context, frame: usize, pattern: ClickPattern) {
+        let input = bench_input(frame, pattern);
+        let started = Instant::now();
+        let mut output = ctx.run_ui(input, bench_ui);
+        let elapsed = started.elapsed();
+        output.textures_delta.clear();
+        finish_diagnostic_frame(ctx, None, Some(elapsed));
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    fn run_diagnostics_workload(name: &str, animations: bool, pattern: ClickPattern) {
+        let ctx = Context::default();
+        let settings = mareader_settings::MotionSettings {
+            icon_animations: animations,
+            ..Default::default()
+        };
+        motion::set(&ctx, &settings, false);
+        eprintln!("icon diagnostics scenario: {name}");
+        for frame in 0..240 {
+            run_diagnostics_pass(&ctx, frame, pattern);
+        }
+        diagnostics::flush(&ctx);
+    }
+
+    #[test]
+    #[ignore = "Remote release-only icon diagnostics harness; set MAREADER_ICON_DIAGNOSTICS=1"]
+    fn remote_release_icon_diagnostics_workloads() {
+        assert!(
+            diagnostics::enabled(),
+            "set MAREADER_ICON_DIAGNOSTICS=1 to run the opt-in harness"
+        );
+        run_diagnostics_workload("idle", true, ClickPattern::Idle);
+        run_diagnostics_workload("click-run", true, ClickPattern::Single);
+        run_diagnostics_workload("titlebar-sweep", true, ClickPattern::Sweep);
+        run_diagnostics_workload("animations-off", false, ClickPattern::Sweep);
     }
 }

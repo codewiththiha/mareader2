@@ -3439,7 +3439,12 @@ impl eframe::App for MareaderApp {
         paper.to_normalized_gamma_f32()
     }
 
-    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        crate::icons::anim::finish_diagnostic_frame(
+            ctx,
+            frame.info().cpu_usage.map(Duration::from_secs_f32),
+            None,
+        );
         if self.fonts == FontState::Missing {
             theme::install_fonts(ctx);
             egui_extras::install_image_loaders(ctx);

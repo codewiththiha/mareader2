@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** generated resting and part-atlas implementation; release measurement pending · **Last updated:** 2026-11-07
+> **Status:** generated resting and part-atlas implementation; Remote release diagnostic added, first run pending · **Last updated:** 2026-11-07
 
 This document answers two separate questions:
 
@@ -9,9 +9,10 @@ This document answers two separate questions:
    native egui application?
 
 The answer comes from the current Mareader implementation and egui 0.36.2.
-It is an architectural assessment, not a measured CPU result. A number such
-as “10% CPU” or “massive”
-would require the release-build measurements specified below.
+The source establishes which work is avoided, but not its CPU or memory impact
+on a particular machine. The opt-in release diagnostic is now implemented;
+publish its first Remote result before making quantitative claims. Real-GPU
+and native-window measurements remain a separate, deferred step.
 
 ## Short answer
 
@@ -60,7 +61,7 @@ The runtime-SVG replacement is implemented across
   is baked exactly without a whole-frame representation;
 - every pack and DPI bucket must fit its generated part atlas below 8 MiB;
 - native cold generation uses one bounded worker; wasm/threadless generation is
-  synchronous; and
+  synchronous;
 - the context-local byte-accounted LRU remains capped at 8 MiB and 512 entries,
   with the generated resting glyph visible while an atlas is pending or unavailable; and
 - `build.rs` still emits typed geometry into `OUT_DIR`; committing generated
@@ -68,8 +69,10 @@ The runtime-SVG replacement is implemented across
 
 Default tests compare six representative packs at two sizes. The exhaustive
 98-pack geometry/atlas and resting-glyph sweeps are marked ignored for ordinary
-runs and execute on `main` CI. Release CPU, RSS, upload and driver measurements
-are still required before claiming a performance magnitude.
+runs and execute on `main` CI. The Linux-only `Remote / icon-metrics` task
+runs the ignored harness in release mode and saves its counters as an artifact.
+That synthetic egui measurement is not a native-window or GPU result; real-GPU,
+process-level and before/after measurements remain pending.
 
 ## Mareader's current paths
 
@@ -140,8 +143,8 @@ each pass cheap and asking for passes only while a visible value can change.
 
 `Context::repaint_causes()` records caller locations and is the first diagnostic
 for an application that will not settle. `eframe::Frame::info().cpu_usage`
-reports the previous frame's CPU time, including app logic, egui layout,
-tessellation and rendering but excluding the vsync wait.
+reports the previous frame's CPU time for `App::ui` and rendering, excluding the
+vsync wait.
 
 ### Native numeric animation
 
@@ -182,295 +185,81 @@ cache with an explicit byte budget and lifecycle is a better fit for icon
 frames because animations should survive gaps between runs and because
 Mareader's resource rules require a hard bound.
 
-## Representation audit: beyond runtime SVG
+## Release diagnostics and measurement
 
-The current frame cache makes replay cheap, but its source representation is
-still an SVG template with holes. A cold sample constructs XML, asks usvg to
-parse it, asks resvg/tiny-skia to rasterise the whole icon, copies straight RGBA
-pixels and uploads a texture. The useful replacement boundary is therefore the
-whole cold-production path, not just the XML parser.
+The generated-part-atlas implementation is already the active path. The old
+SVG-template and whole-frame-cache proposals that informed its design have been
+superseded; they are not future phases. Current performance claims must be
+based on measurements of the generated-atlas path, not on earlier estimates.
 
-The comparisons below are architectural expectations, not release-profile
-results. They narrow the prototype to measure; they do not establish the size
-of the current cost.
+### Opt-in native diagnostic
 
-### What the pack actually requires
+Set `MAREADER_ICON_DIAGNOSTICS=1` when launching the native app. Once rendered
+frames span the ten-second reporting window, the next frame writes a
+context-local summary to stderr. Set `MAREADER_ICON_DIAGNOSTICS_WINDOW_MS` to a
+value from 100 to 60,000 to change the reporting window. The diagnostic adds no
+idle repaint, so a fully settled app may emit its summary only after the next
+input. With diagnostics disabled, the process does not take raster/upload
+timers or collect context cache snapshots.
 
-A source audit of all generated definitions in `pack.rs` found:
+The summary includes:
 
-- 98 packs, 265 independently animated parts and 331 primitive elements;
-- 255 paths, 35 rounded rectangles, 27 circles and 14 lines, with no polygon,
-  polyline or ellipse elements;
-- 78 packs whose parts only transform, fade or stay still;
-- 20 packs that use both path length and path offset;
-- one of those 20 (`baseline`) that also changes stroke width;
-- 233 of 265 parts whose pixel coverage does not otherwise change, leaving only
-  32 parts that need path/stroke variants; and
-- 3,394 whole-icon samples if every pack is expanded at 60 Hz, with 26–51
-  samples per pack.
+- `app_cpu_ms`: median, p95 and maximum from `eframe::Frame::info().cpu_usage`
+  (the previous frame's CPU time; it includes app UI and rendering but excludes
+  vsync wait);
+- unique active icon ids per frame (mean and maximum);
+- animated-atlas cache hits, first misses, pending lookups, failures and
+  rejected worker submissions, plus resting-glyph cache hits and misses;
+- generated raster-call count and accumulated CPU raster time for the animated
+  worker and synchronous resting-glyph path;
+- `Context::load_texture` submissions, source pixel bytes and elapsed
+  conversion/submission time; these are **not** measurements of GPU transfer or
+  driver completion;
+- animated mesh vertex count; and
+- current/peak combined atlas and resting-glyph cache bytes, evictions and
+  evicted bytes.
 
-The path source is compact: the 255 `d` attributes contain 839 commands and
-2,709 numeric operands. Emitting typed path commands from the pack generator
-would therefore add only tens of KiB before normal Rust representation and
-linker effects, not a large vector asset bundle.
+The report is intended to expose repeated work and cache behavior, not to
+replace a profiler. `Context::repaint_causes()` remains the separate tool for
+explaining why an otherwise idle app continues repainting.
 
-A geometry-count estimate found 683 actual line/arc/cubic segments after
-expanding repeated command arguments. Flattening in the pack's 24-unit space to
-0.1 and 0.02 unit chord-error targets gives roughly 1,566 and 2,489 centreline
-points respectively. Using epaint's thick antialiased-stroke layout for an
-order-of-magnitude estimate—four 20-byte vertices and about 18 four-byte indices
-per point—puts all 255 path centreline meshes near 0.23–0.37 MiB for one tolerance
-bucket, before circles, rectangles, allocator capacity and any hard-property
-variants. Geometry storage is therefore plausible; stroke fidelity and dynamic
-tessellation are the harder questions.
+### Remote release harness
 
-All current strokes inherit round caps and round joins from the SVG root.
-Independent parts may translate, rotate, scale non-uniformly, flip, skew and
-fade. The largest authored scale key is 2×. Opacity belongs to the whole part,
-so overlapping shapes inside one part must be composited before that opacity is
-applied. These details prevent a single transformed whole-icon image or a
-naive list of translucent painter shapes from matching every frame.
+The Linux-only `Remote / icon-metrics` task runs the ignored
+`remote_release_icon_diagnostics_workloads` test in the release profile and
+publishes its output as the `icon-metrics` artifact and in the GitHub step
+summary. It is separate from `Remote / memory`, so dispatching it does not start
+the existing macOS real-GPU memory job. The synthetic `egui::Context::run_ui`
+harness drives these deterministic scenarios:
 
-### Candidate comparison
+1. `idle`: twelve representative toolbar/viewer icons, no activation;
+2. `click-run`: one click-owned finite animation;
+3. `titlebar-sweep`: twelve distinct controls clicked on successive frames to
+   create the maximum synthetic overlap; and
+4. `animations-off`: the same sweep with icon motion disabled.
 
-| Representation | Expected warmed CPU | Memory and uploads | Semantic and visual coverage | DPI and renderer fit | Assessment |
-|---|---|---|---|---|---|
-| Generated epaint paths | Timeline evaluation plus curve flattening and tessellation each pass | Very little persistent memory; ordinary mesh upload with the rest of egui | Transforms and tint are natural. Reveal, offset, stroke width, round joins/caps and part-level compositing need new code | Resolution independent and standard egui | Best pure-vector experiment, not a drop-in replacement |
-| Retained epaint meshes | Very low for transform/opacity-only parts; dynamic topology needs variants | Bounded geometry, no icon textures | Good for 233 stable-coverage parts. The other 32 need retessellation or quantised meshes | Standard egui, but antialias feathering is scale-sensitive | Good second prototype if texture memory becomes the limiting cost |
-| Raster part atlas drawn as egui meshes | A few affine transforms, UVs and colours per visible part | One or a few bounded RGBA pages per active size; no warmed-frame upload | Preserves group opacity and round-stroke semantics; hard properties use variants for only 32 parts | Size-bucketed, but uses ordinary egui textures and meshes | **Best practical target** |
-| Whole-frame sprite atlas | Lowest: select one UV rectangle | Highest raster memory; one upload while an atlas is prepared | Every authored effect is baked exactly | Size-bucketed and standard egui | Lowest-risk control and per-pack fallback |
-| Icon or frame font | Low after glyph rasterisation | Competes with egui text in its shared RGBA font atlas | One glyph cannot transform parts independently; full frames require 3,394 glyphs per size | Font rasterisation handles DPI, but arbitrary part rotation/skew is absent | Reject for animated packs |
-| SDF/MSDF plus custom shader | Very low draw cost after preparation | Compact scalable fields and quads | Tint, opacity, transforms and some width changes are natural; path progress needs another parameter field or variants | Excellent scale range, but requires an egui-wgpu callback/pipeline and fallback work | Later specialist option, not the first replacement |
+For this harness, `harness_ms` is wall time spent inside a synthetic egui pass;
+`app_cpu_ms` is `n/a` because no eframe `Frame` or native window is involved.
+The test uses a CPU-only context and texture manager. It **does not** measure a
+native window, GPU uploads, vsync, or driver time. The separate `/usr/bin/time`
+line records the release test command's wall/user/system time and peak RSS; it
+is not a GPU measurement either.
 
-A full-frame set for all packs at only one 62-pixel device size is about
-49.8 MiB of raw RGBA; at the 192-pixel cap it is about 477 MiB. Compression
-helps distribution, not resident GPU texture bytes. This confirms that any
-sprite design must remain lazy and byte-capped rather than becoming one eager
-application atlas.
+### Evidence still required
 
-### Why plain epaint paths are not yet parity-safe
+The first Remote release run is pending. Publish its exact workflow run and
+artifact numbers here before making claims about the current implementation.
+The present branch does not provide a like-for-like result from the former
+runtime-SVG implementation, so do not label the synthetic run a before/after
+speedup. The user-selected scope is Remote-only: real-GPU results, native
+window interaction (including the actual View footer and title-bar controls),
+and a matched historical baseline are explicitly deferred.
 
-`PathShape`, cubic and quadratic Bézier shapes make generated vector data
-possible without SVG. Epaint can also retain an untextured coloured `Mesh`, and
-mesh vertices can be transformed or recoloured before submission. This avoids
-XML, CPU image rasterisation and icon texture uploads.
-
-Epaint 0.36.2 nevertheless differs from the pack contract in important ways:
-
-- `PathShape` fill supports convex polygons only;
-- its ordinary open stroke has no selectable round cap—the tessellator says a
-  circular end would be future work;
-- joins are mitered or cut at sharp corners, not SVG round joins;
-- adding separate circles to imitate round caps/joins over-blends translucent
-  parts instead of applying opacity to their composited result;
-- path length and offset require flattening each Bézier, retaining cumulative
-  arc lengths and cutting one or more visible intervals; and
-- transforming a retained antialiased mesh also scales its one-pixel feather,
-  so a reusable mesh needs a size/scale bucket or retessellation.
-
-A generated stroker, or a library such as lyon, can close the cap/join and
-triangulation gaps. That is real renderer work and needs all-frame visual tests;
-it should not be hidden inside a claim that `PathShape` is an equivalent SVG
-replacement.
-
-### Why a font is the wrong cache
-
-A conventional icon font works well for static icons. It does not expose the
-parts of a glyph to egui, and egui text does not apply an arbitrary affine
-transform to each outline. Encoding every quantised whole frame as a glyph
-would instead add 3,394 glyphs for one sampling rate before size and DPI
-variants.
-
-Egui's font texture is a context-shared RGBA atlas. It is recreated after its
-fill passes the atlas threshold and is not governed by Mareader's 8 MiB icon
-budget. Animated frame glyphs would therefore move icon memory into the text
-cache, increase atlas pressure and still fail to exploit the 233 parts whose
-coverage is stable.
-
-### Recommended representation: generated parts in a raster atlas mesh
-
-The practical design is a hybrid: typed generated vector data is the source,
-tiny-skia produces neutral-white **part** coverage off the UI thread, and a
-normal egui `Mesh` composites atlas tiles at paint time.
-
-1. Extend the pack generator to emit typed paths, rectangles, circles, lines,
-   paint flags, part/static-layer membership and source paint order. SVG remains
-   build and parity-test input; no XML enters the runtime library.
-2. For the 233 stable-coverage parts, rasterise one cropped tile per device-size
-   bucket. Preserve a transparent gutter for linear sampling. Parts that can
-   grow are prepared at a resolution sufficient for their audited maximum
-   scale, or get a coarse scale bucket.
-3. For the 32 path/stroke-changing parts, rasterise deduplicated quantised
-   variants. Tiny-skia already represents immutable Bézier paths and supports
-   round caps, round joins and stroke dashes, so this can preserve the current
-   reveal/offset/width semantics without parsing an SVG document.
-4. Pack ready tiles into one or a few context-local pages. Publish worker pixels
-   to the UI, admit them under the existing byte budget, then use
-   `TextureHandle::set_partial` with a per-pass upload budget.
-5. Build textured mesh runs in source paint order, splitting a run whenever its
-   atlas page changes. Each part contributes four vertices; apply the same
-   pivoted affine order as `moves`, put its opacity and current tint in the
-   vertex colour, and select its tile with UVs.
-6. Keep an authored top-level part atomic when nested opacity or overlap cannot
-   be split safely. Its transformed states remain cropped part cells, not
-   whole-frame cells.
-
-For the 78 packs without path/stroke changes, this replaces 2,686 possible
-whole-frame cells with 213 reusable part cells, plus any static layer. Across
-the 20 harder packs, only 32 parts need frame variants; the other 20 parts stay
-reusable. Cropped packing matters more than raw cell counts, and all pages must
-still be lazy: an upper bound that gives every hard part one full-size tile for
-every frame is 1,099 variant cells before trimming.
-
-The compositor retains the strongest properties of both approaches:
-software-rasterised round-stroke coverage and group opacity, ordinary backend-neutral
-egui submission, independent-part animation, paint-time tinting and almost no
-warmed hot-path work. Its trade-off is raster size bucketing. Rotation, skew
-and downsampling can also differ slightly from vector rasterisation, so
-oversampling and visual thresholds must be measured rather than assumed.
-
-### Proof-of-concept plan
-
-Build the experiment behind the existing provider, not as a second public icon
-API:
-
-1. Emit typed geometry for a representative set: `cpu` (13 parts),
-   `folder-open` (skew), `circle-alert` (2× scale), `book-open-text` (four path
-   parts), `baseline` (path and stroke width), and `palette` (filled dots and
-   part compositing).
-2. Produce three comparable paths: current full-frame SVG, whole-frame atlas,
-   and part-atlas mesh. Add a direct epaint mesh version of one simple stroke
-   pack to measure the best non-raster alternative rather than estimating it.
-3. Compare every quantised sample at 1×, 1.25×, 2× and the 192-pixel cap. Record
-   differing-pixel count, maximum channel error and a saved diff image; inspect
-   round corners, group opacity, reveal endpoints and rotated/upscaled parts.
-4. In a release native run, record UI-thread frame time, worker preparation
-   time, raster count, texture-upload calls/bytes, mesh vertices and resident
-   cache bytes. Test one active icon, the maximum expected overlap and replay.
-5. Expand the generator and visual test to all 98 packs only after the six-pack
-   spike meets its quality and memory thresholds.
-
-Success means a warmed transform-only run performs no SVG construction, XML
-parse, full-icon raster or texture upload; one or a few ordered atlas-page mesh
-runs carry the visible parts; cache ownership and bytes remain context-local
-and bounded; and any unsupported or unadmitted case still paints the generated
-resting glyph.
-
-## Recommended icon architecture
-
-Keep the current public provider, trigger policy, stable layout, generated
-resting fallback and finite run semantics. Change only how an active frame is
-supplied.
-
-### Phase 0: measure the current path
-
-Add an opt-in native diagnostic, disabled in normal builds, that records:
-
-- total app CPU frame time from `eframe::Frame::info().cpu_usage`;
-- time in timeline evaluation, SVG construction, usvg parse, resvg raster and
-  texture update separately;
-- active icon count and raster/upload count per pass;
-- `Context::repaint_causes()` when the app does not settle;
-- cache hits, misses, bytes and evictions after a cache exists.
-
-Measure a release build in CI/native jobs and on at least one hardware-GPU
-machine. Workloads:
-
-1. idle for ten seconds;
-2. one click-owned run;
-3. a title-bar hover sweep with the maximum expected overlap;
-4. View-menu footer and Zoom runs;
-5. Animations off;
-6. software rendering or a low-end adapter where available.
-
-Record median, p95 and maximum CPU frame time, process CPU, frames produced,
-SVG rasters, uploads and cache bytes. Do not call an optimization successful
-from FPS alone: a 60 Hz app can still waste most of a core.
-
-### Phase 1: quantised, context-local frame cache
-
-Use a fixed frame index rather than arbitrary floating time:
-
-```text
-FrameKey = (pack id, device-pixel side bucket, frame index)
-```
-
-At 60 samples per second, the current timelines need about 25–51 frames. The
-index's timestamp is the timestamp passed to `frame_svg`, so cache identity and
-rendered content cannot disagree. Frames stay neutral white and are tinted when
-painted, so theme, hover and disabled colours do not multiply cache entries.
-
-On a miss, the first implementation uses the existing synchronous raster path.
-On a hit, it only selects a cached `TextureHandle`. Replaying a warmed icon then
-performs no SVG parse, CPU raster or texture upload.
-
-The cache must:
-
-- be owned by the UI/egui context, never global across renderers;
-- have an explicit byte cap and entry cap;
-- account for RGBA bytes and texture lifetime;
-- evict least-recently-drawn entries first;
-- never evict an entry used in the current or previous pass;
-- remove a whole obsolete size bucket after DPI/zoom changes settle;
-- expose deterministic hit/miss/eviction counters for tests; and
-- be explicitly cleared with the UI owner or context.
-
-This is the smallest low-risk change and preserves pixel output. Its limit is
-that the first run at a new size still pays every miss on the UI thread.
-
-### Phase 2: one lazy whole-frame atlas per pack and size
-
-Once quantisation is stable, pack the frames of one `(pack, side)` into one
-texture and draw the selected frame by UV rectangle. Even the longest current
-run fits in a small grid: 51 cells fit in an 8×7 atlas. At a common 62-pixel
-cell that is about 496×434 pixels, under 1 MiB RGBA.
-
-Build the atlas away from the UI pass:
-
-1. enqueue only the pack and size that is actually requested;
-2. rasterise frames on a bounded worker;
-3. publish results with pack, size and cache generation;
-4. wake egui when pixels are ready;
-5. upload with a per-pass count/byte budget; and
-6. reject a stale result after eviction, DPI change or cache teardown.
-
-The first run can use the current per-frame path for missing cells while the
-worker warms the atlas, ensuring interaction never waits. Later runs change
-only UVs. Frequently visible title-bar packs may be warmed during an already
-scheduled idle pass, but all 98 packs must not be generated eagerly.
-
-A single atlas handle also avoids a large number of tiny texture objects. The
-cache's byte admission is checked before building; if an unusually large
-192-pixel atlas cannot fit, the provider keeps the generated resting glyph or uses the
-bounded current-frame path instead of evicting visible atlases back and forth.
-
-This remains the lowest-risk next slice and the visual/performance control for
-the representation spike. It should not become an eager all-pack asset: the
-representation audit shows why whole frames waste memory for the 233 parts
-whose coverage does not change.
-
-### Phase 3: generated part scenes and atlas-mesh composition
-
-Once the worker and atlas lifecycle are proven, replace runtime SVG templates
-with the generated typed geometry and part-atlas compositor described above.
-Reuse one tile for each stable-coverage part; give only the 32 path/stroke parts
-quantised variants. Paint ordered mesh runs grouped by atlas page, applying
-current transforms, opacity and tint to each quad.
-
-Treat each authored top-level part as an atomic generated scene. That keeps
-nested transforms and opacity isolation inside its cropped tile, so rotation,
-skew and overlap do not require full-frame cells. Try retained vector meshes
-only if measured texture savings justify a custom round-cap/round-join stroker
-and scale-aware antialiasing cache.
-
-### Why not a custom GPU renderer first
-
-A wgpu atlas shader could use alpha-only textures and part transforms, but it
-adds backend integration, device-loss handling, multiple viewport ownership,
-software-renderer behavior and more test surface. Standard egui images and UVs
-already remove parse/raster/upload work from warmed runs. Use a custom pass only
-if measurements show texture memory or egui image submission is then the
-bottleneck.
+For subsequent measurement, report median, p95 and maximum CPU frame time,
+process CPU/RSS, produced frames, raster calls/time, texture submissions/bytes,
+mesh vertices and cache peak/evictions. Identify the workflow/commit, build
+profile, runner, workload and known limits. FPS alone is not enough: a 60 Hz
+app can still waste CPU while producing the same frame rate.
 
 ## Efficient ordinary UI animation
 
@@ -555,23 +344,21 @@ Behavior and layout:
 
 Cache and work:
 
-- the first quantised frame has one miss and its replay is a hit;
-- two widgets asking for the same pack, side and frame share cached pixels;
-- a warmed full run performs zero SVG parses, rasters and uploads;
-- a warmed part-atlas run performs no SVG construction or full-icon raster and
-  emits only ordered mesh runs for its atlas pages;
-- cache bytes never exceed the configured admission bound;
-- current/previous-pass entries are not evicted into repaint thrash;
-- DPI change makes the correct size without retaining unbounded old sizes;
-- worker results after cache generation/owner teardown are dropped;
+- one cold `(pack, device-pixel side)` request prepares one bounded atlas; a
+  warmed replay hits the context-local cache and does no raster or upload;
+- two widgets asking for the same pack and side share the atlas texture;
+- a warmed active frame emits ordered mesh cells and no SVG construction or
+  full-icon raster;
+- animated and resting cache bytes stay under their respective admission
+  bounds, and DPI buckets cannot grow memory without bound;
+- the native worker queue and per-context unpublished-result mailbox remain
+  bounded; and
 - an idle settled window has no icon-animation repaint cause.
 
 Visual parity:
 
-- compare current and cached frames at start, end, extrema and segment
-  boundaries for every pack;
-- before removing SVG for a pack, compare every quantised part-atlas sample with
-  the current full-frame renderer;
+- the ignored exhaustive parity sweep compares all quantised generated atlas
+  frames and resting glyphs with the original SVG references;
 - inspect 1×, 1.25× and 2× output plus the 192-pixel cap;
 - keep the existing nearest-announcement, footer-slot and unclipped-frame
   regressions; and
@@ -579,11 +366,12 @@ Visual parity:
 
 Performance evidence:
 
-- publish current versus optimized release measurements for all Phase 0
-  workloads;
-- report UI-thread frame time and raster/upload counts, not only FPS;
-- report cache peak bytes and evictions;
-- identify renderer, scale, operating system and CPU; and
+- publish the Remote release harness result with its exact commit and workflow
+  run, distinguishing synthetic `harness_ms` from native `app_cpu_ms`;
+- report frame time, raster/upload counters, process CPU/RSS and cache peak /
+  eviction counts, not only FPS;
+- do not claim a before/after speedup without a matched historical baseline;
+- identify runner, profile, workload and the lack of a GPU measurement; and
 - record known limits in `docs/memory.md` when a cache budget is introduced.
 
 ## Approaches to avoid
@@ -644,7 +432,8 @@ The ownership boundary is deliberate:
   frame. Every one-frame resting crop is likewise reconstructed on its 24-unit
   canvas and compared with the canonical first SVG sample.
 
-Release measurement is still required before claiming a CPU or memory
-magnitude. The implementation avoids trading runtime parsing for eager or
-unbounded storage and leaves retained-vector or custom-shader work contingent
-on measured need.
+The first Remote release harness result is still required before quantifying
+CPU or memory impact. It will measure the synthetic egui workload, not the
+native application or GPU. The implementation avoids trading runtime parsing
+for eager or unbounded storage and leaves retained-vector or custom-shader work
+contingent on later measured need.
