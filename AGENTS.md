@@ -291,6 +291,10 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   Push a `<type>/<slug>` branch, then run `python3 tools/ci.py watch` until
   the verdict; merge into `main` once it is green. Take screenshots with
   `python3 tools/ci.py shots`, never with a local wasm build and browser.
+- **Fail fast on commit checks.** Watch `Build / each commit` first. If it
+  fails, cancel the remaining jobs, fix and squash that commit, push one
+  replacement, then watch its commit check before another cycle. Wait for the
+  full matrix only after the commit check passes.
 - **Choosing**, highest precedence first:
   1. The user's explicit word, in either direction ("use CI" on a fast
      machine, "build locally" on a slow one).
