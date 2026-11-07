@@ -53,9 +53,11 @@ images, fonts, sounds, sample documents and screenshots.
   source with version, SPDX licence and SHA-256 for files. `cargo xtask assets`
   fails on an unlisted file, a wrong hash or a licence off the list.
 - **Stock icons are Lucide**, compiled from build-only declarations into typed
-  geometry behind `crates/ui/src/icons/` (ADR 0004). Code names an `Icon` by
-  meaning; only `icons::pack` names a glyph. Custom provider and voice marks
-  remain the documented static-SVG exceptions.
+  geometry behind `crates/ui/src/icons/` (ADR 0004). Animated pack data lives in
+  `crates/animated-icons/assets/packs.json`; preserve its 98-pack ordering and
+  validate source changes against the shared schema and parity tests. Code
+  names an `Icon` by meaning; only `icons::pack` names a glyph. Custom provider
+  and voice marks remain the documented static-SVG exceptions.
 - **Fonts:** Inter in `assets/fonts`. A new face needs an OFL source and an
   `ATTRIBUTION.toml` entry. Never bundle a system font.
 - If an asset's origin or licence is unclear, do not add it; ask the owner.
@@ -263,6 +265,9 @@ Not an end-of-task pass: a habit per update, so a defect is never built on.
 - `partial` and `dropped` say in `notes` what is missing or why.
 - Update the entry in the same commit as the feature. A status that became
   untrue is a bug.
+- Animated-icon tests compare six representative packs in ordinary test runs;
+  the exhaustive 98-pack geometry/atlas and resting-glyph sweeps run on `main`
+  CI. Keep the fast path representative and the full sweep intact.
 
 ## Gates
 
@@ -272,13 +277,33 @@ Before every commit:
 cargo fmt --all --check
 cargo clippy -p <crate> -j 2 --all-targets -- -D warnings
 cargo test -p <crate> -j 2
-cargo xtask layers && cargo xtask parity && cargo xtask assets
+cargo xtask shape && cargo xtask layers && cargo xtask parity && cargo xtask assets
 cargo xtask comments
 ```
 
 Scope builds and tests to the crates you touched, under a `timeout`. The full
 workspace sweep (`cargo xtask ci`) is CI's job; run it locally only when the
 machine is free.
+
+## Rust shape
+
+`cargo xtask shape` (the Python implementation is `tools/shape_check.py`)
+keeps existing size debt visible without forcing an unrelated refactor:
+
+- A Rust file may not exceed 500 lines; a function body may not exceed 60
+  lines; `mod.rs` files declare or re-export only and contain no function
+  bodies.
+- `tools/shape-baseline.json` is the reviewed inventory of existing
+  exceptions. New offenders fail; when a file or function is brought below
+  its limit, remove its entry from the baseline in the same change.
+- A justified file-wide exception starts in the first ten lines as
+  `// shape: allow <reason>`. The reason is mandatory; this exempts the file
+  from all three shape rules and should be rare.
+
+The gate runs immediately after checkout in the first CI job, before any
+Cargo work, lint, workspace tests or the platform matrix. Keep generated and
+data-only modules out of `mod.rs` logic; put implementation in a named module
+instead.
 
 ## Where the gates run: local mode or CI mode
 
@@ -291,10 +316,15 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   Push a `<type>/<slug>` branch, then run `python3 tools/ci.py watch` until
   the verdict; merge into `main` once it is green. Take screenshots with
   `python3 tools/ci.py shots`, never with a local wasm build and browser.
-- **Fail fast on commit checks.** Watch `Build / each commit` first. If it
-  fails, cancel the remaining jobs, fix and squash that commit, push one
-  replacement, then watch its commit check before another cycle. Wait for the
-  full matrix only after the commit check passes.
+- **Fail fast on commit checks.** Watch `Gate / shape + fmt + changed crates` first;
+  it runs formatting, changed-package tests, repository gates and the shape
+  check. On a multi-commit PR, `Build / each commit` runs behind that gate.
+  The macOS/Windows matrix waits for the quick gate and, when applicable, the
+  commit check; a red prerequisite skips the matrix. `Rust / lint` and
+  `Rust / test` start only after the quick gate and then run in parallel with
+  the platform checks. Fix and squash a failing commit, push one replacement,
+  then watch its gate before another cycle. Cancel long siblings manually only
+  when their diagnostics are no longer useful.
 - **Choosing**, highest precedence first:
   1. The user's explicit word, in either direction ("use CI" on a fast
      machine, "build locally" on a slow one).
@@ -304,12 +334,14 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
   Say which mode you chose, and why, in the first report of a session.
 - **After a sandbox reset,** and only if local work is wanted,
   `python3 tools/ci.py cache restore` unpacks a build that CI made, so the
-  cold build is skipped. Every green push refreshes that cache on its own.
-  It holds lint builds only (about 1.2 GB, a few minutes to restore); a
-  local test run first needs `cache build --full`.
+  cold build is skipped. The `Remote` workflow checks every two hours and
+  rebuilds only when its latest main cache is behind; manual `cache build`
+  remains available. It holds lint builds only (about 1.2 GB, a few minutes
+  to restore); a local test run first needs `cache build --full`.
   If `restore` calls the cache stale, lint in CI, not locally.
-- **CI time.** A healthy run takes 5.5–7 min, and `Rust / test` is the
-  critical path. Install apt packages only through `.github/actions/apt`:
+- **CI time.** The 5.5–7 min figure is from the previous workflow; remeasure
+  the quick-first pipeline after it runs. `Rust / test` was the old critical
+  path. Install apt packages only through `.github/actions/apt`:
   it installs cached `.deb` files, because the mirror once stalled jobs for
   up to 29 min. Start `shots` alongside `watch`, not after it. Numbers and
   reasons are in docs/verification.md, "CI time".

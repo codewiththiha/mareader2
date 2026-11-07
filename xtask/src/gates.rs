@@ -22,6 +22,7 @@ fn cargo() -> String {
 
 /// The workspace sweep CI runs; locally prefer `-p <crate> -j 2` gates.
 pub fn ci(_: &[String]) -> Result<(), String> {
+    crate::shape::run(&[])?;
     let cargo = cargo();
     run_step("fmt", &cargo, &["fmt", "--all", "--check"])?;
     run_step(

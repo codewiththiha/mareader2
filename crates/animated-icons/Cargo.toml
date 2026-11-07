@@ -17,6 +17,10 @@ tiny-skia = { workspace = true }
 [build-dependencies]
 resvg = { workspace = true }
 roxmltree = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 resvg = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

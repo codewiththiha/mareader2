@@ -11,7 +11,9 @@
   - Code names icons by meaning (`ui::icons::Icon`). Only
     `ui::icons::pack` names a generated glyph.
   - `mareader-animated-icons` remains the toolkit-free owner of build-normalised
-    Lucide geometry. Declarative SVG is build and parity-test input only.
+    Lucide geometry. The ordered 98-pack SVG/timeline data is stored in
+    `crates/animated-icons/assets/packs.json`; declarative SVG is build and
+    parity-test input only.
   - A stock icon at rest calls `raster_resting`, which evaluates only the
     canonical first sample, composites it once on the 24-unit grid and returns
     tightly cropped neutral-white pixels. The UI caches that texture by pack and

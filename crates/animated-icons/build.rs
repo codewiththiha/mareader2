@@ -13,59 +13,13 @@ const SVG_HEAD: &str = concat!(
     r#"stroke-linecap="round" stroke-linejoin="round">"#,
 );
 
-#[allow(dead_code)]
-struct Part {
-    name: &'static str,
-    ox: f32,
-    oy: f32,
-    len: f32,
-    w: f32,
-}
+#[path = "src/prop.rs"]
+mod prop;
+use prop::Prop;
 
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Prop {
-    X,
-    Y,
-    Scale,
-    ScaleX,
-    ScaleY,
-    Rotate,
-    SkewX,
-    SkewY,
-    Opacity,
-    PathLen,
-    PathOff,
-    StrokeW,
-}
-
-struct Seg {
-    part: u8,
-    prop: Prop,
-    t0: f32,
-    dur: f32,
-    keys: &'static [f32],
-    times: &'static [f32],
-    eases: &'static [u8],
-}
-
-struct Hole {
-    part: u8,
-    width: bool,
-}
-
-struct Pack {
-    id: &'static str,
-    dur: f32,
-    parts: &'static [Part],
-    segs: &'static [Seg],
-    holes: &'static [Hole],
-    svg: &'static str,
-}
-
-#[allow(clippy::approx_constant, clippy::excessive_precision)]
-#[path = "src/source.rs"]
-mod source;
+#[path = "src/schema.rs"]
+mod schema;
+use schema::{IconSource, Pack};
 
 #[derive(Clone)]
 struct FlatLayer {
@@ -77,14 +31,16 @@ struct Generator {
     code: String,
     serial: usize,
     flat: Vec<FlatLayer>,
+    easing_count: usize,
 }
 
 impl Generator {
-    fn new() -> Self {
+    fn new(easing_count: usize) -> Self {
         Self {
             code: String::new(),
             serial: 0,
             flat: Vec::new(),
+            easing_count,
         }
     }
 
@@ -95,7 +51,7 @@ impl Generator {
     }
 
     fn pack(&mut self, pack: &Pack, index: usize) -> Result<String, String> {
-        validate(pack)?;
+        validate(pack, self.easing_count)?;
         self.flat.clear();
         let marked = marked_body(pack)?;
         let xml = format!("{SVG_HEAD}{marked}</svg>");
@@ -103,7 +59,7 @@ impl Generator {
             .map_err(|error| format!("{}: generated XML: {error}", pack.id))?;
         let root = doc.root_element();
         for child in root.children().filter(|node| node.is_element()) {
-            let scene = self.nodes(&[child], &xml, pack.id)?;
+            let scene = self.nodes(&[child], &xml, pack.id.as_str())?;
             self.flat.push(FlatLayer {
                 parts: layer_parts(child),
                 scene,
@@ -126,7 +82,7 @@ impl Generator {
         let name = self.name("PARTS");
         writeln!(self.code, "static {name}: [Part; {}] = [", pack.parts.len())
             .map_err(|error| error.to_string())?;
-        for part in pack.parts {
+        for part in &pack.parts {
             writeln!(
                 self.code,
                 "Part {{ ox: {:?}, oy: {:?}, len: {:?}, width: {:?} }},",
@@ -142,7 +98,7 @@ impl Generator {
         let name = self.name("SEGS");
         writeln!(self.code, "static {name}: [Seg; {}] = [", pack.segs.len())
             .map_err(|error| error.to_string())?;
-        for seg in pack.segs {
+        for seg in &pack.segs {
             writeln!(
                 self.code,
                 "Seg {{ part: {}, prop: Prop::{:?}, t0: {:?}, dur: {:?}, keys: &{:?}, times: &{:?}, eases: &{:?} }},",
@@ -315,7 +271,7 @@ fn layer_parts(node: XmlNode<'_, '_>) -> Vec<u8> {
     parts
 }
 
-fn validate(pack: &Pack) -> Result<(), String> {
+fn validate(pack: &Pack, easing_count: usize) -> Result<(), String> {
     if pack.id.is_empty() || !pack.dur.is_finite() || pack.dur <= 0.0 {
         return Err(format!("{}: invalid id or duration", pack.id));
     }
@@ -340,7 +296,7 @@ fn validate(pack: &Pack) -> Result<(), String> {
     {
         return Err(format!("{}: hole names a missing part", pack.id));
     }
-    for segment in pack.segs {
+    for segment in &pack.segs {
         let gaps = segment.keys.len().saturating_sub(1);
         if usize::from(segment.part) >= pack.parts.len()
             || !segment.t0.is_finite()
@@ -354,7 +310,7 @@ fn validate(pack: &Pack) -> Result<(), String> {
             || segment
                 .eases
                 .iter()
-                .any(|ease| usize::from(*ease) >= source::EASINGS.len())
+                .any(|ease| usize::from(*ease) >= easing_count)
             || !segment.keys.iter().copied().all(f32::is_finite)
             || !segment.times.iter().copied().all(f32::is_finite)
         {
@@ -509,22 +465,28 @@ fn option_u8(value: Option<u8>) -> String {
 }
 
 fn run() -> Result<(), String> {
-    println!("cargo:rerun-if-changed=src/source.rs");
-    let mut generator = Generator::new();
+    println!("cargo:rerun-if-changed=src/prop.rs");
+    println!("cargo:rerun-if-changed=src/schema.rs");
+    println!("cargo:rerun-if-changed=assets/packs.json");
+    let source_text = fs::read_to_string("assets/packs.json")
+        .map_err(|error| format!("read animated icon source: {error}"))?;
+    let source: IconSource = serde_json::from_str(&source_text)
+        .map_err(|error| format!("parse animated icon source: {error}"))?;
+    let mut generator = Generator::new(source.easings.len());
     writeln!(
         generator.code,
         "pub(crate) static EASINGS: [Option<[f32; 4]>; {}] = {:?};",
-        source::EASINGS.len(),
-        source::EASINGS
+        source.easings.len(),
+        source.easings
     )
     .map_err(|error| error.to_string())?;
-    let mut ids = Vec::new();
+    let mut ids: Vec<&str> = Vec::new();
     let mut packs = Vec::new();
-    for (index, pack) in source::ALL.iter().enumerate() {
-        if ids.contains(&pack.id) {
+    for (index, pack) in source.packs.iter().enumerate() {
+        if ids.contains(&pack.id.as_str()) {
             return Err(format!("{}: duplicate pack id", pack.id));
         }
-        ids.push(pack.id);
+        ids.push(pack.id.as_str());
         packs.push(generator.pack(pack, index)?);
     }
     writeln!(

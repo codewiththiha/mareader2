@@ -7,6 +7,7 @@ mod assets;
 mod gates;
 mod layers;
 mod parity;
+mod shape;
 mod unsafety;
 
 type Command = fn(&[String]) -> Result<(), String>;
@@ -33,13 +34,18 @@ const COMMANDS: &[(&str, &str, Command)] = &[
         unsafety::run,
     ),
     (
+        "shape",
+        "Reject new Rust shape debt (large files, long functions, and logic in mod.rs)",
+        shape::run,
+    ),
+    (
         "comments",
         "Comment rule on Rust files changed from main (tools/comment_check.py)",
         gates::comments,
     ),
     (
         "ci",
-        "fmt, clippy -D warnings, tests, layers, parity, assets, unsafe; stops at the first failure",
+        "fmt, clippy -D warnings, tests, shape, layers, parity, assets, unsafe; stops at the first failure",
         gates::ci,
     ),
 ];

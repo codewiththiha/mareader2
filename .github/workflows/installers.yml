@@ -71,6 +71,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: installers-${{ matrix.target }}
+          save-if: false
       - name: cargo-packager
         run: |
           cargo packager --version 2>/dev/null | grep -q "$PACKAGER_VERSION" ||

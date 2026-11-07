@@ -5,29 +5,15 @@ use tiny_skia::{
     Pixmap, PixmapPaint, Stroke as SkStroke, StrokeDash, Transform,
 };
 
+mod prop;
+use prop::Prop;
+
 pub const GRID: f32 = 24.0;
 pub const PAD: f32 = 8.5;
 pub const SPAN: f32 = GRID + 2.0 * PAD;
 pub const FRAME_RATE: f32 = 60.0;
 pub const MAX_SIDE: u32 = 192;
 pub const MAX_ATLAS_BYTES: usize = 8 * 1024 * 1024;
-
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Prop {
-    X,
-    Y,
-    Scale,
-    ScaleX,
-    ScaleY,
-    Rotate,
-    SkewX,
-    SkewY,
-    Opacity,
-    PathLen,
-    PathOff,
-    StrokeW,
-}
 
 struct Seg {
     part: u8,

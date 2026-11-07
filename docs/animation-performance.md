@@ -45,7 +45,9 @@ particular machine still requires a release profile.
 The runtime-SVG replacement is implemented across
 `crates/animated-icons` and `crates/ui/src/icons/anim.rs`:
 
-- the 98 source SVG/timeline declarations are build-script input only;
+- the 98 SVG/timeline packs and six easing curves are declarative JSON in
+  `crates/animated-icons/assets/packs.json`; `src/schema.rs` is shared by the
+  build script and parity tests, and the `Prop` enum is shared with runtime;
 - generated typed paths, ordered layers and animated-part ancestry are the
   runtime representation;
 - time is quantised to stable 60 Hz samples and repaints target the exact next
@@ -60,11 +62,14 @@ The runtime-SVG replacement is implemented across
 - native cold generation uses one bounded worker; wasm/threadless generation is
   synchronous; and
 - the context-local byte-accounted LRU remains capped at 8 MiB and 512 entries,
-  with the generated resting glyph visible while an atlas is pending or unavailable.
+  with the generated resting glyph visible while an atlas is pending or unavailable; and
+- `build.rs` still emits typed geometry into `OUT_DIR`; committing generated
+  geometry to remove that generation step remains unfinished.
 
-The generated renderer and ordered compositor have exhaustive source-parity
-coverage at the UI's DPI buckets. Release CPU, RSS, upload and driver
-measurements are still required before claiming a performance magnitude.
+Default tests compare six representative packs at two sizes. The exhaustive
+98-pack geometry/atlas and resting-glyph sweeps are marked ignored for ordinary
+runs and execute on `main` CI. Release CPU, RSS, upload and driver measurements
+are still required before claiming a performance magnitude.
 
 ## Mareader's current paths
 

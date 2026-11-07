@@ -4,6 +4,14 @@
 
 use resvg::{tiny_skia, usvg};
 
+#[path = "prop.rs"]
+mod prop;
+use prop::Prop;
+
+#[path = "schema.rs"]
+mod schema;
+use schema::{IconSource, Pack, Part, Seg};
+
 const HOLE: char = '\u{1}';
 const WIDTH_HOLE: char = '\u{2}';
 const STROKE: f32 = 2.0;
@@ -11,66 +19,22 @@ const GRID: f32 = 24.0;
 const PAD: f32 = 8.5;
 const FRAME_RATE: f32 = 60.0;
 
-#[allow(dead_code)]
-struct Part {
-    name: &'static str,
-    ox: f32,
-    oy: f32,
-    len: f32,
-    w: f32,
+mod source {
+    use super::schema::IconSource;
+
+    pub(super) fn load() -> IconSource {
+        serde_json::from_str(include_str!("../assets/packs.json"))
+            .expect("animated icon source JSON must match its schema")
+    }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Prop {
-    X,
-    Y,
-    Scale,
-    ScaleX,
-    ScaleY,
-    Rotate,
-    SkewX,
-    SkewY,
-    Opacity,
-    PathLen,
-    PathOff,
-    StrokeW,
-}
-
-struct Seg {
-    part: u8,
-    prop: Prop,
-    t0: f32,
-    dur: f32,
-    keys: &'static [f32],
-    times: &'static [f32],
-    eases: &'static [u8],
-}
-
-struct Hole {
-    part: u8,
-    width: bool,
-}
-
-struct Pack {
-    id: &'static str,
-    dur: f32,
-    parts: &'static [Part],
-    segs: &'static [Seg],
-    holes: &'static [Hole],
-    svg: &'static str,
-}
-
-#[allow(clippy::approx_constant, clippy::excessive_precision)]
-#[path = "source.rs"]
-mod source;
-
-fn frame_svg(pack: &Pack, t: f32, pad: f32) -> String {
+fn frame_svg(pack: &Pack, t: f32, pad: f32, easings: &[Option<[f32; 4]>]) -> String {
     let mut vals: Vec<Vals> = pack.parts.iter().map(Vals::rest).collect();
-    for seg in pack.segs {
+    for seg in &pack.segs {
         let Some(v) = vals.get_mut(seg.part as usize) else {
             continue;
         };
-        let x = at(seg, clock(seg, t));
+        let x = at(seg, clock(seg, t), easings);
         match seg.prop {
             Prop::X => v.x = x,
             Prop::Y => v.y = x,
@@ -221,7 +185,7 @@ fn clock(seg: &Seg, t: f32) -> f32 {
 }
 
 /// The value a segment holds at share `u` of itself, keyframe by keyframe.
-fn at(seg: &Seg, u: f32) -> f32 {
+fn at(seg: &Seg, u: f32, easings: &[Option<[f32; 4]>]) -> f32 {
     let n = seg.keys.len();
     match n {
         0 => 0.0,
@@ -245,7 +209,7 @@ fn at(seg: &Seg, u: f32) -> f32 {
                 .get(i.min(seg.eases.len().saturating_sub(1)))
                 .copied()
                 .unwrap_or(0);
-            let eased = match source::EASINGS.get(e as usize).copied() {
+            let eased = match easings.get(e as usize).copied() {
                 Some(Some(c)) => curve(c, f),
                 _ => f,
             };
@@ -291,12 +255,23 @@ fn num(v: f32) -> String {
     }
 }
 
-fn original_frame(pack: &Pack, frame: u16, side: u32) -> Option<Vec<u8>> {
-    original(pack, f32::from(frame) / FRAME_RATE, PAD, side)
+fn original_frame(
+    pack: &Pack,
+    frame: u16,
+    side: u32,
+    easings: &[Option<[f32; 4]>],
+) -> Option<Vec<u8>> {
+    original(pack, f32::from(frame) / FRAME_RATE, PAD, side, easings)
 }
 
-fn original(pack: &Pack, time: f32, pad: f32, side: u32) -> Option<Vec<u8>> {
-    let svg = frame_svg(pack, time, pad);
+fn original(
+    pack: &Pack,
+    time: f32,
+    pad: f32,
+    side: u32,
+    easings: &[Option<[f32; 4]>],
+) -> Option<Vec<u8>> {
+    let svg = frame_svg(pack, time, pad, easings);
     let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).ok()?;
     let mut pixmap = tiny_skia::Pixmap::new(side, side)?;
     let scale = side as f32 / tree.size().width().max(tree.size().height());
@@ -357,112 +332,181 @@ fn assert_pixels(left: &[u8], right: &[u8], label: &str, max_delta: u8) {
     );
 }
 
-#[test]
-fn generated_geometry_and_atlases_match_every_original_svg_frame() {
-    // UI DPI buckets followed by the detail ceiling.
-    const SIDES: [u32; 4] = [41, 51, 82, 192];
-    const SOURCE_DELTA: u8 = 48;
-    const ATLAS_DELTA: u8 = 1;
-    const TINTS: [[u8; 4]; 3] = [
-        [255, 255, 255, 255],
-        [37, 173, 241, 255],
-        [230, 91, 44, 153],
-    ];
-
-    assert_eq!(source::ALL.len(), super::PACKS.len());
-    for reference in source::ALL {
-        let Some(pack) = super::find(reference.id) else {
-            panic!("{}: generated pack is missing", reference.id);
-        };
+fn assert_source_order(source: &IconSource) {
+    assert_eq!(source.packs.len(), super::PACKS.len());
+    for (index, (reference, generated)) in source.packs.iter().zip(super::PACKS).enumerate() {
         assert_eq!(
-            pack.frame_count(),
-            (reference.dur * FRAME_RATE).ceil() as u16
+            reference.id.as_str(),
+            generated.id,
+            "source pack order differs at index {index}"
         );
-        for side in SIDES {
-            let atlas = super::raster_atlas(pack, side)
-                .unwrap_or_else(|| panic!("{}: atlas allocation failed at {side}px", reference.id));
-            assert_atlas(&atlas, pack);
-            assert_eq!(atlas.kind, super::AtlasKind::Parts);
-            for frame in 0..pack.frame_count() {
-                let original = original_frame(reference, frame, side).unwrap_or_else(|| {
-                    panic!(
-                        "{}: SVG frame {frame} at {side}px did not render",
-                        reference.id
-                    )
-                });
-                let generated = super::raster_frame(pack, frame, side).unwrap_or_else(|| {
-                    panic!(
-                        "{}: typed frame {frame} at {side}px did not render",
-                        reference.id
-                    )
-                });
-                let label = format!("{}: frame {frame} at {side}px", reference.id);
-                // Text and typed matrices may round one edge differently.
-                assert_pixels(&generated, &original, &label, SOURCE_DELTA);
-                let assembled = compose_frame(&atlas, frame).unwrap_or_else(|| {
-                    panic!(
-                        "{}: atlas frame {frame} at {side}px did not compose",
-                        reference.id
-                    )
-                });
-                // Separate premultiplied layers can differ by one
-                // 8-bit source-over rounding step.
-                assert_pixels(
-                    &assembled,
-                    &generated,
-                    &format!("{label} atlas"),
-                    ATLAS_DELTA,
-                );
-                for tint in TINTS {
-                    assert!(
-                        tinted_close(&assembled, &original, tint, SOURCE_DELTA + ATLAS_DELTA,),
-                        "{label} differs with tint {tint:?}"
-                    );
-                }
-            }
+    }
+}
+
+const SOURCE_DELTA: u8 = 48;
+const ATLAS_DELTA: u8 = 1;
+const TINTS: [[u8; 4]; 3] = [
+    [255, 255, 255, 255],
+    [37, 173, 241, 255],
+    [230, 91, 44, 153],
+];
+
+fn check_geometry(reference: &Pack, easings: &[Option<[f32; 4]>], sides: &[u32]) {
+    let Some(pack) = super::find(reference.id.as_str()) else {
+        panic!("{}: generated pack is missing", reference.id);
+    };
+    assert_eq!(
+        pack.frame_count(),
+        (reference.dur * FRAME_RATE).ceil() as u16,
+        "{}: frame count differs",
+        reference.id
+    );
+    for &side in sides {
+        let atlas = super::raster_atlas(pack, side)
+            .unwrap_or_else(|| panic!("{}: atlas allocation failed at {side}px", reference.id));
+        assert_atlas(&atlas, pack);
+        assert_eq!(atlas.kind, super::AtlasKind::Parts);
+        for frame in 0..pack.frame_count() {
+            check_geometry_frame(reference, pack, &atlas, frame, side, easings);
         }
     }
 }
 
-#[test]
-fn every_resting_glyph_matches_its_first_source_sample() {
-    const SIDES: [u32; 4] = [24, 30, 48, 192];
+fn check_geometry_frame(
+    reference: &Pack,
+    pack: &super::Pack,
+    atlas: &super::Atlas,
+    frame: u16,
+    side: u32,
+    easings: &[Option<[f32; 4]>],
+) {
+    let original = original_frame(reference, frame, side, easings).unwrap_or_else(|| {
+        panic!(
+            "{}: SVG frame {frame} at {side}px did not render",
+            reference.id
+        )
+    });
+    let generated = super::raster_frame(pack, frame, side).unwrap_or_else(|| {
+        panic!(
+            "{}: typed frame {frame} at {side}px did not render",
+            reference.id
+        )
+    });
+    let label = format!("{}: frame {frame} at {side}px", reference.id);
+    // Text and typed matrices may round one edge differently.
+    assert_pixels(&generated, &original, &label, SOURCE_DELTA);
+    let assembled = compose_frame(atlas, frame).unwrap_or_else(|| {
+        panic!(
+            "{}: atlas frame {frame} at {side}px did not compose",
+            reference.id
+        )
+    });
+    // Separate premultiplied layers can differ by one 8-bit source-over step.
+    assert_pixels(
+        &assembled,
+        &generated,
+        &format!("{label} atlas"),
+        ATLAS_DELTA,
+    );
+    for tint in TINTS {
+        assert!(
+            tinted_close(&assembled, &original, tint, SOURCE_DELTA + ATLAS_DELTA,),
+            "{label} differs with tint {tint:?}"
+        );
+    }
+}
+
+fn check_resting(reference: &Pack, easings: &[Option<[f32; 4]>], sides: &[u32]) {
     const SOURCE_DELTA: u8 = 48;
 
-    assert_eq!(source::ALL.len(), super::PACKS.len());
-    for reference in source::ALL {
-        let Some(pack) = super::find(reference.id) else {
-            panic!("{}: generated pack is missing", reference.id);
-        };
-        for side in SIDES {
-            let glyph = super::raster_resting(pack, side).unwrap_or_else(|| {
-                panic!(
-                    "{}: resting glyph allocation failed at {side}px",
-                    reference.id
-                )
-            });
-            assert!(glyph.target_x + glyph.width <= glyph.side);
-            assert!(glyph.target_y + glyph.height <= glyph.side);
-            assert_eq!(
-                glyph.byte_len(),
-                glyph.width as usize * glyph.height as usize * 4
-            );
-            let generated = compose_resting(&glyph).unwrap_or_else(|| {
-                panic!(
-                    "{}: resting glyph did not compose at {side}px",
-                    reference.id
-                )
-            });
-            let original = original(reference, 0.0, 0.0, side).unwrap_or_else(|| {
-                panic!("{}: resting SVG did not render at {side}px", reference.id)
-            });
-            assert_pixels(
-                &generated,
-                &original,
-                &format!("{}: resting glyph at {side}px", reference.id),
-                SOURCE_DELTA,
-            );
-        }
+    let Some(pack) = super::find(reference.id.as_str()) else {
+        panic!("{}: generated pack is missing", reference.id);
+    };
+    for &side in sides {
+        let glyph = super::raster_resting(pack, side).unwrap_or_else(|| {
+            panic!(
+                "{}: resting glyph allocation failed at {side}px",
+                reference.id
+            )
+        });
+        assert!(glyph.target_x + glyph.width <= glyph.side);
+        assert!(glyph.target_y + glyph.height <= glyph.side);
+        assert_eq!(
+            glyph.byte_len(),
+            glyph.width as usize * glyph.height as usize * 4
+        );
+        let generated = compose_resting(&glyph).unwrap_or_else(|| {
+            panic!(
+                "{}: resting glyph did not compose at {side}px",
+                reference.id
+            )
+        });
+        let original = original(reference, 0.0, 0.0, side, easings).unwrap_or_else(|| {
+            panic!("{}: resting SVG did not render at {side}px", reference.id)
+        });
+        assert_pixels(
+            &generated,
+            &original,
+            &format!("{}: resting glyph at {side}px", reference.id),
+            SOURCE_DELTA,
+        );
+    }
+}
+
+const REPRESENTATIVE_IDS: [&str; 6] = [
+    "panel-left",
+    "book-open",
+    "chevron-left",
+    "library-big",
+    "play",
+    "sun-moon",
+];
+
+#[test]
+fn representative_geometry_and_atlases_match_source_frames() {
+    let source = source::load();
+    assert_source_order(&source);
+    for id in REPRESENTATIVE_IDS {
+        let reference = source
+            .packs
+            .iter()
+            .find(|pack| pack.id.as_str() == id)
+            .unwrap_or_else(|| panic!("representative pack {id:?} is missing"));
+        check_geometry(reference, &source.easings, &[41, 82]);
+    }
+}
+
+#[test]
+#[ignore = "full 98-pack pixel/atlas parity sweep; run on main"]
+fn generated_geometry_and_atlases_match_every_original_svg_frame() {
+    let source = source::load();
+    assert_source_order(&source);
+    for reference in &source.packs {
+        check_geometry(reference, &source.easings, &[41, 51, 82, 192]);
+    }
+}
+
+#[test]
+fn representative_resting_glyphs_match_their_first_source_sample() {
+    let source = source::load();
+    assert_source_order(&source);
+    for id in REPRESENTATIVE_IDS {
+        let reference = source
+            .packs
+            .iter()
+            .find(|pack| pack.id.as_str() == id)
+            .unwrap_or_else(|| panic!("representative pack {id:?} is missing"));
+        check_resting(reference, &source.easings, &[24, 48]);
+    }
+}
+
+#[test]
+#[ignore = "full 98-pack resting-glyph parity sweep; run on main"]
+fn every_resting_glyph_matches_its_first_source_sample() {
+    let source = source::load();
+    assert_source_order(&source);
+    for reference in &source.packs {
+        check_resting(reference, &source.easings, &[24, 30, 48, 192]);
     }
 }
 

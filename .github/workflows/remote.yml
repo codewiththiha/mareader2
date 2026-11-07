@@ -1,9 +1,11 @@
 name: Remote
 # The id lets tools/ci.py find the run it dispatched.
-run-name: ${{ inputs.task }} ${{ inputs.sha }} ${{ inputs.id }}
+run-name: ${{ github.event_name == 'schedule' && 'scheduled sandbox cache' || format('{0} {1} {2}', inputs.task, inputs.sha, inputs.id) }}
 
-# CI mode's on-demand jobs (docs/verification.md); none gates a merge.
+# On-demand CI-mode jobs plus a scheduled main-cache freshness check; none gates a merge.
 on:
+  schedule:
+    - cron: '17 */2 * * *'
   workflow_dispatch:
     inputs:
       task:
@@ -182,6 +184,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: memory-macos
+          save-if: false
       - name: Books
         run: |
           mkdir -p books out
@@ -256,6 +259,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: kokoro
+          save-if: false
           workspaces: tools/kokoro-parity
       # The pinned published model, its builds and G2P data; 740 MB, so kept.
       - uses: actions/cache@v4
@@ -354,6 +358,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: piper
+          save-if: false
           workspaces: tools/piper-parity
       # Seven pinned voices (every quality, one multi-speaker) and the G2P data.
       - uses: actions/cache@v4
@@ -460,6 +465,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: kitten
+          save-if: false
           workspaces: tools/kitten-parity
       # Every pinned Kitten 0.8 build and the American G2P data.
       - uses: actions/cache@v4
@@ -563,6 +569,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: phonon
+          save-if: false
           workspaces: |
             .
             tools/phonon-parity
@@ -711,6 +718,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: web
+          save-if: false
       - name: wasm-bindgen, the version Cargo.lock pins
         run: |
           v=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
@@ -732,9 +740,9 @@ jobs:
 
   cache:
     name: Remote / sandbox cache
-    if: inputs.task == 'cache'
+    if: inputs.task == 'cache' || github.event_name == 'schedule'
     runs-on: ubuntu-24.04
-    # One at a time; a newer push's run replaces any still waiting.
+    # Serialize manual and scheduled refreshes; never cancel an active build.
     concurrency:
       group: sandbox-cache
       cancel-in-progress: false
@@ -754,19 +762,37 @@ jobs:
       # The sandbox only lints; test binaries took 23 GB of 25.
       CACHE_BUILDS: ${{ inputs.full && 'full' || 'lint' }}
     steps:
+      - name: Check whether main advanced since the last cache
+        id: cache_guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          cached_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select((.name | startswith("sandbox-cache-meta-")) and (.expired | not))] | sort_by(.created_at) | last | .name // "" | sub("^sandbox-cache-meta-"; "")')
+          if [ "$cached_sha" = "$CURRENT_SHA" ]; then
+            echo "refresh=false" >> "$GITHUB_OUTPUT"
+            echo "The sandbox cache already covers main at $CURRENT_SHA."
+          else
+            echo "refresh=true" >> "$GITHUB_OUTPUT"
+            echo "Refreshing sandbox cache for main at $CURRENT_SHA (cached: ${cached_sha:-none})."
+          fi
       - name: Clone at the sandbox's path
+        if: steps.cache_guard.outputs.refresh != 'false'
         run: |
           sudo mkdir -p /home/user && sudo chown "$USER" /home/user
           git clone -q "https://github.com/${{ github.repository }}" "$REPO_DIR"
           git -C "$REPO_DIR" checkout -q "${{ inputs.sha || github.sha }}"
       # Only what changed since the last cache compiles: minutes, not 12.
       - name: Seed from the last cache
-        if: ${{ !inputs.cold }}
+        if: ${{ steps.cache_guard.outputs.refresh != 'false' && !inputs.cold }}
         working-directory: /home/user/mareader2
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 tools/ci.py --repo "${{ github.repository }}" cache seed
       - name: Toolchain
+        if: steps.cache_guard.outputs.refresh != 'false'
         run: |
           if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
             curl -sSf https://sh.rustup.rs | sh -s -- -y -q --no-modify-path \
@@ -776,23 +802,28 @@ jobs:
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       # Only the apt action: the build uses the clone at the sandbox's path.
       - uses: actions/checkout@v4
+        if: steps.cache_guard.outputs.refresh != 'false'
         with:
           ref: ${{ inputs.sha || github.sha }}
           sparse-checkout: .github/actions
       - uses: ./.github/actions/apt
+        if: steps.cache_guard.outputs.refresh != 'false'
       - name: Build what the gates build
+        if: steps.cache_guard.outputs.refresh != 'false'
         working-directory: /home/user/mareader2
         run: |
           cargo clippy -q --workspace --all-targets -- -D warnings
           # The browser preview is best-effort: warn only.
           cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings ||
             echo "::warning::the wasm build has lint errors (best-effort)"
-          cargo xtask layers && cargo xtask assets && cargo xtask unsafe
+          cargo xtask layers && cargo xtask assets && cargo xtask unsafe && cargo xtask shape
           if [ "$CACHE_BUILDS" = full ]; then
             cargo test -q --workspace --no-run
             cargo build -q -p mareader-ui --example shot
           fi
       - name: Pack
+        id: pack
+        if: steps.cache_guard.outputs.refresh != 'false'
         working-directory: /home/user/mareader2
         run: |
           mkdir -p /home/user/out
@@ -815,25 +846,39 @@ jobs:
           json.dump(meta, open("/home/user/out/meta.json", "w"), indent=2)
           print({k: v for k, v in meta.items() if k != "mtimes"})
           PY
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           du -sh /home/user/.cache/*
           tar -C /home/user/.cache --exclude=cargo/registry/cache -cf - \
             rustup cargo target-mr | zstd -q -T0 -10 -o /home/user/out/sandbox-cache.tar.zst
           ls -l /home/user/out
       - uses: actions/upload-artifact@v4
+        if: steps.cache_guard.outputs.refresh != 'false'
         with:
           name: sandbox-cache
           path: /home/user/out/
           compression-level: 0
           retention-days: 30
-      # 1.7 GB each: the newest, and one spare.
+      # The small sidecar names the source SHA for an inexpensive freshness check.
+      - uses: actions/upload-artifact@v4
+        if: steps.cache_guard.outputs.refresh != 'false'
+        with:
+          name: sandbox-cache-meta-${{ steps.pack.outputs.sha }}
+          path: /home/user/out/meta.json
+          compression-level: 0
+          retention-days: 30
+      # Keep the newest two cache artifacts and metadata sidecars.
       - name: Drop older caches
+        if: steps.cache_guard.outputs.refresh != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=sandbox-cache&per_page=100" \
-            --jq '.artifacts | sort_by(.created_at) | reverse | .[2:] | .[].id' |
-          while read -r id; do
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" && echo "dropped $id"
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=sandbox-cache&per_page=100" \
+            --jq '.artifacts | sort_by(.created_at) | reverse | .[2:] | .[].id'); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" && echo "dropped cache $id"
+          done
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select((.name | startswith("sandbox-cache-meta-")) and (.expired | not))] | sort_by(.created_at) | reverse | .[2:] | .[].id'); do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" && echo "dropped cache metadata $id"
           done
 
   # The system's own voices, where they run: opened again, and side by side.
@@ -854,6 +899,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: system
+          save-if: false
       - name: Test
         shell: bash
         run: |

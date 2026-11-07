@@ -32,7 +32,7 @@ on 2026-10-14:
 |---|---|
 | Cold build of the gates, after a reset (one compiler at a time) | 30–35 min |
 | CI, push to a green verdict (warm GitHub cache; 2026-10-27, see "CI time") | 5.5–7 min |
-| CI, push to a red format job, digest included | 28 s |
+| CI, push to a red format job (old workflow), digest included | 28 s |
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
 | `tools/ci.py cache restore` (lint builds, 1.2 GB at 7–17 MB/s, then unpack; 2026-10-27) | 2–3.5 min |
@@ -106,14 +106,18 @@ What CI covers, against the local gates:
 
 | Gate | CI job |
 |---|---|
-| `cargo fmt --all --check` | Rust / format |
+| `cargo fmt --all --check` and changed-package tests | Gate / shape + fmt + changed crates |
 | `cargo clippy --workspace --all-targets` | Rust / lint |
-| clippy on macOS, with and without default features (native: bundled SQLite needs the SDK) | Build / macos-latest |
+| `cargo nextest run --workspace` plus rustdoc tests (lavapipe); ignored icon sweeps on `main` | Rust / test |
+| `python3 tools/shape_check.py`; `cargo xtask layers`, `parity`, `assets`, `unsafe`, `comments` | Gate / shape + fmt + changed crates |
+| clippy on macOS, with and without default features (native: bundled SQLite needs the SDK) | Check / macos-latest |
 | clippy for `wasm32-unknown-unknown` | none: the browser preview is best-effort, with no CI job |
-| `cargo test --workspace` (with lavapipe for GPU tests) | Rust / test |
-| `cargo xtask layers`, `parity`, `assets`, `unsafe` | Rust / test |
-| every commit builds alone (`--locked`) | Build / each commit |
-| native macOS and Windows builds | Build / macos-latest, windows-latest |
+| every commit builds alone (`--locked`), for multi-commit PRs | Build / each commit |
+| native macOS and Windows checks | Check / macos-latest, windows-latest |
+
+The quick gate runs first. Lint and workspace tests start after it; the
+platform matrix waits for the quick gate and, on multi-commit PRs, the
+per-commit build check. A red prerequisite skips the matrix.
 
 **Hybrid.** In CI mode on a machine whose cache is warm, one targeted local
 command is fine for a tight loop (for example
@@ -127,20 +131,22 @@ instead.
 
 ## CI time
 
-Measured over 16 runs on 2026-10-27, before the fixes below. A healthy run
-took **7.5–8 min** from push to verdict. `Rust / test` is the critical
-path; every other job runs beside it and finishes first. After the fixes,
-a run takes **5.5 min** when no crate changed, and **6.7 min** after
-editing `mareader-audio`, which most of the workspace depends on.
+Historical timings, measured over 16 runs on 2026-10-27, describe the
+previous workflow. A healthy run took **7.5–8 min** from push to verdict;
+after the cache/debug-info fixes it took **5.5 min** when no crate changed
+and **6.7 min** after editing `mareader-audio`. The quick-first, changed-crate
+workflow landed on 2026-11-07, so these numbers and the job labels below are
+not current measurements. Remeasure the first 10–20 green runs, including
+macOS queue time, before updating the expected cycle.
 
 | Job | Time | Note |
 |---|---|---|
-| Rust / test | 7–8 min | compile and link 5.8 min, the tests themselves 0.7 min |
-| Build / windows-latest | 4–6 min | in parallel |
-| Build / macos-latest | 3–5 min | in parallel; its queue sometimes adds 5–10 min |
-| Build / each commit | 1–2 min | in parallel |
-| Rust / lint | about 1 min | |
-| Rust / format | 20 s | |
+| Rust / test | 7–8 min | historical; compile and link 5.8 min, tests 0.7 min |
+| Check / windows-latest | 4–6 min | historical; previously started after format + each-commit checks |
+| Check / macos-latest | 3–5 min | historical; its queue sometimes added 5–10 min |
+| Build / each commit | 1–2 min | historical; only multi-commit PRs use this job now |
+| Rust / lint | about 1 min | historical |
+| Rust / format (historical label) | 20 s | quick gate now also runs shape and changed-package tests |
 
 What made a change take an hour or more, and the fix for each:
 
@@ -154,14 +160,15 @@ What made a change take an hour or more, and the fix for each:
   a bare `apt-get`.
 - **The sandbox cache was stale.** It was refreshed only by hand, and had
   fallen 612 commits behind. After each reset, the first local clippy took
-  12–14 min instead of under one. **Fix:** CI's last job,
-  `Cache / sandbox`, starts a cache build after every green push. It takes
-  2–8 min on a runner, and nobody waits for it: `watch` gives its verdict
-  without that job. The cache holds lint builds only (1.2 GB, not 5.6), so
-  a reset now costs a 2–3.5 min restore and a 28 s first clippy. The cache job then deletes all but the newest
-  two caches. `cache restore` warns when the cache it unpacked is more than
-  30 commits behind. The cache job's wasm lint only warns: the browser
-  preview is best-effort, and it once failed every refresh unnoticed.
+  12–14 min instead of under one. **Fix:** `Remote` checks the main-branch
+  cache every two hours and builds only when its cached main SHA is behind.
+  The cache holds lint builds only (1.2 GB, not 5.6), so a reset now costs a
+  2–3.5 min restore and a 28 s first clippy. The job keeps only the newest
+  two cache archives and their two metadata sidecars. The sidecar lets the
+  schedule compare the cached source SHA without downloading the large archive.
+  `cache restore` warns when the cache it unpacked is more than 30 commits
+  behind. The cache job's wasm lint only warns: the browser preview is best-effort, and it once
+  failed every refresh unnoticed.
 - **Full debug info.** Every test binary linked full DWARF for the
   workspace crates. CI now builds with
   `CARGO_PROFILE_DEV_DEBUG=line-tables-only`, and `cargo test` fell from
@@ -173,16 +180,24 @@ What made a change take an hour or more, and the fix for each:
 
 Checked, and left alone:
 
-- **Other workflows.** `Remote` and `Installers` run only when dispatched.
-  They never queue ahead of CI, and a newer push cancels an older CI run.
-- **The macOS and Windows builds.** They run in parallel and finish before
-  the test job, so they add no time.
-- **Testing only the crates that changed.** Almost every change touches
-  `mareader-ui`, the top crate, which nearly every test builds.
-- **More sharing of the GitHub cache.** Workspace crates still compile in
-  each job, because a fresh checkout gives every source file a new time.
-  Only the dependencies come from the cache, and they restore in under a
-  minute.
+- **Other workflows.** `Remote` is on-demand except for its scheduled
+  sandbox-cache freshness check; `Installers` remains on-demand. Neither
+  gates a merge, and a newer push cancels an older CI run.
+- **The macOS and Windows checks.** They wait for
+  `Gate / shape + fmt + changed crates` and, on multi-commit PRs,
+  `Build / each commit`, then run beside
+  lint and workspace tests. This adds a quick-gate delay before they start;
+  macOS queue time can still make the matrix critical-path, so remeasure.
+- **Changed-package tests.** The quick gate tests changed packages, falling
+  back to the workspace for global/tooling inputs; `Rust / test` still runs
+  the full workspace suite after the gate.
+- **Rust cache policy.** CI uses `rust-cache` for Cargo's target/dependency
+  state and `sccache` with incremental compilation disabled for reusable rustc
+  outputs. Rust-cache writes are restricted to `main`; PRs, intermediate
+  commits and all on-demand `Remote` and `Installers` jobs are read-only.
+  Platform caches are OS-specific, while Linux lint jobs share one key and the
+  test build has its own key. The sandbox archive remains separate because it
+  must restore to the exact paths and profile used by the constrained machine.
 
 The fastest loop, per change:
 
@@ -194,10 +209,10 @@ The fastest loop, per change:
 3. **A red job ends the watch at once,** with its digest. Fix it, push, and
    watch again.
 
-Expect about 7–9 min per cycle, from push to a green verdict and shots.
-Changing the cache key (the toolchain, `Cargo.lock`, or a `CARGO_*`
-variable in a workflow) makes the next run rebuild every dependency once,
-taking about 20 min.
+The 7–9 min cycle estimate was measured on the previous workflow and needs
+rechecking after the new quick-first gate. Changing the cache key (the
+toolchain, `Cargo.lock`, or a `CARGO_*` variable in a workflow) makes the
+next run rebuild every dependency once, historically about 20 min.
 
 ## Screenshots from CI
 
@@ -402,20 +417,23 @@ After a sandbox reset, local mode would start with a 30-minute cold build.
 `python3 tools/ci.py cache restore` instead downloads a build that CI made
 and unpacks it here. The build covers what the sandbox runs locally:
 clippy on the workspace and on wasm, plus the xtask gates. It ships the
-toolchain too. `python3 tools/ci.py cache build` refreshes it, and
-`--full` adds the test binaries and the `shot` example for local mode.
+toolchain too. The `Remote` workflow checks the cached main SHA every two
+hours and builds only when main has advanced. `python3 tools/ci.py cache build`
+still dispatches a manual refresh; `--full` adds the test binaries and the
+`shot` example for local mode.
 
 **Use it only when it is needed.** Each step costs minutes:
 
 - **Restore** only on a cold machine (after a reset) when local work is
   wanted: local mode, or CI mode's hybrid loop. In plain CI mode nothing
   compiles locally, so skip it. A warm machine never needs it.
-- **Build** rarely by hand. CI's `Cache / sandbox` job already starts a
-  cache build after every green push, and keeps the newest two caches
-  ("CI time"). Build by hand only when `restore` finds no live cache, or
-  when a commit that never went green must be cached. An older cache is
-  still worth restoring: dependencies are reused, and only crates edited
-  since then recompile.
+- **Build** rarely by hand. The scheduled `Remote / sandbox cache` job checks
+  main every two hours, builds only when its SHA has advanced, and keeps the
+  newest two cache archives and metadata sidecars. Dispatch `cache build`
+  manually only when `restore` finds no live cache, or when an unmerged commit
+  must be cached.
+  An older cache is still worth restoring: dependencies are reused, and only
+  crates edited since then recompile.
 - **`--cold`** only to move to a new toolchain or to drop accumulated
   leftovers. The cache ships its own compiler, so it keeps the one it was
   first built with until then.

@@ -5,129 +5,204 @@ on:
     # Work branches too (AGENTS.md): CI mode proves them before main.
     branches: [main, "feat/**", "fix/**", "perf/**", "refactor/**", "docs/**",
                "test/**", "build/**", "ci/**", "chore/**"]
-    # Prose only: docs/ and the top-level notes (AGENTS.md, README.md).
     paths-ignore: ["docs/**", "*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "*.md"]
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Linux jobs stay on 24.04: 26.04's Mesa crashes the GPU tests at random.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # Full DWARF slowed linking the test binaries; lines still name frames.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_INCREMENTAL: "0"
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
+  SCCACHE_CACHE_SIZE: 2G
+  SAVE_CACHE: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
-  format:
-    name: Rust / format
+  # The only front gate: make red changes cost minutes, not a full matrix.
+  quick:
+    name: Gate / shape + fmt + changed crates
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      # No compiler required: reject shape regressions before any Cargo work.
+      - name: Check Rust shape
+        run: python3 tools/shape_check.py
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: "rustfmt, clippy"
+      - uses: mozilla-actions/sccache-action@v0.0.10
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux
+          save-if: ${{ env.SAVE_CACHE }}
+          cache-on-failure: true
+      # UI tests render offscreen with lavapipe; audio needs native headers.
+      - uses: ./.github/actions/apt
+        with:
+          packages: mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
       - run: cargo fmt --all --check
+      - name: Find changed Cargo packages
+        id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            RANGE="origin/main...HEAD"
+          else
+            RANGE="$BASE...$HEAD"
+          fi
+          echo "args=$(python3 tools/changed_crates.py "$RANGE")" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@nextest
+      - name: Test changed crates
+        env:
+          TEST_ARGS: ${{ steps.changed.outputs.args }}
+        run: |
+          if [ -z "$TEST_ARGS" ]; then
+            echo "No Rust packages changed; skipping crate tests."
+          else
+            read -r -a args <<< "$TEST_ARGS"
+            cargo nextest run "${args[@]}" --no-fail-fast
+          fi
+      - name: Run repository gates
+        run: |
+          cargo xtask comments origin/main
+          cargo xtask layers
+          cargo xtask parity
+          cargo xtask assets
+          cargo xtask unsafe
 
   lint:
     name: Rust / lint
+    needs: quick
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
-      # ALSA's headers, for the narration's sound output.
+        with:
+          shared-key: linux
+          save-if: ${{ env.SAVE_CACHE }}
       - uses: ./.github/actions/apt
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
     name: Rust / test
+    needs: quick
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ env.SAVE_CACHE }}
+          cache-on-failure: true
+      - uses: rui314/setup-mold@v1
       # lavapipe gives wgpu a software Vulkan device for kittest renders.
       - uses: ./.github/actions/apt
         with:
           packages: mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
-      - run: cargo test --workspace
-      - run: cargo xtask layers
-      - run: cargo xtask parity
-      - run: cargo xtask assets
-      - run: cargo xtask unsafe
+      - uses: taiki-e/install-action@nextest
+      - run: cargo nextest run --workspace --no-fail-fast
+      # nextest does not run rustdoc tests.
+      - run: cargo test --doc --workspace
+      # The exhaustive icon SVG/geometry sweep is deliberately main-only.
+      - if: github.ref == 'refs/heads/main'
+        run: cargo nextest run -p mareader-animated-icons --run-ignored only
 
   platforms:
-    name: Build / ${{ matrix.os }}
+    name: Check / ${{ matrix.os }}
+    needs: [quick, commits]
+    if: >-
+      always() && needs.quick.result == 'success' &&
+      (needs.commits.result == 'success' || needs.commits.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
-      # The macOS-only modules, with and without their feature flags. Native:
-      # bundled SQLite's C can't cross-compile without the macOS SDK.
+        with:
+          shared-key: platform-${{ matrix.os }}
+          save-if: ${{ env.SAVE_CACHE }}
       - if: runner.os == 'macOS'
-        run: cargo clippy -p mareader -- -D warnings
+        run: cargo clippy -p mareader --all-targets -- -D warnings
       - if: runner.os == 'macOS'
-        run: cargo clippy -p mareader --no-default-features -- -D warnings
-      - run: cargo build -p mareader
-      # Explorer and shortcuts read the icon from the exe (build.rs).
-      - if: runner.os == 'Windows'
+        run: cargo clippy -p mareader --no-default-features --all-targets -- -D warnings
+      # Check cross-platform code on every run; link the full app on main only.
+      - run: cargo check -p mareader --locked
+      - if: github.ref == 'refs/heads/main'
+        run: cargo build -p mareader --locked
+      - if: github.ref == 'refs/heads/main' && runner.os == 'Windows'
         shell: pwsh
         run: ./tools/exe-icons.ps1 target/debug/mareader.exe
 
   commits:
     name: Build / each commit
+    needs: quick
+    if: github.event_name == 'pull_request' && github.event.pull_request.commits > 1
     runs-on: ubuntu-24.04
-    # Every commit builds alone, so `git bisect` never stops on a broken one.
-    # Warnings are the lint job's: a split commit may briefly leave dead code.
+    timeout-minutes: 30
+    # Intermediate commits may briefly contain dead code; lint is the warning gate.
     env:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      - uses: mozilla-actions/sccache-action@v0.0.10
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux
+          save-if: false
       - uses: ./.github/actions/apt
-      - name: cargo check each new commit
+      - name: Check every commit
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          # A new branch has no "before": check what it adds to main.
-          if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            BASE=$(git merge-base origin/main "$HEAD")
-            [ "$BASE" = "$HEAD" ] && BASE="$HEAD~1"
-          fi
           for c in $(git rev-list --reverse "$BASE..$HEAD"); do
             git checkout -q "$c"
             echo "::group::$(git log -1 --format='%h %s')"
             cargo check --workspace --all-targets --locked
             echo "::endgroup::"
           done
-
-  # A green push refreshes the sandbox cache; tools/ci.py's verdict skips it.
-  refresh:
-    name: Cache / sandbox
-    needs: [format, lint, test, platforms, commits]
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    permissions:
-      actions: write
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh workflow run remote.yml -R "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
-          -f task=cache -f sha="$GITHUB_SHA" -f id=after-ci

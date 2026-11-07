@@ -3580,6 +3580,8 @@ version = "0.0.5"
 dependencies = [
  "resvg",
  "roxmltree 0.20.0",
+ "serde",
+ "serde_json",
  "tiny-skia",
 ]
 
