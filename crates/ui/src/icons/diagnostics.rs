@@ -284,7 +284,7 @@ fn percentile_summary(samples: &[f64]) -> String {
     let mut sorted = samples.to_vec();
     sorted.sort_by(f64::total_cmp);
     let median = sorted[sorted.len() / 2];
-    let p95 = sorted[((sorted.len() - 1) * 95 + 99) / 100];
+    let p95 = sorted[((sorted.len() - 1) * 95).div_ceil(100)];
     let max = sorted[sorted.len() - 1];
     format!("{median:.3}/{p95:.3}/{max:.3}")
 }
