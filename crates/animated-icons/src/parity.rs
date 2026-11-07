@@ -441,9 +441,8 @@ fn check_resting(reference: &Pack, easings: &[Option<[f32; 4]>], sides: &[u32]) 
                 reference.id
             )
         });
-        let original = original(reference, 0.0, 0.0, side, easings).unwrap_or_else(|| {
-            panic!("{}: resting SVG did not render at {side}px", reference.id)
-        });
+        let original = original(reference, 0.0, 0.0, side, easings)
+            .unwrap_or_else(|| panic!("{}: resting SVG did not render at {side}px", reference.id));
         assert_pixels(
             &generated,
             &original,
