@@ -82,9 +82,8 @@ struct State {
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("MAREADER_ICON_DIAGNOSTICS").is_ok_and(|value| value != "0")
-    })
+    *ENABLED
+        .get_or_init(|| std::env::var("MAREADER_ICON_DIAGNOSTICS").is_ok_and(|value| value != "0"))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -159,10 +158,7 @@ pub(super) fn upload(ctx: &Context, bytes: usize, elapsed: Duration) {
 
 pub(super) fn mesh(ctx: &Context, vertices: usize) {
     update(ctx, |state| {
-        state.pass.mesh_vertices = state
-            .pass
-            .mesh_vertices
-            .saturating_add(vertices as u64);
+        state.pass.mesh_vertices = state.pass.mesh_vertices.saturating_add(vertices as u64);
     });
 }
 

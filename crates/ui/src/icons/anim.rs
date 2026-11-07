@@ -611,9 +611,7 @@ pub(crate) fn finish_diagnostic_frame(
         CacheStats {
             bytes: atlas.bytes.saturating_add(resting.bytes),
             evictions: atlas.evictions.saturating_add(resting.evictions),
-            evicted_bytes: atlas
-                .evicted_bytes
-                .saturating_add(resting.evicted_bytes),
+            evicted_bytes: atlas.evicted_bytes.saturating_add(resting.evicted_bytes),
         },
     );
 }
@@ -1020,8 +1018,8 @@ mod tests {
             Icon::Close,
         ];
         const TAGS: [&str; 12] = [
-            "bench-0", "bench-1", "bench-2", "bench-3", "bench-4", "bench-5", "bench-6",
-            "bench-7", "bench-8", "bench-9", "bench-10", "bench-11",
+            "bench-0", "bench-1", "bench-2", "bench-3", "bench-4", "bench-5", "bench-6", "bench-7",
+            "bench-8", "bench-9", "bench-10", "bench-11",
         ];
         let _act = announce(ui, Act::Click);
         for (index, (icon, tag)) in ICONS.into_iter().zip(TAGS).enumerate() {

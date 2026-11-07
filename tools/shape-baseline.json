@@ -257,7 +257,7 @@
     "crates/ui/src/gpu/grain.rs::new@39",
     "crates/ui/src/gpu/page_pass.rs::new@225",
     "crates/ui/src/icons/anim.rs::advance@262",
-    "crates/ui/src/icons/anim.rs::click_run_liveness@873",
+    "crates/ui/src/icons/anim.rs::click_run_liveness@871",
     "crates/ui/src/icons/pack.rs::of@7",
     "crates/ui/src/image_viewer.rs::show@167",
     "crates/ui/src/keymap.rs::bindings@19",
