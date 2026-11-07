@@ -374,7 +374,7 @@ fn check_geometry(reference: &Pack, easings: &[Option<[f32; 4]>], sides: &[u32])
 
 fn check_geometry_frame(
     reference: &Pack,
-    pack: &super::Pack,
+    pack: &'static super::Pack,
     atlas: &super::Atlas,
     frame: u16,
     side: u32,
