@@ -380,9 +380,7 @@ fn nav_row(ui: &mut Ui, tab: Tab, on: bool) -> egui::Response {
     ui.painter().rect_filled(rect, t.radius, fill);
     let icon = Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), Vec2::splat(16.0));
     let tint = if on { t.accent } else { t.muted };
-    // The rail answers the pick, and each row's run is addressed by its own name
-    // rather than by where it happens to fall: groups above it fold and unfold,
-    // which would otherwise orphan a run half-played.
+    // Stable row names preserve runs while earlier groups fold.
     let _act = anim::announce(ui, Act::Click);
     ui.push_id(("settings-nav", label), |ui| {
         anim::paint(ui, icon, tab.icon(), tint, label, &r);

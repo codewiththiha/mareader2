@@ -402,8 +402,7 @@ fn header(ui: &mut Ui, picks: &mut Picks, t: &Tokens) {
 
 /// A frequent action, with a single accessible name and a generous target.
 fn tile(ui: &mut Ui, icon: Icon, label: &str, width: f32, t: &Tokens) -> Response {
-    // Usually inherited from the context menu; kept here too so this generous
-    // action tile can never fall back to a press if it is reused elsewhere.
+    // Keep hover motion when this tile is used outside its context menu.
     let _act = anim::announce(ui, Act::Hover);
     let (rect, r) = ui.allocate_exact_size(vec2(width, 54.0), Sense::click());
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));

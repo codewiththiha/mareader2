@@ -206,8 +206,7 @@ fn draft_card(
         let enter = left && ui.input(|i| i.key_pressed(Key::Enter));
         let escape = ui.input(|i| i.key_pressed(Key::Escape));
         let (mut save, mut cancel) = (false, false);
-        // Without a name there is nothing to save, and a filled accent
-        // button says there is: hold it back as a quiet outline instead.
+        // A blank name keeps the save button inactive.
         let primary = if named {
             widgets::primary_button(ui, None, "Save", t.accent, t)
         } else {

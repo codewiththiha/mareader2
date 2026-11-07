@@ -61,7 +61,7 @@ pub fn context_menu(resp: &Response, add: impl FnOnce(&mut Ui)) {
     context_menu_inner(resp, MENU_W, egui::PopupCloseBehavior::CloseOnClick, add);
 }
 
-/// A right-click menu with an explicit width (`GROUPED_MENU_W` for grouped menus).
+/// A right-click menu with an explicit width.
 pub fn context_menu_sized(resp: &Response, width: f32, add: impl FnOnce(&mut Ui)) {
     let close = egui::PopupCloseBehavior::CloseOnClickOutside;
     context_menu_inner(resp, width, close, add);
@@ -98,8 +98,7 @@ fn context_menu_inner(
     };
     popup.show(|ui| {
         menu_style(ui, width);
-        // A menu a pick shuts is answered by the reach, not the pick: its icons
-        // move as they are reached, while they are still on screen.
+        // Menus animate on hover, before a selection can close them.
         let _act = anim::announce(ui, Act::Hover);
         add(ui);
         close_on_key(ui);
@@ -122,8 +121,7 @@ pub fn icon_button_keyed(
     icon_button_tagged(ui, icon, label, label, selected, keys)
 }
 
-/// [`icon_button_keyed`] with an animation identity that stays put while its
-/// accessible label changes, as a Bookmark button becomes Remove bookmark.
+/// A keyed icon button whose animation survives label changes.
 pub fn icon_button_tagged(
     ui: &mut Ui,
     icon: Icon,
@@ -133,10 +131,7 @@ pub fn icon_button_tagged(
     keys: Option<&str>,
 ) -> Response {
     let t = Tokens::get(ui.ctx());
-    // A press is this control's own answer, offered only where nothing around it
-    // has said otherwise: a bar that answers a reach says so for its buttons.
-    // `icons::anim` keeps the run; `tag` keys it, so a toggle changing its words
-    // does not abandon the run that its press just started.
+    // The tag preserves a click run across label changes.
     let resp = ui
         .push_id(("icon-button", tag), |ui| {
             let _act = anim::assume(ui, Act::Click);
@@ -271,13 +266,7 @@ fn paint_menu_row_bg(ui: &Ui, rect: Rect, resp: &Response, on: bool, t: &Tokens)
     }
 }
 
-/// A menu row's lead: its glyph and its label. Every menu row paints through
-/// here, which is where a menu answers what its icons do. A menu closes the
-/// moment it is answered, so a row's glyph moves as it is reached rather than
-/// on the press nobody will see.
-///
-/// Eight arguments, in the order a row is painted, because a struct one private
-/// helper carries is a worse read than its width.
+/// Paints a menu row's icon and label with hover motion.
 #[allow(clippy::too_many_arguments)]
 fn paint_menu_row_lead(
     ui: &Ui,
@@ -334,7 +323,7 @@ fn menu_inks(ui: &Ui, resp: &Response, on: bool, t: &Tokens) -> (Color32, Color3
     (icon, t.ink)
 }
 
-/// One menu row: icon, label, and an optional shortcut or status hint on the right.
+/// One menu row with an optional trailing shortcut or status.
 pub fn menu_row(ui: &mut Ui, icon: Icon, label: &str, keys: Option<&str>, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let enabled = ui.is_enabled();
@@ -384,7 +373,7 @@ pub fn menu_row_danger(ui: &mut Ui, icon: Icon, label: &str) -> Response {
     .inner
 }
 
-/// Menu row with an accent pill badge on the right (such as `B2+` or a preset name).
+/// A menu row with a trailing accent badge.
 pub fn menu_row_tag(ui: &mut Ui, icon: Icon, label: &str, tag: Option<&str>, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let enabled = ui.is_enabled();
@@ -619,7 +608,7 @@ pub fn submenu_row(
     resp
 }
 
-/// Uppercase muted section caption aligned to `MENU_PAD_X`, with an optional leading icon.
+/// An uppercase muted section caption with an optional icon.
 pub fn menu_section(ui: &mut Ui, icon: Option<Icon>, title: &str) {
     let t = Tokens::get(ui.ctx());
     if ui.cursor().min.y > ui.min_rect().min.y + 1.0 {
@@ -999,8 +988,7 @@ pub fn segments_of<T: Copy + PartialEq>(
     face: impl Fn(T) -> (Option<Icon>, &'static str),
 ) {
     let t = Tokens::get(ui.ctx());
-    // A segment track answers a pick by moving its own cell, and stays where it
-    // was: the pick's motion is the reward, so it plays on the press.
+    // A segment animates on selection because its track stays visible.
     let _act = anim::announce(ui, Act::Click);
     let cols = cols.max(1);
     let rows = all.len().div_ceil(cols);
@@ -1047,9 +1035,7 @@ pub fn segments_of<T: Copy + PartialEq>(
         let y = cell.center().y;
         if let Some(icon) = icon {
             let at = Rect::from_min_size(pos2(x, y - 7.0), Vec2::splat(14.0));
-            // Named, not numbered: the run a cell plays must not be addressed by
-            // where the cell happens to fall, or a control added above the track
-            // would leave the glyph hanging mid-gesture.
+            // Stable cell names preserve runs when earlier controls change.
             ui.push_id(("segment-icon", first, label), |ui| {
                 anim::paint(ui, at, icon, ink, label, &resp);
             });

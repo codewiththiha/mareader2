@@ -93,8 +93,7 @@ fn engine(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Comm
     }
 }
 
-/// The engine's own mark, to lead its row. A muted one, so the row's words keep
-/// the colour they had before the faces came.
+/// A muted engine mark keeps the row's text hierarchy.
 fn engine_mark(id: &str, ink: Color32) -> Option<(Icon, Color32)> {
     Icon::engine(id).map(|mark| (mark, ink))
 }

@@ -24,8 +24,7 @@ use crate::zoom::ZoomState;
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
 pub const FADE: f32 = 0.2;
-/// How far the Appearance flyout stands off the window's right edge. Enough to
-/// read as a panel rather than a strip of the chrome, too little to be a gap.
+/// Appearance flyout inset from the window's right edge.
 pub const FLYOUT_MARGIN: f32 = 8.0;
 pub const APPEARANCE_POPOVER: &str = "appearance-popover";
 pub const DICTIONARY_MENU: &str = "dictionary-page-menu";
@@ -305,8 +304,7 @@ impl TitleBar {
         live: bool,
         out: &mut Commands,
     ) {
-        // Every control in the window's furniture answers the reach. A click may
-        // move, hide or close that furniture before its glyph could finish.
+        // Window furniture animates before a click can move or close it.
         let _act = crate::icons::anim::announce(ui, crate::icons::anim::Act::Hover);
         let pinned = self.pinned;
         let width = ui.max_rect().width();
@@ -483,9 +481,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
     let id = Id::new(APPEARANCE_POPOVER);
     let open = egui::Popup::is_id_open(ui.ctx(), id);
     let r = widgets::icon_button(ui, Icon::Appearance, "Appearance", open);
-    // How an OS hangs its flyouts: off the underside of the bar with no gap of its
-    // own, and only a hair off the window's edge. No shadow either: there is no room
-    // above for one to fall into, and the theme's 24 pt blur would smear the bar.
+    // The flyout hugs the bar and window edge without casting a shadow.
     let screen = ui.ctx().content_rect();
     let hang = pos2(screen.right() - FLYOUT_MARGIN, screen.top() + TITLE_BAR_H);
     let mut frame = egui::Frame::popup(ui.style());
@@ -496,7 +492,7 @@ fn appearance_button(ui: &mut egui::Ui, bar: &BarContext<'_>, out: &mut Commands
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .at_position(hang)
         .align(egui::RectAlign::BOTTOM_END)
-        // No alternative sides: an edge-flyout stays on its edge, or not at all.
+        // An edge flyout never changes sides.
         .align_alternatives(&[])
         .gap(0.0)
         .frame(frame)

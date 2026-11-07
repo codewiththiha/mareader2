@@ -215,8 +215,7 @@ pub(super) fn show(
     act
 }
 
-/// Only the two sentence steps use an icon pack. Play/pause keeps its own morph,
-/// and the other player furniture rests.
+/// Sentence steps animate; the other player controls use static marks.
 fn step_icon(icon: Icon) -> bool {
     matches!(icon, Icon::SkipBack | Icon::SkipForward)
 }

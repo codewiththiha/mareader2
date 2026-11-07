@@ -1,4 +1,4 @@
-//! The Dial deck Appearance popover: compact tabs, 2D colour wheel and rotary dials.
+//! Dial deck Appearance popover: compact tabs, colour wheel and rotary dials.
 
 mod dials;
 mod presets;
@@ -219,8 +219,7 @@ fn look_tab(ui: &mut Ui, cx: &MenuContext<'_>, a: &mut Appearance, out: &mut Com
 }
 
 fn mode_tiles(ui: &mut Ui, base: &mut BaseMode, t: &Tokens) {
-    // These are the Dial deck's spelling of the classic segmented modes; both
-    // answer the same persistent-control event through the same icon provider.
+    // Both mode controls share one persistent event and icon provider.
     let _act = anim::announce(ui, Act::Click);
     let gap = 6.0;
     let count = BaseMode::ALL.len() as f32;

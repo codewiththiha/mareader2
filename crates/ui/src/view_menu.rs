@@ -56,8 +56,7 @@ pub fn button(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
 }
 
 fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
-    // A menu closes on most answers, so every glyph in it responds while it can
-    // still be seen: on the reach. Rows that stay open may shout Click inside.
+    // Menus animate on hover, before a selection can close them.
     let _act = anim::announce(ui, Act::Hover);
     widgets::menu_style(ui, WIDTH);
     // Layout, zoom and reading each under a name of their own.
@@ -127,7 +126,7 @@ pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
     }
 }
 
-/// Frequent app actions share a compact footer; their shortcut is a hint, not a name.
+/// Frequent actions share a compact footer; shortcuts remain hints.
 fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
     let rest = t
@@ -218,7 +217,7 @@ fn read_aloud_row(ui: &mut Ui, on: bool, platform: Platform, out: &mut Commands)
 /// The four view modes, each named under its icon; the menu stays open.
 fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Commands) {
     let t = Tokens::get(ui.ctx());
-    // The menu stays open to chain these, so the pick is the event worth showing.
+    // This menu stays open, so selection is the visible event.
     let _act = anim::announce(ui, Act::Click);
     let size = vec2(ui.available_width(), 46.0);
     let (band, _) = ui.allocate_exact_size(size, Sense::hover());

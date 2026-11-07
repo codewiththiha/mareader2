@@ -63,8 +63,7 @@ pub fn show(
         prefer: Side::Above,
     };
     let (_, pressed) = bubble.show(ctx, &t, |ui, _| {
-        // This bar is gone the moment it is answered, so every glyph in it
-        // moves as it is reached rather than on the press nobody will see.
+        // Hover moves glyphs before a selection closes this transient bar.
         let _act = anim::announce(ui, Act::Hover);
         let mut pressed = None;
         ui.horizontal(|ui| {

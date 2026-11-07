@@ -358,8 +358,7 @@ impl Sidebar {
             .max_rect(row)
             .layout(Layout::left_to_right(Align::Center));
         ui.scope_builder(builder, |ui| {
-            // The docked rail is the title bar's leading end; reaching any of its
-            // furniture is the event, just as it is on the rest of that bar.
+            // The docked rail belongs to title-bar hover motion.
             let _act = anim::announce(ui, Act::Hover);
             ui.spacing_mut().item_spacing.x = 4.0;
             let buttons = [
