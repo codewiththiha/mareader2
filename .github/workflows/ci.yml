@@ -28,10 +28,11 @@ env:
 
 jobs:
   # The only front gate: make red changes cost minutes, not a full matrix.
+  # A cold changed-crate build can take over 15 minutes before gates finish.
   quick:
     name: Gate / shape + fmt + changed crates
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:

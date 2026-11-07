@@ -1,6 +1,6 @@
 # Animation performance
 
-> **Status:** generated resting and part-atlas implementation; Remote release diagnostic added, first run pending · **Last updated:** 2026-11-07
+> **Status:** generated resting and part-atlas implementation; first Linux Remote release run recorded; GPU/native results deferred · **Last updated:** 2026-11-07
 
 This document answers two separate questions:
 
@@ -10,9 +10,10 @@ This document answers two separate questions:
 
 The answer comes from the current Mareader implementation and egui 0.36.2.
 The source establishes which work is avoided, but not its CPU or memory impact
-on a particular machine. The opt-in release diagnostic is now implemented;
-publish its first Remote result before making quantitative claims. Real-GPU
-and native-window measurements remain a separate, deferred step.
+on a particular machine. The opt-in release diagnostic is now implemented and
+has one Linux Remote result below. That synthetic egui result is not a
+native-app or GPU measurement; no before/after speedup is claimed. Real-GPU and
+native-window measurements remain deferred.
 
 ## Short answer
 
@@ -71,8 +72,8 @@ Default tests compare six representative packs at two sizes. The exhaustive
 98-pack geometry/atlas and resting-glyph sweeps are marked ignored for ordinary
 runs and execute on `main` CI. The Linux-only `Remote / icon-metrics` task
 runs the ignored harness in release mode and saves its counters as an artifact.
-That synthetic egui measurement is not a native-window or GPU result; real-GPU,
-process-level and before/after measurements remain pending.
+Its synthetic egui result does not stand in for native-window or GPU timing;
+matched before/after data and application-level measurements remain pending.
 
 ## Mareader's current paths
 
@@ -235,7 +236,7 @@ harness drives these deterministic scenarios:
 1. `idle`: twelve representative toolbar/viewer icons, no activation;
 2. `click-run`: one click-owned finite animation;
 3. `titlebar-sweep`: twelve distinct controls clicked on successive frames to
-   create the maximum synthetic overlap; and
+   create a high-overlap synthetic sweep; and
 4. `animations-off`: the same sweep with icon motion disabled.
 
 For this harness, `harness_ms` is wall time spent inside a synthetic egui pass;
@@ -245,15 +246,33 @@ native window, GPU uploads, vsync, or driver time. The separate `/usr/bin/time`
 line records the release test command's wall/user/system time and peak RSS; it
 is not a GPU measurement either.
 
+### First Remote result — 2026-11-07
+
+[Remote / icon metrics run 42384617535](https://github.com/codewiththiha/mareader2/actions/runs/42384617535), commit `493bb0e`, `ubuntu-24.04`, release test profile. Each scenario ran 240 synthetic egui passes. `app_cpu_ms` is `n/a` here because the test has no eframe `Frame`; the table's `harness_ms` times only `Context::run_ui`, not diagnostic finalization, the 2 ms inter-pass sleep, vsync or GPU work.
+
+| Scenario | Harness ms (median / p95 / max) | Active icons (mean / max) | Rasters (count / total ms) | Texture submissions (calls / bytes / ms) | Mesh vertices | Cache current / peak bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| Idle | 0.013 / 0.018 / 1.123 | 0.00 / 0 | 12 / 0.37 | 12 / 19,712 / 0.01 | 0 | 19,712 / 19,712 |
+| Click-run | 0.013 / 0.018 / 1.097 | 0.14 / 1 | 13 / 1.36 | 13 / 50,432 / 0.01 | 396 | 50,432 / 50,432 |
+| Title-bar sweep | 0.014 / 0.030 / 1.004 | 1.47 / 11 | 23 / 10.38 | 23 / 886,016 / 0.05 | 3,584 | 886,016 / 886,016 |
+| Animations off | 0.012 / 0.017 / 0.946 | 0.00 / 0 | 12 / 0.59 | 12 / 19,712 / 0.01 | 0 | 19,712 / 19,712 |
+
+| Scenario | Atlas hit / miss / pending / failed / rejected | Resting-glyph hit / miss | Evictions / evicted bytes |
+|---|---:|---:|---:|
+| Idle | 0 / 0 / 0 / 0 / 0 | 2,868 / 12 | 0 / 0 |
+| Click-run | 33 / 1 / 0 / 0 / 0 | 2,835 / 12 | 0 / 0 |
+| Title-bar sweep | 342 / 11 / 0 / 0 / 0 | 2,526 / 12 | 0 / 0 |
+| Animations off | 0 / 0 / 0 / 0 / 0 | 2,868 / 12 | 0 / 0 |
+
+The `/usr/bin/time` line for the already-built release test command was **2.39 s wall, 0.27 s user, 0.15 s system, 131,876 KiB maximum RSS**. Texture bytes are pixels passed to egui's texture manager, not measured GPU transfer. These figures describe only the synthetic Linux harness; do not infer native app CPU or a before/after speedup from them.
+
 ### Evidence still required
 
-The first Remote release run is pending. Publish its exact workflow run and
-artifact numbers here before making claims about the current implementation.
-The present branch does not provide a like-for-like result from the former
-runtime-SVG implementation, so do not label the synthetic run a before/after
-speedup. The user-selected scope is Remote-only: real-GPU results, native
-window interaction (including the actual View footer and title-bar controls),
-and a matched historical baseline are explicitly deferred.
+The current branch does not provide a like-for-like result from the former
+runtime-SVG implementation. The user-selected scope is Remote-only: real-GPU
+results, native-window interaction (including the actual View footer and
+title-bar controls), and a matched historical baseline remain explicitly
+deferred.
 
 For subsequent measurement, report median, p95 and maximum CPU frame time,
 process CPU/RSS, produced frames, raster calls/time, texture submissions/bytes,
