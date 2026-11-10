@@ -3,7 +3,7 @@ set -eu
 base=$(git merge-base origin/main HEAD)
 changed=$(git diff --name-only --diff-filter=AM "$base" -- '*.rs')
 cargo fmt --all --check
-python3 tools/shape_check.py
+python3 tools/shape_check.py --dups
 if [ -n "$changed" ]; then
   # shellcheck disable=SC2086
   python3 tools/comment_check.py $changed

@@ -117,7 +117,7 @@ in a 900 × 700 pane without a GPU, where egui's texture side is 2048.
 What was measured: resident memory (VmRSS, and VmHWM for the peak) from
 `/proc/self/status` before and after `Book::open`, on CI's Linux runner.
 How: `crates/epub/tests/layout_memory.rs`, an ignored test, run with
-`cargo test -p mareader-epub --test layout_memory -- --ignored --nocapture`.
+`cargo test -p mareader-epub --test epub -- --ignored --nocapture layout_memory::`.
 Each workload is one generated chapter in bundled fonts.
 
 | Workload | Units | Open time | Pages | RSS growth | Per unit |

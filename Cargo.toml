@@ -35,6 +35,7 @@ mareader-ipa = { path = "crates/ipa" }
 mareader-hanzi = { path = "crates/hanzi" }
 mareader-vits = { path = "crates/vits" }
 mareader-memory = { path = "crates/memory" }
+mareader-nn-core = { path = "crates/nn-core" }
 mareader-animated-icons = { path = "crates/animated-icons" }
 
 serde = { version = "1", features = ["derive"] }

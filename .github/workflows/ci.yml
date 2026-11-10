@@ -44,7 +44,7 @@ jobs:
           echo "sha=$base" >> "$GITHUB_OUTPUT"
       - run: rustup toolchain install
       - run: cargo fmt --all --check
-      - run: python3 tools/shape_check.py
+      - run: python3 tools/shape_check.py --dups
       - name: Docs, comments, commit subjects
         env:
           BASE: ${{ steps.base.outputs.sha }}

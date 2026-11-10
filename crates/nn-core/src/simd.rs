@@ -2,7 +2,7 @@
 
 /// `kernel(args)`, built for AVX2 and FMA if the CPU has them.
 #[inline(always)]
-pub(crate) fn pick<A, R>(kernel: impl FnOnce(A) -> R, args: A) -> R {
+pub fn pick<A, R>(kernel: impl FnOnce(A) -> R, args: A) -> R {
     #[cfg(target_arch = "x86_64")]
     if wide() {
         return avx2(kernel, args);

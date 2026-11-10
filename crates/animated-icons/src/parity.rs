@@ -11,54 +11,10 @@ const GRID: f32 = 24.0;
 const PAD: f32 = 8.5;
 const FRAME_RATE: f32 = 60.0;
 
-#[allow(dead_code)]
-struct Part {
-    name: &'static str,
-    ox: f32,
-    oy: f32,
-    len: f32,
-    w: f32,
-}
+#[path = "source_model.rs"]
+mod source_model;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Prop {
-    X,
-    Y,
-    Scale,
-    ScaleX,
-    ScaleY,
-    Rotate,
-    SkewX,
-    SkewY,
-    Opacity,
-    PathLen,
-    PathOff,
-    StrokeW,
-}
-
-struct Seg {
-    part: u8,
-    prop: Prop,
-    t0: f32,
-    dur: f32,
-    keys: &'static [f32],
-    times: &'static [f32],
-    eases: &'static [u8],
-}
-
-struct Hole {
-    part: u8,
-    width: bool,
-}
-
-struct Pack {
-    id: &'static str,
-    dur: f32,
-    parts: &'static [Part],
-    segs: &'static [Seg],
-    holes: &'static [Hole],
-    svg: &'static str,
-}
+use source_model::{Hole, Pack, Part, Prop, Seg};
 
 #[allow(clippy::approx_constant, clippy::excessive_precision)]
 #[path = "source.rs"]
@@ -405,8 +361,7 @@ fn generated_geometry_and_atlases_match_every_original_svg_frame() {
                         reference.id
                     )
                 });
-                // Separate premultiplied layers can differ by one
-                // 8-bit source-over rounding step.
+                // Layer compositing may round by one 8-bit step.
                 assert_pixels(
                     &assembled,
                     &generated,

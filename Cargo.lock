@@ -3691,6 +3691,7 @@ version = "0.0.5"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "mareader-nn-core",
  "serde",
  "serde_json",
  "zip 9.0.3",
@@ -3713,6 +3714,10 @@ name = "mareader-memory"
 version = "0.0.5"
 
 [[package]]
+name = "mareader-nn-core"
+version = "0.0.5"
+
+[[package]]
 name = "mareader-pdf"
 version = "0.0.5"
 dependencies = [
@@ -3726,6 +3731,7 @@ name = "mareader-phonon"
 version = "0.0.5"
 dependencies = [
  "candle-core",
+ "mareader-nn-core",
  "serde",
  "serde_json",
 ]
@@ -3852,6 +3858,7 @@ version = "0.0.5"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "mareader-nn-core",
  "serde",
  "serde_json",
 ]

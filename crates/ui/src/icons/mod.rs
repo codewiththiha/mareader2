@@ -1,6 +1,8 @@
 //! Semantic Lucide icons with optional generated animation.
 
 pub(crate) mod anim;
+/// Shared cache and pack-size identity for generated glyphs.
+mod lru;
 /// The UI-owned semantic `Icon` to generated pack-id adapter.
 mod pack;
 /// Generated one-frame resting glyphs.
