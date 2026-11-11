@@ -174,7 +174,7 @@ fn a_wheel_during_a_jump_takes_the_strip_back() {
     let stopped = offset(&h).y;
     h.run_steps(30);
     assert_eq!(offset(&h).y, stopped, "it stays where the wheel left it");
-    // No longer jumping: the page read follows the scroll again.
+    // The page read follows the scroll again, not the other way about.
     let shown = h.state().documents().visible(pane).unwrap_or(0..0);
     assert!(shown.contains(&current(&h)), "{} in {shown:?}", current(&h));
     assert!(current(&h) < 200);

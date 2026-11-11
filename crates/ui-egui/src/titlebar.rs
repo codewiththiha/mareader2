@@ -40,7 +40,7 @@ const SEARCH_MIN: f32 = 140.0;
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
     pub title: &'a str,
-    /// Whether this page's bar is pinned: the settings own it, nobody mirrors it.
+    /// Whether this page's bar is pinned. The settings own it.
     pub pinned: bool,
     pub platform: Platform,
     /// The sidebar's width: the band starts after it.
