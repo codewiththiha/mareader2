@@ -9,30 +9,30 @@ impl MareaderApp {
         }
         let reduced = self.reduced_motion.load(Ordering::Relaxed);
         let want = (
-            self.settings.appearance,
-            self.settings.motion.clone(),
+            self.settings().appearance,
+            self.settings().motion.clone(),
             reduced,
         );
         if self.styled.as_ref() == Some(&want) {
             return false;
         }
         #[allow(unused_mut)]
-        let mut tokens = theme::Tokens::new(&self.settings.appearance);
+        let mut tokens = theme::Tokens::new(&self.settings().appearance);
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         self.live.overlay(&mut tokens);
         theme::apply(ctx, &tokens);
-        motion::set(ctx, &self.settings.motion, reduced);
+        motion::set(ctx, &self.settings().motion, reduced);
         self.styled = Some(want);
         true
     }
 
     /// Panes whose book sets its own design: their text, so overridden.
     pub(super) fn book_designs(&self) -> Vec<(PaneId, TextSettings)> {
-        let own = self.texts.own(&self.settings.text);
+        let own = self.texts.own(&self.settings().text);
         let lib = self.library.model();
         let pane_text = |pane: PaneId| {
             let mine = own.iter().find(|(p, _)| *p == pane);
-            mine.map_or(&self.settings.text, |(_, t)| *t)
+            mine.map_or(&self.settings().text, |(_, t)| *t)
         };
         let designed = |pane: PaneId| {
             let book = self.library.book_in(&self.documents, pane)?;
@@ -100,7 +100,7 @@ impl MareaderApp {
     /// What the bars show behind them: pane fills, then this frame's pages.
     pub(super) fn backdrop(&mut self, ctx: &Context, view: &PaneView) -> Backdrop {
         let drawn = self.documents.take_drawn();
-        if !self.settings.chrome.glass {
+        if !self.settings().chrome.glass {
             return Backdrop::Solid;
         }
         let Some(gpu) = self.documents.gpu() else {
@@ -125,7 +125,7 @@ impl MareaderApp {
 
     /// Blend's raw paper: each pane's own, or else shared by every pane.
     pub fn blend_paper(&self, pane: PaneId) -> Option<Rgb> {
-        let paper = &self.settings.paper;
+        let paper = &self.settings().paper;
         if !paper.blend {
             return None;
         }
@@ -149,12 +149,12 @@ impl MareaderApp {
 
     /// Which families split panes own right now.
     pub(super) fn routing(&self) -> Routing {
-        routing(&self.settings, self.tree.len() > 1)
+        routing(self.settings(), self.tree.len() > 1)
     }
 
     pub(super) fn held(&self) -> Held {
         Held {
-            settings: self.settings.clone(),
+            settings: self.settings().clone(),
             looks: self.looks.clone(),
             routed: self.routed,
         }
@@ -162,14 +162,14 @@ impl MareaderApp {
 
     pub(super) fn restore(&mut self, held: Held) {
         self.titlebar.pinned = held.settings.chrome.pinned(self.route().bar());
-        self.settings = held.settings;
+        self.set_settings(held.settings.clone());
         self.looks = held.looks;
         self.routed = held.routed;
     }
 
     /// Whether the window or a pane jumped to another look since `before`.
     pub(super) fn leapt(&self, before: &Held) -> bool {
-        let (old, new) = (&before.settings, &self.settings);
+        let (old, new) = (&before.settings, self.settings());
         let was = routing(old, self.tree.len() > 1);
         let jumped = |id: PaneId| {
             let from = before.looks.shown(id, &old.appearance, was);
@@ -188,21 +188,22 @@ impl MareaderApp {
 
     /// `pane`'s look as drawn: the window's, or its own while split.
     pub fn look(&self, pane: PaneId) -> Appearance {
-        let global = &self.settings.appearance;
+        let global = &self.settings().appearance;
         self.looks.shown(pane, global, self.routing())
     }
 
     /// Fits the panes' own text to the panes and the focused one.
     pub(super) fn reconcile_texts(&mut self) {
-        let on = self.settings.workspace.independent_text;
+        let on = self.settings().workspace.independent_text;
         let placed = self.tree.panes();
-        let window = &mut self.settings.text;
-        self.texts.reconcile(on, (&placed, self.active), window);
+        let mut window = self.settings().text;
+        self.texts.reconcile(on, (&placed, self.active), &mut window);
+        let _ = self.set_field("text", window);
     }
 
     /// `pane`'s text settings: the window's, or its own while independent.
     pub fn text(&self, pane: PaneId) -> &mareader_settings::TextSettings {
-        self.texts.of(pane, &self.settings.text)
+        self.texts.of(pane, &self.settings().text)
     }
 
     /// Fits the panes' looks to this frame's routing and panes.
@@ -214,10 +215,11 @@ impl MareaderApp {
             state = splitmix(state);
             (state >> 11) as f64 / (1u64 << 53) as f64
         };
-        let global = &mut self.settings.appearance;
+        let mut global = self.settings().appearance;
         let changes = (self.routed, now);
         self.looks
-            .reconcile(changes, (&placed, self.active), global, &mut random);
+            .reconcile(changes, (&placed, self.active), &mut global, &mut random);
+        let _ = self.set_field("appearance", global);
         self.random = state;
         self.routed = now;
     }
@@ -252,7 +254,7 @@ impl MareaderApp {
     /// The grain over every layer, menus and windows included, as mareader's.
     pub(super) fn film_grain(&self, ctx: &Context) {
         let (Some(grain), Some(gpu)) = (
-            FilmGrain::of(&self.settings.appearance),
+            FilmGrain::of(&self.settings().appearance),
             self.documents.gpu(),
         ) else {
             return;
@@ -278,11 +280,11 @@ impl MareaderApp {
             auto_scroll: self.documents.drifting(self.active),
             aloud: (self.documents.reading(self.active)).map(|_| self.read_aloud.active()),
             ink: (self.documents.reflowable(self.active))
-                .then_some(self.settings.text.ink_contrast),
+                .then_some(self.settings().text.ink_contrast),
             text: (self.documents.reflowable(self.active))
-                .then(|| crate::appearance_menu::QuickText::of(&self.settings.text)),
+                .then(|| crate::appearance_menu::QuickText::of(&self.settings().text)),
             dictionary: {
-                let w = &self.settings.dictionary.window;
+                let w = &self.settings().dictionary.window;
                 w.open && !w.minimized
             },
         }

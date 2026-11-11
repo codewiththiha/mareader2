@@ -13,7 +13,7 @@ impl MareaderApp {
             document: reading.document,
             title: self.documents.title(pane).unwrap_or_default().to_owned(),
             pages,
-            level: self.settings.study.cefr.level.band(),
+            level: self.settings().study.cefr.level.band(),
             list,
         })
     }
@@ -45,8 +45,8 @@ impl MareaderApp {
 
     /// Who says English words on cards, which picks the accent they show.
     pub(super) fn english_voice(&self) -> Option<crate::sounds::EnglishVoice> {
-        let others = self.settings.dictionary.other_voices;
-        let picked = || (self.read_aloud).english_voice(&self.settings.read_aloud, others);
+        let others = self.settings().dictionary.other_voices;
+        let picked = || (self.read_aloud).english_voice(&self.settings().read_aloud, others);
         self.english.clone().or_else(picked)
     }
 
@@ -57,7 +57,7 @@ impl MareaderApp {
         words.extend(self.dict.sound_words());
         let english = self.english_voice();
         let voice = crate::sounds::spoken(english.as_ref().map(|v| v.tag.as_str()));
-        let shown = (&self.settings.study.pronunciation, voice);
+        let shown = (&self.settings().study.pronunciation, voice);
         let sounds = &mut self.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));
         words.into_iter().filter_map(lines).collect()
@@ -100,12 +100,12 @@ impl MareaderApp {
 
     /// Resting on a shaded word looks it up, when a pack can answer.
     pub(super) fn rest(&mut self, pane: PaneId, (word, context): (String, String), at: Rect) {
-        if !self.settings.dictionary.hover || self.dict.ready().is_empty() || self.study.card_open()
+        if !self.settings().dictionary.hover || self.dict.ready().is_empty() || self.study.card_open()
         {
             return;
         }
         let offset = self.documents.offset(pane);
-        let to = self.settings.dictionary.default_lang.clone();
+        let to = self.settings().dictionary.default_lang.clone();
         if self.dict.rest(pane, word.clone(), at, offset, to) {
             self.vocab.ask_role(&word, &context);
         }
@@ -123,8 +123,8 @@ impl MareaderApp {
             return;
         };
         // An open window answers instead; selection stays.
-        if self.settings.dictionary.window.open && self.route() == Route::Reader {
-            self.settings.dictionary.window.minimized = false;
+        if self.settings().dictionary.window.open && self.route() == Route::Reader {
+            let _ = self.set_field("dictionary.window.minimized", false);
             self.dict.escape();
             self.dict.feed(&word);
             return;
@@ -135,7 +135,7 @@ impl MareaderApp {
         // One card at a time.
         self.study.escape(self.library.model_mut());
         let offset = self.documents.offset(pane);
-        let to = self.settings.dictionary.default_lang.clone();
+        let to = self.settings().dictionary.default_lang.clone();
         self.dict.look_up(pane, word.clone(), rect, offset, to);
         self.vocab
             .ask_role(&word, context.as_deref().unwrap_or(&word));
@@ -174,7 +174,7 @@ impl MareaderApp {
         };
         let rect = self.documents.looked_up(pane).map(|(_, r)| r);
         self.documents.clear_selection(pane);
-        let look = &self.settings.study.highlights;
+        let look = &self.settings().study.highlights;
         let pen = look.bar.iter().find_map(|i| match i {
             mareader_settings::BarItem::Highlight(pen) => Some(*pen),
             _ => None,

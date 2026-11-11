@@ -100,7 +100,7 @@ impl MareaderApp {
                 name: &name,
                 documents: &self.documents,
                 ai: &self.ai,
-                settings: &self.settings.ai,
+                settings: &self.settings().ai,
             };
             let now = ctx.input(|i| i.time);
             let done = match follow {
@@ -243,7 +243,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings.ai,
+                    settings: &self.settings().ai,
                 };
                 let now = ctx.input(|i| i.time);
                 let model = self.library.model();
@@ -260,7 +260,7 @@ impl MareaderApp {
                 self.study.hold(*pane);
             }
         }
-        if let Some(explainer) = self.ai.follow(&self.settings.ai) {
+        if let Some(explainer) = self.ai.follow(&self.settings().ai) {
             self.study.set_explainer(explainer);
         }
         self.take_organized();
@@ -278,9 +278,9 @@ impl MareaderApp {
         if self.sounds.poll(ctx.input(|i| i.time)) {
             ctx.request_repaint();
         }
-        let memory = self.settings.read_aloud.speech_memory_mb as usize;
+        let memory = self.settings().read_aloud.speech_memory_mb as usize;
         self.read_aloud.shelf.set_speech_memory(memory << 20);
-        (self.read_aloud.shelf).set_model_idle(self.settings.read_aloud.model_idle());
+        (self.read_aloud.shelf).set_model_idle(self.settings().read_aloud.model_idle());
         // Whichever card asked takes it; each checks the word is its own.
         if let Some((word, role)) = role {
             self.dict.set_role(&word, role.clone());
@@ -294,16 +294,18 @@ impl MareaderApp {
         out: &mut Commands,
     ) -> Vec<(String, Vec<crate::sounds::Line>)> {
         let sounds = self.card_sounds(ctx.input(|i| i.time));
-        let looks = (&self.settings.study.gloss, &self.settings.study.highlights);
+        let looks = (&self.settings().study.gloss, &self.settings().study.highlights);
         let model = self.library.model();
-        let others = self.settings.dictionary.other_voices;
-        let dict = &self.settings.dictionary;
+        let others = self.settings().dictionary.other_voices;
+        let dict = &self.settings().dictionary;
         let looking = self.dict.card_word().is_some() || dict.window.open;
         if others && (looking || self.route() == Route::Dictionary) {
-            self.read_aloud.list_voices(ctx, &self.settings.read_aloud);
+            // Copied out first: `list_voices` borrows the reader mutably.
+            let voice = self.settings().read_aloud.clone();
+            self.read_aloud.list_voices(ctx, &voice);
         }
         let saying = self.read_aloud.saying();
-        let (speakers, offers) = self.read_aloud.speakers(&self.settings.read_aloud, others);
+        let (speakers, offers) = self.read_aloud.speakers(&self.settings().read_aloud, others);
         self.dict.set_voice(crate::dict::Voice {
             saying: saying.map(str::to_owned),
             sounds: sounds.clone(),
@@ -332,11 +334,11 @@ impl MareaderApp {
             main: self.library.model(),
             documents: &self.documents,
             ai: &self.ai,
-            settings: &self.settings.ai,
+            settings: &self.settings().ai,
         };
         self.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results and transcripts into its pages.
-        let wanted = mareader_engine::transcript::wanted(&self.settings.ai);
+        let wanted = mareader_engine::transcript::wanted(&self.settings().ai);
         for pane in self.tree.panes() {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
@@ -353,7 +355,7 @@ impl MareaderApp {
         let model = self.library.model();
         self.page_ai.show(
             ctx,
-            &self.settings.ai,
+            &self.settings().ai,
             model,
             (&self.pane_rects, &self.documents),
             out,
@@ -361,11 +363,11 @@ impl MareaderApp {
         if let Some(toast) = self.page_copy.poll(ctx) {
             self.toasts.push(toast);
         }
-        self.dict.set_exact_only(!self.settings.dictionary.near);
+        self.dict.set_exact_only(!self.settings().dictionary.near);
         self.dict.poll();
         self.poll_word_list(ctx);
         let services = (&mut self.vocab, &mut self.dict, &self.files);
-        self.word_window.show(ctx, &self.settings, services, out);
+        self.word_window.show(ctx, self.settings(), services, out);
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         let saying = self.read_aloud.saying();

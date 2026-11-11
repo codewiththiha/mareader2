@@ -50,13 +50,13 @@ fn handles_1(command: &Command) -> bool {
 fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
         Command::Intent(Intent::WordList { pane, pages }) => {
-            let list = app.settings.study.words.instant().clone();
+            let list = app.settings().study.words.instant().clone();
             if let Some(ask) = app.word_ask(pane, pages, list) {
                 app.word_lists.start(ctx, ask);
             }
         }
         Command::Intent(Intent::WordListWindow { pane, pages }) => {
-            let list = app.settings.study.words.last.clone();
+            let list = app.settings().study.words.last.clone();
             if let Some(ask) = app.word_ask(pane, pages, list) {
                 let chapters = !ask.document.outline().is_empty();
                 app.word_window.open(ctx, pane, ask, chapters);
@@ -80,8 +80,12 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             }
         }
         Command::Intent(Intent::SetDictionary(d)) => {
-            app.settings.dictionary = *d;
-            app.settings.dictionary.sanitize();
+            if let Ok(json) = serde_json::to_string(&*d) {
+                app.send(Intent::SetField {
+                    path: "dictionary".into(),
+                    value: json,
+                });
+            }
         }
         Command::Intent(Intent::Highlight { pane, pen, color }) => app.highlight(pane, pen, color),
         Command::Intent(Intent::Note(pane)) => app.note(pane),
@@ -129,7 +133,7 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Ui(UiCommand::ShowDictionary) => match app.route() {
             Route::Dictionary => app.go(app.dict_back()),
             // Over the page, unless Settings ask for the page.
-            Route::Reader if app.settings.dictionary.opens == DictionaryOpens::Window => {
+            Route::Reader if app.settings().dictionary.opens == DictionaryOpens::Window => {
                 app.dict_window(crate::dict::Window::Toggle);
             }
             _ => app.go(Route::Dictionary),

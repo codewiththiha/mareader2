@@ -5,7 +5,7 @@ impl MareaderApp {
     pub(super) fn voices_shown(&mut self, ctx: &egui::Context) {
         use crate::settings_window::Tab;
         let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
-        let s = &self.settings.read_aloud;
+        let s = &self.settings().read_aloud;
         let engine = match self.settings_window.tab() {
             _ if !self.settings_window.is_open() => None,
             Tab::ReadAloud => Some(s.engine.as_str()),
@@ -119,14 +119,15 @@ impl MareaderApp {
             tint,
             toasts,
             dict,
-            parking: self.settings.workspace.edge_parking,
+            parking: self.settings().workspace.edge_parking,
         };
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
             book.is_some_and(|b| library.paint_cover(ui, rect, b))
         };
-        let settings = &mut self.settings.read_aloud;
-        (self.read_aloud).bar(ctx, stage, settings, out, &mut cover);
+        let mut settings = self.settings().read_aloud;
+        (self.read_aloud).bar(ctx, stage, &mut settings, out, &mut cover);
+        let _ = self.set_field("read_aloud", settings);
     }
 
     /// One voice at a time: the book pauses; clips, samples and words stop.

@@ -37,13 +37,17 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             Route::Library => {}
         },
         Command::Intent(Intent::SetLibraryView(view)) => {
-            app.settings.library = view;
-            app.settings.library.sanitize();
+            if let Ok(json) = serde_json::to_string(&view) {
+                app.send(Intent::SetField {
+                    path: "library".into(),
+                    value: json,
+                });
+            }
         }
         // A lost book asks where it went instead of failing.
         Command::Intent(Intent::OpenBook(book)) => {
             // Do nothing is for the rail; the page has nothing to drag to.
-            let placement = match app.settings.workspace.library_click {
+            let placement = match app.settings().workspace.library_click {
                 LibraryClick::Split => Placement::Beside,
                 LibraryClick::Replace | LibraryClick::DragOnly => Placement::Into,
             };

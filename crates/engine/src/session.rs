@@ -24,6 +24,10 @@ use crate::command::Intent;
 use crate::route::Route;
 
 /// One of the things a person can do without a window.
+///
+/// `Sync` is not incidental: the front end holds it in an `Arc` and keeps an
+/// `Arc<Settings>` fetched from it, so a view never needs `&mut self` to read
+/// a dial. Writes go through `execute`, which drops that cache.
 pub struct Session {
     settings: Settings,
     tree: PaneTree,
@@ -51,6 +55,8 @@ pub struct Done {
     pub focus: Option<Focus>,
     /// True when the state changed and the window should redraw.
     pub dirty: bool,
+    /// Why an intent was refused, if it was: a bad path, a bad value.
+    pub refused: Option<String>,
 }
 
 impl Done {
@@ -83,7 +89,10 @@ impl Session {
         &self.settings
     }
 
-    /// The same settings, writable: a view's own dial, not a command.
+    /// The settings, writable, for a caller that holds the owner alone.
+    ///
+    /// Tests and shots set dials directly; the app itself goes through
+    /// `execute`, so nothing outside has to know a field's name.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
     }
@@ -228,6 +237,13 @@ impl Session {
                 self.settings = settings;
                 Done::changed()
             }
+            Intent::SetField { path, value } => match self.settings.set_path(&path, &value) {
+                Ok(()) => Done::changed(),
+                Err(why) => Done {
+                    refused: Some(why),
+                    ..Done::quiet()
+                },
+            },
             Intent::Zoom(_) | Intent::Arrow(_) => Done::quiet(),
             _ => Done::quiet(),
         }

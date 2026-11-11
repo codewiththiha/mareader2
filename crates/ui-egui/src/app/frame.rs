@@ -9,7 +9,7 @@ mod pages;
 impl eframe::App for MareaderApp {
     /// The remembered paper from the very first frame, never a dark flash.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        let paper = theme::Tokens::new(&self.settings.appearance).paper;
+        let paper = theme::Tokens::new(&self.settings().appearance).paper;
         paper.to_normalized_gamma_f32()
     }
 
@@ -50,7 +50,7 @@ impl eframe::App for MareaderApp {
 
     fn save(&mut self, storage: &mut dyn Storage) {
         self.library.flush();
-        storage.set_string(SETTINGS_KEY, mareader_settings::to_json(&self.settings));
+        storage.set_string(SETTINGS_KEY, mareader_settings::to_json(self.settings()));
         // Nothing open saves `null`: the next launch starts empty.
         let last = serde_json::to_string(&self.last_document());
         storage.set_string(LAST_DOCUMENT_KEY, last.unwrap_or_else(|_| "null".into()));

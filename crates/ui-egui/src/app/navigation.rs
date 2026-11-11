@@ -43,7 +43,7 @@ impl MareaderApp {
         if !matches!(w, W::Place(_)) {
             self.read_aloud.yield_to_dictionary();
         }
-        let win = &mut self.settings.dictionary.window;
+        let mut win = self.settings().dictionary.window;
         match w {
             W::Toggle => {
                 let show = !win.open || win.minimized;
@@ -55,10 +55,12 @@ impl MareaderApp {
             W::Place(r) => win.rect = Some(r),
             W::Expand => {
                 win.open = false;
+                let _ = self.set_field("dictionary.window", win);
                 self.go(Route::Dictionary);
                 return;
             }
         }
+        let _ = self.set_field("dictionary.window", win);
         // Shown, its field takes the keys.
         if win.open && !win.minimized && !matches!(w, W::Place(_)) {
             self.dict.arrive();
@@ -68,7 +70,7 @@ impl MareaderApp {
     /// The card's word, searched where the Dictionary opens from here.
     pub(super) fn pursue(&mut self, word: &str) {
         self.dict.escape();
-        let floats = self.settings.dictionary.opens == DictionaryOpens::Window;
+        let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if self.route() == Route::Reader && floats {
             self.dict_window(crate::dict::Window::Focus);
         } else {

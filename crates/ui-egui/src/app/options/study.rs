@@ -39,8 +39,7 @@ impl MareaderApp {
         let inline = self.study.inline();
         self.vocab.attach(PathBuf::from(value), Arc::new(|| {}))?;
         self.vocab.set_inline(inline);
-        self.settings.study.cefr.enabled = true;
-
+        self.set_field("study.cefr.enabled", true)?;
         Ok(())
     }
 
@@ -94,10 +93,11 @@ impl MareaderApp {
     fn option_provider(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let name = serde_json::Value::String(value.to_owned());
         let p = serde_json::from_value(name).map_err(|_| "provider: e.g. openai or ollama")?;
-        let ai = &mut self.settings.ai;
+        let mut ai = self.settings().ai;
         ai.presets.clear();
         let id = ai.add_preset(p, "");
         ai.tasks.explain.preset = Some(id);
+        self.set_field("ai", ai)?;
 
         Ok(())
     }
@@ -105,8 +105,7 @@ impl MareaderApp {
     // The meaning's language by tag, e.g. `my`.
     fn option_meaning(&mut self, _key: &str, value: &str) -> Result<(), String> {
         mareader_settings::language_name(value).ok_or("meaning: a tag, e.g. my")?;
-        self.settings.ai.tasks.explain.language = Some(value.to_owned());
-
+        self.set_field("ai.tasks.explain.language", Some(value.to_owned()))?;
         Ok(())
     }
 

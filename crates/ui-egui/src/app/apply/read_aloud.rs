@@ -50,7 +50,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             app.documents.dismiss_read_markers(ctx.input(|i| i.time));
             if let Some(reading) = app.documents.reading(pane) {
                 app.clips.stop();
-                let settings = &app.settings.read_aloud;
+                let settings = &app.settings().read_aloud;
                 app.read_aloud.start(ctx, &reading, from, settings);
             }
         }
@@ -60,7 +60,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 && let Some(reading) = app.documents.reading(app.active)
             {
                 app.clips.stop();
-                let settings = &app.settings.read_aloud;
+                let settings = &app.settings().read_aloud;
                 let from = ReadFrom::default();
                 app.read_aloud.start(ctx, &reading, from, settings);
             }
@@ -68,25 +68,25 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Intent(Intent::StopReadAloud) => app.read_aloud.stop(),
         Command::Intent(Intent::TryVoice) => {
             app.hush();
-            let settings = &app.settings.read_aloud;
+            let settings = &app.settings().read_aloud;
             app.read_aloud.booth.try_voice(settings);
         }
         Command::Intent(Intent::TryVoiceOf(voice)) => {
             app.hush();
             let (booth, shelf) = (&mut app.read_aloud.booth, &app.read_aloud.shelf);
-            booth.try_voice_of(ctx, &app.settings.read_aloud, shelf, &voice);
+            booth.try_voice_of(ctx, &app.settings().read_aloud, shelf, &voice);
         }
         Command::Intent(Intent::StopVoiceTry) => app.read_aloud.booth.stop_trying(),
         Command::Intent(Intent::SayWord(word)) => {
             app.hush();
-            let settings = &app.settings.read_aloud;
+            let settings = &app.settings().read_aloud;
             if let Err(why) = app.read_aloud.say_word(ctx, settings, (&word, None)) {
                 app.toasts.push(Toast::error(why));
             }
         }
         Command::Intent(Intent::SayWordWith { word, voice }) => {
             app.hush();
-            let settings = &app.settings.read_aloud;
+            let settings = &app.settings().read_aloud;
             let said = (word.as_str(), Some(voice.as_str()));
             if let Err(why) = app.read_aloud.say_word(ctx, settings, said) {
                 app.toasts.push(Toast::error(why));
@@ -115,9 +115,12 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
         }
         Command::Intent(Intent::StopSaying) => app.read_aloud.stop_word(),
         Command::Intent(Intent::VoiceModel(item, action)) => {
-            let settings = &mut app.settings.read_aloud;
-            if let Err(why) = app.read_aloud.act((item, action), settings) {
-                app.toasts.push(Toast::error(why));
+            let mut settings = app.settings().read_aloud;
+            match app.read_aloud.act((item, action), &mut settings) {
+                Ok(()) => {
+                    let _ = app.set_field("read_aloud", settings);
+                }
+                Err(why) => app.toasts.push(Toast::error(why)),
             }
         }
         Command::Ui(UiCommand::ShowReading) => {

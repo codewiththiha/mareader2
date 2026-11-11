@@ -29,7 +29,7 @@ impl MareaderApp {
         }
         self.reconcile_looks(ctx);
         self.reconcile_texts();
-        self.titlebar.pinned = self.settings.chrome.pinned(self.route().bar());
+        self.titlebar.pinned = self.settings().chrome.pinned(self.route().bar());
         resize::edges(ctx, self.platform.frameless());
         true
     }
@@ -39,10 +39,10 @@ impl MareaderApp {
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
         let designed = self.book_designs();
-        let mut own = self.texts.own(&self.settings.text);
+        let mut own = self.texts.own(&self.settings().text);
         own.retain(|(pane, _)| designed.iter().all(|(p, _)| p != pane));
         own.extend(designed.iter().map(|(pane, text)| (*pane, text)));
-        self.documents.set_text(&self.settings.text, &own);
+        self.documents.set_text(&self.settings().text, &own);
         // Set anew, a book read aloud lands on the words heard.
         self.documents.hold_said(self.read_aloud.said());
         self.documents.receive(ctx, &mut commands);
@@ -85,15 +85,16 @@ impl MareaderApp {
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
             let skip = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             if read || skip {
-                self.read_aloud
-                    .answer_question(read, &mut self.settings.read_aloud);
+                let mut settings = self.settings().read_aloud;
+                self.read_aloud.answer_question(read, &mut settings);
+                let _ = self.set_field("read_aloud", settings);
             }
         }
         let read = commands.len();
         keymap::read(ctx, self.platform, route, &mut commands);
         // The shortcut gives an idle open window the keys before closing it.
-        let win = &self.settings.dictionary.window;
-        let floats = self.settings.dictionary.opens == DictionaryOpens::Window;
+        let win = &self.settings().dictionary.window;
+        let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if route == Route::Reader && floats && win.open && !win.minimized && !self.dict.typing() {
             let focus = Command::Intent(Intent::Dict(crate::dict::Action::Window(crate::dict::Window::Focus)));
             for c in commands.iter_mut().skip(read) {
@@ -139,7 +140,7 @@ impl MareaderApp {
             free = false;
         }
         // Typing in the floating window: clear, then close.
-        let window = self.settings.dictionary.window.open && route == Route::Reader;
+        let window = self.settings().dictionary.window.open && route == Route::Reader;
         if free && window && self.dict.typing() {
             if !self.dict.page_escape() {
                 commands.push(Command::Intent(Intent::Dict(crate::dict::Action::Window(

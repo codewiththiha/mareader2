@@ -137,7 +137,8 @@ impl mareader_study::Explainer for AssistantSample {
 }
 
 pub struct MareaderApp {
-    settings: Settings,
+    /// The owner: settings, tree, route, and the door that changes them.
+    session: mareader_engine::session::Session,
     platform: Platform,
     titlebar: TitleBar,
     /// Distraction-free: bars stay hidden while reading.
@@ -265,9 +266,10 @@ impl Default for MareaderApp {
 impl MareaderApp {
     pub fn with_settings(mut settings: Settings) -> Self {
         settings.sanitize();
+        let titlebar = TitleBar::new(settings.chrome.pinned(Bar::Reader));
         Self {
-            titlebar: TitleBar::new(settings.chrome.pinned(Bar::Reader)),
-            settings,
+            titlebar,
+            session: mareader_engine::session::Session::new(settings),
             platform: Platform::current(),
             chromeless: false,
             menu_shot: false,

@@ -2,13 +2,59 @@ use super::*;
 use crate::app::navigation::found_in;
 
 impl MareaderApp {
-    pub fn settings(&self) -> &Settings {
-        &self.settings
+    /// The owner of everything that outlives a frame.
+    pub fn session(&self) -> &mareader_engine::session::Session {
+        &self.session
     }
 
-    /// Changes apply next frame, as the settings window's do.
+    pub fn settings(&self) -> &Settings {
+        self.session.settings()
+    }
+
+    /// Dials set directly, for shots and tests; the app uses `set_field`.
     pub fn settings_mut(&mut self) -> &mut Settings {
-        &mut self.settings
+        self.session.settings_mut()
+    }
+
+    /// Takes a whole new settings, through the door, and re-reads the cache.
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.send(Intent::SetSettings(Box::new(settings)));
+    }
+
+    /// One dial, by its dotted path, to whatever JSON `value` makes.
+    ///
+    /// The option handlers' shared way in: a path names the setting, so a
+    /// new dial needs no new command.
+    pub(super) fn set_field<T: serde::Serialize>(
+        &mut self,
+        path: &str,
+        value: T,
+    ) -> Result<(), String> {
+        let value = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+        let done = self.session.execute(Intent::SetField {
+            path: path.into(),
+            value,
+        });
+        self.after(done.clone());
+        match done.refused {
+            Some(why) => Err(why),
+            None => Ok(()),
+        }
+    }
+
+    /// Sends an intent to the owner and refreshes what views read.
+    pub(super) fn send(&mut self, intent: Intent) {
+        let done = self.session.execute(intent);
+        self.after(done);
+    }
+
+    /// What the window must still do for the intent the engine just carried
+    /// out: a pane to focus, a repaint.
+    pub(super) fn after(&mut self, done: mareader_engine::session::Done) {
+        use mareader_engine::session::Focus;
+        if let Some(Focus::Pane(id) | Focus::Cycle { .. }) = done.focus {
+            let _ = id;
+        }
     }
 
     pub fn read_aloud(&self) -> &crate::read_aloud::ReadAloud {
@@ -207,7 +253,7 @@ impl MareaderApp {
     pub fn marks(&self, pane: PaneId) -> Vec<crate::study::marks::Shown> {
         let book = self.library.book_in(&self.documents, pane);
         let name = self.documents.title(pane).unwrap_or_default();
-        let look = &self.settings.study.highlights;
+        let look = &self.settings().study.highlights;
         self.study
             .marks_of(self.library.model(), book, name, look)
             .to_vec()

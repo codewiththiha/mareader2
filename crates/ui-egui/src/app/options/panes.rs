@@ -42,7 +42,7 @@ impl MareaderApp {
     fn option_pinned(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let on = value == "true";
         for bar in Bar::ALL {
-            self.settings.chrome.pin(bar, on);
+            self.settings().chrome.pin(bar, on);
         }
         self.titlebar.pinned = on;
 
@@ -172,34 +172,33 @@ impl MareaderApp {
     }
 
     fn option_independent(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.workspace.independent_themes = value == "true";
+        self.set_field("workspace.independent_themes", value == "true")?;
         Ok(())
     }
 
     fn option_independent_text(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.workspace.independent_text = value == "true";
+        self.set_field("workspace.independent_text", value == "true")?;
         Ok(())
     }
 
     fn option_independent_textures(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.workspace.independent_textures = value == "true";
-
+        self.set_field("workspace.independent_textures", value == "true")?;
         Ok(())
     }
 
     fn option_shared_base(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.workspace.shared_base_mode = value == "true";
+        self.set_field("workspace.shared_base_mode", value == "true")?;
         Ok(())
     }
 
     fn option_library_click(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.workspace.library_click = match value {
+        let some = match value {
             "replace" => LibraryClick::Replace,
             "split" => LibraryClick::Split,
             "drag_only" => LibraryClick::DragOnly,
             _ => return Err("library_click: replace, split or drag_only".into()),
         };
-
+        self.set_field("workspace.library_click", some)?;
         Ok(())
     }
 

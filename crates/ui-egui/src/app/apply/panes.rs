@@ -68,7 +68,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Ui(UiCommand::ToggleSidebar) => app.sidebar.toggle(),
         Command::Ui(UiCommand::OpenSidebar(panel)) => app.sidebar.open(panel),
         Command::Ui(UiCommand::CloseSidebar) => app.sidebar.close(),
-        Command::Intent(Intent::SetSidebarOverlay(on)) => app.settings.chrome.sidebar_overlay = on,
+        Command::Intent(Intent::SetSidebarOverlay(on)) => app.send(Intent::SetSidebarOverlay(on)),
         Command::Intent(Intent::Split(axis)) => {
             if let Some(id) = app.split(ctx, app.active, axis) {
                 app.active = id;
@@ -81,7 +81,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             let n = panes.len().max(1);
             let tab = egui::Id::new("dict-edge-tab-button");
             let on_tab = ctx.memory(|m| m.has_focus(tab));
-            let has_tab = app.settings.workspace.edge_parking
+            let has_tab = app.settings().workspace.edge_parking
                 == mareader_settings::EdgeParking::Tab
                 && app.dict.edge_tab_active();
             let visit_tab =

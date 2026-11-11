@@ -97,27 +97,25 @@ impl MareaderApp {
     }
 
     fn option_layout(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.library.layout = match value {
+        let some = match value {
             "list" => mareader_library::Layout::List,
             _ => mareader_library::Layout::Grid,
         };
-
+        self.set_field("library.layout", some)?;
         Ok(())
     }
 
     fn option_columns(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.library.columns = value.parse().ok();
-        self.settings.library.sanitize();
-
+        self.set_field("library.columns", value.parse().ok())?;
         Ok(())
     }
 
     fn option_cover(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.library.cover = match value {
+        let some = match value {
             "crop" => mareader_library::CoverFit::Crop,
             _ => mareader_library::CoverFit::Fit,
         };
-
+        self.set_field("library.cover", some)?;
         Ok(())
     }
 
@@ -127,13 +125,13 @@ impl MareaderApp {
             .into_iter()
             .find(|k| format!("{k:?}").eq_ignore_ascii_case(&key.replace('_', "")))
             .ok_or("sort: arranged, last_read, title, author or added")?;
-        self.settings.library.sort = key;
-        self.settings.library.ascending = match way {
+        self.set_field("library.sort", key)?;
+        let some = match way {
             "asc" => true,
             "desc" => false,
             _ => key.natural_ascending(),
         };
-
+        self.set_field("library.ascending", some)?;
         Ok(())
     }
 
@@ -183,11 +181,11 @@ impl MareaderApp {
     }
 
     fn option_home(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.settings.library.home = match value {
+        let some = match value {
             "unshelved" => mareader_library::Home::Unshelved,
             _ => mareader_library::Home::Everything,
         };
-
+        self.set_field("library.home", some)?;
         Ok(())
     }
 

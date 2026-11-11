@@ -48,30 +48,37 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         // The shelf wears the window's look, the crowned pane's if split.
         Command::Intent(Intent::SetAppearance(a)) if app.route() != Route::Reader => {
             let routing = app.routing();
-            let global = &mut app.settings.appearance;
-            app.looks.edit_window(global, routing, a);
+            let mut global = app.settings().appearance;
+            app.looks.edit_window(&mut global, routing, a);
+            let _ = app.set_field("appearance", global);
         }
         Command::Intent(Intent::SetAppearance(a)) => {
             let routing = app.routing();
-            let global = &mut app.settings.appearance;
-            app.looks.edit(app.active, global, routing, a);
+            let mut global = app.settings().appearance;
+            app.looks.edit(app.active, &mut global, routing, a);
+            let _ = app.set_field("appearance", global);
         }
         Command::Intent(Intent::SetInkContrast(ink)) => {
-            app.settings.text.ink_contrast = ink;
-            app.settings.text.sanitize();
+            let _ = app.set_field("text.ink_contrast", ink);
         }
-        Command::Intent(Intent::SetQuickText(q)) => q.apply(&mut app.settings.text),
+        Command::Intent(Intent::SetQuickText(q)) => {
+            let mut text = app.settings().text;
+            q.apply(&mut text);
+            let _ = app.set_field("text", text);
+        }
         Command::Intent(Intent::SetIndependence(i)) => {
-            app.settings.workspace.independent_themes = i.themes;
-            app.settings.workspace.independent_textures = i.textures;
+            let _ = app.set_field("workspace.independent_themes", i.themes);
+            let _ = app.set_field("workspace.independent_textures", i.textures);
         }
         Command::Intent(Intent::SavePreset { name, group, look }) => {
-            app.settings.save_preset(&name, &group, look);
+            let mut settings = (*app.settings).clone();
+            settings.save_preset(&name, &group, look);
+            app.set_settings(settings);
         }
-        Command::Intent(Intent::DeletePreset(id)) => app.settings.delete_preset(&id),
+        Command::Intent(Intent::DeletePreset(id)) => app.settings().delete_preset(&id),
         Command::Intent(Intent::SetTitlebarPinned(p)) => {
             app.titlebar.pinned = p;
-            app.settings.chrome.pin(app.route().bar(), p);
+            app.send(Intent::SetTitlebarPinned(p));
         }
         Command::Ui(UiCommand::ShowAppearance) => {
             app.titlebar.reveal();
@@ -100,9 +107,8 @@ fn handles_2(command: &Command) -> bool {
 
 fn apply_2(app: &mut MareaderApp, _ctx: &Context, command: Command) {
     if let Command::Intent(Intent::SetSettings(s)) = command {
-        let mut s = *s;
-        s.sanitize();
-        app.titlebar.pinned = s.chrome.pinned(app.route().bar());
-        app.settings = s;
+        let pinned = s.chrome.pinned(app.route().bar());
+        app.send(Intent::SetSettings(s));
+        app.titlebar.pinned = pinned;
     }
 }

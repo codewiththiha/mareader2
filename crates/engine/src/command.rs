@@ -157,6 +157,14 @@ pub enum Intent {
     SetRatio(DividerPath, f32),
     /// Every edit in the settings window; applies on the same frame.
     SetSettings(Box<Settings>),
+    /// One setting, by its dotted path, to its JSON value.
+    ///
+    /// The channel a dial uses when no variant names it: `text.size_pct` to
+    /// `170`. Bad paths and bad values are refused, not applied.
+    SetField {
+        path: String,
+        value: String,
+    },
     /// Floating over the panes, or docked beside them.
     SetSidebarOverlay(bool),
     SetTitlebarPinned(bool),

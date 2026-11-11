@@ -183,7 +183,7 @@ impl MareaderApp {
 
     /// Runs `ask`; a finished paused run needs no model to show its plan.
     pub(super) fn start_organizing(&mut self, ask: &ui_library::organizing::Ask, resume: bool) {
-        let ai = &self.settings.ai;
+        let ai = &self.settings().ai;
         let ready = resume && self.library.organizer().paused().is_some_and(|p| p.ready);
         let model = ai
             .organize_preset()

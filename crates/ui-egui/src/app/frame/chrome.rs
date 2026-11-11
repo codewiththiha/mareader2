@@ -17,7 +17,7 @@ impl MareaderApp {
             stage.min.y += crate::theme::TITLE_BAR_H;
             // Above the page bar too, which would cover it.
             stage.max.y -= crate::page_bar::BAR_H;
-            let dictionary = &self.settings.dictionary;
+            let dictionary = &self.settings().dictionary;
             let lift = self.toast_lift(ctx, ctx.content_rect());
             let toasts = self.toasts.active_bed_for(
                 ctx,
@@ -30,7 +30,7 @@ impl MareaderApp {
             let player = self.read_aloud.clearance_rect(now);
             if self.dict.window(
                 ctx,
-                (dictionary, self.settings.workspace.edge_parking),
+                (dictionary, self.settings().workspace.edge_parking),
                 stage,
                 toasts,
                 player,
@@ -86,7 +86,7 @@ impl MareaderApp {
         commands: &mut Commands,
     ) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-        let presets = self.settings.all_presets();
+        let presets = self.settings().all_presets();
         let (title, look, page) = match route {
             Route::Reader => (
                 self.documents.title(self.active).unwrap_or("Mareader"),
@@ -98,7 +98,7 @@ impl MareaderApp {
                     .library_rect
                     .map_or(ctx.content_rect().width(), |r| r.width());
                 let library = LibraryBar {
-                    view: &self.settings.library,
+                    view: &self.settings().library,
                     auto_columns: ui_library::view::page_columns(width),
                     can_return: self.reading(),
                     trail: self.library.trail(),
@@ -114,7 +114,7 @@ impl MareaderApp {
                 } else {
                     ""
                 };
-                (title, self.settings.appearance, BarPage::Library(library))
+                (title, self.settings().appearance, BarPage::Library(library))
             }
             Route::Dictionary => {
                 let back = match self.dict_back() {
@@ -122,7 +122,7 @@ impl MareaderApp {
                     _ => "Back to the library",
                 };
                 let page = BarPage::Dictionary(DictionaryBar { back });
-                ("Dictionary", self.settings.appearance, page)
+                ("Dictionary", self.settings().appearance, page)
             }
         };
         let bar = BarContext {
@@ -134,9 +134,9 @@ impl MareaderApp {
             // With no rail beside it, the bar hosts the lights.
             gutter: (!overlay || !route.has_rail()) && inset <= 0.0 && !fullscreen,
             appearance: &look,
-            appearance_menu: self.settings.chrome.appearance_menu,
+            appearance_menu: self.settings().chrome.appearance_menu,
             presets: &presets,
-            user_presets: &self.settings.user_presets,
+            user_presets: &self.settings().user_presets,
             gpu: self.documents.gpu(),
             backdrop,
             page,
@@ -204,7 +204,7 @@ impl MareaderApp {
         };
         self.settings_window.show(
             ctx,
-            &self.settings,
+            self.settings(),
             &window,
             (&self.ai, &self.dict, &self.vocab, &voices),
             commands,

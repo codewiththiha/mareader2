@@ -9,9 +9,9 @@ impl MareaderApp {
         let now = ctx.input(|i| i.time);
         let mut out = Commands::new();
         let task = match &action {
-            Action::Run { task, .. } => task_for(*task, &self.settings.ai),
+            Action::Run { task, .. } => task_for(*task, &self.settings().ai),
             Action::Translate { tag, .. } => {
-                self.settings.ai.tasks.translate.pick(tag);
+                self.settings().ai.tasks.translate.pick(tag);
                 Some(mareader_library::AiTask::Translate {
                     language: tag.clone(),
                 })
@@ -52,12 +52,13 @@ impl MareaderApp {
                         true => PageStart::Continuous,
                         false => PageStart::Page,
                     };
-                    let tasks = &mut self.settings.ai.tasks;
+                    let mut tasks = self.settings().ai.tasks;
                     match kind {
                         PageTask::Translate => tasks.translate.start = start,
                         PageTask::Simplify => tasks.simplify.start = start,
                         PageTask::Summarize => {}
                     }
+                    let _ = self.set_field("ai.tasks", tasks);
                 }
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
@@ -69,7 +70,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings.ai,
+                    settings: &self.settings().ai,
                 };
                 match how.continuous && kind != PageTask::Summarize {
                     true => {
@@ -94,10 +95,10 @@ impl MareaderApp {
             } => {
                 let task = match (task, tag) {
                     (PageTask::Translate, Some(tag)) => {
-                        self.settings.ai.tasks.translate.pick(&tag);
+                        self.settings().ai.tasks.translate.pick(&tag);
                         Some(mareader_library::AiTask::Translate { language: tag })
                     }
-                    (task, _) => task_for(task, &self.settings.ai),
+                    (task, _) => task_for(task, &self.settings().ai),
                 };
                 let Some(task) = task else { return };
                 let book = self.library.book_in(&self.documents, pane);
@@ -109,7 +110,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings.ai,
+                    settings: &self.settings().ai,
                 };
                 self.page_ai.run_pages(asked, &pages, task);
             }
@@ -131,7 +132,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings.ai,
+                    settings: &self.settings().ai,
                 };
                 let model = self.library.model();
                 self.page_ai.again(asked, model, slot, now, out);

@@ -20,10 +20,10 @@ impl MareaderApp {
         route: Route,
         commands: &mut Commands,
     ) -> (f32, bool) {
-        let overlay = self.settings.chrome.sidebar_overlay;
+        let overlay = self.settings().chrome.sidebar_overlay;
         let rail = RailContext {
             overlay,
-            slide: self.settings.motion.sidebar_slide,
+            slide: self.settings().motion.sidebar_slide,
             platform: self.platform,
             bar_bottom: self.titlebar.band_bottom(ctx),
         };
@@ -39,8 +39,8 @@ impl MareaderApp {
             model: self.library.model(),
             tabs: &tabs,
             active: self.active,
-            click: self.settings.workspace.library_click,
-            home: self.settings.library.home,
+            click: self.settings().workspace.library_click,
+            home: self.settings().library.home,
             held: organizer.held(),
             organizer: ui_library::Organizer {
                 busy: organizer.busy(),
@@ -52,14 +52,14 @@ impl MareaderApp {
             true => {
                 let book = self.library.book_in(&self.documents, self.active);
                 let name = self.documents.title(self.active).unwrap_or_default();
-                let look = &self.settings.study.highlights;
+                let look = &self.settings().study.highlights;
                 self.study.notes_of(self.library.model(), book, name, look)
             }
             false => Vec::new(),
         };
         let shelf_tree = &mut self.shelf_tree;
         self.thumbs
-            .set_offer(crate::thumbnails::Offer::of(&self.settings));
+            .set_offer(crate::thumbnails::Offer::of(self.settings()));
         let (documents, active) = (&mut self.documents, self.active);
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.
@@ -103,7 +103,7 @@ impl MareaderApp {
         let tokens = theme::Tokens::get(ctx);
         let view = PaneView {
             active: self.active,
-            look: self.settings.workspace.look,
+            look: self.settings().workspace.look,
             chrome_bottom: self.titlebar.band_bottom(ctx),
             drop_target,
             styles: self.pane_styles(&tokens),
@@ -113,7 +113,7 @@ impl MareaderApp {
         let every = self.routing().colour();
         let source = self.paper_source();
         let corner = view.corner(self.tree.len() > 1, &tokens);
-        let blend = self.settings.paper.blend;
+        let blend = self.settings().paper.blend;
         let pinned_bottom = if self.titlebar.pinned {
             view.chrome_bottom
         } else {
@@ -124,14 +124,14 @@ impl MareaderApp {
             active: self.find.active(),
         });
         let lit = self.find.pane().zip(lit);
-        let cefr = &self.settings.study.cefr;
+        let cefr = &self.settings().study.cefr;
         let shading = cefr.enabled.then_some(crate::vocab::Look {
             level: cefr.level.band(),
             mark: cefr.mark,
             click: cefr.click_explain,
-            hover: self.settings.dictionary.hover,
-            ink: self.settings.study.highlights.cefr,
-            opacity: self.settings.study.highlights.opacity,
+            hover: self.settings().dictionary.hover,
+            ink: self.settings().study.highlights.cefr,
+            opacity: self.settings().study.highlights.opacity,
         });
         PageContext {
             view,
@@ -151,7 +151,7 @@ impl MareaderApp {
             && let Some(reading) = self.documents.reading(self.active)
         {
             self.read_aloud_shot = false;
-            let settings = &self.settings.read_aloud;
+            let settings = &self.settings().read_aloud;
             let from = ReadFrom::default();
             (self.read_aloud).start(ctx, &reading, from, settings);
         }
@@ -191,7 +191,7 @@ impl MareaderApp {
             name: documents.title(pane).unwrap_or_default().to_owned(),
         });
         self.read_aloud
-            .tick(ctx, &mut self.documents, &self.settings.read_aloud);
+            .tick(ctx, &mut self.documents, &self.settings().read_aloud);
         self.documents.reveal_read_markers();
     }
 
@@ -213,19 +213,19 @@ impl MareaderApp {
         let lit = &context.lit;
         let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;
-        let (layout, texts, window) = (&self.settings.layout, &self.texts, &self.settings.text);
-        let (library, library_view) = (&mut self.library, &self.settings.library);
+        let (layout, texts, window) = (&self.settings().layout, &self.texts, &self.settings().text);
+        let (library, library_view) = (&mut self.library, &self.settings().library);
         let study = &mut self.study;
         let page_ai = &mut self.page_ai;
         study.begin_frame();
-        let highlights = &self.settings.study.highlights;
+        let highlights = &self.settings().study.highlights;
         let vocab = &mut self.vocab;
         let shading = context.shading;
         self.library_rect = None;
         let menu_shot = self.menu_shot;
         let lift = self.tree.len() > 1;
         let dictionary_page = (route == Route::Dictionary).then_some(&mut self.dict);
-        let dictionary = &self.settings.dictionary;
+        let dictionary = &self.settings().dictionary;
         let page_top = self.titlebar.page_top(ctx, route.bar());
         egui::CentralPanel::no_frame().show(ui, |ui| {
             if let Some(dict) = dictionary_page {

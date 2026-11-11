@@ -36,7 +36,7 @@ impl MareaderApp {
         if self.route() != Route::Reader {
             return;
         }
-        let floating = self.settings.chrome.sidebar_overlay;
+        let floating = self.settings().chrome.sidebar_overlay;
         let rail = (self.sidebar.offset()).filter(|_| floating);
         let edge = rail.map(|o| o + crate::sidebar::WIDTH);
         // Docked, the rail ends where the panes begin.
@@ -206,18 +206,18 @@ impl MareaderApp {
         };
         let tokens = theme::Tokens::get(ctx);
         let toasts = self.toasts.covers();
-        let rounded = rects.len() > 1 && self.settings.workspace.look.rounded();
+        let rounded = rects.len() > 1 && self.settings().workspace.look.rounded();
         let corner = if rounded { tokens.radius_lg } else { 0.0 };
         // The title bar's glass takes slot 0.
         for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
                 // Distraction-free keeps the label, which has its own setting.
                 if self.chromeless {
-                    floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
+                    floating_label::show(ctx, *rect, &reading, &self.settings().layout, label);
                     continue;
                 }
                 let look = BarLook {
-                    layout: &self.settings.layout,
+                    layout: &self.settings().layout,
                     backdrop,
                     slot: i + 1,
                     corner,
@@ -227,7 +227,7 @@ impl MareaderApp {
                 let marked = kept.iter().any(|(_, p)| *p == reading.current);
                 let bar = self.page_bars.entry(*id).or_default();
                 page_bar::show(ctx, *rect, &reading, (&look, marked), bar, out);
-                floating_label::show(ctx, *rect, &reading, &self.settings.layout, label);
+                floating_label::show(ctx, *rect, &reading, &self.settings().layout, label);
             }
         }
     }
