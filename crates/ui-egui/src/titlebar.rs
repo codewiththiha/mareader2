@@ -243,7 +243,7 @@ impl TitleBar {
             pos2(screen.right(), screen.top() + TITLE_BAR_H),
         );
         self.update_hover(ctx, band);
-        let visible = self.visible();
+        let visible = self.visible(bar.pinned);
         let fade =
             ctx.animate_bool_with_time(Id::new("titlebar"), visible, motion::secs(ctx, FADE));
         self.opacity = fade;
