@@ -313,7 +313,12 @@ fn run() -> Result<(), String> {
     let mut generator = Generator::new();
     writeln!(
         generator.code,
-        "pub(crate) static EASINGS: [Option<[f32; 4]>; {}] = {:?};",
+        "#[derive(Clone, Copy)]\npub(crate) enum Ease {{ Linear, Bezier([f32; 4]), Spring(f32) }}\nuse Ease::{{Bezier, Linear, Spring}};"
+    )
+    .map_err(|error| error.to_string())?;
+    writeln!(
+        generator.code,
+        "pub(crate) static EASINGS: [Ease; {}] = {:?};",
         source::EASINGS.len(),
         source::EASINGS
     )

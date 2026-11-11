@@ -532,7 +532,7 @@ PDF page-tree enumeration remains eager, with rasters requested on demand.
   quads.
 - **Admission bound:** both one generated atlas and the context-local sum of
   retained atlas pixels are capped at 8 MiB. The cache also remains capped at
-  512 entries. Generation is lazy; all 98 packs and DPI sizes are never
+  512 entries. Generation is lazy; all 104 packs and DPI sizes are never
   allocated eagerly. Exhaustive atlas tests require every current pack to fit
   the bound without whole-frame cells.
 - **In-flight bound:** the native queue has two jobs and one raster worker, while

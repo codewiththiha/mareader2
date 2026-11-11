@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn every_generated_pack_is_reachable() {
-        assert_eq!(mareader_animated_icons::all().len(), 98);
+        assert_eq!(mareader_animated_icons::all().len(), 104);
         for pack in mareader_animated_icons::all() {
             assert!(!pack.id().is_empty());
             assert!(pack.frame_count() > 0);

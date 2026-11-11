@@ -11,6 +11,7 @@ pub const MAX_ATLAS_BYTES: usize = 8 * 1024 * 1024;
 
 mod atlas;
 mod raster;
+mod spring;
 mod timeline;
 
 use atlas::{crop, raster_part_atlas};

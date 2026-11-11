@@ -1,6 +1,7 @@
 //! Authored timeline sampling and easing.
 
-use crate::generated::EASINGS;
+use crate::generated::{EASINGS, Ease};
+use crate::spring::evaluate as spring;
 use crate::{Pack, Part, Prop, Seg};
 
 #[derive(Clone, Copy)]
@@ -98,7 +99,8 @@ fn at(seg: &Seg, progress: f32) -> f32 {
                 .copied()
                 .unwrap_or(0);
             let eased = match EASINGS.get(easing as usize).copied() {
-                Some(Some(curve_points)) => curve(curve_points, fraction),
+                Some(Ease::Bezier(points)) => curve(points, fraction),
+                Some(Ease::Spring(zeta)) => spring(zeta, fraction),
                 _ => fraction,
             };
             seg.keys[index] + (seg.keys[index + 1] - seg.keys[index]) * eased
@@ -141,6 +143,15 @@ mod timeline_tests {
         assert!((curve(linear, 0.3) - 0.3).abs() < 1.0e-3);
         assert!(curve([0.2, 0.9, 0.2, 1.0], 0.3) > 0.5);
         assert!(curve([0.34, 1.56, 0.64, 1.0], 0.5) > 1.0);
+    }
+
+    #[test]
+    fn springs_overshoot_and_settle() {
+        assert_eq!(spring(0.5, 0.0), 0.0);
+        assert_eq!(spring(0.5, 1.0), 1.0);
+        assert!(spring(0.5, 0.4) > 1.0);
+        assert!((spring(0.5, 0.99) - 1.0).abs() < 0.01);
+        assert!(spring(0.78, 0.4) < spring(0.5, 0.4));
     }
 
     #[test]
