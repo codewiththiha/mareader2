@@ -16,14 +16,10 @@ pub const EXEMPT: &[(&str, &str)] = &[(
     "AI needs threads, a keychain and TLS; docs/architecture.md rule 3 exempts it",
 )];
 
-/// Crates the browser genuinely links, found by asking cargo rather than by
-/// reading the layer table.
-///
-/// The gate used to check every core crate on its own, which tested builds
-/// nobody makes: `speech` already declares the voice models desktop-only and
-/// `ui-egui` does the same for `script`, so neither is in a wasm tree. A crate
-/// is worth a wasm check exactly when the web app pulls it in; anything else
-/// only has to agree with the desktop build.
+/// Crates the browser links, asked of cargo rather than read off the layer
+/// table: a crate is worth a wasm check when the web app pulls it in, and
+/// nothing else is. `speech` and `ui-egui` declare their model and script
+/// crates desktop-only, so those are in no wasm tree.
 fn reachable() -> Result<Vec<String>, String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let out = Command::new(cargo)
@@ -166,8 +162,7 @@ mod tests {
 
     #[test]
     fn a_crate_the_browser_never_links_is_not_checked_alone() {
-        // `speech` declares the voice models desktop-only, so they are in no
-        // wasm tree and checking them alone would test a build nobody makes.
+        // Desktop-only by `speech`'s own declaration, so in no wasm tree.
         let list = targets(&linked());
         for gone in ["mareader-kokoro", "mareader-vits", "mareader-phonon"] {
             assert!(
