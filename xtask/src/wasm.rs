@@ -16,8 +16,49 @@ pub const EXEMPT: &[(&str, &str)] = &[(
     "AI needs threads, a keychain and TLS; docs/architecture.md rule 3 exempts it",
 )];
 
+/// Crates the browser genuinely links, found by asking cargo rather than by
+/// reading the layer table.
+///
+/// The gate used to check every core crate on its own, which tested builds
+/// nobody makes: `speech` already declares the voice models desktop-only and
+/// `ui-egui` does the same for `script`, so neither is in a wasm tree. A crate
+/// is worth a wasm check exactly when the web app pulls it in; anything else
+/// only has to agree with the desktop build.
+fn reachable() -> Result<Vec<String>, String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let out = Command::new(cargo)
+        .args([
+            "tree",
+            "-q",
+            "--locked",
+            "-p",
+            "mareader-web",
+            "--target",
+            "wasm32-unknown-unknown",
+            "-e",
+            "normal",
+            "--prefix",
+            "none",
+        ])
+        .current_dir(crate::root())
+        .output()
+        .map_err(|e| format!("cargo tree: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    }
+    let mut names: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .filter(|n| n.starts_with("mareader-"))
+        .map(|n| n.to_owned())
+        .collect();
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
 /// The targets the gate builds, in layer order; the front end and web app last.
-pub fn targets() -> Vec<String> {
+pub fn targets(reachable: &[String]) -> Vec<String> {
     let mut names: Vec<(u8, String)> = TABLE
         .iter()
         .filter_map(|(name, layer)| match layer {
@@ -26,20 +67,24 @@ pub fn targets() -> Vec<String> {
             _ => None,
         })
         .filter(|(_, name)| !EXEMPT.iter().any(|(skip, _)| short(skip) == name))
+        .filter(|(_, name)| reachable.iter().any(|r| r == &full_name(name)))
         .collect();
     names.sort();
     let mut out: Vec<String> = names
         .into_iter()
-        .map(|(_, name)| {
-            if name == "ui-egui" {
-                "mareader-ui-egui".to_owned()
-            } else {
-                format!("mareader-{name}")
-            }
-        })
+        .map(|(_, name)| full_name(&name))
         .collect();
     out.push("mareader-web".to_owned());
     out
+}
+
+/// A row of the layer table as the package it names.
+fn full_name(name: &str) -> String {
+    if name == "ui-egui" {
+        "mareader-ui-egui".to_owned()
+    } else {
+        format!("mareader-{name}")
+    }
 }
 
 fn check(package: &str) -> Result<(), String> {
@@ -76,7 +121,8 @@ fn check(package: &str) -> Result<(), String> {
 
 /// Every target, stopping at the first that fails: one answer, not a wall.
 pub fn run(_: &[String]) -> Result<(), String> {
-    let list = targets();
+    let reachable = reachable()?;
+    let list = targets(&reachable);
     println!("wasm: {} crates for wasm32-unknown-unknown", list.len());
     for package in &list {
         check(package)?;
@@ -89,9 +135,24 @@ pub fn run(_: &[String]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// What the browser links, as `cargo tree` reports it for the real app.
+    fn linked() -> Vec<String> {
+        [
+            "engine",
+            "appearance",
+            "session",
+            "settings",
+            "library",
+            "ui-egui",
+        ]
+        .iter()
+        .map(|n| full_name(n))
+        .collect()
+    }
+
     #[test]
     fn the_core_and_the_front_end_are_every_target_below_the_apps() {
-        let list = targets();
+        let list = targets(&linked());
         for name in ["mareader-appearance", "mareader-session", "mareader-engine"] {
             assert!(list.iter().any(|t| t == name), "{name} missing");
         }
@@ -104,8 +165,21 @@ mod tests {
     }
 
     #[test]
+    fn a_crate_the_browser_never_links_is_not_checked_alone() {
+        // `speech` declares the voice models desktop-only, so they are in no
+        // wasm tree and checking them alone would test a build nobody makes.
+        let list = targets(&linked());
+        for gone in ["mareader-kokoro", "mareader-vits", "mareader-phonon"] {
+            assert!(
+                !list.iter().any(|t| t == gone),
+                "{gone} should not be built"
+            );
+        }
+    }
+
+    #[test]
     fn a_desktop_only_crate_is_exempt_by_name_not_by_layer() {
-        let list = targets();
+        let list = targets(&linked());
         assert!(!list.iter().any(|t| t == "mareader-assist"));
         assert!(
             EXEMPT
@@ -116,7 +190,7 @@ mod tests {
 
     #[test]
     fn the_list_is_unique_and_ordered_by_layer() {
-        let list = targets();
+        let list = targets(&linked());
         let mut sorted = list.clone();
         sorted.sort();
         assert_eq!(list, sorted, "targets come out in name order, one each");

@@ -35,7 +35,7 @@ pub struct Independence {
 pub enum Intent {
     /// Background work for the AI settings: keys, models, a trial.
     #[cfg(not(target_arch = "wasm32"))]
-    Ai(mareader_assist::Job),
+    Ai(mareader_settings::Job),
     /// An arrow key over the active document: a turn, or the scroll's.
     Arrow(Arrow),
     /// Shift+A: the active pane's auto-scroll on or off.

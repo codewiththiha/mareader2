@@ -18,6 +18,16 @@ impl Allows for Route {
     }
 }
 
+/// Background AI work, which only a desktop build has: the variant itself is
+/// gated, so it cannot be named in the match above without breaking wasm.
+fn is_ai(command: &Command) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Command::Intent(mareader_engine::command::Intent::Ai(_)) = command {
+        return true;
+    }
+    false
+}
+
 /// Acts on panes, pages or the rail, all hidden behind the library.
 fn reads(command: &Command) -> bool {
     use crate::command::UiCommand as U;
@@ -36,10 +46,11 @@ fn reads(command: &Command) -> bool {
                 // Notices show anywhere.
                 | U::Notify(_) | U::CloseToast(_) | U::ClearToasts
         ),
-        Command::Intent(intent) => !matches!(
-            intent,
-            // The focused pane's view and place.
-            I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } | I::FirstPage
+        Command::Intent(intent) => {
+            !matches!(
+                intent,
+                // The focused pane's view and place.
+                I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } | I::FirstPage
                 | I::LastPage | I::AutoScroll | I::GoTo { .. } | I::Turn { .. }
                 // The thumbnails copy their picked pages.
                 | I::CopyPages { .. } | I::WordList { .. } | I::WordListWindow { .. }
@@ -62,8 +73,8 @@ fn reads(command: &Command) -> bool {
                 | I::Open(_) | I::SetAppearance(_) | I::SavePreset { .. }
                 | I::DeletePreset(_) | I::SetTitlebarPinned(_) | I::SetSidebarOverlay(_)
                 | I::SetSettings(_) | I::Export { .. }
-                | I::Ai(_)
-        ),
+            ) && !is_ai(command)
+        }
     }
 }
 
