@@ -9,75 +9,7 @@ use mareader_session::PageSize;
 pub const GAP: f32 = 12.0;
 pub const MARGIN: f32 = 16.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum ViewMode {
-    /// One page at a time, turned by keys.
-    Single,
-    /// Two pages side by side: 1 and 2, 3 and 4.
-    Spread,
-    #[default]
-    Vertical,
-    Horizontal,
-}
-
-impl ViewMode {
-    pub const ALL: [Self; 4] = [Self::Single, Self::Spread, Self::Vertical, Self::Horizontal];
-
-    pub fn paged(self) -> bool {
-        matches!(self, Self::Single | Self::Spread)
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Single => "Single page",
-            Self::Spread => "Two pages",
-            Self::Vertical => "Vertical scroll",
-            Self::Horizontal => "Horizontal scroll",
-        }
-    }
-
-    /// A word for under its icon, inside its full label.
-    pub fn short(self) -> &'static str {
-        match self {
-            Self::Single => "Single",
-            Self::Spread => "Two pages",
-            Self::Vertical => "Vertical",
-            Self::Horizontal => "Horizontal",
-        }
-    }
-
-    /// What shows with `page`: first page and count; `lead` pages alone.
-    pub fn span(self, page: usize, lead: usize) -> (usize, usize) {
-        match self {
-            Self::Spread if page >= lead => (lead + (page - lead) / 2 * 2, 2),
-            _ => (page, 1),
-        }
-    }
-
-    /// The first page of what shows with `page` in it.
-    pub fn start(self, page: usize, lead: usize) -> usize {
-        self.span(page, lead).0
-    }
-
-    /// The page one turn from `page`, clamped to the document.
-    pub fn turn(self, page: usize, forward: bool, (count, lead): (usize, usize)) -> usize {
-        let last = self.start(count.saturating_sub(1), lead);
-        let (from, shown) = self.span(page, lead);
-        match (forward, from.checked_sub(1)) {
-            (true, _) => (from + shown).min(last),
-            (false, Some(back)) => self.start(back, lead),
-            (false, None) => 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arrow {
-    Left,
-    Right,
-    Up,
-    Down,
-}
+pub use mareader_engine::pane::{Arrow, ViewMode};
 
 impl Arrow {
     /// One step forward, right or down; minus one back.

@@ -1,0 +1,89 @@
+//! A request to show a file: what a dialog, a drop or a command hands over.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use mareader_session::{Anchor, Source, SpinePlace};
+use mareader_library::BookId;
+use mareader_workspace::{Edge, PaneId};
+
+/// Where an open lands, measured from its pane.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Placement {
+    #[default]
+    Into,
+    /// A new pane to the right, else below when the right has no room.
+    Beside,
+    /// A new pane on exactly this edge, as a drop asks.
+    Edge(Edge),
+}
+
+/// A request to show a file in a pane (the active one by default).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenRequest {
+    pub source: Source,
+    pub name: Option<String>,
+    pub pane: Option<PaneId>,
+    /// Into that pane, or a new one split from it.
+    pub placement: Placement,
+    /// The page to show once open; past the end, the last.
+    pub page: usize,
+    /// A book's place to show instead, found again in today's type.
+    pub place: Option<Anchor>,
+    /// A stable EPUB location that avoids parsing the whole prefix.
+    pub spine: Option<SpinePlace>,
+    /// The last known count, for a preview's global page display.
+    pub pages: usize,
+    /// Read as this library book, a twin perhaps; none: the file's own.
+    pub book: Option<BookId>,
+}
+
+impl OpenRequest {
+    pub fn path(path: PathBuf) -> Self {
+        Self {
+            source: Source::Path(path),
+            name: None,
+            pane: None,
+            placement: Placement::Into,
+            page: 0,
+            place: None,
+            spine: None,
+            pages: 0,
+            book: None,
+        }
+    }
+
+    pub fn bytes(bytes: Vec<u8>, name: impl Into<String>) -> Self {
+        Self {
+            source: Source::Bytes(Arc::new(bytes)),
+            name: Some(name.into()),
+            pane: None,
+            placement: Placement::Into,
+            page: 0,
+            place: None,
+            spine: None,
+            pages: 0,
+            book: None,
+        }
+    }
+
+    /// The file it reads from, if it reads from one.
+    pub fn file(&self) -> Option<PathBuf> {
+        match &self.source {
+            Source::Path(p) => Some(p.clone()),
+            Source::Bytes(_) => None,
+        }
+    }
+
+    /// What to call it while it opens.
+    pub fn label(&self) -> String {
+        let path = match &self.source {
+            Source::Path(p) => Some(p.to_string_lossy().into_owned()),
+            Source::Bytes(_) => None,
+        };
+        let name = self.name.clone().or(path);
+        name.as_deref()
+            .and_then(mareader_pdf::file_stem)
+            .unwrap_or_else(|| "document".into())
+    }
+}

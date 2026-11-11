@@ -17,18 +17,22 @@
     clippy::indexing_slicing
 )]
 
+pub mod documents;
 pub mod export;
 pub mod notes_panel;
 pub mod page_ai;
+pub mod pane;
 pub mod pane_texts;
 pub mod paper;
 pub mod play;
 pub mod read_aloud;
 pub mod reading_place;
 pub mod reveal;
+pub mod route;
 pub mod sample;
 /// Which settings apply to the focused pane's document.
 pub mod scope;
+pub mod settings;
 pub mod stable_hash;
 pub mod texts;
 pub mod transcript;
