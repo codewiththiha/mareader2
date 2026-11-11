@@ -126,9 +126,6 @@ pub type Demand = Vec<(Urgency, Want)>;
 /// One pane's view of a document; the document itself is shared.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfView {
-    /// Where this pane is in its document: the reading half, which the whole
-    /// struct derefs to, so `view.current` still reads and writes.
-    pub reading: Place,
     pub zoom: PaneZoom,
     /// The paged modes' page; the strips follow the scroll instead.
     focus: usize,
@@ -153,8 +150,6 @@ pub struct PdfView {
     /// Auto-scroll is on: when it last moved the strip.
     drift: Option<f64>,
     jump: Option<Jump>,
-    /// A strip's page jumped to, and where it landed: read until moved.
-    landed: Option<(usize, Option<Vec2>)>,
     /// Zoom steps ease, as of last frame's motion settings.
     ease: bool,
     /// Until first drawn: the default fit is still to apply.
@@ -163,8 +158,6 @@ pub struct PdfView {
     resize: Option<(usize, f64)>,
     /// A strip's spot to keep once the pages are laid out anew.
     keep: Option<(usize, Vec2)>,
-    /// The pages it wants alone before spreads pair them.
-    lead: usize,
     /// When the view last moved, for tiles to wait on.
     moved_at: f64,
     /// A book's footnote open in a card on its mark.
@@ -189,24 +182,9 @@ pub struct PdfView {
     pub sheet_moved: bool,
 }
 
-impl std::ops::Deref for PdfView {
-    type Target = Place;
-
-    fn deref(&self) -> &Place {
-        &self.reading
-    }
-}
-
-impl std::ops::DerefMut for PdfView {
-    fn deref_mut(&mut self) -> &mut Place {
-        &mut self.reading
-    }
-}
-
 impl PdfView {
-    pub fn new(doc: DocId) -> Self {
+    pub fn new() -> Self {
         Self {
-            reading: Place::new(doc),
             zoom: PaneZoom::default(),
             focus: 0,
             layout: None,
@@ -271,9 +249,9 @@ impl PdfView {
     }
 
     /// The place the last re-set landed on, while it's still read.
-    pub fn place(&self) -> Option<mareader_session::Anchor> {
+    pub fn place(&self, at: &Place) -> Option<mareader_session::Anchor> {
         // A strip holds it while unmoved since; scrolled, it reads elsewhere.
-        if self.mode == ViewMode::Vertical {
+        if at.mode == ViewMode::Vertical {
             let still = |at: Vec2| (at - self.offset).length() < 2.0;
             return self
                 .place
@@ -281,104 +259,107 @@ impl PdfView {
                 .map(|(a, _)| a);
         }
         self.place
-            .filter(|(_, page)| *page == self.current)
+            .filter(|(_, page)| *page == at.current)
             .map(|(a, _)| a)
     }
 
     /// A strip's reading line: the page at the view's top, and how far down.
-    pub fn reading_line(&self) -> Option<(usize, f32)> {
+    pub fn reading_line(&self, at: &Place) -> Option<(usize, f32)> {
         let layout = self
             .layout
             .as_ref()
-            .filter(|_| self.mode == ViewMode::Vertical)?;
+            .filter(|_| at.mode == ViewMode::Vertical)?;
         let top = vec2(self.viewport.x / 2.0, layout.inputs.inset);
         let (page, at) = layout.locate(Pos2::ZERO + self.offset + top)?;
         Some((page, at.y.max(0.0)))
     }
 
     /// Shows height `y` of `page` at a strip's top, `air` below its edge.
-    pub fn land(&mut self, page: usize, y: f32, air: f32) {
-        self.land = (self.mode == ViewMode::Vertical).then_some((page, y, air));
+    pub fn land(&mut self, at: &Place, page: usize, y: f32, air: f32) {
+        self.land = (at.mode == ViewMode::Vertical).then_some((page, y, air));
     }
 
     /// Keeps `place` as the page being read's, as a re-set does.
-    pub fn hold_place(&mut self, place: Option<mareader_session::Anchor>) {
-        self.place = place.map(|a| (a, self.current));
+    pub fn hold_place(&mut self, at: &Place, place: Option<mareader_session::Anchor>) {
+        self.place = place.map(|a| (a, at.current));
     }
 
     /// Shows the book set again as `doc`, from `page`; mode and zoom stay.
     pub fn retypeset(
         &mut self,
+        at: &mut Place,
         doc: DocId,
         page: usize,
         count: usize,
         place: Option<mareader_session::Anchor>,
     ) {
         let page = page.min(count.saturating_sub(1));
-        self.doc = doc;
+        at.doc = doc;
         // Page rects, selection and motion belong to the old pages.
         self.layout = None;
         self.selection = None;
         self.sheets.clear();
-        self.visible = page..page + 1;
+        at.visible = page..page + 1;
         (self.jump, self.aim, self.hold, self.nudge) = (None, None, None, None);
         self.scroll_to = None;
         self.resize = None;
         self.zoom.fit_page = page;
         self.place = place.map(|a| (a, page));
         (self.placed_at, self.land) = (None, None);
-        self.go(page);
+        self.go(at, page);
     }
 
     /// Moves to `doc`, results laid in or out; false if the page went.
     pub fn respliced(
         &mut self,
+        at: &mut Place,
         doc: DocId,
         count: usize,
         map: impl Fn(usize) -> Option<usize>,
     ) -> bool {
-        let Some(page) = map(self.current) else {
+        let Some(page) = map(at.current) else {
             return false;
         };
         let centre = Pos2::ZERO + self.offset + self.viewport / 2.0;
         let spot = self.layout.as_ref().and_then(|l| l.locate(centre));
         let keep = spot.and_then(|(p, at)| Some((map(p)?, at)));
-        let place = self.place.and_then(|(a, p)| Some((a, map(p)?)));
-        self.retypeset(doc, page, count, None);
-        self.place = place;
-        self.keep = keep.filter(|_| !self.mode.paged());
+        let anchor = self.place.and_then(|(a, p)| Some((a, map(p)?)));
+        let paged = at.mode.paged();
+        self.retypeset(at, doc, page, count, None);
+        self.place = anchor;
+        self.keep = keep.filter(|_| !paged);
         true
     }
 
-    pub fn command(&mut self, command: ZoomCommand, now: f64) {
+    pub fn command(&mut self, at: &Place, command: ZoomCommand, now: f64) {
         let shown = self.layout.as_ref().map(Layout::zoom);
         let shown = shown.filter(|_| self.ease);
-        self.zoom.command(command, shown, self.current, now);
+        self.zoom.command(command, shown, at.current, now);
     }
 
     /// Switches mode on the page being read; `fit` fits the paged modes.
-    pub fn set_mode(&mut self, mode: ViewMode, now: f64) {
-        if mode == self.mode {
+    pub fn set_mode(&mut self, at: &mut Place, mode: ViewMode, now: f64) {
+        if mode == at.mode {
             return;
         }
-        self.mode = mode;
+        at.mode = mode;
         self.hold = None;
         // Single pages and spreads fit their width; the strip never.
         if mode.paged() {
             self.zoom
-                .command(ZoomCommand::Fit(Fit::Width), None, self.current, now);
+                .command(ZoomCommand::Fit(Fit::Width), None, at.current, now);
         } else if mode == ViewMode::Horizontal {
             self.zoom.unfit();
             self.zoom.set_basis(Fit::Page);
         } else if self.zoom.fit.is_none() {
             self.zoom.set_basis(Fit::Width);
         }
-        self.go(self.current);
+        self.go(at, at.current);
     }
 
     /// Shift+A: auto-scroll on or off; false in a paged mode.
-    pub fn toggle_drift(&mut self, now: f64) -> bool {
-        if self.mode.paged() {
+    pub fn toggle_drift(&mut self, at: &Place, now: f64) -> bool {
+        if at.mode.paged() {
             return false;
         }
         self.drift = match self.drift {
@@ -398,14 +379,15 @@ impl PdfView {
     }
 
     /// An arrow key: a turn, or along a strip a line and then a glide.
-    pub fn arrow(&mut self, arrow: Arrow, count: usize, now: f64) {
-        if let Some(forward) = arrow.turns(self.mode, self.rtl) {
-            self.go(self.mode.turn(self.current, forward, (count, self.lead)));
+    pub fn arrow(&mut self, at: &mut Place, arrow: Arrow, count: usize, now: f64) {
+        if let Some(forward) = arrow.turns(at.mode, at.rtl) {
+            let to = at.mode.turn(at.current, forward, (count, at.lead));
+            self.go(at, to);
             return;
         }
         // Up and down across the strip do nothing, as in mareader.
         let sideways = matches!(arrow, Arrow::Left | Arrow::Right);
-        if sideways != (self.mode == ViewMode::Horizontal) {
+        if sideways != (at.mode == ViewMode::Horizontal) {
             return;
         }
         // The key repeating while held: the glide is already on its way.
@@ -421,17 +403,17 @@ impl PdfView {
     }
 
     /// A page key: nearly a screen along a strip, a turn when paged.
-    pub fn page_key(&mut self, forward: bool, count: usize) {
-        if self.mode.paged() {
-            self.turn(forward, count);
+    pub fn page_key(&mut self, at: &mut Place, forward: bool, count: usize) {
+        if at.mode.paged() {
+            self.turn(at, forward, count);
         } else {
             self.nudge = Some(Nudge::Screen(if forward { 1.0 } else { -1.0 }));
         }
     }
 
     /// Where the backdrop reads its paper: pages weighted by their share.
-    pub fn paper_at(&self) -> f64 {
-        self.paper_at.unwrap_or(self.current as f64)
+    pub fn paper_at(&self, at: &Place) -> f64 {
+        self.paper_at.unwrap_or(at.current as f64)
     }
 
     /// Last frame's scroll, in content points; narrower pages sit centred.
@@ -440,13 +422,14 @@ impl PdfView {
     }
 
     /// A page turn from a button: it turns in every mode.
-    pub fn turn(&mut self, forward: bool, count: usize) {
-        self.go(self.mode.turn(self.current, forward, (count, self.lead)));
+    pub fn turn(&mut self, at: &mut Place, forward: bool, count: usize) {
+        let to = at.mode.turn(at.current, forward, (count, at.lead));
+        self.go(at, to);
     }
 
     /// Jumps to `page`, kept within the document's `count`.
-    pub fn go_to(&mut self, page: usize, count: usize) {
-        self.go(page.min(count.saturating_sub(1)));
+    pub fn go_to(&mut self, at: &mut Place, page: usize, count: usize) {
+        self.go(at, page.min(count.saturating_sub(1)));
     }
 
     /// True while a page turn or reveal still glides.
@@ -457,6 +440,7 @@ impl PdfView {
     /// Shows `spot` on `page`, `clear` above the foot; false if unknown.
     pub fn seek(
         &mut self,
+        at: &mut Place,
         page: usize,
         spot: Option<Bounds>,
         band: Vec2,
@@ -465,12 +449,13 @@ impl PdfView {
     ) -> bool {
         // Already heading there: going again would restart the glide.
         let heading = self.jump.is_some() || self.reveal.is_some();
-        let shows = self.visible.contains(&page);
-        if self.mode.paged() || spot.is_none() || self.layout.is_none() {
+        let shows = at.visible.contains(&page);
+        let paged = at.mode.paged();
+        if paged || spot.is_none() || self.layout.is_none() {
             if !shows && !heading {
-                self.go_to(page, count);
+                self.go_to(at, page, count);
             }
-            return self.mode.paged();
+            return paged;
         }
         let (Some(layout), Some(b)) = (&self.layout, spot) else {
             return false;
@@ -480,7 +465,7 @@ impl PdfView {
         };
         let zoom = layout.zoom();
         // Only the vertical strip cuts pages to their bands.
-        let band = if self.mode == ViewMode::Vertical {
+        let band = if at.mode == ViewMode::Vertical {
             band
         } else {
             Vec2::ZERO
@@ -511,9 +496,15 @@ impl PdfView {
     }
 
     /// A page of another size: a fit refits; `keep` lets a set zoom too.
-    fn follow_size(&mut self, sizes: &[PageSize], keep: bool, now: f64) -> Option<f64> {
-        let page = self.current;
-        let fit_box = |p| layout::fit_box(self.mode, sizes, (p, self.lead));
+    fn follow_size(
+        &mut self,
+        at: &mut Place,
+        sizes: &[PageSize],
+        keep: bool,
+        now: f64,
+    ) -> Option<f64> {
+        let page = at.current;
+        let fit_box = |p| layout::fit_box(at.mode, sizes, (p, at.lead));
         let (was, here) = (fit_box(self.zoom.fit_page), fit_box(page));
         if was == here {
             self.resize = None;
@@ -537,7 +528,7 @@ impl PdfView {
             view.resize = None;
         };
         // A turn lands at once, so it refits at once: no wrong size shows.
-        if self.mode.paged() {
+        if at.mode.paged() {
             land(self);
             return None;
         }
@@ -557,11 +548,15 @@ impl PdfView {
         }
     }
 
-    /// Shows `page` from its start.
-    fn go(&mut self, page: usize) {
-        self.focus = self.mode.start(page, self.lead);
-        self.current = page;
-        self.reveal = Some(if self.mode.paged() { self.focus } else { page });
+    /// Shows `place`'s `page` from its start.
+    fn go(&mut self, at: &mut Place, page: usize) {
+        self.focus = at.mode.start(page, at.lead);
+        at.current = page;
+        self.reveal = Some(if at.mode.paged() {
+            self.focus
+        } else {
+            page
+        });
     }
 }
 
@@ -697,11 +692,11 @@ pub struct Sinks<'a> {
 const SHEET_SETTLE: f64 = 0.3;
 
 /// A paged book's page: what the pane leaves each page, at its zoom.
-fn sheet_for(view: &PdfView, doc: &Document, room: Vec2) -> Option<(f32, f32)> {
-    if !doc.is_reflowable() || !view.mode.paged() {
+fn sheet_for(view: &PdfView, at: &Place, doc: &Document, room: Vec2) -> Option<(f32, f32)> {
+    if !doc.is_reflowable() || !at.mode.paged() {
         return None;
     }
-    let count = if view.mode == ViewMode::Spread {
+    let count = if at.mode == ViewMode::Spread {
         2.0
     } else {
         1.0
@@ -725,6 +720,8 @@ mod scroll;
 pub(super) struct ShowContext<'a> {
     ui: Option<&'a mut Ui>,
     view: &'a mut PdfView,
+    /// Where this pane is read: the map's, so a turn is the engine's.
+    place: &'a mut Place,
     doc: &'a Arc<Document>,
     view_cx: &'a ViewContext,
     pages: &'a mut PageCache,
@@ -788,7 +785,14 @@ pub(super) struct PaintState {
     did: selection::Outcome,
 }
 
-pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>, cx: &ViewContext) {
+pub fn show(
+    ui: &mut Ui,
+    view: &mut PdfView,
+    place: &mut Place,
+    doc: &Arc<Document>,
+    io: Sinks<'_>,
+    cx: &ViewContext,
+) {
     let Sinks {
         pages,
         demand,
@@ -801,10 +805,11 @@ pub fn show(ui: &mut Ui, view: &mut PdfView, doc: &Arc<Document>, io: Sinks<'_>,
     let ctx = ui.ctx().clone();
     let now = ctx.input(|i| i.time);
     let frame = ui.max_rect();
-    let bands = doc.bands().filter(|_| view.mode == ViewMode::Vertical);
+    let bands = doc.bands().filter(|_| place.mode == ViewMode::Vertical);
     let mut context = ShowContext {
         ui: Some(ui),
         view,
+        place,
         doc,
         view_cx: cx,
         pages,
@@ -864,7 +869,14 @@ fn open_picture(
 }
 
 /// The open footnote's card; a press outside or Escape closes it.
-fn footnote(ctx: &egui::Context, view: &mut PdfView, room: Rect, count: usize, t: &Tokens) {
+fn footnote(
+    ctx: &egui::Context,
+    view: &mut PdfView,
+    place: &mut Place,
+    room: Rect,
+    count: usize,
+    t: &Tokens,
+) {
     use crate::footnote::{self, Press};
     let Some(note) = &view.footnote else {
         return;
@@ -874,7 +886,7 @@ fn footnote(ctx: &egui::Context, view: &mut PdfView, room: Rect, count: usize, t
         view.footnote = None;
         return;
     };
-    let id = egui::Id::new(("footnote", view.doc, note.page, note.text.as_str()));
+    let id = egui::Id::new(("footnote", place.doc, note.page, note.text.as_str()));
     let (card, press) = footnote::show(ctx, id, (note, at, room), t);
     // The press that opened it lands on its mark, maybe this very frame.
     let outside = ctx.input(|i| {
@@ -886,7 +898,7 @@ fn footnote(ctx: &egui::Context, view: &mut PdfView, room: Rect, count: usize, t
     match press {
         Some(Press::Go(page)) => {
             view.footnote = None;
-            view.go_to(page, count);
+            view.go_to(place, page, count);
         }
         Some(Press::Close) => view.footnote = None,
         None if outside || escape => view.footnote = None,
@@ -1042,9 +1054,15 @@ impl Glide {
 }
 
 /// This frame's move along the strip: the keys' and auto-scroll's together.
-fn keyed_scroll(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
-    let keyed = steered(view, ctx, len, now);
-    let drift = drifted(view, ctx, now);
+fn keyed_scroll(
+    view: &mut PdfView,
+    at: &Place,
+    ctx: &egui::Context,
+    len: f32,
+    now: f64,
+) -> Option<f32> {
+    let keyed = steered(view, at, ctx, len, now);
+    let drift = drifted(view, at, ctx, now);
     // A key's glide rides along, or it would read the drift as a wheel.
     if let (Some(d), Some(g)) = (drift, &mut view.aim) {
         g.shift(d);
@@ -1056,15 +1074,15 @@ fn keyed_scroll(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> 
 }
 
 /// Auto-scroll's step, at the same pace whatever the frame rate.
-fn drifted(view: &mut PdfView, ctx: &egui::Context, now: f64) -> Option<f32> {
+fn drifted(view: &mut PdfView, at: &Place, ctx: &egui::Context, now: f64) -> Option<f32> {
     let last = view.drift?;
     let size = view.layout.as_ref()?.size;
-    let (here, end) = match view.mode {
+    let (here, end) = match at.mode {
         ViewMode::Horizontal => (view.offset.x, size.x - view.viewport.x),
         _ => (view.offset.y, size.y - view.viewport.y),
     };
     // Paged modes have nowhere to drift; at the strip's end it is done.
-    if view.mode.paged() || here >= end - 0.5 {
+    if at.mode.paged() || here >= end - 0.5 {
         view.drift = None;
         return None;
     }
@@ -1079,14 +1097,14 @@ fn drifted(view: &mut PdfView, ctx: &egui::Context, now: f64) -> Option<f32> {
 }
 
 /// The keys' scroll along the strip, in points.
-fn steered(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
-    if view.mode.paged() {
+fn steered(view: &mut PdfView, at: &Place, ctx: &egui::Context, len: f32, now: f64) -> Option<f32> {
+    if at.mode.paged() {
         view.hold = None;
         view.nudge = None;
         view.aim = None;
         return None;
     }
-    let here = if view.mode == ViewMode::Horizontal {
+    let here = if at.mode == ViewMode::Horizontal {
         view.offset.x
     } else {
         view.offset.y
@@ -1131,23 +1149,28 @@ fn steered(view: &mut PdfView, ctx: &egui::Context, len: f32, now: f64) -> Optio
 }
 
 /// ⌘C or Ctrl+C copies the selection, unless a text field has focus.
-fn copy(ctx: &egui::Context, view: &PdfView, doc: &Document, texts: &TextLayers) {
+fn copy(ctx: &egui::Context, view: &PdfView, doc: &Document, id: DocId, texts: &TextLayers) {
     let asked = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Copy)));
     if !asked || ctx.egui_wants_keyboard_input() {
         return;
     }
-    if let Some(text) = selected_text(view, doc, texts) {
+    if let Some(text) = selected_text(view, doc, id, texts) {
         ctx.copy_text(text);
     }
 }
 
 /// The selection's text; none if nothing is selected.
-fn selected_text(view: &PdfView, doc: &Document, texts: &TextLayers) -> Option<String> {
+fn selected_text(
+    view: &PdfView,
+    doc: &Document,
+    id: DocId,
+    texts: &TextLayers,
+) -> Option<String> {
     let sel = view.selection.filter(|s| !s.is_empty())?;
     // Pages scrolled out of the cache are read again, here.
     Some(sel.text(|page| {
         texts
-            .get(view.doc, page)
+            .get(id, page)
             .or_else(|| doc.text_layer(page).ok().map(Arc::new))
     }))
 }
@@ -1156,12 +1179,13 @@ fn selected_text(view: &PdfView, doc: &Document, texts: &TextLayers) -> Option<S
 fn selection_bar(
     ctx: &egui::Context,
     view: &PdfView,
+    id: DocId,
     texts: &TextLayers,
     room: Rect,
     look: &HighlightSettings,
 ) -> Option<BarPress> {
     let sel = view.selection.filter(|s| !s.is_empty())?;
-    let id = egui::Id::new(("study-bar", view.doc));
+    let id = egui::Id::new(("study-bar", id));
     // Hidden while a press elsewhere may be selecting; a press on it stays.
     let bar = egui::LayerId::new(egui::Order::Foreground, id);
     let (down, from) = ctx.input(|i| (i.pointer.any_down(), i.pointer.press_origin()));
@@ -1170,7 +1194,7 @@ fn selection_bar(
     }
     let mut shown = Rect::NOTHING;
     for sheet in &view.sheets {
-        let Some(layer) = texts.get(view.doc, sheet.page) else {
+        let Some(layer) = texts.get(id, sheet.page) else {
             continue;
         };
         let Some(range) = sel.on_page(sheet.page, layer.text.len()) else {
@@ -1192,7 +1216,7 @@ fn selection_bar(
 /// The strips' scroll along their axis; the paged modes' page.
 fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usize) -> f32 {
     let room = (out.content_size - out.inner_rect.size()).max(Vec2::ZERO);
-    let (done, total) = match view.mode {
+    let (done, total) = match at.mode {
         ViewMode::Vertical => (out.state.offset.y, room.y),
         ViewMode::Horizontal => (out.state.offset.x, room.x),
         ViewMode::Single | ViewMode::Spread => {
@@ -1435,7 +1459,7 @@ mod tests {
 
     #[test]
     fn a_resized_pane_resets_its_book_once_it_holds_still() -> Result<(), &'static str> {
-        let mut view = PdfView::new(crate::testing::doc()?);
+        let mut view = PdfView::new();
         // The first page size sets at once.
         assert_eq!(view.settle_sheet(Some((400.0, 600.0)), 0.0), None);
         assert!(std::mem::take(&mut view.sheet_moved));
@@ -1455,24 +1479,26 @@ mod tests {
 
     #[test]
     fn a_mode_switch_keeps_the_page_and_a_turn_moves_it() -> Result<(), &'static str> {
-        let mut view = PdfView::new(crate::testing::doc()?);
-        view.current = 7;
-        view.set_mode(ViewMode::Spread, 0.0);
-        assert_eq!((view.focus, view.current, view.reveal), (6, 7, Some(6)));
+        let doc = crate::testing::doc()?;
+        let mut view = PdfView::new();
+        let mut at = Place::new(doc);
+        at.current = 7;
+        view.set_mode(&mut at, ViewMode::Spread, 0.0);
+        assert_eq!((view.focus, at.current, view.reveal), (6, 7, Some(6)));
         assert_eq!(view.zoom.fit, Some(Fit::Width));
-        view.arrow(Arrow::Right, 20, 0.0);
-        assert_eq!((view.focus, view.current), (8, 8));
-        view.set_mode(ViewMode::Horizontal, 0.0);
+        view.arrow(&mut at, Arrow::Right, 20, 0.0);
+        assert_eq!((view.focus, at.current), (8, 8));
+        view.set_mode(&mut at, ViewMode::Horizontal, 0.0);
         assert_eq!((view.zoom.fit, view.reveal), (None, Some(8)));
         // Along the strip, the arrow is the scroll's, not a turn.
-        view.arrow(Arrow::Right, 20, 0.0);
-        assert_eq!(view.current, 8);
-        view.arrow(Arrow::Up, 20, 0.0);
-        assert_eq!(view.current, 8);
+        view.arrow(&mut at, Arrow::Right, 20, 0.0);
+        assert_eq!(at.current, 8);
+        view.arrow(&mut at, Arrow::Up, 20, 0.0);
+        assert_eq!(at.current, 8);
         // Across the column, left and right still turn.
-        view.set_mode(ViewMode::Vertical, 0.0);
-        view.arrow(Arrow::Left, 20, 0.0);
-        assert_eq!((view.current, view.reveal), (7, Some(7)));
+        view.set_mode(&mut at, ViewMode::Vertical, 0.0);
+        view.arrow(&mut at, Arrow::Left, 20, 0.0);
+        assert_eq!((at.current, view.reveal), (7, Some(7)));
         Ok(())
     }
 }

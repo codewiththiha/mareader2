@@ -76,9 +76,9 @@ fn paint_one(cx: &mut ShowContext<'_>, ui: &mut Ui, origin: Vec2, page: usize) {
     let (ppp, reflow, t) = (input.ppp, input.reflow, input.t);
     let (urgency, picture_tone, emoji_tone) = (input.urgency, input.picture_tone, input.emoji_tone);
     let (view_cx, doc, sizes, bands, frame) = (cx.view_cx, cx.doc, cx.sizes, cx.bands, cx.frame);
+    let doc_id = cx.place.doc;
     let view = &mut *cx.view;
-    let (doc_id, pages, demand, texts) =
-        (view.doc, &mut *cx.pages, &mut *cx.demand, &mut *cx.texts);
+    let (pages, demand, texts) = (&mut *cx.pages, &mut *cx.demand, &mut *cx.texts);
     let Some(scroll) = cx.scroll.as_ref() else {
         return;
     };
@@ -148,6 +148,7 @@ fn plan(cx: &ShowContext<'_>, page: usize) -> Option<Plan> {
     let input = cx.input.as_ref()?;
     let wanted = input.scale;
     let max_side = input.max_side;
+    let doc_id = cx.place.doc;
     let view = &*cx.view;
     let doc = cx.doc;
     let sizes = cx.sizes;
@@ -158,7 +159,7 @@ fn plan(cx: &ShowContext<'_>, page: usize) -> Option<Plan> {
     let long = size.width.max(size.height);
     let cap = Scale::within(doc.fitted_scale(page, max_side / long).unwrap_or(1.0));
     let whole = |scale| PageKey {
-        doc: view.doc,
+        doc: doc_id,
         page,
         scale,
         part: Part::Whole,

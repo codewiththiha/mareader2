@@ -74,7 +74,7 @@ fn prepare_ink(cx: &mut ShowContext<'_>, ui: &mut Ui) {
     let Some(input) = cx.input.as_ref() else {
         return;
     };
-    let doc_id = cx.view.doc;
+    let doc_id = cx.place.doc;
     let texts = &*cx.texts;
     let down = input.down;
     let vocab = &mut cx.vocab;
@@ -110,7 +110,7 @@ fn under(cx: &mut ShowContext<'_>, ui: &mut Ui) {
         return;
     };
     let t = input.t;
-    let doc_id = cx.view.doc;
+    let doc_id = cx.place.doc;
     let texts = &mut *cx.texts;
     let gloss = &mut *cx.gloss;
     let pass = cx.pass;
@@ -155,7 +155,7 @@ fn over(cx: &mut ShowContext<'_>, ui: &mut Ui) {
     let placed = &cx.paint.placed;
     let sheets = &cx.paint.sheets;
     let text = Pages {
-        doc: cx.view.doc,
+        doc: cx.place.doc,
         sheets: &cx.paint.open,
         texts: &*cx.texts,
         sideways: !down,
@@ -196,7 +196,7 @@ fn select(cx: &mut ShowContext<'_>, ui: &mut Ui) {
     let marker = &mut cx.view.marker;
     let gloss = &mut *cx.gloss;
     let text = Pages {
-        doc: cx.view.doc,
+        doc: cx.place.doc,
         sheets: &cx.paint.open,
         texts: &*cx.texts,
         sideways: !down,
@@ -284,7 +284,7 @@ fn context_menu(cx: &mut ShowContext<'_>) {
     let selection = &mut cx.view.selection;
     let placed = &cx.paint.placed;
     let text = Pages {
-        doc: cx.view.doc,
+        doc: cx.place.doc,
         sheets: &cx.paint.open,
         texts: &*cx.texts,
         sideways: !down,
@@ -348,7 +348,7 @@ fn reach(cx: &mut ShowContext<'_>, ui: &mut Ui) {
     let down = input.down;
     let gloss = &mut *cx.gloss;
     let texts = &*cx.texts;
-    let doc_id = cx.view.doc;
+    let doc_id = cx.place.doc;
     let placed = &cx.paint.placed;
     let shaded = &cx.paint.shaded;
     let text = Pages {
@@ -404,11 +404,11 @@ fn prefetch(cx: &mut ShowContext<'_>) {
     let sizes = cx.sizes;
     let shown = cx.paint.shown_pages.clone();
     // The strips' neighbours, or the next and last turn's pages.
-    let (near, count) = match view.mode {
+    let (near, count) = match cx.place.mode {
         ViewMode::Single | ViewMode::Spread => (layout.pages(), sizes.len()),
         ViewMode::Vertical | ViewMode::Horizontal => (shown.clone(), sizes.len()),
     };
-    let reach = PREFETCH * if view.mode == ViewMode::Spread { 2 } else { 1 };
+    let reach = PREFETCH * if cx.place.mode == ViewMode::Spread { 2 } else { 1 };
     let before = near.start.saturating_sub(reach)..near.start;
     let after = near.end..(near.end + reach).min(count);
     for page in before.chain(after) {

@@ -1,6 +1,9 @@
 use super::*;
 
 pub(super) fn run(cx: &mut ShowContext<'_>) {
+    // Read before the view is borrowed: both are fields of `cx`.
+    let mode = cx.place.mode;
+    let doc = cx.place.doc;
     let view = &mut *cx.view;
     let Some(input) = cx.input.as_ref() else {
         return;
@@ -10,7 +13,7 @@ pub(super) fn run(cx: &mut ShowContext<'_>) {
     };
     let viewport = input.viewport;
     let down = input.down;
-    let mut area = ScrollArea::new([true, down]).id_salt(("pdf", view.doc, view.mode));
+    let mut area = ScrollArea::new([true, down]).id_salt(("pdf", doc, mode));
     if let Some((to, _)) = view.scroll_to {
         area = area.scroll_offset(to);
     }
@@ -55,24 +58,24 @@ fn finish_jump(cx: &mut ShowContext<'_>) {
             view.jump = None;
             // Taken over midway: the page under the centre is read.
             if !arrived {
-                view.landed = None;
+                cx.place.landed = None;
             }
         } else {
             ctx.request_repaint();
         }
     }
     // A jump keeps its page as the one read until it lands.
-    if !view.mode.paged() && view.scroll_to.is_none() && view.jump.is_none() {
+    if !cx.place.mode.paged() && view.scroll_to.is_none() && view.jump.is_none() {
         let centre = Pos2::ZERO + out.state.offset + viewport / 2.0;
-        view.current = layout.locate(centre).map_or(0, |(page, _)| page);
+        cx.place.current = layout.locate(centre).map_or(0, |(page, _)| page);
         // A short page jumped to stays the one read until the strip moves.
         let offset = out.state.offset;
-        view.landed = view.landed.and_then(|(page, at)| match at {
+        cx.place.landed = cx.place.landed.and_then(|(page, at)| match at {
             None => Some((page, Some(offset))),
             Some(at) => ((offset - at).length() < 1.0).then_some((page, Some(at))),
         });
-        if let Some((page, _)) = view.landed {
-            view.current = page;
+        if let Some((page, _)) = cx.place.landed {
+            cx.place.current = page;
         }
     }
 }
@@ -92,8 +95,8 @@ fn finish_scroll(cx: &mut ShowContext<'_>) {
     };
     let viewport = input.viewport;
     let sizes = cx.sizes;
-    view.progress = progress(view, layout, out, sizes.len());
-    view.visible = cx.paint.shown_pages.clone();
+    cx.place.progress = progress(view, layout, out, sizes.len());
+    cx.place.visible = cx.paint.shown_pages.clone();
     view.sheets = std::mem::take(&mut cx.paint.sheets);
     // Nothing shown, as mid-jump: the backdrop holds its colour.
     view.paper_at = cx.paint.paper_at.or(view.paper_at);

@@ -16,12 +16,12 @@ fn selection_actions(cx: &mut ShowContext<'_>) {
     let texts = &mut *cx.texts;
     let gloss = &mut *cx.gloss;
     if view_cx.active {
-        copy(ctx, view, doc, texts);
+        copy(ctx, view, doc, cx.place.doc, texts);
         let room = Rect::from_min_max(frame.min + vec2(0.0, view_cx.top_inset), frame.max);
-        let pressed = selection_bar(ctx, view, texts, room, &view_cx.highlights);
+        let pressed = selection_bar(ctx, view, cx.place.doc, texts, room, &view_cx.highlights);
         match pressed {
             Some(BarPress::Copy) => {
-                if let Some(text) = selected_text(view, doc, texts) {
+                if let Some(text) = selected_text(view, doc, cx.place.doc, texts) {
                     ctx.copy_text(text);
                     gloss.push(Gloss::Copied);
                 }
@@ -46,13 +46,13 @@ fn links(cx: &mut ShowContext<'_>) {
     let sizes = cx.sizes;
     let texts = &mut *cx.texts;
     match cx.paint.follow.take() {
-        Some(LinkTarget::Page(page)) => view.go_to(page, sizes.len()),
+        Some(LinkTarget::Page(page)) => view.go_to(cx.place, page, sizes.len()),
         Some(LinkTarget::Note { page, text }) => {
             let target = LinkTarget::Note {
                 page,
                 text: text.clone(),
             };
-            match mark_of(&view.sheets, texts, view.doc, &target, cx.paint.did.click) {
+            match mark_of(&view.sheets, texts, cx.place.doc, &target, cx.paint.did.click) {
                 Some((on, at)) => {
                     view.footnote = Some(crate::footnote::Footnote {
                         page: on,
@@ -61,7 +61,7 @@ fn links(cx: &mut ShowContext<'_>) {
                         target: page,
                     });
                 }
-                None => view.go_to(page, sizes.len()),
+                None => view.go_to(cx.place, page, sizes.len()),
             }
         }
         // Checked when read; checked again before leaving the app.
@@ -78,7 +78,7 @@ fn links(cx: &mut ShowContext<'_>) {
         }
         Some(LinkTarget::Script { chapter, node }) => {
             let target = LinkTarget::Script { chapter, node };
-            let mark = mark_of(&view.sheets, texts, view.doc, &target, cx.paint.did.click);
+            let mark = mark_of(&view.sheets, texts, cx.place.doc, &target, cx.paint.did.click);
             view.triggers.script.click(chapter, node, mark);
             ctx.request_repaint();
         }
@@ -103,11 +103,11 @@ fn windows(cx: &mut ShowContext<'_>) {
     }
     if view_cx.active {
         let room = Rect::from_min_max(frame.min + vec2(0.0, view_cx.top_inset), frame.max);
-        footnote(ctx, view, room, sizes.len(), &view_cx.tokens);
+        footnote(ctx, view, cx.place, room, sizes.len(), &view_cx.tokens);
     }
     if let Some(p) = cx.paint.did.double {
         view.viewer =
-            open_picture(ctx, (&view.sheets, texts, view.doc), doc, p).or(view.viewer.take());
+            open_picture(ctx, (&view.sheets, texts, cx.place.doc), doc, p).or(view.viewer.take());
     }
     if let Some(viewer) = &mut view.viewer
         && !crate::image_viewer::show(ctx, viewer, &view_cx.tokens)

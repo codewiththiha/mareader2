@@ -21,8 +21,8 @@ fn prepare(cx: &mut ShowContext<'_>) {
         return;
     };
     view.ease = motion::zoom(ctx);
-    view.rtl = doc.right_to_left();
-    view.lead = doc.lead();
+    cx.place.rtl = doc.right_to_left();
+    cx.place.lead = doc.lead();
     // A book's vertical strip is a stream: each page cut to its text.
     if ui.rect_contains_pointer(frame) {
         let (factor, pointer) = ctx.input(|i| (i.zoom_delta(), i.pointer.hover_pos()));
@@ -30,7 +30,7 @@ fn prepare(cx: &mut ShowContext<'_>) {
             let at = p - frame.min - vec2(0.0, view_cx.top_inset);
             view.zoom.pinch(factor, at, now);
             // A zoom set by hand is measured from the page read.
-            view.zoom.fit_page = view.current;
+            view.zoom.fit_page = cx.place.current;
         }
     }
     if std::mem::take(&mut view.fresh) && view.zoom.fit.is_some() {
@@ -39,12 +39,12 @@ fn prepare(cx: &mut ShowContext<'_>) {
     // A book's set zoom is its type size: the pane reflows it instead.
     let keep = view_cx.page.auto_resize && !doc.is_reflowable();
     // Remembered on the page it was set on, before a turn moves it.
-    let set_on = layout::fit_box(view.mode, sizes, (view.zoom.fit_page, view.lead));
+    let set_on = layout::fit_box(cx.place.mode, sizes, (view.zoom.fit_page, cx.place.lead));
     view.zoom.hold(keep, set_on);
-    if let Some(wait) = view.follow_size(sizes, keep, now) {
+    if let Some(wait) = view.follow_size(cx.place, sizes, keep, now) {
         ctx.request_repaint_after_secs(wait as f32);
     }
-    let margin = if view.mode == ViewMode::Horizontal {
+    let margin = if cx.place.mode == ViewMode::Horizontal {
         MARGIN
     } else if bands.is_some() {
         // A stream's column never touches the pane's edge.
@@ -54,10 +54,10 @@ fn prepare(cx: &mut ShowContext<'_>) {
     };
     let mut room = frame.size() - vec2(2.0 * margin, 2.0 * MARGIN + view_cx.top_inset);
     // The strip fits a page's height alone: it scrolls sideways.
-    if view.mode == ViewMode::Horizontal && view.zoom.measure() == Fit::Page {
+    if cx.place.mode == ViewMode::Horizontal && view.zoom.measure() == Fit::Page {
         room.x = f32::INFINITY;
     }
-    if let Some(wait) = view.settle_sheet(sheet_for(view, doc, room), now) {
+    if let Some(wait) = view.settle_sheet(sheet_for(view, cx.place, doc, room), now) {
         ctx.request_repaint_after_secs(wait as f32);
     }
     cx.margin = margin;
@@ -70,7 +70,7 @@ fn refit(cx: &mut ShowContext<'_>) {
     let now = cx.now;
     let sizes = cx.sizes;
     let room = cx.room;
-    let fit_box = layout::fit_box(view.mode, sizes, (view.zoom.fit_page, view.lead));
+    let fit_box = layout::fit_box(cx.place.mode, sizes, (view.zoom.fit_page, cx.place.lead));
     let follow = motion::follow(ctx);
     if let Some(wait) = view
         .zoom
@@ -98,11 +98,11 @@ fn rebuild(cx: &mut ShowContext<'_>) {
     let margin = cx.margin;
     let viewport = frame.size() - vec2(0.0, view_cx.top_inset);
     let inputs = Inputs {
-        mode: view.mode,
+        mode: cx.place.mode,
         frame: frame.size(),
         inset: view_cx.top_inset,
         zoom: shown,
-        focus: if view.mode.paged() { view.focus } else { 0 },
+        focus: if cx.place.mode.paged() { view.focus } else { 0 },
         gap: if bands.is_some() {
             0.0
         } else {
@@ -113,8 +113,8 @@ fn rebuild(cx: &mut ShowContext<'_>) {
             Some(_) => view_cx.page.column,
             None => egui::Align::Center,
         },
-        rtl: view.rtl,
-        lead: view.lead,
+        rtl: cx.place.rtl,
+        lead: cx.place.lead,
     };
     let rebuilt = view.layout.as_ref().is_none_or(|l| l.inputs != inputs);
     if rebuilt {
@@ -130,7 +130,7 @@ fn rebuild(cx: &mut ShowContext<'_>) {
         };
         match view.layout.take() {
             // Zooms and resizes keep the reading spot in place.
-            Some(old) if view.reveal.is_none() && old.inputs.mode == view.mode => {
+            Some(old) if view.reveal.is_none() && old.inputs.mode == cx.place.mode => {
                 let pivot = view.zoom.pivot;
                 let pivots = (
                     pivot.unwrap_or(view.viewport / 2.0),
@@ -141,7 +141,7 @@ fn rebuild(cx: &mut ShowContext<'_>) {
                 }
             }
             _ => {
-                view.reveal.get_or_insert(view.current);
+                view.reveal.get_or_insert(cx.place.current);
             }
         }
         view.layout = Some(new);
@@ -167,16 +167,16 @@ fn reveal(cx: &mut ShowContext<'_>) {
     if let Some(page) = view.reveal.take()
         && let Some(to) = view.layout.as_ref().and_then(|l| l.reveal(page))
     {
-        view.landed = (!view.mode.paged()).then_some((page, None));
+        cx.place.landed = (!cx.place.mode.paged()).then_some((page, None));
         // A strip glides to the page; a new layout or a turn lands there.
         let glide = motion::jump(ctx);
-        if !rebuilt && !view.mode.paged() && glide.duration.max > 0.0 {
+        if !rebuilt && !cx.place.mode.paged() && glide.duration.max > 0.0 {
             let until = now + f64::from(glide.duration.max) + 0.2;
             let end = view.layout.as_ref().map_or(Vec2::ZERO, |l| l.size) - viewport;
             let to = to.min(end.max(Vec2::ZERO));
             // Along the strip it glides with the keys' glide; across, it lands.
             let pick = |v: Vec2| {
-                if view.mode == ViewMode::Horizontal {
+                if cx.place.mode == ViewMode::Horizontal {
                     v.x
                 } else {
                     v.y
@@ -211,13 +211,13 @@ fn finish(cx: &mut ShowContext<'_>) {
         ctx.request_repaint_after_secs(wait);
     }
     // Keys move along the strip: sideways in the horizontal one.
-    let sideways = view.mode == ViewMode::Horizontal;
+    let sideways = cx.place.mode == ViewMode::Horizontal;
     let len = if sideways { viewport.x } else { viewport.y };
     // Auto-scroll belongs to the focused pane, as in mareader.
     if !view_cx.active {
         view.drift = None;
     }
-    let keyed = keyed_scroll(view, ctx, len, now);
+    let keyed = keyed_scroll(view, cx.place, ctx, len, now);
 
     let Some(layout) = &view.layout else {
         return;
@@ -251,7 +251,7 @@ fn finish(cx: &mut ShowContext<'_>) {
         t.page = text;
     }
     // egui turns a plain wheel sideways only if that's the sole direction.
-    let down = view.mode != ViewMode::Horizontal || layout.size.y > frame.height() + 0.5;
+    let down = cx.place.mode != ViewMode::Horizontal || layout.size.y > frame.height() + 0.5;
     ui.style_mut().always_scroll_the_only_direction = true;
     let viewport = frame.size() - vec2(0.0, view_cx.top_inset);
     cx.input = Some(InputState {
