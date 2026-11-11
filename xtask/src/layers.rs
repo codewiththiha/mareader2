@@ -108,6 +108,7 @@ pub struct Package {
 
 /// Every rule violation in `packages`, as readable lines.
 pub fn check(packages: &[Package]) -> Vec<String> {
+    let members: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
     let mut errors = Vec::new();
     for p in packages {
         let Some(layer) = layer_of(&p.name) else {
@@ -129,8 +130,9 @@ pub fn check(packages: &[Package]) -> Vec<String> {
                 ));
                 continue;
             }
-            // A crate with a table row is ours, whether listed here or not.
-            if let Some(theirs) = layer_of(dep) {
+            // Ours either way, but a bare `cefr` is the git crate of that name.
+            let ours = members.contains(&dep.as_str()) || dep.starts_with("mareader-");
+            if let Some(theirs) = layer_of(dep).filter(|_| ours) {
                 let sideways = SIDEWAYS.contains(&(short(&p.name), short(dep)));
                 let down =
                     theirs.rank() < layer.rank() || (theirs.rank() == layer.rank() && sideways);
