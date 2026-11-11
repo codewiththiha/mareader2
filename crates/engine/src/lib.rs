@@ -30,6 +30,7 @@ pub mod pane_texts;
 pub mod paper;
 pub mod play;
 pub mod read_aloud;
+pub mod reading;
 pub mod reading_place;
 pub mod reveal;
 pub mod route;

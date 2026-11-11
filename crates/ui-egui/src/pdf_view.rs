@@ -2,6 +2,7 @@
 
 use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
+use mareader_engine::reading::Place;
 use mareader_engine::texts::TextLayers;
 use std::sync::Arc;
 
@@ -125,11 +126,10 @@ pub type Demand = Vec<(Urgency, Want)>;
 /// One pane's view of a document; the document itself is shared.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PdfView {
-    pub doc: DocId,
-    /// The library book this pane reads as; none: the file's own.
-    pub book: Option<BookId>,
+    /// Where this pane is in its document: the reading half, which the whole
+    /// struct derefs to, so `view.current` still reads and writes.
+    pub reading: Place,
     pub zoom: PaneZoom,
-    pub mode: ViewMode,
     /// The paged modes' page; the strips follow the scroll instead.
     focus: usize,
     layout: Option<Layout>,
@@ -139,12 +139,6 @@ pub struct PdfView {
     scroll_to: Option<(Vec2, u8)>,
     offset: Vec2,
     viewport: Vec2,
-    /// Pages on screen last frame.
-    pub visible: std::ops::Range<usize>,
-    /// The page read: the paged modes' page, or under a strip's centre.
-    pub current: usize,
-    /// How far through the document, 0 to 1.
-    pub progress: f32,
     pub selection: Option<Selection>,
     /// Where reading aloud will start, until it does.
     pub marker: Option<Marker>,
@@ -169,8 +163,6 @@ pub struct PdfView {
     resize: Option<(usize, f64)>,
     /// A strip's spot to keep once the pages are laid out anew.
     keep: Option<(usize, Vec2)>,
-    /// The document's pages turn right to left.
-    rtl: bool,
     /// The pages it wants alone before spreads pair them.
     lead: usize,
     /// When the view last moved, for tiles to wait on.
@@ -197,22 +189,31 @@ pub struct PdfView {
     pub sheet_moved: bool,
 }
 
+impl std::ops::Deref for PdfView {
+    type Target = Place;
+
+    fn deref(&self) -> &Place {
+        &self.reading
+    }
+}
+
+impl std::ops::DerefMut for PdfView {
+    fn deref_mut(&mut self) -> &mut Place {
+        &mut self.reading
+    }
+}
+
 impl PdfView {
     pub fn new(doc: DocId) -> Self {
         Self {
-            doc,
-            book: None,
+            reading: Place::new(doc),
             zoom: PaneZoom::default(),
-            mode: ViewMode::default(),
             focus: 0,
             layout: None,
             reveal: None,
             scroll_to: None,
             offset: Vec2::ZERO,
             viewport: Vec2::ZERO,
-            visible: 0..0,
-            current: 0,
-            progress: 0.0,
             selection: None,
             marker: None,
             sheets: Vec::new(),
@@ -220,8 +221,6 @@ impl PdfView {
             fresh: true,
             resize: None,
             keep: None,
-            rtl: false,
-            lead: 0,
             moved_at: 0.0,
             footnote: None,
             transcripts: Default::default(),
@@ -232,7 +231,6 @@ impl PdfView {
             hold: None,
             drift: None,
             jump: None,
-            landed: None,
             ease: true,
             place: None,
             placed_at: None,
