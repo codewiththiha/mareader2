@@ -25,7 +25,7 @@ fn zoom(h: &H) -> (f32, Option<Fit>) {
 
 fn go(h: &mut H, page: usize) {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::GoTo { pane, page });
+    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
     // Past the glide, then past the kept zoom's settle.
     h.run();
     h.run_steps(30);
@@ -202,7 +202,7 @@ fn the_progress_line_follows_the_scroll() {
     go(&mut h, 30);
     let mid = progress(&h);
     assert!((0.4..0.6).contains(&mid), "{mid}");
-    h.state_mut().queue(Command::LastPage);
+    h.state_mut().queue(Command::Intent(Intent::LastPage));
     h.run();
     assert!(progress(&h) > 0.99, "{}", progress(&h));
 }
@@ -254,12 +254,12 @@ fn span(h: &H) -> (f32, f32) {
 fn a_turn_to_a_spread_of_other_sizes_fits_on_landing() {
     let mut h = reader(&[("pdf", "sample:20")]);
     h.state_mut()
-        .queue(Command::View(mareader_ui_egui::layout::ViewMode::Spread));
+        .queue(Command::Intent(Intent::View(mareader_ui_egui::layout::ViewMode::Spread)));
     h.run();
     let pane = h.state().active_pane();
     // Pages 7 and 8: one on its side, one upright. Then two upright.
     for page in [6, 2, 13] {
-        h.state_mut().queue(Command::GoTo { pane, page });
+        h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
         h.run();
         let (left, right) = span(&h);
         assert!(

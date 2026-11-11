@@ -144,7 +144,7 @@ impl LibraryState {
         let note = match done {
             Ok(()) => {
                 self.folders.sheet = None;
-                out.push(Command::OpenBook(book));
+                out.push(Command::Intent(Intent::OpenBook(book)));
                 return;
             }
             Err(RelinkError::Removed) => {

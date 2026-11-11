@@ -267,7 +267,7 @@ fn card(ui: &mut Ui, run: &Run, now: f64, t: &Tokens, out: &mut Commands) {
                 // What's done is kept; the paused card carries on.
                 let stop = widgets::small_icon_button(ui, Icon::Close, "Pause organizing");
                 if stop.clicked() {
-                    out.push(Command::Library(Action::StopOrganizing));
+                    out.push(Command::Intent(Intent::Library(Action::StopOrganizing)));
                 }
                 lines(ui);
             });
@@ -286,10 +286,10 @@ fn paused_buttons(ui: &mut Ui, run: &Run, out: &mut Commands) {
         _ => ("Discard what's done", "Resume", "Carry on where it stopped"),
     };
     if widgets::small_icon_button(ui, Icon::Close, tip).clicked() {
-        out.push(Command::Library(Action::DiscardPaused));
+        out.push(Command::Intent(Intent::Library(Action::DiscardPaused)));
     }
     if ui.button(go).on_hover_text(go_tip).clicked() {
-        out.push(Command::Library(Action::ResumeOrganizing));
+        out.push(Command::Intent(Intent::Library(Action::ResumeOrganizing)));
     }
 }
 

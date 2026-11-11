@@ -41,7 +41,7 @@ pub fn button(
             // Every change shows at once; the menu stays open to chain them.
             let mut next = *view;
             if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
-                out.push(Command::Library(Action::Shelf(ShelfAction::New)));
+                out.push(Command::Intent(Intent::Library(Action::Shelf(ShelfAction::New))));
                 ui.close();
             }
             let organizer = super::menus::Organizer {
@@ -54,7 +54,7 @@ pub fn button(
             widgets::menu_rule(ui);
             contents(ui, &mut next, auto);
             if next != *view {
-                out.push(Command::SetLibraryView(next));
+                out.push(Command::Intent(Intent::SetLibraryView(next)));
             }
             widgets::close_on_key(ui);
         });

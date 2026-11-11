@@ -132,7 +132,7 @@ fn pane(
     // Any press focuses the pane, even one its page widgets take.
     let pressed = ui.input(|i| i.pointer.any_pressed());
     if pressed && id != view.active && ui.rect_contains_pointer(rect) {
-        out.push(Command::FocusPane(id));
+        out.push(Command::Intent(Intent::FocusPane(id)));
     }
     if view.drop_target == Some(id) {
         let stroke = Stroke::new(2.0, window.accent);
@@ -155,7 +155,7 @@ fn pane(
         let mut child =
             ui.new_child(UiBuilder::new().max_rect(Rect::from_min_size(at, vec2(size, size))));
         if widgets::icon_button(&mut child, Icon::Close, "Close pane", false).clicked() {
-            out.push(Command::ClosePane(id));
+            out.push(Command::Intent(Intent::ClosePane(id)));
         }
     }
 }
@@ -205,7 +205,7 @@ fn dividers(ui: &mut Ui, tree: &PaneTree, area: Rect, out: &mut Commands) {
                 SplitAxis::Horizontal => (p.x - d.parent.x) / d.parent.w.max(1.0),
                 SplitAxis::Vertical => (p.y - d.parent.y) / d.parent.h.max(1.0),
             };
-            out.push(Command::SetRatio(d.path, ratio));
+            out.push(Command::Intent(Intent::SetRatio(d.path, ratio)));
         }
     }
 }
@@ -246,7 +246,7 @@ fn empty_state(
         .corner_radius(t.radius);
     let at = Rect::from_center_size(c + vec2(0.0, 68.0), vec2(96.0, 32.0));
     if ui.put(at, button).clicked() {
-        out.push(Command::ShowOpenDialog(Placement::Into));
+        out.push(Command::Ui(UiCommand::ShowOpenDialog(Placement::Into)));
     }
     if recent.is_empty() {
         return;
@@ -262,11 +262,11 @@ fn empty_state(
     for (book, title) in recent {
         let row = Rect::from_min_size(pos2(left, y), vec2(width, 30.0));
         if recent_row(ui, row, (*book, title), t) {
-            out.push(Command::PlaceBook {
+            out.push(Command::Intent(Intent::PlaceBook {
                 book: *book,
                 pane: Some(pane),
                 placement: Placement::Into,
-            });
+            }));
         }
         y += 30.0;
     }

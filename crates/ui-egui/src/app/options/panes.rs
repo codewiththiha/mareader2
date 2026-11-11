@@ -92,7 +92,7 @@ impl MareaderApp {
             pane: Some(self.active),
             ..request
         };
-        self.queue(Command::Open(request));
+        self.queue(Command::Intent(Intent::Open(request)));
 
         Ok(())
     }
@@ -114,24 +114,24 @@ impl MareaderApp {
 
     fn option_open(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match value {
-            "appearance" => self.queue(Command::ShowAppearance),
-            "settings" => self.queue(Command::ShowSettings),
-            "shortcuts" => self.queue(Command::ShowShortcuts),
-            "menu" => self.queue(Command::ShowViewMenu),
-            "find" => self.queue(Command::ShowFind),
+            "appearance" => self.queue(Command::Ui(UiCommand::ShowAppearance)),
+            "settings" => self.queue(Command::Ui(UiCommand::ShowSettings)),
+            "shortcuts" => self.queue(Command::Ui(UiCommand::ShowShortcuts)),
+            "menu" => self.queue(Command::Ui(UiCommand::ShowViewMenu)),
+            "find" => self.queue(Command::Ui(UiCommand::ShowFind)),
             "search" => {
                 let focus = ui_library::SearchAction::Focus;
-                self.queue(Command::Library(ui_library::Action::Search(focus)));
+                self.queue(Command::Intent(Intent::Library(ui_library::Action::Search(focus))));
             }
-            "add" => self.queue(Command::Library(ui_library::Action::ShowAdd)),
+            "add" => self.queue(Command::Intent(Intent::Library(ui_library::Action::ShowAdd))),
             "add_folder" => {
                 let root = std::path::PathBuf::from("/home/reader/Books");
-                self.queue(Command::Library(ui_library::Action::AskFolder(root)));
+                self.queue(Command::Intent(Intent::Library(ui_library::Action::AskFolder(root))));
             }
             // The removal sheet for what `select` picked.
             "remove" => {
                 let books = self.queued.iter().find_map(|c| match c {
-                    Command::Library(ui_library::Action::Pick(ui_library::PickAction::Only(p))) => {
+                    Command::Intent(Intent::Library(ui_library::Action::Pick(ui_library::PickAction::Only(p)))) => {
                         Some(p.iter().filter_map(|p| match p {
                             ui_library::Pick::Book(id) => Some(*id),
                             _ => None,
@@ -146,19 +146,19 @@ impl MareaderApp {
                     shelves,
                     links,
                 };
-                self.queue(Command::Library(ui_library::Action::Book(ask)));
+                self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(ask))));
             }
             "rename" => {
                 let first = self.library.model().recent().first().map(|b| b.id);
                 let first = first.ok_or("open=rename: no book")?;
                 let ask = ui_library::Action::AskRename(ui_library::Named::Book(first));
-                self.queue(Command::Library(ask));
+                self.queue(Command::Intent(Intent::Library(ask)));
             }
             // The first missing book's find-again sheet.
             "find_again" => {
                 let lost = self.library.model().books().find(|b| b.missing());
                 let lost = lost.ok_or("open=find_again: no missing book")?.id;
-                self.queue(Command::Library(ui_library::Action::FindAgain(lost)));
+                self.queue(Command::Intent(Intent::Library(ui_library::Action::FindAgain(lost))));
             }
             _ => {
                 return Err(

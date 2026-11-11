@@ -36,7 +36,7 @@ pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Com
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
     reading(ui, s);
-    let keys = keymap::hint(v.platform, &Command::ToggleReadAloud).unwrap_or_default();
+    let keys = keymap::hint(v.platform, &Command::Intent(Intent::ToggleReadAloud)).unwrap_or_default();
     note(
         ui,
         &format!("Start or pause reading with {keys}, or right-click a page to read from there."),
@@ -127,7 +127,7 @@ fn model_row(
             r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
             let hint = format!("{}'s voices, builds and sound", model.name);
             if r.on_hover_text(hint).clicked() {
-                out.push(Command::OpenSettings(Tab::Model(model)));
+                out.push(Command::Intent(Intent::OpenSettings(Tab::Model(model))));
             }
             let size = crate::dict::megabytes(shelf.on_disk(model));
             muted(ui, &size).on_hover_text("On disk with its voices and builds");
@@ -437,8 +437,8 @@ fn voice_row(
             .layout(Layout::left_to_right(Align::Center));
         let mut slot = ui.new_child(place);
         let (icon, verb, command) = match saying {
-            true => (Icon::Stop, "Stop", Command::StopVoiceTry),
-            false => (Icon::Try, "Preview", Command::TryVoiceOf(id.to_owned())),
+            true => (Icon::Stop, "Stop", Command::Intent(Intent::StopVoiceTry)),
+            false => (Icon::Try, "Preview", Command::Intent(Intent::TryVoiceOf(id.to_owned()))),
         };
         let label = format!("{verb} {name}");
         if widgets::small_icon_button(&mut slot, icon, &label).clicked() {
@@ -461,8 +461,8 @@ fn preview_row(ui: &mut Ui, booth: &Booth, open: bool, out: &mut Commands) {
     let hint = "Says a line in this voice, at this speed";
     row(ui, "Hear a sample", hint, |ui| {
         let (icon, text, command) = match booth.trying() {
-            true => (Icon::Pause, "Stop", Command::StopVoiceTry),
-            false => (Icon::Resume, "Preview", Command::TryVoice),
+            true => (Icon::Pause, "Stop", Command::Intent(Intent::StopVoiceTry)),
+            false => (Icon::Resume, "Preview", Command::Intent(Intent::TryVoice)),
         };
         let button = egui::Button::image_and_text(icon.image(ui, 14.0), text)
             .image_tint_follows_text_color(true);

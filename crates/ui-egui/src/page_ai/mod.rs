@@ -506,7 +506,7 @@ impl PageAi {
     ) -> Option<u64> {
         let view = asked.documents.ai_view(asked.pane)?;
         let page = view.document.to_base(asked.page);
-        let note = |s: &str| Command::Notify(Toast::info(s.to_owned()));
+        let note = |s: &str| Command::Ui(UiCommand::Notify(Toast::info(s.to_owned())));
         let found = match source_of(&view, asked.documents, page) {
             Ok(found) => found,
             Err("loading") => {
@@ -617,7 +617,7 @@ impl PageAi {
                         if batch.is_some_and(|b| b.waiting_any()) {
                             said.push_str(" The pages left weren't asked.");
                         }
-                        out.push(Command::Notify(Toast::info(said.clone())));
+                        out.push(Command::Ui(UiCommand::Notify(Toast::info(said.clone()))));
                         run.failed = Some(said);
                     }
                 }

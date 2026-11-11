@@ -97,7 +97,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
-                out.push(Command::Study(Action::Close));
+                out.push(Command::Intent(Intent::Study(Action::Close)));
             }
             crate::read_aloud::say_button(ui, view.word, (view.saying, None), out);
         });
@@ -123,7 +123,7 @@ fn body(ui: &mut Ui, view: &View<'_>, t: &Tokens, out: &mut Commands) {
                 ui.label(RichText::new(detail).size(t.text_small).color(t.muted));
             }
             if e.why.retry() && ui.button("Try again").clicked() {
-                out.push(Command::Study(Action::Retry));
+                out.push(Command::Intent(Intent::Study(Action::Retry)));
             }
         }
     }
@@ -145,7 +145,7 @@ fn footer(ui: &mut Ui, by: &str, t: &Tokens, out: &mut Commands) {
                 .on_hover_text("Ask the AI chosen in Settings")
                 .clicked()
             {
-                out.push(Command::Study(Action::AskAgain));
+                out.push(Command::Intent(Intent::Study(Action::AskAgain)));
             }
         });
     });
@@ -285,17 +285,17 @@ pub fn menu(
                         let label = if noted { "Edit note" } else { "Add note" };
                         let row = widgets::menu_row(ui, Icon::Note, label, None, false);
                         if row.clicked() {
-                            out.push(Command::Study(Action::WriteNote(mark)));
+                            out.push(Command::Intent(Intent::Study(Action::WriteNote(mark))));
                         }
                     }
                     let several =
                         widgets::menu_row(ui, Icon::SelectSeveral, "Select several", None, false);
                     if several.clicked() {
-                        out.push(Command::Study(Action::SelectSeveral(pane, mark)));
+                        out.push(Command::Intent(Intent::Study(Action::SelectSeveral(pane, mark))));
                     }
                     widgets::menu_rule(ui);
                     if widgets::menu_row_danger(ui, Icon::Remove, "Remove highlight").clicked() {
-                        out.push(Command::Study(Action::Remove(vec![mark])));
+                        out.push(Command::Intent(Intent::Study(Action::Remove(vec![mark]))));
                     }
                 });
         })

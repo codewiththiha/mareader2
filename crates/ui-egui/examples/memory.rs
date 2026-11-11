@@ -203,7 +203,7 @@ fn open(h: &mut App, pane: PaneId, path: &Path) {
         pane: Some(pane),
         ..OpenRequest::path(path.to_path_buf())
     };
-    h.state_mut().queue(Command::Open(request));
+    h.state_mut().queue(Command::Intent(Intent::Open(request)));
     h.run();
 }
 
@@ -211,7 +211,7 @@ fn open(h: &mut App, pane: PaneId, path: &Path) {
 fn read_through(h: &mut App, pane: PaneId) {
     let count = h.state().documents().page_count(pane).unwrap_or(0);
     for page in 0..count {
-        h.state_mut().queue(Command::GoTo { pane, page });
+        h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
         h.run();
         h.render().ok();
     }
@@ -220,12 +220,12 @@ fn read_through(h: &mut App, pane: PaneId) {
 /// The find bar's search over every page, answered on this thread.
 fn search(h: &mut App, query: &str) {
     h.state_mut().set_option("find", query).ok();
-    h.state_mut().queue(Command::ShowFind);
+    h.state_mut().queue(Command::Ui(UiCommand::ShowFind));
     h.run_steps(30);
 }
 
 fn close(h: &mut App, pane: PaneId) {
-    h.state_mut().queue(Command::ClosePane(pane));
+    h.state_mut().queue(Command::Intent(Intent::ClosePane(pane)));
     h.run();
 }
 
@@ -244,7 +244,7 @@ fn retype(h: &mut App, audit: &mut Audit) {
     for size in [14.0, 18.0, 22.0, 26.0, 30.0, was] {
         let mut s = h.state().settings().clone();
         s.text.font_size = size;
-        h.state_mut().queue(Command::SetSettings(Box::new(s)));
+        h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
         h.run();
         h.render().ok();
     }
@@ -296,7 +296,7 @@ fn floor_rise(rounds: &[Row]) -> f64 {
 fn rounds(h: &mut App, audit: &mut Audit, path: &Path, rounds: usize) {
     let mut kept = Vec::new();
     for round in 2..=rounds.max(2) {
-        h.state_mut().queue(Command::Split(SplitAxis::Horizontal));
+        h.state_mut().queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
         h.run();
         let pane = h.state().active_pane();
         open(h, pane, path);
@@ -322,7 +322,7 @@ fn book(path: &Path, count: usize) -> Result<bool, String> {
     let mut s = app.settings().clone();
     // Jumps land at once: the read-through is about pages, not glides.
     s.motion.scroll_jumps = false;
-    app.queue(Command::SetSettings(Box::new(s)));
+    app.queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();
@@ -365,8 +365,8 @@ fn book(path: &Path, count: usize) -> Result<bool, String> {
     );
     rounds(&mut h, &mut audit, path, count);
     // The same book twice: the second pane should cost nearly nothing.
-    h.state_mut().queue(Command::FocusPane(left));
-    h.state_mut().queue(Command::Split(SplitAxis::Horizontal));
+    h.state_mut().queue(Command::Intent(Intent::FocusPane(left)));
+    h.state_mut().queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
     h.run();
     let panes = h.state().panes();
     open(&mut h, panes[0], path);
@@ -451,10 +451,10 @@ fn scroll_peak(audit: &mut Audit, view: &str, rest: &Row, done: &Row) {
 /// Searches the page, then lets it go.
 fn library_search(h: &mut App, audit: &mut Audit, text: &str) {
     let query = SearchAction::Text(text.to_owned());
-    h.state_mut().queue(Command::Library(Action::Search(query)));
+    h.state_mut().queue(Command::Intent(Intent::Library(Action::Search(query))));
     h.run_steps(4);
     audit.row(h, &format!("searched \"{text}\""));
-    let clear = Command::Library(Action::Search(SearchAction::Clear));
+    let clear = Command::Intent(Intent::Library(Action::Search(SearchAction::Clear)));
     h.state_mut().queue(clear);
     h.run_steps(4);
 }
@@ -466,7 +466,7 @@ fn add_folder(h: &mut App, root: &Path, total: usize) {
         ..mareader_library::Options::default()
     };
     let root = root.to_path_buf();
-    let add = Command::Library(Action::ImportFolder { root, opts });
+    let add = Command::Intent(Intent::Library(Action::ImportFolder { root, opts }));
     h.state_mut().queue(add);
     for _ in 0..200 {
         h.run_steps(2);
@@ -518,7 +518,7 @@ fn library(count: usize) -> Result<bool, String> {
     let turns = scroll_to(&mut h, Some(&last), 8_000);
     let list = audit.row(&mut h, &format!("list scrolled to the end ({turns} turns)"));
     scroll_peak(&mut audit, "list", &rest, &list);
-    h.state_mut().queue(Command::ShowLibrary);
+    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
     h.run_steps(4);
     audit.row(&mut h, "back to reading");
     Ok(audit.report())
@@ -593,7 +593,7 @@ fn markdown(passes: usize) -> Result<bool, String> {
         pane: Some(right),
         ..OpenRequest::path(path.clone())
     };
-    h.state_mut().queue(Command::Open(request));
+    h.state_mut().queue(Command::Intent(Intent::Open(request)));
     // Workers open it while the loading mark spins: step, don't run.
     for _ in 0..600 {
         if h.state().documents().page_count(right).is_some() {

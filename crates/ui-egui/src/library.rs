@@ -230,9 +230,9 @@ impl LibraryState {
                         false => Status::ReadOnly,
                     };
                     let notes = loaded.notes.into_iter().map(Toast::error);
-                    out.extend(notes.map(Command::Notify));
+                    out.extend(notes.map(Command::Ui(UiCommand::Notify)));
                     let held = self.waiting.drain(..);
-                    out.extend(held.map(Command::Open));
+                    out.extend(held.map(Command::Intent(Intent::Open)));
                     // Gone files and new books, found where they're kept.
                     self.rescan(now);
                 }
@@ -246,7 +246,7 @@ impl LibraryState {
                     };
                     self.model.record_open_as(opened, wall_ms(), probe.book);
                 }
-                News::WriteFailed(e) => out.push(Command::Notify(Toast::error(e))),
+                News::WriteFailed(e) => out.push(Command::Ui(UiCommand::Notify(Toast::error(e)))),
                 News::Walked(done) => self.walked(*done, now, out),
                 News::Files(done) => self.measured(*done, now, out),
                 News::Copied(done) => self.copied(*done, now, out),

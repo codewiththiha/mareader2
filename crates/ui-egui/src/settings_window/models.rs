@@ -50,7 +50,7 @@ fn fetch_models(ui: &Ui, ai: &AiSettings, board: &Board, out: &mut Commands) {
     for p in used_servers(ai) {
         let idle = *board.models(p) == Load::Idle;
         if p.local() && !board.fetching(p) && (opened || idle) {
-            out.push(Command::Ai(Job::Models(p)));
+            out.push(Command::Intent(Intent::Ai(Job::Models(p))));
         }
     }
 }
@@ -383,7 +383,7 @@ fn actions(
             let r = ui.add_enabled(!busy, button);
             widgets::name(&r, "Try it");
             if r.clicked() {
-                out.push(Command::Ai(Job::Try(p.clone())));
+                out.push(Command::Intent(Intent::Ai(Job::Try(p.clone()))));
             }
         }
         if !explains && ui.button("Use for AI Dictionary").clicked() {
@@ -612,7 +612,7 @@ fn key_rows(ui: &mut Ui, p: Provider, board: Option<&Board>, out: &mut Commands)
         return;
     };
     if *board.keys(p) == Load::Idle {
-        out.push(Command::Ai(Job::Keys(p)));
+        out.push(Command::Intent(Intent::Ai(Job::Keys(p))));
     }
     if let Load::Ready(rows) = board.keys(p) {
         for r in rows {
@@ -784,7 +784,7 @@ fn refresh(ui: &mut Ui, p: Provider, board: &Board, out: &mut Commands) {
         let r = ui.add_sized(vec2(24.0, 24.0), egui::Spinner::new().size(12.0));
         widgets::name(&r, "Refreshing models");
     } else if widgets::small_icon_button(ui, Icon::Rescan, "Refresh models").clicked() {
-        out.push(Command::Ai(Job::Models(p)));
+        out.push(Command::Intent(Intent::Ai(Job::Models(p))));
     }
 }
 
@@ -805,7 +805,7 @@ fn model_menu(
             Load::Failed(f) => {
                 failure(ui, f);
                 if ui.button("Try again").clicked() {
-                    out.push(Command::Ai(Job::Models(p)));
+                    out.push(Command::Intent(Intent::Ai(Job::Models(p))));
                 }
             }
             Load::Ready(list) if list.is_empty() => {
@@ -824,7 +824,7 @@ fn model_menu(
         }
     });
     if menu.response.clicked() && matches!(models, Load::Idle | Load::Failed(_)) {
-        out.push(Command::Ai(Job::Models(p)));
+        out.push(Command::Intent(Intent::Ai(Job::Models(p))));
     }
 }
 
@@ -839,7 +839,7 @@ fn key_row(ui: &mut Ui, p: Provider, r: &KeyRow, out: &mut Commands) {
         let job = |id: &str| (p, id.to_owned());
         if widgets::small_icon_button(ui, Icon::Remove, "Remove key").clicked() {
             let (p, id) = job(&r.id);
-            out.push(Command::Ai(Job::RemoveKey(p, id)));
+            out.push(Command::Intent(Intent::Ai(Job::RemoveKey(p, id))));
         }
         let (icon, label) = match banned {
             true => (Icon::Restore, "Use again"),
@@ -847,10 +847,10 @@ fn key_row(ui: &mut Ui, p: Provider, r: &KeyRow, out: &mut Commands) {
         };
         if widgets::small_icon_button(ui, icon, label).clicked() {
             let (p, id) = job(&r.id);
-            out.push(Command::Ai(match banned {
+            out.push(Command::Intent(Intent::Ai(match banned {
                 true => Job::RecoverKey(p, id),
                 false => Job::BanKey(p, id),
-            }));
+            })));
         }
         let color = if banned { t.danger } else { t.muted };
         ui.label(
@@ -878,7 +878,7 @@ fn add_key(ui: &mut Ui, p: Provider, out: &mut Commands) {
             let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let add = ui.add_enabled(!text.trim().is_empty(), egui::Button::new("Add"));
             if (add.clicked() || entered) && !text.trim().is_empty() {
-                out.push(Command::Ai(Job::AddKey(p, std::mem::take(&mut text))));
+                out.push(Command::Intent(Intent::Ai(Job::AddKey(p, std::mem::take(&mut text)))));
             }
         },
     );
@@ -933,7 +933,7 @@ mod tests {
     }
 
     fn asked(s: &State) -> usize {
-        let models = |c: &&Command| matches!(c, Command::Ai(Job::Models(_)));
+        let models = |c: &&Command| matches!(c, Command::Intent(Intent::Ai(Job::Models(_))));
         s.out.iter().filter(models).count()
     }
 

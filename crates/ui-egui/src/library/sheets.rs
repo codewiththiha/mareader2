@@ -30,7 +30,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
     {
         let asked = (books.as_slice(), shelves.as_slice(), links.as_slice());
         let act = super::remove_alert::show(ctx, model, asked, &t);
-        out.extend(act.map(Command::Library));
+        out.extend(act.map(Command::Intent(Intent::Library)));
         return;
     }
     let mut act = None;
@@ -73,7 +73,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
             None => Action::CancelAsks,
         });
     }
-    out.extend(act.map(Command::Library));
+    out.extend(act.map(Command::Intent(Intent::Library)));
 }
 
 fn find(

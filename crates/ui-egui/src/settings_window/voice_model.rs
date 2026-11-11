@@ -251,7 +251,7 @@ fn every_voice(
         if widgets::icon_button(ui, Icon::Download, label, false).clicked() {
             for v in &missing {
                 let item = Item::Voice(model.id, v.id);
-                out.push(Command::VoiceModel(item, Download::Start));
+                out.push(Command::Intent(Intent::VoiceModel(item, Download::Start)));
             }
         }
         let bytes = shelf.to_fetch(model, &missing);
@@ -299,11 +299,11 @@ fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut C
     let here = booth.engine() == room.model.id;
     let saying = here && booth.trying_voice() == Some(voice.id);
     let (icon, verb, command) = match saying {
-        true => (Icon::Stop, "Stop", Command::StopVoiceTry),
+        true => (Icon::Stop, "Stop", Command::Intent(Intent::StopVoiceTry)),
         false => (
             Icon::Try,
             "Preview",
-            Command::TryVoiceOf(voice.id.to_owned()),
+            Command::Intent(Intent::TryVoiceOf(voice.id.to_owned())),
         ),
     };
     let label = format!("{verb} {}", voice.name);
@@ -322,7 +322,7 @@ fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut C
 pub(super) fn buttons(item: Item, name: &str) -> Buttons<'_, impl Fn(Download) -> Command> {
     Buttons {
         name,
-        ask: move |what| Command::VoiceModel(item, what),
+        ask: move |what| Command::Intent(Intent::VoiceModel(item, what)),
     }
 }
 

@@ -63,8 +63,8 @@ impl MareaderApp {
     // The Dictionary page, searching for any word given.
     fn option_dict_page(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // After a queued open, which would otherwise leave it.
-        match self.queued.iter().any(|c| matches!(c, Command::Open(_))) {
-            true => self.queue(Command::ShowDictionary),
+        match self.queued.iter().any(|c| matches!(c, Command::Intent(Intent::Open(_)))) {
+            true => self.queue(Command::Ui(UiCommand::ShowDictionary)),
             false => self.go(Route::Dictionary),
         }
         if value != "show" {

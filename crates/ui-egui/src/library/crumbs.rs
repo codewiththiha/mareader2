@@ -72,7 +72,7 @@ pub fn show(
 }
 
 fn go(id: Option<ShelfId>) -> Command {
-    Command::Library(Action::Shelf(ShelfAction::GoTo(id)))
+    Command::Intent(Intent::Library(Action::Shelf(ShelfAction::GoTo(id))))
 }
 
 fn chevron(ui: &mut Ui) {
@@ -172,7 +172,7 @@ fn take_drops(ui: &Ui, r: &Response, id: Option<ShelfId>, out: &mut Commands) {
         rest_to_go(ui, id, out);
     }
     if let Some(carry) = r.dnd_release_payload::<Carry>() {
-        out.extend(carry.onto(id, keep).map(Command::Library));
+        out.extend(carry.onto(id, keep).map(Command::Intent(Intent::Library)));
     }
 }
 
@@ -296,7 +296,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
     let Some(id) = current.id else {
         return;
     };
-    let act = |a: ShelfAction| Command::Library(Action::Shelf(a));
+    let act = |a: ShelfAction| Command::Intent(Intent::Library(Action::Shelf(a)));
     Popup::from_toggle_button_response(&r)
         .id(menu)
         .sense(crate::widgets::POPUP_SENSE)
@@ -313,7 +313,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             let tip = "A second shelf of your own, holding the same books";
             if copy.on_hover_text(tip).clicked() {
                 let picks = vec![super::Pick::Shelf(id)];
-                out.push(Command::Library(Action::Book(BookAction::Duplicate(picks))));
+                out.push(Command::Intent(Intent::Library(Action::Book(BookAction::Duplicate(picks)))));
             }
             widgets::menu_rule(ui);
             if widgets::menu_row_danger(ui, Icon::Remove, "Remove shelf").clicked() {
@@ -364,7 +364,7 @@ fn rename(ui: &mut Ui, id: ShelfId, name: &str, out: &mut Commands) {
         true => Action::Shelf(ShelfAction::CancelRename),
         false => Action::Rename(Named::Shelf(id), text),
     };
-    out.push(Command::Library(action));
+    out.push(Command::Intent(Intent::Library(action)));
 }
 
 #[cfg(test)]

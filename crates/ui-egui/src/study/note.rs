@@ -80,11 +80,11 @@ fn read(ui: &mut Ui, mark: MarkId, note: &str, cap: f32, t: &Tokens, out: &mut C
         let edit = egui::Button::image_and_text(Icon::Rename.image(ui, 14.0), "Edit")
             .image_tint_follows_text_color(true);
         if ui.add(edit).clicked() {
-            out.push(Command::Study(Action::EditNote));
+            out.push(Command::Intent(Intent::Study(Action::EditNote)));
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if widgets::small_icon_button(ui, Icon::Remove, "Delete note").clicked() {
-                out.push(Command::Study(Action::DeleteNote(mark)));
+                out.push(Command::Intent(Intent::Study(Action::DeleteNote(mark))));
             }
         });
     });
@@ -137,7 +137,7 @@ fn write(
             let delete = egui::Button::new(RichText::new("Delete").color(t.danger)).frame(false);
             if ui.add(delete).clicked() {
                 draft.clear();
-                out.push(Command::Study(Action::SaveNote(mark)));
+                out.push(Command::Intent(Intent::Study(Action::SaveNote(mark))));
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -145,10 +145,10 @@ fn write(
             let r = ui.add(save);
             widgets::tip(&r, "Save", Some(save_hint()));
             if r.clicked() || save_keys {
-                out.push(Command::Study(Action::SaveNote(mark)));
+                out.push(Command::Intent(Intent::Study(Action::SaveNote(mark))));
             }
             if ui.button("Cancel").clicked() {
-                out.push(Command::Study(Action::CancelNote));
+                out.push(Command::Intent(Intent::Study(Action::CancelNote)));
             }
         });
     });

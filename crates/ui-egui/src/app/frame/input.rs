@@ -95,9 +95,9 @@ impl MareaderApp {
         let win = &self.settings.dictionary.window;
         let floats = self.settings.dictionary.opens == DictionaryOpens::Window;
         if route == Route::Reader && floats && win.open && !win.minimized && !self.dict.typing() {
-            let focus = Command::Dict(crate::dict::Action::Window(crate::dict::Window::Focus));
+            let focus = Command::Intent(Intent::Dict(crate::dict::Action::Window(crate::dict::Window::Focus)));
             for c in commands.iter_mut().skip(read) {
-                if matches!(c, Command::ShowDictionary) {
+                if matches!(c, Command::Ui(UiCommand::ShowDictionary)) {
                     *c = focus.clone();
                 }
             }
@@ -127,14 +127,14 @@ impl MareaderApp {
         // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
             if !self.library.escape() {
-                commands.push(Command::ShowLibrary);
+                commands.push(Command::Ui(UiCommand::ShowLibrary));
             }
             free = false;
         }
         // The dictionary clears its search, else goes back.
         if free && route == Route::Dictionary {
             if !self.dict.page_escape() {
-                commands.push(Command::ShowDictionary);
+                commands.push(Command::Ui(UiCommand::ShowDictionary));
             }
             free = false;
         }
@@ -142,9 +142,9 @@ impl MareaderApp {
         let window = self.settings.dictionary.window.open && route == Route::Reader;
         if free && window && self.dict.typing() {
             if !self.dict.page_escape() {
-                commands.push(Command::Dict(crate::dict::Action::Window(
+                commands.push(Command::Intent(Intent::Dict(crate::dict::Action::Window(
                     crate::dict::Window::Close,
-                )));
+                ))));
             }
             free = false;
         }
@@ -166,9 +166,9 @@ impl MareaderApp {
         let grid = self.sidebar.is_open() && self.sidebar.panel() == Panel::Thumbnails;
         if free && !selection && !(grid && self.thumbs.clear_picks()) {
             if self.sidebar.is_open() {
-                commands.push(Command::CloseSidebar);
+                commands.push(Command::Ui(UiCommand::CloseSidebar));
             } else if self.chromeless {
-                commands.push(Command::Chromeless);
+                commands.push(Command::Ui(UiCommand::Chromeless));
             }
         }
         drop_target

@@ -84,9 +84,9 @@ fn every_control_has_a_name() {
         missing.extend(nameless(&h, tab));
     }
     for (state, command) in [
-        ("appearance", Command::ShowAppearance),
-        ("view menu", Command::ShowViewMenu),
-        ("find", Command::ShowFind),
+        ("appearance", Command::Ui(UiCommand::ShowAppearance)),
+        ("view menu", Command::Ui(UiCommand::ShowViewMenu)),
+        ("find", Command::Ui(UiCommand::ShowFind)),
     ] {
         let mut h = with(&reader);
         h.state_mut().queue(command);
@@ -104,7 +104,7 @@ fn every_control_has_a_name() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    deck.state_mut().queue(Command::ShowAppearance);
+    deck.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
     deck.run_steps(4);
     missing.extend(nameless(&deck, "dial deck look"));
     for tab in ["Text", "Page", "Presets"] {

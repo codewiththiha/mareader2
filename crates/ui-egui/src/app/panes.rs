@@ -66,7 +66,7 @@ impl MareaderApp {
     ) {
         // A lost book asks where it went instead of failing.
         if self.library.model().book(id).is_some_and(|b| b.missing()) {
-            self.apply(ctx, Command::Library(ui_library::Action::FindAgain(id)));
+            self.apply(ctx, Command::Intent(Intent::Library(ui_library::Action::FindAgain(id))));
             return;
         }
         let dropped = pane.is_some();
@@ -92,7 +92,7 @@ impl MareaderApp {
                     placement,
                     ..request
                 };
-                self.apply(ctx, Command::Open(request));
+                self.apply(ctx, Command::Intent(Intent::Open(request)));
             }
             Err(toast) => self.toasts.push(toast),
         }
@@ -175,7 +175,7 @@ impl MareaderApp {
             if !paths.is_empty() {
                 let to = self.library.file_target.or(self.library.at());
                 let import = ui_library::BookAction::Import { paths, to };
-                out.push(Command::Library(ui_library::Action::Book(import)));
+                out.push(Command::Intent(Intent::Library(ui_library::Action::Book(import))));
             }
             return None;
         }

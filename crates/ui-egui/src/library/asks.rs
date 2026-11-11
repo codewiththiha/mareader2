@@ -119,7 +119,7 @@ impl LibraryState {
             Answered::Done(Some(shelf)) if answer == Placement::LinkOnly => {
                 let name = self.model.shelf(shelf).map(|s| s.name.value.clone());
                 let note = format!("Linked to “{}”.", name.unwrap_or_default());
-                out.push(Command::Notify(Toast::info(note)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
             }
             Answered::Done(Some(shelf)) => self.reveal(Pick::Shelf(shelf), now),
             Answered::Done(None) => {}
@@ -148,7 +148,7 @@ impl LibraryState {
             Answer::Reveal(Entry::Link(id)) => self.reveal(Pick::Link(id), now),
             Answer::Nothing if copy.is_none() && question.copies(answer, &self.model) => {
                 let note = "The copy couldn't be made, so nothing changed.";
-                out.push(Command::Notify(Toast::error(note)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
             }
             Answer::Landed(_) | Answer::Linked | Answer::Nothing => {}
         }

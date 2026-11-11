@@ -3,33 +3,33 @@ use super::*;
 pub(super) fn handles(command: &Command) -> bool {
     matches!(
         command,
-        Command::ToggleSidebar
-            | Command::OpenSidebar(..)
-            | Command::CloseSidebar
-            | Command::SetSidebarOverlay(..)
-            | Command::Split(..)
-            | Command::FocusPane(..)
-            | Command::CyclePane { .. }
-            | Command::ClosePane(..)
-            | Command::ShowOpenDialog(..)
-            | Command::Zoom(..)
-            | Command::View(..)
-            | Command::Arrow(..)
-            | Command::Page { .. }
-            | Command::Chromeless
-            | Command::AutoScroll
-            | Command::FirstPage
-            | Command::LastPage
-            | Command::GoTo { .. }
-            | Command::CopyPages { .. }
-            | Command::Turn { .. }
-            | Command::Open(..)
-            | Command::SetRatio(..)
-            | Command::Window(..)
-            | Command::Notify(..)
-            | Command::Export { .. }
-            | Command::CloseToast(..)
-            | Command::ClearToasts
+        Command::Ui(UiCommand::ToggleSidebar)
+            | Command::Ui(UiCommand::OpenSidebar(..))
+            | Command::Ui(UiCommand::CloseSidebar)
+            | Command::Intent(Intent::SetSidebarOverlay(..))
+            | Command::Intent(Intent::Split(..))
+            | Command::Intent(Intent::FocusPane(..))
+            | Command::Intent(Intent::CyclePane { .. })
+            | Command::Intent(Intent::ClosePane(..))
+            | Command::Ui(UiCommand::ShowOpenDialog(..))
+            | Command::Intent(Intent::Zoom(..))
+            | Command::Intent(Intent::View(..))
+            | Command::Intent(Intent::Arrow(..))
+            | Command::Intent(Intent::Page { .. })
+            | Command::Ui(UiCommand::Chromeless)
+            | Command::Intent(Intent::AutoScroll)
+            | Command::Intent(Intent::FirstPage)
+            | Command::Intent(Intent::LastPage)
+            | Command::Intent(Intent::GoTo { .. })
+            | Command::Intent(Intent::CopyPages { .. })
+            | Command::Intent(Intent::Turn { .. })
+            | Command::Intent(Intent::Open(..))
+            | Command::Intent(Intent::SetRatio(..))
+            | Command::Ui(UiCommand::Window(..))
+            | Command::Ui(UiCommand::Notify(..))
+            | Command::Intent(Intent::Export { .. })
+            | Command::Ui(UiCommand::CloseToast(..))
+            | Command::Ui(UiCommand::ClearToasts)
     )
 }
 
@@ -50,32 +50,32 @@ pub(super) fn apply(app: &mut MareaderApp, ctx: &Context, command: Command) {
 fn handles_1(command: &Command) -> bool {
     matches!(
         command,
-        Command::ToggleSidebar
-            | Command::OpenSidebar(..)
-            | Command::CloseSidebar
-            | Command::SetSidebarOverlay(..)
-            | Command::Split(..)
-            | Command::FocusPane(..)
-            | Command::CyclePane { .. }
-            | Command::ClosePane(..)
-            | Command::ShowOpenDialog(..)
-            | Command::Zoom(..)
+        Command::Ui(UiCommand::ToggleSidebar)
+            | Command::Ui(UiCommand::OpenSidebar(..))
+            | Command::Ui(UiCommand::CloseSidebar)
+            | Command::Intent(Intent::SetSidebarOverlay(..))
+            | Command::Intent(Intent::Split(..))
+            | Command::Intent(Intent::FocusPane(..))
+            | Command::Intent(Intent::CyclePane { .. })
+            | Command::Intent(Intent::ClosePane(..))
+            | Command::Ui(UiCommand::ShowOpenDialog(..))
+            | Command::Intent(Intent::Zoom(..))
     )
 }
 
 fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
-        Command::ToggleSidebar => app.sidebar.toggle(),
-        Command::OpenSidebar(panel) => app.sidebar.open(panel),
-        Command::CloseSidebar => app.sidebar.close(),
-        Command::SetSidebarOverlay(on) => app.settings.chrome.sidebar_overlay = on,
-        Command::Split(axis) => {
+        Command::Ui(UiCommand::ToggleSidebar) => app.sidebar.toggle(),
+        Command::Ui(UiCommand::OpenSidebar(panel)) => app.sidebar.open(panel),
+        Command::Ui(UiCommand::CloseSidebar) => app.sidebar.close(),
+        Command::Intent(Intent::SetSidebarOverlay(on)) => app.settings.chrome.sidebar_overlay = on,
+        Command::Intent(Intent::Split(axis)) => {
             if let Some(id) = app.split(ctx, app.active, axis) {
                 app.active = id;
             }
         }
-        Command::FocusPane(id) => app.active = id,
-        Command::CyclePane { forward } => {
+        Command::Intent(Intent::FocusPane(id)) => app.active = id,
+        Command::Intent(Intent::CyclePane { forward }) => {
             let panes = app.tree.panes();
             let at = panes.iter().position(|p| *p == app.active).unwrap_or(0);
             let n = panes.len().max(1);
@@ -101,7 +101,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 ctx.memory_mut(|m| m.focused().map(|id| m.surrender_focus(id)));
             }
         }
-        Command::ClosePane(id) => {
+        Command::Intent(Intent::ClosePane(id)) => {
             if app.tree.close(id).is_ok() {
                 app.documents.close_pane(id);
                 app.page_ai.close_pane(id);
@@ -110,8 +110,8 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 }
             }
         }
-        Command::ShowOpenDialog(placement) => app.files.pick(ctx, placement),
-        Command::Zoom(zoom) => {
+        Command::Ui(UiCommand::ShowOpenDialog(placement)) => app.files.pick(ctx, placement),
+        Command::Intent(Intent::Zoom(zoom)) => {
             let now = ctx.input(|i| i.time);
             app.documents.zoom(app.active, zoom, now);
         }
@@ -122,56 +122,56 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
 fn handles_2(command: &Command) -> bool {
     matches!(
         command,
-        Command::View(..)
-            | Command::Arrow(..)
-            | Command::Page { .. }
-            | Command::Chromeless
-            | Command::AutoScroll
-            | Command::FirstPage
-            | Command::LastPage
-            | Command::GoTo { .. }
-            | Command::CopyPages { .. }
-            | Command::Turn { .. }
+        Command::Intent(Intent::View(..))
+            | Command::Intent(Intent::Arrow(..))
+            | Command::Intent(Intent::Page { .. })
+            | Command::Ui(UiCommand::Chromeless)
+            | Command::Intent(Intent::AutoScroll)
+            | Command::Intent(Intent::FirstPage)
+            | Command::Intent(Intent::LastPage)
+            | Command::Intent(Intent::GoTo { .. })
+            | Command::Intent(Intent::CopyPages { .. })
+            | Command::Intent(Intent::Turn { .. })
     )
 }
 
 fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
-        Command::View(mode) => {
+        Command::Intent(Intent::View(mode)) => {
             let now = ctx.input(|i| i.time);
             app.documents.set_mode(app.active, mode, now);
         }
-        Command::Arrow(arrow) => {
+        Command::Intent(Intent::Arrow(arrow)) => {
             let now = ctx.input(|i| i.time);
             app.documents.arrow(app.active, arrow, now);
         }
-        Command::Page { forward } => app.documents.page_key(app.active, forward),
-        Command::Chromeless => {
+        Command::Intent(Intent::Page { forward }) => app.documents.page_key(app.active, forward),
+        Command::Ui(UiCommand::Chromeless) => {
             app.chromeless = !app.chromeless;
             if app.chromeless {
                 app.sidebar.close();
-                let keys = keymap::hint(app.platform, &Command::Chromeless);
+                let keys = keymap::hint(app.platform, &Command::Ui(UiCommand::Chromeless));
                 let keys = keys.map_or(String::new(), |k| format!(" or {k}"));
                 let how = format!("Distraction-free. Press Esc{keys} to leave.");
                 app.toasts.push(Toast::info(how));
             }
         }
-        Command::AutoScroll => {
+        Command::Intent(Intent::AutoScroll) => {
             let now = ctx.input(|i| i.time);
             if !app.documents.toggle_drift(app.active, now) {
                 let why = "Auto-scroll runs in the scrolling views";
                 app.toasts.push(Toast::info(why));
             }
         }
-        Command::FirstPage => app.documents.go_to(app.active, 0),
-        Command::LastPage => app.documents.go_to(app.active, usize::MAX),
-        Command::GoTo { pane, page } => app.documents.go_to(pane, page),
-        Command::CopyPages { pane, pages } => {
+        Command::Intent(Intent::FirstPage) => app.documents.go_to(app.active, 0),
+        Command::Intent(Intent::LastPage) => app.documents.go_to(app.active, usize::MAX),
+        Command::Intent(Intent::GoTo { pane, page }) => app.documents.go_to(pane, page),
+        Command::Intent(Intent::CopyPages { pane, pages }) => {
             if let Some(reading) = app.documents.reading(pane) {
                 app.page_copy.start(ctx, reading.document, pages);
             }
         }
-        Command::Turn { pane, forward } => app.documents.turn(pane, forward),
+        Command::Intent(Intent::Turn { pane, forward }) => app.documents.turn(pane, forward),
         _ => {}
     }
 }
@@ -179,19 +179,19 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
 fn handles_3(command: &Command) -> bool {
     matches!(
         command,
-        Command::Open(..)
-            | Command::SetRatio(..)
-            | Command::Window(..)
-            | Command::Notify(..)
-            | Command::Export { .. }
-            | Command::CloseToast(..)
-            | Command::ClearToasts
+        Command::Intent(Intent::Open(..))
+            | Command::Intent(Intent::SetRatio(..))
+            | Command::Ui(UiCommand::Window(..))
+            | Command::Ui(UiCommand::Notify(..))
+            | Command::Intent(Intent::Export { .. })
+            | Command::Ui(UiCommand::CloseToast(..))
+            | Command::Ui(UiCommand::ClearToasts)
     )
 }
 
 fn apply_3(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
-        Command::Open(request) => {
+        Command::Intent(Intent::Open(request)) => {
             // Held while the library loads, to open where it was left.
             let Some(request) = app.library.resume(request) else {
                 return;
@@ -216,10 +216,10 @@ fn apply_3(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 }
             }
         }
-        Command::SetRatio(path, ratio) => {
+        Command::Intent(Intent::SetRatio(path, ratio)) => {
             app.tree.set_ratio(&path, ratio);
         }
-        Command::Window(w) => ctx.send_viewport_cmd(match w {
+        Command::Ui(UiCommand::Window(w)) => ctx.send_viewport_cmd(match w {
             WindowCommand::Minimize => ViewportCommand::Minimized(true),
             WindowCommand::ToggleMaximize => {
                 let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
@@ -232,14 +232,14 @@ fn apply_3(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 ViewportCommand::Fullscreen(!full)
             }
         }),
-        Command::Notify(toast) => app.toasts.push(toast),
-        Command::Export {
+        Command::Ui(UiCommand::Notify(toast)) => app.toasts.push(toast),
+        Command::Intent(Intent::Export {
             name,
             format,
             contents,
-        } => app.files.save(ctx, name, format, contents),
-        Command::CloseToast(id) => app.toasts.close(id, ctx.input(|i| i.time)),
-        Command::ClearToasts => app.toasts.clear(ctx.input(|i| i.time)),
+        }) => app.files.save(ctx, name, format, contents),
+        Command::Ui(UiCommand::CloseToast(id)) => app.toasts.close(id, ctx.input(|i| i.time)),
+        Command::Ui(UiCommand::ClearToasts) => app.toasts.clear(ctx.input(|i| i.time)),
         _ => {}
     }
 }

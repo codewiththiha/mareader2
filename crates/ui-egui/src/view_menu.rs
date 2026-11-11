@@ -75,7 +75,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     if let Some(on) = cx.aloud {
         read_aloud_row(ui, on, cx.platform, out);
     }
-    let full = Command::Window(WindowCommand::ToggleFullscreen);
+    let full = Command::Ui(UiCommand::Window(WindowCommand::ToggleFullscreen));
     let (icon, label) = if cx.fullscreen {
         (Icon::ExitFullscreen, "Exit full screen")
     } else {
@@ -87,7 +87,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         ui.close();
     }
     // The bar it sits on hides too, so it only ever turns it on.
-    let keys = keymap::hint(cx.platform, &Command::Chromeless);
+    let keys = keymap::hint(cx.platform, &Command::Ui(UiCommand::Chromeless));
     let label = "Distraction-free";
     let mut chromeless = false;
     if widgets::menu_switch_keyed(
@@ -99,7 +99,7 @@ fn contents(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     )
     .changed()
     {
-        out.push(Command::Chromeless);
+        out.push(Command::Ui(UiCommand::Chromeless));
         ui.close();
     }
     pin_row(ui, cx.pinned, out);
@@ -122,7 +122,7 @@ pub fn pin_row(ui: &mut Ui, pinned: bool, out: &mut Commands) {
     let label = "Keep title bar shown";
     let mut on = pinned;
     if widgets::menu_switch(ui, Icon::Pin, label, &mut on).changed() {
-        out.push(Command::SetTitlebarPinned(on));
+        out.push(Command::Intent(Intent::SetTitlebarPinned(on)));
     }
 }
 
@@ -140,13 +140,13 @@ fn footer_actions(ui: &mut Ui, platform: Platform, out: &mut Commands) {
                 Icon::Settings,
                 "Settings",
                 "Settings",
-                Command::ShowSettings,
+                Command::Ui(UiCommand::ShowSettings),
             ),
             (
                 Icon::Keyboard,
                 "Shortcuts",
                 "Keyboard shortcuts",
-                Command::ShowShortcuts,
+                Command::Ui(UiCommand::ShowShortcuts),
             ),
         ] {
             let keys = keymap::hint(platform, &command);
@@ -191,11 +191,11 @@ fn footer_icon_rect(button: Rect, pad: f32, size: f32) -> Rect {
 
 /// Auto-scroll's switch, dimmed in the paged modes, as in mareader.
 fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &mut Commands) {
-    let keys = keymap::hint(platform, &Command::AutoScroll);
+    let keys = keymap::hint(platform, &Command::Intent(Intent::AutoScroll));
     ui.add_enabled_ui(can, |ui| {
         let row = widgets::menu_row(ui, Icon::AutoScroll, "Auto-scroll", keys.as_deref(), on);
         if row.clicked() {
-            out.push(Command::AutoScroll);
+            out.push(Command::Intent(Intent::AutoScroll));
             ui.close();
         }
     });
@@ -203,10 +203,10 @@ fn auto_scroll_row(ui: &mut Ui, on: bool, can: bool, platform: Platform, out: &m
 
 /// Starts reading the book aloud, or stops it.
 fn read_aloud_row(ui: &mut Ui, on: bool, platform: Platform, out: &mut Commands) {
-    let keys = keymap::hint(platform, &Command::ToggleReadAloud);
+    let keys = keymap::hint(platform, &Command::Intent(Intent::ToggleReadAloud));
     let (label, command) = match on {
-        true => ("Stop reading aloud", Command::StopReadAloud),
-        false => ("Read aloud", Command::ToggleReadAloud),
+        true => ("Stop reading aloud", Command::Intent(Intent::StopReadAloud)),
+        false => ("Read aloud", Command::Intent(Intent::ToggleReadAloud)),
     };
     if widgets::menu_row(ui, Icon::ReadAloud, label, keys.as_deref(), on).clicked() {
         out.push(command);
@@ -240,7 +240,7 @@ fn view_row(ui: &mut Ui, current: ViewMode, platform: Platform, out: &mut Comman
         let r = ui.interact(cell, ui.id().with(("view-mode", label)), Sense::click());
         let mark = Rect::from_center_size(cell.center() - vec2(0.0, 8.0), egui::Vec2::splat(16.0));
         r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
-        let command = Command::View(mode);
+        let command = Command::Intent(Intent::View(mode));
         let keys = keymap::hint(platform, &command);
         widgets::tip(&r, label, keys.as_deref());
         let fill = if on {
@@ -280,7 +280,7 @@ fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands
                 let percent = RichText::new(zoom.percent()).size(t.text_small);
                 ui.add_sized([52.0, 28.0], egui::Label::new(percent));
             }
-            let command = Command::Zoom(ZoomCommand::Step(step));
+            let command = Command::Intent(Intent::Zoom(ZoomCommand::Step(step)));
             let keys = keymap::hint(platform, &command);
             let r = ui.add_enabled_ui(zoom.can_step(step), |ui| {
                 widgets::icon_button_keyed(ui, icon, label, false, keys.as_deref())
@@ -296,7 +296,7 @@ fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands
                 (Fit::Width, Icon::FitWidth, "Fit width"),
             ];
             for (fit, icon, label) in fits {
-                let command = Command::Zoom(ZoomCommand::Fit(fit));
+                let command = Command::Intent(Intent::Zoom(ZoomCommand::Fit(fit)));
                 let keys = keymap::hint(platform, &command);
                 let on = zoom.fit == Some(fit);
                 if widgets::icon_button_keyed(ui, icon, label, on, keys.as_deref()).clicked() {
@@ -309,10 +309,10 @@ fn zoom_row(ui: &mut Ui, zoom: ZoomState, platform: Platform, out: &mut Commands
 
 /// Opens the cheat sheet in the middle of the window; both menus offer it.
 pub fn shortcuts_row(ui: &mut Ui, platform: Platform, out: &mut Commands) {
-    let keys = keymap::hint(platform, &Command::ShowShortcuts);
+    let keys = keymap::hint(platform, &Command::Ui(UiCommand::ShowShortcuts));
     let label = "Keyboard shortcuts";
     if widgets::menu_row(ui, Icon::Keyboard, label, keys.as_deref(), false).clicked() {
-        out.push(Command::ShowShortcuts);
+        out.push(Command::Ui(UiCommand::ShowShortcuts));
         ui.close();
     }
 }

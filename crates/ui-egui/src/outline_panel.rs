@@ -85,10 +85,10 @@ pub fn show(
                 let on = active == Some(i);
                 if entry_row(ui, row(i), entry, on, (reading.pane, i), &t) {
                     state.clicked = Some((reading.pane, reading.doc, i));
-                    out.push(Command::GoTo {
+                    out.push(Command::Intent(Intent::GoTo {
                         pane: reading.pane,
                         page: entry.page,
-                    });
+                    }));
                 }
             }
         });

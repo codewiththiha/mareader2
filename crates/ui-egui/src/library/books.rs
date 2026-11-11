@@ -1,8 +1,6 @@
 //! Book work from menus, the selection bar and drops: removal,
 //! twins and imports.
 
-use std::path::PathBuf;
-
 use mareader_library::{BookId, LinkId, Move, ShelfId};
 
 use super::{LibraryState, Pick, Sheet, wall_ms};
@@ -48,7 +46,7 @@ impl LibraryState {
                     made.unwrap_or_default(),
                     from.unwrap_or_default()
                 );
-                out.push(Command::Notify(Toast::info(note)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
             }
             BookAction::Import { paths, to } => self.import_files(paths, to, out),
             BookAction::ShelveTogether(picks) => {
@@ -77,7 +75,7 @@ impl LibraryState {
             1 => format!("Removed the link “{first}”."),
             n => format!("Removed {n} links."),
         };
-        out.push(Command::Notify(Toast::info(note)));
+        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
     }
 
     /// A new shelf where the reader is, the picks added to it.

@@ -272,7 +272,7 @@ fn look_rows(ui: &mut Ui, study: &mut StudySettings) {
 fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
     let data = Buttons {
         name: "word data",
-        ask: Command::Vocab,
+        ask: Command::Intent(Intent::Vocab),
     };
     let hint = "Each word's CEFR level, and a model of its role in a sentence";
     let all = DATASET.bytes + TAGGER.bytes;
@@ -318,7 +318,7 @@ fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
 fn sounds_row(ui: &mut Ui, sounds: &Sounds, out: &mut Commands) {
     let pack = Buttons {
         name: "pronunciation",
-        ask: Command::Pronunciation,
+        ask: Command::Intent(Intent::Pronunciation),
     };
     let hint = "How words sound, American and British, shared with voice models";
     let size = sounds.bytes();

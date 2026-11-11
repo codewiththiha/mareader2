@@ -77,7 +77,7 @@ pub fn bar(
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("{n} selected")).color(t.ink));
                         ui.separator();
-                        let act = |out: &mut Commands, a| out.push(Command::Study(a));
+                        let act = |out: &mut Commands, a| out.push(Command::Intent(Intent::Study(a)));
                         if ui.button("This page").clicked() {
                             act(out, Action::PickPage);
                         }

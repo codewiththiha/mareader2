@@ -144,12 +144,12 @@ impl PageAi {
     ) -> bool {
         // Picked pages are asked as they are, in groups.
         if !m.pages.is_empty() {
-            out.push(Command::PageAi(Action::RunPages {
+            out.push(Command::Intent(Intent::PageAi(Action::RunPages {
                 pane: m.pane,
                 pages: m.pages.clone(),
                 task,
                 tag,
-            }));
+            })));
             return true;
         }
         let start = match task {
@@ -167,11 +167,11 @@ impl PageAi {
                 false
             }
             PageStart::Page => {
-                out.push(Command::PageAi(action(m, task, tag, how(false))));
+                out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(false)))));
                 true
             }
             PageStart::Continuous => {
-                out.push(Command::PageAi(action(m, task, tag, how(true))));
+                out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(true)))));
                 true
             }
         }
@@ -202,7 +202,7 @@ impl PageAi {
                     char: 0,
                 };
                 let spot = from.at.unwrap_or(page);
-                out.push(Command::PlaceReadMarker { pane: m.pane, spot });
+                out.push(Command::Intent(Intent::PlaceReadMarker { pane: m.pane, spot }));
                 return true;
             }
             widgets::menu_rule(ui);
@@ -228,7 +228,7 @@ impl PageAi {
                 } else {
                     Tab::Ai
                 };
-                out.push(Command::OpenSettings(tab));
+                out.push(Command::Intent(Intent::OpenSettings(tab)));
                 return true;
             }
             return false;
@@ -316,17 +316,17 @@ impl PageAi {
             widgets::menu_rule(ui);
         }
         if shown && widgets::menu_row(ui, Icon::Book, "Show original page", None, false).clicked() {
-            out.push(Command::PageAi(Action::Show {
+            out.push(Command::Intent(Intent::PageAi(Action::Show {
                 pane,
                 page,
                 slot: None,
-            }));
+            })));
             return true;
         }
         if following.is_some()
             && widgets::menu_row(ui, Icon::Stop, "Stop continuous mode", None, false).clicked()
         {
-            out.push(Command::PageAi(Action::StopFollow(pane)));
+            out.push(Command::Intent(Intent::PageAi(Action::StopFollow(pane))));
             return true;
         }
         false
@@ -362,13 +362,13 @@ impl PageAi {
         };
         let page = widgets::menu_row(ui, Icon::Book, "This page", None, false);
         if page.clicked() {
-            out.push(Command::PageAi(action(m, task, tag, how(false))));
+            out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(false)))));
             return true;
         }
         let tip = "Does each page as you read on, a few pages ahead";
         let on = widgets::menu_row(ui, Icon::Repeat, "Continuous", None, false);
         if on.on_hover_text(tip).clicked() {
-            out.push(Command::PageAi(action(m, task, tag, how(true))));
+            out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(true)))));
             return true;
         }
         widgets::menu_rule(ui);
@@ -502,7 +502,7 @@ impl PageAi {
         let rect = popup(ctx, Id::new("page-ai-bubble-menu"), m.at, t, |ui| {
             let mut act = |ui: &mut Ui, icon, text: &str, action| {
                 if widgets::menu_row(ui, icon, text, None, false).clicked() {
-                    out.push(Command::PageAi(action));
+                    out.push(Command::Intent(Intent::PageAi(action)));
                     close = true;
                 }
             };
@@ -567,7 +567,7 @@ impl PageAi {
                 act(ui, Icon::Rescan, "Redo", Action::Redo { pane, page, slot });
                 act(ui, Icon::Copy, "Copy text", Action::Copy(slot));
                 if widgets::menu_row_danger(ui, Icon::Remove, "Delete").clicked() {
-                    out.push(Command::PageAi(Action::Delete(slot)));
+                    out.push(Command::Intent(Intent::PageAi(Action::Delete(slot))));
                     close = true;
                 }
             }

@@ -21,7 +21,7 @@ impl MareaderApp {
             book: last.book,
             ..OpenRequest::path(last.path)
         };
-        self.queue(Command::Open(request));
+        self.queue(Command::Intent(Intent::Open(request)));
         true
     }
 

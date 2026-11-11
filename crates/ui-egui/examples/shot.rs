@@ -81,7 +81,7 @@ fn main() -> Result<(), String> {
                     char: char.parse().map_err(|_| "pin char")?,
                 };
                 let pane = app.active_pane();
-                queued.push(Command::PlaceReadMarker { pane, spot });
+                queued.push(Command::Intent(Intent::PlaceReadMarker { pane, spot }));
             }
             // The pin carried by this much, held: `nudge=dx,dy`.
             "nudge" => {
@@ -104,7 +104,7 @@ fn main() -> Result<(), String> {
             // Points to wheel the document down once open.
             "scroll" => scroll = v.parse().map_err(|_| "scroll=points")?,
             // Also once open: `view=spread arrows=right,right`.
-            "view" => queued.push(Command::View(match v {
+            "view" => queued.push(Command::Intent(Intent::View(match v {
                 "single" => ViewMode::Single,
                 "spread" => ViewMode::Spread,
                 "vertical" => ViewMode::Vertical,
@@ -114,7 +114,7 @@ fn main() -> Result<(), String> {
                         "view: single, spread, vertical or horizontal, not {v}"
                     ));
                 }
-            })),
+            }))),
             "pane_view" => {
                 let mut fields = v.split(':');
                 let pane: u32 = fields
@@ -148,29 +148,29 @@ fn main() -> Result<(), String> {
             }
             "arrows" => {
                 for a in v.split(',') {
-                    queued.push(Command::Arrow(match a {
+                    queued.push(Command::Intent(Intent::Arrow(match a {
                         "left" => Arrow::Left,
                         "right" => Arrow::Right,
                         "up" => Arrow::Up,
                         "down" => Arrow::Down,
                         _ => return Err(format!("arrows: left, right, up or down, not {a}")),
-                    }));
+                    })));
                 }
             }
             // 1-based, like the page entry: `goto=12`.
             "goto" => {
                 let page: usize = v.parse().map_err(|_| "goto=page")?;
-                queued.push(Command::GoTo {
+                queued.push(Command::Intent(Intent::GoTo {
                     pane: app.active_pane(),
                     page: page.saturating_sub(1),
-                });
+                }));
             }
             // The find bar, once open: `find=true`.
-            "find" if v == "true" => queued.push(Command::ShowFind),
+            "find" if v == "true" => queued.push(Command::Ui(UiCommand::ShowFind)),
             // Searched, on the first hit from the page read: `find=fox`.
             "find" => {
                 app.set_option(k, v)?;
-                queued.push(Command::ShowFind);
+                queued.push(Command::Ui(UiCommand::ShowFind));
                 searched = true;
             }
             // A book from the web, fetched first: `epub=https://…/a.epub`.
@@ -258,7 +258,7 @@ fn main() -> Result<(), String> {
             }
             // A scripted book's scripts run first: `scripted=true`.
             "scripted" => scripted = v == "true",
-            "read_aloud" if v == "true" => queued.push(Command::ToggleReadAloud),
+            "read_aloud" if v == "true" => queued.push(Command::Intent(Intent::ToggleReadAloud)),
             // Live explanations read their key from the Actions environment.
             "explain" if v == "live" => {
                 let key = std::env::var("OPENAI_API_KEY")
@@ -326,20 +326,20 @@ fn main() -> Result<(), String> {
     if let Some(key) = ai_key {
         harness
             .state_mut()
-            .queue(Command::Ai(Job::AddKey(Provider::OpenAi, key)));
+            .queue(Command::Intent(Intent::Ai(Job::AddKey(Provider::OpenAi, key))));
         for _ in 0..20 {
             harness.run_steps(1);
             std::thread::sleep(Duration::from_millis(50));
         }
     }
     if words {
-        harness.state_mut().queue(Command::Vocab(Download::Start));
+        harness.state_mut().queue(Command::Intent(Intent::Vocab(Download::Start)));
         wait_for_words(&mut harness)?;
     }
     if sounds {
         harness
             .state_mut()
-            .queue(Command::Pronunciation(Download::Start));
+            .queue(Command::Intent(Intent::Pronunciation(Download::Start)));
         wait_for_sounds(&mut harness)?;
     }
     if wait_for_opening {
@@ -349,21 +349,21 @@ fn main() -> Result<(), String> {
     for c in queued {
         let mut from_text = false;
         let c = match c {
-            Command::ToggleReadAloud => match read_at.take() {
+            Command::Intent(Intent::ToggleReadAloud) => match read_at.take() {
                 Some((page, phrase)) => {
                     from_text = true;
                     let from = read_from_text(harness.state(), page, &phrase)?;
                     read_target = from.at;
                     let pane = harness.state().active_pane();
-                    Command::ReadAloud { pane, from }
+                    Command::Intent(Intent::ReadAloud { pane, from })
                 }
-                None => Command::ToggleReadAloud,
+                None => Command::Intent(Intent::ToggleReadAloud),
             },
             other => other,
         };
         harness.state_mut().queue(c);
         if from_text && library_after_read_aloud {
-            harness.state_mut().queue(Command::ShowLibrary);
+            harness.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
             harness.run_steps(library_route_frames);
             library_shown = true;
         } else {
@@ -371,7 +371,7 @@ fn main() -> Result<(), String> {
         }
     }
     if library_after_read_aloud && !library_shown {
-        harness.state_mut().queue(Command::ShowLibrary);
+        harness.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
         harness.run_steps(library_route_frames);
     }
     if let Some(target) = read_target {
@@ -402,11 +402,11 @@ fn main() -> Result<(), String> {
     }
     for (pane, mode, fit) in pane_views.iter().copied() {
         harness.state_mut().set_option("focus", &pane.to_string())?;
-        harness.state_mut().queue(Command::View(mode));
+        harness.state_mut().queue(Command::Intent(Intent::View(mode)));
         harness.run_steps(8);
         harness
             .state_mut()
-            .queue(Command::Zoom(ZoomCommand::Fit(fit)));
+            .queue(Command::Intent(Intent::Zoom(ZoomCommand::Fit(fit))));
         harness.run_steps(16);
     }
     if !pane_views.is_empty() {
@@ -424,7 +424,7 @@ fn main() -> Result<(), String> {
         harness.run_steps(60);
     }
     for z in zooms {
-        harness.state_mut().queue(Command::Zoom(z));
+        harness.state_mut().queue(Command::Intent(Intent::Zoom(z)));
         harness.run_steps(16);
     }
     if scroll != 0.0 {
@@ -515,7 +515,7 @@ fn main() -> Result<(), String> {
             }),
             until: None,
         };
-        harness.state_mut().queue(Command::ReadAloud { pane, from });
+        harness.state_mut().queue(Command::Intent(Intent::ReadAloud { pane, from }));
         let until = Instant::now() + Duration::from_secs(30);
         while harness.query_by_label("Read the table").is_none() && Instant::now() < until {
             harness.run_steps(3);

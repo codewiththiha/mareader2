@@ -3,8 +3,8 @@ use super::*;
 pub(super) fn handles(command: &Command) -> bool {
     match command {
         #[cfg(not(target_arch = "wasm32"))]
-        Command::Ai(..) => true,
-        Command::PageAi(..) => true,
+        Command::Intent(Intent::Ai(..)) => true,
+        Command::Intent(Intent::PageAi(..)) => true,
         _ => false,
     }
 }
@@ -16,17 +16,17 @@ pub(super) fn apply(app: &mut MareaderApp, ctx: &Context, command: Command) {
 fn handles_1(command: &Command) -> bool {
     match command {
         #[cfg(not(target_arch = "wasm32"))]
-        Command::Ai(..) => true,
-        Command::PageAi(..) => true,
+        Command::Intent(Intent::Ai(..)) => true,
+        Command::Intent(Intent::PageAi(..)) => true,
         _ => false,
     }
 }
 
 fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
-        Command::PageAi(action) => app.page_ai_act(ctx, action),
+        Command::Intent(Intent::PageAi(action)) => app.page_ai_act(ctx, action),
         #[cfg(not(target_arch = "wasm32"))]
-        Command::Ai(job) => app.ai.send(job),
+        Command::Intent(Intent::Ai(job)) => app.ai.send(job),
         _ => {}
     }
 }

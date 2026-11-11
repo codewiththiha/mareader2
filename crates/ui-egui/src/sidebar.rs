@@ -269,7 +269,7 @@ impl Sidebar {
             let edge = Rect::from_min_size(screen.min, vec2(EDGE, screen.height()));
             match pointer.filter(|&p| !down && edge.contains(p)) {
                 Some(p) if p.y < cx.bar_bottom => self.dwell(ctx, out),
-                Some(_) => out.push(Command::OpenSidebar(None)),
+                Some(_) => out.push(Command::Ui(UiCommand::OpenSidebar(None))),
                 None => self.edge_at = None,
             }
             return;
@@ -291,7 +291,7 @@ impl Sidebar {
         let now = ctx.input(|i| i.time);
         let waited = now - *self.left_at.get_or_insert(now);
         if waited >= HOVER_GRACE {
-            out.push(Command::CloseSidebar);
+            out.push(Command::Ui(UiCommand::CloseSidebar));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(HOVER_GRACE - waited));
         }
@@ -302,7 +302,7 @@ impl Sidebar {
         let now = ctx.input(|i| i.time);
         let waited = now - *self.edge_at.get_or_insert(now);
         if waited >= EDGE_DELAY {
-            out.push(Command::OpenSidebar(None));
+            out.push(Command::Ui(UiCommand::OpenSidebar(None)));
         } else {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(EDGE_DELAY - waited));
         }
@@ -347,9 +347,9 @@ impl Sidebar {
         // Registered before the buttons so they win the pointer.
         let drag = ui.interact(rect, Id::new("sidebar-drag"), Sense::CLICK | Sense::DRAG);
         if drag.double_clicked() {
-            out.push(Command::Window(WindowCommand::ToggleMaximize));
+            out.push(Command::Ui(UiCommand::Window(WindowCommand::ToggleMaximize)));
         } else if drag.drag_started() {
-            out.push(Command::Window(WindowCommand::StartDrag));
+            out.push(Command::Ui(UiCommand::Window(WindowCommand::StartDrag)));
         }
         let mut row = rect;
         row.min.x += cx.platform.leading_inset();
@@ -362,9 +362,9 @@ impl Sidebar {
             let _act = anim::announce(ui, Act::Hover);
             ui.spacing_mut().item_spacing.x = 4.0;
             let buttons = [
-                (Icon::SidebarClose, "Close sidebar", Command::CloseSidebar),
-                (Icon::Search, "Search", Command::ShowSearch),
-                (Icon::Settings, "Settings", Command::ShowSettings),
+                (Icon::SidebarClose, "Close sidebar", Command::Ui(UiCommand::CloseSidebar)),
+                (Icon::Search, "Search", Command::Ui(UiCommand::ShowSearch)),
+                (Icon::Settings, "Settings", Command::Ui(UiCommand::ShowSettings)),
             ];
             for (icon, label, command) in buttons {
                 let keys = crate::keymap::hint(cx.platform, &command);
@@ -376,7 +376,7 @@ impl Sidebar {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let docked = !cx.overlay;
                 if widgets::icon_button(ui, Icon::Pin, "Dock sidebar", docked).clicked() {
-                    out.push(Command::SetSidebarOverlay(docked));
+                    out.push(Command::Intent(Intent::SetSidebarOverlay(docked)));
                 }
             });
         });
@@ -417,7 +417,7 @@ impl Sidebar {
             if r.clicked() && on {
                 self.recentre = true;
             } else if r.clicked() {
-                out.push(Command::OpenSidebar(Some(panel)));
+                out.push(Command::Ui(UiCommand::OpenSidebar(Some(panel))));
             }
         }
     }

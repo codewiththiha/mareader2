@@ -225,10 +225,10 @@ fn header(
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.with_layout(Layout::right_to_left(align), |ui| {
                 if widgets::small_icon_button(ui, Icon::Close, "Close").clicked() {
-                    out.push(Command::Dict(Action::CloseCard));
+                    out.push(Command::Intent(Intent::Dict(Action::CloseCard)));
                 }
                 if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
-                    out.push(Command::Dict(Action::Pursue(word.to_owned())));
+                    out.push(Command::Intent(Intent::Dict(Action::Pursue(word.to_owned()))));
                 }
                 if let Some(s) = view.speaker {
                     let voice = s.voice.as_deref();
@@ -407,7 +407,7 @@ fn empty(ui: &mut Ui, view: &View<'_>, reply: &Reply, t: &Tokens, out: &mut Comm
     } else if reply.ready == 0 {
         muted(ui, t, "No dictionary is downloaded.");
         if ui.button("Get dictionaries…").clicked() {
-            out.push(Command::OpenSettings(Tab::Dictionary));
+            out.push(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
         }
     } else {
         let why = match &reply.failed {

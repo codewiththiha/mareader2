@@ -1440,13 +1440,13 @@ impl ReadAloud {
                 Some(Resize::To(w)) => {
                     shape.dragged = Some(w);
                     if stage.toasts.is_some_and(|t| rect.intersects(t)) {
-                        out.push(Command::ClearToasts);
+                        out.push(Command::Ui(UiCommand::ClearToasts));
                     }
                 }
                 Some(Resize::Set(w)) => {
                     (shape.dragged, settings.player_width) = (None, Some(w));
                     if stage.toasts.is_some_and(|t| rect.intersects(t)) {
-                        out.push(Command::ClearToasts);
+                        out.push(Command::Ui(UiCommand::ClearToasts));
                     }
                 }
                 Some(Resize::Reset) => {
@@ -1458,7 +1458,7 @@ impl ReadAloud {
         });
         match act {
             Some(Act::Card(to)) => shape.chosen = Some(to),
-            Some(Act::Reveal) => out.push(Command::ShowReading),
+            Some(Act::Reveal) => out.push(Command::Ui(UiCommand::ShowReading)),
             Some(act) if s.act(act) => self.session = None,
             _ => {}
         }
@@ -1688,7 +1688,7 @@ pub fn say_button(
         return;
     }
     let (label, command) = match saying {
-        true => (STOP_SAYING, Command::StopSaying),
+        true => (STOP_SAYING, Command::Intent(Intent::StopSaying)),
         false => (SAY, say(word, voice)),
     };
     let accent = Tokens::get(ui.ctx()).accent;
@@ -1707,11 +1707,11 @@ pub fn say_button(
 pub fn say(word: &str, voice: Option<&str>) -> Command {
     let word = word.to_owned();
     match voice {
-        Some(voice) => Command::SayWordWith {
+        Some(voice) => Command::Intent(Intent::SayWordWith {
             word,
             voice: voice.to_owned(),
-        },
-        None => Command::SayWord(word),
+        }),
+        None => Command::Intent(Intent::SayWord(word)),
     }
 }
 

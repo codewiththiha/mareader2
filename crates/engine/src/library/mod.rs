@@ -87,7 +87,7 @@ pub enum CopyAnswer {
 /// What every shelf made by hand is called until renamed.
 pub const NEW_SHELF: &str = "New shelf";
 
-/// What a drag carries, in the order shown; the toolkit keeps it until the drop.
+/// What a drag carries, in the order shown; the UI holds it until dropped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Carry {
     pub items: Vec<Item>,

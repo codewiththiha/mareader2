@@ -303,7 +303,7 @@ pub fn say(
     }
     let speaker = voice.speaker(language).and_then(|s| s.voice.as_deref());
     out.push(match saying {
-        true => Command::StopSaying,
+        true => Command::Intent(Intent::StopSaying),
         false => crate::read_aloud::say(word, speaker),
     });
 }
@@ -353,7 +353,7 @@ pub fn offer(ui: &mut Ui, offer: Offer, out: &mut Commands) {
         offer.model.name
     );
     if r.on_hover_text(tip).clicked() {
-        out.push(Command::RevealVoice(offer.model, offer.tag));
+        out.push(Command::Intent(Intent::RevealVoice(offer.model, offer.tag)));
     }
 }
 

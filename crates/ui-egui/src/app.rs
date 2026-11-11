@@ -36,7 +36,8 @@ use mareader_workspace::{
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
-use crate::command::{Command, Commands, Independence, WindowCommand};
+use crate::command::{Command, Commands, Independence, Intent, WindowCommand};
+use crate::study::Action as StudyAction;
 use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest, Placement};
 use crate::files::Files;

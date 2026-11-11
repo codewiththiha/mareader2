@@ -3,12 +3,12 @@ use super::*;
 pub(super) fn handles(command: &Command) -> bool {
     matches!(
         command,
-        Command::ShowLibrary
-            | Command::SetLibraryView(..)
-            | Command::OpenBook(..)
-            | Command::PlaceBook { .. }
-            | Command::Library(..)
-            | Command::ForgetPositions { .. }
+        Command::Ui(UiCommand::ShowLibrary)
+            | Command::Intent(Intent::SetLibraryView(..))
+            | Command::Intent(Intent::OpenBook(..))
+            | Command::Intent(Intent::PlaceBook { .. })
+            | Command::Intent(Intent::Library(..))
+            | Command::Intent(Intent::ForgetPositions { .. })
     )
 }
 
@@ -19,29 +19,29 @@ pub(super) fn apply(app: &mut MareaderApp, ctx: &Context, command: Command) {
 fn handles_1(command: &Command) -> bool {
     matches!(
         command,
-        Command::ShowLibrary
-            | Command::SetLibraryView(..)
-            | Command::OpenBook(..)
-            | Command::PlaceBook { .. }
-            | Command::Library(..)
-            | Command::ForgetPositions { .. }
+        Command::Ui(UiCommand::ShowLibrary)
+            | Command::Intent(Intent::SetLibraryView(..))
+            | Command::Intent(Intent::OpenBook(..))
+            | Command::Intent(Intent::PlaceBook { .. })
+            | Command::Intent(Intent::Library(..))
+            | Command::Intent(Intent::ForgetPositions { .. })
     )
 }
 
 fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
-        Command::ShowLibrary => match app.route() {
+        Command::Ui(UiCommand::ShowLibrary) => match app.route() {
             Route::Reader | Route::Dictionary => app.go(Route::Library),
             // An empty reader is no place to go back to.
             Route::Library if app.reading() => app.go(Route::Reader),
             Route::Library => {}
         },
-        Command::SetLibraryView(view) => {
+        Command::Intent(Intent::SetLibraryView(view)) => {
             app.settings.library = view;
             app.settings.library.sanitize();
         }
         // A lost book asks where it went instead of failing.
-        Command::OpenBook(book) => {
+        Command::Intent(Intent::OpenBook(book)) => {
             // Do nothing is for the rail; the page has nothing to drag to.
             let placement = match app.settings.workspace.library_click {
                 LibraryClick::Split => Placement::Beside,
@@ -49,13 +49,13 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             };
             app.open_book(ctx, book, None, placement);
         }
-        Command::PlaceBook {
+        Command::Intent(Intent::PlaceBook {
             book,
             pane,
             placement,
-        } => app.open_book(ctx, book, pane, placement),
-        Command::Library(action) => app.library_action(ctx, action),
-        Command::ForgetPositions { books, paths } => {
+        }) => app.open_book(ctx, book, pane, placement),
+        Command::Intent(Intent::Library(action)) => app.library_action(ctx, action),
+        Command::Intent(Intent::ForgetPositions { books, paths }) => {
             let panes: Vec<PaneId> = app
                 .tree
                 .panes()

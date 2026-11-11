@@ -220,10 +220,10 @@ impl SettingsWindow {
             });
         });
         if close || modal.should_close() {
-            out.push(Command::CloseSettings);
+            out.push(Command::Ui(UiCommand::CloseSettings));
         }
         if draft != *current {
-            out.push(Command::SetSettings(Box::new(draft)));
+            out.push(Command::Intent(Intent::SetSettings(Box::new(draft))));
         }
     }
 
@@ -582,8 +582,8 @@ pub(super) fn colours_row(ui: &mut Ui, out: &mut Commands) {
         let t = Tokens::get(ui.ctx());
         let text = RichText::new("Open Appearance").color(t.accent);
         if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
-            out.push(Command::CloseSettings);
-            out.push(Command::ShowAppearance);
+            out.push(Command::Ui(UiCommand::CloseSettings));
+            out.push(Command::Ui(UiCommand::ShowAppearance));
         }
     });
 }

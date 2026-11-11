@@ -80,39 +80,7 @@ pub struct MenuContext<'a> {
     pub text: Option<QuickText>,
 }
 
-/// The text dials the popover offers for a book, from its text settings.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct QuickText {
-    pub size_pct: f32,
-    pub line_height: f32,
-    pub paragraph_margin: f32,
-    pub override_font: bool,
-    pub override_layout: bool,
-}
-
-impl QuickText {
-    pub fn of(t: &TextSettings) -> Self {
-        Self {
-            size_pct: t.size_pct(),
-            line_height: t.line_height,
-            paragraph_margin: t.paragraph_margin,
-            override_font: t.override_font,
-            override_layout: t.override_layout,
-        }
-    }
-
-    /// Writes the dials back; an untouched size keeps its exact points.
-    pub fn apply(self, t: &mut TextSettings) {
-        if self.size_pct != t.size_pct() {
-            t.set_size_pct(self.size_pct);
-        }
-        t.line_height = self.line_height;
-        t.paragraph_margin = self.paragraph_margin;
-        t.override_font = self.override_font;
-        t.override_layout = self.override_layout;
-        t.sanitize();
-    }
-}
+pub use mareader_engine::appearance_menu::QuickText;
 
 /// Edits a copy and pushes one command when anything changed.
 pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
@@ -165,15 +133,15 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     if split != cx.independence
         && let Some(i) = split
     {
-        out.push(Command::SetIndependence(i));
+        out.push(Command::Intent(Intent::SetIndependence(i)));
     }
     if a != *cx.current {
-        out.push(Command::SetAppearance(a));
+        out.push(Command::Intent(Intent::SetAppearance(a)));
     }
     if text != cx.text
         && let Some(q) = text
     {
-        out.push(Command::SetQuickText(q));
+        out.push(Command::Intent(Intent::SetQuickText(q)));
     }
 }
 
@@ -486,7 +454,7 @@ fn ink_dial(ui: &mut Ui, ink: f32, out: &mut Commands) {
     let mut value = shown;
     slider(ui, "Text ink", &mut value, lo as u8..=hi as u8);
     if value != shown {
-        out.push(Command::SetInkContrast(f32::from(value)));
+        out.push(Command::Intent(Intent::SetInkContrast(f32::from(value))));
     }
 }
 
@@ -748,7 +716,7 @@ fn card(
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, selected, &label));
     let own = cx.user.iter().any(|u| u.id == p.id);
     if own && hot && delete_button(ui, page, p).clicked() {
-        out.push(Command::DeletePreset(p.id.clone()));
+        out.push(Command::Intent(Intent::DeletePreset(p.id.clone())));
     } else if resp.on_hover_text(&p.name).clicked() {
         *a = p.appearance;
     }
@@ -887,11 +855,11 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
             }
         });
         if named && (save || enter) {
-            out.push(Command::SavePreset {
+            out.push(Command::Intent(Intent::SavePreset {
                 name: d.name.trim().to_owned(),
                 group: d.group.trim().to_owned(),
                 look: *look,
-            });
+            }));
             *d = Draft::default();
         } else if cancel || escape {
             *d = Draft::default();

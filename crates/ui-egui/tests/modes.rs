@@ -37,7 +37,7 @@ fn wheel(h: &mut H, delta: egui::Vec2, ticks: usize) {
 }
 
 fn set(h: &mut H, mode: ViewMode) {
-    h.state_mut().queue(Command::View(mode));
+    h.state_mut().queue(Command::Intent(Intent::View(mode)));
     h.run();
 }
 
@@ -118,9 +118,9 @@ fn a_plain_wheel_runs_the_horizontal_strip_sideways() {
     set(&mut h, ViewMode::Horizontal);
     // Fit page: nothing overflows down, so the wheel goes along.
     h.state_mut()
-        .queue(Command::Zoom(mareader_ui_egui::zoom::ZoomCommand::Fit(
+        .queue(Command::Intent(Intent::Zoom(mareader_ui_egui::zoom::ZoomCommand::Fit(
             mareader_ui_egui::zoom::Fit::Page,
-        )));
+        ))));
     h.run();
     assert_eq!(visible(&h).start, 0);
     wheel(&mut h, egui::vec2(0.0, -1000.0), 6);
@@ -134,7 +134,7 @@ fn a_plain_wheel_runs_the_horizontal_strip_sideways() {
 #[test]
 fn the_menu_row_switches_modes_and_marks_the_current_one() {
     let mut h = reader("sample:10");
-    h.state_mut().queue(Command::ShowViewMenu);
+    h.state_mut().queue(Command::Ui(UiCommand::ShowViewMenu));
     h.run();
     egui_kittest::kittest::Queryable::get_by_label(&h, "Two pages").click();
     h.run();

@@ -41,7 +41,7 @@ fn reading_with(dir: &Path, voice: &'static str) -> H {
             app.attach_voice_models_from(&cc.egui_ctx, dir, MODELS);
             app
         });
-    h.state_mut().queue(Command::OpenSettings(Tab::Vocabulary));
+    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Vocabulary)));
     h.run_steps(4);
     h
 }

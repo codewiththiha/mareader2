@@ -439,7 +439,7 @@ pub fn focused(ctx: &Context) -> bool {
 }
 
 fn act(out: &mut Commands, action: SearchAction) {
-    out.push(Command::Library(Action::Search(action)));
+    out.push(Command::Intent(Intent::Library(Action::Search(action))));
 }
 
 /// The bar's pill in `rect`; arrows, Enter and Escape act before typing.

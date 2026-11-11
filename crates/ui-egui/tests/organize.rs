@@ -29,7 +29,7 @@ fn page(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
 }
 
 fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
-    h.state_mut().queue(Command::Library(action));
+    h.state_mut().queue(Command::Intent(Intent::Library(action)));
     h.run_steps(4);
 }
 
@@ -197,10 +197,10 @@ fn a_finished_plan_waits_for_review_and_a_failure_offers_resume() {
     };
     library.set_paused(Some(paused));
     library.heard(Heard::Failed(Toast::error("Couldn't organize.")), &mut out);
-    let Some(Command::Notify(failed)) = out.first() else {
+    let Some(Command::Ui(UiCommand::Notify(failed))) = out.first() else {
         panic!("a toast")
     };
     assert_eq!(failed.label, "Resume");
-    let resume = Command::Library(Action::ResumeOrganizing);
+    let resume = Command::Intent(Intent::Library(Action::ResumeOrganizing));
     assert_eq!(failed.undo.as_deref(), Some(&resume));
 }

@@ -142,7 +142,7 @@ pub fn section(
         _ => None,
     };
     if let Some(next) = next.filter(|n| *n != now) {
-        out.push(Command::Study(Action::Restyle(mark, next)));
+        out.push(Command::Intent(Intent::Study(Action::Restyle(mark, next))));
     }
 }
 
@@ -175,7 +175,7 @@ pub fn group(
         }
     }
     if !changes.is_empty() || skipped > 0 {
-        out.push(Command::Study(Action::RestyleAll(changes, skipped)));
+        out.push(Command::Intent(Intent::Study(Action::RestyleAll(changes, skipped))));
     }
 }
 

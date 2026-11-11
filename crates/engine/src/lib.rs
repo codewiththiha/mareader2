@@ -17,10 +17,12 @@
     clippy::indexing_slicing
 )]
 
+pub mod appearance_menu;
+pub mod command;
 pub mod dict;
-pub mod library;
 pub mod documents;
 pub mod export;
+pub mod library;
 pub mod notes_panel;
 pub mod page_ai;
 pub mod pane;
@@ -36,7 +38,9 @@ pub mod sample;
 pub mod scope;
 pub mod settings;
 pub mod stable_hash;
+pub mod study;
 pub mod texts;
+pub mod toast;
 pub mod transcript;
 pub mod watch;
 pub mod word_marks;

@@ -319,25 +319,25 @@ impl LibraryState {
                 if plan.placed.is_empty() {
                     self.organizer_end();
                     let said = "The AI found no shelf that suits these books.";
-                    out.push(Command::Notify(Toast::info(said)));
+                    out.push(Command::Ui(UiCommand::Notify(Toast::info(said))));
                 } else {
                     self.organizer.review = Some(Box::new(plan));
                     // The plan shows on the library page; elsewhere, a nudge.
                     if !self.showing {
                         let said = "The AI's shelf plan is ready. Open the library to review it.";
-                        out.push(Command::Notify(Toast::info(said)));
+                        out.push(Command::Ui(UiCommand::Notify(Toast::info(said))));
                     }
                 }
             }
             Heard::Failed(toast) => {
                 self.organizer_end();
                 // What was done is kept; the toast offers to carry on.
-                let resume = Command::Library(super::Action::ResumeOrganizing);
+                let resume = Command::Intent(Intent::Library(super::Action::ResumeOrganizing));
                 let toast = match &self.organizer.paused {
                     Some(p) if !p.ready => toast.action("Resume", resume),
                     _ => toast,
                 };
-                out.push(Command::Notify(toast));
+                out.push(Command::Ui(UiCommand::Notify(toast)));
             }
         }
     }
@@ -374,11 +374,9 @@ impl LibraryState {
         }
         let toast = match books {
             0 => Toast::info(said),
-            _ => Toast::info(said).undo(Command::Library(super::Action::UndoOrganized(Box::new(
-                done,
-            )))),
+            _ => Toast::info(said).undo(Intent::Library(super::Action::UndoOrganized(Box::new(done)))),
         };
-        out.push(Command::Notify(toast));
+        out.push(Command::Ui(UiCommand::Notify(toast)));
     }
 
     /// A shelf move without the books a run holds; a toast says why.
@@ -415,7 +413,7 @@ impl LibraryState {
             other => (Some(other), false),
         };
         if dropped {
-            out.push(Command::Notify(Toast::info(HELD)));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info(HELD))));
         }
         action
     }
@@ -426,7 +424,7 @@ impl LibraryState {
         let n = picks.len();
         picks.retain(|p| !matches!(p, Pick::Book(b) if held.contains(b)));
         if picks.len() < n {
-            out.push(Command::Notify(Toast::info(HELD)));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info(HELD))));
         }
         picks
     }
@@ -747,13 +745,13 @@ mod tests {
         assert!(!state.organizer().busy());
         assert_eq!(state.model.shelves_of(first).len(), 1);
         let undo = out.iter().find_map(|c| match c {
-            Command::Notify(t) => t.undo.clone(),
+            Command::Ui(UiCommand::Notify(t)) => t.undo.clone(),
             _ => None,
         });
         let Some(undo) = undo else {
             panic!("an Undo toast")
         };
-        let Command::Library(action) = *undo else {
+        let Command::Intent(Intent::Library(action)) = *undo else {
             panic!("a library undo")
         };
         state.act(action, 0.0, &mut out);

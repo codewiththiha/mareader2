@@ -3,12 +3,11 @@
 use mareader_library::{BookId, Item, Library, Move, ShelfId};
 
 use super::books::counted;
-use super::moving::CopyAnswer;
 use super::{Action, LibraryState, Scope, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
 
-pub use mareader_engine::library::{Carry, NEW_SHELF, ShelfAction};
+pub use mareader_engine::library::{Carry, CopyAnswer, NEW_SHELF, ShelfAction};
 
 /// One step of the breadcrumb; none is the library's top level.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,9 +148,9 @@ impl LibraryState {
             true => format!("Watching {ground} for new books."),
             false => format!("{ground} is no longer watched for new books."),
         };
-        out.push(Command::Notify(Toast::info(note)));
+        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
         if on {
-            out.push(Command::Library(Action::Rescan));
+            out.push(Command::Intent(Intent::Library(Action::Rescan)));
         }
     }
 

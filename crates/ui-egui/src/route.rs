@@ -15,66 +15,50 @@ impl Route {
 
 /// Acts on panes, pages or the rail, all hidden behind the library.
 fn reads(command: &Command) -> bool {
-    use Command as C;
+    use mareader_engine::command::Intent as I;
+    use UiCommand as U;
     // Exhaustive, so each new command must say where it belongs.
     match command {
-        // The rail and the bar's folding tools act on panes.
-        C::ToggleSidebar | C::OpenSidebar(_) | C::CloseSidebar => true,
-        C::ShowSearch | C::Split(_) => true,
-        // The focused pane's view and place.
-        C::Zoom(_) | C::View(_) | C::Arrow(_) => true,
-        C::Page { .. } | C::FirstPage | C::LastPage => true,
-        C::AutoScroll | C::Chromeless => true,
-        C::GoTo { .. } | C::Turn { .. } => true,
-        // The thumbnails copy their picked pages.
-        C::CopyPages { .. } => true,
-        C::WordList { .. } | C::WordListWindow { .. } => true,
-        C::FocusPane(_) | C::ClosePane(_) | C::SetRatio(..) => true,
-        C::CyclePane { .. } | C::FindStep { .. } => true,
-        // The rail's Library panel places books among the panes.
-        C::PlaceBook { .. } => true,
-        C::SetIndependence(_) | C::SetInkContrast(_) | C::SetQuickText(_) => true,
-        // Selecting and explaining act on a pane's text.
-        C::Explain(_) | C::Highlight { .. } | C::SelectText { .. } => true,
-        C::LookUp(_) | C::Note(_) | C::Bookmark(_) => true,
-        // The page AI works on a page in reading.
-        C::PageAi(_) => true,
-        C::ReadAloud { .. } | C::ToggleReadAloud | C::StopReadAloud => true,
-        C::PlaceReadMarker { .. } => true,
-        // Settings open over any page, keeping to the tabs it uses.
-        C::ShowSettings | C::OpenSettings(_) => false,
-        // A voice is tried from settings, which open over any page.
-        C::TryVoice | C::TryVoiceOf(_) | C::StopVoiceTry | C::VoiceModel(..) => false,
-        // A card's word is said wherever its card shows.
-        C::SayWord(_) | C::SayWordWith { .. } | C::StopSaying | C::RevealVoice(..) => false,
-        // Undo of a removal is offered by a toast, which shows anywhere.
-        C::Study(_) => false,
-        // Downloads go on behind the library; the card closes anywhere.
-        C::Dict(_) | C::SetDictionary(_) | C::Vocab(_) => false,
-        C::Pronunciation(_) => false,
-        // The library's own: its page, books and View menu.
-        C::ShowLibrary | C::OpenBook(_) | C::SetLibraryView(_) => false,
-        // The player's card works from any page.
-        C::ShowReading => false,
-        // The dictionary comes up from every page.
-        C::ShowDictionary => false,
-        // Find searches the page in reading, the library on the shelf.
-        C::ShowFind => false,
-        C::Library(_) | C::ForgetPositions { .. } => false,
-        C::Open(_) | C::ShowOpenDialog(_) | C::ShowViewMenu => false,
-        C::ShowShortcuts => false,
-        // The window's look, chrome and notices.
-        C::ShowAppearance | C::SetAppearance(_) => false,
-        C::SavePreset { .. } | C::DeletePreset(_) => false,
-        C::SetTitlebarPinned(_) | C::Window(_) => false,
-        C::Notify(_) | C::CloseToast(_) | C::ClearToasts => false,
-        // A save dialog finishes wherever the window went.
-        C::Export { .. } => false,
-        // Settings edits are inert while the window is shut.
-        C::SetSidebarOverlay(_) | C::CloseSettings | C::SetSettings(_) => false,
-        // Key and model work finishes wherever the window went.
-        #[cfg(not(target_arch = "wasm32"))]
-        C::Ai(_) => false,
+        Command::Ui(ui) => matches!(
+            ui,
+            // The rail and the bar's folding tools act on panes.
+            U::ToggleSidebar | U::OpenSidebar(_) | U::CloseSidebar | U::ShowSearch
+                | U::Chromeless | U::FindStep { .. }
+                // Settings, menus and pages open over any page.
+                | U::ShowSettings | U::ShowShortcuts | U::ShowAppearance | U::ShowViewMenu
+                | U::ShowLibrary | U::ShowReading | U::ShowDictionary | U::ShowFind
+                | U::ShowOpenDialog(_) | U::Window(_) | U::CloseSettings
+                // Notices show anywhere.
+                | U::Notify(_) | U::CloseToast(_) | U::ClearToasts
+        ),
+        Command::Intent(intent) => !matches!(
+            intent,
+            // The focused pane's view and place.
+            I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } | I::FirstPage
+                | I::LastPage | I::AutoScroll | I::GoTo { .. } | I::Turn { .. }
+                // The thumbnails copy their picked pages.
+                | I::CopyPages { .. } | I::WordList { .. } | I::WordListWindow { .. }
+                // Panes and their dividers.
+                | I::Split(_) | I::FocusPane(_) | I::ClosePane(_) | I::SetRatio(..)
+                | I::CyclePane { .. } | I::PlaceBook { .. }
+                // These read a pane's pixels or its text.
+                | I::SetIndependence(_) | I::SetInkContrast(_) | I::SetQuickText(_)
+                | I::Explain(_) | I::Highlight { .. } | I::SelectText { .. }
+                | I::LookUp(_) | I::Note(_) | I::Bookmark(_) | I::PageAi(_)
+                // Reading aloud follows a book on the page.
+                | I::ReadAloud { .. } | I::ToggleReadAloud | I::StopReadAloud
+                | I::PlaceReadMarker { .. }
+                // Everything else keeps working wherever the window went.
+                | I::OpenSettings(_) | I::TryVoice | I::TryVoiceOf(_)
+                | I::StopVoiceTry | I::VoiceModel(..) | I::SayWord(_) | I::SayWordWith { .. }
+                | I::StopSaying | I::RevealVoice(..) | I::Study(_) | I::Dict(_)
+                | I::SetDictionary(_) | I::Vocab(_) | I::Pronunciation(_) | I::OpenBook(_)
+                | I::SetLibraryView(_) | I::Library(_) | I::ForgetPositions { .. }
+                | I::Open(_) | I::SetAppearance(_) | I::SavePreset { .. }
+                | I::DeletePreset(_) | I::SetTitlebarPinned(_) | I::SetSidebarOverlay(_)
+                | I::SetSettings(_) | I::Export { .. }
+                | I::Ai(_)
+        ),
     }
 }
 
@@ -87,24 +71,24 @@ mod tests {
     #[test]
     fn the_library_drops_what_acts_on_panes() {
         let lib = Route::Library;
-        assert!(!lib.allows(&Command::ToggleSidebar));
-        assert!(lib.allows(&Command::ShowSettings));
-        assert!(!lib.allows(&Command::View(ViewMode::Single)));
-        assert!(!lib.allows(&Command::FirstPage));
-        assert!(lib.allows(&Command::ShowLibrary));
-        assert!(lib.allows(&Command::ShowViewMenu));
-        assert!(lib.allows(&Command::Window(WindowCommand::Close)));
-        assert!(Route::Reader.allows(&Command::ToggleSidebar));
+        assert!(!lib.allows(&Command::Ui(UiCommand::ToggleSidebar)));
+        assert!(lib.allows(&Command::Ui(UiCommand::ShowSettings)));
+        assert!(!lib.allows(&Command::Intent(Intent::View(ViewMode::Single))));
+        assert!(!lib.allows(&Command::Intent(Intent::FirstPage)));
+        assert!(lib.allows(&Command::Ui(UiCommand::ShowLibrary)));
+        assert!(lib.allows(&Command::Ui(UiCommand::ShowViewMenu)));
+        assert!(lib.allows(&Command::Ui(UiCommand::Window(WindowCommand::Close))));
+        assert!(Route::Reader.allows(&Command::Ui(UiCommand::ToggleSidebar)));
     }
 
     #[test]
     fn the_dictionary_keeps_its_settings_and_drops_reading() {
         let page = Route::Dictionary;
-        assert!(page.allows(&Command::ShowSettings));
-        assert!(page.allows(&Command::ShowDictionary));
-        assert!(page.allows(&Command::ShowLibrary));
-        assert!(!page.allows(&Command::ToggleSidebar));
-        assert!(!page.allows(&Command::Bookmark(None)));
+        assert!(page.allows(&Command::Ui(UiCommand::ShowSettings)));
+        assert!(page.allows(&Command::Ui(UiCommand::ShowDictionary)));
+        assert!(page.allows(&Command::Ui(UiCommand::ShowLibrary)));
+        assert!(!page.allows(&Command::Ui(UiCommand::ToggleSidebar)));
+        assert!(!page.allows(&Command::Intent(Intent::Bookmark(None))));
         assert!(!page.has_rail());
     }
 }

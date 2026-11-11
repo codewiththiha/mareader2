@@ -95,7 +95,7 @@ impl MareaderApp {
             self.settings_window.is_open() || self.word_window.is_open() || self.library.sheet_up();
         let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
         if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active) {
-            out.push(Command::FocusPane(*id));
+            out.push(Command::Intent(Intent::FocusPane(*id)));
         }
     }
 

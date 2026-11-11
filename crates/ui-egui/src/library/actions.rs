@@ -1,11 +1,5 @@
 //! What the page and its sheets ask of the library, and who does it.
 
-use std::path::PathBuf;
-
-use mareader_library::{BookId, ContentId, Design, FolderId, LinkId, Options, Placement, ShelfId};
-
-use super::find::Finding;
-use super::moving::CopyWork;
 use super::{LibraryState, Pick, PickAction};
 use crate::command::Commands;
 

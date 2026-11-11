@@ -241,7 +241,7 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         .on_hover_cursor(CursorIcon::PointingHand)
         .clicked()
     {
-        out.push(Command::CloseToast(live.id));
+        out.push(Command::Ui(UiCommand::CloseToast(live.id)));
     }
     let Some(command) = &live.toast.undo else {
         return;
@@ -257,6 +257,6 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
     });
     if pressed.clicked() {
         out.push((**command).clone());
-        out.push(Command::CloseToast(live.id));
+        out.push(Command::Ui(UiCommand::CloseToast(live.id)));
     }
 }

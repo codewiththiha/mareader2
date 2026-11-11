@@ -94,17 +94,17 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         });
 
     if a != *cx.current {
-        out.push(Command::SetAppearance(a));
+        out.push(Command::Intent(Intent::SetAppearance(a)));
     }
     if text != cx.text
         && let Some(q) = text
     {
-        out.push(Command::SetQuickText(q));
+        out.push(Command::Intent(Intent::SetQuickText(q)));
     }
     if split != cx.independence
         && let Some(ind) = split
     {
-        out.push(Command::SetIndependence(ind));
+        out.push(Command::Intent(Intent::SetIndependence(ind)));
     }
 }
 
@@ -324,7 +324,7 @@ fn look_side_with_ink(
         shown: format!("{val:.0}%"),
     };
     if dials::inline_knob(ui, width, &spec, &mut val) && (val - shown_ink).abs() > 0.1 {
-        out.push(Command::SetInkContrast(val));
+        out.push(Command::Intent(Intent::SetInkContrast(val)));
     }
 }
 

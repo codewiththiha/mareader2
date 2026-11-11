@@ -49,10 +49,10 @@ impl Files {
             if let Some(request) = request {
                 files.deliver(
                     &ctx,
-                    Command::Open(OpenRequest {
+                    Command::Intent(Intent::Open(OpenRequest {
                         placement,
                         ..request
-                    }),
+                    })),
                 );
             }
         };
@@ -130,7 +130,7 @@ impl Files {
                 false => "The file dialog couldn't open.",
             };
             let toast = crate::toast::Toast::error(why);
-            self.deliver(ctx, Command::Notify(toast));
+            self.deliver(ctx, Command::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -175,12 +175,12 @@ impl Files {
                 Ok(()) => Toast::info(format!("Exported to {name}")),
                 Err(e) => Toast::error(format!("Couldn't export to {name}: {e}")),
             };
-            files.deliver(&cx, Command::Notify(toast));
+            files.deliver(&cx, Command::Ui(UiCommand::Notify(toast)));
         };
         if !dialog::save(make, done) {
             self.picking.store(false, Ordering::Release);
             let toast = Toast::error("Exporting needs the desktop app.");
-            self.deliver(ctx, Command::Notify(toast));
+            self.deliver(ctx, Command::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -273,7 +273,7 @@ mod dialog {
         place: impl FnOnce(OpenRequest) -> OpenRequest,
     ) {
         let request = place(OpenRequest::path(file.path().to_path_buf()));
-        files.deliver(ctx, Command::Open(request));
+        files.deliver(ctx, Command::Intent(Intent::Open(request)));
     }
 }
 
@@ -321,8 +321,8 @@ mod dialog {
         wasm_bindgen_futures::spawn_local(async move {
             let name = file.path().to_string_lossy().into_owned();
             let command = match file.bytes_async().await {
-                Ok(bytes) => Command::Open(place(OpenRequest::bytes(bytes, name))),
-                Err(e) => Command::Notify(Toast::error(format!("Couldn't read {name}: {e}"))),
+                Ok(bytes) => Command::Intent(Intent::Open(place(OpenRequest::bytes(bytes, name)))),
+                Err(e) => Command::Ui(UiCommand::Notify(Toast::error(format!("Couldn't read {name}: {e}")))),
             };
             files.deliver(&ctx, command);
         });

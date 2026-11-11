@@ -230,7 +230,7 @@ impl PageAi {
             }
         }
         for why in self.notes.drain(..) {
-            out.push(Command::Notify(Toast::info(why)));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info(why))));
         }
     }
 
@@ -250,7 +250,7 @@ impl PageAi {
         if view.layout != b.layout {
             if !b.waiting.is_empty() {
                 let why = "The text size changed, so the pages left weren't asked.";
-                out.push(Command::Notify(Toast::info(why)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::info(why))));
             }
             return false;
         }
@@ -295,7 +295,7 @@ impl PageAi {
                     true => b.waiting.push_front(g),
                     false => {
                         let why = "The model stayed busy, so some pages weren't done.";
-                        out.push(Command::Notify(Toast::info(why)));
+                        out.push(Command::Ui(UiCommand::Notify(Toast::info(why))));
                         b.finished += 1;
                     }
                 }
@@ -321,7 +321,7 @@ impl PageAi {
         if b.waiting.is_empty() && b.flying() == 0 {
             if b.blank > 0 && b.blank == b.total {
                 let why = "These pages have no text to work on.";
-                out.push(Command::Notify(Toast::info(why)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::info(why))));
             }
             return false;
         }

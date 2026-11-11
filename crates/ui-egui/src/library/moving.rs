@@ -99,7 +99,7 @@ impl LibraryState {
                     [one] => format!("Put “{}” back in its place.", self.shelf_name(*one)),
                     many => format!("Put {} back in their places.", many.len()),
                 };
-                out.push(Command::Notify(Toast::info(note)));
+                out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
             }
             CopyWork::Removal {
                 books,
@@ -159,7 +159,7 @@ impl LibraryState {
         self.folders
             .asks
             .extend(moved.asks.into_iter().map(Question::Move));
-        out.extend(note.map(|n| Command::Notify(Toast::info(n))));
+        out.extend(note.map(|n| Command::Ui(UiCommand::Notify(Toast::info(n)))));
     }
 
     fn moved_note(
@@ -223,7 +223,7 @@ impl LibraryState {
             ),
             (_, None) => format!("Took “{name}” apart. Its books stay in the library."),
         };
-        out.push(Command::Notify(Toast::info(note)));
+        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
     }
 
     /// Removes books, then shelves deepest first, and says so.
@@ -270,10 +270,10 @@ impl LibraryState {
         };
         let done = self.model.remove_books(books, data, now);
         if forget && done > 0 {
-            out.push(Command::ForgetPositions {
+            out.push(Command::Intent(Intent::ForgetPositions {
                 books: reset_books,
                 paths: reset_paths,
-            });
+            }));
         }
         let gone = (shelves.iter())
             .filter(|id| self.model.remove_shelf(**id, now).is_some())
@@ -296,7 +296,7 @@ impl LibraryState {
             0 => said,
             _ => format!("{said} The folder's Add menu can give them back."),
         };
-        out.push(Command::Notify(Toast::info(note)));
+        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
     }
 }
 

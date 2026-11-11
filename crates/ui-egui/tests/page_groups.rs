@@ -43,7 +43,7 @@ fn ask(h: &mut H, pages: impl IntoIterator<Item = usize>, task: PageTask) {
         task,
         tag: None,
     };
-    h.state_mut().queue(Command::PageAi(action));
+    h.state_mut().queue(Command::Intent(Intent::PageAi(action)));
     h.run_steps(30);
     h.run();
 }
@@ -61,7 +61,7 @@ fn shows(h: &H, page: usize) -> bool {
 
 fn go(h: &mut H, page: usize) {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::GoTo { pane, page });
+    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run_steps(30);
     h.run();
 }
@@ -132,7 +132,7 @@ fn pages_per_request_sets_the_group_size() {
     let mut settings = h.state().settings().clone();
     settings.ai.tasks.pages.per_request = 2;
     h.state_mut()
-        .queue(Command::SetSettings(Box::new(settings)));
+        .queue(Command::Intent(Intent::SetSettings(Box::new(settings))));
     h.run();
     // Gaps split groups too: 7 is on its own.
     ask(&mut h, [0, 1, 2, 3, 4, 7], PageTask::Simplify);
@@ -208,11 +208,11 @@ fn a_books_group_covers_all_its_pages_while_it_writes() {
         tag: None,
     };
     // Held runs keep the pill busy, so steps, not `run`.
-    h.state_mut().queue(Command::PageAi(action));
+    h.state_mut().queue(Command::Intent(Intent::PageAi(action)));
     h.run_steps(30);
     assert!(spans(&h).is_empty(), "still writing");
     assert!(shows(&h, 0), "the first page shows the words so far");
-    h.state_mut().queue(Command::GoTo { pane, page: 2 });
+    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 2 }));
     h.run_steps(30);
     assert!(shows(&h, 2), "a later page is covered too");
     let reading = h.state().documents().reading(pane).unwrap();

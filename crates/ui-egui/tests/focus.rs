@@ -164,7 +164,7 @@ fn a_library_card_picks_on_shift_enter_and_opens_on_enter() {
     let raven = dir.join("the-raven-gutenberg-17192.epub");
     let raven = raven.canonicalize().expect("the fixture");
     let mut h = reader(&[("epub", raven.to_str().expect("utf-8"))]);
-    h.state_mut().queue(Command::ShowLibrary);
+    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
     h.run();
     let book = h.state().library().recent()[0].id;
     let title = h.state().library().recent()[0].title.value.clone();
@@ -188,7 +188,7 @@ fn a_library_card_picks_on_shift_enter_and_opens_on_enter() {
     );
     // Done ends selecting; the card keeps its focus.
     let done = Action::Pick(PickAction::Clear);
-    h.state_mut().queue(Command::Library(done));
+    h.state_mut().queue(Command::Intent(Intent::Library(done)));
     h.run();
     key(&mut h, Modifiers::NONE, Key::Enter);
     h.run();
@@ -237,7 +237,7 @@ fn f3_steps_through_matches_and_f6_moves_between_panes() {
     assert_eq!(h.state().find().active(), Some(at));
 
     key(&mut h, Modifiers::NONE, Key::Escape);
-    let split = Command::Split(mareader_workspace::SplitAxis::Horizontal);
+    let split = Command::Intent(Intent::Split(mareader_workspace::SplitAxis::Horizontal));
     h.state_mut().queue(split);
     h.run();
     assert_eq!(h.state().panes().len(), 2);

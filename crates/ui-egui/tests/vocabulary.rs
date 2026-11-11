@@ -161,7 +161,7 @@ fn a_click_on_a_shaded_word_explains_it_and_marks_it() {
     h.run();
     let mut s = h.state().settings().clone();
     s.study.cefr.click_explain = false;
-    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     click(&mut h, "quick");
     assert_eq!(h.state().study().card_word(), None);
@@ -184,7 +184,7 @@ fn resting_on_a_shaded_word_opens_its_dictionary_card() {
     // With resting off, nothing opens.
     let mut s = h.state().settings().clone();
     s.dictionary.hover = false;
-    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     h.hover_at(spot(&h, "quick"));
     h.run_steps(20);
@@ -225,7 +225,7 @@ fn the_tab_sets_the_level_and_removes_the_dataset() {
     let (words, _) = shelves();
     let mut h = reader(words.path(), None);
     h.set_size(egui::vec2(1000.0, 1200.0));
-    h.state_mut().queue(Command::OpenSettings(Tab::Vocabulary));
+    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Vocabulary)));
     h.run();
     h.get_by_label("Reading level");
     h.get_by_label("4 words");
@@ -265,7 +265,7 @@ fn the_tab_offers_only_the_download_until_the_data_is_in() {
     let empty = tempfile::tempdir().unwrap();
     let mut h = reader(empty.path(), None);
     h.set_size(egui::vec2(1000.0, 1200.0));
-    h.state_mut().queue(Command::OpenSettings(Tab::Vocabulary));
+    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Vocabulary)));
     h.run();
     h.get_by_label("Download word data");
     assert!(h.query_by_label("Word roles").is_none(), "one download");
@@ -291,7 +291,7 @@ fn copied(h: &mut H, frames: usize) -> Option<String> {
 
 fn word_list(h: &mut H, pages: Vec<usize>) -> Option<String> {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::WordList { pane, pages });
+    h.state_mut().queue(Command::Intent(Intent::WordList { pane, pages }));
     copied(h, 120)
 }
 
@@ -320,7 +320,7 @@ fn a_language_without_a_dictionary_is_left_out_and_named() {
     let mut h = reader(words.path(), Some(packs.path()));
     let mut s = h.state().settings().clone();
     s.study.words.last.languages = vec!["jp".into(), "my".into()];
-    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     let md = word_list(&mut h, vec![0]).expect("a list on the clipboard");
     assert!(
@@ -338,7 +338,7 @@ fn a_word_list_says_when_no_word_is_hard() {
     let mut h = reader(words.path(), None);
     let mut s = h.state().settings().clone();
     s.study.cefr.level = CefrLevel::C2;
-    h.state_mut().queue(Command::SetSettings(Box::new(s)));
+    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     assert_eq!(word_list(&mut h, vec![0]), None);
     h.run();
@@ -348,7 +348,7 @@ fn a_word_list_says_when_no_word_is_hard() {
 /// Opens the word list window on `pages` and waits for its list.
 fn window(h: &mut H, pages: Vec<usize>) -> String {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::WordListWindow { pane, pages });
+    h.state_mut().queue(Command::Intent(Intent::WordListWindow { pane, pages }));
     for _ in 0..120 {
         h.step();
         if let Some(md) = h.state().word_window_markdown() {
@@ -467,7 +467,7 @@ fn one_book_in_two_panes_keeps_its_words_apart() {
         pane: Some(second),
         ..OpenRequest::path(path.into())
     };
-    h.state_mut().queue(Command::Open(request));
+    h.state_mut().queue(Command::Intent(Intent::Open(request)));
     h.run_steps(3);
     h.run();
     let docs = h.state().documents();

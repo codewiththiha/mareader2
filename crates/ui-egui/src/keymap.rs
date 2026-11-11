@@ -26,7 +26,7 @@ pub fn bindings(platform: Platform) -> [Binding; 39] {
         Binding {
             label: "Open a file",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::O),
-            command: Command::ShowOpenDialog(Placement::Into),
+            command: Command::Ui(UiCommand::ShowOpenDialog(Placement::Into)),
         },
         zoom("Zoom in", Modifiers::COMMAND, Key::Plus, ZOOM_IN),
         zoom("Zoom in", Modifiers::COMMAND, Key::Equals, ZOOM_IN),
@@ -55,44 +55,44 @@ pub fn bindings(platform: Platform) -> [Binding; 39] {
         Binding {
             label: "Auto-scroll",
             shortcut: KeyboardShortcut::new(Modifiers::SHIFT, Key::A),
-            command: Command::AutoScroll,
+            command: Command::Intent(Intent::AutoScroll),
         },
         Binding {
             label: "First page",
             shortcut: KeyboardShortcut::new(Modifiers::NONE, Key::Home),
-            command: Command::FirstPage,
+            command: Command::Intent(Intent::FirstPage),
         },
         Binding {
             label: "Last page",
             shortcut: KeyboardShortcut::new(Modifiers::NONE, Key::End),
-            command: Command::LastPage,
+            command: Command::Intent(Intent::LastPage),
         },
         Binding {
             label: "Settings",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Comma),
-            command: Command::ShowSettings,
+            command: Command::Ui(UiCommand::ShowSettings),
         },
         Binding {
             label: "Keyboard shortcuts",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::Slash),
-            command: Command::ShowShortcuts,
+            command: Command::Ui(UiCommand::ShowShortcuts),
         },
         Binding {
             label: "Full screen",
             shortcut: fullscreen,
-            command: Command::Window(WindowCommand::ToggleFullscreen),
+            command: Command::Ui(UiCommand::Window(WindowCommand::ToggleFullscreen)),
         },
         // Before Find, whose pattern would take Shift too.
         Binding {
             label: "Distraction-free",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::F),
-            command: Command::Chromeless,
+            command: Command::Ui(UiCommand::Chromeless),
         },
         // After full screen, which macOS puts on Ctrl+Cmd+F.
         Binding {
             label: "Find",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::F),
-            command: Command::ShowFind,
+            command: Command::Ui(UiCommand::ShowFind),
         },
         // Shift first again: the bare key would take Shift+F3 too.
         step("Previous match", Modifiers::SHIFT, Key::F3, false),
@@ -108,28 +108,28 @@ pub fn bindings(platform: Platform) -> [Binding; 39] {
         Binding {
             label: "Dictionary",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::D),
-            command: Command::ShowDictionary,
+            command: Command::Ui(UiCommand::ShowDictionary),
         },
         Binding {
             label: "Bookmark this page",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND, Key::D),
-            command: Command::Bookmark(None),
+            command: Command::Intent(Intent::Bookmark(None)),
         },
         // Where browsers put their own read-aloud.
         Binding {
             label: "Read aloud, or pause",
             shortcut: KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, Key::U),
-            command: Command::ToggleReadAloud,
+            command: Command::Intent(Intent::ToggleReadAloud),
         },
         Binding {
             label: "Previous pane",
             shortcut: KeyboardShortcut::new(Modifiers::SHIFT, Key::F6),
-            command: Command::CyclePane { forward: false },
+            command: Command::Intent(Intent::CyclePane { forward: false }),
         },
         Binding {
             label: "Next pane",
             shortcut: KeyboardShortcut::new(Modifiers::NONE, Key::F6),
-            command: Command::CyclePane { forward: true },
+            command: Command::Intent(Intent::CyclePane { forward: true }),
         },
     ]
 }
@@ -146,7 +146,7 @@ fn zoom(label: &'static str, modifiers: Modifiers, key: Key, z: ZoomCommand) -> 
     Binding {
         label,
         shortcut: KeyboardShortcut::new(modifiers, key),
-        command: Command::Zoom(z),
+        command: Command::Intent(Intent::Zoom(z)),
     }
 }
 
@@ -154,7 +154,7 @@ fn view(label: &'static str, key: Key, mode: ViewMode) -> Binding {
     Binding {
         label,
         shortcut: KeyboardShortcut::new(Modifiers::COMMAND, key),
-        command: Command::View(mode),
+        command: Command::Intent(Intent::View(mode)),
     }
 }
 
@@ -162,7 +162,7 @@ fn arrow(label: &'static str, key: Key, arrow: Arrow) -> Binding {
     Binding {
         label,
         shortcut: KeyboardShortcut::new(Modifiers::NONE, key),
-        command: Command::Arrow(arrow),
+        command: Command::Intent(Intent::Arrow(arrow)),
     }
 }
 
@@ -170,7 +170,7 @@ fn step(label: &'static str, modifiers: Modifiers, key: Key, forward: bool) -> B
     Binding {
         label,
         shortcut: KeyboardShortcut::new(modifiers, key),
-        command: Command::FindStep { forward },
+        command: Command::Ui(UiCommand::FindStep { forward }),
     }
 }
 
@@ -179,7 +179,7 @@ fn page(label: &'static str, modifiers: Modifiers, key: Key, forward: bool) -> B
     Binding {
         label,
         shortcut: KeyboardShortcut::new(modifiers, key),
-        command: Command::Page { forward },
+        command: Command::Intent(Intent::Page { forward }),
     }
 }
 
@@ -213,7 +213,7 @@ fn types(shortcut: &KeyboardShortcut) -> bool {
 
 /// Arrows move egui's focus and Space presses buttons, while one has it.
 fn steers(b: &Binding) -> bool {
-    matches!(b.command, Command::Arrow(_)) || b.shortcut.logical_key == Key::Space
+    matches!(b.command, Command::Intent(Intent::Arrow(_))) || b.shortcut.logical_key == Key::Space
 }
 
 /// Whether a key that sends `arrow` is still held down.
@@ -250,7 +250,7 @@ pub fn read(ctx: &Context, platform: Platform, route: Route, out: &mut Commands)
     for b in bindings(platform)
         .into_iter()
         .filter(|b| route.allows(&b.command))
-        .filter(|b| !sheet || b.command == Command::ShowShortcuts)
+        .filter(|b| !sheet || b.command == Command::Ui(UiCommand::ShowShortcuts))
     {
         if (typing && types(&b.shortcut)) || (focused && steers(&b)) {
             continue;
@@ -313,12 +313,13 @@ const SECTIONS: [&str; 6] = [
 const CONTROLS: &str = "Controls";
 
 fn section_of(command: &Command) -> &'static str {
-    use Command as C;
+    use mareader_engine::command::Intent as I;
     match command {
-        C::Arrow(_) | C::Page { .. } | C::FirstPage | C::LastPage => "Moving around",
-        C::Zoom(_) | C::View(_) | C::AutoScroll | C::Chromeless | C::Window(_) => "View",
-        C::ShowFind | C::FindStep { .. } => "Find",
-        C::CyclePane { .. } => "Panes",
+        Command::Intent(I::Arrow(_) | I::Page { .. } | I::FirstPage | I::LastPage) => "Moving around",
+        Command::Intent(I::Zoom(_) | I::View(_) | I::AutoScroll) => "View",
+        Command::Ui(UiCommand::Chromeless | UiCommand::Window(_)) => "View",
+        Command::Ui(UiCommand::ShowFind | UiCommand::FindStep { .. }) => "Find",
+        Command::Intent(I::CyclePane { .. }) => "Panes",
         _ => "General",
     }
 }
@@ -370,21 +371,21 @@ mod tests {
 
     #[test]
     fn shortcuts_read_in_each_desktops_words() {
-        let settings = Command::ShowSettings;
+        let settings = Command::Ui(UiCommand::ShowSettings);
         assert_eq!(hint(Platform::Mac, &settings).as_deref(), Some("⌘,"));
         assert_eq!(
             hint(Platform::Windows, &settings).as_deref(),
             Some("Ctrl+,")
         );
-        let full = Command::Window(WindowCommand::ToggleFullscreen);
+        let full = Command::Ui(UiCommand::Window(WindowCommand::ToggleFullscreen));
         assert_eq!(hint(Platform::Gnome, &full).as_deref(), Some("F11"));
         assert_eq!(hint(Platform::Mac, &full).as_deref(), Some("⌃⌘F"));
-        assert_eq!(hint(Platform::Mac, &Command::ShowLibrary), None);
-        let open = Command::ShowOpenDialog(Placement::Into);
+        assert_eq!(hint(Platform::Mac, &Command::Ui(UiCommand::ShowLibrary)), None);
+        let open = Command::Ui(UiCommand::ShowOpenDialog(Placement::Into));
         assert_eq!(hint(Platform::Gnome, &open).as_deref(), Some("Ctrl+O"));
-        let zoom_in = Command::Zoom(ZOOM_IN);
+        let zoom_in = Command::Intent(Intent::Zoom(ZOOM_IN));
         assert_eq!(hint(Platform::Mac, &zoom_in).as_deref(), Some("⌘+"));
-        let fit = Command::Zoom(FIT_WIDTH);
+        let fit = Command::Intent(Intent::Zoom(FIT_WIDTH));
         assert_eq!(hint(Platform::Windows, &fit).as_deref(), Some("Ctrl+0"));
     }
 
@@ -406,7 +407,7 @@ mod tests {
         );
         let tab = entries().find(|e| e.label == "Move between controls");
         assert!(tab.is_some_and(|e| e.keys == ["Tab", "Shift+Tab"]));
-        let own = hint(Platform::Gnome, &Command::ShowShortcuts);
+        let own = hint(Platform::Gnome, &Command::Ui(UiCommand::ShowShortcuts));
         assert_eq!(own.as_deref(), Some("Ctrl+/"));
         let dict = entries().find(|e| e.label == "Dictionary");
         assert!(dict.is_some_and(|e| e.keys == ["⇧⌘D"]), "listed once");

@@ -113,7 +113,7 @@ fn other_marks(ui: &mut Ui, h: &HighlightSettings, marks: Marks, out: &mut Comma
 /// A link to the tab where a mark's look is set.
 fn change(ui: &mut Ui, (text, tab): (&str, Tab), out: &mut Commands) {
     if ui.link(text).clicked() {
-        out.push(Command::OpenSettings(tab));
+        out.push(Command::Intent(Intent::OpenSettings(tab)));
     }
     ui.add_space(8.0);
 }

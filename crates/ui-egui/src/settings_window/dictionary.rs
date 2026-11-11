@@ -116,12 +116,12 @@ fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
     let buttons = Buttons {
         name: &label,
         ask: |what| {
-            Command::Dict(match what {
+            Command::Intent(Intent::Dict(match what {
                 Download::Start => Action::Download(id),
                 Download::Pause => Action::Pause(id),
                 Download::Cancel => Action::Cancel(id),
                 Download::Remove => Action::Remove(id),
-            })
+            }))
         },
     };
     row(ui, &language(pack.target), &hint, |ui| {

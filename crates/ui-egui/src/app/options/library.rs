@@ -27,8 +27,8 @@ impl MareaderApp {
     fn option_library(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match value {
             // After a queued open, which would otherwise leave it.
-            "show" if self.queued.iter().any(|c| matches!(c, Command::Open(_))) => {
-                self.queue(Command::ShowLibrary);
+            "show" if self.queued.iter().any(|c| matches!(c, Command::Intent(Intent::Open(_)))) => {
+                self.queue(Command::Ui(UiCommand::ShowLibrary));
             }
             "show" => self.go(Route::Library),
             _ => self.go(Route::Reader),
@@ -42,7 +42,7 @@ impl MareaderApp {
         let recent = self.library.model().recent().into_iter().take(n);
         let picks = recent.map(|b| ui_library::Pick::Book(b.id)).collect();
         let pick = ui_library::Action::Pick(ui_library::PickAction::Only(picks));
-        self.queue(Command::Library(pick));
+        self.queue(Command::Intent(Intent::Library(pick)));
 
         Ok(())
     }
@@ -68,7 +68,7 @@ impl MareaderApp {
             shelves,
             links,
         };
-        self.queue(Command::Library(ui_library::Action::Book(ask)));
+        self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(ask))));
 
         Ok(())
     }
@@ -76,7 +76,7 @@ impl MareaderApp {
     // The import sheet for a folder, as Add ▸ Folder… asks.
     fn option_import(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let ask = ui_library::Action::AskFolder(std::path::PathBuf::from(value));
-        self.queue(Command::Library(ask));
+        self.queue(Command::Intent(Intent::Library(ask)));
 
         Ok(())
     }
@@ -91,7 +91,7 @@ impl MareaderApp {
             ..mareader_library::Options::default()
         };
         let import = ui_library::Action::ImportFolder { root, opts };
-        self.queue(Command::Library(import));
+        self.queue(Command::Intent(Intent::Library(import)));
 
         Ok(())
     }
@@ -177,7 +177,7 @@ impl MareaderApp {
     // Typed into the library's search field.
     fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let text = ui_library::SearchAction::Text(value.to_owned());
-        self.queue(Command::Library(ui_library::Action::Search(text)));
+        self.queue(Command::Intent(Intent::Library(ui_library::Action::Search(text))));
 
         Ok(())
     }

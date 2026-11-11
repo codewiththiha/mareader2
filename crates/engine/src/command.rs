@@ -1,0 +1,197 @@
+//! What the app is asked to do, as data.
+//!
+//! Every variant here means something with no window on screen: it changes
+//! what the next launch shows, what is on disk, or what is heard. Anything
+//! that only moves chrome is `ui_egui::UiCommand`, and the two meet in
+//! `ui_egui::Command`.
+
+use std::path::PathBuf;
+
+use mareader_appearance::{Appearance, Rgb};
+use mareader_library::{BookId, Pen, View};
+use mareader_settings::{DictionarySettings, Settings};
+use mareader_speech::{Model, Spot};
+use mareader_workspace::{DividerPath, PaneId, SplitAxis};
+
+use crate::appearance_menu::QuickText;
+use crate::dict::{Action as DictAction, Download};
+use crate::documents::{OpenRequest, Placement};
+use crate::export::Format;
+use crate::library::Action as LibraryAction;
+use crate::page_ai::Action as PageAiAction;
+use crate::pane::{Arrow, ViewMode, ZoomCommand};
+use crate::read_aloud::ReadFrom;
+use crate::settings::Tab;
+use crate::study::Action as StudyAction;
+
+/// Whether split panes take their own colour, texture, or both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Independence {
+    pub themes: bool,
+    pub textures: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Intent {
+    /// Background work for the AI settings: keys, models, a trial.
+    #[cfg(not(target_arch = "wasm32"))]
+    Ai(mareader_assist::Job),
+    /// An arrow key over the active document: a turn, or the scroll's.
+    Arrow(Arrow),
+    /// Shift+A: the active pane's auto-scroll on or off.
+    AutoScroll,
+    /// Bookmarks the pane's page, or takes its bookmark back; none is
+    /// the focused pane.
+    Bookmark(Option<PaneId>),
+    ClosePane(PaneId),
+    /// Puts the text of the pane's `pages` on the clipboard.
+    CopyPages {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
+    /// F6: focus moves to the next or previous pane, in reading order.
+    CyclePane {
+        forward: bool,
+    },
+    /// Deletes one of the user's presets.
+    DeletePreset(String),
+    /// Packs to download or remove, and the lookup card.
+    Dict(DictAction),
+    /// Explains the word selected in the pane, marking it.
+    Explain(PaneId),
+    /// Asks where to save an export, then writes it.
+    Export {
+        name: String,
+        format: Format,
+        contents: String,
+    },
+    /// Home and End: the active document's first or last page.
+    FirstPage,
+    FocusPane(PaneId),
+    /// Resets live panes so an erased location cannot be saved back.
+    ForgetPositions {
+        books: Vec<BookId>,
+        paths: Vec<PathBuf>,
+    },
+    /// Shows `page` of the pane's document, from its start.
+    GoTo {
+        pane: PaneId,
+        page: usize,
+    },
+    /// Highlights the pane's selection; a colour if one was picked.
+    Highlight {
+        pane: PaneId,
+        pen: Pen,
+        color: Option<Rgb>,
+    },
+    LastPage,
+    /// Folders, scopes and finding lost books.
+    Library(LibraryAction),
+    /// Looks the pane's selection up in the dictionaries.
+    LookUp(PaneId),
+    /// Highlights the pane's selection and opens a note on it.
+    Note(PaneId),
+    /// Shows a file in a pane, replacing what it showed.
+    Open(OpenRequest),
+    /// Opens a library book as Settings › Panes says, or focuses it.
+    OpenBook(BookId),
+    OpenSettings(Tab),
+    /// A page key: nearly a screen along a strip, a turn when paged.
+    Page {
+        forward: bool,
+    },
+    /// The page AI's menus: a task to run, a result to show.
+    PageAi(PageAiAction),
+    /// A library book placed from the rail: clicked, or dropped on a pane.
+    PlaceBook {
+        book: BookId,
+        pane: Option<PaneId>,
+        placement: Placement,
+    },
+    /// Pins where reading aloud will start, to be moved or let rest.
+    PlaceReadMarker {
+        pane: PaneId,
+        spot: Spot,
+    },
+    /// The pronunciation download, beside the word levels.
+    Pronunciation(Download),
+    /// Reads the pane's book aloud from a place, else its page.
+    ReadAloud {
+        pane: PaneId,
+        from: ReadFrom,
+    },
+    /// Settings at a model's voices in `language`, opened and lit.
+    RevealVoice(&'static Model, &'static str),
+    /// Keeps `look` as a preset, in a section when `group` names one.
+    SavePreset {
+        name: String,
+        group: String,
+        look: Appearance,
+    },
+    /// Says a card's word in the reading voice; stops it.
+    SayWord(String),
+    /// A word in a voice other than the one picked, for its language.
+    SayWordWith {
+        word: String,
+        voice: String,
+    },
+    /// Selects the first `text` on `page` in the pane, as a drag does.
+    SelectText {
+        pane: PaneId,
+        page: usize,
+        text: String,
+    },
+    /// Every tick of an appearance control; restyles on the same frame.
+    SetAppearance(Appearance),
+    /// The Dictionary panel's choices, saved with the settings.
+    SetDictionary(Box<DictionarySettings>),
+    /// The split's per-pane modes, from the appearance popover.
+    SetIndependence(Independence),
+    /// The ink dial, 10 to 100 %: how dark a book's text stays.
+    SetInkContrast(f32),
+    /// The library page's layout and order.
+    SetLibraryView(View),
+    /// The popover's text dials for the active book.
+    SetQuickText(QuickText),
+    /// A divider drag; sent every frame it moves.
+    SetRatio(DividerPath, f32),
+    /// Every edit in the settings window; applies on the same frame.
+    SetSettings(Box<Settings>),
+    /// Floating over the panes, or docked beside them.
+    SetSidebarOverlay(bool),
+    SetTitlebarPinned(bool),
+    Split(SplitAxis),
+    StopReadAloud,
+    StopSaying,
+    StopVoiceTry,
+    /// The word card's and the mark menu's asks.
+    Study(StudyAction),
+    /// Plays or pauses the reading; starts the focused book if none.
+    ToggleReadAloud,
+    /// Says a line in the voice settings pick; stops that line.
+    TryVoice,
+    /// Says a line in this voice of the voice tab's engine.
+    TryVoiceOf(String),
+    /// The previous or next page, or spread, of the pane's document.
+    Turn {
+        pane: PaneId,
+        forward: bool,
+    },
+    /// The active pane's view mode, kept on the page read.
+    View(ViewMode),
+    /// The word-level dataset.
+    Vocab(Download),
+    /// A voice model or voice to download, pause, cancel or remove.
+    VoiceModel(mareader_speech::Item, Download),
+    /// Copies a word list of the pane's `pages`, with the instant options.
+    WordList {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
+    /// Opens the word list window on the pane's `pages`.
+    WordListWindow {
+        pane: PaneId,
+        pages: Vec<usize>,
+    },
+    /// Zooms the active pane's document.
+    Zoom(ZoomCommand),}

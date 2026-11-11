@@ -152,7 +152,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let back = ui.available_rect_before_wrap();
     let back = ui.interact(back, Id::new("library-page"), Sense::CLICK);
     if back.clicked() && picks.active() {
-        out.push(Command::Library(Action::Pick(PickAction::Clear)));
+        out.push(Command::Intent(Intent::Library(Action::Pick(PickAction::Clear))));
     }
     let organizer = menus::Organizer {
         busy,
@@ -164,9 +164,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {
-        out.push(Command::Library(Action::Pick(PickAction::Only(
+        out.push(Command::Intent(Intent::Library(Action::Pick(PickAction::Only(
             sequence.to_vec(),
-        ))));
+        )))));
     }
     let hovering = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
     if items.is_empty() {
@@ -416,7 +416,7 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, title));
     let held = long_press(ui, &resp, Pick::Book(book.id), cx);
     if resp.clicked() && !held && !picking(ui, Pick::Book(book.id), cx) {
-        cx.out.push(Command::OpenBook(book.id));
+        cx.out.push(Command::Intent(Intent::OpenBook(book.id)));
     }
     let held = cx.held.contains(&book.id);
     if resp.drag_started() && !held {
@@ -467,7 +467,7 @@ fn long_press(ui: &Ui, resp: &egui::Response, pick: Pick, cx: &mut Cx<'_>) -> bo
     ui.data_mut(|d| d.insert_temp(key, pick));
     if !cx.picks.contains(pick) {
         let action = PickAction::Toggle(pick);
-        cx.out.push(Command::Library(Action::Pick(action)));
+        cx.out.push(Command::Intent(Intent::Library(Action::Pick(action))));
     }
     false
 }
@@ -480,7 +480,7 @@ fn picking(ui: &Ui, pick: Pick, cx: &mut Cx<'_>) -> bool {
         _ if m.command || m.shift || cx.picks.active() => PickAction::Toggle(pick),
         _ => return false,
     };
-    cx.out.push(Command::Library(Action::Pick(action)));
+    cx.out.push(Command::Intent(Intent::Library(Action::Pick(action))));
     true
 }
 
@@ -559,7 +559,7 @@ fn shelf_hit(
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &name));
     let held = long_press(ui, &resp, Pick::Shelf(id), cx);
     if resp.clicked() && !held && !picking(ui, Pick::Shelf(id), cx) {
-        cx.out.push(Command::Library(Action::Shelf(click)));
+        cx.out.push(Command::Intent(Intent::Library(Action::Shelf(click))));
     }
     if resp.drag_started() {
         lift(&resp, Pick::Shelf(id), cx);
@@ -570,7 +570,7 @@ fn shelf_hit(
     let hovered = resp.dnd_hover_payload::<Carry>().filter(|_| !edge);
     let mut target = hovered.is_some_and(|c| c.onto(Some(id), keep).is_some());
     if !edge && let Some(carry) = resp.dnd_release_payload::<Carry>() {
-        let action = carry.onto(Some(id), keep).map(Command::Library);
+        let action = carry.onto(Some(id), keep).map(Command::Intent(Intent::Library));
         cx.out.extend(action);
     }
     // Files from outside, held over it, go onto it.
@@ -1027,7 +1027,7 @@ fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Com
     ui.label(egui::RichText::new(note).color(t.muted));
     ui.add_space(10.0);
     ui.horizontal(|ui| {
-        let act = |a| Command::Library(Action::Search(a));
+        let act = |a| Command::Intent(Intent::Library(Action::Search(a)));
         if elsewhere > 0 {
             let all = match elsewhere {
                 1 => "Show the 1 match elsewhere".to_owned(),

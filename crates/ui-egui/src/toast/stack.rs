@@ -318,7 +318,7 @@ pub(super) fn closed(
                         )
                         .clicked()
                     {
-                        out.push(Command::ClearToasts);
+                        out.push(Command::Ui(UiCommand::ClearToasts));
                     }
                     row.label(
                         RichText::new(format!("{up} notifications · paused"))
@@ -435,7 +435,7 @@ fn header(ui: &mut Ui, up: usize, toasts: &mut Toasts, t: &Tokens, out: &mut Com
             )
             .frame_when_inactive(false);
             if ui.add(clear).clicked() {
-                out.push(Command::ClearToasts);
+                out.push(Command::Ui(UiCommand::ClearToasts));
             }
         });
     });

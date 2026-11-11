@@ -37,7 +37,6 @@ use crate::theme::Tokens;
 use crate::toast::Toast;
 
 /// How long Undo stays offered after a removal.
-pub const UNDO_FOR: f64 = 6.0;
 
 /// What a pane's pages report to the study tools this frame.
 #[derive(Clone, Debug, PartialEq)]
@@ -116,44 +115,8 @@ pub enum Gloss {
     Pill(crate::page_ai::PillPress),
 }
 
-/// What the card and the mark menu ask of the app.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Action {
-    Remove(Vec<MarkId>),
-    /// Undo: the removed marks come back.
-    Restore(Vec<MarkId>),
-    /// Asks again after a failure.
-    Retry,
-    /// Asks the AI chosen now; its answer replaces the saved one.
-    AskAgain,
-    Close,
-    /// The mark menu's Select several: picking begins with its mark.
-    SelectSeveral(PaneId, MarkId),
-    /// Picks the marks on screen, or every mark of the book.
-    PickPage,
-    PickAll,
-    DonePicking,
-    /// The mark menu's Add note or Edit note.
-    WriteNote(MarkId),
-    /// The notes panel's: a draft in `PaneId`, placed once its words show.
-    WriteNoteIn(PaneId, MarkId),
-    /// The open note's Edit: its text becomes a draft.
-    EditNote,
-    /// Keeps the draft on `MarkId`'s note; blank deletes it.
-    SaveNote(MarkId),
-    CancelNote,
-    DeleteNote(MarkId),
-    /// Undo: a deleted note's text comes back.
-    RestoreNote(MarkId, String),
-    /// A highlight's new pen and colour, from its menu.
-    Restyle(MarkId, Style),
-    /// Picked highlights' new looks, and how many couldn't take it.
-    RestyleAll(Vec<(MarkId, Style)>, usize),
-    /// Undo: the picked highlights' looks before.
-    Unstyle(Vec<(MarkId, Style)>),
-    /// Shots: types into the open draft, then saves it if asked.
-    TypeNote(String, bool),
-}
+pub use mareader_engine::study::Action;
+pub use mareader_engine::toast::UNDO_FOR;
 
 /// Which answer a card shows: a mark's, or one kept by nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -899,9 +862,9 @@ impl Study {
                 };
                 let toast = match n {
                     0 => Toast::info(message),
-                    _ => Toast::info(message).undo(Command::Study(Action::Unstyle(before))),
+                    _ => Toast::info(message).undo(Command::Intent(Intent::Study(Action::Unstyle(before)))),
                 };
-                out.push(Command::Notify(toast));
+                out.push(Command::Ui(UiCommand::Notify(toast)));
             }
             Action::Unstyle(looks) => {
                 for (id, style) in looks {
@@ -982,8 +945,8 @@ impl Study {
                 1 => format!("Removed {what}"),
                 n => format!("Removed {n} {what}s"),
             };
-            let undo = Command::Study(Action::Restore(ids));
-            out.push(Command::Notify(Toast::info(message).undo(undo)));
+            let undo = Intent::Study(Action::Restore(ids));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info(message).undo(undo))));
         }
     }
 
@@ -1025,8 +988,8 @@ impl Study {
             self.loose.set_note(id, None, wall);
         }
         if let Some(text) = was {
-            let undo = Command::Study(Action::RestoreNote(id, text));
-            out.push(Command::Notify(Toast::info("Deleted note").undo(undo)));
+            let undo = Intent::Study(Action::RestoreNote(id, text));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info("Deleted note").undo(undo))));
         }
     }
 
@@ -1128,7 +1091,7 @@ impl Study {
             && (outside(self.note_rect) || room(n.pane).is_none() || !n.seen)
         {
             match n.draft {
-                Some(_) => out.push(Command::Study(Action::SaveNote(n.mark.id))),
+                Some(_) => out.push(Command::Intent(Intent::Study(Action::SaveNote(n.mark.id)))),
                 None => self.note = None,
             }
         }

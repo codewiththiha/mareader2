@@ -47,7 +47,7 @@ fn shift_a_drifts_at_its_pace_whatever_the_steps() {
 #[test]
 fn paged_modes_refuse_it_and_say_why() {
     let mut h = reader(&[("pdf", "sample:40")]);
-    h.state_mut().queue(Command::View(ViewMode::Single));
+    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Single)));
     h.run_steps(5);
     toggle(&mut h);
     assert!(!drifting(&h), "no drift in a paged mode");
@@ -65,7 +65,7 @@ fn escape_and_a_paged_mode_stop_it() {
     assert!(!drifting(&h), "Escape stops it");
     toggle(&mut h);
     assert!(drifting(&h));
-    h.state_mut().queue(Command::View(ViewMode::Single));
+    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Single)));
     h.run_steps(5);
     assert!(!drifting(&h), "a paged mode stops it");
 }
@@ -73,7 +73,7 @@ fn escape_and_a_paged_mode_stop_it() {
 #[test]
 fn it_stops_at_the_strips_end() {
     let mut h = reader(&[("pdf", "sample:3")]);
-    h.state_mut().queue(Command::LastPage);
+    h.state_mut().queue(Command::Intent(Intent::LastPage));
     h.run_steps(120);
     toggle(&mut h);
     assert!(drifting(&h), "on above the end");

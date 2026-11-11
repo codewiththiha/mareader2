@@ -228,11 +228,11 @@ fn draft_card(
             }
         });
         if named && (save || enter) {
-            out.push(Command::SavePreset {
+            out.push(Command::Intent(Intent::SavePreset {
                 name: d.name.trim().to_owned(),
                 group: d.group.trim().to_owned(),
                 look: *look,
-            });
+            }));
             *d = Draft::default();
         } else if cancel || escape {
             *d = Draft::default();
@@ -320,7 +320,7 @@ fn preset_card(
     if own {
         let del = delete_badge(ui, page, p, hot, t);
         if del.clicked() {
-            out.push(Command::DeletePreset(p.id.clone()));
+            out.push(Command::Intent(Intent::DeletePreset(p.id.clone())));
             return;
         }
     }

@@ -18,10 +18,10 @@ impl MareaderApp {
             // Its page is turned to first, then selected once laid out.
             Some(mut staged) if !sheets.is_empty() && !shown(staged.page) => {
                 if !staged.turned {
-                    out.push(Command::GoTo {
+                    out.push(Command::Intent(Intent::GoTo {
                         pane,
                         page: staged.page,
-                    });
+                    }));
                 }
                 staged.turned = true;
                 self.staged.push_front(staged);
@@ -40,33 +40,33 @@ impl MareaderApp {
             }) if !sheets.is_empty() => {
                 let first = self.marks(pane).first().map(|m| m.id);
                 match (bookmark, first) {
-                    (true, _) => out.push(Command::Bookmark(Some(pane))),
+                    (true, _) => out.push(Command::Intent(Intent::Bookmark(Some(pane)))),
                     // Picking starts, then a later `pick` takes all in.
                     (false, Some(id)) if text.is_empty() && !self.study.picking() => {
                         let start = crate::study::Action::SelectSeveral(pane, id);
-                        out.push(Command::Study(start));
+                        out.push(Command::Intent(Intent::Study(start)));
                     }
                     (false, Some(_)) if text.is_empty() => {
-                        out.push(Command::Study(crate::study::Action::PickAll));
+                        out.push(Command::Intent(Intent::Study(crate::study::Action::PickAll)));
                         if pick {
                             egui::Popup::open_id(ctx, egui::Id::new(crate::study::PICK_STYLE));
                         }
                     }
-                    _ => out.push(Command::SelectText { pane, page, text }),
+                    _ => out.push(Command::Intent(Intent::SelectText { pane, page, text })),
                 }
                 if explain {
-                    out.push(Command::Explain(pane));
+                    out.push(Command::Intent(Intent::Explain(pane)));
                 }
                 if look_up {
-                    out.push(Command::LookUp(pane));
+                    out.push(Command::Intent(Intent::LookUp(pane)));
                 }
                 if let Some(pen) = pen {
                     let color = None;
-                    out.push(Command::Highlight { pane, pen, color });
+                    out.push(Command::Intent(Intent::Highlight { pane, pen, color }));
                 }
                 if let Some((text, save)) = note {
-                    out.push(Command::Note(pane));
-                    out.push(Command::Study(crate::study::Action::TypeNote(text, save)));
+                    out.push(Command::Intent(Intent::Note(pane)));
+                    out.push(Command::Intent(Intent::Study(crate::study::Action::TypeNote(text, save))));
                 }
                 // The next waits a frame, as each selection replaces the last.
                 if !self.staged.is_empty() {
@@ -86,7 +86,7 @@ impl MareaderApp {
             .word_window_seed
             .take_if(|p| p.first().is_some_and(|&p| shown(p)))
         {
-            out.push(Command::WordListWindow { pane, pages });
+            out.push(Command::Intent(Intent::WordListWindow { pane, pages }));
         }
         if let Some((page, task, follow, last)) = self.page_ai_seed.clone()
             && shown(page)
@@ -140,9 +140,9 @@ impl MareaderApp {
 
     fn study_gloss(&mut self, ctx: &Context, out: &mut Commands, pane: PaneId, gloss: Gloss) {
         match gloss {
-            Gloss::Explain => out.push(Command::Explain(pane)),
-            Gloss::LookUp => out.push(Command::LookUp(pane)),
-            Gloss::Note => out.push(Command::Note(pane)),
+            Gloss::Explain => out.push(Command::Intent(Intent::Explain(pane))),
+            Gloss::LookUp => out.push(Command::Intent(Intent::LookUp(pane))),
+            Gloss::Note => out.push(Command::Intent(Intent::Note(pane))),
             Gloss::ReadAloud => {
                 if let Some(sel) = self.documents.selection(pane) {
                     let (a, b) = sel.ordered();
@@ -156,12 +156,12 @@ impl MareaderApp {
                         until: Some(spot(b)),
                     };
                     self.documents.clear_selection(pane);
-                    out.push(Command::ReadAloud { pane, from });
+                    out.push(Command::Intent(Intent::ReadAloud { pane, from }));
                 }
             }
-            Gloss::ReadFrom(from) => out.push(Command::ReadAloud { pane, from }),
-            Gloss::Highlight(pen, color) => out.push(Command::Highlight { pane, pen, color }),
-            Gloss::Copied => out.push(Command::Notify(Toast::info("Copied"))),
+            Gloss::ReadFrom(from) => out.push(Command::Intent(Intent::ReadAloud { pane, from })),
+            Gloss::Highlight(pen, color) => out.push(Command::Intent(Intent::Highlight { pane, pen, color })),
+            Gloss::Copied => out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied")))),
             Gloss::Open { mark, at } => {
                 self.study
                     .open_mark(ctx, self.library.model(), pane, mark, at);

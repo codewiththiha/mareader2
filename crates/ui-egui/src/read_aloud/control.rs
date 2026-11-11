@@ -184,7 +184,7 @@ pub(super) fn show(
             // A voice that won't speak is fixed in its settings.
             if note(ui, middle, text, *bad, *bad && !view.narrated) {
                 let tab = crate::settings_window::Tab::ReadAloud;
-                out.push(Command::OpenSettings(tab));
+                out.push(Command::Intent(Intent::OpenSettings(tab)));
             }
         }
         None => {
@@ -678,10 +678,10 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings, out: &mut Co
                 if ui.selectable_label(on, rate_label(rate)).clicked() {
                     if !on {
                         settings.rate = rate;
-                        out.push(Command::Notify(
+                        out.push(Command::Ui(UiCommand::Notify(
                             crate::toast::Toast::info(format!("Speed {}", rate_label(rate)))
                                 .player(),
-                        ));
+                        )));
                     }
                     ui.close();
                 }
@@ -814,9 +814,9 @@ fn choices(
         .tint(t.muted)
         .paint_at(ui, at);
     if row.clicked() {
-        out.push(Command::OpenSettings(
+        out.push(Command::Intent(Intent::OpenSettings(
             crate::settings_window::Tab::ReadAloud,
-        ));
+        )));
         ui.close();
     }
 }

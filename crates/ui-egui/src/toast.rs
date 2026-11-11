@@ -5,13 +5,10 @@ mod stack;
 
 use egui::{Context, Id, Rect, pos2};
 
-use crate::command::{Command, Commands};
+use crate::command::{Commands, Intent};
 use crate::motion;
+use crate::study::Action as StudyAction;
 
-/// How long a note or a result stays up.
-pub const SHOW_FOR: f64 = 3.5;
-/// A failure stays longer: it may need reading twice.
-pub const ERROR_FOR: f64 = 6.0;
 /// At least this long is left once a held stack is let go.
 pub const HOVER_GRACE: f64 = 1.5;
 /// How often a running time line is redrawn.
@@ -25,81 +22,7 @@ const WIDTH: f32 = 360.0;
 /// Fixed card height, shared by one-line and two-line toasts alike.
 const SPOT_H: f32 = 52.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tone {
-    /// A result or a note: a check mark.
-    Info,
-    /// Something failed: an alert in the danger colour.
-    Error,
-    /// It worked, but not wholly: an alert in amber.
-    Warning,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Toast {
-    pub message: String,
-    pub tone: Tone,
-    /// A button, Undo unless said, and what it sends; it lasts longer.
-    pub undo: Option<Box<Command>>,
-    pub label: &'static str,
-    player: bool,
-}
-
-impl Toast {
-    pub fn info(message: impl Into<String>) -> Self {
-        Self::new(message, Tone::Info)
-    }
-
-    pub fn error(message: impl Into<String>) -> Self {
-        Self::new(message, Tone::Error)
-    }
-
-    pub fn warning(message: impl Into<String>) -> Self {
-        Self::new(message, Tone::Warning)
-    }
-
-    fn new(message: impl Into<String>, tone: Tone) -> Self {
-        Self {
-            message: message.into(),
-            tone,
-            undo: None,
-            label: "Undo",
-            player: false,
-        }
-    }
-
-    pub fn player(self) -> Self {
-        Self {
-            player: true,
-            ..self
-        }
-    }
-
-    /// With an Undo button that sends `command`.
-    pub fn undo(self, command: Command) -> Self {
-        Self {
-            undo: Some(Box::new(command)),
-            ..self
-        }
-    }
-
-    /// With a button `label` that sends `command`, as Resume.
-    pub fn action(self, label: &'static str, command: Command) -> Self {
-        Self {
-            undo: Some(Box::new(command)),
-            label,
-            ..self
-        }
-    }
-
-    fn lasts(&self) -> f64 {
-        match (&self.undo, self.tone) {
-            (Some(_), _) => crate::study::UNDO_FOR,
-            (None, Tone::Error) => ERROR_FOR,
-            (None, _) => SHOW_FOR,
-        }
-    }
-}
+pub use mareader_engine::toast::{ERROR_FOR, SHOW_FOR, Tone, UNDO_FOR, Toast};
 
 /// How a toast leaves.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -503,7 +426,7 @@ impl Toasts {
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
             {
                 out.push(command);
-                out.push(Command::CloseToast(id));
+                out.push(Command::Ui(UiCommand::CloseToast(id)));
             }
         }
         let opened = ctx.animate_bool_with_time(egui::Id::new("toasts-open"), self.open, FADE);
@@ -715,7 +638,7 @@ mod tests {
         let mut long = Toasts::default();
         long.push(
             Toast::info("Removed highlight from the second paragraph of chapter four")
-                .undo(Command::ClearToasts),
+                .undo(Intent::Study(StudyAction::Restore(Vec::new()))),
         );
         frame(&ctx, &mut long, None, 0.0);
         let long_card = card::measure(&ctx, &long.live[0], WIDTH, &t);

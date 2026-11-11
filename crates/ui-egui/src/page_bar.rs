@@ -182,7 +182,7 @@ pub fn show(
                 contents(ui, reading, bar, entry_id, (pane.width(), marked), out);
             });
             if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect) {
-                out.push(Command::FocusPane(reading.pane));
+                out.push(Command::Intent(Intent::FocusPane(reading.pane)));
             }
         });
 }
@@ -199,10 +199,10 @@ fn contents(
     let pane: PaneId = reading.pane;
     let count = reading.count();
     if widgets::icon_button(ui, Icon::ChevronLeft, "Previous page", false).clicked() {
-        out.push(Command::Turn {
+        out.push(Command::Intent(Intent::Turn {
             pane,
             forward: false,
-        });
+        }));
     }
     let mut text = bar
         .typing
@@ -238,7 +238,7 @@ fn contents(
                 reading.document.local_page(target)
             };
             if let Some(page) = page {
-                out.push(Command::GoTo { pane, page });
+                out.push(Command::Intent(Intent::GoTo { pane, page }));
             }
         }
         bar.typing = None;
@@ -250,10 +250,10 @@ fn contents(
     };
     ui.label(RichText::new(total).color(t.muted));
     if widgets::icon_button(ui, Icon::ChevronRight, "Next page", false).clicked() {
-        out.push(Command::Turn {
+        out.push(Command::Intent(Intent::Turn {
             pane,
             forward: true,
-        });
+        }));
     }
     if reading.document.is_complete() && pane_width >= SLIDER_MIN_PANE && count >= 2 {
         let mut page = reading.current + 1;
@@ -266,10 +266,10 @@ fn contents(
         let r = ui.add(slider);
         widgets::name(&r, "Page");
         if r.changed() {
-            out.push(Command::GoTo {
+            out.push(Command::Intent(Intent::GoTo {
                 pane,
                 page: page - 1,
-            });
+            }));
         }
     }
     let tip = if marked {
@@ -278,7 +278,7 @@ fn contents(
         "Bookmark this page"
     };
     let platform = crate::platform::Platform::current();
-    let keys = crate::keymap::hint(platform, &Command::Bookmark(None));
+    let keys = crate::keymap::hint(platform, &Command::Intent(Intent::Bookmark(None)));
     let r = widgets::icon_button_tagged(
         ui,
         Icon::Bookmark,
@@ -288,7 +288,7 @@ fn contents(
         keys.as_deref(),
     );
     if r.clicked() {
-        out.push(Command::Bookmark(Some(pane)));
+        out.push(Command::Intent(Intent::Bookmark(Some(pane))));
     }
 }
 

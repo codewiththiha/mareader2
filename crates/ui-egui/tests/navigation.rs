@@ -34,7 +34,7 @@ fn current(h: &H) -> usize {
 
 fn go(h: &mut H, page: usize) {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::GoTo { pane, page });
+    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
 }
 
@@ -153,7 +153,7 @@ fn the_page_entry_jumps_and_snaps_back_from_nonsense() {
 #[test]
 fn the_bar_turns_by_spreads_and_hides_when_left() {
     let mut h = reader(&[]);
-    h.state_mut().queue(Command::View(ViewMode::Spread));
+    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Spread)));
     h.run();
     raise_bar(&mut h);
     h.get_by_label("Next page").click();
@@ -173,7 +173,7 @@ fn a_short_page_jumped_to_in_a_stream_stays_the_page_read() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../epub/tests/books");
     let raven = dir.join("the-raven-gutenberg-17192.epub");
     let mut h = book(&[("epub", raven.to_str().unwrap_or_default())]);
-    h.state_mut().queue(Command::View(ViewMode::Vertical));
+    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Vertical)));
     h.run();
     for page in 1..6 {
         go(&mut h, page);

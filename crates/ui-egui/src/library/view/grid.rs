@@ -235,7 +235,7 @@ fn carry_over(ui: &Ui, fill: &Fill<'_, '_>, carry: &Carry, cx: &mut Cx<'_>) {
             Rested::Wait(left) => ui.ctx().request_repaint_after_secs(left as f32),
             Rested::Open(shelf) => {
                 let go = ShelfAction::GoTo(Some(shelf));
-                cx.out.push(Command::Library(Action::Shelf(go)));
+                cx.out.push(Command::Intent(Intent::Library(Action::Shelf(go))));
             }
             Rested::Nothing => {}
         }
@@ -265,7 +265,7 @@ fn stack(onto: BookId, carry: &Carry, keep: bool, cx: &mut Cx<'_>) {
         level: arranging.level,
         keep,
     };
-    cx.out.push(Command::Library(Action::Shelf(action)));
+    cx.out.push(Command::Intent(Intent::Library(Action::Shelf(action))));
 }
 
 /// Lands what's carried at rest index `at`, joining this level first.
@@ -278,7 +278,7 @@ fn land(fill: &Fill<'_, '_>, (at, keep): (Option<usize>, bool), carry: &Carry, c
     }
     if !lift.native() {
         let join = carry.onto(arranging.level, keep);
-        cx.out.extend(join.map(Command::Library));
+        cx.out.extend(join.map(Command::Intent(Intent::Library)));
     }
     let next = fill.rest.get(at).and_then(|&n| fill.items.get(n));
     let action = ShelfAction::Arrange {
@@ -286,9 +286,9 @@ fn land(fill: &Fill<'_, '_>, (at, keep): (Option<usize>, bool), carry: &Carry, c
         level: arranging.level,
         before: next.map(|i| i.pick()),
     };
-    cx.out.push(Command::Library(Action::Shelf(action)));
+    cx.out.push(Command::Intent(Intent::Library(Action::Shelf(action))));
     // Dropped while sorted, the page shows the order just made.
-    cx.out.extend(arranging.switch.map(Command::SetLibraryView));
+    cx.out.extend(arranging.switch.map(Command::Intent(Intent::SetLibraryView)));
 }
 
 /// Held near the top or bottom, the grid scrolls that way if it can.

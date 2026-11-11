@@ -2,8 +2,6 @@
 
 use mareader_settings::Bar;
 
-use crate::Command;
-
 /// The page in the window: the panes being read, the library, or the
 /// dictionary.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

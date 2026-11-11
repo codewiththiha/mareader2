@@ -70,7 +70,7 @@ impl LibraryState {
         }
         if let Some(note) = report(&landed) {
             self.settle();
-            out.push(Command::Notify(Toast::info(note)));
+            out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
         }
     }
 

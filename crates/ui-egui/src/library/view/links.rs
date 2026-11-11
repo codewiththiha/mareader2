@@ -49,7 +49,7 @@ fn hit(ui: &mut Ui, rect: Rect, link: &Link, cx: &mut Cx<'_>) -> egui::Response 
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, name));
     let held = long_press(ui, &resp, pick, cx);
     if resp.clicked() && !held && !picking(ui, pick, cx) {
-        cx.out.push(Command::Library(Action::Reveal(target(link))));
+        cx.out.push(Command::Intent(Intent::Library(Action::Reveal(target(link)))));
     }
     if resp.drag_started() {
         lift(&resp, pick, cx);

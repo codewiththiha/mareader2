@@ -140,7 +140,7 @@ impl MareaderApp {
             Action::Copy(slot) => {
                 if let Some(text) = self.page_ai.text_of(self.library.model(), slot) {
                     ctx.copy_text(text);
-                    out.push(Command::Notify(Toast::info("Copied")));
+                    out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied"))));
                 }
             }
             Action::Delete(slot) => self.page_ai.delete(self.library.model_mut(), slot),

@@ -221,10 +221,10 @@ pub fn show(
                 });
                 let held = picks::long_press(ui, &r, page, &mut state.picks);
                 if r.clicked() && !held && !picks::click(ui, page, &mut state.picks) {
-                    out.push(Command::GoTo {
+                    out.push(Command::Intent(Intent::GoTo {
                         pane: reading.pane,
                         page,
-                    });
+                    }));
                 }
                 let pane = reading.pane;
                 let picked_here = state.picks.contains(page);

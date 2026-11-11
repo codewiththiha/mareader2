@@ -153,7 +153,7 @@ fn shelf_row(ui: &mut Ui, shelf: &Shelf, indent: f32, cx: &mut Cx<'_>) {
     Icon::Open.paint(ui, go.shrink(7.0), ink);
     if button.on_hover_text("Open shelf").clicked() {
         let to = ShelfAction::GoTo(Some(id));
-        cx.out.push(Command::Library(Action::Shelf(to)));
+        cx.out.push(Command::Intent(Intent::Library(Action::Shelf(to))));
     }
     let end = badges(ui, &resp, id, (go.left() - 8.0, mid), cx);
     let p = ui.painter();
@@ -183,5 +183,5 @@ fn dwell(ui: &Ui, resp: &egui::Response, id: ShelfId, open: bool, cx: &mut Cx<'_
     }
     ui.data_mut(|d| d.remove::<f64>(key));
     let unfold = ShelfAction::Unfold(id);
-    cx.out.push(Command::Library(Action::Shelf(unfold)));
+    cx.out.push(Command::Intent(Intent::Library(Action::Shelf(unfold))));
 }
