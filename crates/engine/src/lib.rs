@@ -36,6 +36,7 @@ pub mod route;
 pub mod sample;
 /// Which settings apply to the focused pane's document.
 pub mod scope;
+pub mod session;
 pub mod settings;
 pub mod stable_hash;
 pub mod study;
