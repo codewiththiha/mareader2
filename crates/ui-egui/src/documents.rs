@@ -21,16 +21,16 @@ use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
-use crate::paper::Papers;
+use mareader_engine::paper::Papers;
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
-use crate::reading_place;
+use mareader_engine::reading_place;
 use crate::selection::{Selection, Sheet};
 use crate::study::{self, Asked, Gloss};
-use crate::texts::TextLayers;
+use mareader_engine::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
-use crate::watch::{Reloads, Watch};
+use mareader_engine::watch::{Reloads, Watch};
 use crate::zoom::{ZoomCommand, ZoomState};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.

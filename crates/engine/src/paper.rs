@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn each_area_reads_its_own_colour() -> Out {
-        let (mut p, d) = (Papers::default(), crate::testing::doc()?);
+        let (mut p, d) = (Papers::default(), crate::sample::doc()?);
         p.insert(d, 0, paper(SLATE, CREAM));
         assert_eq!(p.at(d, PaperArea::WholePage, 0.0), Some(SLATE));
         assert_eq!(p.at(d, PaperArea::Edges, 0.0), Some(CREAM));
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn pages_read_are_never_wanted_again() -> Out {
-        let (mut p, d) = (Papers::default(), crate::testing::doc()?);
+        let (mut p, d) = (Papers::default(), crate::sample::doc()?);
         assert_eq!(p.wanted(d, 3..5, 10), [2, 3, 4, 5, 6]);
         p.insert(d, 3, paper(CREAM, CREAM));
         // A failed page counts as read: it won't draw next time either.
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn a_closed_document_forgets_its_paper() -> Out {
-        let (mut p, d) = (Papers::default(), crate::testing::doc()?);
+        let (mut p, d) = (Papers::default(), crate::sample::doc()?);
         p.insert(d, 1, paper(CREAM, CREAM));
         assert_eq!(p.len(), 1);
         p.forget(d);

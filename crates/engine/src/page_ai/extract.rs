@@ -105,15 +105,15 @@ pub fn span(excerpts: &[(usize, Range<usize>)], blocks: &[Block]) -> Option<[[us
     Some([[first.0, first.1.start], [last.0, end]])
 }
 
-/// A book's text from `from` to `to`, each `[block, byte]`.
-pub fn book(blocks: &[Block], [from, to]: [[usize; 2]; 2]) -> Source {
+/// A book's text from the first `[block, byte]` to the last.
+pub fn book(blocks: &[Block], [[first, first_byte], [last, last_byte]]: [[usize; 2]; 2]) -> Source {
     let mut out = Source::default();
-    for index in from[0]..=to[0] {
+    for index in first..=last {
         let Some(block) = blocks.get(index).filter(|b| !b.is_blank()) else {
             continue;
         };
-        let start = if index == from[0] { from[1] } else { 0 };
-        let end = if index == to[0] { to[1] } else { usize::MAX };
+        let start = if index == first { first_byte } else { 0 };
+        let end = if index == last { last_byte } else { usize::MAX };
         let piece = match &block.content {
             Content::Text(t) => {
                 let range = clip(&t.text, start..end);

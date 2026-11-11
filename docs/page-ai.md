@@ -206,7 +206,7 @@ Dictionary", or None while that has none either.
 | Runs, results, bubbles' state | `crates/ui-egui/src/page_ai/mod.rs` |
 | Continuous mode | `crates/ui-egui/src/page_ai/follow.rs` |
 | A book's results laid into its pages | `crates/epub/src/splice.rs`, `Flow::region` |
-| A page's text, and results back to blocks | `crates/ui-egui/src/page_ai/extract.rs` |
+| A page's text, and results back to blocks | `crates/engine/src/page_ai/extract.rs` |
 | Typesetting results off the frame | `crates/ui-egui/src/page_ai/cards.rs` |
 | Drawing cards, bubbles and the pill | `crates/ui-egui/src/page_ai/paint.rs` |
 | The page and bubble menus | `crates/ui-egui/src/page_ai/menu.rs` |
@@ -216,7 +216,7 @@ Dictionary", or None while that has none either.
 
 - `crates/assist/src/page_tests.rs`: placeholders kept, dropped and
   invented; answers read leniently; PDF clean-up.
-- `crates/ui-egui/src/page_ai/extract_tests.rs`: a page's text and blocks.
+- `crates/engine/src/page_ai/extract_tests.rs`: a page's text and blocks.
 - `crates/ui-egui/tests/page_ai.rs`, headless, through the real menus. Without
   a model the menu offers setting one up; with one, the three tasks. A
   picked language is remembered. Marks keep their own menu. A kept result

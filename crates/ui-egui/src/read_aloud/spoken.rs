@@ -5,6 +5,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::Context;
+use mareader_engine::read_aloud::words::{self, Clock, Pace, Steady};
 use mareader_session::{Anchor, DocId, Document, TextLayer};
 use mareader_settings::{Highlight, Pass, ReadAloudSettings, Skips};
 use mareader_speech::{Event, Glyph, Heard, Script, Sentence, Shelf, Spot, Tone, Voicer, Waker};
@@ -13,7 +14,6 @@ use mareader_workspace::PaneId;
 use super::card::Lyrics;
 use super::control::{Act, View};
 use super::parts::{self, Part};
-use super::words::{self, Clock, Pace, Steady};
 use super::{Lit, Span, TICK, follow, place_name};
 use crate::documents::{Documents, Reading};
 

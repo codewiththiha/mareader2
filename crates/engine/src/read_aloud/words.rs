@@ -38,7 +38,7 @@ const PAUSES: [char; 13] = [
 ];
 
 /// The words lit while word `at` of `words` is heard.
-pub(super) fn group(
+pub fn group(
     text: &str,
     words: &[Word],
     at: usize,
@@ -142,7 +142,7 @@ fn natural(run: &[&str]) -> Vec<Range<usize>> {
 }
 
 /// The word heard: at `byte` when the voice knows it, else at `guess`.
-pub(super) fn heard(words: &[Word], byte: Option<usize>, guess: f64) -> usize {
+pub fn heard(words: &[Word], byte: Option<usize>, guess: f64) -> usize {
     let byte = byte.unwrap_or(guess.max(0.0) as usize);
     words
         .partition_point(|w| w.bytes.start <= byte)
@@ -151,7 +151,7 @@ pub(super) fn heard(words: &[Word], byte: Option<usize>, guess: f64) -> usize {
 
 /// How long the sentence said has been heard, pauses left out.
 #[derive(Default)]
-pub(super) struct Clock {
+pub struct Clock {
     since: Option<Instant>,
     banked: Duration,
 }
@@ -182,7 +182,7 @@ impl Clock {
 }
 
 /// Bytes said a second at normal speed, learnt from sentences heard.
-pub(super) struct Pace(f64);
+pub struct Pace(f64);
 
 impl Default for Pace {
     fn default() -> Self {
@@ -212,7 +212,7 @@ const PRIOR: f64 = 20.0;
 
 /// The whole reading's pace, for time left; one odd sentence barely moves it.
 #[derive(Debug, Default)]
-pub(super) struct Steady {
+pub struct Steady {
     bytes: f64,
     seconds: f64,
 }

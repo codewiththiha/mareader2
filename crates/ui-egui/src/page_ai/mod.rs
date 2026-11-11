@@ -1,7 +1,6 @@
 //! Pages summarized, translated or simplified by the AI, shown over them.
 
 mod cards;
-mod extract;
 mod follow;
 mod groups;
 pub mod menu;
@@ -23,10 +22,9 @@ use mareader_workspace::PaneId;
 use crate::command::{Command, Commands};
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
-use crate::stable_hash::hash;
+use mareader_engine::page_ai::extract::Source;
+use mareader_engine::stable_hash::hash;
 use crate::toast::Toast;
-
-use extract::Source;
 pub use follow::Around;
 pub use paint::{Overlay, Pill, PillPress};
 

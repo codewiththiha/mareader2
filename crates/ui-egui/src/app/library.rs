@@ -59,7 +59,7 @@ impl MareaderApp {
             A::PickInto(to) => self.pick_import(ctx, None, to),
             A::Book(ui_library::BookAction::Reveal(book)) => {
                 let path = self.library.model().book(book).and_then(|b| b.path());
-                let shown = path.is_some_and(crate::reveal::reveal);
+                let shown = path.is_some_and(mareader_engine::reveal::reveal);
                 if !shown {
                     let note = "The file manager couldn't be opened.";
                     self.toasts.push(Toast::error(note));
@@ -73,7 +73,7 @@ impl MareaderApp {
         match action {
             A::Shelf(ui_library::ShelfAction::Reveal(shelf)) => {
                 let dir = self.library.model().shelf_dir(shelf);
-                let shown = dir.as_deref().is_some_and(crate::reveal::reveal);
+                let shown = dir.as_deref().is_some_and(mareader_engine::reveal::reveal);
                 if !shown {
                     let note = "The file manager couldn't be opened.";
                     self.toasts.push(Toast::error(note));

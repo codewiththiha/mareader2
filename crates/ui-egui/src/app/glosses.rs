@@ -336,7 +336,7 @@ impl MareaderApp {
         };
         self.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results and transcripts into its pages.
-        let wanted = crate::transcript::wanted(&self.settings.ai);
+        let wanted = mareader_engine::transcript::wanted(&self.settings.ai);
         for pane in self.tree.panes() {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
@@ -345,8 +345,8 @@ impl MareaderApp {
             let ai = self.page_ai.inserts(model, pane, &self.documents, who);
             let own = self.documents.transcripts(pane, &wanted);
             let shown = self.documents.triggered(pane);
-            let ai = crate::transcript::combine(ai, own);
-            if let Some(inserts) = crate::transcript::combine(ai, shown) {
+            let ai = mareader_engine::transcript::combine(ai, own);
+            if let Some(inserts) = mareader_engine::transcript::combine(ai, shown) {
                 self.documents.set_inserts(pane, inserts);
             }
         }

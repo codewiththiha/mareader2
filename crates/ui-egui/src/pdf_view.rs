@@ -2,6 +2,7 @@
 
 use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
+use mareader_engine::texts::TextLayers;
 use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
@@ -20,7 +21,6 @@ use crate::reach::{self, Press, Stop};
 use crate::read_aloud::marker::{self, Marker};
 use crate::selection::{self, Pages, Selection, Sheet};
 use crate::study::{self, BarPress, Gloss};
-use crate::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::vocab;
 use crate::zoom::{Fit, PaneZoom, ZoomCommand};
@@ -178,7 +178,7 @@ pub struct PdfView {
     /// A book's footnote open in a card on its mark.
     pub footnote: Option<crate::footnote::Footnote>,
     /// Clip transcripts open in the book's pages.
-    pub transcripts: crate::transcript::Transcripts,
+    pub transcripts: mareader_engine::transcript::Transcripts,
     /// What the book's triggers have shown, hidden and played.
     pub triggers: crate::trigger::Triggers,
     /// A book's picture opened large over the window.

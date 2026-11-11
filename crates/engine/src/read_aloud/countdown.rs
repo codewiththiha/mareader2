@@ -11,7 +11,7 @@ const OFF: f64 = 0.2;
 
 /// The seconds shown, and what they were last set from.
 #[derive(Debug, Default)]
-pub(super) struct Countdown {
+pub struct Countdown {
     shown: Option<f64>,
     at: Option<f32>,
     rate: f32,
@@ -20,7 +20,7 @@ pub(super) struct Countdown {
 
 /// One frame's estimate: seconds left, share read, playing, and speed.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Estimate {
+pub struct Estimate {
     pub left: Option<f64>,
     pub at: Option<f32>,
     pub playing: bool,

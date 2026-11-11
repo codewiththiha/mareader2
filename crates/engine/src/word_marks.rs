@@ -393,5 +393,5 @@ fn escape(s: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "build_tests.rs"]
+#[path = "word_marks_tests.rs"]
 mod tests;

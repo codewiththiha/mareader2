@@ -18,7 +18,6 @@ pub(crate) mod menu;
 mod menus;
 pub mod moving;
 pub mod organizing;
-pub mod picks;
 mod remove_alert;
 mod review;
 pub mod runs;
@@ -50,7 +49,7 @@ pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
-pub use picks::{Pick, PickAction, Picks};
+pub use mareader_library::picks::{self, Pick, PickAction, Picks};
 pub use search::{Field, Listing, SearchAction};
 pub use shelving::{Carry, Crumb, ShelfAction};
 

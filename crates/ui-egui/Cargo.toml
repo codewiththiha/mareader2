@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 mareader-appearance = { workspace = true }
+# The app without a window: what outlives a frame lives there (L5).
+mareader-engine = { workspace = true }
 mareader-workspace = { workspace = true }
 mareader-settings = { workspace = true }
 mareader-epub = { workspace = true }

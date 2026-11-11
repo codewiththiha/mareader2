@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use egui::Context;
+use mareader_engine::page_ai::extract::{self, Source};
 use mareader_library::{AiTask, BookId, Library, PageSpan};
 use mareader_session::Document;
 use mareader_settings::{AiSettings, ModelPreset, language_name};
@@ -13,7 +14,6 @@ use mareader_workspace::PaneId;
 use crate::command::Commands;
 use crate::documents::Documents;
 
-use super::extract::{self, Source};
 use super::paint::{Pill, Ring};
 use super::{Asked, PageAi, Showing, Slot, Who, page_task, source_of};
 

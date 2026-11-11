@@ -25,12 +25,10 @@ mod ask;
 mod booth;
 mod card;
 mod control;
-mod countdown;
 mod edges;
 pub mod marker;
 mod parts;
 mod spoken;
-mod words;
 
 pub use booth::Booth;
 use control::{Act, Fit, View};
@@ -502,7 +500,7 @@ struct Shape {
     /// How far it stands above its book's pane foot; 0 elsewhere.
     rise: f32,
     /// The time left it shows, running down evenly.
-    countdown: countdown::Countdown,
+    countdown: mareader_engine::read_aloud::countdown::Countdown,
     /// The part last asked about, kept while its question fades.
     asked: Option<parts::Kind>,
     /// Opted in for the current unanswered question only.
@@ -1200,7 +1198,7 @@ impl ReadAloud {
             let hint = |share: f32| s.hint(share);
             let cost = s.ask_cost(settings.rate);
             let view = s.view(&hint);
-            let estimate = countdown::Estimate {
+            let estimate = mareader_engine::read_aloud::countdown::Estimate {
                 left: view.left,
                 at: view.at,
                 playing: view.playing,

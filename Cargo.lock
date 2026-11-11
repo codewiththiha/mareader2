@@ -3636,6 +3636,20 @@ dependencies = [
 [[package]]
 name = "mareader-engine"
 version = "0.0.5"
+dependencies = [
+ "mareader-appearance",
+ "mareader-cefr",
+ "mareader-dict",
+ "mareader-epub",
+ "mareader-pdf",
+ "mareader-reflow",
+ "mareader-session",
+ "mareader-settings",
+ "mareader-speech",
+ "mareader-study",
+ "mareader-workspace",
+ "serde_json",
+]
 
 [[package]]
 name = "mareader-epub"
@@ -3831,6 +3845,7 @@ dependencies = [
  "mareader-audio",
  "mareader-cefr",
  "mareader-dict",
+ "mareader-engine",
  "mareader-epub",
  "mareader-g2p",
  "mareader-library",

@@ -5,10 +5,9 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2, vec2};
+use mareader_engine::texts::TextLayers;
 use mareader_pdf::{Bounds, LinkTarget};
 use mareader_session::{DocId, TextLayer};
-
-use crate::texts::TextLayers;
 
 mod grab;
 

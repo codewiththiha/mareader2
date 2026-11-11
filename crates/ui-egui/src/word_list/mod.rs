@@ -13,11 +13,10 @@ use crate::dict::Dict;
 use crate::toast::Toast;
 use crate::vocab::Vocab;
 
-pub mod build;
 pub mod preview;
 pub mod window;
 
-pub use build::{Page, Sheet, Word};
+pub use mareader_engine::word_marks::{Page, Sheet, Word};
 
 /// Pages this few, or a book's, are read in the frame.
 const INLINE: usize = 4;
@@ -189,7 +188,7 @@ impl Gather {
             match &mut self.stage {
                 Stage::Reading(rx) => match rx.try_recv() {
                     Ok(pages) => {
-                        self.keys = build::keys(&pages);
+                        self.keys = mareader_engine::word_marks::keys(&pages);
                         self.pages = pages;
                         self.stage = Stage::Levels { next: 0 };
                     }
@@ -212,7 +211,7 @@ impl Gather {
                         .get(..LEVEL_ROUND.min(round.len()))
                         .unwrap_or_default();
                     if round.is_empty() {
-                        self.words = build::hard(&self.pages, &self.bands, self.level);
+                        self.words = mareader_engine::word_marks::hard(&self.pages, &self.bands, self.level);
                         if self.words.is_empty() {
                             let level = mareader_cefr::label(self.level);
                             let why = format!("No words above {level} on these pages");
@@ -295,7 +294,7 @@ impl Gather {
         let asked = self.list.languages.iter();
         let missing = asked.filter(|l| !languages.contains(l)).cloned();
         Made {
-            markdown: build::render(&sheet, &list),
+            markdown: mareader_engine::word_marks::render(&sheet, &list),
             words: self.words.len(),
             missing: missing.collect(),
         }

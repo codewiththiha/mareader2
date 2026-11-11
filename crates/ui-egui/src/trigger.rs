@@ -4,11 +4,11 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Weak};
 
 use mareader_audio::{Player, Segment};
+use mareader_engine::stable_hash::hash;
 use mareader_epub::{Action, Book, Insert, Triggered};
 use mareader_session::Document;
 
 use crate::read_aloud::ReadAloud;
-use crate::stable_hash::hash;
 
 /// A clip a trigger acts on, waiting for the window to act.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +101,7 @@ impl Clips {
         } = clip;
         if video {
             if action == Action::Play {
-                crate::play::play(Arc::clone(doc), path);
+                mareader_engine::play::play(Arc::clone(doc), path);
             }
             return;
         }

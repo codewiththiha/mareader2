@@ -2,10 +2,11 @@
 
 use std::collections::BTreeSet;
 
-use mareader_library::BookId;
+use crate::arrange::Item;
+use crate::id::BookId;
 
 /// A card picked on the page: the library's own item.
-pub use mareader_library::Item as Pick;
+pub use crate::arrange::Item as Pick;
 
 /// Picking asked for by clicks, keys and the selection bar.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,7 +77,7 @@ impl Picks {
             .map_or_else(|| vec![to], <[Pick]>::to_vec)
     }
 
-    pub(super) fn apply(&mut self, action: PickAction) {
+    pub fn apply(&mut self, action: PickAction) {
         self.selecting = action != PickAction::Clear;
         match action {
             PickAction::Toggle(pick) => {
@@ -95,7 +96,7 @@ impl Picks {
     }
 
     /// Drops picks that no longer exist.
-    pub(super) fn retain(&mut self, keep: impl Fn(Pick) -> bool) {
+    pub fn retain(&mut self, keep: impl Fn(Pick) -> bool) {
         self.set.retain(|&p| keep(p));
         self.anchor = self.anchor.filter(|&p| keep(p));
     }

@@ -28,13 +28,12 @@ mod highlights;
 #[cfg(not(target_arch = "wasm32"))]
 mod models;
 mod read_aloud;
-mod scope;
 mod vocabulary;
 mod voice_model;
 pub use voice_model::accent;
 
 pub use read_aloud::Voices;
-pub use scope::{Applies, Scope, Shown};
+pub use mareader_engine::scope::{Applies, Scope, Shown};
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.
 pub const MAX_SIZE: Vec2 = vec2(760.0, 960.0);

@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn the_least_recently_shown_pages_are_dropped_past_the_cap() -> Result<(), &'static str> {
-        let doc = crate::testing::doc()?;
+        let doc = crate::sample::doc()?;
         let mut texts = TextLayers::default();
         for page in 0..MAX_PAGES {
             texts.insert(doc, page, Ok(Arc::default()));
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn at_rest_only_the_pages_in_view_keep_their_text() -> Result<(), &'static str> {
-        let doc = crate::testing::doc()?;
+        let doc = crate::sample::doc()?;
         let mut texts = TextLayers::default();
         for page in 0..10 {
             texts.insert(doc, page, Ok(Arc::default()));

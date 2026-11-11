@@ -13,13 +13,13 @@ use std::sync::Arc;
 
 use crate::command::{Command, Commands};
 use crate::documents::Reading;
-use crate::export::{self, Entry, Format, Sheet};
+use mareader_engine::export::{self, Entry, Format, Sheet};
 use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
 use crate::widgets;
 
-mod query;
+use mareader_engine::notes_panel::query;
 
 const PAD_X: f32 = 12.0;
 /// The colour rule's width and the gap after it.

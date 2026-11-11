@@ -385,8 +385,8 @@ tier = "P2"
 milestone = "M4"
 status = "shipped"
 evidence = [
-  "crates/ui-egui/src/pane_texts.rs::each_pane_keeps_its_own_text_while_split",
-  "crates/ui-egui/src/pane_texts.rs::the_focused_pane_hands_its_text_to_the_window",
+  "crates/engine/src/pane_texts.rs::each_pane_keeps_its_own_text_while_split",
+  "crates/engine/src/pane_texts.rs::the_focused_pane_hands_its_text_to_the_window",
   "crates/ui-egui/tests/reading.rs::independent_text_sets_each_pane_in_its_own_type",
   "crates/session/src/tests.rs::each_slot_sets_one_book_in_its_own_type",
   "crates/ui-egui/tests/reading.rs::pane_text_shows_only_while_split_with_a_book",
@@ -1516,7 +1516,7 @@ evidence = [
     "crates/ui-egui/tests/shell.rs::every_settings_tab_is_named_in_its_sidebar",
     "crates/ui-egui/tests/shell.rs::a_settings_switch_applies_on_the_frame_it_flips",
     "crates/ui-egui/src/settings_window.rs::the_window_grows_with_the_app_past_mareader_s_640",
-    "crates/ui-egui/src/settings_window/scope.rs::the_focused_document_decides_what_applies",
+    "crates/engine/src/scope.rs::the_focused_document_decides_what_applies",
     "crates/ui-egui/tests/reading.rs::layout_rows_follow_the_focused_document",
     "crates/ui-egui/tests/a11y.rs::every_control_has_a_name",
     "crates/ui-egui/tests/library.rs::the_library_settings_list_only_what_it_uses",

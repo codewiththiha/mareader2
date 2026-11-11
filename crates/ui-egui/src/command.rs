@@ -220,7 +220,7 @@ pub enum Command {
     /// Asks where to save an export, then writes it.
     Export {
         name: String,
-        format: crate::export::Format,
+        format: mareader_engine::export::Format,
         contents: String,
     },
     /// Shows a toast on top of the stack.

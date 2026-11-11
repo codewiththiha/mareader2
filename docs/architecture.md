@@ -46,7 +46,7 @@ the right place.
 | L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
 | L3 | `assist` | **exists** | AI tasks and their prompts, the providers behind one `Backend` seam, API keys (`docs/assist.md`); desktop only, the one exception to rule 3, listed in `xtask/src/wasm.rs` `EXEMPT` with its reason |
-| L5 | `engine` | **exists, empty** | the app without a window: session, commands, events, jobs and saving; nothing in it yet, and nothing here may name a toolkit |
+| L5 | `engine` | **exists** | the app without a window: what outlives a frame or reaches disk, moved out of the front end a slice at a time; no toolkit may be named here |
 | L6 | `ui-egui` | **exists** | one front end in egui: theme, icons, title bar, panes, every view and popover |
 | L7 | `apps/mareader` | **exists** | the window, `main`, and eventually the `Host` the engine reaches the machine through |
 | L7 | `apps/mareader-web` | **exists** | the browser preview: the same app through eframe's `WebRunner` |
@@ -82,8 +82,8 @@ cursor). There are no signals, effects, observers or stores, and no state is
 mirrored in two places.
 
 That owner is on its way down to `mareader-engine` (L5), which is why the crate
-exists and why `cargo xtask trapped` counts the files that belong there. Until
-they move, this section describes today's tree, not the target one.
+exists and why `cargo xtask trapped` counts the files that still belong there.
+The toolkit-free rules have moved; the state itself follows in the next slices.
 
 **Views are functions.** A view takes the state it shows and a `&mut Commands`:
 `fn show(ui: &mut Ui, state: &T, out: &mut Commands)`. It draws and pushes
@@ -223,7 +223,7 @@ mareader typography setting has a parley equivalent.
   channels. Each result carries the document id and generation it was made
   for; a result for a closed pane, an old zoom or an old document is dropped
   before it is uploaded.
-- **File watch** (`crates/ui-egui/src/watch.rs`). One thread looks at the open
+- **File watch** (`crates/engine/src/watch.rs`). One thread looks at the open
   files' size and modified time every second, and wakes the window only once
   a change has held for two looks; the window stays idle meanwhile. A file
   is first seen the moment it is shown, so a save right after it opens
@@ -278,3 +278,4 @@ mareader typography setting has a parley equivalent.
 | 2026-10-13 | Shared documents, cache and workers across panes (ADR 0006); appearance as uniforms |
 | 2026-10-13 | Scrolling long documents: admission, tiling and upload rules |
 | 2026-11-11 | P0 of the engine-first review: `crates/ui` becomes `crates/ui-egui` (`mareader-ui-egui`), `mareader-engine` takes L5, the front end L6 and the three apps L7; `cargo xtask wasm` and `cargo xtask trapped` become gates |
+| 2026-11-11 | P1: the toolkit-free rules move to `mareader-engine`; the front end calls them across the crate boundary, and `cargo xtask trapped` falls to 33 |

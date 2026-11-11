@@ -14,4 +14,4 @@ items extracted by the review batch; the paths name their owning modules.
 | counted | `crates/ui-egui/src/library/counted.rs` | Sole counted-book helper; `books` re-exports the established public path. |
 | labels | `crates/ui-egui/src/dial_deck/labels.rs` | Shared `mode_icon`, `noise_label` and `strength_percent` formatting for appearance and dial widgets. |
 | entrance | `crates/ui-egui/src/motion.rs` | Shared entrance easing; callers pass their own duration. |
-| stable_hash | `crates/ui-egui/src/stable_hash.rs` | Stable UI hash shared by Page AI, transcripts and triggers; unrelated direct `DefaultHasher` uses remain local. |
+| stable_hash | `crates/engine/src/stable_hash.rs` | Stable UI hash shared by Page AI, transcripts and triggers; unrelated direct `DefaultHasher` uses remain local. |

@@ -50,7 +50,7 @@ use crate::machine_fonts::MachineFonts;
 use crate::notes_panel;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
-use crate::pane_texts::PaneTexts;
+use mareader_engine::pane_texts::PaneTexts;
 use crate::panes::{self as ui_panes, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{LightSpots, NativeLights, Platform};

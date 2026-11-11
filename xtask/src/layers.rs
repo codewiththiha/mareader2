@@ -254,6 +254,15 @@ mod tests {
     }
 
     #[test]
+    fn a_toolkit_smuggled_in_through_a_dev_dependency_is_refused() {
+        // The metadata list includes dev-dependencies, so they are checked too.
+        let dev = ["egui_kittest", "wgpu-core"];
+        let errs = check(&[pkg("mareader-engine", &dev)]);
+        assert_eq!(errs.len(), 2, "{errs:?}");
+        assert!(check(&[pkg("mareader-ui-egui", &dev)]).is_empty());
+    }
+
+    #[test]
     fn the_headless_client_may_not_link_a_toolkit() {
         let apps = [
             pkg("mareader-cli", &["mareader-engine"]),
