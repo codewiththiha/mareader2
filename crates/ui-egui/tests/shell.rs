@@ -4,8 +4,8 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Intent;
-use mareader_ui_egui::command::UiCommand;
+use mareader_ui_egui::ui_command::Intent;
+use mareader_ui_egui::ui_command::UiCommand;
 
 fn harness(app: MareaderApp) -> Harness<'static, MareaderApp> {
     sized(app, egui::vec2(1200.0, 800.0))
@@ -41,9 +41,9 @@ fn the_bar_appears_on_hover_and_hides_after_the_grace() {
 fn a_split_adds_and_focuses_a_pane() {
     let mut h = harness(MareaderApp::default());
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(Intent::Split(
-            mareader_workspace::SplitAxis::Horizontal,
-        )));
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
+            Intent::Split(mareader_workspace::SplitAxis::Horizontal),
+        ));
     h.run_steps(2);
     assert_eq!(h.state().panes().len(), 2);
     assert_eq!(h.state().active_pane(), h.state().panes()[1]);
@@ -117,7 +117,7 @@ fn an_appearance_change_restyles_on_the_frame_it_lands() {
         .unwrap_or_default();
     let want = mareader_ui_egui::theme::Tokens::new(&sepia);
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::SetAppearance(sepia),
         ));
     h.step();
@@ -317,9 +317,10 @@ fn escape_closes_the_sidebar() {
 fn a_command_schedules_the_frame_that_shows_it() {
     let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
     h.run_steps(2);
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::CloseSidebar,
-    ));
+    h.state_mut()
+        .queue(mareader_ui_egui::ui_command::Command::Ui(
+            UiCommand::CloseSidebar,
+        ));
     // `run` steps only while the app asks for frames, like a real window.
     h.run();
     assert!(h.query_by_label("Close sidebar").is_none(), "faded out");
@@ -648,9 +649,10 @@ fn command_slash_toggles_the_sheet_and_escape_shuts_it() {
         !mareader_ui_egui::shortcuts::is_open(&h.ctx),
         "its key shuts it"
     );
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::ShowShortcuts,
-    ));
+    h.state_mut()
+        .queue(mareader_ui_egui::ui_command::Command::Ui(
+            UiCommand::ShowShortcuts,
+        ));
     h.run_steps(3);
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
@@ -874,9 +876,9 @@ fn a_refused_split_says_why() {
     use mareader_workspace::SplitAxis;
     let mut h = with(&[("panes", "4")]);
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(Intent::Split(
-            SplitAxis::Horizontal,
-        )));
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
+            Intent::Split(SplitAxis::Horizontal),
+        ));
     h.run_steps(3);
     let toast = h.state().toast().map(|t| t.message.clone());
     assert!(toast.is_some_and(|m| m.contains("4 panes")));
@@ -913,9 +915,10 @@ fn closing_the_sidebar_slides_the_lights_away() {
     let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
     h.hover_at(egui::pos2(700.0, 500.0));
     wait(&mut h, 1.0);
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::CloseSidebar,
-    ));
+    h.state_mut()
+        .queue(mareader_ui_egui::ui_command::Command::Ui(
+            UiCommand::CloseSidebar,
+        ));
     wait(&mut h, 0.15);
     let mid = lights(&h);
     assert!(
@@ -1074,14 +1077,14 @@ fn slider_values_never_widen_the_appearance_popover() {
     let mut a = h.state().settings().appearance;
     (a.tint_strength, a.texture_scale, a.noise_intensity) = (0, 25, 0);
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::SetAppearance(a),
         ));
     h.run_steps(3);
     let narrow = width(&h);
     (a.tint_strength, a.texture_scale, a.noise_intensity) = (100, 400, 100);
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::SetAppearance(a),
         ));
     h.run_steps(3);
@@ -1196,7 +1199,7 @@ fn the_interface_wears_the_look_of_the_pane_split_from() {
     // Closed, the eldest left is crowned and the window wears its look.
     let heir = h.state().look(two);
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::ClosePane(one),
         ));
     h.run_steps(3);
@@ -1211,7 +1214,7 @@ fn closing_to_one_pane_keeps_the_survivor_s_own_look() {
     let own = h.state().look(two);
     let one = h.state().panes()[0];
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::ClosePane(one),
         ));
     h.run_steps(3);

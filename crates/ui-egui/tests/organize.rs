@@ -4,10 +4,10 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_library::{BookId, Move};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Commands, Intent, UiCommand};
 use mareader_ui_egui::library::organizing::{Heard, Paused};
 use mareader_ui_egui::library::{Action, ShelfAction};
 use mareader_ui_egui::toast::Toast;
+use mareader_ui_egui::ui_command::{Command, Commands, Intent, UiCommand};
 
 /// Frames enough for a run's card to show; its ring keeps asking for more.
 const FRAMES: usize = 40;

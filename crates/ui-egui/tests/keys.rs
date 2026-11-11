@@ -3,9 +3,9 @@
 use egui::Key;
 use egui_kittest::Harness;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::layout::ViewMode;
 use mareader_ui_egui::pdf_view::{line_step, screen_step};
+use mareader_ui_egui::ui_command::{Command, Intent};
 use mareader_ui_egui::zoom::{Step, ZoomCommand};
 
 const HEIGHT: f32 = 700.0;

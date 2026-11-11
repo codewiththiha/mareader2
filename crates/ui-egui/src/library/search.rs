@@ -14,10 +14,10 @@ use mareader_library::{
 };
 
 use super::{Action, LibraryState, Pick, PickAction, Scope};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 
 /// The field's id: the app asks it whether it holds the keys.
 pub const FIELD: &str = "library-search";

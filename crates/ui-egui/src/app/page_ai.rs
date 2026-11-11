@@ -1,7 +1,9 @@
+use egui::Context;
+
 use super::*;
 
-use crate::command::UiCommand;
 use crate::page_ai::{Action, task_for};
+use crate::ui_command::UiCommand;
 use mareader_settings::{PageStart, PageTask};
 
 impl MareaderApp {

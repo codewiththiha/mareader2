@@ -10,9 +10,9 @@ use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
 use super::{Action, BookAction, Carry, Crumb, Named, ShelfAction};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 pub const CRUMB_MENU: &str = "library-crumb-menu";

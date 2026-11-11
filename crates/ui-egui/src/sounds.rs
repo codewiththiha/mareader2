@@ -13,8 +13,8 @@ pub use mareader_g2p::notation::Beat;
 use mareader_settings::{Accent, Notation, PronunciationSettings};
 use mareader_speech::{Item, PRONUNCIATION, Shelf, Stage};
 
-use crate::command::Download;
 use crate::theme::{self, Tokens};
+use crate::ui_command::Download;
 
 /// Lookups remembered; past this the list starts over.
 const KEPT: usize = 256;

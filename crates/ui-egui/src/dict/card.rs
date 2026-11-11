@@ -10,11 +10,11 @@ use mareader_dict::{Entry, Reply, language};
 
 use super::{Action, entry};
 use crate::bubble::{Bubble, Side};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::shaped;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const WIDTH: f32 = 320.0;

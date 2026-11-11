@@ -87,12 +87,13 @@ The toolkit-free rules have moved; the state itself follows in the next slices.
 
 **Views are functions.** A view takes the state it shows and a `&mut Commands`:
 `fn show(ui: &mut Ui, state: &T, out: &mut Commands)`. It draws and pushes
-`Command`s (`crates/ui-egui/src/command.rs`) for what the user asked. It does not
+`Command`s (`crates/engine/src/command.rs`) for what the user asked. It does not
 mutate app state, call other views' handlers or keep its own copy of the data.
 
 **Commands are the only way to change state.** Buttons, menus, shortcuts and
 drops all produce the same `Command` values, and `MareaderApp::apply` is the
-one place they take effect, after the frame's UI pass. So a shortcut and its
+one place they take effect, after the frame's UI pass: an `Intent` goes to
+`Session::execute` in the engine, a `UiCommand` is carried out by the chrome. So a shortcut and its
 button cannot drift apart, and every user action can be tested by pushing a
 command.
 

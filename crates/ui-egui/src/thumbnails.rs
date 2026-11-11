@@ -13,13 +13,13 @@ use mareader_workspace::PaneId;
 
 use mareader_appearance::Pattern;
 
-use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::gpu::{Anchor, PagesCallback};
 use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 pub use picks::Offer;
 use picks::Picks;
 

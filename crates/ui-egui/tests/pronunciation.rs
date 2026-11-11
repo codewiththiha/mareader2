@@ -7,8 +7,8 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_settings::{Accent, Notation};
 use mareader_speech::{MODELS, PRONUNCIATION};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::settings_window::Tab;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 type H = Harness<'static, MareaderApp>;
 

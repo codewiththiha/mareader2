@@ -11,10 +11,10 @@ use mareader_pdf::Bounds;
 use mareader_session::{DocId, TextLayer};
 use mareader_settings::{CefrMark, Reserved};
 
-use crate::command::Download;
 use crate::selection::Pages;
 use crate::study::marks::Under;
 use crate::study::words;
+use crate::ui_command::Download;
 
 /// Shaded words per page at most; a book's stream page holds many.
 const PAGE_CAP: usize = 5_000;

@@ -1,3 +1,5 @@
+use egui::{Rect, Ui, Vec2};
+
 use super::*;
 
 pub(super) fn backdrop(cx: &mut ShowContext<'_>, ui: &mut Ui) {

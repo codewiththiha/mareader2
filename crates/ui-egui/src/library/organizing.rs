@@ -4,11 +4,11 @@ use std::collections::BTreeSet;
 
 use mareader_library::{Book, BookId, Library, Origin, ShelfId};
 
-use super::counted::counted;
 use super::runs::{Beat, Phase, RunId};
 use super::{LibraryState, Pick, ShelfAction};
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use mareader_engine::library::counted;
 
 /// A book the model may file.
 #[derive(Clone, Debug, PartialEq, Eq)]

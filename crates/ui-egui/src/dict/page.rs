@@ -11,12 +11,12 @@ use mareader_dict::{
 use mareader_settings::DictionarySettings;
 
 use super::{Voice, entry, look};
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::shaped;
 use crate::theme::{self, Tokens};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
 
 /// The search field's name, for screen readers and tests.

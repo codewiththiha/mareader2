@@ -6,8 +6,9 @@ use egui::{
     Align2, Context, CornerRadius, CursorIcon, Galley, Id, Order, Rect, Sense, Shadow, Stroke, Ui,
     WidgetInfo, WidgetType, pos2, vec2,
 };
+use mareader_engine::read_aloud::parts::Kind;
 
-use super::parts::Kind;
+use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 
@@ -103,10 +104,7 @@ fn pill(
         t.accent_soft,
     );
     let icon = Rect::from_center_size(disc, egui::Vec2::splat(16.0));
-    part.icon()
-        .image(ui, 16.0)
-        .tint(t.accent)
-        .paint_at(ui, icon);
+    sign(part).image(ui, 16.0).tint(t.accent).paint_at(ui, icon);
     let x = disc.x + DISC / 2.0 + 10.0;
     let top = if cost.is_some() {
         y - 15.0
@@ -206,4 +204,14 @@ fn button(ui: &mut Ui, rect: Rect, text: Arc<Galley>, label: &str, primary: bool
     };
     painter.galley(at, text, ink);
     r.clicked()
+}
+
+/// The glyph a part of the book shows by.
+pub(super) fn sign(kind: Kind) -> Icon {
+    match kind {
+        Kind::Table => Icon::Table,
+        Kind::List => Icon::List,
+        Kind::Figure => Icon::Figure,
+        Kind::Aside => Icon::Aside,
+    }
 }

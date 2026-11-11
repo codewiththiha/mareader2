@@ -10,9 +10,9 @@ use mareader_library::MarkId;
 
 use super::Action;
 use crate::bubble::{Bubble, Side};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{Tokens, color};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const WIDTH: f32 = 340.0;

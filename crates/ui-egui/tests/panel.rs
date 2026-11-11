@@ -8,9 +8,9 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{BookId, Library};
 use mareader_settings::LibraryClick;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::library::{Action, BookAction};
 use mareader_ui_egui::sidebar::WIDTH;
+use mareader_ui_egui::ui_command::{Command, Intent};
 use mareader_workspace::PaneId;
 
 use crate::common::reader;

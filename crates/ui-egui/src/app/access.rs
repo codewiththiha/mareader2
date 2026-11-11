@@ -25,13 +25,6 @@ impl MareaderApp {
         self.send(Intent::FocusPane(pane));
     }
 
-    /// Closes a pane through the door, so the focus follows the tree.
-    pub(super) fn close_pane(&mut self, id: PaneId) -> bool {
-        let done = self.session.execute(Intent::ClosePane(id));
-        self.after(done.clone());
-        done.dirty
-    }
-
     /// The tree, writable, for the pane surgery `execute` cannot express:
     /// a lift and drop, a divider drag.
     pub(super) fn tree_mut(&mut self) -> &mut mareader_workspace::PaneTree {
@@ -48,7 +41,7 @@ impl MareaderApp {
         self.session.settings_mut()
     }
 
-    /// Takes a whole new settings, through the door, and re-reads the cache.
+    /// Takes a whole new settings, through the door.
     pub fn set_settings(&mut self, settings: Settings) {
         self.send(Intent::SetSettings(Box::new(settings)));
     }
@@ -63,29 +56,14 @@ impl MareaderApp {
         value: T,
     ) -> Result<(), String> {
         let value = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-        let done = self.session.execute(Intent::SetField {
-            path: path.into(),
-            value,
-        });
-        self.after(done.clone());
-        match done.refused {
-            Some(why) => Err(why),
-            None => Ok(()),
-        }
+        let path = path.into();
+        let done = self.session.apply(Intent::SetField { path, value });
+        done.refused.map_or(Ok(()), Err)
     }
 
-    /// Sends an intent to the owner and refreshes what views read.
+    /// An intent the session carries out alone: a dial, the focus.
     pub(super) fn send(&mut self, intent: Intent) {
-        let done = self.session.execute(intent);
-        self.after(done);
-    }
-
-    /// What the window must still do for the intent the engine just carried
-    /// out: a pane to focus, a repaint.
-    pub(super) fn after(&mut self, done: mareader_engine::session::Done) {
-        if let Some(focus) = done.focus {
-            let _ = focus;
-        }
+        self.session.apply(intent);
     }
 
     pub fn read_aloud(&self) -> &crate::read_aloud::ReadAloud {

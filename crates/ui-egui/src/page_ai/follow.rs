@@ -11,8 +11,8 @@ use mareader_session::Document;
 use mareader_settings::{AiSettings, ModelPreset, language_name};
 use mareader_workspace::PaneId;
 
-use crate::command::Commands;
 use crate::documents::Documents;
+use crate::ui_command::Commands;
 
 use super::paint::{Pill, Ring};
 use super::{Asked, PageAi, Showing, Slot, Who, page_task, source_of};

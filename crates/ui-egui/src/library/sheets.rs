@@ -5,9 +5,9 @@ use mareader_library::{Book, FolderId, Library, Origin, ShelfId};
 
 use super::asks::{self, Question};
 use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
-use crate::command::{Command, Commands, Intent};
 use crate::modal::{Dialog, buttons, primary, title};
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 
 const WIDTH: f32 = 420.0;
 

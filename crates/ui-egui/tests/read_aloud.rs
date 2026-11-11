@@ -4,9 +4,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_speech::Spot;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::park::PEEK;
 use mareader_ui_egui::read_aloud::{ReadFrom, Span};
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 
 use crate::common::press;
 
@@ -728,7 +728,7 @@ fn a_scroll_hidden_highlight_makes_the_dictionary_yield_to_the_player() {
 
 #[test]
 fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
-    use mareader_ui_egui::route::Route;
+    use mareader_ui_egui::ui_command::Route;
     let mut h = reader(3);
     start(&mut h, ReadFrom::default());
     let first = lit(&h);

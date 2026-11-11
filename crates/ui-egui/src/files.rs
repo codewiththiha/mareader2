@@ -8,9 +8,9 @@ use egui::{Context, DroppedFileHandle};
 use mareader_engine::export::Format;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::{OpenRequest, Placement};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 
 /// What the open dialog admits.
 /// Markdown and plain text open converted to books.

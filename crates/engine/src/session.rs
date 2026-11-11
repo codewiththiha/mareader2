@@ -2,32 +2,26 @@
 //!
 //! `Session` owns what outlives a frame and is not a drawing: the settings,
 //! the pane tree and which pane is awake, the panes by last focus, and the
-//! route. A front end draws that state and asks for changes by handing over
-//! an [`Intent`]; nothing else may write it.
+//! route. A front end draws that state and asks for changes by handing an
+//! [`Intent`] to `Session::execute` (`execute.rs`); what the session cannot
+//! show itself leaves as an [`Event`], drained once a frame.
 //!
-//! This is the first half of the reducer. The rest of what the review lists
-//! as the owner — the documents model, the library, the panes' looks and
-//! texts, the staged selection, the last document — still lives in the app,
-//! and moves here once it is toolkit-free enough to make the trip.
-//!
-//! # What the door returns
-//!
-//! An intent the window must finish (a split needs its area, F6 needs the
-//! focus ring) is answered with a [`Focus`], because the engine may not name
-//! those things. Everything else is done here, and the caller sees the change
-//! in the state it borrowed.
+//! Documents, the library and the study tools are still run by front-end
+//! controllers, reached through [`crate::desk::Desk`] until they move here.
+
+use std::sync::Arc;
 
 use mareader_settings::Settings;
-use mareader_workspace::{Bounds, PaneId, PaneTree, Side, SplitAxis};
+use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, TreeError};
 
 use crate::command::Intent;
+use crate::event::Event;
 use crate::route::Route;
+use crate::toast::Toast;
 
-/// One of the things a person can do without a window.
-///
-/// `Sync` is not incidental: the front end holds it in an `Arc` and keeps an
-/// `Arc<Settings>` fetched from it, so a view never needs `&mut self` to read
-/// a dial. Writes go through `execute`, which drops that cache.
+/// Asks for a frame from any thread; the same alias `speech` exports.
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
 pub struct Session {
     settings: Settings,
     tree: PaneTree,
@@ -37,22 +31,14 @@ pub struct Session {
     route: Route,
     /// Where the Dictionary page was opened from.
     dict_from: Option<Route>,
+    /// Results not yet drained, oldest first.
+    events: Vec<Event>,
+    waker: Waker,
 }
 
-/// What the engine could not do alone, put back to the front end.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Focus {
-    /// Focus the next or previous pane, in reading order.
-    Cycle { forward: bool },
-    /// Focus a pane the engine has just made or found.
-    Pane(PaneId),
-}
-
-/// One door's answer: what the front end must still carry out.
+/// What an intent the session carries out alone came to.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Done {
-    /// A viewport change, if the intent asked for one.
-    pub focus: Option<Focus>,
     /// True when the state changed and the window should redraw.
     pub dirty: bool,
     /// Why an intent was refused, if it was: a bad path, a bad value.
@@ -67,7 +53,7 @@ impl Done {
     fn changed() -> Self {
         Self {
             dirty: true,
-            ..Self::default()
+            refused: None,
         }
     }
 }
@@ -82,7 +68,28 @@ impl Session {
             recent: Vec::new(),
             route: Route::Reader,
             dict_from: None,
+            events: Vec::new(),
+            waker: Arc::new(|| {}),
         }
+    }
+
+    /// Who to ask for a frame; until set, a wake does nothing.
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.waker = waker;
+    }
+
+    /// Asks the front end for a frame.
+    pub fn wake(&self) {
+        (self.waker)();
+    }
+
+    /// Everything reported since the last drain, oldest first.
+    pub fn drain(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
+    }
+
+    pub(crate) fn emit(&mut self, event: Event) {
+        self.events.push(event);
     }
 
     pub fn settings(&self) -> &Settings {
@@ -95,11 +102,6 @@ impl Session {
     /// `execute`, so nothing outside has to know a field's name.
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
-    }
-
-    /// The settings window's edits, applied on the frame they arrive.
-    pub fn set_settings(&mut self, settings: Settings) {
-        self.settings = settings;
     }
 
     pub fn tree(&self) -> &PaneTree {
@@ -156,20 +158,28 @@ impl Session {
         self.route = route;
     }
 
-    /// Splits `at` into `side` of `area` and focuses the new pane.
+    /// A new pane on `edge` of `pane`, in `area`; a refusal is a note.
     ///
-    /// The geometry is the window's, so it arrives as plain numbers: the
-    /// engine keeps the tree and the focus, and nothing else.
-    pub fn split(
-        &mut self,
-        at: PaneId,
-        axis: SplitAxis,
-        side: Side,
-        area: Bounds,
-    ) -> Option<PaneId> {
-        let made = self.tree.split(at, axis, side, area).ok()?;
-        self.focus(made);
-        Some(made)
+    /// The geometry is the window's, so it arrives as plain numbers.
+    pub fn split_at(&mut self, pane: PaneId, edge: Edge, area: Bounds) -> Option<PaneId> {
+        let (axis, side) = edge.placement();
+        let why = match self.tree.split(pane, axis, side, area) {
+            Ok(id) => return Some(id),
+            Err(TreeError::Full) => format!("A workspace holds {MAX_PANES} panes at most."),
+            Err(_) => "This pane is too small to split.".to_owned(),
+        };
+        self.emit(Event::Toast(Toast::info(why)));
+        None
+    }
+
+    /// Right of `pane`, else below it when the right has no room.
+    pub fn beside(&self, pane: PaneId, area: Bounds) -> Edge {
+        let mut probe = self.tree.clone();
+        let (axis, side) = Edge::Right.placement();
+        match probe.split(pane, axis, side, area) {
+            Err(TreeError::NoRoom(_)) => Edge::Bottom,
+            _ => Edge::Right,
+        }
     }
 
     pub fn close(&mut self, id: PaneId) -> bool {
@@ -190,51 +200,37 @@ impl Session {
         &mut self.tree
     }
 
-    /// The pane after or before `active` in reading order, for F6.
-    pub fn neighbour(&self, forward: bool) -> Option<PaneId> {
-        let panes = self.tree.panes();
-        let at = panes.iter().position(|p| *p == self.active)?;
-        let n = panes.len();
-        if n == 0 {
-            return None;
-        }
-        let next = if forward {
-            (at + 1) % n
-        } else {
-            (at + n - 1) % n
-        };
-        panes.get(next).copied()
-    }
-
-    /// Whether the rail floats or docks.
-    pub fn sidebar_overlay(&self) -> bool {
-        self.settings.chrome.sidebar_overlay
-    }
-
-    /// The one door: carry out `intent`, and say what the window must still do.
-    pub fn execute(&mut self, intent: Intent) -> Done {
+    /// Carries out an intent that needs no controller: panes and dials.
+    ///
+    /// `execute` routes those here; the rest answer quiet, untouched.
+    pub fn apply(&mut self, intent: Intent) -> Done {
         match intent {
             Intent::FocusPane(id) => {
                 self.focus(id);
                 Done::changed()
             }
-            Intent::CyclePane { forward } => {
-                let next = self.neighbour(forward);
-                match next {
-                    Some(id) => {
-                        self.focus(id);
-                        Done {
-                            focus: Some(Focus::Cycle { forward }),
-                            ..Done::changed()
-                        }
-                    }
-                    None => Done::quiet(),
-                }
-            }
             Intent::ClosePane(id) => match self.close(id) {
                 true => Done::changed(),
                 false => Done::quiet(),
             },
+            Intent::SetRatio(path, ratio) => {
+                self.tree.set_ratio(&path, ratio);
+                Done::changed()
+            }
+            Intent::SetSettings(settings) => {
+                let mut settings = *settings;
+                settings.sanitize();
+                self.settings = settings;
+                Done::changed()
+            }
+            Intent::SetField { path, value } => self.put(&path, Ok(value)),
+            other => self.dial(other),
+        }
+    }
+
+    /// The dials an intent names outright, each written as its path is.
+    fn dial(&mut self, intent: Intent) -> Done {
+        match intent {
             Intent::SetSidebarOverlay(on) => {
                 self.settings.chrome.sidebar_overlay = on;
                 Done::changed()
@@ -244,21 +240,49 @@ impl Session {
                 self.settings.chrome.pin(bar, on);
                 Done::changed()
             }
-            Intent::SetSettings(settings) => {
-                let mut settings = *settings;
-                settings.sanitize();
-                self.settings = settings;
+            Intent::SetInkContrast(ink) => {
+                self.put("text.ink_contrast", serde_json::to_string(&ink))
+            }
+            Intent::SetQuickText(quick) => {
+                let mut text = self.settings.text.clone();
+                quick.apply(&mut text);
+                self.put("text", serde_json::to_string(&text))
+            }
+            Intent::SetIndependence(own) => {
+                let themes = serde_json::to_string(&own.themes);
+                self.put("workspace.independent_themes", themes);
+                let textures = serde_json::to_string(&own.textures);
+                self.put("workspace.independent_textures", textures)
+            }
+            Intent::SavePreset { name, group, look } => {
+                self.settings.save_preset(&name, &group, look);
+                self.settings.sanitize();
                 Done::changed()
             }
-            Intent::SetField { path, value } => match self.settings.set_path(&path, &value) {
-                Ok(()) => Done::changed(),
-                Err(why) => Done {
-                    refused: Some(why),
-                    ..Done::quiet()
-                },
-            },
-            Intent::Zoom(_) | Intent::Arrow(_) => Done::quiet(),
+            Intent::DeletePreset(id) => {
+                self.settings.delete_preset(&id);
+                self.settings.sanitize();
+                Done::changed()
+            }
+            Intent::SetDictionary(dictionary) => {
+                self.put("dictionary", serde_json::to_string(&*dictionary))
+            }
+            Intent::SetLibraryView(view) => self.put("library", serde_json::to_string(&view)),
             _ => Done::quiet(),
+        }
+    }
+
+    /// One setting by its dotted path; a bad path or value is refused.
+    fn put(&mut self, path: &str, json: serde_json::Result<String>) -> Done {
+        let set = json
+            .map_err(|e| e.to_string())
+            .and_then(|value| self.settings.set_path(path, &value));
+        match set {
+            Ok(()) => Done::changed(),
+            Err(why) => Done {
+                dirty: false,
+                refused: Some(why),
+            },
         }
     }
 }

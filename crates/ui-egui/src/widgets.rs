@@ -5,10 +5,10 @@ use egui::{
     Ui, Vec2, pos2, vec2,
 };
 
-use crate::command::WindowCommand;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::theme::Tokens;
+use crate::ui_command::WindowCommand;
 
 /// A popup's own frame: clicks stay in it, but Tab skips it for its rows.
 pub const POPUP_SENSE: Sense = Sense::CLICK;

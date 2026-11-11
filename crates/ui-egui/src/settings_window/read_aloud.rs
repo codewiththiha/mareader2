@@ -7,12 +7,12 @@ use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 use super::downloads::muted;
 use super::voice_model::buttons;
 use super::{ROW_H, Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::platform::Platform;
 use crate::read_aloud::Booth;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 /// What the tab shows besides settings: voices, models, the keys.

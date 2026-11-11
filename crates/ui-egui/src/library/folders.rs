@@ -17,8 +17,8 @@ use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use super::moving::CopyWork;
 use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
-use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, UiCommand};
 
 /// Seconds between rescans when the window keeps regaining focus.
 const RESCAN_GAP: f64 = 2.0;

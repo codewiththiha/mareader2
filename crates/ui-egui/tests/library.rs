@@ -11,10 +11,10 @@ use mareader_library::{
 };
 use mareader_settings::Bar;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::library::{
     Action, BookAction, Named, Pick, PickAction, SearchAction, Sheet, ShelfAction,
 };
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 
 use crate::common::{act, carry, go_to, reader, release};
 

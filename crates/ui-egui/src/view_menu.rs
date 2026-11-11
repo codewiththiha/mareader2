@@ -4,13 +4,13 @@ use egui::{
     Align, Id, Layout, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Ui, pos2, vec2,
 };
 
-use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::keymap;
 use crate::layout::ViewMode;
 use crate::platform::Platform;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::widgets;
 use crate::zoom::{Fit, Step, ZoomCommand, ZoomState};
 

@@ -7,10 +7,10 @@ use super::{
     A4, Cx, ROW_GAP, ROW_H, ROW_INSET, backing, card_ring, lift, line, lit_ring, long_press,
     picking,
 };
-use crate::command::{Command, Intent};
 use crate::icons::Icon;
 use crate::library::{Action, Pick, menus};
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Intent};
 
 /// The line under a link's name.
 fn says(link: &Link) -> &'static str {

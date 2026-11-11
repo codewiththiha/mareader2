@@ -4,8 +4,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::settings_window::Tab;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 use crate::common::press;
 

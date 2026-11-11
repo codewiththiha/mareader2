@@ -16,7 +16,6 @@ use mareader_session::{
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, UiCommand};
 use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
@@ -27,6 +26,7 @@ use crate::study::{self, Asked, Gloss};
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, UiCommand};
 use crate::zoom::{ZoomCommand, ZoomState};
 use mareader_engine::paper::Papers;
 use mareader_engine::reading::Place;

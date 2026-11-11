@@ -1,7 +1,7 @@
 //! What the page and its sheets ask of the library, and who does it.
 
 use super::{LibraryState, Pick, PickAction};
-use crate::command::Commands;
+use crate::ui_command::Commands;
 
 pub use mareader_engine::library::{Action, Named, Scope, Sheet};
 

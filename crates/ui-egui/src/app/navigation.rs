@@ -1,3 +1,5 @@
+use egui::Context;
+
 use super::*;
 
 impl MareaderApp {
@@ -14,13 +16,18 @@ impl MareaderApp {
 
     /// The one way between routes; leaving the reader ends its overlays.
     pub(super) fn go(&mut self, route: Route) {
+        self.session.show(route);
+        self.arrived(route);
+    }
+
+    /// What the page left behind had open closes; the new one settles in.
+    pub(super) fn arrived(&mut self, route: Route) {
         if route == Route::Library {
             self.settings_window.close();
         }
         if route != Route::Reader {
             self.find.close();
         }
-        self.session.show(route);
         if route == Route::Dictionary {
             self.dict.arrive();
         } else {

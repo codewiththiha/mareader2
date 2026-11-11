@@ -9,9 +9,9 @@ use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 use super::page::Page;
 use super::{Action, Voice, Window, bounds};
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
 
 /// The controls' names, for screen readers and tests.

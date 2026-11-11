@@ -1,3 +1,5 @@
+use egui::{Pos2, Rect, Ui};
+
 use super::*;
 
 mod raster;

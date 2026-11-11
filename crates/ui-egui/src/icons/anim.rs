@@ -6,11 +6,10 @@ use std::time::Duration;
 
 use egui::{Color32, Context, Id, Image, Rect, Response, TextureHandle, TextureOptions, Ui, Vec2};
 use mareader_animated_icons::{Atlas, AtlasCell, Pack};
+use mareader_engine::lru::ByteLruCache;
 
+use super::{GRID, Icon, PackKey, pack};
 use crate::motion;
-
-use super::lru::{ByteLruCache, PackKey};
-use super::{GRID, Icon, pack};
 
 /// Canvas-to-glyph size ratio including authored headroom.
 const BOX: f32 = mareader_animated_icons::SPAN / GRID;

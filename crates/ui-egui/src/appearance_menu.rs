@@ -14,11 +14,11 @@ use mareader_appearance::{
 };
 use mareader_settings::TextSettings;
 
-use crate::command::{Command, Commands, Independence, Intent};
 use crate::dial_deck::labels::{mode_icon, noise_label, strength_percent};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Independence, Intent};
 use crate::widgets;
 
 pub const WIDTH: f32 = 300.0;

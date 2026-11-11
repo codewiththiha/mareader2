@@ -9,13 +9,13 @@ use mareader_workspace::PaneId;
 
 use super::preview::{self, Block};
 use super::{Ask, Gather, Made, Progress, deliver};
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::dict::Dict;
 use crate::files::Files;
 use crate::icons::Icon;
 use crate::modal::Dialog;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::vocab::Vocab;
 use crate::widgets;
 
@@ -257,7 +257,7 @@ impl Open {
     fn presets(&mut self, ui: &mut Ui, draft: &mut Settings) {
         let t = Tokens::get(ui.ctx());
         let words = &mut draft.study.words;
-        // A preset deleted elsewhere is no longer chosen.
+        // A preset deleted elsewhere stops being the chosen one.
         let known = |n: &String| words.presets.iter().any(|p| &p.name == n);
         if !self.preset.as_ref().is_some_and(known) {
             self.preset = None;

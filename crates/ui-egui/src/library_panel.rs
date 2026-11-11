@@ -13,11 +13,11 @@ use mareader_library::{
 use mareader_settings::LibraryClick;
 use mareader_workspace::{Bounds, DropTarget, PaneId};
 
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::library::{Action, BookAction, Carry, Named, Organizer, ShelfAction};
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
 
 const ROW_H: f32 = 28.0;

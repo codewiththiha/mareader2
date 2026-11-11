@@ -9,13 +9,13 @@ use mareader_session::{DocId, Document};
 use mareader_settings::{CefrLevel, PageTask, Settings, WordOutput, language_name};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::page_ai::Action;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets::{self, menu_row};
 
 /// What the page AI and vocabulary tools offer picked pages this frame.

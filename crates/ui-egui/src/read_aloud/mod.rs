@@ -12,14 +12,15 @@ use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Download, Intent, UiCommand};
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::motion;
 use crate::selection::Pages;
 use crate::sounds::EnglishVoice;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Download, Intent, UiCommand};
 use crate::widgets;
+use mareader_engine::read_aloud::parts;
 
 mod ask;
 mod booth;
@@ -27,7 +28,6 @@ mod card;
 mod control;
 mod edges;
 pub mod marker;
-mod parts;
 mod spoken;
 
 pub use booth::Booth;
@@ -567,7 +567,7 @@ impl ReadAloud {
         Ok(())
     }
 
-    /// Off a model no longer downloaded, onto the system voices.
+    /// Off a model whose download is gone, onto the system voices.
     #[cfg(not(target_arch = "wasm32"))]
     fn let_go(&mut self, settings: &mut ReadAloudSettings) {
         let engine = settings.engine.as_str();
@@ -748,7 +748,7 @@ impl ReadAloud {
         }
     }
 
-    /// Answer a pending question from the keyboard, without affecting ordinary playback.
+    /// Answer a pending question from the keyboard; playback is untouched.
     pub fn answer_question(&mut self, read: bool, settings: &mut ReadAloudSettings) -> bool {
         let Some(Session::Spoken(s)) = self.session.as_mut() else {
             return false;

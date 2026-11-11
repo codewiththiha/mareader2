@@ -5,8 +5,8 @@ use egui_kittest::kittest::Queryable as _;
 use image::RgbaImage;
 use mareader_appearance::FilmGrain;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Intent, UiCommand};
 use mareader_ui_egui::theme::TITLE_BAR_H;
+use mareader_ui_egui::ui_command::{Intent, UiCommand};
 
 use crate::common::scroll;
 
@@ -525,7 +525,7 @@ fn a_mode_click_fades_from_the_old_look() -> Out {
     let mut look = h.state().look(h.state().active_pane());
     look.base = BaseMode::Dim;
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
             Intent::SetAppearance(look),
         ));
     h.step();
@@ -571,8 +571,8 @@ fn page_spread(h: &mut Harness<'static, MareaderApp>) -> Result<Vec<(i32, i32)>,
 #[test]
 fn texture_for_each_patterns_every_open_pane() -> Out {
     use mareader_appearance::TextureMode;
-    use mareader_ui_egui::command::Command;
     use mareader_ui_egui::settings_window::Tab;
+    use mareader_ui_egui::ui_command::Command;
     let options = [
         ("pdf", "sample"),
         ("panes", "2"),
@@ -621,7 +621,7 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
 #[test]
 fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
     use mareader_appearance::TextureMode;
-    use mareader_ui_egui::command::Command;
+    use mareader_ui_egui::ui_command::Command;
     let options = [
         ("pdf", "sample"),
         ("panes", "2"),
@@ -669,10 +669,9 @@ fn a_book_page_takes_its_own_paper_not_the_pdf_filter() -> Out {
         let mut h = reader(&options);
         let pane = h.state().active_pane();
         h.state_mut()
-            .queue(mareader_ui_egui::command::Command::Intent(Intent::GoTo {
-                pane,
-                page: 1,
-            }));
+            .queue(mareader_ui_egui::ui_command::Command::Intent(
+                Intent::GoTo { pane, page: 1 },
+            ));
         h.run();
         h.run_steps(2);
         let image = h.render()?;
@@ -747,10 +746,9 @@ fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
     let pane = h.state().active_pane();
     h.state_mut().set_option("ink", "100")?;
     h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(Intent::GoTo {
-            pane,
-            page: 1,
-        }));
+        .queue(mareader_ui_egui::ui_command::Command::Intent(
+            Intent::GoTo { pane, page: 1 },
+        ));
     h.run();
     h.run_steps(2);
     let full = dark(&h.render()?, 90);
@@ -766,9 +764,10 @@ fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
 fn the_library_page_draws_under_a_glass_bar() -> Out {
     // A pinned bar blurs whatever is behind it; here, no pages at all.
     let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::ShowLibrary,
-    ));
+    h.state_mut()
+        .queue(mareader_ui_egui::ui_command::Command::Ui(
+            UiCommand::ShowLibrary,
+        ));
     h.run();
     assert!(h.state().library_showing());
     let image = h.render()?;

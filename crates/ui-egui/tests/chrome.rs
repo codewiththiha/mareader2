@@ -6,7 +6,7 @@ use egui::{Event, Modifiers, PointerButton, Pos2, ViewportCommand, ViewportId, p
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, UiCommand};
+use mareader_ui_egui::ui_command::{Command, UiCommand};
 
 const SIZE: egui::Vec2 = egui::vec2(1200.0, 800.0);
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::command::{Intent, UiCommand};
+use crate::ui_command::{Intent, UiCommand};
 
 impl MareaderApp {
     pub(super) fn prepare(

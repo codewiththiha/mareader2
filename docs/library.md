@@ -740,7 +740,7 @@ on it; moving to another place restarts the clock.
 
 ## Routes: the reader and the library (2026-10-15)
 
-The window shows one of two routes, `crates/ui-egui/src/route.rs`'s `Route`:
+The window shows one of two routes, `crates/engine/src/route.rs`'s `Route`:
 the reader (panes beside the rail) or the library (the shelf alone). The
 library replaces the panes without closing them, unlike mareader, which
 closes the book. `Route::allows` is one exhaustive table of which commands

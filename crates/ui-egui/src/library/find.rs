@@ -7,7 +7,7 @@ use mareader_library::{BookId, Format, Measure, RelinkError};
 
 use super::io::{Job, Relink};
 use super::{Action, LibraryState, Sheet};
-use crate::command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Intent};
 
 pub use mareader_engine::library::{Finding, Step};
 

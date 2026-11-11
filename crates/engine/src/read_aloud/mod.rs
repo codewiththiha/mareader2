@@ -1,6 +1,7 @@
 //! Reading aloud as rules: which words are lit, and how long is left.
 
 pub mod countdown;
+pub mod parts;
 pub mod words;
 
 use mareader_session::Anchor;

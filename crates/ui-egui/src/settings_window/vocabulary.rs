@@ -11,11 +11,11 @@ use mareader_speech::Stage;
 use super::downloads::{Buttons, muted, progress};
 use super::highlights::{palette, preview};
 use super::{choices, divider, flagged_row, group, note, row, section, switch_row};
-use crate::command::{Command, Commands, Download, Intent};
 use crate::dict::{count, megabytes};
 use crate::icons::Icon;
 use crate::sounds::{EnglishVoice, Sounds, Spoken};
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Download, Intent};
 use crate::vocab::Vocab;
 
 pub fn tab(

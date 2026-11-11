@@ -5,8 +5,8 @@ use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::layout::ViewMode;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 type H = Harness<'static, MareaderApp>;
 

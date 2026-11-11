@@ -1,15 +1,6 @@
 use super::*;
 
 impl MareaderApp {
-    /// Splits `pane`; a refusal is explained in a toast.
-    pub(super) fn split(&mut self, ctx: &Context, pane: PaneId, axis: SplitAxis) -> Option<PaneId> {
-        let edge = match axis {
-            SplitAxis::Horizontal => Edge::Right,
-            SplitAxis::Vertical => Edge::Bottom,
-        };
-        self.split_at(ctx, pane, edge)
-    }
-
     /// Every pane as the rail's Library panel lists it.
     pub(super) fn tabs(&self) -> Vec<PaneTab> {
         // The library's name tells twins apart; the document's title doesn't.
@@ -104,17 +95,6 @@ impl MareaderApp {
         }
     }
 
-    /// Right of `pane`, else below it when the right has no room.
-    pub(super) fn beside(&self, ctx: &Context, pane: PaneId) -> Edge {
-        let mut probe = self.tree().clone();
-        let area = Self::area(ctx);
-        let (axis, side) = Edge::Right.placement();
-        match probe.split(pane, axis, side, area) {
-            Err(TreeError::NoRoom(_)) => Edge::Bottom,
-            _ => Edge::Right,
-        }
-    }
-
     pub(super) fn area(ctx: &Context) -> Bounds {
         let r = ctx.content_rect();
         Bounds::new(r.left(), r.top(), r.width(), r.height())
@@ -149,25 +129,6 @@ impl MareaderApp {
             self.toasts.push(Toast::info(note));
         }
         ctx.request_repaint();
-    }
-
-    /// A new pane on `edge` of `pane`; a refusal is a note.
-    pub(super) fn split_at(&mut self, ctx: &Context, pane: PaneId, edge: Edge) -> Option<PaneId> {
-        let area = Self::area(ctx);
-        let (axis, side) = edge.placement();
-        match self.tree_mut().split(pane, axis, side, area) {
-            Ok(id) => Some(id),
-            Err(TreeError::Full) => {
-                let note = format!("A workspace holds {MAX_PANES} panes at most.");
-                self.toasts.push(Toast::info(note));
-                None
-            }
-            Err(_) => {
-                let note = "This pane is too small to split.";
-                self.toasts.push(Toast::info(note));
-                None
-            }
-        }
     }
 
     /// Drops open under the pointer, returning that pane; the library imports.

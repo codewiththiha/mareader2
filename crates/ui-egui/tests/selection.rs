@@ -7,8 +7,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::selection::Sheet;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 use crate::common::find;
 

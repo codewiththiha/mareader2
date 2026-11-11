@@ -1,9 +1,8 @@
 //! The app without a window: what outlives a frame or reaches disk (L5).
 //!
 //! Nothing here names a toolkit (`docs/architecture.md` § Layers). What it
-//! holds is what outlives a frame or reaches disk; a front end draws it. The
-//! session and the commands that change it arrive in P2, and until then this
-//! crate is a library of rules its front end calls directly.
+//! holds is what outlives a frame or reaches disk; a front end draws it, and
+//! changes it only by handing an intent to `Session::execute`.
 //!
 //! Paths here keep their front-end modules (`texts`, `paper`, `read_aloud`),
 //! because a move must not rename what it moves.
@@ -20,10 +19,14 @@
 pub mod appearance_menu;
 pub mod command;
 pub mod command_spec;
+pub mod desk;
 pub mod dict;
 pub mod documents;
+pub mod event;
+mod execute;
 pub mod export;
 pub mod library;
+pub mod lru;
 pub mod notes_panel;
 pub mod page_ai;
 pub mod pane;
@@ -46,4 +49,5 @@ pub mod texts;
 pub mod toast;
 pub mod transcript;
 pub mod watch;
+pub mod word_card;
 pub mod word_marks;

@@ -4,7 +4,7 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{By, NodeT as _, Queryable as _};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, UiCommand};
+use mareader_ui_egui::ui_command::{Command, UiCommand};
 
 fn with(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();

@@ -8,9 +8,9 @@ use egui::{
 };
 
 use super::Action;
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 /// Seconds a run waits before its card shows.

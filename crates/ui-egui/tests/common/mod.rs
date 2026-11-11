@@ -6,9 +6,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::TextLayer;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::library::Action;
 use mareader_ui_egui::selection::Sheet;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 fn harness(
     options: &[(&str, &str)],

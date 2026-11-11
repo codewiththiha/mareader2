@@ -2,11 +2,11 @@
 
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
-use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::documents::Placement;
 use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
-use crate::route::{Allows, Route};
+use crate::ui_command::{Allows, Route};
+use crate::ui_command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::zoom::{Fit, Step, ZoomCommand};
 
 pub struct Binding {

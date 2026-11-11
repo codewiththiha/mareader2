@@ -1,5 +1,5 @@
 use super::*;
-use crate::command::{Intent, UiCommand};
+use crate::ui_command::{Intent, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {

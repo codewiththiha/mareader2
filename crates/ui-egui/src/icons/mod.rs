@@ -2,7 +2,6 @@
 
 pub(crate) mod anim;
 /// Shared cache and pack-size identity for generated glyphs.
-mod lru;
 /// The UI-owned semantic `Icon` to generated pack-id adapter.
 mod pack;
 /// Generated one-frame resting glyphs.
@@ -224,6 +223,22 @@ impl Icon {
     /// Stable glyph identity for transient animation keys.
     fn slot(self) -> u32 {
         self as u32
+    }
+}
+
+/// One pack at one size, as the texture stores key it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) struct PackKey {
+    pack: usize,
+    pub(super) side: u16,
+}
+
+impl PackKey {
+    pub(super) fn new(pack: &'static mareader_animated_icons::Pack, side: u16) -> Self {
+        Self {
+            pack: std::ptr::from_ref(pack) as usize,
+            side,
+        }
     }
 }
 

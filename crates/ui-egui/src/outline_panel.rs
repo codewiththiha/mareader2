@@ -9,10 +9,10 @@ use mareader_pdf::{MAX_DEPTH, OutlineEntry, active_entry};
 use mareader_session::DocId;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::motion;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const ROW_H: f32 = 28.0;

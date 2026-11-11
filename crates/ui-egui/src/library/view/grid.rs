@@ -15,9 +15,9 @@ use super::{
     A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, paper, plate, prefetch,
 };
 use super::{grid_card, links, shelf_card};
-use crate::command::{Command, Intent};
 use crate::motion;
 use crate::theme;
+use crate::ui_command::{Command, Intent};
 
 /// The cards in rows; a carried card opens a hole the rest move around.
 pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {
@@ -195,7 +195,7 @@ fn carry_over(ui: &Ui, fill: &Fill<'_, '_>, carry: &Carry, cx: &mut Cx<'_>) {
     let (col, row) = ((p.x / fill.pitch.x).floor(), (p.y / fill.pitch.y).floor());
     let inside = vec2(p.x - col * fill.pitch.x, p.y - row * fill.pitch.y);
     let on_card = inside.x <= fill.card.x && inside.y <= fill.card.y;
-    // Just opened, what's under the pointer waits till it moves.
+    // Freshly opened, what's under the pointer waits till it moves.
     if let Some(lift) = &mut cx.motion.lift
         && lift.hold.is_some_and(|at| at.distance(pointer) > HOLD)
     {

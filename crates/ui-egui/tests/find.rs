@@ -4,7 +4,7 @@ use egui::Key;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 use crate::common::{click_at as press, reader};
 

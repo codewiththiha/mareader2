@@ -11,11 +11,11 @@ use egui::{
     Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::modal::Dialog;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
 
 #[cfg(not(target_arch = "wasm32"))]

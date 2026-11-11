@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use eframe::Storage;
-use egui::{Context, Rect, ViewportCommand};
+use egui::{Context, Rect};
 use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
     builtin_presets,
@@ -30,11 +30,10 @@ use mareader_settings::{
     AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick,
     MotionSettings, PaperArea, Settings, TextSettings,
 };
-use mareader_workspace::{Bounds, Edge, LiftTarget, MAX_PANES, PaneId, Side, SplitAxis, TreeError};
+use mareader_workspace::{Bounds, LiftTarget, MAX_PANES, PaneId, Side, SplitAxis};
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
-use crate::command::{Command, Commands, Independence, Intent, WindowCommand};
 use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest, Placement};
 use crate::files::Files;
@@ -52,7 +51,6 @@ use crate::panes::{self as ui_panes, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{LightSpots, NativeLights, Platform};
 use crate::read_aloud::ReadFrom;
-use crate::route::{Allows, Route};
 use crate::search::{Found, Lit, Search};
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
@@ -61,6 +59,8 @@ use crate::study::{self as ui_study, Explained, Gloss, Highlighted, Study};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, DictionaryBar, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
+use crate::ui_command::{Allows, Route};
+use crate::ui_command::{Command, Commands, Independence, Intent};
 use crate::{keymap, motion, resize, theme};
 use mareader_engine::pane_texts::PaneTexts;
 

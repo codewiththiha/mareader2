@@ -9,11 +9,11 @@ use super::{
     A4, Cx, Item, ROW_GAP, ROW_H, ROW_INSET, add, backing, badges, centred, line, links, list_row,
     lit_ring, margin, prefetch, shelf_detail, shelf_hit,
 };
-use crate::command::{Command, Intent};
 use crate::icons::Icon;
 use crate::library::shelving::{Carry, ShelfAction};
 use crate::library::{Action, Pick, menus};
 use crate::theme;
+use crate::ui_command::{Command, Intent};
 
 /// How far each level down sits in.
 const INDENT: f32 = 20.0;

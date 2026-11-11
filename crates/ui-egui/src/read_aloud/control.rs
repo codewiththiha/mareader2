@@ -7,14 +7,14 @@ use egui::{
 use mareader_audio::RATES;
 use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
-use super::parts::Kind;
 use super::rate_label;
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act as IconAct};
 use crate::motion;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
+use mareader_engine::read_aloud::parts::Kind;
 
 /// The pill's height, and its buttons'.
 pub(super) const HEIGHT: f32 = 44.0;
@@ -784,7 +784,7 @@ fn choices(
             }
             let mut on = true;
             let label = format!("Skip {}s", kind.name().to_lowercase());
-            if widgets::menu_switch(ui, kind.icon(), &label, &mut on).changed() && !on {
+            if widgets::menu_switch(ui, super::ask::sign(kind), &label, &mut on).changed() && !on {
                 mask &= !kind.bit();
             }
         }

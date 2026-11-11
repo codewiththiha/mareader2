@@ -8,9 +8,9 @@ use mareader_settings::{AiSettings, ModelPreset, PageTask, PresetId, Provider};
 use mareader_study::Failure;
 
 use super::{divider, group, note, row, section};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const FIELD_W: f32 = 260.0;

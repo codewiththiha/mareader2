@@ -3,11 +3,9 @@
 use mareader_session::{Passage, TextLayer};
 use mareader_settings::{Pass, Skips};
 
-use crate::icons::Icon;
-
 /// What kind of part a stretch of the book is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Kind {
+pub enum Kind {
     Table,
     List,
     Figure,
@@ -22,15 +20,6 @@ impl Kind {
             Self::List => "List",
             Self::Figure => "Figure",
             Self::Aside => "Aside",
-        }
-    }
-
-    pub fn icon(self) -> Icon {
-        match self {
-            Self::Table => Icon::Table,
-            Self::List => Icon::List,
-            Self::Figure => Icon::Figure,
-            Self::Aside => Icon::Aside,
         }
     }
 
@@ -70,13 +59,13 @@ impl Kind {
 
 /// One part of the book: its kind, and which one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Part {
+pub struct Part {
     pub kind: Kind,
     pub id: usize,
 }
 
 /// The parts character `char` of a page is in, outermost first.
-pub(super) fn at(layer: &TextLayer, char: usize) -> Vec<Part> {
+pub fn at(layer: &TextLayer, char: usize) -> Vec<Part> {
     let kind = |p: Passage| match p {
         Passage::List => Kind::List,
         Passage::Figure => Kind::Figure,

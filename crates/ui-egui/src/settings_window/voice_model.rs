@@ -9,10 +9,10 @@ use super::read_aloud::{Voices, offer};
 use super::{
     detail_row, detail_row_tip, divider, fold_row, folded, group, note, radio, row, section,
 };
-use crate::command::{Command, Commands, Download, Intent};
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::read_aloud::Booth;
+use crate::ui_command::{Command, Commands, Download, Intent};
 use crate::widgets;
 
 pub fn tab(

@@ -11,11 +11,11 @@ use mareader_pdf::active_entry;
 use mareader_session::{Anchor, Document};
 use std::sync::Arc;
 
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::Reading;
 use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 use crate::widgets;
 use mareader_engine::export::{self, Entry, Format, Sheet};
 

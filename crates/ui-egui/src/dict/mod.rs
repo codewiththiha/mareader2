@@ -12,9 +12,9 @@ use mareader_dict::{Dictionaries, PACKS, Pack, Query, Reply, State, Ticket, Word
 use mareader_settings::DictionarySettings;
 use mareader_workspace::PaneId;
 
-use crate::command::Commands;
 pub use crate::read_aloud::{Offer, Speaker};
 use crate::theme::Tokens;
+use crate::ui_command::Commands;
 
 /// Room around a rested card's word and itself the pointer may cross.
 const LEAVE: f32 = 8.0;
@@ -42,7 +42,7 @@ struct Card {
     role: Option<Role>,
 }
 
-crate::word_card::impl_card!(Card);
+mareader_engine::impl_card!(Card);
 
 /// How the Dictionary's words sound and which the voice can say.
 #[derive(Clone, Debug, Default)]
@@ -187,7 +187,7 @@ impl Dict {
 
     /// The tagger's answer for the open card, if it is still `word`'s.
     pub fn set_role(&mut self, word: &str, role: Role) {
-        crate::word_card::set_role(&mut self.card, word, role);
+        mareader_engine::word_card::set_role(&mut self.card, word, role);
     }
 
     /// The role the open card shows, for tests.

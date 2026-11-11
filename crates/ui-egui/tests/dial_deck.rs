@@ -1,4 +1,4 @@
-//! Tests for the optional Dial deck Appearance popover (`appearance_menu = dial_deck`).
+//! Tests for the Dial deck Appearance popover (`appearance_menu = dial_deck`).
 
 use egui::Key;
 use egui::accesskit::Role;
@@ -7,8 +7,8 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_appearance::{BaseMode, NoiseMode, TextureMode};
 use mareader_settings::AppearanceMenuStyle;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::settings_window::Tab;
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();

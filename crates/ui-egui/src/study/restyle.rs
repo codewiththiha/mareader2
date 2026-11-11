@@ -7,8 +7,8 @@ use mareader_settings::{HighlightSettings, Reserved};
 
 use super::Action;
 use super::bar::pen_icon;
-use crate::command::{Command, Commands, Intent};
 use crate::theme::{Tokens, color};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const SWATCH: f32 = 22.0;

@@ -351,6 +351,6 @@ The shared owners are `assist::backend` for provider forwarding and test
 runtimes; `nn-core` for voice error formatting and protobuf integer lists;
 `fetch` for native desk attachment and inline forwarding; `speech::studio` for
 initial engine state; UI apply helpers for one- and two-stage dispatch; and
-`ui::word_card` for role assignment. Browser inline calls remain no-ops, and
+`engine::word_card` for role assignment. Browser inline calls remain no-ops, and
 all public error messages, command ordering and speech constructor call sites
 remain unchanged.

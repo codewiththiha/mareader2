@@ -7,7 +7,6 @@ use mareader_library::{ShelfId, View};
 use mareader_settings::AppearanceMenuStyle;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, Independence, UiCommand, WindowCommand};
 use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
@@ -17,6 +16,7 @@ use crate::library::{Crumb, Field, crumbs, search};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
+use crate::ui_command::{Command, Commands, Independence, UiCommand, WindowCommand};
 use crate::view_menu::{self, MenuContext, Tool};
 use crate::widgets::{self, CaptionStyle};
 use crate::zoom::ZoomState;

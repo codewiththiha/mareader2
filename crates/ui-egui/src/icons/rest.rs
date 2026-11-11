@@ -2,8 +2,9 @@
 
 use egui::{Context, Id, Image, Rect, TextureHandle, TextureOptions, Ui, Vec2};
 use mareader_animated_icons::{Pack, RestingGlyph};
+use mareader_engine::lru::ByteLruCache;
 
-use super::lru::{ByteLruCache, PackKey};
+use super::PackKey;
 
 const CACHE_BYTES: usize = 4 * 1024 * 1024;
 const CACHE_ENTRIES: usize = 512;

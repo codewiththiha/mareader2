@@ -5,8 +5,8 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::app::LAST_DOCUMENT_KEY;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::documents::Placement;
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 
 use crate::common::reader_200 as reader;

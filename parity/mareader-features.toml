@@ -1461,7 +1461,7 @@ evidence = [
     "crates/ui-egui/tests/dictionary.rs::arrows_pick_a_result_and_enter_keeps_the_search",
     "crates/ui-egui/tests/dictionary.rs::an_answer_can_be_looked_up_in_turn",
     "crates/ui-egui/tests/chrome.rs::a_narrow_bar_folds_dictionary_into_the_menu",
-    "crates/ui-egui/src/route.rs::the_dictionary_keeps_its_settings_and_drops_reading",
+    "crates/ui-egui/src/ui_command.rs::the_dictionary_keeps_its_settings_and_drops_reading",
     "crates/settings/src/study.rs::recent_searches_stay_unique_newest_first_and_bounded",
     "crates/ui-egui/tests/dictionary.rs::in_the_reader_the_button_floats_a_window_that_folds_and_closes",
     "crates/ui-egui/tests/dictionary.rs::the_window_moves_and_resizes_and_remembers_where",

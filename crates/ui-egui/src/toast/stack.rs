@@ -8,9 +8,9 @@ use egui::{
 
 use super::card::{self, Body, Card};
 use super::{Exit, Live, Toasts};
-use crate::command::{Command, Commands, UiCommand};
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, UiCommand};
 use crate::widgets;
 
 /// Where the stack sits and the clock it runs on.

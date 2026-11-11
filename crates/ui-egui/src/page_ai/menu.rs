@@ -9,11 +9,11 @@ use mareader_library::Library;
 use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Intent};
 use crate::documents::Documents;
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 use super::{Action, BubbleMenu, How, Menu, PageAi, Slot, Step, label};
@@ -714,7 +714,7 @@ fn page_popup(
     rect
 }
 
-/// Read aloud's row on the shared `30pt` menu grid, icon in the lit word's warm tone.
+/// Read aloud's row on the `30pt` menu grid, icon in the lit word's tone.
 fn aloud_row(ui: &mut Ui, word: Option<&str>, t: &Tokens) -> egui::Response {
     let warm = crate::read_aloud::marker::warm(t);
     let font = FontId::proportional(13.5);

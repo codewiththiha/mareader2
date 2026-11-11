@@ -5,8 +5,8 @@ mod stack;
 
 use egui::{Context, Id, Rect, pos2};
 
-use crate::command::{Command, Commands, UiCommand};
 use crate::motion;
+use crate::ui_command::{Command, Commands, UiCommand};
 
 /// At least this long is left once a held stack is let go.
 pub const HOVER_GRACE: f64 = 1.5;
@@ -532,7 +532,7 @@ impl Toasts {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::command::Intent};
+    use {super::*, crate::ui_command::Intent};
 
     const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 800.0));
 

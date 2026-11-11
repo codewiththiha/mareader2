@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mareader_ui_egui::command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Intent};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 
 use inbox::Inbox;

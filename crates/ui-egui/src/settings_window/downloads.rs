@@ -3,10 +3,10 @@
 use egui::{ProgressBar, RichText, Ui};
 use mareader_speech::Stage;
 
-use crate::command::{Command, Commands, Download};
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Download};
 use crate::widgets;
 
 /// One download's buttons: labelled "{verb} {name}", each asking `ask`.

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use mareader_library::{BookId, Copied, Found, Library, LinkTo};
 
 use super::{LibraryState, Pick, wall_ms};
-use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, UiCommand};
 
 impl LibraryState {
     /// Copies the books the picks want, then duplicates them.

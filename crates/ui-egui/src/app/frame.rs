@@ -22,6 +22,9 @@ impl eframe::App for MareaderApp {
             // Nothing zooms the interface now: a size saved before goes.
             ctx.set_zoom_factor(1.0);
             self.fonts = FontState::Installed;
+            let wake = ctx.clone();
+            let waker = Arc::new(move || wake.request_repaint());
+            self.session.set_waker(waker);
         }
         self.restyle(ctx);
     }

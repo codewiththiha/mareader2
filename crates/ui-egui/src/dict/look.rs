@@ -9,11 +9,11 @@ use egui::{
 use mareader_dict::Entry;
 
 use super::{Offer, Voice, entry};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::read_aloud::{SAY, STOP_SAYING};
 use crate::shaped;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 
 /// A search field: a pill whose ring lights while it has the keys.
 pub struct Field<'a> {

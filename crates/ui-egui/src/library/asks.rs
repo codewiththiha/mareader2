@@ -10,10 +10,10 @@ use mareader_library::{
 
 use super::books::counted;
 use super::{Action, LibraryState, Pick, wall_ms};
-use crate::command::{Command, Commands, UiCommand};
 use crate::modal::title;
 use crate::theme::Tokens;
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, UiCommand};
 
 /// One question, with what answering it needs.
 #[derive(Clone, Debug, PartialEq)]

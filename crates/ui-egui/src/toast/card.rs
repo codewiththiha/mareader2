@@ -9,9 +9,9 @@ use egui::{
 };
 
 use super::{Live, Tone};
-use crate::command::{Command, Commands, UiCommand};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, UiCommand};
 use crate::widgets;
 
 const PAD_X: f32 = 14.0;

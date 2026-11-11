@@ -8,8 +8,8 @@ use mareader_cefr::{Part, State};
 use mareader_settings::Provider;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ai::Job;
-use mareader_ui_egui::command::{Command, Download, Intent, UiCommand};
 use mareader_ui_egui::layout::{Arrow, ViewMode};
+use mareader_ui_egui::ui_command::{Command, Download, Intent, UiCommand};
 use mareader_ui_egui::zoom::{Fit, Step, ZoomCommand};
 
 fn main() -> Result<(), String> {
@@ -223,7 +223,7 @@ fn main() -> Result<(), String> {
                 _ => return Err("wait_for_opening=true or false".into()),
             },
             "pause_read_aloud" => pause_read_aloud = v == "true",
-            // Starts reading at a phrase on a 1-based page: `read_at=14:phrase`.
+            // Starts reading at a phrase on a 1-based page: `read_at=14:word`.
             "read_at" => {
                 let (page, phrase) = v.split_once(':').ok_or("read_at=page:phrase")?;
                 let page: usize = page.parse().map_err(|_| "read_at page")?;
@@ -280,7 +280,7 @@ fn main() -> Result<(), String> {
                 "true" => library_after_read_aloud = true,
                 _ => return Err("library_after_read_aloud=true".into()),
             },
-            // Frames after switching routes: `library_after_read_aloud_frames=2`.
+            // Frames after a route switch: `library_after_read_aloud_frames=2`.
             "library_after_read_aloud_frames" => {
                 library_route_frames = v
                     .parse()

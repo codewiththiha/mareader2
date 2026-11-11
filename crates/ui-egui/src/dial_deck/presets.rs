@@ -12,10 +12,10 @@ use mareader_appearance::{Appearance, FilmGrain, Preset, group_presets, section_
 
 use super::dials::blend;
 use crate::appearance_menu::MenuContext;
-use crate::command::{Command, Commands, Intent};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const DRAFT_ID: &str = "dial-deck-preset-draft";

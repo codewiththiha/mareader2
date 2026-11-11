@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::command::{Intent, UiCommand};
+use crate::ui_command::{Intent, UiCommand};
 use ui_library::Action as A;
 use ui_library::SearchAction as S;
 

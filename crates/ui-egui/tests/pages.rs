@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_settings::StartupFit;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Intent};
 use mareader_ui_egui::zoom::Fit;
 
 use crate::common::reader_200 as reader;

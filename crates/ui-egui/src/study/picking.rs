@@ -6,8 +6,8 @@ use mareader_settings::HighlightSettings;
 use mareader_workspace::PaneId;
 
 use super::{Action, restyle};
-use crate::command::{Command, Commands, Intent};
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 
 /// The Style… popover's id, for shots to open it.
 pub const STYLE_ID: &str = "study-picking-style";

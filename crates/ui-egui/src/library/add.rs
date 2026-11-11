@@ -7,9 +7,9 @@ use egui::{
 use mareader_library::{FolderId, Library, Recovered, ShelfId, dir_of_rung, human_age, human_size};
 
 use super::{Action, BookAction, ShelfAction};
-use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
+use crate::ui_command::{Command, Commands, Intent};
 
 pub const ADD_MENU: &str = "library-add";
 const WIDTH: f32 = 300.0;

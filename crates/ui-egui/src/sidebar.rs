@@ -7,12 +7,12 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
+use crate::ui_command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::widgets;
 
 pub const WIDTH: f32 = 288.0;

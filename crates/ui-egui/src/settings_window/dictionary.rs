@@ -9,9 +9,9 @@ use super::downloads::{Buttons, muted, progress};
 use super::{
     choice_row, divider, fold_open, fold_row, folded, group, note, row, section, switch_row,
 };
-use crate::command::{Command, Commands, Download, Intent};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
+use crate::ui_command::{Command, Commands, Download, Intent};
 use crate::widgets;
 
 /// The fold of packs not on this device, beside some that are.

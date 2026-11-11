@@ -8,8 +8,8 @@ use mareader_library::{BookId, Copied, Data, Found, LinkId, Move, Moved, ShelfId
 use super::asks::Question;
 use super::books::counted;
 use super::{LibraryState, PickAction, Sheet, wall_ms};
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 
 pub use mareader_engine::library::{CopyAnswer, CopyWork};
 

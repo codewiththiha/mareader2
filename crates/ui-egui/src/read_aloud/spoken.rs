@@ -13,9 +13,9 @@ use mareader_workspace::PaneId;
 
 use super::card::Lyrics;
 use super::control::{Act, View};
-use super::parts::{self, Part};
 use super::{Lit, Span, TICK, follow, place_name};
 use crate::documents::{Documents, Reading};
+use mareader_engine::read_aloud::parts::{self, Part};
 
 /// Sentences read ahead of the voice; the thread waits past this.
 const AHEAD: usize = 8;
@@ -96,7 +96,7 @@ pub(super) struct Spoken {
     began: Option<Spot>,
     /// Sought: the pane turns to this page, following or not.
     jump: Option<usize>,
-    /// Just found again in a pane, which should turn to the words read.
+    /// Freshly found again in a pane, which should turn to the words read.
     homing: bool,
     /// The part being skipped: its sentences are passed unsaid.
     leaving: Option<Part>,

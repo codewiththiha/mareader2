@@ -1,3 +1,5 @@
+use egui::Context;
+
 use super::*;
 
 impl MareaderApp {

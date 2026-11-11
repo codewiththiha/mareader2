@@ -1,36 +1,19 @@
-//! Shared pack identity and bounded least-recently-used icon texture storage.
+//! A least-recently-used store bounded by bytes and by entries.
 
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use mareader_animated_icons::Pack;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) struct PackKey {
-    pack: usize,
-    pub(super) side: u16,
-}
-
-impl PackKey {
-    pub(super) fn new(pack: &'static Pack, side: u16) -> Self {
-        Self {
-            pack: pack as *const Pack as usize,
-            side,
-        }
-    }
-}
-
 #[derive(Clone)]
-pub(super) struct ByteLruCache<K, V> {
-    pub(super) entries: HashMap<K, (V, usize, u64)>,
-    pub(super) bytes: usize,
+pub struct ByteLruCache<K, V> {
+    pub entries: HashMap<K, (V, usize, u64)>,
+    pub bytes: usize,
     max_bytes: usize,
     max_entries: usize,
     stamp: u64,
 }
 
 impl<K: Copy + Eq + Hash, V> ByteLruCache<K, V> {
-    pub(super) fn new(max_bytes: usize, max_entries: usize) -> Self {
+    pub fn new(max_bytes: usize, max_entries: usize) -> Self {
         Self {
             entries: HashMap::new(),
             bytes: 0,
@@ -40,14 +23,14 @@ impl<K: Copy + Eq + Hash, V> ByteLruCache<K, V> {
         }
     }
 
-    pub(super) fn get(&mut self, key: &K) -> Option<&V> {
+    pub fn get(&mut self, key: &K) -> Option<&V> {
         self.stamp = self.stamp.wrapping_add(1);
         let entry = self.entries.get_mut(key)?;
         entry.2 = self.stamp;
         Some(&entry.0)
     }
 
-    pub(super) fn insert(&mut self, key: K, value: V, cost: usize) -> bool {
+    pub fn insert(&mut self, key: K, value: V, cost: usize) -> bool {
         if cost > self.max_bytes {
             return false;
         }

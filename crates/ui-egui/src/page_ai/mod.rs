@@ -19,10 +19,10 @@ use mareader_study::page::{Out, Piece, Rewritten};
 use mareader_study::{Failure, Why};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, UiCommand};
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, UiCommand};
 pub use follow::Around;
 use mareader_engine::page_ai::extract::{self, Source};
 use mareader_engine::stable_hash::hash;

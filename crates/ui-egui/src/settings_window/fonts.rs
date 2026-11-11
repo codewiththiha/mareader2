@@ -10,9 +10,9 @@ use mareader_settings::{
 use mareader_library::{BookId, Design};
 
 use super::{Scope, Shown, disclosure, divider, group, note, row, section, switch_row};
-use crate::command::{Command, Commands, Intent};
 use crate::library::Action;
 use crate::theme::Tokens;
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 const PICKER_WIDTH: f32 = 180.0;

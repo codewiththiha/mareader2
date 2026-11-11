@@ -8,13 +8,13 @@ use mareader_settings::{LayoutSettings, PageIndicatorStyle};
 use mareader_workspace::PaneId;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::gpu::{Look, Reach};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::titlebar::{FADE, HIDE_GRACE};
+use crate::ui_command::{Command, Commands, Intent};
 use crate::widgets;
 
 pub const BAR_H: f32 = 40.0;

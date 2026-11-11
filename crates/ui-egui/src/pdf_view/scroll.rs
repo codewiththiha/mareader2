@@ -1,3 +1,5 @@
+use egui::{Pos2, Rect};
+
 use super::*;
 
 pub(super) fn run(cx: &mut ShowContext<'_>) {

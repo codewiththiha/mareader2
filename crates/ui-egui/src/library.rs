@@ -5,7 +5,6 @@ mod add;
 pub mod asks;
 pub mod books;
 mod copying;
-mod counted;
 mod covers;
 pub mod crumbs;
 mod duplicating;
@@ -38,9 +37,9 @@ use mareader_library::{
 use mareader_session::{Anchor, Document, Source, SpinePlace};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
+use crate::ui_command::{Command, Commands, Intent, UiCommand};
 pub use actions::{Action, Named, Scope, Sheet};
 pub use add::ADD_MENU;
 pub use books::BookAction;

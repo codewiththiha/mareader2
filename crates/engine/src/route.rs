@@ -33,66 +33,43 @@ impl Route {
 impl Route {
     /// Whether `intent` means anything on this page. The rest are dropped.
     ///
-    /// Exhaustive over `Intent`, so a variant added above has to say here
-    /// which pages it belongs to.
+    /// `reads` is exhaustive over `Intent`, so a variant added there has to
+    /// say which pages it belongs to.
     pub fn takes(self, intent: &Intent) -> bool {
         self == Route::Reader || !self.reads(intent)
     }
 
     /// Whether `intent` acts on what only the reader shows: panes, pages,
     /// a book being read, or the pixels of one.
-    ///
-    /// Exhaustive over `Intent`, so a variant added above has to say here
-    /// which pages it belongs to.
     fn reads(self, intent: &Intent) -> bool {
-        matches!(
-            intent,
-            Intent::Zoom(_)
-                | Intent::View(_)
-                | Intent::Arrow(_)
-                | Intent::Page { .. }
-                | Intent::FirstPage
-                | Intent::LastPage
-                | Intent::AutoScroll
-                | Intent::GoTo { .. }
-                | Intent::Turn { .. }
-                | Intent::CopyPages { .. }
-                | Intent::WordList { .. }
-                | Intent::WordListWindow { .. }
-                | Intent::Split(_)
-                | Intent::FocusPane(_)
-                | Intent::ClosePane(_)
-                | Intent::SetRatio(..)
-                | Intent::CyclePane { .. }
-                | Intent::PlaceBook { .. }
-                | Intent::SetIndependence(_)
-                | Intent::SetInkContrast(_)
-                | Intent::SetQuickText(_)
-                | Intent::Explain(_)
-                | Intent::Highlight { .. }
-                | Intent::SelectText { .. }
-                | Intent::LookUp(_)
-                | Intent::Note(_)
-                | Intent::Bookmark(_)
-                | Intent::PageAi(_)
-                | Intent::ReadAloud { .. }
-                | Intent::ToggleReadAloud
-                | Intent::StopReadAloud
-                | Intent::PlaceReadMarker { .. }
-        ) || is_ai(intent)
+        use Intent as I;
+        match intent {
+            I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } => true,
+            I::FirstPage | I::LastPage | I::AutoScroll => true,
+            I::GoTo { .. } | I::Turn { .. } | I::CopyPages { .. } => true,
+            I::WordList { .. } | I::WordListWindow { .. } => true,
+            I::Split(_) | I::FocusPane(_) | I::ClosePane(_) => true,
+            I::SetRatio(..) | I::CyclePane { .. } | I::PlaceBook { .. } => true,
+            I::SetIndependence(_) | I::SetInkContrast(_) | I::SetQuickText(_) => true,
+            I::Explain(_) | I::Highlight { .. } | I::SelectText { .. } => true,
+            I::LookUp(_) | I::Note(_) | I::Bookmark(_) | I::PageAi(_) => true,
+            I::ReadAloud { .. } | I::ToggleReadAloud | I::StopReadAloud => true,
+            I::PlaceReadMarker { .. } => true,
+            // Settings, voices and cards open over any page.
+            I::OpenSettings(_) | I::SetSettings(_) | I::SetField { .. } => false,
+            I::TryVoice | I::TryVoiceOf(_) | I::StopVoiceTry | I::VoiceModel(..) => false,
+            I::SayWord(_) | I::SayWordWith { .. } | I::StopSaying => false,
+            I::RevealVoice(..) | I::Study(_) | I::Pronunciation(_) => false,
+            I::Dict(_) | I::SetDictionary(_) | I::Vocab(_) => false,
+            // The library's own, and what finishes wherever the window went.
+            I::OpenBook(_) | I::SetLibraryView(_) | I::Library(_) => false,
+            I::ForgetPositions { .. } | I::Open(_) | I::Export { .. } => false,
+            I::SetAppearance(_) | I::SavePreset { .. } | I::DeletePreset(_) => false,
+            I::SetTitlebarPinned(_) | I::SetSidebarOverlay(_) => false,
+            #[cfg(not(target_arch = "wasm32"))]
+            I::Ai(_) => false,
+        }
     }
-}
-
-/// Background AI work, which only a desktop build has: the variant itself is
-/// cfg-gated, so it cannot be named in the match above without breaking wasm.
-#[cfg(target_arch = "wasm32")]
-fn is_ai(_: &Intent) -> bool {
-    false
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn is_ai(intent: &Intent) -> bool {
-    matches!(intent, Intent::Ai(_))
 }
 
 #[cfg(test)]
@@ -112,5 +89,13 @@ mod tests {
         assert!(!Route::Dictionary.takes(&Intent::Bookmark(None)));
         assert!(Route::Dictionary.takes(&Intent::OpenBook(mareader_library::BookId(1))));
         assert!(!Route::Dictionary.has_rail());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn key_and_model_work_finishes_on_any_page() {
+        let job = || Intent::Ai(mareader_settings::Job::Probe);
+        assert!(Route::Library.takes(&job()));
+        assert!(Route::Dictionary.takes(&job()));
     }
 }

@@ -6,9 +6,9 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::TextLayer;
 use mareader_settings::PageStart;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::page_ai::menu::FIND;
 use mareader_ui_egui::selection::Sheet;
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 
 use crate::common::{ai_reader as reader, find, page};
 

@@ -1,15 +1,14 @@
 //! `memory BOOK [ROUNDS] | --library N | --seeded N | --markdown N`.
 
 // Linux reads `/proc/self/status`; macOS, its footprint. See `docs/memory.md`.
-// Exits 1 when a budget breaks.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use egui_kittest::Harness;
-use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::library::{Action, SearchAction};
 use mareader_ui_egui::pages::{CAP_BYTES, REST_BYTES};
+use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 use mareader_workspace::{PaneId, SplitAxis};
 

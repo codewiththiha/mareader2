@@ -41,7 +41,8 @@ Don't stop to ask unless the decision is on the owner's list below.
 | `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
 | `crates/workspace` | The pane split tree and its layout (no egui) |
 | `crates/settings` | Every user setting: schema, defaults, ranges, migration, mareader import (no egui) |
-| `crates/ui-egui/src/command.rs` | `Command`: every user intent, applied in `MareaderApp::apply` |
+| `crates/engine/src/command.rs` | `Intent`: every user intent, applied by `Session::execute` |
+| `crates/ui-egui/src/ui_command.rs` | `UiCommand`: chrome only, applied in `MareaderApp::apply` |
 | `xtask` | `layers`, `wasm`, `trapped`, `parity`, `assets`, `unsafe`, `comments`, `ci` |
 | `parity/mareader-features.toml` | Every mareader feature, its status and evidence |
 | `docs/design.md` | The design system: colour, type, metrics, chrome, motion |

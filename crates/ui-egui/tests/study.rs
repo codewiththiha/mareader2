@@ -8,9 +8,9 @@ use mareader_library::{Pen, Spot};
 use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::study::words;
+use mareader_ui_egui::ui_command::{Command, Intent};
 
 use crate::common::{ai_reader as reader, find, page};
 
