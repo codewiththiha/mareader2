@@ -17,6 +17,7 @@ pub struct CommandSpec {
 
 /// Every intent there is, one row each.
 pub const SPECS: &[CommandSpec] = &[
+    #[cfg(not(target_arch = "wasm32"))]
     CommandSpec {
         id: "ai",
         summary: "Background work for the AI settings: keys, models, a trial.",
@@ -263,6 +264,7 @@ impl Intent {
     /// This intent's stable id.
     pub fn id(&self) -> &'static str {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             Intent::Ai(..) => "ai",
             Intent::Arrow(..) => "arrow",
             Intent::AutoScroll => "auto-scroll",

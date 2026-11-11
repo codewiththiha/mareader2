@@ -69,7 +69,7 @@ pub enum KeyState {
     Resting {
         secs: u64,
     },
-    /// Turned away, set aside by hand, or no longer decryptable.
+    /// Turned away, set aside by hand, or undecryptable.
     Banned {
         reason: String,
     },

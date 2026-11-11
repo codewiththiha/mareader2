@@ -1,9 +1,8 @@
-//! Which page fills the window, and which commands each one takes.
+//! Which commands each page takes: the chrome half, where the engine's
+//! `Route::takes` answers for intents.
 
-use crate::command::Command;
+use crate::command::{Command, UiCommand};
 
-/// The page in the window: the panes being read, the library, or the
-/// dictionary.
 pub use mareader_engine::route::Route;
 
 /// Which commands each page takes: chrome's view of `Route`.
@@ -14,74 +13,45 @@ pub trait Allows {
 
 impl Allows for Route {
     fn allows(self, command: &Command) -> bool {
-        self == Route::Reader || !reads(command)
-    }
-}
-
-/// Background AI work, which only a desktop build has: the variant itself is
-/// gated, so it cannot be named in the match above without breaking wasm.
-fn is_ai(command: &Command) -> bool {
-    #[cfg(not(target_arch = "wasm32"))]
-    if let Command::Intent(mareader_engine::command::Intent::Ai(_)) = command {
-        return true;
-    }
-    false
-}
-
-/// Acts on panes, pages or the rail, all hidden behind the library.
-fn reads(command: &Command) -> bool {
-    use crate::command::UiCommand as U;
-    use mareader_engine::command::Intent as I;
-    // Exhaustive, so each new command must say where it belongs.
-    match command {
-        Command::Ui(ui) => matches!(
-            ui,
-            // The rail and the bar's folding tools act on panes.
-            U::ToggleSidebar | U::OpenSidebar(_) | U::CloseSidebar | U::ShowSearch
-                | U::Chromeless | U::FindStep { .. }
-                // Settings, menus and pages open over any page.
-                | U::ShowSettings | U::ShowShortcuts | U::ShowAppearance | U::ShowViewMenu
-                | U::ShowLibrary | U::ShowReading | U::ShowDictionary | U::ShowFind
-                | U::ShowOpenDialog(_) | U::Window(_) | U::CloseSettings
-                // Notices show anywhere.
-                | U::Notify(_) | U::CloseToast(_) | U::ClearToasts
-        ),
-        Command::Intent(intent) => {
-            !matches!(
-                intent,
-                // The focused pane's view and place.
-                I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } | I::FirstPage
-                | I::LastPage | I::AutoScroll | I::GoTo { .. } | I::Turn { .. }
-                // The thumbnails copy their picked pages.
-                | I::CopyPages { .. } | I::WordList { .. } | I::WordListWindow { .. }
-                // Panes and their dividers.
-                | I::Split(_) | I::FocusPane(_) | I::ClosePane(_) | I::SetRatio(..)
-                | I::CyclePane { .. } | I::PlaceBook { .. }
-                // These read a pane's pixels or its text.
-                | I::SetIndependence(_) | I::SetInkContrast(_) | I::SetQuickText(_)
-                | I::Explain(_) | I::Highlight { .. } | I::SelectText { .. }
-                | I::LookUp(_) | I::Note(_) | I::Bookmark(_) | I::PageAi(_)
-                // Reading aloud follows a book on the page.
-                | I::ReadAloud { .. } | I::ToggleReadAloud | I::StopReadAloud
-                | I::PlaceReadMarker { .. }
-                // Everything else keeps working wherever the window went.
-                | I::OpenSettings(_) | I::TryVoice | I::TryVoiceOf(_)
-                | I::StopVoiceTry | I::VoiceModel(..) | I::SayWord(_) | I::SayWordWith { .. }
-                | I::StopSaying | I::RevealVoice(..) | I::Study(_) | I::Dict(_)
-                | I::SetDictionary(_) | I::Vocab(_) | I::Pronunciation(_) | I::OpenBook(_)
-                | I::SetLibraryView(_) | I::Library(_) | I::ForgetPositions { .. }
-                | I::Open(_) | I::SetAppearance(_) | I::SavePreset { .. }
-                | I::DeletePreset(_) | I::SetTitlebarPinned(_) | I::SetSidebarOverlay(_)
-                | I::SetSettings(_) | I::Export { .. }
-            ) && !is_ai(command)
+        match command {
+            Command::Intent(intent) => self.takes(intent),
+            Command::Ui(ui) => self == Route::Reader || !chrome_reads(ui),
         }
+    }
+}
+
+fn chrome_reads(ui: &UiCommand) -> bool {
+    use UiCommand as U;
+    // Exhaustive, so each new UI command says where it belongs.
+    match ui {
+        // The rail and the bar's folding tools act on panes.
+        U::ToggleSidebar
+        | U::OpenSidebar(_)
+        | U::CloseSidebar
+        | U::ShowSearch
+        | U::Chromeless
+        | U::FindStep { .. } => true,
+        // Settings, menus and pages open over any page.
+        U::ShowSettings
+        | U::ShowShortcuts
+        | U::ShowAppearance
+        | U::ShowViewMenu
+        | U::ShowLibrary
+        | U::ShowReading
+        | U::ShowDictionary
+        | U::ShowFind
+        | U::ShowOpenDialog(_)
+        | U::Window(_)
+        | U::CloseSettings => false,
+        // Notices show anywhere.
+        U::Notify(_) | U::CloseToast(_) | U::ClearToasts => false,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::{Intent, UiCommand, WindowCommand};
+    use crate::command::{Intent, WindowCommand};
     use crate::layout::ViewMode;
 
     #[test]

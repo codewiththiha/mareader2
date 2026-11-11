@@ -20,27 +20,24 @@ const AREA: Bounds = Bounds {
 
 #[test]
 fn a_session_opens_splits_turns_marks_and_exports_with_no_window() {
-    // The sample opens with no file and no worker, so the handle is real.
+    // No file and no worker: the sample opens synchronously.
     let doc = mareader_engine::sample::doc().expect("the sample opens");
 
     let mut session = Session::new(Settings::default());
     let first = session.active();
 
-    // Split, the way the window does: geometry in, new pane out.
     let second = session
         .split(first, SplitAxis::Vertical, Side::After, AREA)
         .expect("a split of the whole window fits");
     assert_ne!(first, second, "a split makes a pane");
     assert_eq!(session.active(), second, "and focuses it");
 
-    // Turn: the door answers without any front end reading a key.
     let done = session.execute(Intent::GoTo {
         pane: second,
         page: 1,
     });
     assert!(done.dirty || !done.dirty, "the door answers, dirty or not");
 
-    // Each intent has a name a script can use.
     assert_eq!(
         Intent::GoTo {
             pane: second,
@@ -51,11 +48,9 @@ fn a_session_opens_splits_turns_marks_and_exports_with_no_window() {
     );
     assert_eq!(Intent::ClosePane(second).id(), "close-pane");
 
-    // Closing takes the pane and its place in the focus order with it.
     assert!(session.close(second), "a pane made here closes");
     assert_eq!(session.active(), first, "focus falls to what is left");
 
-    // The document is a real handle the whole way through.
     let _: mareader_session::DocId = doc;
 }
 

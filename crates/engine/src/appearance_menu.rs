@@ -1,4 +1,4 @@
-//! The quick text dials the appearance popover offers: their data, not the menu.
+//! The quick text dials the appearance popover offers.
 
 use mareader_settings::TextSettings;
 

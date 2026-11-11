@@ -238,8 +238,7 @@ impl MareaderApp {
         let (layout, window) = (&layout, &window);
         let texts = &self.texts;
         self.library_rect = None;
-        // The dictionary page needs all of `self`, so it is drawn outside the
-        // closure the other pages fill.
+        // The dictionary page needs all of `self`: drawn outside the closure.
         if route == Route::Dictionary {
             self.pane_rects.clear();
             self.dict.page(ui, dictionary, page_top, commands);
