@@ -61,7 +61,7 @@ jobs:
         run: |
           set -f
           mkdir -p shots
-          cargo build -q -p mareader-ui --example shot
+          cargo build -q -p mareader-ui-egui --example shot
           while IFS= read -r line; do
             read -r name args <<< "$line" || true
             [ -z "${name:-}" ] && continue
@@ -112,7 +112,7 @@ jobs:
         run: |
           # Without it tee hides a breached budget.
           set -o pipefail
-          cargo build -q -p mareader-ui --example memory
+          cargo build -q -p mareader-ui-egui --example memory
           status=0
           run() {
             title=$1; shift
@@ -128,7 +128,7 @@ jobs:
           run "Markdown README of emoji, scrolled" --markdown 6
           run "Library, 3,000 PDFs read in place" --library 3000
           run "Library, 20,000 books without files" --seeded 20000
-          if cargo build -q -p mareader-ui --example epub_perf; then
+          if cargo build -q -p mareader-ui-egui --example epub_perf; then
             {
               echo "## EPUB saved-place opening and scroll (800 chapters)"
               echo
@@ -187,7 +187,7 @@ jobs:
       - name: Measure
         run: |
           set -o pipefail
-          cargo build -q -p mareader-ui --example memory
+          cargo build -q -p mareader-ui-egui --example memory
           md=out/memory-macos.md
           status=0
           # The app starts itself with the large-block cache off; so do these.
@@ -783,13 +783,12 @@ jobs:
         working-directory: /home/user/mareader2
         run: |
           cargo clippy -q --workspace --all-targets -- -D warnings
-          # The browser preview is best-effort: warn only.
-          cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings ||
-            echo "::warning::the wasm build has lint errors (best-effort)"
-          cargo xtask layers && cargo xtask assets && cargo xtask unsafe
+          cargo clippy -q -p mareader-web --target wasm32-unknown-unknown -- -D warnings
+          cargo xtask layers && cargo xtask wasm && cargo xtask trapped
+          cargo xtask assets && cargo xtask unsafe
           if [ "$CACHE_BUILDS" = full ]; then
             cargo test -q --workspace --no-run
-            cargo build -q -p mareader-ui --example shot
+            cargo build -q -p mareader-ui-egui --example shot
           fi
       - name: Pack
         working-directory: /home/user/mareader2

@@ -9,9 +9,9 @@ chooses per session, and the user can override the choice at any time.
 |---|---|---|
 | Builds and tests | on this machine | on GitHub Actions |
 | Verdict | the local gates | `python3 tools/ci.py watch` |
-| Screenshots | `cargo run -p mareader-ui --example shot` | `python3 tools/ci.py shots` |
+| Screenshots | `cargo run -p mareader-ui-egui --example shot` | `python3 tools/ci.py shots` |
 | Browser preview | `tools/web.sh --serve` | `python3 tools/ci.py web` |
-| Memory budgets | `cargo run -p mareader-ui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
+| Memory budgets | `cargo run -p mareader-ui-egui --example memory -- BOOK` | `python3 tools/ci.py memory --ref BRANCH` |
 | Kokoro parity | none (needs the 650 MB model and builds) | `python3 tools/ci.py kokoro --ref BRANCH` |
 | Piper parity | none (needs six voices and onnxruntime) | `python3 tools/ci.py piper --ref BRANCH` |
 | Kitten parity | none (needs four builds and onnxruntime) | `python3 tools/ci.py kitten --ref BRANCH` |
@@ -36,7 +36,7 @@ on 2026-10-14:
 | `tools/ci.py shots`, dispatch to PNGs on disk | 70–85 s |
 | `tools/ci.py web`, dispatch to the preview on disk (cold wasm build) | 2.5 min |
 | `tools/ci.py cache restore` (lint builds, 1.2 GB at 7–17 MB/s, then unpack; 2026-10-27) | 2–3.5 min |
-| The first local clippy after that restore (`-p mareader-ui --all-targets`) | 28 s |
+| The first local clippy after that restore (`-p mareader-ui-egui --all-targets`) | 28 s |
 | The full local gates right after a restore (nothing compiles) | 11 s |
 | `tools/ci.py cache build`, seeded from the previous cache | 2.5 min, plus changed crates |
 | `tools/ci.py cache build --cold`, from nothing | 13.5 min |
@@ -117,7 +117,7 @@ What CI covers, against the local gates:
 
 **Hybrid.** In CI mode on a machine whose cache is warm, one targeted local
 command is fine for a tight loop (for example
-`cargo test -p mareader-ui some_test`, under the memory cap). The gates
+`cargo test -p mareader-ui-egui some_test`, under the memory cap). The gates
 still come from CI. A restored sandbox cache holds lint builds only, so a
 local test first needs `cache build --full`.
 
@@ -181,7 +181,7 @@ Checked, and left alone:
 - **The macOS and Windows builds.** They run in parallel and finish before
   the test job, so they add no time.
 - **Testing only the crates that changed.** Almost every change touches
-  `mareader-ui`, the top crate, which nearly every test builds.
+  `mareader-ui-egui`, the top crate, which nearly every test builds.
 - **More sharing of the GitHub cache.** Workspace crates still compile in
   each job, because a fresh checkout gives every source file a new time.
   Only the dependencies come from the cache, and they restore in under a
@@ -211,7 +211,7 @@ python3 tools/ci.py shots \
 ```
 
 - **Format.** Each argument is one shot: a file name, then the `shot`
-  example's `key=value` options (see `crates/ui/examples/shot.rs`).
+  example's `key=value` options (see `crates/ui-egui/examples/shot.rs`).
   `workers=0` renders pages synchronously, so page content appears in the
   shot; without it, the shot may show blank pages.
 - **Any setting (2026-10-22).** `set=<dotted.path>:<json>` writes one
@@ -508,7 +508,7 @@ cache travels as a workflow artifact.
 
 Headless tests prove Mareader asks for the right thing: a caption click,
 a drag on the empty bar, a press on a frameless edge each send their
-window command (`crates/ui/tests/chrome.rs`). Whether the system then
+window command (`crates/ui-egui/tests/chrome.rs`). Whether the system then
 moves, resizes or closes the window is eframe's and the OS's, so the
 owner checks these on real machines before 1.0:
 

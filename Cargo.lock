@@ -3565,7 +3565,7 @@ version = "0.0.5"
 dependencies = [
  "eframe",
  "egui",
- "mareader-ui",
+ "mareader-ui-egui",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -3632,6 +3632,10 @@ dependencies = [
  "rusqlite",
  "tempfile",
 ]
+
+[[package]]
+name = "mareader-engine"
+version = "0.0.5"
 
 [[package]]
 name = "mareader-epub"
@@ -3813,7 +3817,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mareader-ui"
+name = "mareader-ui-egui"
 version = "0.0.5"
 dependencies = [
  "eframe",
@@ -3866,7 +3870,7 @@ name = "mareader-web"
 version = "0.0.5"
 dependencies = [
  "eframe",
- "mareader-ui",
+ "mareader-ui-egui",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

@@ -713,7 +713,7 @@ def facts() -> dict:
     # target/ may hold only downloaded shots; the sandbox builds elsewhere.
     targets = [os.environ.get("CARGO_TARGET_DIR") or "", "target",
                "/home/user/.cache/target-mr"]
-    warm = any(glob.glob(os.path.join(t, "debug", ".fingerprint", "mareader-ui-*"))
+    warm = any(glob.glob(os.path.join(t, "debug", ".fingerprint", "mareader-ui-egui-*"))
                for t in targets if t)
     cargo = bool(shutil.which("cargo")) or os.path.exists("/home/user/.cache/env.sh")
     free = shutil.disk_usage(".").free / (1 << 30)

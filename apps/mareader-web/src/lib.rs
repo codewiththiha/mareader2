@@ -2,7 +2,7 @@
 
 #[cfg(target_arch = "wasm32")]
 mod web {
-    use mareader_ui::MareaderApp;
+    use mareader_ui_egui::MareaderApp;
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::prelude::wasm_bindgen;
 

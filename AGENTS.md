@@ -53,7 +53,7 @@ images, fonts, sounds, sample documents and screenshots.
   source with version, SPDX licence and SHA-256 for files. `cargo xtask assets`
   fails on an unlisted file, a wrong hash or a licence off the list.
 - **Stock icons are Lucide**, compiled from build-only declarations into typed
-  geometry behind `crates/ui/src/icons/` (ADR 0004). Code names an `Icon` by
+  geometry behind `crates/ui-egui/src/icons/` (ADR 0004). Code names an `Icon` by
   meaning; only `icons::pack` names a glyph. Custom provider and voice marks
   remain the documented static-SVG exceptions.
 - **Fonts:** Inter in `assets/fonts`. A new face needs an OFL source and an
@@ -87,11 +87,21 @@ it may crash the app or lose the user's place. In non-test code:
 
 `cargo xtask layers` enforces the table in `docs/architecture.md`.
 
+- The workspace is engine-first: `crates/engine` (`mareader-engine`, L5) is the
+  app without a window, `crates/ui-egui` (`mareader-ui-egui`, L6) is one front
+  end in egui, and the binaries at L7 hold a session and draw.
 - Every crate marked Core in `xtask/src/layers.rs`
   never depends on egui, eframe, winit or wgpu. They are testable without a
   window.
-- Only the front layer (`crates/ui`) draws. `apps/mareader` only opens the
-  window.
+- Only the front layer (`crates/ui-egui`) draws. `apps/mareader` only opens the
+  window, and `apps/mareader-cli` may link no toolkit at all.
+- `cargo xtask wasm` holds rule 3: every L0–L5 crate, the front end and the web
+  app compile for `wasm32-unknown-unknown`. `assist` is the one declared
+  exemption, and it says why.
+- A file under `crates/ui-egui/src` that names no toolkit belongs below the
+  front end. `cargo xtask trapped` counts those files; the count in
+  `tools/trapped_count.txt` may only fall, and only the slice that moves them
+  lowers it. `tests/` and `examples/` are harnesses and are not counted.
 - A new crate gets a row in the layer table in the same commit.
 
 ## Shape: one job per file, reuse before writing
@@ -120,7 +130,7 @@ it may crash the app or lose the user's place. In non-test code:
   records the search. Reuse existing logic; extract on the second use. Do not
   add speculative type parameters, traits or options without two real callers.
 - Shared feature code lives under its feature, cross-feature UI code under
-  `crates/ui/src`, integration fixtures under `tests/common/mod.rs`, unit
+  `crates/ui-egui/src`, integration fixtures under `tests/common/mod.rs`, unit
   fixtures in `src/test_support.rs`, core logic in the lowest shared crate, and
   parity-tool code in `tools/parity-kit`. A new L0 crate needs owner approval.
   Index each shared item in `docs/reuse.md`.
@@ -247,11 +257,11 @@ is in progress, by looking and by using it.
 ## UI work: look at the result
 
 - **Every UI change is looked at, not assumed.** Render it with
-  `cargo run -p mareader-ui --example shot -- OUT.png key=value…` (see
+  `cargo run -p mareader-ui-egui --example shot -- OUT.png key=value…` (see
   `CLAUDE.md`), open the PNG, and check it against `docs/design.md`: light,
   dark and one tint, wide and narrow, and each platform's chrome the change
   touches. Say what was checked.
-- **Behaviour is tested with egui_kittest** (`crates/ui/tests/`): hover, click
+- **Behaviour is tested with egui_kittest** (`crates/ui-egui/tests/`): hover, click
   and keyboard through AccessKit labels, at 60 fps steps
   (`with_step_dt(1.0 / 60.0)`).
 
@@ -299,7 +309,8 @@ Before every commit:
 cargo fmt --all --check
 cargo clippy -p <crate> -j 2 --all-targets -- -D warnings
 cargo test -p <crate> -j 2
-cargo xtask layers && cargo xtask parity && cargo xtask assets
+cargo xtask layers && cargo xtask wasm && cargo xtask trapped
+cargo xtask parity && cargo xtask assets
 cargo xtask comments
 ```
 

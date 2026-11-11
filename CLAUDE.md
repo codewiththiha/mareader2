@@ -36,12 +36,13 @@ Don't stop to ask unless the decision is on the owner's list below.
 | Path | What |
 |---|---|
 | `apps/mareader` | The binary: opens the window, runs `MareaderApp` |
-| `crates/ui` | The front layer: theme, icons, title bar, panes, shell (egui) |
+| `crates/engine` | The app without a window (L5): session, commands, events, jobs, saving. Empty until P1–P4 move into it |
+| `crates/ui-egui` | One front end in egui (L6): theme, icons, title bar, panes, shell |
 | `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
 | `crates/workspace` | The pane split tree and its layout (no egui) |
 | `crates/settings` | Every user setting: schema, defaults, ranges, migration, mareader import (no egui) |
-| `crates/ui/src/command.rs` | `Command`: every user intent, applied in `MareaderApp::apply` |
-| `xtask` | `layers`, `parity`, `assets`, `unsafe`, `comments`, `ci` |
+| `crates/ui-egui/src/command.rs` | `Command`: every user intent, applied in `MareaderApp::apply` |
+| `xtask` | `layers`, `wasm`, `trapped`, `parity`, `assets`, `unsafe`, `comments`, `ci` |
 | `parity/mareader-features.toml` | Every mareader feature, its status and evidence |
 | `docs/design.md` | The design system: colour, type, metrics, chrome, motion |
 | `docs/library.md` | The library redesign: goals, model, UI |
@@ -57,11 +58,13 @@ Don't stop to ask unless the decision is on the owner's list below.
 ```sh
 cargo run -p mareader                       # the app
 tools/web.sh --serve 8080                   # browser viewer, best effort (?panes=2)
-cargo test -p mareader-ui -j 2              # one crate's tests
-cargo clippy -p mareader-ui -j 2 --all-targets -- -D warnings
+cargo test -p mareader-ui-egui -j 2              # one crate's tests
+cargo clippy -p mareader-ui-egui -j 2 --all-targets -- -D warnings
 cargo xtask parity                          # progress by area and tier
 cargo xtask parity --list planned           # what is left
 cargo xtask layers                          # dependency rules
+cargo xtask wasm                            # L0-L5, ui-egui and web for wasm32
+cargo xtask trapped                         # toolkit-free files in ui-egui
 cargo xtask assets                          # ATTRIBUTION.toml check
 cargo xtask comments                        # comment rule on changed files
 cargo xtask ci                              # the full sweep (CI does this)
@@ -76,7 +79,7 @@ python3 tools/commit_check.py --install     # once per clone
 The shell renders headlessly, so a UI change can be seen without a display:
 
 ```sh
-cargo run -p mareader-ui --example shot -- /tmp/a.png \
+cargo run -p mareader-ui-egui --example shot -- /tmp/a.png \
   platform=windows theme=dark pinned=true panes=2 hover=1180,20 size=1240x720
 ```
 
@@ -103,7 +106,7 @@ To tune colours or sizes without recompiling, run a debug build with
 re-applies when the file is saved, in the app and in `shot`.
 
 Open the PNG and check it against `docs/design.md`. If something looks worse
-than mareader, improve it and update the doc. Interactions belong in kittest tests (`crates/ui/tests/shell.rs`
+than mareader, improve it and update the doc. Interactions belong in kittest tests (`crates/ui-egui/tests/shell.rs`
 shows the pattern: `Harness::builder().with_step_dt(1.0 / 60.0)`, `hover_at`,
 `get_by_label(..).click()`).
 

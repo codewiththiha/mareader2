@@ -10,7 +10,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-mareader-ui = { workspace = true }
+mareader-ui-egui = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence", "wayland", "x11", "links"] }
 egui = { workspace = true }
 

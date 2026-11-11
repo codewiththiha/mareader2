@@ -103,9 +103,27 @@ jobs:
           packages: mesa-vulkan-drivers libasound2-dev libspeechd-dev libclang-dev
       - run: cargo test --workspace --locked
       - run: cargo xtask layers
+      - run: cargo xtask trapped
       - run: cargo xtask parity
       - run: cargo xtask assets
       - run: cargo xtask unsafe
+
+  wasm:
+    name: Rust / wasm
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wasm
+          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+      - run: cargo xtask wasm
 
   platforms:
     name: Build / ${{ matrix.os }}

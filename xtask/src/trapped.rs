@@ -1,0 +1,135 @@
+//! `cargo xtask trapped`: no toolkit-free file hides in the front-end crate.
+//!
+//! A file belongs in the engine when it names no toolkit. Until P3 moves them
+//! all, this counts them against a committed number that may only fall
+//! (`docs/architecture.md` § Layers). The two allowlisted files are the front
+//! end's own: its root and its glyph table.
+//!
+//! Only `src/` counts. `tests/` and `examples/` are harnesses: a test binary's
+//! root names no toolkit and never will, and no engine should hold it.
+
+use std::path::{Path, PathBuf};
+
+/// Files that may name no toolkit without leaving the front end.
+pub const ALLOWED: &[&str] = &["lib.rs", "icons/pack.rs"];
+
+/// The committed count; only P3 deletes this file and makes the gate absolute.
+pub const COUNT_FILE: &str = "tools/trapped_count.txt";
+
+/// Every word that means a toolkit crate is in play.
+const TOOLKIT: &[&str] = &[
+    "egui",
+    "eframe",
+    "egui_extras",
+    "egui_kittest",
+    "wgpu",
+    "winit",
+    "rfd",
+];
+
+/// True when `text` names a toolkit crate anywhere, comments included: a file
+/// that explains egui is still a file about pixels.
+pub fn names_toolkit(text: &str) -> bool {
+    TOOLKIT.iter().any(|word| text.contains(word))
+}
+
+/// The `.rs` files under `root` that name no toolkit, by path from `root`.
+pub fn free_files(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    walk(root, root, &mut out);
+    out.sort();
+    out
+}
+
+fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(root, &path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if !names_toolkit(&text)
+                && let Ok(rel) = path.strip_prefix(root)
+            {
+                out.push(rel.to_string_lossy().into_owned());
+            }
+        }
+    }
+}
+
+/// The files that are trapped, given what is found and what is allowed.
+pub fn trapped(found: &[String], allowed: &[&str]) -> Vec<String> {
+    found
+        .iter()
+        .filter(|rel| !allowed.iter().any(|a| a == rel))
+        .cloned()
+        .collect()
+}
+
+fn source_dir() -> PathBuf {
+    crate::root().join("crates/ui-egui/src")
+}
+
+pub fn run(_: &[String]) -> Result<(), String> {
+    let found = free_files(&source_dir());
+    let left = trapped(&found, ALLOWED);
+    let limit = committed()?;
+    println!(
+        "trapped: {} toolkit-free file(s); the count allows {limit}",
+        left.len()
+    );
+    if left.len() > limit {
+        return Err(format!(
+            "{} file(s) name no toolkit and belong below the front end:\n  {}",
+            left.len(),
+            left.join("\n  ")
+        ));
+    }
+    Ok(())
+}
+
+/// The committed ceiling; a missing file means the gate has not been armed.
+fn committed() -> Result<usize, String> {
+    let path = crate::root().join(COUNT_FILE);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|_| format!("{COUNT_FILE} is missing; commit the count it gates"))?;
+    text.trim()
+        .parse()
+        .map_err(|_| format!("{COUNT_FILE} does not hold a number"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn files(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|p| (*p).to_string()).collect()
+    }
+
+    #[test]
+    fn a_file_that_explains_egui_is_still_about_pixels() {
+        assert!(names_toolkit("//! A view over egui's Ui."));
+        assert!(names_toolkit("use egui::Context;"));
+        assert!(names_toolkit("let frame = eframe::Frame;"));
+        assert!(!names_toolkit("//! Windows and doors."));
+        assert!(!names_toolkit("use mareader_session::Session;"));
+    }
+
+    #[test]
+    fn the_two_allowlisted_files_are_not_trapped() {
+        let found = files(&["lib.rs", "icons/pack.rs", "export.rs", "library/picks.rs"]);
+        let left = trapped(&found, ALLOWED);
+        assert_eq!(left, files(&["export.rs", "library/picks.rs"]));
+    }
+
+    #[test]
+    fn nothing_is_trapped_when_the_crate_is_all_views() {
+        assert!(trapped(&files(&["lib.rs"]), ALLOWED).is_empty());
+        assert!(trapped(&[], ALLOWED).is_empty());
+    }
+}

@@ -1,12 +1,12 @@
-//! Mareader's desktop entry point: the window, then `mareader_ui` runs.
+//! Mareader's desktop entry point: the window, then `mareader_ui_egui` runs.
 #![deny(unsafe_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mareader_ui::command::Command;
-use mareader_ui::{MareaderApp, OpenRequest};
+use mareader_ui_egui::command::Command;
+use mareader_ui_egui::{MareaderApp, OpenRequest};
 
 use inbox::Inbox;
 use single_instance::Claim;

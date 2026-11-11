@@ -45,17 +45,29 @@ the right place.
 | L2 | `epub` | planned M4 | rbook container, spine, ToC, XHTML+CSS subset → `reflow` blocks |
 | L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
-| L3 | `assist` | **exists** | AI tasks and their prompts, the providers behind one `Backend` seam, API keys (`docs/assist.md`); desktop only, the one exception to rule 3 |
-| L7 | `ui` | **exists** | egui: theme, icons, title bar, panes, every view and popover |
-| — | `apps/mareader` | **exists** | the window and `main` |
+| L3 | `assist` | **exists** | AI tasks and their prompts, the providers behind one `Backend` seam, API keys (`docs/assist.md`); desktop only, the one exception to rule 3, listed in `xtask/src/wasm.rs` `EXEMPT` with its reason |
+| L5 | `engine` | **exists, empty** | the app without a window: session, commands, events, jobs and saving; nothing in it yet, and nothing here may name a toolkit |
+| L6 | `ui-egui` | **exists** | one front end in egui: theme, icons, title bar, panes, every view and popover |
+| L7 | `apps/mareader` | **exists** | the window, `main`, and eventually the `Host` the engine reaches the machine through |
+| L7 | `apps/mareader-web` | **exists** | the browser preview: the same app through eframe's `WebRunner` |
+| L7 | `apps/mareader-cli` | planned | the second client; may not link a toolkit |
 | — | `xtask` | **exists** | gates |
 
 The rules:
 1. A crate depends only on lower layers. Same-layer edges need an entry in
    `SIDEWAYS`.
-2. egui, eframe, winit, wgpu and rfd appear only in L7 and the app.
-3. L0–L3 compile for `wasm32-unknown-unknown`. A gate for this arrives with the
-   first L1 crate.
+2. egui, eframe, egui_extras, egui_kittest, winit, wgpu and rfd appear only in
+   L6, in `apps/mareader`, `apps/mareader-web` and tooling. `apps/mareader-cli`
+   may link none of them, so the dependency graph itself proves the engine is
+   usable without a window.
+3. Every crate at L0–L5, `ui-egui` and `mareader-web` compiles for
+   `wasm32-unknown-unknown`. `cargo xtask wasm` checks them all; `assist` is the
+   one exemption, because AI needs threads, a keychain and TLS (see below).
+4. A file under `crates/ui-egui/src` that names no toolkit is a file that belongs
+   in the engine. `cargo xtask trapped` counts them against
+   `tools/trapped_count.txt`, which may only fall; the front end's own root and
+   glyph table are the allowlist. `tests/` and `examples/` are harnesses and are
+   not counted.
 
 ## How the app is built in egui
 
@@ -69,9 +81,13 @@ only transient widget state (scroll offsets, hover animations, a text field's
 cursor). There are no signals, effects, observers or stores, and no state is
 mirrored in two places.
 
+That owner is on its way down to `mareader-engine` (L5), which is why the crate
+exists and why `cargo xtask trapped` counts the files that belong there. Until
+they move, this section describes today's tree, not the target one.
+
 **Views are functions.** A view takes the state it shows and a `&mut Commands`:
 `fn show(ui: &mut Ui, state: &T, out: &mut Commands)`. It draws and pushes
-`Command`s (`crates/ui/src/command.rs`) for what the user asked. It does not
+`Command`s (`crates/ui-egui/src/command.rs`) for what the user asked. It does not
 mutate app state, call other views' handlers or keep its own copy of the data.
 
 **Commands are the only way to change state.** Buttons, menus, shortcuts and
@@ -207,7 +223,7 @@ mareader typography setting has a parley equivalent.
   channels. Each result carries the document id and generation it was made
   for; a result for a closed pane, an old zoom or an old document is dropped
   before it is uploaded.
-- **File watch** (`crates/ui/src/watch.rs`). One thread looks at the open
+- **File watch** (`crates/ui-egui/src/watch.rs`). One thread looks at the open
   files' size and modified time every second, and wakes the window only once
   a change has held for two looks; the window stays idle meanwhile. A file
   is first seen the moment it is shown, so a save right after it opens
@@ -261,3 +277,4 @@ mareader typography setting has a parley equivalent.
 | 2026-10-13 | Functional parity and the egui architecture section (ADR 0005) |
 | 2026-10-13 | Shared documents, cache and workers across panes (ADR 0006); appearance as uniforms |
 | 2026-10-13 | Scrolling long documents: admission, tiling and upload rules |
+| 2026-11-11 | P0 of the engine-first review: `crates/ui` becomes `crates/ui-egui` (`mareader-ui-egui`), `mareader-engine` takes L5, the front end L6 and the three apps L7; `cargo xtask wasm` and `cargo xtask trapped` become gates |

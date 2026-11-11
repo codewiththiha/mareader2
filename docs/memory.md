@@ -50,8 +50,8 @@ Add a dated section per audit; never overwrite one.
 - **What:** process RSS and its peak (`VmRSS`, `VmHWM` in `/proc/self/status`;
   the peak is reset after each row), with the app's own counts: open
   documents, cached page rasters and their bytes, text layers, queued jobs.
-- **How:** `crates/ui/examples/memory.rs`, run as
-  `capped.sh cargo run -q -p mareader-ui --example memory -- BOOK.pdf 12`.
+- **How:** `crates/ui-egui/examples/memory.rs`, run as
+  `capped.sh cargo run -q -p mareader-ui-egui --example memory -- BOOK.pdf 12`.
 - **Workload:** a 1200 × 800 pt window at 2 px per pt, two panes, 0 workers,
   scroll jumps landing at once. Open the book in the right pane, go to every
   page in turn (each drawn), close the pane. Repeat open, read and close in a
@@ -167,7 +167,7 @@ through the kept few. CI's Linux runner, VmRSS and VmHWM.
 - **What:** as at M2 (`VmRSS`, `VmHWM` reset after each row), plus open
   searches, cover texture bytes and egui's texture count. Each workload ends
   in a table of budgets, and a breach fails the run.
-- **How:** `crates/ui/examples/memory.rs`, in CI on Linux as the Remote
+- **How:** `crates/ui-egui/examples/memory.rs`, in CI on Linux as the Remote
   memory task (`tools/ci.py memory --ref BRANCH`), which also runs the EPUB
   layout test. Run 38919011226 on `a2a844c`; tables in the `memory` artifact.
   Modes: `memory BOOK [ROUNDS]`, `memory --library N` (N one-page PDFs read
@@ -528,7 +528,7 @@ PDF page-tree enumeration remains eager, with rasters requested on demand.
 - **What changed:** active icon animation no longer retains independently parsed
   SVG frames. `mareader-animated-icons` generates atomic top-level part scenes,
   rasterises their tight state variants and packs them into one texture per pack
-  and device-pixel size. `mareader-ui` composes each sample as ordered egui mesh
+  and device-pixel size. `mareader-ui-egui` composes each sample as ordered egui mesh
   quads.
 - **Admission bound:** both one generated atlas and the context-local sum of
   retained atlas pixels are capped at 8 MiB. The cache also remains capped at
