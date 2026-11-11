@@ -19,6 +19,7 @@
 
 pub mod appearance_menu;
 pub mod command;
+pub mod command_spec;
 pub mod dict;
 pub mod documents;
 pub mod export;
