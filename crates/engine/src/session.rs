@@ -145,20 +145,15 @@ impl Session {
         self.recent.extend(unseen);
     }
 
-    /// The page the window shows; the library keeps the route it came from.
+    /// The page the window shows; only the Dictionary remembers where from.
     pub fn show(&mut self, route: Route) {
-        match route {
-            Route::Dictionary => {
-                self.dict_from = Some(self.route);
-                self.route = route;
-            }
-            _ => {
-                self.route = route;
-                if route == Route::Reader {
-                    self.dict_from = None;
-                }
-            }
-        }
+        let here = self.route;
+        self.dict_from = match route {
+            Route::Dictionary if here == Route::Dictionary => self.dict_from,
+            Route::Dictionary => Some(here),
+            _ => None,
+        };
+        self.route = route;
     }
 
     /// Splits `at` into `side` of `area` and focuses the new pane.

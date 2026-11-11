@@ -328,13 +328,13 @@ impl Intent {
         }
     }
 
-    /// This intent's row in [`SPECS`].
-    pub fn spec(&self) -> &'static CommandSpec {
+    /// This intent's row in [`SPECS`], when it has one.
+    ///
+    /// A `None` is a missing row, which the `every_id_the_match_can_return_
+    /// has_a_row` test fails on; the lookup does not pretend otherwise.
+    pub fn spec(&self) -> Option<&'static CommandSpec> {
         let id = self.id();
-        SPECS
-            .iter()
-            .find(|s| s.id == id)
-            .expect("every intent has a row in SPECS")
+        SPECS.iter().find(|s| s.id == id)
     }
 }
 

@@ -248,7 +248,7 @@ impl MareaderApp {
         // Copied out above: the closures below need `&mut self`.
         let mut library_rect = None;
         let rects = egui::CentralPanel::no_frame().show(ui, |ui| {
-            if library.showing {
+            if route == Route::Library {
                 library_rect = Some(ui.max_rect());
                 ui_library::view::show(ui, library, library_view, page_top, commands);
                 return Vec::new();

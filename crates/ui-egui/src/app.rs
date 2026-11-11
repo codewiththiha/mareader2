@@ -186,8 +186,6 @@ pub struct MareaderApp {
     documents: Documents,
     files: Files,
     library: LibraryState,
-    /// On the Dictionary page: the route it was opened from.
-    dict_from: Option<Route>,
     /// The sidebar panels' scroll-following, for the focused pane.
     outline: OutlineState,
     thumbs: ThumbState,
@@ -296,7 +294,6 @@ impl MareaderApp {
             documents: Documents::default(),
             files: Files::default(),
             library: LibraryState::default(),
-            dict_from: None,
             outline: OutlineState::default(),
             thumbs: ThumbState::default(),
             page_copy: Default::default(),

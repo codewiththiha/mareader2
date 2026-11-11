@@ -3,11 +3,7 @@ use super::*;
 impl MareaderApp {
     /// The page in the window; the library replaces the panes, not ends them.
     pub fn route(&self) -> Route {
-        match (self.dict_from, self.library.showing) {
-            (Some(_), _) => Route::Dictionary,
-            (None, true) => Route::Library,
-            (None, false) => Route::Reader,
-        }
+        self.session.route()
     }
 
     /// Something is open in a pane, so the library can go back to it.
@@ -24,12 +20,7 @@ impl MareaderApp {
         if route != Route::Reader {
             self.find.close();
         }
-        let here = self.route();
-        self.dict_from = match route {
-            Route::Dictionary if here == Route::Dictionary => self.dict_from,
-            Route::Dictionary => Some(here),
-            _ => None,
-        };
+        self.session.show(route);
         if route == Route::Dictionary {
             self.dict.arrive();
         } else {
@@ -81,7 +72,7 @@ impl MareaderApp {
 
     /// Where the Dictionary page's pressed button returns.
     pub(super) fn dict_back(&self) -> Route {
-        match self.dict_from {
+        match self.session.dict_from() {
             Some(Route::Reader) if !self.reading() => Route::Library,
             Some(Route::Reader) => Route::Reader,
             _ => Route::Library,

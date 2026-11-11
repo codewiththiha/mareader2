@@ -124,7 +124,7 @@ impl MareaderApp {
     }
 
     fn option_grain_intensity(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let v: f32 = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
+        let v: u8 = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
         self.set_field("appearance.noise_intensity", v)?;
         Ok(())
     }
