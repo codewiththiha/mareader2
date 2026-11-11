@@ -30,9 +30,7 @@ use mareader_settings::{
     AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick,
     MotionSettings, PaperArea, Settings, TextSettings,
 };
-use mareader_workspace::{
-    Bounds, Edge, LiftTarget, MAX_PANES, PaneId, PaneTree, Side, SplitAxis, TreeError,
-};
+use mareader_workspace::{Bounds, Edge, LiftTarget, MAX_PANES, PaneId, Side, SplitAxis, TreeError};
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;

@@ -216,7 +216,7 @@ impl MareaderApp {
         let (layout, window, library_look) = (
             self.settings().layout.clone(),
             self.settings().text.clone(),
-            self.settings().library.clone(),
+            self.settings().library,
         );
         let highlight_look = self.settings().study.highlights.clone();
         let dictionary_look = self.settings().dictionary.clone();

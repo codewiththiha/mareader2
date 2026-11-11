@@ -3,10 +3,7 @@
 use super::{LibraryState, Pick, PickAction};
 use crate::command::Commands;
 
-pub use mareader_engine::library::{
-    Action, Applied, BookAction, Carry, CopyAnswer, CopyWork, Finding, NEW_SHELF, Named, Scope,
-    SearchAction, Sheet, ShelfAction, Step,
-};
+pub use mareader_engine::library::{Action, Named, Scope, Sheet};
 
 impl LibraryState {
     pub fn sheet(&self) -> Option<&Sheet> {

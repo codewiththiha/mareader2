@@ -1,6 +1,6 @@
 //! Shelves on the page: where the reader is, and what drags and drops do.
 
-use mareader_library::{BookId, Item, Library, Move, ShelfId};
+use mareader_library::{BookId, Item, Move, ShelfId};
 
 use super::{Action, LibraryState, Scope, wall_ms};
 use crate::command::{Command, Commands, Intent, UiCommand};

@@ -1164,20 +1164,6 @@ fn note(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).size(t.text_small).color(t.muted));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_window_grows_with_the_app_past_mareader_s_640() {
-        let tall = window_size(vec2(1600.0, 1100.0));
-        assert!(tall.y > 900.0 && tall.x > 700.0, "{tall:?}");
-        assert_eq!(window_size(vec2(5000.0, 5000.0)), MAX_SIZE);
-        let small = window_size(vec2(500.0, 400.0));
-        assert!(small.x < 500.0 && small.y < 400.0, "{small:?}: it fits");
-    }
-}
-
 /// A tab's icon: presentation, so it stays above the line.
 pub(crate) trait TabIcon {
     fn icon(self) -> Icon;
@@ -1198,5 +1184,19 @@ impl TabIcon for Tab {
             Tab::Motion => Icon::Motion,
             Tab::Model(model) => Icon::engine(model.id).unwrap_or(Icon::VoiceModel),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_window_grows_with_the_app_past_mareader_s_640() {
+        let tall = window_size(vec2(1600.0, 1100.0));
+        assert!(tall.y > 900.0 && tall.x > 700.0, "{tall:?}");
+        assert_eq!(window_size(vec2(5000.0, 5000.0)), MAX_SIZE);
+        let small = window_size(vec2(500.0, 400.0));
+        assert!(small.x < 500.0 && small.y < 400.0, "{small:?}: it fits");
     }
 }

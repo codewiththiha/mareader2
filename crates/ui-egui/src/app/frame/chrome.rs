@@ -88,7 +88,7 @@ impl MareaderApp {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings().all_presets();
         let user_presets = self.settings().user_presets.clone();
-        let library_view = self.settings().library.clone();
+        let library_view = self.settings().library;
         let (title, look, page) = match route {
             Route::Reader => (
                 self.documents.title(self.active()).unwrap_or("Mareader"),

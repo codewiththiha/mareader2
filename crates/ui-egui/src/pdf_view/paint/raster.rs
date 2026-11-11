@@ -149,7 +149,6 @@ fn plan(cx: &ShowContext<'_>, page: usize) -> Option<Plan> {
     let wanted = input.scale;
     let max_side = input.max_side;
     let doc_id = cx.place.doc;
-    let view = &*cx.view;
     let doc = cx.doc;
     let sizes = cx.sizes;
     let size = sizes.get(page).copied().unwrap_or(PageSize {

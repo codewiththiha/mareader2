@@ -184,6 +184,12 @@ pub struct PdfView {
     pub sheet_moved: bool,
 }
 
+impl Default for PdfView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PdfView {
     pub fn new() -> Self {
         Self {
@@ -1208,13 +1214,7 @@ fn selection_bar(
 }
 
 /// The strips' scroll along their axis; the paged modes' page.
-fn progress(
-    view: &PdfView,
-    at: &Place,
-    layout: &Layout,
-    out: &ScrollOutput<()>,
-    count: usize,
-) -> f32 {
+fn progress(at: &Place, layout: &Layout, out: &ScrollOutput<()>, count: usize) -> f32 {
     let room = (out.content_size - out.inner_rect.size()).max(Vec2::ZERO);
     let (done, total) = match at.mode {
         ViewMode::Vertical => (out.state.offset.y, room.y),

@@ -1,6 +1,6 @@
 //! Finding a lost book again: its file picked, or a folder searched.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use mareader_library::disk::{FoundAgain, Sought};
 use mareader_library::{BookId, Format, Measure, RelinkError};

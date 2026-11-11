@@ -186,9 +186,23 @@ mod tests {
     #[test]
     fn the_list_is_unique_and_ordered_by_layer() {
         let list = targets(&linked());
-        let mut sorted = list.clone();
-        sorted.sort();
-        assert_eq!(list, sorted, "targets come out in name order, one each");
+        // Layer order, which is what the function promises; the web app last.
+        let rank = |t: &String| {
+            TABLE
+                .iter()
+                .find(|(name, _)| full_name(name) == *t)
+                .map(|(_, layer)| layer.rank())
+        };
+        let layers: Vec<Option<u8>> = list.iter().map(rank).collect();
+        assert_eq!(layers.last(), Some(&None), "{list:?}: the web app is last");
+        let mut seen: u8 = 0;
+        for at in &layers[..layers.len() - 1] {
+            let Some(r) = at else {
+                panic!("{list:?}: a target with no layer row");
+            };
+            assert!(*r >= seen, "{list:?}: out of layer order at L{r}");
+            seen = *r;
+        }
         let unique: std::collections::BTreeSet<&String> = list.iter().collect();
         assert_eq!(unique.len(), list.len());
     }

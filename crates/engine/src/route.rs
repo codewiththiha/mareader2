@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn the_dictionary_keeps_its_settings_and_drops_reading() {
-        assert!(Route::Dictionary.takes(&Intent::Bookmark(None)) == false);
+        assert!(!Route::Dictionary.takes(&Intent::Bookmark(None)));
         assert!(Route::Dictionary.takes(&Intent::OpenBook(mareader_library::BookId(1))));
         assert!(!Route::Dictionary.has_rail());
     }

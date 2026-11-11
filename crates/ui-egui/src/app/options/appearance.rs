@@ -117,7 +117,7 @@ impl MareaderApp {
     fn option_save_preset(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // `Name` or `Name/Section`, saving the look set so far.
         let (name, group) = value.split_once('/').unwrap_or((value, ""));
-        let look = self.settings_mut().appearance.clone();
+        let look = self.settings_mut().appearance;
         self.settings_mut().save_preset(name, group, look);
 
         Ok(())

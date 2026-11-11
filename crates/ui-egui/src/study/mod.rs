@@ -37,7 +37,7 @@ use crate::theme::Tokens;
 use crate::toast::Toast;
 
 /// How long Undo stays offered after a removal.
-
+///
 /// What a pane's pages report to the study tools this frame.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Gloss {

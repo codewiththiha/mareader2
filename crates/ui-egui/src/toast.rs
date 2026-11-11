@@ -5,7 +5,7 @@ mod stack;
 
 use egui::{Context, Id, Rect, pos2};
 
-use crate::command::{Command, Commands, Intent, UiCommand};
+use crate::command::{Command, Commands, UiCommand};
 use crate::motion;
 
 /// At least this long is left once a held stack is let go.

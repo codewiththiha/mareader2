@@ -1,7 +1,7 @@
 //! Book work from menus, the selection bar and drops: removal,
 //! twins and imports.
 
-use mareader_library::{BookId, LinkId, Move, ShelfId};
+use mareader_library::{LinkId, Move};
 
 use super::{LibraryState, Pick, Sheet, wall_ms};
 use crate::command::{Command, Commands, UiCommand};

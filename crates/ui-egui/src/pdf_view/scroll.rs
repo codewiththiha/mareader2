@@ -108,7 +108,7 @@ fn finish_scroll(cx: &mut ShowContext<'_>) {
     };
     let viewport = input.viewport;
     let sizes = cx.sizes;
-    cx.place.progress = progress(view, cx.place, layout, out, sizes.len());
+    cx.place.progress = progress(cx.place, layout, out, sizes.len());
     cx.place.visible = cx.paint.shown_pages.clone();
     view.sheets = std::mem::take(&mut cx.paint.sheets);
     // Nothing shown, as mid-jump: the backdrop holds its colour.

@@ -57,7 +57,7 @@ impl MareaderApp {
         words.extend(self.dict.sound_words());
         let english = self.english_voice();
         let voice = crate::sounds::spoken(english.as_ref().map(|v| v.tag.as_str()));
-        let pronunciation = self.settings().study.pronunciation.clone();
+        let pronunciation = self.settings().study.pronunciation;
         let shown = (&pronunciation, voice);
         let sounds = &mut self.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));

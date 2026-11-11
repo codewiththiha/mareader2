@@ -75,7 +75,7 @@ pub enum Layer {
 }
 
 impl Layer {
-    fn rank(self) -> u8 {
+    pub fn rank(self) -> u8 {
         match self {
             Layer::Core(n) => n,
             Layer::Front => 6,
@@ -108,7 +108,6 @@ pub struct Package {
 
 /// Every rule violation in `packages`, as readable lines.
 pub fn check(packages: &[Package]) -> Vec<String> {
-    let members: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
     let mut errors = Vec::new();
     for p in packages {
         let Some(layer) = layer_of(&p.name) else {
@@ -130,10 +129,8 @@ pub fn check(packages: &[Package]) -> Vec<String> {
                 ));
                 continue;
             }
-            if members.contains(&dep.as_str()) {
-                let Some(theirs) = layer_of(dep) else {
-                    continue;
-                };
+            // A crate with a table row is ours, whether listed here or not.
+            if let Some(theirs) = layer_of(dep) {
                 let sideways = SIDEWAYS.contains(&(short(&p.name), short(dep)));
                 let down =
                     theirs.rank() < layer.rank() || (theirs.rank() == layer.rank() && sideways);

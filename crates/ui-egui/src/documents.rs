@@ -263,7 +263,7 @@ impl Documents {
 
     /// The type `pane`'s book is set in now; none for a PDF or nothing.
     pub fn typography(&self, pane: PaneId) -> Option<Arc<Typography>> {
-        let Some(Content::Pdf { place, view }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
             return None;
         };
         let entry = self.session.as_ref()?.get(place.doc)?;
@@ -288,7 +288,7 @@ impl Documents {
 
     /// Opens card `card`'s transcript in `pane`'s book; false if none shows.
     pub fn open_transcript(&mut self, pane: PaneId, card: usize, track: Option<usize>) -> bool {
-        let Some(Content::Pdf { place, view }) = self.panes.get_mut(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get_mut(&pane) else {
             return false;
         };
         view.transcripts.open(card, track);
@@ -345,7 +345,7 @@ impl Documents {
 
     /// Whether `pane`'s scripts have made their pages and taken every click.
     pub fn scripts_idle(&self, pane: PaneId) -> bool {
-        let Some(Content::Pdf { place, view }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
             return false;
         };
         let paged = &view.triggers.script;
@@ -354,7 +354,7 @@ impl Documents {
 
     /// What `pane`'s scripts have made, for a screenshot to report.
     pub fn scripts_state(&self, pane: PaneId) -> String {
-        let Some(Content::Pdf { place, view }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
             return "no book in the pane".into();
         };
         let p = &view.triggers.script;
@@ -367,7 +367,7 @@ impl Documents {
 
     /// Has `pane`'s scripts click what `selector` matches; false if not yet.
     pub fn pick_script(&mut self, pane: PaneId, selector: &str) -> bool {
-        let Some(Content::Pdf { place, view }) = self.panes.get_mut(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get_mut(&pane) else {
             return false;
         };
         let paged = &mut view.triggers.script;
@@ -381,7 +381,7 @@ impl Documents {
 
     /// Shows or hides trigger target `target` in `pane`; false if no pane.
     pub fn set_trigger(&mut self, pane: PaneId, target: usize, visible: bool) -> bool {
-        let Some(Content::Pdf { place, view }) = self.panes.get_mut(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get_mut(&pane) else {
             return false;
         };
         view.triggers.set(target, visible);
@@ -456,7 +456,7 @@ impl Documents {
         };
         let (mut moves, mut asks) = (Vec::new(), Vec::new());
         for (pane, content) in &self.panes {
-            let Content::Pdf { place, view } = content else {
+            let Content::Pdf { place, .. } = content else {
                 continue;
             };
             let Some(want) = wants.get(pane) else {
@@ -616,7 +616,7 @@ impl Documents {
                 place.book = book;
                 let mut view = PdfView::new();
                 view.go_to(&mut place, page, count);
-                view.hold_place(&mut place, anchor);
+                view.hold_place(&place, anchor);
                 self.set(
                     pane,
                     Some(Content::Pdf {
@@ -785,7 +785,7 @@ impl Documents {
                         if page > 0 {
                             view.go_to(&mut place, page, count);
                         }
-                        view.hold_place(&mut place, anchor);
+                        view.hold_place(&place, anchor);
                         self.panes.insert(
                             pane,
                             Content::Pdf {
@@ -851,7 +851,7 @@ impl Documents {
                             if page > 0 {
                                 view.go_to(&mut place, page, count);
                             }
-                            view.hold_place(&mut place, anchor);
+                            view.hold_place(&place, anchor);
                             self.panes.insert(
                                 pane,
                                 Content::Pdf {
@@ -1385,7 +1385,7 @@ impl Documents {
     pub fn place_read_marker(&mut self, pane: PaneId, spot: mareader_speech::Spot, now: f64) {
         self.dismiss_read_markers(now);
         self.clear_selection(pane);
-        if let Some(Content::Pdf { place, view: v }) = self.panes.get_mut(&pane) {
+        if let Some(Content::Pdf { view: v, .. }) = self.panes.get_mut(&pane) {
             v.marker = Some(crate::read_aloud::marker::Marker::new(spot));
         }
     }
@@ -1401,9 +1401,9 @@ impl Documents {
             })
             .collect();
         for (pane, spot) in due {
-            let Some(view) = self.view(pane) else {
+            if self.view(pane).is_none() {
                 continue;
-            };
+            }
             let Some(doc) = self.place_of(pane).map(|p| p.doc) else {
                 continue;
             };
@@ -1576,7 +1576,7 @@ impl Documents {
 
     /// Whether `pane` shows a book whose text reflows.
     pub fn reflowable(&self, pane: PaneId) -> bool {
-        let Some(Content::Pdf { place, view: v }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
             return false;
         };
         let entry = self.session.as_ref().and_then(|s| s.get(place.doc));
