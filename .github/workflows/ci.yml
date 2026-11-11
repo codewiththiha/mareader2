@@ -49,7 +49,7 @@ jobs:
         env:
           BASE: ${{ steps.base.outputs.sha }}
         run: |
-          changed=$(git diff --name-only --diff-filter=AM "$BASE" -- '*.rs')
+          changed=$(git diff --name-only --diff-filter=AM "$BASE" -- '*.rs' ':!vendor/**')
           [ -z "$changed" ] || python3 tools/comment_check.py $changed
           python3 tools/comment_budget.py "$BASE"
           python3 tools/commit_check.py --range "$BASE..HEAD"
@@ -129,6 +129,24 @@ jobs:
       - if: runner.os == 'macOS'
         run: cargo clippy -p mareader --locked --no-default-features -- -D warnings
       - run: cargo build -p mareader --locked
+      - if: runner.os == 'macOS'
+        name: Verify Apple dependency future compatibility
+        run: |
+          cargo tree -i block@0.1.6 --locked | tee "$RUNNER_TEMP/block-tree.txt"
+          grep -F 'vendor/block' "$RUNNER_TEMP/block-tree.txt"
+          report="$RUNNER_TEMP/future-incompat.txt"
+          set +e
+          cargo report future-incompatibilities --locked >"$report" 2>&1
+          status=$?
+          set -e
+          cat "$report"
+          if [ "$status" -ne 0 ] && ! grep -q 'no reports are currently available' "$report"; then
+            exit "$status"
+          fi
+          if grep -q 'future incompatibility lints' "$report"; then
+            echo '::error::a dependency still has a future-incompatibility report'
+            exit 1
+          fi
       - if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/exe-icons.ps1 target/debug/mareader.exe
