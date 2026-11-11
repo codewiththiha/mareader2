@@ -1,4 +1,4 @@
-//! Panes as commands see them: how a page is shown and how the window is laid out.
+//! Panes as commands see them: how a page is laid out, and its zoom.
 
 /// How a pane's document is laid out.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -52,7 +52,7 @@ impl MareaderApp {
             W::Focus => (win.open, win.minimized) = (true, false),
             W::Close => win.open = false,
             W::Minimize(folded) => win.minimized = folded,
-            W::Place(r) => win.rect = Some([r.min.x, r.min.y, r.width(), r.height()]),
+            W::Place(r) => win.rect = Some(r),
             W::Expand => {
                 win.open = false;
                 self.go(Route::Dictionary);

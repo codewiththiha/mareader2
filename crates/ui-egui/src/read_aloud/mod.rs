@@ -74,20 +74,7 @@ pub struct Lit {
     pub span: Span,
 }
 
-/// Where reading starts: the place or character under the pointer, or the page.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ReadFrom {
-    pub anchor: Option<Anchor>,
-    pub at: Option<Spot>,
-    /// Where it stops: a selection's end, read alone by the voice.
-    pub until: Option<Spot>,
-}
-
-impl ReadFrom {
-    pub fn here(&self) -> bool {
-        self.anchor.is_some() || self.at.is_some()
-    }
-}
+pub use mareader_engine::read_aloud::ReadFrom;
 
 /// Where the words read are: by place in the book, or on its pages.
 #[derive(Clone, Copy, Debug, PartialEq)]

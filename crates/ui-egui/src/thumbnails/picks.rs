@@ -485,8 +485,8 @@ fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mu
                 widgets::menu_rule(ui);
             }
             if menu_row(ui, Icon::Translate, "More languages…", None, false).clicked() {
-                let pages = picks.pages();
-                let at = ui.max_rect().right_top();
+                let (at, pages) = (ui.max_rect().right_top(), picks.pages());
+                let at = [at.x, at.y];
                 out.push(Command::PageAi(Action::PagesMenu { pane, pages, at }));
                 ui.close();
             }

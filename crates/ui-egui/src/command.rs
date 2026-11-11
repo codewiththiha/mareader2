@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+pub use mareader_engine::dict::Download;
+
 use mareader_appearance::Appearance;
 use mareader_library::BookId;
 use mareader_workspace::{DividerPath, PaneId, SplitAxis};
@@ -19,15 +21,6 @@ use mareader_settings::Settings;
 pub struct Independence {
     pub themes: bool,
     pub textures: bool,
-}
-
-/// What a download's buttons ask of it; Start also resumes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Download {
-    Start,
-    Pause,
-    Cancel,
-    Remove,
 }
 
 #[derive(Clone, Debug, PartialEq)]

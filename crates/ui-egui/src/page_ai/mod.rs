@@ -42,68 +42,7 @@ const RESET: f64 = 0.4;
 /// Results kept laid out for a book's pages before they are made again.
 const MAX_MADE: usize = 64;
 
-/// One result: kept with the book, or still being written.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Slot {
-    Saved(AiPageId),
-    Run(u64),
-}
-
-/// How a task runs: on this page, or on as the reader reads.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct How {
-    pub continuous: bool,
-    /// The choice becomes the task's setting.
-    pub remember: bool,
-}
-
-/// What the page and bubble menus ask of the app.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Action {
-    Run {
-        pane: PaneId,
-        page: usize,
-        task: PageTask,
-        how: How,
-    },
-    /// Translates into language `tag`, remembered for next time.
-    Translate {
-        pane: PaneId,
-        page: usize,
-        tag: String,
-        how: How,
-    },
-    /// Ends the pane's continuous run.
-    StopFollow(PaneId),
-    /// Asks pages picked in the thumbnails, in groups.
-    RunPages {
-        pane: PaneId,
-        pages: Vec<usize>,
-        task: PageTask,
-        tag: Option<String>,
-    },
-    /// The page menu for picked pages, at its languages.
-    PagesMenu {
-        pane: PaneId,
-        pages: Vec<usize>,
-        at: Pos2,
-    },
-    /// Drops the pane's waiting groups and stops those being written.
-    StopPages(PaneId),
-    /// Shows a result over the page; none shows the page itself.
-    Show {
-        pane: PaneId,
-        page: usize,
-        slot: Option<Slot>,
-    },
-    Redo {
-        pane: PaneId,
-        page: usize,
-        slot: Slot,
-    },
-    Copy(Slot),
-    Delete(Slot),
-}
+pub use mareader_engine::page_ai::{Action, How, Slot};
 
 /// A page to work on, as the app gathers it.
 pub struct Asked<'a> {
@@ -1542,7 +1481,8 @@ impl PageAi {
     }
 
     /// Opens the menu for picked pages at its languages, at `at`.
-    pub fn open_pages_menu(&mut self, pane: PaneId, pages: Vec<usize>, at: Pos2) {
+    pub fn open_pages_menu(&mut self, pane: PaneId, pages: Vec<usize>, [x, y]: [f32; 2]) {
+        let at = Pos2 { x, y };
         let Some(&page) = pages.first() else {
             return;
         };

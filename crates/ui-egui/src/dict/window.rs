@@ -8,7 +8,7 @@ use mareader_dict::Dictionaries;
 use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 use super::page::Page;
-use super::{Action, Voice, Window};
+use super::{Action, Voice, Window, bounds};
 use crate::command::{Command, Commands};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -140,7 +140,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = home;
             *f.evacuated = None;
             *f.live = None;
-            out.push(Command::Dict(Action::Window(Window::Place(home))));
+            out.push(Command::Dict(Action::Window(Window::Place(bounds(home)))));
             returned = true;
         }
     }
@@ -159,7 +159,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         parked = None;
         *f.evacuated = None;
         *f.live = None;
-        out.push(Command::Dict(Action::Window(Window::Place(rect))));
+        out.push(Command::Dict(Action::Window(Window::Place(bounds(rect)))));
         returned = true;
     }
     let short = f
@@ -356,12 +356,12 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = keep(rect);
             *f.live = None;
             *f.evacuated = None;
-            out.push(Command::Dict(Action::Window(Window::Place(rect))));
+            out.push(Command::Dict(Action::Window(Window::Place(bounds(rect)))));
         }
     } else if !returned && turned {
         rect = keep(rect);
         *f.live = None;
-        out.push(Command::Dict(Action::Window(Window::Place(rect))));
+        out.push(Command::Dict(Action::Window(Window::Place(bounds(rect)))));
     } else if parked.is_some() {
         *f.live = None;
     } else if !returned && f.evacuated.is_none() && Some(rect) != saved {

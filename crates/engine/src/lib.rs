@@ -17,6 +17,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod dict;
 pub mod documents;
 pub mod export;
 pub mod notes_panel;

@@ -19,33 +19,11 @@ use crate::theme::Tokens;
 /// Room around a rested card's word and itself the pointer may cross.
 const LEAVE: f32 = 8.0;
 
-/// What the card, the page and the settings ask of the dictionaries.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Action {
-    Download(&'static str),
-    Pause(&'static str),
-    Cancel(&'static str),
-    Remove(&'static str),
-    CloseCard,
-    /// The card's word, carried on into the window or the page.
-    Pursue(String),
-    /// The reader's floating window, which the app keeps.
-    Window(Window),
-}
+pub use mareader_engine::dict::{Action, Window};
 
-/// What the floating window asks: shown, folded, placed or a page.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Window {
-    /// Shown if closed or folded, else closed.
-    Toggle,
-    /// Shown, its field given the keys; the shortcut on an idle window.
-    Focus,
-    Close,
-    Minimize(bool),
-    /// Let go after a drag or resize: saved.
-    Place(Rect),
-    /// Closed, and the Dictionary page in the panes' place.
-    Expand,
+/// A rect as the engine's window bounds: x, y, width, height.
+fn bounds(rect: Rect) -> [f32; 4] {
+    [rect.min.x, rect.min.y, rect.width(), rect.height()]
 }
 
 /// A lookup card, kept where its words were selected.
