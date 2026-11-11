@@ -146,7 +146,7 @@ pub fn check(packages: &[Package]) -> Vec<String> {
                         theirs.rank()
                     ));
                 }
-            } else if is_ui(dep) && layer != Layer::Front {
+            } else if is_ui(dep) && !matches!(layer, Layer::Front | Layer::App) {
                 errors.push(format!(
                     "{} is below the UI layer and must not depend on {dep}",
                     p.name

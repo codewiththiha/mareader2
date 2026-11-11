@@ -1,1278 +1,779 @@
-//! The whole app, headless: title bar, pin, panes and restyling.
+//! The page pass and the glass, rendered by a real wgpu device.
 
-use egui::accesskit::Role;
 use egui_kittest::Harness;
-use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use egui_kittest::kittest::Queryable as _;
+use image::RgbaImage;
+use mareader_appearance::FilmGrain;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Intent;
-use mareader_ui_egui::command::UiCommand;
+use mareader_ui_egui::command::{Intent, UiCommand};
+use mareader_ui_egui::theme::TITLE_BAR_H;
 
-fn harness(app: MareaderApp) -> Harness<'static, MareaderApp> {
-    sized(app, egui::vec2(1200.0, 800.0))
-}
+use crate::common::scroll;
 
-fn sized(app: MareaderApp, size: egui::Vec2) -> Harness<'static, MareaderApp> {
+type Out = Result<(), String>;
+
+const SIZE: egui::Vec2 = egui::vec2(900.0, 700.0);
+
+fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
+    let mut app = MareaderApp::default();
+    app.set_option("workers", "0").ok();
+    for (k, v) in options {
+        app.set_option(k, v).ok();
+    }
     let mut h = Harness::builder()
-        .with_size(size)
+        .with_size(SIZE)
         .with_step_dt(1.0 / 60.0)
-        .with_max_steps(64)
+        .with_max_steps(200)
+        .wgpu()
         .build_eframe(|_| app);
     h.run_steps(3);
+    h.run();
     h
 }
 
-#[test]
-fn the_bar_appears_on_hover_and_hides_after_the_grace() {
-    let mut h = harness(MareaderApp::default());
-    assert!(!h.state().titlebar().visible());
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(2);
-    assert!(h.state().titlebar().visible());
-    h.hover_at(egui::pos2(600.0, 400.0));
-    h.run_steps(2);
-    assert!(h.state().titlebar().visible(), "the 400 ms grace keeps it");
-    for _ in 0..40 {
-        h.step();
-    }
-    assert!(!h.state().titlebar().visible());
+fn luma(image: &RgbaImage, x: u32, y: u32) -> i32 {
+    let [r, g, b, _] = image.get_pixel(x, y).0;
+    (i32::from(r) * 2126 + i32::from(g) * 7152 + i32::from(b) * 722) / 10_000
 }
 
 #[test]
-fn a_split_adds_and_focuses_a_pane() {
-    let mut h = harness(MareaderApp::default());
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(Intent::Split(
-            mareader_workspace::SplitAxis::Horizontal,
-        )));
-    h.run_steps(2);
-    assert_eq!(h.state().panes().len(), 2);
-    assert_eq!(h.state().active_pane(), h.state().panes()[1]);
-}
-
-#[test]
-fn the_bar_has_no_split_buttons() {
-    let mut h = with(&[("platform", "windows")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    assert!(h.query_by_label("Search").is_some(), "the bar is up");
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    // Panes split by dragging a book from the sidebar onto an edge.
-    for gone in ["Split right", "Split down"] {
-        assert!(h.query_by_label(gone).is_none(), "{gone}");
-    }
-}
-
-#[test]
-fn a_pinned_bar_stays_after_the_pointer_leaves() {
+fn the_window_opens_on_the_remembered_paper_without_a_dark_flash() -> Out {
     let mut app = MareaderApp::default();
-    app.set_option("pinned", "true")
-        .map_err(|e| e.to_string())
-        .ok();
-    let mut h = harness(app);
-    h.hover_at(egui::pos2(600.0, 500.0));
-    for _ in 0..40 {
-        h.step();
-    }
-    assert!(h.state().titlebar().visible());
-}
-
-#[test]
-fn keep_title_bar_shown_holds_it_after_the_pointer_leaves() {
-    let mut h = harness(MareaderApp::default());
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(8);
-    h.get_by_label("View & tools").click();
+    app.set_option("workers", "0")?;
+    app.set_option("preset", "sepia")?;
+    // What the window clears to before a single frame is drawn.
+    let clear = eframe::App::clear_color(&app, &egui::Visuals::dark());
+    let paper = clear.map(|c| (c * 255.0).round() as i32);
+    assert_eq!(paper[3], 255, "opaque, so nothing shows through");
+    let mut h = Harness::builder()
+        .with_size(SIZE)
+        .with_step_dt(1.0 / 60.0)
+        .with_max_steps(200)
+        .wgpu()
+        .build_eframe(|_| app);
+    // The builder ran the first frame, the one fonts aren't ready for.
+    let first = h.render()?;
+    let at = |image: &RgbaImage| image.get_pixel(450, 640).0.map(i32::from);
+    let close = |a: [i32; 4], b: [i32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 3);
+    assert!(close(at(&first), paper), "{:?} vs {paper:?}", at(&first));
+    assert!(luma(&first, 450, 640) > 180, "sepia is light paper");
     h.run_steps(3);
-    h.get_by_label("Keep title bar shown").click();
-    h.run_steps(2);
-    h.hover_at(egui::pos2(600.0, 500.0));
-    for _ in 0..40 {
-        h.step();
+    let settled = h.render()?;
+    assert!(
+        close(at(&settled), at(&first)),
+        "{:?} then {:?}",
+        at(&first),
+        at(&settled)
+    );
+    Ok(())
+}
+
+#[test]
+fn pages_reach_the_screen_through_the_page_pass() -> Out {
+    let mut h = reader(&[("pdf", "sample")]);
+    assert!(h.state().documents().gpu().is_some(), "a device was found");
+    let (_, pages) = h.state().documents().stats();
+    assert!(pages > 0, "pages were uploaded");
+    // Ours, not egui's: only fonts and icons live in its manager.
+    let egui_textures = h.ctx.tex_manager().read().num_allocated();
+    assert!(egui_textures < pages + 8, "{egui_textures} egui textures");
+    let image = h.render()?;
+    let (w, h) = image.dimensions();
+    let ink = (h / 4..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| luma(&image, x, y) < 60)
+        .count();
+    assert!(ink > 500, "{ink} inked pixels");
+    Ok(())
+}
+
+#[test]
+fn a_pinned_bar_blurs_the_page_scrolled_under_it() -> Out {
+    let options = [("pdf", "sample"), ("pinned", "true")];
+    let mut h = reader(&options);
+    let clear = h.render()?;
+    scroll(&mut h, 200.0);
+    let under = h.render()?;
+    let (w, bar) = (clear.width(), TITLE_BAR_H as u32);
+    // Icons and the title match in both; only the backdrop differs.
+    let diff = |x: u32, y: u32| luma(&clear, x, y) - luma(&under, x, y);
+    let mut shows = 0;
+    let mut sharpest = 0;
+    // The title's glyph edges step sharply over any backdrop.
+    let ink = |x: u32, y: u32| {
+        [(x, y), (x + 1, y), (x, y + 1)]
+            .iter()
+            .any(|&(x, y)| luma(&clear, x, y) < 128)
+    };
+    for y in 0..bar - 1 {
+        for x in 0..w - 1 {
+            let d = diff(x, y);
+            shows += usize::from(d > 6);
+            if ink(x, y) {
+                continue;
+            }
+            let step = (diff(x + 1, y) - d).abs().max((diff(x, y + 1) - d).abs());
+            sharpest = sharpest.max(step);
+        }
     }
-    assert!(h.state().titlebar().visible());
+    assert!(shows > 200, "the heading shows through: {shows} pixels");
+    // Blurred it steps by about 1; merely shrunk, by about 13.
+    assert!(sharpest < 6, "the backdrop is blurred: step {sharpest}");
+    Ok(())
 }
 
-#[test]
-fn closing_a_pane_from_its_button_focuses_the_survivor() {
-    let mut app = MareaderApp::default();
-    app.set_option("panes", "2").map_err(|e| e.to_string()).ok();
-    let mut h = harness(app);
-    let survivor = h.state().panes()[0];
-    h.hover_at(egui::pos2(900.0, 400.0));
-    h.run_steps(2);
-    h.get_by_label("Close pane").click();
-    h.run_steps(2);
-    assert_eq!(h.state().panes(), vec![survivor]);
-    assert_eq!(h.state().active_pane(), survivor);
-}
-
-#[test]
-fn an_appearance_change_restyles_on_the_frame_it_lands() {
-    let mut h = harness(MareaderApp::default());
-    let sepia = mareader_appearance::builtin_presets()
-        .into_iter()
-        .find(|p| p.id == "sepia")
-        .map(|p| p.appearance)
-        .unwrap_or_default();
-    let want = mareader_ui_egui::theme::Tokens::new(&sepia);
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
-            Intent::SetAppearance(sepia),
-        ));
-    h.step();
-    assert_eq!(mareader_ui_egui::theme::Tokens::get(&h.ctx), want);
-    assert_eq!(h.ctx.global_style().visuals.panel_fill, want.surface);
-}
-
-fn open_appearance(h: &mut Harness<'static, MareaderApp>) {
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(2);
-    h.get_by_label("Appearance").click();
-    h.run_steps(2);
-}
-
-#[test]
-fn the_appearance_popover_switches_mode_and_keeps_the_bar() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    h.get_by_label("Dark").click();
-    h.run_steps(2);
-    let base = h.state().settings().appearance.base;
-    assert_eq!(base, mareader_appearance::BaseMode::Dark);
-    assert!(mareader_ui_egui::theme::Tokens::get(&h.ctx).dark);
-    h.hover_at(egui::pos2(600.0, 500.0));
-    h.run_steps(40);
-    assert!(
-        h.state().titlebar().visible(),
-        "an open popover holds the bar"
-    );
-}
-
-/// The popover hangs from the bar rather than its button.
-#[test]
-fn the_appearance_popover_hangs_off_the_bar_near_the_edge() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    let id = egui::Id::new(mareader_ui_egui::titlebar::APPEARANCE_POPOVER);
-    let area = h
-        .ctx
-        .memory(|m| m.area_rect(id))
-        .expect("the popover is laid out");
-    let screen = h.ctx.content_rect();
-    // The flyout sits just inside the window edge.
-    let margin = mareader_ui_egui::titlebar::FLYOUT_MARGIN;
-    let off_right = screen.right() - area.right();
-    assert!(
-        (off_right - margin).abs() <= 1.0,
-        "{off_right} points off the right edge, not {margin}"
-    );
-    // The flyout meets the bar without overlapping it.
-    let bar_bottom = screen.top() + mareader_ui_egui::theme::TITLE_BAR_H;
-    let off_bar = area.top() - bar_bottom;
-    assert!(
-        (-1.0..=1.0).contains(&off_bar),
-        "{off_bar} points off the bar's underside at {bar_bottom}"
-    );
-}
-
-#[test]
-fn a_preset_swatch_applies_its_look() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    h.get_by_label("Sepia").click();
-    h.run_steps(2);
-    let sepia = mareader_appearance::builtin_presets()
-        .into_iter()
-        .find(|p| p.id == "sepia")
-        .map(|p| p.appearance);
-    assert_eq!(Some(h.state().settings().appearance), sepia);
-}
-
-#[test]
-fn preset_cards_are_wide_enough_for_their_names() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    // "Parchment" was cut to "Parchme…"; one row stays, the name fits.
-    let card = h.get_by_label("Parchment").rect();
-    let first = h.get_by_label("Sepia").rect();
-    assert_eq!(card.top(), first.top(), "the five share a row");
-    let font = egui::FontId::proportional(10.0);
-    let name = h.ctx.fonts_mut(|f| {
-        f.layout_no_wrap("Parchment".into(), font, egui::Color32::WHITE)
-            .size()
-            .x
-    });
-    // A centred name may use the 6 pt gaps beside its card.
-    assert!(
-        name <= card.width() + 4.0,
-        "{name:.1} in {:.1}",
-        card.width()
-    );
-}
-
-fn with(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
-    let mut app = MareaderApp::default();
-    for (k, v) in options {
-        app.set_option(k, v).map_err(|e| e.to_string()).ok();
+/// Rows of a band right of `left`: brightness spread and sharpest step.
+fn band(image: &RgbaImage, rows: std::ops::Range<u32>, left: u32) -> (i32, i32) {
+    let (mut lo, mut hi, mut step) = (i32::MAX, i32::MIN, 0);
+    for y in rows {
+        for x in left..image.width() - 1 {
+            let l = luma(image, x, y);
+            (lo, hi) = (lo.min(l), hi.max(l));
+            step = step.max((luma(image, x + 1, y) - l).abs());
+        }
     }
-    harness(app)
+    (hi - lo, step)
 }
 
 #[test]
-fn the_bar_toggle_docks_the_sidebar_and_hands_closing_to_it() {
-    let mut h = harness(MareaderApp::default());
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(8);
-    h.get_by_label("Toggle sidebar").click();
+fn the_page_bar_is_glass_and_both_bars_turn_solid_without_it() -> Out {
+    let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
+    // Brings a line of page 2 up under the bar's top edge.
+    let line = {
+        let docs = h.state().documents();
+        let pane = h.state().active_pane();
+        let reading = docs.reading(pane).ok_or("no document")?;
+        let layer = reading.document.text_layer(1).map_err(|e| e.to_string())?;
+        // Page 2 lies a page and a gap below page 1, off screen.
+        let mut sheet = *docs.sheets(pane).first().ok_or("no page")?;
+        let pitch = sheet.rect.height() + mareader_ui_egui::layout::GAP;
+        sheet.rect = sheet.rect.translate(egui::vec2(0.0, pitch));
+        let text: String = layer.text.chars().iter().map(|c| c.ch).collect();
+        let at = text.find("Sphinx").ok_or("no line")?;
+        let line = layer.text.line_at(at);
+        let first = layer.text.chars().get(line.start).ok_or("empty")?;
+        sheet.to_screen(first.bounds)
+    };
+    scroll(&mut h, line.center().y - (SIZE.y - 35.0));
+    // Pointing at the pane's foot raises its bar.
+    h.hover_at(egui::pos2(SIZE.x / 2.0, SIZE.y - 3.0));
     h.run_steps(30);
-    assert!(h.state().sidebar().is_open());
-    assert!(h.query_by_label("Toggle sidebar").is_none());
-    h.get_by_label("Close sidebar").click();
-    h.run_steps(30);
-    assert!(!h.state().sidebar().is_open());
-}
-
-#[test]
-fn the_bar_band_starts_after_a_docked_sidebar() {
-    let mut h = with(&[("sidebar", "outline")]);
-    h.hover_at(egui::pos2(150.0, 20.0));
+    let glass = h.render()?;
+    // Near the bar's top edge, past the slider's knob on page 1.
+    let (top, bottom) = (SIZE.y as u32 - 38, SIZE.y as u32 - 32);
+    let (spread, step) = band(&glass, top..bottom, 260);
+    assert!(spread > 4, "page and margin show through: {spread}");
+    assert!(step < 6, "and blurred: step {step}");
+    h.state_mut().set_option("glass", "false")?;
     h.run_steps(4);
-    assert!(
-        !h.state().titlebar().visible(),
-        "the rail's header is not the band"
+    let solid = h.render()?;
+    assert_eq!(
+        band(&solid, top..bottom, 260).0,
+        0,
+        "the page bar is one colour"
     );
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(4);
-    assert!(h.state().titlebar().visible());
+    let title = band(&solid, 2..8, 0);
+    assert_eq!(title.0, 0, "so is the title bar's edge");
+    Ok(())
 }
 
 #[test]
-fn the_switcher_changes_panel_and_a_reclick_keeps_it() {
-    use mareader_ui_egui::sidebar::Panel;
-    let mut h = with(&[("sidebar", "thumbnails")]);
-    h.get_by_role_and_label(Role::Button, "Outline").click();
-    h.run_steps(2);
-    assert_eq!(h.state().sidebar().panel(), Panel::Outline);
-    h.get_by_role_and_label(Role::Button, "Outline").click();
-    h.run_steps(2);
-    assert!(h.state().sidebar().is_open());
-    assert_eq!(h.state().sidebar().panel(), Panel::Outline);
-}
-
-#[test]
-fn a_floating_sidebar_opens_from_the_edge_and_closes_after_the_grace() {
-    let mut h = with(&[("float", "true")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    h.run_steps(8);
-    assert!(h.query_by_label("Toggle sidebar").is_none());
-    h.hover_at(egui::pos2(2.0, 400.0));
-    h.run_steps(4);
-    assert!(h.state().sidebar().is_open());
-    h.hover_at(egui::pos2(150.0, 400.0));
-    h.run_steps(30);
-    assert!(h.state().sidebar().is_open(), "on the rail it stays");
-    h.hover_at(egui::pos2(800.0, 400.0));
-    h.run_steps(4);
-    assert!(h.state().sidebar().is_open(), "the grace keeps it a moment");
-    h.run_steps(30);
-    assert!(!h.state().sidebar().is_open());
-}
-
-#[test]
-fn the_edge_waits_while_the_pointer_is_in_the_title_bar() {
-    let mut h = with(&[("platform", "mac"), ("float", "true")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    assert!(h.state().titlebar().visible());
-    // Overshooting the bar's buttons onto the edge doesn't move them.
-    h.hover_at(egui::pos2(2.0, 20.0));
-    wait(&mut h, 0.2);
-    assert!(!h.state().sidebar().is_open(), "a brush past the edge");
-    wait(&mut h, 0.45);
-    assert!(h.state().sidebar().is_open(), "resting there opens it");
-    // Below the bar the edge opens at once.
-    let mut h = with(&[("platform", "mac"), ("float", "true")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    h.hover_at(egui::pos2(2.0, 400.0));
-    h.run_steps(2);
-    assert!(h.state().sidebar().is_open());
-}
-
-#[test]
-fn docking_a_floating_sidebar_keeps_it_open() {
-    let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
-    h.hover_at(egui::pos2(150.0, 400.0));
-    h.run_steps(4);
-    h.get_by_label("Dock sidebar").click();
-    h.run_steps(4);
-    assert!(!h.state().settings().chrome.sidebar_overlay);
-    assert!(h.state().sidebar().is_open());
-}
-
-#[test]
-fn escape_closes_the_sidebar() {
-    let mut h = with(&[("sidebar", "outline")]);
-    h.key_press(egui::Key::Escape);
-    h.run_steps(2);
-    assert!(!h.state().sidebar().is_open());
-}
-
-#[test]
-fn a_command_schedules_the_frame_that_shows_it() {
-    let mut h = with(&[("float", "true"), ("sidebar", "outline")]);
-    h.run_steps(2);
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::CloseSidebar,
-    ));
-    // `run` steps only while the app asks for frames, like a real window.
-    h.run();
-    assert!(h.query_by_label("Close sidebar").is_none(), "faded out");
-}
-
-fn open_settings(h: &mut Harness<'static, MareaderApp>) {
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    // A docked sidebar's header has a gear; else it's in the menu.
-    if h.query_by_label("Settings").is_none() {
-        h.get_by_label("View & tools").click();
-        h.run_steps(3);
+fn page_shadow_darkens_the_paper_under_a_page_until_switched_off() -> Out {
+    // A margin leaves paper beside the page for its shadow.
+    let on = [("pdf", "sample:3"), ("margin", "32"), ("shadow", "true")];
+    let off = [("pdf", "sample:3"), ("margin", "32"), ("shadow", "false")];
+    let mut shades = Vec::new();
+    for options in [&on[..], &off[..]] {
+        let mut h = reader(options);
+        let pane = h.state().active_pane();
+        let page = h.state().documents().sheets(pane).first().map(|s| s.rect);
+        let page = page.ok_or("no page drawn")?;
+        let image = h.render()?;
+        // Two pixels right of the page, halfway down.
+        let (x, y) = (page.right() as u32 + 2, page.center().y as u32);
+        shades.push(luma(&image, x, y) - luma(&image, x + 20, y));
     }
-    if let Some(gear) = h.query_all_by_label("Settings").last() {
-        gear.click();
+    assert!(shades[0] < -2, "shadowed: {shades:?}");
+    assert_eq!(shades[1], 0, "no shadow: {shades:?}");
+    Ok(())
+}
+
+/// A margin pixel left of the text, on the first page.
+const MARGIN_PX: (f32, f32) = (40.0, 300.0);
+
+#[test]
+fn the_page_pass_themes_pages_as_the_cpu_reference_does() -> Out {
+    let looks = [("theme", "light"), ("theme", "dark"), ("theme", "dim")];
+    let presets = [("preset", "sepia"), ("preset", "night")];
+    for (key, value) in looks.into_iter().chain(presets) {
+        let mut h = reader(&[("pdf", "sample:3"), (key, value)]);
+        let image = h.render()?;
+        let ppp = image.width() as f32 / SIZE.x;
+        let (x, y) = (MARGIN_PX.0 * ppp, MARGIN_PX.1 * ppp);
+        let got = image.get_pixel(x as u32, y as u32).0;
+        let tone = h.state().settings().appearance.page_tone();
+        let want = tone.blank().map(|c| (c * 255.0).round() as i32);
+        let off = (0..3).map(|i| (i32::from(got[i]) - want[i]).abs()).max();
+        assert!(off <= Some(3), "{value}: got {got:?}, want {want:?}");
     }
-    h.run_steps(4);
+    Ok(())
 }
 
 #[test]
-fn the_gear_opens_settings_and_escape_closes_only_them() {
-    let mut h = with(&[("sidebar", "outline")]);
-    open_settings(&mut h);
-    assert!(h.state().settings_window().is_open());
-    h.key_press(egui::Key::Escape);
-    h.run_steps(2);
-    assert!(!h.state().settings_window().is_open());
-    assert!(h.state().sidebar().is_open(), "Escape was the window's");
+fn dark_pages_show_light_ink_on_dark_paper() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("theme", "dark")]);
+    let image = h.render()?;
+    let (w, h) = image.dimensions();
+    let paper = luma(&image, w / 20, h * 3 / 7);
+    assert!(paper < 60, "the page went dark: {paper}");
+    let ink = (h / 4..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .filter(|&(x, y)| luma(&image, x, y) > paper + 120)
+        .count();
+    assert!(ink > 500, "{ink} light ink pixels");
+    Ok(())
 }
 
-#[test]
-fn a_settings_switch_applies_on_the_frame_it_flips() {
-    let mut h = with(&[("settings", "layout")]);
-    h.get_by_role_and_label(Role::CheckBox, "Overlay sidebar")
-        .click();
-    h.step();
-    h.step();
-    assert!(h.state().settings().chrome.sidebar_overlay);
-}
-
-#[test]
-fn the_system_asking_for_less_motion_stills_it_like_the_master() {
-    use mareader_ui_egui::motion;
-    let mut h = with(&[]);
-    assert!(motion::enabled(&h.ctx) && !motion::reduced(&h.ctx));
-    h.state_mut().set_option("reduced", "true").ok();
-    h.run_steps(2);
-    assert!(!motion::enabled(&h.ctx) && motion::reduced(&h.ctx));
-    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.0);
-    assert_eq!(h.ctx.global_style().animation_time, 0.0);
-    assert!(
-        h.state().settings().motion.enabled,
-        "the setting is the user's"
-    );
-}
-
-#[test]
-fn the_glass_switch_starts_on_and_turns_it_off() {
-    let mut h = with(&[("settings", "layout")]);
-    assert!(h.state().settings().chrome.glass);
-    h.get_by_role_and_label(Role::CheckBox, "Frosted glass")
-        .click();
-    h.step();
-    h.step();
-    assert!(!h.state().settings().chrome.glass);
-}
-
-#[test]
-fn the_motion_tab_hides_each_switch_with_the_master() {
-    use mareader_ui_egui::settings_window::Tab;
-    let mut h = with(&[("settings", "animations")]);
-    let each = "Icon animations";
-    assert!(h.query_by_role_and_label(Role::CheckBox, each).is_some());
-    h.get_by_role_and_label(Role::CheckBox, "Animations")
-        .click();
-    h.run_steps(2);
-    assert!(!h.state().settings().motion.enabled);
-    assert!(h.query_by_role_and_label(Role::CheckBox, each).is_none());
-    // The tab stays put, so the list never shifts.
-    let tab = h.state().settings_window().tab();
-    assert_eq!(tab, Tab::Motion);
-}
-
-#[test]
-fn the_icon_animation_switch_stills_only_icons() {
-    use mareader_ui_egui::motion;
-    let mut h = with(&[("settings", "animations")]);
-    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.5);
-    h.get_by_role_and_label(Role::CheckBox, "Icon animations")
-        .click();
-    h.run_steps(2);
-    assert!(h.state().settings().motion.enabled);
-    assert!(!h.state().settings().motion.icon_animations);
-    assert_eq!(motion::icon_secs(&h.ctx, 0.5), 0.0);
-    assert!(
-        h.query_by_role_and_label(Role::CheckBox, "Sidebar animation")
-            .is_some()
-    );
-}
-
-#[test]
-fn every_settings_tab_is_named_in_its_sidebar() {
-    use mareader_ui_egui::settings_window::Tab;
-    let mut h = with(&[("settings", "layout")]);
-    for tab in Tab::ALL {
-        let label = tab.label();
-        let named = h.query_all_by_role_and_label(Role::Button, label);
-        assert!(named.count() >= 1, "{label}");
+/// Darker runs down the margin column: each line's centre and darkest pixel.
+fn margin_lines(image: &RgbaImage, ppp: f32, blank: i32) -> Vec<(f32, [u8; 4])> {
+    let x = (MARGIN_PX.0 * ppp) as u32;
+    let mut lines: Vec<(Vec<u32>, [u8; 4])> = Vec::new();
+    let mut last = None;
+    // Clear of the gutter's shadow on top and the progress strip below.
+    let bottom = image.height().saturating_sub((12.0 * ppp) as u32);
+    for y in (24.0 * ppp) as u32..bottom {
+        if luma(image, x, y) >= blank - 4 {
+            continue;
+        }
+        let px = image.get_pixel(x, y).0;
+        match lines.last_mut() {
+            Some((rows, darkest)) if last == Some(y - 1) => {
+                rows.push(y);
+                let [r, g, b, _] = *darkest;
+                let old = (i32::from(r) * 2126 + i32::from(g) * 7152 + i32::from(b) * 722) / 10_000;
+                if luma(image, x, y) < old {
+                    *darkest = px;
+                }
+            }
+            _ => lines.push((vec![y], px)),
+        }
+        last = Some(y);
     }
-    h.get_by_role_and_label(Role::Button, "Panes").click();
-    h.run_steps(2);
-    assert_eq!(h.state().settings_window().tab(), Tab::Panes);
-    // The old names land on their new homes.
-    assert_eq!(Tab::parse("fonts"), Some(Tab::Appearance));
-    assert_eq!(Tab::parse("Theme"), Some(Tab::Appearance));
-    assert_eq!(Tab::parse("animations"), Some(Tab::Motion));
-    assert_eq!(Tab::parse("workspace"), Some(Tab::Panes));
+    let centre = |rows: &[u32]| rows.iter().sum::<u32>() as f32 / rows.len().max(1) as f32;
+    lines.iter().map(|(rows, d)| (centre(rows), *d)).collect()
+}
+
+fn median_gap(lines: &[(f32, [u8; 4])]) -> f32 {
+    let mut gaps: Vec<f32> = lines.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    gaps.sort_by(f32::total_cmp);
+    gaps.get(gaps.len() / 2).copied().unwrap_or(0.0)
 }
 
 #[test]
-fn a_dependent_setting_shows_once_its_parent_is_on() {
-    let mut h = with(&[("settings", "layout")]);
-    let on = h.state().settings().layout.floating_label;
-    assert_eq!(h.query_by_label("Label shows").is_some(), on);
-    h.get_by_role_and_label(Role::CheckBox, "Floating label")
-        .click();
-    h.run_steps(2);
-    assert_eq!(h.query_by_label("Label shows").is_some(), !on);
-    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
-    let shared = "Light, Dark and Dim change every pane";
-    assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_none());
-    independent_themes(&mut h);
-    h.run_steps(2);
-    assert!(h.query_by_role_and_label(Role::CheckBox, shared).is_some());
-}
-
-#[test]
-fn split_pane_outline_colour_comes_from_the_workspace_tab() {
-    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
-    h.get_by_label("Red").scroll_to_me();
-    h.run();
-    h.get_by_label("Red").click();
-    h.run_steps(2);
-    let look = h.state().settings().workspace.look;
-    assert_eq!(look.outline_color, mareader_settings::Swatch::Red);
-}
-
-/// eframe's storage, minus the disk.
-#[derive(Default)]
-struct Memory(std::collections::HashMap<String, String>);
-
-impl eframe::Storage for Memory {
-    fn get_string(&self, key: &str) -> Option<String> {
-        self.0.get(key).cloned()
+fn lined_paper_rules_the_page_in_page_units() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("texture", "lined")]);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let tone = h.state().settings().appearance.page_tone();
+    let p = tone.pattern;
+    let to_u8 = |c: [f32; 3]| c.map(|c| (c * 255.0).round() as i32);
+    let blank = to_u8(tone.blank());
+    let lines = margin_lines(&image, ppp, blank[1]);
+    assert!(lines.len() >= 8, "{} lines", lines.len());
+    let gap = median_gap(&lines);
+    for w in lines.windows(2) {
+        let d = w[1].0 - w[0].0;
+        assert!((d - gap).abs() <= 1.5, "uneven rules: {d} against {gap}");
     }
-
-    fn set_string(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_owned(), value);
-    }
-
-    fn remove_string(&mut self, key: &str) {
-        self.0.remove(key);
-    }
-
-    fn flush(&mut self) {}
-}
-
-#[test]
-fn settings_survive_a_save_and_relaunch() {
-    use eframe::App as _;
-    let mut h = with(&[("float", "true"), ("theme", "dim")]);
-    let mut disk = Memory::default();
-    h.state_mut().save(&mut disk);
-    let back = MareaderApp::from_storage(Some(&disk));
-    assert_eq!(back.settings(), h.state().settings());
-    assert!(back.settings().chrome.sidebar_overlay);
-}
-
-#[test]
-fn the_pre_crate_settings_blob_still_loads() {
-    let mut disk = Memory::default();
-    let v0 = r#"{"titlebar_pinned":true,"animations":false,"sidebar_overlay":true}"#;
-    disk.0.insert(
-        mareader_ui_egui::app::SETTINGS_KEY.to_owned(),
-        v0.to_owned(),
-    );
-    let app = MareaderApp::from_storage(Some(&disk));
-    assert!(app.titlebar().pinned && app.settings().chrome.sidebar_overlay);
-    assert!(!app.settings().motion.enabled);
-    assert!(app.settings().chrome.glass, "glass is new, so it starts on");
-}
-
-#[test]
-fn open_appearance_from_settings_swaps_the_window_for_the_popover() {
-    let mut h = with(&[("settings", "theme")]);
-    h.get_by_label("Open Appearance").click();
-    h.run_steps(3);
-    assert!(!h.state().settings_window().is_open());
-    assert!(egui::Popup::is_id_open(
-        &h.ctx,
-        egui::Id::new(mareader_ui_egui::titlebar::APPEARANCE_POPOVER)
-    ));
-}
-
-/// Steps `secs` of app time at 60 frames a second.
-fn wait(h: &mut Harness<'static, MareaderApp>, secs: f32) {
-    h.run_steps((secs * 60.0).ceil() as usize);
-}
-
-#[test]
-fn a_toolbar_tooltip_names_the_control_and_its_shortcut() {
-    let mut h = with(&[("platform", "gnome"), ("sidebar", "outline")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    // The sidebar header's gear; the bar keeps Settings in its menu.
-    h.get_by_label("Settings").hover();
-    wait(&mut h, 0.6);
-    assert!(
-        h.query_by_label("Ctrl+,").is_some(),
-        "the shortcut rides in the tooltip"
-    );
-}
-
-#[test]
-fn a_narrow_bar_folds_tools_into_the_menu() {
-    let mut app = MareaderApp::default();
-    app.set_option("platform", "windows").ok();
-    app.set_option("workers", "0").ok();
-    app.set_option("pdf", "sample:3").ok();
-    let mut h = sized(app, egui::vec2(600.0, 600.0));
-    h.hover_at(egui::pos2(300.0, 20.0));
-    h.run_steps(8);
-    assert!(h.query_by_label("Search").is_some(), "room for Search");
-    // Narrower, Search folds, and works from the menu.
-    h.set_size(egui::vec2(480.0, 600.0));
-    h.hover_at(egui::pos2(240.0, 20.0));
-    h.run_steps(8);
-    assert!(h.query_by_label("Search").is_none(), "it folds");
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    h.get_by_label("Search").click();
-    h.run_steps(3);
-    assert!(h.state().find().is_open(), "a folded tool still works");
-}
-
-#[test]
-fn settings_and_the_pin_live_in_the_menu() {
-    let mut h = with(&[("platform", "windows")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    for gone in ["Settings", "Pin title bar"] {
-        assert!(h.query_by_label(gone).is_none(), "{gone} on the bar");
-    }
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    h.get_by_label("Keep title bar shown");
-    h.get_by_label("Settings").click();
-    h.run_steps(3);
-    assert!(h.state().settings_window().is_open());
-}
-
-#[test]
-fn a_docked_sidebar_takes_the_bar_s_tools() {
-    let mut h = with(&[("platform", "windows"), ("sidebar", "outline")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    // One Search, the header's: the bar shows no second copy.
-    assert_eq!(h.query_all_by_label("Search").count(), 1);
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    assert_eq!(h.query_all_by_label("Search").count(), 1, "nor its menu");
-}
-
-#[test]
-fn a_wide_bar_keeps_every_tool_out_of_the_menu() {
-    let mut h = with(&[("platform", "windows")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    assert_eq!(h.query_all_by_label("Search").count(), 1, "bar only");
-    assert!(h.query_by_label("Full screen").is_some());
-}
-
-#[test]
-fn the_menu_opens_the_shortcut_sheet_in_the_middle() {
-    let mut h = with(&[("platform", "gnome")]);
-    h.hover_at(egui::pos2(700.0, 20.0));
-    h.run_steps(8);
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("Esc").is_none(), "no list in the menu");
-    h.get_by_label("Keyboard shortcuts").click();
-    h.run_steps(3);
-    assert!(mareader_ui_egui::shortcuts::is_open(&h.ctx));
-    let menu = egui::Id::new(mareader_ui_egui::view_menu::VIEW_MENU);
-    assert!(!egui::Popup::is_id_open(&h.ctx, menu), "the menu made way");
-    assert!(h.query_by_label("Esc").is_some());
-    let f11 = h.get_by_label("F11").rect();
-    let middle = h.ctx.content_rect().center();
-    let sheet = h.get_by_label("Filter shortcuts").rect();
-    assert!(
-        (sheet.center().x - middle.x).abs() < 4.0,
-        "centred: {sheet:?}"
-    );
-    assert!(f11.top() > sheet.bottom(), "keys sit under the filter");
-}
-
-#[test]
-fn command_slash_toggles_the_sheet_and_escape_shuts_it() {
-    let mut h = with(&[("platform", "gnome")]);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Slash);
-    h.run_steps(3);
-    assert!(mareader_ui_egui::shortcuts::is_open(&h.ctx));
-    // Typing filters; the filter takes focus as the sheet opens.
-    h.event(egui::Event::Text("pane".into()));
-    h.run_steps(3);
-    assert!(h.query_by_label("Next pane").is_some());
-    assert!(
-        h.query_by_label("F11").is_none(),
-        "full screen filtered out"
-    );
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Slash);
-    h.run_steps(3);
-    assert!(
-        !mareader_ui_egui::shortcuts::is_open(&h.ctx),
-        "its key shuts it"
-    );
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::ShowShortcuts,
-    ));
-    h.run_steps(3);
-    h.key_press(egui::Key::Escape);
-    h.run_steps(3);
-    assert!(
-        !mareader_ui_egui::shortcuts::is_open(&h.ctx),
-        "Esc shuts it"
-    );
-}
-
-#[test]
-fn command_comma_opens_settings() {
-    let mut h = harness(MareaderApp::default());
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Comma);
-    h.run_steps(3);
-    assert!(h.state().settings_window().is_open());
-}
-
-#[test]
-fn a_toast_leaves_by_itself() {
-    let mut h = with(&[("toast", "Copied")]);
-    assert!(h.query_by_label("Copied").is_some());
-    wait(&mut h, 3.0);
-    assert!(h.state().toast().is_some(), "still up before 3.5 s");
-    wait(&mut h, 1.0);
-    assert!(h.state().toast().is_none());
-    assert!(h.query_by_label("Copied").is_none());
-}
-
-#[test]
-fn reading_a_toast_keeps_it_up() {
-    let mut h = with(&[("toast", "Copied")]);
-    h.get_by_label("Copied").hover();
-    wait(&mut h, 6.0);
-    assert!(h.state().toast().is_some(), "hover holds it");
-    h.hover_at(egui::pos2(600.0, 300.0));
-    wait(&mut h, 2.0);
-    assert!(
-        h.state().toast().is_some(),
-        "its clock picks up where it stopped"
-    );
-    wait(&mut h, 2.0);
-    assert!(h.state().toast().is_none());
-}
-
-#[test]
-fn a_toast_closes_from_its_button() {
-    let mut h = with(&[("toast", "error:Could not open the file")]);
-    h.get_by_label("Dismiss").click();
-    wait(&mut h, 0.5);
-    assert!(h.state().toast().is_none());
-}
-
-#[test]
-fn a_toast_sits_in_the_bottom_right_corner() {
-    let h = with(&[("toast", "Copied")]);
-    let card = h.get_by_label("Copied").rect();
-    // Over the reader's page counter, which gives way while it is up.
-    assert!(card.right() > 1150.0 && card.bottom() > 770.0, "{card:?}");
-}
-
-#[test]
-fn undo_on_a_toast_is_a_button_not_a_handle() {
-    let mut h = with(&[("toast", "Saved notes"), ("toast", "undo:Moved_a_book")]);
-    let undo = h.get_by_label("Undo").rect().center();
-    h.hover_at(undo);
-    h.run_steps(2);
-    let cursor = h.output().platform_output.cursor_icon;
-    assert_eq!(cursor, egui::CursorIcon::PointingHand);
-    let rest = h.get_by_label("Moved a book").rect();
-    h.drag_at(undo);
-    h.run_steps(1);
-    for step in 1..=4 {
-        h.hover_at(undo + egui::vec2(10.0 * step as f32, 0.0));
-        h.run_steps(1);
-    }
-    let held = h.get_by_label("Moved a book").rect();
-    assert!((held.left() - rest.left()).abs() < 1.0, "it drags nothing");
-    h.drop_at(undo + egui::vec2(40.0, 0.0));
-    h.run_steps(3);
-    assert!(!h.state().toasts().1, "nor opens the list");
-    assert_eq!(stacked(&h).len(), 2);
-}
-
-#[test]
-fn the_newest_undo_toast_has_a_working_shortcut() {
-    let mut h = with(&[("toast", "undo:Moved_a_book")]);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
-    h.run_steps(4);
-    assert!(stacked(&h).is_empty());
-}
-
-#[test]
-fn a_stack_never_takes_more_than_its_corner() {
-    let h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
-    let layer = h.ctx.memory(|m| m.area_rect(egui::Id::new("toasts")));
-    let corner = egui::Rect::from_min_max(egui::pos2(800.0, 600.0), egui::pos2(1200.0, 800.0));
-    assert!(layer.is_some_and(|r| corner.contains_rect(r)), "{layer:?}");
-}
-
-/// Shown toasts, newest first.
-fn stacked(h: &Harness<'static, MareaderApp>) -> Vec<String> {
-    let (shown, _) = h.state().toasts();
-    shown.iter().map(|t| t.message.clone()).collect()
-}
-
-#[test]
-fn toasts_stack_newest_in_front_and_clear_all_empties_it() {
-    let mut h = with(&[
-        ("toast", "Saved notes"),
-        ("toast", "Copied link"),
-        ("toast", "Exported list"),
+    // A fully covered pixel is the reference's stroke over the paper.
+    let want = to_u8(p.over(tone.blank(), p.stroke));
+    let off = |px: [u8; 4]| (0..3).map(|i| (i32::from(px[i]) - want[i]).abs()).max();
+    let best = lines.iter().map(|l| off(l.1)).min().flatten();
+    assert!(best <= Some(3), "darkest rule {best:?} from {want:?}");
+    // Twice the scale, twice the pitch: the rules follow the page.
+    let mut wide = reader(&[
+        ("pdf", "sample:3"),
+        ("texture", "lined"),
+        ("texture_scale", "200"),
     ]);
-    assert_eq!(stacked(&h), ["Exported list", "Copied link", "Saved notes"]);
-    assert!(h.query_by_label("Exported list").is_some());
+    let image = wide.render()?;
+    let wider = median_gap(&margin_lines(&image, ppp, blank[1]));
     assert!(
-        h.query_by_label("Saved notes").is_none(),
-        "the ones behind peek"
+        (wider - 2.0 * gap).abs() <= 2.0,
+        "{wider} against twice {gap}"
     );
-    h.get_by_label("Exported list").hover();
-    h.run_steps(3);
-    h.get_by_label("Clear all").click();
-    wait(&mut h, 0.5);
-    assert!(stacked(&h).is_empty());
+    Ok(())
 }
 
 #[test]
-fn the_same_words_again_count_instead_of_stacking() {
-    let h = with(&[("toast", "Saved"), ("toast", "Saved")]);
-    assert_eq!(stacked(&h), ["Saved"]);
-}
-
-/// Drags the toast saying `words` sideways by `by`, then lets go.
-fn swipe(h: &mut Harness<'static, MareaderApp>, words: &str, by: f32) {
-    let from = h.get_by_label(words).rect().center();
-    h.hover_at(from);
-    h.run_steps(1);
-    h.drag_at(from);
-    h.run_steps(1);
-    for step in 1..=4 {
-        h.hover_at(from + egui::vec2(by * step as f32 / 4.0, 0.0));
-        h.run_steps(1);
-    }
-}
-
-#[test]
-fn a_toast_swiped_away_goes_and_a_short_pull_springs_back() {
-    let mut h = with(&[("toast", "Copied")]);
-    let rest = h.get_by_label("Copied").rect();
-    // Slow enough not to be a flick.
-    swipe(&mut h, "Copied", 32.0);
-    let pulled = h.get_by_label("Copied").rect();
-    assert!(pulled.left() > rest.left() + 12.0, "it follows the pointer");
-    h.drop_at(pulled.center());
-    wait(&mut h, 0.5);
-    assert_eq!(stacked(&h), ["Copied"], "a short pull springs back");
-    let back = h.get_by_label("Copied").rect();
-    assert!((back.left() - rest.left()).abs() < 1.0, "{back:?}");
-    swipe(&mut h, "Copied", 160.0);
-    h.drop_at(rest.center() + egui::vec2(160.0, 0.0));
-    wait(&mut h, 0.5);
-    assert!(stacked(&h).is_empty());
-}
-
-#[test]
-fn hovering_a_stack_fans_out_the_other_notifications() {
-    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
-    assert!(h.query_by_label("Saved notes").is_none());
-    h.get_by_label("Copied link").hover();
-    h.run_steps(20);
-    let back = h.get_by_label("Saved notes").rect();
-    let front = h.get_by_label("Copied link").rect();
-    assert!(
-        back.bottom() <= front.top(),
-        "the cards fan apart: {back:?}, {front:?}"
-    );
-    assert!(h.query_by_label("Clear all").is_some());
-}
-
-#[test]
-fn clicking_a_stack_opens_a_list_of_every_toast() {
-    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
-    h.get_by_label("Copied link").click();
-    h.run_steps(3);
-    assert!(h.state().toasts().1, "the click opens it");
-    assert!(h.query_by_label("Notifications").is_some());
-    assert!(h.query_by_label("Saved notes").is_some());
-    assert_eq!(h.query_all_by_label("Dismiss").count(), 2);
-    h.get_by_label("Show less").click();
-    h.run_steps(3);
-    assert!(!h.state().toasts().1);
-    h.hover_at(egui::pos2(300.0, 300.0));
-    h.run_steps(3);
-    h.get_by_label("Show all notifications").click();
-    h.run_steps(3);
-    assert!(h.state().toasts().1, "the strip opens it too");
-    let away = egui::pos2(300.0, 300.0);
-    h.drag_at(away);
-    h.run_steps(1);
-    h.drop_at(away);
-    h.run_steps(3);
-    assert!(!h.state().toasts().1, "a click elsewhere closes it");
-    assert_eq!(stacked(&h).len(), 2, "closing the list keeps the toasts");
-}
-
-#[test]
-fn an_open_stack_holds_its_toasts() {
-    let mut h = with(&[("toast", "Saved notes"), ("toast", "Copied link")]);
-    h.run_steps(2);
-    h.state_mut().set_option("toasts", "open").ok();
-    h.hover_at(egui::pos2(300.0, 300.0));
-    wait(&mut h, 8.0);
-    assert_eq!(stacked(&h).len(), 2);
-    h.get_by_label("Clear all").click();
-    wait(&mut h, 0.5);
-    assert!(stacked(&h).is_empty());
-    assert!(!h.state().toasts().1);
-}
-
-#[test]
-fn a_refused_split_says_why() {
-    use mareader_workspace::SplitAxis;
-    let mut h = with(&[("panes", "4")]);
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(Intent::Split(
-            SplitAxis::Horizontal,
-        )));
-    h.run_steps(3);
-    let toast = h.state().toast().map(|t| t.message.clone());
-    assert!(toast.is_some_and(|m| m.contains("4 panes")));
-}
-
-#[test]
-fn repaired_settings_say_so() {
-    let mut disk = Memory::default();
-    let bad = r#"{"version":1,"motion":{"zoom":"often"}}"#;
-    disk.0.insert(
-        mareader_ui_egui::app::SETTINGS_KEY.to_owned(),
-        bad.to_owned(),
-    );
-    let app = MareaderApp::from_storage(Some(&disk));
-    let tone = app.toast().map(|t| t.tone);
-    assert_eq!(tone, Some(mareader_ui_egui::toast::Tone::Error));
-}
-
-fn lights(h: &Harness<'static, MareaderApp>) -> mareader_ui_egui::platform::NativeLights {
-    h.state().native_lights()
-}
-
-#[test]
-fn an_open_sidebar_keeps_the_lights_while_the_bar_hides() {
-    let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
-    h.hover_at(egui::pos2(700.0, 500.0));
-    wait(&mut h, 1.0);
-    assert!(!h.state().titlebar().visible());
-    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
-}
-
-#[test]
-fn closing_the_sidebar_slides_the_lights_away() {
-    let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
-    h.hover_at(egui::pos2(700.0, 500.0));
-    wait(&mut h, 1.0);
-    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
-        UiCommand::CloseSidebar,
-    ));
-    wait(&mut h, 0.15);
-    let mid = lights(&h);
-    assert!(
-        mid.shift < 0.0 && mid.shift > -mareader_ui_egui::sidebar::WIDTH,
-        "{mid:?}"
-    );
-    assert_eq!(mid.opacity, 1.0, "they ride the rail, no fade");
-    wait(&mut h, 0.5);
-    assert_eq!(lights(&h).opacity, 0.0, "gone with it; the bar is hidden");
-}
-
-#[test]
-fn without_a_sidebar_the_lights_come_with_the_bar() {
-    let mut h = with(&[("platform", "mac")]);
-    h.hover_at(egui::pos2(700.0, 500.0));
-    wait(&mut h, 1.0);
-    assert_eq!(lights(&h).opacity, 0.0);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
-}
-
-#[test]
-fn in_overlay_mode_the_lights_slide_in_with_the_rail_only() {
-    let mut h = with(&[("platform", "mac"), ("float", "true")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    assert!(h.state().titlebar().visible());
-    assert_eq!(lights(&h).opacity, 0.0, "the bar never hosts them here");
-    h.hover_at(egui::pos2(2.0, 400.0));
-    wait(&mut h, 0.12);
-    h.hover_at(egui::pos2(100.0, 400.0));
-    let mid = lights(&h);
-    assert!(mid.shift < 0.0 && mid.opacity == 1.0, "{mid:?}");
-    wait(&mut h, 0.5);
-    assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
-}
-
-#[test]
-fn the_overlay_bar_leaves_no_gutter_for_lights() {
-    let mut h = with(&[("platform", "mac"), ("float", "true")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    assert!(h.get_by_label("Library").rect().left() < 20.0);
-    let mut h = with(&[("platform", "mac")]);
-    h.hover_at(egui::pos2(600.0, 20.0));
-    wait(&mut h, 0.5);
-    assert!(h.get_by_label("Toggle sidebar").rect().left() >= 80.0);
-}
-
-#[test]
-fn the_floating_rail_slides_in_solid_not_fading() {
-    let mut h = with(&[("float", "true"), ("platform", "gnome")]);
-    h.hover_at(egui::pos2(2.0, 400.0));
-    wait(&mut h, 0.15);
-    let shift = h.state().sidebar().offset().unwrap_or(0.0);
-    assert!(shift < -20.0, "still on its way in: {shift}");
-    let image = h.render().map_err(|e| e.to_string());
-    let Ok(image) = image else {
-        return;
-    };
-    // Inside the visible rail: its own surface, not blended with the page.
-    let x = (mareader_ui_egui::sidebar::WIDTH + shift - 10.0) as u32;
-    let [r, g, b, _] = image.get_pixel(x, 400).0;
-    let [pr, pg, pb, _] = image.get_pixel(900, 400).0;
-    assert_ne!((r, g, b), (pr, pg, pb), "the rail shows");
-    let settled = {
-        h.hover_at(egui::pos2(100.0, 400.0));
-        wait(&mut h, 0.6);
-        h.render()
-            .map(|i| i.get_pixel(278, 400).0)
-            .unwrap_or([r, g, b, 255])
-    };
-    assert_eq!([r, g, b], settled[..3], "same colour mid-slide as at rest");
-}
-
-#[test]
-fn saving_the_look_adds_a_preset_that_is_picked() {
-    let mut h = with(&[("preset", "sepia")]);
-    open_appearance(&mut h);
-    h.get_by_label("Save current look").click();
-    h.run_steps(2);
-    h.event(egui::Event::Text("Night owl".into()));
-    h.run_steps(1);
-    h.key_press(egui::Key::Enter);
-    h.run_steps(2);
-    let s = h.state().settings();
-    let saved = s
-        .user_presets
-        .first()
-        .map(|p| (p.name.as_str(), p.appearance));
-    assert_eq!(saved, Some(("Night owl", s.appearance)));
-    // It lands under Custom, and as the look in use it is the picked one.
-    assert!(h.query_all_by_label("Custom").count() > 0, "named section");
-    let picked = h.get_by_label("Night owl").accesskit_node().toggled();
-    assert_eq!(picked, Some(egui::accesskit::Toggled::True));
-    assert!(
-        h.query_by_label("Save current look").is_some(),
-        "the form closed"
-    );
-}
-
-#[test]
-fn a_user_preset_shows_in_its_section_and_deletes_from_its_card() {
-    let mut h = with(&[("save_preset", "Owl/Evening")]);
-    open_appearance(&mut h);
-    h.get_by_label("Evening");
-    assert!(h.query_by_label("Delete Sepia").is_none(), "built-ins stay");
-    h.get_by_label("Owl").hover();
-    h.run_steps(2);
-    h.get_by_label("Delete Owl").click();
-    h.run_steps(2);
-    assert!(h.state().settings().user_presets.is_empty());
-    assert!(h.query_by_label("Owl").is_none());
-}
-
-#[test]
-fn a_hue_landmark_tints_at_a_gentle_strength() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    h.get_by_label("Rose hue").click();
-    h.run_steps(2);
-    let a = h.state().settings().appearance;
-    assert_eq!((a.tint_hue, a.tint_strength), (14, 18));
-}
-
-#[test]
-fn the_appearance_popover_grows_to_its_cap_then_scrolls() {
-    // Compact by default, so enough sections of looks to overflow it.
-    let looks: Vec<_> = (0..12)
-        .map(|i| ("save_preset", format!("L{i}/S{}", i % 4)))
+fn real_paper_grains_the_page_around_the_reference() -> Out {
+    let mut h = reader(&[("pdf", "sample:3"), ("texture", "paper")]);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let p = h.state().settings().appearance.page_tone();
+    let mean = p.pattern.over(p.blank(), p.pattern.grain_layer(0.5, 0.5));
+    let want = (mean[1] * 255.0).round() as f64;
+    let (x0, y0) = ((20.0 * ppp) as u32, (200.0 * ppp) as u32);
+    let block: Vec<f64> = (y0..y0 + 60)
+        .flat_map(|y| (x0..x0 + 40).map(move |x| (x, y)))
+        .map(|(x, y)| f64::from(image.get_pixel(x, y).0[1]))
         .collect();
-    let looks: Vec<_> = looks.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    let mut h = with(&looks);
-    open_appearance(&mut h);
+    let n = block.len() as f64;
+    let avg = block.iter().sum::<f64>() / n;
+    let spread = (block.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt();
+    assert!(
+        (avg - want).abs() <= 3.0,
+        "grain mean {avg}, reference {want}"
+    );
+    assert!(spread > 0.5, "grain varies: {spread}");
+    Ok(())
+}
+
+#[test]
+fn rules_run_on_across_touching_pages() -> Out {
+    // 792 pt is no whole number of rules, so per-page rules would jar.
+    let opts = [("pdf", "sample:3"), ("texture", "lined"), ("gap", "false")];
+    let mut h = reader(&opts);
+    // Page one is about 1164 points tall: bring its seam on screen.
+    scroll(&mut h, 900.0);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let tone = h.state().settings().appearance.page_tone();
+    let blank = (tone.blank()[1] * 255.0).round() as i32;
+    let lines = margin_lines(&image, ppp, blank);
+    assert!(lines.len() >= 12, "{} lines", lines.len());
+    let gap = median_gap(&lines);
+    for w in lines.windows(2) {
+        let d = w[1].0 - w[0].0;
+        assert!(
+            (d - gap).abs() <= 1.5,
+            "a jarred rule at {}: {d} against {gap}",
+            w[1].0
+        );
+    }
+    Ok(())
+}
+
+/// A pixel of `plain`, the frame without grain, grained by the reference.
+fn grained_by_reference(plain: &RgbaImage, grain: FilmGrain, ppp: f32, x: u32, y: u32) -> [u8; 3] {
+    let [r, g, b, _] = plain.get_pixel(x, y).0;
+    let base = [r, g, b].map(|c| f32::from(c) / 255.0);
+    let p = [(x as f32 + 0.5) / ppp, (y as f32 + 0.5) / ppp];
+    grain.over(base, p).map(|c| (c * 255.0).round() as u8)
+}
+
+#[test]
+fn film_grain_multiplies_light_and_screens_dark_as_the_reference() -> Out {
+    for theme in ["light", "dark"] {
+        let mut h = reader(&[("theme", theme)]);
+        let plain = h.render()?;
+        h.state_mut().set_option("grain", "static")?;
+        h.state_mut().set_option("grain_intensity", "100")?;
+        h.run_steps(2);
+        let grained = h.render()?;
+        let look = h.state().settings().appearance;
+        let grain = FilmGrain::of(&look).ok_or("grain is on")?;
+        assert_eq!(grain.screen, theme == "dark");
+        let ppp = plain.width() as f32 / SIZE.x;
+        // Plain paper below the empty state's prompt.
+        let (x0, y0) = ((780.0 * ppp) as u32, (560.0 * ppp) as u32);
+        let (mut worst, mut values) = (0, Vec::new());
+        for y in y0..y0 + 40 {
+            for x in x0..x0 + 40 {
+                let want = grained_by_reference(&plain, grain, ppp, x, y);
+                let [r, g, b, _] = grained.get_pixel(x, y).0;
+                for (got, want) in [r, g, b].into_iter().zip(want) {
+                    worst = worst.max((i32::from(got) - i32::from(want)).abs());
+                }
+                values.push(f64::from(g));
+            }
+        }
+        let n = values.len() as f64;
+        let avg = values.iter().sum::<f64>() / n;
+        let spread = (values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt();
+        assert!(worst <= 3, "{theme}: off the reference by {worst}");
+        assert!(spread > 3.0, "{theme}: the grain varies, spread {spread}");
+        let before = f64::from(plain.get_pixel(x0, y0).0[1]);
+        let darker = avg < before;
+        assert_eq!(darker, theme == "light", "{theme}: {before} became {avg}");
+        h.state_mut().set_option("grain", "off")?;
+        h.run_steps(2);
+        let off = h.render()?;
+        let same = (y0..y0 + 40)
+            .all(|y| (x0..x0 + 40).all(|x| off.get_pixel(x, y) == plain.get_pixel(x, y)));
+        assert!(same, "{theme}: grain off leaves the paper untouched");
+    }
+    Ok(())
+}
+
+/// How much the green channel varies over a card's plain paper.
+fn card_spread(image: &RgbaImage, card: egui::Rect, ppp: f32) -> f64 {
+    // Left of the lines, clear of the corner dot.
+    let w = card.width();
+    let x = (card.left() + w * 0.05) * ppp..(card.left() + w * 0.16) * ppp;
+    let y = (card.top() + w * 0.2) * ppp..(card.top() + w * 0.55) * ppp;
+    let mut values = Vec::new();
+    for py in y.start as u32..y.end as u32 {
+        for px in x.start as u32..x.end as u32 {
+            values.push(f64::from(image.get_pixel(px, py).0[1]));
+        }
+    }
+    let n = values.len().max(1) as f64;
+    let avg = values.iter().sum::<f64>() / n;
+    (values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / n).sqrt()
+}
+
+#[test]
+fn preset_cards_carry_their_own_texture_and_grain() -> Out {
+    let loud = [
+        ("texture", "grid"),
+        ("grain", "static"),
+        ("grain_intensity", "100"),
+        ("save_preset", "Loud"),
+        ("preset", "sepia"),
+        ("open", "appearance"),
+    ];
+    let mut h = reader(&loud);
     h.run_steps(4);
-    let id = egui::Id::new(mareader_ui_egui::titlebar::APPEARANCE_POPOVER);
-    let rect = h
-        .ctx
-        .memory(|m| m.area_rect(id))
-        .unwrap_or(egui::Rect::NOTHING);
-    // 70 % of 800 points is past the 512 cap; the frame adds a margin.
-    let cap = mareader_ui_egui::appearance_menu::MAX_HEIGHT;
-    assert!(rect.height() >= cap, "{} tall", rect.height());
-    assert!(rect.height() < cap + 40.0, "{} tall", rect.height());
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let loud = card_spread(&image, h.get_by_label("Loud").rect(), ppp);
+    let plain = card_spread(&image, h.get_by_label("Sepia").rect(), ppp);
+    assert!(plain < 1.5, "Sepia's card is flat paper: {plain}");
+    assert!(loud > 4.0, "Loud's card shows its grain: {loud}");
+    Ok(())
 }
 
 #[test]
-fn slider_values_never_widen_the_appearance_popover() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    let id = egui::Id::new(mareader_ui_egui::titlebar::APPEARANCE_POPOVER);
-    let width = |h: &Harness<'static, MareaderApp>| {
-        h.ctx.memory(|m| m.area_rect(id)).map_or(0.0, |r| r.width())
-    };
-    let mut a = h.state().settings().appearance;
-    (a.tint_strength, a.texture_scale, a.noise_intensity) = (0, 25, 0);
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
-            Intent::SetAppearance(a),
-        ));
-    h.run_steps(3);
-    let narrow = width(&h);
-    (a.tint_strength, a.texture_scale, a.noise_intensity) = (100, 400, 100);
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
-            Intent::SetAppearance(a),
-        ));
-    h.run_steps(3);
-    assert!(narrow > 0.0, "the popover is open");
-    assert_eq!(
-        width(&h),
-        narrow,
-        "\"400 %\" takes no more room than \"25 %\""
-    );
-}
-
-#[test]
-fn the_popover_offers_pane_modes_only_while_split() {
-    let modes = ["Theme per pane", "Texture per pane"];
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    for label in modes {
-        assert!(h.query_by_role_and_label(Role::CheckBox, label).is_none());
-    }
-    let mut h = with(&[("panes", "2")]);
-    open_appearance(&mut h);
-    // Together at the foot, below the last group's controls.
-    let last = h.get_by_label("Animated").rect().bottom();
-    for label in modes {
-        let top = h.get_by_role_and_label(Role::CheckBox, label).rect().top();
-        assert!(top > last, "{label} sits at {top}, above {last}");
-    }
-}
-
-#[test]
-fn clicking_a_group_label_folds_and_unfolds_it() {
-    let mut h = harness(MareaderApp::default());
-    open_appearance(&mut h);
-    for (group, inside) in [("Film grain", "Static"), ("Presets", "Sepia")] {
-        h.get_by_label(group).click();
-        h.run_steps(2);
-        assert!(h.query_by_label(inside).is_none(), "{group} folded");
-        h.get_by_label(group).click();
-        h.run_steps(2);
-        assert!(h.query_by_label(inside).is_some(), "{group} unfolded");
-    }
-}
-
-#[test]
-fn a_preset_section_folds_on_its_own() {
-    let mut h = with(&[("save_preset", "Owl/Evening")]);
-    open_appearance(&mut h);
-    h.get_by_label("Evening").click();
+fn split_panes_fill_with_their_own_paper() -> Out {
+    let mut h = reader(&[("panes", "2"), ("independent", "true")]);
     h.run_steps(2);
-    assert!(h.query_by_label("Owl").is_none(), "its cards fold away");
-    assert!(h.query_by_label("Sepia").is_some(), "other sections stay");
-}
-
-#[test]
-fn independent_themes_from_settings_colour_the_other_pane() {
-    let mut h = with(&[("panes", "2"), ("settings", "panes")]);
-    independent_themes(&mut h);
-    h.run_steps(3);
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
     let app = h.state();
-    assert!(app.settings().workspace.independent_themes);
-    let (one, two) = match app.panes()[..] {
-        [one, two] => (one, two),
-        _ => panic!("two panes"),
-    };
-    assert_eq!(
-        app.look(one),
-        app.settings().appearance,
-        "the front keeps it"
-    );
-    let own = app.look(two);
-    assert_eq!(own.tint_strength, mareader_appearance::PANE_TINT_STRENGTH);
-    assert_ne!(own.tint_hue, app.look(one).tint_hue);
-}
-
-#[test]
-fn a_mode_switch_changes_only_the_active_pane_unless_shared() {
-    for shared in [false, true] {
-        let flag = if shared { "true" } else { "false" };
-        let options = [
-            ("panes", "2"),
-            ("independent", "true"),
-            ("shared_base", flag),
-        ];
-        let mut h = with(&options);
-        // The second pane in front; the first wears the window's look.
-        h.state_mut().set_option("focus", "2").ok();
-        h.run();
-        open_appearance(&mut h);
-        h.get_by_label("Dark").click();
-        h.run_steps(2);
-        let app = h.state();
-        let dark = |p| app.look(p).base == mareader_appearance::BaseMode::Dark;
-        let (one, two) = (app.panes()[0], app.panes()[1]);
-        assert!(dark(two), "the active pane is dark");
-        assert_eq!(dark(one), shared, "the other follows only when shared");
-        assert_eq!(app.settings().appearance.base.is_dark(), shared);
+    let mut papers = Vec::new();
+    // Below each pane's empty state, clear of outlines and dividers.
+    for (pane, x) in app.panes().into_iter().zip([0.25, 0.75]) {
+        let want = mareader_ui_egui::theme::Tokens::new(&app.look(pane)).paper;
+        let at = ((SIZE.x * x * ppp) as u32, (SIZE.y * 0.9 * ppp) as u32);
+        let [r, g, b, _] = image.get_pixel(at.0, at.1).0;
+        let off = [(r, want.r()), (g, want.g()), (b, want.b())]
+            .map(|(got, want)| (i32::from(got) - i32::from(want)).abs());
+        assert!(
+            off.iter().all(|d| *d <= 2),
+            "{pane:?}: {r} {g} {b} vs {want:?}"
+        );
+        papers.push(want);
     }
+    assert_ne!(papers.first(), papers.last(), "each pane its own paper");
+    Ok(())
+}
+
+fn rgb_at(image: &RgbaImage, ppp: f32, at: egui::Pos2) -> [i32; 3] {
+    let [r, g, b, _] = image.get_pixel((at.x * ppp) as u32, (at.y * ppp) as u32).0;
+    [r, g, b].map(i32::from)
+}
+
+fn apart(a: [i32; 3], b: [i32; 3]) -> i32 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .max()
+        .unwrap_or(0)
 }
 
 #[test]
-fn the_interface_wears_the_look_of_the_pane_split_from() {
-    let options = [("panes", "3"), ("independent", "true")];
-    let mut h = with(&options);
-    let panes = h.state().panes();
-    let (one, two) = (panes[0], panes[1]);
-    // Its own look turned dark: the window, and so the interface, follow.
-    open_appearance(&mut h);
-    h.get_by_label("Dark").click();
+fn pages_keep_inside_a_split_pane_s_round_corners() -> Out {
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("corners", "rounded"),
+        ("pane_gap", "12"),
+    ];
+    let mut h = reader(&options);
     h.run_steps(2);
-    assert!(h.state().settings().appearance.base.is_dark());
-    assert_eq!(h.state().look(one), h.state().settings().appearance);
-    // Closed, the eldest left is crowned and the window wears its look.
-    let heir = h.state().look(two);
-    h.state_mut()
-        .queue(mareader_ui_egui::command::Command::Intent(
-            Intent::ClosePane(one),
-        ));
-    h.run_steps(3);
-    assert_eq!(h.state().panes().len(), 2);
-    assert_eq!(h.state().settings().appearance, heir, "the heir's look");
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let rects = h.state().pane_rects().to_vec();
+    let Some(&(_, r)) = rects.first() else {
+        return Err("no panes drawn".into());
+    };
+    let page = rgb_at(&image, ppp, r.left_bottom() + egui::vec2(40.0, -40.0));
+    let gap = rgb_at(&image, ppp, egui::pos2(r.right() + 6.0, r.center().y));
+    let corner = rgb_at(&image, ppp, r.left_bottom() + egui::vec2(1.0, -1.5));
+    assert!(apart(page, gap) > 8, "page {page:?} vs gap {gap:?}");
+    assert!(
+        apart(corner, gap) < apart(corner, page),
+        "corner {corner:?} shows the page {page:?}, not the gap {gap:?}"
+    );
+    Ok(())
 }
 
 #[test]
-fn closing_to_one_pane_keeps_the_survivor_s_own_look() {
-    let mut h = with(&[("panes", "2"), ("independent", "true")]);
-    let two = h.state().panes()[1];
-    let own = h.state().look(two);
-    let one = h.state().panes()[0];
+fn a_mode_click_fades_from_the_old_look() -> Out {
+    use mareader_appearance::BaseMode;
+    let mut h = reader(&[("pdf", "sample"), ("open", "appearance")]);
+    let base = |h: &Harness<'static, MareaderApp>| h.state().look(h.state().active_pane()).base;
+    h.get_by_label("Dark").click();
+    h.step();
+    assert_eq!(base(&h), BaseMode::Light, "held for its snapshot");
+    h.step();
+    assert_eq!(base(&h), BaseMode::Dark);
+    assert!(h.state().fading(), "the old look fades out over the new");
+    h.run();
+    assert!(!h.state().fading(), "the fade ends");
+    let mut look = h.state().look(h.state().active_pane());
+    look.base = BaseMode::Dim;
     h.state_mut()
         .queue(mareader_ui_egui::command::Command::Intent(
-            Intent::ClosePane(one),
+            Intent::SetAppearance(look),
         ));
-    h.run_steps(3);
-    assert_eq!(h.state().panes(), vec![two]);
-    assert_eq!(
-        h.state().settings().appearance,
-        own,
-        "the window took it over"
-    );
+    h.step();
+    assert_eq!(base(&h), BaseMode::Dim, "a queued change lands at once");
+    assert!(!h.state().fading());
+    Ok(())
 }
 
-/// Split, the Panes tab opens on the pane looks; the switch is below.
-fn independent_themes(h: &mut Harness<'static, MareaderApp>) {
-    let switch = "Independent theme for each pane";
-    h.get_by_role_and_label(Role::CheckBox, switch)
+#[test]
+fn with_animations_off_a_mode_click_lands_at_once() -> Out {
+    use mareader_appearance::BaseMode;
+    let mut h = reader(&[
+        ("pdf", "sample"),
+        ("animations", "false"),
+        ("open", "appearance"),
+    ]);
+    h.get_by_label("Dark").click();
+    h.step();
+    let app = h.state();
+    assert_eq!(app.look(app.active_pane()).base, BaseMode::Dark);
+    assert!(!app.fading());
+    Ok(())
+}
+
+/// The darkest and lightest luma in the lower page of each pane.
+fn page_spread(h: &mut Harness<'static, MareaderApp>) -> Result<Vec<(i32, i32)>, String> {
+    let image = h.render()?;
+    let ppp = image.width() as f32 / SIZE.x;
+    let mut spreads = Vec::new();
+    for (_, r) in h.state().pane_rects() {
+        let (mut lo, mut hi) = (255, 0);
+        for y in (r.top() + r.height() * 0.52) as u32..(r.top() + r.height() * 0.78) as u32 {
+            for x in (r.left() + 20.0) as u32..(r.right() - 20.0) as u32 {
+                let l = luma(&image, (x as f32 * ppp) as u32, (y as f32 * ppp) as u32);
+                (lo, hi) = (lo.min(l), hi.max(l));
+            }
+        }
+        spreads.push((lo, hi));
+    }
+    Ok(spreads)
+}
+
+#[test]
+fn texture_for_each_patterns_every_open_pane() -> Out {
+    use mareader_appearance::TextureMode;
+    use mareader_ui_egui::command::Command;
+    use mareader_ui_egui::settings_window::Tab;
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("focus", "2"),
+        ("pdf", "sample"),
+    ];
+    let mut h = reader(&options);
+    h.run_steps(4);
+    let app = h.state();
+    let panes = app.panes();
+    let open = panes
+        .iter()
+        .filter(|p| app.documents().reading(**p).is_some());
+    assert_eq!(open.count(), 2, "a book in each pane");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo < 6, "plain pages first: {lo}..{hi}");
+    }
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Panes)));
+    h.run();
+    let switch = "Independent page texture for each pane";
+    // Split, the tab opens on the pane looks; the switch sits below.
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
         .scroll_to_me();
     h.run();
-    h.get_by_role_and_label(Role::CheckBox, switch).click();
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
+        .click();
+    h.run();
+    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.run();
+    h.run_steps(4);
+    let app = h.state();
+    let textures: Vec<TextureMode> = app
+        .panes()
+        .into_iter()
+        .map(|p| app.look(p).texture)
+        .collect();
+    assert!(!textures.contains(&TextureMode::None), "{textures:?}");
+    assert_ne!(textures.first(), textures.last(), "{textures:?}");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo >= 6, "a pattern on every page: {lo}..{hi}");
+    }
+    Ok(())
 }
 
 #[test]
-fn view_menu_exposes_switch_state_and_updates_it_without_closing() {
-    use egui::accesskit::Toggled;
+fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
+    use mareader_appearance::TextureMode;
+    use mareader_ui_egui::command::Command;
+    let options = [
+        ("pdf", "sample"),
+        ("panes", "2"),
+        ("focus", "2"),
+        ("pdf", "sample"),
+    ];
+    let mut h = reader(&options);
+    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.run();
+    let switch = h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture per pane");
+    switch.scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture per pane")
+        .click();
+    h.run();
+    h.run_steps(4);
+    let app = h.state();
+    assert!(
+        app.settings().workspace.independent_textures,
+        "the switch took"
+    );
+    let textures: Vec<TextureMode> = app
+        .panes()
+        .into_iter()
+        .map(|p| app.look(p).texture)
+        .collect();
+    assert!(!textures.contains(&TextureMode::None), "{textures:?}");
+    assert_ne!(textures.first(), textures.last(), "{textures:?}");
+    for (lo, hi) in page_spread(&mut h)? {
+        assert!(hi - lo >= 6, "a pattern on every page: {lo}..{hi}");
+    }
+    Ok(())
+}
 
-    let mut h = with(&[("pinned", "true")]);
-    h.get_by_label("View & tools").click();
-    h.run_steps(3);
-    assert_eq!(
-        h.get_by_label("Keep title bar shown")
-            .accesskit_node()
-            .toggled(),
-        Some(Toggled::True)
+/// Pixels darker than `below` in the page's middle band.
+#[test]
+fn a_book_page_takes_its_own_paper_not_the_pdf_filter() -> Out {
+    for theme in ["light", "dark", "dim"] {
+        let options = [
+            ("epub", "sample:3"),
+            ("view", "single"),
+            ("animations", "false"),
+            ("theme", theme),
+        ];
+        let mut h = reader(&options);
+        let pane = h.state().active_pane();
+        h.state_mut()
+            .queue(mareader_ui_egui::command::Command::Intent(Intent::GoTo {
+                pane,
+                page: 1,
+            }));
+        h.run();
+        h.run_steps(2);
+        let image = h.render()?;
+        let (w, ht) = image.dimensions();
+        let got = image.get_pixel(w / 20, ht * 3 / 7).0;
+        let p = h.state().settings().appearance.text_palette().paper;
+        let want = [p.0, p.1, p.2].map(i32::from);
+        let off = (0..3).map(|i| (i32::from(got[i]) - want[i]).abs()).max();
+        assert!(off <= Some(3), "{theme}: got {got:?}, want {want:?}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_book_s_pictures_keep_their_colours_in_the_dark_unless_themed() -> Out {
+    let options = [
+        ("epub", "sample:3"),
+        ("view", "single"),
+        ("animations", "false"),
+    ];
+    let mut h = reader(&options);
+    // Page 0 is the cover, a picture filling the page.
+    let light = h.render()?;
+    h.state_mut().set_option("theme", "dark")?;
+    h.run();
+    let dark = h.render()?;
+    h.state_mut().set_option("theme_pictures", "true")?;
+    h.run();
+    let themed = h.render()?;
+    let (w, ht) = light.dimensions();
+    let points = [(w / 2, ht / 2), (w / 2, ht / 3), (w * 3 / 7, ht * 3 / 5)];
+    let mut moved = 0;
+    for (x, y) in points {
+        let (a, b, c) = (luma(&light, x, y), luma(&dark, x, y), luma(&themed, x, y));
+        assert!((a - b).abs() <= 3, "the cover kept its colours: {a} {b}");
+        moved = moved.max((a - c).abs());
+    }
+    assert!(
+        moved > 40,
+        "themed, the cover follows the dark page: {moved}"
     );
-    assert_eq!(
-        h.get_by_label("Distraction-free")
-            .accesskit_node()
-            .toggled(),
-        Some(Toggled::False)
-    );
-    h.get_by_label("Keep title bar shown").click();
-    h.run_steps(3);
-    assert_eq!(
-        h.get_by_label("Keep title bar shown")
-            .accesskit_node()
-            .toggled(),
-        Some(Toggled::False)
-    );
-    h.get_by_label("Keep title bar shown").click();
-    h.run_steps(3);
-    assert_eq!(
-        h.get_by_label("Keep title bar shown")
-            .accesskit_node()
-            .toggled(),
-        Some(Toggled::True)
-    );
-    assert!(h.query_by_label("Settings").is_some());
-    assert!(h.query_by_label("Keyboard shortcuts").is_some());
+    Ok(())
+}
+
+fn dark(image: &RgbaImage, below: i32) -> usize {
+    let (w, h) = image.dimensions();
+    (h / 4..h * 7 / 8)
+        .flat_map(|y| (w / 8..w * 7 / 8).map(move |x| (x, y)))
+        .filter(|&(x, y)| luma(image, x, y) < below)
+        .count()
+}
+
+#[test]
+fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
+    let options = [
+        ("epub", "sample:3"),
+        ("view", "single"),
+        ("animations", "false"),
+    ];
+    let mut h = reader(&options);
+    // Page 0 is the cover, a picture filling the page.
+    let cover = h.render()?;
+    h.state_mut().set_option("ink", "30")?;
+    h.run();
+    let faded = h.render()?;
+    let (w, ht) = cover.dimensions();
+    for (x, y) in [(w / 2, ht / 2), (w / 2, ht / 3), (w * 3 / 7, ht * 3 / 5)] {
+        let (a, b) = (luma(&cover, x, y), luma(&faded, x, y));
+        assert!((a - b).abs() <= 2, "the cover kept its colours: {a} {b}");
+    }
+    // Chapter 1's text, at full ink and then at 30 %.
+    let pane = h.state().active_pane();
+    h.state_mut().set_option("ink", "100")?;
+    h.state_mut()
+        .queue(mareader_ui_egui::command::Command::Intent(Intent::GoTo {
+            pane,
+            page: 1,
+        }));
+    h.run();
+    h.run_steps(2);
+    let full = dark(&h.render()?, 90);
+    h.state_mut().set_option("ink", "30")?;
+    h.run();
+    let light = dark(&h.render()?, 90);
+    assert!(full > 300, "{full} dark text pixels at full ink");
+    assert!(light * 20 < full, "{light} still dark at 30 %, of {full}");
+    Ok(())
+}
+
+#[test]
+fn the_library_page_draws_under_a_glass_bar() -> Out {
+    // A pinned bar blurs whatever is behind it; here, no pages at all.
+    let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
+    h.state_mut().queue(mareader_ui_egui::command::Command::Ui(
+        UiCommand::ShowLibrary,
+    ));
+    h.run();
+    assert!(h.state().library_showing());
+    let image = h.render()?;
+    // Under the bar, the frosted page paper, not a hole.
+    let (bar, page) = (luma(&image, 450, 10), luma(&image, 450, 600));
+    assert!((bar - page).abs() < 40, "bar {bar}, page {page}");
+    Ok(())
 }
