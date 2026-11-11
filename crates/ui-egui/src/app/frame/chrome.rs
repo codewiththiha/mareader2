@@ -129,6 +129,7 @@ impl MareaderApp {
         };
         let bar = BarContext {
             title,
+            pinned: self.settings().chrome.pinned(route.bar()),
             platform: self.platform,
             left_inset: inset,
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),

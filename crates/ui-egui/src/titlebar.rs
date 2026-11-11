@@ -7,7 +7,7 @@ use mareader_library::{ShelfId, View};
 use mareader_settings::AppearanceMenuStyle;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, Independence, Intent, UiCommand, WindowCommand};
+use crate::command::{Command, Commands, Independence, UiCommand, WindowCommand};
 use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
@@ -40,6 +40,8 @@ const SEARCH_MIN: f32 = 140.0;
 /// What the bar needs from the app this frame.
 pub struct BarContext<'a> {
     pub title: &'a str,
+    /// Whether this page's bar is pinned: the settings own it, nobody mirrors it.
+    pub pinned: bool,
     pub platform: Platform,
     /// The sidebar's width: the band starts after it.
     pub left_inset: f32,
@@ -159,7 +161,6 @@ fn captions(bar: &BarContext<'_>) -> Option<CaptionStyle> {
 
 #[derive(Clone, Debug, Default)]
 pub struct TitleBar {
-    pub pinned: bool,
     /// Never shows, hover or pin (distraction-free reading).
     pub chromeless: bool,
     /// Kept shown while set, as the find bar does, once shown.
@@ -172,13 +173,6 @@ pub struct TitleBar {
 }
 
 impl TitleBar {
-    pub fn new(pinned: bool) -> Self {
-        Self {
-            pinned,
-            ..Self::default()
-        }
-    }
-
     /// Shows the bar as if hovered; it hides after the usual grace.
     pub fn reveal(&mut self) {
         self.shown = true;
@@ -189,14 +183,14 @@ impl TitleBar {
         self.opacity
     }
 
-    pub fn visible(&self) -> bool {
-        !self.chromeless && (self.pinned || self.shown)
+    pub fn visible(&self, pinned: bool) -> bool {
+        !self.chromeless && (pinned || self.shown)
     }
 
     /// Where a page under the bar starts: below it only while pinned.
-    pub fn page_top(&self, ctx: &Context, page: mareader_settings::Bar) -> f32 {
+    pub fn page_top(&self, ctx: &Context, page: mareader_settings::Bar, pinned: bool) -> f32 {
         let top = ctx.content_rect().top();
-        let under = self.pinned && !self.chromeless;
+        let under = pinned && !self.chromeless;
         let id = Id::new(("titlebar-page-top", page));
         top + ctx.animate_bool_with_time(id, under, motion::secs(ctx, FADE)) * TITLE_BAR_H
     }
@@ -308,7 +302,7 @@ impl TitleBar {
     ) {
         // Window furniture animates before a click can move or close it.
         let _act = crate::icons::anim::announce(ui, crate::icons::anim::Act::Hover);
-        let pinned = self.pinned;
+        let pinned = bar.pinned;
         let width = ui.max_rect().width();
         let ends = Id::new("titlebar-trail-start");
         let end = ui.data(|d| d.get_temp::<f32>(ends));
@@ -329,9 +323,6 @@ impl TitleBar {
             }
         }
         for c in lead.into_iter().chain(trail).chain(field).filter(|_| live) {
-            if let Command::Intent(Intent::SetTitlebarPinned(p)) = c {
-                self.pinned = p;
-            }
             out.push(c);
         }
     }

@@ -71,7 +71,10 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Ui(UiCommand::CloseSidebar) => app.sidebar.close(),
         Command::Intent(Intent::SetSidebarOverlay(on)) => app.send(Intent::SetSidebarOverlay(on)),
         Command::Intent(Intent::Split(axis)) => {
-            app.split(ctx, app.active(), axis);
+            // The new pane takes the focus, as a split asks it to.
+            if let Some(id) = app.split(ctx, app.active(), axis) {
+                app.focus(id);
+            }
         }
         Command::Intent(Intent::FocusPane(id)) => app.focus(id),
         Command::Intent(Intent::CyclePane { forward }) => {

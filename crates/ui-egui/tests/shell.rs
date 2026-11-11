@@ -24,17 +24,17 @@ fn sized(app: MareaderApp, size: egui::Vec2) -> Harness<'static, MareaderApp> {
 #[test]
 fn the_bar_appears_on_hover_and_hides_after_the_grace() {
     let mut h = harness(MareaderApp::default());
-    assert!(!h.state().titlebar().visible());
+    assert!(!h.state().bar_shown());
     h.hover_at(egui::pos2(600.0, 20.0));
     h.run_steps(2);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
     h.hover_at(egui::pos2(600.0, 400.0));
     h.run_steps(2);
-    assert!(h.state().titlebar().visible(), "the 400 ms grace keeps it");
+    assert!(h.state().bar_shown(), "the 400 ms grace keeps it");
     for _ in 0..40 {
         h.step();
     }
-    assert!(!h.state().titlebar().visible());
+    assert!(!h.state().bar_shown());
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn a_pinned_bar_stays_after_the_pointer_leaves() {
     for _ in 0..40 {
         h.step();
     }
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn keep_title_bar_shown_holds_it_after_the_pointer_leaves() {
     for _ in 0..40 {
         h.step();
     }
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
 }
 
 #[test]
@@ -143,10 +143,7 @@ fn the_appearance_popover_switches_mode_and_keeps_the_bar() {
     assert!(mareader_ui_egui::theme::Tokens::get(&h.ctx).dark);
     h.hover_at(egui::pos2(600.0, 500.0));
     h.run_steps(40);
-    assert!(
-        h.state().titlebar().visible(),
-        "an open popover holds the bar"
-    );
+    assert!(h.state().bar_shown(), "an open popover holds the bar");
 }
 
 /// The popover hangs from the bar rather than its button.
@@ -238,13 +235,10 @@ fn the_bar_band_starts_after_a_docked_sidebar() {
     let mut h = with(&[("sidebar", "outline")]);
     h.hover_at(egui::pos2(150.0, 20.0));
     h.run_steps(4);
-    assert!(
-        !h.state().titlebar().visible(),
-        "the rail's header is not the band"
-    );
+    assert!(!h.state().bar_shown(), "the rail's header is not the band");
     h.hover_at(egui::pos2(700.0, 20.0));
     h.run_steps(4);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
 }
 
 #[test]
@@ -284,7 +278,7 @@ fn the_edge_waits_while_the_pointer_is_in_the_title_bar() {
     let mut h = with(&[("platform", "mac"), ("float", "true")]);
     h.hover_at(egui::pos2(600.0, 20.0));
     wait(&mut h, 0.5);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
     // Overshooting the bar's buttons onto the edge doesn't move them.
     h.hover_at(egui::pos2(2.0, 20.0));
     wait(&mut h, 0.2);
@@ -513,7 +507,7 @@ fn the_pre_crate_settings_blob_still_loads() {
         v0.to_owned(),
     );
     let app = MareaderApp::from_storage(Some(&disk));
-    assert!(app.titlebar().pinned && app.settings().chrome.sidebar_overlay);
+    assert!(app.pinned() && app.settings().chrome.sidebar_overlay);
     assert!(!app.settings().motion.enabled);
     assert!(app.settings().chrome.glass, "glass is new, so it starts on");
 }
@@ -910,7 +904,7 @@ fn an_open_sidebar_keeps_the_lights_while_the_bar_hides() {
     let mut h = with(&[("platform", "mac"), ("sidebar", "outline")]);
     h.hover_at(egui::pos2(700.0, 500.0));
     wait(&mut h, 1.0);
-    assert!(!h.state().titlebar().visible());
+    assert!(!h.state().bar_shown());
     assert_eq!((lights(&h).shift, lights(&h).opacity), (0.0, 1.0));
 }
 
@@ -949,7 +943,7 @@ fn in_overlay_mode_the_lights_slide_in_with_the_rail_only() {
     let mut h = with(&[("platform", "mac"), ("float", "true")]);
     h.hover_at(egui::pos2(600.0, 20.0));
     wait(&mut h, 0.5);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
     assert_eq!(lights(&h).opacity, 0.0, "the bar never hosts them here");
     h.hover_at(egui::pos2(2.0, 400.0));
     wait(&mut h, 0.12);

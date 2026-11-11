@@ -165,7 +165,6 @@ impl MareaderApp {
     }
 
     pub(super) fn restore(&mut self, held: Held) {
-        self.titlebar.pinned = held.settings.chrome.pinned(self.route().bar());
         self.set_settings(held.settings.clone());
         self.looks = held.looks;
         self.routed = held.routed;

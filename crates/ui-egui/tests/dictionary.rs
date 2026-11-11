@@ -210,7 +210,7 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     assert_eq!(h.query_all_by_label("Layout").count(), 0, "a reading tab");
     h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
     h.run();
-    assert!(h.state().titlebar().pinned, "the page starts pinned");
+    assert!(h.state().pinned(), "the page starts pinned");
     let field_top = |h: &H| h.state().dict().page_field().map(|r| r.top());
     let below_bar = field_top(&h).expect("the field shows");
     assert!(below_bar > 48.0, "pinned, the page starts under the bar");
@@ -218,7 +218,7 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     h.run();
     h.get_by_label("Keep title bar shown").click();
     h.run();
-    assert!(!h.state().titlebar().pinned);
+    assert!(!h.state().pinned());
     let pins = &h.state().settings().chrome;
     assert!(!pins.pinned(Bar::Dictionary) && pins.pinned(Bar::Library));
     // A press on the page shuts the menu; the pointer gone, the bar hides.
@@ -233,19 +233,16 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
         });
     }
     h.run_steps(60);
-    assert!(!h.state().titlebar().visible(), "unpinned, it hides");
+    assert!(!h.state().bar_shown(), "unpinned, it hides");
     let risen = field_top(&h).expect("the field shows");
     assert!(risen < below_bar - 40.0, "the page takes the bar's room");
     // Over the field, the bar stays away; above it, the bar comes.
     h.hover_at(egui::pos2(500.0, risen + 10.0));
     h.run_steps(8);
-    assert!(!h.state().titlebar().visible(), "the field keeps it away");
+    assert!(!h.state().bar_shown(), "the field keeps it away");
     h.hover_at(egui::pos2(500.0, 5.0));
     h.run_steps(8);
-    assert!(
-        h.state().titlebar().visible(),
-        "the top edge brings it back"
-    );
+    assert!(h.state().bar_shown(), "the top edge brings it back");
 }
 
 #[test]

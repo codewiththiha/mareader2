@@ -206,10 +206,11 @@ impl MareaderApp {
         let rects = &self.pane_rects;
         self.page_bars
             .retain(|id, _| rects.iter().any(|(p, _)| p == id));
+        let pinned = self.settings().chrome.pinned(self.route().bar());
         let label = LabelChrome {
             bar: self
                 .titlebar
-                .visible()
+                .visible(pinned)
                 .then(|| self.titlebar.band_bottom(ctx)),
         };
         let tokens = theme::Tokens::get(ctx);

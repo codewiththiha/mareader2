@@ -95,15 +95,15 @@ fn tab_brings_up_the_title_bar_rings_its_buttons_and_a_press_hides_the_ring() {
     let mut h = reader(&[("pdf", "sample:12")]);
     h.hover_at(egui::pos2(500.0, 400.0));
     h.run_steps(120);
-    assert!(!h.state().titlebar().visible(), "hidden while reading");
+    assert!(!h.state().bar_shown(), "hidden while reading");
     key(&mut h, Modifiers::NONE, Key::Tab);
-    assert!(h.state().titlebar().visible(), "Tab brings the bar up");
+    assert!(h.state().bar_shown(), "Tab brings the bar up");
     let band = h.state().titlebar().band_bottom(&h.ctx);
     let reached = tab_until(&mut h, 40, |_, r| r.bottom() <= band);
     assert!(reached, "Tab reaches the bar's buttons");
     // Held while the ring is on it, long past the hover grace.
     h.run_steps(150);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
     assert!(focus::keyboard(&h.ctx));
     press(&mut h, egui::pos2(500.0, 400.0));
     assert!(!focus::keyboard(&h.ctx), "a press hides the ring");

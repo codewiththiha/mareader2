@@ -36,7 +36,7 @@ use mareader_workspace::{
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
-use crate::command::{Command, Commands, Independence, Intent, WindowCommand};
+use crate::command::{Command, Commands, WindowCommand};
 use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest, Placement};
 use crate::files::Files;
@@ -262,7 +262,7 @@ impl Default for MareaderApp {
 impl MareaderApp {
     pub fn with_settings(mut settings: Settings) -> Self {
         settings.sanitize();
-        let titlebar = TitleBar::new(settings.chrome.pinned(Bar::Reader));
+        let titlebar = TitleBar::default();
         Self {
             titlebar,
             session: mareader_engine::session::Session::new(settings),

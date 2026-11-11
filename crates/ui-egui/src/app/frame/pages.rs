@@ -115,7 +115,7 @@ impl MareaderApp {
         let source = self.paper_source();
         let corner = view.corner(self.tree().len() > 1, &tokens);
         let blend = self.settings().paper.blend;
-        let pinned_bottom = if self.titlebar.pinned {
+        let pinned_bottom = if self.settings().chrome.pinned(self.route().bar()) {
             view.chrome_bottom
         } else {
             f32::NEG_INFINITY
@@ -223,7 +223,8 @@ impl MareaderApp {
         let lift = self.tree().len() > 1;
         let tree = self.tree().clone();
         let lifted = self.lifting.map(|l| l.pane);
-        let page_top = self.titlebar.page_top(ctx, route.bar());
+        let pinned = self.settings().chrome.pinned(route.bar());
+        let page_top = self.titlebar.page_top(ctx, route.bar(), pinned);
         let menu_shot = self.menu_shot;
         let highlights = &highlight_look;
         let dictionary = &dictionary_look;

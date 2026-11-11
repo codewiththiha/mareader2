@@ -30,7 +30,6 @@ impl MareaderApp {
         }
         self.reconcile_looks(ctx);
         self.reconcile_texts();
-        self.titlebar.pinned = self.settings().chrome.pinned(self.route().bar());
         resize::edges(ctx, self.platform.frameless());
         true
     }

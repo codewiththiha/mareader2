@@ -194,6 +194,17 @@ impl MareaderApp {
         &self.titlebar
     }
 
+    /// Whether the current route's bar is pinned. The settings own it, so this
+    /// is the only place to ask; there is no copy to fall out of step.
+    pub fn pinned(&self) -> bool {
+        self.settings().chrome.pinned(self.route().bar())
+    }
+
+    /// Whether the title bar is on screen: pinned, or hovered in.
+    pub fn bar_shown(&self) -> bool {
+        self.titlebar.visible(self.pinned())
+    }
+
     pub fn panes(&self) -> Vec<PaneId> {
         self.tree().panes()
     }

@@ -238,7 +238,7 @@ fn find_opens_the_bar_which_holds_the_title_bar_until_escape() {
     let _ = h.get_by_label("Close search");
     // Well past the bar's grace, the open search keeps it.
     h.run_steps(60);
-    assert!(h.state().titlebar().visible());
+    assert!(h.state().bar_shown());
     // The field takes typing: a bare j scrolls nothing.
     let before = offset(&h);
     h.event(egui::Event::Text("j".into()));
@@ -248,7 +248,7 @@ fn find_opens_the_bar_which_holds_the_title_bar_until_escape() {
     h.key_press(Key::Escape);
     h.run_steps(60);
     assert!(!h.state().find().is_open());
-    assert!(!h.state().titlebar().visible(), "it hides again");
+    assert!(!h.state().bar_shown(), "it hides again");
 }
 
 #[test]

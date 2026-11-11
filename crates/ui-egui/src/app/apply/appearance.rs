@@ -82,7 +82,6 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             app.set_settings(settings);
         }
         Command::Intent(Intent::SetTitlebarPinned(p)) => {
-            app.titlebar.pinned = p;
             app.send(Intent::SetTitlebarPinned(p));
         }
         Command::Ui(UiCommand::ShowAppearance) => {
@@ -112,8 +111,6 @@ fn handles_2(command: &Command) -> bool {
 
 fn apply_2(app: &mut MareaderApp, _ctx: &Context, command: Command) {
     if let Command::Intent(Intent::SetSettings(s)) = command {
-        let pinned = s.chrome.pinned(app.route().bar());
         app.send(Intent::SetSettings(s));
-        app.titlebar.pinned = pinned;
     }
 }

@@ -45,7 +45,6 @@ impl MareaderApp {
         for bar in Bar::ALL {
             self.settings_mut().chrome.pin(bar, on);
         }
-        self.titlebar.pinned = on;
 
         Ok(())
     }

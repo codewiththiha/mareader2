@@ -279,10 +279,10 @@ fn the_library_keeps_its_own_title_bar_pin() {
         let c = &h.state().settings().chrome;
         (c.pinned(Bar::Reader), c.pinned(Bar::Library))
     };
-    assert!(!h.state().titlebar().pinned);
+    assert!(!h.state().pinned());
     h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
     h.run();
-    assert!(h.state().titlebar().pinned, "the library pins by default");
+    assert!(h.state().pinned(), "the library pins by default");
     h.state_mut()
         .queue(Command::Intent(Intent::SetTitlebarPinned(false)));
     h.run();
@@ -294,7 +294,7 @@ fn the_library_keeps_its_own_title_bar_pin() {
         .queue(Command::Intent(Intent::SetTitlebarPinned(true)));
     h.run();
     assert_eq!(chrome(&h), (true, false), "the reader's pin alone");
-    assert!(h.state().titlebar().pinned);
+    assert!(h.state().pinned());
 }
 
 #[test]
