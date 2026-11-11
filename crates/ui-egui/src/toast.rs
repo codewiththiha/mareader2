@@ -532,7 +532,7 @@ impl Toasts {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, crate::command::Intent};
 
     const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 800.0));
 

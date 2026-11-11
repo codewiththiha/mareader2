@@ -345,7 +345,7 @@ impl Documents {
 
     /// Whether `pane`'s scripts have made their pages and taken every click.
     pub fn scripts_idle(&self, pane: PaneId) -> bool {
-        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, view }) = self.panes.get(&pane) else {
             return false;
         };
         let paged = &view.triggers.script;
@@ -354,7 +354,7 @@ impl Documents {
 
     /// What `pane`'s scripts have made, for a screenshot to report.
     pub fn scripts_state(&self, pane: PaneId) -> String {
-        let Some(Content::Pdf { place, .. }) = self.panes.get(&pane) else {
+        let Some(Content::Pdf { place, view }) = self.panes.get(&pane) else {
             return "no book in the pane".into();
         };
         let p = &view.triggers.script;
@@ -367,7 +367,7 @@ impl Documents {
 
     /// Has `pane`'s scripts click what `selector` matches; false if not yet.
     pub fn pick_script(&mut self, pane: PaneId, selector: &str) -> bool {
-        let Some(Content::Pdf { place, .. }) = self.panes.get_mut(&pane) else {
+        let Some(Content::Pdf { place, view }) = self.panes.get_mut(&pane) else {
             return false;
         };
         let paged = &mut view.triggers.script;
@@ -381,7 +381,7 @@ impl Documents {
 
     /// Shows or hides trigger target `target` in `pane`; false if no pane.
     pub fn set_trigger(&mut self, pane: PaneId, target: usize, visible: bool) -> bool {
-        let Some(Content::Pdf { place, .. }) = self.panes.get_mut(&pane) else {
+        let Some(Content::Pdf { place, view }) = self.panes.get_mut(&pane) else {
             return false;
         };
         view.triggers.set(target, visible);
