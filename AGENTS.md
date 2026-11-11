@@ -303,7 +303,7 @@ Not an end-of-task pass: a habit per update, so a defect is never built on.
 
 ## Gates
 
-Before every commit:
+The gates, wherever they run:
 
 ```sh
 cargo fmt --all --check
@@ -314,45 +314,122 @@ cargo xtask parity && cargo xtask assets
 cargo xtask comments
 ```
 
-Scope builds and tests to the crates you touched, under a `timeout`. The full
-workspace sweep (`cargo xtask ci`) is CI's job; run it locally only when the
-machine is free.
+Scope local builds and tests to the crates you touched, under a `timeout`.
+The workspace sweep is CI's job. **Where** the gates run is chosen once per
+session, below, before anything compiles.
 
-## Where the gates run: local mode or CI mode
+## Session start: choose where the gates run
 
-The gates are the same everywhere; only where they run differs. Details,
-numbers and the full loop are in [docs/verification.md](docs/verification.md).
+Do this first in every session, before any `cargo` command, and again after
+anything that may have reset the machine. Sandboxes are wiped without
+warning: assume no build cache, no env vars and no running watcher survived.
 
-- **Local mode** (a capable machine): run the gates here, push when green,
-  and **don't poll CI**. It repeats checks that already passed.
-- **CI mode** (a sandbox or a low-end machine): compile nothing locally.
-  Push a `<type>/<slug>` branch, then run `python3 tools/ci.py watch` until
-  the verdict; merge into `main` once it is green. Take screenshots with
-  `python3 tools/ci.py shots`, never with a local wasm build and browser.
-- **CI discipline.** Install `tools/hooks/pre-push` for format, shape,
-  comments, budget and commit checks. Never knowingly push a locally visible
-  failure. The Gate job never compiles; lint, test and platform jobs follow it.
-  Only main writes Rust build caches. Do not add sccache or SHA-based cache keys.
-  Change pinned toolchain and cache-key environment deliberately. Report a
-  `Rust / test` run over 12 minutes; read the whole failure before a fix push.
-  Small core crates can be checked locally in CI mode if the owner permits;
-  explicit owner instructions take precedence over local-build guidance.
-- **Choosing**, highest precedence first:
-  1. The user's explicit word, in either direction ("use CI" on a fast
-     machine, "build locally" on a slow one).
-  2. `MAREADER_VERIFY=local|ci`.
-  3. `python3 tools/ci.py mode`, which detects RAM, cores and free disk.
+1. Run `python3 tools/ci.py mode`. It prints `local`, `cache` or `ci`, the
+   reasons, and the exact next commands. Precedence, highest first:
+   1. the user's explicit word ("use CI", "build locally", "use the cache");
+   2. `MAREADER_VERIFY=local|cache|ci`;
+   3. detection: RAM, cores, free disk, x86_64 Linux, a GitHub token.
+2. Say the mode and why in the first report, for example
+   "Mode: cache. 1.9 GiB RAM, 2 cores, token present, cache 3 commits back."
+3. Follow that mode's loop below until the user changes it.
 
-  Say which mode you chose, and why, in the first report of a session.
-- **After a sandbox reset,** and only if local work is wanted,
-  `python3 tools/ci.py cache restore` unpacks a build that CI made, so the
-  cold build is skipped. Every green push refreshes that cache on its own.
-  It holds lint builds only (about 1.2 GB, a few minutes to restore); a
-  local test run first needs `cache build --full`.
-  If `restore` calls the cache stale, lint in CI, not locally.
-- **CI time.** Keep timing claims measured in `docs/verification.md`. Install
-  apt packages through `.github/actions/apt`. SZ updates timings after the
-  revised pipeline has enough runs.
+| Mode | Picked when | Compiles here | Tests and runtime errors | Waits on |
+|---|---|---|---|---|
+| `local` | >= 8 GiB RAM, >= 4 cores, >= 10 GiB disk | everything, scoped | here | nothing until final |
+| `cache` | low-end, but x86_64 Linux, a token, >= 6 GiB free | scoped clippy and fmt, on CI's restored build | the CI quick gate | quick gate, then final |
+| `ci` | anything else (no token, no disk, not Linux) | nothing | the CI quick gate | quick gate, then final |
+
+### The two CI profiles: quick while developing, full at the end
+
+- **Quick** runs on every push to a `<type>/<slug>` branch. It is one job,
+  `Check / fmt, clippy, test`: fmt, shape, comments, commit subjects,
+  `clippy -D warnings`, `cargo test --workspace --no-fail-fast`, then the
+  xtask rules. Every step runs even after an earlier one fails, so one push
+  returns every problem at once: formatting, warnings, compile errors and
+  failing tests. wasm, each-commit, macOS and Windows show as *skipped*.
+  Skipped is not red. `Plan / profile` is a 5-second bookkeeping job.
+- **Full** adds `Rust / wasm`, `Build / each commit`, `Build / macos-latest`
+  and `Build / windows-latest`, all run to the end. It runs for pull
+  requests, `main`, the schedule, a head commit whose message contains
+  `[ci full]`, and `python3 tools/ci.py final`.
+- **Dev loop:** push, then `python3 tools/ci.py watch`. It exits at the quick
+  verdict: 0 green, 1 red (with a digest of every failing step), 2 still
+  running. Fix the problems, push again, and watch again. A newer push
+  cancels the older quick run. Use `watch --detach` and `watch --tail` for
+  long waits, and never sleep-poll the API yourself.
+- **Final:** once the slice is done, run `python3 tools/ci.py final`. It
+  dispatches the full profile on the branch head, waits for **every** job,
+  and prints a per-job table with all failures. Merge into `main` only on a
+  green final, or on a green pull-request run. Don't run final for each
+  small change: that brings back the 25-minute loop.
+
+### Local mode
+
+Run the gates here, push when green, and **don't poll the quick gate**: it
+repeats checks that already passed. Run `ci.py final` before merging. A
+Linux machine cannot check macOS, Windows or every commit on its own.
+
+### Cache mode: CI builds, this sandbox resumes from it
+
+CI packs a lint build of the workspace (`Cache / sandbox` → `Remote / sandbox
+cache`, about 1.2 GB) after every green quick run, on every branch. The
+sandbox downloads it and compiles only what changed since.
+
+Run at the start of each session, and before the first `cargo` command
+after any pause:
+
+```sh
+python3 tools/ci.py cache status    # 0 ready; 1 prints the one NEXT command
+python3 tools/ci.py cache restore   # idempotent: downloads only if missing or partial
+source /home/user/.cache/env.sh     # in every new shell, before any cargo command
+```
+
+- **Paths are part of the cache.** Clone at `/home/user/mareader2`. The cache
+  lives in `/home/user/.cache/{rustup,cargo,target-mr}`.
+- **The env is part of the cache.** Cargo hashes `CARGO_INCREMENTAL=1`,
+  `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`, `CARGO_HOME`,
+  `RUSTUP_HOME` and `CARGO_TARGET_DIR` into every fingerprint. A shell
+  without `env.sh` silently rebuilds everything, which takes about 30 min.
+  `eval "$(python3 tools/ci.py cache env)"` does the same as sourcing it.
+- **Wiped again?** `status` says "none here" or "partial". Run `restore`
+  again; it replaces a partial cache by itself. Never delete
+  `/home/user/.cache` yourself.
+- **What runs here:** `cargo fmt` and scoped
+  `timeout 900 cargo clippy -p <crate> -j 2 --all-targets -- -D warnings`,
+  which takes about 30 s on a fresh cache. The cache holds lint builds only.
+  Tests and runtime errors come from the quick gate. Use
+  `cache build --full` (5.6 GB, 23 GB unpacked) only when the owner asks.
+- **Freshness:** `restore` picks the live cache closest behind HEAD. If
+  `status` says stale (more than 30 commits), lint in CI instead. After the
+  next green push, the refreshed cache arrives in 2–8 min; then run
+  `cache restore --force`.
+- **Fallback:** if restore fails (no token, no disk, no network), switch to
+  CI mode and say so.
+
+### CI mode
+
+Compile nothing locally. Run the cheap checks: `comment_check`,
+`commit_check` and `cargo fmt --check` if rustfmt is installed. Then push,
+`watch`, and fix; at the end, run `final`. Take screenshots with
+`python3 tools/ci.py shots`, never with a local wasm build and browser.
+
+### CI discipline
+
+- Install `tools/hooks/pre-push`. Never knowingly push a failure you can see
+  locally.
+- Read the whole digest before a fix push. It lists every failing step;
+  fix them all in one push.
+- **Caches.** `Check` saves `shared-key: linux` on pushes, both main and
+  branches; an exact hit on main's cache skips the save. Other jobs save
+  on main only. Never add sccache: on 2026-11-10, 15,310 sccache entries
+  filled the 10 GB budget and evicted every Rust cache, so every job
+  compiled ~300 dependencies (Windows 24 min, test 14 min). Never key a
+  cache on a commit SHA. Changing the toolchain, `Cargo.lock` or any
+  `CARGO_*` variable in `ci.yml` invalidates every key: do it on purpose, in
+  its own commit. `Cache GC` (from `main`) sweeps dead refs and sccache
+  leftovers daily.
+- Report a warm quick gate over 12 min. Keep timing claims measured in
+  `docs/verification.md`. Install apt packages through `.github/actions/apt`.
 
 ## Commits and pull requests
 
@@ -385,7 +462,9 @@ numbers and the full loop are in [docs/verification.md](docs/verification.md).
 ## Definition of done
 
 1. The change is implemented, and looked at (shots) if it touches UI.
-2. The gates above pass and `CI` is green for the pushed SHA.
+2. The gates pass, the quick gate is green, and the full profile
+   (`python3 tools/ci.py final` or the pull-request run) is green for the
+   pushed SHA.
 3. Docs describe the current behaviour: `docs/design.md` for the look,
    `docs/architecture.md` for structure, `docs/memory.md` for memory, and the
    parity entry for status.

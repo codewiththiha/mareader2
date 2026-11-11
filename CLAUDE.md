@@ -6,6 +6,10 @@ binding rules and wins over this file.
 
 ## Start every session here
 
+0. Choose where the gates run: `python3 tools/ci.py mode`, then follow
+   `AGENTS.md` § Session start (local, cache or ci). In cache mode, run
+   `python3 tools/ci.py cache status` and `source /home/user/.cache/env.sh`
+   before any cargo command; the sandbox may have been wiped.
 1. Read `ROADMAP.md`: the current milestone, the **Next** list and the progress
    log.
 2. Pick work with `cargo xtask parity --list planned` (or `partial`): the lowest
@@ -69,6 +73,10 @@ cargo xtask trapped                         # toolkit-free files in ui-egui
 cargo xtask assets                          # ATTRIBUTION.toml check
 cargo xtask comments                        # comment rule on changed files
 cargo xtask ci                              # the full sweep (CI does this)
+python3 tools/ci.py mode                    # local, cache or ci, and the next steps
+python3 tools/ci.py watch                   # the quick gate on the pushed branch head
+python3 tools/ci.py final                   # the full pool; waits for every job
+python3 tools/ci.py cache status            # cache mode: warm, stale or wiped?
 python3 tools/commit_check.py --install     # once per clone
 ```
 
