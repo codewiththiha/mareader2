@@ -27,7 +27,7 @@ impl MareaderApp {
         };
         let (library, documents) = (&self.library, &self.documents);
         let shows = |&p: &PaneId| origin.is(library.book_in(documents, p), documents.path(p));
-        if let Some(pane) = self.tree.panes().into_iter().find(shows) {
+        if let Some(pane) = self.tree().panes().into_iter().find(shows) {
             self.read_aloud.rehome(&self.documents, pane);
         }
     }
@@ -56,14 +56,14 @@ impl MareaderApp {
         let Some(path) = origin.path else {
             return;
         };
-        let empty = self.documents.title(self.active).is_none();
+        let empty = self.documents.title(self.active()).is_none();
         let placement = if empty {
             Placement::Into
         } else {
             Placement::Beside
         };
         let request = OpenRequest {
-            pane: Some(self.active),
+            pane: Some(self.active()),
             placement,
             ..OpenRequest::path(path)
         };

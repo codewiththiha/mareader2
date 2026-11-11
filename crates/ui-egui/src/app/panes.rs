@@ -19,7 +19,7 @@ impl MareaderApp {
             let title = title.or_else(|| self.documents.title(pane));
             title.unwrap_or("Empty pane").to_owned()
         };
-        let panes = self.tree.panes().into_iter();
+        let panes = self.tree().panes().into_iter();
         let tab = |pane| {
             let book = self.library.book_in(&self.documents, pane);
             PaneTab {
@@ -49,7 +49,7 @@ impl MareaderApp {
         let landing = library_panel::Landing {
             panes: &self.pane_rects,
             rail: edge.or(docked),
-            full: self.tree.len() >= MAX_PANES,
+            full: self.tree().len() >= MAX_PANES,
         };
         let empty = |pane| self.documents.title(pane).is_none();
         let name = |pane| self.documents.title(pane).unwrap_or("this pane").to_owned();
@@ -70,17 +70,17 @@ impl MareaderApp {
             return;
         }
         let dropped = pane.is_some();
-        let panes = self.tree.panes();
+        let panes = self.tree().panes();
         let showing = panes
             .into_iter()
             .find(|&p| self.library.book_in(&self.documents, p) == Some(id));
         if let (false, Some(showing)) = (dropped, showing) {
-            self.active = showing;
+            self.focus(showing);
             self.go(Route::Reader);
             return;
         }
         // A library book beside an empty pane goes in it, as in mareader.
-        let empty = self.documents.title(pane.unwrap_or(self.active)).is_none();
+        let empty = self.documents.title(pane.unwrap_or(self.active())).is_none();
         let placement = match placement {
             Placement::Beside if empty => Placement::Into,
             other => other,
@@ -100,7 +100,7 @@ impl MareaderApp {
 
     /// Right of `pane`, else below it when the right has no room.
     pub(super) fn beside(&self, ctx: &Context, pane: PaneId) -> Edge {
-        let mut probe = self.tree.clone();
+        let mut probe = self.tree().clone();
         let area = Self::area(ctx);
         let (axis, side) = Edge::Right.placement();
         match probe.split(pane, axis, side, area) {
@@ -120,7 +120,7 @@ impl MareaderApp {
             return;
         };
         let pane = lift.pane;
-        if !self.tree.panes().contains(&pane) || self.tree.len() < 2 {
+        if !self.tree().panes().contains(&pane) || self.tree().len() < 2 {
             self.lifting = None;
             return;
         }
@@ -133,9 +133,9 @@ impl MareaderApp {
         self.lifting = None;
         let moved = match target {
             None => return,
-            Some(LiftTarget::Swap(other)) => self.tree.swap(pane, other),
+            Some(LiftTarget::Swap(other)) => self.tree_mut().swap(pane, other),
             Some(LiftTarget::Dock(other, edge)) => {
-                self.tree.move_to(pane, other, edge, Self::area(ctx))
+                self.tree_mut().move_to(pane, other, edge, Self::area(ctx))
             }
         };
         if moved.is_err() {
@@ -149,7 +149,7 @@ impl MareaderApp {
     pub(super) fn split_at(&mut self, ctx: &Context, pane: PaneId, edge: Edge) -> Option<PaneId> {
         let area = Self::area(ctx);
         let (axis, side) = edge.placement();
-        match self.tree.split(pane, axis, side, area) {
+        match self.tree_mut().split(pane, axis, side, area) {
             Ok(id) => Some(id),
             Err(TreeError::Full) => {
                 let note = format!("A workspace holds {MAX_PANES} panes at most.");
@@ -182,7 +182,7 @@ impl MareaderApp {
         let pointer = ctx.pointer_latest_pos();
         let under = pointer
             .and_then(|p| self.pane_rects.iter().find(|(_, r)| r.contains(p)))
-            .map_or(self.active, |(id, _)| *id);
+            .map_or(self.active(), |(id, _)| *id);
         let (hovering, dropped) = ctx.input(|i| {
             let first = i.raw.dropped_files.first().cloned();
             (!i.raw.hovered_files.is_empty(), first)

@@ -31,7 +31,7 @@ impl MareaderApp {
             Some(Ok((made, list))) => {
                 let title = self
                     .documents
-                    .title(self.active)
+                    .title(self.active())
                     .unwrap_or_default()
                     .to_owned();
                 match crate::word_list::deliver(ctx, &self.files, &title, &made, list.output) {

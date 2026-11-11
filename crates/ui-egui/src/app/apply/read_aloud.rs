@@ -57,7 +57,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Intent(Intent::ToggleReadAloud) => {
             app.documents.dismiss_read_markers(ctx.input(|i| i.time));
             if !app.read_aloud.toggle()
-                && let Some(reading) = app.documents.reading(app.active)
+                && let Some(reading) = app.documents.reading(app.active())
             {
                 app.clips.stop();
                 let settings = &app.settings().read_aloud;
@@ -128,7 +128,7 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 if app.route() != Route::Reader {
                     app.go(Route::Reader);
                 }
-                app.active = pane;
+                app.focus(pane);
                 app.documents.go_to(pane, page);
             } else if let Some(origin) = app.read_aloud.away().cloned() {
                 app.reopen_reading(ctx, origin);

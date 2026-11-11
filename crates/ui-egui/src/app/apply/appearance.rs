@@ -55,7 +55,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Intent(Intent::SetAppearance(a)) => {
             let routing = app.routing();
             let mut global = app.settings().appearance;
-            app.looks.edit(app.active, &mut global, routing, a);
+            app.looks.edit(app.active(), &mut global, routing, a);
             let _ = app.set_field("appearance", global);
         }
         Command::Intent(Intent::SetInkContrast(ink)) => {

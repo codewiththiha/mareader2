@@ -38,7 +38,7 @@ impl MareaderApp {
         let shelves = PanelContext {
             model: self.library.model(),
             tabs: &tabs,
-            active: self.active,
+            active: self.active(),
             click: self.settings().workspace.library_click,
             home: self.settings().library.home,
             held: organizer.held(),
@@ -50,8 +50,8 @@ impl MareaderApp {
         // Gathered only while the panel shows.
         let notes = match self.sidebar.is_open() && self.sidebar.panel() == Panel::Notes {
             true => {
-                let book = self.library.book_in(&self.documents, self.active);
-                let name = self.documents.title(self.active).unwrap_or_default();
+                let book = self.library.book_in(&self.documents, self.active());
+                let name = self.documents.title(self.active()).unwrap_or_default();
                 let look = &self.settings().study.highlights;
                 self.study.notes_of(self.library.model(), book, name, look)
             }
@@ -60,7 +60,7 @@ impl MareaderApp {
         let shelf_tree = &mut self.shelf_tree;
         self.thumbs
             .set_offer(crate::thumbnails::Offer::of(self.settings()));
-        let (documents, active) = (&mut self.documents, self.active);
+        let (documents, active) = (&mut self.documents, self.active());
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.
         let mut body =
@@ -102,7 +102,7 @@ impl MareaderApp {
     fn page_context(&mut self, ctx: &Context, drop_target: Option<PaneId>) -> PageContext {
         let tokens = theme::Tokens::get(ctx);
         let view = PaneView {
-            active: self.active,
+            active: self.active(),
             look: self.settings().workspace.look,
             chrome_bottom: self.titlebar.band_bottom(ctx),
             drop_target,
@@ -112,7 +112,7 @@ impl MareaderApp {
         // Each pane reads its own paper while it has a colour of its own.
         let every = self.routing().colour();
         let source = self.paper_source();
-        let corner = view.corner(self.tree.len() > 1, &tokens);
+        let corner = view.corner(self.tree().len() > 1, &tokens);
         let blend = self.settings().paper.blend;
         let pinned_bottom = if self.titlebar.pinned {
             view.chrome_bottom
@@ -148,7 +148,7 @@ impl MareaderApp {
 
     fn shots(&mut self, ctx: &Context) {
         if self.read_aloud_shot
-            && let Some(reading) = self.documents.reading(self.active)
+            && let Some(reading) = self.documents.reading(self.active())
         {
             self.read_aloud_shot = false;
             let settings = &self.settings().read_aloud;
@@ -157,22 +157,22 @@ impl MareaderApp {
         }
         let shot = std::mem::take(&mut self.transcript_shot);
         for (card, track) in shot {
-            if !self.documents.open_transcript(self.active, card, track) {
+            if !self.documents.open_transcript(self.active(), card, track) {
                 self.transcript_shot.push((card, track));
             }
         }
         let shot = std::mem::take(&mut self.trigger_shot);
         for (target, visible) in shot {
-            if !self.documents.set_trigger(self.active, target, visible) {
+            if !self.documents.set_trigger(self.active(), target, visible) {
                 self.trigger_shot.push((target, visible));
             }
         }
         // A screenshot's clicks wait for the scripts' first pages.
         if let Some(first) = self.script_shot.first()
-            && self.documents.pick_script(self.active, first)
+            && self.documents.pick_script(self.active(), first)
         {
             for selector in self.script_shot.split_off(1) {
-                self.documents.pick_script(self.active, &selector);
+                self.documents.pick_script(self.active(), &selector);
             }
             self.script_shot.clear();
         }
@@ -223,7 +223,7 @@ impl MareaderApp {
         let shading = context.shading;
         self.library_rect = None;
         let menu_shot = self.menu_shot;
-        let lift = self.tree.len() > 1;
+        let lift = self.tree().len() > 1;
         let dictionary_page = (route == Route::Dictionary).then_some(&mut self.dict);
         let dictionary = &self.settings().dictionary;
         let page_top = self.titlebar.page_top(ctx, route.bar());
@@ -240,8 +240,9 @@ impl MareaderApp {
                 return;
             }
             let lifted = self.lifting.map(|l| l.pane);
-            let tree = &self.tree;
-            self.pane_rects = ui_panes::show(ui, tree, lifted, view, commands, |ui, id| {
+            // Copied out: the closure below needs `&mut self`.
+            let tree = self.tree().clone();
+            self.pane_rects = ui_panes::show(ui, &tree, lifted, view, commands, |ui, id| {
                 let style = view.style(id);
                 let cx = ViewContext {
                     active: id == view.active,

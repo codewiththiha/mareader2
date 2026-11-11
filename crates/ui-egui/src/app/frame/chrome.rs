@@ -89,8 +89,8 @@ impl MareaderApp {
         let presets = self.settings().all_presets();
         let (title, look, page) = match route {
             Route::Reader => (
-                self.documents.title(self.active).unwrap_or("Mareader"),
-                self.look(self.active),
+                self.documents.title(self.active()).unwrap_or("Mareader"),
+                self.look(self.active()),
                 BarPage::Reader(self.reader_bar(overlay)),
             ),
             Route::Library => {

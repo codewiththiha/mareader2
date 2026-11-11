@@ -89,7 +89,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         }
         Command::Intent(Intent::Highlight { pane, pen, color }) => app.highlight(pane, pen, color),
         Command::Intent(Intent::Note(pane)) => app.note(pane),
-        Command::Intent(Intent::Bookmark(pane)) => app.bookmark(pane.unwrap_or(app.active)),
+        Command::Intent(Intent::Bookmark(pane)) => app.bookmark(pane.unwrap_or(app.active())),
         Command::Intent(Intent::SelectText { pane, page, text }) => {
             app.documents.select(pane, page, &text);
         }
@@ -115,11 +115,11 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
             app.find.key_step(found, forward, ctx.input(|i| i.time));
         }
         Command::Ui(UiCommand::FindStep { .. }) => app.apply(ctx, Command::Ui(UiCommand::ShowFind)),
-        Command::Ui(UiCommand::ShowFind) => match (app.route(), app.documents.reading(app.active)) {
+        Command::Ui(UiCommand::ShowFind) => match (app.route(), app.documents.reading(app.active())) {
             // The page's own field is its find.
             (Route::Dictionary, _) => app.dict.arrive(),
             (Route::Reader, Some(_)) => {
-                app.find.open(app.active);
+                app.find.open(app.active());
                 app.titlebar.reveal();
             }
             _ => {

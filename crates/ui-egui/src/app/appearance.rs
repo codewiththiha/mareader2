@@ -50,13 +50,13 @@ impl MareaderApp {
                 },
             ))
         };
-        self.tree.panes().into_iter().filter_map(designed).collect()
+        self.tree().panes().into_iter().filter_map(designed).collect()
     }
 
     /// What the focused pane and the workspace show: which settings apply.
     pub fn settings_scope(&self) -> Scope {
         let docs = &self.documents;
-        let reading = docs.reading(self.active);
+        let reading = docs.reading(self.active());
         let focused = match &reading {
             None => Shown::Nothing,
             Some(r) if r.document.is_reflowable() => Shown::Book {
@@ -68,7 +68,7 @@ impl MareaderApp {
         let ai = |pane: PaneId| self.page_ai.on_screen(pane);
         let text = |p: PaneId| docs.reflowable(p) || ai(p);
         let book_design = match focused {
-            Shown::Book { .. } => self.library.book_in(docs, self.active).and_then(|id| {
+            Shown::Book { .. } => self.library.book_in(docs, self.active()).and_then(|id| {
                 let book = self.library.model().book(id)?;
                 Some((id, book.design.value))
             }),
@@ -77,9 +77,9 @@ impl MareaderApp {
         Scope {
             book_design,
             focused,
-            split: self.tree.len() > 1,
-            any_text: self.tree.panes().into_iter().any(text),
-            ai_pages: focused == Shown::Pdf && ai(self.active),
+            split: self.tree().len() > 1,
+            any_text: self.tree().panes().into_iter().any(text),
+            ai_pages: focused == Shown::Pdf && ai(self.active()),
             sideways: reading.is_some_and(|r| r.mode == ViewMode::Horizontal),
             explains: self.study.explains(),
         }
@@ -133,7 +133,7 @@ impl MareaderApp {
             return self.documents.paper(pane, paper.area);
         }
         // The latest focused pane with a paper: a book's has none, as mareader.
-        self.recent
+        self.recent()
             .iter()
             .find_map(|&p| self.documents.paper(p, paper.area))
     }
@@ -141,7 +141,7 @@ impl MareaderApp {
     /// The latest focused pane showing a PDF: shared blend reads its paper.
     pub(super) fn paper_source(&self) -> Option<PaneId> {
         let d = &self.documents;
-        self.recent
+        self.recent()
             .iter()
             .copied()
             .find(|&p| d.page_count(p).is_some() && !d.reflowable(p))
@@ -149,7 +149,7 @@ impl MareaderApp {
 
     /// Which families split panes own right now.
     pub(super) fn routing(&self) -> Routing {
-        routing(self.settings(), self.tree.len() > 1)
+        routing(self.settings(), self.tree().len() > 1)
     }
 
     pub(super) fn held(&self) -> Held {
@@ -170,14 +170,14 @@ impl MareaderApp {
     /// Whether the window or a pane jumped to another look since `before`.
     pub(super) fn leapt(&self, before: &Held) -> bool {
         let (old, new) = (&before.settings, self.settings());
-        let was = routing(old, self.tree.len() > 1);
+        let was = routing(old, self.tree().len() > 1);
         let jumped = |id: PaneId| {
             let from = before.looks.shown(id, &old.appearance, was);
             from.leaps_to(&self.look(id))
         };
         old.paper.blend != new.paper.blend
             || old.appearance.leaps_to(&new.appearance)
-            || self.tree.panes().into_iter().any(jumped)
+            || self.tree().panes().into_iter().any(jumped)
     }
 
     /// A fade needs motion, the GPU's snapshot, and no slider held.
@@ -195,9 +195,9 @@ impl MareaderApp {
     /// Fits the panes' own text to the panes and the focused one.
     pub(super) fn reconcile_texts(&mut self) {
         let on = self.settings().workspace.independent_text;
-        let placed = self.tree.panes();
+        let placed = self.tree().panes();
         let mut window = self.settings().text;
-        self.texts.reconcile(on, (&placed, self.active), &mut window);
+        self.texts.reconcile(on, (&placed, self.active()), &mut window);
         let _ = self.set_field("text", window);
     }
 
@@ -209,7 +209,7 @@ impl MareaderApp {
     /// Fits the panes' looks to this frame's routing and panes.
     pub(super) fn reconcile_looks(&mut self, ctx: &Context) {
         let now = self.routing();
-        let placed = self.tree.panes();
+        let placed = self.tree().panes();
         let mut state = self.random ^ ctx.input(|i| i.time).to_bits();
         let mut random = || {
             state = splitmix(state);
@@ -218,7 +218,7 @@ impl MareaderApp {
         let mut global = self.settings().appearance;
         let changes = (self.routed, now);
         self.looks
-            .reconcile(changes, (&placed, self.active), &mut global, &mut random);
+            .reconcile(changes, (&placed, self.active()), &mut global, &mut random);
         let _ = self.set_field("appearance", global);
         self.random = state;
         self.routed = now;
@@ -248,7 +248,7 @@ impl MareaderApp {
             };
             (id, style)
         };
-        self.tree.panes().into_iter().map(style).collect()
+        self.tree().panes().into_iter().map(style).collect()
     }
 
     /// The grain over every layer, menus and windows included, as mareader's.
@@ -275,13 +275,13 @@ impl MareaderApp {
                 themes: routing.themes,
                 textures: routing.textures,
             }),
-            zoom: self.documents.zoom_state(self.active),
-            mode: self.documents.mode(self.active),
-            auto_scroll: self.documents.drifting(self.active),
-            aloud: (self.documents.reading(self.active)).map(|_| self.read_aloud.active()),
-            ink: (self.documents.reflowable(self.active))
+            zoom: self.documents.zoom_state(self.active()),
+            mode: self.documents.mode(self.active()),
+            auto_scroll: self.documents.drifting(self.active()),
+            aloud: (self.documents.reading(self.active())).map(|_| self.read_aloud.active()),
+            ink: (self.documents.reflowable(self.active()))
                 .then_some(self.settings().text.ink_contrast),
-            text: (self.documents.reflowable(self.active))
+            text: (self.documents.reflowable(self.active()))
                 .then(|| crate::appearance_menu::QuickText::of(&self.settings().text)),
             dictionary: {
                 let w = &self.settings().dictionary.window;

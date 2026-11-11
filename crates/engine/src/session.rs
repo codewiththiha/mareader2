@@ -177,6 +177,12 @@ impl Session {
         true
     }
 
+    /// The tree, writable: the app's pane surgery goes through here so the
+    /// engine keeps the one copy.
+    pub fn tree_mut(&mut self) -> &mut PaneTree {
+        &mut self.tree
+    }
+
     /// The pane after or before `active` in reading order, for F6.
     pub fn neighbour(&self, forward: bool) -> Option<PaneId> {
         let panes = self.tree.panes();

@@ -70,14 +70,12 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Ui(UiCommand::CloseSidebar) => app.sidebar.close(),
         Command::Intent(Intent::SetSidebarOverlay(on)) => app.send(Intent::SetSidebarOverlay(on)),
         Command::Intent(Intent::Split(axis)) => {
-            if let Some(id) = app.split(ctx, app.active, axis) {
-                app.active = id;
-            }
+            app.split(ctx, app.active(), axis);
         }
-        Command::Intent(Intent::FocusPane(id)) => app.active = id,
+        Command::Intent(Intent::FocusPane(id)) => app.focus(id),
         Command::Intent(Intent::CyclePane { forward }) => {
-            let panes = app.tree.panes();
-            let at = panes.iter().position(|p| *p == app.active).unwrap_or(0);
+            let panes = app.tree().panes();
+            let at = panes.iter().position(|p| *p == app.active()).unwrap_or(0);
             let n = panes.len().max(1);
             let tab = egui::Id::new("dict-edge-tab-button");
             let on_tab = ctx.memory(|m| m.has_focus(tab));
@@ -96,24 +94,21 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
                     (if forward { at + 1 } else { at + n - 1 }) % n
                 };
                 if let Some(pane) = panes.get(next) {
-                    app.active = *pane;
+                    app.focus(*pane);
                 }
                 ctx.memory_mut(|m| m.focused().map(|id| m.surrender_focus(id)));
             }
         }
         Command::Intent(Intent::ClosePane(id)) => {
-            if app.tree.close(id).is_ok() {
+            if app.close_pane(id) {
                 app.documents.close_pane(id);
                 app.page_ai.close_pane(id);
-                if app.active == id {
-                    app.active = app.tree.panes().first().copied().unwrap_or(PaneId(1));
-                }
             }
         }
         Command::Ui(UiCommand::ShowOpenDialog(placement)) => app.files.pick(ctx, placement),
         Command::Intent(Intent::Zoom(zoom)) => {
             let now = ctx.input(|i| i.time);
-            app.documents.zoom(app.active, zoom, now);
+            app.documents.zoom(app.active(), zoom, now);
         }
         _ => {}
     }
@@ -139,13 +134,13 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
     match command {
         Command::Intent(Intent::View(mode)) => {
             let now = ctx.input(|i| i.time);
-            app.documents.set_mode(app.active, mode, now);
+            app.documents.set_mode(app.active(), mode, now);
         }
         Command::Intent(Intent::Arrow(arrow)) => {
             let now = ctx.input(|i| i.time);
-            app.documents.arrow(app.active, arrow, now);
+            app.documents.arrow(app.active(), arrow, now);
         }
-        Command::Intent(Intent::Page { forward }) => app.documents.page_key(app.active, forward),
+        Command::Intent(Intent::Page { forward }) => app.documents.page_key(app.active(), forward),
         Command::Ui(UiCommand::Chromeless) => {
             app.chromeless = !app.chromeless;
             if app.chromeless {
@@ -158,13 +153,13 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
         }
         Command::Intent(Intent::AutoScroll) => {
             let now = ctx.input(|i| i.time);
-            if !app.documents.toggle_drift(app.active, now) {
+            if !app.documents.toggle_drift(app.active(), now) {
                 let why = "Auto-scroll runs in the scrolling views";
                 app.toasts.push(Toast::info(why));
             }
         }
-        Command::Intent(Intent::FirstPage) => app.documents.go_to(app.active, 0),
-        Command::Intent(Intent::LastPage) => app.documents.go_to(app.active, usize::MAX),
+        Command::Intent(Intent::FirstPage) => app.documents.go_to(app.active(), 0),
+        Command::Intent(Intent::LastPage) => app.documents.go_to(app.active(), usize::MAX),
         Command::Intent(Intent::GoTo { pane, page }) => app.documents.go_to(pane, page),
         Command::Intent(Intent::CopyPages { pane, pages }) => {
             if let Some(reading) = app.documents.reading(pane) {
@@ -197,7 +192,7 @@ fn apply_3(app: &mut MareaderApp, ctx: &Context, command: Command) {
                 return;
             };
             app.go(Route::Reader);
-            let mut pane = request.pane.unwrap_or(app.active);
+            let mut pane = request.pane.unwrap_or(app.active());
             let edge = match request.placement {
                 Placement::Into => None,
                 Placement::Beside => Some(app.beside(ctx, pane)),
@@ -209,15 +204,15 @@ fn apply_3(app: &mut MareaderApp, ctx: &Context, command: Command) {
                     None => return,
                 }
             }
-            if app.tree.panes().contains(&pane) {
-                app.active = pane;
+            if app.tree().panes().contains(&pane) {
+                app.focus(pane);
                 if let Some(note) = app.documents.open(ctx, pane, request) {
                     app.toasts.push(note);
                 }
             }
         }
         Command::Intent(Intent::SetRatio(path, ratio)) => {
-            app.tree.set_ratio(&path, ratio);
+            app.tree_mut().set_ratio(&path, ratio);
         }
         Command::Ui(UiCommand::Window(w)) => ctx.send_viewport_cmd(match w {
             WindowCommand::Minimize => ViewportCommand::Minimized(true),

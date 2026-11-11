@@ -56,7 +56,7 @@ impl MareaderApp {
             ctx.request_repaint();
         }
         // Inline, the measure lands next frame; book it.
-        if self.library.observe(&self.documents, &self.tree.panes()) {
+        if self.library.observe(&self.documents, &self.tree().panes()) {
             ctx.request_repaint();
         }
         if let Some(wait) = self.library.save(ctx.input(|i| i.time)) {
@@ -72,7 +72,7 @@ impl MareaderApp {
             || crate::shortcuts::is_open(ctx);
         if crate::focus::begin(ctx) && !dialog {
             self.titlebar.reveal();
-            self.page_bars.entry(self.active).or_default().reveal();
+            self.page_bars.entry(self.active()).or_default().reveal();
         }
         // Dialog answers precede scrolling and Escape, but never typing.
         let asking = route == Route::Reader
@@ -155,7 +155,7 @@ impl MareaderApp {
         if free && self.documents.dismiss_read_markers(ctx.input(|i| i.time)) {
             free = false;
         }
-        if free && self.documents.stop_drift(self.active) {
+        if free && self.documents.stop_drift(self.active()) {
             free = false;
         }
         if free && self.find.is_open() {
@@ -163,7 +163,7 @@ impl MareaderApp {
             free = false;
         }
         // A selection, then picked pages, before the sidebar and chromeless.
-        let selection = free && self.documents.clear_selection(self.active);
+        let selection = free && self.documents.clear_selection(self.active());
         let grid = self.sidebar.is_open() && self.sidebar.panel() == Panel::Thumbnails;
         if free && !selection && !(grid && self.thumbs.clear_picks()) {
             if self.sidebar.is_open() {

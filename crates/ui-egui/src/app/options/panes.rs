@@ -89,7 +89,7 @@ impl MareaderApp {
         };
         // Into the pane in front now, so `focus=` aims each file.
         let request = OpenRequest {
-            pane: Some(self.active),
+            pane: Some(self.active()),
             ..request
         };
         self.queue(Command::Intent(Intent::Open(request)));
@@ -204,8 +204,8 @@ impl MareaderApp {
 
     fn option_focus(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: u32 = value.parse().map_err(|_| "focus: a pane number")?;
-        let pane = self.tree.panes().get(n.saturating_sub(1) as usize).copied();
-        self.active = pane.ok_or("focus: no such pane")?;
+        let pane = self.tree().panes().get(n.saturating_sub(1) as usize).copied();
+        self.focus(pane.ok_or("focus: no such pane")?);
 
         Ok(())
     }
@@ -213,9 +213,9 @@ impl MareaderApp {
     fn option_panes(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
         let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
-        while self.tree.len() < n.min(mareader_workspace::MAX_PANES) {
-            let last = self.tree.panes().last().copied().unwrap_or(self.active);
-            let axis = if self.tree.len() % 2 == 1 {
+        while self.tree().len() < n.min(mareader_workspace::MAX_PANES) {
+            let last = self.tree().panes().last().copied().unwrap_or(self.active());
+            let axis = if self.tree().len() % 2 == 1 {
                 SplitAxis::Horizontal
             } else {
                 SplitAxis::Vertical

@@ -12,7 +12,7 @@ impl MareaderApp {
 
     /// Something is open in a pane, so the library can go back to it.
     pub(super) fn reading(&self) -> bool {
-        let panes = self.tree.panes();
+        let panes = self.tree().panes();
         panes.iter().any(|p| self.documents.reading(*p).is_some())
     }
 
@@ -96,7 +96,7 @@ impl MareaderApp {
         let modal =
             self.settings_window.is_open() || self.word_window.is_open() || self.library.sheet_up();
         let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
-        if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active) {
+        if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active()) {
             out.push(Command::Intent(Intent::FocusPane(*id)));
         }
     }
@@ -147,15 +147,15 @@ impl MareaderApp {
 
     /// Puts the focused pane first in `recent`, dropping closed panes.
     pub(super) fn note_focus(&mut self) {
-        let placed = self.tree.panes();
-        self.recent
-            .retain(|p| placed.contains(p) && *p != self.active);
-        self.recent.insert(0, self.active);
+        let placed = self.tree().panes();
+        self.recent()
+            .retain(|p| placed.contains(p) && *p != self.active());
+        self.recent().insert(0, self.active());
         let unseen: Vec<PaneId> = placed
             .into_iter()
-            .filter(|p| !self.recent.contains(p))
+            .filter(|p| !self.recent().contains(p))
             .collect();
-        self.recent.extend(unseen);
+        self.recent().extend(unseen);
     }
 }
 

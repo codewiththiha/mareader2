@@ -11,6 +11,38 @@ impl MareaderApp {
         self.session.settings()
     }
 
+    pub fn tree(&self) -> &mareader_workspace::PaneTree {
+        self.session.tree()
+    }
+
+    /// The focused pane.
+    pub fn active(&self) -> PaneId {
+        self.session.active()
+    }
+
+    /// Makes `pane` the focused pane.
+    pub(super) fn focus(&mut self, pane: PaneId) {
+        self.send(Intent::FocusPane(pane));
+    }
+
+    /// Closes a pane through the door, so the focus follows the tree.
+    pub(super) fn close_pane(&mut self, id: PaneId) -> bool {
+        let done = self.session.execute(Intent::ClosePane(id));
+        self.after(done.clone());
+        done.dirty
+    }
+
+    /// The tree, writable, for the pane surgery `execute` cannot express:
+    /// a lift and drop, a divider drag.
+    pub(super) fn tree_mut(&mut self) -> &mut mareader_workspace::PaneTree {
+        self.session.tree_mut()
+    }
+
+    /// The panes by last focus, latest first.
+    pub fn recent(&self) -> &[PaneId] {
+        self.session.recent()
+    }
+
     /// Dials set directly, for shots and tests; the app uses `set_field`.
     pub fn settings_mut(&mut self) -> &mut Settings {
         self.session.settings_mut()
@@ -178,7 +210,7 @@ impl MareaderApp {
     }
 
     pub fn active_pane(&self) -> PaneId {
-        self.active
+        self.session.active()
     }
 
     pub fn documents(&self) -> &Documents {

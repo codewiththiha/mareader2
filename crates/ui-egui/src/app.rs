@@ -160,10 +160,6 @@ pub struct MareaderApp {
     page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     /// Shots: pages the word list window opens on, once shown.
     word_window_seed: Option<Vec<usize>>,
-    tree: PaneTree,
-    active: PaneId,
-    /// Panes by last focus, latest first: blend's paper follows them.
-    recent: Vec<PaneId>,
     sidebar: Sidebar,
     settings_window: SettingsWindow,
     find: FindBar,
@@ -281,9 +277,6 @@ impl MareaderApp {
             clips: crate::trigger::Clips::default(),
             page_ai_seed: None,
             word_window_seed: None,
-            tree: PaneTree::new(),
-            active: PaneId(1),
-            recent: Vec::new(),
             sidebar: Sidebar::default(),
             settings_window: SettingsWindow::default(),
             find: FindBar::default(),

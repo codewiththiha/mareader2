@@ -11,7 +11,7 @@ impl MareaderApp {
     }
 
     fn staged(&mut self, ctx: &Context, out: &mut Commands) {
-        let pane = self.active;
+        let pane = self.active();
         let sheets = self.documents.sheets(pane);
         let shown = |page| sheets.iter().any(|s| s.page == page);
         match self.staged.pop_front() {
@@ -79,7 +79,7 @@ impl MareaderApp {
     }
 
     fn seeds(&mut self, ctx: &Context, out: &mut Commands) {
-        let pane = self.active;
+        let pane = self.active();
         let sheets = self.documents.sheets(pane);
         let shown = |page| sheets.iter().any(|s| s.page == page);
         if let Some(pages) = self
@@ -184,7 +184,7 @@ impl MareaderApp {
 
     fn page_gloss(&mut self, ctx: &Context, _out: &mut Commands, pane: PaneId, gloss: Gloss) {
         match gloss {
-            Gloss::Lift(origin) if self.tree.len() > 1 => {
+            Gloss::Lift(origin) if self.tree().len() > 1 => {
                 let home = self.pane_rects.iter().find(|(id, _)| *id == pane);
                 if let Some(&(_, home)) = home {
                     let since = ctx.input(|i| i.time);
@@ -195,7 +195,7 @@ impl MareaderApp {
                         since,
                     };
                     self.lifting = Some(lift);
-                    self.active = pane;
+                    self.focus(pane);
                     ctx.request_repaint();
                 }
             }
@@ -339,7 +339,7 @@ impl MareaderApp {
         self.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results and transcripts into its pages.
         let wanted = mareader_engine::transcript::wanted(&self.settings().ai);
-        for pane in self.tree.panes() {
+        for pane in self.tree().panes() {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
             let model = self.library.model();
