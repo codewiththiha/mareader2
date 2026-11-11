@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mareader_session::{Anchor, Source, SpinePlace};
 use mareader_library::BookId;
+use mareader_session::{Anchor, Source, SpinePlace};
 use mareader_workspace::{Edge, PaneId};
 
 /// Where an open lands, measured from its pane.

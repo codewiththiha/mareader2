@@ -14,7 +14,7 @@ use mareader_library::{
 };
 
 use super::{Action, LibraryState, Pick, PickAction, Scope};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};

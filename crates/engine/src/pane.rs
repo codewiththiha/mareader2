@@ -92,3 +92,30 @@ pub enum Fit {
     Width,
     Page,
 }
+
+impl Arrow {
+    /// One step forward, right or down; minus one back.
+    pub fn sign(self) -> f32 {
+        if matches!(self, Self::Right | Self::Down) {
+            1.0
+        } else {
+            -1.0
+        }
+    }
+
+    /// mareader's rule: arrows turn, except along a strip's own axis.
+    pub fn turns(self, mode: ViewMode, rtl: bool) -> Option<bool> {
+        // A right-to-left book's pages turn leftward.
+        let ahead = if rtl && mode.paged() {
+            Self::Left
+        } else {
+            Self::Right
+        };
+        let forward = self == ahead || self == Self::Down;
+        let along = match self {
+            Self::Left | Self::Right => mode == ViewMode::Horizontal,
+            Self::Up | Self::Down => !mode.paged(),
+        };
+        (!along).then_some(forward)
+    }
+}

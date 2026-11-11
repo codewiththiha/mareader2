@@ -6,7 +6,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::TextLayer;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::library::Action;
 use mareader_ui_egui::selection::Sheet;
 
@@ -135,13 +135,15 @@ pub(crate) fn release(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
 }
 
 pub(crate) fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
-    h.state_mut().queue(Command::Intent(Intent::Library(action)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Library(action)));
     h.run();
     h.run();
 }
 
 pub(crate) fn go_to(h: &mut Harness<'static, MareaderApp>, page: usize) {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
 }

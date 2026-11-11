@@ -19,13 +19,13 @@ use mareader_study::page::{Out, Piece, Rewritten};
 use mareader_study::{Failure, Why};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
-use mareader_engine::page_ai::extract::Source;
-use mareader_engine::stable_hash::hash;
 use crate::toast::Toast;
 pub use follow::Around;
+use mareader_engine::page_ai::extract::{self, Source};
+use mareader_engine::stable_hash::hash;
 pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.

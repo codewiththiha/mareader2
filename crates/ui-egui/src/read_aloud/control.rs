@@ -9,7 +9,7 @@ use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
 use super::parts::Kind;
 use super::rate_label;
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act as IconAct};
 use crate::motion;

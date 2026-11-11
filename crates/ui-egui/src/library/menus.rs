@@ -7,7 +7,7 @@ use egui::{
 use mareader_library::{Book, BookId, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
 
 use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;

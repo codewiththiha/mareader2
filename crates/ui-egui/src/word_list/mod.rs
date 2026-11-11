@@ -211,7 +211,8 @@ impl Gather {
                         .get(..LEVEL_ROUND.min(round.len()))
                         .unwrap_or_default();
                     if round.is_empty() {
-                        self.words = mareader_engine::word_marks::hard(&self.pages, &self.bands, self.level);
+                        self.words =
+                            mareader_engine::word_marks::hard(&self.pages, &self.bands, self.level);
                         if self.words.is_empty() {
                             let level = mareader_cefr::label(self.level);
                             let why = format!("No words above {level} on these pages");

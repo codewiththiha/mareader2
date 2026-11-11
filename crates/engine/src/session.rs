@@ -129,8 +129,20 @@ impl Session {
             return;
         }
         self.active = id;
-        self.recent.retain(|p| *p != id);
-        self.recent.insert(0, id);
+        self.restage();
+    }
+
+    /// Puts the focused pane first in `recent`, dropping closed panes.
+    fn restage(&mut self) {
+        let placed = self.tree.panes();
+        let active = self.active;
+        self.recent.retain(|p| placed.contains(p) && *p != active);
+        self.recent.insert(0, active);
+        let unseen: Vec<PaneId> = placed
+            .into_iter()
+            .filter(|p| !self.recent.contains(p))
+            .collect();
+        self.recent.extend(unseen);
     }
 
     /// The page the window shows; the library keeps the route it came from.
@@ -218,7 +230,7 @@ impl Session {
                         self.focus(id);
                         Done {
                             focus: Some(Focus::Cycle { forward }),
-                            dirty: true,
+                            ..Done::changed()
                         }
                     }
                     None => Done::quiet(),

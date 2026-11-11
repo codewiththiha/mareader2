@@ -10,7 +10,7 @@ use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
 use super::{Action, BookAction, Carry, Crumb, Named, ShelfAction};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
@@ -172,7 +172,11 @@ fn take_drops(ui: &Ui, r: &Response, id: Option<ShelfId>, out: &mut Commands) {
         rest_to_go(ui, id, out);
     }
     if let Some(carry) = r.dnd_release_payload::<Carry>() {
-        out.extend(carry.onto(id, keep).map(Command::Intent(Intent::Library)));
+        out.extend(
+            carry
+                .onto(id, keep)
+                .map(|a| Command::Intent(Intent::Library(a))),
+        );
     }
 }
 
@@ -313,7 +317,9 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             let tip = "A second shelf of your own, holding the same books";
             if copy.on_hover_text(tip).clicked() {
                 let picks = vec![super::Pick::Shelf(id)];
-                out.push(Command::Intent(Intent::Library(Action::Book(BookAction::Duplicate(picks)))));
+                out.push(Command::Intent(Intent::Library(Action::Book(
+                    BookAction::Duplicate(picks),
+                ))));
             }
             widgets::menu_rule(ui);
             if widgets::menu_row_danger(ui, Icon::Remove, "Remove shelf").clicked() {

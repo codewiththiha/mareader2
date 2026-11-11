@@ -12,7 +12,7 @@ use mareader_workspace::PaneId;
 
 use super::Action;
 use crate::bubble::{Bubble, Side};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::{motion, widgets};
@@ -291,7 +291,9 @@ pub fn menu(
                     let several =
                         widgets::menu_row(ui, Icon::SelectSeveral, "Select several", None, false);
                     if several.clicked() {
-                        out.push(Command::Intent(Intent::Study(Action::SelectSeveral(pane, mark))));
+                        out.push(Command::Intent(Intent::Study(Action::SelectSeveral(
+                            pane, mark,
+                        ))));
                     }
                     widgets::menu_rule(ui);
                     if widgets::menu_row_danger(ui, Icon::Remove, "Remove highlight").clicked() {

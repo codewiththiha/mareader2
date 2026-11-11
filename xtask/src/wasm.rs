@@ -11,12 +11,10 @@ use crate::layers::{Layer, TABLE, short};
 
 /// What may not be checked for wasm32, and why. Each entry is a decision the
 /// owner made, not an oversight: these crates are documented desktop-only.
-pub const EXEMPT: &[(&str, &str)] = &[
-    (
-        "assist",
-        "AI needs threads, a keychain and TLS; docs/architecture.md rule 3 exempts it",
-    ),
-];
+pub const EXEMPT: &[(&str, &str)] = &[(
+    "assist",
+    "AI needs threads, a keychain and TLS; docs/architecture.md rule 3 exempts it",
+)];
 
 /// The targets the gate builds, in layer order; the front end and web app last.
 pub fn targets() -> Vec<String> {
@@ -99,14 +97,21 @@ mod tests {
         }
         assert!(list.iter().any(|t| t == "mareader-ui-egui"));
         assert_eq!(list.last().map(String::as_str), Some("mareader-web"));
-        assert!(!list.iter().any(|t| t == "mareader"), "an app is not a crate here");
+        assert!(
+            !list.iter().any(|t| t == "mareader"),
+            "an app is not a crate here"
+        );
     }
 
     #[test]
     fn a_desktop_only_crate_is_exempt_by_name_not_by_layer() {
         let list = targets();
         assert!(!list.iter().any(|t| t == "mareader-assist"));
-        assert!(EXEMPT.iter().all(|(name, why)| !why.is_empty() && short(name) == *name));
+        assert!(
+            EXEMPT
+                .iter()
+                .all(|(name, why)| !why.is_empty() && short(name) == *name)
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use egui_kittest::Harness;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::library::{Action, SearchAction};
 use mareader_ui_egui::pages::{CAP_BYTES, REST_BYTES};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
@@ -211,7 +211,8 @@ fn open(h: &mut App, pane: PaneId, path: &Path) {
 fn read_through(h: &mut App, pane: PaneId) {
     let count = h.state().documents().page_count(pane).unwrap_or(0);
     for page in 0..count {
-        h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+        h.state_mut()
+            .queue(Command::Intent(Intent::GoTo { pane, page }));
         h.run();
         h.render().ok();
     }
@@ -225,7 +226,8 @@ fn search(h: &mut App, query: &str) {
 }
 
 fn close(h: &mut App, pane: PaneId) {
-    h.state_mut().queue(Command::Intent(Intent::ClosePane(pane)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::ClosePane(pane)));
     h.run();
 }
 
@@ -244,7 +246,8 @@ fn retype(h: &mut App, audit: &mut Audit) {
     for size in [14.0, 18.0, 22.0, 26.0, 30.0, was] {
         let mut s = h.state().settings().clone();
         s.text.font_size = size;
-        h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        h.state_mut()
+            .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
         h.run();
         h.render().ok();
     }
@@ -296,7 +299,8 @@ fn floor_rise(rounds: &[Row]) -> f64 {
 fn rounds(h: &mut App, audit: &mut Audit, path: &Path, rounds: usize) {
     let mut kept = Vec::new();
     for round in 2..=rounds.max(2) {
-        h.state_mut().queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
+        h.state_mut()
+            .queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
         h.run();
         let pane = h.state().active_pane();
         open(h, pane, path);
@@ -365,8 +369,10 @@ fn book(path: &Path, count: usize) -> Result<bool, String> {
     );
     rounds(&mut h, &mut audit, path, count);
     // The same book twice: the second pane should cost nearly nothing.
-    h.state_mut().queue(Command::Intent(Intent::FocusPane(left)));
-    h.state_mut().queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::FocusPane(left)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Split(SplitAxis::Horizontal)));
     h.run();
     let panes = h.state().panes();
     open(&mut h, panes[0], path);
@@ -451,7 +457,8 @@ fn scroll_peak(audit: &mut Audit, view: &str, rest: &Row, done: &Row) {
 /// Searches the page, then lets it go.
 fn library_search(h: &mut App, audit: &mut Audit, text: &str) {
     let query = SearchAction::Text(text.to_owned());
-    h.state_mut().queue(Command::Intent(Intent::Library(Action::Search(query))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Library(Action::Search(query))));
     h.run_steps(4);
     audit.row(h, &format!("searched \"{text}\""));
     let clear = Command::Intent(Intent::Library(Action::Search(SearchAction::Clear)));

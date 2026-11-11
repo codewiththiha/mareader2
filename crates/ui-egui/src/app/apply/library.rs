@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn handles(command: &Command) -> bool {
     matches!(
@@ -61,7 +62,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
         Command::Intent(Intent::Library(action)) => app.library_action(ctx, action),
         Command::Intent(Intent::ForgetPositions { books, paths }) => {
             let panes: Vec<PaneId> = app
-                .tree
+                .tree()
                 .panes()
                 .into_iter()
                 .filter(|&pane| match app.documents.book(pane) {

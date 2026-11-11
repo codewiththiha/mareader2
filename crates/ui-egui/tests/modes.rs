@@ -3,7 +3,7 @@
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::layout::ViewMode;
 
 type H = Harness<'static, MareaderApp>;
@@ -82,7 +82,10 @@ fn a_spread_pairs_pages_and_turns_by_two() {
     set(&mut h, ViewMode::Spread);
     assert_eq!(visible(&h), 0..2);
     let fit = h.state().documents().zoom_state(h.state().active_pane());
-    assert_eq!(fit.and_then(|z| z.fit), Some(mareader_ui_egui::zoom::Fit::Width));
+    assert_eq!(
+        fit.and_then(|z| z.fit),
+        Some(mareader_ui_egui::zoom::Fit::Width)
+    );
     press(&mut h, Key::ArrowRight);
     assert_eq!(visible(&h), 2..4);
     // Seven pages: the last spread is page 7 alone.
@@ -117,10 +120,9 @@ fn a_plain_wheel_runs_the_horizontal_strip_sideways() {
     let mut h = reader("sample:30");
     set(&mut h, ViewMode::Horizontal);
     // Fit page: nothing overflows down, so the wheel goes along.
-    h.state_mut()
-        .queue(Command::Intent(Intent::Zoom(mareader_ui_egui::zoom::ZoomCommand::Fit(
-            mareader_ui_egui::zoom::Fit::Page,
-        ))));
+    h.state_mut().queue(Command::Intent(Intent::Zoom(
+        mareader_ui_egui::zoom::ZoomCommand::Fit(mareader_ui_egui::zoom::Fit::Page),
+    )));
     h.run();
     assert_eq!(visible(&h).start, 0);
     wheel(&mut h, egui::vec2(0.0, -1000.0), 6);

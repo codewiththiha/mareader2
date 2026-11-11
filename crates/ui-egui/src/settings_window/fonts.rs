@@ -10,7 +10,7 @@ use mareader_settings::{
 use mareader_library::{BookId, Design};
 
 use super::{Scope, Shown, disclosure, divider, group, note, row, section, switch_row};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::library::Action;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -29,7 +29,9 @@ fn this_book(ui: &mut Ui, (book, own): (BookId, Option<Design>), out: &mut Comma
         ui.selectable_value(&mut pick, None, "As set");
         if pick != shown {
             let design = pick.map(|on| if on { Design::Auto } else { Design::Off });
-            out.push(Command::Intent(Intent::Library(Action::Design(book, design))));
+            out.push(Command::Intent(Intent::Library(Action::Design(
+                book, design,
+            ))));
         }
     });
 }

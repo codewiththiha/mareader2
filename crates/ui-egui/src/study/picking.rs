@@ -6,7 +6,7 @@ use mareader_settings::HighlightSettings;
 use mareader_workspace::PaneId;
 
 use super::{Action, restyle};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::theme::Tokens;
 
 /// The Style… popover's id, for shots to open it.
@@ -77,7 +77,8 @@ pub fn bar(
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("{n} selected")).color(t.ink));
                         ui.separator();
-                        let act = |out: &mut Commands, a| out.push(Command::Intent(Intent::Study(a)));
+                        let act =
+                            |out: &mut Commands, a| out.push(Command::Intent(Intent::Study(a)));
                         if ui.button("This page").clicked() {
                             act(out, Action::PickPage);
                         }

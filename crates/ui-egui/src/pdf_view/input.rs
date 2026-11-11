@@ -167,7 +167,8 @@ fn reveal(cx: &mut ShowContext<'_>) {
     if let Some(page) = view.reveal.take()
         && let Some(to) = view.layout.as_ref().and_then(|l| l.reveal(page))
     {
-        cx.place.landed = (!cx.place.mode.paged()).then_some((page, None));
+        view.landed_at = None;
+        cx.place.landed = (!cx.place.mode.paged()).then_some(page);
         // A strip glides to the page; a new layout or a turn lands there.
         let glide = motion::jump(ctx);
         if !rebuilt && !cx.place.mode.paged() && glide.duration.max > 0.0 {

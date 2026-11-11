@@ -9,7 +9,7 @@ use mareader_library::Library;
 use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::documents::Documents;
 use crate::icons::Icon;
 use crate::settings_window::Tab;
@@ -167,11 +167,21 @@ impl PageAi {
                 false
             }
             PageStart::Page => {
-                out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(false)))));
+                out.push(Command::Intent(Intent::PageAi(action(
+                    m,
+                    task,
+                    tag,
+                    how(false),
+                ))));
                 true
             }
             PageStart::Continuous => {
-                out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(true)))));
+                out.push(Command::Intent(Intent::PageAi(action(
+                    m,
+                    task,
+                    tag,
+                    how(true),
+                ))));
                 true
             }
         }
@@ -202,7 +212,10 @@ impl PageAi {
                     char: 0,
                 };
                 let spot = from.at.unwrap_or(page);
-                out.push(Command::Intent(Intent::PlaceReadMarker { pane: m.pane, spot }));
+                out.push(Command::Intent(Intent::PlaceReadMarker {
+                    pane: m.pane,
+                    spot,
+                }));
                 return true;
             }
             widgets::menu_rule(ui);
@@ -362,13 +375,23 @@ impl PageAi {
         };
         let page = widgets::menu_row(ui, Icon::Book, "This page", None, false);
         if page.clicked() {
-            out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(false)))));
+            out.push(Command::Intent(Intent::PageAi(action(
+                m,
+                task,
+                tag,
+                how(false),
+            ))));
             return true;
         }
         let tip = "Does each page as you read on, a few pages ahead";
         let on = widgets::menu_row(ui, Icon::Repeat, "Continuous", None, false);
         if on.on_hover_text(tip).clicked() {
-            out.push(Command::Intent(Intent::PageAi(action(m, task, tag, how(true)))));
+            out.push(Command::Intent(Intent::PageAi(action(
+                m,
+                task,
+                tag,
+                how(true),
+            ))));
             return true;
         }
         widgets::menu_rule(ui);

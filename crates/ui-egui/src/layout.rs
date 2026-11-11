@@ -11,33 +11,6 @@ pub const MARGIN: f32 = 16.0;
 
 pub use mareader_engine::pane::{Arrow, ViewMode};
 
-impl Arrow {
-    /// One step forward, right or down; minus one back.
-    pub fn sign(self) -> f32 {
-        if matches!(self, Self::Right | Self::Down) {
-            1.0
-        } else {
-            -1.0
-        }
-    }
-
-    /// mareader's rule: arrows turn, except along a strip's own axis.
-    pub fn turns(self, mode: ViewMode, rtl: bool) -> Option<bool> {
-        // A right-to-left book's pages turn leftward.
-        let ahead = if rtl && mode.paged() {
-            Self::Left
-        } else {
-            Self::Right
-        };
-        let forward = self == ahead || self == Self::Down;
-        let along = match self {
-            Self::Left | Self::Right => mode == ViewMode::Horizontal,
-            Self::Up | Self::Down => !mode.paged(),
-        };
-        (!along).then_some(forward)
-    }
-}
-
 /// What a fit measures: what shows together, at zoom 1.
 pub fn fit_box(
     mode: ViewMode,

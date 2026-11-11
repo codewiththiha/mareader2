@@ -4,8 +4,8 @@ impl MareaderApp {
     /// The voice booth opens with a voice tab and closes after it.
     pub(super) fn voices_shown(&mut self, ctx: &egui::Context) {
         use crate::settings_window::Tab;
+        let s = self.settings().read_aloud.clone();
         let (booth, shelf) = (&mut self.read_aloud.booth, &self.read_aloud.shelf);
-        let s = &self.settings().read_aloud;
         let engine = match self.settings_window.tab() {
             _ if !self.settings_window.is_open() => None,
             Tab::ReadAloud => Some(s.engine.as_str()),
@@ -13,7 +13,7 @@ impl MareaderApp {
             _ => None,
         };
         if let Some(engine) = engine {
-            booth.open(ctx, engine, s, shelf);
+            booth.open(ctx, engine, &s, shelf);
             booth.tick(ctx);
         } else if booth.is_open() {
             booth.close();
@@ -109,6 +109,7 @@ impl MareaderApp {
             self.read_aloud.island_anchor(),
             dict,
         );
+        let parking = self.settings().workspace.edge_parking;
         let stage = crate::read_aloud::Stage {
             reader,
             panes: &self.pane_rects,
@@ -119,13 +120,13 @@ impl MareaderApp {
             tint,
             toasts,
             dict,
-            parking: self.settings().workspace.edge_parking,
+            parking,
         };
+        let mut settings = self.settings().read_aloud.clone();
         let library = &mut self.library;
         let mut cover = |ui: &egui::Ui, rect: egui::Rect| {
             book.is_some_and(|b| library.paint_cover(ui, rect, b))
         };
-        let mut settings = self.settings().read_aloud;
         (self.read_aloud).bar(ctx, stage, &mut settings, out, &mut cover);
         let _ = self.set_field("read_aloud", settings);
     }

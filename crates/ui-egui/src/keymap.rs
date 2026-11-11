@@ -2,11 +2,11 @@
 
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
-use crate::command::{Command, Commands, WindowCommand};
+use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::documents::Placement;
 use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
-use crate::route::Route;
+use crate::route::{Allows, Route};
 use crate::zoom::{Fit, Step, ZoomCommand};
 
 pub struct Binding {
@@ -315,7 +315,9 @@ const CONTROLS: &str = "Controls";
 fn section_of(command: &Command) -> &'static str {
     use mareader_engine::command::Intent as I;
     match command {
-        Command::Intent(I::Arrow(_) | I::Page { .. } | I::FirstPage | I::LastPage) => "Moving around",
+        Command::Intent(I::Arrow(_) | I::Page { .. } | I::FirstPage | I::LastPage) => {
+            "Moving around"
+        }
         Command::Intent(I::Zoom(_) | I::View(_) | I::AutoScroll) => "View",
         Command::Ui(UiCommand::Chromeless | UiCommand::Window(_)) => "View",
         Command::Ui(UiCommand::ShowFind | UiCommand::FindStep { .. }) => "Find",
@@ -380,7 +382,10 @@ mod tests {
         let full = Command::Ui(UiCommand::Window(WindowCommand::ToggleFullscreen));
         assert_eq!(hint(Platform::Gnome, &full).as_deref(), Some("F11"));
         assert_eq!(hint(Platform::Mac, &full).as_deref(), Some("⌃⌘F"));
-        assert_eq!(hint(Platform::Mac, &Command::Ui(UiCommand::ShowLibrary)), None);
+        assert_eq!(
+            hint(Platform::Mac, &Command::Ui(UiCommand::ShowLibrary)),
+            None
+        );
         let open = Command::Ui(UiCommand::ShowOpenDialog(Placement::Into));
         assert_eq!(hint(Platform::Gnome, &open).as_deref(), Some("Ctrl+O"));
         let zoom_in = Command::Intent(Intent::Zoom(ZOOM_IN));

@@ -48,7 +48,7 @@ impl MareaderApp {
     // Any setting by its dotted path: `layout.page_indicator:false`.
     fn option_set(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let (path, json) = value.split_once(':').ok_or("set: path:json")?;
-        self.settings().set_path(path, json)?;
+        self.settings_mut().set_path(path, json)?;
 
         Ok(())
     }
@@ -68,7 +68,10 @@ impl MareaderApp {
         let base = BaseMode::ALL
             .into_iter()
             .find(|b| b.label().eq_ignore_ascii_case(value));
-        self.set_field("appearance.base", base.ok_or("theme: light, dark, dim or black")?)?;
+        self.set_field(
+            "appearance.base",
+            base.ok_or("theme: light, dark, dim or black")?,
+        )?;
         Ok(())
     }
 
@@ -90,7 +93,7 @@ impl MareaderApp {
     }
 
     fn option_texture_scale(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let scale = value.parse().map_err(|_| "texture_scale: 25 to 400")?;
+        let scale: u16 = value.parse().map_err(|_| "texture_scale: 25 to 400")?;
         self.set_field("appearance.texture_scale", scale)?;
         Ok(())
     }
@@ -114,14 +117,14 @@ impl MareaderApp {
     fn option_save_preset(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // `Name` or `Name/Section`, saving the look set so far.
         let (name, group) = value.split_once('/').unwrap_or((value, ""));
-        let look = self.settings().appearance;
-        self.settings().save_preset(name, group, look);
+        let look = self.settings_mut().appearance.clone();
+        self.settings_mut().save_preset(name, group, look);
 
         Ok(())
     }
 
     fn option_grain_intensity(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let v = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
+        let v: f32 = value.parse().map_err(|_| "grain_intensity: 0 to 100")?;
         self.set_field("appearance.noise_intensity", v)?;
         Ok(())
     }
@@ -162,7 +165,10 @@ impl MareaderApp {
     }
 
     fn option_margin(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("layout.page_margin", value.parse().map_err(|_| "margin: points")?)?;
+        self.set_field(
+            "layout.page_margin",
+            value.parse::<f32>().map_err(|_| "margin: points")?,
+        )?;
         Ok(())
     }
 
@@ -172,17 +178,26 @@ impl MareaderApp {
     }
 
     fn option_text_size(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("text.font_size", value.parse().map_err(|_| "text_size: px")?)?;
+        self.set_field(
+            "text.font_size",
+            value.parse::<f32>().map_err(|_| "text_size: px")?,
+        )?;
         Ok(())
     }
 
     fn option_indent(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("text.text_indent", value.parse().map_err(|_| "indent: ems")?)?;
+        self.set_field(
+            "text.text_indent",
+            value.parse::<f32>().map_err(|_| "indent: ems")?,
+        )?;
         Ok(())
     }
 
     fn option_ink(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("text.ink_contrast", value.parse().map_err(|_| "ink: %")?)?;
+        self.set_field(
+            "text.ink_contrast",
+            value.parse::<f32>().map_err(|_| "ink: %")?,
+        )?;
         Ok(())
     }
 
@@ -192,7 +207,7 @@ impl MareaderApp {
     }
 
     fn option_paragraph(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let gap = value.parse().map_err(|_| "paragraph: ems")?;
+        let gap: f32 = value.parse().map_err(|_| "paragraph: ems")?;
         self.set_field("text.paragraph_margin", gap)?;
         Ok(())
     }
@@ -218,7 +233,7 @@ impl MareaderApp {
     }
 
     fn option_column_width(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let pct = value.parse().map_err(|_| "column_width: %")?;
+        let pct: f32 = value.parse().map_err(|_| "column_width: %")?;
         self.set_field("text.column_width_pct", pct)?;
         Ok(())
     }
@@ -276,13 +291,13 @@ impl MareaderApp {
     }
 
     fn option_pane_gap(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let gap = value.parse().map_err(|_| "pane_gap: points")?;
+        let gap: f32 = value.parse().map_err(|_| "pane_gap: points")?;
         self.set_field("workspace.look.gap", gap)?;
         Ok(())
     }
 
     fn option_label(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let mut l = self.settings().layout;
+        let mut l = self.settings_mut().layout.clone();
         l.floating_label = value != "false";
         l.floating_label_persist = value == "persist";
         if value == "chapter" {

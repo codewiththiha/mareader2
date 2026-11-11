@@ -37,7 +37,6 @@ use mareader_workspace::{
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
 use crate::command::{Command, Commands, Independence, Intent, WindowCommand};
-use crate::study::Action as StudyAction;
 use crate::crossfade::Crossfade;
 use crate::documents::{Documents, OpenRequest, Placement};
 use crate::files::Files;
@@ -51,20 +50,21 @@ use crate::machine_fonts::MachineFonts;
 use crate::notes_panel;
 use crate::outline_panel::{self, OutlineState};
 use crate::page_bar::{self, BarLook, PageBar};
-use mareader_engine::pane_texts::PaneTexts;
 use crate::panes::{self as ui_panes, PaneStyle, PaneView};
 use crate::pdf_view::{PageLook, ViewContext};
 use crate::platform::{LightSpots, NativeLights, Platform};
 use crate::read_aloud::ReadFrom;
-use crate::route::Route;
+use crate::route::{Allows, Route};
 use crate::search::{Found, Lit, Search};
 use crate::settings_window::{Scope, SettingsWindow, Shown, Tab};
 use crate::sidebar::{Panel, RailContext, Sidebar};
+use crate::study::Action as StudyAction;
 use crate::study::{self as ui_study, Explained, Gloss, Highlighted, Study};
 use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, DictionaryBar, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::{keymap, motion, resize, theme};
+use mareader_engine::pane_texts::PaneTexts;
 
 pub const SETTINGS_KEY: &str = "settings";
 /// Kept apart from settings: it says what was read, not how to read.

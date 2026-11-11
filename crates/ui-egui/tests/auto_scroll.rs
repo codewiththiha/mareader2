@@ -3,7 +3,7 @@
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::layout::ViewMode;
 use mareader_ui_egui::pdf_view::AUTO_SPEED;
 
@@ -47,7 +47,8 @@ fn shift_a_drifts_at_its_pace_whatever_the_steps() {
 #[test]
 fn paged_modes_refuse_it_and_say_why() {
     let mut h = reader(&[("pdf", "sample:40")]);
-    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Single)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::View(ViewMode::Single)));
     h.run_steps(5);
     toggle(&mut h);
     assert!(!drifting(&h), "no drift in a paged mode");
@@ -65,7 +66,8 @@ fn escape_and_a_paged_mode_stop_it() {
     assert!(!drifting(&h), "Escape stops it");
     toggle(&mut h);
     assert!(drifting(&h));
-    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Single)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::View(ViewMode::Single)));
     h.run_steps(5);
     assert!(!drifting(&h), "a paged mode stops it");
 }

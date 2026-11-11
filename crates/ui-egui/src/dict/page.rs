@@ -11,7 +11,7 @@ use mareader_dict::{
 use mareader_settings::DictionarySettings;
 
 use super::{Voice, entry, look};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::shaped;

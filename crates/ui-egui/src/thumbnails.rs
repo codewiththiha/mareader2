@@ -13,7 +13,7 @@ use mareader_workspace::PaneId;
 
 use mareader_appearance::Pattern;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::gpu::{Anchor, PagesCallback};
 use crate::motion;

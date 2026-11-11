@@ -5,7 +5,7 @@ use mareader_appearance::Rgb;
 use mareader_settings::{BarItem, HighlightSettings, Pen, PickColor, Reserved};
 
 use super::{Tab, choice_row, divider, group, note, row, section};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::study::marks::pen_area;
 use crate::theme::{self, Tokens};

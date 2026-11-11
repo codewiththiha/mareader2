@@ -38,7 +38,7 @@ use mareader_library::{
 use mareader_session::{Anchor, Document, Source, SpinePlace};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
 pub use actions::{Action, Named, Scope, Sheet};
@@ -47,9 +47,9 @@ pub use books::BookAction;
 pub use covers::Covers;
 pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
+pub use mareader_library::picks::{self, Pick, PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
-pub use mareader_library::picks::{self, Pick, PickAction, Picks};
 pub use search::{Field, Listing, SearchAction};
 pub use shelving::{Carry, Crumb, ShelfAction};
 
@@ -230,9 +230,9 @@ impl LibraryState {
                         false => Status::ReadOnly,
                     };
                     let notes = loaded.notes.into_iter().map(Toast::error);
-                    out.extend(notes.map(Command::Ui(UiCommand::Notify)));
+                    out.extend(notes.map(|t| Command::Ui(UiCommand::Notify(t))));
                     let held = self.waiting.drain(..);
-                    out.extend(held.map(Command::Intent(Intent::Open)));
+                    out.extend(held.map(|r| Command::Intent(Intent::Open(r))));
                     // Gone files and new books, found where they're kept.
                     self.rescan(now);
                 }

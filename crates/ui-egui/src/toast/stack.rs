@@ -8,7 +8,7 @@ use egui::{
 
 use super::card::{self, Body, Card};
 use super::{Exit, Live, Toasts};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets;

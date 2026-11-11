@@ -24,3 +24,7 @@ mareader-speech = { workspace = true }
 mareader-study = { workspace = true }
 mareader-workspace = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The system's languages, to pick subtitles in. (with transcript.rs)
+sys-locale = "0.3"

@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -42,7 +43,7 @@ impl MareaderApp {
     fn option_pinned(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let on = value == "true";
         for bar in Bar::ALL {
-            self.settings().chrome.pin(bar, on);
+            self.settings_mut().chrome.pin(bar, on);
         }
         self.titlebar.pinned = on;
 
@@ -121,22 +122,28 @@ impl MareaderApp {
             "find" => self.queue(Command::Ui(UiCommand::ShowFind)),
             "search" => {
                 let focus = ui_library::SearchAction::Focus;
-                self.queue(Command::Intent(Intent::Library(ui_library::Action::Search(focus))));
+                self.queue(Command::Intent(Intent::Library(
+                    ui_library::Action::Search(focus),
+                )));
             }
-            "add" => self.queue(Command::Intent(Intent::Library(ui_library::Action::ShowAdd))),
+            "add" => self.queue(Command::Intent(Intent::Library(
+                ui_library::Action::ShowAdd,
+            ))),
             "add_folder" => {
                 let root = std::path::PathBuf::from("/home/reader/Books");
-                self.queue(Command::Intent(Intent::Library(ui_library::Action::AskFolder(root))));
+                self.queue(Command::Intent(Intent::Library(
+                    ui_library::Action::AskFolder(root),
+                )));
             }
             // The removal sheet for what `select` picked.
             "remove" => {
                 let books = self.queued.iter().find_map(|c| match c {
-                    Command::Intent(Intent::Library(ui_library::Action::Pick(ui_library::PickAction::Only(p)))) => {
-                        Some(p.iter().filter_map(|p| match p {
-                            ui_library::Pick::Book(id) => Some(*id),
-                            _ => None,
-                        }))
-                    }
+                    Command::Intent(Intent::Library(ui_library::Action::Pick(
+                        ui_library::PickAction::Only(p),
+                    ))) => Some(p.iter().filter_map(|p| match p {
+                        ui_library::Pick::Book(id) => Some(*id),
+                        _ => None,
+                    })),
                     _ => None,
                 });
                 let books: Vec<_> = books.ok_or("open=remove: select books first")?.collect();
@@ -146,7 +153,9 @@ impl MareaderApp {
                     shelves,
                     links,
                 };
-                self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(ask))));
+                self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(
+                    ask,
+                ))));
             }
             "rename" => {
                 let first = self.library.model().recent().first().map(|b| b.id);
@@ -158,7 +167,9 @@ impl MareaderApp {
             "find_again" => {
                 let lost = self.library.model().books().find(|b| b.missing());
                 let lost = lost.ok_or("open=find_again: no missing book")?.id;
-                self.queue(Command::Intent(Intent::Library(ui_library::Action::FindAgain(lost))));
+                self.queue(Command::Intent(Intent::Library(
+                    ui_library::Action::FindAgain(lost),
+                )));
             }
             _ => {
                 return Err(
@@ -204,7 +215,11 @@ impl MareaderApp {
 
     fn option_focus(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: u32 = value.parse().map_err(|_| "focus: a pane number")?;
-        let pane = self.tree().panes().get(n.saturating_sub(1) as usize).copied();
+        let pane = self
+            .tree()
+            .panes()
+            .get(n.saturating_sub(1) as usize)
+            .copied();
         self.focus(pane.ok_or("focus: no such pane")?);
 
         Ok(())
@@ -220,7 +235,7 @@ impl MareaderApp {
             } else {
                 SplitAxis::Vertical
             };
-            self.tree
+            self.tree_mut()
                 .split(last, axis, Side::After, area)
                 .map_err(|e| e.to_string())?;
         }

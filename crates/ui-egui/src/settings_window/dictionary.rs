@@ -9,7 +9,7 @@ use super::downloads::{Buttons, muted, progress};
 use super::{
     choice_row, divider, fold_open, fold_row, folded, group, note, row, section, switch_row,
 };
-use crate::command::{Command, Commands, Download};
+use crate::command::{Command, Commands, Download, Intent};
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
 use crate::widgets;

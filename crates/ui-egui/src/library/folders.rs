@@ -17,7 +17,7 @@ use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use super::moving::CopyWork;
 use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
 
 /// Seconds between rescans when the window keeps regaining focus.
@@ -547,7 +547,9 @@ impl LibraryState {
         let asks = screened.asks.into_iter().map(Question::File);
         self.folders.asks.extend(asks);
         if !notes.is_empty() {
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(notes.join(" ")))));
+            out.push(Command::Ui(UiCommand::Notify(Toast::error(
+                notes.join(" "),
+            ))));
         }
         let loose = Loose {
             to,

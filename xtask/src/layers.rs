@@ -272,7 +272,10 @@ mod tests {
         ];
         let errs = check(&apps);
         assert_eq!(errs.len(), 2, "{errs:?}");
-        assert!(errs.iter().all(|e| e.contains("headless client")), "{errs:?}");
+        assert!(
+            errs.iter().all(|e| e.contains("headless client")),
+            "{errs:?}"
+        );
         assert!(check(&[pkg("mareader-cli", &["mareader-engine"])]).is_empty());
     }
 

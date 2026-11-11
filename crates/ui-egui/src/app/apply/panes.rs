@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn handles(command: &Command) -> bool {
     matches!(

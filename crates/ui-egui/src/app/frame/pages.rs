@@ -52,15 +52,16 @@ impl MareaderApp {
             true => {
                 let book = self.library.book_in(&self.documents, self.active());
                 let name = self.documents.title(self.active()).unwrap_or_default();
-                let look = &self.settings().study.highlights;
-                self.study.notes_of(self.library.model(), book, name, look)
+                let look = self.settings().study.highlights.clone();
+                self.study.notes_of(self.library.model(), book, name, &look)
             }
             false => Vec::new(),
         };
+        let offer = crate::thumbnails::Offer::of(self.settings());
+        self.thumbs.set_offer(offer);
+        let active = self.active();
         let shelf_tree = &mut self.shelf_tree;
-        self.thumbs
-            .set_offer(crate::thumbnails::Offer::of(self.settings()));
-        let (documents, active) = (&mut self.documents, self.active());
+        let documents = &mut self.documents;
         let (outline, thumbs) = (&mut self.outline, &mut self.thumbs);
         // The rail's panels serve the focused pane's document.
         let mut body =
@@ -151,9 +152,9 @@ impl MareaderApp {
             && let Some(reading) = self.documents.reading(self.active())
         {
             self.read_aloud_shot = false;
-            let settings = &self.settings().read_aloud;
+            let settings = self.settings().read_aloud.clone();
             let from = ReadFrom::default();
-            (self.read_aloud).start(ctx, &reading, from, settings);
+            (self.read_aloud).start(ctx, &reading, from, &settings);
         }
         let shot = std::mem::take(&mut self.transcript_shot);
         for (card, track) in shot {
@@ -190,8 +191,8 @@ impl MareaderApp {
             path: documents.path(pane).map(std::path::Path::to_path_buf),
             name: documents.title(pane).unwrap_or_default().to_owned(),
         });
-        self.read_aloud
-            .tick(ctx, &mut self.documents, &self.settings().read_aloud);
+        let aloud = self.settings().read_aloud.clone();
+        self.read_aloud.tick(ctx, &mut self.documents, &aloud);
         self.documents.reveal_read_markers();
     }
 
@@ -211,38 +212,48 @@ impl MareaderApp {
         let blend = context.blend;
         let pinned_bottom = context.pinned_bottom;
         let lit = &context.lit;
+        // Every setting is read before any field of `self` is borrowed below.
+        let (layout, window, library_look) = (
+            self.settings().layout.clone(),
+            self.settings().text.clone(),
+            self.settings().library.clone(),
+        );
+        let highlight_look = self.settings().study.highlights.clone();
+        let dictionary_look = self.settings().dictionary.clone();
+        let lift = self.tree().len() > 1;
+        let tree = self.tree().clone();
+        let lifted = self.lifting.map(|l| l.pane);
+        let page_top = self.titlebar.page_top(ctx, route.bar());
+        let menu_shot = self.menu_shot;
+        let highlights = &highlight_look;
+        let dictionary = &dictionary_look;
         let read_aloud = &self.read_aloud;
         let documents = &mut self.documents;
-        let (layout, texts, window) = (&self.settings().layout, &self.texts, &self.settings().text);
-        let (library, library_view) = (&mut self.library, &self.settings().library);
+        let (library, library_view) = (&mut self.library, &library_look);
         let study = &mut self.study;
         let page_ai = &mut self.page_ai;
         study.begin_frame();
-        let highlights = &self.settings().study.highlights;
         let vocab = &mut self.vocab;
         let shading = context.shading;
+        let (layout, window) = (&layout, &window);
+        let texts = &self.texts;
         self.library_rect = None;
-        let menu_shot = self.menu_shot;
-        let lift = self.tree().len() > 1;
-        let dictionary_page = (route == Route::Dictionary).then_some(&mut self.dict);
-        let dictionary = &self.settings().dictionary;
-        let page_top = self.titlebar.page_top(ctx, route.bar());
-        egui::CentralPanel::no_frame().show(ui, |ui| {
-            if let Some(dict) = dictionary_page {
-                self.pane_rects.clear();
-                dict.page(ui, dictionary, page_top, commands);
-                return;
-            }
+        // The dictionary page needs all of `self`, so it is drawn outside the
+        // closure the other pages fill.
+        if route == Route::Dictionary {
+            self.pane_rects.clear();
+            self.dict.page(ui, dictionary, page_top, commands);
+            return;
+        }
+        // Copied out above: the closures below need `&mut self`.
+        let mut library_rect = None;
+        let rects = egui::CentralPanel::no_frame().show(ui, |ui| {
             if library.showing {
-                self.pane_rects.clear();
-                self.library_rect = Some(ui.max_rect());
+                library_rect = Some(ui.max_rect());
                 ui_library::view::show(ui, library, library_view, page_top, commands);
-                return;
+                return Vec::new();
             }
-            let lifted = self.lifting.map(|l| l.pane);
-            // Copied out: the closure below needs `&mut self`.
-            let tree = self.tree().clone();
-            self.pane_rects = ui_panes::show(ui, &tree, lifted, view, commands, |ui, id| {
+            ui_panes::show(ui, &tree, lifted, view, commands, |ui, id| {
                 let style = view.style(id);
                 let cx = ViewContext {
                     active: id == view.active,
@@ -268,8 +279,10 @@ impl MareaderApp {
                     ai: pane_ai(page_ai, ctx, id, library, documents),
                 };
                 documents.show(ui, id, &cx, Some(&mut *vocab))
-            });
+            })
         });
+        self.pane_rects = rects.inner;
+        self.library_rect = library_rect;
     }
 }
 

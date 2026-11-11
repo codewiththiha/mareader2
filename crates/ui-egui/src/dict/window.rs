@@ -9,7 +9,7 @@ use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 use super::page::Page;
 use super::{Action, Voice, Window, bounds};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -140,7 +140,9 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = home;
             *f.evacuated = None;
             *f.live = None;
-            out.push(Command::Intent(Intent::Dict(Action::Window(Window::Place(bounds(home))))));
+            out.push(Command::Intent(Intent::Dict(Action::Window(
+                Window::Place(bounds(home)),
+            ))));
             returned = true;
         }
     }
@@ -159,7 +161,9 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         parked = None;
         *f.evacuated = None;
         *f.live = None;
-        out.push(Command::Intent(Intent::Dict(Action::Window(Window::Place(bounds(rect))))));
+        out.push(Command::Intent(Intent::Dict(Action::Window(
+            Window::Place(bounds(rect)),
+        ))));
         returned = true;
     }
     let short = f
@@ -219,9 +223,13 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         }
         released |= grab.drag_stopped();
         if folded && grab.clicked() {
-            out.push(Command::Intent(Intent::Dict(Action::Window(Window::Minimize(false)))));
+            out.push(Command::Intent(Intent::Dict(Action::Window(
+                Window::Minimize(false),
+            ))));
         } else if !folded && grab.double_clicked() {
-            out.push(Command::Intent(Intent::Dict(Action::Window(Window::Minimize(true)))));
+            out.push(Command::Intent(Intent::Dict(Action::Window(
+                Window::Minimize(true),
+            ))));
         }
         let named = Named {
             word: f.page.text().trim(),
@@ -356,12 +364,16 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = keep(rect);
             *f.live = None;
             *f.evacuated = None;
-            out.push(Command::Intent(Intent::Dict(Action::Window(Window::Place(bounds(rect))))));
+            out.push(Command::Intent(Intent::Dict(Action::Window(
+                Window::Place(bounds(rect)),
+            ))));
         }
     } else if !returned && turned {
         rect = keep(rect);
         *f.live = None;
-        out.push(Command::Intent(Intent::Dict(Action::Window(Window::Place(bounds(rect))))));
+        out.push(Command::Intent(Intent::Dict(Action::Window(
+            Window::Place(bounds(rect)),
+        ))));
     } else if parked.is_some() {
         *f.live = None;
     } else if !returned && f.evacuated.is_none() && Some(rect) != saved {

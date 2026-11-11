@@ -11,7 +11,7 @@ use mareader_library::{
 };
 use mareader_settings::Bar;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::library::{
     Action, BookAction, Named, Pick, PickAction, SearchAction, Sheet, ShelfAction,
 };
@@ -283,13 +283,15 @@ fn the_library_keeps_its_own_title_bar_pin() {
     h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(h.state().titlebar().pinned, "the library pins by default");
-    h.state_mut().queue(Command::Intent(Intent::SetTitlebarPinned(false)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetTitlebarPinned(false)));
     h.run();
     assert_eq!(chrome(&h), (false, false));
     h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(!h.state().library_showing());
-    h.state_mut().queue(Command::Intent(Intent::SetTitlebarPinned(true)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetTitlebarPinned(true)));
     h.run();
     assert_eq!(chrome(&h), (true, false), "the reader's pin alone");
     assert!(h.state().titlebar().pinned);
@@ -1309,7 +1311,8 @@ fn a_twin_opened_beside_its_original_leaves_that_pane_alone() {
         None,
         "still the original"
     );
-    h.state_mut().queue(Command::Intent(Intent::FocusPane(first)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::FocusPane(first)));
     h.run();
     go_to(&mut h, 3);
     h.run_steps(3);

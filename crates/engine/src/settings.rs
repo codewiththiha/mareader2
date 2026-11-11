@@ -53,4 +53,41 @@ impl Tab {
             Tab::Model(m) => m.name,
         }
     }
+
+    /// A tab by its name; old names, as Workspace, still work.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.to_ascii_lowercase();
+        match s.as_str() {
+            "theme" | "fonts" => Some(Tab::Appearance),
+            "animations" => Some(Tab::Motion),
+            "workspace" => Some(Tab::Panes),
+            "models" => Some(Tab::Models),
+            "voices" | "read_aloud" | "speech" => Some(Tab::ReadAloud),
+            _ => Self::ALL
+                .into_iter()
+                .find(|t| t.label().eq_ignore_ascii_case(&s)),
+        }
+    }
+
+    /// The heading the sidebar groups it under.
+    pub fn group(self) -> &'static str {
+        match self {
+            Tab::Appearance | Tab::Layout | Tab::ReadAloud | Tab::Model(_) => "Reading",
+            Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
+            Tab::Models | Tab::Panes | Tab::Motion => "App",
+        }
+    }
+
+    /// Shown away from the books too, in the library and the dictionary.
+    pub fn beyond_books(self) -> bool {
+        use Tab as T;
+        let study = matches!(self, T::Highlights | T::Vocabulary | T::Dictionary);
+        let voices = matches!(self, T::ReadAloud | T::Model(_));
+        study || voices || matches!(self, T::Ai | T::Models)
+    }
+
+    /// Every tab always shows, so the list never shifts under the pointer.
+    pub fn available(self) -> bool {
+        !matches!(self, Tab::Ai | Tab::Models) || cfg!(not(target_arch = "wasm32"))
+    }
 }

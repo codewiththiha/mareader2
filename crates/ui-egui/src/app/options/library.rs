@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -27,7 +28,12 @@ impl MareaderApp {
     fn option_library(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match value {
             // After a queued open, which would otherwise leave it.
-            "show" if self.queued.iter().any(|c| matches!(c, Command::Intent(Intent::Open(_)))) => {
+            "show"
+                if self
+                    .queued
+                    .iter()
+                    .any(|c| matches!(c, Command::Intent(Intent::Open(_)))) =>
+            {
                 self.queue(Command::Ui(UiCommand::ShowLibrary));
             }
             "show" => self.go(Route::Library),
@@ -68,7 +74,9 @@ impl MareaderApp {
             shelves,
             links,
         };
-        self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(ask))));
+        self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(
+            ask,
+        ))));
 
         Ok(())
     }
@@ -106,7 +114,7 @@ impl MareaderApp {
     }
 
     fn option_columns(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("library.columns", value.parse().ok())?;
+        self.set_field("library.columns", value.parse::<usize>().ok())?;
         Ok(())
     }
 
@@ -175,7 +183,9 @@ impl MareaderApp {
     // Typed into the library's search field.
     fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let text = ui_library::SearchAction::Text(value.to_owned());
-        self.queue(Command::Intent(Intent::Library(ui_library::Action::Search(text))));
+        self.queue(Command::Intent(Intent::Library(
+            ui_library::Action::Search(text),
+        )));
 
         Ok(())
     }

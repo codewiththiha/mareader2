@@ -6,7 +6,7 @@ use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::focus;
 use mareader_ui_egui::library::{Action, Pick, PickAction};
 

@@ -9,7 +9,7 @@ use mareader_settings::{
 
 use super::highlights::{palette, preview};
 use super::{ROW_H, Tab, choices, divider, group, note, row, section};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets;

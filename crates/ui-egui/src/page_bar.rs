@@ -8,7 +8,7 @@ use mareader_settings::{LayoutSettings, PageIndicatorStyle};
 use mareader_workspace::PaneId;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::gpu::{Look, Reach};
 use crate::icons::Icon;

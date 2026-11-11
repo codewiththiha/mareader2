@@ -2,9 +2,8 @@
 
 use mareader_library::{BookId, Item, Library, Move, ShelfId};
 
-use super::books::counted;
 use super::{Action, LibraryState, Scope, wall_ms};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::toast::Toast;
 
 pub use mareader_engine::library::{Carry, CopyAnswer, NEW_SHELF, ShelfAction};

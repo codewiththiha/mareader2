@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::settings_window::Tab;
 
 use crate::common::press;
@@ -163,7 +163,8 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
             app.attach_voice_models_from(&cc.egui_ctx, dir, TINY);
             app
         });
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::ReadAloud)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::ReadAloud)));
     h.run_steps(4);
     h
 }

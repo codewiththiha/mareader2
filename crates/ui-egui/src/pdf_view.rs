@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use egui::style::ScrollAnimation;
 use egui::{Color32, CornerRadius, Pos2, Rect, ScrollArea, Ui, Vec2, pos2, vec2};
-use mareader_library::{BookId, MarkId};
+use mareader_library::MarkId;
 use mareader_pdf::{Bounds, LinkTarget, web_address};
 use mareader_search::reveal;
 use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Tiling, Want};
@@ -150,6 +150,8 @@ pub struct PdfView {
     /// Auto-scroll is on: when it last moved the strip.
     drift: Option<f64>,
     jump: Option<Jump>,
+    /// The strip's offset once it landed on the place's page; stale once moved.
+    landed_at: Option<Vec2>,
     /// Zoom steps ease, as of last frame's motion settings.
     ease: bool,
     /// Until first drawn: the default fit is still to apply.
@@ -209,6 +211,7 @@ impl PdfView {
             hold: None,
             drift: None,
             jump: None,
+            landed_at: None,
             ease: true,
             place: None,
             placed_at: None,
@@ -552,11 +555,7 @@ impl PdfView {
     fn go(&mut self, at: &mut Place, page: usize) {
         self.focus = at.mode.start(page, at.lead);
         at.current = page;
-        self.reveal = Some(if at.mode.paged() {
-            self.focus
-        } else {
-            page
-        });
+        self.reveal = Some(if at.mode.paged() { self.focus } else { page });
     }
 }
 
@@ -1160,12 +1159,7 @@ fn copy(ctx: &egui::Context, view: &PdfView, doc: &Document, id: DocId, texts: &
 }
 
 /// The selection's text; none if nothing is selected.
-fn selected_text(
-    view: &PdfView,
-    doc: &Document,
-    id: DocId,
-    texts: &TextLayers,
-) -> Option<String> {
+fn selected_text(view: &PdfView, doc: &Document, id: DocId, texts: &TextLayers) -> Option<String> {
     let sel = view.selection.filter(|s| !s.is_empty())?;
     // Pages scrolled out of the cache are read again, here.
     Some(sel.text(|page| {
@@ -1185,9 +1179,9 @@ fn selection_bar(
     look: &HighlightSettings,
 ) -> Option<BarPress> {
     let sel = view.selection.filter(|s| !s.is_empty())?;
-    let id = egui::Id::new(("study-bar", id));
+    let bar_id = egui::Id::new(("study-bar", id));
     // Hidden while a press elsewhere may be selecting; a press on it stays.
-    let bar = egui::LayerId::new(egui::Order::Foreground, id);
+    let bar = egui::LayerId::new(egui::Order::Foreground, bar_id);
     let (down, from) = ctx.input(|i| (i.pointer.any_down(), i.pointer.press_origin()));
     if down && from.and_then(|p| ctx.layer_id_at(p)) != Some(bar) {
         return None;
@@ -1210,11 +1204,17 @@ fn selection_bar(
     if !shown.is_positive() {
         return None;
     }
-    study::show_bar(ctx, id, shown, room, look)
+    study::show_bar(ctx, bar_id, shown, room, look)
 }
 
 /// The strips' scroll along their axis; the paged modes' page.
-fn progress(view: &PdfView, layout: &Layout, out: &ScrollOutput<()>, count: usize) -> f32 {
+fn progress(
+    view: &PdfView,
+    at: &Place,
+    layout: &Layout,
+    out: &ScrollOutput<()>,
+    count: usize,
+) -> f32 {
     let room = (out.content_size - out.inner_rect.size()).max(Vec2::ZERO);
     let (done, total) = match at.mode {
         ViewMode::Vertical => (out.state.offset.y, room.y),

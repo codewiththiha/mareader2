@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::navigation::found_in;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn handles(command: &Command) -> bool {
     matches!(
@@ -115,19 +116,24 @@ fn apply_2(app: &mut MareaderApp, ctx: &Context, command: Command) {
             app.find.key_step(found, forward, ctx.input(|i| i.time));
         }
         Command::Ui(UiCommand::FindStep { .. }) => app.apply(ctx, Command::Ui(UiCommand::ShowFind)),
-        Command::Ui(UiCommand::ShowFind) => match (app.route(), app.documents.reading(app.active())) {
-            // The page's own field is its find.
-            (Route::Dictionary, _) => app.dict.arrive(),
-            (Route::Reader, Some(_)) => {
-                app.find.open(app.active());
-                app.titlebar.reveal();
+        Command::Ui(UiCommand::ShowFind) => {
+            match (app.route(), app.documents.reading(app.active())) {
+                // The page's own field is its find.
+                (Route::Dictionary, _) => app.dict.arrive(),
+                (Route::Reader, Some(_)) => {
+                    app.find.open(app.active());
+                    app.titlebar.reveal();
+                }
+                _ => {
+                    app.go(Route::Library);
+                    let focus = ui_library::SearchAction::Focus;
+                    app.apply(
+                        ctx,
+                        Command::Intent(Intent::Library(ui_library::Action::Search(focus))),
+                    );
+                }
             }
-            _ => {
-                app.go(Route::Library);
-                let focus = ui_library::SearchAction::Focus;
-                app.apply(ctx, Command::Intent(Intent::Library(ui_library::Action::Search(focus))));
-            }
-        },
+        }
         Command::Ui(UiCommand::ShowSearch) if app.find.is_open() => app.find.close(),
         Command::Ui(UiCommand::ShowSearch) => app.apply(ctx, Command::Ui(UiCommand::ShowFind)),
         Command::Ui(UiCommand::ShowDictionary) => match app.route() {

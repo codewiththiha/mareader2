@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn handles(command: &Command) -> bool {
     matches!(
@@ -62,7 +63,7 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             let _ = app.set_field("text.ink_contrast", ink);
         }
         Command::Intent(Intent::SetQuickText(q)) => {
-            let mut text = app.settings().text;
+            let mut text = app.settings().text.clone();
             q.apply(&mut text);
             let _ = app.set_field("text", text);
         }
@@ -71,11 +72,15 @@ fn apply_1(app: &mut MareaderApp, ctx: &Context, command: Command) {
             let _ = app.set_field("workspace.independent_textures", i.textures);
         }
         Command::Intent(Intent::SavePreset { name, group, look }) => {
-            let mut settings = (*app.settings).clone();
+            let mut settings = app.settings().clone();
             settings.save_preset(&name, &group, look);
             app.set_settings(settings);
         }
-        Command::Intent(Intent::DeletePreset(id)) => app.settings().delete_preset(&id),
+        Command::Intent(Intent::DeletePreset(id)) => {
+            let mut settings = app.settings().clone();
+            settings.delete_preset(&id);
+            app.set_settings(settings);
+        }
         Command::Intent(Intent::SetTitlebarPinned(p)) => {
             app.titlebar.pinned = p;
             app.send(Intent::SetTitlebarPinned(p));

@@ -17,7 +17,7 @@ impl MareaderApp {
             stage.min.y += crate::theme::TITLE_BAR_H;
             // Above the page bar too, which would cover it.
             stage.max.y -= crate::page_bar::BAR_H;
-            let dictionary = &self.settings().dictionary;
+            let dictionary = self.settings().dictionary.clone();
             let lift = self.toast_lift(ctx, ctx.content_rect());
             let toasts = self.toasts.active_bed_for(
                 ctx,
@@ -30,7 +30,7 @@ impl MareaderApp {
             let player = self.read_aloud.clearance_rect(now);
             if self.dict.window(
                 ctx,
-                (dictionary, self.settings().workspace.edge_parking),
+                (&dictionary, self.settings().workspace.edge_parking),
                 stage,
                 toasts,
                 player,
@@ -87,6 +87,8 @@ impl MareaderApp {
     ) {
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let presets = self.settings().all_presets();
+        let user_presets = self.settings().user_presets.clone();
+        let library_view = self.settings().library.clone();
         let (title, look, page) = match route {
             Route::Reader => (
                 self.documents.title(self.active()).unwrap_or("Mareader"),
@@ -98,7 +100,7 @@ impl MareaderApp {
                     .library_rect
                     .map_or(ctx.content_rect().width(), |r| r.width());
                 let library = LibraryBar {
-                    view: &self.settings().library,
+                    view: &library_view,
                     auto_columns: ui_library::view::page_columns(width),
                     can_return: self.reading(),
                     trail: self.library.trail(),
@@ -136,7 +138,7 @@ impl MareaderApp {
             appearance: &look,
             appearance_menu: self.settings().chrome.appearance_menu,
             presets: &presets,
-            user_presets: &self.settings().user_presets,
+            user_presets: &user_presets,
             gpu: self.documents.gpu(),
             backdrop,
             page,
@@ -195,6 +197,7 @@ impl MareaderApp {
     pub(super) fn windows(&mut self, ctx: &Context, commands: &mut Commands) {
         let window = self.settings_scope();
         self.voices_shown(ctx);
+        let settings = self.settings().clone();
         let voices = crate::settings_window::Voices {
             booth: &self.read_aloud.booth,
             shelf: &self.read_aloud.shelf,
@@ -204,7 +207,7 @@ impl MareaderApp {
         };
         self.settings_window.show(
             ctx,
-            self.settings(),
+            &settings,
             &window,
             (&self.ai, &self.dict, &self.vocab, &voices),
             commands,
@@ -229,7 +232,7 @@ impl MareaderApp {
             }
             self.reconcile_looks(ctx);
             // Book a save; eframe autosaves only on a frame.
-            if self.settings != before.settings {
+            if *self.settings() != before.settings {
                 ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
             }
             if !outside && self.may_fade(ctx) && self.leapt(&before) {

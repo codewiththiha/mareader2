@@ -7,7 +7,8 @@ use mareader_library::{
     Options, Placement, ShelfId, Target,
 };
 
-use crate::documents::Placement as OpenAt;
+mod counted;
+pub use counted::counted;
 
 /// Books, shelves and links picked on the page: the library's own item.
 pub use mareader_library::{Pick, PickAction, Picks};
@@ -93,6 +94,77 @@ pub struct Carry {
     pub items: Vec<Item>,
     /// The level it was shown on.
     pub from: Option<ShelfId>,
+}
+
+impl Carry {
+    /// What dropping it on `target` (none: the top level) does.
+    pub fn onto(&self, target: Option<ShelfId>, keep: bool) -> Option<Action> {
+        let mv = Move {
+            from: self.from,
+            to: target,
+            keep,
+            ..Move::of(&self.items)
+        };
+        // Onto where it came from, or onto one of its own shelves: nothing.
+        let home = !self.only_shelves() && self.from == target;
+        if home || target.is_some_and(|t| mv.shelves.contains(&t)) {
+            return None;
+        }
+        Some(Action::Shelf(ShelfAction::Carry(mv)))
+    }
+
+    /// The cards it moves within `level`, if it came from there.
+    pub fn items_at(&self, level: Option<ShelfId>, model: &Library) -> Option<Vec<Item>> {
+        let here = |s: &ShelfId| model.shelf(*s).is_some_and(|s| model.parent_of(s) == level);
+        let shelves = Move::of(&self.items).shelves;
+        let from_here = self.only_shelves() || self.from == level;
+        (from_here && shelves.iter().all(here)).then(|| self.items.clone())
+    }
+
+    /// Every card it carries, shelves first.
+    pub fn picks(&self) -> Vec<Item> {
+        let mut items = self.items.clone();
+        items.sort_by_key(|i| !matches!(i, Item::Shelf(_)));
+        items
+    }
+
+    /// Whether a book is among what it carries, so it can stack.
+    pub fn has_books(&self) -> bool {
+        self.items.iter().any(|i| matches!(i, Item::Book(_)))
+    }
+
+    /// A shelf moves off its parent, never off the level it showed on.
+    fn only_shelves(&self) -> bool {
+        self.items.iter().all(|i| matches!(i, Item::Shelf(_)))
+    }
+
+    /// Whether it was carried off a shelf, so Alt can add instead.
+    pub fn off_shelf(&self) -> bool {
+        self.from.is_some() && !self.only_shelves()
+    }
+
+    /// The words under the pointer while it's carried.
+    pub fn label(&self, model: &Library) -> String {
+        if let [one] = self.items.as_slice() {
+            return model.item_name(*one).unwrap_or_default().to_owned();
+        }
+        let Move {
+            books,
+            shelves,
+            links,
+            ..
+        } = Move::of(&self.items);
+        let parts = [
+            (books.len(), "book", "books"),
+            (shelves.len(), "shelf", "shelves"),
+            (links.len(), "link", "links"),
+        ];
+        let parts: Vec<String> = (parts.iter())
+            .filter(|(n, ..)| *n > 0)
+            .map(|&(n, one, many)| counted(n, one, many))
+            .collect();
+        parts.join(", ")
+    }
 }
 
 /// Shelf work asked for by the page, its crumbs and its sheets.
@@ -243,7 +315,7 @@ pub enum Action {
     /// Walks every watched folder again.
     Rescan,
     /// Answers the waiting question; `all` answers its kind waiting too.
-    Answer(OpenAt, bool),
+    Answer(Placement, bool),
     /// Leaves every waiting question unanswered.
     CancelAsks,
     /// Brings back a book the reader removed from a folder.

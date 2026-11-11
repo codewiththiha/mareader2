@@ -11,7 +11,7 @@ use mareader_session::Document;
 use mareader_settings::{AiSettings, PageTask, Provider};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
 
 use super::follow::{Around, capacity, doing};

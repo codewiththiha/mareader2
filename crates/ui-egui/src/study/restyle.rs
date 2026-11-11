@@ -7,7 +7,7 @@ use mareader_settings::{HighlightSettings, Reserved};
 
 use super::Action;
 use super::bar::pen_icon;
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::theme::{Tokens, color};
 use crate::widgets;
 
@@ -175,7 +175,9 @@ pub fn group(
         }
     }
     if !changes.is_empty() || skipped > 0 {
-        out.push(Command::Intent(Intent::Study(Action::RestyleAll(changes, skipped))));
+        out.push(Command::Intent(Intent::Study(Action::RestyleAll(
+            changes, skipped,
+        ))));
     }
 }
 

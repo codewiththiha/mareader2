@@ -8,7 +8,7 @@ use mareader_library::BookId;
 use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};

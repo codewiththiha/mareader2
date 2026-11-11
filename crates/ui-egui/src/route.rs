@@ -6,17 +6,22 @@ use crate::command::Command;
 /// dictionary.
 pub use mareader_engine::route::Route;
 
-impl Route {
+/// Which commands each page takes: chrome's view of `Route`.
+pub trait Allows {
     /// Whether `command` means anything here; the rest are dropped.
-    pub fn allows(self, command: &Command) -> bool {
+    fn allows(self, command: &Command) -> bool;
+}
+
+impl Allows for Route {
+    fn allows(self, command: &Command) -> bool {
         self == Route::Reader || !reads(command)
     }
 }
 
 /// Acts on panes, pages or the rail, all hidden behind the library.
 fn reads(command: &Command) -> bool {
+    use crate::command::UiCommand as U;
     use mareader_engine::command::Intent as I;
-    use UiCommand as U;
     // Exhaustive, so each new command must say where it belongs.
     match command {
         Command::Ui(ui) => matches!(
@@ -65,7 +70,7 @@ fn reads(command: &Command) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::WindowCommand;
+    use crate::command::{Intent, UiCommand, WindowCommand};
     use crate::layout::ViewMode;
 
     #[test]

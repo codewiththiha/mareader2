@@ -7,7 +7,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::selection::Sheet;
 
 use crate::common::find;
@@ -237,7 +237,8 @@ fn a_book_s_links_turn_its_pages_and_open_the_browser() -> Out {
     let (page, layer) = (0..doc.page_count())
         .find_map(|p| Some((p, doc.text_layer(p).ok().filter(|l| l.links.len() > 1)?)))
         .ok_or("no page with links")?;
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
     let sheet = *h
         .state()
@@ -387,7 +388,8 @@ fn a_book_s_text_selects_and_copies_with_wrapped_lines_joined() -> Out {
     h.run();
     let pane = h.state().active_pane();
     // Page 0 is the cover; chapter 1 starts the next.
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 1 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 1 }));
     h.run();
     let docs = h.state().documents();
     let doc = docs.reading(pane).ok_or("no book")?.document;
@@ -511,7 +513,8 @@ fn a_book_s_footnote_opens_in_place_and_can_be_followed() -> Out {
         .find_map(|p| Some((p, doc.text_layer(p).ok()?.links.iter().find_map(note)?)))
         .ok_or("no footnote")?;
     assert_eq!(text, "A note opens in a card on its mark.");
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
     let sheet = *h
         .state()
@@ -579,7 +582,8 @@ fn a_double_click_opens_a_book_s_picture_large() -> Out {
     let (page, picture) = (0..doc.page_count())
         .find_map(|p| Some((p, *doc.pictures(p).first()?)))
         .ok_or("no picture")?;
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
     let sheet = *h
         .state()

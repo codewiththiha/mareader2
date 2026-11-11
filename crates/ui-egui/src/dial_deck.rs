@@ -12,7 +12,7 @@ use mareader_appearance::{Appearance, BaseMode, NoiseMode, Preset, TextureMode};
 use mareader_settings::TextSettings;
 
 use crate::appearance_menu::{MenuContext, QuickText};
-use crate::command::{Command, Commands, Independence};
+use crate::command::{Command, Commands, Independence, Intent};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::theme::{self, Tokens};

@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -62,7 +63,11 @@ impl MareaderApp {
     // The Dictionary page, searching for any word given.
     fn option_dict_page(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // After a queued open, which would otherwise leave it.
-        match self.queued.iter().any(|c| matches!(c, Command::Intent(Intent::Open(_)))) {
+        match self
+            .queued
+            .iter()
+            .any(|c| matches!(c, Command::Intent(Intent::Open(_))))
+        {
             true => self.queue(Command::Ui(UiCommand::ShowDictionary)),
             false => self.go(Route::Dictionary),
         }
@@ -93,7 +98,7 @@ impl MareaderApp {
     fn option_provider(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let name = serde_json::Value::String(value.to_owned());
         let p = serde_json::from_value(name).map_err(|_| "provider: e.g. openai or ollama")?;
-        let mut ai = self.settings().ai;
+        let mut ai = self.settings().ai.clone();
         ai.presets.clear();
         let id = ai.add_preset(p, "");
         ai.tasks.explain.preset = Some(id);

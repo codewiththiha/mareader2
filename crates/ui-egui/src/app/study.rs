@@ -57,7 +57,8 @@ impl MareaderApp {
         words.extend(self.dict.sound_words());
         let english = self.english_voice();
         let voice = crate::sounds::spoken(english.as_ref().map(|v| v.tag.as_str()));
-        let shown = (&self.settings().study.pronunciation, voice);
+        let pronunciation = self.settings().study.pronunciation.clone();
+        let shown = (&pronunciation, voice);
         let sounds = &mut self.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));
         words.into_iter().filter_map(lines).collect()
@@ -100,7 +101,9 @@ impl MareaderApp {
 
     /// Resting on a shaded word looks it up, when a pack can answer.
     pub(super) fn rest(&mut self, pane: PaneId, (word, context): (String, String), at: Rect) {
-        if !self.settings().dictionary.hover || self.dict.ready().is_empty() || self.study.card_open()
+        if !self.settings().dictionary.hover
+            || self.dict.ready().is_empty()
+            || self.study.card_open()
         {
             return;
         }

@@ -2,7 +2,8 @@
 
 pub mod extract;
 
-use mareader_library::{AiPageId, PageTask};
+use mareader_library::AiPageId;
+use mareader_settings::PageTask;
 use mareader_workspace::PaneId;
 
 /// One result: kept with the book, or still being written.

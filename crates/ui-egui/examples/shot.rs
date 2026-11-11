@@ -8,7 +8,7 @@ use mareader_cefr::{Part, State};
 use mareader_settings::Provider;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ai::Job;
-use mareader_ui_egui::command::{Command, Download};
+use mareader_ui_egui::command::{Command, Download, Intent, UiCommand};
 use mareader_ui_egui::layout::{Arrow, ViewMode};
 use mareader_ui_egui::zoom::{Fit, Step, ZoomCommand};
 
@@ -326,14 +326,19 @@ fn main() -> Result<(), String> {
     if let Some(key) = ai_key {
         harness
             .state_mut()
-            .queue(Command::Intent(Intent::Ai(Job::AddKey(Provider::OpenAi, key))));
+            .queue(Command::Intent(Intent::Ai(Job::AddKey(
+                Provider::OpenAi,
+                key,
+            ))));
         for _ in 0..20 {
             harness.run_steps(1);
             std::thread::sleep(Duration::from_millis(50));
         }
     }
     if words {
-        harness.state_mut().queue(Command::Intent(Intent::Vocab(Download::Start)));
+        harness
+            .state_mut()
+            .queue(Command::Intent(Intent::Vocab(Download::Start)));
         wait_for_words(&mut harness)?;
     }
     if sounds {
@@ -363,7 +368,9 @@ fn main() -> Result<(), String> {
         };
         harness.state_mut().queue(c);
         if from_text && library_after_read_aloud {
-            harness.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+            harness
+                .state_mut()
+                .queue(Command::Ui(UiCommand::ShowLibrary));
             harness.run_steps(library_route_frames);
             library_shown = true;
         } else {
@@ -371,7 +378,9 @@ fn main() -> Result<(), String> {
         }
     }
     if library_after_read_aloud && !library_shown {
-        harness.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+        harness
+            .state_mut()
+            .queue(Command::Ui(UiCommand::ShowLibrary));
         harness.run_steps(library_route_frames);
     }
     if let Some(target) = read_target {
@@ -402,7 +411,9 @@ fn main() -> Result<(), String> {
     }
     for (pane, mode, fit) in pane_views.iter().copied() {
         harness.state_mut().set_option("focus", &pane.to_string())?;
-        harness.state_mut().queue(Command::Intent(Intent::View(mode)));
+        harness
+            .state_mut()
+            .queue(Command::Intent(Intent::View(mode)));
         harness.run_steps(8);
         harness
             .state_mut()
@@ -515,7 +526,9 @@ fn main() -> Result<(), String> {
             }),
             until: None,
         };
-        harness.state_mut().queue(Command::Intent(Intent::ReadAloud { pane, from }));
+        harness
+            .state_mut()
+            .queue(Command::Intent(Intent::ReadAloud { pane, from }));
         let until = Instant::now() + Duration::from_secs(30);
         while harness.query_by_label("Read the table").is_none() && Instant::now() < until {
             harness.run_steps(3);

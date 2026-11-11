@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_pdf::TextLayer;
 use mareader_settings::PageStart;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::page_ai::menu::FIND;
 use mareader_ui_egui::selection::Sheet;
 
@@ -230,7 +230,8 @@ fn going_far_away_pauses_then_asks_to_carry_on_there() -> Out {
     let mut h = reader(&[("pdf", "sample:40"), ("provider", "ollama")]);
     let pane = h.state().active_pane();
     simplify_on(&mut h, false)?;
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 30 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 30 }));
     // Kept still a moment far from page 0, it asks.
     h.run_steps(120);
     assert!(h.query_by_label("Continue").is_some(), "the pill asks");
@@ -272,7 +273,8 @@ fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
     use mareader_ui_egui::settings_window::Tab;
     let open = |h: &mut H| {
         h.set_size(egui::vec2(1000.0, 1200.0));
-        h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
+        h.state_mut()
+            .queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
         h.run();
     };
     let mut plain = reader(&[("pdf", "sample:5")]);
@@ -299,7 +301,8 @@ fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
     // Turned to a page of its own, the PDF has no type to set.
     let pane = h.state().active_pane();
     h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 4 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 4 }));
     h.run_steps(4);
     open(&mut h);
     assert!(!h.state().settings_scope().ai_pages);
@@ -323,7 +326,8 @@ fn laid() -> Result<H, String> {
         ("page_ai", "2:simplify"),
     ]);
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 2 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 2 }));
     h.run_steps(30);
     h.run();
     let (count, base, key) = book(&h)?;

@@ -9,7 +9,7 @@ use egui::{
 };
 
 use super::{Live, Tone};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;
@@ -256,7 +256,7 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, live.toast.label)
     });
     if pressed.clicked() {
-        out.push((**command).clone());
+        out.push(Command::Intent((**command).clone()));
         out.push(Command::Ui(UiCommand::CloseToast(live.id)));
     }
 }

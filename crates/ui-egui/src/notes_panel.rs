@@ -11,13 +11,13 @@ use mareader_pdf::active_entry;
 use mareader_session::{Anchor, Document};
 use std::sync::Arc;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::Reading;
-use mareader_engine::export::{self, Entry, Format, Sheet};
 use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
 use crate::widgets;
+use mareader_engine::export::{self, Entry, Format, Sheet};
 
 use mareader_engine::notes_panel::query;
 
@@ -306,7 +306,9 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
     if widgets::icon_button(ui, Icon::Copy, "Copy all as Markdown", false).clicked() {
         ui.ctx().copy_text(render(Format::Markdown));
         let copied = format!("Copied {tally}");
-        out.push(Command::Ui(UiCommand::Notify(crate::toast::Toast::info(copied))));
+        out.push(Command::Ui(UiCommand::Notify(crate::toast::Toast::info(
+            copied,
+        ))));
     }
 }
 
@@ -415,7 +417,10 @@ fn entry(
                     page,
                 }));
             }
-            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(reading.pane, row.id))));
+            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(
+                reading.pane,
+                row.id,
+            ))));
             ui.close();
         }
         if noted && widgets::menu_row(ui, Icon::Remove, "Delete note", None, false).clicked() {
@@ -523,7 +528,10 @@ fn bookmark(
         let write = if noted { "Edit note" } else { "Add note" };
         if widgets::menu_row(ui, Icon::Note, write, None, false).clicked() {
             go(out);
-            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(reading.pane, row.id))));
+            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(
+                reading.pane,
+                row.id,
+            ))));
             ui.close();
         }
         if noted && widgets::menu_row(ui, Icon::Remove, "Delete note", None, false).clicked() {

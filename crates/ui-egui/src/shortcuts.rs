@@ -5,7 +5,7 @@ use egui::{
     ScrollArea, Stroke, TextEdit, Ui, vec2,
 };
 
-use crate::command::Command;
+use crate::command::{Command, UiCommand};
 use crate::icons::Icon;
 use crate::keymap::{self, Entry, Section};
 use crate::modal::Dialog;

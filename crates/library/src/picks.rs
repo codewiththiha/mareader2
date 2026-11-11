@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use crate::arrange::Item;
 use crate::id::BookId;
 
 /// A card picked on the page: the library's own item.

@@ -408,7 +408,12 @@ fn prefetch(cx: &mut ShowContext<'_>) {
         ViewMode::Single | ViewMode::Spread => (layout.pages(), sizes.len()),
         ViewMode::Vertical | ViewMode::Horizontal => (shown.clone(), sizes.len()),
     };
-    let reach = PREFETCH * if cx.place.mode == ViewMode::Spread { 2 } else { 1 };
+    let reach = PREFETCH
+        * if cx.place.mode == ViewMode::Spread {
+            2
+        } else {
+            1
+        };
     let before = near.start.saturating_sub(reach)..near.start;
     let after = near.end..(near.end + reach).min(count);
     for page in before.chain(after) {

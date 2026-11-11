@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use mareader_library::{BookId, Copied, Found, Library, LinkTo};
 
 use super::{LibraryState, Pick, wall_ms};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
 
 impl LibraryState {

@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_settings::StartupFit;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::zoom::Fit;
 
 use crate::common::reader_200 as reader;
@@ -25,7 +25,8 @@ fn zoom(h: &H) -> (f32, Option<Fit>) {
 
 fn go(h: &mut H, page: usize) {
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     // Past the glide, then past the kept zoom's settle.
     h.run();
     h.run_steps(30);
@@ -253,13 +254,15 @@ fn span(h: &H) -> (f32, f32) {
 #[test]
 fn a_turn_to_a_spread_of_other_sizes_fits_on_landing() {
     let mut h = reader(&[("pdf", "sample:20")]);
-    h.state_mut()
-        .queue(Command::Intent(Intent::View(mareader_ui_egui::layout::ViewMode::Spread)));
+    h.state_mut().queue(Command::Intent(Intent::View(
+        mareader_ui_egui::layout::ViewMode::Spread,
+    )));
     h.run();
     let pane = h.state().active_pane();
     // Pages 7 and 8: one on its side, one upright. Then two upright.
     for page in [6, 2, 13] {
-        h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+        h.state_mut()
+            .queue(Command::Intent(Intent::GoTo { pane, page }));
         h.run();
         let (left, right) = span(&h);
         assert!(

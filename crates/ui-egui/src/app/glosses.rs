@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 impl MareaderApp {
     pub(super) fn glosses(&mut self, ctx: &Context, out: &mut Commands) {
@@ -47,7 +48,9 @@ impl MareaderApp {
                         out.push(Command::Intent(Intent::Study(start)));
                     }
                     (false, Some(_)) if text.is_empty() => {
-                        out.push(Command::Intent(Intent::Study(crate::study::Action::PickAll)));
+                        out.push(Command::Intent(Intent::Study(
+                            crate::study::Action::PickAll,
+                        )));
                         if pick {
                             egui::Popup::open_id(ctx, egui::Id::new(crate::study::PICK_STYLE));
                         }
@@ -66,7 +69,9 @@ impl MareaderApp {
                 }
                 if let Some((text, save)) = note {
                     out.push(Command::Intent(Intent::Note(pane)));
-                    out.push(Command::Intent(Intent::Study(crate::study::Action::TypeNote(text, save))));
+                    out.push(Command::Intent(Intent::Study(
+                        crate::study::Action::TypeNote(text, save),
+                    )));
                 }
                 // The next waits a frame, as each selection replaces the last.
                 if !self.staged.is_empty() {
@@ -93,6 +98,7 @@ impl MareaderApp {
         {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
+            let ai_look = self.settings().ai.clone();
             let asked = crate::page_ai::Asked {
                 pane,
                 page,
@@ -100,7 +106,7 @@ impl MareaderApp {
                 name: &name,
                 documents: &self.documents,
                 ai: &self.ai,
-                settings: &self.settings().ai,
+                settings: &ai_look,
             };
             let now = ctx.input(|i| i.time);
             let done = match follow {
@@ -160,7 +166,9 @@ impl MareaderApp {
                 }
             }
             Gloss::ReadFrom(from) => out.push(Command::Intent(Intent::ReadAloud { pane, from })),
-            Gloss::Highlight(pen, color) => out.push(Command::Intent(Intent::Highlight { pane, pen, color })),
+            Gloss::Highlight(pen, color) => {
+                out.push(Command::Intent(Intent::Highlight { pane, pen, color }))
+            }
             Gloss::Copied => out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied")))),
             Gloss::Open { mark, at } => {
                 self.study
@@ -236,6 +244,7 @@ impl MareaderApp {
                 };
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let ai_look = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page: reading.current,
@@ -243,7 +252,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings().ai,
+                    settings: &ai_look,
                 };
                 let now = ctx.input(|i| i.time);
                 let model = self.library.model();
@@ -260,7 +269,8 @@ impl MareaderApp {
                 self.study.hold(*pane);
             }
         }
-        if let Some(explainer) = self.ai.follow(&self.settings().ai) {
+        let ai_look = self.settings().ai.clone();
+        if let Some(explainer) = self.ai.follow(&ai_look) {
             self.study.set_explainer(explainer);
         }
         self.take_organized();
@@ -294,18 +304,24 @@ impl MareaderApp {
         out: &mut Commands,
     ) -> Vec<(String, Vec<crate::sounds::Line>)> {
         let sounds = self.card_sounds(ctx.input(|i| i.time));
-        let looks = (&self.settings().study.gloss, &self.settings().study.highlights);
+        // Read before the mutable borrows below.
+        let (gloss_look, highlight_look) = (
+            self.settings().study.gloss.clone(),
+            self.settings().study.highlights.clone(),
+        );
+        let dictionary_look = self.settings().dictionary.clone();
+        let aloud_look = self.settings().read_aloud.clone();
+        let looks = (&gloss_look, &highlight_look);
         let model = self.library.model();
-        let others = self.settings().dictionary.other_voices;
-        let dict = &self.settings().dictionary;
+        let others = dictionary_look.other_voices;
+        let dict = &dictionary_look;
         let looking = self.dict.card_word().is_some() || dict.window.open;
         if others && (looking || self.route() == Route::Dictionary) {
             // Copied out first: `list_voices` borrows the reader mutably.
-            let voice = self.settings().read_aloud.clone();
-            self.read_aloud.list_voices(ctx, &voice);
+            self.read_aloud.list_voices(ctx, &aloud_look);
         }
         let saying = self.read_aloud.saying();
-        let (speakers, offers) = self.read_aloud.speakers(&self.settings().read_aloud, others);
+        let (speakers, offers) = self.read_aloud.speakers(&aloud_look, others);
         self.dict.set_voice(crate::dict::Voice {
             saying: saying.map(str::to_owned),
             sounds: sounds.clone(),
@@ -330,15 +346,16 @@ impl MareaderApp {
         let gpu = self.documents.gpu();
         self.page_ai
             .receive(ctx, self.library.model_mut(), gpu, out);
+        let ai_look = self.settings().ai.clone();
         let around = crate::page_ai::Around {
             main: self.library.model(),
             documents: &self.documents,
             ai: &self.ai,
-            settings: &self.settings().ai,
+            settings: &ai_look,
         };
         self.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results and transcripts into its pages.
-        let wanted = mareader_engine::transcript::wanted(&self.settings().ai);
+        let wanted = mareader_engine::transcript::wanted(&ai_look);
         for pane in self.tree().panes() {
             let book = self.library.book_in(&self.documents, pane);
             let name = self.documents.title(pane).unwrap_or_default().to_owned();
@@ -355,7 +372,7 @@ impl MareaderApp {
         let model = self.library.model();
         self.page_ai.show(
             ctx,
-            &self.settings().ai,
+            &ai_look,
             model,
             (&self.pane_rects, &self.documents),
             out,
@@ -366,8 +383,9 @@ impl MareaderApp {
         self.dict.set_exact_only(!self.settings().dictionary.near);
         self.dict.poll();
         self.poll_word_list(ctx);
+        let settings = self.settings().clone();
         let services = (&mut self.vocab, &mut self.dict, &self.files);
-        self.word_window.show(ctx, self.settings(), services, out);
+        self.word_window.show(ctx, &settings, services, out);
         let documents = &self.documents;
         let offset = |pane| documents.offset(pane);
         let saying = self.read_aloud.saying();

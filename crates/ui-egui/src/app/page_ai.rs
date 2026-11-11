@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::command::UiCommand;
 use crate::page_ai::{Action, task_for};
 use mareader_settings::{PageStart, PageTask};
 
@@ -11,7 +12,9 @@ impl MareaderApp {
         let task = match &action {
             Action::Run { task, .. } => task_for(*task, &self.settings().ai),
             Action::Translate { tag, .. } => {
-                self.settings().ai.tasks.translate.pick(tag);
+                let mut ai = self.settings().ai.clone();
+                ai.tasks.translate.pick(tag);
+                let _ = self.set_field("ai", ai);
                 Some(mareader_library::AiTask::Translate {
                     language: tag.clone(),
                 })
@@ -52,7 +55,7 @@ impl MareaderApp {
                         true => PageStart::Continuous,
                         false => PageStart::Page,
                     };
-                    let mut tasks = self.settings().ai.tasks;
+                    let mut tasks = self.settings().ai.tasks.clone();
                     match kind {
                         PageTask::Translate => tasks.translate.start = start,
                         PageTask::Simplify => tasks.simplify.start = start,
@@ -63,6 +66,7 @@ impl MareaderApp {
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
                 self.documents.clear_selection(pane);
+                let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page,
@@ -70,7 +74,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings().ai,
+                    settings: &ai_settings,
                 };
                 match how.continuous && kind != PageTask::Summarize {
                     true => {
@@ -95,14 +99,20 @@ impl MareaderApp {
             } => {
                 let task = match (task, tag) {
                     (PageTask::Translate, Some(tag)) => {
-                        self.settings().ai.tasks.translate.pick(&tag);
+                        let mut ai = self.settings().ai.clone();
+                        ai.tasks.translate.pick(&tag);
+                        let _ = self.set_field("ai", ai);
                         Some(mareader_library::AiTask::Translate { language: tag })
                     }
-                    (task, _) => task_for(task, &self.settings().ai),
+                    (task, _) => {
+                        let ai = self.settings().ai.clone();
+                        task_for(task, &ai)
+                    }
                 };
                 let Some(task) = task else { return };
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page: pages.first().copied().unwrap_or_default(),
@@ -110,7 +120,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings().ai,
+                    settings: &ai_settings,
                 };
                 self.page_ai.run_pages(asked, &pages, task);
             }
@@ -125,6 +135,7 @@ impl MareaderApp {
             Action::Redo { pane, page, slot } => {
                 let book = self.library.book_in(&self.documents, pane);
                 let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page,
@@ -132,7 +143,7 @@ impl MareaderApp {
                     name: &name,
                     documents: &self.documents,
                     ai: &self.ai,
-                    settings: &self.settings().ai,
+                    settings: &ai_settings,
                 };
                 let model = self.library.model();
                 self.page_ai.again(asked, model, slot, now, out);

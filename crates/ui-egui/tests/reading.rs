@@ -5,7 +5,7 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::app::LAST_DOCUMENT_KEY;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::documents::Placement;
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 
@@ -65,7 +65,8 @@ fn closing_the_last_pane_on_a_book_frees_its_textures() {
     h.state_mut().set_option("pdf", "sample:30").ok();
     h.run();
     assert!(textures(&h) > baseline, "pages were uploaded");
-    h.state_mut().queue(Command::Intent(Intent::ClosePane(second)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::ClosePane(second)));
     h.run();
     assert_eq!(h.state().active_pane(), first);
     // Nothing of it is left: no document, raster, text layer or job.
@@ -92,7 +93,9 @@ fn a_damaged_file_and_a_web_page_are_told_apart() {
     let mut h = reader(&[]);
     let broken = b"%PDF-1.7\nnonsense\n%%EOF\n".to_vec();
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(broken, "Deed.pdf"))));
+        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+            broken, "Deed.pdf",
+        ))));
     h.run();
     let toast = h.state().toast().map(|t| t.message.clone());
     let said = toast.unwrap_or_default();
@@ -102,7 +105,9 @@ fn a_damaged_file_and_a_web_page_are_told_apart() {
     );
     let page = b"<html><body>Sign in</body></html>".to_vec();
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(page, "Bill.pdf"))));
+        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+            page, "Bill.pdf",
+        ))));
     h.run();
     let toast = h.state().toast().map(|t| t.message.clone());
     let said = toast.unwrap_or_default();
@@ -118,7 +123,10 @@ fn a_cut_short_file_opens_with_a_warning() {
     let mut bytes = mareader_pdf::sample::pdf(3, "Partial");
     bytes.truncate(bytes.len() - "%%EOF\n".len());
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(bytes, "Partial.pdf"))));
+        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+            bytes,
+            "Partial.pdf",
+        ))));
     h.run();
     let toast = h.state().toast().cloned();
     let tone = toast.as_ref().map(|t| t.tone);
@@ -164,7 +172,8 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
     h.run();
     let before = h.state().documents().page_count(pane).unwrap_or(0);
     let read = before / 2;
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: read }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: read }));
     h.run();
     let document = |h: &Harness<'static, MareaderApp>| {
         let reading = h.state().documents().reading(pane);
@@ -521,7 +530,9 @@ fn a_note_saved_elsewhere_reloads_where_it_is_read() -> Result<(), String> {
     let file = File(std::env::temp_dir().join(name));
     std::fs::write(&file.0, "# Trip\n\nThe old words.\n").map_err(|e| e.to_string())?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(file.0.clone()))));
+    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+        file.0.clone(),
+    ))));
     let mut h = launched(app);
     assert!(first_page(&h).contains("old words"), "{}", first_page(&h));
     let pane = h.state().active_pane();
@@ -556,10 +567,13 @@ fn settle(
 fn a_pdf_saved_elsewhere_reloads_on_its_page_and_waits_out_a_bad_save() -> Result<(), String> {
     let file = File::sample(6, "live-pdf")?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(file.0.clone()))));
+    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+        file.0.clone(),
+    ))));
     let mut h = launched(app);
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 3 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 3 }));
     h.run_steps(30);
     assert_eq!(h.state().documents().current(pane), Some(3));
     let doc =
@@ -597,7 +611,9 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     use mareader_reflow::Design as Set;
     let file = File::book(2, "design")?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(file.0.clone()))));
+    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+        file.0.clone(),
+    ))));
     let mut h = launched(app);
     let pane = h.state().active_pane();
     let design = |h: &Harness<'static, MareaderApp>| {
@@ -611,7 +627,8 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     h.run_steps(3);
     assert!(h.query_by_label("This book").is_some());
     let choose = mareader_ui_egui::library::Action::Design(book, Some(Design::Off));
-    h.state_mut().queue(Command::Intent(Intent::Library(choose)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Library(choose)));
     h.run();
     let own = h.state().library().book(book).and_then(|b| b.design.value);
     assert_eq!(own, Some(Design::Off));
@@ -625,7 +642,8 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     );
     assert_eq!(design(&h), Some(Set::Off));
     let follow = mareader_ui_egui::library::Action::Design(book, None);
-    h.state_mut().queue(Command::Intent(Intent::Library(follow)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Library(follow)));
     h.run();
     assert_eq!(design(&h), Some(Set::On));
     Ok(())
@@ -703,7 +721,8 @@ fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() {
     h.state_mut().save(&mut disk);
     assert_eq!(disk.get_string(LAST_DOCUMENT_KEY).as_deref(), Some("null"));
     // Bytes, such as a browser's drop, have no file to come back to.
-    h.state_mut().queue(Command::Intent(Intent::Open(sample(3))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Open(sample(3))));
     h.run();
     assert_eq!(h.state().last_document(), None);
     let mut app = MareaderApp::from_storage(Some(&disk));
@@ -728,7 +747,8 @@ fn one_file_in_two_panes_is_read_once_and_drawn_once() -> Result<(), String> {
     // Panes of one size want the same rasters, so they share them.
     let shown = h.state().documents().visible(panes[0]).unwrap_or(0..0);
     assert_eq!(meter.pages, shown.len() + 1, "one set of pages");
-    h.state_mut().queue(Command::Intent(Intent::ClosePane(panes[1])));
+    h.state_mut()
+        .queue(Command::Intent(Intent::ClosePane(panes[1])));
     h.run();
     assert_eq!(h.state().documents().meter().documents, 1, "still read");
     Ok(())

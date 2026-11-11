@@ -4,7 +4,7 @@
 use mareader_library::{BookId, LinkId, Move, ShelfId};
 
 use super::{LibraryState, Pick, Sheet, wall_ms};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::toast::Toast;
 
 pub use mareader_engine::library::BookAction;

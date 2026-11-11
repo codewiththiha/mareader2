@@ -43,7 +43,7 @@ impl MareaderApp {
         if !matches!(w, W::Place(_)) {
             self.read_aloud.yield_to_dictionary();
         }
-        let mut win = self.settings().dictionary.window;
+        let mut win = self.settings().dictionary.window.clone();
         match w {
             W::Toggle => {
                 let show = !win.open || win.minimized;
@@ -55,12 +55,12 @@ impl MareaderApp {
             W::Place(r) => win.rect = Some(r),
             W::Expand => {
                 win.open = false;
-                let _ = self.set_field("dictionary.window", win);
+                let _ = self.set_field("dictionary.window", win.clone());
                 self.go(Route::Dictionary);
                 return;
             }
         }
-        let _ = self.set_field("dictionary.window", win);
+        let _ = self.set_field("dictionary.window", win.clone());
         // Shown, its field takes the keys.
         if win.open && !win.minimized && !matches!(w, W::Place(_)) {
             self.dict.arrive();
@@ -146,16 +146,10 @@ impl MareaderApp {
     }
 
     /// Puts the focused pane first in `recent`, dropping closed panes.
+    ///
+    /// The recency list is the engine's, so this goes through its door.
     pub(super) fn note_focus(&mut self) {
-        let placed = self.tree().panes();
-        self.recent()
-            .retain(|p| placed.contains(p) && *p != self.active());
-        self.recent().insert(0, self.active());
-        let unseen: Vec<PaneId> = placed
-            .into_iter()
-            .filter(|p| !self.recent().contains(p))
-            .collect();
-        self.recent().extend(unseen);
+        self.send(Intent::FocusPane(self.active()));
     }
 }
 

@@ -8,7 +8,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_library::{BookId, Library};
 use mareader_settings::LibraryClick;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::library::{Action, BookAction};
 use mareader_ui_egui::sidebar::WIDTH;
 use mareader_workspace::PaneId;
@@ -189,7 +189,8 @@ fn a_book_dropped_on_an_empty_pane_opens_in_it() {
     h.state_mut().queue(split);
     h.run();
     let empty = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::FocusPane(first)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::FocusPane(first)));
     h.run();
     let from = row(&h, "The Raven (2)").center();
     let to = egui::pos2(700.0, 120.0);
@@ -358,7 +359,8 @@ fn at_four_panes_the_tree_still_moves_books_but_splits_no_more() {
         h.state_mut().queue(Command::Intent(Intent::Split(axis)));
         h.run();
         if back {
-            h.state_mut().queue(Command::Intent(Intent::FocusPane(first)));
+            h.state_mut()
+                .queue(Command::Intent(Intent::FocusPane(first)));
             h.run();
         }
     }

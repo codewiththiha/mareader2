@@ -9,7 +9,7 @@ use egui::{
 use mareader_dict::Entry;
 
 use super::{Offer, Voice, entry};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::read_aloud::{SAY, STOP_SAYING};
 use crate::shaped;

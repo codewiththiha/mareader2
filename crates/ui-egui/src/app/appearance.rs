@@ -50,7 +50,11 @@ impl MareaderApp {
                 },
             ))
         };
-        self.tree().panes().into_iter().filter_map(designed).collect()
+        self.tree()
+            .panes()
+            .into_iter()
+            .filter_map(designed)
+            .collect()
     }
 
     /// What the focused pane and the workspace show: which settings apply.
@@ -196,8 +200,9 @@ impl MareaderApp {
     pub(super) fn reconcile_texts(&mut self) {
         let on = self.settings().workspace.independent_text;
         let placed = self.tree().panes();
-        let mut window = self.settings().text;
-        self.texts.reconcile(on, (&placed, self.active()), &mut window);
+        let mut window = self.settings().text.clone();
+        self.texts
+            .reconcile(on, (&placed, self.active()), &mut window);
         let _ = self.set_field("text", window);
     }
 

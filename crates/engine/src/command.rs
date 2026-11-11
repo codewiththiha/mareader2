@@ -2,8 +2,8 @@
 //!
 //! Every variant here means something with no window on screen: it changes
 //! what the next launch shows, what is on disk, or what is heard. Anything
-//! that only moves chrome is `ui_egui::UiCommand`, and the two meet in
-//! `ui_egui::Command`.
+//! that only moves pixels is a UI command, held by the layer above; the two
+//! meet in that layer's `Command` union.
 
 use std::path::PathBuf;
 
@@ -202,4 +202,5 @@ pub enum Intent {
         pages: Vec<usize>,
     },
     /// Zooms the active pane's document.
-    Zoom(ZoomCommand),}
+    Zoom(ZoomCommand),
+}

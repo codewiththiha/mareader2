@@ -7,7 +7,7 @@ use mareader_library::{ShelfId, View};
 use mareader_settings::AppearanceMenuStyle;
 
 use crate::backdrop::Backdrop;
-use crate::command::{Command, Commands, Independence, WindowCommand};
+use crate::command::{Command, Commands, Independence, Intent, UiCommand, WindowCommand};
 use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
@@ -275,7 +275,9 @@ impl TitleBar {
                 // Registered before the buttons so they win the pointer.
                 let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::CLICK | Sense::DRAG);
                 if visible && drag.double_clicked() {
-                    out.push(Command::Ui(UiCommand::Window(WindowCommand::ToggleMaximize)));
+                    out.push(Command::Ui(UiCommand::Window(
+                        WindowCommand::ToggleMaximize,
+                    )));
                 } else if visible && drag.drag_started() {
                     out.push(Command::Ui(UiCommand::Window(WindowCommand::StartDrag)));
                 }
@@ -401,7 +403,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
                 ui.spacing_mut().item_spacing.x = gap;
                 widgets::captions(ui, style, bar.maximized)
             });
-        out.extend(caption.inner.map(Command::Ui(UiCommand::Window)));
+        out.extend(caption.inner.map(|w| Command::Ui(UiCommand::Window(w))));
         ui.add_space(4.0);
     }
     let tools = tools();

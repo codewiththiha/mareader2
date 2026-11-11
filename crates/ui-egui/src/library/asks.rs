@@ -10,7 +10,7 @@ use mareader_library::{
 
 use super::books::counted;
 use super::{Action, LibraryState, Pick, wall_ms};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::modal::title;
 use crate::theme::Tokens;
 use crate::toast::Toast;

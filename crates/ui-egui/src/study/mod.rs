@@ -32,7 +32,7 @@ use mareader_workspace::PaneId;
 pub use bar::{BarPress, show as show_bar};
 pub use words::Asked;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::theme::Tokens;
 use crate::toast::Toast;
 
@@ -862,7 +862,7 @@ impl Study {
                 };
                 let toast = match n {
                     0 => Toast::info(message),
-                    _ => Toast::info(message).undo(Command::Intent(Intent::Study(Action::Unstyle(before)))),
+                    _ => Toast::info(message).undo(Intent::Study(Action::Unstyle(before))),
                 };
                 out.push(Command::Ui(UiCommand::Notify(toast)));
             }
@@ -946,7 +946,9 @@ impl Study {
                 n => format!("Removed {n} {what}s"),
             };
             let undo = Intent::Study(Action::Restore(ids));
-            out.push(Command::Ui(UiCommand::Notify(Toast::info(message).undo(undo))));
+            out.push(Command::Ui(UiCommand::Notify(
+                Toast::info(message).undo(undo),
+            )));
         }
     }
 
@@ -989,7 +991,9 @@ impl Study {
         }
         if let Some(text) = was {
             let undo = Intent::Study(Action::RestoreNote(id, text));
-            out.push(Command::Ui(UiCommand::Notify(Toast::info("Deleted note").undo(undo))));
+            out.push(Command::Ui(UiCommand::Notify(
+                Toast::info("Deleted note").undo(undo),
+            )));
         }
     }
 

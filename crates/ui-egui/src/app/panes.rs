@@ -66,7 +66,10 @@ impl MareaderApp {
     ) {
         // A lost book asks where it went instead of failing.
         if self.library.model().book(id).is_some_and(|b| b.missing()) {
-            self.apply(ctx, Command::Intent(Intent::Library(ui_library::Action::FindAgain(id))));
+            self.apply(
+                ctx,
+                Command::Intent(Intent::Library(ui_library::Action::FindAgain(id))),
+            );
             return;
         }
         let dropped = pane.is_some();
@@ -80,7 +83,10 @@ impl MareaderApp {
             return;
         }
         // A library book beside an empty pane goes in it, as in mareader.
-        let empty = self.documents.title(pane.unwrap_or(self.active())).is_none();
+        let empty = self
+            .documents
+            .title(pane.unwrap_or(self.active()))
+            .is_none();
         let placement = match placement {
             Placement::Beside if empty => Placement::Into,
             other => other,
@@ -175,7 +181,9 @@ impl MareaderApp {
             if !paths.is_empty() {
                 let to = self.library.file_target.or(self.library.at());
                 let import = ui_library::BookAction::Import { paths, to };
-                out.push(Command::Intent(Intent::Library(ui_library::Action::Book(import))));
+                out.push(Command::Intent(Intent::Library(ui_library::Action::Book(
+                    import,
+                ))));
             }
             return None;
         }
@@ -207,17 +215,18 @@ impl MareaderApp {
         let tokens = theme::Tokens::get(ctx);
         let toasts = self.toasts.covers();
         let rounded = rects.len() > 1 && self.settings().workspace.look.rounded();
+        let layout = self.settings().layout.clone();
         let corner = if rounded { tokens.radius_lg } else { 0.0 };
         // The title bar's glass takes slot 0.
         for (i, (id, rect)) in rects.iter().enumerate() {
             if let Some(reading) = self.documents.reading(*id) {
                 // Distraction-free keeps the label, which has its own setting.
                 if self.chromeless {
-                    floating_label::show(ctx, *rect, &reading, &self.settings().layout, label);
+                    floating_label::show(ctx, *rect, &reading, &layout, label);
                     continue;
                 }
                 let look = BarLook {
-                    layout: &self.settings().layout,
+                    layout: &layout,
                     backdrop,
                     slot: i + 1,
                     corner,
@@ -227,7 +236,7 @@ impl MareaderApp {
                 let marked = kept.iter().any(|(_, p)| *p == reading.current);
                 let bar = self.page_bars.entry(*id).or_default();
                 page_bar::show(ctx, *rect, &reading, (&look, marked), bar, out);
-                floating_label::show(ctx, *rect, &reading, &self.settings().layout, label);
+                floating_label::show(ctx, *rect, &reading, &layout, label);
             }
         }
     }

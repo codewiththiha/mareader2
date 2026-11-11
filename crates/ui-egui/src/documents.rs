@@ -16,23 +16,23 @@ use mareader_session::{
 use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, UiCommand};
 use crate::gpu::{Gpu, Quad};
 use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
-use mareader_engine::paper::Papers;
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
-use mareader_engine::reading::Place;
-use mareader_engine::reading_place;
 use crate::selection::{Selection, Sheet};
 use crate::study::{self, Asked, Gloss};
-use mareader_engine::texts::TextLayers;
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
-use mareader_engine::watch::{Reloads, Watch};
 use crate::zoom::{ZoomCommand, ZoomState};
+use mareader_engine::paper::Papers;
+use mareader_engine::reading::Place;
+use mareader_engine::reading_place;
+use mareader_engine::texts::TextLayers;
+use mareader_engine::watch::{Reloads, Watch};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
 const UPLOADS: Budget = Budget {
@@ -542,7 +542,13 @@ impl Documents {
             .as_ref()
             .and_then(|at| doc.and_then(|d| d.locate_spine(at)))
             .or_else(|| mapped_place.and_then(|at| doc?.locate(at)));
-        view.retypeset(place, new, page.unwrap_or(place.current), count, mapped_place);
+        view.retypeset(
+            place,
+            new,
+            page.unwrap_or(place.current),
+            count,
+            mapped_place,
+        );
         // A strip shows the place's line on top in the new pages' first frame.
         if let (Some(doc), Some(at), Some(page)) = (doc, mapped_place, page)
             && let Ok(layer) = doc.text_layer(page)
@@ -796,7 +802,9 @@ impl Documents {
                     let name = session
                         .get(doc)
                         .map_or_else(|| "document".to_string(), |e| e.name.clone());
-                    out.push(Command::Ui(UiCommand::Notify(open_incomplete(&name, &error))));
+                    out.push(Command::Ui(UiCommand::Notify(open_incomplete(
+                        &name, &error,
+                    ))));
                 }
                 Event::Opened { ticket, result } if self.reloads.has(&ticket) => {
                     if let Some((old, path, again)) = self.reloads.finish(&ticket) {
@@ -1008,8 +1016,7 @@ impl Documents {
             }
             _ => None,
         };
-        let (Some(entry), Some(Content::Pdf { place, view })) =
-            (entry, self.panes.get_mut(&pane))
+        let (Some(entry), Some(Content::Pdf { place, view })) = (entry, self.panes.get_mut(&pane))
         else {
             return false;
         };
@@ -1190,9 +1197,11 @@ impl Documents {
     pub fn title(&self, pane: PaneId) -> Option<&str> {
         match self.panes.get(&pane)? {
             Content::Opening { name, .. } => Some(name),
-            Content::Pdf { place, .. } => {
-                self.session.as_ref()?.get(place.doc).map(|e| e.name.as_str())
-            }
+            Content::Pdf { place, .. } => self
+                .session
+                .as_ref()?
+                .get(place.doc)
+                .map(|e| e.name.as_str()),
         }
     }
 
@@ -1395,7 +1404,10 @@ impl Documents {
             let Some(view) = self.view(pane) else {
                 continue;
             };
-            let layer = self.texts.get(self.place_of(pane)?.doc, spot.page);
+            let Some(doc) = self.place_of(pane).map(|p| p.doc) else {
+                continue;
+            };
+            let layer = self.texts.get(doc, spot.page);
             let span = layer.and_then(|l| crate::read_aloud::marker::word_span(&l.text, spot.char));
             let chars = span.unwrap_or(spot.char..spot.char + 1);
             if self.reveal_said(pane, spot.page, chars, 0.0)
@@ -1416,9 +1428,10 @@ impl Documents {
         caret: Option<usize>,
     ) -> Option<crate::page_ai::Pin> {
         let view = self.view(pane)?;
+        let doc = self.place_of(pane)?.doc;
         let sheet = view.sheets.iter().find(|s| s.page == page)?;
         let (x, y) = sheet.to_page(at);
-        let layer = self.texts.get(place.doc, page);
+        let layer = self.texts.get(doc, page);
         let span = (layer.as_ref().zip(caret))
             .and_then(|(l, c)| crate::read_aloud::marker::word_span(&l.text, c));
         let word = (layer.as_ref().zip(span.clone()))
@@ -1600,7 +1613,9 @@ impl Documents {
             }),
             Content::Pdf { place, view } => {
                 let entry = self.session.as_ref()?.get(place.doc)?;
-                let anchor = view.place(place).or_else(|| entry.doc.anchor(place.current));
+                let anchor = view
+                    .place(place)
+                    .or_else(|| entry.doc.anchor(place.current));
                 let spine = anchor.and_then(|at| entry.doc.spine_place(at));
                 let legacy = entry.doc.is_complete().then_some(anchor).flatten();
                 Some(DocumentPlace {

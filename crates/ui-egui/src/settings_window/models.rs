@@ -8,7 +8,7 @@ use mareader_settings::{AiSettings, ModelPreset, PageTask, PresetId, Provider};
 use mareader_study::Failure;
 
 use super::{divider, group, note, row, section};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets;
@@ -878,7 +878,10 @@ fn add_key(ui: &mut Ui, p: Provider, out: &mut Commands) {
             let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let add = ui.add_enabled(!text.trim().is_empty(), egui::Button::new("Add"));
             if (add.clicked() || entered) && !text.trim().is_empty() {
-                out.push(Command::Intent(Intent::Ai(Job::AddKey(p, std::mem::take(&mut text)))));
+                out.push(Command::Intent(Intent::Ai(Job::AddKey(
+                    p,
+                    std::mem::take(&mut text),
+                ))));
             }
         },
     );

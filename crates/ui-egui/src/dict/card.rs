@@ -10,7 +10,7 @@ use mareader_dict::{Entry, Reply, language};
 
 use super::{Action, entry};
 use crate::bubble::{Bubble, Side};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::settings_window::Tab;
 use crate::shaped;
@@ -228,7 +228,9 @@ fn header(
                     out.push(Command::Intent(Intent::Dict(Action::CloseCard)));
                 }
                 if widgets::small_icon_button(ui, Icon::Dictionary, PURSUE).clicked() {
-                    out.push(Command::Intent(Intent::Dict(Action::Pursue(word.to_owned()))));
+                    out.push(Command::Intent(Intent::Dict(Action::Pursue(
+                        word.to_owned(),
+                    ))));
                 }
                 if let Some(s) = view.speaker {
                     let voice = s.voice.as_deref();

@@ -4,7 +4,7 @@ use egui::{
     Align, Id, Layout, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Ui, pos2, vec2,
 };
 
-use crate::command::{Command, Commands, WindowCommand};
+use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::keymap;

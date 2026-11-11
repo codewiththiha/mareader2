@@ -84,6 +84,5 @@ pub enum UiCommand {
     Window(WindowCommand),
 }
 
-
 /// The frame's command queue, handed to every view.
 pub type Commands = Vec<Command>;

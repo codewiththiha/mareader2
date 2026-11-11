@@ -5,9 +5,8 @@ mod stack;
 
 use egui::{Context, Id, Rect, pos2};
 
-use crate::command::{Commands, Intent};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::motion;
-use crate::study::Action as StudyAction;
 
 /// At least this long is left once a held stack is let go.
 pub const HOVER_GRACE: f64 = 1.5;
@@ -22,7 +21,7 @@ const WIDTH: f32 = 360.0;
 /// Fixed card height, shared by one-line and two-line toasts alike.
 const SPOT_H: f32 = 52.0;
 
-pub use mareader_engine::toast::{ERROR_FOR, SHOW_FOR, Tone, UNDO_FOR, Toast};
+pub use mareader_engine::toast::{ERROR_FOR, SHOW_FOR, Toast, Tone, UNDO_FOR};
 
 /// How a toast leaves.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -425,7 +424,7 @@ impl Toasts {
             if let Some((id, command)) = undo
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
             {
-                out.push(command);
+                out.push(Command::Intent(command));
                 out.push(Command::Ui(UiCommand::CloseToast(id)));
             }
         }
@@ -638,7 +637,7 @@ mod tests {
         let mut long = Toasts::default();
         long.push(
             Toast::info("Removed highlight from the second paragraph of chapter four")
-                .undo(Intent::Study(StudyAction::Restore(Vec::new()))),
+                .undo(Intent::Study(crate::study::Action::Restore(Vec::new()))),
         );
         frame(&ctx, &mut long, None, 0.0);
         let long_card = card::measure(&ctx, &long.live[0], WIDTH, &t);

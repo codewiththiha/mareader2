@@ -9,7 +9,7 @@ use mareader_session::{DocId, Document};
 use mareader_settings::{CefrLevel, PageTask, Settings, WordOutput, language_name};
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::documents::Reading;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
@@ -487,7 +487,11 @@ fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mu
             if menu_row(ui, Icon::Translate, "More languages…", None, false).clicked() {
                 let (at, pages) = (ui.max_rect().right_top(), picks.pages());
                 let at = [at.x, at.y];
-                out.push(Command::Intent(Intent::PageAi(Action::PagesMenu { pane, pages, at })));
+                out.push(Command::Intent(Intent::PageAi(Action::PagesMenu {
+                    pane,
+                    pages,
+                    at,
+                })));
                 ui.close();
             }
         },

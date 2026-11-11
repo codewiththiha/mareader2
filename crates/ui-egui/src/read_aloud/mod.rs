@@ -12,7 +12,7 @@ use mareader_settings::ReadAloudSettings;
 use mareader_speech::Spot;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands, Download};
+use crate::command::{Command, Commands, Download, Intent, UiCommand};
 use crate::documents::{Documents, Reading};
 use crate::icons::Icon;
 use crate::motion;

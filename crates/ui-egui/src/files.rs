@@ -8,7 +8,7 @@ use egui::{Context, DroppedFileHandle};
 use mareader_engine::export::Format;
 use mareader_workspace::PaneId;
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::{OpenRequest, Placement};
 use crate::toast::Toast;
 
@@ -322,7 +322,9 @@ mod dialog {
             let name = file.path().to_string_lossy().into_owned();
             let command = match file.bytes_async().await {
                 Ok(bytes) => Command::Intent(Intent::Open(place(OpenRequest::bytes(bytes, name)))),
-                Err(e) => Command::Ui(UiCommand::Notify(Toast::error(format!("Couldn't read {name}: {e}")))),
+                Err(e) => Command::Ui(UiCommand::Notify(Toast::error(format!(
+                    "Couldn't read {name}: {e}"
+                )))),
             };
             files.deliver(&ctx, command);
         });

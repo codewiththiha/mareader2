@@ -4,8 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_library::{BookId, Move};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
-use mareader_ui_egui::command::Commands;
+use mareader_ui_egui::command::{Command, Commands, Intent, UiCommand};
 use mareader_ui_egui::library::organizing::{Heard, Paused};
 use mareader_ui_egui::library::{Action, ShelfAction};
 use mareader_ui_egui::toast::Toast;
@@ -29,7 +28,8 @@ fn page(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
 }
 
 fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
-    h.state_mut().queue(Command::Intent(Intent::Library(action)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Library(action)));
     h.run_steps(4);
 }
 
@@ -201,6 +201,6 @@ fn a_finished_plan_waits_for_review_and_a_failure_offers_resume() {
         panic!("a toast")
     };
     assert_eq!(failed.label, "Resume");
-    let resume = Command::Intent(Intent::Library(Action::ResumeOrganizing));
+    let resume = Intent::Library(Action::ResumeOrganizing);
     assert_eq!(failed.undo.as_deref(), Some(&resume));
 }

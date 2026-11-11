@@ -13,7 +13,7 @@ use mareader_library::{
 use mareader_settings::LibraryClick;
 use mareader_workspace::{Bounds, DropTarget, PaneId};
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::library::{Action, BookAction, Carry, Named, Organizer, ShelfAction};
@@ -574,7 +574,9 @@ fn row_actions(
             *named = Some((line.named(), line.name().to_owned()));
         }
         if delete {
-            out.push(Command::Intent(Intent::Library(Action::Book(ask_remove(line.named())))));
+            out.push(Command::Intent(Intent::Library(Action::Book(ask_remove(
+                line.named(),
+            )))));
         }
     }
     widgets::context_menu(resp, |ui| {
@@ -763,7 +765,10 @@ fn finish_rename(state: &mut PanelState, model: &Library, keep: bool, out: &mut 
     };
     let name = r.text.trim();
     if keep && !name.is_empty() && now.is_some_and(|n| n != name) {
-        out.push(Command::Intent(Intent::Library(Action::Rename(r.named, name.to_owned()))));
+        out.push(Command::Intent(Intent::Library(Action::Rename(
+            r.named,
+            name.to_owned(),
+        ))));
     }
 }
 

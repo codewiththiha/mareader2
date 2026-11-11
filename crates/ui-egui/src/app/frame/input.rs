@@ -1,4 +1,5 @@
 use super::*;
+use crate::command::{Intent, UiCommand};
 
 impl MareaderApp {
     pub(super) fn prepare(
@@ -39,10 +40,11 @@ impl MareaderApp {
         let outside = !self.queued.is_empty();
         let mut commands = std::mem::take(&mut self.queued);
         let designed = self.book_designs();
-        let mut own = self.texts.own(&self.settings().text);
+        let text = self.settings().text.clone();
+        let mut own = self.texts.own(&text);
         own.retain(|(pane, _)| designed.iter().all(|(p, _)| p != pane));
         own.extend(designed.iter().map(|(pane, text)| (*pane, text)));
-        self.documents.set_text(&self.settings().text, &own);
+        self.documents.set_text(&text, &own);
         // Set anew, a book read aloud lands on the words heard.
         self.documents.hold_said(self.read_aloud.said());
         self.documents.receive(ctx, &mut commands);
@@ -85,7 +87,7 @@ impl MareaderApp {
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
             let skip = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
             if read || skip {
-                let mut settings = self.settings().read_aloud;
+                let mut settings = self.settings().read_aloud.clone();
                 self.read_aloud.answer_question(read, &mut settings);
                 let _ = self.set_field("read_aloud", settings);
             }
@@ -96,7 +98,9 @@ impl MareaderApp {
         let win = &self.settings().dictionary.window;
         let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if route == Route::Reader && floats && win.open && !win.minimized && !self.dict.typing() {
-            let focus = Command::Intent(Intent::Dict(crate::dict::Action::Window(crate::dict::Window::Focus)));
+            let focus = Command::Intent(Intent::Dict(crate::dict::Action::Window(
+                crate::dict::Window::Focus,
+            )));
             for c in commands.iter_mut().skip(read) {
                 if matches!(c, Command::Ui(UiCommand::ShowDictionary)) {
                     *c = focus.clone();

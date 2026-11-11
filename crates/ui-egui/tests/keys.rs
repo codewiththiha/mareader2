@@ -3,7 +3,7 @@
 use egui::Key;
 use egui_kittest::Harness;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::layout::ViewMode;
 use mareader_ui_egui::pdf_view::{line_step, screen_step};
 use mareader_ui_egui::zoom::{Step, ZoomCommand};
@@ -47,7 +47,8 @@ fn settings(
 ) {
     let mut s = h.state().settings().clone();
     edit(&mut s);
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run_steps(2);
 }
 
@@ -119,7 +120,8 @@ fn across_the_column_arrows_turn_and_paged_modes_turn_on_page_keys() {
     h.key_press(Key::ArrowRight);
     h.run();
     assert_eq!(current(&h), 1, "right turns even in the column");
-    h.state_mut().queue(Command::Intent(Intent::View(ViewMode::Single)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::View(ViewMode::Single)));
     h.run();
     h.key_press(Key::PageDown);
     h.run();
@@ -137,7 +139,8 @@ fn a_jump_glides_and_only_its_landing_is_drawn() {
     let mut h = reader(&[("pdf", "sample:300")]);
     let pane = h.state().active_pane();
     let (_, before) = h.state().documents().stats();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
     h.run_steps(4);
     let mid = offset(&h).y;
     assert_eq!(current(&h), 200, "the counter shows where it's going");
@@ -157,7 +160,8 @@ fn a_jump_glides_and_only_its_landing_is_drawn() {
 fn a_wheel_during_a_jump_takes_the_strip_back() {
     let mut h = reader(&[("pdf", "sample:300")]);
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
     h.run_steps(6);
     h.hover_at(egui::pos2(450.0, 400.0));
     h.event(egui::Event::MouseWheel {
@@ -181,7 +185,8 @@ fn with_scroll_to_page_off_a_jump_lands_at_once() {
     let mut h = reader(&[("pdf", "sample:300")]);
     settings(&mut h, |s| s.motion.scroll_jumps = false);
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 200 }));
     h.run_steps(3);
     let shown = h.state().documents().visible(pane).unwrap_or(0..0);
     assert!(shown.contains(&200), "already on {shown:?}");

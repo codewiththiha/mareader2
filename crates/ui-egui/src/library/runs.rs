@@ -8,7 +8,7 @@ use egui::{
 };
 
 use super::Action;
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::widgets;

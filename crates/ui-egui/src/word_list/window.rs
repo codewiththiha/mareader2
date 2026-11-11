@@ -9,7 +9,7 @@ use mareader_workspace::PaneId;
 
 use super::preview::{self, Block};
 use super::{Ask, Gather, Made, Progress, deliver};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::dict::Dict;
 use crate::files::Files;
 use crate::icons::Icon;

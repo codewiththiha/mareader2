@@ -7,7 +7,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_appearance::{BaseMode, NoiseMode, TextureMode};
 use mareader_settings::AppearanceMenuStyle;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::settings_window::Tab;
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
@@ -40,7 +40,8 @@ fn classic_remains_the_default_and_settings_switches_to_dial_deck() {
     h.run_steps(2);
 
     // Switch to Dial deck in Settings -> Appearance while reading a book.
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
     h.run_steps(3);
     let pick = h.get_by_label("Dial deck");
     pick.scroll_to_me();
@@ -76,7 +77,10 @@ fn look_tab_controls_mode_wheel_landmarks_reset_and_book_ink() {
     h.run_steps(2);
     let a = h.state().settings().appearance;
     assert_eq!(a.tint_hue, 34);
-    assert_eq!(a.tint_strength, mareader_ui_egui::dial_deck::STRENGTH_ON_HUE);
+    assert_eq!(
+        a.tint_strength,
+        mareader_ui_egui::dial_deck::STRENGTH_ON_HUE
+    );
 
     h.get_by_label("Reset tint").click();
     h.run_steps(2);
@@ -119,7 +123,8 @@ fn text_tab_dials_appear_for_books_and_hide_for_pdfs() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    pdf.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    pdf.state_mut()
+        .queue(Command::Ui(UiCommand::ShowAppearance));
     pdf.run_steps(3);
     assert!(pdf.query_by_label("Text").is_none());
     assert!(

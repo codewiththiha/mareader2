@@ -7,7 +7,7 @@ use egui::{
 use mareader_library::{FolderId, Library, Recovered, ShelfId, dir_of_rung, human_age, human_size};
 
 use super::{Action, BookAction, ShelfAction};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
@@ -98,7 +98,9 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
         None => "Copies the files into your library",
     };
     if entry(ui, Icon::Import, "Choose files…", onto, t).clicked() {
-        out.push(Command::Intent(Intent::Library(Action::Book(BookAction::PickImport))));
+        out.push(Command::Intent(Intent::Library(Action::Book(
+            BookAction::PickImport,
+        ))));
     }
     let folder = "Copy it in, or read it where it is";
     if entry(ui, Icon::FolderPlus, "Choose a folder…", folder, t).clicked() {
@@ -121,7 +123,9 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
         None => ("New shelf", "Drag books onto it to file them"),
     };
     if entry(ui, Icon::Shelf, label, detail, t).clicked() {
-        out.push(Command::Intent(Intent::Library(Action::Shelf(ShelfAction::New))));
+        out.push(Command::Intent(Intent::Library(Action::Shelf(
+            ShelfAction::New,
+        ))));
     }
     if let Some((folder, _)) = rung {
         restore(ui, here.model, folder.id, t, out);
@@ -154,7 +158,10 @@ fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut
                 let hint = "Add this file back, even if it doesn't match the folder's filters";
                 if resp.inner.on_hover_text(hint).clicked() {
                     let content = stone.content;
-                    out.push(Command::Intent(Intent::Library(Action::Restore { folder, content })));
+                    out.push(Command::Intent(Intent::Library(Action::Restore {
+                        folder,
+                        content,
+                    })));
                 }
             }
             Recovered::Moved {
@@ -169,7 +176,10 @@ fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut
                     .on_hover_text("This book moved to another shelf")
                     .clicked()
                 {
-                    out.push(Command::Intent(Intent::Library(Action::AskMoved { folder, book })));
+                    out.push(Command::Intent(Intent::Library(Action::AskMoved {
+                        folder,
+                        book,
+                    })));
                 }
             }
         }

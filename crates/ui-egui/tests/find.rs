@@ -4,7 +4,7 @@ use egui::Key;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 
 use crate::common::{click_at as press, reader};
 
@@ -97,7 +97,8 @@ fn a_match_runs_across_lines_and_misses_count_zero() {
 fn the_first_enter_starts_from_the_page_read() {
     let mut h = reader(&[("pdf", "sample:6")]);
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page: 3 }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page: 3 }));
     h.run_steps(30);
     assert_eq!(current(&h), 3);
     search(&mut h, "quick");
@@ -160,7 +161,8 @@ fn a_book_set_again_or_closed_lets_its_old_search_go() {
     assert!(!hit_pages(&h).is_empty(), "found again");
     let pane = h.state().active_pane();
     assert_eq!(h.state().panes().get(1), Some(&pane), "read in the second");
-    h.state_mut().queue(Command::Intent(Intent::ClosePane(pane)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::ClosePane(pane)));
     h.run_steps(3);
     assert_eq!(h.state().panes().len(), 1);
     assert_eq!(h.state().searches(), 0, "closed, nothing holds the book");

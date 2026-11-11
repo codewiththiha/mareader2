@@ -4,7 +4,7 @@ use egui::{Id, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
 use mareader_library::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View};
 
 use super::{Action, ShelfAction};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::platform::Platform;
 use crate::titlebar::LibraryBar;
@@ -41,7 +41,9 @@ pub fn button(
             // Every change shows at once; the menu stays open to chain them.
             let mut next = *view;
             if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
-                out.push(Command::Intent(Intent::Library(Action::Shelf(ShelfAction::New))));
+                out.push(Command::Intent(Intent::Library(Action::Shelf(
+                    ShelfAction::New,
+                ))));
                 ui.close();
             }
             let organizer = super::menus::Organizer {

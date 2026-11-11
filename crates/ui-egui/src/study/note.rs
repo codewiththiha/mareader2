@@ -10,7 +10,7 @@ use mareader_library::MarkId;
 
 use super::Action;
 use crate::bubble::{Bubble, Side};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::theme::{Tokens, color};
 use crate::widgets;

@@ -7,7 +7,7 @@ use mareader_library::{Book, BookId, Library, Origin, ShelfId};
 use super::counted::counted;
 use super::runs::{Beat, Phase, RunId};
 use super::{LibraryState, Pick, ShelfAction};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::toast::Toast;
 
 /// A book the model may file.
@@ -332,7 +332,7 @@ impl LibraryState {
             Heard::Failed(toast) => {
                 self.organizer_end();
                 // What was done is kept; the toast offers to carry on.
-                let resume = Command::Intent(Intent::Library(super::Action::ResumeOrganizing));
+                let resume = Intent::Library(super::Action::ResumeOrganizing);
                 let toast = match &self.organizer.paused {
                     Some(p) if !p.ready => toast.action("Resume", resume),
                     _ => toast,
@@ -374,7 +374,9 @@ impl LibraryState {
         }
         let toast = match books {
             0 => Toast::info(said),
-            _ => Toast::info(said).undo(Intent::Library(super::Action::UndoOrganized(Box::new(done)))),
+            _ => Toast::info(said).undo(Intent::Library(super::Action::UndoOrganized(Box::new(
+                done,
+            )))),
         };
         out.push(Command::Ui(UiCommand::Notify(toast)));
     }
@@ -751,7 +753,7 @@ mod tests {
         let Some(undo) = undo else {
             panic!("an Undo toast")
         };
-        let Command::Intent(Intent::Library(action)) = *undo else {
+        let Intent::Library(action) = *undo else {
             panic!("a library undo")
         };
         state.act(action, 0.0, &mut out);

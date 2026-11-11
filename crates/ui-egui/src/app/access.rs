@@ -83,9 +83,8 @@ impl MareaderApp {
     /// What the window must still do for the intent the engine just carried
     /// out: a pane to focus, a repaint.
     pub(super) fn after(&mut self, done: mareader_engine::session::Done) {
-        use mareader_engine::session::Focus;
-        if let Some(Focus::Pane(id) | Focus::Cycle { .. }) = done.focus {
-            let _ = id;
+        if let Some(focus) = done.focus {
+            let _ = focus;
         }
     }
 
@@ -95,7 +94,7 @@ impl MareaderApp {
 
     /// The file being read: the active pane's, else the first with one.
     pub fn last_document(&self) -> Option<LastDocument> {
-        let panes = std::iter::once(self.active).chain(self.tree.panes());
+        let panes = std::iter::once(self.active()).chain(self.tree().panes());
         let (pane, at) =
             (panes.into_iter()).find_map(|pane| Some((pane, self.documents.place(pane)?)))?;
         let place = at.anchor.map(|anchor| (anchor.block, anchor.offset));
@@ -196,7 +195,7 @@ impl MareaderApp {
     }
 
     pub fn panes(&self) -> Vec<PaneId> {
-        self.tree.panes()
+        self.tree().panes()
     }
 
     /// Each pane's rect as last drawn.
@@ -228,13 +227,13 @@ impl MareaderApp {
 
     /// Whether the active pane's scripts have run and taken every click.
     pub fn scripts_settled(&self) -> bool {
-        let pane = self.documents.scripts_idle(self.active);
+        let pane = self.documents.scripts_idle(self.active());
         self.script_shot.is_empty() && pane && self.scripts.idle()
     }
 
     /// The scripts' state, for a screenshot that waited too long.
     pub fn scripts_state(&self) -> String {
-        let pane = self.documents.scripts_state(self.active);
+        let pane = self.documents.scripts_state(self.active());
         format!("{}; {pane}", self.scripts.describe())
     }
 
@@ -293,6 +292,6 @@ impl MareaderApp {
 
     /// The bar's title: the active pane's document, else the app.
     pub fn title(&self) -> &str {
-        self.documents.title(self.active).unwrap_or("Mareader")
+        self.documents.title(self.active()).unwrap_or("Mareader")
     }
 }

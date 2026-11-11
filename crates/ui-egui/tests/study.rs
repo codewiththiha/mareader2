@@ -8,7 +8,7 @@ use mareader_library::{Pen, Spot};
 use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent};
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::study::words;
 
@@ -219,7 +219,8 @@ fn a_book_s_mark_is_found_again_after_the_type_changes() -> Out {
         h.state().documents().selection(pane).is_some()
     });
     let page = page.ok_or("no customs in the sample")?;
-    h.state_mut().queue(Command::Intent(Intent::GoTo { pane, page }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::GoTo { pane, page }));
     h.run();
     h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
     h.run();
@@ -381,7 +382,8 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
     use mareader_ui_egui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
     h.run();
     // The AI marks words with this pen and colour: it can't be picked.
     h.get_by_label("Highlight #a58af0").click();
@@ -431,7 +433,8 @@ fn marks_kept_off_the_pens_show_only_while_in_use() {
     use mareader_ui_egui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample"), ("explain", "none")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
     h.run();
     // No model answers and no word levels are in: nothing to show.
     assert!(h.query_by_label("Change in AI").is_none());
@@ -444,13 +447,15 @@ fn the_ai_tab_picks_who_explains() {
     use mareader_settings::Provider;
     use mareader_ui_egui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Ai)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Ai)));
     h.run();
     // With none saved, the AI tab's one button leads to the models.
     if h.query_by_label("Add a model").is_some() {
         h.get_by_label("Add a model").click();
     } else {
-        h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Models)));
+        h.state_mut()
+            .queue(Command::Intent(Intent::OpenSettings(Tab::Models)));
     }
     h.run();
     // Tiles show at once while none is saved; else they open on a click.
@@ -478,7 +483,8 @@ fn several_marks_are_picked_and_removed_together() -> Out {
     for word in ["quick", "lazy"] {
         select(&mut h, 0, word);
         let (pen, color) = (Pen::Full, None);
-        h.state_mut().queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+        h.state_mut()
+            .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
         h.run();
     }
     assert_eq!(marks(&h).len(), 2);
@@ -684,7 +690,8 @@ fn a_highlight_is_restyled_from_its_menu_but_never_as_the_ai() -> Out {
     let pane = h.state().active_pane();
     select(&mut h, 0, "quick");
     let (pen, color) = (Pen::Full, None);
-    h.state_mut().queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+    h.state_mut()
+        .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
     h.run();
     let (layer, sheet) = page(&h, 0)?;
     let quick = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
@@ -873,7 +880,8 @@ fn picked_highlights_are_restyled_together_where_each_may_be() -> Out {
     for (word, pen) in [("quick", Pen::Full), ("lazy", Pen::Underline)] {
         select(&mut h, 0, word);
         let color = None;
-        h.state_mut().queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+        h.state_mut()
+            .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
         h.run();
     }
     let (layer, sheet) = page(&h, 0)?;

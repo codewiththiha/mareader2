@@ -11,7 +11,7 @@ use egui::{
     Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent, UiCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::modal::Dialog;
@@ -32,8 +32,8 @@ mod vocabulary;
 mod voice_model;
 pub use voice_model::accent;
 
-pub use read_aloud::Voices;
 pub use mareader_engine::scope::{Applies, Scope, Shown};
+pub use read_aloud::Voices;
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.
 pub const MAX_SIZE: Vec2 = vec2(760.0, 960.0);
@@ -57,61 +57,6 @@ const HEADER_H: f32 = 56.0;
 const FOOT_H: f32 = 12.0;
 
 pub use mareader_engine::settings::Tab;
-
-impl Tab {
-    /// A tab by its name; old names, as Workspace, still work.
-    pub fn parse(s: &str) -> Option<Self> {
-        let s = s.to_ascii_lowercase();
-        match s.as_str() {
-            "theme" | "fonts" => Some(Tab::Appearance),
-            "animations" => Some(Tab::Motion),
-            "workspace" => Some(Tab::Panes),
-            "models" => Some(Tab::Models),
-            "voices" | "read_aloud" | "speech" => Some(Tab::ReadAloud),
-            _ => Self::ALL
-                .into_iter()
-                .find(|t| t.label().eq_ignore_ascii_case(&s)),
-        }
-    }
-
-    fn icon(self) -> Icon {
-        match self {
-            Tab::Appearance => Icon::Appearance,
-            Tab::Layout => Icon::Layout,
-            Tab::ReadAloud => Icon::ReadAloud,
-            Tab::Highlights => Icon::Highlight,
-            Tab::Vocabulary => Icon::Levels,
-            Tab::Dictionary => Icon::Dictionary,
-            Tab::Ai => Icon::Ai,
-            Tab::Models => Icon::Chip,
-            Tab::Panes => Icon::SplitRight,
-            Tab::Motion => Icon::Motion,
-            Tab::Model(model) => Icon::engine(model.id).unwrap_or(Icon::VoiceModel),
-        }
-    }
-
-    /// The heading the sidebar groups it under.
-    fn group(self) -> &'static str {
-        match self {
-            Tab::Appearance | Tab::Layout | Tab::ReadAloud | Tab::Model(_) => "Reading",
-            Tab::Highlights | Tab::Vocabulary | Tab::Dictionary | Tab::Ai => "Study",
-            Tab::Models | Tab::Panes | Tab::Motion => "App",
-        }
-    }
-
-    /// Shown away from the books too, in the library and the dictionary.
-    pub fn beyond_books(self) -> bool {
-        use Tab as T;
-        let study = matches!(self, T::Highlights | T::Vocabulary | T::Dictionary);
-        let voices = matches!(self, T::ReadAloud | T::Model(_));
-        study || voices || matches!(self, T::Ai | T::Models)
-    }
-
-    /// Every tab always shows, so the list never shifts under the pointer.
-    fn available(self) -> bool {
-        !matches!(self, Tab::Ai | Tab::Models) || cfg!(not(target_arch = "wasm32"))
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct SettingsWindow {
@@ -1230,5 +1175,28 @@ mod tests {
         assert_eq!(window_size(vec2(5000.0, 5000.0)), MAX_SIZE);
         let small = window_size(vec2(500.0, 400.0));
         assert!(small.x < 500.0 && small.y < 400.0, "{small:?}: it fits");
+    }
+}
+
+/// A tab's icon: presentation, so it stays above the line.
+pub(crate) trait TabIcon {
+    fn icon(self) -> Icon;
+}
+
+impl TabIcon for Tab {
+    fn icon(self) -> Icon {
+        match self {
+            Tab::Appearance => Icon::Appearance,
+            Tab::Layout => Icon::Layout,
+            Tab::ReadAloud => Icon::ReadAloud,
+            Tab::Highlights => Icon::Highlight,
+            Tab::Vocabulary => Icon::Levels,
+            Tab::Dictionary => Icon::Dictionary,
+            Tab::Ai => Icon::Ai,
+            Tab::Models => Icon::Chip,
+            Tab::Panes => Icon::SplitRight,
+            Tab::Motion => Icon::Motion,
+            Tab::Model(model) => Icon::engine(model.id).unwrap_or(Icon::VoiceModel),
+        }
     }
 }

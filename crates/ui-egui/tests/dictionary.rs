@@ -8,7 +8,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
 use mareader_settings::{Bar, DictionaryOpens};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::command::Command;
+use mareader_ui_egui::command::{Command, Intent, UiCommand};
 use mareader_ui_egui::dict::card::PURSUE;
 use mareader_ui_egui::dict::page::LABEL;
 use mareader_ui_egui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
@@ -91,7 +91,8 @@ fn look_up_answers_from_the_packs_in_the_default_language() {
 
     let mut s = h.state().settings().clone();
     s.dictionary.default_lang = Some("fr".into());
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     select(&mut h, "quick brown");
     h.get_by_label("Look up").click();
     h.run();
@@ -120,7 +121,8 @@ fn without_packs_the_card_leads_to_settings() {
 fn the_tab_lists_packs_and_removes_one() {
     let dir = shelf();
     let mut h = reader(dir.path());
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
     h.run();
     // Packs on this device show; the rest wait in a fold.
     assert!(h.query_by_label("Download English → Japanese").is_none());
@@ -163,7 +165,8 @@ fn the_panel_searches_every_pack_as_typed() {
 fn full_page(h: &mut H) {
     let mut s = h.state().settings().clone();
     s.dictionary.opens = DictionaryOpens::Page;
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
 }
 
@@ -296,7 +299,8 @@ fn an_answer_can_be_looked_up_in_turn() {
     let mut h = reader(dir.path());
     let mut s = h.state().settings().clone();
     s.dictionary.langs = vec!["wiktionary-en-fr".into()];
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.state_mut()
         .set_option("dict_page", "light")
         .expect("a known option");
@@ -528,7 +532,8 @@ fn escape_in_the_window_clears_then_closes() {
 fn the_tab_chooses_how_the_reader_opens_it() {
     let dir = shelf();
     let mut h = reader(dir.path());
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
     h.run();
     h.get_by_label("Full page").click();
     h.run();
@@ -575,7 +580,8 @@ fn the_card_carries_its_word_into_the_window_or_the_page() {
     h.get_by_label(CLOSE).click();
     let mut s = h.state().settings().clone();
     s.dictionary.opens = DictionaryOpens::Page;
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     select(&mut h, "brown");
     h.get_by_label("Look up").click();
     h.run();
@@ -652,7 +658,8 @@ fn a_bridge_names_english_and_each_answer_its_word() {
     let mut h = reader(dir.path());
     let mut s = h.state().settings().dictionary.clone();
     (s.pair, s.from, s.to) = (true, Some("fr".into()), Some("my".into()));
-    h.state_mut().queue(Command::Intent(Intent::SetDictionary(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetDictionary(Box::new(s))));
     h.run();
     h.state_mut()
         .set_option("dict_page", "lumière")
@@ -669,7 +676,8 @@ fn the_card_says_its_word_in_the_reading_voice() {
     let mut h = reader(dir.path());
     let mut s = h.state().settings().clone();
     s.read_aloud.engine = "silent".into();
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     select(&mut h, "quick");
     h.get_by_label("Look up").click();
@@ -699,7 +707,8 @@ fn near_matches_can_be_left_off_the_card() {
     assert!(!near.is_empty(), "the card offers the nearest entries");
     h.key_press(egui::Key::Escape);
     h.run();
-    h.state_mut().queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+    h.state_mut()
+        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
     h.run();
     let switch = h.get_by_role_and_label(Role::CheckBox, "Show near matches");
     switch.scroll_to_me();
@@ -727,7 +736,8 @@ fn light_in(dir: &Path, (engine, voice): (&str, Option<&str>), others: bool) -> 
     }
     (s.dictionary.pair, s.dictionary.to) = (true, Some("fr".into()));
     s.dictionary.other_voices = others;
-    h.state_mut().queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+    h.state_mut()
+        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
     h.run();
     h.state_mut()
         .set_option("dict_window", "light")
@@ -740,7 +750,8 @@ fn light_in(dir: &Path, (engine, voice): (&str, Option<&str>), others: bool) -> 
 fn says_in(engine: &str, voice: Option<&str>) -> usize {
     let dir = shelf();
     let h = light_in(dir.path(), (engine, voice), false);
-    h.query_all_by_label(mareader_ui_egui::read_aloud::SAY).count()
+    h.query_all_by_label(mareader_ui_egui::read_aloud::SAY)
+        .count()
 }
 
 #[test]
@@ -804,7 +815,8 @@ fn a_missing_voice_offers_its_download_and_reveals_it() {
     h.run_steps(5);
     // The English headword is said; French waits for its download.
     assert_eq!(
-        h.query_all_by_label(mareader_ui_egui::read_aloud::SAY).count(),
+        h.query_all_by_label(mareader_ui_egui::read_aloud::SAY)
+            .count(),
         1
     );
     assert_eq!(h.query_all_by_label(OFFER).count(), 1);

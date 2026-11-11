@@ -52,7 +52,13 @@ fn links(cx: &mut ShowContext<'_>) {
                 page,
                 text: text.clone(),
             };
-            match mark_of(&view.sheets, texts, cx.place.doc, &target, cx.paint.did.click) {
+            match mark_of(
+                &view.sheets,
+                texts,
+                cx.place.doc,
+                &target,
+                cx.paint.did.click,
+            ) {
                 Some((on, at)) => {
                     view.footnote = Some(crate::footnote::Footnote {
                         page: on,
@@ -78,7 +84,13 @@ fn links(cx: &mut ShowContext<'_>) {
         }
         Some(LinkTarget::Script { chapter, node }) => {
             let target = LinkTarget::Script { chapter, node };
-            let mark = mark_of(&view.sheets, texts, cx.place.doc, &target, cx.paint.did.click);
+            let mark = mark_of(
+                &view.sheets,
+                texts,
+                cx.place.doc,
+                &target,
+                cx.paint.did.click,
+            );
             view.triggers.script.click(chapter, node, mark);
             ctx.request_repaint();
         }

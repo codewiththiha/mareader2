@@ -7,7 +7,7 @@ use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 use super::downloads::muted;
 use super::voice_model::buttons;
 use super::{ROW_H, Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
-use crate::command::{Command, Commands};
+use crate::command::{Command, Commands, Intent};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::platform::Platform;
@@ -36,7 +36,8 @@ pub fn tab(ui: &mut Ui, s: &mut ReadAloudSettings, v: &Voices<'_>, out: &mut Com
     voice(ui, s, v.booth, out);
     sound(ui, s, v.booth);
     reading(ui, s);
-    let keys = keymap::hint(v.platform, &Command::Intent(Intent::ToggleReadAloud)).unwrap_or_default();
+    let keys =
+        keymap::hint(v.platform, &Command::Intent(Intent::ToggleReadAloud)).unwrap_or_default();
     note(
         ui,
         &format!("Start or pause reading with {keys}, or right-click a page to read from there."),
@@ -438,7 +439,11 @@ fn voice_row(
         let mut slot = ui.new_child(place);
         let (icon, verb, command) = match saying {
             true => (Icon::Stop, "Stop", Command::Intent(Intent::StopVoiceTry)),
-            false => (Icon::Try, "Preview", Command::Intent(Intent::TryVoiceOf(id.to_owned()))),
+            false => (
+                Icon::Try,
+                "Preview",
+                Command::Intent(Intent::TryVoiceOf(id.to_owned())),
+            ),
         };
         let label = format!("{verb} {name}");
         if widgets::small_icon_button(&mut slot, icon, &label).clicked() {

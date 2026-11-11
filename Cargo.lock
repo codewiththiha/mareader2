@@ -3638,9 +3638,11 @@ name = "mareader-engine"
 version = "0.0.5"
 dependencies = [
  "mareader-appearance",
+ "mareader-assist",
  "mareader-cefr",
  "mareader-dict",
  "mareader-epub",
+ "mareader-library",
  "mareader-pdf",
  "mareader-reflow",
  "mareader-session",
@@ -3649,6 +3651,7 @@ dependencies = [
  "mareader-study",
  "mareader-workspace",
  "serde_json",
+ "sys-locale",
 ]
 
 [[package]]
@@ -3864,7 +3867,6 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
- "sys-locale",
  "tempfile",
  "wasm-bindgen-futures",
 ]

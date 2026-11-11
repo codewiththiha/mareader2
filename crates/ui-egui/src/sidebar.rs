@@ -7,7 +7,7 @@ use egui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::command::{Command, Commands, WindowCommand};
+use crate::command::{Command, Commands, Intent, UiCommand, WindowCommand};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::motion;
@@ -347,7 +347,9 @@ impl Sidebar {
         // Registered before the buttons so they win the pointer.
         let drag = ui.interact(rect, Id::new("sidebar-drag"), Sense::CLICK | Sense::DRAG);
         if drag.double_clicked() {
-            out.push(Command::Ui(UiCommand::Window(WindowCommand::ToggleMaximize)));
+            out.push(Command::Ui(UiCommand::Window(
+                WindowCommand::ToggleMaximize,
+            )));
         } else if drag.drag_started() {
             out.push(Command::Ui(UiCommand::Window(WindowCommand::StartDrag)));
         }
@@ -362,9 +364,17 @@ impl Sidebar {
             let _act = anim::announce(ui, Act::Hover);
             ui.spacing_mut().item_spacing.x = 4.0;
             let buttons = [
-                (Icon::SidebarClose, "Close sidebar", Command::Ui(UiCommand::CloseSidebar)),
+                (
+                    Icon::SidebarClose,
+                    "Close sidebar",
+                    Command::Ui(UiCommand::CloseSidebar),
+                ),
                 (Icon::Search, "Search", Command::Ui(UiCommand::ShowSearch)),
-                (Icon::Settings, "Settings", Command::Ui(UiCommand::ShowSettings)),
+                (
+                    Icon::Settings,
+                    "Settings",
+                    Command::Ui(UiCommand::ShowSettings),
+                ),
             ];
             for (icon, label, command) in buttons {
                 let keys = crate::keymap::hint(cx.platform, &command);

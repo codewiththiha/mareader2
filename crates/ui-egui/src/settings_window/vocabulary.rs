@@ -11,7 +11,7 @@ use mareader_speech::Stage;
 use super::downloads::{Buttons, muted, progress};
 use super::highlights::{palette, preview};
 use super::{choices, divider, flagged_row, group, note, row, section, switch_row};
-use crate::command::{Command, Commands, Download};
+use crate::command::{Command, Commands, Download, Intent};
 use crate::dict::{count, megabytes};
 use crate::icons::Icon;
 use crate::sounds::{EnglishVoice, Sounds, Spoken};
@@ -272,7 +272,7 @@ fn look_rows(ui: &mut Ui, study: &mut StudySettings) {
 fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
     let data = Buttons {
         name: "word data",
-        ask: Command::Intent(Intent::Vocab),
+        ask: |what| Command::Intent(Intent::Vocab(what)),
     };
     let hint = "Each word's CEFR level, and a model of its role in a sentence";
     let all = DATASET.bytes + TAGGER.bytes;
@@ -318,7 +318,7 @@ fn data_row(ui: &mut Ui, vocab: &Vocab, out: &mut Commands) {
 fn sounds_row(ui: &mut Ui, sounds: &Sounds, out: &mut Commands) {
     let pack = Buttons {
         name: "pronunciation",
-        ask: Command::Intent(Intent::Pronunciation),
+        ask: |what| Command::Intent(Intent::Pronunciation(what)),
     };
     let hint = "How words sound, American and British, shared with voice models";
     let size = sounds.bytes();
