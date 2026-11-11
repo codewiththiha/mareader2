@@ -1,7 +1,7 @@
 //! Panes as commands see them: how a page is laid out, and its zoom.
 
 /// How a pane's document is laid out.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ViewMode {
     /// One page at a time, turned by keys.
     Single,

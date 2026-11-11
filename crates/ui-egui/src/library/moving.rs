@@ -11,40 +11,7 @@ use super::{LibraryState, PickAction, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
 
-/// A gesture waiting on the copy ask, with what finishing it needs.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CopyWork {
-    /// Books and shelves carried off their folder's ground.
-    Move { mv: Move, owed: Departure },
-    /// A rung taken apart: its own books come up as copies.
-    Apart(ShelfId),
-    /// A removal whose rungs carry books read in place.
-    Removal {
-        books: Vec<BookId>,
-        shelves: Vec<ShelfId>,
-        copies: Vec<BookId>,
-        forget: bool,
-    },
-}
-
-impl CopyWork {
-    /// The books that become copies, each once.
-    pub fn books(&self, model: &mareader_library::Library) -> Vec<BookId> {
-        match self {
-            Self::Move { owed, .. } => owed.copies(),
-            Self::Apart(id) => model.rung_books(*id, false),
-            Self::Removal { copies, .. } => copies.clone(),
-        }
-    }
-}
-
-/// The copy ask's answers; Cancel just closes it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CopyAnswer {
-    Copy,
-    /// Put shelves back, or let the folder make them again.
-    Without,
-}
+pub use mareader_engine::library::{CopyAnswer, CopyWork};
 
 impl LibraryState {
     /// Lands a move, asking first if books must leave their folder.

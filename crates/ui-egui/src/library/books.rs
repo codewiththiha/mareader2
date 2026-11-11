@@ -9,39 +9,7 @@ use super::{LibraryState, Pick, Sheet, wall_ms};
 use crate::command::{Command, Commands};
 use crate::toast::Toast;
 
-/// What menus, the selection bar and drops ask of books.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BookAction {
-    /// Asks first, telling what goes and what stays.
-    AskRemove {
-        books: Vec<BookId>,
-        shelves: Vec<ShelfId>,
-        links: Vec<LinkId>,
-    },
-    /// `cascade` takes what's inside the shelves; `forget`, marks and places.
-    Remove {
-        books: Vec<BookId>,
-        shelves: Vec<ShelfId>,
-        links: Vec<LinkId>,
-        cascade: bool,
-        forget: bool,
-    },
-    /// A separate book of the same file, with its own place.
-    Twin(BookId),
-    /// Shows its file in the system's file manager.
-    Reveal(BookId),
-    /// Shows the file dialog; the picks come back as `Import`.
-    PickImport,
-    /// Copies in files onto a shelf if `to`; a folder asks how.
-    Import {
-        paths: Vec<PathBuf>,
-        to: Option<ShelfId>,
-    },
-    /// A new shelf where the reader is, holding these.
-    ShelveTogether(Vec<Pick>),
-    /// The library's own copies of these, filed beside them.
-    Duplicate(Vec<Pick>),
-}
+pub use mareader_engine::library::BookAction;
 
 impl LibraryState {
     pub(super) fn book_act(&mut self, action: BookAction, out: &mut Commands) {

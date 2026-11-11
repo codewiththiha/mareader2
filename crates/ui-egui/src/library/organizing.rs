@@ -105,15 +105,7 @@ impl Proposal {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Applied {
-    pub filed: Vec<(BookId, ShelfId)>,
-    /// New shelves, parents first.
-    pub made: Vec<ShelfId>,
-    /// Books that changed meanwhile and stayed put.
-    pub skipped: usize,
-}
-
+pub use mareader_engine::library::Applied;
 /// News from the model, as the library takes it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Heard {

@@ -51,7 +51,7 @@ fn give_back() {
         });
 }
 
-pub use mareader_engine::documents::{OpenRequest, Placement};
+pub use mareader_engine::documents::{DocumentPlace, OpenRequest, Placement};
 
 #[derive(Debug)]
 enum Content {

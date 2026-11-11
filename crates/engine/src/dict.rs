@@ -25,7 +25,7 @@ pub enum Window {
 }
 
 /// Packs to download or remove, and the lookup card's asks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Download(&'static str),
     Pause(&'static str),

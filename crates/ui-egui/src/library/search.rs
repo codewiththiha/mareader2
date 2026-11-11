@@ -33,22 +33,7 @@ const RING_END: f64 = 4.6;
 const PULSE: f64 = 1.6;
 const HALO: f32 = 16.0;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SearchAction {
-    /// Focuses the field with its text selected; Ctrl+F.
-    Focus,
-    Text(String),
-    /// Down opens the suggestions or lights the next; Up goes back.
-    Move(i32),
-    /// Shows the book or shelf where it sits on the page.
-    Choose(Target),
-    /// Enter: chooses the lit suggestion, the first unless moved.
-    ChooseLit,
-    Close,
-    Clear,
-    /// Leaves a shelf or filter that hides every match.
-    Widen,
-}
+pub use mareader_engine::library::SearchAction;
 
 #[derive(Default)]
 pub(super) struct Search {

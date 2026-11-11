@@ -38,6 +38,20 @@ pub struct OpenRequest {
     pub book: Option<BookId>,
 }
 
+/// A document's current global position and resume data.
+pub struct DocumentPlace {
+    /// The source file.
+    pub path: PathBuf,
+    /// The global page currently shown.
+    pub page: usize,
+    /// A legacy block anchor, when the document is complete.
+    pub anchor: Option<Anchor>,
+    /// A stable EPUB location, when available.
+    pub spine: Option<SpinePlace>,
+    /// The known or estimated full page count.
+    pub pages: usize,
+}
+
 impl OpenRequest {
     pub fn path(path: PathBuf) -> Self {
         Self {

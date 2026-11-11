@@ -9,26 +9,7 @@ use super::io::{Job, Relink};
 use super::{Action, LibraryState, Sheet};
 use crate::command::{Command, Commands};
 
-/// Finding a lost book: what it's doing, or what it found.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Finding {
-    pub book: BookId,
-    pub step: Step,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Step {
-    Ask,
-    Working(String),
-    /// Why that didn't work; the choices stay.
-    Note(String),
-    /// A file under its name with other content, offered.
-    Differs {
-        path: PathBuf,
-        format: Format,
-        measure: Measure,
-    },
-}
+pub use mareader_engine::library::{Finding, Step};
 
 impl LibraryState {
     /// The find-again sheet's work.

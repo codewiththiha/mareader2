@@ -18,6 +18,7 @@
 )]
 
 pub mod dict;
+pub mod library;
 pub mod documents;
 pub mod export;
 pub mod notes_panel;
