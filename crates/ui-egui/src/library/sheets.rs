@@ -3,11 +3,12 @@
 use egui::{Button, Context, Id, RichText, Ui};
 use mareader_library::{Book, FolderId, Library, Origin, ShelfId};
 
-use super::asks::{self, Question};
+use super::asks;
 use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
 use crate::modal::{Dialog, buttons, primary, title};
 use crate::theme::Tokens;
 use crate::ui_command::{Command, Commands, Sent};
+use mareader_engine::library::Question;
 
 const WIDTH: f32 = 420.0;
 

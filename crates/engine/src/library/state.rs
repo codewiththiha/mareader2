@@ -1,7 +1,7 @@
 //! What the library remembers between frames: its model, where the page
 //! stands in it, and the sheet over it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::hash::{BuildHasher, RandomState};
 use std::path::PathBuf;
 
@@ -10,7 +10,7 @@ use mareader_workspace::PaneId;
 
 use crate::documents::OpenRequest;
 
-use super::{Picks, Scope, Sheet};
+use super::{Picks, Question, Scope, Sheet};
 
 /// Whether the library's files can be written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -28,6 +28,8 @@ pub struct State {
     pub model: Library,
     /// None: in memory only, as in tests and shots.
     pub folder: Option<Folder>,
+    /// Questions waiting for the reader, oldest first.
+    pub asks: VecDeque<Question>,
     pub status: Status,
     /// Disk work runs on the frame rather than on a worker.
     pub inline: bool,
@@ -74,6 +76,7 @@ impl Default for State {
             unfolded: BTreeSet::new(),
             file_target: None,
             sheet: None,
+            asks: VecDeque::new(),
         }
     }
 }

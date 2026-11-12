@@ -3,14 +3,44 @@
 use std::path::PathBuf;
 
 use mareader_library::{
-    BookId, ContentId, Departure, Design, FolderId, Format, Item, Library, LinkId, Measure, Move,
-    Options, Placement, ShelfId, Target,
+    BookId, ContentId, Departure, Design, FolderId, Format, Found, Item, Library, LinkId, Measure,
+    Move, Options, Placement, ShelfId, Target,
 };
 
 mod counted;
+mod question;
 mod state;
 pub use counted::counted;
+pub use question::{Kind, Question};
 pub use state::{State, Status, wall_ms};
+
+/// What the library asks the shell for, once its own state is settled.
+///
+/// The engine never calls upward: work that belongs to the window - a file
+/// dialog, a worker, a note on screen - comes back out as one of these.
+pub enum Out {
+    /// A note for the reader; the front end decides how it looks.
+    Toast(crate::toast::Toast),
+    /// An command for the session to run.
+    Command(crate::command::Command),
+    /// Brings `paths` in, landing them in `to` (none: the top level).
+    Import {
+        paths: Vec<PathBuf>,
+        to: Option<ShelfId>,
+    },
+    /// Copies `files` into the store, then `work` goes ahead.
+    Copy { work: CopyWork, files: Vec<Found> },
+    /// Copies `files` into the store, then makes twins of `picks`.
+    CopyTwins { picks: Vec<Pick>, files: Vec<Found> },
+    /// Looks for `book`'s file again, under `folder`.
+    Seek { book: BookId, folder: PathBuf },
+    /// Points `book` at the file at `path`.
+    Relink {
+        book: BookId,
+        path: PathBuf,
+        force: bool,
+    },
+}
 
 /// Books, shelves and links picked on the page: the library's own item.
 pub use mareader_library::{Pick, PickAction, Picks};

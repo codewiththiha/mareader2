@@ -11,7 +11,6 @@ use mareader_library::{
     Plan, Planned, ShelfId,
 };
 
-use super::asks::Question;
 use super::find::folder_name;
 use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use super::moving::CopyWork;
@@ -19,6 +18,7 @@ use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
 use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::library::Question;
 
 /// Seconds between rescans when the window keeps regaining focus.
 const RESCAN_GAP: f64 = 2.0;
