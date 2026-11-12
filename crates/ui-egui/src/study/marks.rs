@@ -8,9 +8,9 @@ use mareader_appearance::{MarkFill, PageTone, Rgb};
 use mareader_engine::study::words;
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::{Bounds, TextLayer};
+use mareader_session::{Caret, Selection};
 
 use crate::gpu::{PagePass, PagesCallback, Quad};
-use crate::selection::{Caret, Pages, Selection};
 
 /// How a mark is drawn, resolved from its record and the settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,7 +55,7 @@ impl Placed {
 }
 
 /// Where `marks` fall on the pages on screen; ones off screen are left out.
-pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
+pub fn place(marks: &[Shown], pages: &crate::selection::Pages<'_>) -> Vec<Placed> {
     let mut out = Vec::new();
     for sheet in pages.sheets {
         let layer = pages.texts.get(pages.doc, sheet.page);

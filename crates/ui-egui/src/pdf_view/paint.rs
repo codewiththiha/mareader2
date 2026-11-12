@@ -1,4 +1,5 @@
 use egui::{Pos2, Rect, Ui};
+use mareader_session::Selection;
 
 use super::*;
 
@@ -449,4 +450,21 @@ fn landing_demand(cx: &mut ShowContext<'_>) -> bool {
         }
     }
     true
+}
+
+/// A right-click on selected text belongs to the selection.
+fn on_selection(pages: &Pages<'_>, selection: Option<Selection>, at: Pos2) -> bool {
+    let Some(sel) = selection.filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    let Some(s) = pages.sheets.iter().find(|s| s.shown.contains(at)) else {
+        return false;
+    };
+    let Some(layer) = pages.texts.get(pages.doc, s.page) else {
+        return false;
+    };
+    let (x, y) = s.to_page(at);
+    let hit = layer.text.char_at(x, y);
+    let range = sel.on_page(s.page, layer.text.len());
+    hit.zip(range).is_some_and(|(i, r)| r.contains(&i))
 }

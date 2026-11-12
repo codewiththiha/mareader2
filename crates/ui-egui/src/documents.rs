@@ -11,7 +11,7 @@ use mareader_engine::study::words;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 use mareader_session::{
-    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source,
+    Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Selection, Session, Source,
     SpinePlace, Ticket, Typography, Want, typography,
 };
 use mareader_settings::{PaperArea, TextSettings};
@@ -22,7 +22,7 @@ use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
-use crate::selection::{Selection, Sheet};
+use crate::selection::Sheet;
 use crate::study::{Asked, Gloss};
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};

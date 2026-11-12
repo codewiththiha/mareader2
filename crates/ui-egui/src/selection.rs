@@ -6,8 +6,7 @@ use egui::style::ScrollAnimation;
 use egui::{Color32, CursorIcon, Pos2, Rect, Response, Sense, Ui, Vec2, vec2};
 use mareader_engine::texts::TextLayers;
 use mareader_pdf::{Bounds, LinkTarget};
-pub use mareader_session::{Caret, Selection};
-use mareader_session::{DocId, TextLayer};
+use mareader_session::{Caret, DocId, Selection, TextLayer};
 
 mod grab;
 
