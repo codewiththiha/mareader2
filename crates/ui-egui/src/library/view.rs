@@ -13,22 +13,18 @@ use mareader_library::{
     Link, Shelf, ShelfId, SortKey, View,
 };
 
-use super::LibraryState;
 use super::add::{self, Here};
 use super::covers::Covers;
-use super::folders;
 use super::living::{Grab, Motion};
-use super::menus;
 use super::search::{self, Lit};
+use super::{folders, LibraryState, menus};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent};
 use mareader_engine::command::Command;
-use mareader_engine::library::SearchAction;
-use mareader_engine::library::counted;
-use mareader_engine::library::{Action, Scope};
-use mareader_engine::library::{Carry, ShelfAction};
+use mareader_engine::library::{Action, Carry, Scope, ShelfAction};
+use mareader_engine::library::{counted, SearchAction};
 use mareader_library::picks::{Pick, PickAction, Picks};
 
 mod face;

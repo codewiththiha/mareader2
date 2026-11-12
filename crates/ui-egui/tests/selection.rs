@@ -1,7 +1,5 @@
 //! Selecting text and following links, headless, on the sample PDF.
 
-use std::sync::Arc;
-
 use egui::{Event, Modifiers, OutputCommand, PointerButton, Pos2, pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
@@ -10,6 +8,7 @@ use mareader_pdf::{LinkTarget, TextLayer, sample};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::ui_command::Sent;
+use std::sync::Arc;
 
 use crate::common::find;
 

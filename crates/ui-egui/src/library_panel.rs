@@ -1,26 +1,24 @@
 //! The rail's Library panel: a shelf tree to click or drag onto panes.
 
-use std::collections::BTreeSet;
-
-use egui::{
-    Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, FontSelection, Id, Key,
-    LayerId, Order, Popup, PopupCloseBehavior, Rect, RichText, ScrollArea, Sense, Stroke,
-    TextWrapMode, Ui, WidgetText, pos2, vec2,
-};
-use mareader_library::{
-    Book, BookId, Format, Home, Item, Library, LinkId, LinkTo, ShelfId, natural,
-};
-use mareader_settings::LibraryClick;
-use mareader_workspace::{Bounds, DropTarget, PaneId};
-
 use crate::icons::Icon;
 use crate::library::Organizer;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use egui::{
+    Align2, Color32, CornerRadius, CursorIcon, DragAndDrop, FontId, FontSelection, Id, Key,
+    LayerId, Order, Popup, PopupCloseBehavior, Rect, RichText, ScrollArea, Sense, Stroke,
+    TextWrapMode, Ui, WidgetText, pos2, vec2,
+};
 use mareader_engine::command::Command;
 use mareader_engine::documents::Placement;
 use mareader_engine::library::{Action, BookAction, Carry, Named, ShelfAction};
+use mareader_library::{
+    Book, BookId, Format, Home, Item, Library, LinkId, LinkTo, ShelfId, natural,
+};
+use mareader_settings::LibraryClick;
+use mareader_workspace::{Bounds, DropTarget, PaneId};
+use std::collections::BTreeSet;
 
 const ROW_H: f32 = 28.0;
 const PAD_X: f32 = 8.0;

@@ -1,5 +1,6 @@
 //! The selection bar, Explain, marks and the word card, headless.
 
+use crate::common::{ai_reader as reader, find, page};
 use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
@@ -12,8 +13,6 @@ use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::ui_command::Sent;
-
-use crate::common::{ai_reader as reader, find, page};
 
 type H = Harness<'static, MareaderApp>;
 type Out = Result<(), Box<dyn std::error::Error>>;

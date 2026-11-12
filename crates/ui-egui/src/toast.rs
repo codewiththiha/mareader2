@@ -3,10 +3,9 @@
 mod card;
 mod stack;
 
+use crate::{motion, ui_command::{Commands, Sent, UiCommand}};
 use egui::{Context, Id, Rect, pos2};
-
-use crate::motion;
-use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::toast::{Toast, Tone};
 
 /// At least this long is left once a held stack is let go.
 pub const HOVER_GRACE: f64 = 1.5;
@@ -20,8 +19,6 @@ const INSET: f32 = 16.0;
 const WIDTH: f32 = 360.0;
 /// Fixed card height, shared by one-line and two-line toasts alike.
 const SPOT_H: f32 = 52.0;
-
-use mareader_engine::toast::{Toast, Tone};
 
 /// How a toast leaves.
 #[derive(Clone, Copy, Debug, PartialEq)]

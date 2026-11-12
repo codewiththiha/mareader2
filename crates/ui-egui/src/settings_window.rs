@@ -1,14 +1,13 @@
 //! The settings window: a modal with a sidebar of tabs, grouped.
 
+use egui::{
+    Align, Button, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, ScrollArea, Sense,
+    Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
+};
 use mareader_appearance::Rgb;
 use mareader_settings::{
     AppearanceMenuStyle, Corners, EdgeParking, FloatingLabelStyle, LayoutSettings, LibraryClick,
     PageIndicatorStyle, PaneLook, PaperArea, Settings, StartupFit, Swatch,
-};
-
-use egui::{
-    Align, Button, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, ScrollArea, Sense,
-    Stroke, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 
 use crate::icons::Icon;

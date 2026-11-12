@@ -12,10 +12,9 @@ use mareader_settings::DictionarySettings;
 
 use super::{Voice, entry, look};
 use crate::icons::Icon;
-use crate::shaped;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::widgets;
+use crate::{shaped, widgets};
 use mareader_engine::command::Command;
 use mareader_engine::settings::Tab;
 use mareader_engine::toast::Toast;

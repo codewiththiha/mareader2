@@ -1,21 +1,19 @@
 //! Read aloud: the engine, its voice, how it sounds, and how reading goes.
 
-use egui::{Align, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
-use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings, Skip};
-use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
-
 use super::downloads::muted;
 use super::voice_model::buttons;
 use super::{ROW_H, divider, fold_row, group, note, pick_row, row, section, switch_row};
 use crate::icons::Icon;
-use crate::keymap;
 use crate::platform::Platform;
 use crate::read_aloud::Booth;
 use crate::theme::Tokens;
 use crate::ui_command::{Commands, Sent};
-use crate::widgets;
+use crate::{keymap, widgets};
+use egui::{Align, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use mareader_engine::command::Command;
 use mareader_engine::settings::Tab;
+use mareader_settings::{Highlight, LANGUAGES, Player, ReadAloudSettings, Skip};
+use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 /// What the tab shows besides settings: voices, models, the keys.
 pub struct Voices<'a> {

@@ -1,12 +1,5 @@
 //! The word list window: options, a live preview, then Copy or Save.
 
-use egui::{Frame, RichText, ScrollArea, Ui, Vec2, vec2};
-use mareader_dict::PACKS;
-use mareader_settings::{
-    Settings, WORD_LANGUAGES, WordGroup, WordLayout, WordList, WordOutput, WordPreset, WordSort,
-};
-use mareader_workspace::PaneId;
-
 use super::preview::{self, Block};
 use super::{Ask, Gather, Made, Progress, deliver};
 use crate::dict::Dict;
@@ -17,8 +10,14 @@ use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::vocab::Vocab;
 use crate::widgets;
+use egui::{Frame, RichText, ScrollArea, Ui, Vec2, vec2};
+use mareader_dict::PACKS;
 use mareader_engine::command::Command;
 use mareader_engine::settings::Tab;
+use mareader_settings::{
+    Settings, WORD_LANGUAGES, WordGroup, WordLayout, WordList, WordOutput, WordPreset, WordSort,
+};
+use mareader_workspace::PaneId;
 
 const MAX_SIZE: Vec2 = vec2(1000.0, 700.0);
 const OPTIONS_W: f32 = 300.0;

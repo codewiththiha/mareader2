@@ -1,18 +1,17 @@
 //! The AI models tab: saved models, their providers and keys.
 
-use egui::{
-    Align, Layout, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
-};
-use mareader_assist::{AppleState, Board, Job, KeyRow, KeyState, Load, lanes};
-use mareader_settings::{AiSettings, ModelPreset, PageTask, PresetId, Provider};
-use mareader_study::Failure;
-
 use super::{divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use egui::{
+    Align, Layout, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
+};
+use mareader_assist::{AppleState, Board, Job, KeyRow, KeyState, Load, lanes};
 use mareader_engine::command::Command;
+use mareader_settings::{AiSettings, ModelPreset, PageTask, PresetId, Provider};
+use mareader_study::Failure;
 
 const FIELD_W: f32 = 260.0;
 const PICK_W: f32 = 240.0;

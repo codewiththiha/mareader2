@@ -40,7 +40,7 @@ pub struct Marker {
     /// Held: the pointer's offset from the bar's middle.
     held: Option<Vec2>,
     wheeled: f64,
-    /// Just let go, the pointer still on it: the wait runs regardless.
+    /// Let go with the pointer still on it: the wait runs regardless.
     dropped: bool,
     /// Drawn this far from its place, easing to nothing.
     lag: Vec2,

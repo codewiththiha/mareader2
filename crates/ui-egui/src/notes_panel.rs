@@ -1,24 +1,23 @@
 //! The notes panel: a book's highlights and notes, by chapter, searchable.
 
+use crate::documents::Reading;
+use crate::icons::Icon;
+use crate::theme::{self, Tokens, color};
+use crate::ui_command::{Commands, Sent, UiCommand};
+use crate::widgets;
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align, Color32, FontId, Galley, Id, Key, Rect, RichText, ScrollArea, Sense, TextEdit,
     TextFormat, Ui, vec2,
 };
 use mareader_appearance::Rgb;
+use mareader_engine::command::Command;
+use mareader_engine::export::{self, Entry, Format, Sheet};
+use mareader_engine::study::Action;
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::active_entry;
 use mareader_session::{Anchor, Document};
 use std::sync::Arc;
-
-use crate::documents::Reading;
-use crate::icons::Icon;
-use crate::theme::{self, Tokens, color};
-use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::widgets;
-use mareader_engine::command::Command;
-use mareader_engine::export::{self, Entry, Format, Sheet};
-use mareader_engine::study::Action;
 
 use mareader_engine::notes_panel::query;
 

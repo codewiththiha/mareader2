@@ -1,20 +1,18 @@
 //! The reader's floating Dictionary: moved, resized, folded or a page.
 
+use super::{Voice, bounds, page::Page};
+use crate::icons::Icon;
+use crate::theme::Tokens;
+use crate::ui_command::{Commands, Sent, UiCommand};
+use crate::widgets;
 use egui::{
     Align, Context, CursorIcon, Id, Layout, Order, Rect, RichText, Sense, Stroke, Ui, UiBuilder,
     Vec2, pos2, vec2,
 };
 use mareader_dict::Dictionaries;
-use mareader_settings::{DictionarySettings, WINDOW_MIN};
-
-use super::page::Page;
-use super::{Voice, bounds};
-use crate::icons::Icon;
-use crate::theme::Tokens;
-use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::widgets;
 use mareader_engine::command::Command;
 use mareader_engine::dict::{Action, Window};
+use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 /// The controls' names, for screen readers and tests.
 pub const MINIMIZE: &str = "Minimize the dictionary";

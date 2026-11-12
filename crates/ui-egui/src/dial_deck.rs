@@ -4,24 +4,22 @@ mod dials;
 pub(crate) mod labels;
 mod presets;
 
-use egui::{
-    Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Layout, Margin, Rect, Response,
-    RichText, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
-};
-use mareader_appearance::{Appearance, BaseMode, NoiseMode, Preset, TextureMode};
-use mareader_settings::TextSettings;
-
 use crate::appearance_menu::MenuContext;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+pub use dials::{HUES, KnobSpec, STRENGTH_ON_HUE, WHEEL_SIZE, color_wheel, rotary_knob};
+use egui::{
+    Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Layout, Margin, Rect, Response,
+    RichText, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
+};
 use labels::{mode_icon, noise_label, strength_percent};
+use mareader_appearance::{Appearance, BaseMode, NoiseMode, Preset, TextureMode};
 use mareader_engine::appearance_menu::QuickText;
 use mareader_engine::command::{Command, Independence};
-
-pub use dials::{HUES, KnobSpec, STRENGTH_ON_HUE, WHEEL_SIZE, color_wheel, rotary_knob};
+use mareader_settings::TextSettings;
 pub use presets::forget_draft;
 
 pub const WIDTH: f32 = 316.0;

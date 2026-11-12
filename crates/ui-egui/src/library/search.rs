@@ -1,26 +1,23 @@
 //! Search: the bar's field, its suggestions, and the card a choice lights.
 
-use std::ops::Range;
-use std::rc::Rc;
-
-use egui::text::{LayoutJob, TextWrapping};
-use egui::{
-    Color32, Context, EventFilter, FontId, Id, Key, Modifiers, Order, Rect, Sense, Stroke,
-    StrokeKind, TextFormat, Ui, pos2, vec2,
-};
-use mareader_library::{
-    Book, BookId, Home, Item, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target,
-    View, plural,
-};
-
 use super::LibraryState;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent};
+use egui::text::{LayoutJob, TextWrapping};
+use egui::{
+    Color32, Context, EventFilter, FontId, Id, Key, Modifiers, Order, Rect, Sense, Stroke,
+    StrokeKind, TextFormat, Ui, pos2, vec2,
+};
 use mareader_engine::command::Command;
 use mareader_engine::library::{Action, Scope};
 use mareader_library::picks::{Pick, PickAction};
+use mareader_library::{
+    Book, BookId, Home, Item, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target,
+    View, plural,
+};
+use std::{ops::Range, rc::Rc};
 
 /// The field's id: the app asks it whether it holds the keys.
 pub const FIELD: &str = "library-search";

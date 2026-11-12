@@ -1,7 +1,5 @@
 //! The Appearance popover: presets, mode and colour, texture and grain.
 
-use std::sync::Arc;
-
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align, Align2, Color32, Context, CornerRadius, CursorIcon, FontId, Galley, Id, Key, Layout,
@@ -13,6 +11,7 @@ use mareader_appearance::{
     section_names,
 };
 use mareader_settings::TextSettings;
+use std::sync::Arc;
 
 use crate::dial_deck::labels::{mode_icon, noise_label, strength_percent};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};

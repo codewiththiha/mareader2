@@ -1,15 +1,14 @@
 //! Continuous runs: the pages ahead are asked as the reader reads.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
-
 use egui::Context;
 use mareader_engine::page_ai::extract::{self, Source};
 use mareader_library::{AiTask, BookId, Library, PageSpan};
 use mareader_session::Document;
 use mareader_settings::{AiSettings, ModelPreset, language_name};
 use mareader_workspace::PaneId;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use crate::documents::Documents;
 use crate::ui_command::Commands;

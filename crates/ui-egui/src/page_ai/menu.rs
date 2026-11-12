@@ -1,24 +1,22 @@
 //! The page's menu and a bubble's: what to ask, and what to do after.
 
-use egui::text::{LayoutJob, TextFormat};
-use egui::{
-    Context, CornerRadius, FontId, Frame, Id, Key, Margin, Modifiers, Order, Pos2, Rect, RichText,
-    ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
-};
-use mareader_library::Library;
-use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
-use mareader_workspace::PaneId;
-
+use super::{BubbleMenu, Menu, PageAi, Step, label};
 use crate::documents::Documents;
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use egui::text::{LayoutJob, TextFormat};
+use egui::{
+    Context, CornerRadius, FontId, Frame, Id, Key, Margin, Modifiers, Order, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, TextEdit, Ui, Vec2, pos2, vec2,
+};
 use mareader_engine::command::Command;
-use mareader_engine::settings::Tab;
-
-use super::{BubbleMenu, Menu, PageAi, Step, label};
 use mareader_engine::page_ai::{Action, How, Slot};
+use mareader_engine::settings::Tab;
+use mareader_library::Library;
+use mareader_settings::{AiSettings, LANGUAGES, PageStart, PageTask, language_name};
+use mareader_workspace::PaneId;
 
 /// The language search field, for screen readers and tests.
 pub const FIND: &str = "Find a language";

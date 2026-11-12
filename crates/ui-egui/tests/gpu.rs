@@ -1,5 +1,6 @@
 //! The page pass and the glass, rendered by a real wgpu device.
 
+use crate::common::scroll;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use image::RgbaImage;
@@ -8,8 +9,6 @@ use mareader_engine::command::Command;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::theme::TITLE_BAR_H;
 use mareader_ui_egui::ui_command::UiCommand;
-
-use crate::common::scroll;
 
 type Out = Result<(), String>;
 

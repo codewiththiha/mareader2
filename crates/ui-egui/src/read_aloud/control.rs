@@ -1,21 +1,17 @@
 //! The compact player: steps, play, a seek track with time left, and stop.
 
+use super::rate_label;
+use crate::icons::{Icon, anim::{self, Act as IconAct}};
+use crate::theme::{self, Tokens};
+use crate::ui_command::{Commands, Sent, UiCommand};
+use crate::{motion, widgets};
 use egui::{
     Color32, CornerRadius, Id, LayerId, Order, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui,
     UiBuilder, pos2, vec2,
 };
 use mareader_audio::RATES;
+use mareader_engine::{command::Command, read_aloud::parts::Kind};
 use mareader_settings::{Highlight, Player, ReadAloudSettings};
-
-use super::rate_label;
-use crate::icons::Icon;
-use crate::icons::anim::{self, Act as IconAct};
-use crate::motion;
-use crate::theme::{self, Tokens};
-use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::widgets;
-use mareader_engine::command::Command;
-use mareader_engine::read_aloud::parts::Kind;
 
 /// The pill's height, and its buttons'.
 pub(super) const HEIGHT: f32 = 44.0;

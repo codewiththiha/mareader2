@@ -1,13 +1,12 @@
 //! Pages picked in the thumbnail grid, and the menus that act on them.
 
-use std::collections::BTreeSet;
-use std::fmt;
-use std::sync::Arc;
-
 use egui::{Align2, CornerRadius, FontId, Id, Rect, Response, RichText, Sense, Ui, pos2, vec2};
 use mareader_session::{DocId, Document};
 use mareader_settings::{CefrLevel, PageTask, Settings, WordOutput, language_name};
 use mareader_workspace::PaneId;
+use std::collections::BTreeSet;
+use std::fmt;
+use std::sync::Arc;
 
 use crate::documents::Reading;
 use crate::icons::Icon;

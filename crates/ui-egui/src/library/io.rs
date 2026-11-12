@@ -239,7 +239,7 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
             *store = loaded.store.take();
             Some(News::Loaded(Box::new(loaded)))
         }
-        // A file gone before it was measured is simply not recorded.
+        // A file gone before it was measured leaves nothing to record.
         Job::Measure(probe) => disk::measure(&probe.path, probe.format)
             .ok()
             .map(|m| News::Measured(probe, m)),

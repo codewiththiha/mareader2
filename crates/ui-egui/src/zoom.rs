@@ -179,7 +179,7 @@ impl PaneZoom {
         self.settle_at = now;
     }
 
-    /// Keeps the zoom a fit reached, no longer following the pane.
+    /// Keeps the zoom a fit reached; the pane stops choosing it.
     pub fn unfit(&mut self) {
         self.fit = None;
         self.kept = None;

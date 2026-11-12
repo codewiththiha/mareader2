@@ -1,5 +1,11 @@
 //! The Dictionary's own parts: its search field, pickers, keys and cards.
 
+use super::{Offer, Voice, entry};
+use crate::icons::Icon;
+use crate::read_aloud::{SAY, STOP_SAYING};
+use crate::shaped;
+use crate::theme::{self, Tokens};
+use crate::ui_command::{Commands, Sent};
 use egui::text::{LayoutJob, TextWrapping};
 use egui::{
     Align, Color32, CornerRadius, CursorIcon, FontId, Frame, Id, Margin, Popup, PopupCloseBehavior,
@@ -7,13 +13,6 @@ use egui::{
     WidgetInfo, WidgetType, pos2, vec2,
 };
 use mareader_dict::Entry;
-
-use super::{Offer, Voice, entry};
-use crate::icons::Icon;
-use crate::read_aloud::{SAY, STOP_SAYING};
-use crate::shaped;
-use crate::theme::{self, Tokens};
-use crate::ui_command::{Commands, Sent};
 use mareader_engine::command::Command;
 
 /// A search field: a pill whose ring lights while it has the keys.
