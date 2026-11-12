@@ -7,8 +7,8 @@ use egui::{
     Shape, Stroke, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 use mareader_appearance::{Appearance, FULL_TINT};
+use mareader_engine::appearance_menu::{STRENGTH_ON_HUE, strength_percent};
 
-use super::labels::strength_percent;
 use crate::theme::{self, Tokens};
 use crate::widgets;
 
@@ -22,9 +22,6 @@ pub const HUES: [(u16, &str); 7] = [
     (240, "Blue"),
     (290, "Violet"),
 ];
-
-/// Picking a hue while untinted lifts strength here so the choice shows.
-pub const STRENGTH_ON_HUE: u8 = 18;
 
 pub const WHEEL_SIZE: f32 = 132.0;
 const R_DISC: f32 = 45.0;
@@ -660,14 +657,6 @@ fn paint_arc(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strength_percent_scales_linearly_to_full_tint() {
-        assert_eq!(strength_percent(0), 0);
-        assert_eq!(strength_percent(FULL_TINT), 100);
-        assert_eq!(strength_percent(STRENGTH_ON_HUE), 36);
-        assert_eq!(strength_percent(FULL_TINT / 2), 50);
-    }
 
     #[test]
     fn wheel_geometry_maps_angles_and_snaps_near_landmarks() {

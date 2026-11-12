@@ -80,7 +80,7 @@ fn look_tab_controls_mode_wheel_landmarks_reset_and_book_ink() {
     assert_eq!(a.tint_hue, 34);
     assert_eq!(
         a.tint_strength,
-        mareader_ui_egui::dial_deck::STRENGTH_ON_HUE
+        mareader_engine::appearance_menu::STRENGTH_ON_HUE
     );
 
     h.get_by_label("Reset tint").click();

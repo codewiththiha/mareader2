@@ -13,7 +13,7 @@ use mareader_appearance::{
 use mareader_settings::TextSettings;
 use std::sync::Arc;
 
-use crate::dial_deck::labels::{mode_icon, noise_label, strength_percent};
+use crate::dial_deck::labels::{mode_icon, noise_label};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
@@ -29,8 +29,6 @@ const VALUE_W: f32 = 52.0;
 const HEADER: f32 = 24.0;
 /// A sub-group's header sits in from its parent's.
 const SUB_INDENT: f32 = 12.0;
-/// A hue picked at zero strength would show nothing.
-const STRENGTH_ON_HUE: u8 = 18;
 /// Grain switched on at zero intensity would read as a dead control.
 const INTENSITY_ON: u8 = 25;
 /// The tallest the popover grows before it scrolls, as mareader's 32 rem.
@@ -80,7 +78,9 @@ pub struct MenuContext<'a> {
     pub text: Option<QuickText>,
 }
 
-use mareader_engine::appearance_menu::QuickText;
+use mareader_engine::appearance_menu::{
+    QuickText, STRENGTH_ON_HUE, percent_strength, strength_percent,
+};
 
 /// Edits a copy and pushes one command when anything changed.
 pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
@@ -439,12 +439,6 @@ fn strength(ui: &mut Ui, a: &mut Appearance) {
     if value != shown {
         a.tint_strength = percent_strength(value);
     }
-}
-
-fn percent_strength(percent: u8) -> u8 {
-    let whole = u16::from(FULL_TINT);
-    let strength = (u16::from(percent.min(100)) * whole + 50) / 100;
-    u8::try_from(strength).unwrap_or(FULL_TINT)
 }
 
 /// mareader's text ink intensity: only a book's text takes it.
@@ -870,18 +864,6 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn strength_reads_as_a_share_of_the_whole_tint() {
-        assert_eq!(strength_percent(0), 0);
-        assert_eq!(strength_percent(FULL_TINT), 100);
-        // Past the whole tint nothing changes, so the dial stays full.
-        assert_eq!(strength_percent(100), 100);
-        assert_eq!(strength_percent(STRENGTH_ON_HUE), 36);
-        for percent in (0..=100).step_by(2) {
-            assert_eq!(strength_percent(percent_strength(percent)), percent);
-        }
-    }
 
     #[test]
     fn the_strip_runs_round_the_hue_circle() {
