@@ -8,7 +8,7 @@ use std::sync::Arc;
 use egui::{Context, Rect, Ui, Vec2};
 use mareader_appearance::Rgb;
 use mareader_library::{BookId, Spot};
-use mareader_pdf::Bounds;
+use mareader_pdf::{Bounds, TextLayer};
 use mareader_session::{
     Anchor, Budget, DocId, Document, Entry, Event, Inserts, OpenTarget, Session, Source,
     SpinePlace, Ticket, Typography, Want, typography,
@@ -1241,15 +1241,19 @@ impl Documents {
         std::mem::take(&mut self.gloss)
     }
 
+    /// `page`'s text layer in `pane`: held in the cache, else read afresh.
+    fn layer(&self, pane: PaneId, page: usize) -> Option<Arc<TextLayer>> {
+        let doc = &self.session.as_ref()?.get(self.place_of(pane)?.doc)?.doc;
+        self.texts
+            .get(self.place_of(pane)?.doc, page)
+            .or_else(|| doc.text_layer(page).ok().map(Arc::new))
+    }
+
     /// The selected word and its place on screen; none unless one word.
     pub fn asked(&self, pane: PaneId) -> Option<(Asked, Rect)> {
         let view = self.view(pane)?;
         let sel = view.selection.filter(|s| !s.is_empty())?;
-        let doc = &self.session.as_ref()?.get(self.place_of(pane)?.doc)?.doc;
-        let layer = |page| {
-            let held = self.texts.get(self.place_of(pane)?.doc, page);
-            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
-        };
+        let layer = |page| self.layer(pane, page);
         let asked = study::words::asked(sel, layer)?;
         let sheet = view.sheets.iter().find(|s| s.page == asked.page)?;
         let held = layer(asked.page)?;
@@ -1315,11 +1319,7 @@ impl Documents {
     pub fn looked_up(&self, pane: PaneId) -> Option<(String, Rect)> {
         let view = self.view(pane)?;
         let sel = view.selection.filter(|s| !s.is_empty())?;
-        let doc = &self.session.as_ref()?.get(self.place_of(pane)?.doc)?.doc;
-        let layer = |page| {
-            let held = self.texts.get(self.place_of(pane)?.doc, page);
-            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
-        };
+        let layer = |page| self.layer(pane, page);
         let on_sheet = |sheet: &crate::selection::Sheet| {
             let l = layer(sheet.page)?;
             let range = sel.on_page(sheet.page, l.text.len())?;
@@ -1338,11 +1338,7 @@ impl Documents {
     pub fn highlighted(&self, pane: PaneId) -> Option<(Spot, String)> {
         let view = self.view(pane)?;
         let sel = view.selection.filter(|s| !s.is_empty())?;
-        let doc = &self.session.as_ref()?.get(self.place_of(pane)?.doc)?.doc;
-        let layer = |page| {
-            let held = self.texts.get(self.place_of(pane)?.doc, page);
-            held.or_else(|| doc.text_layer(page).ok().map(Arc::new))
-        };
+        let layer = |page| self.layer(pane, page);
         let spot = study::words::span(sel, layer)?;
         Some((spot, sel.text(layer)))
     }
