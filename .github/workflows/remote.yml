@@ -38,7 +38,7 @@ jobs:
     name: Remote / shots
     if: inputs.task == 'shots'
     runs-on: ubuntu-24.04
-    # The same env as CI's test job, so its cache restores here.
+    # The same env as CI's Check job, so its shared linux cache restores here.
     env:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -49,7 +49,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: test
+          shared-key: linux
           save-if: false
       - uses: ./.github/actions/apt
         with:
@@ -92,7 +92,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: test
+          shared-key: linux
           save-if: false
       # A colour emoji font, so README books draw emoji as a Mac does.
       - uses: ./.github/actions/apt
